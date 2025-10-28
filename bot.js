@@ -25,20 +25,29 @@ const ROBOWFLOW_API_KEY = 'NeHOB854EyHkDbGGLE6G';
 
 // 🎯 ИНИЦИАЛИЗАЦИЯ БОТА
 const bot = new TelegramBot(TELEGRAM_TOKEN, {
-    polling: false
+    polling: {
+        interval: 300,
+        timeout: 10,
+        limit: 100,
+        retryTimeout: 1000,
+        params: {
+            timeout: 10
+        }
+    }
 });
 
-// 🚀 НАСТРОЙКА WEBHOOK ДЛЯ TELEGRAM
-const WEBHOOK_URL = `https://shoe-print-bot.onrender.com/bot${TELEGRAM_TOKEN}`;
-
-bot.setWebHook(WEBHOOK_URL)
-    .then(() => console.log('✅ Webhook установлен:', WEBHOOK_URL))
-    .catch(err => console.log('❌ Ошибка webhook:', err.message));
-
-// 🎯 ОБРАБОТЧИК WEBHOOK
-app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
+// 🛠️ ФИКС КОНФЛИКТА POLLING
+bot.on('polling_error', (error) => {
+    if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
+        console.log('⚠️ Обнаружен конфликт polling - перезапуск...');
+        setTimeout(() => {
+            bot.stopPolling().then(() => {
+                setTimeout(() => bot.startPolling(), 2000);
+            });
+        }, 5000);
+    } else {
+        console.log('📡 Polling error:', error.message);
+    }
 });
 
 console.log('🤖 Бот запущен в режиме Webhook');
