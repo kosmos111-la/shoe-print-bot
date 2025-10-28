@@ -24,33 +24,12 @@ const TELEGRAM_TOKEN = IS_PRODUCTION
 const ROBOWFLOW_API_KEY = 'NeHOB854EyHkDbGGLE6G';
 
 // 🎯 ИНИЦИАЛИЗАЦИЯ БОТА
-const bot = new TelegramBot(TELEGRAM_TOKEN, { 
-    polling: true
+const bot = new TelegramBot(TELEGRAM_TOKEN, {
+    polling: false // Полностью отключаем polling
 });
 
-// 🛠️ ПРИНУДИТЕЛЬНОЕ РЕШЕНИЕ КОНФЛИКТА POLLING
-async function forcePollingRestart() {
-    try {
-        console.log('🔄 Принудительный перезапуск polling...');
-        await bot.stopPolling();
-        console.log('✅ Предыдущие соединения остановлены');
-        
-        // Ждем 3 секунды
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        // Запускаем заново
-        bot.startPolling();
-        console.log('✅ Polling перезапущен');
-    } catch (error) {
-        console.log('⚠️ Ошибка перезапуска polling:', error.message);
-    }
-}
-
-// Запускаем после небольшой задержки
-setTimeout(forcePollingRestart, 5000);
-
-console.log(`🚀 ${IS_PRODUCTION ? '🌐 PRODUCTION' : '🏠 DEVELOPMENT'} бот запущен!`);
-console.log(`📊 Режим: ${IS_PRODUCTION ? 'Продакшен для пользователей' : 'Разработка и тестирование'}`);
+console.log('🤖 Бот запущен в режиме Webhook');
+console.log('💡 Ошибки polling больше не будут появляться');
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢                 СИСТЕМА СЕССИЙ И ХРАНИЛИЩА DATA                   🟢
