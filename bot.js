@@ -25,7 +25,7 @@ try {
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // 🎯 ТОКЕН БОТА
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '8071471492:AAE6-qLAeimqu39JD_Ux-6kSy7CSUP2bMck';
+const TELEGRAM_TOKEN = '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI';
 const ROBOWFLOW_API_KEY = 'NeHOB854EyHkDbGGLE6G';
 
 // 🎯 ИНИЦИАЛИЗАЦИЯ БОТА
