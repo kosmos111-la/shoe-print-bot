@@ -1601,3 +1601,35 @@ console.log('⭐ Улучшенное сравнение для следов');
 console.log('🎯 Адаптивные пороги доверия');
 console.log('🔺 Сохранение острых углов');
 console.log('📋 Полная система команд');
+
+// 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
+// 🟢               HTTP СЕРВЕР ДЛЯ RENDER                             🟢
+// 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
+
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('🤖 Shoe Analyzer Bot is running!');
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    bot: 'running',
+    timestamp: new Date().toISOString(),
+    mode: IS_PRODUCTION ? 'production' : 'development'
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`🟢 HTTP server running on port ${PORT}`);
+});
+
+console.log('🚀 Бот полностью готов к работе!');
+console.log('⭐ Улучшенное сравнение для следов');
+console.log('🎯 Адаптивные пороги доверия');
+console.log('🔺 Сохранение острых углов');
+console.log('📋 Полная система команд');
+console.log('🌐 HTTP сервер активирован для Render');
