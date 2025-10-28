@@ -1639,6 +1639,56 @@ bot.onText(/\/data_status/, async (msg) => {
     await bot.sendMessage(msg.chat.id, stats);
 });
 
+// 📸 КОМАНДА ДЛЯ ПРОСМОТРА СОБРАННЫХ ФОТО
+bot.onText(/\/download_photo/, async (msg) => {
+    // Только для админа (замени 8474413305 на твой Telegram ID)
+    if (msg.from.id !== 8474413305) {
+        await bot.sendMessage(msg.chat.id, '❌ Эта команда только для администратора');
+        return;
+    }
+    
+    try {
+        const rawPath = 'training_data/raw';
+        
+        // Проверяем есть ли папка и файлы
+        if (!fs.existsSync(rawPath)) {
+            await bot.sendMessage(msg.chat.id, '📁 Папка для фото еще не создана');
+            return;
+        }
+        
+        const files = fs.readdirSync(rawPath);
+        
+        if (files.length === 0) {
+            await bot.sendMessage(msg.chat.id, '📭 Нет собранных фото');
+            return;
+        }
+        
+        // Отправляем первое фото и статистику
+        const firstPhoto = files[0];
+        await bot.sendDocument(msg.chat.id, `${rawPath}/${firstPhoto}`, {
+            caption: `📊 Статистика сбора:\n• Всего фото: ${files.length}\n• Пример: ${firstPhoto}`
+        });
+        
+        // Если есть аннотации - отправляем и их
+        const annotationsPath = 'training_data/annotations';
+        if (fs.existsSync(annotationsPath)) {
+            const annotationFiles = fs.readdirSync(annotationsPath);
+            if (annotationFiles.length > 0) {
+                const annotationContent = fs.readFileSync(`${annotationsPath}/${annotationFiles[0]}`, 'utf8');
+                await bot.sendMessage(msg.chat.id, 
+                    `📄 Пример аннотации:\n\`\`\`json\n${annotationContent.substring(0, 1000)}\n\`\`\``,
+                    { parse_mode: 'Markdown' }
+                );
+            }
+        }
+        
+    } catch (error) {
+        console.log('❌ Ошибка загрузки фото:', error.message);
+        await bot.sendMessage(msg.chat.id, '❌ Ошибка при загрузке фото');
+    }
+});
+
+
 console.log('🚀 Бот полностью готов к работе!');
 console.log('⭐ Улучшенное сравнение для следов');
 console.log('🎯 Адаптивные пороги доверия');
