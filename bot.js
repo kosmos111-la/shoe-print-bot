@@ -1134,15 +1134,60 @@ bot.on('photo', async (msg) => {
 
         const predictions = await analyzeSinglePhoto(fileUrl);
         
-        // 🎯 ТЕСТ СБОРА ДАННЫХ (ДОБАВЬ ЗДЕСЬ)
-        console.log('📊 СТАТИСТИКА ДЛЯ СБОРА:');
-        console.log('- Фото от пользователя:', msg.from.username || 'anonymous');
-        console.log('- Найдено объектов:', predictions.length);
-        console.log('- Классы:', [...new Set(predictions.map(p => p.class))]);
-        if (predictions.length > 0) {
-            console.log('- Уверенность средняя:', (predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length).toFixed(2));
+        // 🎯 АКТИВИРУЕМ СОХРАНЕНИЕ ФОТО ДЛЯ ДАТАСЕТА
+try {
+    // Создаем папки если нет
+    const trainingFolders = ['training_data/raw', 'training_data/annotations'];
+    trainingFolders.forEach(folder => {
+        if (!fs.existsSync(folder)) {
+            fs.mkdirSync(folder, { recursive: true });
         }
-        // 🎯 КОНЕЦ ТЕСТА
+    });
+
+    // Сохраняем фото
+    const timestamp = Date.now();
+    const photoId = `user_${msg.from.id}_${timestamp}`;
+    const photoPath = `training_data/raw/${photoId}.jpg`;
+    
+    // Скачиваем и сохраняем фото
+    const response = await axios({
+        method: 'GET',
+        url: fileUrl,
+        responseType: 'stream'
+    });
+    
+    const writer = fs.createWriteStream(photoPath);
+    response.data.pipe(writer);
+    
+    await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+    });
+
+    // Сохраняем аннотации
+    const annotation = {
+        image: `${photoId}.jpg`,
+        annotations: predictions.map(pred => ({
+            label: pred.class,
+            confidence: pred.confidence,
+            points_count: pred.points.length
+        })),
+        metadata: {
+            user_id: msg.from.id,
+            username: msg.from.username || 'unknown',
+            timestamp: new Date().toISOString()
+        }
+    };
+
+    const annotationPath = `training_data/annotations/${photoId}.json`;
+    fs.writeFileSync(annotationPath, JSON.stringify(annotation, null, 2));
+
+    console.log(`✅ Фото сохранено: ${photoId}.jpg`);
+
+} catch (error) {
+    console.log('❌ Ошибка сохранения фото:', error.message);
+}
+
         
         if (predictions.length === 0) {
             await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
