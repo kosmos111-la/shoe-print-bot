@@ -14,9 +14,7 @@ const EXIF = require('exif');
 // 🎯 НАСТРОЙКИ СРЕДЫ
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
-console.log('🔍 DEBUG NODE_ENV:', process.env.NODE_ENV);
-console.log('🔍 DEBUG IS_PRODUCTION:', IS_PRODUCTION);
-console.log('🔍 DEBUG TELEGRAM_TOKEN:', TELEGRAM_TOKEN ? 'SET' : 'NOT SET');
+
 
 // 🎯 ТОКЕНЫ БОТОВ
 const TELEGRAM_TOKEN = IS_PRODUCTION
