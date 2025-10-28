@@ -1741,28 +1741,18 @@ app.listen(PORT, () => {
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
 async function initializeBot() {
-    if (IS_PRODUCTION) {
-        try {
-            const WEBHOOK_URL = process.env.RENDER_EXTERNAL_URL + '/webhook';
-            await bot.setWebHook(WEBHOOK_URL);
-            console.log('🤖 Бот запущен в режиме Webhook: ' + WEBHOOK_URL);
-        } catch (error) {
-            console.log('❌ Webhook error, falling back to polling:', error.message);
-            bot.startPolling();
-        }
-    } else {
-        bot.startPolling();
-        console.log('🤖 Бот запущен в режиме Polling');
-    }
+    // 🔥 ВРЕМЕННО ИСПОЛЬЗУЕМ POLLING ДЛЯ ВСЕХ СРЕД
+    bot.startPolling();
+    console.log('🤖 Бот запущен в режиме Polling (универсальный)');
+    
+    console.log('🚀 Бот полностью готов к работе!');
+    console.log('⭐️ Улучшенное сравнение для следов');
+    console.log('🎯 Адаптивные пороги доверия');
+    console.log('🔺 Сохранение острых углов');
+    console.log('📋 Полная система команд');
+    console.log('🌐 HTTP сервер активирован');
 }
 
-    console.log('🚀 Бот полностью готов к работе!');
-    console.log('⭐ Улучшенное сравнение для следов');
-    console.log('🎯 Адаптивные пороги доверия');
-    console.log('🔺 Сохранение острых углов');
-    console.log('📋 Полная система команд');
-    console.log('🌐 HTTP сервер активирован');
-}
 
 // Запускаем бота
 initializeBot().catch(console.error);
