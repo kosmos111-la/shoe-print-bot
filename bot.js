@@ -1679,7 +1679,7 @@ bot.onText(/\/data_status/, async (msg) => {
     const stats = `📊 Статус сбора данных:
 • Google Drive: ${fs.existsSync('credentials.json') ? '✅ подключен' : '❌ отключен'}
 • Режим: ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'}
-• Сбор данных: ${typeof TRAINING_CONFIG !== 'undefined' ? '✅ включен' : '❌ выключен'}`;
+• Сбор данных: ${fs.existsSync('training_data/raw') ? '✅ включен' : '❌ выключен'}
     
     await bot.sendMessage(msg.chat.id, stats);
 });
