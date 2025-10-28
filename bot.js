@@ -25,7 +25,9 @@ try {
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // 🎯 ТОКЕН БОТА
-const TELEGRAM_TOKEN = '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI';
+const TELEGRAM_TOKEN = IS_PRODUCTION 
+    ? process.env.TELEGRAM_TOKEN // для @Sled_la_bot (основной)
+    :'8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI';
 const ROBOWFLOW_API_KEY = 'NeHOB854EyHkDbGGLE6G';
 
 // 🎯 ИНИЦИАЛИЗАЦИЯ БОТА
