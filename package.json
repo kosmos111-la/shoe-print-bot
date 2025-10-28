@@ -1,4 +1,4 @@
-
+{
   "name": "shoe-print-bot",
   "version": "1.0.0",
   "description": "Telegram bot for shoe print analysis",
@@ -16,4 +16,5 @@
     "node": "18.x"
   }
 }
+
 
