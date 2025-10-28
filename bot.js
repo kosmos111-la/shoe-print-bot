@@ -1633,3 +1633,23 @@ console.log('🎯 Адаптивные пороги доверия');
 console.log('🔺 Сохранение острых углов');
 console.log('📋 Полная система команд');
 console.log('🌐 HTTP сервер активирован для Render');
+
+// РЕШАЕМ ПРОБЛЕМУ СНА НА RENDER
+function startKeepAlive() {
+    const http = require('http');
+   
+    // Создаем простой сервер
+    const server = http.createServer((req, res) => {
+        res.writeHead(200);
+        res.end('🤖 Bot is alive!');
+    });
+   
+    server.listen(process.env.PORT || 3000);
+   
+    // Пинг каждые 5 минут
+    setInterval(() => {
+        console.log('🔄 Keep-alive ping:', new Date().toISOString());
+    }, 5 * 60 * 1000);
+}
+
+startKeepAlive();
