@@ -9,7 +9,7 @@ class DriveService {
             scopes: ['https://www.googleapis.com/auth/drive.file']
         });
         this.drive = google.drive({ version: 'v3', auth: this.auth });
-        this.folderId = '1Oj2YbN7W0fJw6yQaZrX8bL9pKcRmSdTv'; // Замени на ID своей папки
+        this.folderId = '1CwaqqQFuqjV3y3aFKgJPrZs9PKDBw23S'; // Замени на ID своей папки
     }
 
     async uploadFile(filePath, fileName) {
