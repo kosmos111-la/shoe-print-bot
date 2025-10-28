@@ -1247,49 +1247,127 @@ try {
             report += `• 📏 Соотношение: ${comparison.sizeConsistency.toFixed(1)}%\n\n`;
 
             if (comparison.overallScore > 65) {
-                report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
-            } else if (comparison.overallScore > 45) {
-                report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
-            } else if (comparison.overallScore > 25) {
-                report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
-            } else {
-                report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
-            }
+    report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
+} else if (comparison.overallScore > 45) {
+    report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
+} else if (comparison.overallScore > 25) {
+    report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
+} else {
+    report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
+}
 
-            report += `\n\n💡 *Учет деформации грунта и потери мелких деталей*`;
+report += `\n\n💡 *Учет деформации грунта и потери мелких деталей*`;
 
-            await bot.sendMessage(chatId, report);
+await bot.sendMessage(chatId, report);
 
-            const userData = {
-                username: msg.from.username ? `@${msg.from.username}` :
-                         `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim(),
-                dateTime: new Date(),
-                coordinates: null,
-                accuracy: null
+// 🎯 СОХРАНЕНИЕ ФОТО В GOOGLE DRIVE И ЛОКАЛЬНО
+try {
+    // Создаем папки если нет
+    const trainingFolders = ['training_data/raw', 'training_data/annotations'];
+    trainingFolders.forEach(folder => {
+        if (!fs.existsSync(folder)) {
+            fs.mkdirSync(folder, { recursive: true });
+        }
+    });
+
+    // Сохраняем фото локально
+    const timestamp = Date.now();
+    const photoId = `user_${msg.from.id}_${timestamp}`;
+    const photoPath = `training_data/raw/${photoId}.jpg`;
+   
+    // Скачиваем и сохраняем фото локально
+    const response = await axios({
+        method: "GET",
+        url: fileUrl,
+        responseType: "stream"
+    });
+   
+    const writer = fs.createWriteStream(photoPath);
+    response.data.pipe(writer);
+   
+    await new Promise((resolve, reject) => {
+        writer.on("finish", resolve);
+        writer.on("error", reject);
+    });
+
+    // 🚀 ЗАГРУЖАЕМ В GOOGLE DRIVE
+    let drivePhotoId = null;
+    let driveAnnotationId = null;
+   
+    if (fs.existsSync("credentials.json")) {
+        try {
+            // Загружаем фото в Google Drive
+            drivePhotoId = await driveService.uploadFile(photoPath, `${photoId}.jpg`);
+            console.log(`✅ Фото загружено в Google Drive: ${drivePhotoId}`);
+           
+            // Создаем аннотации
+            const annotation = {
+                image: `${photoId}.jpg`,
+                drive_file_id: drivePhotoId,
+                annotations: predictions.map(pred => ({
+                    label: pred.class,
+                    confidence: pred.confidence,
+                    points_count: pred.points.length
+                })),
+                metadata: {
+                    user_id: msg.from.id,
+                    username: msg.from.username || "unknown",
+                    timestamp: new Date().toISOString(),
+                    source: "telegram_bot",
+                    analysis_type: "comparison"
+                }
             };
 
-            const vizPath = await createPolygonVisualization(fileUrl, predictions, false, userData);
-            if (vizPath) {
-                await bot.sendPhoto(chatId, vizPath);
-                fs.unlinkSync(vizPath);
-            }
+            // Сохраняем аннотации локально
+            const annotationPath = `training_data/annotations/${photoId}.json`;
+            fs.writeFileSync(annotationPath, JSON.stringify(annotation, null, 2));
 
-            session.waitingForComparison = null;
-            return;
-        }
-
-        // 3. Обычный анализ
-        if (session.active) {
-            session.photos.push(fileUrl);
-            const count = session.photos.length;
+            // Загружаем аннотации в Google Drive
+            driveAnnotationId = await driveService.uploadJson(annotation, `${photoId}.json`);
+            console.log(`✅ Аннотации загружены в Google Drive: ${driveAnnotationId}`);
            
-            if (count >= 5) {
-                await finishSession(msg.chat.id, session);
-            } else {
-                await bot.sendMessage(chatId,
-                    `📸 Фото ${count} добавлено!\n` +
-                    `✅ Собрано: ${count}/5 фото\n` +
-                    `💧 Обычный анализ`
+        } catch (driveError) {
+            console.log("❌ Ошибка Google Drive:", driveError.message);
+            // Продолжаем работу даже если Drive не доступен
+        }
+    }
+
+    console.log(`✅ Фото сохранено: ${photoId}.jpg ${drivePhotoId ? '(в Google Drive)' : '(только локально)'}`);
+
+} catch (error) {
+    console.log("❌ Ошибка сохранения фото:", error.message);
+}
+
+const userData = {
+    username: msg.from.username ? `@${msg.from.username}` :
+             `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim(),
+    dateTime: new Date(),
+    coordinates: null,
+    accuracy: null
+};
+
+const vizPath = await createPolygonVisualization(fileUrl, predictions, false, userData);
+if (vizPath) {
+    await bot.sendPhoto(chatId, vizPath);
+    fs.unlinkSync(vizPath);
+}
+
+session.waitingForComparison = null;
+return;
+}
+
+// 3. Обычный анализ
+if (session.active) {
+    session.photos.push(fileUrl);
+    const count = session.photos.length;
+   
+    if (count >= 5) {
+        await finishSession(msg.chat.id, session);
+    } else {
+        await bot.sendMessage(chatId,
+            `📸 Фото ${count} добавлено!\n` +
+            `✅ Собрано: ${count}/5 фото\n` +
+            `💧 Обычный анализ`
                 );
             }
         } else {
@@ -1676,10 +1754,20 @@ bot.onText(/\/delete_reference (.+)/, async (msg, match) => {
 
 // 📊 КОМАНДА ДЛЯ ПРОВЕРКИ СБОРА ДАННЫХ
 bot.onText(/\/data_status/, async (msg) => {
+    const driveStatus = fs.existsSync('credentials.json') ? '✅ подключен' : '❌ отключен';
+    const collectionStatus = fs.existsSync('training_data/raw') ? '✅ включен' : '❌ выключен';
+    
+    // Считаем фото
+    let photoCount = 0;
+    if (fs.existsSync('training_data/raw')) {
+        photoCount = fs.readdirSync('training_data/raw').length;
+    }
+    
     const stats = `📊 Статус сбора данных:
-• Google Drive: ${fs.existsSync('credentials.json') ? '✅ подключен' : '❌ отключен'}
+• Google Drive: ${driveStatus}
 • Режим: ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'}
-• Сбор данных: ${fs.existsSync('training_data/raw') ? '✅ включен' : '❌ выключен'}
+• Сбор данных: ${collectionStatus}
+• Собрано фото: ${photoCount} шт.`;
     
     await bot.sendMessage(msg.chat.id, stats);
 });
