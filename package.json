@@ -1,3 +1,4 @@
+```json
 {
   "name": "shoe-print-bot",
   "version": "1.0.0",
@@ -16,3 +17,4 @@
     "node": "18.x"
   }
 }
+```
