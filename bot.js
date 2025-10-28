@@ -1634,22 +1634,21 @@ console.log('🔺 Сохранение острых углов');
 console.log('📋 Полная система команд');
 console.log('🌐 HTTP сервер активирован для Render');
 
-// РЕШАЕМ ПРОБЛЕМУ СНА НА RENDER
+// 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
+// 🟢               АНТИ-СОН СИСТЕМА ДЛЯ RENDER                        🟢
+// 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
+
 function startKeepAlive() {
-    const http = require('http');
+    // Используем уже существующий HTTP сервер из express
+    // Не создаем новый сервер!
    
-    // Создаем простой сервер
-    const server = http.createServer((req, res) => {
-        res.writeHead(200);
-        res.end('🤖 Bot is alive!');
-    });
-   
-    server.listen(process.env.PORT || 3000);
-   
-    // Пинг каждые 5 минут
+    // Просто пингуем каждые 5 минут
     setInterval(() => {
         console.log('🔄 Keep-alive ping:', new Date().toISOString());
     }, 5 * 60 * 1000);
+   
+    console.log('🔔 Анти-сен система активирована');
 }
 
-startKeepAlive();
+// Запускаем после основного сервера
+setTimeout(startKeepAlive, 3000);
