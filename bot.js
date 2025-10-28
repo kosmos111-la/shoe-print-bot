@@ -1641,8 +1641,8 @@ bot.onText(/\/data_status/, async (msg) => {
 
 // 📸 КОМАНДА ДЛЯ ПРОСМОТРА СОБРАННЫХ ФОТО
 bot.onText(/\/download_photo/, async (msg) => {
-    // Только для админа (замени 8474413305 на твой Telegram ID)
-    if (msg.from.id !== 8474413305) {
+    // Только для админа (твой реальный ID)
+    if (msg.from.id !== 699140291) {
         await bot.sendMessage(msg.chat.id, '❌ Эта команда только для администратора');
         return;
     }
