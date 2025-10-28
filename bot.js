@@ -11,6 +11,16 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const express = require('express');
 
+/ 🔵 GOOGLE DRIVE SERVICE
+let driveService;
+try {
+    driveService = require('./drive-service');
+    console.log('✅ Google Drive service loaded');
+} catch (error) {
+    console.log('❌ Google Drive service not available');
+    driveService = null;
+}
+
 // 🎯 НАСТРОЙКИ СРЕДЫ
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
