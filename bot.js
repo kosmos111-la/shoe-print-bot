@@ -11,7 +11,7 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const express = require('express');
 
-/ 🔵 GOOGLE DRIVE SERVICE
+// 🔵 GOOGLE DRIVE SERVICE
 let driveService;
 try {
     driveService = require('./drive-service');
