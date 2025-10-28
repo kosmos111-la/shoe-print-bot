@@ -1120,31 +1120,41 @@ async function createPolygonVisualization(imageUrl, predictions, isCombined = fa
 console.log('🤖 Бот запущен! Улучшенный алгоритм сравнения с адаптивными порогами');
 
 bot.on('photo', async (msg) => {
-    const chatId = msg.chat.id;
-    const session = getSession(chatId);
-   
-    try {
-        const photo = msg.photo[msg.photo.length - 1];
-        const file = await bot.getFile(photo.file_id);
-        const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${file.file_path}`;
-       
-        console.log('📥 Получено фото для:',
-            session.waitingForReference ? 'сохранения эталона' :
-            session.waitingForComparison ? 'сравнения' : 'обычного анализа');
+    const chatId = msg.chat.id;
+    const session = getSession(chatId);
+    
+    try {
+        const photo = msg.photo[msg.photo.length - 1];
+        const file = await bot.getFile(photo.file_id);
+        const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${file.file_path}`;
+        
+        console.log('📥 Получено фото для:',
+            session.waitingForReference ? 'сохранения эталона' :
+            session.waitingForComparison ? 'сравнения' : 'обычного анализа');
 
-        const predictions = await analyzeSinglePhoto(fileUrl);
-       
-        if (predictions.length === 0) {
-            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
-            return;
-        }
+        const predictions = await analyzeSinglePhoto(fileUrl);
+        
+        // 🎯 ТЕСТ СБОРА ДАННЫХ (ДОБАВЬ ЗДЕСЬ)
+        console.log('📊 СТАТИСТИКА ДЛЯ СБОРА:');
+        console.log('- Фото от пользователя:', msg.from.username || 'anonymous');
+        console.log('- Найдено объектов:', predictions.length);
+        console.log('- Классы:', [...new Set(predictions.map(p => p.class))]);
+        if (predictions.length > 0) {
+            console.log('- Уверенность средняя:', (predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length).toFixed(2));
+        }
+        // 🎯 КОНЕЦ ТЕСТА
+        
+        if (predictions.length === 0) {
+            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+            return;
+        }
 
-        const features = extractFeatures(predictions);
-        console.log('🔍 Извлечены признаки:', {
-            outline: !!features.outline,
-            details: features.detailCount,
-            totalArea: features.totalArea
-        });
+        const features = extractFeatures(predictions);
+        console.log('🔍 Извлечены признаки:', {
+            outline: !!features.outline,
+            details: features.detailCount,
+            totalArea: features.totalArea
+        });
 
         // 1. Если сохраняем эталон
         if (session.waitingForReference) {
@@ -1617,6 +1627,16 @@ bot.onText(/\/delete_reference (.+)/, async (msg, match) => {
     } else {
         await bot.sendMessage(chatId, `❌ Эталон "${modelName}" не найден`);
     }
+});
+
+// 📊 КОМАНДА ДЛЯ ПРОВЕРКИ СБОРА ДАННЫХ
+bot.onText(/\/data_status/, async (msg) => {
+    const stats = `📊 Статус сбора данных:
+• Google Drive: ${fs.existsSync('credentials.json') ? '✅ подключен' : '❌ отключен'}
+• Режим: ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'}
+• Сбор данных: ${typeof TRAINING_CONFIG !== 'undefined' ? '✅ включен' : '❌ выключен'}`;
+    
+    await bot.sendMessage(msg.chat.id, stats);
 });
 
 console.log('🚀 Бот полностью готов к работе!');
