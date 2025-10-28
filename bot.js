@@ -25,11 +25,23 @@ const ROBOWFLOW_API_KEY = 'NeHOB854EyHkDbGGLE6G';
 
 // 🎯 ИНИЦИАЛИЗАЦИЯ БОТА
 const bot = new TelegramBot(TELEGRAM_TOKEN, {
-    polling: false // Полностью отключаем polling
+    polling: false
+});
+
+// 🚀 НАСТРОЙКА WEBHOOK ДЛЯ TELEGRAM
+const WEBHOOK_URL = `https://shoe-print-bot.onrender.com/bot${TELEGRAM_TOKEN}`;
+
+bot.setWebHook(WEBHOOK_URL)
+    .then(() => console.log('✅ Webhook установлен:', WEBHOOK_URL))
+    .catch(err => console.log('❌ Ошибка webhook:', err.message));
+
+// 🎯 ОБРАБОТЧИК WEBHOOK
+app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
 });
 
 console.log('🤖 Бот запущен в режиме Webhook');
-console.log('💡 Ошибки polling больше не будут появляться');
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢                 СИСТЕМА СЕССИЙ И ХРАНИЛИЩА DATA                   🟢
