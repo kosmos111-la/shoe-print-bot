@@ -29,7 +29,9 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '8071471492:AAE6-qLAeimqu39
 const ROBOWFLOW_API_KEY = 'NeHOB854EyHkDbGGLE6G';
 
 // 🎯 ИНИЦИАЛИЗАЦИЯ БОТА
-const bot = new TelegramBot(TELEGRAM_TOKEN);
+const bot = new TelegramBot(TELEGRAM_TOKEN, {
+    polling: !IS_PRODUCTION // Polling только для разработки
+});
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢                 СИСТЕМА СЕССИЙ И ХРАНИЛИЩА DATA                   🟢
@@ -1739,16 +1741,20 @@ app.listen(PORT, () => {
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
 async function initializeBot() {
-    if (IS_PRODUCTION) {
-        // Используем Webhook на продакшене
-        const WEBHOOK_URL = process.env.RENDER_EXTERNAL_URL + '/webhook';
-        await bot.setWebHook(WEBHOOK_URL);
-        console.log('🤖 Бот запущен в режиме Webhook');
-    } else {
-        // Используем Polling для разработки
-        bot.startPolling();
-        console.log('🤖 Бот запущен в режиме Polling');
-    }
+    if (IS_PRODUCTION) {
+        try {
+            const WEBHOOK_URL = process.env.RENDER_EXTERNAL_URL + '/webhook';
+            await bot.setWebHook(WEBHOOK_URL);
+            console.log('🤖 Бот запущен в режиме Webhook: ' + WEBHOOK_URL);
+        } catch (error) {
+            console.log('❌ Webhook error, falling back to polling:', error.message);
+            bot.startPolling();
+        }
+    } else {
+        bot.startPolling();
+        console.log('🤖 Бот запущен в режиме Polling');
+    }
+}
 
     console.log('🚀 Бот полностью готов к работе!');
     console.log('⭐ Улучшенное сравнение для следов');
