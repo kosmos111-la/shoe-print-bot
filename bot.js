@@ -25,9 +25,9 @@ try {
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // 🎯 ТОКЕН БОТА
-const TELEGRAM_TOKEN = IS_PRODUCTION 
-    ? process.env.TELEGRAM_TOKEN // для @Sled_la_bot (основной)
-    :'8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI';
+const TELEGRAM_TOKEN = IS_PRODUCTION
+    ? process.env.TELEGRAM_TOKEN // для @Sled_Analizer_bot на Render
+    : '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI'; // для @Sled_la_bot локально
 const ROBOWFLOW_API_KEY = 'NeHOB854EyHkDbGGLE6G';
 
 // 🎯 ИНИЦИАЛИЗАЦИЯ БОТА С ЗАЩИТОЙ
@@ -48,23 +48,7 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, {
 let pollingRestartCount = 0;
 const MAX_POLLING_RESTARTS = 3;
 
-bot.on('polling_error', (error) => {
-    if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
-        pollingRestartCount++;
-        console.log(`⚠️ Конфликт polling (${pollingRestartCount}/${MAX_POLLING_RESTARTS})`);
-       
-        if (pollingRestartCount >= MAX_POLLING_RESTARTS) {
-            console.log('🛑 Слишком много конфликтов - останавливаю бота');
-            process.exit(1);  // Полная остановка
-        } else {
-            // Мягкий перезапуск
-            setTimeout(() => {
-                bot.stopPolling();
-                setTimeout(() => bot.startPolling(), 2000);
-            }, 5000);
-        }
-    }
-});
+
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢                 СИСТЕМА СЕССИЙ И ХРАНИЛИЩА DATA                   🟢
