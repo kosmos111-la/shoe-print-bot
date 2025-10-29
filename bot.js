@@ -54,12 +54,33 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, {
     }
 });
 
-// 🛡️ Скрываем ошибку 409
+// 🛡️ УМНАЯ ОБРАБОТКА ОШИБОК POLLING
+let lastConflictLog = 0;
+
 bot.on('polling_error', (error) => {
-    if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
-        return; // Просто игнорируем
+    const now = Date.now();
+   
+    // Проверяем разные варианты ошибки 409
+    const isConflictError =
+        (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) ||
+        error.message.includes('409') ||
+        (error.response && error.response.statusCode === 409);
+   
+    if (isConflictError) {
+        // Логируем не чаще чем раз в 30 секунд
+        if (now - lastConflictLog > 30000) {
+            console.log('🔄 Конфликт polling (409) - другой экземпляр бота активен');
+            lastConflictLog = now;
+        }
+        return;
     }
-    console.log('📡 Polling error:', error.message);
+   
+    // Логируем другие ошибки polling
+    console.log('📡 Polling error:', {
+        code: error.code,
+        message: error.message,
+        stack: error.stack?.split('\n')[0] // только первая строка стека
+    });
 });
 
 
