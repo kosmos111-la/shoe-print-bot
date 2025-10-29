@@ -33,9 +33,9 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // 🎯 ТОКЕН БОТА
 const TELEGRAM_TOKEN = IS_PRODUCTION
-    ? process.env.TELEGRAM_TOKEN // для @Sled_Analizer_bot на Render
-    : '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI'; // для @Sled_la_bot локально
-const ROBOWFLOW_API_KEY = 'NeHOB854EyHkDbGGLE6G';
+    ? '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI' // для @Sled_la_bot на Render (новый основной)
+    : '8071471492:AAE6-qLAeimqu39JD_Ux-6kSy7CSUP2bMck'; // для @Sled_Analizer_bot локально (старый)
+
 
 // 🎯 ИНИЦИАЛИЗАЦИЯ БОТА С ЗАЩИТОЙ ОТ ДУБЛИРОВАНИЯ
 let bot;
