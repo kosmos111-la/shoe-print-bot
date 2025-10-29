@@ -1,5 +1,5 @@
 // 🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵
-// 🔵                           АНАЛИЗАТОР СЛЕДОВ ОБУВИ                              🔵
+// 🔵                       АНАЛИЗАТОР СЛЕДОВ ОБУВИ                       🔵
 // 🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵
 
 const TelegramBot = require('node-telegram-bot-api');
@@ -7,67 +7,117 @@ const axios = require('axios');
 const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const express = require('express');
+const archiver = require('archiver');
+
+// 📊 СИСТЕМА СТАТИСТИКИ
+const userStats = new Map();
+const globalStats = {
+    totalUsers: 0,
+    totalPhotos: 0,
+    totalAnalyses: 0,
+    sessionsStarted: 0,
+    comparisonsMade: 0
+};
+
+function updateUserStats(userId, username, action = 'photo') {
+    if (!userStats.has(userId)) {
+        userStats.set(userId, {
+            username: username || `user_${userId}`,
+            photosCount: 0,
+            analysesCount: 0,
+            sessionsCount: 0,
+            comparisonsCount: 0,
+            firstSeen: new Date(),
+            lastSeen: new Date()
+        });
+        globalStats.totalUsers++;
+    }
+
+    const user = userStats.get(userId);
+    user.lastSeen = new Date();
+
+    switch(action) {
+        case 'photo':
+            user.photosCount++;
+            globalStats.totalPhotos++;
+            break;
+        case 'analysis':
+            user.analysesCount++;
+            globalStats.totalAnalyses++;
+            break;
+        case 'session':
+            user.sessionsCount++;
+            globalStats.sessionsStarted++;
+            break;
+        case 'comparison':
+            user.comparisonsCount++;
+            globalStats.comparisonsMade++;
+            break;
+    }
+}
+
+function getFormattedStats() {
+    const activeUsers = Array.from(userStats.values()).filter(user =>
+        (new Date() - user.lastSeen) < 7 * 24 * 60 * 60 * 1000 // активны за последние 7 дней
+    ).length;
+
+    return `📊 **СТАТИСТИКА БОТА:**\n\n` +
+           `👥 Пользователи: ${globalStats.totalUsers} (${activeUsers} активных)\n` +
+           `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
+           `🔍 Анализов проведено: ${globalStats.totalAnalyses}\n` +
+           `📋 Сессий начато: ${globalStats.sessionsStarted}\n` +
+           `🔄 Сравнений сделано: ${globalStats.comparisonsMade}\n\n` +
+           `💡 *Статистика обновляется в реальном времени*`;
+}
+
+// 💾 СОХРАНЕНИЕ СТАТИСТИКИ
+function saveStats() {
+    const statsData = {
+        global: globalStats,
+        users: Array.from(userStats.entries()),
+        timestamp: new Date().toISOString()
+    };
+   
+    fs.writeFileSync('stats.json', JSON.stringify(statsData, null, 2));
+    console.log('💾 Статистика сохранена');
+}
+
+// Загружаем статистику при запуске
+function loadStats() {
+    try {
+        if (fs.existsSync('stats.json')) {
+            const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
+            Object.assign(globalStats, data.global);
+           
+            userStats.clear();
+            data.users.forEach(([userId, userData]) => {
+                userStats.set(userId, userData);
+            });
+           
+            console.log('💾 Статистика загружена');
+        }
+    } catch (error) {
+        console.log('❌ Ошибка загрузки статистики:', error.message);
+    }
+}
+
+// Автосохранение каждые 5 минут
+setInterval(saveStats, 5 * 60 * 1000);
+
+// Загружаем при старте
+loadStats();
 
 // 🔵 YANDEX DISK SERVICE - ОБНОВЛЕННАЯ ВЕРСИЯ
 let YandexDiskService;
 let yandexDisk;
 
 try {
-    YandexDiskService = require('./yandex-disk-service');
-    yandexDisk = new YandexDiskService(process.env.YANDEX_DISK_TOKEN);
-    console.log('✅ Яндекс.Диск service инициализирован');
+    YandexDiskService = require('./yandex-disk-service');
+    yandexDisk = new YandexDiskService(process.env.YANDEX_DISK_TOKEN);
+    console.log('✅ Яндекс.Диск service инициализирован');
 } catch (error) {
-    console.log('❌ Яндекс.Диск service не доступен:', error.message);
-    yandexDisk = null;
-}
-
-// 📊 СИСТЕМА СТАТИСТИКИ (ДОБАВЬТЕ ЭТОТ БЛОК)
-if (typeof userStats === 'undefined') {
-    var userStats = new Map();
-    var globalStats = {
-        totalUsers: 0,
-        totalPhotos: 0,
-        totalAnalyses: 0,
-        sessionsStarted: 0,
-        comparisonsMade: 0
-    };
-}
-
-function updateUserStats(userId, username, action = 'photo') {
-    if (!userStats.has(userId)) {
-        userStats.set(userId, {
-            username: username || `user_${userId}`,
-            photosCount: 0,
-            analysesCount: 0,
-            sessionsCount: 0,
-            comparisonsCount: 0,
-            firstSeen: new Date(),
-            lastSeen: new Date()
-        });
-        globalStats.totalUsers++;
-    }
-    
-    const user = userStats.get(userId);
-    user.lastSeen = new Date();
-    
-    switch(action) {
-        case 'photo':
-            user.photosCount++;
-            globalStats.totalPhotos++;
-            break;
-        case 'analysis':
-            user.analysesCount++;
-            globalStats.totalAnalyses++;
-            break;
-        case 'session':
-            user.sessionsCount++;
-            globalStats.sessionsStarted++;
-            break;
-        case 'comparison':
-            user.comparisonsCount++;
-            globalStats.comparisonsMade++;
-            break;
-    }
+    console.log('❌ Яндекс.Диск service не доступен:', error.message);
+    yandexDisk = null;
 }
 
 // 🎯 НАСТРОЙКИ СРЕДЫ
@@ -75,9 +125,8 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // 🎯 ТОКЕН БОТА
 const TELEGRAM_TOKEN = IS_PRODUCTION
-    ? '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI' // для @Sled_la_bot на Render (новый основной)
-    : '8071471492:AAE6-qLAeimqu39JD_Ux-6kSy7CSUP2bMck'; // для @Sled_Analizer_bot локально (старый)
-
+    ? '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI' // для @Sled_la_bot на Render (новый основной)
+    : '8071471492:AAE6-qLAeimqu39JD_Ux-6kSy7CSUP2bMck'; // для @Sled_Analizer_bot локально (старый)
 
 // 🎯 ИНИЦИАЛИЗАЦИЯ БОТА С ЗАЩИТОЙ ОТ ДУБЛИРОВАНИЯ
 let bot;
@@ -109,11 +158,11 @@ bot.on('polling_error', (error) => {
     const isConflictError =
         (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) ||
         error.message.includes('409');
-   
+
     if (isConflictError) {
         conflictCount++;
         console.log(`🔄 Конфликт polling (409) - попытка ${conflictCount}/${MAX_CONFLICTS}`);
-       
+
         if (conflictCount >= MAX_CONFLICTS) {
             console.log('🚨 Превышено количество конфликтов, перезапускаем polling...');
             setTimeout(() => {
@@ -127,110 +176,12 @@ bot.on('polling_error', (error) => {
         }
         return;
     }
-   
+
     console.log('📡 Polling error:', error.message);
 });
 
-// 📊 СИСТЕМА СТАТИСТИКИ
-const userStats = new Map();
-const globalStats = {
-    totalUsers: 0,
-    totalPhotos: 0,
-    totalAnalyses: 0,
-    sessionsStarted: 0,
-    comparisonsMade: 0
-};
-
-function updateUserStats(userId, username, action = 'photo') {
-    if (!userStats.has(userId)) {
-        userStats.set(userId, {
-            username: username || `user_${userId}`,
-            photosCount: 0,
-            analysesCount: 0,
-            sessionsCount: 0,
-            comparisonsCount: 0,
-            firstSeen: new Date(),
-            lastSeen: new Date()
-        });
-        globalStats.totalUsers++;
-    }
-    
-    const user = userStats.get(userId);
-    user.lastSeen = new Date();
-    
-    switch(action) {
-        case 'photo':
-            user.photosCount++;
-            globalStats.totalPhotos++;
-            break;
-        case 'analysis':
-            user.analysesCount++;
-            globalStats.totalAnalyses++;
-            break;
-        case 'session':
-            user.sessionsCount++;
-            globalStats.sessionsStarted++;
-            break;
-        case 'comparison':
-            user.comparisonsCount++;
-            globalStats.comparisonsMade++;
-            break;
-    }
-}
-
-function getFormattedStats() {
-    const activeUsers = Array.from(userStats.values()).filter(user => 
-        (new Date() - user.lastSeen) < 7 * 24 * 60 * 60 * 1000 // активны за последние 7 дней
-    ).length;
-
-    return `📊 **СТАТИСТИКА БОТА:**\n\n` +
-           `👥 Пользователи: ${globalStats.totalUsers} (${activeUsers} активных)\n` +
-           `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
-           `🔍 Анализов проведено: ${globalStats.totalAnalyses}\n` +
-           `📋 Сессий начато: ${globalStats.sessionsStarted}\n` +
-           `🔄 Сравнений сделано: ${globalStats.comparisonsMade}\n\n` +
-           `💡 *Статистика обновляется в реальном времени*`;
-}
-// 💾 СОХРАНЕНИЕ СТАТИСТИКИ
-unction saveStats() {
-    const statsData = {
-        global: globalStats,
-        users: Array.from(userStats.entries()),
-        timestamp: new Date().toISOString()
-    };
-    
-    fs.writeFileSync('stats.json', JSON.stringify(statsData, null, 2));
-    console.log('💾 Статистика сохранена');
-}
-
-// Загружаем статистику при запуске
-function loadStats() {
-    try {
-        if (fs.existsSync('stats.json')) {
-            const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
-            Object.assign(globalStats, data.global);
-            
-            userStats.clear();
-            data.users.forEach(([userId, userData]) => {
-                userStats.set(userId, userData);
-            });
-            
-            console.log('💾 Статистика загружена');
-        }
-    } catch (error) {
-        console.log('❌ Ошибка загрузки статистики:', error.message);
-    }
-}
-
-// Автосохранение каждые 5 минут
-setInterval(saveStats, 5 * 60 * 1000);
-
-// Загружаем при старте
-loadStats();
-
-
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
-// 🟢                 СИСТЕМА СЕССИЙ И ХРАНИЛИЩА DATA                   🟢
+// 🟢                  СИСТЕМА СЕССИЙ И ХРАНИЛИЩА DATA                   🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
 let photoSessions = new Map();
@@ -251,7 +202,7 @@ function getSession(chatId) {
 }
 
 // 🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡
-// 🟡               УПРОЩЕНИЕ ПОЛИГОНОВ - ОПТИМИЗАЦИЯ                   🟡
+// 🟡               УПРОЩЕНИЕ ПОЛИГОНОВ - ОПТИМИЗАЦИЯ                   🟡
 // 🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡
 
 function simplifyPolygon(points, epsilon = 1.0) {
@@ -325,7 +276,7 @@ function optimizePolygonByClass(points, className, confidence) {
 }
 
 // 🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️
-// 🛠️               УМНАЯ ПОСТОБРАБОТКА - SMART POSTPROCESSING          🛠️
+// 🛠️               УМНАЯ ПОСТОБРАБОТКА - SMART POSTPROCESSING          🛠️
 // 🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️🛠️
 
 function smartPostProcessing(predictions) {
@@ -671,7 +622,7 @@ function calculateBoundingBox(points) {
 }
 
 // 🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷
-// 🔷               ИЗВЛЕЧЕНИЕ ПРИЗНАКОВ - FEATURES EXTRACT              🔷
+// 🔷               ИЗВЛЕЧЕНИЕ ПРИЗНАКОВ - FEATURES EXTRACT              🔷
 // 🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷
 
 function extractFeatures(predictions) {
@@ -781,9 +732,9 @@ function getDetailStatistics(details) {
 }
 
 // ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐
-// ⭐                                                                               ⭐
-// ⭐              УЛУЧШЕННОЕ СРАВНЕНИЕ ДЛЯ СЛЕДОВ - IMPROVED COMPARISON           ⭐
-// ⭐                                                                               ⭐
+// ⭐                                                                   ⭐
+// ⭐              УЛУЧШЕННОЕ СРАВНЕНИЕ ДЛЯ СЛЕДОВ - IMPROVED COMPARISON           ⭐
+// ⭐                                                                   ⭐
 // ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐
 
 function compareFootprintWithReference(referenceFeatures, footprintFeatures) {
@@ -1002,9 +953,9 @@ function compareFeatures(features1, features2, isFootprintComparison = false) {
 }
 
 // 🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟
-// 🌟                                                                               🌟
-// 🌟              АДАПТИВНЫЕ ПОРОГИ ДОВЕРИЯ - ADAPTIVE CONFIDENCE                 🌟
-// 🌟                                                                               🌟
+// 🌟                                                                   🌟
+// 🌟              АДАПТИВНЫЕ ПОРОГИ ДОВЕРИЯ - ADAPTIVE CONFIDENCE                 🌟
+// 🌟                                                                   🌟
 // 🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟
 
 class ShootingConditionsDetector {
@@ -1048,7 +999,7 @@ function getDynamicConfidence(conditions) {
 }
 
 // 🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨
-// 🎨               ВОДЯНОЙ ЗНАК - WATERMARK SYSTEM                    🎨
+// 🎨               ВОДЯНОЙ ЗНАК - WATERMARK SYSTEM                    🎨
 // 🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨
 
 function addWatermark(ctx, imageWidth, imageHeight, userData) {
@@ -1113,7 +1064,7 @@ function addWatermark(ctx, imageWidth, imageHeight, userData) {
 }
 
 // 📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸
-// 📸               ОСНОВНЫЕ ФУНКЦИИ - CORE FUNCTIONS                  📸
+// 📸               ОСНОВНЫЕ ФУНКЦИИ - CORE FUNCTIONS                  📸
 // 📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸📸
 
 async function analyzeSinglePhoto(imageUrl) {
@@ -1167,7 +1118,7 @@ async function analyzeSinglePhoto(imageUrl) {
 }
 
 // 🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️
-// 🖼️               ВИЗУАЛИЗАЦИЯ - VISUALIZATION SYSTEM               🖼️
+// 🖼️               ВИЗУАЛИЗАЦИЯ - VISUALIZATION SYSTEM               🖼️
 // 🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️🖼️
 
 function getColorForClass(className, confidence, isCombined = false) {
@@ -1285,7 +1236,7 @@ async function createPolygonVisualization(imageUrl, predictions, isCombined = fa
 }
 
 // 📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋
-// 📋               КОМАНДЫ БОТА - BOT COMMANDS                        📋
+// 📋               КОМАНДЫ БОТА - BOT COMMANDS                        📋
 // 📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋📋
 
 // Обработчики команд
@@ -1340,10 +1291,10 @@ bot.onText(/\/help/, (msg) => {
         '`/finish` - завершить и обработать\n' +
         '`/cancel` - отменить сессию\n\n' +
 
-         '📊 СТАТИСТИКА:\n' +
-        '/statistics - общая статистика бота\n' +
-        '/stats - детальная статистика (админ)\n\n' +           
-                    
+        '📊 **СТАТИСТИКА:**\n' +
+        '`/statistics` - общая статистика бота\n' +
+        '`/stats` - детальная статистика (админ)\n\n' +
+
         '📊 **ПРИМЕРЫ ИСПОЛЬЗОВАНИЯ:**\n' +
         '1. Сохранить эталон:\n' +
         '   `/save_reference My_Sneakers` + фото подошвы\n\n' +
@@ -1432,8 +1383,8 @@ bot.onText(/\/save_reference (.+)/, async (msg, match) => {
     session.waitingForReference = modelName;
 });
 
-bot.onText(/\/compare (.+)/, async (msg, match) => {
-    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'comparison');
+bot.onText(/\/compare$/, async (msg) => {
+    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'comparison');
     const chatId = msg.chat.id;
 
     if (referencePrints.size === 0) {
@@ -1462,6 +1413,7 @@ bot.onText(/\/compare (.+)/, async (msg, match) => {
 });
 
 bot.onText(/\/compare (.+)/, async (msg, match) => {
+    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'comparison');
     const chatId = msg.chat.id;
     const modelName = match[1].trim();
 
@@ -1542,8 +1494,8 @@ bot.onText(/\/list_references/, async (msg) => {
 });
 
 bot.onText(/\/start_session/, (msg) => {
-    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'session');
-    const session = getSession(msg.chat.id);
+    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'session');
+    const session = getSession(msg.chat.id);
     session.active = true;
     session.photos = [];
     session.startTime = new Date();
@@ -1633,6 +1585,31 @@ bot.onText(/\/delete_reference (.+)/, async (msg, match) => {
     }
 });
 
+// 📊 КОМАНДА СТАТИСТИКИ
+bot.onText(/\/stats/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    // Только для администратора
+    if (msg.from.id !== 699140291) { // Замените на ваш ID
+        await bot.sendMessage(chatId, '❌ Эта команда только для администратора');
+        return;
+    }
+
+    const stats = getFormattedStats();
+    await bot.sendMessage(chatId, stats);
+});
+
+// 📈 ПУБЛИЧНАЯ СТАТИСТИКА
+bot.onText(/\/statistics/, async (msg) => {
+    const publicStats = `📊 **ОБЩАЯ СТАТИСТИКА:**\n\n` +
+                       `👥 Пользователей: ${globalStats.totalUsers}\n` +
+                       `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
+                       `🔍 Анализов: ${globalStats.totalAnalyses}\n\n` +
+                       `💪 Спасибо за использование бота!`;
+
+    await bot.sendMessage(msg.chat.id, publicStats);
+});
+
 // 📊 КОМАНДА ДЛЯ ПРОВЕРКИ СБОРА ДАННЫХ
 bot.onText(/\/data_status/, async (msg) => {
     const collectionStatus = fs.existsSync('training_data/raw') ? '✅ включен' : '❌ выключен';
@@ -1652,12 +1629,11 @@ bot.onText(/\/data_status/, async (msg) => {
 });
 
 // 📁 КОМАНДЫ ДЛЯ РАБОТЫ С ФАЙЛАМИ
-const archiver = require('archiver');
 
 // Список всех фото
 bot.onText(/\/list_photos/, async (msg) => {
     const chatId = msg.chat.id;
-   
+
     try {
         const rawPath = 'training_data/raw';
         if (!fs.existsSync(rawPath)) {
@@ -1672,7 +1648,7 @@ bot.onText(/\/list_photos/, async (msg) => {
         }
 
         let message = `📊 **СОХРАНЕННЫЕ ФОТО:** ${files.length} шт.\n\n`;
-       
+
         files.forEach((file, index) => {
             if (index < 15) { // Показываем первые 15
                 const fileSize = Math.round(fs.statSync(`${rawPath}/${file}`).size / 1024);
@@ -1701,11 +1677,11 @@ bot.onText(/\/list_photos/, async (msg) => {
 // Скачать все фото архивом
 bot.onText(/\/download_zip/, async (msg) => {
     const chatId = msg.chat.id;
-   
+
     try {
         const rawPath = 'training_data/raw';
         const annotationPath = 'training_data/annotations';
-       
+
         if (!fs.existsSync(rawPath)) {
             await bot.sendMessage(chatId, '📭 Нет сохраненных фото');
             return;
@@ -1728,7 +1704,7 @@ bot.onText(/\/download_zip/, async (msg) => {
             await bot.sendDocument(chatId, zipPath, {
                 caption: `📦 Архив со всеми данными:\n• ${files.length} фото\n• ${archive.pointer()} bytes\n• ${new Date().toLocaleString()}`
             });
-           
+
             // Удаляем временный файл
             fs.unlinkSync(zipPath);
         });
@@ -1738,7 +1714,7 @@ bot.onText(/\/download_zip/, async (msg) => {
         });
 
         archive.pipe(output);
-       
+
         // Добавляем фото
         files.forEach(file => {
             archive.file(`${rawPath}/${file}`, { name: `photos/${file}` });
@@ -1795,7 +1771,7 @@ bot.onText(/\/download_annotation (\d+)/, async (msg, match) => {
     try {
         const annotationPath = 'training_data/annotations';
         const rawPath = 'training_data/raw';
-       
+
         const files = fs.readdirSync(rawPath);
 
         if (photoNumber < 0 || photoNumber >= files.length) {
@@ -1818,7 +1794,7 @@ bot.onText(/\/download_annotation (\d+)/, async (msg, match) => {
         let message = `📄 **АННОТАЦИЯ для фото ${photoNumber + 1}:**\n\n`;
         message += `📁 Файл: ${baseName}.json\n`;
         message += `🎯 Объектов: ${annotation.annotations.length}\n\n`;
-       
+
         // Показываем первые 3 объекта
         annotation.annotations.slice(0, 3).forEach((obj, index) => {
             message += `${index + 1}. ${obj.label} (${(obj.confidence * 100).toFixed(1)}%)\n`;
@@ -1848,7 +1824,7 @@ bot.onText(/\/delete_photo (\d+)/, async (msg, match) => {
     try {
         const rawPath = 'training_data/raw';
         const annotationPath = 'training_data/annotations';
-       
+
         const files = fs.readdirSync(rawPath);
 
         if (photoNumber < 0 || photoNumber >= files.length) {
@@ -1858,10 +1834,10 @@ bot.onText(/\/delete_photo (\d+)/, async (msg, match) => {
 
         const fileName = files[photoNumber];
         const baseName = fileName.replace('.jpg', '');
-       
+
         // Удаляем фото
         fs.unlinkSync(`${rawPath}/${fileName}`);
-       
+
         // Удаляем аннотацию если есть
         const annotationFile = `${annotationPath}/${baseName}.json`;
         if (fs.existsSync(annotationFile)) {
@@ -1909,47 +1885,17 @@ bot.onText(/\/download_photo/, async (msg) => {
         await bot.sendMessage(msg.chat.id, '❌ Ошибка при загрузке фото');
     }
 });
-// 📊 КОМАНДА СТАТИСТИКИ
-bot.onText(/\/stats/, async (msg) => {
-    const chatId = msg.chat.id;
-    
-    // Только для администратора
-    if (msg.from.id !== 699140291) { // Замените на ваш ID
-        await bot.sendMessage(chatId, '❌ Эта команда только для администратора');
-        return;
-    }
-    
-    const stats = getFormattedStats();
-    await bot.sendMessage(chatId, stats);
-});
-
-// 📈 ПУБЛИЧНАЯ СТАТИСТИКА
-bot.onText(/\/statistics/, async (msg) => {
-    const publicStats = `📊 **ОБЩАЯ СТАТИСТИКА:**\n\n` +
-                       `👥 Пользователей: ${globalStats.totalUsers}\n` +
-                       `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
-                       `🔍 Анализов: ${globalStats.totalAnalyses}\n\n` +
-                       `💪 Спасибо за использование бота!`;
-    
-    await bot.sendMessage(msg.chat.id, publicStats);
-});
 
 // 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖
-// 🤖               ОБРАБОТКА ФОТО - PHOTO PROCESSING                  🤖
+// 🤖               ОБРАБОТКА ФОТО - PHOTO PROCESSING                  🤖
 // 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖
-bot.on('photo', async (msg) => {
-    const chatId = msg.chat.id;
-    const session = getSession(chatId);
-    
-    // Обновляем статистику
-    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
-    
-    try {
-       
 
 bot.on('photo', async (msg) => {
     const chatId = msg.chat.id;
     const session = getSession(chatId);
+
+    // Обновляем статистику
+    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
 
     try {
         const photo = msg.photo[msg.photo.length - 1];
@@ -2011,26 +1957,26 @@ bot.on('photo', async (msg) => {
             fs.writeFileSync(annotationPath, JSON.stringify(annotation, null, 2));
 
             console.log(`✅ Фото сохранено: ${photoId}.jpg`);
-            // 🚀 ЗАГРУЖАЕМ В YANDEX DISК
-if (yandexDisk) {
-    try {
-        // Загружаем фото
-        const photoUploadSuccess = await yandexDisk.uploadFile(photoPath, `${photoId}.jpg`);
-       
-        // Загружаем аннотацию как JSON файл
-        const annotationJsonPath = `training_data/annotations/${photoId}.json`;
-        const annotationUploadSuccess = await yandexDisk.uploadFile(annotationJsonPath, `${photoId}.json`);
-       
-        if (photoUploadSuccess && annotationUploadSuccess) {
-            console.log(`✅ Данные загружены в Яндекс.Диск: ${photoId}.jpg + .json`);
-        } else {
-            console.log(`⚠️ Частичная загрузка в Яндекс.Диск для ${photoId}`);
-        }
-    } catch (driveError) {
-        console.log("❌ Ошибка Яндекс.Диск:", driveError.message);
-    }
-}
 
+            // 🚀 ЗАГРУЖАЕМ В YANDEX DISК
+            if (yandexDisk) {
+                try {
+                    // Загружаем фото
+                    const photoUploadSuccess = await yandexDisk.uploadFile(photoPath, `${photoId}.jpg`);
+
+                    // Загружаем аннотацию как JSON файл
+                    const annotationJsonPath = `training_data/annotations/${photoId}.json`;
+                    const annotationUploadSuccess = await yandexDisk.uploadFile(annotationJsonPath, `${photoId}.json`);
+
+                    if (photoUploadSuccess && annotationUploadSuccess) {
+                        console.log(`✅ Данные загружены в Яндекс.Диск: ${photoId}.jpg + .json`);
+                    } else {
+                        console.log(`⚠️ Частичная загрузка в Яндекс.Диск для ${photoId}`);
+                    }
+                } catch (driveError) {
+                    console.log("❌ Ошибка Яндекс.Диск:", driveError.message);
+                }
+            }
 
         } catch (error) {
             console.log('❌ Ошибка сохранения фото:', error.message);
@@ -2109,7 +2055,7 @@ if (yandexDisk) {
 
             const userData = {
                 username: msg.from.username ? `@${msg.from.username}` :
-                         `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim(),
+                          `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim(),
                 dateTime: new Date(),
                 coordinates: null,
                 accuracy: null
@@ -2164,7 +2110,7 @@ if (yandexDisk) {
 
             const userData = {
                 username: msg.from.username ? `@${msg.from.username}` :
-                         `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim(),
+                          `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim(),
                 dateTime: new Date(),
                 coordinates: null,
                 accuracy: null
@@ -2183,10 +2129,8 @@ if (yandexDisk) {
     }
 });
 
-
-
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
-// 🟢               HTTP СЕРВЕР ДЛЯ RENDER                             🟢
+// 🟢               HTTP СЕРВЕР ДЛЯ RENDER                             🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
 const app = express();
@@ -2206,33 +2150,32 @@ app.get('/health', (req, res) => {
     mode: IS_PRODUCTION ? 'production' : 'development'
   });
 });
+
 app.listen(PORT, () => {
   console.log(`🟢 HTTP server running on port ${PORT}`);
 });
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
-// 🟢               ИНИЦИАЛИЗАЦИЯ БОТА                                🟢
+// 🟢               ИНИЦИАЛИЗАЦИЯ БОТА                                🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
-
-// 🔴 ЗАМЕНИТЕ ВЕСЬ БЛОК ИНИЦИАЛИЗАЦИИ БОТА НА ЭТОТ:
 
 async function initializeBot() {
     console.log('🔄 Запуск бота...');
-   
+
     try {
         // Останавливаем любой существующий polling
         await bot.stopPolling();
         console.log('✅ Предыдущий polling остановлен');
-       
+
         // Ждем 2 секунды
         await new Promise(resolve => setTimeout(resolve, 2000));
-       
+
         // Запускаем новый polling
         bot.startPolling();
         console.log('✅ Новый polling запущен');
-       
+
         console.log('🚀 Бот полностью готов к работе!');
-       
+
     } catch (error) {
         console.log('❌ Ошибка инициализации:', error.message);
         // Пробуем еще раз через 5 секунд
@@ -2244,7 +2187,7 @@ async function initializeBot() {
 initializeBot().catch(console.error);
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
-// 🟢               АНТИ-СОН СИСТЕМА ДЛЯ RENDER                        🟢
+// 🟢               АНТИ-СОН СИСТЕМА ДЛЯ RENDER                        🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
 function startKeepAlive() {
