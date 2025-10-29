@@ -82,10 +82,8 @@ function saveStats() {
         };
         
         const statsJson = JSON.stringify(statsData, null, 2);
-        fs.writeFileSync('stats.json', statsJson);
-        console.log('💾 Статистика сохранена в stats.json');
         
-        // 🔄 ДУБЛИРУЕМ В YANDEX DISK
+        // 🔄 СОХРАНЯЕМ ТОЛЬКО В YANDEX DISK
         if (yandexDisk) {
             setTimeout(async () => {
                 try {
@@ -93,11 +91,11 @@ function saveStats() {
                     fs.writeFileSync(tempStatsPath, statsJson);
                     
                     await yandexDisk.uploadFile(tempStatsPath, 'stats.json');
-                    console.log('✅ Статистика загружена в Яндекс.Диск');
+                    console.log('✅ Статистика сохранена в Яндекс.Диск');
                     
                     fs.unlinkSync(tempStatsPath);
                 } catch (driveError) {
-                    console.log('⚠️ Не удалось сохранить статистику в Яндекс.Диск:', driveError.message);
+                    console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
                 }
             }, 1000);
         }
@@ -107,45 +105,44 @@ function saveStats() {
     }
 }
 
-
 // ЗАГРУЗКА СТАТИСТИКИ ПРИ ЗАПУСКЕ
-function loadStats() {
+async function loadStats() {
     try {
-        // Просто грузим из локального файла
-        if (fs.existsSync('stats.json')) {
+        // Пробуем загрузить из Яндекс.Диска
+        if (yandexDisk) {
+            const success = await loadStatsFromYandex();
+            if (success) {
+                console.log('✅ Статистика загружена из Яндекс.Диска');
+                return;
+            }
+        }
+        
+        // Если не получилось из облака, пробуем локально (на всякий случай)
+        if (fs.existsSync('stats.json') && fs.statSync('stats.json').size > 0) {
             const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
             Object.assign(globalStats, data.global);
-            
             userStats.clear();
             data.users.forEach(([userId, userData]) => {
                 userStats.set(userId, userData);
             });
-            
-            console.log('💾 Статистика загружена из stats.json');
-            
-            // Фоновая синхронизация с Яндекс.Диском
-            if (yandexDisk) {
-                setTimeout(() => {
-                    loadStatsFromYandex().catch(() => {
-                        console.log('⚠️ Не удалось синхронизировать с Яндекс.Диском');
-                    });
-                }, 3000);
-            }
+            console.log('💾 Статистика загружена из локального файла');
         } else {
-            console.log('📝 Файл stats.json не найден, начнем с чистой статистики');
+            console.log('📝 Начинаем с чистой статистики');
         }
     } catch (error) {
         console.log('❌ Ошибка загрузки статистики:', error.message);
     }
 }
 
-
-
 // АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
 setInterval(saveStats, 5 * 60 * 1000);
 
 // ЗАГРУЗКА ПРИ СТАРТЕ
-loadStats();
+loadStats().then(() => {
+    console.log('✅ Статистика инициализирована');
+}).catch(err => {
+    console.log('❌ Ошибка инициализации статистики:', err.message);
+});
 
 // 📥 ЗАГРУЗКА СТАТИСТИКИ ИЗ YANDEX DISK
 async function loadStatsFromYandex() {
@@ -167,8 +164,6 @@ async function loadStatsFromYandex() {
             userStats.set(userId, userData);
         });
         
-        fs.writeFileSync('stats.json', JSON.stringify(remoteStats, null, 2));
-        
         console.log('✅ Статистика загружена из Яндекс.Диска');
         return true;
         
@@ -181,6 +176,7 @@ async function loadStatsFromYandex() {
         return false;
     }
 }
+
 
 
 
