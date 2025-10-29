@@ -1,8 +1,8 @@
 // 🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵
-// 🔵                                                                                 🔵
-// 🔵                           АНАЛИЗАТОР СЛЕДОВ ОБУВИ                              🔵
-// 🔵                         с улучшенной системой сравнения                        🔵
-// 🔵                                                                                 🔵
+// 🔵                                                                                 🔵
+// 🔵                           АНАЛИЗАТОР СЛЕДОВ ОБУВИ                              🔵
+// 🔵                         с улучшенной системой сравнения                        🔵
+// 🔵                                                                                 🔵
 // 🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵
 
 const TelegramBot = require('node-telegram-bot-api');
@@ -40,33 +40,27 @@ const TELEGRAM_TOKEN = IS_PRODUCTION
     : '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI'; // для @Sled_la_bot локально
 const ROBOWFLOW_API_KEY = 'NeHOB854EyHkDbGGLE6G';
 
-// 🎯 ИНИЦИАЛИЗАЦИЯ БОТА С ЗАЩИТОЙ
-const bot = new TelegramBot(TELEGRAM_TOKEN, {
-    polling: {
-        interval: 1000,
-        timeout: 10,
-        limit: 1,
-        retryTimeout: 5000,
-        params: {
-            timeout: 10,
-            allowed_updates: []  // Важно для избежания конфликтов
-        }
-    }
-});
+// 🎯 ИНИЦИАЛИЗАЦИЯ БОТА С ЗАЩИТОЙ ОТ ДУБЛИРОВАНИЯ
+let bot;
 
-// 🔴 СРОЧНОЕ ИСПРАВЛЕНИЕ POLLING КОНФЛИКТА
-const bot = new TelegramBot(TELEGRAM_TOKEN, {
-    polling: {
-        interval: 1000,
-        timeout: 10,
-        limit: 1,
-        retryTimeout: 5000,
-        params: {
+// Защита от двойной инициализации
+if (typeof bot === 'undefined') {
+    bot = new TelegramBot(TELEGRAM_TOKEN, {
+        polling: {
+            interval: 1000,
             timeout: 10,
-            allowed_updates: []
+            limit: 1,
+            retryTimeout: 5000,
+            params: {
+                timeout: 10,
+                allowed_updates: []  // Важно для избежания конфликтов
+            }
         }
-    }
-});
+    });
+    console.log('✅ Бот инициализирован');
+} else {
+    console.log('⚠️ Бот уже был инициализирован ранее');
+}
 
 // 🛡️ УЛУЧШЕННАЯ ОБРАБОТКА ОШИБКИ 409
 let conflictCount = 0;
@@ -88,6 +82,7 @@ bot.on('polling_error', (error) => {
                 setTimeout(() => {
                     bot.startPolling();
                     conflictCount = 0;
+                    console.log('✅ Polling перезапущен');
                 }, 2000);
             }, 1000);
         }
@@ -96,7 +91,6 @@ bot.on('polling_error', (error) => {
    
     console.log('📡 Polling error:', error.message);
 });
-
 
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
