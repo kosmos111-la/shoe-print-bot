@@ -81,16 +81,42 @@ function saveStats() {
             timestamp: new Date().toISOString()
         };
         
-        fs.writeFileSync('stats.json', JSON.stringify(statsData, null, 2));
+        const statsJson = JSON.stringify(statsData, null, 2);
+        fs.writeFileSync('stats.json', statsJson);
         console.log('💾 Статистика сохранена в stats.json');
+        
+        // 🔄 ДУБЛИРУЕМ В YANDEX DISK
+        if (yandexDisk) {
+            setTimeout(async () => {
+                try {
+                    const tempStatsPath = 'stats_backup.json';
+                    fs.writeFileSync(tempStatsPath, statsJson);
+                    
+                    await yandexDisk.uploadFile(tempStatsPath, 'stats.json');
+                    console.log('✅ Статистика загружена в Яндекс.Диск');
+                    
+                    fs.unlinkSync(tempStatsPath);
+                } catch (driveError) {
+                    console.log('⚠️ Не удалось сохранить статистику в Яндекс.Диск:', driveError.message);
+                }
+            }, 1000);
+        }
+        
     } catch (error) {
         console.log('❌ Ошибка сохранения статистики:', error.message);
     }
 }
 
+
 // ЗАГРУЗКА СТАТИСТИКИ ПРИ ЗАПУСКЕ
 function loadStats() {
     try {
+        // Сначала пробуем загрузить из Яндекс.Диска
+        if (yandexDisk) {
+            await loadStatsFromYandex();
+        }
+        
+        // Если не получилось, грузим локально
         if (fs.existsSync('stats.json')) {
             const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
             Object.assign(globalStats, data.global);
@@ -109,11 +135,50 @@ function loadStats() {
     }
 }
 
+
 // АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
 setInterval(saveStats, 5 * 60 * 1000);
 
 // ЗАГРУЗКА ПРИ СТАРТЕ
 loadStats();
+
+// 📥 ЗАГРУЗКА СТАТИСТИКИ ИЗ YANDEX DISK
+async function loadStatsFromYandex() {
+    try {
+        console.log('🔄 Пробуем загрузить статистику из Яндекс.Диска...');
+        
+        // Скачиваем файл
+        const response = await axios.get(`https://cloud-api.yandex.net/v1/disk/resources/download?path=apps/ShoeBot/stats.json`, {
+            headers: { 'Authorization': `OAuth ${yandexDisk.accessToken}` }
+        });
+        
+        const downloadUrl = response.data.href;
+        const fileResponse = await axios.get(downloadUrl);
+        const remoteStats = fileResponse.data;
+        
+        // Обновляем статистику
+        Object.assign(globalStats, remoteStats.global);
+        
+        userStats.clear();
+        remoteStats.users.forEach(([userId, userData]) => {
+            userStats.set(userId, userData);
+        });
+        
+        // Сохраняем локально
+        fs.writeFileSync('stats.json', JSON.stringify(remoteStats, null, 2));
+        
+        console.log('✅ Статистика загружена из Яндекс.Диска');
+        return true;
+        
+    } catch (error) {
+        if (error.response?.status === 404) {
+            console.log('ℹ️ Статистики в Яндекс.Диске нет, начинаем с нуля');
+        } else {
+            console.log('⚠️ Не удалось загрузить из Яндекс.Диска:', error.message);
+        }
+        return false;
+    }
+}
 
 
 // 🔵 YANDEX DISK SERVICE - ОБНОВЛЕННАЯ ВЕРСИЯ
