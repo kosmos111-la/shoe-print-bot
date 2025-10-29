@@ -1,8 +1,5 @@
 // 🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵
-// 🔵                                                                                 🔵
-// 🔵                           АНАЛИЗАТОР СЛЕДОВ ОБУВИ                              🔵
-// 🔵                         с улучшенной системой сравнения                        🔵
-// 🔵                                                                                 🔵
+// 🔵                           АНАЛИЗАТОР СЛЕДОВ ОБУВИ                              🔵
 // 🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵
 
 const TelegramBot = require('node-telegram-bot-api');
@@ -18,15 +15,60 @@ let yandexDisk;
 try {
     YandexDiskService = require('./yandex-disk-service');
     yandexDisk = new YandexDiskService(process.env.YANDEX_DISK_TOKEN);
-    
-    // 🔄 ВРЕМЕННО ОТКЛЮЧАЕМ АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ПАПКИ
-    console.log('✅ Яндекс.Диск service инициализирован (папка создается при первой загрузке)');
-    
+    console.log('✅ Яндекс.Диск service инициализирован');
 } catch (error) {
     console.log('❌ Яндекс.Диск service не доступен:', error.message);
     yandexDisk = null;
 }
 
+// 📊 СИСТЕМА СТАТИСТИКИ (ДОБАВЬТЕ ЭТОТ БЛОК)
+if (typeof userStats === 'undefined') {
+    var userStats = new Map();
+    var globalStats = {
+        totalUsers: 0,
+        totalPhotos: 0,
+        totalAnalyses: 0,
+        sessionsStarted: 0,
+        comparisonsMade: 0
+    };
+}
+
+function updateUserStats(userId, username, action = 'photo') {
+    if (!userStats.has(userId)) {
+        userStats.set(userId, {
+            username: username || `user_${userId}`,
+            photosCount: 0,
+            analysesCount: 0,
+            sessionsCount: 0,
+            comparisonsCount: 0,
+            firstSeen: new Date(),
+            lastSeen: new Date()
+        });
+        globalStats.totalUsers++;
+    }
+    
+    const user = userStats.get(userId);
+    user.lastSeen = new Date();
+    
+    switch(action) {
+        case 'photo':
+            user.photosCount++;
+            globalStats.totalPhotos++;
+            break;
+        case 'analysis':
+            user.analysesCount++;
+            globalStats.totalAnalyses++;
+            break;
+        case 'session':
+            user.sessionsCount++;
+            globalStats.sessionsStarted++;
+            break;
+        case 'comparison':
+            user.comparisonsCount++;
+            globalStats.comparisonsMade++;
+            break;
+    }
+}
 
 // 🎯 НАСТРОЙКИ СРЕДЫ
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -88,66 +130,7 @@ bot.on('polling_error', (error) => {
    
     console.log('📡 Polling error:', error.message);
 });
-// 📊 СИСТЕМА СТАТИСТИКИ
-const userStats = new Map();
-const globalStats = {
-    totalUsers: 0,
-    totalPhotos: 0,
-    totalAnalyses: 0,
-    sessionsStarted: 0,
-    comparisonsMade: 0
-};
 
-function updateUserStats(userId, username, action = 'photo') {
-    if (!userStats.has(userId)) {
-        userStats.set(userId, {
-            username: username || `user_${userId}`,
-            photosCount: 0,
-            analysesCount: 0,
-            sessionsCount: 0,
-            comparisonsCount: 0,
-            firstSeen: new Date(),
-            lastSeen: new Date()
-        });
-        globalStats.totalUsers++;
-    }
-    
-    const user = userStats.get(userId);
-    user.lastSeen = new Date();
-    
-    switch(action) {
-        case 'photo':
-            user.photosCount++;
-            globalStats.totalPhotos++;
-            break;
-        case 'analysis':
-            user.analysesCount++;
-            globalStats.totalAnalyses++;
-            break;
-        case 'session':
-            user.sessionsCount++;
-            globalStats.sessionsStarted++;
-            break;
-        case 'comparison':
-            user.comparisonsCount++;
-            globalStats.comparisonsMade++;
-            break;
-    }
-}
-
-function getFormattedStats() {
-    const activeUsers = Array.from(userStats.values()).filter(user => 
-        (new Date() - user.lastSeen) < 7 * 24 * 60 * 60 * 1000 // активны за последние 7 дней
-    ).length;
-
-    return `📊 **СТАТИСТИКА БОТА:**\n\n` +
-           `👥 Пользователи: ${globalStats.totalUsers} (${activeUsers} активных)\n` +
-           `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
-           `🔍 Анализов проведено: ${globalStats.totalAnalyses}\n` +
-           `📋 Сессий начато: ${globalStats.sessionsStarted}\n` +
-           `🔄 Сравнений сделано: ${globalStats.comparisonsMade}\n\n` +
-           `💡 *Статистика обновляется в реальном времени*`;
-}
 // 📊 СИСТЕМА СТАТИСТИКИ
 const userStats = new Map();
 const globalStats = {
