@@ -11,13 +11,23 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const express = require('express');
 
-// 🔵 YANDEX DISK SERVICE - ПРОСТАЯ ВЕРСИЯ
+// 🔵 YANDEX DISK SERVICE - ОБНОВЛЕННАЯ ВЕРСИЯ
+let YandexDiskService;
 let yandexDisk;
+
 try {
-    yandexDisk = require('./yandex-disk-service');
-    console.log('✅ Яндекс.Диск service loaded');
+    YandexDiskService = require('./yandex-disk-service');
+    yandexDisk = new YandexDiskService(process.env.YANDEX_DISK_TOKEN);
+   
+    // Создаем папку при инициализации
+    yandexDisk.createAppFolder().then(() => {
+        console.log('✅ Яндекс.Диск service инициализирован');
+    }).catch(err => {
+        console.log('⚠️ Яндекс.Диск папка не создана:', err.message);
+    });
+   
 } catch (error) {
-    console.log('❌ Яндекс.Диск service not available');
+    console.log('❌ Яндекс.Диск service не доступен:', error.message);
     yandexDisk = null;
 }
 
@@ -1797,12 +1807,21 @@ bot.on('photo', async (msg) => {
             fs.writeFileSync(annotationPath, JSON.stringify(annotation, null, 2));
 
             console.log(`✅ Фото сохранено: ${photoId}.jpg`);
-            // 🚀 ЗАГРУЖАЕМ В YANDEX DISK
+            // 🚀 ЗАГРУЖАЕМ В YANDEX DISК
 if (yandexDisk) {
     try {
-        await yandexDisk.uploadFile(photoPath, `${photoId}.jpg`);
-        await yandexDisk.uploadJson(annotation, `${photoId}.json`);
-        console.log(`✅ Данные загружены в Яндекс.Диск`);
+        // Загружаем фото
+        const photoUploadSuccess = await yandexDisk.uploadFile(photoPath, `${photoId}.jpg`);
+       
+        // Загружаем аннотацию как JSON файл
+        const annotationJsonPath = `training_data/annotations/${photoId}.json`;
+        const annotationUploadSuccess = await yandexDisk.uploadFile(annotationJsonPath, `${photoId}.json`);
+       
+        if (photoUploadSuccess && annotationUploadSuccess) {
+            console.log(`✅ Данные загружены в Яндекс.Диск: ${photoId}.jpg + .json`);
+        } else {
+            console.log(`⚠️ Частичная загрузка в Яндекс.Диск для ${photoId}`);
+        }
     } catch (driveError) {
         console.log("❌ Ошибка Яндекс.Диск:", driveError.message);
     }
