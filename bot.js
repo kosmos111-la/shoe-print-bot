@@ -16,20 +16,17 @@ let YandexDiskService;
 let yandexDisk;
 
 try {
-    YandexDiskService = require('./yandex-disk-service');
-    yandexDisk = new YandexDiskService(process.env.YANDEX_DISK_TOKEN);
-   
-    // Создаем папку при инициализации
-    yandexDisk.createAppFolder().then(() => {
-        console.log('✅ Яндекс.Диск service инициализирован');
-    }).catch(err => {
-        console.log('⚠️ Яндекс.Диск папка не создана:', err.message);
-    });
-   
+    YandexDiskService = require('./yandex-disk-service');
+    yandexDisk = new YandexDiskService(process.env.YANDEX_DISK_TOKEN);
+    
+    // 🔄 ВРЕМЕННО ОТКЛЮЧАЕМ АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ПАПКИ
+    console.log('✅ Яндекс.Диск service инициализирован (папка создается при первой загрузке)');
+    
 } catch (error) {
-    console.log('❌ Яндекс.Диск service не доступен:', error.message);
-    yandexDisk = null;
+    console.log('❌ Яндекс.Диск service не доступен:', error.message);
+    yandexDisk = null;
 }
+
 
 // 🎯 НАСТРОЙКИ СРЕДЫ
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
