@@ -111,12 +111,7 @@ function saveStats() {
 // ЗАГРУЗКА СТАТИСТИКИ ПРИ ЗАПУСКЕ
 function loadStats() {
     try {
-        // Сначала пробуем загрузить из Яндекс.Диска
-        if (yandexDisk) {
-            await loadStatsFromYandex();
-        }
-        
-        // Если не получилось, грузим локально
+        // Просто грузим из локального файла
         if (fs.existsSync('stats.json')) {
             const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
             Object.assign(globalStats, data.global);
@@ -127,6 +122,15 @@ function loadStats() {
             });
             
             console.log('💾 Статистика загружена из stats.json');
+            
+            // Фоновая синхронизация с Яндекс.Диском
+            if (yandexDisk) {
+                setTimeout(() => {
+                    loadStatsFromYandex().catch(() => {
+                        console.log('⚠️ Не удалось синхронизировать с Яндекс.Диском');
+                    });
+                }, 3000);
+            }
         } else {
             console.log('📝 Файл stats.json не найден, начнем с чистой статистики');
         }
@@ -134,6 +138,7 @@ function loadStats() {
         console.log('❌ Ошибка загрузки статистики:', error.message);
     }
 }
+
 
 
 // АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
@@ -147,7 +152,6 @@ async function loadStatsFromYandex() {
     try {
         console.log('🔄 Пробуем загрузить статистику из Яндекс.Диска...');
         
-        // Скачиваем файл
         const response = await axios.get(`https://cloud-api.yandex.net/v1/disk/resources/download?path=apps/ShoeBot/stats.json`, {
             headers: { 'Authorization': `OAuth ${yandexDisk.accessToken}` }
         });
@@ -156,7 +160,6 @@ async function loadStatsFromYandex() {
         const fileResponse = await axios.get(downloadUrl);
         const remoteStats = fileResponse.data;
         
-        // Обновляем статистику
         Object.assign(globalStats, remoteStats.global);
         
         userStats.clear();
@@ -164,7 +167,6 @@ async function loadStatsFromYandex() {
             userStats.set(userId, userData);
         });
         
-        // Сохраняем локально
         fs.writeFileSync('stats.json', JSON.stringify(remoteStats, null, 2));
         
         console.log('✅ Статистика загружена из Яндекс.Диска');
@@ -179,6 +181,7 @@ async function loadStatsFromYandex() {
         return false;
     }
 }
+
 
 
 // 🔵 YANDEX DISK SERVICE - ОБНОВЛЕННАЯ ВЕРСИЯ
