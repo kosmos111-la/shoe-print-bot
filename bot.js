@@ -54,33 +54,47 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, {
     }
 });
 
-// 🛡️ УМНАЯ ОБРАБОТКА ОШИБОК POLLING
-let lastConflictLog = 0;
+// 🔴 СРОЧНОЕ ИСПРАВЛЕНИЕ POLLING КОНФЛИКТА
+const bot = new TelegramBot(TELEGRAM_TOKEN, {
+    polling: {
+        interval: 1000,
+        timeout: 10,
+        limit: 1,
+        retryTimeout: 5000,
+        params: {
+            timeout: 10,
+            allowed_updates: []
+        }
+    }
+});
+
+// 🛡️ УЛУЧШЕННАЯ ОБРАБОТКА ОШИБКИ 409
+let conflictCount = 0;
+const MAX_CONFLICTS = 3;
 
 bot.on('polling_error', (error) => {
-    const now = Date.now();
-   
-    // Проверяем разные варианты ошибки 409
     const isConflictError =
         (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) ||
-        error.message.includes('409') ||
-        (error.response && error.response.statusCode === 409);
+        error.message.includes('409');
    
     if (isConflictError) {
-        // Логируем не чаще чем раз в 30 секунд
-        if (now - lastConflictLog > 30000) {
-            console.log('🔄 Конфликт polling (409) - другой экземпляр бота активен');
-            lastConflictLog = now;
+        conflictCount++;
+        console.log(`🔄 Конфликт polling (409) - попытка ${conflictCount}/${MAX_CONFLICTS}`);
+       
+        if (conflictCount >= MAX_CONFLICTS) {
+            console.log('🚨 Превышено количество конфликтов, перезапускаем polling...');
+            setTimeout(() => {
+                bot.stopPolling();
+                setTimeout(() => {
+                    bot.startPolling();
+                    conflictCount = 0;
+                }, 2000);
+            }, 1000);
         }
         return;
     }
    
-    // Логируем другие ошибки polling
-    console.log('📡 Polling error:', {
-        code: error.code,
-        message: error.message,
-        stack: error.stack?.split('\n')[0] // только первая строка стека
-    });
+    console.log('📡 Polling error:', error.message);
 });
 
 
@@ -2029,19 +2043,31 @@ app.listen(PORT, () => {
 // 🟢               ИНИЦИАЛИЗАЦИЯ БОТА                                🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
-async function initializeBot() {
-    // 🔥 ВРЕМЕННО ИСПОЛЬЗУЕМ POLLING ДЛЯ ВСЕХ СРЕД
-    bot.startPolling();
-    console.log('🤖 Бот запущен в режиме Polling (универсальный)');
-    
-    console.log('🚀 Бот полностью готов к работе!');
-    console.log('⭐️ Улучшенное сравнение для следов');
-    console.log('🎯 Адаптивные пороги доверия');
-    console.log('🔺 Сохранение острых углов');
-    console.log('📋 Полная система команд');
-    console.log('🌐 HTTP сервер активирован');
-}
+// 🔴 ЗАМЕНИТЕ ВЕСЬ БЛОК ИНИЦИАЛИЗАЦИИ БОТА НА ЭТОТ:
 
+async function initializeBot() {
+    console.log('🔄 Запуск бота...');
+   
+    try {
+        // Останавливаем любой существующий polling
+        await bot.stopPolling();
+        console.log('✅ Предыдущий polling остановлен');
+       
+        // Ждем 2 секунды
+        await new Promise(resolve => setTimeout(resolve, 2000));
+       
+        // Запускаем новый polling
+        bot.startPolling();
+        console.log('✅ Новый polling запущен');
+       
+        console.log('🚀 Бот полностью готов к работе!');
+       
+    } catch (error) {
+        console.log('❌ Ошибка инициализации:', error.message);
+        // Пробуем еще раз через 5 секунд
+        setTimeout(initializeBot, 5000);
+    }
+}
 
 // Запускаем бота
 initializeBot().catch(console.error);
