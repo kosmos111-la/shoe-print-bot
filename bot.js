@@ -106,10 +106,13 @@ function saveStats() {
 }
 
 // ЗАГРУЗКА СТАТИСТИКИ ПРИ ЗАПУСКЕ
-async function loadStats() {
+aasync function loadStats() {
     try {
+        console.log('🔄 Загрузка статистики...');
+        
         // Пробуем загрузить из Яндекс.Диска
         if (yandexDisk) {
+            console.log('🔍 Проверяем Яндекс.Диск...');
             const success = await loadStatsFromYandex();
             if (success) {
                 console.log('✅ Статистика загружена из Яндекс.Диска');
@@ -117,7 +120,7 @@ async function loadStats() {
             }
         }
         
-        // Если не получилось из облака, пробуем локально (на всякий случай)
+        // Если не получилось из облака, пробуем локально
         if (fs.existsSync('stats.json') && fs.statSync('stats.json').size > 0) {
             const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
             Object.assign(globalStats, data.global);
@@ -139,24 +142,32 @@ setInterval(saveStats, 5 * 60 * 1000);
 
 // ЗАГРУЗКА ПРИ СТАРТЕ
 loadStats().then(() => {
-    console.log('✅ Статистика инициализирована');
+    console.log('🎯 Статистика инициализирована');
 }).catch(err => {
-    console.log('❌ Ошибка инициализации статистики:', err.message);
+    console.log('💥 Ошибка инициализации статистики:', err.message);
 });
+
 
 // 📥 ЗАГРУЗКА СТАТИСТИКИ ИЗ YANDEX DISK
 async function loadStatsFromYandex() {
     try {
         console.log('🔄 Пробуем загрузить статистику из Яндекс.Диска...');
         
+        // 1. Получаем ссылку для скачивания
         const response = await axios.get(`https://cloud-api.yandex.net/v1/disk/resources/download?path=apps/ShoeBot/stats.json`, {
             headers: { 'Authorization': `OAuth ${yandexDisk.accessToken}` }
         });
         
-        const downloadUrl = response.data.href;
-        const fileResponse = await axios.get(downloadUrl);
+        console.log('📥 Получена ссылка для скачивания');
+        
+        // 2. Скачиваем файл
+        const fileResponse = await axios.get(response.data.href);
+        console.log('✅ Файл скачан, размер:', fileResponse.data.length, 'символов');
+        
+        // 3. Парсим данные
         const remoteStats = fileResponse.data;
         
+        // 4. Обновляем статистику
         Object.assign(globalStats, remoteStats.global);
         
         userStats.clear();
@@ -168,14 +179,11 @@ async function loadStatsFromYandex() {
         return true;
         
     } catch (error) {
-        if (error.response?.status === 404) {
-            console.log('ℹ️ Статистики в Яндекс.Диске нет, начинаем с нуля');
-        } else {
-            console.log('⚠️ Не удалось загрузить из Яндекс.Диска:', error.message);
-        }
+        console.log('❌ Ошибка загрузки из Яндекс.Диска:', error.response?.data || error.message);
         return false;
     }
 }
+
 
 
 
