@@ -11,14 +11,16 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const express = require('express');
 
-// 🔵 GOOGLE DRIVE SERVICE
-let driveService;
+// 🔵 YANDEX DISK SERVICE
+let yandexDisk;
 try {
-    driveService = require('./drive-service');
-    console.log('✅ Google Drive service loaded');
+    yandexDisk = require('./yandex-disk-service');
+    console.log('✅ Яндекс.Диск service loaded');
+    // Создаем папки при запуске
+    yandexDisk.createFolder().catch(console.error);
 } catch (error) {
-    console.log('❌ Google Drive service not available');
-    driveService = null;
+    console.log('❌ Яндекс.Диск service not available');
+    yandexDisk = null;
 }
 
 // 🎯 НАСТРОЙКИ СРЕДЫ
@@ -1554,6 +1556,17 @@ bot.on('photo', async (msg) => {
             fs.writeFileSync(annotationPath, JSON.stringify(annotation, null, 2));
 
             console.log(`✅ Фото сохранено: ${photoId}.jpg`);
+            // 🚀 ЗАГРУЖАЕМ В YANDEX DISK
+if (yandexDisk) {
+    try {
+        await yandexDisk.uploadFile(photoPath, `${photoId}.jpg`);
+        await yandexDisk.uploadJson(annotation, `${photoId}.json`);
+        console.log(`✅ Данные загружены в Яндекс.Диск`);
+    } catch (driveError) {
+        console.log("❌ Ошибка Яндекс.Диск:", driveError.message);
+    }
+}
+
 
         } catch (error) {
             console.log('❌ Ошибка сохранения фото:', error.message);
