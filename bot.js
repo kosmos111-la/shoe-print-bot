@@ -44,9 +44,13 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, {
     }
 });
 
-// 🛡️ ЗАЩИТА ОТ КОНФЛИКТОВ POLLING
-let pollingRestartCount = 0;
-const MAX_POLLING_RESTARTS = 3;
+// 🛡️ Скрываем ошибку 409
+bot.on('polling_error', (error) => {
+    if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
+        return; // Просто игнорируем
+    }
+    console.log('📡 Polling error:', error.message);
+});
 
 
 
@@ -1464,6 +1468,230 @@ bot.onText(/\/data_status/, async (msg) => {
 • Собрано фото: ${photoCount} шт.`;
 
     await bot.sendMessage(msg.chat.id, stats);
+});
+
+// 📁 КОМАНДЫ ДЛЯ РАБОТЫ С ФАЙЛАМИ
+const archiver = require('archiver');
+
+// Список всех фото
+bot.onText(/\/list_photos/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    try {
+        const rawPath = 'training_data/raw';
+        if (!fs.existsSync(rawPath)) {
+            await bot.sendMessage(chatId, '📭 Нет сохраненных фото');
+            return;
+        }
+
+        const files = fs.readdirSync(rawPath);
+        if (files.length === 0) {
+            await bot.sendMessage(chatId, '📭 Нет сохраненных фото');
+            return;
+        }
+
+        let message = `📊 **СОХРАНЕННЫЕ ФОТО:** ${files.length} шт.\n\n`;
+       
+        files.forEach((file, index) => {
+            if (index < 15) { // Показываем первые 15
+                const fileSize = Math.round(fs.statSync(`${rawPath}/${file}`).size / 1024);
+                const date = new Date(parseInt(file.split('_').pop().replace('.jpg', '')));
+                message += `${index + 1}. ${file} (${fileSize} KB) - ${date.toLocaleDateString()}\n`;
+            }
+        });
+
+        if (files.length > 15) {
+            message += `\n... и еще ${files.length - 15} фото`;
+        }
+
+        message += `\n\n💡 **Команды:**\n`;
+        message += `📦 /download_zip - скачать ВСЕ фото архивом\n`;
+        message += `📸 /download_photo номер - скачать конкретное фото\n`;
+        message += `📄 /download_annotation номер - скачать аннотацию\n`;
+        message += `🗑️ /delete_photo номер - удалить фото\n`;
+        message += `📈 /data_status - статистика`;
+
+        await bot.sendMessage(chatId, message);
+    } catch (error) {
+        await bot.sendMessage(chatId, '❌ Ошибка получения списка фото: ' + error.message);
+    }
+});
+
+// Скачать все фото архивом
+bot.onText(/\/download_zip/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    try {
+        const rawPath = 'training_data/raw';
+        const annotationPath = 'training_data/annotations';
+       
+        if (!fs.existsSync(rawPath)) {
+            await bot.sendMessage(chatId, '📭 Нет сохраненных фото');
+            return;
+        }
+
+        const files = fs.readdirSync(rawPath);
+        if (files.length === 0) {
+            await bot.sendMessage(chatId, '📭 Нет сохраненных фото');
+            return;
+        }
+
+        await bot.sendMessage(chatId, `📦 Создаю архив из ${files.length} файлов...`);
+
+        // Создаем ZIP архив
+        const zipPath = `photos_archive_${Date.now()}.zip`;
+        const output = fs.createWriteStream(zipPath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        output.on('close', async () => {
+            await bot.sendDocument(chatId, zipPath, {
+                caption: `📦 Архив со всеми данными:\n• ${files.length} фото\n• ${archive.pointer()} bytes\n• ${new Date().toLocaleString()}`
+            });
+           
+            // Удаляем временный файл
+            fs.unlinkSync(zipPath);
+        });
+
+        archive.on('error', (err) => {
+            throw err;
+        });
+
+        archive.pipe(output);
+       
+        // Добавляем фото
+        files.forEach(file => {
+            archive.file(`${rawPath}/${file}`, { name: `photos/${file}` });
+        });
+
+        // Добавляем аннотации если есть
+        if (fs.existsSync(annotationPath)) {
+            const annotationFiles = fs.readdirSync(annotationPath);
+            annotationFiles.forEach(file => {
+                archive.file(`${annotationPath}/${file}`, { name: `annotations/${file}` });
+            });
+        }
+
+        await archive.finalize();
+
+    } catch (error) {
+        await bot.sendMessage(chatId, '❌ Ошибка создания архива: ' + error.message);
+    }
+});
+
+// Скачать конкретное фото по номеру
+bot.onText(/\/download_photo (\d+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const photoNumber = parseInt(match[1]) - 1;
+
+    try {
+        const rawPath = 'training_data/raw';
+        const files = fs.readdirSync(rawPath);
+
+        if (photoNumber < 0 || photoNumber >= files.length) {
+            await bot.sendMessage(chatId, `❌ Неверный номер. Доступно фото: 1-${files.length}`);
+            return;
+        }
+
+        const fileName = files[photoNumber];
+        const filePath = `${rawPath}/${fileName}`;
+        const fileSize = Math.round(fs.statSync(filePath).size / 1024);
+        const date = new Date(parseInt(fileName.split('_').pop().replace('.jpg', '')));
+
+        await bot.sendDocument(chatId, filePath, {
+            caption: `📸 Фото ${photoNumber + 1}/${files.length}\n📁 ${fileName}\n📏 ${fileSize} KB\n📅 ${date.toLocaleString()}`
+        });
+
+    } catch (error) {
+        await bot.sendMessage(chatId, '❌ Ошибка загрузки фото: ' + error.message);
+    }
+});
+
+// Скачать аннотацию по номеру
+bot.onText(/\/download_annotation (\d+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const photoNumber = parseInt(match[1]) - 1;
+
+    try {
+        const annotationPath = 'training_data/annotations';
+        const rawPath = 'training_data/raw';
+       
+        const files = fs.readdirSync(rawPath);
+
+        if (photoNumber < 0 || photoNumber >= files.length) {
+            await bot.sendMessage(chatId, `❌ Неверный номер. Доступно фото: 1-${files.length}`);
+            return;
+        }
+
+        const fileName = files[photoNumber];
+        const baseName = fileName.replace('.jpg', '');
+        const annotationFile = `${annotationPath}/${baseName}.json`;
+
+        if (!fs.existsSync(annotationFile)) {
+            await bot.sendMessage(chatId, `❌ Нет аннотации для фото ${photoNumber + 1}`);
+            return;
+        }
+
+        const annotationContent = fs.readFileSync(annotationFile, 'utf8');
+        const annotation = JSON.parse(annotationContent);
+
+        let message = `📄 **АННОТАЦИЯ для фото ${photoNumber + 1}:**\n\n`;
+        message += `📁 Файл: ${baseName}.json\n`;
+        message += `🎯 Объектов: ${annotation.annotations.length}\n\n`;
+       
+        // Показываем первые 3 объекта
+        annotation.annotations.slice(0, 3).forEach((obj, index) => {
+            message += `${index + 1}. ${obj.label} (${(obj.confidence * 100).toFixed(1)}%)\n`;
+        });
+
+        if (annotation.annotations.length > 3) {
+            message += `... и еще ${annotation.annotations.length - 3} объектов\n`;
+        }
+
+        await bot.sendMessage(chatId, message);
+
+        // Отправляем JSON файлом
+        await bot.sendDocument(chatId, annotationFile, {
+            caption: `📄 JSON аннотация: ${baseName}.json`
+        });
+
+    } catch (error) {
+        await bot.sendMessage(chatId, '❌ Ошибка загрузки аннотации: ' + error.message);
+    }
+});
+
+// Удалить фото по номеру
+bot.onText(/\/delete_photo (\d+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const photoNumber = parseInt(match[1]) - 1;
+
+    try {
+        const rawPath = 'training_data/raw';
+        const annotationPath = 'training_data/annotations';
+       
+        const files = fs.readdirSync(rawPath);
+
+        if (photoNumber < 0 || photoNumber >= files.length) {
+            await bot.sendMessage(chatId, `❌ Неверный номер. Доступно фото: 1-${files.length}`);
+            return;
+        }
+
+        const fileName = files[photoNumber];
+        const baseName = fileName.replace('.jpg', '');
+       
+        // Удаляем фото
+        fs.unlinkSync(`${rawPath}/${fileName}`);
+       
+        // Удаляем аннотацию если есть
+        const annotationFile = `${annotationPath}/${baseName}.json`;
+        if (fs.existsSync(annotationFile)) {
+            fs.unlinkSync(annotationFile);
+        }
+
+        await bot.sendMessage(chatId, `✅ Удалено:\n📷 ${fileName}\n📄 ${baseName}.json\n\nОсталось фото: ${files.length - 1} шт.`);
+
+    } catch (error) {
+        await bot.sendMessage(chatId, '❌ Ошибка удаления: ' + error.message);
+    }
 });
 
 // 📸 КОМАНДА ДЛЯ ПРОСМОТРА СОБРАННЫХ ФОТО
