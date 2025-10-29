@@ -11,13 +11,11 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const express = require('express');
 
-// 🔵 YANDEX DISK SERVICE
+// 🔵 YANDEX DISK SERVICE - ПРОСТАЯ ВЕРСИЯ
 let yandexDisk;
 try {
     yandexDisk = require('./yandex-disk-service');
     console.log('✅ Яндекс.Диск service loaded');
-    // Создаем папки при запуске
-    yandexDisk.createFolder().catch(console.error);
 } catch (error) {
     console.log('❌ Яндекс.Диск service not available');
     yandexDisk = null;
@@ -1589,13 +1587,13 @@ bot.on('photo', async (msg) => {
             console.log(`✅ Фото сохранено: ${photoId}.jpg`);
             // 🚀 ЗАГРУЖАЕМ В YANDEX DISK
 if (yandexDisk) {
-    try {
-        await yandexDisk.uploadFile(photoPath, `${photoId}.jpg`);
-        await yandexDisk.uploadJson(annotation, `${photoId}.json`);
-        console.log(`✅ Данные загружены в Яндекс.Диск`);
-    } catch (driveError) {
-        console.log("❌ Ошибка Яндекс.Диск:", driveError.message);
-    }
+    try {
+        await yandexDisk.uploadFile(photoPath, `${photoId}.jpg`);
+        await yandexDisk.uploadJson(annotation, `${photoId}.json`);
+        console.log(`✅ Данные загружены в Яндекс.Диск`);
+    } catch (driveError) {
+        console.log("❌ Ошибка Яндекс.Диск:", driveError.message);
+    }
 }
 
 
