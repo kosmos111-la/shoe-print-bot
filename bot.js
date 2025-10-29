@@ -140,14 +140,6 @@ async function loadStats() {
 // АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
 setInterval(saveStats, 5 * 60 * 1000);
 
-// ЗАГРУЗКА ПРИ СТАРТЕ
-loadStats().then(() => {
-    console.log('🎯 Статистика инициализирована');
-}).catch(err => {
-    console.log('💥 Ошибка инициализации статистики:', err.message);
-});
-
-
 // 📥 ЗАГРУЗКА СТАТИСТИКИ ИЗ YANDEX DISK
 async function loadStatsFromYandex() {
     try {
@@ -200,6 +192,15 @@ try {
     console.log('❌ Яндекс.Диск service не доступен:', error.message);
     yandexDisk = null;
 }
+
+// ЗАГРУЗКА СТАТИСТИКИ ПОСЛЕ ИНИЦИАЛИЗАЦИИ YANDEX DISK
+loadStats().then(() => {
+    console.log('🎯 Статистика инициализирована');
+}).catch(err => {
+    console.log('💥 Ошибка инициализации статистики:', err.message);
+});
+
+
 
 // 🎯 НАСТРОЙКИ СРЕДЫ
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
