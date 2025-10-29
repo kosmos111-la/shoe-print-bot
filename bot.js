@@ -106,7 +106,7 @@ function saveStats() {
 }
 
 // ЗАГРУЗКА СТАТИСТИКИ ПРИ ЗАПУСКЕ
-aasync function loadStats() {
+async function loadStats() {
     try {
         console.log('🔄 Загрузка статистики...');
         
