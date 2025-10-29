@@ -1753,13 +1753,6 @@ app.get('/health', (req, res) => {
     mode: IS_PRODUCTION ? 'production' : 'development'
   });
 });
-
-// Webhook endpoint для Telegram
-app.post('/webhook', (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
-});
-
 app.listen(PORT, () => {
   console.log(`🟢 HTTP server running on port ${PORT}`);
 });
