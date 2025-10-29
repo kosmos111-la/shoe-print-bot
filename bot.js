@@ -88,6 +88,162 @@ bot.on('polling_error', (error) => {
    
     console.log('📡 Polling error:', error.message);
 });
+// 📊 СИСТЕМА СТАТИСТИКИ
+const userStats = new Map();
+const globalStats = {
+    totalUsers: 0,
+    totalPhotos: 0,
+    totalAnalyses: 0,
+    sessionsStarted: 0,
+    comparisonsMade: 0
+};
+
+function updateUserStats(userId, username, action = 'photo') {
+    if (!userStats.has(userId)) {
+        userStats.set(userId, {
+            username: username || `user_${userId}`,
+            photosCount: 0,
+            analysesCount: 0,
+            sessionsCount: 0,
+            comparisonsCount: 0,
+            firstSeen: new Date(),
+            lastSeen: new Date()
+        });
+        globalStats.totalUsers++;
+    }
+    
+    const user = userStats.get(userId);
+    user.lastSeen = new Date();
+    
+    switch(action) {
+        case 'photo':
+            user.photosCount++;
+            globalStats.totalPhotos++;
+            break;
+        case 'analysis':
+            user.analysesCount++;
+            globalStats.totalAnalyses++;
+            break;
+        case 'session':
+            user.sessionsCount++;
+            globalStats.sessionsStarted++;
+            break;
+        case 'comparison':
+            user.comparisonsCount++;
+            globalStats.comparisonsMade++;
+            break;
+    }
+}
+
+function getFormattedStats() {
+    const activeUsers = Array.from(userStats.values()).filter(user => 
+        (new Date() - user.lastSeen) < 7 * 24 * 60 * 60 * 1000 // активны за последние 7 дней
+    ).length;
+
+    return `📊 **СТАТИСТИКА БОТА:**\n\n` +
+           `👥 Пользователи: ${globalStats.totalUsers} (${activeUsers} активных)\n` +
+           `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
+           `🔍 Анализов проведено: ${globalStats.totalAnalyses}\n` +
+           `📋 Сессий начато: ${globalStats.sessionsStarted}\n` +
+           `🔄 Сравнений сделано: ${globalStats.comparisonsMade}\n\n` +
+           `💡 *Статистика обновляется в реальном времени*`;
+}
+// 📊 СИСТЕМА СТАТИСТИКИ
+const userStats = new Map();
+const globalStats = {
+    totalUsers: 0,
+    totalPhotos: 0,
+    totalAnalyses: 0,
+    sessionsStarted: 0,
+    comparisonsMade: 0
+};
+
+function updateUserStats(userId, username, action = 'photo') {
+    if (!userStats.has(userId)) {
+        userStats.set(userId, {
+            username: username || `user_${userId}`,
+            photosCount: 0,
+            analysesCount: 0,
+            sessionsCount: 0,
+            comparisonsCount: 0,
+            firstSeen: new Date(),
+            lastSeen: new Date()
+        });
+        globalStats.totalUsers++;
+    }
+    
+    const user = userStats.get(userId);
+    user.lastSeen = new Date();
+    
+    switch(action) {
+        case 'photo':
+            user.photosCount++;
+            globalStats.totalPhotos++;
+            break;
+        case 'analysis':
+            user.analysesCount++;
+            globalStats.totalAnalyses++;
+            break;
+        case 'session':
+            user.sessionsCount++;
+            globalStats.sessionsStarted++;
+            break;
+        case 'comparison':
+            user.comparisonsCount++;
+            globalStats.comparisonsMade++;
+            break;
+    }
+}
+
+function getFormattedStats() {
+    const activeUsers = Array.from(userStats.values()).filter(user => 
+        (new Date() - user.lastSeen) < 7 * 24 * 60 * 60 * 1000 // активны за последние 7 дней
+    ).length;
+
+    return `📊 **СТАТИСТИКА БОТА:**\n\n` +
+           `👥 Пользователи: ${globalStats.totalUsers} (${activeUsers} активных)\n` +
+           `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
+           `🔍 Анализов проведено: ${globalStats.totalAnalyses}\n` +
+           `📋 Сессий начато: ${globalStats.sessionsStarted}\n` +
+           `🔄 Сравнений сделано: ${globalStats.comparisonsMade}\n\n` +
+           `💡 *Статистика обновляется в реальном времени*`;
+}
+// 💾 СОХРАНЕНИЕ СТАТИСТИКИ
+unction saveStats() {
+    const statsData = {
+        global: globalStats,
+        users: Array.from(userStats.entries()),
+        timestamp: new Date().toISOString()
+    };
+    
+    fs.writeFileSync('stats.json', JSON.stringify(statsData, null, 2));
+    console.log('💾 Статистика сохранена');
+}
+
+// Загружаем статистику при запуске
+function loadStats() {
+    try {
+        if (fs.existsSync('stats.json')) {
+            const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
+            Object.assign(globalStats, data.global);
+            
+            userStats.clear();
+            data.users.forEach(([userId, userData]) => {
+                userStats.set(userId, userData);
+            });
+            
+            console.log('💾 Статистика загружена');
+        }
+    } catch (error) {
+        console.log('❌ Ошибка загрузки статистики:', error.message);
+    }
+}
+
+// Автосохранение каждые 5 минут
+setInterval(saveStats, 5 * 60 * 1000);
+
+// Загружаем при старте
+loadStats();
 
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
@@ -1201,6 +1357,10 @@ bot.onText(/\/help/, (msg) => {
         '`/finish` - завершить и обработать\n' +
         '`/cancel` - отменить сессию\n\n' +
 
+         '📊 СТАТИСТИКА:\n' +
+        '/statistics - общая статистика бота\n' +
+        '/stats - детальная статистика (админ)\n\n' +           
+                    
         '📊 **ПРИМЕРЫ ИСПОЛЬЗОВАНИЯ:**\n' +
         '1. Сохранить эталон:\n' +
         '   `/save_reference My_Sneakers` + фото подошвы\n\n' +
@@ -1289,7 +1449,8 @@ bot.onText(/\/save_reference (.+)/, async (msg, match) => {
     session.waitingForReference = modelName;
 });
 
-bot.onText(/\/compare$/, async (msg) => {
+bot.onText(/\/compare (.+)/, async (msg, match) => {
+    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'comparison');
     const chatId = msg.chat.id;
 
     if (referencePrints.size === 0) {
@@ -1398,7 +1559,8 @@ bot.onText(/\/list_references/, async (msg) => {
 });
 
 bot.onText(/\/start_session/, (msg) => {
-    const session = getSession(msg.chat.id);
+    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'session');
+    const session = getSession(msg.chat.id);
     session.active = true;
     session.photos = [];
     session.startTime = new Date();
@@ -1764,10 +1926,43 @@ bot.onText(/\/download_photo/, async (msg) => {
         await bot.sendMessage(msg.chat.id, '❌ Ошибка при загрузке фото');
     }
 });
+// 📊 КОМАНДА СТАТИСТИКИ
+bot.onText(/\/stats/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    // Только для администратора
+    if (msg.from.id !== 699140291) { // Замените на ваш ID
+        await bot.sendMessage(chatId, '❌ Эта команда только для администратора');
+        return;
+    }
+    
+    const stats = getFormattedStats();
+    await bot.sendMessage(chatId, stats);
+});
+
+// 📈 ПУБЛИЧНАЯ СТАТИСТИКА
+bot.onText(/\/statistics/, async (msg) => {
+    const publicStats = `📊 **ОБЩАЯ СТАТИСТИКА:**\n\n` +
+                       `👥 Пользователей: ${globalStats.totalUsers}\n` +
+                       `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
+                       `🔍 Анализов: ${globalStats.totalAnalyses}\n\n` +
+                       `💪 Спасибо за использование бота!`;
+    
+    await bot.sendMessage(msg.chat.id, publicStats);
+});
 
 // 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖
 // 🤖               ОБРАБОТКА ФОТО - PHOTO PROCESSING                  🤖
 // 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖
+bot.on('photo', async (msg) => {
+    const chatId = msg.chat.id;
+    const session = getSession(chatId);
+    
+    // Обновляем статистику
+    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
+    
+    try {
+       
 
 bot.on('photo', async (msg) => {
     const chatId = msg.chat.id;
@@ -2004,6 +2199,8 @@ if (yandexDisk) {
         console.log('Photo error:', error.message);
     }
 });
+
+
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢               HTTP СЕРВЕР ДЛЯ RENDER                             🟢
