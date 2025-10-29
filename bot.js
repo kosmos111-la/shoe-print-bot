@@ -54,6 +54,8 @@ function updateUserStats(userId, username, action = 'photo') {
             globalStats.comparisonsMade++;
             break;
     }
+// 🔄 АВТОСОХРАНЕНИЕ ПРИ КАЖДОМ ИЗМЕНЕНИИ
+    saveStats();
 }
 
 function getFormattedStats() {
@@ -70,42 +72,49 @@ function getFormattedStats() {
            `💡 *Статистика обновляется в реальном времени*`;
 }
 
-// 💾 СОХРАНЕНИЕ СТАТИСТИКИ
+// 💾 СОХРАНЕНИЕ СТАТИСТИКИ В ФАЙЛ
 function saveStats() {
-    const statsData = {
-        global: globalStats,
-        users: Array.from(userStats.entries()),
-        timestamp: new Date().toISOString()
-    };
-   
-    fs.writeFileSync('stats.json', JSON.stringify(statsData, null, 2));
-    console.log('💾 Статистика сохранена');
+    try {
+        const statsData = {
+            global: globalStats,
+            users: Array.from(userStats.entries()),
+            timestamp: new Date().toISOString()
+        };
+        
+        fs.writeFileSync('stats.json', JSON.stringify(statsData, null, 2));
+        console.log('💾 Статистика сохранена в stats.json');
+    } catch (error) {
+        console.log('❌ Ошибка сохранения статистики:', error.message);
+    }
 }
 
-// Загружаем статистику при запуске
+// ЗАГРУЗКА СТАТИСТИКИ ПРИ ЗАПУСКЕ
 function loadStats() {
-    try {
-        if (fs.existsSync('stats.json')) {
-            const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
-            Object.assign(globalStats, data.global);
-           
-            userStats.clear();
-            data.users.forEach(([userId, userData]) => {
-                userStats.set(userId, userData);
-            });
-           
-            console.log('💾 Статистика загружена');
-        }
-    } catch (error) {
-        console.log('❌ Ошибка загрузки статистики:', error.message);
-    }
+    try {
+        if (fs.existsSync('stats.json')) {
+            const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
+            Object.assign(globalStats, data.global);
+            
+            userStats.clear();
+            data.users.forEach(([userId, userData]) => {
+                userStats.set(userId, userData);
+            });
+            
+            console.log('💾 Статистика загружена из stats.json');
+        } else {
+            console.log('📝 Файл stats.json не найден, начнем с чистой статистики');
+        }
+    } catch (error) {
+        console.log('❌ Ошибка загрузки статистики:', error.message);
+    }
 }
 
-// Автосохранение каждые 5 минут
+// АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
 setInterval(saveStats, 5 * 60 * 1000);
 
-// Загружаем при старте
+// ЗАГРУЗКА ПРИ СТАРТЕ
 loadStats();
+
 
 // 🔵 YANDEX DISK SERVICE - ОБНОВЛЕННАЯ ВЕРСИЯ
 let YandexDiskService;
@@ -1885,6 +1894,35 @@ bot.onText(/\/download_photo/, async (msg) => {
         await bot.sendMessage(msg.chat.id, '❌ Ошибка при загрузке фото');
     }
 });
+
+// 🔍 ПРОВЕРКА ФАЙЛА СТАТИСТИКИ
+bot.onText(/\/check_stats_file/, async (msg) => {
+    if (msg.from.id !== 699140291) {
+        await bot.sendMessage(msg.chat.id, '❌ Только для админа');
+        return;
+    }
+    
+    try {
+        if (fs.existsSync('stats.json')) {
+            const stats = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
+            const fileSize = Math.round(fs.statSync('stats.json').size / 1024);
+            
+            let message = `📁 **ФАЙЛ СТАТИСТИКИ:**\n\n`;
+            message += `📊 Пользователей: ${stats.global.totalUsers}\n`;
+            message += `📸 Фото: ${stats.global.totalPhotos}\n`;
+            message += `📏 Размер файла: ${fileSize} KB\n`;
+            message += `🕐 Обновлен: ${new Date(stats.timestamp).toLocaleString()}`;
+            
+            await bot.sendMessage(msg.chat.id, message);
+        } else {
+            await bot.sendMessage(msg.chat.id, '❌ Файл stats.json не найден');
+        }
+    } catch (error) {
+        await bot.sendMessage(msg.chat.id, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+
 
 // 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖
 // 🤖               ОБРАБОТКА ФОТО - PHOTO PROCESSING                  🤖
