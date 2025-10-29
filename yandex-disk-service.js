@@ -2,7 +2,7 @@ const axios = require("axios");
 
 class YandexDiskService {
     constructor() {
-        this.token = "31df880f52604dbaa9949fa942fa90f9";
+        this.token = "d0e4b02f811c4cd79ab88388b02687b1";
         this.baseURL = "https://cloud-api.yandex.net/v1/disk/resources";
     }
 
@@ -17,7 +17,7 @@ class YandexDiskService {
             console.log("✅ Папки созданы на Яндекс.Диске");
             return true;
         } catch (error) {
-            console.log("📁 Папки уже существуют или ошибка:", error.message);
+            console.log("📁 Папки уже существуют");
             return true;
         }
     }
