@@ -2017,7 +2017,7 @@ bot.onText(/\/test_stats_load/, async (msg) => {
         if (success) {
             let message = '✅ Статистика загружена!\n\n';
             message += `👥 Пользователей: ${globalStats.totalUsers}\n`;
-            message += 📸 Фото: ${globalStats.totalPhotos}\n;
+            message += `📸 Фото: ${globalStats.totalPhotos}\n`;
             message += 🔍 Анализов: ${globalStats.totalAnalyses}\n;
             message += 📋 Сессий: ${globalStats.sessionsStarted}\n;
             message += 🔄 Сравнений: ${globalStats.comparisonsMade};
