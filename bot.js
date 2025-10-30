@@ -5,6 +5,8 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const express = require('express');
+const { createCanvas, loadImage } = require('canvas')
+const fs = require('fs')
 
 const app = express();
 app.use(express.json());
@@ -118,8 +120,79 @@ bot.onText(/\/reset_webhook/, async (msg) => {
     }
 });
 
+// 🎨 ФУНКЦИЯ ВИЗУАЛИЗАЦИИ РЕЗУЛЬТАТОВ
+async function createAnalysisVisualization(imageUrl, predictions, userData = {}) {
+    try {
+        const image = await loadImage(imageUrl);
+        const canvas = createCanvas(image.width, image.height);
+        const ctx = canvas.getContext('2d');
 
-// 🟢 ОБРАБОТКА ФОТО
+        // Рисуем оригинальное фото
+        ctx.drawImage(image, 0, 0);
+
+        // Цвета для разных классов
+        const colors = {
+            'Outline-trail': 'rgba(148, 0, 211, 0.8)',    // Фиолетовый - контур
+            'shoe-protector': 'rgba(64, 224, 208, 0.7)',  // Бирюзовый - детали
+            'Heel': 'rgba(0, 0, 255, 0.6)',              // Синий - каблук
+            'Toe': 'rgba(30, 144, 255, 0.6)'             // Голубой - мысок
+        };
+
+        // Рисуем полигоны
+        predictions.forEach(pred => {
+            if (pred.points && pred.points.length > 2) {
+                const color = colors[pred.class] || 'rgba(255, 255, 255, 0.7)';
+               
+                ctx.strokeStyle = color;
+                ctx.lineWidth = pred.class === 'Outline-trail' ? 4 : 2;
+                ctx.beginPath();
+               
+                ctx.moveTo(pred.points[0].x, pred.points[0].y);
+                for (let i = 1; i < pred.points.length; i++) {
+                    ctx.lineTo(pred.points[i].x, pred.points[i].y);
+                }
+                ctx.closePath();
+                ctx.stroke();
+
+                // Подпись с confidence
+                if (pred.confidence > 0.5) {
+                    const centerX = pred.points.reduce((sum, p) => sum + p.x, 0) / pred.points.length;
+                    const centerY = pred.points.reduce((sum, p) => sum + p.y, 0) / pred.points.length;
+                   
+                    ctx.fillStyle = color;
+                    ctx.font = 'bold 16px Arial';
+                    ctx.fillText(
+                        `${pred.class.replace('-', ' ')} (${Math.round(pred.confidence * 100)}%)`,
+                        centerX - 50, centerY - 10
+                    );
+                }
+            }
+        });
+
+        // 🎯 ВОДЯНОЙ ЗНАК
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(10, image.height - 80, 300, 70);
+       
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText(`👤 ${userData.username || 'Пользователь'}`, 20, image.height - 55);
+        ctx.fillText(`📅 ${new Date().toLocaleString('ru-RU')}`, 20, image.height - 35);
+        ctx.fillText(`🔍 Анализатор следов обуви`, 20, image.height - 15);
+
+        // Сохраняем временный файл
+        const vizPath = `viz_${Date.now()}.jpg`;
+        const buffer = canvas.toBuffer('image/jpeg', { quality: 0.9 });
+        require('fs').writeFileSync(vizPath, buffer);
+
+        return vizPath;
+
+    } catch (error) {
+        console.log('❌ Ошибка визуализации:', error.message);
+        return null;
+    }
+}
+
+// 🟢 ОБРАБОТКА ФОТО С ВИЗУАЛИЗАЦИЕЙ
 bot.on('photo', async (msg) => {
     const chatId = msg.chat.id;
    
@@ -135,14 +208,14 @@ bot.on('photo', async (msg) => {
        
         await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
        
-        // Анализ через Roboflow (упрощенный)
+        // Анализ через Roboflow
         const response = await axios({
             method: "POST",
             url: 'https://detect.roboflow.com/-zqyih/12',
             params: {
                 api_key: 'NeHOB854EyHkDbGGLE6G',
                 image: fileUrl,
-                confidence: 30,
+                confidence: 25,
                 overlap: 30,
                 format: 'json'
             },
@@ -151,11 +224,32 @@ bot.on('photo', async (msg) => {
 
         const predictions = response.data.predictions || [];
        
-        await bot.sendMessage(chatId,
-            `✅ Анализ завершен!\n` +
-            `🎯 Обнаружено объектов: ${predictions.length}\n` +
-            `📊 Обработано фото: ${globalStats.totalPhotos}`
-        );
+        // 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ
+        if (predictions.length > 0) {
+            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
+           
+            const userData = {
+                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
+            };
+           
+            const vizPath = await createAnalysisVisualization(fileUrl, predictions, userData);
+           
+            if (vizPath) {
+                // Отправляем визуализацию
+                await bot.sendPhoto(chatId, vizPath, {
+                    caption: `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${predictions.length}`
+                });
+               
+                // Удаляем временный файл
+                require('fs').unlinkSync(vizPath);
+            } else {
+                await bot.sendMessage(chatId,
+                    `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${predictions.length}`
+                );
+            }
+        } else {
+            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+        }
 
         updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
 
