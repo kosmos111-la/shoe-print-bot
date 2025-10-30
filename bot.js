@@ -936,7 +936,7 @@ if (session.waitingForComparison) {
                 fs.unlinkSync(vizPath);
             } 
             
-            onst skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
+            const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
 if (skeletonPath) {
     await bot.sendPhoto(chatId, skeletonPath, {
         caption: 🦴 Скелет структуры (центры деталей и связи)
