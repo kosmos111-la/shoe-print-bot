@@ -800,20 +800,20 @@ bot.onText(/\/cancel/, async (msg) => {
 
 bot.on('photo', async (msg) => {
     const chatId = msg.chat.id;
-   
+
     try {
         const session = getSession(chatId);
-       
+
         // Проверка сохранения эталона
         if (session.waitingForReference) {
             const modelName = session.waitingForReference;
-           
+
             await bot.sendMessage(chatId, '📥 Получено фото эталона, анализирую...');
-           
+
             const photo = msg.photo[msg.photo.length - 1];
             const file = await bot.getFile(photo.file_id);
             const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${file.file_path}`;
-           
+
             const response = await axios({
                 method: "POST",
                 url: 'https://detect.roboflow.com/-zqyih/12',
@@ -841,7 +841,7 @@ bot.on('photo', async (msg) => {
             });
 
             session.waitingForReference = null;
-           
+
             await bot.sendMessage(chatId,
                 `✅ Эталон сохранен: "${modelName}"\n` +
                 `📊 Детали: ${processedPredictions.length} элементов\n\n` +
@@ -850,19 +850,17 @@ bot.on('photo', async (msg) => {
             return;
         }
 
-
-      
         // Обычная обработка фото
         updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
-       
+
         await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
-       
+
         const photo = msg.photo[msg.photo.length - 1];
         const file = await bot.getFile(photo.file_id);
         const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${file.file_path}`;
-       
+
         await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
-       
+
         const response = await axios({
             method: "POST",
             url: 'https://detect.roboflow.com/-zqyih/12',
@@ -880,113 +878,114 @@ bot.on('photo', async (msg) => {
         const processedPredictions = smartPostProcessing(predictions);
         const finalPredictions = processedPredictions.length > 0 ? processedPredictions : predictions;
 
-// Проверка сравнения с эталоном
-if (session.waitingForComparison) {
-    const comparisonData = session.waitingForComparison;
-    const modelName = comparisonData.modelName;
-    const reference = comparisonData.reference;
+        // Проверка сравнения с эталоном
+        if (session.waitingForComparison) {
+            const comparisonData = session.waitingForComparison;
+            const modelName = comparisonData.modelName;
+            const reference = comparisonData.reference;
 
-    console.log(`🔍 Начинаем сравнение с эталоном "${modelName}"`);
-    console.log('📊 Данные эталона:', reference);
+            console.log(`🔍 Начинаем сравнение с эталоном "${modelName}"`);
+            console.log('📊 Данные эталона:', reference);
 
-    try {
-        // ИСПРАВЛЕНИЕ: используем предсказания из эталона
-        const referencePredictions = reference.predictions || [];
-        const footprintPredictions = processedPredictions || finalPredictions || predictions || [];
-       
-        console.log(`📊 Эталон: ${referencePredictions.length} предсказаний`);
-        console.log(`📊 След: ${footprintPredictions.length} предсказаний`);
+            try {
+                // ИСПРАВЛЕНИЕ: используем предсказания из эталона
+                const referencePredictions = reference.predictions || [];
+                const footprintPredictions = processedPredictions || finalPredictions || predictions || [];
 
-        const footprintFeatures = extractFeatures(footprintPredictions);
-        console.log('✅ Features следа:', footprintFeatures);
-       
-        const referenceFeatures = reference.features || { detailCount: 0 };
-        console.log('✅ Features эталона:', referenceFeatures);
+                console.log(`📊 Эталон: ${referencePredictions.length} предсказаний`);
+                console.log(`📊 След: ${footprintPredictions.length} предсказаний`);
 
-        const comparisonResult = compareFootprints(referenceFeatures, footprintFeatures);
+                const footprintFeatures = extractFeatures(footprintPredictions);
+                console.log('✅ Features следа:', footprintFeatures);
 
-        // Формируем отчет
-        let report = `🔍 **СРАВНЕНИЕ С "${modelName}"**\n\n`;
-        report += `🎯 Вероятность совпадения: **${Math.round(comparisonResult.overallScore)}%**\n\n`;
-        report += `📊 Анализ:\n`;
-        report += `• 🔢 Количество деталей: ${Math.round(comparisonResult.detailCount)}%\n`;
-        report += `• 📐 Расположение: ${Math.round(comparisonResult.spatialLayout)}%\n`;
-        report += `• ⭐ Формы: ${Math.round(comparisonResult.shapeCharacteristics)}%\n\n`;
+                const referenceFeatures = reference.features || { detailCount: 0 };
+                console.log('✅ Features эталона:', referenceFeatures);
 
-        // Интерпретация результата
-        if (comparisonResult.overallScore > 70) {
-            report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
-        } else if (comparisonResult.overallScore > 50) {
-            report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
-        } else if (comparisonResult.overallScore > 30) {
-            report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
-        } else {
-            report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
-        }
+                const comparisonResult = compareFootprints(referenceFeatures, footprintFeatures);
 
-        report += `\n\n💡 *Учет деформации грунта и потери мелких деталей*`;
+                // Формируем отчет
+                let report = `🔍 **СРАВНЕНИЕ С "${modelName}"**\n\n`;
+                report += `🎯 Вероятность совпадения: **${Math.round(comparisonResult.overallScore)}%**\n\n`;
+                report += `📊 Анализ:\n`;
+                report += `• 🔢 Количество деталей: ${Math.round(comparisonResult.detailCount)}%\n`;
+                report += `• 📐 Расположение: ${Math.round(comparisonResult.spatialLayout)}%\n`;
+                report += `• ⭐ Формы: ${Math.round(comparisonResult.shapeCharacteristics)}%\n\n`;
 
-        await bot.sendMessage(chatId, report);
-       
-        console.log('✅ Сравнение завершено успешно');
+                // Интерпретация результата
+                if (comparisonResult.overallScore > 70) {
+                    report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
+                } else if (comparisonResult.overallScore > 50) {
+                    report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
+                } else if (comparisonResult.overallScore > 30) {
+                    report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
+                } else {
+                    report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
+                }
 
-    } catch (error) {
-        console.error('❌ Ошибка при сравнении:', error);
-        console.error('❌ Stack trace:', error.stack);
-        await bot.sendMessage(chatId,
-            '❌ Ошибка при сравнении следов. Попробуйте другое фото.\n\n' +
-            '💡 **Советы:**\n' +
-            '• Убедитесь в четкости фото\n' +
-            '• Прямой угол съемки\n' +
-            '• Хорошее освещение'
-        );
-    }
+                report += `\n\n💡 *Учет деформации грунта и потери мелких деталей*`;
 
-    session.waitingForComparison = null;
-    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'comparison');
-    return;
-}
-          
-       if (finalPredictions.length > 0) {
-    await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
+                await bot.sendMessage(chatId, report);
 
-    const userData = {
-        username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
-    };
+                console.log('✅ Сравнение завершено успешно');
 
-    const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
-
-    if (vizPath) {
-        await bot.sendPhoto(chatId, vizPath, {
-            caption: `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
-        });
-        fs.unlinkSync(vizPath);
-       
-        // 🔥 СКЕЛЕТНАЯ ВИЗУАЛИЗАЦИЯ - ВНУТРИ БЛОКА
-        console.log('🔍 Пытаюсь создать скелетную визуализацию...');
-        try {
-            const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
-            if (skeletonPath) {
-                console.log('✅ Скелетная визуализация создана, отправляю...');
-                await bot.sendPhoto(chatId, skeletonPath, {
-                    caption: `🦴 Скелет структуры (центры деталей и связи)`
-                });
-                fs.unlinkSync(skeletonPath);
-            } else {
-                console.log('❌ Скелетная визуализация не создана (вернула null)');
+            } catch (error) {
+                console.error('❌ Ошибка при сравнении:', error);
+                console.error('❌ Stack trace:', error.stack);
+                await bot.sendMessage(chatId,
+                    '❌ Ошибка при сравнении следов. Попробуйте другое фото.\n\n' +
+                    '💡 **Советы:**\n' +
+                    '• Убедитесь в четкости фото\n' +
+                    '• Прямой угол съемки\n' +
+                    '• Хорошее освещение'
+                );
             }
-        } catch (error) {
-            console.error('💥 Ошибка при создании скелетной визуализации:', error);
+
+            session.waitingForComparison = null;
+            updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'comparison');
+            return;
         }
-       
-    } else {
-        await bot.sendMessage(chatId,
-            `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
-        );
-    }
-} else {
-    await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
-}
+
+        if (finalPredictions.length > 0) {
+            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
+
+            const userData = {
+                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
+            };
+
+            const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
+
+            if (vizPath) {
+                await bot.sendPhoto(chatId, vizPath, {
+                    caption: `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
+                });
+                fs.unlinkSync(vizPath);
+
+                // 🔥 СКЕЛЕТНАЯ ВИЗУАЛИЗАЦИЯ - ВНУТРИ БЛОКА
+                console.log('🔍 Пытаюсь создать скелетную визуализацию...');
+                try {
+                    const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
+                    if (skeletonPath) {
+                        console.log('✅ Скелетная визуализация создана, отправляю...');
+                        await bot.sendPhoto(chatId, skeletonPath, {
+                            caption: `🦴 Скелет структуры (центры деталей и связи)`
+                        });
+                        fs.unlinkSync(skeletonPath);
+                    } else {
+                        console.log('❌ Скелетная визуализация не создана (вернула null)');
+                    }
+                } catch (error) {
+                    console.error('💥 Ошибка при создании скелетной визуализации:', error);
+                }
+
+            } else {
+                await bot.sendMessage(chatId,
+                    `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
+                );
+            }
+        } else {
+            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+        }
+
         updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
 
     } catch (error) {
@@ -997,8 +996,7 @@ if (session.waitingForComparison) {
 
 // =============================================================================
 // 🚀 ЗАПУСК СИСТЕМЫ
-// =============================================================================
-
+// ===============================================================
 async function loadStats() {
     try {
         console.log('🔄 Загрузка статистики из Яндекс.Диска...');
