@@ -106,35 +106,65 @@ function saveStats() {
     }
 }
 
-async function loadStats() {
+async function loadStatsFromPublicLink() {
     try {
-        console.log('🔄 Загрузка статистики...');
+        console.log('🔄 Загрузка статистики по публичной ссылке...');
        
-        // Пробуем загрузить по публичной ссылке
-        const success = await loadStatsFromPublicLink();
-        if (success) {
-            console.log('✅ Статистика загружена из облака');
-            return;
+        // ПРЯМАЯ ССЫЛКА НА ФАЙЛ (используем твою публичную ссылку)
+        const publicUrl = "https://disk.yandex.ru/d/vjXtSXW8otwaNg";
+       
+        // Конвертируем в ссылку для скачивания
+        const fileId = publicUrl.split('/d/')[1]; // извлекаем ID файла
+        const downloadUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=${publicUrl}`;
+       
+        console.log('📥 Получаем ссылку для скачивания...');
+       
+        // 1. Получаем прямую ссылку для скачивания
+        const linkResponse = await axios.get(downloadUrl, {
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json'
+            }
+        });
+       
+        if (!linkResponse.data.href) {
+            throw new Error('Не получена ссылка для скачивания');
         }
        
-        // Если не получилось, пробуем локально (на всякий случай)
-        if (fs.existsSync('stats.json') && fs.statSync('stats.json').size > 0) {
-            const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
-            Object.assign(globalStats, data.global);
-            userStats.clear();
-            data.users.forEach(([userId, userData]) => {
-                userStats.set(userId, userData);
-            });
-            console.log('💾 Статистика загружена из локального файла');
-        } else {
-            console.log('📝 Начинаем с чистой статистики');
-        }
+        console.log('📥 Получена прямая ссылка для скачивания:', linkResponse.data.href);
+       
+        // 2. Скачиваем файл
+        const fileResponse = await axios.get(linkResponse.data.href, {
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+       
+        console.log('✅ Файл скачан, размер:', fileResponse.data.length, 'символов');
+       
+        // 3. Парсим данные
+        const remoteStats = fileResponse.data;
+       
+        // 4. Обновляем статистику
+        Object.assign(globalStats, remoteStats.global);
+        userStats.clear();
+        remoteStats.users.forEach(([userId, userData]) => {
+            userStats.set(userId, userData);
+        });
+       
+        console.log('🎯 Статистика загружена из облака');
+        return true;
        
     } catch (error) {
-        console.log('❌ Ошибка загрузки статистики:', error.message);
+        console.log('❌ Ошибка загрузки по публичной ссылке:', error.message);
+        if (error.response) {
+            console.log('Детали ошибки:', error.response.data);
+        }
+        return false;
     }
 }
-
 // 📥 ЗАГРУЗКА СТАТИСТИКИ ПО ПРЯМОЙ ССЫЛКЕ
 async function loadStatsFromPublicLink() {
     try {
