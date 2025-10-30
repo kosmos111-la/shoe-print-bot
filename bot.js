@@ -939,7 +939,7 @@ if (session.waitingForComparison) {
             const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
 if (skeletonPath) {
     await bot.sendPhoto(chatId, skeletonPath, {
-        caption: 🦴 Скелет структуры (центры деталей и связи)
+        caption: `🦴 Скелет структуры (центры деталей и связи)`
     });
     fs.unlinkSync(skeletonPath);
 }
