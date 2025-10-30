@@ -110,7 +110,22 @@ bot.onText(/\/help/, (msg) => {
 });
 
  💾 КОМАНДЫ ДЛЯ РАБОТЫ С ЭТАЛОНАМИ
-
+// 💾 КОМАНДА /save_reference БЕЗ ПАРАМЕТРОВ
+bot.onText(/\/save_reference$/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    await bot.sendMessage(chatId,
+        '💾 **СОХРАНЕНИЕ ЭТАЛОННОГО ОТПЕЧАТКА**\n\n' +
+        '📝 **Укажите название модели через пробел:**\n' +
+        'Пример: `/save_reference Nike_Air_Max_90`\n\n' +
+        '💡 **Рекомендации:**\n' +
+        '• Фото чистой подошвы сверху\n' +
+        '• Хорошее освещение без теней\n' +
+        '• Четкий фокус на протекторе\n' +
+        '• Название без пробелов (используйте _)\n\n' +
+        '❌ Для отмены: /cancel'
+    );
+});
 bot.onText(/\/save_reference$/, async (msg) => {
     const chatId = msg.chat.id;
     await bot.sendMessage(chatId,
