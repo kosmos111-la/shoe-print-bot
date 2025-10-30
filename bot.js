@@ -2039,37 +2039,6 @@ bot.onText(/\/test_stats_load/, async (msg) => {
     }
 });
 
-// 🐛 ДЕБАГ ССЫЛКИ
-bot.onText(/\/debug_link/, async (msg) => {
-    if (msg.from.id !== 699140291) return;
-    
-    try {
-        await bot.sendMessage(msg.chat.id, '🔗 Тестирую ссылку...');
-        
-        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
-        
-        const linkResponse = await axios.get(apiUrl, {
-            timeout: 10000
-        });
-        
-        let message = '✅ Ссылка получена!\n\n';
-        message += `🔗 URL: ${linkResponse.data.href.substring(0, 100)}...\n`;
-        message += `📏 Длина: ${linkResponse.data.href.length} символов`;
-        
-        await bot.sendMessage(msg.chat.id, message);
-        
-        // Пробуем скачать
-        const fileResponse = await axios.get(linkResponse.data.href, {
-            timeout: 10000
-        });
-        
-        await bot.sendMessage(msg.chat.id, `✅ Файл скачан! Размер: ${fileResponse.data.length} символов`);
-        
-    } catch (error) {
-        await bot.sendMessage(msg.chat.id, `❌ Ошибка: ${error.message}`);
-    }
-});
-
 // 🐛 ДЕТАЛЬНЫЙ ДЕБАГ
 bot.onText(/\/debug_stats/, async (msg) => {
     if (msg.from.id !== 699140291) return;
@@ -2141,6 +2110,80 @@ bot.onText(/\/debug_stats_detail/, async (msg) => {
     }
 });
 
+// 📊 СТАТИСТИКА - АДМИНСКИЕ КОМАНДЫ
+
+// 📊 ПРОВЕРКА ТЕКУЩЕЙ СТАТИСТИКИ В ПАМЯТИ
+bot.onText(/\/current_stats/, async (msg) => {
+    if (msg.from.id !== 699140291) return;
+    
+    let message = '📊 СТАТИСТИКА В ПАМЯТИ:\n\n';
+    message += `👥 Пользователей: ${globalStats.totalUsers}\n`;
+    message += `📸 Фото: ${globalStats.totalPhotos}\n`;
+    message += `🔍 Анализов: ${globalStats.totalAnalyses}\n`;
+    message += `📋 Сессий: ${globalStats.sessionsStarted}\n`;
+    message += `🔄 Сравнений: ${globalStats.comparisonsMade}\n\n`;
+    message += `👤 Активных пользователей: ${userStats.size}`;
+    
+    await bot.sendMessage(msg.chat.id, message);
+});
+
+// 💾 ПРИНУДИТЕЛЬНОЕ СОХРАНЕНИЕ СТАТИСТИКИ
+bot.onText(/\/force_save_stats/, async (msg) => {
+    if (msg.from.id !== 699140291) return;
+    
+    await bot.sendMessage(msg.chat.id, '💾 Принудительно сохраняю статистику...');
+    saveStats();
+    await bot.sendMessage(msg.chat.id, '✅ Статистика сохранена в облако');
+});
+
+// 🔄 ПРОВЕРКА ЗАГРУЗКИ СТАТИСТИКИ
+bot.onText(/\/test_stats_load/, async (msg) => {
+    if (msg.from.id !== 699140291) return;
+    
+    try {
+        await bot.sendMessage(msg.chat.id, '🔄 Тестирую загрузку статистики...');
+        
+        const success = await loadStatsFromPublicLink();
+        if (success) {
+            let message = '✅ Статистика загружена!\n\n';
+            message += `👥 Пользователей: ${globalStats.totalUsers}\n`;
+            message += `📸 Фото: ${globalStats.totalPhotos}\n`;
+            message += `🔍 Анализов: ${globalStats.totalAnalyses}\n`;
+            message += `📋 Сессий: ${globalStats.sessionsStarted}\n`;
+            message += `🔄 Сравнений: ${globalStats.comparisonsMade}`;
+            
+            await bot.sendMessage(msg.chat.id, message);
+        } else {
+            await bot.sendMessage(msg.chat.id, '❌ Не удалось загрузить статистику');
+        }
+    } catch (error) {
+        await bot.sendMessage(msg.chat.id, `💥 Ошибка: ${error.message}`);
+    }
+});
+
+// 🐛 ДЕБАГ ССЫЛКИ
+bot.onText(/\/debug_link/, async (msg) => {
+    if (msg.from.id !== 699140291) return;
+    
+    try {
+        await bot.sendMessage(msg.chat.id, '🔗 Тестирую ссылку...');
+        
+        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
+        
+        const linkResponse = await axios.get(apiUrl, {
+            timeout: 10000
+        });
+        
+        let message = '✅ Ссылка получена!\n\n';
+        message += `🔗 URL: ${linkResponse.data.href.substring(0, 100)}...\n`;
+        message += `📏 Длина: ${linkResponse.data.href.length} символов`;
+        
+        await bot.sendMessage(msg.chat.id, message);
+        
+    } catch (error) {
+        await bot.sendMessage(msg.chat.id, `❌ Ошибка: ${error.message}`);
+    }
+});
 
     
 // 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖
