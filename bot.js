@@ -165,61 +165,6 @@ async function loadStatsFromPublicLink() {
 }
 
 
-// 📥 ЗАГРУЗКА СТАТИСТИКИ ПО ПРЯМОЙ ССЫЛКЕ
-async function loadStatsFromPublicLink() {
-    try {
-        console.log('🔄 Загрузка статистики по публичной ссылке...');
-       
-        // ТВОЯ ПУБЛИЧНАЯ ССЫЛКА (конвертированная для скачивания)
-        const downloadUrl = "https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg&path=/stats.json";
-       
-        // 1. Получаем прямую ссылку для скачивания
-        const linkResponse = await axios.get(downloadUrl, {
-            timeout: 10000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json'
-            }
-        });
-       
-        if (!linkResponse.data.href) {
-            throw new Error('Не получена ссылка для скачивания');
-        }
-       
-        console.log('📥 Получена прямая ссылка для скачивания');
-       
-        // 2. Скачиваем файл
-        const fileResponse = await axios.get(linkResponse.data.href, {
-            timeout: 10000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        });
-       
-        console.log('✅ Файл скачан, размер:', fileResponse.data.length, 'символов');
-       
-        // 3. Парсим данные
-        const remoteStats = fileResponse.data;
-       
-        // 4. Обновляем статистику
-        Object.assign(globalStats, remoteStats.global);
-        userStats.clear();
-        remoteStats.users.forEach(([userId, userData]) => {
-            userStats.set(userId, userData);
-        });
-       
-        console.log('🎯 Статистика загружена из облака');
-        return true;
-       
-    } catch (error) {
-        console.log('❌ Ошибка загрузки по публичной ссылке:', error.message);
-        if (error.response) {
-            console.log('Детали ошибки:', error.response.data);
-        }
-        return false;
-    }
-}
-
 // АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
 setInterval(saveStats, 5 * 60 * 1000);
 
@@ -2429,24 +2374,26 @@ bot.on('photo', async (msg) => {
 // 🟢               HTTP СЕРВЕР ДЛЯ RENDER                             🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
-// 🟢 ВРЕМЕННО ОТКЛЮЧАЕМ EXPRESS ДЛЯ ДЕПЛОЯ
-/*
+// 🟢 ВКЛЮЧИТЬ Express сервер для Render
 const app = express();
 app.use(express.json());
+
 app.get('/', (req, res) => {
-  res.send('🤖 Shoe Analyzer Bot is running!');
+  res.send('🤖 Shoe Analyzer Bot is running!');
 });
+
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    bot: 'running',
-    timestamp: new Date().toISOString()
-  });
+  res.json({
+    status: 'OK',
+    bot: 'running',
+    timestamp: new Date().toISOString()
+  });
 });
-app.listen(process.env.PORT || 10000, () => {
-  console.log('🟢 HTTP server running');
-});
-*/
+
+app.listen(PORT, () => {
+  console.log(`🟢 HTTP server running on port ${PORT}`);
+}); 
+    
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢               ИНИЦИАЛИЗАЦИЯ БОТА                                🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
