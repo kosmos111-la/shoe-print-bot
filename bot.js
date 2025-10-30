@@ -272,32 +272,6 @@ function extractFeatures(predictions) {
     return features;
 }
 
-function extractFeatures(predictions) {
-    const features = {
-        detailCount: 0,
-        hasOutline: false,
-        largeDetails: 0
-    };
-
-    predictions.forEach(pred => {
-        features.detailCount++;
-       
-        if (pred.class === 'Outline-trail') {
-            features.hasOutline = true;
-        }
-       
-        // Считаем крупные детали (площадь > 1000px²)
-        if (pred.points && pred.points.length > 5) {
-            const bbox = calculateBoundingBox(pred.points);
-            const area = bbox.width * bbox.height;
-            if (area > 1000) {
-                features.largeDetails++;
-            }
-        }
-    });
-
-    return features;
-}
 
 // =============================================================================
 // 🎨 ВИЗУАЛИЗАЦИЯ (БЕЗ ПОДПИСЕЙ)
@@ -368,24 +342,6 @@ async function createAnalysisVisualization(imageUrl, predictions, userData = {})
         console.log('❌ Ошибка визуализации:', error.message);
         return null;
     }
-}
-
-// После основной визуализации ДОБАВЬТЕ ЭТОТ БЛОК:
-
-console.log('🔍 Пытаюсь создать скелетную визуализацию...');
-try {
-    const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
-    if (skeletonPath) {
-        console.log('✅ Скелетная визуализация создана, отправляю...');
-        await bot.sendPhoto(chatId, skeletonPath, {
-            caption: `🦴 Скелет структуры (центры деталей и связи)`
-        });
-        fs.unlinkSync(skeletonPath);
-    } else {
-        console.log('❌ Скелетная визуализация не создана (вернула null)');
-    }
-} catch (error) {
-    console.error('💥 Ошибка при создании скелетной визуализации:', error);
 }
 
 // =============================================================================
