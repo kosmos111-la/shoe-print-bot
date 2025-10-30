@@ -120,56 +120,52 @@ function saveStats() {
 }
 
 async function loadStatsFromPublicLink() {
-    try {
-        console.log('🔄 Загрузка статистики по публичной ссылке...');
-        
-        // Получаем ссылку для скачивания
-        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
-        
-        console.log('📥 Получаем ссылку для скачивания...');
-        
-        const linkResponse = await axios.get(apiUrl, {
-            timeout: 10000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        });
-        
-        console.log('✅ Получена ссылка для скачивания');
-        
-        // Скачиваем файл по полученной ссылке
-        const fileResponse = await axios.get(linkResponse.data.href, {
-            timeout: 10000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        });
-        
-        console.log('✅ Файл скачан');
-        
-        // Парсим данные
-        const remoteStats = fileResponse.data;
-        
-        // Обновляем статистику
-        Object.assign(globalStats, remoteStats.global);
-        userStats.clear();
-        remoteStats.users.forEach(([userId, userData]) => {
-            userStats.set(userId, userData);
-        });
-        
-        console.log('🎯 Статистика загружена из облака');
-        return true;
-        
-    } catch (error) {
-        console.log('❌ Ошибка загрузки:', error.message);
-        if (error.response) {
-            console.log('Детали:', {
-                status: error.response.status,
-                data: error.response.data
-            });
-        }
-        return false;
-    }
+    try {
+        console.log('🔄 Загрузка статистики по публичной ссылке...');
+       
+        // Получаем ссылку для скачивания
+        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
+       
+        console.log('📥 Получаем ссылку для скачивания...');
+       
+        const linkResponse = await axios.get(apiUrl, {
+            timeout: 10000
+        });
+       
+        console.log('✅ Получена ссылка для скачивания');
+       
+        // Скачиваем файл
+        const fileResponse = await axios.get(linkResponse.data.href, {
+            timeout: 10000,
+            responseType: 'json' // Указываем что ожидаем JSON
+        });
+       
+        console.log('✅ Файл скачан, данные:', fileResponse.data);
+       
+        // Проверяем структуру данных
+        if (!fileResponse.data || !fileResponse.data.global) {
+            throw new Error('Неверный формат файла статистики');
+        }
+       
+        const remoteStats = fileResponse.data;
+       
+        // Обновляем статистику
+        Object.assign(globalStats, remoteStats.global);
+        userStats.clear();
+        remoteStats.users.forEach(([userId, userData]) => {
+            userStats.set(userId, userData);
+        });
+       
+        console.log('🎯 Статистика загружена из облака');
+        return true;
+       
+    } catch (error) {
+        console.log('❌ Ошибка загрузки:', error.message);
+        if (error.response) {
+            console.log('Тип ответа:', typeof error.response.data);
+        }
+        return false;
+    }
 }
 
 // 📥 ЗАГРУЗКА СТАТИСТИКИ ПО ПРЯМОЙ ССЫЛКЕ
@@ -2080,6 +2076,41 @@ bot.onText(/\/debug_link/, async (msg) => {
     }
 });
 
+// 🐛 ДЕТАЛЬНЫЙ ДЕБАГ
+bot.onText(/\/debug_stats/, async (msg) => {
+    if (msg.from.id !== 699140291) return;
+   
+    try {
+        await bot.sendMessage(msg.chat.id, '🔍 Детальный дебаг статистики...');
+       
+        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
+       
+        const linkResponse = await axios.get(apiUrl);
+        await bot.sendMessage(msg.chat.id, '✅ Ссылка получена');
+       
+        // Пробуем скачать с разными настройками
+        const fileResponse = await axios.get(linkResponse.data.href, {
+            responseType: 'json'
+        });
+       
+        let message = '📊 ДАННЫЕ ФАЙЛА:\n\n';
+        message += `📏 Тип: ${typeof fileResponse.data}\n`;
+        message += `🔍 Ключи: ${Object.keys(fileResponse.data || {}).join(', ')}\n`;
+       
+        if (fileResponse.data && fileResponse.data.global) {
+            message += `\n✅ СТАТИСТИКА:\n`;
+            message += `👥 Пользователей: ${fileResponse.data.global.totalUsers}\n`;
+            message += `📸 Фото: ${fileResponse.data.global.totalPhotos}\n`;
+        } else {
+            message += `\n❌ Неверный формат данных`;
+            message += `\nПример данных: ${JSON.stringify(fileResponse.data).substring(0, 200)}...`;
+        }
+       
+        await bot.sendMessage(msg.chat.id, message);
+       
+    } catch (error) {
+        await bot.sendMessage(msg.chat.id, `❌ Ошибка: ${error.message}\nДанные: ${error.response?.data ? 'есть' : 'нет'}`);
+    }
 
 // 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖
 // 🤖               ОБРАБОТКА ФОТО - PHOTO PROCESSING                  🤖
@@ -2323,6 +2354,9 @@ bot.on('photo', async (msg) => {
         console.log('Photo error:', error.message);
     }
 });
+
+
+
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢               HTTP СЕРВЕР ДЛЯ RENDER                             🟢
