@@ -109,16 +109,16 @@ bot.onText(/\/help/, (msg) => {
     );
 });
 
- 💾 КОМАНДЫ ДЛЯ РАБОТЫ С ЭТАЛОНАМИ
-// 💾 КОМАНДА /save_reference БЕЗ ПАРАМЕТРОВ
+// КОМАНДЫ ДЛЯ РАБОТЫ С ЭТАЛОНАМИ
+
 bot.onText(/\/save_reference$/, async (msg) => {
     const chatId = msg.chat.id;
     
     await bot.sendMessage(chatId,
-        '💾 **СОХРАНЕНИЕ ЭТАЛОННОГО ОТПЕЧАТКА**\n\n' +
-        '📝 **Укажите название модели через пробел:**\n' +
-        'Пример: `/save_reference Nike_Air_Max_90`\n\n' +
-        '💡 **Рекомендации:**\n' +
+        '💾 СОХРАНЕНИЕ ЭТАЛОННОГО ОТПЕЧАТКА\n\n' +
+        '📝 Укажите название модели через пробел:\n' +
+        'Пример: /save_reference Nike_Air_Max_90\n\n' +
+        '💡 Рекомендации:\n' +
         '• Фото чистой подошвы сверху\n' +
         '• Хорошее освещение без теней\n' +
         '• Четкий фокус на протекторе\n' +
@@ -126,76 +126,64 @@ bot.onText(/\/save_reference$/, async (msg) => {
         '❌ Для отмены: /cancel'
     );
 });
-bot.onText(/\/save_reference$/, async (msg) => {
-    const chatId = msg.chat.id;
-    await bot.sendMessage(chatId,
-        '💾 **СОХРАНЕНИЕ ЭТАЛОНА**\n\n' +
-        'Отправьте команду в формате:\n' +
-        '`/save_reference Название_Модели`\n\n' +
-        'Пример:\n' +
-        '`/save_reference Nike_Air_Max`\n' +
-        '`/save_reference Adidas_Ultraboost`'
-    );
-});
 
 bot.onText(/\/save_reference (.+)/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const modelName = match[1].trim();
-    const session = getSession(chatId);
+    const chatId = msg.chat.id;
+    const modelName = match[1].trim();
+    const session = getSession(chatId);
 
-    if (modelName.length < 2) {
-        await bot.sendMessage(chatId, '❌ Название модели слишком короткое');
-        return;
-    }
+    if (modelName.length < 2) {
+        await bot.sendMessage(chatId, '❌ Название модели слишком короткое');
+        return;
+    }
 
-    session.waitingForReference = modelName;
-   
-    await bot.sendMessage(chatId,
-        `💾 Сохраняю эталон: "${modelName}"\n\n` +
-        '📸 **Отправьте фото подошвы:**\n' +
-        '• Чистая подошва, вид сверху\n' +
-        '• Хорошее освещение\n' +
-        '• Максимальная детализация\n\n' +
-        '❌ Для отмены: /cancel'
-    );
+    session.waitingForReference = modelName;
+    
+    await bot.sendMessage(chatId,
+        '💾 Сохраняю эталон: "' + modelName + '"\n\n' +
+        '📸 Отправьте фото подошвы:\n' +
+        '• Чистая подошва, вид сверху\n' +
+        '• Хорошее освещение\n' +
+        '• Максимальная детализация\n\n' +
+        '❌ Для отмены: /cancel'
+    );
 });
 
 bot.onText(/\/list_references/, async (msg) => {
-    const chatId = msg.chat.id;
+    const chatId = msg.chat.id;
 
-    if (referencePrints.size === 0) {
-        await bot.sendMessage(chatId,
-            '📝 **СПИСОК ЭТАЛОНОВ ПУСТ**\n\n' +
-            'Для добавления эталонов:\n' +
-            '`/save_reference Название_Модели`'
-        );
-        return;
-    }
+    if (referencePrints.size === 0) {
+        await bot.sendMessage(chatId,
+            '📝 СПИСОК ЭТАЛОНОВ ПУСТ\n\n' +
+            'Для добавления эталонов:\n' +
+            '/save_reference Название_Модели'
+        );
+        return;
+    }
 
-    let list = '📝 **СОХРАНЕННЫЕ ЭТАЛОНЫ:**\n\n';
-    let counter = 1;
+    let list = '📝 СОХРАНЕННЫЕ ЭТАЛОНЫ:\n\n';
+    let counter = 1;
 
-    referencePrints.forEach((ref, modelName) => {
-        const date = ref.timestamp.toLocaleDateString('ru-RU');
-        const details = ref.features ? ref.features.detailCount : '?';
-        list += `${counter}. **${modelName}**\n`;
-        list += `   📅 ${date} | 🔵 ${details} дет.\n\n`;
-        counter++;
-    });
+    referencePrints.forEach((ref, modelName) => {
+        const date = ref.timestamp.toLocaleDateString('ru-RU');
+        const details = ref.features ? ref.features.detailCount : '?';
+        list += counter + '. ' + modelName + '\n';
+        list += '   📅 ' + date + ' | 🔵 ' + details + ' дет.\n\n';
+        counter++;
+    });
 
-    await bot.sendMessage(chatId, list);
+    await bot.sendMessage(chatId, list);
 });
 
 bot.onText(/\/cancel/, (msg) => {
-    const chatId = msg.chat.id;
-    const session = getSession(chatId);
-   
-    session.waitingForReference = null;
-    session.waitingForComparison = null;
-   
-    bot.sendMessage(chatId, '❌ Операция отменена');
+    const chatId = msg.chat.id;
+    const session = getSession(chatId);
+    
+    session.waitingForReference = null;
+    session.waitingForComparison = null;
+    
+    bot.sendMessage(chatId, '❌ Операция отменена');
 });
-
 // 🟢 КОМАНДА ДЛЯ СБРОСА WEBHOOK
 bot.onText(/\/reset_webhook/, async (msg) => {
     try {
