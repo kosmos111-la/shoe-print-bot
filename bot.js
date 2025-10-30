@@ -70,7 +70,7 @@ function updateUserStats(userId, username, action = 'photo') {
             globalStats.comparisonsMade++;
             break;
     }
-   
+
     // 🔄 АВТОСОХРАНЕНИЕ ПРИ КАЖДОМ ИЗМЕНЕНИИ
     saveStats();
 }
@@ -97,77 +97,75 @@ function saveStats() {
             users: Array.from(userStats.entries()),
             timestamp: new Date().toISOString()
         };
-       
+
         const statsJson = JSON.stringify(statsData, null, 2);
-       
+
         // 🔄 СОХРАНЯЕМ ТОЛЬКО В YANDEX DISK
         if (yandexDisk) {
             setTimeout(async () => {
                 try {
                     const tempStatsPath = 'stats_backup.json';
                     fs.writeFileSync(tempStatsPath, statsJson);
-                   
+
                     await yandexDisk.uploadFile(tempStatsPath, 'stats.json');
                     console.log('✅ Статистика сохранена в Яндекс.Диск');
-                   
+
                     fs.unlinkSync(tempStatsPath);
                 } catch (driveError) {
                     console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
                 }
             }, 1000);
         }
-       
+
     } catch (error) {
         console.log('❌ Ошибка сохранения статистики:', error.message);
     }
 }
 
 async function loadStatsFromPublicLink() {
-    try {
-        console.log('🔄 Загрузка статистики по публичной ссылке...');
-        
-        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
-        
-        const linkResponse = await axios.get(apiUrl, { timeout: 10000 });
-        console.log('✅ Получена ссылка для скачивания');
-        
-        // Скачиваем как текст сначала
-        const fileResponse = await axios.get(linkResponse.data.href, {
-            timeout: 10000,
-            responseType: 'text'
-        });
-        
-        console.log('📥 Файл скачан, длина:', fileResponse.data.length);
-        
-        // Пробуем распарсить JSON
-        const remoteStats = JSON.parse(fileResponse.data);
-        
-        // Проверяем структуру
-        if (!remoteStats.global) {
-            throw new Error('Неверная структура файла статистики');
-        }
-        
-        // Обновляем статистику
-        Object.assign(globalStats, remoteStats.global);
-        userStats.clear();
-        remoteStats.users.forEach(([userId, userData]) => {
-            userStats.set(userId, userData);
-        });
-        
-        console.log('🎯 Статистика загружена из облака');
-        return true;
-        
-    } catch (error) {
-        console.log('❌ Ошибка загрузки:', error.message);
-        console.log('Если это ошибка парсинга, файл может быть в неправильном формате');
-        return false;
-    }
-}
+    try {
+        console.log('🔄 Загрузка статистики по публичной ссылке...');
 
+        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
+
+        const linkResponse = await axios.get(apiUrl, { timeout: 10000 });
+        console.log('✅ Получена ссылка для скачивания');
+
+        // Скачиваем как текст сначала
+        const fileResponse = await axios.get(linkResponse.data.href, {
+            timeout: 10000,
+            responseType: 'text'
+        });
+
+        console.log('📥 Файл скачан, длина:', fileResponse.data.length);
+
+        // Пробуем распарсить JSON
+        const remoteStats = JSON.parse(fileResponse.data);
+
+        // Проверяем структуру
+        if (!remoteStats.global) {
+            throw new Error('Неверная структура файла статистики');
+        }
+
+        // Обновляем статистику
+        Object.assign(globalStats, remoteStats.global);
+        userStats.clear();
+        remoteStats.users.forEach(([userId, userData]) => {
+            userStats.set(userId, userData);
+        });
+
+        console.log('🎯 Статистика загружена из облака');
+        return true;
+
+    } catch (error) {
+        console.log('❌ Ошибка загрузки:', error.message);
+        console.log('Если это ошибка парсинга, файл может быть в неправильном формате');
+        return false;
+    }
+}
 
 // АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
 setInterval(saveStats, 5 * 60 * 1000);
-
 
 // 🎯 НАСТРОЙКИ СРЕДЫ
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -179,45 +177,100 @@ const TELEGRAM_TOKEN = IS_PRODUCTION
 
 // 🎯 ИНИЦИАЛИЗАЦИЯ БОТА
 let bot = new TelegramBot(TELEGRAM_TOKEN, {
-    polling: {
-        interval: 1000,
-        params: {
-            timeout: 10,
-            allowed_updates: []
-        }
-    }
+    polling: {
+        interval: 1000,
+        params: {
+            timeout: 10,
+            allowed_updates: []
+        }
+    }
 });
 console.log('✅ Бот инициализирован в polling режиме');
 
-// 🛡 УЛУЧШЕННАЯ ОБРАБОТКА ОШИБКИ 409
-let conflictCount = 0;
-const MAX_CONFLICTS = 3;
+// 🟢 ИСПРАВЛЕННАЯ ОБРАБОТКА POLLING ОШИБОК
+let isRestarting = false;
 
 bot.on('polling_error', (error) => {
-    const isConflictError =
-        (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) ||
-        error.message.includes('409');
-
-    if (isConflictError) {
-        conflictCount++;
-        console.log(`🔄 Конфликт polling (409) - попытка ${conflictCount}/${MAX_CONFLICTS}`);
-
-        if (conflictCount >= MAX_CONFLICTS) {
-            console.log('🚨 Превышено количество конфликтов, перезапускаем polling...');
-            setTimeout(() => {
-                bot.stopPolling();
+    const isConflictError = error.message.includes('409');
+   
+    if (isConflictError && !isRestarting) {
+        console.log('🔄 Обнаружен конфликт polling, жду 10 секунд...');
+        isRestarting = true;
+       
+        setTimeout(async () => {
+            try {
+                await bot.stopPolling();
+                console.log('✅ Polling остановлен');
+               
+                // Ждем 5 секунд
+                await new Promise(resolve => setTimeout(resolve, 5000));
+               
+                bot.startPolling();
+                console.log('✅ Polling перезапущен');
+               
+                // Сбрасываем флаг через 30 секунд
                 setTimeout(() => {
-                    bot.startPolling();
-                    conflictCount = 0;
-                    console.log('✅ Polling перезапущен');
-                }, 2000);
-            }, 1000);
-        }
-        return;
+                    isRestarting = false;
+                    console.log('🔄 Готов к новым перезапускам');
+                }, 30000);
+               
+            } catch (restartError) {
+                console.log('❌ Ошибка перезапуска:', restartError.message);
+                isRestarting = false;
+            }
+        }, 10000); // Ждем 10 секунд перед перезапуском
     }
-
-    console.log('📡 Polling error:', error.message);
+   
+    if (!isConflictError) {
+        console.log('📡 Polling error:', error.message);
+    }
 });
+
+// 🟢 ЗАГРУЗКА СТАТИСТИКИ ПОСЛЕ УСПЕШНОГО POLLING
+bot.on('polling', () => {
+    console.log('✅ Polling запущен успешно, загружаю статистику...');
+    loadStatsOnStartup();
+});
+
+async function loadStatsOnStartup() {
+    try {
+        console.log('🔄 Загрузка статистики при старте...');
+       
+        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg&path=/stats.json`;
+       
+        const linkResponse = await axios.get(apiUrl, {
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+
+        if (linkResponse.data.href) {
+            const fileResponse = await axios.get(linkResponse.data.href, {
+                timeout: 10000,
+                responseType: 'text'
+            });
+
+            const remoteStats = JSON.parse(fileResponse.data);
+           
+            // ОБНОВЛЯЕМ СТАТИСТИКУ В ПАМЯТИ
+            Object.assign(globalStats, remoteStats.global);
+            userStats.clear();
+           
+            if (remoteStats.users && Array.isArray(remoteStats.users)) {
+                remoteStats.users.forEach(([userId, userData]) => {
+                    userStats.set(userId, userData);
+                });
+            }
+           
+            console.log('✅ Статистика загружена при старте:');
+            console.log(`   👥 Пользователей: ${globalStats.totalUsers}`);
+            console.log(`   📸 Фото: ${globalStats.totalPhotos}`);
+        }
+    } catch (error) {
+        console.log('❌ Ошибка загрузки статистики при старте:', error.message);
+    }
+}
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢                  СИСТЕМА СЕССИЙ И ХРАНИЛИЩА DATA                   🟢
@@ -2405,25 +2458,6 @@ app.listen(PORT, () => {
 //    console.log('💥 Ошибка инициализации статистики:', err.message);
 //});
 
-async function initializeBot() {
-    try {
-        console.log('🔄 Starting bot polling...');
-       
-        // Простая инициализация polling
-        bot.startPolling();
-       
-        console.log('✅ Bot polling started successfully');
-        console.log('🚀 Bot is ready!');
-       
-    } catch (error) {
-        console.log('❌ Bot initialization error:', error.message);
-        // Перезапуск через 10 секунд при ошибке
-        setTimeout(initializeBot, 10000);
-    }
-}
-
-// Запускаем бота
-initializeBot().catch(console.error);
 
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢               АНТИ-СОН СИСТЕМА ДЛЯ RENDER                        🟢
