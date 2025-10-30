@@ -370,6 +370,135 @@ async function createAnalysisVisualization(imageUrl, predictions, userData = {})
     }
 }
 
+/ =============================================================================
+// 🦴 ВИЗУАЛИЗАЦИЯ "СКЕЛЕТ СЛЕДА" - ЦЕНТРЫ ДЕТАЛЕЙ ПРОТЕКТОРА
+// =============================================================================
+
+async function createSkeletonVisualization(imageUrl, predictions, userData) {
+    try {
+        console.log('🦴 Создаю скелетную визуализацию...');
+       
+        // Загружаем изображение
+        const image = await loadImage(imageUrl);
+        const canvas = createCanvas(image.width, image.height);
+        const ctx = canvas.getContext('2d');
+
+        // Рисуем оригинальное изображение с полупрозрачностью
+        ctx.globalAlpha = 0.3;
+        ctx.drawImage(image, 0, 0);
+        ctx.globalAlpha = 1.0;
+
+        // ФИЛЬТРУЕМ: ТОЛЬКО ДЕТАЛИ ПРОТЕКТОРА (исключаем пятку, носок, контур)
+        const details = predictions.filter(pred =>
+            pred.class === 'shoe-protector' // ТОЛЬКО элементы протектора
+        );
+
+        console.log(`🦴 Найдено ${details.length} деталей протектора для скелета`);
+
+        // Вычисляем центры деталей протектора
+        const centers = details.map(pred => {
+            const bbox = calculateBoundingBox(pred.points);
+            return {
+                x: bbox.x + bbox.width / 2,
+                y: bbox.y + bbox.height / 2,
+                class: pred.class,
+                confidence: pred.confidence,
+                points: pred.points
+            };
+        });
+
+        // 1. РИСУЕМ СВЯЗИ МЕЖДУ ЦЕНТРАМИ ДЕТАЛЕЙ
+        ctx.strokeStyle = 'rgba(255, 50, 50, 0.6)';
+        ctx.lineWidth = 1;
+       
+        // Соединяем центры в пределах разумного расстояния
+        const MAX_DISTANCE = Math.min(image.width, image.height) * 0.2;
+       
+        for (let i = 0; i < centers.length; i++) {
+            for (let j = i + 1; j < centers.length; j++) {
+                const dist = Math.sqrt(
+                    Math.pow(centers[i].x - centers[j].x, 2) +
+                    Math.pow(centers[i].y - centers[j].y, 2)
+                );
+               
+                if (dist < MAX_DISTANCE) {
+                    ctx.beginPath();
+                    ctx.moveTo(centers[i].x, centers[i].y);
+                    ctx.lineTo(centers[j].x, centers[j].y);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // 2. РИСУЕМ ЦЕНТРАЛЬНЫЕ ТОЧКИ ДЕТАЛЕЙ ПРОТЕКТОРА
+        centers.forEach(center => {
+            // Оранжевые точки для деталей протектора
+            const color = 'orange';
+            const radius = 4;
+
+            // Точка центра
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Обводка точки
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        });
+
+        // 3. ДОБАВЛЯЕМ КОНТУР СЛЕДА (если есть)
+        const outline = predictions.find(pred =>
+            pred.class === 'Outline-trail' || pred.class.includes('Outline')
+        );
+       
+        if (outline && outline.points) {
+            ctx.strokeStyle = 'rgba(0, 0, 255, 0.5)';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([5, 5]);
+           
+            ctx.beginPath();
+            ctx.moveTo(outline.points[0].x, outline.points[0].y);
+           
+            for (let i = 1; i < outline.points.length; i++) {
+                ctx.lineTo(outline.points[i].x, outline.points[i].y);
+            }
+           
+            ctx.closePath();
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // 4. ДОБАВЛЯЕМ ИНФОРМАЦИЮ
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 24px Arial';
+        ctx.fillText(`🦴 Скелет структуры протектора`, 20, 40);
+       
+        ctx.font = '18px Arial';
+        ctx.fillText(`Детали протектора: ${details.length}`, 20, 70);
+        ctx.fillText(`Узлы: ${centers.length}`, 20, 95);
+
+        // Легенда
+        const legendY = image.height - 80;
+        ctx.fillText('Легенда:', 20, legendY);
+        ctx.fillText('🟠 Детали протектора', 20, legendY + 25);
+        ctx.fillText('🔵 Контур следа', 20, legendY + 50);
+
+        // Сохраняем файл
+        const tempPath = `skeleton_${Date.now()}.png`;
+        const buffer = canvas.toBuffer('image/png');
+        fs.writeFileSync(tempPath, buffer);
+
+        console.log('✅ Скелетная визуализация создана');
+        return tempPath;
+
+    } catch (error) {
+        console.error('❌ Ошибка создания скелетной визуализации:', error);
+        return null;
+    }
+}
+
 // =============================================================================
 // 💾 СИСТЕМА СЕССИЙ И ЭТАЛОНОВ
 // =============================================================================
@@ -805,7 +934,16 @@ if (session.waitingForComparison) {
                     caption: `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
                 });
                 fs.unlinkSync(vizPath);
-            } else {
+            } 
+            
+            onst skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
+if (skeletonPath) {
+    await bot.sendPhoto(chatId, skeletonPath, {
+        caption: 🦴 Скелет структуры (центры деталей и связи)
+    });
+    fs.unlinkSync(skeletonPath);
+}
+            else {
                 await bot.sendMessage(chatId,
                     `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
                 );
