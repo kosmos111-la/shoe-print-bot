@@ -246,7 +246,6 @@ function compareFootprints(referenceFeatures, footprintFeatures) {
     console.log('📊 Итоговые результаты сравнения:', scores);
     return scores;
 }
-
 // Упрощенная функция извлечения features
 function extractFeatures(predictions) {
     console.log(`📊 Извлекаем features из ${predictions.length} предсказаний`);
