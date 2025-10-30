@@ -101,22 +101,28 @@ function saveStats() {
         const statsJson = JSON.stringify(statsData, null, 2);
 
         // 🔄 СОХРАНЯЕМ ТОЛЬКО В YANDEX DISK
-        if (yandexDisk) {
-            setTimeout(async () => {
-                try {
-                    const tempStatsPath = 'stats_backup.json';
-                    fs.writeFileSync(tempStatsPath, statsJson);
+if (yandexDisk) {
+    setTimeout(async () => {
+        try {
+            const tempStatsPath = 'stats_backup.json';
+            fs.writeFileSync(tempStatsPath, statsJson);
 
-                    await yandexDisk.uploadFile(tempStatsPath, 'stats.json');
-                    console.log('✅ Статистика сохранена в Яндекс.Диск');
+            await yandexDisk.uploadFile(tempStatsPath, 'stats.json');
+            console.log('✅ Статистика сохранена в Яндекс.Диск');
 
+            // ИСПРАВЛЕННАЯ СТРОЧКА:
+            try {
+                if (fs.existsSync(tempStatsPath)) {
                     fs.unlinkSync(tempStatsPath);
-                } catch (driveError) {
-                    console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
                 }
-            }, 1000);
+            } catch (unlinkError) {
+                // Игнорируем ошибку удаления
+            }
+        } catch (driveError) {
+            console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
         }
-
+    }, 1000);
+}
     } catch (error) {
         console.log('❌ Ошибка сохранения статистики:', error.message);
     }
@@ -186,6 +192,17 @@ let bot = new TelegramBot(TELEGRAM_TOKEN, {
     }
 });
 console.log('✅ Бот инициализирован в polling режиме');
+
+// 🟢 ПРОСТАЯ ЗАГРУЗКА СТАТИСТИКИ ПРИ СТАРТЕ
+setTimeout(async () => {
+    console.log('🔄 Загружаю статистику при старте...');
+    try {
+        await loadStatsFromPublicLink();
+        console.log('✅ Статистика загружена при старте');
+    } catch (error) {
+        console.log('❌ Ошибка загрузки статистики:', error.message);
+    }
+}, 5000);
 
 // 🟢 ИСПРАВЛЕННАЯ ОБРАБОТКА POLLING ОШИБОК
 let isRestarting = false;
@@ -2427,14 +2444,13 @@ bot.on('photo', async (msg) => {
 // 🟢               HTTP СЕРВЕР ДЛЯ RENDER                             🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
-// 🟢 ВКЛЮЧИТЬ Express сервер для Render
+// 🟢 ВРЕМЕННО ОТКЛЮЧАЕМ EXPRESS ДЛЯ RENDER
+/*
 const app = express();
 app.use(express.json());
-
 app.get('/', (req, res) => {
   res.send('🤖 Shoe Analyzer Bot is running!');
 });
-
 app.get('/health', (req, res) => {
   res.json({
     status: 'OK',
@@ -2442,10 +2458,10 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
-
-app.listen(PORT, () => {
-  console.log(`🟢 HTTP server running on port ${PORT}`);
-}); 
+app.listen(process.env.PORT || 10000, () => {
+  console.log('🟢 HTTP server running');
+});
+*/
     
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢               ИНИЦИАЛИЗАЦИЯ БОТА                                🟢
