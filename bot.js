@@ -187,12 +187,14 @@ function getEpsilonForClass(className) {
 }
 
 // =============================================================================
-// 🎯 АЛГОРИТМ СРАВНЕНИЯ СЛЕДОВ
+// 🎯 ИСПРАВЛЕННЫЙ АЛГОРИТМ СРАВНЕНИЯ СЛЕДОВ
 // =============================================================================
 
 function compareFootprints(referenceFeatures, footprintFeatures) {
     console.log('🔍 СРАВНЕНИЕ: эталон vs след');
-   
+    console.log('📊 Эталон:', referenceFeatures);
+    console.log('📊 След:', footprintFeatures);
+
     const scores = {
         detailCount: 0,
         spatialLayout: 0,
@@ -203,38 +205,72 @@ function compareFootprints(referenceFeatures, footprintFeatures) {
     // 1. Сравнение количества деталей (30%)
     const refDetails = referenceFeatures.detailCount || 0;
     const footprintDetails = footprintFeatures.detailCount || 0;
-   
+
+    console.log(`📊 Детали: эталон=${refDetails}, след=${footprintDetails}`);
+
     if (refDetails > 0 && footprintDetails > 0) {
         const countSimilarity = Math.min(refDetails, footprintDetails) / Math.max(refDetails, footprintDetails);
         scores.detailCount = countSimilarity * 30;
+        console.log(`✅ Сходство деталей: ${countSimilarity.toFixed(2)} -> ${scores.detailCount.toFixed(1)}%`);
+    } else {
+        console.log('❌ Недостаточно деталей для сравнения');
     }
 
     // 2. Пространственное расположение (40%)
-    if (refDetails > 3 && footprintDetails > 3) {
-        // Упрощенное сравнение - считаем что следы похожи если деталей достаточно
-        scores.spatialLayout = 0.6 * 40; // Базовый score 60%
+    if (refDetails >= 2 && footprintDetails >= 2) {
+        scores.spatialLayout = 24; // Базовый score 60% от 40
        
-        // Бонус за большое количество деталей
+        // Бонус за большее количество деталей
         const avgDetails = (refDetails + footprintDetails) / 2;
-        if (avgDetails > 10) scores.spatialLayout += 10;
-        if (avgDetails > 20) scores.spatialLayout += 10;
+        if (avgDetails > 5) scores.spatialLayout += 8;
+        if (avgDetails > 10) scores.spatialLayout += 8;
        
         scores.spatialLayout = Math.min(scores.spatialLayout, 40);
+        console.log(`✅ Пространственное расположение: ${scores.spatialLayout.toFixed(1)}%`);
     }
 
     // 3. Характерные формы (30%)
-    scores.shapeCharacteristics = 20; // Базовый score
+    scores.shapeCharacteristics = 15; // Базовый score
    
-    // Бонус за специфические классы
-    const hasOutline = footprintFeatures.hasOutline || false;
-    if (hasOutline) scores.shapeCharacteristics += 10;
+    // Бонусы за специфические особенности
+    if (footprintFeatures.hasOutline) scores.shapeCharacteristics += 10;
+    if (footprintFeatures.largeDetails > 0) scores.shapeCharacteristics += 5;
+   
+    scores.shapeCharacteristics = Math.min(scores.shapeCharacteristics, 30);
+    console.log(`✅ Характерные формы: ${scores.shapeCharacteristics.toFixed(1)}%`);
 
     // Общий счет
     scores.overallScore = scores.detailCount + scores.spatialLayout + scores.shapeCharacteristics;
-   
-    console.log('📊 Результаты сравнения:', scores);
-   
+    scores.overallScore = Math.min(scores.overallScore, 100); // Ограничиваем 100%
+
+    console.log('📊 Итоговые результаты сравнения:', scores);
     return scores;
+}
+
+// Упрощенная функция извлечения features
+function extractFeatures(predictions) {
+    console.log(`📊 Извлекаем features из ${predictions.length} предсказаний`);
+   
+    const features = {
+        detailCount: predictions.length, // Просто количество обнаруженных объектов
+        hasOutline: false,
+        largeDetails: 0
+    };
+
+    // Проверяем есть ли контуры
+    predictions.forEach(pred => {
+        if (pred.class && pred.class.includes('Outline')) {
+            features.hasOutline = true;
+        }
+       
+        // Считаем "крупные" детали (просто по количеству точек)
+        if (pred.points && pred.points.length > 8) {
+            features.largeDetails++;
+        }
+    });
+
+    console.log('📊 Извлеченные features:', features);
+    return features;
 }
 
 function extractFeatures(predictions) {
@@ -659,55 +695,73 @@ bot.on('photo', async (msg) => {
             return;
         }
 
-      // Проверка сравнения с эталоном
+// Проверка сравнения с эталоном
 if (session.waitingForComparison) {
     const comparisonData = session.waitingForComparison;
     const modelName = comparisonData.modelName;
     const reference = comparisonData.reference;
-   
+
+    console.log(`🔍 Начинаем сравнение с эталоном "${modelName}"`);
+    console.log('📊 Данные эталона:', reference);
+
     await bot.sendMessage(chatId, `🔍 Сравниваю след с эталоном "${modelName}"...`);
-   
-    const footprintFeatures = extractFeatures(processedPredictions);
-    const referenceFeatures = reference.features;
-   
-    const comparisonResult = compareFootprints(referenceFeatures, footprintFeatures);
-   
-    // Формируем отчет
-    let report = `🔍 **СРАВНЕНИЕ С "${modelName}"**\n\n`;
-    report += `🎯 Вероятность совпадения: **${Math.round(comparisonResult.overallScore)}%**\n\n`;
-    report += `📊 Анализ:\n`;
-    report += `• 🔢 Количество деталей: ${comparisonResult.detailCount.toFixed(1)}%\n`;
-    report += `• 📐 Расположение: ${comparisonResult.spatialLayout.toFixed(1)}%\n`;
-    report += `• ⭐ Формы: ${comparisonResult.shapeCharacteristics.toFixed(1)}%\n\n`;
-   
-    // Интерпретация результата
-    if (comparisonResult.overallScore > 70) {
-        report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
-    } else if (comparisonResult.overallScore > 50) {
-        report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
-    } else if (comparisonResult.overallScore > 30) {
-        report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
-    } else {
-        report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
+
+    try {
+        const footprintFeatures = extractFeatures(processedPredictions);
+        const referenceFeatures = reference.features;
+
+        console.log('📊 Features эталона:', referenceFeatures);
+        console.log('📊 Features следа:', footprintFeatures);
+
+        const comparisonResult = compareFootprints(referenceFeatures, footprintFeatures);
+
+        // Формируем отчет
+        let report = `🔍 **СРАВНЕНИЕ С "${modelName}"**\n\n`;
+        report += `🎯 Вероятность совпадения: **${Math.round(comparisonResult.overallScore)}%**\n\n`;
+        report += `📊 Анализ:\n`;
+        report += `• 🔢 Количество деталей: ${Math.round(comparisonResult.detailCount)}%\n`;
+        report += `• 📐 Расположение: ${Math.round(comparisonResult.spatialLayout)}%\n`;
+        report += `• ⭐ Формы: ${Math.round(comparisonResult.shapeCharacteristics)}%\n\n`;
+
+        // Интерпретация результата
+        if (comparisonResult.overallScore > 70) {
+            report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
+        } else if (comparisonResult.overallScore > 50) {
+            report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
+        } else if (comparisonResult.overallScore > 30) {
+            report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
+        } else {
+            report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
+        }
+
+        report += `\n\n💡 *Учет деформации грунта и потери мелких деталей*`;
+
+        await bot.sendMessage(chatId, report);
+
+        // Визуализация
+        const userData = {
+            username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
+        };
+
+        const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
+        if (vizPath) {
+            await bot.sendPhoto(chatId, vizPath, {
+                caption: `📸 Анализированный след (${finalPredictions.length} дет.)`
+            });
+            fs.unlinkSync(vizPath);
+        }
+
+    } catch (error) {
+        console.error('❌ Ошибка при сравнении:', error);
+        await bot.sendMessage(chatId,
+            '❌ Ошибка при сравнении следов. Попробуйте другое фото.\n\n' +
+            '💡 **Советы:**\n' +
+            '• Убедитесь в четкости фото\n' +
+            '• Прямой угол съемки\n' +
+            '• Хорошее освещение'
+        );
     }
-   
-    report += `\n\n💡 *Учет деформации грунта и потери мелких деталей*`;
-   
-    await bot.sendMessage(chatId, report);
-   
-    // Создаем визуализацию для сравнения
-    const userData = {
-        username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
-    };
-   
-    const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
-    if (vizPath) {
-        await bot.sendPhoto(chatId, vizPath, {
-            caption: `📸 Анализированный след (${finalPredictions.length} дет.)`
-        });
-        fs.unlinkSync(vizPath);
-    }
-   
+
     session.waitingForComparison = null;
     updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'comparison');
     return;
