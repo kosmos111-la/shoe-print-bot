@@ -694,6 +694,36 @@ bot.on('photo', async (msg) => {
             return;
         }
 
+
+      
+        // Обычная обработка фото
+        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
+       
+        await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
+       
+        const photo = msg.photo[msg.photo.length - 1];
+        const file = await bot.getFile(photo.file_id);
+        const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${file.file_path}`;
+       
+        await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
+       
+        const response = await axios({
+            method: "POST",
+            url: 'https://detect.roboflow.com/-zqyih/12',
+            params: {
+                api_key: 'NeHOB854EyHkDbGGLE6G',
+                image: fileUrl,
+                confidence: 25,
+                overlap: 30,
+                format: 'json'
+            },
+            timeout: 30000
+        });
+
+        const predictions = response.data.predictions || [];
+        const processedPredictions = smartPostProcessing(predictions);
+        const finalPredictions = processedPredictions.length > 0 ? processedPredictions : predictions;
+
 // Проверка сравнения с эталоном
 if (session.waitingForComparison) {
     const comparisonData = session.waitingForComparison;
@@ -760,35 +790,7 @@ if (session.waitingForComparison) {
     updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'comparison');
     return;
 }
-      
-        // Обычная обработка фото
-        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
-       
-        await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
-       
-        const photo = msg.photo[msg.photo.length - 1];
-        const file = await bot.getFile(photo.file_id);
-        const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${file.file_path}`;
-       
-        await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
-       
-        const response = await axios({
-            method: "POST",
-            url: 'https://detect.roboflow.com/-zqyih/12',
-            params: {
-                api_key: 'NeHOB854EyHkDbGGLE6G',
-                image: fileUrl,
-                confidence: 25,
-                overlap: 30,
-                format: 'json'
-            },
-            timeout: 30000
-        });
-
-        const predictions = response.data.predictions || [];
-        const processedPredictions = smartPostProcessing(predictions);
-        const finalPredictions = processedPredictions.length > 0 ? processedPredictions : predictions;
-
+          
         if (finalPredictions.length > 0) {
             await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
            
