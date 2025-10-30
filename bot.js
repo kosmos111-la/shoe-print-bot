@@ -2329,11 +2329,11 @@ app.listen(PORT, () => {
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
 // ЗАГРУЗКА СТАТИСТИКИ ПОСЛЕ ИНИЦИАЛИЗАЦИИ YANDEX DISK
-loadStats().then(() => {
-    console.log('🎯 Статистика инициализирована');
-}).catch(err => {
-    console.log('💥 Ошибка инициализации статистики:', err.message);
-});
+// loadStats().then(() => {
+//    console.log('🎯 Статистика инициализирована');
+//}).catch(err => {
+//    console.log('💥 Ошибка инициализации статистики:', err.message);
+//});
 
 async function initializeBot() {
     console.log('🔄 Запуск бота...');
