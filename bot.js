@@ -193,17 +193,6 @@ let bot = new TelegramBot(TELEGRAM_TOKEN, {
 });
 console.log('✅ Бот инициализирован в polling режиме');
 
-// 🟢 ПРОСТАЯ ЗАГРУЗКА СТАТИСТИКИ ПРИ СТАРТЕ
-setTimeout(async () => {
-    console.log('🔄 Загружаю статистику при старте...');
-    try {
-        await loadStatsFromPublicLink();
-        console.log('✅ Статистика загружена при старте');
-    } catch (error) {
-        console.log('❌ Ошибка загрузки статистики:', error.message);
-    }
-}, 5000);
-
 // 🟢 ИСПРАВЛЕННАЯ ОБРАБОТКА POLLING ОШИБОК
 let isRestarting = false;
 
