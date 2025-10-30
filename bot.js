@@ -232,27 +232,17 @@ const TELEGRAM_TOKEN = IS_PRODUCTION
     ? '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI' // для @Sled_la_bot на Render (новый основной)
     : '8071471492:AAE6-qLAeimqu39JD_Ux-6kSy7CSUP2bMck'; // для @Sled_Analizer_bot локально (старый)
 
-// 🎯 ИНИЦИАЛИЗАЦИЯ БОТА С ЗАЩИТОЙ ОТ ДУБЛИРОВАНИЯ
-let bot;
-
-// Защита от двойной инициализации
-if (typeof bot === 'undefined') {
-    bot = new TelegramBot(TELEGRAM_TOKEN, {
-        polling: {
-            interval: 1000,
-            timeout: 10,
-            limit: 1,
-            retryTimeout: 5000,
-            params: {
-                timeout: 10,
-                allowed_updates: []  // Важно для избежания конфликтов
-            }
-        }
-    });
-    console.log('✅ Бот инициализирован');
-} else {
-    console.log('⚠️ Бот уже был инициализирован ранее');
-}
+// 🎯 ИНИЦИАЛИЗАЦИЯ БОТА
+let bot = new TelegramBot(TELEGRAM_TOKEN, {
+    polling: {
+        interval: 1000,
+        params: {
+            timeout: 10,
+            allowed_updates: []
+        }
+    }
+});
+console.log('✅ Бот инициализирован в polling режиме');
 
 // 🛡 УЛУЧШЕННАЯ ОБРАБОТКА ОШИБКИ 409
 let conflictCount = 0;
@@ -2439,32 +2429,24 @@ bot.on('photo', async (msg) => {
 // 🟢               HTTP СЕРВЕР ДЛЯ RENDER                             🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
+// 🟢 ВРЕМЕННО ОТКЛЮЧАЕМ EXPRESS ДЛЯ ДЕПЛОЯ
+/*
 const app = express();
-
 app.use(express.json());
-
 app.get('/', (req, res) => {
-  res.send('🤖 Shoe Analyzer Bot is running!');
+  res.send('🤖 Shoe Analyzer Bot is running!');
 });
-
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    bot: 'running',
-    timestamp: new Date().toISOString(),
-    port: PORT
-  });
+  res.json({
+    status: 'OK',
+    bot: 'running',
+    timestamp: new Date().toISOString()
+  });
 });
-
-// ЯВНО УКАЗЫВАЕМ ПОРТ И ХОСТ
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🟢 HTTP server running on port ${PORT}`);
+app.listen(process.env.PORT || 10000, () => {
+  console.log('🟢 HTTP server running');
 });
-
-app.listen(PORT, () => {
-  console.log(`🟢 HTTP server running on port ${PORT}`);
-});
-
+*/
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢               ИНИЦИАЛИЗАЦИЯ БОТА                                🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
