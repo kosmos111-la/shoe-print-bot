@@ -120,6 +120,115 @@ bot.onText(/\/reset_webhook/, async (msg) => {
     }
 });
 
+// 🧠 УМНАЯ ПОСТОБРАБОТКА - УЛУЧШЕННЫЕ АЛГОРИТМЫ
+
+function smartPostProcessing(predictions) {
+    if (!predictions || predictions.length === 0) return [];
+
+    console.log(`🔧 Умная постобработка: ${predictions.length} объектов`);
+
+    // 1. Фильтрация слишком маленьких объектов
+    const filtered = predictions.filter(pred => {
+        if (!pred.points || pred.points.length < 3) return false;
+       
+        // Рассчитываем площадь bounding box
+        const bbox = calculateBoundingBox(pred.points);
+        const area = bbox.width * bbox.height;
+       
+        // Фильтруем слишком маленькие объекты
+        return area > 100; // минимальная площадь 100px²
+    });
+
+    // 2. Упрощение полигонов (сохраняя острые углы)
+    const optimized = filtered.map(pred => {
+        if (pred.points.length <= 6) return pred; // Не упрощаем маленькие полигоны
+
+        const optimizedPoints = simplifyPolygon(pred.points, getEpsilonForClass(pred.class));
+       
+        return {
+            ...pred,
+            points: optimizedPoints,
+            originalPoints: pred.points.length,
+            optimizedPoints: optimizedPoints.length
+        };
+    });
+
+    console.log(`✅ После постобработки: ${optimized.length} объектов`);
+    return optimized;
+}
+
+// 🎯 УПРОЩЕНИЕ ПОЛИГОНОВ (алгоритм Дугласа-Пекера)
+function simplifyPolygon(points, epsilon = 1.0) {
+    if (points.length <= 4) return points;
+
+    function douglasPecker(points, epsilon) {
+        if (points.length <= 2) return points;
+
+        let maxDistance = 0;
+        let index = 0;
+        const start = points[0];
+        const end = points[points.length - 1];
+
+        for (let i = 1; i < points.length - 1; i++) {
+            const distance = perpendicularDistance(points[i], start, end);
+            if (distance > maxDistance) {
+                maxDistance = distance;
+                index = i;
+            }
+        }
+
+        if (maxDistance > epsilon) {
+            const left = douglasPecker(points.slice(0, index + 1), epsilon);
+            const right = douglasPecker(points.slice(index), epsilon);
+            return left.slice(0, -1).concat(right);
+        } else {
+            return [start, end];
+        }
+    }
+
+    function perpendicularDistance(point, lineStart, lineEnd) {
+        const area = Math.abs(
+            (lineEnd.x - lineStart.x) * (lineStart.y - point.y) -
+            (lineStart.x - point.x) * (lineEnd.y - lineStart.y)
+        );
+        const lineLength = Math.sqrt(
+            Math.pow(lineEnd.x - lineStart.x, 2) + Math.pow(lineEnd.y - lineStart.y, 2)
+        );
+        return area / lineLength;
+    }
+
+    return douglasPecker(points, epsilon);
+}
+
+// 🎯 РАСЧЕТ BOUNDING BOX
+function calculateBoundingBox(points) {
+    const xs = points.map(p => p.x);
+    const ys = points.map(p => p.y);
+    return {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys),
+        width: Math.max(...xs) - Math.min(...xs),
+        height: Math.max(...ys) - Math.min(...ys)
+    };
+}
+
+// 🎯 EPSILON ДЛЯ РАЗНЫХ КЛАССОВ
+function getEpsilonForClass(className) {
+    switch(className) {
+        case 'shoe-protector':
+            return 1.5;  // Меньше упрощения для деталей
+        case 'Outline-trail':
+            return 0.8;  // Минимальное упрощение для контуров
+        case 'Heel':
+        case 'Toe':
+            return 1.0;  // Среднее упрощение
+        default:
+            return 1.2;
+    }
+}
+
 // 🎨 ФУНКЦИЯ ВИЗУАЛИЗАЦИИ РЕЗУЛЬТАТОВ
 async function createAnalysisVisualization(imageUrl, predictions, userData = {}) {
     try {
@@ -231,7 +340,18 @@ bot.on('photo', async (msg) => {
         });
 
         const predictions = response.data.predictions || [];
-       
+
+// 🔧 ПРИМЕНЯЕМ УМНУЮ ПОСТОБРАБОТКУ
+const processedPredictions = smartPostProcessing(predictions);
+
+// Логируем улучшения
+if (predictions.length !== processedPredictions.length) {
+    console.log(`🎯 Фильтрация: ${predictions.length} → ${processedPredictions.length} объектов`);
+}
+
+// Используем обработанные предсказания для визуализации
+const finalPredictions = processedPredictions.length > 0 ? processedPredictions : predictio
+        
         // 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ
         if (predictions.length > 0) {
             await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
@@ -240,7 +360,7 @@ bot.on('photo', async (msg) => {
                 username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
             };
            
-            const vizPath = await createAnalysisVisualization(fileUrl, predictions, userData);
+            const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
            
             if (vizPath) {
                 // Отправляем визуализацию
