@@ -143,18 +143,33 @@ setInterval(saveStats, 5 * 60 * 1000);
 // 📥 ЗАГРУЗКА СТАТИСТИКИ ИЗ YANDEX DISK
 async function loadStatsFromYandex() {
     try {
-        console.log('🔄 Пробуем загрузить статистику из Яндекс.Диска...');
+        console.log('🔄 Загрузка статистики из Яндекс.Диска...');
         
         // 1. Получаем ссылку для скачивания
-        const response = await axios.get(`https://cloud-api.yandex.net/v1/disk/resources/download?path=apps/ShoeBot/stats.json`, {
-            headers: { 'Authorization': `OAuth ${yandexDisk.accessToken}` }
-        });
+        const response = await axios.get(
+            'https://cloud-api.yandex.net/v1/disk/resources/download?path=apps/ShoeBot/stats.json', 
+            {
+                headers: { 
+                    'Authorization': `OAuth ${yandexDisk.accessToken}`,
+                    'Accept': 'application/json'
+                }
+            }
+        );
         
-        console.log('📥 Получена ссылка для скачивания');
+        if (!response.data.href) {
+            throw new Error('Не получена ссылка для скачивания');
+        }
+        
+        console.log('📥 Ссылка получена');
         
         // 2. Скачиваем файл
-        const fileResponse = await axios.get(response.data.href);
-        console.log('✅ Файл скачан, размер:', fileResponse.data.length, 'символов');
+        const fileResponse = await axios.get(response.data.href, {
+            headers: {
+                'Authorization': `OAuth ${yandexDisk.accessToken}`
+            }
+        });
+        
+        console.log('✅ Файл скачан');
         
         // 3. Парсим данные
         const remoteStats = fileResponse.data;
@@ -167,14 +182,18 @@ async function loadStatsFromYandex() {
             userStats.set(userId, userData);
         });
         
-        console.log('✅ Статистика загружена из Яндекс.Диска');
+        console.log('🎯 Статистика загружена из Яндекс.Диска');
         return true;
         
     } catch (error) {
-        console.log('❌ Ошибка загрузки из Яндекс.Диска:', error.response?.data || error.message);
+        console.log('❌ Ошибка загрузки:', {
+            status: error.response?.status,
+            message: error.response?.data?.message || error.message
+        });
         return false;
     }
 }
+
 
 
 
@@ -1995,6 +2014,35 @@ bot.onText(/\/check_stats_file/, async (msg) => {
     }
 });
 
+bot.onText(/\/yandex_debug/, async (msg) => {
+    if (msg.from.id !== 699140291) return;
+    
+    try {
+        // Проверка базового доступа
+        const response = await axios.get('https://cloud-api.yandex.net/v1/disk/', {
+            headers: { 'Authorization': `OAuth ${yandexDisk.accessToken}` }
+        });
+        
+        let message = `✅ Базовый доступ: OK\n`;
+        message += `📊 Используется: ${Math.round(response.data.used_space / 1024 / 1024)} MB\n`;
+        message += `💾 Всего: ${Math.round(response.data.total_space / 1024 / 1024)} MB\n\n`;
+        
+        // Проверка доступа к папке
+        try {
+            const folderResponse = await axios.get('https://cloud-api.yandex.net/v1/disk/resources?path=apps/ShoeBot', {
+                headers: { 'Authorization': `OAuth ${yandexDisk.accessToken}` }
+            });
+            message += `📁 Доступ к папке: OK\n`;
+        } catch (folderError) {
+            message += `❌ Доступ к папке: ${folderError.response?.data?.message || 'Ошибка'}\n`;
+        }
+        
+        await bot.sendMessage(msg.chat.id, message);
+        
+    } catch (error) {
+        await bot.sendMessage(msg.chat.id, `❌ Критическая ошибка: ${error.response?.data?.message || error.message}`);
+    }
+});
 
 
 // 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖
