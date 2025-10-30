@@ -54,8 +54,9 @@ function updateUserStats(userId, username, action = 'photo') {
             globalStats.comparisonsMade++;
             break;
     }
-// 🔄 АВТОСОХРАНЕНИЕ ПРИ КАЖДОМ ИЗМЕНЕНИИ
-    saveStats();
+   
+    // 🔄 АВТОСОХРАНЕНИЕ ПРИ КАЖДОМ ИЗМЕНЕНИИ
+    saveStats();
 }
 
 function getFormattedStats() {
@@ -74,130 +75,123 @@ function getFormattedStats() {
 
 // 💾 СОХРАНЕНИЕ СТАТИСТИКИ В ФАЙЛ
 function saveStats() {
-    try {
-        const statsData = {
-            global: globalStats,
-            users: Array.from(userStats.entries()),
-            timestamp: new Date().toISOString()
-        };
-        
-        const statsJson = JSON.stringify(statsData, null, 2);
-        
-        // 🔄 СОХРАНЯЕМ ТОЛЬКО В YANDEX DISK
-        if (yandexDisk) {
-            setTimeout(async () => {
-                try {
-                    const tempStatsPath = 'stats_backup.json';
-                    fs.writeFileSync(tempStatsPath, statsJson);
-                    
-                    await yandexDisk.uploadFile(tempStatsPath, 'stats.json');
-                    console.log('✅ Статистика сохранена в Яндекс.Диск');
-                    
-                    fs.unlinkSync(tempStatsPath);
-                } catch (driveError) {
-                    console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
-                }
-            }, 1000);
-        }
-        
-    } catch (error) {
-        console.log('❌ Ошибка сохранения статистики:', error.message);
-    }
+    try {
+        const statsData = {
+            global: globalStats,
+            users: Array.from(userStats.entries()),
+            timestamp: new Date().toISOString()
+        };
+       
+        const statsJson = JSON.stringify(statsData, null, 2);
+       
+        // 🔄 СОХРАНЯЕМ ТОЛЬКО В YANDEX DISK
+        if (yandexDisk) {
+            setTimeout(async () => {
+                try {
+                    const tempStatsPath = 'stats_backup.json';
+                    fs.writeFileSync(tempStatsPath, statsJson);
+                   
+                    await yandexDisk.uploadFile(tempStatsPath, 'stats.json');
+                    console.log('✅ Статистика сохранена в Яндекс.Диск');
+                   
+                    fs.unlinkSync(tempStatsPath);
+                } catch (driveError) {
+                    console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
+                }
+            }, 1000);
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка сохранения статистики:', error.message);
+    }
 }
 
-// ЗАГРУЗКА СТАТИСТИКИ ПРИ ЗАПУСКЕ
 async function loadStats() {
-    try {
-        console.log('🔄 Загрузка статистики...');
-        
-        // Пробуем загрузить из Яндекс.Диска
-        if (yandexDisk) {
-            console.log('🔍 Проверяем Яндекс.Диск...');
-            const success = await loadStatsFromYandex();
-            if (success) {
-                console.log('✅ Статистика загружена из Яндекс.Диска');
-                return;
-            }
-        }
-        
-        // Если не получилось из облака, пробуем локально
-        if (fs.existsSync('stats.json') && fs.statSync('stats.json').size > 0) {
-            const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
-            Object.assign(globalStats, data.global);
-            userStats.clear();
-            data.users.forEach(([userId, userData]) => {
-                userStats.set(userId, userData);
-            });
-            console.log('💾 Статистика загружена из локального файла');
-        } else {
-            console.log('📝 Начинаем с чистой статистики');
-        }
-    } catch (error) {
-        console.log('❌ Ошибка загрузки статистики:', error.message);
-    }
+    try {
+        console.log('🔄 Загрузка статистики...');
+       
+        // Пробуем загрузить по публичной ссылке
+        const success = await loadStatsFromPublicLink();
+        if (success) {
+            console.log('✅ Статистика загружена из облака');
+            return;
+        }
+       
+        // Если не получилось, пробуем локально (на всякий случай)
+        if (fs.existsSync('stats.json') && fs.statSync('stats.json').size > 0) {
+            const data = JSON.parse(fs.readFileSync('stats.json', 'utf8'));
+            Object.assign(globalStats, data.global);
+            userStats.clear();
+            data.users.forEach(([userId, userData]) => {
+                userStats.set(userId, userData);
+            });
+            console.log('💾 Статистика загружена из локального файла');
+        } else {
+            console.log('📝 Начинаем с чистой статистики');
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка загрузки статистики:', error.message);
+    }
+}
+
+// 📥 ЗАГРУЗКА СТАТИСТИКИ ПО ПРЯМОЙ ССЫЛКЕ
+async function loadStatsFromPublicLink() {
+    try {
+        console.log('🔄 Загрузка статистики по публичной ссылке...');
+       
+        // ТВОЯ ПУБЛИЧНАЯ ССЫЛКА (конвертированная для скачивания)
+        const downloadUrl = "https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg&path=/stats.json";
+       
+        // 1. Получаем прямую ссылку для скачивания
+        const linkResponse = await axios.get(downloadUrl, {
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json'
+            }
+        });
+       
+        if (!linkResponse.data.href) {
+            throw new Error('Не получена ссылка для скачивания');
+        }
+       
+        console.log('📥 Получена прямая ссылка для скачивания');
+       
+        // 2. Скачиваем файл
+        const fileResponse = await axios.get(linkResponse.data.href, {
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+       
+        console.log('✅ Файл скачан, размер:', fileResponse.data.length, 'символов');
+       
+        // 3. Парсим данные
+        const remoteStats = fileResponse.data;
+       
+        // 4. Обновляем статистику
+        Object.assign(globalStats, remoteStats.global);
+        userStats.clear();
+        remoteStats.users.forEach(([userId, userData]) => {
+            userStats.set(userId, userData);
+        });
+       
+        console.log('🎯 Статистика загружена из облака');
+        return true;
+       
+    } catch (error) {
+        console.log('❌ Ошибка загрузки по публичной ссылке:', error.message);
+        if (error.response) {
+            console.log('Детали ошибки:', error.response.data);
+        }
+        return false;
+    }
 }
 
 // АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
 setInterval(saveStats, 5 * 60 * 1000);
-
-// 📥 ЗАГРУЗКА СТАТИСТИКИ ИЗ YANDEX DISK
-async function loadStatsFromYandex() {
-    try {
-        console.log('🔄 Загрузка статистики из Яндекс.Диска...');
-        
-        // 1. Получаем ссылку для скачивания
-        const response = await axios.get(
-            'https://cloud-api.yandex.net/v1/disk/resources/download?path=apps/ShoeBot/stats.json', 
-            {
-                headers: { 
-                    'Authorization': `OAuth ${yandexDisk.accessToken}`,
-                    'Accept': 'application/json'
-                }
-            }
-        );
-        
-        if (!response.data.href) {
-            throw new Error('Не получена ссылка для скачивания');
-        }
-        
-        console.log('📥 Ссылка получена');
-        
-        // 2. Скачиваем файл
-        const fileResponse = await axios.get(response.data.href, {
-            headers: {
-                'Authorization': `OAuth ${yandexDisk.accessToken}`
-            }
-        });
-        
-        console.log('✅ Файл скачан');
-        
-        // 3. Парсим данные
-        const remoteStats = fileResponse.data;
-        
-        // 4. Обновляем статистику
-        Object.assign(globalStats, remoteStats.global);
-        
-        userStats.clear();
-        remoteStats.users.forEach(([userId, userData]) => {
-            userStats.set(userId, userData);
-        });
-        
-        console.log('🎯 Статистика загружена из Яндекс.Диска');
-        return true;
-        
-    } catch (error) {
-        console.log('❌ Ошибка загрузки:', {
-            status: error.response?.status,
-            message: error.response?.data?.message || error.message
-        });
-        return false;
-    }
-}
-
-
-
-
-
 
 // 🔵 YANDEX DISK SERVICE - ОБНОВЛЕННАЯ ВЕРСИЯ
 let YandexDiskService;
@@ -214,12 +208,10 @@ try {
 
 // ЗАГРУЗКА СТАТИСТИКИ ПОСЛЕ ИНИЦИАЛИЗАЦИИ YANDEX DISK
 loadStats().then(() => {
-    console.log('🎯 Статистика инициализирована');
+    console.log('🎯 Статистика инициализирована');
 }).catch(err => {
-    console.log('💥 Ошибка инициализации статистики:', err.message);
+    console.log('💥 Ошибка инициализации статистики:', err.message);
 });
-
-
 
 // 🎯 НАСТРОЙКИ СРЕДЫ
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -251,7 +243,7 @@ if (typeof bot === 'undefined') {
     console.log('⚠️ Бот уже был инициализирован ранее');
 }
 
-// 🛡️ УЛУЧШЕННАЯ ОБРАБОТКА ОШИБКИ 409
+// 🛡 УЛУЧШЕННАЯ ОБРАБОТКА ОШИБКИ 409
 let conflictCount = 0;
 const MAX_CONFLICTS = 3;
 
@@ -2014,36 +2006,30 @@ bot.onText(/\/check_stats_file/, async (msg) => {
     }
 });
 
-bot.onText(/\/yandex_debug/, async (msg) => {
+// 🔄 ПРОВЕРКА ЗАГРУЗКИ СТАТИСТИКИ
+bot.onText(/\/test_stats_load/, async (msg) => {
     if (msg.from.id !== 699140291) return;
     
     try {
-        // Проверка базового доступа
-        const response = await axios.get('https://cloud-api.yandex.net/v1/disk/', {
-            headers: { 'Authorization': `OAuth ${yandexDisk.accessToken}` }
-        });
+        await bot.sendMessage(msg.chat.id, '🔄 Тестирую загрузку статистики...');
         
-        let message = `✅ Базовый доступ: OK\n`;
-        message += `📊 Используется: ${Math.round(response.data.used_space / 1024 / 1024)} MB\n`;
-        message += `💾 Всего: ${Math.round(response.data.total_space / 1024 / 1024)} MB\n\n`;
-        
-        // Проверка доступа к папке
-        try {
-            const folderResponse = await axios.get('https://cloud-api.yandex.net/v1/disk/resources?path=apps/ShoeBot', {
-                headers: { 'Authorization': `OAuth ${yandexDisk.accessToken}` }
-            });
-            message += `📁 Доступ к папке: OK\n`;
-        } catch (folderError) {
-            message += `❌ Доступ к папке: ${folderError.response?.data?.message || 'Ошибка'}\n`;
+        const success = await loadStatsFromPublicLink();
+        if (success) {
+            let message = '✅ Статистика загружена!\n\n';
+            message += `👥 Пользователей: ${globalStats.totalUsers}\n`;
+            message += 📸 Фото: ${globalStats.totalPhotos}\n;
+            message += 🔍 Анализов: ${globalStats.totalAnalyses}\n;
+            message += 📋 Сессий: ${globalStats.sessionsStarted}\n;
+            message += 🔄 Сравнений: ${globalStats.comparisonsMade};
+            
+            await bot.sendMessage(msg.chat.id, message);
+        } else {
+            await bot.sendMessage(msg.chat.id, '❌ Не удалось загрузить статистику');
         }
-        
-        await bot.sendMessage(msg.chat.id, message);
-        
     } catch (error) {
-        await bot.sendMessage(msg.chat.id, `❌ Критическая ошибка: ${error.response?.data?.message || error.message}`);
+        await bot.sendMessage(msg.chat.id, 💥 Ошибка: ${error.message});
     }
 });
-
 
 // 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖
 // 🤖               ОБРАБОТКА ФОТО - PHOTO PROCESSING                  🤖
