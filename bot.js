@@ -703,14 +703,19 @@ if (session.waitingForComparison) {
     console.log(`🔍 Начинаем сравнение с эталоном "${modelName}"`);
     console.log('📊 Данные эталона:', reference);
 
-    await bot.sendMessage(chatId, `🔍 Сравниваю след с эталоном "${modelName}"...`);
-
     try {
-        const footprintFeatures = extractFeatures(finalPredictions);
-        const referenceFeatures = reference.features;
+        // ИСПРАВЛЕНИЕ: используем предсказания из эталона
+        const referencePredictions = reference.predictions || [];
+        const footprintPredictions = processedPredictions || finalPredictions || predictions || [];
+       
+        console.log(`📊 Эталон: ${referencePredictions.length} предсказаний`);
+        console.log(`📊 След: ${footprintPredictions.length} предсказаний`);
 
-        console.log('📊 Features эталона:', referenceFeatures);
-        console.log('📊 Features следа:', footprintFeatures);
+        const footprintFeatures = extractFeatures(footprintPredictions);
+        console.log('✅ Features следа:', footprintFeatures);
+       
+        const referenceFeatures = reference.features || { detailCount: 0 };
+        console.log('✅ Features эталона:', referenceFeatures);
 
         const comparisonResult = compareFootprints(referenceFeatures, footprintFeatures);
 
@@ -736,22 +741,12 @@ if (session.waitingForComparison) {
         report += `\n\n💡 *Учет деформации грунта и потери мелких деталей*`;
 
         await bot.sendMessage(chatId, report);
-
-        // Визуализация
-        const userData = {
-            username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
-        };
-
-        const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
-        if (vizPath) {
-            await bot.sendPhoto(chatId, vizPath, {
-                caption: `📸 Анализированный след (${finalPredictions.length} дет.)`
-            });
-            fs.unlinkSync(vizPath);
-        }
+       
+        console.log('✅ Сравнение завершено успешно');
 
     } catch (error) {
         console.error('❌ Ошибка при сравнении:', error);
+        console.error('❌ Stack trace:', error.stack);
         await bot.sendMessage(chatId,
             '❌ Ошибка при сравнении следов. Попробуйте другое фото.\n\n' +
             '💡 **Советы:**\n' +
