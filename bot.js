@@ -172,7 +172,6 @@ async function loadStatsFromPublicLink() {
     }
 }
 
-}
 // 📥 ЗАГРУЗКА СТАТИСТИКИ ПО ПРЯМОЙ ССЫЛКЕ
 async function loadStatsFromPublicLink() {
     try {
