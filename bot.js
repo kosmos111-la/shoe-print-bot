@@ -947,7 +947,7 @@ if (session.waitingForComparison) {
     return;
 }
           
-        f (finalPredictions.length > 0) {
+       if (finalPredictions.length > 0) {
     await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
 
     const userData = {
@@ -962,13 +962,21 @@ if (session.waitingForComparison) {
         });
         fs.unlinkSync(vizPath);
        
-        // 🔥 СКЕЛЕТНАЯ ВИЗУАЛИЗАЦИЯ - ТОЛЬКО ЕСЛИ ОСНОВНАЯ УСПЕШНА
-        const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
-        if (skeletonPath) {
-            await bot.sendPhoto(chatId, skeletonPath, {
-                caption: `🦴 Скелет структуры (центры деталей и связи)`
-            });
-            fs.unlinkSync(skeletonPath);
+        // 🔥 СКЕЛЕТНАЯ ВИЗУАЛИЗАЦИЯ - ВНУТРИ БЛОКА
+        console.log('🔍 Пытаюсь создать скелетную визуализацию...');
+        try {
+            const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
+            if (skeletonPath) {
+                console.log('✅ Скелетная визуализация создана, отправляю...');
+                await bot.sendPhoto(chatId, skeletonPath, {
+                    caption: `🦴 Скелет структуры (центры деталей и связи)`
+                });
+                fs.unlinkSync(skeletonPath);
+            } else {
+                console.log('❌ Скелетная визуализация не создана (вернула null)');
+            }
+        } catch (error) {
+            console.error('💥 Ошибка при создании скелетной визуализации:', error);
         }
        
     } else {
@@ -979,7 +987,6 @@ if (session.waitingForComparison) {
 } else {
     await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
 }
-
         updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
 
     } catch (error) {
