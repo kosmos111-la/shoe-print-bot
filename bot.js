@@ -236,12 +236,6 @@ async function loadStatsFromPublicLink() {
 // АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
 setInterval(saveStats, 5 * 60 * 1000);
 
-// ЗАГРУЗКА СТАТИСТИКИ ПОСЛЕ ИНИЦИАЛИЗАЦИИ YANDEX DISK
-loadStats().then(() => {
-    console.log('🎯 Статистика инициализирована');
-}).catch(err => {
-    console.log('💥 Ошибка инициализации статистики:', err.message);
-});
 
 // 🎯 НАСТРОЙКИ СРЕДЫ
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -2333,6 +2327,13 @@ app.listen(PORT, () => {
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 // 🟢               ИНИЦИАЛИЗАЦИЯ БОТА                                🟢
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
+
+// ЗАГРУЗКА СТАТИСТИКИ ПОСЛЕ ИНИЦИАЛИЗАЦИИ YANDEX DISK
+loadStats().then(() => {
+    console.log('🎯 Статистика инициализирована');
+}).catch(err => {
+    console.log('💥 Ошибка инициализации статистики:', err.message);
+});
 
 async function initializeBot() {
     console.log('🔄 Запуск бота...');
