@@ -2027,7 +2027,7 @@ bot.onText(/\/test_stats_load/, async (msg) => {
             await bot.sendMessage(msg.chat.id, '❌ Не удалось загрузить статистику');
         }
     } catch (error) {
-        await bot.sendMessage(msg.chat.id, 💥 Ошибка: ${error.message});
+        await bot.sendMessage(msg.chat.id, `💥 Ошибка: ${error.message}`);
     }
 });
 
