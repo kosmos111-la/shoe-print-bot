@@ -154,18 +154,26 @@ async function createAnalysisVisualization(imageUrl, predictions, userData = {})
                 ctx.closePath();
                 ctx.stroke();
 
-                // Подпись с confidence
-                if (pred.confidence > 0.5) {
-                    const centerX = pred.points.reduce((sum, p) => sum + p.x, 0) / pred.points.length;
-                    const centerY = pred.points.reduce((sum, p) => sum + p.y, 0) / pred.points.length;
-                   
-                    ctx.fillStyle = color;
-                    ctx.font = 'bold 16px Arial';
-                    ctx.fillText(
-                        `${pred.class.replace('-', ' ')} (${Math.round(pred.confidence * 100)}%)`,
-                        centerX - 50, centerY - 10
-                    );
-                }
+                // Подпись без confidence (только для крупных объектов)
+if (pred.points.length > 10) { // Только для достаточно крупных полигонов
+    const centerX = pred.points.reduce((sum, p) => sum + p.x, 0) / pred.points.length;
+    const centerY = pred.points.reduce((sum, p) => sum + p.y, 0) / pred.points.length;
+    
+    ctx.fillStyle = color;
+    ctx.font = 'bold 14px Arial';
+    
+    // Красивые русские названия
+    const classNames = {
+        'Outline-trail': 'КОНТУР',
+        'shoe-protector': 'ДЕТАЛЬ', 
+        'Heel': 'КАБЛУК',
+        'Toe': 'МЫСОК'
+    };
+    
+    const displayName = classNames[pred.class] || pred.class;
+    ctx.fillText(displayName, centerX - 30, centerY - 5);
+}
+
             }
         });
 
