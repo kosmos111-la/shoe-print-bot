@@ -947,37 +947,38 @@ if (session.waitingForComparison) {
     return;
 }
           
-        if (finalPredictions.length > 0) {
-            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
-           
-            const userData = {
-                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
-            };
-           
-            const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
-           
-            if (vizPath) {
-                await bot.sendPhoto(chatId, vizPath, {
-                    caption: `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
-                });
-                fs.unlinkSync(vizPath);
-            } 
-            
-            const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
-if (skeletonPath) {
-    await bot.sendPhoto(chatId, skeletonPath, {
-        caption: `🦴 Скелет структуры (центры деталей и связи)`
-    });
-    fs.unlinkSync(skeletonPath);
-}
-            else {
-                await bot.sendMessage(chatId,
-                    `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
-                );
-            }
-        } else {
-            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+        f (finalPredictions.length > 0) {
+    await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
+
+    const userData = {
+        username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
+    };
+
+    const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
+
+    if (vizPath) {
+        await bot.sendPhoto(chatId, vizPath, {
+            caption: `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
+        });
+        fs.unlinkSync(vizPath);
+       
+        // 🔥 СКЕЛЕТНАЯ ВИЗУАЛИЗАЦИЯ - ТОЛЬКО ЕСЛИ ОСНОВНАЯ УСПЕШНА
+        const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
+        if (skeletonPath) {
+            await bot.sendPhoto(chatId, skeletonPath, {
+                caption: `🦴 Скелет структуры (центры деталей и связи)`
+            });
+            fs.unlinkSync(skeletonPath);
         }
+       
+    } else {
+        await bot.sendMessage(chatId,
+            `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
+        );
+    }
+} else {
+    await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+}
 
         updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
 
