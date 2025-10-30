@@ -107,6 +107,18 @@ bot.onText(/\/help/, (msg) => {
     );
 });
 
+// 🟢 КОМАНДА ДЛЯ СБРОСА WEBHOOK
+bot.onText(/\/reset_webhook/, async (msg) => {
+    try {
+        await bot.deleteWebHook();
+        await bot.setWebHook(WEBHOOK_URL);
+        await bot.sendMessage(msg.chat.id, '✅ Webhook сброшен и установлен заново!');
+    } catch (error) {
+        await bot.sendMessage(msg.chat.id, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+
 // 🟢 ОБРАБОТКА ФОТО
 bot.on('photo', async (msg) => {
     const chatId = msg.chat.id;
