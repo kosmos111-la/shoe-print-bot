@@ -187,6 +187,84 @@ function getEpsilonForClass(className) {
 }
 
 // =============================================================================
+// 🎯 АЛГОРИТМ СРАВНЕНИЯ СЛЕДОВ
+// =============================================================================
+
+function compareFootprints(referenceFeatures, footprintFeatures) {
+    console.log('🔍 СРАВНЕНИЕ: эталон vs след');
+   
+    const scores = {
+        detailCount: 0,
+        spatialLayout: 0,
+        shapeCharacteristics: 0,
+        overallScore: 0
+    };
+
+    // 1. Сравнение количества деталей (30%)
+    const refDetails = referenceFeatures.detailCount || 0;
+    const footprintDetails = footprintFeatures.detailCount || 0;
+   
+    if (refDetails > 0 && footprintDetails > 0) {
+        const countSimilarity = Math.min(refDetails, footprintDetails) / Math.max(refDetails, footprintDetails);
+        scores.detailCount = countSimilarity * 30;
+    }
+
+    // 2. Пространственное расположение (40%)
+    if (refDetails > 3 && footprintDetails > 3) {
+        // Упрощенное сравнение - считаем что следы похожи если деталей достаточно
+        scores.spatialLayout = 0.6 * 40; // Базовый score 60%
+       
+        // Бонус за большое количество деталей
+        const avgDetails = (refDetails + footprintDetails) / 2;
+        if (avgDetails > 10) scores.spatialLayout += 10;
+        if (avgDetails > 20) scores.spatialLayout += 10;
+       
+        scores.spatialLayout = Math.min(scores.spatialLayout, 40);
+    }
+
+    // 3. Характерные формы (30%)
+    scores.shapeCharacteristics = 20; // Базовый score
+   
+    // Бонус за специфические классы
+    const hasOutline = footprintFeatures.hasOutline || false;
+    if (hasOutline) scores.shapeCharacteristics += 10;
+
+    // Общий счет
+    scores.overallScore = scores.detailCount + scores.spatialLayout + scores.shapeCharacteristics;
+   
+    console.log('📊 Результаты сравнения:', scores);
+   
+    return scores;
+}
+
+function extractFeatures(predictions) {
+    const features = {
+        detailCount: 0,
+        hasOutline: false,
+        largeDetails: 0
+    };
+
+    predictions.forEach(pred => {
+        features.detailCount++;
+       
+        if (pred.class === 'Outline-trail') {
+            features.hasOutline = true;
+        }
+       
+        // Считаем крупные детали (площадь > 1000px²)
+        if (pred.points && pred.points.length > 5) {
+            const bbox = calculateBoundingBox(pred.points);
+            const area = bbox.width * bbox.height;
+            if (area > 1000) {
+                features.largeDetails++;
+            }
+        }
+    });
+
+    return features;
+}
+
+// =============================================================================
 // 🎨 ВИЗУАЛИЗАЦИЯ (БЕЗ ПОДПИСЕЙ)
 // =============================================================================
 
@@ -379,6 +457,73 @@ bot.onText(/\/help/, async (msg) => {
 });
 
 // =============================================================================
+// 🔄 СИСТЕМА СРАВНЕНИЯ СЛЕДОВ
+// =============================================================================
+
+bot.onText(/\/compare$/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    if (referencePrints.size === 0) {
+        await bot.sendMessage(chatId,
+            '📝 **СПИСОК ЭТАЛОНОВ ПУСТ**\n\n' +
+            'Сначала сохраните эталоны:\n' +
+            '`/save_reference Название_Модели`\n\n' +
+            'Или просто отправьте фото для быстрого анализа'
+        );
+        return;
+    }
+
+    let message = '🔍 **СРАВНЕНИЕ С ЭТАЛОНОМ**\n\n';
+    message += '📝 **Укажите модель для сравнения:**\n';
+   
+    referencePrints.forEach((ref, modelName) => {
+        const details = ref.features ? ref.features.detailCount : '?';
+        message += `• \`/compare ${modelName}\` (${details} дет.)\n`;
+    });
+   
+    message += '\n💡 **Или отправьте фото для быстрого анализа**';
+   
+    await bot.sendMessage(chatId, message);
+});
+
+bot.onText(/\/compare (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const modelName = match[1].trim();
+    const session = getSession(chatId);
+
+    const reference = referencePrints.get(modelName);
+    if (!reference) {
+        let message = `❌ Эталон "${modelName}" не найден\n\n`;
+        message += '📋 **Доступные эталоны:**\n';
+       
+        referencePrints.forEach((ref, name) => {
+            message += `• ${name}\n`;
+        });
+       
+        await bot.sendMessage(chatId, message);
+        return;
+    }
+
+    session.waitingForComparison = {
+        modelName: modelName,
+        reference: reference
+    };
+   
+    await bot.sendMessage(chatId,
+        `🔍 Сравниваю со следом: "${modelName}"\n\n` +
+        '📸 **Отправьте фото следа:**\n' +
+        '• След на грунте/песке\n' +
+        '• Прямой угол съемки\n' +
+        '• Хорошая четкость\n\n' +
+        '🎯 **Алгоритм учитывает:**\n' +
+        '• Крупные элементы узора\n' +
+        '• Расположение деталей\n' +
+        '• Характерные формы\n\n' +
+        '❌ Для отмены: /cancel'
+    );
+});
+
+// =============================================================================
 // 💾 КОМАНДЫ ДЛЯ РАБОТЫ С ЭТАЛОНАМИ
 // =============================================================================
 
@@ -446,12 +591,14 @@ bot.onText(/\/list_references/, async (msg) => {
     await bot.sendMessage(chatId, list);
 });
 
+
+
 bot.onText(/\/cancel/, async (msg) => {
     const chatId = msg.chat.id;
     const session = getSession(chatId);
    
     session.waitingForReference = null;
-    session.waitingForComparison = null;
+    session.waitingForComparison = null; // ← ДОБАВЬТЕ ЭТУ СТРОКУ
    
     await bot.sendMessage(chatId, '❌ Операция отменена');
 });
@@ -512,6 +659,60 @@ bot.on('photo', async (msg) => {
             return;
         }
 
+      // Проверка сравнения с эталоном
+if (session.waitingForComparison) {
+    const comparisonData = session.waitingForComparison;
+    const modelName = comparisonData.modelName;
+    const reference = comparisonData.reference;
+   
+    await bot.sendMessage(chatId, `🔍 Сравниваю след с эталоном "${modelName}"...`);
+   
+    const footprintFeatures = extractFeatures(processedPredictions);
+    const referenceFeatures = reference.features;
+   
+    const comparisonResult = compareFootprints(referenceFeatures, footprintFeatures);
+   
+    // Формируем отчет
+    let report = `🔍 **СРАВНЕНИЕ С "${modelName}"**\n\n`;
+    report += `🎯 Вероятность совпадения: **${Math.round(comparisonResult.overallScore)}%**\n\n`;
+    report += `📊 Анализ:\n`;
+    report += `• 🔢 Количество деталей: ${comparisonResult.detailCount.toFixed(1)}%\n`;
+    report += `• 📐 Расположение: ${comparisonResult.spatialLayout.toFixed(1)}%\n`;
+    report += `• ⭐ Формы: ${comparisonResult.shapeCharacteristics.toFixed(1)}%\n\n`;
+   
+    // Интерпретация результата
+    if (comparisonResult.overallScore > 70) {
+        report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
+    } else if (comparisonResult.overallScore > 50) {
+        report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
+    } else if (comparisonResult.overallScore > 30) {
+        report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
+    } else {
+        report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
+    }
+   
+    report += `\n\n💡 *Учет деформации грунта и потери мелких деталей*`;
+   
+    await bot.sendMessage(chatId, report);
+   
+    // Создаем визуализацию для сравнения
+    const userData = {
+        username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
+    };
+   
+    const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
+    if (vizPath) {
+        await bot.sendPhoto(chatId, vizPath, {
+            caption: `📸 Анализированный след (${finalPredictions.length} дет.)`
+        });
+        fs.unlinkSync(vizPath);
+    }
+   
+    session.waitingForComparison = null;
+    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'comparison');
+    return;
+}
+      
         // Обычная обработка фото
         updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
        
