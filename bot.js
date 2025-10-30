@@ -9,6 +9,19 @@ const fs = require('fs');
 const express = require('express');
 const archiver = require('archiver');
 
+// 🔵 YANDEX DISK SERVICE - ОБНОВЛЕННАЯ ВЕРСИЯ
+let YandexDiskService;
+let yandexDisk;
+
+try {
+    YandexDiskService = require('./yandex-disk-service');
+    yandexDisk = new YandexDiskService(process.env.YANDEX_DISK_TOKEN);
+    console.log('✅ Яндекс.Диск service инициализирован');
+} catch (error) {
+    console.log('❌ Яндекс.Диск service не доступен:', error.message);
+    yandexDisk = null;
+}
+
 // 📊 СИСТЕМА СТАТИСТИКИ
 const userStats = new Map();
 const globalStats = {
@@ -222,19 +235,6 @@ async function loadStatsFromPublicLink() {
 
 // АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
 setInterval(saveStats, 5 * 60 * 1000);
-
-// 🔵 YANDEX DISK SERVICE - ОБНОВЛЕННАЯ ВЕРСИЯ
-let YandexDiskService;
-let yandexDisk;
-
-try {
-    YandexDiskService = require('./yandex-disk-service');
-    yandexDisk = new YandexDiskService(process.env.YANDEX_DISK_TOKEN);
-    console.log('✅ Яндекс.Диск service инициализирован');
-} catch (error) {
-    console.log('❌ Яндекс.Диск service не доступен:', error.message);
-    yandexDisk = null;
-}
 
 // ЗАГРУЗКА СТАТИСТИКИ ПОСЛЕ ИНИЦИАЛИЗАЦИИ YANDEX DISK
 loadStats().then(() => {
