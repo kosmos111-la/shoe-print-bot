@@ -9,6 +9,9 @@ const fs = require('fs');
 const express = require('express');
 const archiver = require('archiver');
 
+// 🎯 ЯВНОЕ УКАЗАНИЕ ПОРТА ДЛЯ RENDER
+const PORT = process.env.PORT || 10000;
+console.log(`🎯 Используется порт: ${PORT}`);
 // 🔵 YANDEX DISK SERVICE - ОБНОВЛЕННАЯ ВЕРСИЯ
 let YandexDiskService;
 let yandexDisk;
@@ -2437,7 +2440,6 @@ bot.on('photo', async (msg) => {
 // 🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
@@ -2450,8 +2452,13 @@ app.get('/health', (req, res) => {
     status: 'OK',
     bot: 'running',
     timestamp: new Date().toISOString(),
-    mode: IS_PRODUCTION ? 'production' : 'development'
+    port: PORT
   });
+});
+
+// ЯВНО УКАЗЫВАЕМ ПОРТ И ХОСТ
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🟢 HTTP server running on port ${PORT}`);
 });
 
 app.listen(PORT, () => {
