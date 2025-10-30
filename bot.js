@@ -2406,26 +2406,19 @@ app.listen(PORT, () => {
 //});
 
 async function initializeBot() {
-    console.log('🔄 Запуск бота...');
-
     try {
-        // Останавливаем любой существующий polling
-        await bot.stopPolling();
-        console.log('✅ Предыдущий polling остановлен');
-
-        // Ждем 2 секунды
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        // Запускаем новый polling
+        console.log('🔄 Starting bot polling...');
+       
+        // Простая инициализация polling
         bot.startPolling();
-        console.log('✅ Новый polling запущен');
-
-        console.log('🚀 Бот полностью готов к работе!');
-
+       
+        console.log('✅ Bot polling started successfully');
+        console.log('🚀 Bot is ready!');
+       
     } catch (error) {
-        console.log('❌ Ошибка инициализации:', error.message);
-        // Пробуем еще раз через 5 секунд
-        setTimeout(initializeBot, 5000);
+        console.log('❌ Bot initialization error:', error.message);
+        // Перезапуск через 10 секунд при ошибке
+        setTimeout(initializeBot, 10000);
     }
 }
 
