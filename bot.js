@@ -706,7 +706,7 @@ if (session.waitingForComparison) {
     await bot.sendMessage(chatId, `🔍 Сравниваю след с эталоном "${modelName}"...`);
 
     try {
-        const footprintFeatures = extractFeatures(processedPredictions);
+        const footprintFeatures = extractFeatures(finalPredictions);
         const referenceFeatures = reference.features;
 
         console.log('📊 Features эталона:', referenceFeatures);
