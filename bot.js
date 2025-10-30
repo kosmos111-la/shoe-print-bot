@@ -120,63 +120,58 @@ function saveStats() {
 }
 
 async function loadStatsFromPublicLink() {
-    try {
-        console.log('🔄 Загрузка статистики по публичной ссылке...');
-       
-        // ПРЯМАЯ ССЫЛКА НА ФАЙЛ (используем твою публичную ссылку)
-        const publicUrl = "https://disk.yandex.ru/d/vjXtSXW8otwaNg";
-       
-        // Конвертируем в ссылку для скачивания
-        const fileId = publicUrl.split('/d/')[1]; // извлекаем ID файла
-        const downloadUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=${publicUrl}`;
-       
-        console.log('📥 Получаем ссылку для скачивания...');
-       
-        // 1. Получаем прямую ссылку для скачивания
-        const linkResponse = await axios.get(downloadUrl, {
-            timeout: 10000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json'
-            }
-        });
-       
-        if (!linkResponse.data.href) {
-            throw new Error('Не получена ссылка для скачивания');
-        }
-       
-        console.log('📥 Получена прямая ссылка для скачивания:', linkResponse.data.href);
-       
-        // 2. Скачиваем файл
-        const fileResponse = await axios.get(linkResponse.data.href, {
-            timeout: 10000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        });
-       
-        console.log('✅ Файл скачан, размер:', fileResponse.data.length, 'символов');
-       
-        // 3. Парсим данные
-        const remoteStats = fileResponse.data;
-       
-        // 4. Обновляем статистику
-        Object.assign(globalStats, remoteStats.global);
-        userStats.clear();
-        remoteStats.users.forEach(([userId, userData]) => {
-            userStats.set(userId, userData);
-        });
-       
-        console.log('🎯 Статистика загружена из облака');
-        return true;
-       
-    } catch (error) {
-        console.log('❌ Ошибка загрузки по публичной ссылке:', error.message);
-        if (error.response) {
-            console.log('Детали ошибки:', error.response.data);
-        }
-        return false;
-    }
+    try {
+        console.log('🔄 Загрузка статистики по публичной ссылке...');
+        
+        // Получаем ссылку для скачивания
+        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
+        
+        console.log('📥 Получаем ссылку для скачивания...');
+        
+        const linkResponse = await axios.get(apiUrl, {
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+        
+        console.log('✅ Получена ссылка для скачивания');
+        
+        // Скачиваем файл по полученной ссылке
+        const fileResponse = await axios.get(linkResponse.data.href, {
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+        
+        console.log('✅ Файл скачан');
+        
+        // Парсим данные
+        const remoteStats = fileResponse.data;
+        
+        // Обновляем статистику
+        Object.assign(globalStats, remoteStats.global);
+        userStats.clear();
+        remoteStats.users.forEach(([userId, userData]) => {
+            userStats.set(userId, userData);
+        });
+        
+        console.log('🎯 Статистика загружена из облака');
+        return true;
+        
+    } catch (error) {
+        console.log('❌ Ошибка загрузки:', error.message);
+        if (error.response) {
+            console.log('Детали:', {
+                status: error.response.status,
+                data: error.response.data
+            });
+        }
+        return false;
+    }
+}
+
 }
 // 📥 ЗАГРУЗКА СТАТИСТИКИ ПО ПРЯМОЙ ССЫЛКЕ
 async function loadStatsFromPublicLink() {
@@ -2054,6 +2049,38 @@ bot.onText(/\/test_stats_load/, async (msg) => {
         await bot.sendMessage(msg.chat.id, `💥 Ошибка: ${error.message}`);
     }
 });
+
+// 🐛 ДЕБАГ ССЫЛКИ
+bot.onText(/\/debug_link/, async (msg) => {
+    if (msg.from.id !== 699140291) return;
+    
+    try {
+        await bot.sendMessage(msg.chat.id, '🔗 Тестирую ссылку...');
+        
+        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
+        
+        const linkResponse = await axios.get(apiUrl, {
+            timeout: 10000
+        });
+        
+        let message = '✅ Ссылка получена!\n\n';
+        message += `🔗 URL: ${linkResponse.data.href.substring(0, 100)}...\n`;
+        message += `📏 Длина: ${linkResponse.data.href.length} символов`;
+        
+        await bot.sendMessage(msg.chat.id, message);
+        
+        // Пробуем скачать
+        const fileResponse = await axios.get(linkResponse.data.href, {
+            timeout: 10000
+        });
+        
+        await bot.sendMessage(msg.chat.id, `✅ Файл скачан! Размер: ${fileResponse.data.length} символов`);
+        
+    } catch (error) {
+        await bot.sendMessage(msg.chat.id, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 
 // 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖
 // 🤖               ОБРАБОТКА ФОТО - PHOTO PROCESSING                  🤖
