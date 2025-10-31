@@ -2037,11 +2037,11 @@ updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis
 }
 });
 
-// 🕵️‍♂️ ДОБАВЛЯЕМ ОТПЕЧАТОК В АКТИВНУЮ СЕССИЮ ЭКСПЕРТА
+// 🕵️♂️ ДОБАВЛЯЕМ ОТПЕЧАТОК В АКТИВНУЮ СЕССИЮ ЭКСПЕРТА
 const expertSession = expertSessions.get(chatId);
 if (expertSession && expertSession.isActive) {
-    console.log(`🕵️‍♂️ Добавляем отпечаток в сессию эксперта: ${expertSession.sessionId}`);
-   
+    console.log(`🕵️♂️ Добавляем отпечаток в сессию эксперта: ${expertSession.sessionId}`);
+
     const footprintData = {
         id: `footprint_${Date.now()}`,
         timestamp: new Date().toISOString(),
@@ -2054,17 +2054,21 @@ if (expertSession && expertSession.isActive) {
         perspective: perspectiveAnalysis,
         imageUrl: fileUrl
     };
-   
+
     expertSession.addFootprint(footprintData);
     console.log(`✅ Отпечаток добавлен в сессию. Всего отпечатков: ${expertSession.footprints.length}`);
-      await bot.sendMessage(chatId, 
-    `🕵️‍♂️ **Экспертная сессия**\n` +
-    `✅ Отпечаток #${expertSession.footprints.length} добавлен в анализ\n` +
-    `📊 Выявлено признаков: ${finalPredictions.length}\n` +
-    `🧭 Ориентация: ${orientationText[orientationType]}\n\n` +
-    `💡 Продолжайте добавлять отпечатки или используйте /expert_report для анализа`
-);
-    }      
+   
+    // 🔥 ИСПРАВЛЕНИЕ: убрали await или используем then()
+    bot.sendMessage(chatId,
+        `🕵️‍♂️ **Экспертная сессия**\n` +
+        `✅ Отпечаток #${expertSession.footprints.length} добавлен в анализ\n` +
+        `📊 Выявлено признаков: ${finalPredictions.length}\n` +
+        `🧭 Ориентация: ${orientationText[orientationType]}\n\n` +
+        `💡 Продолжайте добавлять отпечатки или используйте /expert_report для анализа`
+    ).catch(error => {
+        console.log('⚠️ Ошибка отправки сообщения эксперту:', error.message);
+    });
+}      
 
 // =============================================================================
 // 🚀 ЗАПУСК СИСТЕМЫ
