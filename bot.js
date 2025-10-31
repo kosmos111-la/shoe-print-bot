@@ -1922,6 +1922,27 @@ await bot.sendMessage(chatId, report);
             return;
         }
 
+// 🕵️‍♂️ ДОБАВЛЯЕМ ОТПЕЧАТОК В АКТИВНУЮ СЕССИЮ ЭКСПЕРТА
+const expertSession = expertSessions.get(chatId);
+if (expertSession && expertSession.isActive) {
+    console.log(`🕵️‍♂️ Добавляем отпечаток в сессию эксперта: ${expertSession.sessionId}`);
+   
+    const footprintData = {
+        id: `footprint_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        predictions: finalPredictions,
+        features: extractFeatures(finalPredictions),
+        orientation: {
+            type: orientationType,
+            angle: orientationAngle
+        },
+        perspective: perspectiveAnalysis,
+        imageUrl: fileUrl
+    };
+   
+    expertSession.addFootprint(footprintData);
+    console.log(`✅ Отпечаток добавлен в сессию. Всего отпечатков: ${expertSession.footprints.length}`);
+          
 // 📤 ЗАГРУЗКА ФОТО НА ЯНДЕКС.ДИСК
 if (yandexDisk) {
     try {
