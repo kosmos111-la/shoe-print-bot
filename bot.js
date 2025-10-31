@@ -12,39 +12,42 @@ const fs = require('fs');
 // 📊 КОНФИГ МОДЕЛИ ДЛЯ ОТЧЕТОВ - ПРОЗРАЧНОСТЬ СИСТЕМЫ
 // =============================================================================
 const MODEL_METADATA = {
-    name: "Shoe Print Detective v2.1",
-    version: "2.1.0",
-    status: "DEMO",
-    accuracy: "78% mAP",
-    dataset: "1,247 изображений",
-    trained: "2024-10-15",
-    confidence: "СРЕДНЯЯ",
+    name: "Shoe Print Detective",
+    version: "dynamic",
+    status: "ACTIVE_DEVELOPMENT",
+    accuracy: "Обновляется при переобучении",
+    dataset: "База расширяется",
+    trained: "Периодически обновляется",
+    confidence: "ЗАВИСИТ ОТ КАЧЕСТВА СЛЕДА",
     limitations: [
-        "Лучше работает на четких следах",
-        "Требует прямой угол съемки",
+        "Модель в активной разработке",
+        "Точность варьируется от 30% до 50%",
+        "Требует очень четкие следы для надежности",
+        "Регулярно улучшается на новых данных",
         "Может пропускать мелкие детали"
     ],
     recommendations: [
         "Фотографируйте под прямым углом",
-        "Обеспечьте хорошее освещение",
-        "Избегайте теней и бликов"
+        "Идеальное освещение без теней",
+        "Максимальная четкость снимка",
+        "Крупный план следа",
+        "Контрастный фон"
     ]
 };
 
 // 🔧 Функция для добавления информации о модели
 function addModelTransparency(caption, predictionsCount = 0) {
-    const confidenceLevel = predictionsCount > 10 ? "ВЫСОКАЯ" :
-                           predictionsCount > 5 ? "СРЕДНЯЯ" : "НИЗКАЯ";
+    const confidenceLevel = predictionsCount > 15 ? "СРЕДНЯЯ" : "НИЗКАЯ";
    
     return `${caption}\n\n` +
            `🔍 **ИНФОРМАЦИЯ О СИСТЕМЕ:**\n` +
            `• Модель: ${MODEL_METADATA.name} (${MODEL_METADATA.status})\n` +
-           `• Точность: ${MODEL_METADATA.accuracy}\n` +
+           `• Версия: ${MODEL_METADATA.version}\n` +
            `• Уверенность анализа: ${confidenceLevel}\n` +
-           `• Обучена на: ${MODEL_METADATA.dataset}\n\n` +
-           `💡 **Рекомендации:**\n` +
+           `• Состояние: Активная разработка\n\n` +
+           `💡 **Рекомендации по съемке:**\n` +
            `- ${MODEL_METADATA.recommendations.join('\n- ')}\n\n` +
-           `⚠️ **Ограничения:**\n` +
+           `⚠️ **Важные ограничения:**\n` +
            `- ${MODEL_METADATA.limitations.join('\n- ')}`;
 }
 
@@ -605,8 +608,8 @@ bot.onText(/\/start/, async (msg) => {
         `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} фото\n\n` +
         `🔍 **ИНФОРМАЦИЯ О СИСТЕМЕ:**\n` +
         `• Модель: ${MODEL_METADATA.name} (${MODEL_METADATA.status})\n` +
-        `• Точность: ${MODEL_METADATA.accuracy}\n` +
-        `• Версия: ${MODEL_METADATA.version}\n\n` +
+        `• Версия: ${MODEL_METADATA.version}\n` +
+        `• Точность: Обновляется автоматически\n\n` +
         `📸 **Основные команды:**\n` +
         `• Отправьте фото - анализ следа\n` +
         `• /save_reference - сохранить эталон\n` +
@@ -615,7 +618,7 @@ bot.onText(/\/start/, async (msg) => {
         `• /statistics - статистика бота\n` +
         `• /help - помощь\n\n` +
         `💡 **Рекомендации:** ${MODEL_METADATA.recommendations.join(', ')}\n\n` +
-        `⚠️ *Система в ${MODEL_METADATA.status}-режиме*`
+        `⚠️ *Система в активной разработке, метрики обновляются*`
     );
 });
 
@@ -640,7 +643,7 @@ bot.onText(/\/help/, async (msg) => {
         `🔍 **О СИСТЕМЕ:**\n` +
         `• Модель: ${MODEL_METADATA.name}\n` +
         `• Статус: ${MODEL_METADATA.status}\n` +
-        `• Точность: ${MODEL_METADATA.accuracy}\n\n` +
+        `• Версия: ${MODEL_METADATA.version}\n\n` +
         `📸 **Основные команды:**\n` +
         `• Просто отправьте фото - анализ следа\n` +
         `• /save_reference - сохранить эталон подошвы\n` +
@@ -935,7 +938,6 @@ if (comparisonResult.overallScore > 70) {
 report += `\n\n---\n`;
 report += `🔍 **ИНФОРМАЦИЯ О СИСТЕМЕ:**\n`;
 report += `• Модель: ${MODEL_METADATA.name} (${MODEL_METADATA.status})\n`;
-report += `• Точность: ${MODEL_METADATA.accuracy}\n`;
 report += `• Уверенность анализа: ${comparisonResult.overallScore > 70 ? "ВЫСОКАЯ" : comparisonResult.overallScore > 50 ? "СРЕДНЯЯ" : "НИЗКАЯ"}\n\n`;
 report += `💡 **Рекомендации:** ${MODEL_METADATA.recommendations.join(', ')}`;
 
