@@ -1025,7 +1025,7 @@ async function createAnalysisVisualization(imageUrl, predictions, userData = {})
 
 async function createSkeletonVisualization(imageUrl, predictions, userData) {
     try {
-        cconsole.log('🕵️‍♂️ Создаю карту морфологических признаков...');
+        console.log('🕵️‍♂️ Создаю карту морфологических признаков...');
        
         // Загружаем изображение
         const image = await loadImage(imageUrl);
