@@ -9,6 +9,21 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 
 // =============================================================================
+// 📤 YANDEX DISK SERVICE - ЗАГРУЗКА ФОТО НА ЯНДЕКС.ДИСК
+// =============================================================================
+let YandexDiskService;
+let yandexDisk;
+
+try {
+    YandexDiskService = require('./yandex-disk-service');
+    yandexDisk = new YandexDiskService(process.env.YANDEX_DISK_TOKEN);
+    console.log('✅ Яндекс.Диск service инициализирован');
+} catch (error) {
+    console.log('❌ Яндекс.Диск service не доступен:', error.message);
+    yandexDisk = null;
+}
+
+// =============================================================================
 // 📊 КОНФИГ МОДЕЛИ ДЛЯ ОТЧЕТОВ - ПРОЗРАЧНОСТЬ СИСТЕМЫ
 // =============================================================================
 const MODEL_METADATA = {
