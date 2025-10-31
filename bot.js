@@ -1942,6 +1942,7 @@ if (expertSession && expertSession.isActive) {
    
     expertSession.addFootprint(footprintData);
     console.log(`✅ Отпечаток добавлен в сессию. Всего отпечатков: ${expertSession.footprints.length}`);
+    }      
           
 // 📤 ЗАГРУЗКА ФОТО НА ЯНДЕКС.ДИСК
 if (yandexDisk) {
