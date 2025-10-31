@@ -2020,40 +2020,40 @@ if (orientationType !== 'unknown' && Math.abs(orientationAngle) > 0) {
 }
 
 const transparentCaption = addModelTransparency(baseCaption, finalPredictions.length);
-   
-    if (vizPath) {
-        await bot.sendPhoto(chatId, vizPath, {
-            caption: transparentCaption  // ← ТЕПЕРЬ С ПРОЗРАЧНОСТЬЮ
-        });
-        fs.unlinkSync(vizPath);
-       
-        // Скелетная визуализация
-        console.log('🔍 Пытаюсь создать скелетную визуализацию...');
-        try {
-            const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
-            if (skeletonPath) {
-    console.log('✅ Карта признаков создана, отправляю...');
-    await bot.sendPhoto(chatId, skeletonPath, {
-        caption: `🕵️‍♂️ Карта морфологических признаков протектора`
+
+if (vizPath) {
+    await bot.sendPhoto(chatId, vizPath, {
+        caption: transparentCaption  // ← ТЕПЕРЬ С ПРОЗРАЧНОСТЬЮ
     });
-    fs.unlinkSync(skeletonPath);
-}
-        } catch (error) {
-            console.error('💥 Ошибка при создании скелетной визуализации:', error);
+    fs.unlinkSync(vizPath);
+   
+    // Скелетная визуализация
+    console.log('🔍 Пытаюсь создать скелетную визуализацию...');
+    try {
+        const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
+        if (skeletonPath) {
+            console.log('✅ Карта признаков создана, отправляю...');
+            await bot.sendPhoto(chatId, skeletonPath, {
+                caption: `🕵️‍♂️ Карта морфологических признаков протектора`
+            });
+            fs.unlinkSync(skeletonPath);
         }
-    } else {
-        await bot.sendMessage(chatId, transparentCaption);  // ← ТЕПЕРЬ С ПРОЗРАЧНОСТЬЮ
+    } catch (error) {
+        console.error('💥 Ошибка при создании скелетной визуализации:', error);
     }
 } else {
-            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
-        }
+    await bot.sendMessage(chatId, transparentCaption);  // ← ТЕПЕРЬ С ПРОЗРАЧНОСТЬЮ
+}
+} else {
+    await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+}
 
-        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
+updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
 
-    } catch (error) {
-        console.log('❌ Ошибка анализа фото:', error.message);
-        await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
-    }
+} catch (error) {
+    console.log('❌ Ошибка анализа фото:', error.message);
+    await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
+}
 });
 
 // =============================================================================
