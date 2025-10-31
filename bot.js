@@ -256,14 +256,22 @@ class ExpertSession {
 }
 
 /**
-* Получает или создает сессию экспертизы
+* Получает или создает сессию экспертизы (ОБНОВЛЕННАЯ ВЕРСИЯ)
 */
 function getExpertSession(chatId, username) {
+    console.log(`🔍 Поиск сессии для chatId: ${chatId}`);
+   
     if (!expertSessions.has(chatId)) {
-        expertSessions.set(chatId, new ExpertSession(chatId, username));
-        console.log(`🕵️‍♂️ Создана новая сессия экспертизы для ${username}`);
+        console.log(`🕵️‍♂️ Создаю новую сессию для ${username}`);
+        const newSession = new ExpertSession(chatId, username);
+        expertSessions.set(chatId, newSession);
+        console.log(`✅ Сессия создана: ${newSession.sessionId}`);
+        return newSession;
     }
-    return expertSessions.get(chatId);
+   
+    const existingSession = expertSessions.get(chatId);
+    console.log(`✅ Сессия найдена: ${existingSession.sessionId}, статус: ${existingSession.status}`);
+    return existingSession;
 }
 
 // 📍 ОБНОВЛЯЕМ ФУНКЦИЮ updateUserStats - находим ее и изменяем:
