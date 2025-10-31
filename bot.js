@@ -1420,7 +1420,15 @@ bot.onText(/\/expert_start/, async (msg) => {
     const chatId = msg.chat.id;
     const username = msg.from.username || msg.from.first_name;
    
+    console.log(`🕵️‍♂️ Запрос на создание сессии от ${username} (chatId: ${chatId})`);
+   
     const session = getExpertSession(chatId, username);
+   
+    console.log(`✅ Сессия создана:`, {
+        sessionId: session.sessionId,
+        status: session.status,
+        footprintsCount: session.footprints.length
+    });
    
     await bot.sendMessage(chatId,
         `🕵️‍♂️ **РЕЖИМ ЭКСПЕРТА-КРИМИНАЛИСТА АКТИВИРОВАН**\n\n` +
@@ -1589,8 +1597,14 @@ try {
 
 // 🕵️‍♂️ ПРОВЕРЯЕМ АКТИВНУЮ СЕССИЮ ЭКСПЕРТИЗЫ
 const expertSession = expertSessions.get(chatId);
+console.log(`🔍 Проверка сессии эксперта для chatId ${chatId}:`, {
+    hasSession: !!expertSession,
+    sessionStatus: expertSession ? expertSession.status : 'no session',
+    sessionId: expertSession ? expertSession.sessionId : 'none'
+});
+
 if (expertSession && expertSession.status === 'active') {
-    console.log(`🕵️‍♂️ Добавляю отпечаток в сессию экспертизы: ${expertSession.sessionId}`);
+    console.log(`🕵️‍♂️ Активная сессия найдена! Добавляю отпечаток...`);
    
     const footprintData = {
         imageUrl: fileUrl,
@@ -1607,7 +1621,14 @@ if (expertSession && expertSession.status === 'active') {
         }
     };
    
+    console.log(`📊 Данные для добавления:`, {
+        predictionsCount: finalPredictions.length,
+        features: footprintData.features
+    });
+   
     const footprintRecord = expertSession.addFootprint(footprintData);
+   
+    console.log(`✅ Отпечаток добавлен! Всего в сессии: ${expertSession.footprints.length}`);
    
     // ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СЕССИИ В ОТЧЕТ
     baseCaption += `\n\n🕵️‍♂️ **СЕССИЯ ЭКСПЕРТИЗЫ**\n`;
@@ -1616,7 +1637,10 @@ if (expertSession && expertSession.status === 'active') {
     if (expertSession.comparisons.length > 0) {
         const lastComparison = expertSession.comparisons[expertSession.comparisons.length - 1];
         baseCaption += `• Автосравнение: ${lastComparison.similarity.toFixed(1)}% сходства\n`;
+        console.log(`🔍 Последнее сравнение: ${lastComparison.similarity.toFixed(1)}%`);
     }
+} else {
+    console.log(`❌ Сессия не активна или не найдена`);
 }
               
             referencePrints.set(modelName, {
