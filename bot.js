@@ -608,7 +608,7 @@ function saveStats() {
 
         console.log('💾 Статистика обновлена');
 
-        // 🔄 СОХРАНЯЕМ В YANDEX DISK ЕСЛИ ЕСТЬ ДОСТУП
+        // 🔄 СОХРАНЯЕМ В YANDEX DISK
         if (yandexDisk) {
             setTimeout(async () => {
                 try {
@@ -635,6 +635,56 @@ function saveStats() {
         console.log('❌ Ошибка сохранения статистики:', error.message);
     }
 }
+
+// 🔄 ЗАГРУЗКА СТАТИСТИКИ ИЗ ПУБЛИЧНОЙ ССЫЛКИ ЯНДЕКС.ДИСКА
+async function loadStatsFromPublicLink() {
+    try {
+        console.log('🔄 Загрузка статистики по публичной ссылке...');
+
+        const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
+
+        const linkResponse = await axios.get(apiUrl, { timeout: 10000 });
+        console.log('✅ Получена ссылка для скачивания');
+
+        // Скачиваем как текст сначала
+        const fileResponse = await axios.get(linkResponse.data.href, {
+            timeout: 10000,
+            responseType: 'text'
+        });
+
+        console.log('📥 Файл скачан, длина:', fileResponse.data.length);
+
+        // Пробуем распарсить JSON
+        const remoteStats = JSON.parse(fileResponse.data);
+
+        // Проверяем структуру
+        if (!remoteStats.global) {
+            throw new Error('Неверная структура файла статистики');
+        }
+
+        // Обновляем статистику
+        Object.assign(globalStats, remoteStats.global);
+        userStats.clear();
+       
+        if (remoteStats.users && Array.isArray(remoteStats.users)) {
+            remoteStats.users.forEach(([userId, userData]) => {
+                userStats.set(userId, userData);
+            });
+        }
+
+        console.log('🎯 Статистика загружена из облака');
+        return true;
+
+    } catch (error) {
+        console.log('❌ Ошибка загрузки:', error.message);
+        console.log('💫 Начинаем со свежей статистики');
+        return false;
+    }
+}
+
+// АВТОСОХРАНЕНИЕ КАЖДЫЕ 5 МИНУТ
+setInterval(saveStats, 5 * 60 * 1000);
+
 // =============================================================================
 // 📱 ОСНОВНЫЕ КОМАНДЫ БОТА
 // =============================================================================
@@ -1138,7 +1188,8 @@ app.listen(PORT, async () => {
         console.log('❌ Ошибка установки webhook:', error.message);
     }
    
-    await loadStats();
+    // 🔄 ЗАГРУЖАЕМ СТАТИСТИКУ ИЗ ПУБЛИЧНОЙ ССЫЛКИ
+    await loadStatsFromPublicLink();
    
     console.log('🤖 Бот полностью готов к работе!');
     console.log(`📊 Текущая статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} фото`);
