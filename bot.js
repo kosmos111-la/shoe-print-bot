@@ -248,41 +248,91 @@ function getEpsilonForClass(className) {
 // 🎯 ИСПРАВЛЕННЫЙ АЛГОРИТМ СРАВНЕНИЯ СЛЕДОВ
 // =============================================================================
 
-// 🆕 УЛУЧШЕННЫЙ АЛГОРИТМ СРАВНЕНИЯ
+// =============================================================================
+// 🎯 ИСПРАВЛЕННЫЙ АЛГОРИТМ СРАВНЕНИЯ (БЕЗ NaN)
+// =============================================================================
+
 function compareFootprints(referenceFeatures, footprintFeatures) {
-    console.log('🔍 ЗАПУСК УЛУЧШЕННОГО АЛГОРИТМА СРАВНЕНИЯ');
+    console.log('🔍 УЛУЧШЕННОЕ СРАВНЕНИЕ: эталон vs след');
    
-    // 1. СОВПАДЕНИЕ УЗОРА (40%) - основные элементы протектора
-    const patternMatch = calculatePatternMatch(referenceFeatures, footprintFeatures);
+    // ЗАЩИТА ОТ NaN - гарантируем числовые значения
+    const refDetails = Math.max(referenceFeatures.detailCount || 0, 1);
+    const footprintDetails = Math.max(footprintFeatures.detailCount || 0, 1);
+
+    const scores = {
+        patternSimilarity: 0,    // Схожесть узора (40%)
+        spatialDistribution: 0,  // Пространственное распределение (30%)
+        detailMatching: 0,       // Совпадение деталей (20%)
+        shapeConsistency: 0,     // Соответствие форм (10%)
+        overallScore: 0
+    };
+
+    // 1. Схожесть узора (40%) - сравниваем распределение деталей
+    const countRatio = Math.min(refDetails, footprintDetails) / Math.max(refDetails, footprintDetails);
+    scores.patternSimilarity = Math.round(countRatio * 25);
    
-    // 2. ПРОСТРАНСТВЕННОЕ РАСПРЕДЕЛЕНИЕ (30%) - расположение деталей
-    const spatialMatch = calculateSpatialMatch(referenceFeatures, footprintFeatures);
+    // Бонус за достаточное количество деталей
+    if (refDetails > 10 && footprintDetails > 10) {
+        scores.patternSimilarity += 15;
+    }
+    scores.patternSimilarity = Math.min(scores.patternSimilarity, 40);
+
+    // 2. Пространственное распределение (30%)
+    const refDensity = referenceFeatures.density || 1;
+    const footprintDensity = footprintFeatures.density || 1;
+    const densitySimilarity = 1 - Math.abs(refDensity - footprintDensity) / Math.max(refDensity, footprintDensity);
+    scores.spatialDistribution = Math.round(densitySimilarity * 30);
+
+    // 3. Совпадение деталей (20%)
+    const commonDetails = Math.min(refDetails, footprintDetails);
+    const maxDetails = Math.max(refDetails, footprintDetails);
+    scores.detailMatching = Math.round((commonDetails / maxDetails) * 20);
+
+    // 4. Соответствие форм (10%) - базовый score
+    scores.shapeConsistency = 8;
+    if (referenceFeatures.hasOutline && footprintFeatures.hasOutline) {
+        scores.shapeConsistency += 2;
+    }
+
+    // ОБЩИЙ СЧЕТ (гарантируем число)
+    scores.overallScore = Math.min(
+        scores.patternSimilarity + scores.spatialDistribution + scores.detailMatching + scores.shapeConsistency,
+        100
+    );
+
+    console.log('📊 Улучшенные результаты:', scores);
+    return scores;
+}
+
+// =============================================================================
+// 🔄 ЗЕРКАЛЬНОЕ СРАВНЕНИЕ (ЛЕВЫЙ/ПРАВЫЙ БОТИНОК)
+// =============================================================================
+
+function mirrorFootprint(footprintFeatures) {
+    // Простое зеркалирование - инвертируем spatial характеристики
+    return {
+        ...footprintFeatures,
+        density: footprintFeatures.density,
+        spatialSpread: -footprintFeatures.spatialSpread // упрощенное зеркалирование
+    };
+}
+
+function compareWithMirror(referenceFeatures, footprintFeatures) {
+    // Обычное сравнение
+    const normalScore = compareFootprints(referenceFeatures, footprintFeatures);
    
-    // 3. СОВПАДЕНИЕ ДЕТАЛЕЙ (20%) - мелкие особенности
-    const detailMatch = calculateDetailMatch(referenceFeatures, footprintFeatures);
+    // Зеркальное сравнение (для левый/правый)
+    const mirroredScore = compareFootprints(referenceFeatures, mirrorFootprint(footprintFeatures));
    
-    // 4. СООТВЕТСТВИЕ ФОРМ (10%) - общая форма следа
-    const shapeMatch = calculateShapeMatch(referenceFeatures, footprintFeatures);
+    // Возвращаем лучший результат
+    const bestScore = Math.max(normalScore.overallScore, mirroredScore.overallScore);
    
-    // ОБЩИЙ СЧЕТ С ВЕСАМИ
-    const overallScore =
-        patternMatch * 0.4 +
-        spatialMatch * 0.3 +
-        detailMatch * 0.2 +
-        shapeMatch * 0.1;
-   
-    // ОПРЕДЕЛЕНИЕ УРОВНЯ УВЕРЕННОСТИ
-    let confidence = "НИЗКАЯ";
-    if (overallScore > 75) confidence = "ВЫСОКАЯ";
-    else if (overallScore > 55) confidence = "СРЕДНЯЯ";
+    console.log(`🔄 Зеркальное сравнение: обычный=${normalScore.overallScore}%, зеркальный=${mirroredScore.overallScore}%`);
    
     return {
-        patternMatch: Math.round(patternMatch),
-        spatialMatch: Math.round(spatialMatch),
-        detailMatch: Math.round(detailMatch),
-        shapeMatch: Math.round(shapeMatch),
-        overallScore: Math.round(overallScore),
-        confidence: confidence
+        ...normalScore,
+        overallScore: bestScore,
+        mirrorUsed: bestScore !== normalScore.overallScore
     };
 }
 
@@ -332,29 +382,59 @@ function calculateShapeMatch(ref, footprint) {
    
     return Math.min(score, 100);
 }
-// Упрощенная функция извлечения features
+
+// =============================================================================
+// 📊 УЛУЧШЕННОЕ ИЗВЛЕЧЕНИЕ FEATURES (С ПЛОТНОСТЬЮ)
+// =============================================================================
+
 function extractFeatures(predictions) {
-    console.log(`📊 Извлекаем features из ${predictions.length} предсказаний`);
+    console.log(`📊 Извлекаем улучшенные features из ${predictions.length} предсказаний`);
    
     const features = {
-        detailCount: predictions.length, // Просто количество обнаруженных объектов
+        detailCount: predictions.length,
         hasOutline: false,
-        largeDetails: 0
+        largeDetails: 0,
+        density: 1,  // гарантируем значение по умолчанию
+        spatialSpread: 0
     };
 
-    // Проверяем есть ли контуры
+    // ЗАЩИТА ОТ ПУСТЫХ ДАННЫХ
+    if (!predictions || predictions.length === 0) {
+        return features;
+    }
+
+    let totalArea = 0;
+    const centers = [];
+
     predictions.forEach(pred => {
         if (pred.class && pred.class.includes('Outline')) {
             features.hasOutline = true;
         }
-       
-        // Считаем "крупные" детали (просто по количеству точек)
-        if (pred.points && pred.points.length > 8) {
-            features.largeDetails++;
+
+        // Считаем площадь и центры для анализа распределения
+        if (pred.points && pred.points.length > 3) {
+            const bbox = calculateBoundingBox(pred.points);
+            const area = bbox.width * bbox.height;
+            totalArea += area;
+           
+            if (area > 1000) {
+                features.largeDetails++;
+            }
+
+            // Сохраняем центры для анализа распределения
+            centers.push({
+                x: bbox.x + bbox.width / 2,
+                y: bbox.y + bbox.height / 2
+            });
         }
     });
 
-    console.log('📊 Извлеченные features:', features);
+    // Рассчитываем плотность деталей (защита от деления на ноль)
+    if (centers.length > 0 && totalArea > 0) {
+        features.density = centers.length / (totalArea / 1000); // деталей на 1000px²
+    }
+
+    console.log('📊 Улучшенные features:', features);
     return features;
 }
 
@@ -1029,30 +1109,32 @@ bot.on('photo', async (msg) => {
                 const referenceFeatures = reference.features || { detailCount: 0 };
                 console.log('✅ Features эталона:', referenceFeatures);
 
-                const comparisonResult = compareFootprints(referenceFeatures, footprintFeatures);
+                const comparisonResult = compareWithMirror(referenceFeatures, footprintFeatures);
 
-               // Формируем улучшенный отчет
+               // Формируем отчет
 let report = `🔍 **СРАВНЕНИЕ С "${modelName}"**\n\n`;
-report += `🎯 **Вероятность совпадения: ${comparisonResult.overallScore}%**\n`;
-report += `📊 **Уверенность анализа: ${comparisonResult.confidence}**\n\n`;
-
+report += `🎯 **Вероятность совпадения: ${Math.round(comparisonResult.overallScore)}%**\n\n`;
 report += `📈 **Детальный анализ:**\n`;
-report += `• 🎨 Узор: ${comparisonResult.patternMatch}%\n`;
-report += `• 📐 Расположение: ${comparisonResult.spatialMatch}%\n`;
-report += `• 🔍 Детали: ${comparisonResult.detailMatch}%\n`;
-report += `• ⭐ Формы: ${comparisonResult.shapeMatch}%\n\n`;
+report += `• 🎨 Узор: ${Math.round(comparisonResult.patternSimilarity)}%\n`;
+report += `• 📐 Расположение: ${Math.round(comparisonResult.spatialDistribution)}%\n`;
+report += `• 🔍 Детали: ${Math.round(comparisonResult.detailMatching)}%\n`;
+report += `• ⭐ Формы: ${Math.round(comparisonResult.shapeConsistency)}%\n\n`;
+
+if (comparisonResult.mirrorUsed) {
+    report += `🔄 **Учтена симметрия** (левый/правый ботинок)\n\n`;
+}
 
 // Интерпретация результата
-if (comparisonResult.overallScore > 75) {
+if (comparisonResult.overallScore > 70) {
     report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
-} else if (comparisonResult.overallScore > 55) {
+} else if (comparisonResult.overallScore > 50) {
     report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
-} else if (comparisonResult.overallScore > 35) {
+} else if (comparisonResult.overallScore > 30) {
     report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
 } else {
     report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
 }
-
+                  
 // Добавляем прозрачность модели
 report += `\n\n---\n`;
 report += `🔍 **ИНФОРМАЦИЯ О СИСТЕМЕ:**\n`;
