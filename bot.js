@@ -1942,6 +1942,13 @@ if (expertSession && expertSession.isActive) {
    
     expertSession.addFootprint(footprintData);
     console.log(`✅ Отпечаток добавлен в сессию. Всего отпечатков: ${expertSession.footprints.length}`);
+      await bot.sendMessage(chatId, 
+    `🕵️‍♂️ **Экспертная сессия**\n` +
+    `✅ Отпечаток #${expertSession.footprints.length} добавлен в анализ\n` +
+    `📊 Выявлено признаков: ${finalPredictions.length}\n` +
+    `🧭 Ориентация: ${orientationText[orientationType]}\n\n` +
+    `💡 Продолжайте добавлять отпечатки или используйте /expert_report для анализа`
+);
     }      
           
 // 📤 ЗАГРУЗКА ФОТО НА ЯНДЕКС.ДИСК
