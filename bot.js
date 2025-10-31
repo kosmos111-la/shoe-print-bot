@@ -81,7 +81,7 @@ console.log('🚀 Запуск бота с Webhook...');
 console.log(`🔗 Webhook URL: ${WEBHOOK_URL}`);
 
 // =============================================================================
-// 📊 СИСТЕМА СТАТИСТИКИ И ДАННЫХ
+// 📊 СИСТЕМА СТАТИСТИКИ И ДАННЫХ (ОБНОВЛЕННАЯ)
 // =============================================================================
 
 const userStats = new Map();
@@ -89,9 +89,54 @@ const globalStats = {
     totalUsers: 0,
     totalPhotos: 0,
     totalAnalyses: 0,
-    sessionsStarted: 0,
-    comparisonsMade: 0
+    // ❌ УДАЛЯЕМ: sessionsStarted: 0,  // Больше не используем "сессии"
+    comparisonsMade: 0,
+    lastAnalysis: null,
+    accuracyEstimates: []
 };
+
+// 📍 ОБНОВЛЯЕМ ФУНКЦИЮ updateUserStats - находим ее и изменяем:
+
+function updateUserStats(userId, username, action = 'photo') {
+    if (!userStats.has(userId)) {
+        userStats.set(userId, {
+            username: username || `user_${userId}`,
+            photosCount: 0,
+            analysesCount: 0,
+            // ❌ УДАЛЯЕМ: sessionsCount: 0,  // Больше не отслеживаем сессии
+            comparisonsCount: 0,
+            firstSeen: new Date(),
+            lastSeen: new Date(),
+            lastAnalysis: null
+        });
+        globalStats.totalUsers++;
+    }
+   
+    const user = userStats.get(userId);
+    user.lastSeen = new Date();
+   
+    switch(action) {
+        case 'photo':
+            user.photosCount++;
+            globalStats.totalPhotos++;
+            break;
+        case 'analysis':
+            user.analysesCount++;
+            globalStats.totalAnalyses++;
+            user.lastAnalysis = new Date();
+            globalStats.lastAnalysis = new Date();
+            break;
+        case 'comparison':
+            user.comparisonsCount++;
+            globalStats.comparisonsMade++;
+            break;
+        // ❌ УДАЛЯЕМ case 'session': - больше не используем
+    }
+   
+    if (globalStats.totalPhotos % 10 === 0) {
+        saveStats();
+    }
+}
 
 const referencePrints = new Map();
 const photoSessions = new Map();
@@ -152,15 +197,17 @@ app.get('/health', (req, res) => {
 });
 
 // =============================================================================
-// 🧠 УМНАЯ ПОСТОБРАБОТКА
+// 🧠 УМНАЯ ПОСТОБРАБОТКА + НОРМАЛИЗАЦИЯ
 // =============================================================================
 
 function smartPostProcessing(predictions) {
     if (!predictions || predictions.length === 0) return [];
-
     console.log(`🔧 Умная постобработка: ${predictions.length} объектов`);
-
-    const filtered = predictions.filter(pred => {
+   
+    // 🔄 ДОБАВЛЯЕМ НОРМАЛИЗАЦИЮ ОРИЕНТАЦИИ ПЕРВЫМ ЭТАПОМ
+    const normalizedPredictions = normalizeOrientation(predictions);
+   
+    const filtered = normalizedPredictions.filter(pred => {
         if (!pred.points || pred.points.length < 3) return false;
         const bbox = calculateBoundingBox(pred.points);
         const area = bbox.width * bbox.height;
@@ -176,6 +223,10 @@ function smartPostProcessing(predictions) {
         };
     });
 
+    // 📊 АНАЛИЗИРУЕМ ОРИЕНТАЦИЮ ДЛЯ ОТЧЕТА
+    const orientationType = analyzeOrientationType(optimized);
+    console.log(`🧭 Тип ориентации: ${orientationType}`);
+   
     console.log(`✅ После постобработки: ${optimized.length} объектов`);
     return optimized;
 }
@@ -232,6 +283,156 @@ function calculateBoundingBox(points) {
         width: Math.max(...xs) - Math.min(...xs),
         height: Math.max(...ys) - Math.min(...ys)
     };
+}
+
+// =============================================================================
+// 🧭 НОРМАЛИЗАЦИЯ ОРИЕНТАЦИИ СЛЕДОВ
+// =============================================================================
+
+/**
+* Вычисляет угол поворота следа относительно горизонта
+*/
+function calculateOrientationAngle(points) {
+    console.log('🧭 Вычисляю угол ориентации следа...');
+   
+    if (!points || points.length < 3) {
+        console.log('⚠️ Недостаточно точек для вычисления ориентации');
+        return 0;
+    }
+
+    try {
+        // 1. ВЫЧИСЛЯЕМ ЦЕНТР МАСС
+        const center = points.reduce((acc, point) => {
+            acc.x += point.x;
+            acc.y += point.y;
+            return acc;
+        }, { x: 0, y: 0 });
+       
+        center.x /= points.length;
+        center.y /= points.length;
+
+        // 2. ВЫЧИСЛЯЕМ УГОЛ ЧЕРЕЗ МЕТОД ГЛАВНЫХ КОМПОНЕНТ
+        let xx = 0, yy = 0, xy = 0;
+       
+        points.forEach(point => {
+            const dx = point.x - center.x;
+            const dy = point.y - center.y;
+            xx += dx * dx;
+            yy += dy * dy;
+            xy += dx * dy;
+        });
+
+        // 3. ВЫЧИСЛЯЕМ УГОЛ НАКЛОНА
+        const angle = 0.5 * Math.atan2(2 * xy, xx - yy);
+        const degrees = angle * (180 / Math.PI);
+       
+        console.log(`📐 Вычисленный угол поворота: ${degrees.toFixed(2)}°`);
+        return degrees;
+
+    } catch (error) {
+        console.log('❌ Ошибка вычисления ориентации:', error.message);
+        return 0;
+    }
+}
+
+/**
+* Нормализует ориентацию предсказаний (поворачивает к горизонтали)
+*/
+function normalizeOrientation(predictions) {
+    console.log('🔄 Нормализую ориентацию следов...');
+   
+    if (!predictions || predictions.length === 0) {
+        return predictions;
+    }
+
+    try {
+        // ИЩЕМ КОНТУР СЛЕДА ДЛЯ ОПРЕДЕЛЕНИЯ ОРИЕНТАЦИИ
+        const outline = predictions.find(pred =>
+            pred.class === 'Outline-trail' || pred.class.includes('Outline')
+        );
+
+        if (!outline || !outline.points) {
+            console.log('⚠️ Контур не найден, ориентация не изменена');
+            return predictions;
+        }
+
+        // ВЫЧИСЛЯЕМ УГОЛ ПОВОРОТА
+        const angle = calculateOrientationAngle(outline.points);
+       
+        // ЕСЛИ УГОЛ МАЛЕНЬКИЙ - НЕ ПОВОРАЧИВАЕМ
+        if (Math.abs(angle) < 5) {
+            console.log('✅ След уже ориентирован нормально (<5°)');
+            return predictions;
+        }
+
+        // ВЫЧИСЛЯЕМ ЦЕНТР КОНТУРА
+        const bbox = calculateBoundingBox(outline.points);
+        const center = {
+            x: bbox.minX + bbox.width / 2,
+            y: bbox.minY + bbox.height / 2
+        };
+
+        // ПОВОРАЧИВАЕМ ВСЕ ТОЧКИ ВСЕХ ПРЕДСКАЗАНИЙ
+        const rad = -angle * (Math.PI / 180); // минус для компенсации
+       
+        const normalizedPredictions = predictions.map(pred => {
+            if (!pred.points) return pred;
+           
+            return {
+                ...pred,
+                points: pred.points.map(point => {
+                    // ПЕРЕНОСИМ В ЦЕНТР КООРДИНАТ
+                    const dx = point.x - center.x;
+                    const dy = point.y - center.y;
+                   
+                    // ПОВОРАЧИВАЕМ
+                    const newX = dx * Math.cos(rad) - dy * Math.sin(rad);
+                    const newY = dx * Math.sin(rad) + dy * Math.cos(rad);
+                   
+                    // ВОЗВРАЩАЕМ НА МЕСТО
+                    return {
+                        x: newX + center.x,
+                        y: newY + center.y
+                    };
+                })
+            };
+        });
+
+        console.log(`✅ Ориентация нормализована: поворот на ${angle.toFixed(1)}°`);
+        return normalizedPredictions;
+
+    } catch (error) {
+        console.log('❌ Ошибка нормализации ориентации:', error.message);
+        return predictions;
+    }
+}
+
+/**
+* Определяет тип ориентации (левый/правый/прямой)
+*/
+function analyzeOrientationType(predictions) {
+    if (!predictions || predictions.length === 0) {
+        return 'unknown';
+    }
+
+    try {
+        const outline = predictions.find(pred =>
+            pred.class === 'Outline-trail' || pred.class.includes('Outline')
+        );
+
+        if (!outline) return 'unknown';
+
+        const angle = calculateOrientationAngle(outline.points);
+       
+        if (Math.abs(angle) < 10) return 'aligned';
+        if (angle > 10) return 'rotated_clockwise';
+        if (angle < -10) return 'rotated_counterclockwise';
+       
+        return 'aligned';
+       
+    } catch (error) {
+        return 'unknown';
+    }
 }
 
 function getEpsilonForClass(className) {
@@ -798,15 +999,17 @@ setInterval(saveStats, 5 * 60 * 1000);
 // =============================================================================
 
 bot.onText(/\/start/, async (msg) => {
-    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'session');
+    // ❌ МЕНЯЕМ: убираем 'session' из updateUserStats
+    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name); // без параметра action
    
     await bot.sendMessage(msg.chat.id,
         `👟 **АНАЛИЗАТОР СЛЕДОВ ОБУВИ** 🚀\n\n` +
         `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} фото\n\n` +
-        `🔍 **ИНФОРМАЦИЯ О СИСТЕМЕ:**\n` +
-        `• Модель: ${MODEL_METADATA.name} (${MODEL_METADATA.status})\n` +
-        `• Версия: ${MODEL_METADATA.version}\n` +
-        `• Точность: Обновляется автоматически\n\n` +
+        `🔍 **НОВЫЕ ВОЗМОЖНОСТИ:**\n` +
+        `• 🧭 Автоматическая нормализация ориентации\n` +
+        `• 📐 Анализ перспективных искажений\n` +
+        `• 🔄 Учет левого/правого ботинка\n` +
+        `• 🎯 Улучшенная точность сравнения\n\n` +
         `📸 **Основные команды:**\n` +
         `• Отправьте фото - анализ следа\n` +
         `• /save_reference - сохранить эталон\n` +
@@ -814,8 +1017,11 @@ bot.onText(/\/start/, async (msg) => {
         `• /compare - сравнить с эталоном\n` +
         `• /statistics - статистика бота\n` +
         `• /help - помощь\n\n` +
-        `💡 **Рекомендации:** ${MODEL_METADATA.recommendations.join(', ')}\n\n` +
-        `⚠️ *Система в активной разработке, метрики обновляются*`
+        `💡 **Советы для точного анализа:**\n` +
+        `• Снимайте под прямым углом к следу\n` +
+        `• Избегайте теней и бликов\n` +
+        `• Четкий фокус на деталях протектора\n\n` +
+        `⚠️ *Система постоянно улучшается*`
     );
 });
 
@@ -823,14 +1029,16 @@ bot.onText(/\/statistics/, async (msg) => {
     const activeUsers = Array.from(userStats.values()).filter(user =>
         (new Date() - user.lastSeen) < 7 * 24 * 60 * 60 * 1000
     ).length;
-
+   
+    // ❌ УДАЛЯЕМ УПОМИНАНИЯ О СЕССИЯХ
     const stats = `📊 **СТАТИСТИКА БОТА:**\n\n` +
                  `👥 Пользователи: ${globalStats.totalUsers} (${activeUsers} активных)\n` +
                  `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
                  `🔍 Анализов проведено: ${globalStats.totalAnalyses}\n` +
-                 `📋 Сессий начато: ${globalStats.sessionsStarted}\n` +
-                 `🔄 Сравнений сделано: ${globalStats.comparisonsMade}`;
-
+                 `🔄 Сравнений сделано: ${globalStats.comparisonsMade}\n` +
+                 `📅 Последний анализ: ${globalStats.lastAnalysis ?
+                     globalStats.lastAnalysis.toLocaleString('ru-RU') : 'еще нет'}`;
+   
     await bot.sendMessage(msg.chat.id, stats);
 });
 
@@ -1036,8 +1244,22 @@ bot.on('photo', async (msg) => {
             });
 
             const predictions = response.data.predictions || [];
-            const processedPredictions = smartPostProcessing(predictions);
+const processedPredictions = smartPostProcessing(predictions);
+const finalPredictions = processedPredictions.length > 0 ? processedPredictions : predictions;
 
+// 🔄 ДОБАВЛЯЕМ АНАЛИЗ ПЕРСПЕКТИВЫ ПРЯМО ЗДЕСЬ:
+let perspectiveAnalysis = { hasPerspectiveIssues: false, issues: [], recommendations: [] };
+try {
+    // Получаем размеры изображения для анализа
+    const image = await loadImage(fileUrl);
+    perspectiveAnalysis = analyzePerspectiveDistortion(
+        finalPredictions,
+        image.width,
+        image.height
+    );
+} catch (error) {
+    console.log('⚠️ Не удалось проанализировать перспективу:', error.message);
+}
             referencePrints.set(modelName, {
                 features: {
                     detailCount: processedPredictions.length,
@@ -1086,6 +1308,42 @@ bot.on('photo', async (msg) => {
         const processedPredictions = smartPostProcessing(predictions);
         const finalPredictions = processedPredictions.length > 0 ? processedPredictions : predictions;
 
+// =============================================================================
+// 📐 АНАЛИЗ ПЕРСПЕКТИВНЫХ ИСКАЖЕНИЙ
+// =============================================================================
+
+let perspectiveAnalysis = { hasPerspectiveIssues: false, issues: [], recommendations: [] };
+
+try {
+    console.log('📐 Запускаю анализ перспективных искажений...');
+   
+    // Получаем размеры изображения для анализа
+    const image = await loadImage(fileUrl);
+    console.log(`📏 Размер изображения: ${image.width}x${image.height}`);
+   
+    // ВЫЗЫВАЕМ ФУНКЦИЮ АНАЛИЗА ПЕРСПЕКТИВЫ
+    perspectiveAnalysis = analyzePerspectiveDistortion(
+        finalPredictions,
+        image.width,
+        image.height
+    );
+   
+    console.log('📐 Результат анализа перспективы:', {
+        hasIssues: perspectiveAnalysis.hasPerspectiveIssues,
+        issues: perspectiveAnalysis.issues,
+        confidence: perspectiveAnalysis.confidence
+    });
+   
+} catch (error) {
+    console.log('⚠️ Не удалось проанализировать перспективу:', error.message);
+    perspectiveAnalysis = {
+        hasPerspectiveIssues: false,
+        issues: ['анализ_не_удался'],
+        recommendations: ['не_удалось_оценить_качество_съемки'],
+        confidence: 'low'
+    };
+}
+      
         // Проверка сравнения с эталоном
         if (session.waitingForComparison) {
             const comparisonData = session.waitingForComparison;
@@ -1204,9 +1462,31 @@ if (yandexDisk) {
     };
     const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
    
-    // 🔄 ОБНОВЛЕННЫЙ БЛОК С ПРОЗРАЧНОСТЬЮ
-    const baseCaption = `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`;
-    const transparentCaption = addModelTransparency(baseCaption, finalPredictions.length);
+    // 🔄 ОБНОВЛЕННЫЙ БЛОК С ПРОЗРАЧНОСТЬЮ И АНАЛИЗОМ ПЕРСПЕКТИВЫ
+let baseCaption = `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`;
+
+// ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ПЕРСПЕКТИВЕ
+if (perspectiveAnalysis.hasPerspectiveIssues) {
+    baseCaption += `\n⚠️ **Обнаружены искажения:** ${perspectiveAnalysis.issues.join(', ')}`;
+    if (perspectiveAnalysis.recommendations.length > 0) {
+        baseCaption += `\n💡 **Рекомендации:** ${perspectiveAnalysis.recommendations.join(', ')}`;
+    }
+} else {
+    baseCaption += `\n📐 Перспектива: нормальная`;
+}
+
+// АНАЛИЗ ОРИЕНТАЦИИ
+const orientationType = analyzeOrientationType(finalPredictions);
+const orientationText = {
+    'aligned': '✅ Нормальная ориентация',
+    'rotated_clockwise': '🔄 Поворот по часовой',
+    'rotated_counterclockwise': '🔄 Поворот против часовой',
+    'unknown': '❓ Ориентация не определена'
+};
+
+baseCaption += `\n🧭 ${orientationText[orientationType]}`;
+
+const transparentCaption = addModelTransparency(baseCaption, finalPredictions.length);
    
     if (vizPath) {
         await bot.sendPhoto(chatId, vizPath, {
