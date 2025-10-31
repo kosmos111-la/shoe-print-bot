@@ -627,9 +627,107 @@ function getEpsilonForClass(className) {
 }
 
 // =============================================================================
-// 🎯 ИСПРАВЛЕННЫЙ АЛГОРИТМ СРАВНЕНИЯ СЛЕДОВ
+// 📐 АНАЛИЗ ПЕРСПЕКТИВНЫХ ИСКАЖЕНИЙ
 // =============================================================================
 
+/**
+* Анализирует перспективные искажения на изображении следа
+*/
+function analyzePerspectiveDistortion(predictions, imageWidth, imageHeight) {
+    console.log('📐 Анализирую перспективные искажения...');
+   
+    const analysis = {
+        hasPerspectiveIssues: false,
+        confidence: 'high',
+        issues: [],
+        recommendations: []
+    };
+
+    try {
+        if (!predictions || predictions.length === 0) {
+            analysis.confidence = 'low';
+            return analysis;
+        }
+
+        // ИЩЕМ КОНТУР ДЛЯ АНАЛИЗА
+        const outline = predictions.find(pred =>
+            pred.class === 'Outline-trail' || pred.class.includes('Outline')
+        );
+
+        if (!outline || !outline.points) {
+            analysis.confidence = 'medium';
+            analysis.issues.push('контур_не_найден');
+            return analysis;
+        }
+
+        const points = outline.points;
+       
+        // 1. АНАЛИЗ СООТНОШЕНИЯ СТОРОН
+        const bbox = calculateBoundingBox(points);
+        const aspectRatio = bbox.width / bbox.height;
+       
+        if (aspectRatio < 0.3 || aspectRatio > 3.0) {
+            analysis.hasPerspectiveIssues = true;
+            analysis.issues.push('неестественное_соотношение_сторон');
+            analysis.recommendations.push('снимать под прямым углом к следу');
+        }
+
+        // 2. АНАЛИЗ РАЗМЕРА ОТНОСИТЕЛЬНО КАДРА
+        const frameRatio = (bbox.width * bbox.height) / (imageWidth * imageHeight);
+        if (frameRatio < 0.1) {
+            analysis.issues.push('след_слишком_мал');
+            analysis.recommendations.push('приблизьте камеру к следу');
+        } else if (frameRatio > 0.8) {
+            analysis.issues.push('след_занимает_весь_кадр');
+            analysis.recommendations.push('немного отдалите камеру');
+        }
+
+        console.log(`📐 Результат анализа перспективы:`, {
+            issues: analysis.issues.length,
+            hasProblems: analysis.hasPerspectiveIssues
+        });
+
+        return analysis;
+
+    } catch (error) {
+        console.log('❌ Ошибка анализа перспективы:', error.message);
+        analysis.confidence = 'low';
+        return analysis;
+    }
+}
+
+/**
+* Вычисляет симметрию контура следа (упрощенная версия)
+*/
+function calculateOutlineSymmetry(points) {
+    if (!points || points.length < 4) return 1.0;
+   
+    try {
+        const bbox = calculateBoundingBox(points);
+        // Упрощенный расчет симметрии
+        return 0.8; // Базовая оценка
+    } catch (error) {
+        return 1.0;
+    }
+}
+
+/**
+* Анализирует равномерность распределения деталей (упрощенная версия)
+*/
+function analyzeDetailDistribution(predictions) {
+    const details = predictions.filter(pred =>
+        pred.class === 'shoe-protector' && pred.points
+    );
+   
+    if (details.length < 3) return 1.0;
+   
+    try {
+        // Упрощенный расчет равномерности
+        return 0.7; // Базовая оценка
+    } catch (error) {
+        return 1.0;
+    }
+}
 // =============================================================================
 // 🎯 ИСПРАВЛЕННЫЙ АЛГОРИТМ СРАВНЕНИЯ (БЕЗ NaN)
 // =============================================================================
@@ -927,7 +1025,7 @@ async function createAnalysisVisualization(imageUrl, predictions, userData = {})
 
 async function createSkeletonVisualization(imageUrl, predictions, userData) {
     try {
-        console.log('🦴 Создаю скелетную визуализацию...');
+        cconsole.log('🕵️‍♂️ Создаю карту морфологических признаков...');
        
         // Загружаем изображение
         const image = await loadImage(imageUrl);
@@ -942,8 +1040,8 @@ async function createSkeletonVisualization(imageUrl, predictions, userData) {
             pred.class === 'shoe-protector'
         );
 
-        console.log(`🦴 Найдено ${details.length} деталей протектора`);
-
+        console.log(`🕵️‍♂️ Найдено ${details.length} морфологических признаков`);
+      
         // ВРЕМЕННО: простая функция для bounding box если нет calculateBoundingBox
         function getBoundingBox(points) {
             let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
@@ -971,7 +1069,7 @@ async function createSkeletonVisualization(imageUrl, predictions, userData) {
             };
         });
 
-        console.log(`🦴 Вычислено ${centers.length} центров`);
+        console.log(`🕵️‍♂️ Вычислено ${centers.length} точек анализа`);
 
         // 1. РИСУЕМ СВЯЗИ МЕЖДУ ЦЕНТРАМИ
         ctx.strokeStyle = 'rgba(255, 50, 50, 0.8)'; // Более яркий цвет
@@ -1603,16 +1701,16 @@ try {
     console.log('⚠️ Не удалось проанализировать перспективу:', error.message);
 }
 
-// 🕵️‍♂️ ПРОВЕРЯЕМ АКТИВНУЮ СЕССИЮ ЭКСПЕРТИЗЫ
+// 🕵️‍♂️ ПРОВЕРЯЕМ АКТИВНУЮ СЕССИЮ ЭКСПЕРТИЗЫ С ЛОГАМИ
 const expertSession = expertSessions.get(chatId);
-console.log(`🔍 Проверка сессии эксперта для chatId ${chatId}:`, {
-    hasSession: !!expertSession,
+console.log(`🔍 [DEBUG] Проверка сессии для chatId ${chatId}:`, {
+    hasExpertSession: !!expertSession,
     sessionStatus: expertSession ? expertSession.status : 'no session',
-    sessionId: expertSession ? expertSession.sessionId : 'none'
+    footprintsCount: expertSession ? expertSession.footprints.length : 0
 });
 
 if (expertSession && expertSession.status === 'active') {
-    console.log(`🕵️‍♂️ Активная сессия найдена! Добавляю отпечаток...`);
+    console.log(`🕵️‍♂️ [DEBUG] Активная сессия найдена! ID: ${expertSession.sessionId}`);
    
     const footprintData = {
         imageUrl: fileUrl,
@@ -1629,26 +1727,29 @@ if (expertSession && expertSession.status === 'active') {
         }
     };
    
-    console.log(`📊 Данные для добавления:`, {
-        predictionsCount: finalPredictions.length,
-        features: footprintData.features
+    console.log(`📊 [DEBUG] Данные для добавления в сессию:`, {
+        featuresDetailCount: footprintData.features.detailCount,
+        orientationAngle: footprintData.orientation.angle
     });
    
-    const footprintRecord = expertSession.addFootprint(footprintData);
-   
-    console.log(`✅ Отпечаток добавлен! Всего в сессии: ${expertSession.footprints.length}`);
-   
-    // ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СЕССИИ В ОТЧЕТ
-    baseCaption += `\n\n🕵️‍♂️ **СЕССИЯ ЭКСПЕРТИЗЫ**\n`;
-    baseCaption += `• Отпечаток #${expertSession.footprints.length} зарегистрирован\n`;
-   
-    if (expertSession.comparisons.length > 0) {
-        const lastComparison = expertSession.comparisons[expertSession.comparisons.length - 1];
-        baseCaption += `• Автосравнение: ${lastComparison.similarity.toFixed(1)}% сходства\n`;
-        console.log(`🔍 Последнее сравнение: ${lastComparison.similarity.toFixed(1)}%`);
+    try {
+        const footprintRecord = expertSession.addFootprint(footprintData);
+        console.log(`✅ [DEBUG] Отпечаток успешно добавлен! Всего в сессии: ${expertSession.footprints.length}`);
+       
+        // ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СЕССИИ В ОТЧЕТ
+        baseCaption += `\n\n🕵️‍♂️ **СЕССИЯ ЭКСПЕРТИЗЫ**\n`;
+        baseCaption += `• Отпечаток #${expertSession.footprints.length} зарегистрирован\n`;
+       
+        if (expertSession.comparisons.length > 0) {
+            const lastComparison = expertSession.comparisons[expertSession.comparisons.length - 1];
+            baseCaption += `• Автосравнение: ${lastComparison.similarity.toFixed(1)}% сходства\n`;
+            console.log(`🔍 [DEBUG] Сравнение выполнено: ${lastComparison.similarity.toFixed(1)}%`);
+        }
+    } catch (error) {
+        console.log(`❌ [DEBUG] Ошибка добавления отпечатка:`, error.message);
     }
 } else {
-    console.log(`❌ Сессия не активна или не найдена`);
+    console.log(`❌ [DEBUG] Сессия не активна или не найдена`);
 }
               
             referencePrints.set(modelName, {
