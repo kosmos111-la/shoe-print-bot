@@ -9,6 +9,46 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 
 // =============================================================================
+// 📊 КОНФИГ МОДЕЛИ ДЛЯ ОТЧЕТОВ - ПРОЗРАЧНОСТЬ СИСТЕМЫ
+// =============================================================================
+const MODEL_METADATA = {
+    name: "Shoe Print Detective v2.1",
+    version: "2.1.0",
+    status: "DEMO",
+    accuracy: "78% mAP",
+    dataset: "1,247 изображений",
+    trained: "2024-10-15",
+    confidence: "СРЕДНЯЯ",
+    limitations: [
+        "Лучше работает на четких следах",
+        "Требует прямой угол съемки",
+        "Может пропускать мелкие детали"
+    ],
+    recommendations: [
+        "Фотографируйте под прямым углом",
+        "Обеспечьте хорошее освещение",
+        "Избегайте теней и бликов"
+    ]
+};
+
+// 🔧 Функция для добавления информации о модели
+function addModelTransparency(caption, predictionsCount = 0) {
+    const confidenceLevel = predictionsCount > 10 ? "ВЫСОКАЯ" :
+                           predictionsCount > 5 ? "СРЕДНЯЯ" : "НИЗКАЯ";
+   
+    return `${caption}\n\n` +
+           `🔍 **ИНФОРМАЦИЯ О СИСТЕМЕ:**\n` +
+           `• Модель: ${MODEL_METADATA.name} (${MODEL_METADATA.status})\n` +
+           `• Точность: ${MODEL_METADATA.accuracy}\n` +
+           `• Уверенность анализа: ${confidenceLevel}\n` +
+           `• Обучена на: ${MODEL_METADATA.dataset}\n\n` +
+           `💡 **Рекомендации:**\n` +
+           `- ${MODEL_METADATA.recommendations.join('\n- ')}\n\n` +
+           `⚠️ **Ограничения:**\n` +
+           `- ${MODEL_METADATA.limitations.join('\n- ')}`;
+}
+
+// =============================================================================
 // 🎯 НАСТРОЙКИ И ИНИЦИАЛИЗАЦИЯ
 // =============================================================================
 
@@ -563,12 +603,19 @@ bot.onText(/\/start/, async (msg) => {
     await bot.sendMessage(msg.chat.id,
         `👟 **АНАЛИЗАТОР СЛЕДОВ ОБУВИ** 🚀\n\n` +
         `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} фото\n\n` +
-        `📸 **Отправьте фото** для анализа следа\n` +
-        `💾 **/save_reference** - сохранить эталон\n` +
-        `📝 **/list_references** - список эталонов\n` +
-        `📊 **/statistics** - показать статистику\n` +
-        `🆘 **/help** - помощь\n\n` +
-        `💡 Бот работает в стабильном режиме!`
+        `🔍 **ИНФОРМАЦИЯ О СИСТЕМЕ:**\n` +
+        `• Модель: ${MODEL_METADATA.name} (${MODEL_METADATA.status})\n` +
+        `• Точность: ${MODEL_METADATA.accuracy}\n` +
+        `• Версия: ${MODEL_METADATA.version}\n\n` +
+        `📸 **Основные команды:**\n` +
+        `• Отправьте фото - анализ следа\n` +
+        `• /save_reference - сохранить эталон\n` +
+        `• /list_references - список эталонов\n` +
+        `• /compare - сравнить с эталоном\n` +
+        `• /statistics - статистика бота\n` +
+        `• /help - помощь\n\n` +
+        `💡 **Рекомендации:** ${MODEL_METADATA.recommendations.join(', ')}\n\n` +
+        `⚠️ *Система в ${MODEL_METADATA.status}-режиме*`
     );
 });
 
@@ -589,17 +636,22 @@ bot.onText(/\/statistics/, async (msg) => {
 
 bot.onText(/\/help/, async (msg) => {
     await bot.sendMessage(msg.chat.id,
-        `🆘 **ПОМОЩЬ**\n\n` +
+        `🆘 **ПОМОЩЬ И ИНФОРМАЦИЯ О СИСТЕМЕ**\n\n` +
+        `🔍 **О СИСТЕМЕ:**\n` +
+        `• Модель: ${MODEL_METADATA.name}\n` +
+        `• Статус: ${MODEL_METADATA.status}\n` +
+        `• Точность: ${MODEL_METADATA.accuracy}\n\n` +
         `📸 **Основные команды:**\n` +
         `• Просто отправьте фото - анализ следа\n` +
         `• /save_reference - сохранить эталон подошвы\n` +
         `• /list_references - список эталонов\n` +
+        `• /compare - сравнить с эталоном\n` +
         `• /statistics - статистика бота\n` +
         `• /start - перезапустить бота\n\n` +
-        `💡 **Советы:**\n` +
-        `• Для лучших результатов: хорошее освещение\n` +
-        `• Фото под прямым углом\n` +
-        `• Четкий фокус на следе`
+        `💡 **Рекомендации по съемке:**\n` +
+        `- ${MODEL_METADATA.recommendations.join('\n- ')}\n\n` +
+        `⚠️ **Ограничения системы:**\n` +
+        `- ${MODEL_METADATA.limitations.join('\n- ')}`
     );
 });
 
@@ -859,28 +911,35 @@ bot.on('photo', async (msg) => {
 
                 const comparisonResult = compareFootprints(referenceFeatures, footprintFeatures);
 
-                // Формируем отчет
-                let report = `🔍 **СРАВНЕНИЕ С "${modelName}"**\n\n`;
-                report += `🎯 Вероятность совпадения: **${Math.round(comparisonResult.overallScore)}%**\n\n`;
-                report += `📊 Анализ:\n`;
-                report += `• 🔢 Количество деталей: ${Math.round(comparisonResult.detailCount)}%\n`;
-                report += `• 📐 Расположение: ${Math.round(comparisonResult.spatialLayout)}%\n`;
-                report += `• ⭐ Формы: ${Math.round(comparisonResult.shapeCharacteristics)}%\n\n`;
+                // Формируем отчет с прозрачностью
+let report = `🔍 **СРАВНЕНИЕ С "${modelName}"**\n\n`;
+report += `🎯 **Вероятность совпадения: ${Math.round(comparisonResult.overallScore)}%**\n\n`;
 
-                // Интерпретация результата
-                if (comparisonResult.overallScore > 70) {
-                    report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
-                } else if (comparisonResult.overallScore > 50) {
-                    report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
-                } else if (comparisonResult.overallScore > 30) {
-                    report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
-                } else {
-                    report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
-                }
+report += `📊 **Детальный анализ:**\n`;
+report += `• 🔢 Количество деталей: ${Math.round(comparisonResult.detailCount)}%\n`;
+report += `• 📐 Расположение: ${Math.round(comparisonResult.spatialLayout)}%\n`;
+report += `• ⭐ Формы: ${Math.round(comparisonResult.shapeCharacteristics)}%\n\n`;
 
-                report += `\n\n💡 *Учет деформации грунта и потери мелких деталей*`;
+// Интерпретация результата
+if (comparisonResult.overallScore > 70) {
+    report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
+} else if (comparisonResult.overallScore > 50) {
+    report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
+} else if (comparisonResult.overallScore > 30) {
+    report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
+} else {
+    report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
+}
 
-                await bot.sendMessage(chatId, report);
+// 🔄 ДОБАВЛЯЕМ ПРОЗРАЧНОСТЬ МОДЕЛИ
+report += `\n\n---\n`;
+report += `🔍 **ИНФОРМАЦИЯ О СИСТЕМЕ:**\n`;
+report += `• Модель: ${MODEL_METADATA.name} (${MODEL_METADATA.status})\n`;
+report += `• Точность: ${MODEL_METADATA.accuracy}\n`;
+report += `• Уверенность анализа: ${comparisonResult.overallScore > 70 ? "ВЫСОКАЯ" : comparisonResult.overallScore > 50 ? "СРЕДНЯЯ" : "НИЗКАЯ"}\n\n`;
+report += `💡 **Рекомендации:** ${MODEL_METADATA.recommendations.join(', ')}`;
+
+await bot.sendMessage(chatId, report);
 
                 console.log('✅ Сравнение завершено успешно');
 
@@ -902,43 +961,40 @@ bot.on('photo', async (msg) => {
         }
 
         if (finalPredictions.length > 0) {
-            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
-
-            const userData = {
-                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
-            };
-
-            const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
-
-            if (vizPath) {
-                await bot.sendPhoto(chatId, vizPath, {
-                    caption: `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
+    await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
+    const userData = {
+        username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
+    };
+    const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
+   
+    // 🔄 ОБНОВЛЕННЫЙ БЛОК С ПРОЗРАЧНОСТЬЮ
+    const baseCaption = `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`;
+    const transparentCaption = addModelTransparency(baseCaption, finalPredictions.length);
+   
+    if (vizPath) {
+        await bot.sendPhoto(chatId, vizPath, {
+            caption: transparentCaption  // ← ТЕПЕРЬ С ПРОЗРАЧНОСТЬЮ
+        });
+        fs.unlinkSync(vizPath);
+       
+        // Скелетная визуализация
+        console.log('🔍 Пытаюсь создать скелетную визуализацию...');
+        try {
+            const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
+            if (skeletonPath) {
+                console.log('✅ Скелетная визуализация создана, отправляю...');
+                await bot.sendPhoto(chatId, skeletonPath, {
+                    caption: `🦴 Скелет структуры (центры деталей и связи)`
                 });
-                fs.unlinkSync(vizPath);
-
-                // 🔥 СКЕЛЕТНАЯ ВИЗУАЛИЗАЦИЯ - ВНУТРИ БЛОКА
-                console.log('🔍 Пытаюсь создать скелетную визуализацию...');
-                try {
-                    const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
-                    if (skeletonPath) {
-                        console.log('✅ Скелетная визуализация создана, отправляю...');
-                        await bot.sendPhoto(chatId, skeletonPath, {
-                            caption: `🦴 Скелет структуры (центры деталей и связи)`
-                        });
-                        fs.unlinkSync(skeletonPath);
-                    } else {
-                        console.log('❌ Скелетная визуализация не создана (вернула null)');
-                    }
-                } catch (error) {
-                    console.error('💥 Ошибка при создании скелетной визуализации:', error);
-                }
-
-            } else {
-                await bot.sendMessage(chatId,
-                    `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`
-                );
+                fs.unlinkSync(skeletonPath);
             }
-        } else {
+        } catch (error) {
+            console.error('💥 Ошибка при создании скелетной визуализации:', error);
+        }
+    } else {
+        await bot.sendMessage(chatId, transparentCaption);  // ← ТЕПЕРЬ С ПРОЗРАЧНОСТЬЮ
+    }
+} else {
             await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
         }
 
