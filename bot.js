@@ -309,8 +309,8 @@ function updateUserStats(userId, username, action = 'photo') {
     }
 }
 
-const referencePrints = new Map();
-const photoSessions = new Map();
+// const referencePrints = new Map();
+// const photoSessions = new Map();
 
 // =============================================================================
 // 🤖 ИНИЦИАЛИЗАЦИЯ БОТА И WEBHOOK
