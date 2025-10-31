@@ -1922,34 +1922,7 @@ await bot.sendMessage(chatId, report);
             return;
         }
 
-// 🕵️‍♂️ ДОБАВЛЯЕМ ОТПЕЧАТОК В АКТИВНУЮ СЕССИЮ ЭКСПЕРТА
-const expertSession = expertSessions.get(chatId);
-if (expertSession && expertSession.isActive) {
-    console.log(`🕵️‍♂️ Добавляем отпечаток в сессию эксперта: ${expertSession.sessionId}`);
-   
-    const footprintData = {
-        id: `footprint_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        predictions: finalPredictions,
-        features: extractFeatures(finalPredictions),
-        orientation: {
-            type: orientationType,
-            angle: orientationAngle
-        },
-        perspective: perspectiveAnalysis,
-        imageUrl: fileUrl
-    };
-   
-    expertSession.addFootprint(footprintData);
-    console.log(`✅ Отпечаток добавлен в сессию. Всего отпечатков: ${expertSession.footprints.length}`);
-      await bot.sendMessage(chatId, 
-    `🕵️‍♂️ **Экспертная сессия**\n` +
-    `✅ Отпечаток #${expertSession.footprints.length} добавлен в анализ\n` +
-    `📊 Выявлено признаков: ${finalPredictions.length}\n` +
-    `🧭 Ориентация: ${orientationText[orientationType]}\n\n` +
-    `💡 Продолжайте добавлять отпечатки или используйте /expert_report для анализа`
-);
-    }      
+
           
 // 📤 ЗАГРУЗКА ФОТО НА ЯНДЕКС.ДИСК
 if (yandexDisk) {
@@ -2063,6 +2036,35 @@ updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis
     await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
 }
 });
+
+// 🕵️‍♂️ ДОБАВЛЯЕМ ОТПЕЧАТОК В АКТИВНУЮ СЕССИЮ ЭКСПЕРТА
+const expertSession = expertSessions.get(chatId);
+if (expertSession && expertSession.isActive) {
+    console.log(`🕵️‍♂️ Добавляем отпечаток в сессию эксперта: ${expertSession.sessionId}`);
+   
+    const footprintData = {
+        id: `footprint_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        predictions: finalPredictions,
+        features: extractFeatures(finalPredictions),
+        orientation: {
+            type: orientationType,
+            angle: orientationAngle
+        },
+        perspective: perspectiveAnalysis,
+        imageUrl: fileUrl
+    };
+   
+    expertSession.addFootprint(footprintData);
+    console.log(`✅ Отпечаток добавлен в сессию. Всего отпечатков: ${expertSession.footprints.length}`);
+      await bot.sendMessage(chatId, 
+    `🕵️‍♂️ **Экспертная сессия**\n` +
+    `✅ Отпечаток #${expertSession.footprints.length} добавлен в анализ\n` +
+    `📊 Выявлено признаков: ${finalPredictions.length}\n` +
+    `🧭 Ориентация: ${orientationText[orientationType]}\n\n` +
+    `💡 Продолжайте добавлять отпечатки или используйте /expert_report для анализа`
+);
+    }      
 
 // =============================================================================
 // 🚀 ЗАПУСК СИСТЕМЫ
