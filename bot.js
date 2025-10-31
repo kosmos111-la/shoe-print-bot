@@ -81,7 +81,7 @@ console.log('🚀 Запуск бота с Webhook...');
 console.log(`🔗 Webhook URL: ${WEBHOOK_URL}`);
 
 // =============================================================================
-// 📊 СИСТЕМА СТАТИСТИКИ И ДАННЫХ (ОБНОВЛЕННАЯ)
+// 📊 СИСТЕМА СТАТИСТИКИ И ДАННЫХ
 // =============================================================================
 
 const userStats = new Map();
@@ -89,11 +89,182 @@ const globalStats = {
     totalUsers: 0,
     totalPhotos: 0,
     totalAnalyses: 0,
-    // ❌ УДАЛЯЕМ: sessionsStarted: 0,  // Больше не используем "сессии"
-    comparisonsMade: 0,
-    lastAnalysis: null,
-    accuracyEstimates: []
+    comparisonsMade: 0
 };
+
+const referencePrints = new Map();
+const photoSessions = new Map();
+
+// =============================================================================
+// 🕵️‍♂️ СИСТЕМА СЕССИЙ ЭКСПЕРТА-КРИМИНАЛИСТА
+// =============================================================================
+
+const expertSessions = new Map();
+
+/**
+* Сессия экспертизы для отслеживания последовательных отпечатков
+*/
+class ExpertSession {
+    constructor(chatId, username) {
+        this.chatId = chatId;
+        this.expert = username;
+        this.sessionId = `session_${chatId}_${Date.now()}`;
+        this.startTime = new Date();
+        this.footprints = []; // Все отпечатки в сессии
+        this.comparisons = []; // Результаты сравнений
+        this.status = 'active';
+        this.notes = '';
+    }
+
+    addFootprint(analysisData) {
+        const footprintRecord = {
+            id: `footprint_${this.footprints.length + 1}`,
+            timestamp: new Date(),
+            imageUrl: analysisData.imageUrl,
+            predictions: analysisData.predictions,
+            features: analysisData.features,
+            perspectiveAnalysis: analysisData.perspectiveAnalysis,
+            orientation: analysisData.orientation
+        };
+       
+        this.footprints.push(footprintRecord);
+        console.log(`🕵️‍♂️ Добавлен отпечаток в сессию ${this.sessionId}: ${footprintRecord.id}`);
+       
+        // Автоматическое сравнение с предыдущими отпечатками
+        if (this.footprints.length > 1) {
+            this.autoCompareWithPrevious(footprintRecord);
+        }
+       
+        return footprintRecord;
+    }
+
+    autoCompareWithPrevious(newFootprint) {
+        console.log(`🕵️‍♂️ Автосравнение нового отпечатка с предыдущими...`);
+       
+        const previousFootprints = this.footprints.slice(0, -1); // Все кроме последнего
+       
+        previousFootprints.forEach((previous, index) => {
+            const comparison = compareFootprints(
+                previous.features,
+                newFootprint.features
+            );
+           
+            const comparisonRecord = {
+                id: `comparison_${this.comparisons.length + 1}`,
+                timestamp: new Date(),
+                footprintA: previous.id,
+                footprintB: newFootprint.id,
+                result: comparison,
+                similarity: comparison.overallScore,
+                notes: this.generateComparisonNotes(comparison, previous, newFootprint)
+            };
+           
+            this.comparisons.push(comparisonRecord);
+            console.log(`🔍 Сравнение ${previous.id} vs ${newFootprint.id}: ${comparison.overallScore}%`);
+        });
+    }
+
+    generateComparisonNotes(comparison, footprintA, footprintB) {
+        const notes = [];
+       
+        if (comparison.overallScore > 70) {
+            notes.push('ВЫСОКАЯ СХОДИМОСТЬ - вероятно один источник');
+        } else if (comparison.overallScore > 50) {
+            notes.push('СРЕДНЯЯ СХОДИМОСТЬ - требуется дополнительный анализ');
+        } else {
+            notes.push('НИЗКАЯ СХОДИМОСТЬ - разные источники');
+        }
+
+        if (comparison.mirrorUsed) {
+            notes.push('Учтена зеркальная симметрия (левый/правый)');
+        }
+
+        return notes.join('; ');
+    }
+
+    getSessionSummary() {
+        return {
+            sessionId: this.sessionId,
+            expert: this.expert,
+            duration: new Date() - this.startTime,
+            footprintsCount: this.footprints.length,
+            comparisonsCount: this.comparisons.length,
+            averageSimilarity: this.comparisons.length > 0 ?
+                this.comparisons.reduce((sum, comp) => sum + comp.similarity, 0) / this.comparisons.length : 0,
+            status: this.status
+        };
+    }
+
+    generateExpertReport() {
+        const summary = this.getSessionSummary();
+       
+        let report = `🕵️‍♂️ **ЭКСПЕРТНОЕ ЗАКЛЮЧЕНИЕ**\n\n`;
+        report += `**Сессия:** ${summary.sessionId}\n`;
+        report += `**Эксперт:** ${summary.expert}\n`;
+        report += `**Продолжительность:** ${Math.round(summary.duration / 60000)} мин.\n`;
+        report += `**Проанализировано отпечатков:** ${summary.footprintsCount}\n`;
+        report += `**Выполнено сравнений:** ${summary.comparisonsCount}\n`;
+        report += `**Средняя сходимость:** ${summary.averageSimilarity.toFixed(1)}%\n\n`;
+
+        if (this.comparisons.length > 0) {
+            report += `**КЛЮЧЕВЫЕ ВЫВОДЫ:**\n`;
+           
+            const highSimilarity = this.comparisons.filter(c => c.similarity > 70);
+            if (highSimilarity.length > 0) {
+                report += `• Обнаружено ${highSimilarity.length} пар с высокой сходимостью\n`;
+            }
+
+            const uniqueGroups = this.identifyUniqueGroups();
+            report += `• Выявлено ${uniqueGroups.length} уникальных морфологических групп\n`;
+        }
+
+        report += `\n**СТАТУС:** ${this.status === 'active' ? 'АКТИВНА' : 'ЗАВЕРШЕНА'}`;
+       
+        return report;
+    }
+
+    identifyUniqueGroups() {
+        // Простой алгоритм группировки по сходимости
+        const groups = [];
+       
+        this.footprints.forEach(footprint => {
+            let assigned = false;
+           
+            for (let group of groups) {
+                const avgSimilarity = group.members.reduce((sum, member) => {
+                    const comparison = this.comparisons.find(c =>
+                        (c.footprintA === footprint.id && c.footprintB === member) ||
+                        (c.footprintB === footprint.id && c.footprintA === member)
+                    );
+                    return sum + (comparison ? comparison.similarity : 0);
+                }, 0) / group.members.length;
+               
+                if (avgSimilarity > 60) {
+                    group.members.push(footprint.id);
+                    assigned = true;
+                    break;
+                }
+            }
+           
+            if (!assigned) {
+                groups.push({ id: `group_${groups.length + 1}`, members: [footprint.id] });
+            }
+        });
+       
+        return groups;
+    }
+}
+
+/**
+* Получает или создает сессию экспертизы
+*/
+function getExpertSession(chatId, username) {
+    if (!expertSessions.has(chatId)) {
+        expertSessions.set(chatId, new ExpertSession(chatId, username));
+        console.log(`🕵️‍♂️ Создана новая сессия экспертизы для ${username}`);
+    }
+    return expertSessions.get(chatId);
+}
 
 // 📍 ОБНОВЛЯЕМ ФУНКЦИЮ updateUserStats - находим ее и изменяем:
 
@@ -857,14 +1028,14 @@ async function createSkeletonVisualization(imageUrl, predictions, userData) {
         ctx.strokeStyle = 'black';
         ctx.lineWidth = 3;
         ctx.font = 'bold 30px Arial';
-        ctx.strokeText(`🦴 Скелет протектора`, 20, 40);
-        ctx.fillText(`🦴 Скелет протектора`, 20, 40);
+        ctx.strokeText(`🕵️‍♂️ Карта морфологических признаков`, 20, 40);
+        ctx.fillText(`🕵️‍♂️ Карта морфологических признаков`, 20, 40);
        
         ctx.font = '20px Arial';
-        ctx.strokeText(`Детали: ${details.length}`, 20, 70);
-        ctx.fillText(`Детали: ${details.length}`, 20, 70);
-        ctx.strokeText(`Центры: ${centers.length}`, 20, 95);
-        ctx.fillText(`Центры: ${centers.length}`, 20, 95);
+        ctx.strokeText(`Признаки: ${details.length}`, 20, 70);
+        ctx.fillText(`Признаки: ${details.length}`, 20, 70);       
+        ctx.strokeText(`Точки анализа: ${centers.length}`, 20, 95);
+        ctx.fillText(`Точки анализа: ${centers.length}`, 20, 95);
 
         // Сохраняем
         const tempPath = `skeleton_${Date.now()}.png`;
@@ -1030,29 +1201,29 @@ setInterval(saveStats, 5 * 60 * 1000);
 // =============================================================================
 
 bot.onText(/\/start/, async (msg) => {
-    // ❌ МЕНЯЕМ: убираем 'session' из updateUserStats
-    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name); // без параметра action
+    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name);
    
     await bot.sendMessage(msg.chat.id,
-        `👟 **АНАЛИЗАТОР СЛЕДОВ ОБУВИ** 🚀\n\n` +
-        `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} фото\n\n` +
-        `🔍 **НОВЫЕ ВОЗМОЖНОСТИ:**\n` +
-        `• 🧭 Автоматическая нормализация ориентации\n` +
-        `• 📐 Анализ перспективных искажений\n` +
-        `• 🔄 Учет левого/правого ботинка\n` +
-        `• 🎯 Улучшенная точность сравнения\n\n` +
+        `👟 **СИСТЕМА КРИМИНАЛИСТИЧЕСКОЙ ЭКСПЕРТИЗЫ ОТПЕЧАТКОВ ОБУВИ** 🚀\n\n` +
+        `📊 Статистика: ${globalStats.totalUsers} экспертов, ${globalStats.totalPhotos} отпечатков\n\n` +
+        `🔍 **ЭКСПЕРТНЫЕ РЕЖИМЫ:**\n` +
+        `• **Базовый анализ** - отправьте фото отпечатка\n` +
+        `• **/expert_start** - режим эксперта-криминалиста\n` +
+        `• **Сравнение с эталоном** - /compare\n\n` +
+        `🕵️‍♂️ **РЕЖИМ ЭКСПЕРТА-КРИМИНАЛИСТА:**\n` +
+        `• Сессионный анализ multiple отпечатков\n` +
+        `• Автоматическое сравнение внутри сессии\n` +
+        `• Экспертное заключение по результатам\n\n` +
         `📸 **Основные команды:**\n` +
-        `• Отправьте фото - анализ следа\n` +
-        `• /save_reference - сохранить эталон\n` +
+        `• /save_reference - сохранить эталон подошвы\n` +
         `• /list_references - список эталонов\n` +
-        `• /compare - сравнить с эталоном\n` +
-        `• /statistics - статистика бота\n` +
+        `• /statistics - статистика системы\n` +
         `• /help - помощь\n\n` +
-        `💡 **Советы для точного анализа:**\n` +
-        `• Снимайте под прямым углом к следу\n` +
+        `💡 **Для криминалистической точности:**\n` +
+        `• Снимайте под прямым углом к отпечатку\n` +
         `• Избегайте теней и бликов\n` +
         `• Четкий фокус на деталях протектора\n\n` +
-        `⚠️ *Система постоянно улучшается*`
+        `⚠️ *Система постоянно совершенствуется*`
     );
 });
 
@@ -1242,6 +1413,130 @@ bot.onText(/\/cancel/, async (msg) => {
 });
 
 // =============================================================================
+// 🕵️‍♂️ КОМАНДЫ РЕЖИМА ЭКСПЕРТА-КРИМИНАЛИСТА
+// =============================================================================
+
+bot.onText(/\/expert_start/, async (msg) => {
+    const chatId = msg.chat.id;
+    const username = msg.from.username || msg.from.first_name;
+   
+    const session = getExpertSession(chatId, username);
+   
+    await bot.sendMessage(chatId,
+        `🕵️‍♂️ **РЕЖИМ ЭКСПЕРТА-КРИМИНАЛИСТА АКТИВИРОВАН**\n\n` +
+        `**Сессия:** ${session.sessionId}\n` +
+        `**Эксперт:** ${username}\n` +
+        `**Время начала:** ${session.startTime.toLocaleString('ru-RU')}\n\n` +
+        `🔍 **Теперь все отпечатки будут автоматически:**\n` +
+        `• Сохраняться в текущую сессию\n` +
+        `• Сравниваться между собой\n` +
+        `• Анализироваться на сходимость\n\n` +
+        `📸 **Просто отправляйте фото отпечатков подошв**\n\n` +
+        `**Команды эксперта:**\n` +
+        `• /expert_status - статус сессии\n` +
+        `• /expert_report - экспертное заключение\n` +
+        `• /expert_notes - добавить заметки\n` +
+        `• /expert_finish - завершить сессию\n\n` +
+        `⚠️ *Все данные сохраняются только до перезапуска бота*`
+    );
+});
+
+bot.onText(/\/expert_status/, async (msg) => {
+    const chatId = msg.chat.id;
+    const session = expertSessions.get(chatId);
+   
+    if (!session) {
+        await bot.sendMessage(chatId,
+            '❌ Активная сессия экспертизы не найдена.\n' +
+            'Используйте /expert_start для начала работы.'
+        );
+        return;
+    }
+   
+    const summary = session.getSessionSummary();
+   
+    let status = `🕵️‍♂️ **СТАТУС СЕССИИ ЭКСПЕРТИЗЫ**\n\n`;
+    status += `**ID:** ${summary.sessionId}\n`;
+    status += `**Статус:** ${summary.status === 'active' ? '🟢 АКТИВНА' : '🔴 ЗАВЕРШЕНА'}\n`;
+    status += `**Отпечатков:** ${summary.footprintsCount}\n`;
+    status += `**Сравнений:** ${summary.comparisonsCount}\n`;
+    status += `**Средняя сходимость:** ${summary.averageSimilarity.toFixed(1)}%\n`;
+    status += `**Длительность:** ${Math.round(summary.duration / 60000)} мин.\n`;
+   
+    if (session.notes) {
+        status += `\n**Заметки эксперта:**\n${session.notes}`;
+    }
+   
+    await bot.sendMessage(chatId, status);
+});
+
+bot.onText(/\/expert_report/, async (msg) => {
+    const chatId = msg.chat.id;
+    const session = expertSessions.get(chatId);
+   
+    if (!session) {
+        await bot.sendMessage(chatId, '❌ Нет активной сессии для отчета.');
+        return;
+    }
+   
+    if (session.footprints.length < 2) {
+        await bot.sendMessage(chatId,
+            '📊 **Недостаточно данных для отчета**\n\n' +
+            'Для генерации экспертного заключения требуется минимум 2 отпечатка.\n' +
+            `Сейчас в сессии: ${session.footprints.length} отпечатков`
+        );
+        return;
+    }
+   
+    const report = session.generateExpertReport();
+    await bot.sendMessage(chatId, report);
+});
+
+bot.onText(/\/expert_notes(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const session = expertSessions.get(chatId);
+   
+    if (!session) {
+        await bot.sendMessage(chatId, '❌ Нет активной сессии для добавления заметок.');
+        return;
+    }
+   
+    const notesText = match ? match[1] : null;
+   
+    if (!notesText) {
+        await bot.sendMessage(chatId,
+            '📝 **Добавление заметок к сессии**\n\n' +
+            'Использование: `/expert_notes Ваш текст заметки`\n\n' +
+            'Текущие заметки:\n' +
+            (session.notes || 'Пока нет заметок')
+        );
+        return;
+    }
+   
+    session.notes = notesText;
+    await bot.sendMessage(chatId, '✅ Заметки эксперта сохранены');
+});
+
+bot.onText(/\/expert_finish/, async (msg) => {
+    const chatId = msg.chat.id;
+    const session = expertSessions.get(chatId);
+   
+    if (!session) {
+        await bot.sendMessage(chatId, '❌ Нет активной сессии для завершения.');
+        return;
+    }
+   
+    session.status = 'completed';
+    const report = session.generateExpertReport();
+   
+    await bot.sendMessage(chatId,
+        `🔚 **СЕССИЯ ЭКСПЕРТИЗЫ ЗАВЕРШЕНА**\n\n${report}\n\n` +
+        `📁 Все данные сохранены до перезапуска бота.\n` +
+        `🔄 Для новой сессии используйте /expert_start`
+    );
+});
+
+// =============================================================================
 // 📸 ОБРАБОТКА ФОТО
 // =============================================================================
 
@@ -1291,6 +1586,39 @@ try {
 } catch (error) {
     console.log('⚠️ Не удалось проанализировать перспективу:', error.message);
 }
+
+// 🕵️‍♂️ ПРОВЕРЯЕМ АКТИВНУЮ СЕССИЮ ЭКСПЕРТИЗЫ
+const expertSession = expertSessions.get(chatId);
+if (expertSession && expertSession.status === 'active') {
+    console.log(`🕵️‍♂️ Добавляю отпечаток в сессию экспертизы: ${expertSession.sessionId}`);
+   
+    const footprintData = {
+        imageUrl: fileUrl,
+        predictions: finalPredictions,
+        features: extractFeatures(finalPredictions),
+        perspectiveAnalysis: perspectiveAnalysis,
+        orientation: {
+            type: analyzeOrientationType(finalPredictions),
+            angle: calculateOrientationAngle(
+                finalPredictions.find(pred =>
+                    pred.class === 'Outline-trail' || pred.class.includes('Outline')
+                )?.points || []
+            )
+        }
+    };
+   
+    const footprintRecord = expertSession.addFootprint(footprintData);
+   
+    // ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СЕССИИ В ОТЧЕТ
+    baseCaption += `\n\n🕵️‍♂️ **СЕССИЯ ЭКСПЕРТИЗЫ**\n`;
+    baseCaption += `• Отпечаток #${expertSession.footprints.length} зарегистрирован\n`;
+   
+    if (expertSession.comparisons.length > 0) {
+        const lastComparison = expertSession.comparisons[expertSession.comparisons.length - 1];
+        baseCaption += `• Автосравнение: ${lastComparison.similarity.toFixed(1)}% сходства\n`;
+    }
+}
+              
             referencePrints.set(modelName, {
                 features: {
                     detailCount: processedPredictions.length,
@@ -1504,7 +1832,7 @@ if (yandexDisk) {
     const vizPath = await createAnalysisVisualization(fileUrl, finalPredictions, userData);
    
     // 🔄 ОБНОВЛЕННЫЙ БЛОК С ПРОЗРАЧНОСТЬЮ И АНАЛИЗОМ ПЕРСПЕКТИВЫ
-let baseCaption = `✅ Анализ завершен!\n🎯 Обнаружено объектов: ${finalPredictions.length}`;
+let baseCaption = `✅ Анализ завершен!\n🎯 Выявлено морфологических признаков: ${finalPredictions.length}`;
 
 // ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ПЕРСПЕКТИВЕ
 if (perspectiveAnalysis.hasPerspectiveIssues) {
@@ -1550,12 +1878,12 @@ const transparentCaption = addModelTransparency(baseCaption, finalPredictions.le
         try {
             const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
             if (skeletonPath) {
-                console.log('✅ Скелетная визуализация создана, отправляю...');
-                await bot.sendPhoto(chatId, skeletonPath, {
-                    caption: `🦴 Скелет структуры (центры деталей и связи)`
-                });
-                fs.unlinkSync(skeletonPath);
-            }
+    console.log('✅ Карта признаков создана, отправляю...');
+    await bot.sendPhoto(chatId, skeletonPath, {
+        caption: `🕵️‍♂️ Карта морфологических признаков протектора`
+    });
+    fs.unlinkSync(skeletonPath);
+}
         } catch (error) {
             console.error('💥 Ошибка при создании скелетной визуализации:', error);
         }
