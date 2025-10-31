@@ -827,7 +827,7 @@ bot.on('photo', async (msg) => {
 
             const response = await axios({
                 method: "POST",
-                url: 'https://detect.roboflow.com/-zqyih/12',
+                url: 'https://detect.roboflow.com/-zqyih/13',
                 params: {
                     api_key: 'NeHOB854EyHkDbGGLE6G',
                     image: fileUrl,
@@ -874,7 +874,7 @@ bot.on('photo', async (msg) => {
 
         const response = await axios({
             method: "POST",
-            url: 'https://detect.roboflow.com/-zqyih/12',
+            url: 'https://detect.roboflow.com/-zqyih/13',
             params: {
                 api_key: 'NeHOB854EyHkDbGGLE6G',
                 image: fileUrl,
