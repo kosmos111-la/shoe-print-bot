@@ -605,12 +605,36 @@ function saveStats() {
             users: Array.from(userStats.entries()),
             timestamp: new Date().toISOString()
         };
+
         console.log('💾 Статистика обновлена');
+
+        // 🔄 СОХРАНЯЕМ В YANDEX DISK ЕСЛИ ЕСТЬ ДОСТУП
+        if (yandexDisk) {
+            setTimeout(async () => {
+                try {
+                    const tempStatsPath = 'stats_backup.json';
+                    fs.writeFileSync(tempStatsPath, JSON.stringify(statsData, null, 2));
+
+                    await yandexDisk.uploadFile(tempStatsPath, 'stats.json');
+                    console.log('✅ Статистика сохранена в Яндекс.Диск');
+
+                    // Удаляем временный файл
+                    try {
+                        if (fs.existsSync(tempStatsPath)) {
+                            fs.unlinkSync(tempStatsPath);
+                        }
+                    } catch (unlinkError) {
+                        // Игнорируем ошибку удаления
+                    }
+                } catch (driveError) {
+                    console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
+                }
+            }, 1000);
+        }
     } catch (error) {
         console.log('❌ Ошибка сохранения статистики:', error.message);
     }
 }
-
 // =============================================================================
 // 📱 ОСНОВНЫЕ КОМАНДЫ БОТА
 // =============================================================================
