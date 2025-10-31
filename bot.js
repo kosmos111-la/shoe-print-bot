@@ -1743,7 +1743,7 @@ if (expertSession && expertSession.status === 'active') {
     ).catch(error => {
         console.log('⚠️ Ошибка отправки сообщения эксперту:', error.message);
     });
-}
+
         // ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СЕССИИ В ОТЧЕТ
         baseCaption += `\n\n🕵️‍♂️ **СЕССИЯ ЭКСПЕРТИЗЫ**\n`;
         baseCaption += `• Отпечаток #${expertSession.footprints.length} зарегистрирован\n`;
