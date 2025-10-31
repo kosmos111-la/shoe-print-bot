@@ -204,10 +204,10 @@ function smartPostProcessing(predictions) {
     if (!predictions || predictions.length === 0) return [];
     console.log(`🔧 Умная постобработка: ${predictions.length} объектов`);
    
-    // 🔄 ДОБАВЛЯЕМ НОРМАЛИЗАЦИЮ ОРИЕНТАЦИИ ПЕРВЫМ ЭТАПОМ
-    const normalizedPredictions = normalizeOrientation(predictions);
+    // ❌ УБИРАЕМ нормализацию ориентации из постобработки
+    // const normalizedPredictions = normalizeOrientation(predictions); // УДАЛИТЬ ЭТУ СТРОКУ
    
-    const filtered = normalizedPredictions.filter(pred => {
+    const filtered = predictions.filter(pred => {  // ← МЕНЯЕМ normalizedPredictions на predictions
         if (!pred.points || pred.points.length < 3) return false;
         const bbox = calculateBoundingBox(pred.points);
         const area = bbox.width * bbox.height;
@@ -223,7 +223,7 @@ function smartPostProcessing(predictions) {
         };
     });
 
-    // 📊 АНАЛИЗИРУЕМ ОРИЕНТАЦИЮ ДЛЯ ОТЧЕТА
+    // 📊 АНАЛИЗИРУЕМ ОРИЕНТАЦИЮ ДЛЯ ОТЧЕТА (но не меняем координаты)
     const orientationType = analyzeOrientationType(optimized);
     console.log(`🧭 Тип ориентации: ${orientationType}`);
    
@@ -408,7 +408,7 @@ function normalizeOrientation(predictions) {
 }
 
 /**
-* Определяет тип ориентации (левый/правый/прямой)
+* Определяет тип ориентации (левый/правый/прямой) с порогами
 */
 function analyzeOrientationType(predictions) {
     if (!predictions || predictions.length === 0) {
@@ -424,9 +424,11 @@ function analyzeOrientationType(predictions) {
 
         const angle = calculateOrientationAngle(outline.points);
        
-        if (Math.abs(angle) < 10) return 'aligned';
-        if (angle > 10) return 'rotated_clockwise';
-        if (angle < -10) return 'rotated_counterclockwise';
+        // 🔧 НАСТРАИВАЕМ ПОРОГИ ДЛЯ БОЛЕЕ ТОЧНОЙ КЛАССИФИКАЦИИ
+        if (Math.abs(angle) < 8) return 'aligned';          // ±8° - нормально
+        if (angle > 8 && angle <= 45) return 'rotated_clockwise';
+        if (angle < -8 && angle >= -45) return 'rotated_counterclockwise';
+        if (Math.abs(angle) > 45) return 'strongly_rotated'; // Сильный поворот
        
         return 'aligned';
        
@@ -518,24 +520,53 @@ function mirrorFootprint(footprintFeatures) {
     };
 }
 
-function compareWithMirror(referenceFeatures, footprintFeatures) {
+function compareWithMirror(referenceFeatures, footprintFeatures, footprintPredictions = []) {
     // Обычное сравнение
     const normalScore = compareFootprints(referenceFeatures, footprintFeatures);
    
     // Зеркальное сравнение (для левый/правый)
     const mirroredScore = compareFootprints(referenceFeatures, mirrorFootprint(footprintFeatures));
    
-    // Возвращаем лучший результат
-    const bestScore = Math.max(normalScore.overallScore, mirroredScore.overallScore);
+    // 🔥 ДОБАВЛЯЕМ УЧЕТ ОРИЕНТАЦИИ ПРИ СРАВНЕНИИ
+    let orientationAdjustedScore = normalScore.overallScore;
    
-    console.log(`🔄 Зеркальное сравнение: обычный=${normalScore.overallScore}%, зеркальный=${mirroredScore.overallScore}%`);
+    try {
+        const orientationType = analyzeOrientationType(footprintPredictions);
+        const orientationAngle = calculateOrientationAngle(
+            footprintPredictions.find(pred =>
+                pred.class === 'Outline-trail' || pred.class.includes('Outline')
+            )?.points || []
+        );
+       
+        // 🔧 КОРРЕКТИРУЕМ SCORE В ЗАВИСИМОСТИ ОТ УГЛА ПОВОРОТА
+        if (Math.abs(orientationAngle) > 15) {
+            // Сильный поворот - снижаем точность
+            const rotationPenalty = Math.min(Math.abs(orientationAngle) * 0.5, 25);
+            orientationAdjustedScore = Math.max(0, normalScore.overallScore - rotationPenalty);
+            console.log(`📐 Учет ориентации: угол ${orientationAngle.toFixed(1)}°, штраф ${rotationPenalty.toFixed(1)}%`);
+        }
+    } catch (error) {
+        console.log('⚠️ Не удалось учесть ориентацию при сравнении:', error.message);
+    }
+   
+    // Возвращаем лучший результат с учетом ориентации
+    const bestScore = Math.max(orientationAdjustedScore, mirroredScore.overallScore);
+   
+    console.log(`🔄 Сравнение: обычный=${normalScore.overallScore}%, ориентация=${orientationAdjustedScore}%, зеркальный=${mirroredScore.overallScore}%`);
    
     return {
         ...normalScore,
         overallScore: bestScore,
-        mirrorUsed: bestScore !== normalScore.overallScore
+        mirrorUsed: bestScore !== orientationAdjustedScore,
+        orientationAdjusted: orientationAdjustedScore !== normalScore.overallScore,
+        orientationAngle: calculateOrientationAngle(
+            footprintPredictions.find(pred =>
+                pred.class === 'Outline-trail' || pred.class.includes('Outline')
+            )?.points || []
+        )
     };
 }
+
 
 // 🎯 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ:
 
@@ -1367,12 +1398,22 @@ try {
                 const referenceFeatures = reference.features || { detailCount: 0 };
                 console.log('✅ Features эталона:', referenceFeatures);
 
-                const comparisonResult = compareWithMirror(referenceFeatures, footprintFeatures);
-
+                // 🔥 ПЕРЕДАЕМ ПРЕДСКАЗАНИЯ ДЛЯ УЧЕТА ОРИЕНТАЦИИ
+const comparisonResult = compareWithMirror(referenceFeatures, footprintFeatures, footprintPredictions);
+                  
                // Формируем отчет
 let report = `🔍 **СРАВНЕНИЕ С "${modelName}"**\n\n`;
 report += `🎯 **Вероятность совпадения: ${Math.round(comparisonResult.overallScore)}%**\n\n`;
-report += `📈 **Детальный анализ:**\n`;
+
+// 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ ОБ ОРИЕНТАЦИИ
+if (comparisonResult.orientationAdjusted) {
+    report += `📐 **Учет ориентации:** угол ${Math.abs(comparisonResult.orientationAngle).toFixed(1)}°\n`;
+}
+if (comparisonResult.mirrorUsed) {
+    report += `🔄 **Учтена симметрия** (левый/правый ботинок)\n`;
+}
+
+report += `\n📈 **Детальный анализ:**\n`;
 report += `• 🎨 Узор: ${Math.round(comparisonResult.patternSimilarity)}%\n`;
 report += `• 📐 Расположение: ${Math.round(comparisonResult.spatialDistribution)}%\n`;
 report += `• 🔍 Детали: ${Math.round(comparisonResult.detailMatching)}%\n`;
@@ -1481,10 +1522,20 @@ const orientationText = {
     'aligned': '✅ Нормальная ориентация',
     'rotated_clockwise': '🔄 Поворот по часовой',
     'rotated_counterclockwise': '🔄 Поворот против часовой',
+    'strongly_rotated': '⚠️ Сильный поворот',
     'unknown': '❓ Ориентация не определена'
 };
+const orientationAngle = calculateOrientationAngle(
+    finalPredictions.find(pred =>
+        pred.class === 'Outline-trail' || pred.class.includes('Outline')
+    )?.points || []
+);
 
-baseCaption += `\n🧭 ${orientationText[orientationType]}`;
+if (orientationType !== 'unknown' && Math.abs(orientationAngle) > 0) {
+    baseCaption += `\n🧭 ${orientationText[orientationType]} (${Math.abs(orientationAngle).toFixed(1)}°)`;
+} else {
+    baseCaption += `\n🧭 ${orientationText[orientationType]}`;
+}
 
 const transparentCaption = addModelTransparency(baseCaption, finalPredictions.length);
    
