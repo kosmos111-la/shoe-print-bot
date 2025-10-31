@@ -977,6 +977,41 @@ await bot.sendMessage(chatId, report);
             return;
         }
 
+// 📤 ЗАГРУЗКА ФОТО НА ЯНДЕКС.ДИСК
+if (yandexDisk) {
+    try {
+        const timestamp = Date.now();
+        const photoId = `user_${msg.from.id}_${timestamp}`;
+       
+        // Загружаем оригинальное фото
+        const tempPhotoPath = `temp_${photoId}.jpg`;
+        const photoResponse = await axios({
+            method: 'GET',
+            url: fileUrl,
+            responseType: 'stream'
+        });
+       
+        const writer = fs.createWriteStream(tempPhotoPath);
+        photoResponse.data.pipe(writer);
+       
+        await new Promise((resolve, reject) => {
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
+       
+        // Загружаем на Яндекс.Диск
+        await yandexDisk.uploadFile(tempPhotoPath, `${photoId}.jpg`);
+       
+        // Удаляем временный файл
+        fs.unlinkSync(tempPhotoPath);
+       
+        console.log(`✅ Фото загружено на Яндекс.Диск: ${photoId}.jpg`);
+       
+    } catch (uploadError) {
+        console.log('⚠️ Ошибка загрузки на Яндекс.Диск:', uploadError.message);
+    }
+}
+      
         if (finalPredictions.length > 0) {
     await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
     const userData = {
