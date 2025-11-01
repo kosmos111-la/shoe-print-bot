@@ -498,7 +498,7 @@ class FootprintAssembler {
     }
 
     /**
-     * Проверяет совместимость отпечатков
+     * Проверяет совместимость отпечатков (ОБНОВЛЕННАЯ ВЕРСИЯ)
      */
     arePrintsCompatible(group, newPrint) {
         // Проверяем по типу частей (не должны дублироваться)
@@ -513,7 +513,17 @@ class FootprintAssembler {
         );
        
         const avgSimilarity = similarityScores.reduce((a, b) => a + b) / similarityScores.length;
-        return avgSimilarity > 0.6; // Порог совместимости
+       
+        // 🔄 ДОБАВЛЯЕМ ГЕОМЕТРИЧЕСКУЮ ПРОВЕРКУ
+        const geometricScore = this.calculateGeometricSimilarity(group, newPrint);
+        if (geometricScore < 0.4) {
+            console.log(`📐 Геометрическое сходство слишком низкое: ${geometricScore.toFixed(2)}`);
+            return false; // Слишком разные геометрически
+        }
+       
+        console.log(`🎯 Совместимость: features=${avgSimilarity.toFixed(2)}, geometry=${geometricScore.toFixed(2)}`);
+       
+        return avgSimilarity > 0.6 && geometricScore > 0.4;
     }
 
     /**
@@ -629,6 +639,144 @@ class FootprintAssembler {
             return avgSimilarity >= similarityThreshold;
         });
     }
+
+ // ... существующие методы FootprintAssembler ...
+
+    /**
+     * Нормализует геометрию отпечатка (поворот, масштаб, смещение)
+     */
+    normalizeFootprintGeometry(predictions, imageWidth, imageHeight) {
+        if (!predictions || predictions.length === 0) return predictions;
+       
+        try {
+            // 1. НАХОДИМ КОНТУР ДЛЯ ОПРЕДЕЛЕНИЯ ОРИЕНТАЦИИ
+            const outline = predictions.find(pred =>
+                pred.class === 'Outline-trail' || pred.class.includes('Outline')
+            );
+           
+            if (!outline || !outline.points) return predictions;
+           
+            // 2. ВЫЧИСЛЯЕМ УГОЛ ПОВОРОТА
+            const angle = this.calculateOrientationAngle(outline.points);
+           
+            // 3. ВЫЧИСЛЯЕМ ЦЕНТР МАСС
+            const bbox = this.calculateOverallBoundingBox(predictions);
+            const center = {
+                x: bbox.minX + bbox.width / 2,
+                y: bbox.minY + bbox.height / 2
+            };
+           
+            // 4. ЕСЛИ УГОЛ БОЛЬШОЙ - ПОВОРАЧИВАЕМ
+            if (Math.abs(angle) > 10) {
+                console.log(`🔄 Нормализую ориентацию: поворот на ${angle.toFixed(1)}°`);
+                return this.rotatePredictions(predictions, center, -angle);
+            }
+           
+            return predictions;
+           
+        } catch (error) {
+            console.log('⚠️ Ошибка геометрической нормализации:', error.message);
+            return predictions;
+        }
+    }
+
+    /**
+     * Поворачивает все предсказания вокруг центра
+     */
+    rotatePredictions(predictions, center, angleDegrees) {
+        const rad = angleDegrees * (Math.PI / 180);
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+       
+        return predictions.map(pred => {
+            if (!pred.points) return pred;
+           
+            return {
+                ...pred,
+                points: pred.points.map(point => {
+                    // ПЕРЕНОСИМ В ЦЕНТР КООРДИНАТ
+                    const dx = point.x - center.x;
+                    const dy = point.y - center.y;
+                   
+                    // ПОВОРАЧИВАЕМ
+                    const newX = dx * cos - dy * sin;
+                    const newY = dx * sin + dy * cos;
+                   
+                    // ВОЗВРАЩАЕМ НА МЕСТО
+                    return {
+                        x: newX + center.x,
+                        y: newY + center.y
+                    };
+                })
+            };
+        });
+    }
+
+    /**
+     * Вычисляет угол ориентации контура
+     */
+    calculateOrientationAngle(points) {
+        if (!points || points.length < 3) return 0;
+       
+        try {
+            // ВЫЧИСЛЯЕМ ЦЕНТР МАСС
+            const center = points.reduce((acc, point) => {
+                acc.x += point.x;
+                acc.y += point.y;
+                return acc;
+            }, { x: 0, y: 0 });
+           
+            center.x /= points.length;
+            center.y /= points.length;
+           
+            // МЕТОД ГЛАВНЫХ КОМПОНЕНТ
+            let xx = 0, yy = 0, xy = 0;
+           
+            points.forEach(point => {
+                const dx = point.x - center.x;
+                const dy = point.y - center.y;
+                xx += dx * dx;
+                yy += dy * dy;
+                xy += dx * dy;
+            });
+           
+            const angle = 0.5 * Math.atan2(2 * xy, xx - yy);
+            return angle * (180 / Math.PI);
+           
+        } catch (error) {
+            return 0;
+        }
+    }
+
+    /**
+     * Вычисляет геометрическое сходство отпечатков
+     */
+    calculateGeometricSimilarity(group, newPrint) {
+        let totalScore = 0;
+        let count = 0;
+       
+        group.forEach(existing => {
+            // СРАВНИВАЕМ РАЗМЕРЫ И ФОРМУ
+            const bboxA = this.calculateOverallBoundingBox(existing.predictions);
+            const bboxB = this.calculateOverallBoundingBox(newPrint.predictions);
+           
+            // СРАВНЕНИЕ СООТНОШЕНИЯ СТОРОН
+            const aspectRatioA = bboxA.width / bboxA.height;
+            const aspectRatioB = bboxB.width / bboxB.height;
+            const aspectScore = 1 - Math.abs(aspectRatioA - aspectRatioB) / Math.max(aspectRatioA, aspectRatioB);
+           
+            // СРАВНЕНИЕ ПЛОЩАДЕЙ (логарифмическое для устойчивости к масштабу)
+            const areaA = bboxA.width * bboxA.height;
+            const areaB = bboxB.width * bboxB.height;
+            const areaScore = 1 - Math.abs(Math.log(areaA) - Math.log(areaB)) / 5; // нормализация
+           
+            totalScore += (aspectScore + areaScore) / 2;
+            count++;
+        });
+       
+        return count > 0 ? totalScore / count : 0;
+    }
+ 
 }
 
 // =============================================================================
