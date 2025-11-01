@@ -2694,6 +2694,43 @@ bot.onText(/\/detailed_stats/, async (msg) => {
     await bot.sendMessage(chatId, report);
 });
 
+// 🔧 КОМАНДЫ ДЛЯ ТЕСТИРОВАНИЯ И ОТЛАДКИ
+
+// Тест классификации частей
+bot.onText(/\/test_classify/, async (msg) => {
+    const chatId = msg.chat.id;
+    const session = trailSessions.get(chatId);
+   
+    if (!session || session.footprints.length === 0) {
+        await bot.sendMessage(chatId, '❌ Нет отпечатков для тестирования');
+        return;
+    }
+   
+    let message = `🧪 **ТЕСТ КЛАССИФИКАЦИИ ЧАСТЕЙ**\n\n`;
+   
+    session.footprints.forEach((footprint, index) => {
+        const partType = footprint.partType || 'не классифицирован';
+        const potential = footprint.assemblyPotential || 0;
+        message += `📸 Отпечаток ${index + 1}: ${partType} (потенциал: ${potential}%)\n`;
+    });
+   
+    await bot.sendMessage(chatId, message);
+});
+
+// Сброс и очистка данных (для тестирования)
+bot.onText(/\/debug_reset/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    trailSessions.delete(chatId);
+    const session = getTrailSession(chatId, msg.from.username || msg.from.first_name);
+   
+    await bot.sendMessage(chatId,
+        '🔄 **СБРОС СЕССИИ ДЛЯ ТЕСТИРОВАНИЯ**\n\n' +
+        'Сессия очищена и создана заново.\n' +
+        'Можете начинать тестирование функций сборки.'
+    );
+});
+
 // =============================================================================
 // 📸 ОБРАБОТКА ФОТО
 // =============================================================================
