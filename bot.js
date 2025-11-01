@@ -585,7 +585,7 @@ class DataPersistence {
             // Сохранение в Яндекс.Диск
             if (yandexDisk) {
                 try {
-                    await yandexDisk.uploadFile(this.dataFile, 'backup/sessions_backup.json');
+                    await yandexDisk.uploadFile(this.dataFile, 'sessions_backup.json');
                     console.log('✅ Данные сохранены в Яндекс.Диск');
                 } catch (driveError) {
                     console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
@@ -2868,7 +2868,7 @@ try {
 
 // В обработчике bot.on('photo') - находим блок после perspectiveAnalysis:
 
-// 🧩 АВТОМАТИЧЕСКИЙ АНАЛИЗ ЧАСТЕЙ СЛЕДА (добавляем в обработчик фото)
+// 🧩 АВТОМАТИЧЕСКИЙ АНАЛИЗ ЧАСТЕЙ СЛЕДА (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 try {
     console.log('🧩 Автоматический анализ части следа...');
    
@@ -2886,11 +2886,14 @@ try {
    
     console.log(`📋 Классифицирован как: ${partType}`);
    
-    // Добавляем информацию в features
-    if (!footprintFeatures.partType) {
-        footprintFeatures.partType = partType;
-        footprintFeatures.imageSize = { width: imageWidth, height: imageHeight };
+    // СОЗДАЕМ footprintFeatures ЕСЛИ ЕГО НЕТ
+    if (!footprintFeatures) {
+        footprintFeatures = extractFeatures(finalPredictions);
     }
+   
+    // Добавляем информацию в features
+    footprintFeatures.partType = partType;
+    footprintFeatures.imageSize = { width: imageWidth, height: imageHeight };
    
 } catch (error) {
     console.log('⚠️ Не удалось проанализировать часть следа:', error.message);
