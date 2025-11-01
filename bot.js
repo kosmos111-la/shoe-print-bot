@@ -261,15 +261,15 @@ class TrailSession {
 function getTrailSession(chatId, username) {
     console.log(`🔍 Поиск сессии для chatId: ${chatId}`);
    
-    if (!expertSessions.has(chatId)) {
+    if (!trailSessions.has(chatId)) {
         console.log(`🕵️‍♂️ Создаю новую сессию для ${username}`);
-        const newSession = new ExpertSession(chatId, username);
+        const newSession = new trailSessions(chatId, username);
         expertSessions.set(chatId, newSession);
         console.log(`✅ Сессия создана: ${newSession.sessionId}`);
         return newSession;
     }
    
-    const existingSession = expertSessions.get(chatId);
+    const existingSession = trailSessions.get(chatId);
     console.log(`✅ Сессия найдена: ${existingSession.sessionId}, статус: ${existingSession.status}`);
     return existingSession;
 }
