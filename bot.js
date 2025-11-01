@@ -1700,57 +1700,6 @@ try {
 } catch (error) {
     console.log('⚠️ Не удалось проанализировать перспективу:', error.message);
 }
-
-// 🕵️‍♂️ ПРОВЕРЯЕМ АКТИВНУЮ СЕССИЮ ЭКСПЕРТИЗЫ С ЛОГАМИ
-const expertSession = expertSessions.get(chatId);
-console.log(`🔍 [DEBUG] Проверка сессии для chatId ${chatId}:`, {
-    hasExpertSession: !!expertSession,
-    sessionStatus: expertSession ? expertSession.status : 'no session',
-    footprintsCount: expertSession ? expertSession.footprints.length : 0
-});
-
-if (expertSession && expertSession.status === 'active') {
-    console.log(`🕵️‍♂️ [DEBUG] Активная сессия найдена! ID: ${expertSession.sessionId}`);
-   
-    const footprintData = {
-        imageUrl: fileUrl,
-        predictions: finalPredictions,
-        features: extractFeatures(finalPredictions),
-        perspectiveAnalysis: perspectiveAnalysis,
-        orientation: {
-            type: analyzeOrientationType(finalPredictions),
-            angle: calculateOrientationAngle(
-                finalPredictions.find(pred =>
-                    pred.class === 'Outline-trail' || pred.class.includes('Outline')
-                )?.points || []
-            )
-        }
-    };
-   
-    console.log(`📊 [DEBUG] Данные для добавления в сессию:`, {
-        featuresDetailCount: footprintData.features.detailCount,
-        orientationAngle: footprintData.orientation.angle
-    });
-   
-    try {
-        const footprintRecord = expertSession.addFootprint(footprintData);
-        console.log(`✅ [DEBUG] Отпечаток успешно добавлен! Всего в сессии: ${expertSession.footprints.length}`);
-       
-        // ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СЕССИИ В ОТЧЕТ
-        baseCaption += `\n\n🕵️‍♂️ **СЕССИЯ ЭКСПЕРТИЗЫ**\n`;
-        baseCaption += `• Отпечаток #${expertSession.footprints.length} зарегистрирован\n`;
-       
-        if (expertSession.comparisons.length > 0) {
-            const lastComparison = expertSession.comparisons[expertSession.comparisons.length - 1];
-            baseCaption += `• Автосравнение: ${lastComparison.similarity.toFixed(1)}% сходства\n`;
-            console.log(`🔍 [DEBUG] Сравнение выполнено: ${lastComparison.similarity.toFixed(1)}%`);
-        }
-    } catch (error) {
-        console.log(`❌ [DEBUG] Ошибка добавления отпечатка:`, error.message);
-    }
-} else {
-    console.log(`❌ [DEBUG] Сессия не активна или не найдена`);
-}
               
             referencePrints.set(modelName, {
                 features: {
@@ -1922,6 +1871,34 @@ await bot.sendMessage(chatId, report);
             return;
         }
 
+          // 🕵️‍♂️ ДОБАВЛЕНИЕ В ЭКСПЕРТНУЮ СЕССИЮ (если активна)
+const expertSession = expertSessions.get(chatId);
+if (expertSession && expertSession.status === 'active') {
+    console.log(`🕵️‍♂️ [DEBUG] Активная сессия найдена! Добавляем отпечаток...`);
+   
+    const footprintData = {
+        imageUrl: fileUrl,
+        predictions: finalPredictions,
+        features: extractFeatures(finalPredictions),
+        perspectiveAnalysis: perspectiveAnalysis,
+        orientation: {
+            type: analyzeOrientationType(finalPredictions),
+            angle: calculateOrientationAngle(
+                finalPredictions.find(pred =>
+                    pred.class === 'Outline-trail' || pred.class.includes('Outline')
+                )?.points || []
+            )
+        }
+    };
+   
+    try {
+        const footprintRecord = expertSession.addFootprint(footprintData);
+        console.log(`✅ [DEBUG] Отпечаток успешно добавлен в сессию! Всего: ${expertSession.footprints.length}`);
+    } catch (error) {
+        console.log(`❌ [DEBUG] Ошибка добавления отпечатка:`, error.message);
+    }
+}
+          
 // 📤 ЗАГРУЗКА ФОТО НА ЯНДЕКС.ДИСК
 if (yandexDisk) {
     try {
@@ -1966,6 +1943,18 @@ if (yandexDisk) {
    
     // 🔄 ОБНОВЛЕННЫЙ БЛОК С ПРОЗРАЧНОСТЬЮ И АНАЛИЗОМ ПЕРСПЕКТИВЫ
 let baseCaption = `✅ Анализ завершен!\n🎯 Выявлено морфологических признаков: ${finalPredictions.length}`;
+
+// 🕵️‍♂️ ИНФОРМАЦИЯ О СЕССИИ (если активна)
+const expertSession = expertSessions.get(chatId);
+if (expertSession && expertSession.status === 'active') {
+    baseCaption += `\n\n🕵️‍♂️ **СЕССИЯ ЭКСПЕРТИЗЫ**\n`;
+    baseCaption += `• Отпечаток #${expertSession.footprints.length} зарегистрирован\n`;
+   
+    if (expertSession.comparisons.length > 0) {
+        const lastComparison = expertSession.comparisons[expertSession.comparisons.length - 1];
+        baseCaption += `• Автосравнение: ${lastComparison.similarity.toFixed(1)}% сходства\n`;
+    }
+}
 
 // ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ПЕРСПЕКТИВЕ
 if (perspectiveAnalysis.hasPerspectiveIssues) {
