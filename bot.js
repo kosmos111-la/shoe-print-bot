@@ -383,49 +383,106 @@ class FootprintAssembler {
         this.assembledModels = new Map();
     }
 
-/**
-* Классифицирует фрагменты протектора по типу узора с учетом левого/правого
-*/
-classifyFootprintPattern(predictions, imageWidth, imageHeight) {
-    if (!predictions || predictions.length === 0) return 'unknown_pattern';
-   
-    const features = extractFeatures(predictions);
-    const bbox = this.calculateOverallBoundingBox(predictions);
-   
-    console.log(`🎨 Анализ узора: ${features.detailCount} деталей, ${features.largeDetails} крупных, плотность: ${features.density?.toFixed(2)}`);
-   
-    // 🔍 АНАЛИЗ СИММЕТРИИ ДЛЯ ОПРЕДЕЛЕНИЯ ЛЕВЫЙ/ПРАВЫЙ
-    const symmetryScore = this.analyzeSymmetry(predictions, bbox);
-    const footSide = symmetryScore > 0.6 ? 'right' : (symmetryScore < 0.4 ? 'left' : 'unknown');
-   
-    // 🎯 КЛАССИФИКАЦИЯ ПО СЛОЖНОСТИ УЗОРА
-    let patternType = 'generic_pattern';
-   
-    if (features.detailCount > 25 && features.density > 0.5) {
-        patternType = 'high_density_complex';
-    } else if (features.detailCount > 15) {
-        patternType = 'medium_density';
-    } else if (features.detailCount > 8) {
-        patternType = 'low_density';
-    } else if (features.detailCount <= 3) {
-        patternType = 'sparse_fragment';
+    /**
+     * Классифицирует часть следа по геометрии
+     */
+    classifyFootprintPart(predictions, imageWidth, imageHeight) {
+        // СТАРЫЙ КОД - УДАЛИТЬ ВСЁ ЭТО
+```
+
+ДЕЙСТВИЕ: УДАЛИТЬ весь старый метод classifyFootprintPart и ВСТАВИТЬ вместо него:
+
+```javascript
+    /**
+     * Классифицирует фрагменты протектора по типу узора и определяет левый/правый
+     */
+    classifyFootprintPattern(predictions, imageWidth, imageHeight) {
+        if (!predictions || predictions.length === 0) return 'unknown_fragment';
+       
+        const features = extractFeatures(predictions);
+        const bbox = this.calculateOverallBoundingBox(predictions);
+       
+        console.log(`🎨 Анализ узора протектора: ${features.detailCount} деталей, ${features.largeDetails} крупных`);
+
+        // 🔍 АНАЛИЗ СИММЕТРИИ ДЛЯ ОПРЕДЕЛЕНИЯ ЛЕВЫЙ/ПРАВЫЙ
+        const symmetryAnalysis = this.analyzeFootprintSymmetry(predictions, bbox);
+        const footSide = symmetryAnalysis.side;
+        const symmetryScore = symmetryAnalysis.score;
+
+        // 🎯 КЛАССИФИКАЦИЯ ПО ХАРАКТЕРИСТИКАМ УЗОРА
+        let patternComplexity = 'unknown';
+       
+        if (features.detailCount > 20) {
+            patternComplexity = 'high_density';
+        } else if (features.detailCount > 10) {
+            patternComplexity = 'medium_density';
+        } else if (features.detailCount > 5) {
+            patternComplexity = 'low_density';
+        } else {
+            patternComplexity = 'sparse';
+        }
+
+        // 🔧 УЧЕТ КРУПНЫХ ЭЛЕМЕНТОВ
+        if (features.largeDetails > 5) {
+            patternComplexity = 'large_elements_' + patternComplexity;
+        }
+
+        // 📏 УЧЕТ РАЗМЕРА ФРАГМЕНТА
+        const coverage = (bbox.width * bbox.height) / (imageWidth * imageHeight);
+        let sizeCategory = 'medium';
+        if (coverage > 0.3) sizeCategory = 'large';
+        if (coverage < 0.1) sizeCategory = 'small';
+
+        const result = `${footSide}_${sizeCategory}_${patternComplexity}`;
+        console.log(`📋 Классификация: ${result} (симметрия: ${symmetryScore.toFixed(2)})`);
+       
+        return result;
     }
-   
-    // 🔧 УЧИТЫВАЕМ КРУПНЫЕ ЭЛЕМЕНТЫ
-    if (features.largeDetails > 8) {
-        patternType = 'large_elements_' + patternType;
+
+    /**
+     * Анализирует симметрию для определения левый/правый след
+     */
+    analyzeFootprintSymmetry(predictions, bbox) {
+        if (!predictions || predictions.length < 3) {
+            return { side: 'unknown', score: 0.5 };
+        }
+
+        try {
+            const centerX = bbox.minX + bbox.width / 2;
+            let leftDensity = 0, rightDensity = 0;
+
+            predictions.forEach(pred => {
+                if (pred.points && pred.points.length > 0) {
+                    const predBbox = this.calculateBoundingBox(pred.points);
+                    const predCenterX = predBbox.minX + predBbox.width / 2;
+                    const area = predBbox.width * predBbox.height;
+                   
+                    if (predCenterX < centerX) {
+                        leftDensity += area;
+                    } else {
+                        rightDensity += area;
+                    }
+                }
+            });
+
+            const totalDensity = leftDensity + rightDensity;
+            if (totalDensity === 0) return { side: 'unknown', score: 0.5 };
+
+            const rightRatio = rightDensity / totalDensity;
+           
+            // 📊 ОПРЕДЕЛЯЕМ СТОРОНУ
+            let side = 'unknown';
+            if (rightRatio > 0.6) side = 'right';
+            else if (rightRatio < 0.4) side = 'left';
+            else side = 'center';
+
+            return { side, score: rightRatio };
+
+        } catch (error) {
+            console.log('❌ Ошибка анализа симметрии:', error.message);
+            return { side: 'unknown', score: 0.5 };
+        }
     }
-   
-    // 📏 УЧИТЫВАЕМ РАЗМЕР ФРАГМЕНТА
-    const sizeRatio = (bbox.width * bbox.height) / (imageWidth * imageHeight);
-    if (sizeRatio > 0.4) patternType = 'large_' + patternType;
-    if (sizeRatio < 0.1) patternType = 'small_' + patternType;
-   
-    const result = `${footSide}_${patternType}`;
-    console.log(`📋 Классифицирован как: ${result} (симметрия: ${symmetryScore.toFixed(2)})`);
-   
-    return result;
-}
 
 /**
 * Анализирует симметрию для определения левый/правый след
