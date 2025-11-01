@@ -560,6 +560,155 @@ calculateBoundingBox(points) {
         };
     }
 
+/**
+     * Улучшенное сравнение с учетом перекрытий и приоритетом мелких деталей
+     */
+    advancedPatternComparison(predictionsA, predictionsB) {
+        if (!predictionsA || !predictionsB) return 0;
+       
+        console.log(`🔍 Улучшенное сравнение: ${predictionsA.length} vs ${predictionsB.length} деталей`);
+
+        let totalScore = 0;
+        let validComparisons = 0;
+
+        // 🔄 СРАВНИВАЕМ В ОБЕ СТОРОНЫ ДЛЯ ТОЧНОСТИ
+        const scoreAB = this.compareDetailsWithPriority(predictionsA, predictionsB);
+        const scoreBA = this.compareDetailsWithPriority(predictionsB, predictionsA);
+       
+        // 📊 УСРЕДНЯЕМ РЕЗУЛЬТАТЫ
+        const finalScore = (scoreAB + scoreBA) / 2;
+        console.log(`🎯 Итоговый score: ${finalScore.toFixed(3)}`);
+       
+        return finalScore;
+    }
+
+    /**
+     * Сравнивает детали с приоритетом точных мелких деталей
+     */
+    compareDetailsWithPriority(sourcePredictions, targetPredictions) {
+        if (!sourcePredictions || !targetPredictions) return 0;
+       
+        let totalScore = 0;
+        let comparisonCount = 0;
+
+        sourcePredictions.forEach(sourcePred => {
+            if (!sourcePred.points || sourcePred.points.length < 3) return;
+           
+            const sourceBbox = this.calculateBoundingBox(sourcePred.points);
+            const sourceArea = sourceBbox.width * sourceBbox.height;
+           
+            let bestMatchScore = 0;
+            let bestMatchSizeRatio = 1;
+
+            // 🔍 ИЩЕМ ЛУЧШЕЕ СОВПАДЕНИЕ С УЧЕТОМ РАЗМЕРА
+            targetPredictions.forEach(targetPred => {
+                if (!targetPred.points || targetPred.points.length < 3) return;
+               
+                const targetBbox = this.calculateBoundingBox(targetPred.points);
+                const targetArea = targetBbox.width * targetBbox.height;
+               
+                const overlapScore = this.calculateSmartOverlap(sourceBbox, targetBbox, sourcePred, targetPred);
+                const sizeRatio = Math.min(sourceArea, targetArea) / Math.max(sourceArea, targetArea);
+               
+                // 🎯 ПРИОРИТЕТ ТОЧНЫМ СОВПАДЕНИЯМ МЕЛКИХ ДЕТАЛЕЙ
+                if (overlapScore > bestMatchScore ||
+                    (overlapScore > 0.3 && sizeRatio < bestMatchSizeRatio)) {
+                    bestMatchScore = overlapScore;
+                    bestMatchSizeRatio = sizeRatio;
+                }
+            });
+
+            // 💎 ВЕСОВОЙ КОЭФФИЦИЕНТ: мелкие детали важнее
+            let weight = 1.0;
+            if (sourceArea < 500) weight = 1.5;    // Мелкие детали
+            if (sourceArea < 200) weight = 2.0;    // Очень мелкие детали
+            if (sourceArea > 2000) weight = 0.7;   // Крупные детали
+
+            totalScore += bestMatchScore * weight;
+            comparisonCount += weight;
+        });
+
+        return comparisonCount > 0 ? totalScore / comparisonCount : 0;
+    }
+
+    /**
+     * Умный расчет перекрытия с учетом особенностей следов
+     */
+    calculateSmartOverlap(bboxA, bboxB, predA, predB) {
+        // 📏 ВЫЧИСЛЯЕМ БАЗОВОЕ ПЕРЕКРЫТИЕ
+        const overlapX = Math.max(0, Math.min(bboxA.maxX, bboxB.maxX) - Math.max(bboxA.minX, bboxB.minX));
+        const overlapY = Math.max(0, Math.min(bboxA.maxY, bboxB.maxY) - Math.max(bboxA.minY, bboxB.minY));
+        const overlapArea = overlapX * overlapY;
+       
+        const areaA = bboxA.width * bboxA.height;
+        const areaB = bboxB.width * bboxB.height;
+       
+        if (overlapArea === 0) return 0;
+
+        // 🎯 ОСНОВНОЙ SCORE ПЕРЕКРЫТИЯ
+        const overlapToA = overlapArea / areaA;
+        const overlapToB = overlapArea / areaB;
+        let baseScore = Math.min(overlapToA, overlapToB);
+
+        // 🔥 КРИТИЧЕСКИ ВАЖНЫЕ СЛУЧАИ:
+
+        // 1. МЕЛКАЯ ДЕТАЛЬ ВНУТРИ КРУПНОЙ - ВЫСОКАЯ ТОЧНОСТЬ
+        if (areaB < areaA * 0.2 && overlapToB > 0.8) {
+            console.log(`💎 Обнаружена точная мелкая деталь внутри крупной!`);
+            return 0.95;
+        }
+
+        // 2. ВМЯТИНА/ОТСУТСТВИЕ МАТЕРИАЛА - учитываем контур
+        if (this.isNegativeImpression(predA) || this.isNegativeImpression(predB)) {
+            baseScore *= 0.8; // Снижаем вес для вмятин
+        }
+
+        // 3. СХОЖИЙ ТИП ДЕТАЛИ - бонус
+        if (predA.class === predB.class) {
+            baseScore += 0.15;
+        }
+
+        // 4. ТОЧНЫЕ МЕЛКИЕ ДЕТАЛИ - максимальный приоритет
+        if (areaA < 1000 && areaB < 1000 && baseScore > 0.6) {
+            baseScore += 0.25;
+        }
+
+        return Math.min(baseScore, 1.0);
+    }
+
+    /**
+     * Определяет, является ли деталь вмятиной/отсутствующим материалом
+     */
+    isNegativeImpression(prediction) {
+        // 🔍 ПРИЗНАКИ ВМЯТИНЫ/ОТСУТСТВИЯ МАТЕРИАЛА:
+        // - Большой полигон
+        // - Правильные геометрические границы 
+        // - Мало внутренних деталей
+        if (!prediction.points) return false;
+       
+        const bbox = this.calculateBoundingBox(prediction.points);
+        const area = bbox.width * bbox.height;
+       
+        // Большая площадь + правильная форма = возможная вмятина
+        return area > 5000 && prediction.points.length <= 8;
+    }
+
+    /**
+     * Вспомогательная функция для bounding box
+     */
+    calculateBoundingBox(points) {
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+        return {
+            minX: Math.min(...xs),
+            maxX: Math.max(...xs),
+            minY: Math.min(...ys),
+            maxY: Math.max(...ys),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys)
+        };
+    }
+     
     /**
      * Компоновка полной модели из частичных отпечатков
      */
@@ -622,33 +771,94 @@ calculateBoundingBox(points) {
         return groups.filter(group => group.length >= 2);
     }
 
-    /**
-     * Проверяет совместимость отпечатков (ОБНОВЛЕННАЯ ВЕРСИЯ)
+/**
+     * Проверяет совместимость отпечатков по узорам (ОБНОВЛЕННАЯ)
      */
     arePrintsCompatible(group, newPrint) {
-        // Проверяем по типу частей (не должны дублироваться)
-        const existingTypes = group.map(p => p.partType);
-        if (existingTypes.includes(newPrint.partType)) {
+        console.log(`🔍 Проверка совместимости: группа ${group.length} vs новый ${newPrint.patternType}`);
+       
+        // 🚫 ПРОВЕРКА ЛЕВЫЙ/ПРАВЫЙ - РАЗНЫЕ СТОРОНЫ НЕ СОВМЕСТИМЫ
+        const groupSides = group.map(p => p.patternType.split('_')[0]);
+        const newSide = newPrint.patternType.split('_')[0];
+       
+        if (!this.areSidesCompatible(groupSides, newSide)) {
+            console.log(`❌ Несовместимые стороны: ${groupSides} vs ${newSide}`);
             return false;
         }
-       
-        // Проверяем схожесть features
-        const similarityScores = group.map(existing =>
+
+        // 🎯 ПРОВЕРКА СХОЖЕСТИ УЗОРОВ
+        const patternScores = group.map(existing =>
+            this.advancedPatternComparison(existing.predictions, newPrint.predictions)
+        );
+        const avgPatternScore = patternScores.reduce((a, b) => a + b, 0) / patternScores.length;
+
+        // 📊 ПРОВЕРКА СХОЖЕСТИ FEATURES
+        const featureScores = group.map(existing =>
             this.calculateSimilarity(existing.features, newPrint.features)
         );
+        const avgFeatureScore = featureScores.reduce((a, b) => a + b, 0) / featureScores.length;
+
+        // 🧩 ПРОВЕРКА СОВМЕСТИМОСТИ ТИПОВ УЗОРОВ
+        const groupPatterns = group.map(p => p.patternType);
+        const patternCompatible = this.arePatternTypesCompatible(groupPatterns, newPrint.patternType);
+
+        console.log(`📊 Совместимость: узоры=${avgPatternScore.toFixed(3)}, features=${avgFeatureScore.toFixed(3)}, типы=${patternCompatible}`);
+
+        // 🎯 КОМПЛЕКСНАЯ ОЦЕНКА
+        const finalScore = (avgPatternScore * 0.6) + (avgFeatureScore * 0.4);
+        const isCompatible = finalScore > 0.5 && patternCompatible;
+
+        console.log(`🎯 Итог: ${finalScore.toFixed(3)} -> ${isCompatible ? 'СОВМЕСТИМЫ' : 'НЕ СОВМЕСТИМЫ'}`);
        
-        const avgSimilarity = similarityScores.reduce((a, b) => a + b) / similarityScores.length;
+        return isCompatible;
+    }
+
+    /**
+     * Проверяет совместимость сторон (левый/правый)
+     */
+    areSidesCompatible(groupSides, newSide) {
+        // ❌ РАЗНЫЕ СТОРОНЫ - НЕ СОВМЕСТИМЫ
+        if (groupSides.includes('left') && newSide === 'right') return false;
+        if (groupSides.includes('right') && newSide === 'left') return false;
        
-        // 🔄 ДОБАВЛЯЕМ ГЕОМЕТРИЧЕСКУЮ ПРОВЕРКУ
-        const geometricScore = this.calculateGeometricSimilarity(group, newPrint);
-        if (geometricScore < 0.4) {
-            console.log(`📐 Геометрическое сходство слишком низкое: ${geometricScore.toFixed(2)}`);
-            return false; // Слишком разные геометрически
-        }
+        // ✅ ОДИНАКОВЫЕ СТОРОНЫ ИЛИ UNKNOWN/CENTER - СОВМЕСТИМЫ
+        return true;
+    }
+
+    /**
+     * Проверяет совместимость типов узоров
+     */
+    arePatternTypesCompatible(groupPatterns, newPattern) {
+        // 🎯 ИЗВЛЕКАЕМ ОСНОВНЫЕ ХАРАКТЕРИСТИКИ УЗОРОВ
+        const extractPatternInfo = (pattern) => {
+            const parts = pattern.split('_');
+            return {
+                size: parts[1] || 'medium',
+                density: parts[2] || 'unknown'
+            };
+        };
+
+        const newInfo = extractPatternInfo(newPattern);
        
-        console.log(`🎯 Совместимость: features=${avgSimilarity.toFixed(2)}, geometry=${geometricScore.toFixed(2)}`);
-       
-        return avgSimilarity > 0.6 && geometricScore > 0.4;
+        // 🔄 ПРОВЕРЯЕМ СОВМЕСТИМОСТЬ С КАЖДЫМ В ГРУППЕ
+        return groupPatterns.some(groupPattern => {
+            const groupInfo = extractPatternInfo(groupPattern);
+           
+            // 📊 СОВМЕСТИМЫЕ КОМБИНАЦИИ
+            const compatibleSizes = ['small', 'medium', 'large']; // Все размеры совместимы
+            const compatibleDensities = {
+                'high_density': ['high_density', 'medium_density'],
+                'medium_density': ['high_density', 'medium_density', 'low_density'],
+                'low_density': ['medium_density', 'low_density', 'sparse'],
+                'sparse': ['low_density', 'sparse']
+            };
+
+            const sizeOK = compatibleSizes.includes(newInfo.size) && compatibleSizes.includes(groupInfo.size);
+            const densityOK = compatibleDensities[newInfo.density]?.includes(groupInfo.density) ||
+                             compatibleDensities[groupInfo.density]?.includes(newInfo.density);
+
+            return sizeOK && densityOK;
+        });
     }
 
     /**
@@ -3055,6 +3265,44 @@ bot.onText(/\/detailed_stats/, async (msg) => {
     await bot.sendMessage(chatId, report);
 });
 
+// 🔧 КОМАНДА ДЛЯ ДЕТАЛЬНОГО АНАЛИЗА УЗОРОВ
+bot.onText(/\/debug_patterns/, async (msg) => {
+    const chatId = msg.chat.id;
+    const session = trailSessions.get(chatId);
+   
+    if (!session || session.footprints.length === 0) {
+        await bot.sendMessage(chatId, '❌ Нет отпечатков для анализа');
+        return;
+    }
+   
+    let message = `🔬 **ДЕТАЛЬНЫЙ АНАЛИЗ УЗОРОВ ПРОТЕКТОРА**\n\n`;
+   
+    session.footprints.forEach((footprint, index) => {
+        message += `👣 **Отпечаток #${index + 1}:**\n`;
+        message += `• Тип: ${footprint.patternType || 'не определен'}\n`;
+        message += `• Детали: ${footprint.features?.detailCount || 0}\n`;
+        message += `• Крупные: ${footprint.features?.largeDetails || 0}\n`;
+        message += `• Плотность: ${footprint.features?.density?.toFixed(2) || '?'}\n\n`;
+    });
+   
+    // 🔍 АНАЛИЗ СОВМЕСТИМОСТИ МЕЖДУ ВСЕМИ ПАРАМИ
+    if (session.footprints.length >= 2) {
+        message += `🔄 **АНАЛИЗ СОВМЕСТИМОСТИ:**\n`;
+       
+        for (let i = 0; i < session.footprints.length; i++) {
+            for (let j = i + 1; j < session.footprints.length; j++) {
+                const score = footprintAssembler.advancedPatternComparison(
+                    session.footprints[i].predictions,
+                    session.footprints[j].predictions
+                );
+                message += `#${i+1}↔#${j+1}: ${score.toFixed(3)}\n`;
+            }
+        }
+    }
+   
+    await bot.sendMessage(chatId, message);
+});
+
 // 🔧 КОМАНДЫ ДЛЯ ТЕСТИРОВАНИЯ И ОТЛАДКИ
 
 // Тест классификации частей
@@ -3406,7 +3654,7 @@ if (trailSession && trailSession.status === 'active') {
     const footprintData = {
         imageUrl: fileUrl,
         predictions: finalPredictions,
-        features: extractFeatures(finalPredictions),
+        features: footprintFeatures, // Убедись, что footprintFeatures создан выше
         perspectiveAnalysis: perspectiveAnalysis,
         orientation: {
             type: analyzeOrientationType(finalPredictions),
@@ -3416,9 +3664,13 @@ if (trailSession && trailSession.status === 'active') {
                 )?.points || []
             )
         },
-        // 🔄 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ЧАСТИ СЛЕДА
-        partType: footprintFeatures.partType,
-        assemblyPotential: 0 // Будет вычислено позже
+        // 🔥 ВАЖНО: меняем partType на patternType
+        patternType: footprintAssembler.classifyFootprintPattern(
+            finalPredictions,
+            imageWidth,
+            imageHeight
+        ),
+        assemblyPotential: 0
     };
    
     try {
