@@ -1735,15 +1735,7 @@ if (expertSession && expertSession.status === 'active') {
     try {
         const footprintRecord = expertSession.addFootprint(footprintData);
         console.log(`✅ [DEBUG] Отпечаток успешно добавлен! Всего в сессии: ${expertSession.footprints.length}`);
-       bot.sendMessage(chatId, 
-        `🕵️‍♂️ **Экспертная сессия**\n` +
-        `✅ Отпечаток #${expertSession.footprints.length} добавлен в анализ\n` +
-        `📊 Выявлено признаков: ${finalPredictions.length}\n` +
-        `💡 Продолжайте добавлять отпечатки или используйте /expert_report для анализа`
-    ).catch(error => {
-        console.log('⚠️ Ошибка отправки сообщения эксперту:', error.message);
-    });
-
+       
         // ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СЕССИИ В ОТЧЕТ
         baseCaption += `\n\n🕵️‍♂️ **СЕССИЯ ЭКСПЕРТИЗЫ**\n`;
         baseCaption += `• Отпечаток #${expertSession.footprints.length} зарегистрирован\n`;
@@ -1930,10 +1922,6 @@ await bot.sendMessage(chatId, report);
             return;
         }
 
-// 🕵️♂️ ДОБАВЛЯЕМ ОТПЕЧАТОК В АКТИВНУЮ СЕССИЮ ЭКСПЕРТА
-const expertSession = expertSessions.get(chatId);
-if (expertSession && expertSession.isActive)       
-          
 // 📤 ЗАГРУЗКА ФОТО НА ЯНДЕКС.ДИСК
 if (yandexDisk) {
     try {
@@ -2011,74 +1999,41 @@ if (orientationType !== 'unknown' && Math.abs(orientationAngle) > 0) {
 }
 
 const transparentCaption = addModelTransparency(baseCaption, finalPredictions.length);
-
-if (vizPath) {
-    await bot.sendPhoto(chatId, vizPath, {
-        caption: transparentCaption  // ← ТЕПЕРЬ С ПРОЗРАЧНОСТЬЮ
-    });
-    fs.unlinkSync(vizPath);
    
-    // Скелетная визуализация
-    console.log('🔍 Пытаюсь создать скелетную визуализацию...');
-    try {
-        const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
-        if (skeletonPath) {
-            console.log('✅ Карта признаков создана, отправляю...');
-            await bot.sendPhoto(chatId, skeletonPath, {
-                caption: `🕵️‍♂️ Карта морфологических признаков протектора`
-            });
-            fs.unlinkSync(skeletonPath);
+    if (vizPath) {
+        await bot.sendPhoto(chatId, vizPath, {
+            caption: transparentCaption  // ← ТЕПЕРЬ С ПРОЗРАЧНОСТЬЮ
+        });
+        fs.unlinkSync(vizPath);
+       
+        // Скелетная визуализация
+        console.log('🔍 Пытаюсь создать скелетную визуализацию...');
+        try {
+            const skeletonPath = await createSkeletonVisualization(fileUrl, finalPredictions, userData);
+            if (skeletonPath) {
+    console.log('✅ Карта признаков создана, отправляю...');
+    await bot.sendPhoto(chatId, skeletonPath, {
+        caption: `🕵️‍♂️ Карта морфологических признаков протектора`
+    });
+    fs.unlinkSync(skeletonPath);
+}
+        } catch (error) {
+            console.error('💥 Ошибка при создании скелетной визуализации:', error);
         }
-    } catch (error) {
-        console.error('💥 Ошибка при создании скелетной визуализации:', error);
+    } else {
+        await bot.sendMessage(chatId, transparentCaption);  // ← ТЕПЕРЬ С ПРОЗРАЧНОСТЬЮ
     }
 } else {
-    await bot.sendMessage(chatId, transparentCaption);  // ← ТЕПЕРЬ С ПРОЗРАЧНОСТЬЮ
-}
-} else {
-    await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
-}
+            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+        }
 
-updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
+        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
 
-} catch (error) {
-    console.log('❌ Ошибка анализа фото:', error.message);
-    await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
-}
+    } catch (error) {
+        console.log('❌ Ошибка анализа фото:', error.message);
+        await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
+    }
 });
-
-// 🕵️♂️ ДОБАВЛЯЕМ ОТПЕЧАТОК В АКТИВНУЮ СЕССИЮ ЭКСПЕРТА
-const expertSession = expertSessions.get(chatId);
-if (expertSession && expertSession.isActive) {
-    console.log(`🕵️♂️ Добавляем отпечаток в сессию эксперта: ${expertSession.sessionId}`);
-
-    const footprintData = {
-        id: `footprint_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        predictions: finalPredictions,
-        features: extractFeatures(finalPredictions),
-        orientation: {
-            type: orientationType,
-            angle: orientationAngle
-        },
-        perspective: perspectiveAnalysis,
-        imageUrl: fileUrl
-    };
-
-    expertSession.addFootprint(footprintData);
-    console.log(`✅ Отпечаток добавлен в сессию. Всего отпечатков: ${expertSession.footprints.length}`);
-   
-    // 🔥 ИСПРАВЛЕНИЕ: убрали await или используем then()
-    bot.sendMessage(chatId,
-        `🕵️‍♂️ **Экспертная сессия**\n` +
-        `✅ Отпечаток #${expertSession.footprints.length} добавлен в анализ\n` +
-        `📊 Выявлено признаков: ${finalPredictions.length}\n` +
-        `🧭 Ориентация: ${orientationText[orientationType]}\n\n` +
-        `💡 Продолжайте добавлять отпечатки или используйте /expert_report для анализа`
-    ).catch(error => {
-        console.log('⚠️ Ошибка отправки сообщения эксперту:', error.message);
-    });
-}      
 
 // =============================================================================
 // 🚀 ЗАПУСК СИСТЕМЫ
