@@ -101,9 +101,8 @@ const photoSessions = new Map();
 
 const trailSessions = new Map();
 
-/**
-* Сессия анализа тропы для отслеживания последовательных отпечатков
-*/
+// 🕵️‍♂️ СИСТЕМА СЕССИЙ ТРОПЫ - ОБНОВЛЕННАЯ ВЕРСИЯ
+
 class TrailSession {
     constructor(chatId, username) {
         this.chatId = chatId;
@@ -114,144 +113,175 @@ class TrailSession {
         this.comparisons = []; // Результаты сравнений
         this.status = 'active';
         this.notes = '';
+       
+        // 🔄 НОВЫЕ ПОЛЯ ДЛЯ СБОРКИ МОДЕЛЕЙ
+        this.assembledModels = []; // Собранные полные модели
+        this.footprintParts = new Map(); // Классифицированные части
+        this.compatibilityGroups = []; // Группы совместимых отпечатков
     }
 
-    addFootprint(analysisData) {
-        const footprintRecord = {
-            id: `footprint_${this.footprints.length + 1}`,
-            timestamp: new Date(),
-            imageUrl: analysisData.imageUrl,
-            predictions: analysisData.predictions,
-            features: analysisData.features,
-            perspectiveAnalysis: analysisData.perspectiveAnalysis,
-            orientation: analysisData.orientation
-        };
+    // ... СУЩЕСТВУЮЩИЕ МЕТОДЫ (addFootprint, autoCompareWithPrevious, и т.д.) ...
+
+    /**
+     * 🔄 НОВЫЙ МЕТОД: Анализ частей следов
+     */
+    analyzeFootprintParts(imageWidth, imageHeight) {
+        console.log(`🕵️‍♂️ Анализирую части следов для ${this.footprints.length} отпечатков...`);
        
-        this.footprints.push(footprintRecord);
-        console.log(`🕵️‍♂️ Добавлен отпечаток в сессию ${this.sessionId}: ${footprintRecord.id}`);
-       
-        // Автоматическое сравнение с предыдущими отпечатками
-        if (this.footprints.length > 1) {
-            this.autoCompareWithPrevious(footprintRecord);
-        }
-       
-        return footprintRecord;
-    }
-
-    autoCompareWithPrevious(newFootprint) {
-        console.log(`🕵️‍♂️ Автосравнение нового отпечатка с предыдущими...`);
-       
-        const previousFootprints = this.footprints.slice(0, -1); // Все кроме последнего
-       
-        previousFootprints.forEach((previous, index) => {
-            const comparison = compareFootprints(
-                previous.features,
-                newFootprint.features
-            );
-           
-            const comparisonRecord = {
-                id: `comparison_${this.comparisons.length + 1}`,
-                timestamp: new Date(),
-                footprintA: previous.id,
-                footprintB: newFootprint.id,
-                result: comparison,
-                similarity: comparison.overallScore,
-                notes: this.generateComparisonNotes(comparison, previous, newFootprint)
-            };
-           
-            this.comparisons.push(comparisonRecord);
-            console.log(`🔍 Сравнение ${previous.id} vs ${newFootprint.id}: ${comparison.overallScore}%`);
-        });
-    }
-
-    generateComparisonNotes(comparison, footprintA, footprintB) {
-        const notes = [];
-       
-        if (comparison.overallScore > 70) {
-            notes.push('ВЫСОКАЯ СХОДИМОСТЬ - вероятно один источник');
-        } else if (comparison.overallScore > 50) {
-            notes.push('СРЕДНЯЯ СХОДИМОСТЬ - требуется дополнительный анализ');
-        } else {
-            notes.push('НИЗКАЯ СХОДИМОСТЬ - разные источники');
-        }
-
-        if (comparison.mirrorUsed) {
-            notes.push('Учтена зеркальная симметрия (левый/правый)');
-        }
-
-        return notes.join('; ');
-    }
-
-    getSessionSummary() {
-        return {
-            sessionId: this.sessionId,
-            expert: this.expert,
-            duration: new Date() - this.startTime,
-            footprintsCount: this.footprints.length,
-            comparisonsCount: this.comparisons.length,
-            averageSimilarity: this.comparisons.length > 0 ?
-                this.comparisons.reduce((sum, comp) => sum + comp.similarity, 0) / this.comparisons.length : 0,
-            status: this.status
-        };
-    }
-
-    generateExpertReport() {
-        const summary = this.getSessionSummary();
-       
-        let report = `🕵️‍♂️ **АНАЛИЗ ТРОПЫ**\n\n`;
-        report += `**Сессия:** ${summary.sessionId}\n`;
-        report += `**Эксперт:** ${summary.expert}\n`;
-        report += `**Продолжительность:** ${Math.round(summary.duration / 60000)} мин.\n`;
-        report += `**Проанализировано отпечатков:** ${summary.footprintsCount}\n`;
-        report += `**Выполнено сравнений:** ${summary.comparisonsCount}\n`;
-        report += `**Средняя сходимость:** ${summary.averageSimilarity.toFixed(1)}%\n\n`;
-
-        if (this.comparisons.length > 0) {
-            report += `**КЛЮЧЕВЫЕ ВЫВОДЫ:**\n`;
-           
-            const highSimilarity = this.comparisons.filter(c => c.similarity > 70);
-            if (highSimilarity.length > 0) {
-                report += `• Обнаружено ${highSimilarity.length} пар с высокой сходимостью\n`;
-            }
-
-            const uniqueGroups = this.identifyUniqueGroups();
-            report += `• Выявлено ${uniqueGroups.length} уникальных морфологических групп\n`;
-        }
-
-        report += `\n**СТАТУС:** ${this.status === 'active' ? 'АКТИВНА' : 'ЗАВЕРШЕНА'}`;
-       
-        return report;
-    }
-
-    identifyUniqueGroups() {
-        // Простой алгоритм группировки по сходимости
-        const groups = [];
+        const assembler = new FootprintAssembler();
        
         this.footprints.forEach(footprint => {
-            let assigned = false;
+            const partType = assembler.classifyFootprintPart(
+                footprint.predictions,
+                imageWidth,
+                imageHeight
+            );
            
-            for (let group of groups) {
-                const avgSimilarity = group.members.reduce((sum, member) => {
-                    const comparison = this.comparisons.find(c =>
-                        (c.footprintA === footprint.id && c.footprintB === member) ||
-                        (c.footprintB === footprint.id && c.footprintA === member)
-                    );
-                    return sum + (comparison ? comparison.similarity : 0);
-                }, 0) / group.members.length;
-               
-                if (avgSimilarity > 60) {
-                    group.members.push(footprint.id);
-                    assigned = true;
-                    break;
-                }
-            }
+            footprint.partType = partType;
+            footprint.assemblyPotential = this.calculateAssemblyPotential(footprint);
            
-            if (!assigned) {
-                groups.push({ id: `group_${groups.length + 1}`, members: [footprint.id] });
-            }
+            console.log(`📋 Отпечаток ${footprint.id}: ${partType} (потенциал: ${footprint.assemblyPotential})`);
         });
        
-        return groups;
+        this.updateCompatibilityGroups();
+    }
+
+    /**
+     * 🔄 НОВЫЙ МЕТОД: Вычисляет потенциал сборки
+     */
+    calculateAssemblyPotential(footprint) {
+        if (!footprint.features) return 0;
+       
+        let score = 0;
+        const details = footprint.features.detailCount || 0;
+       
+        // Больше деталей = выше потенциал
+        if (details > 15) score += 40;
+        else if (details > 8) score += 25;
+        else if (details > 3) score += 15;
+       
+        // Наличие контура увеличивает потенциал
+        if (footprint.features.hasOutline) score += 30;
+       
+        // Крупные детали важны для идентификации
+        if (footprint.features.largeDetails > 2) score += 20;
+       
+        return Math.min(score, 100);
+    }
+
+    /**
+     * 🔄 НОВЫЙ МЕТОД: Обновляет группы совместимости
+     */
+    updateCompatibilityGroups() {
+        const assembler = new FootprintAssembler();
+        const filteredPrints = assembler.filterOutlierFootprints(this.footprints);
+       
+        this.compatibilityGroups = assembler.groupCompatiblePrints(filteredPrints);
+       
+        console.log(`🔄 Обновлено групп совместимости: ${this.compatibilityGroups.length}`);
+    }
+
+    /**
+     * 🔄 НОВЫЙ МЕТОД: Сборка модели из доступных частей
+     */
+    assembleModelFromParts(imageWidth, imageHeight) {
+        if (this.footprints.length < 2) {
+            return { success: false, error: 'Недостаточно отпечатков для сборки' };
+        }
+       
+        console.log(`🧩 Начинаю сборку модели из ${this.footprints.length} отпечатков...`);
+       
+        const assembler = new FootprintAssembler();
+       
+        // Анализируем части если еще не сделано
+        if (!this.footprints[0].partType) {
+            this.analyzeFootprintParts(imageWidth, imageHeight);
+        }
+       
+        // Собираем модель
+        const result = assembler.assembleFullModel(this.footprints, imageWidth, imageHeight);
+       
+        if (result.success) {
+            const assembledModel = {
+                id: `assembled_${this.assembledModels.length + 1}`,
+                timestamp: new Date(),
+                model: result.model,
+                sourcePrints: result.usedPrints.map(p => p.id),
+                completeness: result.completeness,
+                confidence: result.confidence
+            };
+           
+            this.assembledModels.push(assembledModel);
+            console.log(`✅ Модель собрана: ${result.completeness}% полноты, ${result.confidence}% уверенности`);
+        }
+       
+        return result;
+    }
+
+    /**
+     * 🔄 НОВЫЙ МЕТОД: Получает статистику по частям
+     */
+    getPartsStatistics() {
+        const parts = {
+            full: 0,
+            heel: 0,
+            toe: 0,
+            center: 0,
+            unknown: 0
+        };
+       
+        this.footprints.forEach(footprint => {
+            const partType = footprint.partType || 'unknown';
+            parts[partType] = (parts[partType] || 0) + 1;
+        });
+       
+        return parts;
+    }
+
+    /**
+     * 🔄 НОВЫЙ МЕТОД: Генерирует расширенный отчет
+     */
+    generateEnhancedReport() {
+        const summary = this.getSessionSummary();
+        const partsStats = this.getPartsStatistics();
+       
+        let report = `🕵️‍♂️ **РАСШИРЕННЫЙ АНАЛИЗ ТРОПЫ**\n\n`;
+        report += `**Сессия:** ${summary.sessionId}\n`;
+        report += `**Эксперт:** ${this.expert}\n`;
+        report += `**Статус:** ${this.status === 'active' ? '🟢 АКТИВНА' : '🔴 ЗАВЕРШЕНА'}\n`;
+        report += `**Продолжительность:** ${Math.round(summary.duration / 60000)} мин.\n\n`;
+       
+        report += `📊 **СТАТИСТИКА ОТПЕЧАТКОВ:**\n`;
+        report += `• Всего: ${summary.footprintsCount}\n`;
+        report += `• Полные: ${partsStats.full}\n`;
+        report += `• Пятки: ${partsStats.heel}\n`;
+        report += `• Мыски: ${partsStats.toe}\n`;
+        report += `• Центры: ${partsStats.center}\n`;
+        report += `• Неизвестные: ${partsStats.unknown}\n\n`;
+       
+        report += `🔍 **СРАВНЕНИЯ:**\n`;
+        report += `• Выполнено: ${summary.comparisonsCount}\n`;
+        report += `• Средняя сходимость: ${summary.averageSimilarity.toFixed(1)}%\n\n`;
+       
+        report += `🧩 **СБОРКА МОДЕЛЕЙ:**\n`;
+        report += `• Собрано моделей: ${this.assembledModels.length}\n`;
+        report += `• Групп совместимости: ${this.compatibilityGroups.length}\n\n`;
+       
+        if (this.assembledModels.length > 0) {
+            const bestModel = this.assembledModels.reduce((best, current) =>
+                current.completeness > best.completeness ? current : best
+            );
+            report += `🏆 **ЛУЧШАЯ МОДЕЛЬ:**\n`;
+            report += `• Полнота: ${bestModel.completeness}%\n`;
+            report += `• Уверенность: ${bestModel.confidence}%\n`;
+            report += `• Источников: ${bestModel.sourcePrints.length}\n`;
+        }
+       
+        if (this.notes) {
+            report += `\n📝 **ЗАМЕТКИ ЭКСПЕРТА:**\n${this.notes}\n`;
+        }
+       
+        return report;
     }
 }
 
