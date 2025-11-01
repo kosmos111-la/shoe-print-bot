@@ -384,37 +384,97 @@ class FootprintAssembler {
     }
 
 /**
-     * Классифицирует часть следа по геометрии (УЛУЧШЕННАЯ ВЕРСИЯ)
-     */
-    classifyFootprintPart(predictions, imageWidth, imageHeight) {
-        if (!predictions || predictions.length === 0) return 'unknown';
-       
-        const bbox = this.calculateOverallBoundingBox(predictions);
-       
-        // ЕСЛИ СЛИШКОМ МАЛЕНЬКИЙ - НЕ КЛАССИФИЦИРУЕМ
-        if (bbox.width < 50 || bbox.height < 50) return 'unknown';
-       
-        const aspectRatio = bbox.width / bbox.height;
-        const centerX = bbox.minX + bbox.width / 2;
-        const centerY = bbox.minY + bbox.height / 2;
-       
-        const positionX = centerX / imageWidth;
-        const positionY = centerY / imageHeight;
-       
-        // УЛУЧШЕННАЯ КЛАССИФИКАЦИЯ
-        if (aspectRatio > 2.2 && bbox.width > imageWidth * 0.6) return 'full';
-        if (positionY < 0.3 && aspectRatio < 1.2) return 'heel';     // Верхняя часть
-        if (positionY > 0.7 && aspectRatio < 1.2) return 'toe';      // Нижняя часть 
-        if (aspectRatio > 1.5 && aspectRatio < 2.2) return 'center'; // Центральная часть
-        if (bbox.width > imageWidth * 0.7) return 'full';            // Занимает большую часть кадра
-       
-        // ДОПОЛНИТЕЛЬНЫЕ ПРОВЕРКИ
-        const areaRatio = (bbox.width * bbox.height) / (imageWidth * imageHeight);
-        if (areaRatio > 0.6) return 'full';
-       
-        return 'unknown';
+* Классифицирует фрагменты протектора по типу узора с учетом левого/правого
+*/
+classifyFootprintPattern(predictions, imageWidth, imageHeight) {
+    if (!predictions || predictions.length === 0) return 'unknown_pattern';
+   
+    const features = extractFeatures(predictions);
+    const bbox = this.calculateOverallBoundingBox(predictions);
+   
+    console.log(`🎨 Анализ узора: ${features.detailCount} деталей, ${features.largeDetails} крупных, плотность: ${features.density?.toFixed(2)}`);
+   
+    // 🔍 АНАЛИЗ СИММЕТРИИ ДЛЯ ОПРЕДЕЛЕНИЯ ЛЕВЫЙ/ПРАВЫЙ
+    const symmetryScore = this.analyzeSymmetry(predictions, bbox);
+    const footSide = symmetryScore > 0.6 ? 'right' : (symmetryScore < 0.4 ? 'left' : 'unknown');
+   
+    // 🎯 КЛАССИФИКАЦИЯ ПО СЛОЖНОСТИ УЗОРА
+    let patternType = 'generic_pattern';
+   
+    if (features.detailCount > 25 && features.density > 0.5) {
+        patternType = 'high_density_complex';
+    } else if (features.detailCount > 15) {
+        patternType = 'medium_density';
+    } else if (features.detailCount > 8) {
+        patternType = 'low_density';
+    } else if (features.detailCount <= 3) {
+        patternType = 'sparse_fragment';
     }
+   
+    // 🔧 УЧИТЫВАЕМ КРУПНЫЕ ЭЛЕМЕНТЫ
+    if (features.largeDetails > 8) {
+        patternType = 'large_elements_' + patternType;
+    }
+   
+    // 📏 УЧИТЫВАЕМ РАЗМЕР ФРАГМЕНТА
+    const sizeRatio = (bbox.width * bbox.height) / (imageWidth * imageHeight);
+    if (sizeRatio > 0.4) patternType = 'large_' + patternType;
+    if (sizeRatio < 0.1) patternType = 'small_' + patternType;
+   
+    const result = `${footSide}_${patternType}`;
+    console.log(`📋 Классифицирован как: ${result} (симметрия: ${symmetryScore.toFixed(2)})`);
+   
+    return result;
+}
 
+/**
+* Анализирует симметрию для определения левый/правый след
+*/
+analyzeSymmetry(predictions, bbox) {
+    if (!predictions || predictions.length < 5) return 0.5;
+   
+    try {
+        const centerX = bbox.minX + bbox.width / 2;
+       
+        // Считаем распределение деталей слева и справа от центра
+        let leftCount = 0, rightCount = 0;
+       
+        predictions.forEach(pred => {
+            if (pred.points && pred.points.length > 0) {
+                const predBbox = this.calculateBoundingBox(pred.points);
+                const predCenterX = predBbox.minX + predBbox.width / 2;
+               
+                if (predCenterX < centerX) leftCount++;
+                else rightCount++;
+            }
+        });
+       
+        const total = leftCount + rightCount;
+        if (total === 0) return 0.5;
+       
+        // Возвращаем асимметрию (0.0 - сильно левый, 1.0 - сильно правый, 0.5 - симметричный)
+        return rightCount / total;
+       
+    } catch (error) {
+        return 0.5;
+    }
+}
+
+/**
+* Вспомогательная функция для bounding box
+*/
+calculateBoundingBox(points) {
+    const xs = points.map(p => p.x);
+    const ys = points.map(p => p.y);
+    return {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys),
+        width: Math.max(...xs) - Math.min(...xs),
+        height: Math.max(...ys) - Math.min(...ys)
+    };
+}
     /**
      * Вычисляет общий bounding box для всех предсказаний
      */
