@@ -103,26 +103,21 @@ const trailSessions = new Map();
 
 // 🕵️‍♂️ СИСТЕМА СЕССИЙ ТРОПЫ - ОБНОВЛЕННАЯ ВЕРСИЯ
 
-class TrailSession {
+cclass TrailSession {
     constructor(chatId, username) {
         this.chatId = chatId;
         this.expert = username;
         this.sessionId = `session_${chatId}_${Date.now()}`;
         this.startTime = new Date();
-        this.footprints = []; // Все отпечатки в сессии
-        this.comparisons = []; // Результаты сравнений
+        this.footprints = [];
+        this.comparisons = [];
         this.status = 'active';
         this.notes = '';
        
-        // 🔄 НОВЫЕ ПОЛЯ ДЛЯ СБОРКИ МОДЕЛЕЙ
-        this.assembledModels = []; // Собранные полные модели
-        this.footprintParts = new Map(); // Классифицированные части
-        this.compatibilityGroups = []; // Группы совместимых отпечатков
+        this.assembledModels = [];
+        this.footprintParts = new Map();
+        this.compatibilityGroups = [];
     }
-
-}
-
-    // 🔧 ДОБАВЬ ЭТИ БАЗОВЫЕ МЕТОДЫ:
 
     addFootprint(analysisData) {
         const footprintRecord = {
@@ -138,7 +133,6 @@ class TrailSession {
         this.footprints.push(footprintRecord);
         console.log(`🕵️‍♂️ Добавлен отпечаток в сессию ${this.sessionId}: ${footprintRecord.id}`);
        
-        // Автоматическое сравнение с предыдущими отпечатками
         if (this.footprints.length > 1) {
             this.autoCompareWithPrevious(footprintRecord);
         }
@@ -149,13 +143,10 @@ class TrailSession {
     autoCompareWithPrevious(newFootprint) {
         console.log(`🕵️‍♂️ Автосравнение нового отпечатка с предыдущими...`);
        
-        const previousFootprints = this.footprints.slice(0, -1); // Все кроме последнего
+        const previousFootprints = this.footprints.slice(0, -1);
        
         previousFootprints.forEach((previous, index) => {
-            const comparison = compareFootprints(
-                previous.features,
-                newFootprint.features
-            );
+            const comparison = compareFootprints(previous.features, newFootprint.features);
            
             const comparisonRecord = {
                 id: `comparison_${this.comparisons.length + 1}`,
@@ -228,7 +219,6 @@ class TrailSession {
     }
 
     identifyUniqueGroups() {
-        // Простой алгоритм группировки по сходимости
         const groups = [];
        
         this.footprints.forEach(footprint => {
@@ -258,68 +248,45 @@ class TrailSession {
         return groups;
     }
 
-    /**
-     * 🔄 НОВЫЙ МЕТОД: Анализ частей следов
-     */
     analyzeFootprintParts(imageWidth, imageHeight) {
         console.log(`🕵️‍♂️ Анализирую части следов для ${this.footprints.length} отпечатков...`);
        
         const assembler = new FootprintAssembler();
        
         this.footprints.forEach(footprint => {
-            const partType = assembler.classifyFootprintPart(
-                footprint.predictions,
-                imageWidth,
-                imageHeight
-            );
-           
+            const partType = assembler.classifyFootprintPart(footprint.predictions, imageWidth, imageHeight);
             footprint.partType = partType;
             footprint.assemblyPotential = this.calculateAssemblyPotential(footprint);
-           
             console.log(`📋 Отпечаток ${footprint.id}: ${partType} (потенциал: ${footprint.assemblyPotential})`);
         });
        
         this.updateCompatibilityGroups();
     }
 
-    /**
-     * 🔄 НОВЫЙ МЕТОД: Вычисляет потенциал сборки
-     */
     calculateAssemblyPotential(footprint) {
         if (!footprint.features) return 0;
        
         let score = 0;
         const details = footprint.features.detailCount || 0;
        
-        // Больше деталей = выше потенциал
         if (details > 15) score += 40;
         else if (details > 8) score += 25;
         else if (details > 3) score += 15;
        
-        // Наличие контура увеличивает потенциал
         if (footprint.features.hasOutline) score += 30;
        
-        // Крупные детали важны для идентификации
         if (footprint.features.largeDetails > 2) score += 20;
        
         return Math.min(score, 100);
     }
 
-    /**
-     * 🔄 НОВЫЙ МЕТОД: Обновляет группы совместимости
-     */
     updateCompatibilityGroups() {
         const assembler = new FootprintAssembler();
         const filteredPrints = assembler.filterOutlierFootprints(this.footprints);
-       
         this.compatibilityGroups = assembler.groupCompatiblePrints(filteredPrints);
-       
         console.log(`🔄 Обновлено групп совместимости: ${this.compatibilityGroups.length}`);
     }
 
-    /**
-     * 🔄 НОВЫЙ МЕТОД: Сборка модели из доступных частей
-     */
     assembleModelFromParts(imageWidth, imageHeight) {
         if (this.footprints.length < 2) {
             return { success: false, error: 'Недостаточно отпечатков для сборки' };
@@ -329,12 +296,10 @@ class TrailSession {
        
         const assembler = new FootprintAssembler();
        
-        // Анализируем части если еще не сделано
         if (!this.footprints[0].partType) {
             this.analyzeFootprintParts(imageWidth, imageHeight);
         }
        
-        // Собираем модель
         const result = assembler.assembleFullModel(this.footprints, imageWidth, imageHeight);
        
         if (result.success) {
@@ -354,17 +319,8 @@ class TrailSession {
         return result;
     }
 
-    /**
-     * 🔄 НОВЫЙ МЕТОД: Получает статистику по частям
-     */
     getPartsStatistics() {
-        const parts = {
-            full: 0,
-            heel: 0,
-            toe: 0,
-            center: 0,
-            unknown: 0
-        };
+        const parts = { full: 0, heel: 0, toe: 0, center: 0, unknown: 0 };
        
         this.footprints.forEach(footprint => {
             const partType = footprint.partType || 'unknown';
@@ -374,11 +330,6 @@ class TrailSession {
         return parts;
     }
 
-
-      
-    /**
-     * 🔄 НОВЫЙ МЕТОД: Генерирует расширенный отчет
-     */
     generateEnhancedReport() {
         const summary = this.getSessionSummary();
         const partsStats = this.getPartsStatistics();
@@ -406,9 +357,7 @@ class TrailSession {
         report += `• Групп совместимости: ${this.compatibilityGroups.length}\n\n`;
        
         if (this.assembledModels.length > 0) {
-            const bestModel = this.assembledModels.reduce((best, current) =>
-                current.completeness > best.completeness ? current : best
-            );
+            const bestModel = this.assembledModels.reduce((best, current) => current.completeness > best.completeness ? current : best);
             report += `🏆 **ЛУЧШАЯ МОДЕЛЬ:**\n`;
             report += `• Полнота: ${bestModel.completeness}%\n`;
             report += `• Уверенность: ${bestModel.confidence}%\n`;
@@ -421,8 +370,7 @@ class TrailSession {
        
         return report;
     }
-}
-
+ }
 
 
 // =============================================================================
