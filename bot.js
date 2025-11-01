@@ -120,7 +120,143 @@ class TrailSession {
         this.compatibilityGroups = []; // Группы совместимых отпечатков
     }
 
-    // ... СУЩЕСТВУЮЩИЕ МЕТОДЫ (addFootprint, autoCompareWithPrevious, и т.д.) ...
+}
+
+    // 🔧 ДОБАВЬ ЭТИ БАЗОВЫЕ МЕТОДЫ:
+
+    addFootprint(analysisData) {
+        const footprintRecord = {
+            id: `footprint_${this.footprints.length + 1}`,
+            timestamp: new Date(),
+            imageUrl: analysisData.imageUrl,
+            predictions: analysisData.predictions,
+            features: analysisData.features,
+            perspectiveAnalysis: analysisData.perspectiveAnalysis,
+            orientation: analysisData.orientation
+        };
+       
+        this.footprints.push(footprintRecord);
+        console.log(`🕵️‍♂️ Добавлен отпечаток в сессию ${this.sessionId}: ${footprintRecord.id}`);
+       
+        // Автоматическое сравнение с предыдущими отпечатками
+        if (this.footprints.length > 1) {
+            this.autoCompareWithPrevious(footprintRecord);
+        }
+       
+        return footprintRecord;
+    }
+
+    autoCompareWithPrevious(newFootprint) {
+        console.log(`🕵️‍♂️ Автосравнение нового отпечатка с предыдущими...`);
+       
+        const previousFootprints = this.footprints.slice(0, -1); // Все кроме последнего
+       
+        previousFootprints.forEach((previous, index) => {
+            const comparison = compareFootprints(
+                previous.features,
+                newFootprint.features
+            );
+           
+            const comparisonRecord = {
+                id: `comparison_${this.comparisons.length + 1}`,
+                timestamp: new Date(),
+                footprintA: previous.id,
+                footprintB: newFootprint.id,
+                result: comparison,
+                similarity: comparison.overallScore,
+                notes: this.generateComparisonNotes(comparison, previous, newFootprint)
+            };
+           
+            this.comparisons.push(comparisonRecord);
+            console.log(`🔍 Сравнение ${previous.id} vs ${newFootprint.id}: ${comparison.overallScore}%`);
+        });
+    }
+
+    generateComparisonNotes(comparison, footprintA, footprintB) {
+        const notes = [];
+       
+        if (comparison.overallScore > 70) {
+            notes.push('ВЫСОКАЯ СХОДИМОСТЬ - вероятно один источник');
+        } else if (comparison.overallScore > 50) {
+            notes.push('СРЕДНЯЯ СХОДИМОСТЬ - требуется дополнительный анализ');
+        } else {
+            notes.push('НИЗКАЯ СХОДИМОСТЬ - разные источники');
+        }
+        if (comparison.mirrorUsed) {
+            notes.push('Учтена зеркальная симметрия (левый/правый)');
+        }
+        return notes.join('; ');
+    }
+
+    getSessionSummary() {
+        return {
+            sessionId: this.sessionId,
+            expert: this.expert,
+            duration: new Date() - this.startTime,
+            footprintsCount: this.footprints.length,
+            comparisonsCount: this.comparisons.length,
+            averageSimilarity: this.comparisons.length > 0 ?
+                this.comparisons.reduce((sum, comp) => sum + comp.similarity, 0) / this.comparisons.length : 0,
+            status: this.status
+        };
+    }
+
+    generateExpertReport() {
+        const summary = this.getSessionSummary();
+       
+        let report = `🕵️‍♂️ **АНАЛИЗ ТРОПЫ**\n\n`;
+        report += `**Сессия:** ${summary.sessionId}\n`;
+        report += `**Эксперт:** ${summary.expert}\n`;
+        report += `**Продолжительность:** ${Math.round(summary.duration / 60000)} мин.\n`;
+        report += `**Проанализировано отпечатков:** ${summary.footprintsCount}\n`;
+        report += `**Выполнено сравнений:** ${summary.comparisonsCount}\n`;
+        report += `**Средняя сходимость:** ${summary.averageSimilarity.toFixed(1)}%\n\n`;
+       
+        if (this.comparisons.length > 0) {
+            report += `**КЛЮЧЕВЫЕ ВЫВОДЫ:**\n`;
+           
+            const highSimilarity = this.comparisons.filter(c => c.similarity > 70);
+            if (highSimilarity.length > 0) {
+                report += `• Обнаружено ${highSimilarity.length} пар с высокой сходимостью\n`;
+            }
+            const uniqueGroups = this.identifyUniqueGroups();
+            report += `• Выявлено ${uniqueGroups.length} уникальных морфологических групп\n`;
+        }
+        report += `\n**СТАТУС:** ${this.status === 'active' ? 'АКТИВНА' : 'ЗАВЕРШЕНА'}`;
+       
+        return report;
+    }
+
+    identifyUniqueGroups() {
+        // Простой алгоритм группировки по сходимости
+        const groups = [];
+       
+        this.footprints.forEach(footprint => {
+            let assigned = false;
+           
+            for (let group of groups) {
+                const avgSimilarity = group.members.reduce((sum, member) => {
+                    const comparison = this.comparisons.find(c =>
+                        (c.footprintA === footprint.id && c.footprintB === member) ||
+                        (c.footprintB === footprint.id && c.footprintA === member)
+                    );
+                    return sum + (comparison ? comparison.similarity : 0);
+                }, 0) / group.members.length;
+               
+                if (avgSimilarity > 60) {
+                    group.members.push(footprint.id);
+                    assigned = true;
+                    break;
+                }
+            }
+           
+            if (!assigned) {
+                groups.push({ id: `group_${groups.length + 1}`, members: [footprint.id] });
+            }
+        });
+       
+        return groups;
+    }
 
     /**
      * 🔄 НОВЫЙ МЕТОД: Анализ частей следов
@@ -238,6 +374,8 @@ class TrailSession {
         return parts;
     }
 
+
+      
     /**
      * 🔄 НОВЫЙ МЕТОД: Генерирует расширенный отчет
      */
@@ -284,6 +422,8 @@ class TrailSession {
         return report;
     }
 }
+
+
 
 // =============================================================================
 // 🧩 УМНАЯ СБОРКА МОДЕЛЕЙ ИЗ ЧАСТИЧНЫХ ОТПЕЧАТКОВ
