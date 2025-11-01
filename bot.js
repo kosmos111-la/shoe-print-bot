@@ -513,6 +513,244 @@ class FootprintAssembler {
     }
 }
 
+// =============================================================================
+// 💾 СИСТЕМА СОХРАНЕНИЯ ДАННЫХ
+// =============================================================================
+
+class DataPersistence {
+    constructor() {
+        this.dataFile = 'trail_sessions.json';
+        this.backupInterval = 5 * 60 * 1000; // 5 минут
+        this.setupAutoSave();
+    }
+
+    /**
+     * Настраивает автосохранение
+     */
+    setupAutoSave() {
+        setInterval(() => {
+            this.saveAllData();
+        }, this.backupInterval);
+    }
+
+    /**
+     * Сохраняет все данные
+     */
+    async saveAllData() {
+        try {
+            console.log('💾 Автосохранение данных...');
+           
+            const data = {
+                trailSessions: this.serializeTrailSessions(),
+                referencePrints: Array.from(referencePrints.entries()),
+                userStats: Array.from(userStats.entries()),
+                globalStats: globalStats,
+                timestamp: new Date().toISOString(),
+                version: '1.0'
+            };
+
+            // Локальное сохранение
+            fs.writeFileSync(this.dataFile, JSON.stringify(data, null, 2));
+           
+            // Сохранение в Яндекс.Диск
+            if (yandexDisk) {
+                try {
+                    await yandexDisk.uploadFile(this.dataFile, 'backup/sessions_backup.json');
+                    console.log('✅ Данные сохранены в Яндекс.Диск');
+                } catch (driveError) {
+                    console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
+                }
+            }
+           
+            console.log('💾 Все данные сохранены локально');
+        } catch (error) {
+            console.log('❌ Ошибка сохранения данных:', error.message);
+        }
+    }
+
+    /**
+     * Сериализует сессии тропы
+     */
+    serializeTrailSessions() {
+        const serialized = [];
+       
+        trailSessions.forEach((session, chatId) => {
+            serialized.push([
+                chatId,
+                {
+                    chatId: session.chatId,
+                    expert: session.expert,
+                    sessionId: session.sessionId,
+                    startTime: session.startTime.toISOString(),
+                    footprints: session.footprints.map(footprint => ({
+                        ...footprint,
+                        timestamp: footprint.timestamp.toISOString()
+                    })),
+                    comparisons: session.comparisons.map(comparison => ({
+                        ...comparison,
+                        timestamp: comparison.timestamp.toISOString()
+                    })),
+                    status: session.status,
+                    notes: session.notes
+                }
+            ]);
+        });
+       
+        return serialized;
+    }
+
+    /**
+     * Восстанавливает данные после перезапуска
+     */
+    async loadAllData() {
+        try {
+            console.log('🔄 Восстановление данных...');
+           
+            let data = null;
+           
+            // Пробуем загрузить из Яндекс.Диска
+            if (yandexDisk) {
+                try {
+                    if (await yandexDisk.fileExists('backup/sessions_backup.json')) {
+                        await yandexDisk.downloadFile('backup/sessions_backup.json', this.dataFile);
+                        console.log('✅ Данные загружены из Яндекс.Диска');
+                    }
+                } catch (driveError) {
+                    console.log('⚠️ Не удалось загрузить из Яндекс.Диска:', driveError.message);
+                }
+            }
+           
+            // Загружаем из локального файла
+            if (fs.existsSync(this.dataFile)) {
+                const fileContent = fs.readFileSync(this.dataFile, 'utf8');
+                data = JSON.parse(fileContent);
+                console.log('✅ Локальные данные загружены');
+            } else {
+                console.log('📝 Локальные данные не найдены, начинаем с чистого листа');
+                return;
+            }
+           
+            // Восстанавливаем сессии тропы
+            if (data.trailSessions) {
+                trailSessions.clear();
+                data.trailSessions.forEach(([chatId, sessionData]) => {
+                    const session = new TrailSession(chatId, sessionData.expert);
+                   
+                    // Восстанавливаем свойства
+                    session.sessionId = sessionData.sessionId;
+                    session.startTime = new Date(sessionData.startTime);
+                    session.status = sessionData.status;
+                    session.notes = sessionData.notes;
+                   
+                    // Восстанавливаем отпечатки
+                    session.footprints = sessionData.footprints.map(footprintData => ({
+                        ...footprintData,
+                        timestamp: new Date(footprintData.timestamp)
+                    }));
+                   
+                    // Восстанавливаем сравнения
+                    session.comparisons = sessionData.comparisons.map(comparisonData => ({
+                        ...comparisonData,
+                        timestamp: new Date(comparisonData.timestamp)
+                    }));
+                   
+                    trailSessions.set(parseInt(chatId), session);
+                });
+                console.log(`✅ Восстановлено ${trailSessions.size} сессий`);
+            }
+           
+            // Восстанавливаем эталоны
+            if (data.referencePrints) {
+                referencePrints.clear();
+                data.referencePrints.forEach(([name, ref]) => {
+                    referencePrints.set(name, {
+                        ...ref,
+                        timestamp: new Date(ref.timestamp)
+                    });
+                });
+                console.log(`✅ Восстановлено ${referencePrints.size} эталонов`);
+            }
+           
+            // Восстанавливаем статистику пользователей
+            if (data.userStats) {
+                userStats.clear();
+                data.userStats.forEach(([userId, userData]) => {
+                    userStats.set(userId, {
+                        ...userData,
+                        firstSeen: new Date(userData.firstSeen),
+                        lastSeen: new Date(userData.lastSeen),
+                        lastAnalysis: userData.lastAnalysis ? new Date(userData.lastAnalysis) : null
+                    });
+                });
+            }
+           
+            // Восстанавливаем глобальную статистику
+            if (data.globalStats) {
+                Object.assign(globalStats, data.globalStats);
+                if (data.globalStats.lastAnalysis) {
+                    globalStats.lastAnalysis = new Date(data.globalStats.lastAnalysis);
+                }
+            }
+           
+            console.log('🎯 Данные полностью восстановлены');
+           
+        } catch (error) {
+            console.log('❌ Ошибка восстановления данных:', error.message);
+            console.log('💫 Начинаем со свежих данных');
+        }
+    }
+
+    /**
+     * Экспорт сессии в файл
+     */
+    async exportSession(chatId, format = 'json') {
+        const session = trailSessions.get(chatId);
+        if (!session) {
+            throw new Error('Сессия не найдена');
+        }
+       
+        const exportData = {
+            session: session.getSessionSummary(),
+            footprints: session.footprints,
+            comparisons: session.comparisons,
+            exportTime: new Date().toISOString(),
+            version: '1.0'
+        };
+       
+        const filename = `session_export_${session.sessionId}_${Date.now()}.${format}`;
+       
+        if (format === 'json') {
+            fs.writeFileSync(filename, JSON.stringify(exportData, null, 2));
+        }
+       
+        return filename;
+    }
+
+    /**
+     * Резервное копирование конфигурации
+     */
+    async backupConfiguration() {
+        const config = {
+            modelMetadata: MODEL_METADATA,
+            backupTime: new Date().toISOString(),
+            stats: {
+                totalUsers: globalStats.totalUsers,
+                totalPhotos: globalStats.totalPhotos,
+                totalAnalyses: globalStats.totalAnalyses
+            }
+        };
+       
+        const configFile = `config_backup_${Date.now()}.json`;
+        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+       
+        if (yandexDisk) {
+            await yandexDisk.uploadFile(configFile, `backup/${configFile}`);
+        }
+       
+        return configFile;
+    }
+}
+
 /**
 * Получает или создает сессию экспертизы (ОБНОВЛЕННАЯ ВЕРСИЯ)
 */
