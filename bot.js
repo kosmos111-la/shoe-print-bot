@@ -2956,6 +2956,9 @@ try {
 
 // В обработчике bot.on('photo') - находим блок после perspectiveAnalysis:
 
+// 🔧 ИСПРАВЛЕНИЕ: Создаем footprintFeatures если не существует
+let footprintFeatures = extractFeatures(finalPredictions);     
+     
 // 🧩 АВТОМАТИЧЕСКИЙ АНАЛИЗ ЧАСТЕЙ СЛЕДА (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 try {
     console.log('🧩 Автоматический анализ части следа...');
