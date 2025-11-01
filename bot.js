@@ -3189,10 +3189,13 @@ app.listen(PORT, async () => {
     // 🔄 ЗАГРУЖАЕМ СТАТИСТИКУ ИЗ ПУБЛИЧНОЙ ССЫЛКИ
     await loadStatsFromPublicLink();
    
+    // 🔄 ЗАГРУЖАЕМ ДАННЫЕ СЕССИЙ И ЭТАЛОНОВ
+    await dataPersistence.loadAllData();
+   
     console.log('🤖 Бот полностью готов к работе!');
     console.log(`📊 Текущая статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} фото`);
+    console.log(`💾 Восстановлено сессий: ${trailSessions.size}, эталонов: ${referencePrints.size}`);
 });
-
 // Обработчики ошибок
 process.on('unhandledRejection', (error) => {
     console.error('⚠️ Unhandled Promise Rejection:', error);
