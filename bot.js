@@ -330,13 +330,12 @@ class TrailSession {
         };
        
         this.footprints.forEach(footprint => {
-            const patternType = footprint.patternType || 'unknown';
+            const patternType = footprint.patternType || 'unknown';  // ← ИСПРАВЛЕНИЕ!
             parts[patternType] = (parts[patternType] || 0) + 1;
         });
        
         return parts;
     }
-
 
     generateEnhancedReport() {
         const summary = this.getSessionSummary();
