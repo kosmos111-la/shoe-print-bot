@@ -254,8 +254,9 @@ class TrailSession {
         const assembler = new FootprintAssembler();
        
         this.footprints.forEach(footprint => {
-            const partType = assembler.classifyFootprintPart(footprint.predictions, imageWidth, imageHeight);
-            footprint.partType = partType;
+            const patternType = assembler.classifyFootprintPattern(footprint.predictions, imageWidth, imageHeight);
+footprint.partType = patternType; // ← Оставляем partType для обратной совместимости
+footprint.patternType = patternType; // ← Добавляем новое поле
             footprint.assemblyPotential = this.calculateAssemblyPotential(footprint);
             console.log(`📋 Отпечаток ${footprint.id}: ${partType} (потенциал: ${footprint.assemblyPotential})`);
         });
@@ -710,7 +711,7 @@ calculateBoundingBox(points) {
         // Классифицируем все отпечатки
         const classifiedPrints = partialPrints.map(print => ({
             ...print,
-            partType: this.classifyFootprintPart(print.predictions, imageWidth, imageHeight),
+            partType: this.classifyFootprintPattern(print.predictions, imageWidth, imageHeight),
             bbox: this.calculateOverallBoundingBox(print.predictions)
         }));
        
@@ -3479,13 +3480,13 @@ try {
         const finalPredictions = processedPredictions.length > 0 ? processedPredictions : predictions;
 
 // =============================================================================
-// 📐 АНАЛИЗ ПЕРСПЕКТИВНЫХ ИСКАЖЕНИЙ
+// 📐 
 // =============================================================================
 
 let perspectiveAnalysis = { hasPerspectiveIssues: false, issues: [], recommendations: [] };
 
 try {
-    console.log('📐 Запускаю анализ перспективных искажений...');
+    console.log('📐 Запускаю ...');
    
     // Получаем размеры изображения для анализа
     const image = await loadImage(fileUrl);
@@ -3514,41 +3515,50 @@ try {
     };
 }
 
+// =============================================================================
+// 🔧 БЫСТРЫЙ ФИКС: КЛАССИФИКАЦИЯ УЗОРОВ ПРОТЕКТОРА
+// =============================================================================
+
+// 🔧 Получаем размеры изображения для анализа узоров
+let imageWidth = 800, imageHeight = 600;
+try {
+    const image = await loadImage(fileUrl);
+    imageWidth = image.width;
+    imageHeight = image.height;
+    console.log(`📏 Размеры для анализа узоров: ${imageWidth}x${imageHeight}`);
+} catch (error) {
+    console.log('⚠️ Не удалось получить размеры для анализа узоров:', error.message);
+}
+
+// 🔧 Классифицируем узор протектора
+let patternType = 'unknown_pattern';
+try {
+    patternType = footprintAssembler.classifyFootprintPattern(
+        finalPredictions,
+        imageWidth, 
+        imageHeight
+    );
+    console.log(`🎯 Классификация узора протектора: ${patternType}`);
+} catch (error) {
+    console.log('❌ Ошибка классификации узора:', error.message);
+}
+
+// 🔧 Гарантируем, что footprintFeatures существует
+let footprintFeatures = extractFeatures(finalPredictions);
+footprintFeatures.patternType = patternType;
+console.log('✅ Footprint features с узором:', footprintFeatures);
+
+     
 // В обработчике bot.on('photo') - находим блок после perspectiveAnalysis:
 
 // 🔧 ИСПРАВЛЕНИЕ: Создаем footprintFeatures если не существует
-let footprintFeatures = extractFeatures(finalPredictions);     
-     
-// 🧩 АВТОМАТИЧЕСКИЙ АНАЛИЗ ЧАСТЕЙ СЛЕДА (ИСПРАВЛЕННАЯ ВЕРСИЯ)
-try {
-    console.log('🧩 Автоматический анализ части следа...');
-   
-    // Получаем размеры изображения для классификации
-    const image = await loadImage(fileUrl);
-    const imageWidth = image.width;
-    const imageHeight = image.height;
-   
-    // Классифицируем часть следа
-    const partType = footprintAssembler.classifyFootprintPart(
-        finalPredictions,
-        imageWidth,
-        imageHeight
-    );
-   
-    console.log(`📋 Классифицирован как: ${partType}`);
-   
-    // СОЗДАЕМ footprintFeatures ЕСЛИ ЕГО НЕТ
-    if (!footprintFeatures) {
-        footprintFeatures = extractFeatures(finalPredictions);
-    }
-   
-    // Добавляем информацию в features
-    footprintFeatures.partType = partType;
-    footprintFeatures.imageSize = { width: imageWidth, height: imageHeight };
-   
-} catch (error) {
-    console.log('⚠️ Не удалось проанализировать часть следа:', error.message);
-}
+let footprintFeatures = extractFeatures(finalPredictions);    
+
+// 🔧 ГАРАНТИРУЕМ, ЧТО footprintFeatures СУЩЕСТВУЕТ
+   if (!footprintFeatures) {
+       footprintFeatures = extractFeatures(finalPredictions);
+   }
+   console.log('✅ Footprint features готовы:', footprintFeatures);
           
         // Проверка сравнения с эталоном
         if (session.waitingForComparison) {
@@ -3641,27 +3651,24 @@ const trailSession = trailSessions.get(chatId);
 if (trailSession && trailSession.status === 'active') {
     console.log(`🕵️‍♂️ [DEBUG] Активная сессия найдена! Добавляем отпечаток...`);
    
-    const footprintData = {
-        imageUrl: fileUrl,
-        predictions: finalPredictions,
-        features: footprintFeatures, // Убедись, что footprintFeatures создан выше
-        perspectiveAnalysis: perspectiveAnalysis,
-        orientation: {
-            type: analyzeOrientationType(finalPredictions),
-            angle: calculateOrientationAngle(
-                finalPredictions.find(pred =>
-                    pred.class === 'Outline-trail' || pred.class.includes('Outline')
-                )?.points || []
-            )
-        },
-        // 🔥 ВАЖНО: меняем partType на patternType
-        patternType: footprintAssembler.classifyFootprintPattern(
-            finalPredictions,
-            imageWidth,
-            imageHeight
-        ),
-        assemblyPotential: 0
-    };
+       const footprintData = {
+        imageUrl: fileUrl,
+        predictions: finalPredictions,
+        features: footprintFeatures,
+        perspectiveAnalysis: perspectiveAnalysis,
+        orientation: {
+            type: analyzeOrientationType(finalPredictions),
+            angle: calculateOrientationAngle(
+                finalPredictions.find(pred => 
+                    pred.class === 'Outline-trail' || pred.class.includes('Outline')
+                )?.points || []
+            )
+        },
+        // 🔥 ИСПОЛЬЗУЕМ УЖЕ ВЫЧИСЛЕННЫЙ patternType
+        patternType: patternType,
+        assemblyPotential: 0
+    };
+
    
     try {
         const footprintRecord = trailSession.addFootprint(footprintData);
