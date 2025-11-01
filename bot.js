@@ -1314,12 +1314,12 @@ bot.onText(/\/start/, async (msg) => {
         `📊 Статистика: ${globalStats.totalUsers} экспертов, ${globalStats.totalPhotos} отпечатков\n\n` +
         `🔍 **ЭКСПЕРТНЫЕ РЕЖИМЫ:**\n` +
         `• **Базовый анализ** - отправьте фото отпечатка\n` +
-        `• **/expert_start** - режим тропы\n` +
+        `• **/trail_start** - режим тропы\n` +
         `• **Сравнение с эталоном** - /compare\n\n` +
         `🕵️‍♂️ **РЕЖИМ ТРОПЫ:**\n` +
         `• Сессионный анализ multiple отпечатков\n` +
         `• Автоматическое сравнение внутри сессии\n` +
-        `• Экспертное заключение по результатам\n\n` +
+        `• Анализ тропы по результатам\n\n` +
         `📸 **Основные команды:**\n` +
         `• /save_reference - сохранить эталон подошвы\n` +
         `• /list_references - список эталонов\n` +
@@ -1528,7 +1528,7 @@ bot.onText(/\/trail_start/, async (msg) => {
    
     console.log(`🕵️‍♂️ Запрос на создание сессии от ${username} (chatId: ${chatId})`);
    
-    const session = getExpertSession(chatId, username);
+    const session = getTrailSession(chatId, username);
    
     console.log(`✅ Сессия создана:`, {
         sessionId: session.sessionId,
@@ -1562,7 +1562,7 @@ bot.onText(/\/trail_status/, async (msg) => {
     if (!session) {
         await bot.sendMessage(chatId,
             '❌ Активная сессия анализа тропы не найдена.\n' +
-            'Используйте /expert_start для начала работы.'
+            'Используйте /trail_start для начала работы.'
         );
         return;
     }
@@ -1646,7 +1646,7 @@ bot.onText(/\/trail_finish/, async (msg) => {
     await bot.sendMessage(chatId,
         `🔚 **СЕССИЯ АНАЛИЗА ТРОПЫ ЗАВЕРШЕНА**\n\n${report}\n\n` +
         `📁 Все данные сохранены до перезапуска бота.\n` +
-        `🔄 Для новой сессии используйте /expert_start`
+        `🔄 Для новой сессии используйте /trail_start`
     );
 });
 
