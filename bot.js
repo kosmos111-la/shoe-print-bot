@@ -2936,7 +2936,7 @@ await bot.sendMessage(chatId, report);
             return;
         }
 
-          // 🕵️‍♂️ ДОБАВЛЕНИЕ В ЭКСПЕРТНУЮ СЕССИЮ (если активна)
+         // 🕵️‍♂️ ДОБАВЛЕНИЕ В ЭКСПЕРТНУЮ СЕССИЮ (ОБНОВЛЕННАЯ ВЕРСИЯ)
 const trailSession = trailSessions.get(chatId);
 if (trailSession && trailSession.status === 'active') {
     console.log(`🕵️‍♂️ [DEBUG] Активная сессия найдена! Добавляем отпечаток...`);
@@ -2953,12 +2953,44 @@ if (trailSession && trailSession.status === 'active') {
                     pred.class === 'Outline-trail' || pred.class.includes('Outline')
                 )?.points || []
             )
-        }
+        },
+        // 🔄 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ЧАСТИ СЛЕДА
+        partType: footprintFeatures.partType,
+        assemblyPotential: 0 // Будет вычислено позже
     };
    
     try {
         const footprintRecord = trailSession.addFootprint(footprintData);
+       
+        // 🔄 ОБНОВЛЯЕМ ПОТЕНЦИАЛ СБОРКИ
+        if (trailSession.calculateAssemblyPotential) {
+            footprintRecord.assemblyPotential = trailSession.calculateAssemblyPotential(footprintRecord);
+        }
+       
         console.log(`✅ [DEBUG] Отпечаток успешно добавлен в сессию! Всего: ${trailSession.footprints.length}`);
+       
+        // 🔄 АВТОМАТИЧЕСКИЙ АНАЛИЗ ГРУПП ПРИ ДОСТАТОЧНОМ КОЛИЧЕСТВЕ
+        if (trailSession.footprints.length >= 3) {
+            setTimeout(async () => {
+                try {
+                    if (trailSession.updateCompatibilityGroups) {
+                        trailSession.updateCompatibilityGroups();
+                        const groupsCount = trailSession.compatibilityGroups?.length || 0;
+                        if (groupsCount > 0) {
+                            await bot.sendMessage(chatId,
+                                `🔄 **Обновление групп совместимости**\n\n` +
+                                `Обнаружено групп: ${groupsCount}\n` +
+                                `Для просмотра: /show_groups\n` +
+                                `Для сборки: /assemble_model`
+                            );
+                        }
+                    }
+                } catch (groupError) {
+                    console.log('⚠️ Ошибка автоматического анализа групп:', groupError.message);
+                }
+            }, 2000);
+        }
+       
     } catch (error) {
         console.log(`❌ [DEBUG] Ошибка добавления отпечатка:`, error.message);
     }
