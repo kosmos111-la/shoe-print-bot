@@ -1880,7 +1880,7 @@ await bot.sendMessage(chatId, report);
 
           // 🕵️‍♂️ ДОБАВЛЕНИЕ В ЭКСПЕРТНУЮ СЕССИЮ (если активна)
 const trailSession = trailSessions.get(chatId);
-if (expertSession && expertSession.status === 'active') {
+if (trailSession && trailSession.status === 'active') {
     console.log(`🕵️‍♂️ [DEBUG] Активная сессия найдена! Добавляем отпечаток...`);
    
     const footprintData = {
