@@ -652,10 +652,11 @@ calculateBoundingBox(points) {
         // 🔥 КРИТИЧЕСКИ ВАЖНЫЕ СЛУЧАИ:
 
         // 1. МЕЛКАЯ ДЕТАЛЬ ВНУТРИ КРУПНОЙ - ВЫСОКАЯ ТОЧНОСТЬ
-        if (areaB < areaA * 0.2 && overlapToB > 0.8) {
-            console.log(`💎 Обнаружена точная мелкая деталь внутри крупной!`);
-            return 0.95;
-        }
+        // 🔧 ФИКС: Более строгая проверка для точных деталей
+if (areaB < areaA * 0.1 && overlapToB > 0.9 && predA.class === predB.class) {
+    console.log(`💎 Обнаружена точная мелкая деталь внутри крупной!`);
+    return 0.95;
+}
 
         // 2. ВМЯТИНА/ОТСУТСТВИЕ МАТЕРИАЛА - учитываем контур
         if (this.isNegativeImpression(predA) || this.isNegativeImpression(predB)) {
@@ -805,7 +806,8 @@ calculateBoundingBox(points) {
 
         // 🎯 КОМПЛЕКСНАЯ ОЦЕНКА
         const finalScore = (avgPatternScore * 0.6) + (avgFeatureScore * 0.4);
-        const isCompatible = finalScore > 0.5 && patternCompatible;
+        // 🔧 ФИКС: Если сходство узоров очень высокое, игнорируем проверку типов
+const isCompatible = finalScore > 0.5 && (patternCompatible || avgPatternScore > 0.8);
 
         console.log(`🎯 Итог: ${finalScore.toFixed(3)} -> ${isCompatible ? 'СОВМЕСТИМЫ' : 'НЕ СОВМЕСТИМЫ'}`);
        
