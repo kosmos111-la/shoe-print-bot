@@ -96,15 +96,15 @@ const referencePrints = new Map();
 const photoSessions = new Map();
 
 // =============================================================================
-// 🕵️‍♂️ СИСТЕМА СЕССИЙ ЭКСПЕРТА-КРИМИНАЛИСТА
+// 🕵️‍♂️ СИСТЕМА СЕССИЙ ТРОПЫ
 // =============================================================================
 
-const expertSessions = new Map();
+const trailSessions = new Map();
 
 /**
 * Сессия анализа тропы для отслеживания последовательных отпечатков
 */
-class ExpertSession {
+class TrailSession {
     constructor(chatId, username) {
         this.chatId = chatId;
         this.expert = username;
@@ -198,7 +198,7 @@ class ExpertSession {
     generateExpertReport() {
         const summary = this.getSessionSummary();
        
-        let report = `🕵️‍♂️ **ЭКСПЕРТНОЕ ЗАКЛЮЧЕНИЕ**\n\n`;
+        let report = `🕵️‍♂️ **АНАЛИЗ ТРОПЫ**\n\n`;
         report += `**Сессия:** ${summary.sessionId}\n`;
         report += `**Эксперт:** ${summary.expert}\n`;
         report += `**Продолжительность:** ${Math.round(summary.duration / 60000)} мин.\n`;
@@ -258,7 +258,7 @@ class ExpertSession {
 /**
 * Получает или создает сессию экспертизы (ОБНОВЛЕННАЯ ВЕРСИЯ)
 */
-function getExpertSession(chatId, username) {
+function getTrailSession(chatId, username) {
     console.log(`🔍 Поиск сессии для chatId: ${chatId}`);
    
     if (!expertSessions.has(chatId)) {
@@ -1519,10 +1519,10 @@ bot.onText(/\/cancel/, async (msg) => {
 });
 
 // =============================================================================
-// 🕵️‍♂️ КОМАНДЫ РЕЖИМА ЭКСПЕРТА-КРИМИНАЛИСТА
+// 🕵️‍♂️ КОМАНДЫ РЕЖИМА ТРОПЫ
 // =============================================================================
 
-bot.onText(/\/expert_start/, async (msg) => {
+bot.onText(/\/trail_start/, async (msg) => {
     const chatId = msg.chat.id;
     const username = msg.from.username || msg.from.first_name;
    
@@ -1555,7 +1555,7 @@ bot.onText(/\/expert_start/, async (msg) => {
     );
 });
 
-bot.onText(/\/expert_status/, async (msg) => {
+bot.onText(/\/trail_status/, async (msg) => {
     const chatId = msg.chat.id;
     const session = expertSessions.get(chatId);
    
@@ -1569,7 +1569,7 @@ bot.onText(/\/expert_status/, async (msg) => {
    
     const summary = session.getSessionSummary();
    
-    let status = `🕵️‍♂️ **СТАТУС СЕССИИ ЭКСПЕРТИЗЫ**\n\n`;
+    let status = `🕵️‍♂️ **РЕЖИМ ТРОПЫ АКТИВИРОВАН**\n\n`;
     status += `**ID:** ${summary.sessionId}\n`;
     status += `**Статус:** ${summary.status === 'active' ? '🟢 АКТИВНА' : '🔴 ЗАВЕРШЕНА'}\n`;
     status += `**Отпечатков:** ${summary.footprintsCount}\n`;
@@ -1584,7 +1584,7 @@ bot.onText(/\/expert_status/, async (msg) => {
     await bot.sendMessage(chatId, status);
 });
 
-bot.onText(/\/expert_report/, async (msg) => {
+bot.onText(/\/trail_report/, async (msg) => {
     const chatId = msg.chat.id;
     const session = expertSessions.get(chatId);
    
@@ -1606,7 +1606,7 @@ bot.onText(/\/expert_report/, async (msg) => {
     await bot.sendMessage(chatId, report);
 });
 
-bot.onText(/\/expert_notes(?:\s+(.+))?/, async (msg, match) => {
+bot.onText(/\/trail_notes(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const session = expertSessions.get(chatId);
    
@@ -1631,7 +1631,7 @@ bot.onText(/\/expert_notes(?:\s+(.+))?/, async (msg, match) => {
     await bot.sendMessage(chatId, '✅ Заметки эксперта сохранены');
 });
 
-bot.onText(/\/expert_finish/, async (msg) => {
+bot.onText(/\/trail_finish/, async (msg) => {
     const chatId = msg.chat.id;
     const session = expertSessions.get(chatId);
    
@@ -1872,7 +1872,7 @@ await bot.sendMessage(chatId, report);
         }
 
           // 🕵️‍♂️ ДОБАВЛЕНИЕ В ЭКСПЕРТНУЮ СЕССИЮ (если активна)
-const expertSession = expertSessions.get(chatId);
+const trailSession = trailSessions.get(chatId);
 if (expertSession && expertSession.status === 'active') {
     console.log(`🕵️‍♂️ [DEBUG] Активная сессия найдена! Добавляем отпечаток...`);
    
@@ -1945,7 +1945,7 @@ if (yandexDisk) {
 let baseCaption = `✅ Анализ завершен!\n🎯 Выявлено морфологических признаков: ${finalPredictions.length}`;
 
 // 🕵️‍♂️ ИНФОРМАЦИЯ О СЕССИИ (если активна)
-const expertSession = expertSessions.get(chatId);
+const trailSession = trailSessions.get(chatId);
 if (expertSession && expertSession.status === 'active') {
     baseCaption += `\n\n🕵️‍♂️ **СЕССИЯ АНАЛИЗА ТРОПЫ**\n`;
     baseCaption += `• Отпечаток #${expertSession.footprints.length} зарегистрирован\n`;
