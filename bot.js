@@ -255,6 +255,264 @@ class TrailSession {
     }
 }
 
+// =============================================================================
+// 🧩 УМНАЯ СБОРКА МОДЕЛЕЙ ИЗ ЧАСТИЧНЫХ ОТПЕЧАТКОВ
+// =============================================================================
+
+class FootprintAssembler {
+    constructor() {
+        this.partialPrints = new Map();
+        this.assembledModels = new Map();
+    }
+
+    /**
+     * Классифицирует часть следа по геометрии
+     */
+    classifyFootprintPart(predictions, imageWidth, imageHeight) {
+        if (!predictions || predictions.length === 0) return 'unknown';
+       
+        const bbox = this.calculateOverallBoundingBox(predictions);
+        const aspectRatio = bbox.width / bbox.height;
+        const centerX = bbox.minX + bbox.width / 2;
+        const centerY = bbox.minY + bbox.height / 2;
+       
+        const positionX = centerX / imageWidth;
+        const positionY = centerY / imageHeight;
+       
+        // Определяем тип части по положению и пропорциям
+        if (aspectRatio > 2.2) return 'full';
+        if (positionY < 0.4 && aspectRatio < 1.3) return 'heel';     // Верхняя часть
+        if (positionY > 0.6 && aspectRatio < 1.3) return 'toe';      // Нижняя часть
+        if (aspectRatio > 1.4 && aspectRatio < 2.2) return 'center'; // Центральная часть
+        if (bbox.width > imageWidth * 0.7) return 'full';            // Занимает большую часть кадра
+       
+        return 'unknown';
+    }
+
+    /**
+     * Вычисляет общий bounding box для всех предсказаний
+     */
+    calculateOverallBoundingBox(predictions) {
+        if (!predictions || predictions.length === 0) {
+            return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+        }
+       
+        let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+       
+        predictions.forEach(pred => {
+            if (pred.points && pred.points.length > 0) {
+                pred.points.forEach(point => {
+                    minX = Math.min(minX, point.x);
+                    minY = Math.min(minY, point.y);
+                    maxX = Math.max(maxX, point.x);
+                    maxY = Math.max(maxY, point.y);
+                });
+            }
+        });
+       
+        return {
+            minX, minY, maxX, maxY,
+            width: maxX - minX,
+            height: maxY - minY
+        };
+    }
+
+    /**
+     * Компоновка полной модели из частичных отпечатков
+     */
+    assembleFullModel(partialPrints, imageWidth, imageHeight) {
+        if (partialPrints.length < 2) {
+            return { success: false, error: 'Недостаточно отпечатков для сборки' };
+        }
+       
+        // Классифицируем все отпечатки
+        const classifiedPrints = partialPrints.map(print => ({
+            ...print,
+            partType: this.classifyFootprintPart(print.predictions, imageWidth, imageHeight),
+            bbox: this.calculateOverallBoundingBox(print.predictions)
+        }));
+       
+        // Группируем по совместимости
+        const compatibleGroups = this.groupCompatiblePrints(classifiedPrints);
+       
+        if (compatibleGroups.length === 0) {
+            return { success: false, error: 'Не найдено совместимых отпечатков' };
+        }
+       
+        // Выбираем лучшую группу
+        const bestGroup = this.selectBestGroup(compatibleGroups);
+       
+        // Собираем модель
+        const assembledModel = this.mergeFootprints(bestGroup);
+       
+        return {
+            success: true,
+            model: assembledModel,
+            usedPrints: bestGroup,
+            completeness: this.calculateCompleteness(bestGroup),
+            confidence: this.calculateConfidence(bestGroup)
+        };
+    }
+
+    /**
+     * Группирует совместимые отпечатки
+     */
+    groupCompatiblePrints(classifiedPrints) {
+        const groups = [];
+       
+        classifiedPrints.forEach(print => {
+            let assigned = false;
+           
+            for (let group of groups) {
+                if (this.arePrintsCompatible(group, print)) {
+                    group.push(print);
+                    assigned = true;
+                    break;
+                }
+            }
+           
+            if (!assigned) {
+                groups.push([print]);
+            }
+        });
+       
+        return groups.filter(group => group.length >= 2);
+    }
+
+    /**
+     * Проверяет совместимость отпечатков
+     */
+    arePrintsCompatible(group, newPrint) {
+        // Проверяем по типу частей (не должны дублироваться)
+        const existingTypes = group.map(p => p.partType);
+        if (existingTypes.includes(newPrint.partType)) {
+            return false;
+        }
+       
+        // Проверяем схожесть features
+        const similarityScores = group.map(existing =>
+            this.calculateSimilarity(existing.features, newPrint.features)
+        );
+       
+        const avgSimilarity = similarityScores.reduce((a, b) => a + b) / similarityScores.length;
+        return avgSimilarity > 0.6; // Порог совместимости
+    }
+
+    /**
+     * Выбирает лучшую группу для сборки
+     */
+    selectBestGroup(groups) {
+        return groups.reduce((best, current) => {
+            const bestScore = this.calculateGroupScore(best);
+            const currentScore = this.calculateGroupScore(current);
+            return currentScore > bestScore ? current : best;
+        });
+    }
+
+    /**
+     * Вычисляет score группы
+     */
+    calculateGroupScore(group) {
+        const typeDiversity = new Set(group.map(p => p.partType)).size;
+        const avgConfidence = group.reduce((sum, p) => sum + (p.features?.detailCount || 0), 0) / group.length;
+        return typeDiversity * avgConfidence;
+    }
+
+    /**
+     * Объединяет отпечатки в одну модель
+     */
+    mergeFootprints(prints) {
+        const mergedPredictions = [];
+        const mergedFeatures = {
+            detailCount: 0,
+            hasOutline: false,
+            largeDetails: 0,
+            density: 0,
+            spatialSpread: 0
+        };
+       
+        prints.forEach(print => {
+            if (print.predictions) {
+                mergedPredictions.push(...print.predictions);
+            }
+            if (print.features) {
+                mergedFeatures.detailCount += print.features.detailCount || 0;
+                mergedFeatures.hasOutline = mergedFeatures.hasOutline || print.features.hasOutline;
+                mergedFeatures.largeDetails += print.features.largeDetails || 0;
+            }
+        });
+       
+        return {
+            predictions: mergedPredictions,
+            features: mergedFeatures,
+            sourcePrints: prints.map(p => p.id),
+            timestamp: new Date()
+        };
+    }
+
+    /**
+     * Вычисляет полноту модели
+     */
+    calculateCompleteness(prints) {
+        const uniqueTypes = new Set(prints.map(p => p.partType));
+        const maxPossibleTypes = 4; // full, heel, toe, center
+        return (uniqueTypes.size / maxPossibleTypes) * 100;
+    }
+
+    /**
+     * Вычисляет уверенность в модели
+     */
+    calculateConfidence(prints) {
+        const similarities = [];
+       
+        for (let i = 0; i < prints.length; i++) {
+            for (let j = i + 1; j < prints.length; j++) {
+                similarities.push(this.calculateSimilarity(prints[i].features, prints[j].features));
+            }
+        }
+       
+        const avgSimilarity = similarities.length > 0 ?
+            similarities.reduce((a, b) => a + b) / similarities.length : 0;
+           
+        return Math.min(avgSimilarity * 100, 100);
+    }
+
+    /**
+     * Вычисляет схожесть features
+     */
+    calculateSimilarity(featuresA, featuresB) {
+        if (!featuresA || !featuresB) return 0;
+       
+        const countA = featuresA.detailCount || 0;
+        const countB = featuresB.detailCount || 0;
+       
+        if (countA === 0 || countB === 0) return 0;
+       
+        const countRatio = Math.min(countA, countB) / Math.max(countA, countB);
+        const outlineMatch = featuresA.hasOutline === featuresB.hasOutline ? 0.3 : 0;
+       
+        return countRatio * 0.7 + outlineMatch;
+    }
+
+    /**
+     * Фильтрует "левые" следы
+     */
+    filterOutlierFootprints(footprints, similarityThreshold = 0.6) {
+        if (footprints.length < 3) return footprints;
+       
+        return footprints.filter((footprint, index, array) => {
+            const similarities = array
+                .filter((_, i) => i !== index)
+                .map(other => this.calculateSimilarity(footprint.features, other.features));
+           
+            if (similarities.length === 0) return true;
+           
+            const avgSimilarity = similarities.reduce((a, b) => a + b) / similarities.length;
+            return avgSimilarity >= similarityThreshold;
+        });
+    }
+}
+
 /**
 * Получает или создает сессию экспертизы (ОБНОВЛЕННАЯ ВЕРСИЯ)
 */
