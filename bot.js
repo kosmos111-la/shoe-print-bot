@@ -3204,3 +3204,50 @@ process.on('unhandledRejection', (error) => {
 process.on('uncaughtException', (error) => {
     console.error('⚠️ Uncaught Exception:', error);
 });
+
+// 🔧 ДОБАВЛЯЕМ В КОНЕЦ ФАЙЛА:
+
+// Обработчики ошибок для новых функций
+process.on('unhandledRejection', (error) => {
+    console.error('⚠️ Unhandled Promise Rejection:', error);
+   
+    // Автосохранение при критических ошибках
+    if (dataPersistence) {
+        dataPersistence.saveAllData().catch(e => {
+            console.error('❌ Не удалось сохранить данные при ошибке:', e);
+        });
+    }
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('⚠️ Uncaught Exception:', error);
+   
+    // Экстренное сохранение
+    if (dataPersistence) {
+        try {
+            dataPersistence.saveAllData();
+        } catch (e) {
+            console.error('❌ Критическая ошибка сохранения:', e);
+        }
+    }
+   
+    process.exit(1);
+});
+
+// 🔧 Функция для безопасного завершения
+async function gracefulShutdown() {
+    console.log('🔄 Грациозное завершение работы...');
+   
+    try {
+        await dataPersistence.saveAllData();
+        console.log('✅ Все данные сохранены');
+    } catch (error) {
+        console.error('❌ Ошибка при завершении:', error);
+    }
+   
+    process.exit(0);
+}
+
+// Обработчики сигналов завершения
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
