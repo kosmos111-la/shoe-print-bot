@@ -1522,6 +1522,13 @@ bot.onText(/\/cancel/, async (msg) => {
 // 🕵️‍♂️ КОМАНДЫ РЕЖИМА ТРОПЫ
 // =============================================================================
 
+// 🚨 ВРЕМЕННОЕ РЕШЕНИЕ - добавить эту функцию
+function getExpertSession(chatId, username) {
+    console.log('⚠️ Вызвана старая функция getExpertSession - перенаправляю в getTrailSession');
+    return getTrailSession(chatId, username);
+}
+
+
 bot.onText(/\/trail_start/, async (msg) => {
     const chatId = msg.chat.id;
     const username = msg.from.username || msg.from.first_name;
@@ -1547,10 +1554,10 @@ bot.onText(/\/trail_start/, async (msg) => {
         `• Анализироваться на сходимость\n\n` +
         `📸 **Просто отправляйте фото отпечатков подошв**\n\n` +
         `**Команды эксперта:**\n` +
-        `• /expert_status - статус сессии\n` +
-        `• /expert_report - экспертное заключение\n` +
-        `• /expert_notes - добавить заметки\n` +
-        `• /expert_finish - завершить сессию\n\n` +
+        `• /trail_status - статус сессии\n` +
+        `• /trail_report - экспертное заключение\n` +
+        `• /trail_notes - добавить заметки\n` +
+        `• /trail_finish - завершить сессию\n\n` +
         `⚠️ *Все данные сохраняются только до перезапуска бота*`
     );
 });
