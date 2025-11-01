@@ -2138,15 +2138,24 @@ bot.onText(/\/help/, async (msg) => {
         `• Модель: ${MODEL_METADATA.name}\n` +
         `• Статус: ${MODEL_METADATA.status}\n` +
         `• Версия: ${MODEL_METADATA.version}\n\n` +
-        `📸 **Основные команды:**\n` +
+       
+        `🎯 **ОСНОВНЫЕ КОМАНДЫ:**\n` +
         `• Просто отправьте фото - анализ следа\n` +
-        `• /save_reference - сохранить эталон подошвы\n` +
-        `• /list_references - список эталонов\n` +
-        `• /compare - сравнить с эталоном\n` +
-        `• /statistics - статистика бота\n` +
-        `• /start - перезапустить бота\n\n` +
+        `• /trail_start - режим анализа тропы\n` +
+        `• /save_reference - сохранить эталон\n` +
+        `• /compare - сравнить с эталоном\n\n` +
+       
+        `🧩 **НОВЫЕ ФУНКЦИИ СБОРКИ:**\n` +
+        `• /assemble_model - собрать полную модель из частей\n` +
+        `• /compare_footprints 1 3 - сравнить два отпечатка\n` +
+        `• /show_groups - показать группы совместимости\n` +
+        `• /save_assembled - сохранить собранную модель\n` +
+        `• /detailed_stats - расширенная статистика\n` +
+        `• /save_data - ручное сохранение данных\n\n` +
+       
         `💡 **Рекомендации по съемке:**\n` +
         `- ${MODEL_METADATA.recommendations.join('\n- ')}\n\n` +
+       
         `⚠️ **Ограничения системы:**\n` +
         `- ${MODEL_METADATA.limitations.join('\n- ')}`
     );
