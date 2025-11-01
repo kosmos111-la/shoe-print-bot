@@ -249,20 +249,22 @@ class TrailSession {
     }
 
         analyzeFootprintParts(imageWidth, imageHeight) {
-        console.log(`🕵️‍♂️ Анализирую узоры протектора для ${this.footprints.length} отпечатков...`);
-       
-        const assembler = new FootprintAssembler();
-       
-        this.footprints.forEach(footprint => {
-            const patternType = assembler.classifyFootprintPattern(footprint.predictions, imageWidth, imageHeight);
-            footprint.patternType = patternType;  // ← ИСПОЛЬЗУЕМ patternType
-            footprint.partType = patternType;     // ← ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
-            footprint.assemblyPotential = this.calculateAssemblyPotential(footprint);
-            console.log(`📋 Отпечаток ${footprint.id}: ${patternType} (потенциал: ${footprint.assemblyPotential})`);
-        });
-       
-        this.updateCompatibilityGroups();
-    }
+    console.log(`🕵️‍♂️ Анализирую узоры протектора для ${this.footprints.length} отпечатков...`);
+   
+    const assembler = new FootprintAssembler();
+   
+    this.footprints.forEach(footprint => {
+        // 🔧 ИСПРАВЛЕНИЕ: ВЫЧИСЛЯЕМ patternType, а не берем из footprint
+        const patternType = assembler.classifyFootprintPattern(footprint.predictions, imageWidth, imageHeight);
+        footprint.patternType = patternType;
+        footprint.partType = patternType; // для обратной совместимости
+        footprint.assemblyPotential = this.calculateAssemblyPotential(footprint);
+        console.log(`📋 Отпечаток ${footprint.id}: ${patternType} (потенциал: ${footprint.assemblyPotential})`);
+    });
+   
+    this.updateCompatibilityGroups();
+}
+
 
 
     calculateAssemblyPotential(footprint) {
