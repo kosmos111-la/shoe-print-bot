@@ -2819,7 +2819,37 @@ try {
         confidence: 'low'
     };
 }
-      
+
+// В обработчике bot.on('photo') - находим блок после perspectiveAnalysis:
+
+// 🧩 АВТОМАТИЧЕСКИЙ АНАЛИЗ ЧАСТЕЙ СЛЕДА (добавляем в обработчик фото)
+try {
+    console.log('🧩 Автоматический анализ части следа...');
+   
+    // Получаем размеры изображения для классификации
+    const image = await loadImage(fileUrl);
+    const imageWidth = image.width;
+    const imageHeight = image.height;
+   
+    // Классифицируем часть следа
+    const partType = footprintAssembler.classifyFootprintPart(
+        finalPredictions,
+        imageWidth,
+        imageHeight
+    );
+   
+    console.log(`📋 Классифицирован как: ${partType}`);
+   
+    // Добавляем информацию в features
+    if (!footprintFeatures.partType) {
+        footprintFeatures.partType = partType;
+        footprintFeatures.imageSize = { width: imageWidth, height: imageHeight };
+    }
+   
+} catch (error) {
+    console.log('⚠️ Не удалось проанализировать часть следа:', error.message);
+}
+          
         // Проверка сравнения с эталоном
         if (session.waitingForComparison) {
             const comparisonData = session.waitingForComparison;
