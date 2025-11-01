@@ -248,21 +248,22 @@ class TrailSession {
         return groups;
     }
 
-    analyzeFootprintParts(imageWidth, imageHeight) {
-        console.log(`🕵️‍♂️ Анализирую части следов для ${this.footprints.length} отпечатков...`);
-       
-        const assembler = new FootprintAssembler();
-       
-        this.footprints.forEach(footprint => {
-            const patternType = assembler.classifyFootprintPattern(footprint.predictions, imageWidth, imageHeight);
-footprint.partType = patternType; // ← Оставляем partType для обратной совместимости
-footprint.patternType = patternType; // ← Добавляем новое поле
-            footprint.assemblyPotential = this.calculateAssemblyPotential(footprint);
-            console.log(`📋 Отпечаток ${footprint.id}: ${partType} (потенциал: ${footprint.assemblyPotential})`);
-        });
-       
-        this.updateCompatibilityGroups();
-    }
+        analyzeFootprintParts(imageWidth, imageHeight) {
+        console.log(`🕵️‍♂️ Анализирую узоры протектора для ${this.footprints.length} отпечатков...`);
+       
+        const assembler = new FootprintAssembler();
+       
+        this.footprints.forEach(footprint => {
+            const patternType = assembler.classifyFootprintPattern(footprint.predictions, imageWidth, imageHeight);
+            footprint.patternType = patternType;  // ← ИСПОЛЬЗУЕМ patternType
+            footprint.partType = patternType;     // ← ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
+            footprint.assemblyPotential = this.calculateAssemblyPotential(footprint);
+            console.log(`📋 Отпечаток ${footprint.id}: ${patternType} (потенциал: ${footprint.assemblyPotential})`);
+        });
+       
+        this.updateCompatibilityGroups();
+    }
+
 
     calculateAssemblyPotential(footprint) {
         if (!footprint.features) return 0;
@@ -320,16 +321,22 @@ footprint.patternType = patternType; // ← Добавляем новое пол
         return result;
     }
 
-    getPartsStatistics() {
-        const parts = { full: 0, heel: 0, toe: 0, center: 0, unknown: 0 };
-       
-        this.footprints.forEach(footprint => {
-            const partType = footprint.partType || 'unknown';
-            parts[partType] = (parts[partType] || 0) + 1;
-        });
-       
-        return parts;
-    }
+       getPartsStatistics() {
+        const parts = { 
+            left_small: 0, left_medium: 0, left_large: 0,
+            right_small: 0, right_medium: 0, right_large: 0,
+            center_small: 0, center_medium: 0, center_large: 0,
+            unknown: 0 
+        };
+       
+        this.footprints.forEach(footprint => {
+            const patternType = footprint.patternType || 'unknown';
+            parts[patternType] = (parts[patternType] || 0) + 1;
+        });
+       
+        return parts;
+    }
+
 
     generateEnhancedReport() {
         const summary = this.getSessionSummary();
@@ -341,13 +348,13 @@ footprint.patternType = patternType; // ← Добавляем новое пол
         report += `**Статус:** ${this.status === 'active' ? '🟢 АКТИВНА' : '🔴 ЗАВЕРШЕНА'}\n`;
         report += `**Продолжительность:** ${Math.round(summary.duration / 60000)} мин.\n\n`;
        
-        report += `📊 **СТАТИСТИКА ОТПЕЧАТКОВ:**\n`;
-        report += `• Всего: ${summary.footprintsCount}\n`;
-        report += `• Полные: ${partsStats.full}\n`;
-        report += `• Пятки: ${partsStats.heel}\n`;
-        report += `• Мыски: ${partsStats.toe}\n`;
-        report += `• Центры: ${partsStats.center}\n`;
-        report += `• Неизвестные: ${partsStats.unknown}\n\n`;
+               report += `📊 **СТАТИСТИКА УЗОРОВ:**\n`;
+        report += `• Всего: ${summary.footprintsCount}\n`;
+        report += `• Левые: ${partsStats.left_small + partsStats.left_medium + partsStats.left_large}\n`;
+        report += `• Правые: ${partsStats.right_small + partsStats.right_medium + partsStats.right_large}\n`;
+        report += `• Центральные: ${partsStats.center_small + partsStats.center_medium + partsStats.center_large}\n`;
+        report += `• Неизвестные: ${partsStats.unknown}\n\n`;
+
        
         report += `🔍 **СРАВНЕНИЯ:**\n`;
         report += `• Выполнено: ${summary.comparisonsCount}\n`;
