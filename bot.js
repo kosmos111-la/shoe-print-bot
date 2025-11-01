@@ -384,16 +384,6 @@ class FootprintAssembler {
     }
 
     /**
-     * Классифицирует часть следа по геометрии
-     */
-    classifyFootprintPart(predictions, imageWidth, imageHeight) {
-        // СТАРЫЙ КОД - УДАЛИТЬ ВСЁ ЭТО
-```
-
-ДЕЙСТВИЕ: УДАЛИТЬ весь старый метод classifyFootprintPart и ВСТАВИТЬ вместо него:
-
-```javascript
-    /**
      * Классифицирует фрагменты протектора по типу узора и определяет левый/правый
      */
     classifyFootprintPattern(predictions, imageWidth, imageHeight) {
