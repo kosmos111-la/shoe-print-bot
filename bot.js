@@ -383,13 +383,17 @@ class FootprintAssembler {
         this.assembledModels = new Map();
     }
 
-    /**
-     * Классифицирует часть следа по геометрии
+/**
+     * Классифицирует часть следа по геометрии (УЛУЧШЕННАЯ ВЕРСИЯ)
      */
     classifyFootprintPart(predictions, imageWidth, imageHeight) {
         if (!predictions || predictions.length === 0) return 'unknown';
        
         const bbox = this.calculateOverallBoundingBox(predictions);
+       
+        // ЕСЛИ СЛИШКОМ МАЛЕНЬКИЙ - НЕ КЛАССИФИЦИРУЕМ
+        if (bbox.width < 50 || bbox.height < 50) return 'unknown';
+       
         const aspectRatio = bbox.width / bbox.height;
         const centerX = bbox.minX + bbox.width / 2;
         const centerY = bbox.minY + bbox.height / 2;
@@ -397,12 +401,16 @@ class FootprintAssembler {
         const positionX = centerX / imageWidth;
         const positionY = centerY / imageHeight;
        
-        // Определяем тип части по положению и пропорциям
-        if (aspectRatio > 2.2) return 'full';
-        if (positionY < 0.4 && aspectRatio < 1.3) return 'heel';     // Верхняя часть
-        if (positionY > 0.6 && aspectRatio < 1.3) return 'toe';      // Нижняя часть
-        if (aspectRatio > 1.4 && aspectRatio < 2.2) return 'center'; // Центральная часть
+        // УЛУЧШЕННАЯ КЛАССИФИКАЦИЯ
+        if (aspectRatio > 2.2 && bbox.width > imageWidth * 0.6) return 'full';
+        if (positionY < 0.3 && aspectRatio < 1.2) return 'heel';     // Верхняя часть
+        if (positionY > 0.7 && aspectRatio < 1.2) return 'toe';      // Нижняя часть 
+        if (aspectRatio > 1.5 && aspectRatio < 2.2) return 'center'; // Центральная часть
         if (bbox.width > imageWidth * 0.7) return 'full';            // Занимает большую часть кадра
+       
+        // ДОПОЛНИТЕЛЬНЫЕ ПРОВЕРКИ
+        const areaRatio = (bbox.width * bbox.height) / (imageWidth * imageHeight);
+        if (areaRatio > 0.6) return 'full';
        
         return 'unknown';
     }
@@ -2967,6 +2975,48 @@ bot.onText(/\/debug_reset/, async (msg) => {
     );
 });
 
+// 🔧 КОМАНДА ДЛЯ ТЕСТИРОВАНИЯ ГЕОМЕТРИЧЕСКОЙ НОРМАЛИЗАЦИИ
+bot.onText(/\/test_geometry/, async (msg) => {
+    const chatId = msg.chat.id;
+    const session = trailSessions.get(chatId);
+   
+    if (!session || session.footprints.length === 0) {
+        await bot.sendMessage(chatId, '❌ Нет отпечатков для тестирования геометрии');
+        return;
+    }
+   
+    let message = `📐 **ТЕСТ ГЕОМЕТРИЧЕСКОЙ НОРМАЛИЗАЦИИ**\n\n`;
+   
+    session.footprints.forEach((footprint, index) => {
+        const bbox = footprintAssembler.calculateOverallBoundingBox(footprint.predictions);
+        const aspectRatio = bbox.width / bbox.height;
+        const area = bbox.width * bbox.height;
+       
+        message += `📸 **Отпечаток ${index + 1}:**\n`;
+        message += `• Размер: ${bbox.width.toFixed(0)}x${bbox.height.toFixed(0)}px\n`;
+        message += `• Соотношение: ${aspectRatio.toFixed(2)}\n`;
+        message += `• Площадь: ${area.toFixed(0)}px²\n`;
+        message += `• Тип: ${footprint.partType || 'неизвестно'}\n\n`;
+    });
+   
+    // ПРОВЕРЯЕМ ГЕОМЕТРИЧЕСКУЮ СОВМЕСТИМОСТЬ
+    if (session.footprints.length >= 2) {
+        message += `🔍 **ГЕОМЕТРИЧЕСКОЕ СРАВНЕНИЕ:**\n`;
+       
+        for (let i = 0; i < session.footprints.length; i++) {
+            for (let j = i + 1; j < session.footprints.length; j++) {
+                const score = footprintAssembler.calculateGeometricSimilarity(
+                    [session.footprints[i]],
+                    session.footprints[j]
+                );
+                message += `• #${i+1} vs #${j+1}: ${score.toFixed(2)}\n`;
+            }
+        }
+    }
+   
+    await bot.sendMessage(chatId, message);
+});
+
 // =============================================================================
 // 📸 ОБРАБОТКА ФОТО
 // =============================================================================
@@ -3002,8 +3052,15 @@ bot.on('photo', async (msg) => {
 
             const predictions = response.data.predictions || [];
 const processedPredictions = smartPostProcessing(predictions);
-const finalPredictions = processedPredictions.length > 0 ? processedPredictions : predictions;
 
+// 🔄 ДОБАВЛЯЕМ ГЕОМЕТРИЧЕСКУЮ НОРМАЛИЗАЦИЮ
+const normalizedPredictions = footprintAssembler.normalizeFootprintGeometry(
+    processedPredictions,
+    imageWidth,
+    imageHeight
+);
+
+const finalPredictions = normalizedPredictions.length > 0 ? normalizedPredictions : processedPredictions;
 // 🔄 ДОБАВЛЯЕМ АНАЛИЗ ПЕРСПЕКТИВЫ ПРЯМО ЗДЕСЬ:
 let perspectiveAnalysis = { hasPerspectiveIssues: false, issues: [], recommendations: [] };
 try {
