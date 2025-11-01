@@ -3548,11 +3548,6 @@ let footprintFeatures = extractFeatures(finalPredictions);
 footprintFeatures.patternType = patternType;
 console.log('✅ Footprint features с узором:', footprintFeatures);
 
-     
-// В обработчике bot.on('photo') - находим блок после perspectiveAnalysis:
-
-// 🔧 ИСПРАВЛЕНИЕ: Создаем footprintFeatures если не существует
-let footprintFeatures = extractFeatures(finalPredictions);    
 
 // 🔧 ГАРАНТИРУЕМ, ЧТО footprintFeatures СУЩЕСТВУЕТ
    if (!footprintFeatures) {
