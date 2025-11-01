@@ -381,7 +381,7 @@ app.get('/health', (req, res) => {
 
 function smartPostProcessing(predictions) {
     if (!predictions || predictions.length === 0) return [];
-    console.log(`🔧 Умная постобработка: ${predictions.length} объектов`);
+   // console.log(`🔧 Умная постобработка: ${predictions.length} объектов`);
    
     // ❌ УБИРАЕМ нормализацию ориентации из постобработки
     // const normalizedPredictions = normalizeOrientation(predictions); // УДАЛИТЬ ЭТУ СТРОКУ
@@ -404,9 +404,9 @@ function smartPostProcessing(predictions) {
 
     // 📊 АНАЛИЗИРУЕМ ОРИЕНТАЦИЮ ДЛЯ ОТЧЕТА (но не меняем координаты)
     const orientationType = analyzeOrientationType(optimized);
-    console.log(`🧭 Тип ориентации: ${orientationType}`);
+   // console.log(`🧭 Тип ориентации: ${orientationType}`);
    
-    console.log(`✅ После постобработки: ${optimized.length} объектов`);
+   // console.log(`✅ После постобработки: ${optimized.length} объектов`);
     return optimized;
 }
 
