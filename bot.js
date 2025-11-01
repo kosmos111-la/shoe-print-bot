@@ -103,7 +103,7 @@ const trailSessions = new Map();
 
 // 🕵️‍♂️ СИСТЕМА СЕССИЙ ТРОПЫ - ОБНОВЛЕННАЯ ВЕРСИЯ
 
-cclass TrailSession {
+class TrailSession {
     constructor(chatId, username) {
         this.chatId = chatId;
         this.expert = username;
