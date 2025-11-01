@@ -532,6 +532,247 @@ function getTrailSession(chatId, username) {
     return existingSession;
 }
 
+// =============================================================================
+// 🎨 ДЕТАЛЬНАЯ ВИЗУАЛИЗАЦИЯ СРАВНЕНИЙ
+// =============================================================================
+
+class ComparisonVisualizer {
+    constructor() {
+        this.colors = {
+            match: 'rgba(0, 255, 0, 0.6)',      // Зеленый - совпадения
+            difference: 'rgba(255, 0, 0, 0.6)', // Красный - различия 
+            missing: 'rgba(255, 255, 0, 0.6)',  // Желтый - отсутствующие
+            partial: 'rgba(255, 165, 0, 0.6)',  // Оранжевый - частичные
+            outline: 'rgba(0, 0, 255, 0.8)'     // Синий - контур
+        };
+    }
+
+    /**
+     * Создает визуализацию сравнения двух отпечатков
+     */
+    async createComparisonVisualization(footprintA, footprintB, imageUrl) {
+        try {
+            console.log('🎨 Создаю визуализацию сравнения...');
+           
+            const image = await loadImage(imageUrl);
+            const canvas = createCanvas(image.width, image.height);
+            const ctx = canvas.getContext('2d');
+           
+            // Рисуем исходное изображение с полупрозрачностью
+            ctx.globalAlpha = 0.3;
+            ctx.drawImage(image, 0, 0);
+            ctx.globalAlpha = 1.0;
+           
+            // Анализируем различия
+            const analysis = this.analyzeDifferences(footprintA, footprintB);
+           
+            // Рисуем совпадения (зеленый)
+            this.drawPredictions(ctx, analysis.matches, this.colors.match, 'Совпадения');
+           
+            // Рисуем различия (красный)
+            this.drawPredictions(ctx, analysis.differences, this.colors.difference, 'Различия');
+           
+            // Рисуем отсутствующие (желтый)
+            this.drawPredictions(ctx, analysis.missingA, this.colors.missing, 'Отсутствует в A');
+            this.drawPredictions(ctx, analysis.missingB, this.colors.missing, 'Отсутствует в B');
+           
+            // Добавляем легенду
+            this.drawLegend(ctx, image.width, image.height);
+           
+            // Добавляем информацию о сравнении
+            this.drawComparisonInfo(ctx, analysis, image.width, image.height);
+           
+            const tempPath = `comparison_${Date.now()}.png`;
+            const buffer = canvas.toBuffer('image/png');
+            fs.writeFileSync(tempPath, buffer);
+           
+            console.log('✅ Визуализация сравнения создана');
+            return tempPath;
+           
+        } catch (error) {
+            console.error('❌ Ошибка создания визуализации сравнения:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Анализирует различия между двумя отпечатками
+     */
+    analyzeDifferences(footprintA, footprintB) {
+        const predsA = footprintA.predictions || [];
+        const predsB = footprintB.predictions || [];
+       
+        // Находим совпадения (похожие классы в близких позициях)
+        const matches = [];
+        const differences = [];
+        const missingA = [];
+        const missingB = [];
+       
+        // Простой алгоритм сравнения по классам и позициям
+        predsA.forEach(predA => {
+            const similarInB = predsB.find(predB =>
+                predB.class === predA.class &&
+                this.calculateIOU(predA, predB) > 0.3
+            );
+           
+            if (similarInB) {
+                matches.push(predA);
+            } else {
+                differences.push(predA);
+            }
+        });
+       
+        // Находим элементы, отсутствующие в A
+        predsB.forEach(predB => {
+            const similarInA = predsA.find(predA =>
+                predA.class === predB.class &&
+                this.calculateIOU(predA, predB) > 0.3
+            );
+           
+            if (!similarInA) {
+                missingB.push(predB); // Отсутствует в A (но есть в B)
+            }
+        });
+       
+        return {
+            matches,
+            differences,
+            missingA: [], // Можно реализовать более сложную логику
+            missingB,
+            similarity: this.calculateOverallSimilarity(footprintA, footprintB)
+        };
+    }
+
+    /**
+     * Вычисляет Intersection over Union для двух предсказаний
+     */
+    calculateIOU(predA, predB) {
+        if (!predA.points || !predB.points) return 0;
+       
+        const bboxA = this.calculateBoundingBox(predA.points);
+        const bboxB = this.calculateBoundingBox(predB.points);
+       
+        const intersection = this.calculateIntersection(bboxA, bboxB);
+        const union = (bboxA.width * bboxA.height) + (bboxB.width * bboxB.height) - intersection;
+       
+        return union > 0 ? intersection / union : 0;
+    }
+
+    /**
+     * Вычисляет площадь пересечения
+     */
+    calculateIntersection(bboxA, bboxB) {
+        const xOverlap = Math.max(0, Math.min(bboxA.maxX, bboxB.maxX) - Math.max(bboxA.minX, bboxB.minX));
+        const yOverlap = Math.max(0, Math.min(bboxA.maxY, bboxB.maxY) - Math.max(bboxA.minY, bboxB.minY));
+        return xOverlap * yOverlap;
+    }
+
+    /**
+     * Вычисляет общую схожесть
+     */
+    calculateOverallSimilarity(footprintA, footprintB) {
+        const assembler = new FootprintAssembler();
+        return assembler.calculateSimilarity(footprintA.features, footprintB.features) * 100;
+    }
+
+    /**
+     * Рисует предсказания на canvas
+     */
+    drawPredictions(ctx, predictions, color, label) {
+        if (!predictions || predictions.length === 0) return;
+       
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([]);
+       
+        predictions.forEach(pred => {
+            if (pred.points && pred.points.length > 2) {
+                ctx.beginPath();
+                ctx.moveTo(pred.points[0].x, pred.points[0].y);
+               
+                for (let i = 1; i < pred.points.length; i++) {
+                    ctx.lineTo(pred.points[i].x, pred.points[i].y);
+                }
+               
+                ctx.closePath();
+                ctx.stroke();
+               
+                // Подпись для крупных элементов
+                if (pred.points.length > 4) {
+                    const bbox = this.calculateBoundingBox(pred.points);
+                    if (bbox.width > 50 && bbox.height > 50) {
+                        ctx.fillStyle = color;
+                        ctx.font = '12px Arial';
+                        ctx.fillText(pred.class || 'unknown', bbox.minX, bbox.minY - 5);
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Рисует легенду
+     */
+    drawLegend(ctx, width, height) {
+        const legendX = width - 200;
+        const legendY = 20;
+        const itemHeight = 25;
+       
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(legendX - 10, legendY - 10, 190, 130);
+       
+        const items = [
+            { color: this.colors.match, text: '✅ Совпадения' },
+            { color: this.colors.difference, text: '❌ Различия' },
+            { color: this.colors.missing, text: '⚠️ Отсутствующие' },
+            { color: this.colors.partial, text: '🔄 Частичные' }
+        ];
+       
+        items.forEach((item, index) => {
+            ctx.fillStyle = item.color;
+            ctx.fillRect(legendX, legendY + index * itemHeight, 20, 15);
+           
+            ctx.fillStyle = 'white';
+            ctx.font = '14px Arial';
+            ctx.fillText(item.text, legendX + 30, legendY + 12 + index * itemHeight);
+        });
+    }
+
+    /**
+     * Рисует информацию о сравнении
+     */
+    drawComparisonInfo(ctx, analysis, width, height) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(10, height - 120, 300, 110);
+       
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText('📊 РЕЗУЛЬТАТЫ СРАВНЕНИЯ', 20, height - 95);
+       
+        ctx.font = '14px Arial';
+        ctx.fillText(`🎯 Общее сходство: ${analysis.similarity.toFixed(1)}%`, 20, height - 70);
+        ctx.fillText(`✅ Совпадений: ${analysis.matches.length}`, 20, height - 50);
+        ctx.fillText(`❌ Различий: ${analysis.differences.length}`, 20, height - 30);
+        ctx.fillText(`⚠️ Отсутствующих: ${analysis.missingB.length}`, 20, height - 10);
+    }
+
+    /**
+     * Вспомогательная функция для bounding box
+     */
+    calculateBoundingBox(points) {
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+        return {
+            minX: Math.min(...xs),
+            maxX: Math.max(...xs),
+            minY: Math.min(...ys),
+            maxY: Math.max(...ys),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys)
+        };
+    }
+}
+
 // 📍 ОБНОВЛЯЕМ ФУНКЦИЮ updateUserStats - находим ее и изменяем:
 
 function updateUserStats(userId, username, action = 'photo') {
