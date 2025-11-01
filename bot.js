@@ -2285,6 +2285,8 @@ bot.onText(/\/cancel/, async (msg) => {
     await bot.sendMessage(chatId, '❌ Операция отменена');
 });
 
+
+
 // =============================================================================
 // 🕵️‍♂️ КОМАНДЫ РЕЖИМА ТРОПЫ
 // =============================================================================
@@ -2422,6 +2424,251 @@ bot.onText(/\/trail_finish/, async (msg) => {
         `📁 Все данные сохранены до перезапуска бота.\n` +
         `🔄 Для новой сессии используйте /trail_start`
     );
+});
+
+// =============================================================================
+// 🎯 НОВЫЕ КОМАНДЫ ДЛЯ СБОРКИ МОДЕЛЕЙ И СРАВНЕНИЙ
+// =============================================================================
+
+// 🔍 КОМАНДА ДЕТАЛЬНОГО СРАВНЕНИЯ
+bot.onText(/\/compare_footprints (\d+) (\d+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const footprintIdA = parseInt(match[1]);
+    const footprintIdB = parseInt(match[2]);
+   
+    console.log(`🔍 Запрос сравнения: ${footprintIdA} vs ${footprintIdB}`);
+   
+    const session = trailSessions.get(chatId);
+    if (!session) {
+        await bot.sendMessage(chatId,
+            '❌ Активная сессия не найдена.\n' +
+            'Используйте /trail_start для начала работы.'
+        );
+        return;
+    }
+   
+    const footprintA = session.footprints.find(f => f.id === `footprint_${footprintIdA}`);
+    const footprintB = session.footprints.find(f => f.id === `footprint_${footprintIdB}`);
+   
+    if (!footprintA || !footprintB) {
+        await bot.sendMessage(chatId,
+            '❌ Один или оба отпечатка не найдены.\n\n' +
+            '📋 Доступные отпечатки:\n' +
+            session.footprints.map(f => `• ${f.id.replace('footprint_', '')}: ${f.partType || 'неизвестно'}`).join('\n')
+        );
+        return;
+    }
+   
+    await bot.sendMessage(chatId, '🎨 Создаю детальную визуализацию сравнения...');
+   
+    const visualizer = new ComparisonVisualizer();
+    const vizPath = await visualizer.createComparisonVisualization(
+        footprintA,
+        footprintB,
+        footprintA.imageUrl
+    );
+   
+    if (vizPath) {
+        const similarity = visualizer.calculateOverallSimilarity(footprintA, footprintB);
+       
+        await bot.sendPhoto(chatId, vizPath, {
+            caption: `🔍 **ДЕТАЛЬНОЕ СРАВНЕНИЕ**\n\n` +
+                    `🆔 Отпечатки: #${footprintIdA} vs #${footprintIdB}\n` +
+                    `🎯 Общее сходство: ${similarity.toFixed(1)}%\n` +
+                    `📊 Типы: ${footprintA.partType || 'неизв.'} vs ${footprintB.partType || 'неизв.'}\n\n` +
+                    `💡 *Зеленый = совпадения, Красный = различия, Желтый = отсутствующие*`
+        });
+       
+        // Удаляем временный файл
+        fs.unlinkSync(vizPath);
+    } else {
+        await bot.sendMessage(chatId, '❌ Не удалось создать визуализацию сравнения');
+    }
+});
+
+// 🧩 КОМАНДА СБОРКИ МОДЕЛИ
+bot.onText(/\/assemble_model/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    console.log(`🧩 Запрос сборки модели для чата ${chatId}`);
+   
+    const session = trailSessions.get(chatId);
+    if (!session || session.footprints.length < 2) {
+        await bot.sendMessage(chatId,
+            '❌ Недостаточно отпечатков для сборки модели.\n\n' +
+            'Требуется минимум 2 отпечатка.\n' +
+            `Сейчас в сессии: ${session ? session.footprints.length : 0} отпечатков`
+        );
+        return;
+    }
+   
+    await bot.sendMessage(chatId,
+        '🧩 Начинаю сборку полной модели из доступных частей...\n' +
+        '📊 Анализирую геометрию и совместимость...'
+    );
+   
+    // Получаем размер изображения для анализа
+    let imageWidth = 800, imageHeight = 600; // значения по умолчанию
+    try {
+        const firstFootprint = session.footprints[0];
+        const image = await loadImage(firstFootprint.imageUrl);
+        imageWidth = image.width;
+        imageHeight = image.height;
+    } catch (error) {
+        console.log('⚠️ Не удалось получить размер изображения, использую значения по умолчанию');
+    }
+   
+    const result = session.assembleModelFromParts(imageWidth, imageHeight);
+   
+    if (result.success) {
+        const partsStats = session.getPartsStatistics();
+       
+        let message = `🧩 **МОДЕЛЬ УСПЕШНО СОБРАНА!**\n\n`;
+        message += `📊 **Использовано отпечатков:** ${result.usedPrints.length}\n`;
+        message += `🎯 **Полнота модели:** ${result.completeness}%\n`;
+        message += `✅ **Уверенность:** ${result.confidence}%\n\n`;
+       
+        message += `📋 **Статистика частей:**\n`;
+        message += `• Полные: ${partsStats.full}\n`;
+        message += `• Пятки: ${partsStats.heel}\n`;
+        message += `• Мыски: ${partsStats.toe}\n`;
+        message += `• Центры: ${partsStats.center}\n\n`;
+       
+        message += `💾 **Сохранить как эталон:**\n`;
+        message += '`/save_assembled "Название_Модели"`\n\n';
+       
+        message += `🔍 **Просмотреть группы:** /show_groups`;
+       
+        await bot.sendMessage(chatId, message);
+    } else {
+        await bot.sendMessage(chatId,
+            `❌ **Сборка модели не удалась**\n\n` +
+            `Причина: ${result.error}\n\n` +
+            `💡 **Рекомендации:**\n` +
+            `• Добавьте больше отпечатков\n` +
+            `• Убедитесь в схожести следов\n` +
+            `• Используйте /compare_footprints для проверки совместимости`
+        );
+    }
+});
+
+// 💾 КОМАНДА СОХРАНЕНИЯ СОБРАННОЙ МОДЕЛИ
+bot.onText(/\/save_assembled (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const modelName = match[1].trim();
+   
+    console.log(`💾 Запрос сохранения собранной модели: "${modelName}"`);
+   
+    const session = trailSessions.get(chatId);
+    if (!session || session.assembledModels.length === 0) {
+        await bot.sendMessage(chatId,
+            '❌ Нет собранных моделей для сохранения.\n' +
+            'Сначала используйте /assemble_model'
+        );
+        return;
+    }
+   
+    // Берем последнюю собранную модель
+    const lastModel = session.assembledModels[session.assembledModels.length - 1];
+   
+    // Сохраняем как эталон
+    referencePrints.set(modelName, {
+        features: lastModel.model.features,
+        imageUrl: lastModel.model.sourcePrints[0] ?
+            session.footprints.find(f => f.id === lastModel.model.sourcePrints[0])?.imageUrl : '',
+        timestamp: new Date(),
+        predictions: lastModel.model.predictions,
+        isAssembled: true,
+        sourcePrints: lastModel.model.sourcePrints,
+        completeness: lastModel.completeness,
+        confidence: lastModel.confidence
+    });
+   
+    await bot.sendMessage(chatId,
+        `✅ **СОБРАННАЯ МОДЕЛЬ СОХРАНЕНА**\n\n` +
+        `🏷️ **Название:** "${modelName}"\n` +
+        `📊 **Источник:** ${lastModel.model.sourcePrints.length} отпечатков\n` +
+        `🎯 **Полнота:** ${lastModel.completeness}%\n` +
+        `✅ **Уверенность:** ${lastModel.confidence}%\n\n` +
+        `💡 Используйте: \`/compare ${modelName}\` для сравнения`
+    );
+   
+    // Автосохранение данных
+    const dataManager = new DataPersistence();
+    await dataManager.saveAllData();
+});
+
+// 📊 КОМАНДА ПОКАЗА ГРУПП СОВМЕСТИМОСТИ
+bot.onText(/\/show_groups/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    const session = trailSessions.get(chatId);
+    if (!session) {
+        await bot.sendMessage(chatId, '❌ Активная сессия не найдена');
+        return;
+    }
+   
+    session.updateCompatibilityGroups();
+   
+    if (session.compatibilityGroups.length === 0) {
+        await bot.sendMessage(chatId,
+            '❌ Группы совместимости не найдены.\n' +
+            'Добавьте больше отпечатков для анализа.'
+        );
+        return;
+    }
+   
+    let message = `📊 **ГРУППЫ СОВМЕСТИМОСТИ**\n\n`;
+    message += `Обнаружено групп: ${session.compatibilityGroups.length}\n\n`;
+   
+    session.compatibilityGroups.forEach((group, index) => {
+        message += `**Группа ${index + 1}** (${group.length} отпечатков):\n`;
+       
+        group.forEach(footprint => {
+            const partType = footprint.partType || 'неизвестно';
+            const footprintId = footprint.id.replace('footprint_', '');
+            message += `• #${footprintId} - ${partType} (${footprint.assemblyPotential}% потенциал)\n`;
+        });
+       
+        message += '\n';
+    });
+   
+    message += `💡 **Для сборки модели используйте:** /assemble_model`;
+   
+    await bot.sendMessage(chatId, message);
+});
+
+// 💾 КОМАНДА РУЧНОГО СОХРАНЕНИЯ
+bot.onText(/\/save_data/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    await bot.sendMessage(chatId, '💾 Сохраняю все данные...');
+   
+    const dataManager = new DataPersistence();
+    await dataManager.saveAllData();
+   
+    await bot.sendMessage(chatId,
+        '✅ **Все данные сохранены!**\n\n' +
+        '📊 Сохранено:\n' +
+        `• Сессии: ${trailSessions.size}\n` +
+        `• Эталоны: ${referencePrints.size}\n` +
+        `• Пользователи: ${userStats.size}\n\n` +
+        '💡 Данные будут восстановлены после перезапуска'
+    );
+});
+
+// 📈 КОМАНДА РАСШИРЕННОЙ СТАТИСТИКИ
+bot.onText(/\/detailed_stats/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    const session = trailSessions.get(chatId);
+    if (!session) {
+        await bot.sendMessage(chatId, '❌ Активная сессия не найдена');
+        return;
+    }
+   
+    const report = session.generateEnhancedReport();
+    await bot.sendMessage(chatId, report);
 });
 
 // =============================================================================
