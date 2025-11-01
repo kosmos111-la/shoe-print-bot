@@ -262,9 +262,9 @@ function getTrailSession(chatId, username) {
     console.log(`🔍 Поиск сессии для chatId: ${chatId}`);
    
     if (!trailSessions.has(chatId)) {
-        console.log(`🕵️‍♂️ Создаю новую сессию для ${username}`);
-        const newSession = new trailSessions(chatId, username);
-        expertSessions.set(chatId, newSession);
+        console.log(`🌿 Создаю новую сессию для ${username}`);
+        const newSession = new TrailSession(chatId, username);
+        trailSessions.set(chatId, newSession);
         console.log(`✅ Сессия создана: ${newSession.sessionId}`);
         return newSession;
     }
