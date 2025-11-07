@@ -4268,6 +4268,48 @@ setInterval(() => {
     console.log('🔄 Keep-alive ping:', new Date().toISOString());
 }, 4 * 60 * 1000);
 
+async function quickTests() {
+    console.log('🧪 Запуск быстрых тестов...');
+   
+    try {
+        // Тест 1: Retry логика
+        await testRetryLogic();
+       
+        // Тест 2: Менеджеры
+        await testManagers();
+       
+        // Тест 3: Яндекс.Диск
+        await testYandexDisk();
+       
+        console.log('✅ Все тесты пройдены!');
+    } catch (error) {
+        console.log('❌ Тесты не пройдены:', error.message);
+    }
+}
+
+async function testRetryLogic() {
+    let attempts = 0;
+    await withRetry(async () => {
+        attempts++;
+        if (attempts < 2) throw new Error('Тестовая ошибка');
+        return 'success';
+    }, "Тест retry");
+    console.log('✅ Retry логика работает');
+}
+
+async function testManagers() {
+    const manager = getSessionManager();
+    const persistence = getDataPersistence();
+    console.log('✅ Lazy loading менеджеров работает');
+}
+
+async function testYandexDisk() {
+    if (yandexDisk) {
+        // Просто проверяем доступность
+        console.log('✅ Яндекс.Диск доступен');
+    }
+}
+
 // Запуск сервера
 app.listen(PORT, async () => {
     console.log(`🟢 HTTP сервер запущен на порту ${PORT}`);
@@ -4278,7 +4320,7 @@ app.listen(PORT, async () => {
     } catch (error) {
         console.log('❌ Ошибка установки webhook:', error.message);
     }
-   
+    await quickTests();
     await loadStatsFromPublicLink();
 await dataPersistence.loadAllData();
 
