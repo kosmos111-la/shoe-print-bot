@@ -4157,6 +4157,12 @@ async function gracefulShutdown() {
     process.exit(0);
 }
 
+// 🔧 ЭКСПОРТЫ ДЛЯ МОДУЛЕЙ
+module.exports = {
+    getWorkingSessionManager,
+    getFootprintAssembler
+};
+
 // Обработчики сигналов завершения
 process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
