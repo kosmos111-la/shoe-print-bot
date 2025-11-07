@@ -21,6 +21,10 @@ class PhotoHandler {
         this.TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
     }
 
+    // =============================================================================
+    // 📸 ОСНОВНЫЕ ОБРАБОТЧИКИ
+    // =============================================================================
+
     /**
      * 📸 ОСНОВНОЙ ОБРАБОТЧИК ФОТО
      */
@@ -541,8 +545,365 @@ class PhotoHandler {
     }
 
     // =============================================================================
-    // 🛠️ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    // 🛠️ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (КОТОРЫЕ Я УДАЛИЛ - ВОЗВРАЩАЮ!)
     // =============================================================================
+
+    /**
+     * 📏 ВЫЧИСЛЕНИЕ BOUNDING BOX
+     */
+    calculateBoundingBox(points) {
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+        return {
+            minX: Math.min(...xs),
+            maxX: Math.max(...xs),
+            minY: Math.min(...ys),
+            maxY: Math.max(...ys),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys)
+        };
+    }
+
+    /**
+     * 🔷 УПРОЩЕНИЕ ПОЛИГОНА
+     */
+    simplifyPolygon(points, epsilon = 2.0) {
+        try {
+            if (!points || points.length <= 4) {
+                return points;
+            }
+
+            console.log(`🔄 Упрощение полигона: ${points.length} точек -> ${points.length} точек (отключено)`);
+            return points;
+
+        } catch (error) {
+            console.log('❌ Ошибка упрощения полигона, возвращаем исходные точки:', error.message);
+            return points;
+        }
+    }
+
+    /**
+     * 🎯 ПОЛУЧЕНИЕ EPSILON ДЛЯ КЛАССА
+     */
+    getEpsilonForClass(className) {
+        switch(className) {
+            case 'shoe-protector': return 1.5;
+            case 'Outline-trail': return 0.8;
+            case 'Heel': return 1.0;
+            case 'Toe': return 1.0;
+            default: return 1.2;
+        }
+    }
+
+    /**
+     * 🧭 ВЫЧИСЛЕНИЕ УГЛА ОРИЕНТАЦИИ
+     */
+    calculateOrientationAngle(points) {
+        console.log('🧭 Вычисляю угол ориентации следа...');
+
+        if (!points || points.length < 3) {
+            console.log('⚠️ Недостаточно точек для вычисления ориентации');
+            return 0;
+        }
+
+        try {
+            // 1. ВЫЧИСЛЯЕМ ЦЕНТР МАСС
+            const center = points.reduce((acc, point) => {
+                acc.x += point.x;
+                acc.y += point.y;
+                return acc;
+            }, { x: 0, y: 0 });
+
+            center.x /= points.length;
+            center.y /= points.length;
+
+            // 2. ВЫЧИСЛЯЕМ УГОЛ ЧЕРЕЗ МЕТОД ГЛАВНЫХ КОМПОНЕНТ
+            let xx = 0, yy = 0, xy = 0;
+
+            points.forEach(point => {
+                const dx = point.x - center.x;
+                const dy = point.y - center.y;
+                xx += dx * dx;
+                yy += dy * dy;
+                xy += dx * dy;
+            });
+
+            // 3. ВЫЧИСЛЯЕМ УГОЛ НАКЛОНА
+            const angle = 0.5 * Math.atan2(2 * xy, xx - yy);
+            const degrees = angle * (180 / Math.PI);
+
+            console.log(`📐 Вычисленный угол поворота: ${degrees.toFixed(2)}°`);
+            return degrees;
+
+        } catch (error) {
+            console.log('❌ Ошибка вычисления ориентации:', error.message);
+            return 0;
+        }
+    }
+
+    /**
+     * 🧭 АНАЛИЗ ТИПА ОРИЕНТАЦИИ
+     */
+    analyzeOrientationType(predictions) {
+        if (!predictions || predictions.length === 0) {
+            return 'unknown';
+        }
+
+        try {
+            const outline = predictions.find(pred =>
+                pred.class === 'Outline-trail' || pred.class.includes('Outline')
+            );
+
+            if (!outline) return 'unknown';
+
+            const angle = this.calculateOrientationAngle(outline.points);
+
+            if (Math.abs(angle) < 8) return 'aligned';
+            if (angle > 8 && angle <= 45) return 'rotated_clockwise';
+            if (angle < -8 && angle >= -45) return 'rotated_counterclockwise';
+            if (Math.abs(angle) > 45) return 'strongly_rotated';
+
+            return 'aligned';
+
+        } catch (error) {
+            return 'unknown';
+        }
+    }
+
+    /**
+     * 🕵️♂️ СОЗДАНИЕ СКЕЛЕТНОЙ ВИЗУАЛИЗАЦИИ
+     */
+    async createSkeletonVisualization(imageUrl, predictions, userData) {
+        try {
+            console.log('🕵️♂️ Создаю карту морфологических признаков...');
+
+            const image = await loadImage(imageUrl);
+            const canvas = createCanvas(image.width, image.height);
+            const ctx = canvas.getContext('2d');
+
+            ctx.drawImage(image, 0, 0);
+
+            // ФИЛЬТРУЕМ: ТОЛЬКО ДЕТАЛИ ПРОТЕКТОРА
+            const details = predictions.filter(pred =>
+                pred.class === 'shoe-protector'
+            );
+
+            console.log(`🕵️♂️ Найдено ${details.length} морфологических признаков`);
+
+            // Вычисляем центры
+            const centers = details.map(pred => {
+                const bbox = this.calculateBoundingBox(pred.points);
+                return {
+                    x: bbox.minX + bbox.width / 2,
+                    y: bbox.minY + bbox.height / 2,
+                    class: pred.class
+                };
+            });
+
+            console.log(`🕵️♂️ Вычислено ${centers.length} точек анализа`);
+
+            // 1. РИСУЕМ СВЯЗИ МЕЖДУ ЦЕНТРАМИ
+            ctx.strokeStyle = 'rgba(255, 50, 50, 0.8)';
+            ctx.lineWidth = 2;
+
+            const MAX_DISTANCE = Math.min(image.width, image.height) * 0.15;
+
+            for (let i = 0; i < centers.length; i++) {
+                for (let j = i + 1; j < centers.length; j++) {
+                    const dist = Math.sqrt(
+                        Math.pow(centers[i].x - centers[j].x, 2) +
+                        Math.pow(centers[i].y - centers[j].y, 2)
+                    );
+
+                    if (dist < MAX_DISTANCE) {
+                        ctx.beginPath();
+                        ctx.moveTo(centers[i].x, centers[i].y);
+                        ctx.lineTo(centers[j].x, centers[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            // 2. РИСУЕМ ТОЧКИ ЦЕНТРОВ
+            centers.forEach(center => {
+                ctx.fillStyle = 'red';
+                ctx.beginPath();
+                ctx.arc(center.x, center.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            });
+
+            // 3. КОНТУР СЛЕДА (если есть)
+            const outline = predictions.find(pred =>
+                pred.class === 'Outline-trail' || pred.class.includes('Outline')
+            );
+
+            if (outline && outline.points) {
+                ctx.strokeStyle = 'blue';
+                ctx.lineWidth = 4;
+                ctx.setLineDash([10, 5]);
+
+                ctx.beginPath();
+                ctx.moveTo(outline.points[0].x, outline.points[0].y);
+
+                for (let i = 1; i < outline.points.length; i++) {
+                    ctx.lineTo(outline.points[i].x, outline.points[i].y);
+                }
+
+                ctx.closePath();
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // 4. ТЕКСТ
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 3;
+            ctx.font = 'bold 30px Arial';
+            ctx.strokeText(`🕵️♂️ Карта морфологических признаков`, 20, 40);
+            ctx.fillText(`🕵️♂️ Карта морфологических признаков`, 20, 40);
+
+            ctx.font = '20px Arial';
+            ctx.strokeText(`Признаки: ${details.length}`, 20, 70);
+            ctx.fillText(`Признаки: ${details.length}`, 20, 70);       
+            ctx.strokeText(`Точки анализа: ${centers.length}`, 20, 95);
+            ctx.fillText(`Точки анализа: ${centers.length}`, 20, 95);
+
+            const tempPath = `skeleton_${Date.now()}.png`;
+            const buffer = canvas.toBuffer('image/png');
+            fs.writeFileSync(tempPath, buffer);
+
+            console.log('✅ Скелетная визуализация создана успешно!');
+            return tempPath;
+
+        } catch (error) {
+            console.error('❌ Ошибка создания скелетной визуализации:', error);
+            return null;
+        }
+    }
+
+    /**
+     * 📝 ГЕНЕРАЦИЯ ПОДПИСИ РЕЗУЛЬТАТОВ
+     */
+    generateResultsCaption(detailsCount, chatId, perspectiveAnalysis, patternType) {
+        let caption = `✅ Анализ завершен!\n🎯 Выявлено морфологических признаков: ${detailsCount}`;
+
+        const trailSession = this.sessionManager.trailSessions.get(chatId);
+        if (trailSession && trailSession.status === 'active') {
+            caption += `\n\n🕵️♂️ **СЕССИЯ АНАЛИЗА ТРОПЫ**\n`;
+            caption += `• Отпечаток #${trailSession.footprints.length} зарегистрирован\n`;
+
+            if (trailSession.comparisons.length > 0) {
+                const lastComparison = trailSession.comparisons[trailSession.comparisons.length - 1];
+                caption += `• Автосравнение: ${lastComparison.similarity.toFixed(1)}% сходства\n`;
+            }
+        }
+
+        if (perspectiveAnalysis.hasPerspectiveIssues) {
+            caption += `\n⚠️ **Обнаружены искажения:** ${perspectiveAnalysis.issues.join(', ')}`;
+            if (perspectiveAnalysis.recommendations.length > 0) {
+                caption += `\n💡 **Рекомендации:** ${perspectiveAnalysis.recommendations.join(', ')}`;
+            }
+        } else {
+            caption += `\n📐 Перспектива: нормальная`;
+        }
+
+        const orientationType = this.analyzeOrientationType([]);
+        const orientationText = {
+            'aligned': '✅ Нормальная ориентация',
+            'rotated_clockwise': '🔄 Поворот по часовой',
+            'rotated_counterclockwise': '🔄 Поворот против часовой',
+            'strongly_rotated': '⚠️ Сильный поворот',
+            'unknown': '❓ Ориентация не определена'
+        };
+
+        caption += `\n🧭 ${orientationText[orientationType]}`;
+
+        return caption;
+    }
+
+    /**
+     * 📊 ГЕНЕРАЦИЯ ОТЧЕТА СРАВНЕНИЯ
+     */
+    generateComparisonReport(modelName, comparisonResult) {
+        let report = `🔍 **СРАВНЕНИЕ С "${modelName}"**\n\n`;
+        report += `🎯 **Вероятность совпадения: ${Math.round(comparisonResult.overallScore)}%**\n\n`;
+
+        report += `\n📈 **Детальный анализ:**\n`;
+        report += `• 🎨 Узор: ${Math.round(comparisonResult.patternSimilarity)}%\n`;
+        report += `• 📐 Расположение: ${Math.round(comparisonResult.spatialDistribution)}%\n`;
+        report += `• 🔍 Детали: ${Math.round(comparisonResult.detailMatching)}%\n`;
+        report += `• ⭐ Формы: ${Math.round(comparisonResult.shapeConsistency)}%\n\n`;
+
+        // Интерпретация результата
+        if (comparisonResult.overallScore > 70) {
+            report += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ** - след соответствует модели`;
+        } else if (comparisonResult.overallScore > 50) {
+            report += `🟡 **СРЕДНЯЯ ВЕРОЯТНОСТЬ** - возможное соответствие`;
+        } else if (comparisonResult.overallScore > 30) {
+            report += `🟠 **НИЗКАЯ ВЕРОЯТНОСТЬ** - слабое соответствие`;
+        } else {
+            report += `❌ **ВЕРОЯТНО НЕСООТВЕТСТВИЕ** - разные модели`;
+        }
+
+        return report;
+    }
+
+    /**
+     * 🔄 СРАВНЕНИЕ СЛЕДОВ
+     */
+    compareFootprints(referenceFeatures, footprintFeatures) {
+        console.log('🔍 УЛУЧШЕННОЕ СРАВНЕНИЕ: эталон vs след');
+
+        const refDetails = Math.max(referenceFeatures.detailCount || 0, 1);
+        const footprintDetails = Math.max(footprintFeatures.detailCount || 0, 1);
+
+        const scores = {
+            patternSimilarity: 0,
+            spatialDistribution: 0,
+            detailMatching: 0,
+            shapeConsistency: 0,
+            overallScore: 0
+        };
+
+        // 1. Схожесть узора (40%)
+        const countRatio = Math.min(refDetails, footprintDetails) / Math.max(refDetails, footprintDetails);
+        scores.patternSimilarity = Math.round(countRatio * 25);
+
+        if (refDetails > 10 && footprintDetails > 10) {
+            scores.patternSimilarity += 15;
+        }
+        scores.patternSimilarity = Math.min(scores.patternSimilarity, 40);
+
+        // 2. Пространственное распределение (30%)
+        const refDensity = referenceFeatures.density || 1;
+        const footprintDensity = footprintFeatures.density || 1;
+        const densitySimilarity = 1 - Math.abs(refDensity - footprintDensity) / Math.max(refDensity, footprintDensity);
+        scores.spatialDistribution = Math.round(densitySimilarity * 30);
+
+        // 3. Совпадение деталей (20%)
+        const commonDetails = Math.min(refDetails, footprintDetails);
+        const maxDetails = Math.max(refDetails, footprintDetails);
+        scores.detailMatching = Math.round((commonDetails / maxDetails) * 20);
+
+        // 4. Соответствие форм (10%)
+        scores.shapeConsistency = 8;
+        if (referenceFeatures.hasOutline && footprintFeatures.hasOutline) {
+            scores.shapeConsistency += 2;
+        }
+
+        // ОБЩИЙ СЧЕТ
+        scores.overallScore = Math.min(
+            scores.patternSimilarity + scores.spatialDistribution + scores.detailMatching + scores.shapeConsistency,
+            100
+        );
+
+        console.log('📊 Улучшенные результаты:', scores);
+        return scores;
+    }
 
     /**
      * 📊 ОБНОВЛЕНИЕ СТАТИСТИКИ ФОТО
@@ -591,10 +952,6 @@ class PhotoHandler {
             console.log('⚠️ Ошибка загрузки на Яндекс.Диск:', uploadError.message);
         }
     }
-
-    // ... остальные методы (calculateBoundingBox, simplifyPolygon, etc.) остаются без изменений
-    // Они уже хорошо структурированы
-
 }
 
 module.exports = PhotoHandler;
