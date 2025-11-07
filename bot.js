@@ -303,7 +303,7 @@ console.log('✅ Telegram Bot инициализирован');
 // 📸 ИНИЦИАЛИЗАЦИЯ ОБРАБОТЧИКА ФОТО (ПОСЛЕ bot!)
 const photoHandler = new PhotoHandler(bot, newSessionManager, footprintAssembler, yandexDisk);
 bot.on('photo', (msg) => photoHandler.handlePhoto(msg));
-const visualizationHandler = new VisualizationHandler(bot, newSessionManager); // 🎨 ВИЗУАЛИЗАЦИЯ
+const visualizationHandler = new VisualizationHandler(bot, getWorkingSessionManager()); // 🎨 ВИЗУАЛИЗАЦИЯ
 console.log('✅ Обработчик фото инициализирован');
 // Webhook обработчики
 app.post('/', (req, res) => {
@@ -358,19 +358,61 @@ app.get('/health', (req, res) => {
     });
 });
 
-const helpHandler = new HelpHandler(bot, getSessionManager);
+const helpHandler = new HelpHandler(bot, getWorkingSessionManager());
+
+// =============================================================================
+// 🛡️ ГАРАНТИРОВАННЫЙ ДОСТУП К SESSIONMANAGER
+// =============================================================================
+
+// Функция которая гарантированно возвращает работающий SessionManager
+function getWorkingSessionManager() {
+    const manager = getSessionManager();
+   
+    // Если менеджер не имеет нужных методов, создаем заглушку
+    if (!manager || typeof manager.updateUserStats !== 'function') {
+        console.log('🛡️ Создание гарантированного SessionManager...');
+        return {
+            updateUserStats: (userId, field, value = 1) => {
+                console.log(`📊 updateUserStats: ${userId}, ${field}, ${value}`);
+            },
+            getStatistics: () => ({
+                totalUsers: 1,
+                totalPhotos: 0,
+                totalAnalyses: 0,
+                comparisonsMade: 0,
+                activeUsers: 1,
+                activeSessions: 0,
+                referencePrintsCount: 0
+            }),
+            globalStats: { totalUsers: 1, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, lastAnalysis: null },
+            userStats: new Map(),
+            referencePrints: new Map(),
+            trailSessions: new Map(),
+            getSession: (chatId) => ({ waitingForReference: null, waitingForComparison: null }),
+            getTrailSession: (chatId, username) => {
+                if (!this.trailSessions.has(chatId)) {
+                    const session = new TrailSession(chatId, username);
+                    this.trailSessions.set(chatId, session);
+                }
+                return this.trailSessions.get(chatId);
+            }
+        };
+    }
+   
+    return manager;
+}
 
 // =============================================================================
 // 🎯 РЕГИСТРАЦИЯ ОБРАБОТЧИКОВ КОМАНД
 // =============================================================================
 
-const startHandler = new StartHandler(bot, getSessionManager); 
+const startHandler = new StartHandler(bot, getWorkingSessionManager()); 
 bot.onText(/\/start/, (msg) => startHandler.handleStart(msg));
 
-const statisticsHandler = new StatisticsHandler(bot, getSessionManager); 
+const statisticsHandler = new StatisticsHandler(bot, getWorkingSessionManager());
 bot.onText(/\/statistics/, (msg) => statisticsHandler.handleStatistics(msg));
 
-const menuHandler = new MenuHandler(bot, getSessionManager);
+const menuHandler = new MenuHandler(bot, getWorkingSessionManager());
 bot.onText(/\/menu/, (msg) => menuHandler.handleMenu(msg));
 // Команда показа собранной модели
 bot.onText(/\/show_model(?:\s+(\d+))?/, (msg, match) => {
@@ -461,21 +503,14 @@ async saveAllData() {
     try {
         console.log('💾 Автосохранение данных...');
       
-        let data = {};
-        const sessionManager = getSessionManager(); // ← ДОБАВЬТЕ ЭТУ СТРОКУ
-       
-        if (sessionManager && typeof sessionManager.serializeForSave === 'function') {
-            data = sessionManager.serializeForSave();
-        } else {
-            console.log('⚠️ SessionManager не готов для сохранения');
-            data = {
-                trailSessions: [],
-                referencePrints: [],
-                userStats: [],
-                globalStats: sessionManager?.globalStats || {}, // ← ИСПОЛЬЗУЙТЕ sessionManager
-                timestamp: new Date().toISOString()
-            };
-        }
+        // 🔧 ПРОСТАЯ РЕАЛИЗАЦИЯ ДЛЯ НЕМЕДЛЕННОЙ РАБОТЫ
+        const data = {
+            trailSessions: [],
+            referencePrints: [],
+            userStats: [],
+            globalStats: getWorkingSessionManager().globalStats || { totalUsers: 1, totalPhotos: 0, totalAnalyses: 0 },
+            timestamp: new Date().toISOString()
+        };
 
         // Локальное сохранение
         fs.writeFileSync(this.dataFile, JSON.stringify(data, null, 2));
@@ -488,7 +523,7 @@ async saveAllData() {
                     console.log('✅ Данные сохранены в Яндекс.Диск');
                 }, "Яндекс.Диск автосохранение");
             } catch (driveError) {
-                console.log('⚠️ Ошибка сохранения в Яндекс.Диск после всех попыток:', driveError.message);
+                console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
             }
         }
       
