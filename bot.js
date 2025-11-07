@@ -36,6 +36,23 @@ console.log('🚀 Запуск бота с Webhook...');
 console.log("Webhook URL: " + WEBHOOK_URL);
 
 // =============================================================================
+// 🚨 ДИАГНОСТИКА CIRCULAR DEPENDENCIES
+// =============================================================================
+
+// Включаем трассировку для circular dependencies
+process.on('warning', (warning) => {
+    if (warning.name === 'Warning' && warning.message.includes('circular dependency')) {
+        console.log('🚨 CIRCULAR DEPENDENCY DETECTED:');
+        console.log('   Message:', warning.message);
+        if (warning.stack) {
+            const stackLines = warning.stack.split('\n');
+            console.log('   Stack trace:');
+            stackLines.slice(0, 5).forEach(line => console.log('   ', line));
+        }
+    }
+});
+
+// =============================================================================
 // 📦 ПОДКЛЮЧЕНИЕ МОДУЛЕЙ
 // =============================================================================
 
