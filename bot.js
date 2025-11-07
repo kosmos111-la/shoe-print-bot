@@ -81,6 +81,31 @@ async function withRetry(operation, context = "") {
 }
 
 // =============================================================================
+// 🚨 LAZY LOADING ДЛЯ ИЗБЕЖАНИЯ CIRCULAR DEPENDENCIES
+// =============================================================================
+
+let _newSessionManager = null;
+let _newDataPersistence = null;
+
+function getSessionManager() {
+    if (!_newSessionManager) {
+        console.log('🔄 Ленивая загрузка SessionManager...');
+        const { SessionManager } = require('./modules/sessions/sessionManager');
+        _newSessionManager = new SessionManager(footprintAssembler);
+    }
+    return _newSessionManager;
+}
+
+function getDataPersistence() {
+    if (!_newDataPersistence) {
+        console.log('🔄 Ленивая загрузка DataPersistence...');
+        const { DataPersistence } = require('./modules/storage/legacy');
+        _newDataPersistence = new DataPersistence(getSessionManager(), yandexDisk);
+    }
+    return _newDataPersistence;
+}
+
+// =============================================================================
 // 🚀 ИНИЦИАЛИЗАЦИЯ СЕРВИСОВ
 // =============================================================================
 
@@ -184,15 +209,14 @@ let newSessionManager;
 let newDataPersistence;
 
 try {
-    // 🔧 ПЕРЕДАЕМ ASSEMBLER В SESSION MANAGER
-    newSessionManager = new NewSessionManager(footprintAssembler);
-    newDataPersistence = new NewDataPersistence(newSessionManager, yandexDisk);
+    _newSessionManager = new NewSessionManager(footprintAssembler);
+_newDataPersistence = new NewDataPersistence(_newSessionManager, yandexDisk);
     console.log('✅ Менеджеры системы инициализированы');
 } catch (error) {
-    console.log('❌ Ошибка инициализации менеджеров:', error.message);
+    cconsole.log('❌ Ошибка инициализации менеджеров:', error.message);
     // Заглушки для продолжения работы
-    newSessionManager = {
-        updateUserStats: () => console.log('🛡️ (заглушка) newSessionManager.updateUserStats'),
+    _newSessionManager = {
+    updateUserStats: () => console.log('🛡️ (заглушка) _newSessionManager.updateUserStats'),
         getStatistics: () => ({ totalUsers: 0, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, activeUsers: 0, activeSessions: 0, referencePrintsCount: 0 }),
         globalStats: { totalUsers: 0, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, lastAnalysis: null },
         userStats: new Map(),
@@ -242,11 +266,11 @@ app.get('/', (req, res) => {
                         <h3 style="text-align: center; margin-bottom: 15px;">📊 Статистика системы</h3>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; text-align: center;">
                             <div>
-                                <div style="font-size: 24px; font-weight: bold;">${newSessionManager.globalStats.totalUsers}</div>
+                                <div style="font-size: 24px; font-weight: bold;">${getSessionManager().globalStats.totalUsers}</div>
                                 <div>👥 Пользователей</div>
                             </div>
                             <div>
-                                <div style="font-size: 24px; font-weight: bold;">${ newSessionManager.globalStats.totalPhotos}</div>
+                                <div style="font-size: 24px; font-weight: bold;">${getSessionManager().globalStats.totalPhotos}</div>
                                 <div>📸 Фото обработано</div>
                             </div>
                         </div>
@@ -263,9 +287,9 @@ app.get('/health', (req, res) => {
         status: 'OK',
         timestamp: new Date().toISOString(),
         statistics: {
-    users:  newSessionManager.globalStats.totalUsers,
-    photos:  newSessionManager.globalStats.totalPhotos,
-    analyses:  newSessionManager.globalStats.totalAnalyses
+    users: getSessionManager().globalStats.totalUsers,
+    photos: getSessionManager().globalStats.totalPhotos,
+    analyses: getSessionManager().globalStats.totalAnalyses
 }
     });
 });
@@ -382,7 +406,7 @@ async saveAllData() {
                 trailSessions: [],
                 referencePrints: [],
                 userStats: [],
-                globalStats: newSessionManager?.globalStats || {},
+                globalStats: getSessionManager()?.globalStats || {},
                 timestamp: new Date().toISOString()
             };
         }
@@ -440,7 +464,7 @@ async saveAllData() {
             }
           
             // ВОССТАНАВЛИВАЕМ ВСЕ ДАННЫЕ ЧЕРЕЗ SESSIONMANAGER
-            newSessionManager.restoreFromData(data);
+            getSessionManager().restoreFromData(data);
           
             console.log('🎯 Данные полностью восстановлены');
           
@@ -454,7 +478,7 @@ async saveAllData() {
      * Экспорт сессии в файл
      */
     async exportSession(chatId, format = 'json') {
-        const session = newSessionManager.trailSessions.get(chatId);
+        const session = getSessionManager().trailSessions.get(chatId);
         if (!session) {
             throw new Error('Сессия не найдена');
         }
@@ -484,9 +508,9 @@ async saveAllData() {
             modelMetadata: MODEL_METADATA,
             backupTime: new Date().toISOString(),
             stats: {
-    totalUsers: newSessionManager.globalStats.totalUsers,
-    totalPhotos: newSessionManager.globalStats.totalPhotos,
-    totalAnalyses: newSessionManager.globalStats.totalAnalyses
+    totalUsers: getSessionManager().globalStats.totalUsers,
+    totalPhotos: getSessionManager().globalStats.totalPhotos,
+    totalAnalyses: getSessionManager().globalStats.totalAnalyses
 }
         };
       
@@ -2520,12 +2544,12 @@ bot.onText(/\/trail_start/, async (msg) => {
    
     try {
         // 🔧 ИСПРАВЛЯЕМ: проверяем что менеджер готов
-        if (!newSessionManager) {
+        if (!getSessionManager()) {
             await bot.sendMessage(chatId, '❌ Система временно недоступна. Попробуйте позже.');
             return;
         }
        
-        const session = newSessionManager.getTrailSession(chatId, username);
+        const session = getSessionManager().getTrailSession(chatId, username);
        
         // 🔧 ПРОВЕРЯЕМ что сессия создана правильно
         if (!session || !session.startTime) {
@@ -2761,7 +2785,7 @@ bot.onText(/\/trail_status/, async (msg) => {
     const chatId = msg.chat.id;
    
     // 🔧 ИСПРАВЛЕНИЕ: используем newSessionManager
-    const session = newSessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
    
     if (!session) {
         await bot.sendMessage(chatId,
@@ -2791,7 +2815,7 @@ bot.onText(/\/trail_status/, async (msg) => {
 bot.onText(/\/trail_report/, async (msg) => {
     const chatId = msg.chat.id;
     // 🔧 ИСПРАВЛЯЕМ
-    const session = newSessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
    
     if (!session) {
         await bot.sendMessage(chatId, '❌ Нет активной сессии для отчета.');
@@ -2838,7 +2862,7 @@ bot.onText(/\/trail_notes(?:\s+(.+))?/, async (msg, match) => {
 
 bot.onText(/\/trail_finish/, async (msg) => {
     const chatId = msg.chat.id;
-    const session = newSessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
    
     if (!session) {
         await bot.sendMessage(chatId, '❌ Нет активной сессии для завершения.');
@@ -2867,7 +2891,7 @@ bot.onText(/\/compare_footprints (\d+) (\d+)/, async (msg, match) => {
    
     console.log(`🔍 Запрос сравнения: ${footprintIdA} vs ${footprintIdB}`);
    
-    const session = newSessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     if (!session) {
         await bot.sendMessage(chatId,
             '❌ Активная сессия не найдена.\n' +
@@ -2922,7 +2946,7 @@ bot.onText(/\/assemble_model/, async (msg) => {
     console.log(`🧩 Запрос сборки модели для чата ${chatId}`);
    
     // 🔧 ИСПРАВЛЕНИЕ: используем newSessionManager
-    const session = newSessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     if (!session || session.footprints.length < 2) {
         await bot.sendMessage(chatId,
             '❌ Недостаточно отпечатков для сборки модели.\n\n' +
@@ -2987,7 +3011,7 @@ bot.onText(/\/visualize_results/, async (msg) => {
     const chatId = msg.chat.id;
    
     // 🔧 ИСПРАВЛЕНИЕ: используем newSessionManager
-    const session = newSessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     if (!session) {
         await bot.sendMessage(chatId, '❌ Нет активной сессии анализа тропы');
         return;
@@ -3012,7 +3036,7 @@ bot.onText(/\/save_assembled (.+)/, async (msg, match) => {
    
     console.log(`💾 Запрос сохранения собранной модели: "${modelName}"`);
    
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     if (!session || session.assembledModels.length === 0) {
         await bot.sendMessage(chatId,
             '❌ Нет собранных моделей для сохранения.\n' +
@@ -3055,7 +3079,7 @@ bot.onText(/\/save_assembled (.+)/, async (msg, match) => {
 bot.onText(/\/show_groups/, async (msg) => {
     const chatId = msg.chat.id;
     // 🔧 ИСПРАВЛЯЕМ
-    const session = newSessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
    
     if (!session) {
         await bot.sendMessage(chatId, '❌ Активная сессия не найдена');
@@ -3093,7 +3117,7 @@ bot.onText(/\/show_groups/, async (msg) => {
 bot.onText(/\/assemble_from_group (\d+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const groupNumber = parseInt(match[1]) - 1;
-    const session = newSessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
    
     if (!session) {
         await bot.sendMessage(chatId, '❌ Активная сессия не найдена');
@@ -3453,7 +3477,7 @@ bot.onText(/\/hierarchy_debug/, async (msg) => {
 * 🏠 УЛУЧШЕННОЕ ГЛАВНОЕ МЕНЮ
 */
 async function showMainMenu(chatId) {
-    const session = newSessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     const hasActiveSession = session && session.status === 'active';
     const footprintsCount = hasActiveSession ? session.footprints.length : 0;
    
@@ -3492,9 +3516,9 @@ async function showMainMenu(chatId) {
         message += `• Эксперт: ${session.expert}\n\n`;
     } else {
         message += `📊 **Статистика системы:**\n`;
-        message += `• Экспертов: ${newSessionManager.globalStats.totalUsers}\n`;
-    message += `• Отпечатков: ${newSessionManager.globalStats.totalPhotos}\n`;
-    message += `• Анализов: ${newSessionManager.globalStats.totalAnalyses}\n\n`;
+        message += `• Экспертов: ${getSessionManager().globalStats.totalUsers}\n`;
+message += `• Отпечатков: ${getSessionManager().globalStats.totalPhotos}\n`;
+message += `• Анализов: ${getSessionManager().globalStats.totalAnalyses}\n\n`;
 }
    
     message += `🎮 **Выберите действие:**`;
@@ -3616,7 +3640,7 @@ async function showGroupsMenu(chatId, groups, session) {
 * 🎨 МЕНЮ ВИЗУАЛИЗАЦИИ
 */
 async function showVisualizationMenu(chatId) {
-    const session = newSessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     const modelsCount = session ? session.assembledModels.length : 0;
 
     const vizKeyboard = {
@@ -3768,29 +3792,26 @@ async function handleSaveReference(chatId) {
 * 📊 ПОКАЗ СТАТИСТИКИ
 */
 async function handleShowStats(chatId) {
-    const activeUsers = Array.from(newSessionManager.userStats.values()).filter(user =>
+    const activeUsers = Array.from(getSessionManager().userStats.values()).filter(user =>
         (new Date() - user.lastSeen) < 7 * 24 * 60 * 60 * 1000
     ).length;
 
-    const sessionsCount = Array.from(newSessionManager.trailSessions.values()).filter(s =>
+    const sessionsCount = Array.from(getSessionManager().trailSessions.values()).filter(s =>
         s.status === 'active'
     ).length;
 
     const stats = `📊 **СТАТИСТИКА СИСТЕМЫ**\n\n` +
-                 `👥 **Пользователи:**\n` +
-                 `• Всего: ${newSessionManager.globalStats.totalUsers}\n` +
-                 `• Активных: ${activeUsers}\n\n` +
-               
-                 `📸 **Обработка фото:**\n` +
-                 `• Фото обработано: ${newSessionManager.globalStats.totalPhotos}\n` +
-                 `• Анализов проведено: ${newSessionManager.globalStats.totalAnalyses}\n` +
-                 `• Сравнений сделано: ${newSessionManager.globalStats.comparisonsMade}\n\n` +
-               
-                 `🕵️‍♂️ **Активные сессии:**\n` +
-                 `• Сессий анализа: ${sessionsCount}\n` +
-                 `• Сохраненных эталонов: ${newSessionManager.referencePrints.size}\n\n` +
-               
-                 `📅 **Последний анализ:** ${newSessionManager.globalStats.lastAnalysis ?
+             `👥 **Пользователи:**\n` +
+             `• Всего: ${getSessionManager().globalStats.totalUsers}\n` +
+             `• Активных: ${activeUsers}\n\n` +
+             `📸 **Обработка фото:**\n` +
+             `• Фото обработано: ${getSessionManager().globalStats.totalPhotos}\n` +
+             `• Анализов проведено: ${getSessionManager().globalStats.totalAnalyses}\n` +
+             `• Сравнений сделано: ${getSessionManager().globalStats.comparisonsMade}\n\n` +
+             `🕵️‍♂️ **Активные сессии:**\n` +
+             `• Сессий анализа: ${sessionsCount}\n` +
+             `• Сохраненных эталонов: ${getSessionManager().referencePrints.size}\n\n` +
+             `📅 **Последний анализ:** ${getSessionManager().globalStats.lastAnalysis ?
                      newSessionManager.globalStats.lastAnalysis.toLocaleString('ru-RU') : 'еще нет'}`;
 
     await bot.sendMessage(chatId, stats);
@@ -3867,15 +3888,15 @@ async function handleSaveData(chatId) {
     const dataManager = new DataPersistence();
     await dataManager.saveAllData();
    
-    const session = newSessionManager.trailSessions.get(chatId);
-    const sessionsCount = Array.from(newSessionManager.trailSessions.values()).length;
+    const session = getSessionManager().trailSessions.get(chatId);
+    const sessionsCount = Array.from(getSessionManager().trailSessions.values()).length;
    
     await bot.sendMessage(chatId,
         '✅ **ВСЕ ДАННЫЕ СОХРАНЕНЫ!**\n\n' +
         `📊 **Сохранено:**\n` +
         `• Сессий анализа: ${sessionsCount}\n` +
-        `• Эталонов: ${newSessionManager.referencePrints.size}\n` +
-        `• Пользователей: ${newSessionManager.userStats.size}\n\n` +
+        `• Эталонов: ${getSessionManager().referencePrints.size}\n` +
+`• Пользователей: ${getSessionManager().userStats.size}\n\n` +
        
         `💡 **В сохраненные данные входят:**\n` +
         `• Все активные сессии\n` +
@@ -4093,7 +4114,7 @@ bot.on('callback_query', async (callbackQuery) => {
             await showMainMenu(chatId);
         }
         else if (data === 'continue_analysis') {
-            await showTrailAnalysisMenu(chatId, newSessionManager.trailSessions.get(chatId));
+            await showTrailAnalysisMenu(chatId, getSessionManager().trailSessions.get(chatId));
         }
        
         // 🕵️‍♂️ АНАЛИЗ ТРОПЫ
@@ -4148,7 +4169,7 @@ bot.on('callback_query', async (callbackQuery) => {
             await handleShowGroupDetails(chatId, data);
         }
         else if (data === 'back_to_analysis') {
-            await showTrailAnalysisMenu(chatId, newSessionManager.trailSessions.get(chatId));
+            await showTrailAnalysisMenu(chatId, getSessionManager().trailSessions.get(chatId));
         }
        
         // 🎨 ВИЗУАЛИЗАЦИЯ
@@ -4223,8 +4244,8 @@ async function loadStats() {
         const remoteStats = JSON.parse(fileResponse.data);
        
         if (remoteStats.global) {
-            Object.assign( newSessionManager.globalStats, remoteStats.global);
-newSessionManager.userStats.clear();
+            Object.assign(getSessionManager().globalStats, remoteStats.global);
+getSessionManager().userStats.clear();
            
             if (remoteStats.users && Array.isArray(remoteStats.users)) {
                 remoteStats.users.forEach(([userId, userData]) => {
@@ -4261,8 +4282,8 @@ app.listen(PORT, async () => {
     await loadStatsFromPublicLink();
 await dataPersistence.loadAllData();
 
-console.log(`📊 Текущая статистика: ${ newSessionManager.globalStats.totalUsers} пользователей, ${ newSessionManager.globalStats.totalPhotos} фото`);
-console.log(`💾 Восстановлено сессий: ${newSessionManager.trailSessions.size}, эталонов: ${newSessionManager.referencePrints.size}`);
+console.log(`📊 Текущая статистика: ${getSessionManager().globalStats.totalUsers} пользователей, ${getSessionManager().globalStats.totalPhotos} фото`);
+console.log(`💾 Восстановлено сессий: ${getSessionManager().trailSessions.size}, эталонов: ${getSessionManager().referencePrints.size}`);
 });
 
 // Обработчики ошибок
