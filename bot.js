@@ -324,10 +324,166 @@ bot.onText(/\/admin_(\w+)/, async (msg, match) => {
 
 console.log('✅ Все обработчики команд зарегистрированы');
 
+// =============================================================================
+// 💾 СИСТЕМА СОХРАНЕНИЯ ДАННЫХ
+// =============================================================================
+
+class DataPersistence {
+    constructor() {
+        this.dataFile = 'trail_sessions.json';
+        this.backupInterval = 5 * 60 * 1000; // 5 минут
+        this.setupAutoSave();
+    }
+
+    /**
+     * Настраивает автосохранение
+     */
+    setupAutoSave() {
+        setInterval(() => {
+            this.saveAllData();
+        }, this.backupInterval);
+    }
+
+    /**
+     * Сохраняет все данные
+     */
+async saveAllData() {
+    try {
+        console.log('💾 Автосохранение данных...');
+       
+        // 🔧 ИСПРАВЛЯЕМ: проверяем что менеджер существует и имеет метод
+        let data = {};
+        if (newSessionManager && typeof newSessionManager.serializeForSave === 'function') {
+            data = newSessionManager.serializeForSave();
+        } else {
+            console.log('⚠️ SessionManager не готов для сохранения');
+            data = {
+                trailSessions: [],
+                referencePrints: [],
+                userStats: [],
+                globalStats: newSessionManager?.globalStats || {},
+                timestamp: new Date().toISOString()
+            };
+        }
+
+        // Локальное сохранение
+        fs.writeFileSync(this.dataFile, JSON.stringify(data, null, 2));
+       
+        // Сохранение в Яндекс.Диск
+        if (yandexDisk) {
+            try {
+                await yandexDisk.uploadFile(this.dataFile, 'sessions_backup.json');
+                console.log('✅ Данные сохранены в Яндекс.Диск');
+            } catch (driveError) {
+                console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
+            }
+        }
+       
+        console.log('💾 Все данные сохранены локально');
+    } catch (error) {
+        console.log('❌ Ошибка сохранения данных:', error.message);
+    }
+}
+
+    /**
+     * Восстанавливает данные после перезапуска
+     */
+    async loadAllData() {
+        try {
+            console.log('🔄 Восстановление данных...');
+          
+            let data = null;
+          
+            // Пробуем загрузить из Яндекс.Диска
+            if (yandexDisk) {
+                try {
+                    if (await yandexDisk.fileExists('backup/sessions_backup.json')) {
+                        await yandexDisk.downloadFile('backup/sessions_backup.json', this.dataFile);
+                        console.log('✅ Данные загружены из Яндекс.Диска');
+                    }
+                } catch (driveError) {
+                    console.log('⚠️ Не удалось загрузить из Яндекс.Диска:', driveError.message);
+                }
+            }
+          
+            // Загружаем из локального файла
+            if (fs.existsSync(this.dataFile)) {
+                const fileContent = fs.readFileSync(this.dataFile, 'utf8');
+                data = JSON.parse(fileContent);
+                console.log('✅ Локальные данные загружены');
+            } else {
+                console.log('📝 Локальные данные не найдены, начинаем с чистого листа');
+                return;
+            }
+          
+            // ВОССТАНАВЛИВАЕМ ВСЕ ДАННЫЕ ЧЕРЕЗ SESSIONMANAGER
+            newSessionManager.restoreFromData(data);
+          
+            console.log('🎯 Данные полностью восстановлены');
+          
+        } catch (error) {
+            console.log('❌ Ошибка восстановления данных:', error.message);
+            console.log('💫 Начинаем со свежих данных');
+        }
+    }
+
+    /**
+     * Экспорт сессии в файл
+     */
+    async exportSession(chatId, format = 'json') {
+        const session = newSessionManager.trailSessions.get(chatId);
+        if (!session) {
+            throw new Error('Сессия не найдена');
+        }
+      
+        const exportData = {
+            session: session.getSessionSummary(),
+            footprints: session.footprints,
+            comparisons: session.comparisons,
+            exportTime: new Date().toISOString(),
+            version: '1.0'
+        };
+      
+        const filename = "session_export_" + session.sessionId + "_" + Date.now() + "." + format;
+      
+        if (format === 'json') {
+            fs.writeFileSync(filename, JSON.stringify(exportData, null, 2));
+        }
+      
+        return filename;
+    }
+
+    /**
+     * Резервное копирование конфигурации
+     */
+    async backupConfiguration() {
+        const config = {
+            modelMetadata: MODEL_METADATA,
+            backupTime: new Date().toISOString(),
+            stats: {
+    totalUsers: newSessionManager.globalStats.totalUsers,
+    totalPhotos: newSessionManager.globalStats.totalPhotos,
+    totalAnalyses: newSessionManager.globalStats.totalAnalyses
+}
+        };
+      
+        const configFile = "config_backup_Date.now()}.json";
+        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+      
+        if (yandexDisk) {
+            await yandexDisk.uploadFile(configFile, "backup/${configFile}");
+        }
+      
+        return configFile;
+    }
+}
 
 // =============================================================================
 // 🚀 ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ СБОРКИ И СОХРАНЕНИЯ
 // =============================================================================
+
+// 🔧 Инициализируем менеджер данных
+const dataPersistence = new DataPersistence();
 
 class ComparisonVisualizer {
     constructor() {
@@ -2862,6 +3018,7 @@ bot.onText(/\/save_assembled (.+)/, async (msg, match) => {
     );
    
     // Автосохранение данных
+    const dataManager = new DataPersistence();
     await dataManager.saveAllData();
 });
 
@@ -2990,6 +3147,8 @@ bot.onText(/\/save_data/, async (msg) => {
     const chatId = msg.chat.id;
    
     await bot.sendMessage(chatId, '💾 Сохраняю все данные...');
+   
+    const dataManager = new DataPersistence();
     await dataManager.saveAllData();
    
     await bot.sendMessage(chatId,
@@ -3675,6 +3834,8 @@ async function handleAddFootprints(chatId) {
 */
 async function handleSaveData(chatId) {
     await bot.sendMessage(chatId, '💾 Сохраняю все данные...');
+   
+    const dataManager = new DataPersistence();
     await dataManager.saveAllData();
    
     const session = newSessionManager.trailSessions.get(chatId);
