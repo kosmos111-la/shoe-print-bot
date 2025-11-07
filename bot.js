@@ -301,7 +301,7 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 console.log('✅ Telegram Bot инициализирован');
 
 // 📸 ИНИЦИАЛИЗАЦИЯ ОБРАБОТЧИКА ФОТО (ПОСЛЕ bot!)
-const photoHandler = new PhotoHandler(bot, newSessionManager, footprintAssembler, yandexDisk);
+const photoHandler = new PhotoHandler(bot, getWorkingSessionManager(), getFootprintAssembler, yandexDisk);
 bot.on('photo', (msg) => photoHandler.handlePhoto(msg));
 const visualizationHandler = new VisualizationHandler(bot, getWorkingSessionManager()); // 🎨 ВИЗУАЛИЗАЦИЯ
 console.log('✅ Обработчик фото инициализирован');
