@@ -365,7 +365,7 @@ const helpHandler = new HelpHandler(bot, getWorkingSessionManager());
 // =============================================================================
 
 // Функция которая гарантированно возвращает работающий SessionManager
-ffunction getWorkingSessionManager() {
+function getWorkingSessionManager() {
     console.log('🛡️ Создание гарантированного SessionManager...');
     return {
         updateUserStats: (userId, field, value = 1) => {
