@@ -3,10 +3,24 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const path = require('path');
 
-// 🎯 КОРРЕКТНЫЕ ИМПОРТЫ
-const Helpers = require('../utils/helpers');
-const { getWorkingSessionManager } = require('../../bot');
-const { getFootprintAssembler } = require('../../bot');
+// 🎯 КОРРЕКТНЫЕ ИМПОРТЫ - ПРЯМОЙ ДОСТУП
+let getWorkingSessionManager, getFootprintAssembler;
+
+try {
+    const botModule = require('../../bot');
+    getWorkingSessionManager = botModule.getWorkingSessionManager || (() => require('../../bot').getWorkingSessionManager());
+    getFootprintAssembler = botModule.getFootprintAssembler || (() => require('../../bot').getFootprintAssembler());
+} catch (error) {
+    console.log('⚠️ Альтернативная загрузка функций:', error.message);
+    // Резервные функции
+    getWorkingSessionManager = () => ({ trailSessions: new Map() });
+    getFootprintAssembler = () => ({ classifyFootprintPattern: () => 'unknown_pattern' });
+}
+
+const getFootprintAssembler = () => {
+    const { getFootprintAssembler: func } = require('../../bot');
+    return func();
+};
 
 /**
 * 🖼️ ОБРАБОТЧИК ФОТОГРАФИЙ СЛЕДОВ
