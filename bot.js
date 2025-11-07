@@ -59,6 +59,28 @@ const { ModelHierarchy } = require('./model_hierarchy');
 const HelpHandler = require('./modules/handlers/helpHandler');
 
 // =============================================================================
+// 🔄 УТИЛИТА ПОВТОРНЫХ ПОПЫТОК
+// =============================================================================
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 2000;
+
+async function withRetry(operation, context = "") {
+  for (let i = 0; i < MAX_RETRIES; i++) {
+    try {
+      return await operation();
+    } catch (error) {
+      console.log(`🔄 ${context} - попытка ${i+1}/${MAX_RETRIES}: ${error.message}`);
+      if (i === MAX_RETRIES - 1) {
+        console.log(`❌ ${context} - все попытки исчерпаны`);
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+    }
+  }
+}
+
+// =============================================================================
 // 🚀 ИНИЦИАЛИЗАЦИЯ СЕРВИСОВ
 // =============================================================================
 
@@ -350,8 +372,7 @@ class DataPersistence {
 async saveAllData() {
     try {
         console.log('💾 Автосохранение данных...');
-       
-        // 🔧 ИСПРАВЛЯЕМ: проверяем что менеджер существует и имеет метод
+      
         let data = {};
         if (newSessionManager && typeof newSessionManager.serializeForSave === 'function') {
             data = newSessionManager.serializeForSave();
@@ -368,17 +389,19 @@ async saveAllData() {
 
         // Локальное сохранение
         fs.writeFileSync(this.dataFile, JSON.stringify(data, null, 2));
-       
-        // Сохранение в Яндекс.Диск
+      
+        // 🔧 ЗАМЕНИТЕ ЭТОТ БЛОК - Сохранение в Яндекс.Диск
         if (yandexDisk) {
             try {
-                await yandexDisk.uploadFile(this.dataFile, 'sessions_backup.json');
-                console.log('✅ Данные сохранены в Яндекс.Диск');
+                await withRetry(async () => {
+                    await yandexDisk.uploadFile(this.dataFile, 'sessions_backup.json');
+                    console.log('✅ Данные сохранены в Яндекс.Диск');
+                }, "Яндекс.Диск автосохранение");
             } catch (driveError) {
-                console.log('⚠️ Ошибка сохранения в Яндекс.Диск:', driveError.message);
+                console.log('⚠️ Ошибка сохранения в Яндекс.Диск после всех попыток:', driveError.message);
             }
         }
-       
+      
         console.log('💾 Все данные сохранены локально');
     } catch (error) {
         console.log('❌ Ошибка сохранения данных:', error.message);
@@ -2440,14 +2463,20 @@ async function loadStatsFromPublicLink() {
 
         const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
 
-        const linkResponse = await axios.get(apiUrl, { timeout: 10000 });
+        // 🔧 ДОБАВЬТЕ withRetry
+        const linkResponse = await withRetry(async () => {
+            return await axios.get(apiUrl, { timeout: 10000 });
+        }, "Получение ссылки Яндекс.Диск");
+
         console.log('✅ Получена ссылка для скачивания');
 
         // Скачиваем как текст сначала
-        const fileResponse = await axios.get(linkResponse.data.href, {
-            timeout: 10000,
-            responseType: 'text'
-        });
+        const fileResponse = await withRetry(async () => {
+            return await axios.get(linkResponse.data.href, {
+                timeout: 10000,
+                responseType: 'text'
+            });
+        }, "Скачивание статистики");
 
         console.log('📥 Файл скачан, длина:', fileResponse.data.length);
 
@@ -2460,12 +2489,12 @@ async function loadStatsFromPublicLink() {
         }
 
         // Обновляем статистику
-        Object.assign( newSessionManager.globalStats, remoteStats.global);
-newSessionManager.userStats.clear();
-       
+        Object.assign(newSessionManager.globalStats, remoteStats.global);
+        newSessionManager.userStats.clear();
+      
         if (remoteStats.users && Array.isArray(remoteStats.users)) {
             remoteStats.users.forEach(([userId, userData]) => {
-                sessionManager.userStats.set(userId, userData);
+                newSessionManager.userStats.set(userId, userData);
             });
         }
 
@@ -2473,7 +2502,7 @@ newSessionManager.userStats.clear();
         return true;
 
     } catch (error) {
-        console.log('❌ Ошибка загрузки:', error.message);
+        console.log('❌ Ошибка загрузки после всех попыток:', error.message);
         console.log('💫 Начинаем со свежей статистики');
         return false;
     }
