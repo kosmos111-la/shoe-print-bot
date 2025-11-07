@@ -3646,65 +3646,75 @@ message += `• Анализов: ${getSessionManager().globalStats.totalAnalyse
 * 🔍 ОБНОВЛЕННОЕ МЕНЮ АНАЛИЗА ТРОПЫ
 */
 async function showTrailAnalysisMenu(chatId, session = null) {
-    if (!session) {
-        session = newSessionManager.trailSessions.get(chatId);
-    }
-   
-    const footprintsCount = session ? session.footprints.length : 0;
-    const modelsCount = session ? session.assembledModels.length : 0;
-    const groupsCount = session ? (session.compatibilityGroups ? session.compatibilityGroups.length : 0) : 0;
-    const comparisonsCount = session ? session.comparisons.length : 0;
-   
-    const trailKeyboard = {
-        reply_markup: {
-            inline_keyboard: [
-                // Основные действия
-                [
-                    { text: "📸 Добавить следы", callback_data: "add_footprints" },
-                    { text: "🔄 Автоанализ", callback_data: "auto_analyze" }
-                ],
-                // 🎨 ВИЗУАЛИЗАЦИЯ
-            [
-                { text: "🎨 Визуализация", callback_data: "visualization_menu" },
-                { text: "📈 Отчет", callback_data: "detailed_report" }
-            ],
-                // Анализ и группировка
-                [
-                    { text: `👥 Группы (${groupsCount})`, callback_data: "show_groups" },
-                    { text: `🧩 Собрать модели`, callback_data: "assemble_models" }
-                ],
-                // Продвинутые функции
-                [
-                    { text: "🏔️ Умный анализ", callback_data: "rebuild_hierarchy" },
-                    { text: "📈 Отчет", callback_data: "detailed_report" }
-                ],
-                // Управление данными
-                [
-                    { text: "💾 Сохранить", callback_data: "save_data" },
-                    { text: "🔙 Главное меню", callback_data: "main_menu" }
-                ]
-            ]
+    try {
+        // 🔧 ИСПОЛЬЗУЕМ ГАРАНТИРОВАННЫЙ МЕНЕДЖЕР
+        const sessionManager = getWorkingSessionManager();
+       
+        if (!session) {
+            session = sessionManager.trailSessions ?
+                sessionManager.trailSessions.get(chatId) : null;
         }
-    };
-   
-    let message = `🔍 **РЕЖИМ АНАЛИЗА ТРОПЫ**\n\n`;
-   
-    if (session) {
-        message += `📊 **Статус сессии:**\n`;
-        message += `• ID: ${session.sessionId}\n`;
-        message += `• Статус: ${session.status === 'active' ? '🟢 АКТИВНА' : '🔴 ЗАВЕРШЕНА'}\n`;
-        message += `• Следов: ${footprintsCount}\n`;
-        message += `• Групп: ${groupsCount}\n`;
-        message += `• Моделей: ${modelsCount}\n`;
-        message += `• Сравнений: ${comparisonsCount}\n`;
-        message += `• Эксперт: ${session.expert}\n\n`;
-    } else {
-        message += `❌ **Сессия не активна**\n\n`;
+      
+        const footprintsCount = session ? session.footprints.length : 0;
+        const modelsCount = session ? session.assembledModels.length : 0;
+        const groupsCount = session ? (session.compatibilityGroups ? session.compatibilityGroups.length : 0) : 0;
+        const comparisonsCount = session ? session.comparisons.length : 0;
+      
+        const trailKeyboard = {
+            reply_markup: {
+                inline_keyboard: [
+                    // Основные действия
+                    [
+                        { text: "📸 Добавить следы", callback_data: "add_footprints" },
+                        { text: "🔄 Автоанализ", callback_data: "auto_analyze" }
+                    ],
+                    // Визуализация
+                    [
+                        { text: "🎨 Визуализация", callback_data: "visualization_menu" },
+                        { text: "📈 Отчет", callback_data: "detailed_report" }
+                    ],
+                    // Анализ и группировка
+                    [
+                        { text: `👥 Группы (${groupsCount})`, callback_data: "show_groups" },
+                        { text: `🧩 Собрать модели`, callback_data: "assemble_models" }
+                    ],
+                    // Управление данными
+                    [
+                        { text: "💾 Сохранить", callback_data: "save_data" },
+                        { text: "🔙 Главное меню", callback_data: "main_menu" }
+                    ]
+                ]
+            }
+        };
+      
+        let message = `🔍 **РЕЖИМ АНАЛИЗА ТРОПЫ**\n\n`;
+      
+        if (session) {
+            message += `📊 **Статус сессии:**\n`;
+            message += `• ID: ${session.sessionId}\n`;
+            message += `• Статус: ${session.status === 'active' ? '🟢 АКТИВНА' : '🔴 ЗАВЕРШЕНА'}\n`;
+            message += `• Следов: ${footprintsCount}\n`;
+            message += `• Групп: ${groupsCount}\n`;
+            message += `• Моделей: ${modelsCount}\n`;
+            message += `• Сравнений: ${comparisonsCount}\n`;
+            message += `• Эксперт: ${session.expert}\n\n`;
+        } else {
+            message += `❌ **Сессия не активна**\n\n`;
+        }
+      
+        message += `🎮 **Выберите действие:**`;
+      
+        await bot.sendMessage(chatId, message, trailKeyboard);
+      
+    } catch (error) {
+        console.log('❌ Ошибка в showTrailAnalysisMenu:', error.message);
+        // Простое меню при ошибках
+        await bot.sendMessage(chatId,
+            '🔍 **РЕЖИМ АНАЛИЗА ТРОПЫ**\n\n' +
+            'Отправляйте фото следов для анализа.\n\n' +
+            '💡 Используйте кнопки для управления сессией.'
+        );
     }
-   
-    message += `🎮 **Выберите действие:**`;
-   
-    await bot.sendMessage(chatId, message, trailKeyboard);
 }
 
 /**
@@ -3795,26 +3805,43 @@ async function showVisualizationMenu(chatId) {
 * 🚀 ЗАПУСК АНАЛИЗА ТРОПЫ
 */
 async function startTrailAnalysis(chatId, user) {
-     const session = newSessionManager.getTrailSession(chatId, user.username || user.first_name);
-   
-    await bot.sendMessage(chatId,
-        `🕵️‍♂️ **АНАЛИЗ ТРОПЫ ЗАПУЩЕН!**\n\n` +
-        `**Сессия:** ${session.sessionId}\n` +
-        `**Эксперт:** ${session.expert}\n` +
-        `**Время начала:** ${session.startTime.toLocaleString('ru-RU')}\n\n` +
+    try {
+        console.log(`🕵️‍♂️ Запуск анализа тропы для ${user.username || user.first_name}`);
        
-        `📸 **Теперь отправляйте фото следов для анализа.**\n\n` +
+        // 🔧 ИСПОЛЬЗУЕМ ГАРАНТИРОВАННЫЙ МЕНЕДЖЕР
+        const sessionManager = getWorkingSessionManager();
        
-        `🎯 **Система автоматически:**\n` +
-        `• Сохранит следы в сессию\n` +
-        `• Сравнит их между собой\n` +
-        `• Определит группы людей\n` +
-        `• Соберет полные модели\n\n` +
+        if (!sessionManager || !sessionManager.getTrailSession) {
+            throw new Error('SessionManager не доступен');
+        }
+
+        const session = sessionManager.getTrailSession(chatId, user.username || user.first_name);
+      
+        await bot.sendMessage(chatId,
+            `🕵️‍♂️ **АНАЛИЗ ТРОПЫ ЗАПУЩЕН!**\n\n` +
+            `**Сессия:** ${session.sessionId}\n` +
+            `**Эксперт:** ${session.expert}\n` +
+            `**Время начала:** ${session.startTime.toLocaleString('ru-RU')}\n\n` +
+          
+            `📸 **Теперь отправляйте фото следов для анализа.**\n\n` +
+          
+            `🎯 **Система автоматически:**\n` +
+            `• Сохранит следы в сессию\n` +
+            `• Сравнит их между собой\n` +
+            `• Определит группы людей\n` +
+            `• Соберет полные модели\n\n` +
+          
+            `💡 **Совет:** Начните с 3-5 четких фото следов!`
+        );
+      
+        await showTrailAnalysisMenu(chatId, session);
        
-        `💡 **Совет:** Начните с 3-5 четких фото следов!`
-    );
-   
-    await showTrailAnalysisMenu(chatId, session);
+    } catch (error) {
+        console.log('❌ Ошибка запуска анализа тропы:', error.message);
+        await bot.sendMessage(chatId,
+            '❌ Не удалось запустить анализ тропы. Попробуйте позже.'
+        );
+    }
 }
 
 /**
@@ -4235,8 +4262,8 @@ bot.on('callback_query', async (callbackQuery) => {
        
         // 🕵️‍♂️ АНАЛИЗ ТРОПЫ
         else if (data === 'start_trail_analysis') {
-            await startTrailAnalysis(chatId, user);
-        }
+    await startTrailAnalysis(chatId, user);
+}
         else if (data === 'single_analysis') {
             await handleSingleAnalysis(chatId);
         }
