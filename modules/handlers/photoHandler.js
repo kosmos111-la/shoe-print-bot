@@ -3,6 +3,11 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const Helpers = require('../utils/helpers');
 
+const { getWorkingSessionManager } = require('../sessions/sessionManager');
+// или если не работает:
+// const { getWorkingSessionManager } = require('../../bot'); // зависит от структуры
+
+
 class PhotoHandler {
     constructor(bot, sessionManager, footprintAssembler, yandexDisk) {
         this.bot = bot;
@@ -434,7 +439,8 @@ simplifyPolygon(points, epsilon = 2.0) {
     }
 
     async addToTrailSession(chatId, fileUrl, predictions, features, perspectiveAnalysis, patternType) {
-        const trailSession = this.sessionManager.trailSessions.get(chatId);
+        const sessionManager = getWorkingSessionManager();  // ✅ НОВЫЙ
+    const trailSession = sessionManager.trailSessions.get(chatId);
         if (!trailSession || trailSession.status !== 'active') return;
 
         const footprintData = {
