@@ -358,19 +358,19 @@ app.get('/health', (req, res) => {
     });
 });
 
-const helpHandler = new HelpHandler(bot, newSessionManager);
+const helpHandler = new HelpHandler(bot, getSessionManager);
 
 // =============================================================================
 // 🎯 РЕГИСТРАЦИЯ ОБРАБОТЧИКОВ КОМАНД
 // =============================================================================
 
-const startHandler = new StartHandler(bot, newSessionManager);
+const startHandler = new StartHandler(bot, getSessionManager); 
 bot.onText(/\/start/, (msg) => startHandler.handleStart(msg));
 
-const statisticsHandler = new StatisticsHandler(bot, newSessionManager);
+const statisticsHandler = new StatisticsHandler(bot, getSessionManager); 
 bot.onText(/\/statistics/, (msg) => statisticsHandler.handleStatistics(msg));
 
-const menuHandler = new MenuHandler(bot, newSessionManager);
+const menuHandler = new MenuHandler(bot, getSessionManager);
 bot.onText(/\/menu/, (msg) => menuHandler.handleMenu(msg));
 // Команда показа собранной модели
 bot.onText(/\/show_model(?:\s+(\d+))?/, (msg, match) => {
@@ -462,15 +462,17 @@ async saveAllData() {
         console.log('💾 Автосохранение данных...');
       
         let data = {};
-        if (newSessionManager && typeof newSessionManager.serializeForSave === 'function') {
-            data = newSessionManager.serializeForSave();
+        const sessionManager = getSessionManager(); // ← ДОБАВЬТЕ ЭТУ СТРОКУ
+       
+        if (sessionManager && typeof sessionManager.serializeForSave === 'function') {
+            data = sessionManager.serializeForSave();
         } else {
             console.log('⚠️ SessionManager не готов для сохранения');
             data = {
                 trailSessions: [],
                 referencePrints: [],
                 userStats: [],
-                globalStats: getSessionManager()?.globalStats || {},
+                globalStats: sessionManager?.globalStats || {}, // ← ИСПОЛЬЗУЙТЕ sessionManager
                 timestamp: new Date().toISOString()
             };
         }
@@ -478,7 +480,7 @@ async saveAllData() {
         // Локальное сохранение
         fs.writeFileSync(this.dataFile, JSON.stringify(data, null, 2));
       
-        // 🔧 ЗАМЕНИТЕ ЭТОТ БЛОК - Сохранение в Яндекс.Диск
+        // Сохранение в Яндекс.Диск
         if (yandexDisk) {
             try {
                 await withRetry(async () => {
