@@ -69,9 +69,9 @@ const PhotoHandler = require('./modules/handlers/photoHandler');
 const VisualizationHandler = require('./modules/handlers/visualizationHandler');
 
 // 🏔️ ЯДРО СИСТЕМЫ
-const { SessionManager: NewSessionManager } = require('./modules/sessions/sessionManager');
-const { DataPersistence: NewDataPersistence } = require('./modules/storage/legacy');
-const { ModelHierarchy } = require('./model_hierarchy');
+// const { SessionManager: NewSessionManager } = require('./modules/sessions/sessionManager');
+// const { DataPersistence: NewDataPersistence } = require('./modules/storage/legacy');
+//  const { ModelHierarchy } = require('./model_hierarchy');
 
 const HelpHandler = require('./modules/handlers/helpHandler');
 
@@ -214,6 +214,36 @@ try {
    
     footprintAssembler = new FootprintAssembler();
 }
+
+// =============================================================================
+// 🛡️ ЗАГЛУШКА MODEL HIERARCHY
+// =============================================================================
+
+class SimpleModelHierarchy {
+    constructor(session) {
+        this.session = session;
+        console.log('✅ SimpleModelHierarchy создан (заглушка)');
+    }
+   
+    async processHierarchy() {
+        console.log('🏔️ SimpleModelHierarchy: обработка пирамиды...');
+        return [];
+    }
+   
+    getStats() {
+        return {
+            levels: { raw: 0, final: 0, orphans: 0 },
+            modelsMerged: 0,
+            orphansAdopted: 0,
+            conflictsResolved: 0
+        };
+    }
+}
+
+// Глобальная функция для доступа
+const getModelHierarchy = (session) => {
+    return new SimpleModelHierarchy(session);
+};
 
 // =============================================================================
 // 🏔️ ИНИЦИАЛИЗАЦИЯ МЕНЕДЖЕРОВ
@@ -2504,14 +2534,12 @@ async function loadStatsFromPublicLink() {
 
         const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/vjXtSXW8otwaNg`;
 
-        // 🔧 ДОБАВЬТЕ withRetry
         const linkResponse = await withRetry(async () => {
             return await axios.get(apiUrl, { timeout: 10000 });
         }, "Получение ссылки Яндекс.Диск");
 
         console.log('✅ Получена ссылка для скачивания');
 
-        // Скачиваем как текст сначала
         const fileResponse = await withRetry(async () => {
             return await axios.get(linkResponse.data.href, {
                 timeout: 10000,
@@ -2521,21 +2549,31 @@ async function loadStatsFromPublicLink() {
 
         console.log('📥 Файл скачан, длина:', fileResponse.data.length);
 
-        // Пробуем распарсить JSON
         const remoteStats = JSON.parse(fileResponse.data);
 
-        // Проверяем структуру
+        // 🔧 ДОБАВЬТЕ ПРОВЕРКУ НА СУЩЕСТВОВАНИЕ МЕНЕДЖЕРА
+        if (!getSessionManager()) {
+            console.log('⚠️ SessionManager не готов, пропускаем загрузку статистики');
+            return false;
+        }
+
+        // 🔧 ДОБАВЬТЕ ПРОВЕРКУ СТРУКТУРЫ
         if (!remoteStats.global) {
             throw new Error('Неверная структура файла статистики');
         }
 
-        // Обновляем статистику
-        Object.assign(newSessionManager.globalStats, remoteStats.global);
-        newSessionManager.userStats.clear();
+        // 🔧 БЕЗОПАСНОЕ ОБНОВЛЕНИЕ СТАТИСТИКИ
+        if (getSessionManager().globalStats) {
+            Object.assign(getSessionManager().globalStats, remoteStats.global);
+        }
+       
+        if (getSessionManager().userStats) {
+            getSessionManager().userStats.clear();
+        }
       
         if (remoteStats.users && Array.isArray(remoteStats.users)) {
             remoteStats.users.forEach(([userId, userData]) => {
-                newSessionManager.userStats.set(userId, userData);
+                getSessionManager().userStats.set(userId, userData);
             });
         }
 
@@ -3365,24 +3403,25 @@ bot.onText(/\/test_geometry/, async (msg) => {
 // 🏔️ КОМАНДА: ПЕРЕЗАПУСК ПЕРЕВЕРНУТОЙ ПИРАМИДЫ
 bot.onText(/\/rebuild_hierarchy/, async (msg) => {
     const chatId = msg.chat.id;
-    const session = sessionManager.trailSessions.get(chatId);
-   
+    const session = getSessionManager().trailSessions.get(chatId);
+  
     if (!session || session.footprints.length === 0) {
         await bot.sendMessage(chatId, '❌ Нет активной сессии или следов для обработки');
         return;
     }
-   
+  
     await bot.sendMessage(chatId,
         '🏔️ **Запуск перевернутой пирамиды...**\n\n' +
         '📊 Обрабатываю следы: ' + session.footprints.length + '\n' +
         '⏳ Это может занять несколько минут...'
     );
-   
+  
     try {
-        const hierarchy = new ModelHierarchy(session);
+        // 🔧 ИСПОЛЬЗУЕМ ЗАГЛУШКУ
+        const hierarchy = getModelHierarchy(session);
         const finalModels = await hierarchy.processHierarchy();
         const stats = hierarchy.getStats();
-       
+      
         let message = '🎯 **ПЕРЕВЕРНУТАЯ ПИРАМИДА ЗАВЕРШЕНА**\n\n';
         message += `📊 **СТАТИСТИКА:**\n`;
         message += `• Исходно следов: ${stats.levels.raw}\n`;
@@ -3390,33 +3429,19 @@ bot.onText(/\/rebuild_hierarchy/, async (msg) => {
         message += `• Неопознанных следов: ${stats.levels.orphans}\n`;
         message += `• Объединено моделей: ${stats.modelsMerged}\n`;
         message += `• Усыновлено следов: ${stats.orphansAdopted}\n\n`;
-       
-        if (finalModels.length > 0) {
-            message += `👥 **ФИНАЛЬНЫЕ МОДЕЛИ:**\n`;
-            finalModels.forEach((model, index) => {
-                message += `\n**МОДЕЛЬ ${index + 1}:**\n`;
-                message += `• Следов: ${model.footprints.length}\n`;
-                message += `• Полнота: ${model.completeness}%\n`;
-                message += `• Уверенность: ${model.confidence}%\n`;
-                message += `• ID: ${model.id}\n`;
-            });
-        } else {
-            message += `❌ Не удалось создать модели из доступных следов`;
-        }
-       
-        message += `\n\n🔍 **Детали:** /hierarchy_debug`;
-        message += `\n🔄 **Перезапуск:** /rebuild_hierarchy`;
-       
+      
+        message += `💡 **Функция временно в режиме заглушки**\n`;
+        message += `• Используйте обычные команды сборки\n`;
+        message += `• /show_groups - просмотр групп\n`;
+        message += `• /assemble_from_group - ручная сборка`;
+      
         await bot.sendMessage(chatId, message);
-       
+      
     } catch (error) {
         console.error('❌ Ошибка пирамиды:', error);
         await bot.sendMessage(chatId,
             '❌ **Ошибка перевернутой пирамиды**\n\n' +
-            'Причина: ' + error.message + '\n\n' +
-            '💡 Попробуйте использовать обычные команды:\n' +
-            '• /show_groups - просмотр групп\n' +
-            '• /assemble_from_group - ручная сборка'
+            'Причина: ' + error.message
         );
     }
 });
@@ -3424,63 +3449,32 @@ bot.onText(/\/rebuild_hierarchy/, async (msg) => {
 // 🔍 КОМАНДА: ДЕТАЛИ ПЕРЕВЕРНУТОЙ ПИРАМИДЫ
 bot.onText(/\/hierarchy_debug/, async (msg) => {
     const chatId = msg.chat.id;
-    const session = sessionManager.trailSessions.get(chatId);
-   
+    const session = getSessionManager().trailSessions.get(chatId);
+  
     if (!session || session.footprints.length === 0) {
         await bot.sendMessage(chatId, '❌ Нет активной сессии или следов');
         return;
     }
-   
+  
     try {
-        const hierarchy = new ModelHierarchy(session);
+        // 🔧 ИСПОЛЬЗУЕМ ЗАГЛУШКУ
+        const hierarchy = getModelHierarchy(session);
         await hierarchy.processHierarchy();
         const stats = hierarchy.getStats();
-       
+      
         let message = '🔍 **ДЕТАЛИ ПЕРЕВЕРНУТОЙ ПИРАМИДЫ**\n\n';
-       
-        message += `📊 **ПО УРОВНЯМ:**\n`;
-        message += `• 🎯 Уровень 1 (сырые): ${stats.levels.raw} следов\n`;
-        message += `• 🔍 Уровень 2 (группы): ${stats.levels.candidates} кандидатов\n`;
-        message += `• 🧩 Уровень 3 (модели): ${stats.levels.active} активных\n`;
-        message += `• 🎯 Уровень 6 (финал): ${stats.levels.final} моделей\n`;
-        message += `• 🏠 Сиротские следы: ${stats.levels.orphans}\n\n`;
-       
-        message += `🔄 **ПРОЦЕССЫ:**\n`;
-        message += `• Объединено моделей: ${stats.modelsMerged}\n`;
-        message += `• Усыновлено следов: ${stats.orphansAdopted}\n`;
-        message += `• Конфликтов решено: ${stats.conflictsResolved}\n\n`;
-       
-        // Информация о финальных моделях
-        if (hierarchy.levels.finalModels.length > 0) {
-            message += `👥 **ФИНАЛЬНЫЕ МОДЕЛИ:**\n`;
-            hierarchy.levels.finalModels.forEach((model, index) => {
-                const footprintIds = model.footprints.map(f => `#${f.id.replace('footprint_', '')}`).join(', ');
-                message += `\n**Модель ${index + 1}** (${model.footprints.length} следов):\n`;
-                message += `• Уверенность: ${model.confidence}%\n`;
-                message += `• Полнота: ${model.completeness}%\n`;
-                message += `• Следы: ${footprintIds}\n`;
-            });
-        }
-       
-        // Информация о сиротских следах
-        if (hierarchy.orphanFootprints.length > 0) {
-            message += `\n⚠️ **НЕОПОЗНАННЫЕ СЛЕДЫ:**\n`;
-            const orphanIds = hierarchy.orphanFootprints.map(f => `#${f.id.replace('footprint_', '')}`).join(', ');
-            message += `• Следы: ${orphanIds}\n`;
-            message += `• Возможно шум или новые люди\n`;
-        }
-       
-        message += `\n💡 **РЕКОМЕНДАЦИИ:**\n`;
-        if (stats.levels.final === 0) {
-            message += `• Добавьте больше четких следов\n`;
-            message += `• Проверьте качество фотографий\n`;
-        } else if (stats.levels.orphans > stats.levels.raw * 0.3) {
-            message += `• Много неопознанных следов\n`;
-            message += `• Возможно несколько разных людей\n`;
-        }
-       
+        message += `📊 **РЕЖИМ ЗАГЛУШКИ**\n`;
+        message += `• ModelHierarchy временно отключен\n`;
+        message += `• Причина: circular dependency\n`;
+        message += `• Используйте обычные команды анализа\n\n`;
+      
+        message += `💡 **АЛЬТЕРНАТИВНЫЕ КОМАНДЫ:**\n`;
+        message += `• /show_groups - группы следов\n`;
+        message += `• /assemble_model - сборка моделей\n`;
+        message += `• /visualize_results - визуализация`;
+      
         await bot.sendMessage(chatId, message);
-       
+      
     } catch (error) {
         await bot.sendMessage(chatId, '❌ Ошибка получения деталей: ' + error.message);
     }
