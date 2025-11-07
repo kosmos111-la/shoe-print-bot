@@ -397,36 +397,36 @@ function getWorkingSessionManager() {
             console.log(`🕵️‍♂️ Создание сессии для ${username} (${chatId})`);
            
             // 🔧 ИСПОЛЬЗУЕМ sessionManager ВМЕСТО this
-            if (!sessionManager.trailSessions.has(chatId)) {
+            if (!getSessionManager().trailSessions.has(chatId)) {
                 const session = new TrailSession(chatId, username);
-                sessionManager.trailSessions.set(chatId, session);
+                getSessionManager().trailSessions.set(chatId, session);
                 console.log(`✅ Сессия создана: ${session.sessionId}`);
             }
-            return sessionManager.trailSessions.get(chatId);
+            return getSessionManager().trailSessions.get(chatId);
         },
        
         serializeForSave: function() {
             return {
-                trailSessions: Array.from(sessionManager.trailSessions.entries()),
-                referencePrints: Array.from(sessionManager.referencePrints.entries()),
-                userStats: Array.from(sessionManager.userStats.entries()),
-                globalStats: sessionManager.globalStats,
+                trailSessions: Array.from(getSessionManager().trailSessions.entries()),
+                referencePrints: Array.from(getSessionManager().referencePrints.entries()),
+                userStats: Array.from(getSessionManager().userStats.entries()),
+                globalStats: getSessionManager().globalStats,
                 timestamp: new Date().toISOString()
             };
         },
        
         restoreFromData: function(data) {
             if (data.trailSessions) {
-                sessionManager.trailSessions = new Map(data.trailSessions);
+                getSessionManager().trailSessions = new Map(data.trailSessions);
             }
             if (data.referencePrints) {
-                sessionManager.referencePrints = new Map(data.referencePrints);
+                getSessionManager().referencePrints = new Map(data.referencePrints);
             }
             if (data.userStats) {
-                sessionManager.userStats = new Map(data.userStats);
+                getSessionManager().userStats = new Map(data.userStats);
             }
             if (data.globalStats) {
-                sessionManager.globalStats = data.globalStats;
+                getSessionManager().globalStats = data.globalStats;
             }
         }
     };
@@ -568,10 +568,10 @@ async saveAllData() {
       
         const sessionManager = getWorkingSessionManager();
         const data = {
-            trailSessions: Array.from(sessionManager.trailSessions.entries()),
-            referencePrints: Array.from(sessionManager.referencePrints.entries()),
-            userStats: Array.from(sessionManager.userStats.entries()),
-            globalStats: sessionManager.globalStats,
+            trailSessions: Array.from(getSessionManager().trailSessions.entries()),
+            referencePrints: Array.from(getSessionManager().referencePrints.entries()),
+            userStats: Array.from(getSessionManager().userStats.entries()),
+            globalStats: getSessionManager().globalStats,
             timestamp: new Date().toISOString()
         };
 
@@ -2392,7 +2392,7 @@ bot.onText(/\/trail_start/, async (msg) => {
 bot.onText(/\/compare$/, async (msg) => {
     const chatId = msg.chat.id;
    
-    if (sessionManager.referencePrints.size === 0) {
+    if (getSessionManager().referencePrints.size === 0) {
         await bot.sendMessage(chatId,
             '📝 **СПИСОК ЭТАЛОНОВ ПУСТ**\n\n' +
             'Сначала сохраните эталоны:\n' +
@@ -2405,7 +2405,7 @@ bot.onText(/\/compare$/, async (msg) => {
     let message = '🔍 **СРАВНЕНИЕ С ЭТАЛОНОМ**\n\n';
     message += '📝 **Укажите модель для сравнения:**\n';
    
-    sessionManager.referencePrints.forEach((ref, modelName) => {
+    getSessionManager().referencePrints.forEach((ref, modelName) => {
         const details = ref.features ? ref.features.detailCount : '?';
         message += `• \`/compare ${modelName}\` (${details} дет.)\n`;
     });
@@ -2418,14 +2418,14 @@ bot.onText(/\/compare$/, async (msg) => {
 bot.onText(/\/compare (.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const modelName = match[1].trim();
-    const session = sessionManager.getSession(chatId);
+    const session = getSessionManager().getSession(chatId);
 
-    const reference = sessionManager.referencePrints.get(modelName);
+    const reference = getSessionManager().referencePrints.get(modelName);
     if (!reference) {
         let message = `❌ Эталон "${modelName}" не найден\n\n`;
         message += '📋 **Доступные эталоны:**\n';
        
-        sessionManager.referencePrints.forEach((ref, name) => {
+        getSessionManager().referencePrints.forEach((ref, name) => {
             message += `• ${name}\n`;
         });
        
@@ -2475,7 +2475,7 @@ bot.onText(/\/save_reference$/, async (msg) => {
 bot.onText(/\/save_reference (.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const modelName = match[1].trim();
-    const session = sessionManager.getSession(chatId);
+    const session = getSessionManager().getSession(chatId);
 
     if (modelName.length < 2) {
         await bot.sendMessage(chatId, '❌ Название модели слишком короткое');
@@ -2497,7 +2497,7 @@ bot.onText(/\/save_reference (.+)/, async (msg, match) => {
 bot.onText(/\/list_references/, async (msg) => {
     const chatId = msg.chat.id;
 
-    if (sessionManager.referencePrints.size === 0) {
+    if (getSessionManager().referencePrints.size === 0) {
         await bot.sendMessage(chatId,
             '📝 **СПИСОК ЭТАЛОНОВ ПУСТ**\n\n' +
             'Для добавления эталонов:\n' +
@@ -2509,7 +2509,7 @@ bot.onText(/\/list_references/, async (msg) => {
     let list = '📝 **СОХРАНЕННЫЕ ЭТАЛОНЫ:**\n\n';
     let counter = 1;
 
-    sessionManager.referencePrints.forEach((ref, modelName) => {
+    getSessionManager().referencePrints.forEach((ref, modelName) => {
         const date = ref.timestamp.toLocaleDateString('ru-RU');
         const details = ref.features ? ref.features.detailCount : '?';
         list += `${counter}. **${modelName}**\n`;
@@ -2524,7 +2524,7 @@ bot.onText(/\/list_references/, async (msg) => {
 
 bot.onText(/\/cancel/, async (msg) => {
     const chatId = msg.chat.id;
-    const session = sessionManager.getSession(chatId);
+    const session = getSessionManager().getSession(chatId);
    
     session.waitingForReference = null;
     session.waitingForComparison = null; // ← ДОБАВЬТЕ ЭТУ СТРОКУ
@@ -2631,7 +2631,7 @@ bot.onText(/\/trail_report/, async (msg) => {
 
 bot.onText(/\/trail_notes(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
    
     if (!session) {
         await bot.sendMessage(chatId, '❌ Нет активной сессии для добавления заметок.');
@@ -2843,7 +2843,7 @@ bot.onText(/\/save_assembled (.+)/, async (msg, match) => {
     const lastModel = session.assembledModels[session.assembledModels.length - 1];
    
     // Сохраняем как эталон
-    sessionManager.referencePrints.set(modelName, {
+    getSessionManager().referencePrints.set(modelName, {
         features: lastModel.model.features,
         imageUrl: lastModel.model.sourcePrints[0] ?
             session.footprints.find(f => f.id === lastModel.model.sourcePrints[0])?.imageUrl : '',
@@ -3001,9 +3001,9 @@ bot.onText(/\/save_data/, async (msg) => {
     await bot.sendMessage(chatId,
         '✅ **Все данные сохранены!**\n\n' +
         '📊 Сохранено:\n' +
-        `• Сессии: ${sessionManager.trailSessions.size}\n` +
-        `• Эталоны: ${sessionManager.referencePrints.size}\n` +
-        `• Пользователи: ${sessionManager.userStats.size}\n\n` +
+        `• Сессии: ${getSessionManager().trailSessions.size}\n` +
+        `• Эталоны: ${getSessionManager().referencePrints.size}\n` +
+        `• Пользователи: ${getSessionManager().userStats.size}\n\n` +
         '💡 Данные будут восстановлены после перезапуска'
     );
 });
@@ -3012,7 +3012,7 @@ bot.onText(/\/save_data/, async (msg) => {
 bot.onText(/\/detailed_stats/, async (msg) => {
     const chatId = msg.chat.id;
    
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     if (!session) {
         await bot.sendMessage(chatId, '❌ Активная сессия не найдена');
         return;
@@ -3025,7 +3025,7 @@ bot.onText(/\/detailed_stats/, async (msg) => {
 // 🔧 КОМАНДА ДЛЯ ДЕТАЛЬНОГО АНАЛИЗА УЗОРОВ
 bot.onText(/\/debug_patterns/, async (msg) => {
     const chatId = msg.chat.id;
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
    
     if (!session || session.footprints.length === 0) {
         await bot.sendMessage(chatId, '❌ Нет отпечатков для анализа');
@@ -3065,7 +3065,7 @@ bot.onText(/\/debug_patterns/, async (msg) => {
 // Тест классификации частей
 bot.onText(/\/test_classify/, async (msg) => {
     const chatId = msg.chat.id;
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
    
     if (!session || session.footprints.length === 0) {
         await bot.sendMessage(chatId, '❌ Нет отпечатков для тестирования');
@@ -3087,8 +3087,8 @@ bot.onText(/\/test_classify/, async (msg) => {
 bot.onText(/\/debug_reset/, async (msg) => {
     const chatId = msg.chat.id;
    
-    sessionManager.trailSessions.delete(chatId);
-    const session = sessionManager.getTrailSession(chatId, msg.from.username || msg.from.first_name);
+   getSessionManager().trailSessions.delete(chatId);
+    const session = getSessionManager().getTrailSession(chatId, msg.from.username || msg.from.first_name);
    
     await bot.sendMessage(chatId,
         '🔄 **СБРОС СЕССИИ ДЛЯ ТЕСТИРОВАНИЯ**\n\n' +
@@ -3100,7 +3100,7 @@ bot.onText(/\/debug_reset/, async (msg) => {
 // 🔧 КОМАНДА ДЛЯ ТЕСТИРОВАНИЯ ГЕОМЕТРИЧЕСКОЙ НОРМАЛИЗАЦИИ
 bot.onText(/\/test_geometry/, async (msg) => {
     const chatId = msg.chat.id;
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
    
     if (!session || session.footprints.length === 0) {
         await bot.sendMessage(chatId, '❌ Нет отпечатков для тестирования геометрии');
@@ -3285,8 +3285,8 @@ async function showTrailAnalysisMenu(chatId, session = null) {
         const sessionManager = getWorkingSessionManager();
        
         if (!session) {
-            session = sessionManager.trailSessions ?
-                sessionManager.trailSessions.get(chatId) : null;
+            session = getSessionManager().trailSessions ?
+                getSessionManager().trailSessions.get(chatId) : null;
         }
       
         const footprintsCount = session ? session.footprints.length : 0;
@@ -3445,11 +3445,11 @@ async function startTrailAnalysis(chatId, user) {
         // 🔧 ИСПОЛЬЗУЕМ ГАРАНТИРОВАННЫЙ МЕНЕДЖЕР
         const sessionManager = getWorkingSessionManager();
        
-        if (!sessionManager || !sessionManager.getTrailSession) {
+        if (!sessionManager || !getSessionManager().getTrailSession) {
             throw new Error('SessionManager не доступен');
         }
 
-        const session = sessionManager.getTrailSession(chatId, user.username || user.first_name);
+        const session = getSessionManager().getTrailSession(chatId, user.username || user.first_name);
       
         await bot.sendMessage(chatId,
             `🕵️‍♂️ **АНАЛИЗ ТРОПЫ ЗАПУЩЕН!**\n\n` +
@@ -3505,7 +3505,7 @@ async function handleSingleAnalysis(chatId) {
 * 🔍 СРАВНЕНИЕ С ЭТАЛОНОМ
 */
 async function handleCompareReference(chatId) {
-    if (sessionManager.referencePrints.size === 0) {
+    if (getSessionManager().referencePrints.size === 0) {
         await bot.sendMessage(chatId,
             '📝 **СПИСОК ЭТАЛОНОВ ПУСТ**\n\n' +
             'Сначала сохраните эталоны командой:\n' +
@@ -3518,7 +3518,7 @@ async function handleCompareReference(chatId) {
     }
 
     // Создаем кнопки для выбора эталона
-    const referenceButtons = Array.from(sessionManager.referencePrints.entries()).map(([modelName, ref]) => {
+    const referenceButtons = Array.from(getSessionManager().referencePrints.entries()).map(([modelName, ref]) => {
         const details = ref.features ? ref.features.detailCount : '?';
         return [{
             text: `🔍 ${modelName} (${details} дет.)`,
@@ -3691,7 +3691,7 @@ async function handleSaveData(chatId) {
 * 🤖 АВТОМАТИЧЕСКИЙ АНАЛИЗ
 */
 async function autoAnalyze(chatId) {
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     if (!session || session.footprints.length === 0) {
         await bot.sendMessage(chatId, '❌ Нет следов для анализа. Сначала отправьте фото следов.');
         return;
@@ -3726,7 +3726,7 @@ async function autoAnalyze(chatId) {
 * 👥 ПОКАЗ ГРУПП СЛЕДОВ
 */
 async function handleShowGroups(chatId) {
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     if (!session) {
         await bot.sendMessage(chatId, '❌ Активируйте сначала анализ тропы');
         return;
@@ -3751,7 +3751,7 @@ async function handleShowGroups(chatId) {
 * 📈 ДЕТАЛЬНЫЙ ОТЧЕТ
 */
 async function handleDetailedReport(chatId) {
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     if (session && session.footprints.length > 0) {
         const report = session.generateEnhancedReport();
         await bot.sendMessage(chatId, report);
@@ -3767,7 +3767,7 @@ async function handleDetailedReport(chatId) {
 */
 async function handleShowGroupDetails(chatId, data) {
     const groupIndex = parseInt(data.split('_')[2]);
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
    
     if (!session || !session.compatibilityGroups[groupIndex]) {
         await bot.sendMessage(chatId, '❌ Группа не найдена');
@@ -3801,7 +3801,7 @@ async function handleShowGroupDetails(chatId, data) {
 * 🧩 СБОРКА МОДЕЛЕЙ
 */
 async function handleAssembleModels(chatId) {
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     if (!session || session.footprints.length < 2) {
         await bot.sendMessage(chatId, '❌ Недостаточно следов для сборки (нужно минимум 2)');
         return;
@@ -3841,7 +3841,7 @@ async function handleAssembleModels(chatId) {
 * 🏔️ ЗАПУСК ПИРАМИДЫ
 */
 async function handleRebuildHierarchy(chatId) {
-    const session = sessionManager.trailSessions.get(chatId);
+    const session = getSessionManager().trailSessions.get(chatId);
     if (!session) {
         await bot.sendMessage(chatId, '❌ Нет активной сессии для пирамиды');
         return;
@@ -4026,13 +4026,13 @@ getSessionManager().userStats.clear();
            
             if (remoteStats.users && Array.isArray(remoteStats.users)) {
                 remoteStats.users.forEach(([userId, userData]) => {
-                    sessionManager.userStats.set(userId, userData);
+                    getSessionManager().userStats.set(userId, userData);
                 });
             }
            
             console.log('✅ Статистика загружена:');
-            console.log(`   👥 Пользователей: ${ sessionManager.globalStats.totalUsers}`);
-            console.log(`   📸 Фото: ${ sessionManager.globalStats.totalPhotos}`);
+            console.log(`   👥 Пользователей: ${ getSessionManager().globalStats.totalUsers}`);
+            console.log(`   📸 Фото: ${ getSessionManager().globalStats.totalPhotos}`);
         }
     } catch (error) {
         console.log('❌ Ошибка загрузки статистики:', error.message);
