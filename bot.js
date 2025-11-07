@@ -4074,7 +4074,7 @@ app.listen(PORT, async () => {
     }
    
     await loadStatsFromPublicLink();
-await dataPersistence.loadAllData();
+await newDataPersistence.loadAllData();
 
 console.log(`📊 Текущая статистика: ${ newSessionManager.globalStats.totalUsers} пользователей, ${ newSessionManager.globalStats.totalPhotos} фото`);
 console.log(`💾 Восстановлено сессий: ${newSessionManager.trailSessions.size}, эталонов: ${newSessionManager.referencePrints.size}`);
@@ -4096,7 +4096,7 @@ process.on('unhandledRejection', (error) => {
     console.error('⚠️ Unhandled Promise Rejection:', error);
    
     // Автосохранение при критических ошибках
-    if (dataPersistence) {
+    if (newDataPersistence) {
         dataPersistence.saveAllData().catch(e => {
             console.error('❌ Не удалось сохранить данные при ошибке:', e);
         });
@@ -4107,7 +4107,7 @@ process.on('uncaughtException', (error) => {
     console.error('⚠️ Uncaught Exception:', error);
    
     // Экстренное сохранение
-    if (dataPersistence) {
+    if (newDataPersistence) {
         try {
             dataPersistence.saveAllData();
         } catch (e) {
