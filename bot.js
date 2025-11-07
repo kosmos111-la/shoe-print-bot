@@ -365,49 +365,61 @@ const helpHandler = new HelpHandler(bot, getWorkingSessionManager());
 // =============================================================================
 
 // Функция которая гарантированно возвращает работающий SessionManager
-function getWorkingSessionManager() {
-    const manager = getSessionManager();
-   
-    // Если менеджер не имеет нужных методов, создаем заглушку
-    if (!manager || typeof manager.updateUserStats !== 'function') {
-        console.log('🛡️ Создание гарантированного SessionManager...');
-        return {
-            updateUserStats: (userId, field, value = 1) => {
-                console.log(`📊 updateUserStats: ${userId}, ${field}, ${value}`);
-            },
-            getStatistics: () => ({
-                totalUsers: 1,
-                totalPhotos: 0,
-                totalAnalyses: 0,
-                comparisonsMade: 0,
-                activeUsers: 1,
-                activeSessions: 0,
-                referencePrintsCount: 0
-            }),
-            globalStats: { totalUsers: 1, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, lastAnalysis: null },
-            userStats: new Map(),
-            referencePrints: new Map(),
-            trailSessions: new Map(),
-            getSession: (chatId) => ({ waitingForReference: null, waitingForComparison: null }),
-            getTrailSession: (chatId, username) => {
-                if (!this.trailSessions.has(chatId)) {
-                    const session = new TrailSession(chatId, username);
-                    this.trailSessions.set(chatId, session);
-                }
-                return this.trailSessions.get(chatId);
+ffunction getWorkingSessionManager() {
+    console.log('🛡️ Создание гарантированного SessionManager...');
+    return {
+        updateUserStats: (userId, field, value = 1) => {
+            console.log(`📊 updateUserStats: ${userId}, ${field}, ${value}`);
+        },
+        getStatistics: () => ({
+            totalUsers: 1,
+            totalPhotos: 0,
+            totalAnalyses: 0,
+            comparisonsMade: 0,
+            activeUsers: 1,
+            activeSessions: 0,
+            referencePrintsCount: 0
+        }),
+        globalStats: { totalUsers: 1, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, lastAnalysis: null },
+        userStats: new Map(),
+        referencePrints: new Map(),
+        trailSessions: new Map(), // ← ВАЖНО: ДОБАВЛЯЕМ trailSessions
+        getSession: (chatId) => ({
+            waitingForReference: null,
+            waitingForComparison: null
+        }),
+        getTrailSession: (chatId, username) => {
+            // Создаем сессию если не существует
+            const sessionId = `session_${chatId}_${Date.now()}`;
+            const session = new TrailSession(chatId, username);
+            this.trailSessions.set(chatId, session);
+            return session;
+        },
+        // 🔧 ДОБАВЛЯЕМ ОТСУТСТВУЮЩИЕ МЕТОДЫ
+        serializeForSave: function() {
+            return {
+                trailSessions: Array.from(this.trailSessions.entries()),
+                referencePrints: Array.from(this.referencePrints.entries()),
+                userStats: Array.from(this.userStats.entries()),
+                globalStats: this.globalStats,
+                timestamp: new Date().toISOString()
+            };
+        },
+        restoreFromData: function(data) {
+            if (data.trailSessions) {
+                this.trailSessions = new Map(data.trailSessions);
             }
-        };
-    }
-   
-    return manager;
-}
-
-// =============================================================================
-// 🛡️ ГАРАНТИРОВАННЫЙ ДОСТУП К SESSIONMANAGER
-// =============================================================================
-
-function getWorkingSessionManager() {
-    // ... существующий код getWorkingSessionManager ...
+            if (data.referencePrints) {
+                this.referencePrints = new Map(data.referencePrints);
+            }
+            if (data.userStats) {
+                this.userStats = new Map(data.userStats);
+            }
+            if (data.globalStats) {
+                this.globalStats = data.globalStats;
+            }
+        }
+    };
 }
 
 // =============================================================================
@@ -542,12 +554,12 @@ async saveAllData() {
     try {
         console.log('💾 Автосохранение данных...');
       
-        // 🔧 ПРОСТАЯ РЕАЛИЗАЦИЯ ДЛЯ НЕМЕДЛЕННОЙ РАБОТЫ
+        const sessionManager = getWorkingSessionManager();
         const data = {
-            trailSessions: [],
-            referencePrints: [],
-            userStats: [],
-            globalStats: getWorkingSessionManager().globalStats || { totalUsers: 1, totalPhotos: 0, totalAnalyses: 0 },
+            trailSessions: Array.from(sessionManager.trailSessions.entries()),
+            referencePrints: Array.from(sessionManager.referencePrints.entries()),
+            userStats: Array.from(sessionManager.userStats.entries()),
+            globalStats: sessionManager.globalStats,
             timestamp: new Date().toISOString()
         };
 
