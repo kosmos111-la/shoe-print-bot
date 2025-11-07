@@ -260,7 +260,7 @@ try {
 _newDataPersistence = new NewDataPersistence(_newSessionManager, yandexDisk);
     console.log('✅ Менеджеры системы инициализированы');
 } catch (error) {
-    cconsole.log('❌ Ошибка инициализации менеджеров:', error.message);
+    console.log('❌ Ошибка инициализации менеджеров:', error.message);
     // Заглушки для продолжения работы
     _newSessionManager = {
     updateUserStats: () => console.log('🛡️ (заглушка) _newSessionManager.updateUserStats'),
