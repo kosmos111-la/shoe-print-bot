@@ -9,10 +9,7 @@ const { getWorkingSessionManager: getWSM, getFootprintAssembler: getFA } = requi
 // 🔧 АЛИАСЫ ДЛЯ ИСПОЛЬЗОВАНИЯ
 const getWorkingSessionManager = () => getWSM();
 const getFootprintAssembler = () => getFA();
-const getFootprintAssembler = () => {
-    const { getFootprintAssembler: func } = require('../../bot');
-    return func();
-};
+
 
 /**
 * 🖼️ ОБРАБОТЧИК ФОТОГРАФИЙ СЛЕДОВ
