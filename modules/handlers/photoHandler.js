@@ -3,13 +3,16 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const Helpers = require('../utils/helpers');
 
-// 🎯 КОРРЕКТНЫЕ ИМПОРТЫ - БЕЗ ДУБЛИРОВАНИЯ
-const { getWorkingSessionManager: getWSM, getFootprintAssembler: getFA } = require('../../bot');
+// 🎯 ПРОСТЫЕ ФУНКЦИИ-ЗАГЛУШКИ ДЛЯ ТЕСТИРОВАНИЯ
+const getWorkingSessionManager = () => {
+    console.log('🛡️ Использую гарантированный SessionManager');
+    return require('../../bot').getWorkingSessionManager();
+};
 
-// 🔧 АЛИАСЫ ДЛЯ ИСПОЛЬЗОВАНИЯ
-const getWorkingSessionManager = () => getWSM();
-const getFootprintAssembler = () => getFA();
-
+const getFootprintAssembler = () => {
+    console.log('🦶 Использую гарантированный FootprintAssembler');
+    return require('../../bot').getFootprintAssembler();
+};
 
 /**
 * 🖼️ ОБРАБОТЧИК ФОТОГРАФИЙ СЛЕДОВ
