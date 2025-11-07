@@ -329,9 +329,6 @@ console.log('✅ Все обработчики команд зарегистри
 // 🚀 ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ СБОРКИ И СОХРАНЕНИЯ
 // =============================================================================
 
-// 🔧 Инициализируем менеджер данных
-const dataPersistence = new DataPersistence();
-
 class ComparisonVisualizer {
     constructor() {
         this.colors = {
