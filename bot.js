@@ -107,8 +107,25 @@ let _newDataPersistence = null;
 function getSessionManager() {
     if (!_newSessionManager) {
         console.log('🔄 Ленивая загрузка SessionManager...');
-        const { SessionManager } = require('./modules/sessions/sessionManager');
-        _newSessionManager = new SessionManager(footprintAssembler);
+        try {
+            const { SessionManager } = require('./modules/sessions/sessionManager');
+            _newSessionManager = new SessionManager(getFootprintAssembler);
+        } catch (error) {
+            console.log('❌ Ошибка загрузки SessionManager:', error.message);
+            // Создаем заглушку
+            _newSessionManager = {
+                updateUserStats: () => console.log('🛡️ (заглушка) updateUserStats'),
+                getStatistics: () => ({ totalUsers: 0, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, activeUsers: 0, activeSessions: 0, referencePrintsCount: 0 }),
+                globalStats: { totalUsers: 0, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, lastAnalysis: null },
+                userStats: new Map(),
+                referencePrints: new Map(),
+                trailSessions: new Map(),
+                getSession: (chatId) => ({ waitingForReference: null, waitingForComparison: null }),
+                getTrailSession: (chatId, username) => ({
+                    sessionId: 'stub', expert: username, footprints: [], comparisons: [], status: 'active'
+                })
+            };
+        }
     }
     return _newSessionManager;
 }
