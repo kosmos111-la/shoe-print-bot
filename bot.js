@@ -367,9 +367,11 @@ const helpHandler = new HelpHandler(bot, getWorkingSessionManager());
 // Функция которая гарантированно возвращает работающий SessionManager
 function getWorkingSessionManager() {
     console.log('🛡️ Создание гарантированного SessionManager...');
-    return {
-        updateUserStats: (userId, field, value = 1) => {
-            console.log(`📊 updateUserStats: ${userId}, ${field}, ${value}`);
+   
+    // 🔧 СОЗДАЕМ ЛОКАЛЬНЫЙ ОБЪЕКТ ДЛЯ ПРАВИЛЬНОГО THIS
+    const sessionManager = {
+        updateUserStats: (userId, username) => {
+            console.log(`📊 updateUserStats: ${userId}, ${username}, 1`);
         },
         getStatistics: () => ({
             totalUsers: 1,
@@ -384,42 +386,51 @@ function getWorkingSessionManager() {
         userStats: new Map(),
         referencePrints: new Map(),
         trailSessions: new Map(), // ← ВАЖНО: ДОБАВЛЯЕМ trailSessions
+       
         getSession: (chatId) => ({
             waitingForReference: null,
             waitingForComparison: null
         }),
-        getTrailSession: (chatId, username) => {
-            // Создаем сессию если не существует
-            const sessionId = `session_${chatId}_${Date.now()}`;
-            const session = new TrailSession(chatId, username);
-            this.trailSessions.set(chatId, session);
-            return session;
+       
+        getTrailSession: function(chatId, username) {
+            console.log(`🕵️‍♂️ Создание сессии для ${username} (${chatId})`);
+           
+            // 🔧 ИСПОЛЬЗУЕМ sessionManager ВМЕСТО this
+            if (!sessionManager.trailSessions.has(chatId)) {
+                const session = new TrailSession(chatId, username);
+                sessionManager.trailSessions.set(chatId, session);
+                console.log(`✅ Сессия создана: ${session.sessionId}`);
+            }
+            return sessionManager.trailSessions.get(chatId);
         },
-        // 🔧 ДОБАВЛЯЕМ ОТСУТСТВУЮЩИЕ МЕТОДЫ
+       
         serializeForSave: function() {
             return {
-                trailSessions: Array.from(this.trailSessions.entries()),
-                referencePrints: Array.from(this.referencePrints.entries()),
-                userStats: Array.from(this.userStats.entries()),
-                globalStats: this.globalStats,
+                trailSessions: Array.from(sessionManager.trailSessions.entries()),
+                referencePrints: Array.from(sessionManager.referencePrints.entries()),
+                userStats: Array.from(sessionManager.userStats.entries()),
+                globalStats: sessionManager.globalStats,
                 timestamp: new Date().toISOString()
             };
         },
+       
         restoreFromData: function(data) {
             if (data.trailSessions) {
-                this.trailSessions = new Map(data.trailSessions);
+                sessionManager.trailSessions = new Map(data.trailSessions);
             }
             if (data.referencePrints) {
-                this.referencePrints = new Map(data.referencePrints);
+                sessionManager.referencePrints = new Map(data.referencePrints);
             }
             if (data.userStats) {
-                this.userStats = new Map(data.userStats);
+                sessionManager.userStats = new Map(data.userStats);
             }
             if (data.globalStats) {
-                this.globalStats = data.globalStats;
+                sessionManager.globalStats = data.globalStats;
             }
         }
     };
+   
+    return sessionManager;
 }
 
 // =============================================================================
