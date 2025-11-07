@@ -135,5 +135,6 @@ async showBasicMenu(chatId) {
         menuKeyboard
     );
 }
+}
 
 module.exports = StartHandler;
