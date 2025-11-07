@@ -1,22 +1,14 @@
 const axios = require('axios');
 const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
-const path = require('path');
+const Helpers = require('../utils/helpers');
 
-// 🎯 КОРРЕКТНЫЕ ИМПОРТЫ - ПРЯМОЙ ДОСТУП
-let getWorkingSessionManager, getFootprintAssembler;
+// 🎯 КОРРЕКТНЫЕ ИМПОРТЫ - БЕЗ ДУБЛИРОВАНИЯ
+const { getWorkingSessionManager: getWSM, getFootprintAssembler: getFA } = require('../../bot');
 
-try {
-    const botModule = require('../../bot');
-    getWorkingSessionManager = botModule.getWorkingSessionManager || (() => require('../../bot').getWorkingSessionManager());
-    getFootprintAssembler = botModule.getFootprintAssembler || (() => require('../../bot').getFootprintAssembler());
-} catch (error) {
-    console.log('⚠️ Альтернативная загрузка функций:', error.message);
-    // Резервные функции
-    getWorkingSessionManager = () => ({ trailSessions: new Map() });
-    getFootprintAssembler = () => ({ classifyFootprintPattern: () => 'unknown_pattern' });
-}
-
+// 🔧 АЛИАСЫ ДЛЯ ИСПОЛЬЗОВАНИЯ
+const getWorkingSessionManager = () => getWSM();
+const getFootprintAssembler = () => getFA();
 const getFootprintAssembler = () => {
     const { getFootprintAssembler: func } = require('../../bot');
     return func();
