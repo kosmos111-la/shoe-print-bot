@@ -69,7 +69,7 @@ const PhotoHandler = require('./modules/handlers/photoHandler');
 const VisualizationHandler = require('./modules/handlers/visualizationHandler');
 
 // 🏔️ ЯДРО СИСТЕМЫ
-// const { SessionManager: NewSessionManager } = require('./modules/sessions/sessionManager');
+ const { SessionManager: NewSessionManager } = require('./modules/sessions/sessionManager');
 // const { DataPersistence: NewDataPersistence } = require('./modules/storage/legacy');
 //  const { ModelHierarchy } = require('./model_hierarchy');
 
