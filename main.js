@@ -1,34 +1,35 @@
 const express = require('express');
-const modules = require('./modules/core');
 
-class ShoePrintBot {
-    constructor() {
-        this.app = express();
-        this.app.use(express.json());
-       
-        // Инициализация модулей
-        this.modules = modules;
-    }
-   
-    async start() {
-        try {
-            console.log('🚀 Запуск модульной системы анализа следов...');
-           
-            // Инициализация всех модулей
-            await this.modules.initialize();
-           
-            // Настройка webhook
-            await this.modules.botManager.setupWebhook();
-           
-            // Запуск сервера
-            this.app.listen(this.modules.config.PORT, () => {
-                console.log(`✅ Сервер запущен на порту ${this.modules.config.PORT}`);
-                console.log('🤖 Бот готов к работе!');
-            });
-           
-        } catch (error) {
-            console.error('❌ Ошибка запуска:', error);
-            process.exit(1);
+// Прямой импорт config
+const config = require('./config.js');
+
+console.log('🚀 Запуск упрощенной версии...');
+console.log('✅ Конфиг загружен');
+
+const app = express();
+app.use(express.json());
+
+app.get('/', (req, res) => {
+    res.send(`
+        <h1>🤖 Упрощенная модульная система</h1>
+        <p>Система запущена! Конфиг работает.</p>
+        <p>Порт: ${config.PORT}</p>
+    `);
+});
+
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        config: {
+            port: config.PORT,
+            hasTelegramToken: !!config.TELEGRAM_TOKEN
         }
-    }
-}
+    });
+});
+
+const PORT = config.PORT || 10000;
+app.listen(PORT, () => {
+    console.log(`✅ Сервер запущен на порту ${PORT}`);
+    console.log('🎯 Упрощенная система готова!');
+});
