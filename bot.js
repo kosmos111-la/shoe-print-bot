@@ -435,6 +435,9 @@ function getWorkingSessionManager() {
             }
         };
     }
+    console.log('🛡️ Возвращаем ЕДИНСТВЕННЫЙ SessionManager');
+    return _sessionManagerInstance;
+}
 
 // =============================================================================
 // 🦶 ГАРАНТИРОВАННЫЙ ДОСТУП К FOOTPRINT ASSEMBLER
@@ -4172,6 +4175,7 @@ module.exports = {
         };
     }
 };
+ 
 // Обработчики сигналов завершения
 process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
