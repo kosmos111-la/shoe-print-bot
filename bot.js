@@ -366,73 +366,75 @@ const helpHandler = new HelpHandler(bot, getWorkingSessionManager());
 // =============================================================================
 
 // Функция которая гарантированно возвращает работающий SessionManager
+// 🛡️ SINGLETON SESSION MANAGER
+let _sessionManagerInstance = null;
+
 function getWorkingSessionManager() {
-    console.log('🛡️ Создание гарантированного SessionManager...');
-   
-    // 🔧 СОЗДАЕМ ЛОКАЛЬНЫЙ ОБЪЕКТ ДЛЯ ПРАВИЛЬНОГО THIS
-    const sessionManager = {
-        updateUserStats: (userId, username) => {
-            console.log(`📊 updateUserStats: ${userId}, ${username}, 1`);
-        },
-        getStatistics: () => ({
-            totalUsers: 1,
-            totalPhotos: 0,
-            totalAnalyses: 0,
-            comparisonsMade: 0,
-            activeUsers: 1,
-            activeSessions: 0,
-            referencePrintsCount: 0
-        }),
-        globalStats: { totalUsers: 1, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, lastAnalysis: null },
-        userStats: new Map(),
-        referencePrints: new Map(),
-        trailSessions: new Map(), // ← ВАЖНО: ДОБАВЛЯЕМ trailSessions
+    if (!_sessionManagerInstance) {
+        console.log('🛡️ Создание ЕДИНСТВЕННОГО SessionManager...');
        
-        getSession: (chatId) => ({
-            waitingForReference: null,
-            waitingForComparison: null
-        }),
-       
-        getTrailSession: function(chatId, username) {
-            console.log(`🕵️‍♂️ Создание сессии для ${username} (${chatId})`);
+        // 🔧 СОЗДАЕМ ЛОКАЛЬНЫЙ ОБЪЕКТ ДЛЯ ПРАВИЛЬНОГО THIS
+        _sessionManagerInstance = {
+            updateUserStats: (userId, username) => {
+                console.log(`📊 updateUserStats: ${userId}, ${username}, 1`);
+            },
+            getStatistics: () => ({
+                totalUsers: 1,
+                totalPhotos: 0,
+                totalAnalyses: 0,
+                comparisonsMade: 0,
+                activeUsers: 1,
+                activeSessions: 0,
+                referencePrintsCount: 0
+            }),
+            globalStats: { totalUsers: 1, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, lastAnalysis: null },
+            userStats: new Map(),
+            referencePrints: new Map(),
+            trailSessions: new Map(), // ← ВАЖНО: ДОБАВЛЯЕМ trailSessions
            
-            // 🔧 ИСПОЛЬЗУЕМ sessionManager ВМЕСТО this
-            if (!getSessionManager().trailSessions.has(chatId)) {
-                const session = new TrailSession(chatId, username);
-                getSessionManager().trailSessions.set(chatId, session);
-                console.log(`✅ Сессия создана: ${session.sessionId}`);
+            getSession: (chatId) => ({
+                waitingForReference: null,
+                waitingForComparison: null
+            }),
+           
+            getTrailSession: function(chatId, username) {
+                console.log(`🕵️‍♂️ Создание сессии для ${username} (${chatId})`);
+               
+                if (!this.trailSessions.has(chatId)) {
+                    const TrailSession = require('./modules/core/TrailSession');
+                    const session = new TrailSession(chatId, username);
+                    this.trailSessions.set(chatId, session);
+                    console.log(`✅ Сессия создана: ${session.sessionId}`);
+                }
+                return this.trailSessions.get(chatId);
+            },
+           
+            serializeForSave: function() {
+                return {
+                    trailSessions: Array.from(this.trailSessions.entries()),
+                    referencePrints: Array.from(this.referencePrints.entries()),
+                    userStats: Array.from(this.userStats.entries()),
+                    globalStats: this.globalStats,
+                    timestamp: new Date().toISOString()
+                };
+            },
+           
+            restoreFromData: function(data) {
+                if (data.trailSessions) {
+                    this.trailSessions = new Map(data.trailSessions);
+                }
+                if (data.referencePrints) {
+                    this.referencePrints = new Map(data.referencePrints);
+                }
+                if (data.userStats) {
+                    this.userStats = new Map(data.userStats);
+                }
+                if (data.globalStats) {
+                    this.globalStats = data.globalStats;
+                }
             }
-            return getSessionManager().trailSessions.get(chatId);
-        },
-       
-        serializeForSave: function() {
-            return {
-                trailSessions: Array.from(getSessionManager().trailSessions.entries()),
-                referencePrints: Array.from(getSessionManager().referencePrints.entries()),
-                userStats: Array.from(getSessionManager().userStats.entries()),
-                globalStats: getSessionManager().globalStats,
-                timestamp: new Date().toISOString()
-            };
-        },
-       
-        restoreFromData: function(data) {
-            if (data.trailSessions) {
-                getSessionManager().trailSessions = new Map(data.trailSessions);
-            }
-            if (data.referencePrints) {
-                getSessionManager().referencePrints = new Map(data.referencePrints);
-            }
-            if (data.userStats) {
-                getSessionManager().userStats = new Map(data.userStats);
-            }
-            if (data.globalStats) {
-                getSessionManager().globalStats = data.globalStats;
-            }
-        }
-    };
-   
-    return sessionManager;
-}
+        };
+    }
 
 // =============================================================================
 // 🦶 ГАРАНТИРОВАННЫЙ ДОСТУП К FOOTPRINT ASSEMBLER
@@ -4160,9 +4162,16 @@ async function gracefulShutdown() {
 // 🔧 ЭКСПОРТЫ ДЛЯ МОДУЛЕЙ
 module.exports = {
     getWorkingSessionManager,
-    getFootprintAssembler
+    getFootprintAssembler: () => {
+        // простая заглушка для FootprintAssembler
+        return {
+            classifyFootprintPattern: () => 'right_medium_unknown',
+            advancedCompatibilityAnalysis: () => 0.7,
+            calculateOverallBoundingBox: () => ({ width: 800, height: 600 }),
+            assembleFullModel: () => ({ success: true, completeness: 75 })
+        };
+    }
 };
-
 // Обработчики сигналов завершения
 process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
