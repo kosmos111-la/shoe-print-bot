@@ -1,9 +1,20 @@
+const RoboflowClient = require('./roboflow-client');
+const PostProcessor = require('./post-processing');
+
+let analysisModule = null;
+
 module.exports = {
     initialize(roboflowConfig) {
-        console.log('✅ Модуль анализа инициализирован');
-        return {
-            roboflow: { analyzeImage: () => {} },
-            postprocessor: { smartPostProcessing: () => {} }
+        analysisModule = {
+            roboflow: new RoboflowClient(roboflowConfig),
+            postprocessor: new PostProcessor()
         };
+       
+        console.log('✅ Модуль анализа инициализирован');
+        return analysisModule;
+    },
+   
+    getModule() {
+        return analysisModule;
     }
 };
