@@ -1,3 +1,30 @@
-node_modules/
+# Temporary files
+*.tmp
+*.temp
+viz_*.jpg
+viz_*.png
+topology_*.png
+skeleton_*.png
+comparison_*.png
+temp_*.jpg
+
+# Data files
+*.json
+!package.json
+!package-lock.json
+
+# Environment
 .env
+.env.local
+
+# Logs
 *.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
