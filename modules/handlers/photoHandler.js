@@ -811,30 +811,32 @@ console.log('🎯 [TEMP] addToTrailSession - СЕССИИ ВРЕМЕННО ОТ�
     /**
      * 📝 ГЕНЕРАЦИЯ ПОДПИСИ РЕЗУЛЬТАТОВ
      */
-    generateResultsCaption(detailsCount, chatId, perspectiveAnalysis, patternType) {
-        let caption = `✅ Анализ завершен!\n🎯 Выявлено морфологических признаков: ${detailsCount}`;
-/*
-    // 🚨 ВРЕМЕННО ЗАКОММЕНТИРОВАТЬ
-        const trailSession = this.sessionManager.trailSessions.get(chatId);
-        if (trailSession && trailSession.status === 'active') {
-            caption += `\n\n🕵️♂️ **СЕССИЯ АНАЛИЗА ТРОПЫ**\n`;
-            caption += `• Отпечаток #${trailSession.footprints.length} зарегистрирован\n`;
-            }
-*/
-            if (trailSession.comparisons.length > 0) {
-                const lastComparison = trailSession.comparisons[trailSession.comparisons.length - 1];
-                caption += `• Автосравнение: ${lastComparison.similarity.toFixed(1)}% сходства\n`;
-            }   
-        }
+  generateResultsCaption(detailsCount, chatId, perspectiveAnalysis, patternType) {
+    let caption = `✅ Анализ завершен!\n🎯 Выявлено морфологических признаков: ${detailsCount}`;
 
-        if (perspectiveAnalysis.hasPerspectiveIssues) {
-            caption += `\n⚠️ **Обнаружены искажения:** ${perspectiveAnalysis.issues.join(', ')}`;
-            if (perspectiveAnalysis.recommendations.length > 0) {
-                caption += `\n💡 **Рекомендации:** ${perspectiveAnalysis.recommendations.join(', ')}`;
-            }
-        } else {
-            caption += `\n📐 Перспектива: нормальная`;
+    /*
+    // 🚨 ВРЕМЕННО ЗАКОММЕНТИРОВАТЬ ВЕСЬ БЛОК СЕССИЙ
+    const trailSession = this.sessionManager.trailSessions.get(chatId);
+    if (trailSession && trailSession.status === 'active') {
+        caption += `\n\n🕵️♂️ **СЕССИЯ АНАЛИЗА ТРОПЫ**\n`;
+        caption += `• Отпечаток #${trailSession.footprints.length} зарегистрирован\n`;
+
+        if (trailSession.comparisons.length > 0) {
+            const lastComparison = trailSession.comparisons[trailSession.comparisons.length - 1];
+            caption += `• Автосравнение: ${lastComparison.similarity.toFixed(1)}% сходства\n`;
         }
+    }
+    */ // ← КОММЕНТАРИЙ ЗАКРЫВАЕТСЯ ЗДЕСЬ
+
+    // ДАЛЕЕ ИДЕТ ОБЫЧНЫЙ КОД
+    if (perspectiveAnalysis.hasPerspectiveIssues) {
+        caption += `\n⚠️ **Обнаружены искажения:** ${perspectiveAnalysis.issues.join(', ')}`;
+        if (perspectiveAnalysis.recommendations.length > 0) {
+            caption += `\n💡 **Рекомендации:** ${perspectiveAnalysis.recommendations.join(', ')}`;
+        }
+    } else {
+        caption += `\n📐 Перспектива: нормальная`;
+    }
 
         const orientationType = this.analyzeOrientationType([]);
         const orientationText = {
