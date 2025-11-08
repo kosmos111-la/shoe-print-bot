@@ -435,6 +435,7 @@ function getWorkingSessionManager() {
             }
         };
     }
+   
     console.log('🛡️ Возвращаем ЕДИНСТВЕННЫЙ SessionManager');
     return _sessionManagerInstance;
 }
