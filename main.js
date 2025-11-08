@@ -1,33 +1,32 @@
-const config = require('./config.js');
 const express = require('express');
 
-console.log('🚀 Запуск упрощенной версии...');
-console.log('✅ Конфиг загружен');
+// ВСТРОЕННЫЙ CONFIG
+const config = {
+    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI',
+    PORT: process.env.PORT || 10000,
+    YANDEX_DISK_TOKEN: process.env.YANDEX_DISK_TOKEN,
+   
+    ROBOFLOW: {
+        API_URL: 'https://detect.roboflow.com/-zqyih/13',
+        API_KEY: 'NeHOB854EyHkDbGGLE6G',
+        CONFIDENCE: 25,
+        OVERLAP: 30
+    }
+};
+
+console.log('🚀 Запуск системы со встроенным config...');
 
 const app = express();
 app.use(express.json());
 
 app.get('/', (req, res) => {
     res.send(`
-        <h1>🤖 Упрощенная модульная система</h1>
-        <p>Система запущена! Конфиг работает.</p>
+        <h1>🤖 Система РАБОТАЕТ!</h1>
+        <p>Config загружен вручную</p>
         <p>Порт: ${config.PORT}</p>
     `);
 });
 
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        config: {
-            port: config.PORT,
-            hasTelegramToken: !!config.TELEGRAM_TOKEN
-        }
-    });
-});
-
-const PORT = config.PORT || 10000;
-app.listen(PORT, () => {
-    console.log(`✅ Сервер запущен на порту ${PORT}`);
-    console.log('🎯 Упрощенная система готова!');
+app.listen(config.PORT, () => {
+    console.log(`✅ Сервер запущен на порту ${config.PORT}`);
 });
