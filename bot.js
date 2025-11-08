@@ -411,6 +411,8 @@ function getWorkingSessionManager() {
    
     return this.trailSessions.get(chatId);
 }
+}
+};
 
 // =============================================================================
 // 🦶 ГАРАНТИРОВАННЫЙ ДОСТУП К FOOTPRINT ASSEMBLER
