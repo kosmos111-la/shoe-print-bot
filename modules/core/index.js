@@ -1,4 +1,6 @@
 const config = require('../../config');
+const BotManager = require('./bot-manager');
+const DataPersistence = require('./data-persistence');
 
 // Импорт модулей
 const yandexDisk = require('../yandex-disk');
@@ -16,14 +18,25 @@ class ModuleManager {
     async initialize() {
         console.log('🔄 Инициализация модулей...');
        
-        // Инициализация модулей
+        // Инициализация основных модулей
+        this.modules.dataPersistence = new DataPersistence();
+        this.modules.botManager = new BotManager(this.config.TELEGRAM_TOKEN);
+       
+        // Инициализация функциональных модулей
         this.modules.yandexDisk = await yandexDisk.initialize(this.config.YANDEX_DISK_TOKEN);
         this.modules.visualization = visualization.initialize();
-        this.modules.analysis = analysis.initialize(this.config.ROBOFLOW);
+        this.modules.analysis = analysis.initialize(this.config.ROBoFLOW);
         this.modules.stats = await stats.initialize();
+       
+        // Настройка команд бота
+        await commands.initialize(this.modules);
        
         console.log('✅ Все модули инициализированы');
         return this.modules;
+    }
+   
+    getModule(moduleName) {
+        return this.modules[moduleName];
     }
 }
 
