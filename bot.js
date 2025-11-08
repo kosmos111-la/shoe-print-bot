@@ -385,7 +385,7 @@ function getWorkingSessionManager() {
         globalStats: { totalUsers: 1, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, lastAnalysis: null },
         userStats: new Map(),
         referencePrints: new Map(),
-        trailSessions: new Map(), // ← ВАЖНО: ДОБАВЛЯЕМ trailSessions
+        trailSessions: new Map(),
        
         getSession: (chatId) => ({
             waitingForReference: null,
@@ -393,26 +393,20 @@ function getWorkingSessionManager() {
         }),
        
         getTrailSession: function(chatId, username) {
-    console.log(`🎯 [SESSION DEBUG] getTrailSession called: ${chatId}, ${username}`);
-    console.log(`🎯 [SESSION DEBUG] Current sessions:`, Array.from(this.trailSessions.keys()));
-    console.log(`🎯 [SESSION DEBUG] Session exists:`, this.trailSessions.has(chatId));
+            console.log(`🕵️‍♂️ Создание сессии для ${username} (${chatId})`);
+           
+            if (!this.trailSessions.has(chatId)) {
+                const TrailSession = require('./modules/core/TrailSession');
+                const session = new TrailSession(chatId, username);
+                this.trailSessions.set(chatId, session);
+                console.log(`✅ Сессия создана: ${session.sessionId}`);
+            }
+            return this.trailSessions.get(chatId);
+        }
+    };
    
-    if (!this.trailSessions.has(chatId)) {
-        console.log(`🆕 [SESSION DEBUG] Creating NEW session for ${chatId}`);
-        const TrailSession = require('./modules/core/TrailSession');
-        const session = new TrailSession(chatId, username);
-        this.trailSessions.set(chatId, session);
-        console.log(`✅ [SESSION DEBUG] Session created: ${session.sessionId}`);
-    } else {
-        console.log(`🔍 [SESSION DEBUG] Returning EXISTING session`);
-        const existing = this.trailSessions.get(chatId);
-        console.log(`🔍 [SESSION DEBUG] Existing session status: ${existing.status}`);
-    }
-   
-    return this.trailSessions.get(chatId);
+    return sessionManager;
 }
-}
-};
 
 // =============================================================================
 // 🦶 ГАРАНТИРОВАННЫЙ ДОСТУП К FOOTPRINT ASSEMBLER
