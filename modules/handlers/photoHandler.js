@@ -64,28 +64,32 @@ class PhotoHandler {
      * 🔍 ОБЫЧНАЯ ОБРАБОТКА ФОТО
      */
     async handleRegularPhoto(msg, session) {
-        const chatId = msg.chat.id;
+    const chatId = msg.chat.id;
 
-        // 📊 Обновление статистики
-        await this.updatePhotoStats(msg);
-        await this.bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
+    // 📊 Обновление статистики
+    await this.updatePhotoStats(msg);
+    await this.bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
 
-        // 🧠 Анализ через Roboflow
-        const { fileUrl, predictions, processedPredictions, finalPredictions } = await this.analyzeWithRoboflow(msg);
+    // 🧠 Анализ через Roboflow
+    const { fileUrl, predictions, processedPredictions, finalPredictions } = await this.analyzeWithRoboflow(msg);
 
-        // 📐 Анализ перспективы и классификация
-        const perspectiveAnalysis = await this.analyzePerspective(fileUrl, finalPredictions);
-        const { patternType, footprintFeatures } = await this.classifyFootprint(fileUrl, finalPredictions);
+    // 📐 Анализ перспективы и классификация
+    const perspectiveAnalysis = await this.analyzePerspective(fileUrl, finalPredictions);
+    const { patternType, footprintFeatures } = await this.classifyFootprint(fileUrl, finalPredictions);
 
-        // 🗂️ Добавление в экспертные сессии
-        await this.addToTrailSession(chatId, fileUrl, finalPredictions, footprintFeatures, perspectiveAnalysis, patternType);
+    console.log(`🔍 [DEBUG] handleRegularPhoto: перед addToTrailSession`);
+   
+    // 🗂️ Добавление в экспертные сессии
+    await this.addToTrailSession(chatId, fileUrl, finalPredictions, footprintFeatures, perspectiveAnalysis, patternType);
+   
+    console.log(`🔍 [DEBUG] handleRegularPhoto: после addToTrailSession`);
 
-        // ☁️ Загрузка на Яндекс.Диск
-        await this.uploadToYandexDisk(msg, fileUrl);
+    // ☁️ Загрузка на Яндекс.Диск
+    await this.uploadToYandexDisk(msg, fileUrl);
 
-        // 🎨 Визуализация и отправка результатов
-        await this.sendVisualizationResults(chatId, fileUrl, finalPredictions, msg.from, perspectiveAnalysis, patternType);
-    }
+    // 🎨 Визуализация и отправка результатов
+    await this.sendVisualizationResults(chatId, fileUrl, finalPredictions, msg.from, perspectiveAnalysis, patternType);
+}
 
     /**
      * 💾 ОБРАБОТКА ЭТАЛОННОГО ФОТО
@@ -380,12 +384,29 @@ class PhotoHandler {
      * 📥 ДОБАВЛЕНИЕ ОТПЕЧАТКА В СЕССИЮ ТРОПЫ
      */
     async addToTrailSession(chatId, fileUrl, predictions, features, perspectiveAnalysis, patternType) {
-        // 🎯 ИСПРАВЛЕНИЕ: используем правильный менеджер сессий
+ console.log(`🔍 [DEBUG] addToTrailSession вызван для chatId: ${chatId}`);
+   
+    try {
         const sessionManager = getWorkingSessionManager();
-        const trailSession = sessionManager.trailSessions.get(chatId);
+        console.log(`🔍 [DEBUG] SessionManager получен:`, !!sessionManager);
        
-        if (!trailSession || trailSession.status !== 'active') return;
+        const trailSession = sessionManager.trailSessions.get(chatId);
+        console.log(`🔍 [DEBUG] Сессия найдена:`, !!trailSession);
+       
+        if (!trailSession) {
+            console.log(`❌ [DEBUG] Сессия не найдена для chatId: ${chatId}`);
+            console.log(`🔍 [DEBUG] Все сессии:`, Array.from(sessionManager.trailSessions.keys()));
+            return;
+        }
+       
+        console.log(`🔍 [DEBUG] Статус сессии: ${trailSession.status}`);
+       
+        if (trailSession.status !== 'active') {
+            console.log(`❌ [DEBUG] Сессия не активна: ${trailSession.status}`);
+            return;
+        }
 
+        console.log(`🔍 [DEBUG] Создаем данные отпечатка...`);
         const footprintData = {
             imageUrl: fileUrl,
             predictions: predictions,
@@ -403,40 +424,42 @@ class PhotoHandler {
             assemblyPotential: 0
         };
 
-        try {
-            const footprintRecord = trailSession.addFootprint(footprintData);
+        console.log(`🔍 [DEBUG] Добавляем отпечаток в сессию...`);
+        const footprintRecord = trailSession.addFootprint(footprintData);
+        console.log(`✅ [DEBUG] Отпечаток добавлен! ID: ${footprintRecord.id}`);
 
-            if (trailSession.calculateAssemblyPotential) {
-                footprintRecord.assemblyPotential = trailSession.calculateAssemblyPotential(footprintRecord);
-            }
-
-            console.log(`✅ Отпечаток успешно добавлен в сессию! Всего: ${trailSession.footprints.length}`);
-
-            // 🔄 Автоматический анализ групп
-            if (trailSession.footprints.length >= 3) {
-                setTimeout(async () => {
-                    try {
-                        if (trailSession.updateCompatibilityGroups) {
-                            trailSession.updateCompatibilityGroups();
-                            const groupsCount = trailSession.compatibilityGroups?.length || 0;
-                            if (groupsCount > 0) {
-                                await this.bot.sendMessage(chatId,
-                                    `🔄 **Обновление групп совместимости**\n\n` +
-                                    `Обнаружено групп: ${groupsCount}\n` +
-                                    `Для просмотра: /show_groups\n` +
-                                    `Для сборки: /assemble_model`
-                                );
-                            }
-                        }
-                    } catch (groupError) {
-                        console.log('⚠️ Ошибка автоматического анализа групп:', groupError.message);
-                    }
-                }, 2000);
-            }
-        } catch (error) {
-            console.log(`❌ Ошибка добавления отпечатка:`, error.message);
+        if (trailSession.calculateAssemblyPotential) {
+            footprintRecord.assemblyPotential = trailSession.calculateAssemblyPotential(footprintRecord);
         }
+
+        console.log(`✅ Отпечаток успешно добавлен в сессию! Всего: ${trailSession.footprints.length}`);
+
+        // Автоматический анализ групп
+        if (trailSession.footprints.length >= 3) {
+            setTimeout(async () => {
+                try {
+                    if (trailSession.updateCompatibilityGroups) {
+                        trailSession.updateCompatibilityGroups();
+                        const groupsCount = trailSession.compatibilityGroups?.length || 0;
+                        if (groupsCount > 0) {
+                            await this.bot.sendMessage(chatId,
+                                `🔄 **Обновление групп совместимости**\n\n` +
+                                `Обнаружено групп: ${groupsCount}\n` +
+                                `Для просмотра: /show_groups\n` +
+                                `Для сборки: /assemble_model`
+                            );
+                        }
+                    }
+                } catch (groupError) {
+                    console.log('⚠️ Ошибка автоматического анализа групп:', groupError.message);
+                }
+            }, 2000);
+        }
+    } catch (error) {
+        console.log(`❌ [DEBUG] Ошибка добавления отпечатка:`, error.message);
+        console.log(`❌ [DEBUG] Stack trace:`, error.stack);
     }
+}
 
     // =============================================================================
     // 🎨 ВИЗУАЛИЗАЦИЯ И ОТЧЕТЫ
