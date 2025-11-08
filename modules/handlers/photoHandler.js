@@ -35,30 +35,21 @@ class PhotoHandler {
      * 📸 ОСНОВНОЙ ОБРАБОТЧИК ФОТО
      */
     async handlePhoto(msg) {
-        const chatId = msg.chat.id;
+    const chatId = msg.chat.id;
 
-        try {
-            const session = this.sessionManager.getSession(chatId);
+    try {
+        // 🚨 ВРЕМЕННО: пропускаем проверки сессии
+        // const sessionManager = getWorkingSessionManager();
+        // const session = sessionManager.getSession(chatId);
+       
+        // Просто обрабатываем фото как обычное
+        await this.handleRegularPhoto(msg, {}); // передаем пустой session
 
-            // 🔍 Определяем тип обработки
-            if (session.waitingForReference) {
-                await this.handleReferencePhoto(msg, session);
-                return;
-            }
-
-            if (session.waitingForComparison) {
-                await this.handleComparisonPhoto(msg, session);
-                return;
-            }
-
-            // 📝 Обычная обработка фото
-            await this.handleRegularPhoto(msg, session);
-
-        } catch (error) {
-            console.error('❌ Ошибка обработки фото:', error);
-            await this.bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
-        }
+    } catch (error) {
+        console.error('❌ Ошибка обработки фото:', error);
+        await this.bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
     }
+}
 
     /**
      * 🔍 ОБЫЧНАЯ ОБРАБОТКА ФОТО
