@@ -365,79 +365,47 @@ const helpHandler = new HelpHandler(bot, getWorkingSessionManager());
 // 🛡️ ГАРАНТИРОВАННЫЙ ДОСТУП К SESSIONMANAGER
 // =============================================================================
 
-// Функция которая гарантированно возвращает работающий SessionManager
-// 🛡️ SINGLETON SESSION MANAGER
-let _sessionManagerInstance = null;
-
 function getWorkingSessionManager() {
-    if (!_sessionManagerInstance) {
-        console.log('🛡️ Создание ЕДИНСТВЕННОГО SessionManager...');
-       
-        // 🔧 СОЗДАЕМ ЛОКАЛЬНЫЙ ОБЪЕКТ ДЛЯ ПРАВИЛЬНОГО THIS
-        _sessionManagerInstance = {
-            updateUserStats: (userId, username) => {
-                console.log(`📊 updateUserStats: ${userId}, ${username}, 1`);
-            },
-            getStatistics: () => ({
-                totalUsers: 1,
-                totalPhotos: 0,
-                totalAnalyses: 0,
-                comparisonsMade: 0,
-                activeUsers: 1,
-                activeSessions: 0,
-                referencePrintsCount: 0
-            }),
-            globalStats: { totalUsers: 1, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, lastAnalysis: null },
-            userStats: new Map(),
-            referencePrints: new Map(),
-            trailSessions: new Map(), // ← ВАЖНО: ДОБАВЛЯЕМ trailSessions
-           
-            getSession: (chatId) => ({
-                waitingForReference: null,
-                waitingForComparison: null
-            }),
-           
-            getTrailSession: function(chatId, username) {
-                console.log(`🕵️‍♂️ Создание сессии для ${username} (${chatId})`);
-               
-                if (!this.trailSessions.has(chatId)) {
-                    const TrailSession = require('./modules/core/TrailSession');
-                    const session = new TrailSession(chatId, username);
-                    this.trailSessions.set(chatId, session);
-                    console.log(`✅ Сессия создана: ${session.sessionId}`);
-                }
-                return this.trailSessions.get(chatId);
-            },
-           
-            serializeForSave: function() {
-                return {
-                    trailSessions: Array.from(this.trailSessions.entries()),
-                    referencePrints: Array.from(this.referencePrints.entries()),
-                    userStats: Array.from(this.userStats.entries()),
-                    globalStats: this.globalStats,
-                    timestamp: new Date().toISOString()
-                };
-            },
-           
-            restoreFromData: function(data) {
-                if (data.trailSessions) {
-                    this.trailSessions = new Map(data.trailSessions);
-                }
-                if (data.referencePrints) {
-                    this.referencePrints = new Map(data.referencePrints);
-                }
-                if (data.userStats) {
-                    this.userStats = new Map(data.userStats);
-                }
-                if (data.globalStats) {
-                    this.globalStats = data.globalStats;
-                }
-            }
-        };
-    }
+    console.log('🛡️ Создание гарантированного SessionManager...');
    
-    console.log('🛡️ Возвращаем ЕДИНСТВЕННЫЙ SessionManager');
-    return _sessionManagerInstance;
+    // 🔧 СОЗДАЕМ ЛОКАЛЬНЫЙ ОБЪЕКТ ДЛЯ ПРАВИЛЬНОГО THIS
+    const sessionManager = {
+        updateUserStats: (userId, username) => {
+            console.log(`📊 updateUserStats: ${userId}, ${username}, 1`);
+        },
+        getStatistics: () => ({
+            totalUsers: 1,
+            totalPhotos: 0,
+            totalAnalyses: 0,
+            comparisonsMade: 0,
+            activeUsers: 1,
+            activeSessions: 0,
+            referencePrintsCount: 0
+        }),
+        globalStats: { totalUsers: 1, totalPhotos: 0, totalAnalyses: 0, comparisonsMade: 0, lastAnalysis: null },
+        userStats: new Map(),
+        referencePrints: new Map(),
+        trailSessions: new Map(), // ← ВАЖНО: ДОБАВЛЯЕМ trailSessions
+       
+        getSession: (chatId) => ({
+            waitingForReference: null,
+            waitingForComparison: null
+        }),
+       
+        getTrailSession: function(chatId, username) {
+            console.log(`🕵️‍♂️ Создание сессии для ${username} (${chatId})`);
+           
+            if (!this.trailSessions.has(chatId)) {
+                const TrailSession = require('./modules/core/TrailSession');
+                const session = new TrailSession(chatId, username);
+                this.trailSessions.set(chatId, session);
+                console.log(`✅ Сессия создана: ${session.sessionId}`);
+            }
+            return this.trailSessions.get(chatId);
+        }
+    };
+   
+    return sessionManager;
 }
 
 // =============================================================================
