@@ -1,42 +1,35 @@
-const config = require('../../config');
+cconst config = require('../../config.js'); // Добавь .js
 const BotManager = require('./bot-manager');
 const DataPersistence = require('./data-persistence');
-
-// Импорт модулей
-const yandexDisk = require('../yandex-disk');
-const visualization = require('../visualization');
-const analysis = require('../analysis');
-const stats = require('../stats');
-const commands = require('../commands');
 
 class ModuleManager {
     constructor() {
         this.config = config;
         this.modules = {};
+        this.botManager = new BotManager(this.config.TELEGRAM_TOKEN);
+        this.dataPersistence = new DataPersistence();
     }
    
     async initialize() {
         console.log('🔄 Инициализация модулей...');
+        console.log('✅ Конфиг загружен:', Object.keys(this.config));
        
-        // Инициализация основных модулей
-        this.modules.dataPersistence = new DataPersistence();
-        this.modules.botManager = new BotManager(this.config.TELEGRAM_TOKEN);
-       
-        // Инициализация функциональных модулей
-        this.modules.yandexDisk = await yandexDisk.initialize(this.config.YANDEX_DISK_TOKEN);
-        this.modules.visualization = visualization.initialize();
-        this.modules.analysis = analysis.initialize(this.config.ROBoFLOW);
-        this.modules.stats = await stats.initialize();
-       
-        // Настройка команд бота
-        await commands.initialize(this.modules);
+        // Пока просто заглушки для теста
+        this.modules.stats = {
+            updateUserStats: () => console.log('📊 Статистика обновлена'),
+            getGlobalStats: () => ({ totalUsers: 0, totalPhotos: 0 })
+        };
        
         console.log('✅ Все модули инициализированы');
         return this.modules;
     }
    
-    getModule(moduleName) {
-        return this.modules[moduleName];
+    getBotManager() {
+        return this.botManager;
+    }
+   
+    getConfig() {
+        return this.config;
     }
 }
 
