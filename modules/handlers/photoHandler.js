@@ -375,8 +375,10 @@ class PhotoHandler {
      * 📥 ДОБАВЛЕНИЕ ОТПЕЧАТКА В СЕССИЮ ТРОПЫ
      */
     async addToTrailSession(chatId, fileUrl, predictions, features, perspectiveAnalysis, patternType) {
- console.log(`🔍 [DEBUG] addToTrailSession вызван для chatId: ${chatId}`);
-   
+console.log('🎯 [TEMP] addToTrailSession - СЕССИИ ВРЕМЕННО ОТКЛЮЧЕНЫ');
+    return;
+   /*
+    // 🚨 ВСЕ ЭТО ВРЕМЕННО ЗАКОММЕНТИРОВАТЬ
     try {
         const sessionManager = getWorkingSessionManager();
         console.log(`🔍 [DEBUG] SessionManager получен:`, !!sessionManager);
@@ -450,6 +452,7 @@ class PhotoHandler {
         console.log(`❌ [DEBUG] Ошибка добавления отпечатка:`, error.message);
         console.log(`❌ [DEBUG] Stack trace:`, error.stack);
     }
+     */
 }
 
     // =============================================================================
@@ -810,16 +813,18 @@ class PhotoHandler {
      */
     generateResultsCaption(detailsCount, chatId, perspectiveAnalysis, patternType) {
         let caption = `✅ Анализ завершен!\n🎯 Выявлено морфологических признаков: ${detailsCount}`;
-
+/*
+    // 🚨 ВРЕМЕННО ЗАКОММЕНТИРОВАТЬ
         const trailSession = this.sessionManager.trailSessions.get(chatId);
         if (trailSession && trailSession.status === 'active') {
             caption += `\n\n🕵️♂️ **СЕССИЯ АНАЛИЗА ТРОПЫ**\n`;
             caption += `• Отпечаток #${trailSession.footprints.length} зарегистрирован\n`;
-
+            }
+*/
             if (trailSession.comparisons.length > 0) {
                 const lastComparison = trailSession.comparisons[trailSession.comparisons.length - 1];
                 caption += `• Автосравнение: ${lastComparison.similarity.toFixed(1)}% сходства\n`;
-            }
+            }   
         }
 
         if (perspectiveAnalysis.hasPerspectiveIssues) {
