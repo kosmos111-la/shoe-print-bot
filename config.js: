@@ -8,14 +8,5 @@ module.exports = {
         API_KEY: 'NeHOB854EyHkDbGGLE6G',
         CONFIDENCE: 25,
         OVERLAP: 30
-    },
-   
-    VISUALIZATION: {
-        COLORS: {
-            'Outline-trail': 'rgba(148, 0, 211, 0.8)',
-            'shoe-protector': 'rgba(64, 224, 208, 0.7)',
-            'Heel': 'rgba(0, 0, 255, 0.6)',
-            'Toe': 'rgba(30, 144, 255, 0.6)'
-        }
     }
 };
