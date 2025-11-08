@@ -1,4 +1,4 @@
-cconst config = require('../../config.js'); // Добавь .js
+const config = require('../../config.js'); // Добавь .js
 const BotManager = require('./bot-manager');
 const DataPersistence = require('./data-persistence');
 
@@ -12,12 +12,20 @@ class ModuleManager {
    
     async initialize() {
         console.log('🔄 Инициализация модулей...');
-        console.log('✅ Конфиг загружен:', Object.keys(this.config));
+        console.log('✅ Конфиг загружен');
        
-        // Пока просто заглушки для теста
-        this.modules.stats = {
-            updateUserStats: () => console.log('📊 Статистика обновлена'),
-            getGlobalStats: () => ({ totalUsers: 0, totalPhotos: 0 })
+        // Пока заглушки для теста
+        this.modules = {
+            stats: {
+                updateUserStats: () => console.log('📊 Статистика обновлена'),
+                getGlobalStats: () => ({ totalUsers: 0, totalPhotos: 0 })
+            },
+            visualization: {
+                createVisualization: () => console.log('🎨 Визуализация создана')
+            },
+            analysis: {
+                analyzeImage: () => console.log('🔍 Анализ изображения')
+            }
         };
        
         console.log('✅ Все модули инициализированы');
