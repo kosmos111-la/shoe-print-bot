@@ -1,8 +1,6 @@
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-const { createCanvas, loadImage } = require('canvas');
-const fs = require('fs');
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
@@ -18,7 +16,7 @@ const config = {
     }
 };
 
-console.log('🚀 Запуск полной системы анализа следов...');
+console.log('🚀 Запуск системы с текстовым анализом...');
 
 const app = express();
 const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
@@ -65,138 +63,48 @@ function updateUserStats(userId, username, action = 'photo') {
 }
 
 // =============================================================================
-// 🎨 ФУНКЦИИ ВИЗУАЛИЗАЦИИ
+// 🔧 АНАЛИЗ ДАННЫХ
 // =============================================================================
-async function createAnalysisVisualization(imageUrl, predictions, userData = {}) {
-    try {
-        const image = await loadImage(imageUrl);
-        const canvas = createCanvas(image.width, image.height);
-        const ctx = canvas.getContext('2d');
-
-        ctx.drawImage(image, 0, 0);
-
-        const colors = {
-            'Outline-trail': 'rgba(148, 0, 211, 0.8)',
-            'shoe-protector': 'rgba(64, 224, 208, 0.7)',
-            'Heel': 'rgba(0, 0, 255, 0.6)',
-            'Toe': 'rgba(30, 144, 255, 0.6)'
-        };
-
-        predictions.forEach(pred => {
-            if (pred.points && pred.points.length > 2) {
-                const color = colors[pred.class] || 'rgba(255, 255, 255, 0.7)';
-              
-                ctx.strokeStyle = color;
-                ctx.lineWidth = pred.class === 'Outline-trail' ? 4 : 2;
-                ctx.beginPath();
-              
-                ctx.moveTo(pred.points[0].x, pred.points[0].y);
-                for (let i = 1; i < pred.points.length; i++) {
-                    ctx.lineTo(pred.points[i].x, pred.points[i].y);
-                }
-                ctx.closePath();
-                ctx.stroke();
-            }
-        });
-
-        const vizPath = `viz_${Date.now()}.jpg`;
-        const buffer = canvas.toBuffer('image/jpeg', { quality: 0.9 });
-        fs.writeFileSync(vizPath, buffer);
-
-        return vizPath;
-
-    } catch (error) {
-        console.log('❌ Ошибка визуализации:', error.message);
-        return null;
-    }
+function analyzePredictions(predictions) {
+    const classes = {};
+    predictions.forEach(pred => {
+        classes[pred.class] = (classes[pred.class] || 0) + 1;
+    });
+   
+    return {
+        total: predictions.length,
+        classes: classes,
+        hasOutline: !!classes['Outline-trail'],
+        protectorCount: classes['shoe-protector'] || 0
+    };
 }
 
-async function createTopologyVisualization(imageUrl, predictions, userData) {
-    try {
-        const image = await loadImage(imageUrl);
-        const canvas = createCanvas(image.width, image.height);
-        const ctx = canvas.getContext('2d');
-
-        ctx.drawImage(image, 0, 0);
-
-        const details = predictions.filter(pred => pred.class === 'shoe-protector');
-        const centers = details.map(pred => {
-            const points = pred.points;
-            let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
-            points.forEach(point => {
-                minX = Math.min(minX, point.x);
-                minY = Math.min(minY, point.y);
-                maxX = Math.max(maxX, point.x);
-                maxY = Math.max(maxY, point.y);
-            });
-            return {
-                x: minX + (maxX - minX) / 2,
-                y: minY + (maxY - minY) / 2
-            };
-        });
-
-        ctx.strokeStyle = 'rgba(255, 50, 50, 0.8)';
-        ctx.lineWidth = 2;
-      
-        const MAX_DISTANCE = Math.min(image.width, image.height) * 0.15;
-      
-        for (let i = 0; i < centers.length; i++) {
-            for (let j = i + 1; j < centers.length; j++) {
-                const dist = Math.sqrt(
-                    Math.pow(centers[i].x - centers[j].x, 2) +
-                    Math.pow(centers[i].y - centers[j].y, 2)
-                );
-              
-                if (dist < MAX_DISTANCE) {
-                    ctx.beginPath();
-                    ctx.moveTo(centers[i].x, centers[i].y);
-                    ctx.lineTo(centers[j].x, centers[j].y);
-                    ctx.stroke();
-                }
-            }
-        }
-
-        centers.forEach(center => {
-            ctx.fillStyle = 'red';
-            ctx.beginPath();
-            ctx.arc(center.x, center.y, 8, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-        });
-
-        const topologyPath = `topology_${Date.now()}.png`;
-        const buffer = canvas.toBuffer('image/png');
-        fs.writeFileSync(topologyPath, buffer);
-
-        return topologyPath;
-
-    } catch (error) {
-        console.error('❌ Ошибка топологической визуализации:', error);
-        return null;
-    }
-}
-
-// =============================================================================
-// 🔧 ПОСТОБРАБОТКА
-// =============================================================================
-function smartPostProcessing(predictions) {
-    if (!predictions || predictions.length === 0) return [];
-  
-    const filtered = predictions.filter(pred => {
-        if (!pred.points || pred.points.length < 3) return false;
+function generateTopologyText(predictions) {
+    const protectors = predictions.filter(p => p.class === 'shoe-protector');
+    if (protectors.length === 0) return "Детали протектора не обнаружены";
+   
+    let text = `🔍 Топология протектора:\n`;
+    text += `• Всего деталей: ${protectors.length}\n`;
+   
+    // Анализ распределения
+    const centers = protectors.map(pred => {
         const points = pred.points;
         const xs = points.map(p => p.x);
         const ys = points.map(p => p.y);
-        const width = Math.max(...xs) - Math.min(...xs);
-        const height = Math.max(...ys) - Math.min(...ys);
-        const area = width * height;
-        return area > 100;
+        return {
+            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+            y: (Math.min(...ys) + Math.max(...ys)) / 2
+        };
     });
-
-    return filtered;
+   
+    // Простой анализ кластеризации
+    const leftCount = centers.filter(c => c.x < 400).length;
+    const rightCount = centers.filter(c => c.x >= 400).length;
+   
+    text += `• Распределение: ${leftCount} слева, ${rightCount} справа\n`;
+    text += `• Плотность: ${(protectors.length / 10).toFixed(1)} дет/сектор\n`;
+   
+    return text;
 }
 
 // =============================================================================
@@ -218,10 +126,11 @@ bot.onText(/\/start/, (msg) => {
         `👟 **СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ** 🚀\n\n` +
         `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} отпечатков\n\n` +
         `🔍 **ФУНКЦИОНАЛ:**\n` +
-        `• Базовый анализ - отправьте фото отпечатка\n` +
-        `• Визуализация деталей\n` +
-        `• Топология протектора\n\n` +
-        `📸 **Просто отправьте фото следа обуви**`
+        `• Анализ через Roboflow API\n` +
+        `• Текстовый отчет деталей\n` +
+        `• Топологический анализ\n\n` +
+        `📸 **Просто отправьте фото следа обуви**\n\n` +
+        `⚠️ *Визуализация временно отключена*`
     );
 });
 
@@ -238,22 +147,6 @@ bot.onText(/\/statistics/, (msg) => {
                      globalStats.lastAnalysis.toLocaleString('ru-RU') : 'еще нет'}`;
   
     bot.sendMessage(msg.chat.id, stats);
-});
-
-bot.onText(/\/help/, (msg) => {
-    bot.sendMessage(msg.chat.id,
-        `🆘 **ПОМОЩЬ**\n\n` +
-        `📸 **Как использовать:**\n` +
-        `Просто отправьте фото следа обуви\n\n` +
-        `🔍 **Что анализируется:**\n` +
-        `• Контуры подошвы\n` +
-        `• Детали протектора\n` +
-        `• Топология узора\n\n` +
-        `💡 **Советы по съемке:**\n` +
-        `• Прямой угол\n` +
-        `• Хорошее освещение\n` +
-        `• Четкий фокус`
-    );
 });
 
 // Обработка фото
@@ -284,36 +177,33 @@ bot.on('photo', async (msg) => {
         });
 
         const predictions = response.data.predictions || [];
-        const processedPredictions = smartPostProcessing(predictions);
+        const analysis = analyzePredictions(predictions);
 
-        if (processedPredictions.length > 0) {
-            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
+        if (analysis.total > 0) {
+            let report = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
+            report += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
            
-            const userData = {
-                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
-            };
+            report += `📋 **КЛАССИФИКАЦИЯ:**\n`;
+            Object.entries(analysis.classes).forEach(([className, count]) => {
+                report += `• ${className}: ${count}\n`;
+            });
            
-            const vizPath = await createAnalysisVisualization(fileUrl, processedPredictions, userData);
-            const topologyPath = await createTopologyVisualization(fileUrl, processedPredictions, userData);
+            report += `\n${generateTopologyText(predictions)}`;
            
-            let caption = `✅ Анализ завершен!\n🎯 Выявлено морфологических признаков: ${processedPredictions.length}`;
-           
-            if (vizPath) {
-                await bot.sendPhoto(chatId, vizPath, { caption: caption });
-               
-                if (topologyPath) {
-                    await bot.sendPhoto(chatId, topologyPath, {
-                        caption: `🕵️‍♂️ Карта топологии деталей протектора\n🔗 Связи между ${processedPredictions.filter(p => p.class === 'shoe-protector').length} деталями`
-                    });
-                }
-               
-                // Очистка временных файлов
-                [vizPath, topologyPath].forEach(path => {
-                    try { if (fs.existsSync(path)) fs.unlinkSync(path); } catch(e) {}
-                });
-            } else {
-                await bot.sendMessage(chatId, caption);
+            report += `\n\n🔍 **ВЫВОДЫ:**\n`;
+            if (analysis.hasOutline) {
+                report += `✅ Контур подошвы обнаружен\n`;
             }
+            if (analysis.protectorCount > 10) {
+                report += `✅ Сложный узор протектора\n`;
+            } else if (analysis.protectorCount > 5) {
+                report += `🟡 Средняя детализация\n`;
+            } else {
+                report += `🟠 Минимальная детализация\n`;
+            }
+
+            await bot.sendMessage(chatId, report);
+           
         } else {
             await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
         }
@@ -332,9 +222,10 @@ bot.on('photo', async (msg) => {
 app.get('/', (req, res) => {
     res.send(`
         <h1>🤖 Система анализа следов обуви</h1>
-        <p>✅ Полный функционал работает!</p>
+        <p>✅ Текстовая версия работает!</p>
         <p>📊 Пользователей: ${globalStats.totalUsers}</p>
         <p>📸 Фото обработано: ${globalStats.totalPhotos}</p>
+        <p>⚠️ Визуализация временно отключена</p>
         <p><a href="/health">Health Check</a></p>
     `);
 });
@@ -354,5 +245,5 @@ app.get('/health', (req, res) => {
 app.listen(config.PORT, () => {
     console.log(`✅ Сервер запущен на порту ${config.PORT}`);
     console.log(`🤖 Telegram бот готов к работе`);
-    console.log(`🎯 Полный функционал активирован`);
+    console.log(`📝 Текстовая версия активирована`);
 });
