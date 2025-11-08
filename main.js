@@ -5,28 +5,30 @@ class ShoePrintBot {
     constructor() {
         this.app = express();
         this.app.use(express.json());
+       
+        // Инициализация модулей
+        this.modules = modules;
     }
    
     async start() {
         try {
-            console.log('🚀 Запуск модульной системы...');
+            console.log('🚀 Запуск модульной системы анализа следов...');
            
-            // Инициализация модулей
-            await modules.initialize();
+            // Инициализация всех модулей
+            await this.modules.initialize();
            
-            // Базовая страница
-            this.app.get('/', (req, res) => {
-                res.send('🤖 Базовый анализатор следов обуви (модульная версия)');
-            });
+            // Настройка webhook
+            await this.modules.botManager.setupWebhook();
            
-            this.app.listen(modules.config.PORT, () => {
-                console.log(`✅ Сервер запущен на порту ${modules.config.PORT}`);
+            // Запуск сервера
+            this.app.listen(this.modules.config.PORT, () => {
+                console.log(`✅ Сервер запущен на порту ${this.modules.config.PORT}`);
+                console.log('🤖 Бот готов к работе!');
             });
            
         } catch (error) {
             console.error('❌ Ошибка запуска:', error);
+            process.exit(1);
         }
     }
 }
-
-new ShoePrintBot().start();
