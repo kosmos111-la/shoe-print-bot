@@ -1,7 +1,5 @@
-const express = require('express');
-
-// Прямой импорт config
 const config = require('./config.js');
+const express = require('express');
 
 console.log('🚀 Запуск упрощенной версии...');
 console.log('✅ Конфиг загружен');
