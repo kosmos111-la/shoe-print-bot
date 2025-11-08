@@ -2,6 +2,9 @@ const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
+// ИМПОРТ МОДУЛЕЙ
+const visualizationModule = require('./modules/visualization');
+
 // ВСТРОЕННЫЙ CONFIG
 const config = {
     TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI',
@@ -16,10 +19,13 @@ const config = {
     }
 };
 
-console.log('🚀 Запуск системы с текстовым анализом...');
+console.log('🚀 Запуск системы с модульной визуализацией...');
 
 const app = express();
 const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
+
+// ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
+const visualization = visualizationModule.initialize();
 
 // =============================================================================
 // 📊 СИСТЕМА СТАТИСТИКИ
@@ -60,6 +66,26 @@ function updateUserStats(userId, username, action = 'photo') {
             globalStats.lastAnalysis = new Date();
             break;
     }
+}
+
+// =============================================================================
+// 🔧 ПОСТОБРАБОТКА
+// =============================================================================
+function smartPostProcessing(predictions) {
+    if (!predictions || predictions.length === 0) return [];
+  
+    const filtered = predictions.filter(pred => {
+        if (!pred.points || pred.points.length < 3) return false;
+        const points = pred.points;
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+        const width = Math.max(...xs) - Math.min(...xs);
+        const height = Math.max(...ys) - Math.min(...ys);
+        const area = width * height;
+        return area > 100;
+    });
+
+    return filtered;
 }
 
 // =============================================================================
@@ -127,10 +153,9 @@ bot.onText(/\/start/, (msg) => {
         `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} отпечатков\n\n` +
         `🔍 **ФУНКЦИОНАЛ:**\n` +
         `• Анализ через Roboflow API\n` +
-        `• Текстовый отчет деталей\n` +
-        `• Топологический анализ\n\n` +
-        `📸 **Просто отправьте фото следа обуви**\n\n` +
-        `⚠️ *Визуализация временно отключена*`
+        `• Визуализация контуров\n` +
+        `• Топология протектора\n\n` +
+        `📸 **Просто отправьте фото следа обуви**`
     );
 });
 
@@ -147,6 +172,22 @@ bot.onText(/\/statistics/, (msg) => {
                      globalStats.lastAnalysis.toLocaleString('ru-RU') : 'еще нет'}`;
   
     bot.sendMessage(msg.chat.id, stats);
+});
+
+bot.onText(/\/help/, (msg) => {
+    bot.sendMessage(msg.chat.id,
+        `🆘 **ПОМОЩЬ**\n\n` +
+        `📸 **Как использовать:**\n` +
+        `Просто отправьте фото следа обуви\n\n` +
+        `🔍 **Что анализируется:**\n` +
+        `• Контуры подошвы\n` +
+        `• Детали протектора\n` +
+        `• Топология узора\n\n` +
+        `💡 **Советы по съемке:**\n` +
+        `• Прямой угол\n` +
+        `• Хорошее освещение\n` +
+        `• Четкий фокус`
+    );
 });
 
 // Обработка фото
@@ -177,32 +218,44 @@ bot.on('photo', async (msg) => {
         });
 
         const predictions = response.data.predictions || [];
-        const analysis = analyzePredictions(predictions);
+        const processedPredictions = smartPostProcessing(predictions);
+        const analysis = analyzePredictions(processedPredictions);
 
         if (analysis.total > 0) {
-            let report = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
-            report += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
+            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
            
-            report += `📋 **КЛАССИФИКАЦИЯ:**\n`;
+            const userData = {
+                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
+            };
+           
+            // ИСПОЛЬЗУЕМ МОДУЛИ ВИЗУАЛИЗАЦИИ
+            const vizPath = await visualization.analysis.createVisualization(fileUrl, processedPredictions, userData);
+            const topologyPath = await visualization.topology.createVisualization(fileUrl, processedPredictions, userData);
+           
+            let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
+            caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
+           
+            caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
             Object.entries(analysis.classes).forEach(([className, count]) => {
-                report += `• ${className}: ${count}\n`;
+                caption += `• ${className}: ${count}\n`;
             });
            
-            report += `\n${generateTopologyText(predictions)}`;
-           
-            report += `\n\n🔍 **ВЫВОДЫ:**\n`;
-            if (analysis.hasOutline) {
-                report += `✅ Контур подошвы обнаружен\n`;
-            }
-            if (analysis.protectorCount > 10) {
-                report += `✅ Сложный узор протектора\n`;
-            } else if (analysis.protectorCount > 5) {
-                report += `🟡 Средняя детализация\n`;
+            if (vizPath) {
+                await bot.sendPhoto(chatId, vizPath, { caption: caption });
+               
+                if (topologyPath) {
+                    await bot.sendPhoto(chatId, topologyPath, {
+                        caption: `🕵️‍♂️ Карта топологии деталей протектора\n🔗 Связи между ${analysis.protectorCount} деталями`
+                    });
+                }
+               
+                // Очистка временных файлов
+                [vizPath, topologyPath].forEach(path => {
+                    try { if (require('fs').existsSync(path)) require('fs').unlinkSync(path); } catch(e) {}
+                });
             } else {
-                report += `🟠 Минимальная детализация\n`;
+                await bot.sendMessage(chatId, caption + `\n${generateTopologyText(processedPredictions)}`);
             }
-
-            await bot.sendMessage(chatId, report);
            
         } else {
             await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
@@ -222,10 +275,10 @@ bot.on('photo', async (msg) => {
 app.get('/', (req, res) => {
     res.send(`
         <h1>🤖 Система анализа следов обуви</h1>
-        <p>✅ Текстовая версия работает!</p>
+        <p>✅ Модульная система работает!</p>
         <p>📊 Пользователей: ${globalStats.totalUsers}</p>
         <p>📸 Фото обработано: ${globalStats.totalPhotos}</p>
-        <p>⚠️ Визуализация временно отключена</p>
+        <p>🎨 Визуализация активирована</p>
         <p><a href="/health">Health Check</a></p>
     `);
 });
@@ -245,5 +298,5 @@ app.get('/health', (req, res) => {
 app.listen(config.PORT, () => {
     console.log(`✅ Сервер запущен на порту ${config.PORT}`);
     console.log(`🤖 Telegram бот готов к работе`);
-    console.log(`📝 Текстовая версия активирована`);
+    console.log(`🎯 Модульная система с визуализацией активирована`);
 });
