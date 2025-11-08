@@ -14,8 +14,12 @@ class AnalysisVisualizer {
             ctx.drawImage(image, 0, 0);
 
             // Цвета из конфига
-            const colors = require('../../config').VISUALIZATION.COLORS;
-
+            const colors = {
+    'Outline-trail': 'rgba(148, 0, 211, 0.8)',
+    'shoe-protector': 'rgba(64, 224, 208, 0.7)',
+    'Heel': 'rgba(0, 0, 255, 0.6)',
+    'Toe': 'rgba(30, 144, 255, 0.6)'
+};
             // Рисуем полигоны
             predictions.forEach(pred => {
                 if (pred.points && pred.points.length > 2) {
