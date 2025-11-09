@@ -174,6 +174,65 @@ bot.onText(/\/statistics/, (msg) => {
     bot.sendMessage(msg.chat.id, stats);
 });
 
+// Команда выбора стиля визуализации
+bot.onText(/\/style/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    const styles = visualization.getAvailableStyles();
+    const currentStyle = visualization.getUserStyle(userId);
+    const currentStyleInfo = styles.find(s => s.id === currentStyle);
+   
+    let message = `🎨 **ВЫБОР СТИЛЯ ВИЗУАЛИЗАЦИИ**\n\n`;
+    message += `📊 Текущий стиль: ${currentStyleInfo?.name || 'оригинальный'}\n\n`;
+    message += `Доступные стили:\n`;
+   
+    styles.forEach(style => {
+        message += `\n${style.name}\n`;
+        message += `└ ${style.description}\n`;
+        message += `└ /setstyle_${style.id}\n`;
+    });
+   
+    message += `\n💡 Стиль сохранится до перезагрузки бота`;
+   
+    await bot.sendMessage(chatId, message);
+});
+
+// Обработка выбора стиля
+bot.onText(/\/setstyle_(.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const styleId = match[1];
+   
+    if (visualization.setUserStyle(userId, styleId)) {
+        const styleName = visualization.getAvailableStyles().find(s => s.id === styleId)?.name;
+        await bot.sendMessage(chatId,
+            `✅ Стиль визуализации изменен на: ${styleName}\n\n` +
+            `Теперь все новые анализы будут использовать выбранный стиль.\n\n` +
+            `Проверить текущий стиль: /currentstyle`
+        );
+    } else {
+        await bot.sendMessage(chatId, '❌ Неизвестный стиль визуализации. Посмотрите доступные: /style');
+    }
+});
+
+// Показ текущего стиля
+bot.onText(/\/currentstyle/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    const currentStyle = visualization.getUserStyle(userId);
+    const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
+   
+    await bot.sendMessage(chatId,
+        `🎨 **ТЕКУЩИЙ СТИЛЬ ВИЗУАЛИЗАЦИИ**\n\n` +
+        `📝 ${styleInfo?.name || 'Оригинальный'}\n` +
+        `📋 ${styleInfo?.description || 'Цветная визуализация'}\n\n` +
+        `Изменить стиль: /style`
+    );
+});
+
+
 bot.onText(/\/help/, (msg) => {
     bot.sendMessage(msg.chat.id,
         `🆘 **ПОМОЩЬ**\n\n` +
@@ -228,9 +287,13 @@ bot.on('photo', async (msg) => {
                 username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
             };
            
-            // ИСПОЛЬЗУЕМ МОДУЛИ ВИЗУАЛИЗАЦИИ
-            const vizPath = await visualization.analysis.createVisualization(fileUrl, processedPredictions, userData);
-            const topologyPath = await visualization.topology.createVisualization(fileUrl, processedPredictions, userData);
+            // ИСПОЛЬЗУЕМ МОДУЛИ ВИЗУАЛИЗАЦИИ С ВЫБОРОМ СТИЛЯ
+const userId = msg.from.id;
+const vizModule = visualization.getVisualization(userId, 'analysis');
+const topologyModule = visualization.getVisualization(userId, 'topology');
+
+const vizPath = await vizModule.createVisualization(fileUrl, processedPredictions, userData);
+const topologyPath = await topologyModule.createVisualization(fileUrl, processedPredictions, userData);
            
             let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
             caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
