@@ -36,6 +36,8 @@ const axios = require('axios');
 
 // ИМПОРТ МОДУЛЕЙ
 const visualizationModule = require('./modules/visualization');
+const tempManagerModule = require('./modules/temp-manager');
+
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
@@ -118,17 +120,31 @@ console.log('🚀 Запуск системы с модульной визуал
 
 // 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
 let visualization;
+let tempFileManager; 
+
 try {
-    visualization = visualizationModule.initialize(); // ← ИСПОЛЬЗУЕМ visualizationModule!
+    visualization = visualizationModule.initialize();
     console.log('✅ Модуль визуализации загружен');
 } catch (error) {
-    console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить модуль визуализации:', error.message);
+    console.log('❌ Ошибка модуля визуализации:', error.message);
+    // заглушка...
+}
+
+// ИНИЦИАЛИЗИРУЕМ МЕНЕДЖЕР ВРЕМЕННЫХ ФАЙЛОВ ← ДОБАВЛЯЕМ
+try {
+    tempFileManager = tempManagerModule.initialize({
+        tempDir: './temp',
+        autoCleanup: true
+    });
+    console.log('✅ Менеджер временных файлов загружен');
+} catch (error) {
+    console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить менеджер файлов:', error.message);
     // Создаем заглушку чтобы бот не падал
-    visualization = {
-        getVisualization: () => ({ createVisualization: async () => null }),
-        setUserStyle: () => false,
-        getUserStyle: () => 'original',
-        getAvailableStyles: () => [{ id: 'original', name: 'Оригинальный', description: 'Основной стиль' }]
+    tempFileManager = {
+        track: () => {},
+        removeFile: () => false,
+        cleanup: () => 0,
+        getStats: () => ({ totalTracked: 0, existingFiles: 0, totalSize: '0 MB' })
     };
 }
 
