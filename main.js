@@ -317,21 +317,25 @@ const topologyPath = await topologyModule.createVisualization(fileUrl, processed
             });
            
             if (vizPath) {
-                await bot.sendPhoto(chatId, vizPath, { caption: caption });
-               
-                if (topologyPath) {
-                    await bot.sendPhoto(chatId, topologyPath, {
-                        caption: `🕵️‍♂️ Карта топологии деталей протектора\n🔗 Связи между ${analysis.protectorCount} деталями`
-                    });
-                }
-               
-                // Очистка временных файлов
-                [vizPath, topologyPath].forEach(path => {
-                    try { if (require('fs').existsSync(path)) require('fs').unlinkSync(path); } catch(e) {}
-                });
-            } else {
-                await bot.sendMessage(chatId, caption + `\n${generateTopologyText(processedPredictions)}`);
+    // ОТПРАВЛЯЕМ ТОЛЬКО ОДНУ ФОТОГРАФИЮ с краткой подписью
+    await bot.sendPhoto(chatId, vizPath, {
+        caption: `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`
+    });
+  
+    // Очистка временных файлов
+    [vizPath, topologyPath].forEach(path => {
+        try {
+            if (path && require('fs').existsSync(path)) {
+                require('fs').unlinkSync(path);
+                console.log('✅ Файл удален:', path);
             }
+        } catch(e) {
+            console.log('⚠️ Не удалось удалить файл:', path);
+        }
+    });
+} else {
+    await bot.sendMessage(chatId, caption);
+}
            
         } else {
             await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
