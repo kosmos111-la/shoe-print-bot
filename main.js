@@ -21,6 +21,21 @@ const config = {
 
 console.log('🚀 Запуск системы с модульной визуализацией...');
 
+// 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
+let visualization;
+try {
+    visualization = require('./modules/visualization').initialize();
+    console.log('✅ Модуль визуализации загружен');
+} catch (error) {
+    console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить модуль визуализации:', error.message);
+    // Создаем заглушку чтобы бот не падал
+    visualization = {
+        getVisualization: () => ({ createVisualization: async () => null }),
+        setUserStyle: () => false,
+        getUserStyle: () => 'original',
+        getAvailableStyles: () => [{ id: 'original', name: 'Оригинальный', description: 'Основной стиль' }]
+    };
+}
 const app = express();
 const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
 
@@ -289,8 +304,8 @@ bot.on('photo', async (msg) => {
            
             // ИСПОЛЬЗУЕМ МОДУЛИ ВИЗУАЛИЗАЦИИ С ВЫБОРОМ СТИЛЯ
 const userId = msg.from.id;
-const vizModule = visualization.getVisualization(userId, 'analysis');
-const topologyModule = visualization.getVisualization(userId, 'topology');
+const vizModule = visualization.getVisualization(msg.from.id, 'analysis');
+const topologyModule = visualization.getVisualization(msg.from.id, 'topology');
 
 const vizPath = await vizModule.createVisualization(fileUrl, processedPredictions, userData);
 const topologyPath = await topologyModule.createVisualization(fileUrl, processedPredictions, userData);
@@ -357,7 +372,23 @@ app.get('/health', (req, res) => {
         }
     });
 });
+// 🔒 ЗАЩИЩЕННАЯ ОЧИСТКА ФАЙЛОВ
+function safeFileCleanup(paths) {
+    if (!paths || !Array.isArray(paths)) return;
+   
+    paths.forEach(filePath => {
+        try {
+            if (filePath && typeof filePath === 'string' && fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+                console.log('✅ Файл удален:', filePath);
+            }
+        } catch (e) {
+            console.log('⚠️ Не удалось удалить файл:', filePath);
+        }
+    });
+}
 
+// 🚀 ЗАПУСК СЕРВЕРА
 app.listen(config.PORT, () => {
     console.log(`✅ Сервер запущен на порту ${config.PORT}`);
     console.log(`🤖 Telegram бот готов к работе`);
