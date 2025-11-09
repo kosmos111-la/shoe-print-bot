@@ -31,7 +31,7 @@ class YandexDiskService {
             console.error('❌ Ошибка проверки файла на Яндекс.Диске:', error.response?.data || error.message);
             return false;
         }
-    },
+    }
 
     // 1. Проверка существования файла и получение ссылки для загрузки
     async getUploadUrl(remoteFilePath) {
@@ -48,7 +48,7 @@ class YandexDiskService {
             console.error('❌ Ошибка получения ссылки для загрузки на Яндекс.Диск:', error.response?.data || error.message);
             throw new Error(`Не удалось получить ссылку для загрузки: ${error.response?.data?.message || error.message}`);
         }
-    },
+    }
 
     // 2. Прямая загрузка файла по полученной ссылке
     async uploadFile(localFilePath, remoteFileName) {
@@ -86,7 +86,7 @@ class YandexDiskService {
             console.error('❌ Фатальная ошибка загрузки на Яндекс.Диск:', error.response?.data || error.message);
             return false;
         }
-    },
+    }
 
     // 3. Метод для создания папки (можно вызвать один раз при инициализации)
     async createAppFolder() {
@@ -102,7 +102,7 @@ class YandexDiskService {
                 console.error('❌ Ошибка создания папки на Яндекс.Диске:', error.response?.data || error.message);
             }
         }
-    },
+    }
 
     // 4. Проверка доступности сервиса
     async checkConnection() {
@@ -115,7 +115,7 @@ class YandexDiskService {
             console.error('❌ Ошибка подключения к Яндекс.Диск:', error.message);
             return false;
         }
-    }, // ← ЗАПЯТАЯ ЗДЕСЬ!
+    }
 
     // 📅 Создание папки с датой и временем
     async createDatedFolder(userId = 'unknown') {
@@ -141,7 +141,7 @@ class YandexDiskService {
             console.error('❌ Ошибка создания папки:', error.response?.data || error.message);
             return null;
         }
-    },
+    }
 
     // 💾 Сохранение результатов анализа
     async saveAnalysisResults(userId, files, analysisData = {}) {
@@ -214,7 +214,7 @@ class YandexDiskService {
             console.error('❌ Ошибка сохранения анализа:', error.message);
             return { success: false, error: error.message };
         }
-    },
+    }
 
     // 🔄 Улучшенная загрузка файла с указанием пути
     async uploadFileToPath(localFilePath, remoteFilePath) {
@@ -235,7 +235,7 @@ class YandexDiskService {
             console.error(`❌ Ошибка загрузки файла ${remoteFilePath}:`, error.message);
             return false;
         }
-    },
+    }
 
     // 📊 Получение информации о доступном месте
     async getDiskInfo() {
@@ -256,8 +256,7 @@ class YandexDiskService {
                 error: error.response?.data?.message || error.message
             };
         }
-    } // ← НЕТ запятой у последнего метода!
-
-} // ← ЗДЕСЬ ДОЛЖНА БЫТЬ ЕДИНСТВЕННАЯ ЗАКРЫВАЮЩАЯ СКОБКА КЛАССА
+    }
+}
 
 module.exports = YandexDiskService;
