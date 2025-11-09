@@ -431,6 +431,43 @@ bot.onText(/\/filestats/, (msg) => {
     tempFileManager.printStats();
 });
 
+// Команда для проверки Яндекс.Диска
+bot.onText(/\/yandex/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    if (!yandexDisk) {
+        await bot.sendMessage(chatId,
+            '❌ **Яндекс.Диск не настроен**\n\n' +
+            'Добавьте YANDEX_DISK_TOKEN в конфигурацию'
+        );
+        return;
+    }
+
+    try {
+        await bot.sendMessage(chatId, '🔍 Проверяю подключение к Яндекс.Диску...');
+       
+        const diskInfo = await yandexDisk.getDiskInfo();
+        const connectionOk = await yandexDisk.checkConnection();
+       
+        if (connectionOk && diskInfo.success) {
+            const freeGB = (diskInfo.free / 1024 / 1024 / 1024).toFixed(2);
+            const totalGB = (diskInfo.total / 1024 / 1024 / 1024).toFixed(2);
+           
+            await bot.sendMessage(chatId,
+                '✅ **Яндекс.Диск подключен**\n\n' +
+                `💾 Доступно: ${freeGB} GB / ${totalGB} GB\n` +
+                `📁 Папка: apps/ShoeBot/\n` +
+                `🔄 Автосохранение: включено\n\n` +
+                `Все результаты анализов автоматически сохраняются в облако.`
+            );
+        } else {
+            await bot.sendMessage(chatId, '❌ Ошибка подключения к Яндекс.Диску');
+        }
+    } catch (error) {
+        await bot.sendMessage(chatId, '❌ Ошибка проверки Яндекс.Диска');
+    }
+});
+
 bot.onText(/\/help/, (msg) => {
     bot.sendMessage(msg.chat.id,
         `🆘 **ПОМОЩЬ**\n\n` +
@@ -452,6 +489,9 @@ bot.onText(/\/help/, (msg) => {
         `📊 **Другие команды:**\n` +
         `/start - Главное меню\n` +
         `/statistics - Статистика системы`
+        `💾 **Сохранение результатов:**\n` +
+`/yandex - Статус Яндекс.Диска\n` +
+`• Автоматическое сохранение в облако\n\n` +            
     );
 });
 
@@ -526,7 +566,42 @@ try {
         await bot.sendPhoto(chatId, vizPath, {
             caption: `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`
         });
+       // 💾 СОХРАНЕНИЕ В ЯНДЕКС.ДИСК - ДОБАВЬТЕ ПЕРЕД ОЧИСТКОЙ ФАЙЛОВ
+if (yandexDisk && vizPath && topologyPath) {
+    try {
+        await bot.sendMessage(chatId, '💾 Сохраняю результаты в облако...');
        
+        const filesToUpload = [
+            { localPath: vizPath, name: 'visualization.png', type: 'visualization' },
+            { localPath: topologyPath, name: 'topology_map.png', type: 'topology' }
+        ];
+
+        const analysisData = {
+            predictions: processedPredictions.length,
+            classes: analysis.classes,
+            timestamp: new Date().toISOString(),
+            user: userData.username
+        };
+
+        const saveResult = await yandexDisk.saveAnalysisResults(
+            msg.from.id,
+            filesToUpload,
+            analysisData
+        );
+
+        if (saveResult.success) {
+            await bot.sendMessage(chatId,
+                `💾 **Результаты сохранены в Яндекс.Диск**\n\n` +
+                `📁 Папка: ${path.basename(saveResult.folderPath)}\n` +
+                `📊 Файлов: ${saveResult.uploadedFiles.length}\n` +
+                `🕒 ${new Date().toLocaleString('ru-RU')}`
+            );
+        }
+    } catch (uploadError) {
+        console.log('⚠️ Ошибка загрузки в Яндекс.Диск:', uploadError.message);
+        // Не прерываем основной поток из-за ошибки загрузки
+    }
+}
         // 🔄 АВТОМАТИЧЕСКАЯ ОЧИСТКА ЧЕРЕЗ МЕНЕДЖЕР
         tempFileManager.removeFile(vizPath);
         tempFileManager.removeFile(topologyPath);
