@@ -10,7 +10,7 @@ const config = {
     TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI',
     PORT: process.env.PORT || 10000,
     YANDEX_DISK_TOKEN: process.env.YANDEX_DISK_TOKEN,
-   
+
     ROBOFLOW: {
         API_URL: 'https://detect.roboflow.com/-zqyih/13',
         API_KEY: 'NeHOB854EyHkDbGGLE6G',
@@ -24,7 +24,7 @@ console.log('🚀 Запуск системы с модульной визуал
 // 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
 let visualization;
 try {
-    visualization = require('./modules/visualization').initialize();
+    visualization = visualizationModule.initialize(); // ← ИСПОЛЬЗУЕМ visualizationModule!
     console.log('✅ Модуль визуализации загружен');
 } catch (error) {
     console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить модуль визуализации:', error.message);
@@ -36,11 +36,9 @@ try {
         getAvailableStyles: () => [{ id: 'original', name: 'Оригинальный', description: 'Основной стиль' }]
     };
 }
+
 const app = express();
 const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
-
-// ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
-const visualization = visualizationModule.initialize();
 
 // =============================================================================
 // 📊 СИСТЕМА СТАТИСТИКИ
