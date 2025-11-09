@@ -369,6 +369,22 @@ bot.onText(/\/currentstyle/, async (msg) => {
     );
 });
 
+bot.onText(/\/filestats/, (msg) => {
+    const stats = tempFileManager.getStats();
+   
+    const fileStats = `📊 **СТАТИСТИКА ФАЙЛОВОЙ СИСТЕМЫ:**\n\n` +
+                     `📁 Отслеживается файлов: ${stats.totalTracked}\n` +
+                     `💾 Существует на диске: ${stats.existingFiles}\n` +
+                     `📦 Общий размер: ${stats.totalSize}\n` +
+                     `📂 Папка: ${stats.tempDirectory}\n\n` +
+                     `🔄 Автоочистка: каждые 30 минут\n` +
+                     `⏰ Следующая очистка: через 30 мин`;
+   
+    bot.sendMessage(msg.chat.id, fileStats);
+   
+    // Также выводим в консоль для отладки
+    tempFileManager.printStats();
+});
 
 bot.onText(/\/help/, (msg) => {
     bot.sendMessage(msg.chat.id,
@@ -546,3 +562,49 @@ app.listen(config.PORT, () => {
     console.log(`🤖 Telegram бот готов к работе`);
     console.log(`🎯 Модульная система с визуализацией активирована`);
 });
+
+
+// =============================================================================
+// 🛡️ ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ОШИБОК
+// =============================================================================
+
+// Обработчик необработанных обещаний
+process.on('unhandledRejection', (reason, promise) => {
+    console.log('❌ Необработанное отклонение промиса:', reason);
+    console.log('📋 Promise:', promise);
+    // Очищаем временные файлы при критической ошибке
+    tempFileManager.cleanup();
+});
+
+// Обработчик необработанных исключений
+process.on('uncaughtException', (error) => {
+    console.log('💥 Критическая ошибка:', error);
+    console.log('🔄 Очищаем временные файлы...');
+    tempFileManager.cleanup();
+    process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+    console.log('🛑 Получен SIGINT, очищаем ресурсы...');
+    const cleaned = tempFileManager.cleanup();
+    console.log(`🧹 Удалено ${cleaned} временных файлов перед выходом`);
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('🛑 Получен SIGTERM, очищаем ресурсы...');
+    const cleaned = tempFileManager.cleanup();
+    console.log(`🧹 Удалено ${cleaned} временных файлов перед выходом`);
+    process.exit(0);
+});
+
+// Периодическая очистка старых файлов (каждые 30 минут)
+setInterval(() => {
+    const cleaned = tempFileManager.cleanupOldFiles(60); // файлы старше 60 минут
+    if (cleaned > 0) {
+        console.log(`⏰ Периодическая очистка: удалено ${cleaned} старых файлов`);
+    }
+}, 30 * 60 * 1000); // 30 минут
+
+console.log('🛡️ Глобальные обработчики ошибок активированы');
