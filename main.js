@@ -51,6 +51,69 @@ const config = {
     }
 };
 
+// =============================================================================
+// 🔒 ВАЛИДАЦИЯ КОНФИГУРАЦИИ
+// =============================================================================
+
+/**
+* Проверяет корректность конфигурации перед запуском системы
+* @param {Object} config - объект конфигурации
+* @throws {Error} если конфигурация невалидна
+*/
+function validateConfig(config) {
+    console.log('🔍 Проверяю конфигурацию...');
+   
+    const errors = [];
+   
+    // Проверка Telegram токена
+    if (!config.TELEGRAM_TOKEN) {
+        errors.push('❌ TELEGRAM_TOKEN: отсутствует');
+    } else if (config.TELEGRAM_TOKEN.length < 10) {
+        errors.push('❌ TELEGRAM_TOKEN: слишком короткий (минимум 10 символов)');
+    } else if (!config.TELEGRAM_TOKEN.startsWith('')) {
+        errors.push('❌ TELEGRAM_TOKEN: должен начинаться с цифр и содержать двоеточие');
+    }
+   
+    // Проверка Roboflow конфигурации
+    if (!config.ROBOFLOW) {
+        errors.push('❌ ROBOFLOW: отсутствует конфигурация');
+    } else {
+        if (!config.ROBOFLOW.API_KEY || config.ROBOFLOW.API_KEY.length < 5) {
+            errors.push('❌ ROBOFLOW.API_KEY: отсутствует или слишком короткий');
+        }
+        if (!config.ROBOFLOW.API_URL || !config.ROBOFLOW.API_URL.includes('roboflow.com')) {
+            errors.push('❌ ROBOFLOW.API_URL: некорректный URL');
+        }
+        if (!config.ROBOFLOW.CONFIDENCE || config.ROBOFLOW.CONFIDENCE < 0 || config.ROBOFLOW.CONFIDENCE > 100) {
+            errors.push('❌ ROBOFLOW.CONFIDENCE: должен быть между 0 и 100');
+        }
+    }
+   
+    // Проверка порта
+    if (!config.PORT || config.PORT < 1000 || config.PORT > 65535) {
+        errors.push('❌ PORT: должен быть между 1000 и 65535');
+    }
+   
+    // Если есть ошибки - бросаем исключение
+    if (errors.length > 0) {
+        const errorMessage = `Ошибки конфигурации:\n${errors.join('\n')}`;
+        console.log('💥 КРИТИЧЕСКАЯ ОШИБКА:');
+        console.log(errorMessage);
+        throw new Error(errorMessage);
+    }
+   
+    console.log('✅ Конфигурация прошла валидацию');
+    return true;
+}
+
+// ВЫЗЫВАЕМ ВАЛИДАЦИЮ СРАЗУ ПОСЛЕ ОБЪЯВЛЕНИЯ CONFIG
+try {
+    validateConfig(config);
+} catch (error) {
+    console.log('💥 Невозможно запустить систему с некорректной конфигурацией');
+    process.exit(1); // Завершаем процесс с ошибкой
+}
+
 console.log('🚀 Запуск системы с модульной визуализацией...');
 
 // 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
