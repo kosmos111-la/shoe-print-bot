@@ -1,3 +1,4 @@
+// modules/visualization/index.js
 const AnalysisVisualization = require('./analysis-viz');
 const TopologyVisualization = require('./topology-viz');
 const MaskStyleVisualization = require('./mask-viz');
