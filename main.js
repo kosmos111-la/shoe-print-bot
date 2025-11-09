@@ -121,22 +121,29 @@ try {
 
 console.log('🚀 Запуск системы с модульной визуализацией...');
 
-// 🔄 АСИНХРОННАЯ ИНИЦИАЛИЗАЦИЯ ВСЕХ МОДУЛЕЙ
-async function initializeAllModules() {
-    // 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
-    let visualization;
-    let tempFileManager;
-    let yandexDisk;
 
+    // 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
+let visualization;
+let tempFileManager;
+let yandexDisk;
+
+// НЕМЕДЛЕННО ВЫЗЫВАЕМАЯ АСИНХРОННАЯ ФУНКЦИЯ (IIFE)
+(async function() {
+    // ИНИЦИАЛИЗИРУЕМ СИНХРОННЫЕ МОДУЛИ
     try {
         visualization = visualizationModule.initialize();
         console.log('✅ Модуль визуализации загружен');
     } catch (error) {
         console.log('❌ Ошибка модуля визуализации:', error.message);
-        // заглушка...
+        visualization = {
+            getVisualization: () => ({ createVisualization: async () => null }),
+            setUserStyle: () => false,
+            getUserStyle: () => 'original',
+            getAvailableStyles: () => [{ id: 'original', name: 'Оригинальный', description: 'Основной стиль' }],
+            userPreferences: new Map()
+        };
     }
 
-    // ИНИЦИАЛИЗИРУЕМ МЕНЕДЖЕР ВРЕМЕННЫХ ФАЙЛОВ
     try {
         tempFileManager = tempManagerModule.initialize({
             tempDir: './temp',
@@ -153,7 +160,7 @@ async function initializeAllModules() {
         };
     }
 
-    // ИНИЦИАЛИЗИРУЕМ МОДУЛЬ ЯНДЕКС.ДИСКА
+    // ИНИЦИАЛИЗИРУЕМ ЯНДЕКС.ДИСК (асинхронно)
     try {
         yandexDisk = await yandexDiskModule.initialize(config.YANDEX_DISK_TOKEN);
         if (yandexDisk) {
@@ -162,23 +169,29 @@ async function initializeAllModules() {
             console.log('✅ Папка Яндекс.Диска готова');
         } else {
             console.log('⚠️ Модуль Яндекс.Диска отключен (нет токена)');
+            yandexDisk = createYandexDiskStub();
         }
     } catch (error) {
         console.log('❌ Ошибка инициализации Яндекс.Диска:', error.message);
-        yandexDisk = {
-            isAvailable: () => false,
-            uploadFile: async () => ({ success: false, error: 'Модуль отключен' }),
-            createFolder: async () => ({ success: false }),
-            getAvailableSpace: async () => ({ available: 0, total: 0 }),
-            saveAnalysisResults: async () => ({ success: false, error: 'Модуль отключен' })
-        };
+        yandexDisk = createYandexDiskStub();
     }
 
-    return { visualization, tempFileManager, yandexDisk };
+    console.log('🚀 Все модули инициализированы, бот готов к работе!');
+})();
+
+// Функция-заглушка для Яндекс.Диска
+function createYandexDiskStub() {
+    return {
+        isAvailable: () => false,
+        uploadFile: async () => ({ success: false, error: 'Модуль отключен' }),
+        createFolder: async () => ({ success: false }),
+        getAvailableSpace: async () => ({ available: 0, total: 0 }),
+        saveAnalysisResults: async () => ({ success: false, error: 'Модуль отключен' })
+    };
 }
 
-// ВЫЗЫВАЕМ ИНИЦИАЛИЗАЦИЮ
-const { visualization, tempFileManager, yandexDisk } = await initializeAllModules();
+// Временная заглушка пока идет инициализация
+yandexDisk = createYandexDiskStub();
 
 const app = express();
 const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
