@@ -9,7 +9,7 @@ class MaskStyleVisualization {
         console.log('✅ Enhanced MaskStyleVisualization создан');
     }
 
-    async createVisualization(imageUrl, predictions, userData = {}) {
+    async createVisualization(imageUrl, predictions, userData = {}, outputPath = null) {
         try {
             console.log('🎨 Создаем улучшенную MASK визуализацию...');
            
@@ -56,15 +56,13 @@ class MaskStyleVisualization {
                 // 4. Добавляем информационный штамп
                 this.drawInfoStamp(ctx, canvas.width, canvas.height, predictions);
                
-                // Сохраняем результат
-                const tempDir = this.ensureTempDir();
-                const outputPath = path.join(tempDir, `enhanced_mask_${Date.now()}.png`);
-               
-                const bufferOut = canvas.toBuffer('image/png');
-                fs.writeFileSync(outputPath, bufferOut);
-               
-                console.log('✅ Улучшенная mask визуализация создана:', outputPath);
-                return outputPath;
+                // 🔄 ИСПОЛЬЗУЕМ ПЕРЕДАННЫЙ ПУТЬ ИЛИ СОЗДАЕМ СВОЙ
+const finalOutputPath = outputPath || path.join(this.ensureTempDir(), `enhanced_mask_${Date.now()}.png`);
+const bufferOut = canvas.toBuffer('image/png');
+fs.writeFileSync(finalOutputPath, bufferOut);
+
+console.log('✅ Улучшенная mask визуализация создана:', finalOutputPath);
+return finalOutputPath;
                
             } catch (fetchError) {
                 clearTimeout(timeout);
