@@ -9,4 +9,8 @@ module.exports = {
         CONFIDENCE: 25,
         OVERLAP: 30
     }
+VISUALIZATION: {
+        DEFAULT_STYLE: 'original' // original или mask
+    }
 };
+
