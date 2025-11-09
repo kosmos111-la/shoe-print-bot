@@ -1,398 +1,421 @@
-const express = require('express');
-const TelegramBot = require('node-telegram-bot-api');
-const axios = require('axios');
+Отличные идеи! Убираем красную обводку, делаем черные линии с красной подсветкой и улучшаем точки. Вот обновленный код:
 
-// ИМПОРТ МОДУЛЕЙ
-const visualizationModule = require('./modules/visualization');
+🎨 Улучшенный modules/visualization/mask-viz.js
 
-// ВСТРОЕННЫЙ CONFIG
-const config = {
-    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI',
-    PORT: process.env.PORT || 10000,
-    YANDEX_DISK_TOKEN: process.env.YANDEX_DISK_TOKEN,
+```javascript
+const { createCanvas, loadImage } = require('canvas');
+const path = require('path');
+const fs = require('fs');
 
-    ROBOFLOW: {
-        API_URL: 'https://detect.roboflow.com/-zqyih/13',
-        API_KEY: 'NeHOB854EyHkDbGGLE6G',
-        CONFIDENCE: 25,
-        OVERLAP: 30
+class MaskStyleVisualization {
+    constructor() {
+        this.styleName = 'mask';
+        this.modelVersion = 'Roboflow v13';
+        console.log('✅ Enhanced MaskStyleVisualization создан');
     }
-};
 
-console.log('🚀 Запуск системы с модульной визуализацией...');
+    async createVisualization(imageUrl, predictions, userData = {}) {
+        try {
+            console.log('🎨 Создаем улучшенную MASK визуализацию...');
+           
+            if (!imageUrl) {
+                console.log('❌ Нет imageUrl');
+                return null;
+            }
 
-// 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
-let visualization;
-try {
-    visualization = visualizationModule.initialize(); // ← ИСПОЛЬЗУЕМ visualizationModule!
-    console.log('✅ Модуль визуализации загружен');
-} catch (error) {
-    console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить модуль визуализации:', error.message);
-    // Создаем заглушку чтобы бот не падал
-    visualization = {
-        getVisualization: () => ({ createVisualization: async () => null }),
-        setUserStyle: () => false,
-        getUserStyle: () => 'original',
-        getAvailableStyles: () => [{ id: 'original', name: 'Оригинальный', description: 'Основной стиль' }]
-    };
-}
+            if (!predictions || !Array.isArray(predictions)) {
+                console.log('❌ Неверные predictions');
+                return null;
+            }
 
-const app = express();
-const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 15000);
+           
+            try {
+                const response = await fetch(imageUrl, { signal: controller.signal });
+                clearTimeout(timeout);
+               
+                if (!response.ok) {
+                    console.log(`❌ HTTP ошибка: ${response.status}`);
+                    return null;
+                }
+               
+                const buffer = await response.arrayBuffer();
+                const image = await loadImage(Buffer.from(buffer));
+               
+                const canvas = createCanvas(image.width, image.height);
+                const ctx = canvas.getContext('2d');
+               
+                // 1. Оригинальное изображение
+                ctx.globalAlpha = 0.4;
+                ctx.drawImage(image, 0, 0);
+                ctx.globalAlpha = 1.0;
+               
+                // 2. Темная маска
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+               
+                // 3. Рисуем предсказания и связи
+                this.drawPredictionsWithConnections(ctx, predictions);
+               
+                // 4. Добавляем информационный штамп
+                this.drawInfoStamp(ctx, canvas.width, canvas.height, predictions);
+               
+                // Сохраняем результат
+                const tempDir = this.ensureTempDir();
+                const outputPath = path.join(tempDir, `enhanced_mask_${Date.now()}.png`);
+               
+                const bufferOut = canvas.toBuffer('image/png');
+                fs.writeFileSync(outputPath, bufferOut);
+               
+                console.log('✅ Улучшенная mask визуализация создана:', outputPath);
+                return outputPath;
+               
+            } catch (fetchError) {
+                clearTimeout(timeout);
+                if (fetchError.name === 'AbortError') {
+                    console.log('❌ Таймаут загрузки изображения');
+                } else {
+                    throw fetchError;
+                }
+            }
+           
+            return null;
+           
+        } catch (error) {
+            console.log('❌ Ошибка в createVisualization:', error.message);
+            return null;
+        }
+    }
 
-// =============================================================================
-// 📊 СИСТЕМА СТАТИСТИКИ
-// =============================================================================
-const userStats = new Map();
-const globalStats = {
-    totalUsers: 0,
-    totalPhotos: 0,
-    totalAnalyses: 0,
-    lastAnalysis: null
-};
+    drawPredictionsWithConnections(ctx, predictions) {
+        try {
+            const validPredictions = predictions.filter(pred =>
+                pred && pred.points && Array.isArray(pred.points) && pred.points.length >= 3
+            );
+           
+            if (validPredictions.length === 0) {
+                console.log('⚠️ Нет валидных predictions для отрисовки');
+                return;
+            }
 
-function updateUserStats(userId, username, action = 'photo') {
-    if (!userStats.has(userId)) {
-        userStats.set(userId, {
-            username: username || `user_${userId}`,
-            photosCount: 0,
-            analysesCount: 0,
-            firstSeen: new Date(),
-            lastSeen: new Date(),
-            lastAnalysis: null
+            // Сначала рисуем все полигоны
+            validPredictions.forEach(prediction => {
+                this.drawSinglePrediction(ctx, prediction);
+            });
+
+            // Затем рисуем заметные связи между центрами
+            this.drawEnhancedConnections(ctx, validPredictions);
+           
+        } catch (error) {
+            console.log('❌ Ошибка в drawPredictionsWithConnections:', error.message);
+        }
+    }
+
+    drawSinglePrediction(ctx, prediction) {
+        try {
+            const points = prediction.points;
+            const className = prediction.class || 'unknown';
+            const confidence = prediction.confidence || 0;
+           
+            // Сохраняем уверенность для использования в связях
+            prediction.confidence = confidence;
+           
+            ctx.lineCap = 'round';
+           
+            switch(className) {
+                case 'Outline-trail':
+                    this.drawOutline(ctx, points);
+                    break;
+                case 'shoe-protector':
+                    this.drawProtector(ctx, points, prediction);
+                    break;
+                case 'Morphology':
+                    this.drawMorphology(ctx, points);
+                    break;
+                default:
+                    this.drawDefault(ctx, points);
+            }
+        } catch (error) {
+            console.log('❌ Ошибка отрисовки prediction:', error.message);
+        }
+    }
+
+    drawOutline(ctx, points) {
+        // Толстый пунктир для контура следа
+        ctx.setLineDash([20, 10]);
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = '#000000';
+       
+        ctx.beginPath();
+        points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
         });
-        globalStats.totalUsers++;
+        ctx.closePath();
+        ctx.stroke();
+        ctx.setLineDash([]);
     }
-  
-    const user = userStats.get(userId);
-    user.lastSeen = new Date();
-  
-    switch(action) {
-        case 'photo':
-            user.photosCount++;
-            globalStats.totalPhotos++;
-            break;
-        case 'analysis':
-            user.analysesCount++;
-            globalStats.totalAnalyses++;
-            user.lastAnalysis = new Date();
-            globalStats.lastAnalysis = new Date();
-            break;
+
+    drawProtector(ctx, points, prediction) {
+        const confidence = prediction.confidence || 0;
+       
+        // ОБВОДКА В 1 ПИКСЕЛЬ - ВСЕГДА ЧЕРНАЯ
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+       
+        // Рисуем полигон с легкой заливкой
+        ctx.beginPath();
+        points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+       
+        // Центральная точка - ЧЕРНАЯ С КРАСНОЙ ОБВОДКОЙ для высокой уверенности
+        const center = this.calculateCenter(points);
+       
+        if (confidence > 0.8) {
+            // ВЫСОКАЯ УВЕРЕННОСТЬ - красная обводка
+            ctx.fillStyle = '#000000';
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(center.x, center.y, 4, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.stroke();
+        } else {
+            // ОБЫЧНАЯ ТОЧКА - просто черная
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(center.x, center.y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+       
+        // Сохраняем центр для связей
+        prediction.center = center;
     }
-}
 
-// =============================================================================
-// 🔧 ПОСТОБРАБОТКА
-// =============================================================================
-function smartPostProcessing(predictions) {
-    if (!predictions || predictions.length === 0) return [];
-  
-    const filtered = predictions.filter(pred => {
-        if (!pred.points || pred.points.length < 3) return false;
-        const points = pred.points;
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-        const width = Math.max(...xs) - Math.min(...xs);
-        const height = Math.max(...ys) - Math.min(...ys);
-        const area = width * height;
-        return area > 100;
-    });
+    drawMorphology(ctx, points) {
+        // Тонкие сплошные линии для морфологии
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#000000';
+       
+        ctx.beginPath();
+        points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+        });
+        ctx.closePath();
+        ctx.stroke();
+    }
 
-    return filtered;
-}
+    drawDefault(ctx, points) {
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#000000';
+       
+        ctx.beginPath();
+        points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+        });
+        ctx.closePath();
+        ctx.stroke();
+    }
 
-// =============================================================================
-// 🔧 АНАЛИЗ ДАННЫХ
-// =============================================================================
-function analyzePredictions(predictions) {
-    const classes = {};
-    predictions.forEach(pred => {
-        classes[pred.class] = (classes[pred.class] || 0) + 1;
-    });
-   
-    return {
-        total: predictions.length,
-        classes: classes,
-        hasOutline: !!classes['Outline-trail'],
-        protectorCount: classes['shoe-protector'] || 0
-    };
-}
+    drawEnhancedConnections(ctx, predictions) {
+        try {
+            const protectors = predictions.filter(p => p.class === 'shoe-protector' && p.center);
+           
+            if (protectors.length < 2) return;
+           
+            // Сначала рисуем все линии ЧЕРНЫМИ
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = '#000000';
+            ctx.setLineDash([]);
+           
+            for (let i = 0; i < protectors.length; i++) {
+                for (let j = i + 1; j < protectors.length; j++) {
+                    const center1 = protectors[i].center;
+                    const center2 = protectors[j].center;
+                   
+                    const distance = Math.sqrt(
+                        Math.pow(center2.x - center1.x, 2) +
+                        Math.pow(center2.y - center1.y, 2)
+                    );
+                   
+                    if (distance < 150) {
+                        ctx.beginPath();
+                        ctx.moveTo(center1.x, center1.y);
+                        ctx.lineTo(center2.x, center2.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+           
+            // Затем поверх рисуем КРАСНЫЕ ПОДСВЕТКИ для высокоуверенных связей
+            ctx.lineWidth = 3; // Толще для подсветки
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)'; // Полупрозрачный красный
+           
+            for (let i = 0; i < protectors.length; i++) {
+                for (let j = i + 1; j < protectors.length; j++) {
+                    const center1 = protectors[i].center;
+                    const center2 = protectors[j].center;
+                    const minConfidence = Math.min(protectors[i].confidence || 0, protectors[j].confidence || 0);
+                   
+                    const distance = Math.sqrt(
+                        Math.pow(center2.x - center1.x, 2) +
+                        Math.pow(center2.y - center1.y, 2)
+                    );
+                   
+                    // Подсвечиваем только высокоуверенные связи
+                    if (distance < 150 && minConfidence > 0.8) {
+                        ctx.beginPath();
+                        ctx.moveTo(center1.x, center1.y);
+                        ctx.lineTo(center2.x, center2.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+           
+        } catch (error) {
+            console.log('❌ Ошибка в drawConnections:', error.message);
+        }
+    }
 
-function generateTopologyText(predictions) {
-    const protectors = predictions.filter(p => p.class === 'shoe-protector');
-    if (protectors.length === 0) return "Детали протектора не обнаружены";
-   
-    let text = `🔍 Топология протектора:\n`;
-    text += `• Всего деталей: ${protectors.length}\n`;
-   
-    // Анализ распределения
-    const centers = protectors.map(pred => {
-        const points = pred.points;
+    drawInfoStamp(ctx, width, height, predictions) {
+        try {
+            const stats = this.calculateStats(predictions);
+            const confidenceStats = this.calculateConfidenceStats(predictions);
+            const currentDate = new Date().toLocaleDateString('ru-RU');
+           
+            // ПРОЗРАЧНЫЙ ШТАМП - только рамка и текст
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(10, 10, 250, 70);
+           
+            // Текст статистики (прямо на изображении)
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText('🔍 АНАЛИЗ СЛЕДА', 20, 28);
+           
+            ctx.font = '11px Arial';
+            ctx.fillText(`• Деталей: ${stats.protectors}`, 20, 45);
+            ctx.fillText(`• Контуров: ${stats.outlines}`, 20, 60);
+            ctx.fillText(`• Уверенность: ${confidenceStats.avgConfidence}%`, 20, 75);
+           
+            // Информация в правом нижнем углу
+            ctx.font = '9px Arial';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillText(`${currentDate} | ${this.modelVersion}`, width - 180, height - 15);
+           
+        } catch (error) {
+            console.log('❌ Ошибка в drawInfoStamp:', error.message);
+        }
+    }
+
+    calculateStats(predictions) {
+        const stats = {
+            protectors: 0,
+            outlines: 0,
+            morphology: 0
+        };
+       
+        predictions.forEach(pred => {
+            switch(pred.class) {
+                case 'shoe-protector':
+                    stats.protectors++;
+                    break;
+                case 'Outline-trail':
+                    stats.outlines++;
+                    break;
+                case 'Morphology':
+                    stats.morphology++;
+                    break;
+            }
+        });
+       
+        return stats;
+    }
+
+    calculateConfidenceStats(predictions) {
+        let totalConfidence = 0;
+        let highConfidenceCount = 0;
+        let validPredictions = 0;
+       
+        predictions.forEach(pred => {
+            if (pred.confidence) {
+                totalConfidence += pred.confidence;
+                validPredictions++;
+                if (pred.confidence > 0.8) {
+                    highConfidenceCount++;
+                }
+            }
+        });
+       
+        const avgConfidence = validPredictions > 0
+            ? Math.round((totalConfidence / validPredictions) * 100)
+            : 0;
+           
+        return {
+            avgConfidence: avgConfidence,
+            highConfidence: highConfidenceCount
+        };
+    }
+
+    calculateCenter(points) {
         const xs = points.map(p => p.x);
         const ys = points.map(p => p.y);
         return {
             x: (Math.min(...xs) + Math.max(...xs)) / 2,
             y: (Math.min(...ys) + Math.max(...ys)) / 2
         };
-    });
-   
-    // Простой анализ кластеризации
-    const leftCount = centers.filter(c => c.x < 400).length;
-    const rightCount = centers.filter(c => c.x >= 400).length;
-   
-    text += `• Распределение: ${leftCount} слева, ${rightCount} справа\n`;
-    text += `• Плотность: ${(protectors.length / 10).toFixed(1)} дет/сектор\n`;
-   
-    return text;
-}
-
-// =============================================================================
-// 🤖 TELEGRAM БОТ
-// =============================================================================
-app.use(express.json());
-
-// Webhook для Telegram
-app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
-});
-
-// Команды бота
-bot.onText(/\/start/, (msg) => {
-    updateUserStats(msg.from.id, msg.from.username || msg.from.first_name);
-  
-    bot.sendMessage(msg.chat.id,
-        `👟 **СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ** 🚀\n\n` +
-        `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} отпечатков\n\n` +
-        `🔍 **ФУНКЦИОНАЛ:**\n` +
-        `• Анализ через Roboflow API\n` +
-        `• Визуализация контуров\n` +
-        `• Топология протектора\n\n` +
-        `📸 **Просто отправьте фото следа обуви**`
-    );
-});
-
-bot.onText(/\/statistics/, (msg) => {
-    const activeUsers = Array.from(userStats.values()).filter(user =>
-        (new Date() - user.lastSeen) < 7 * 24 * 60 * 60 * 1000
-    ).length;
-  
-    const stats = `📊 **СТАТИСТИКА СИСТЕМЫ:**\n\n` +
-                 `👥 Пользователи: ${globalStats.totalUsers} (${activeUsers} активных)\n` +
-                 `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
-                 `🔍 Анализов проведено: ${globalStats.totalAnalyses}\n` +
-                 `📅 Последний анализ: ${globalStats.lastAnalysis ?
-                     globalStats.lastAnalysis.toLocaleString('ru-RU') : 'еще нет'}`;
-  
-    bot.sendMessage(msg.chat.id, stats);
-});
-
-// Команда выбора стиля визуализации
-bot.onText(/\/style/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-   
-    const styles = visualization.getAvailableStyles();
-    const currentStyle = visualization.getUserStyle(userId);
-    const currentStyleInfo = styles.find(s => s.id === currentStyle);
-   
-    let message = `🎨 **ВЫБОР СТИЛЯ ВИЗУАЛИЗАЦИИ**\n\n`;
-    message += `📊 Текущий стиль: ${currentStyleInfo?.name || 'оригинальный'}\n\n`;
-    message += `Доступные стили:\n`;
-   
-    styles.forEach(style => {
-        message += `\n${style.name}\n`;
-        message += `└ ${style.description}\n`;
-        message += `└ /setstyle_${style.id}\n`;
-    });
-   
-    message += `\n💡 Стиль сохранится до перезагрузки бота`;
-   
-    await bot.sendMessage(chatId, message);
-});
-
-// Обработка выбора стиля
-bot.onText(/\/setstyle_(.+)/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const styleId = match[1];
-   
-    if (visualization.setUserStyle(userId, styleId)) {
-        const styleName = visualization.getAvailableStyles().find(s => s.id === styleId)?.name;
-        await bot.sendMessage(chatId,
-            `✅ Стиль визуализации изменен на: ${styleName}\n\n` +
-            `Теперь все новые анализы будут использовать выбранный стиль.\n\n` +
-            `Проверить текущий стиль: /currentstyle`
-        );
-    } else {
-        await bot.sendMessage(chatId, '❌ Неизвестный стиль визуализации. Посмотрите доступные: /style');
     }
-});
 
-// Показ текущего стиля
-bot.onText(/\/currentstyle/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-   
-    const currentStyle = visualization.getUserStyle(userId);
-    const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
-   
-    await bot.sendMessage(chatId,
-        `🎨 **ТЕКУЩИЙ СТИЛЬ ВИЗУАЛИЗАЦИИ**\n\n` +
-        `📝 ${styleInfo?.name || 'Оригинальный'}\n` +
-        `📋 ${styleInfo?.description || 'Цветная визуализация'}\n\n` +
-        `Изменить стиль: /style`
-    );
-});
-
-
-bot.onText(/\/help/, (msg) => {
-    bot.sendMessage(msg.chat.id,
-        `🆘 **ПОМОЩЬ**\n\n` +
-        `📸 **Как использовать:**\n` +
-        `Просто отправьте фото следа обуви\n\n` +
-        `🔍 **Что анализируется:**\n` +
-        `• Контуры подошвы\n` +
-        `• Детали протектора\n` +
-        `• Топология узора\n\n` +
-        `💡 **Советы по съемке:**\n` +
-        `• Прямой угол\n` +
-        `• Хорошее освещение\n` +
-        `• Четкий фокус`
-    );
-});
-
-// Обработка фото
-bot.on('photo', async (msg) => {
-    const chatId = msg.chat.id;
-
-    try {
-        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
-        await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
-
-        const photo = msg.photo[msg.photo.length - 1];
-        const file = await bot.getFile(photo.file_id);
-        const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
-
-        await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
-
-        const response = await axios({
-            method: "POST",
-            url: config.ROBOFLOW.API_URL,
-            params: {
-                api_key: config.ROBOFLOW.API_KEY,
-                image: fileUrl,
-                confidence: config.ROBOFLOW.CONFIDENCE,
-                overlap: config.ROBOFLOW.OVERLAP,
-                format: 'json'
-            },
-            timeout: 30000
-        });
-
-        const predictions = response.data.predictions || [];
-        const processedPredictions = smartPostProcessing(predictions);
-        const analysis = analyzePredictions(processedPredictions);
-
-        if (analysis.total > 0) {
-            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
-           
-            const userData = {
-                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
-            };
-           
-            // ИСПОЛЬЗУЕМ МОДУЛИ ВИЗУАЛИЗАЦИИ С ВЫБОРОМ СТИЛЯ
-const userId = msg.from.id;
-const vizModule = visualization.getVisualization(msg.from.id, 'analysis');
-const topologyModule = visualization.getVisualization(msg.from.id, 'topology');
-
-const vizPath = await vizModule.createVisualization(fileUrl, processedPredictions, userData);
-const topologyPath = await topologyModule.createVisualization(fileUrl, processedPredictions, userData);
-           
-            let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
-            caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
-           
-            caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
-            Object.entries(analysis.classes).forEach(([className, count]) => {
-                caption += `• ${className}: ${count}\n`;
-            });
-           
-            if (vizPath) {
-    // ОТПРАВЛЯЕМ ТОЛЬКО ОДНУ ФОТОГРАФИЮ с краткой подписью
-    await bot.sendPhoto(chatId, vizPath, {
-        caption: `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`
-    });
-  
-    // Очистка временных файлов
-    [vizPath, topologyPath].forEach(path => {
+    ensureTempDir() {
+        const tempDir = path.join(__dirname, '../../temp');
         try {
-            if (path && require('fs').existsSync(path)) {
-                require('fs').unlinkSync(path);
-                console.log('✅ Файл удален:', path);
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
             }
-        } catch(e) {
-            console.log('⚠️ Не удалось удалить файл:', path);
+            return tempDir;
+        } catch (error) {
+            console.log('❌ Ошибка создания temp dir:', error.message);
+            return __dirname;
         }
-    });
-} else {
-    await bot.sendMessage(chatId, caption);
-}
-           
-        } else {
-            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
-        }
-
-        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
-
-    } catch (error) {
-        console.log('❌ Ошибка анализа фото:', error.message);
-        await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
     }
-});
-
-// =============================================================================
-// 🚀 ЗАПУСК СЕРВЕРА
-// =============================================================================
-app.get('/', (req, res) => {
-    res.send(`
-        <h1>🤖 Система анализа следов обуви</h1>
-        <p>✅ Модульная система работает!</p>
-        <p>📊 Пользователей: ${globalStats.totalUsers}</p>
-        <p>📸 Фото обработано: ${globalStats.totalPhotos}</p>
-        <p>🎨 Визуализация активирована</p>
-        <p><a href="/health">Health Check</a></p>
-    `);
-});
-
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        statistics: {
-            users: globalStats.totalUsers,
-            photos: globalStats.totalPhotos,
-            analyses: globalStats.totalAnalyses
-        }
-    });
-});
-// 🔒 ЗАЩИЩЕННАЯ ОЧИСТКА ФАЙЛОВ
-function safeFileCleanup(paths) {
-    if (!paths || !Array.isArray(paths)) return;
-   
-    paths.forEach(filePath => {
-        try {
-            if (filePath && typeof filePath === 'string' && fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-                console.log('✅ Файл удален:', filePath);
-            }
-        } catch (e) {
-            console.log('⚠️ Не удалось удалить файл:', filePath);
-        }
-    });
 }
 
-// 🚀 ЗАПУСК СЕРВЕРА
-app.listen(config.PORT, () => {
-    console.log(`✅ Сервер запущен на порту ${config.PORT}`);
-    console.log(`🤖 Telegram бот готов к работе`);
-    console.log(`🎯 Модульная система с визуализацией активирована`);
-});
+module.exports = MaskStyleVisualization;
+```
+
+🆕 Что улучшили:
+
+1. ⚫ ВСЕ ОБВОДКИ ЧЕРНЫЕ:
+
+· Убрали красную обводку деталей
+· Все полигоны теперь черные с тонкой линией (1px)
+· Сохранили легкую полупрозрачную заливку
+
+2. 🔴🖤 ТОЧКИ С КРАСНОЙ ОБВОДКОЙ:
+
+· Все точки черные
+· Для высокой уверенности (>80%) - добавляем красную обводку
+· Размер точек: 4px с обводкой для высокоуверенных, 3px для обычных
+
+3. 🔗 ЧЕРНЫЕ ЛИНИИ С КРАСНОЙ ПОДСВЕТКОЙ:
+
+· Все связи рисуются черными линиями (1.5px)
+· Поверх рисуем толстые полупрозрачные красные линии (3px, opacity 0.3) для высокоуверенных связей
+· Получается эффект "подсветки" - черная линия с красным свечением
+
+4. 🎯 ЛОГИКА ПОДСВЕТКИ:
+
+· Подсвечиваются только связи между деталями с уверенностью >80%
+· Красная подсветка полупрозрачная, поэтому не перекрывает черные линии
+· Создает эффект акцента на надежных соединениях
+
+Теперь визуализация выглядит более элегантно - черные линии и точки с аккуратными красными акцентами для высокой уверенности! 🚀
