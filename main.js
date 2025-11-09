@@ -450,36 +450,41 @@ const userId = msg.from.id;
 const vizModule = visualization.getVisualization(msg.from.id, 'analysis');
 const topologyModule = visualization.getVisualization(msg.from.id, 'topology');
 
-const vizPath = await vizModule.createVisualization(fileUrl, processedPredictions, userData);
-const topologyPath = await topologyModule.createVisualization(fileUrl, processedPredictions, userData);
-           
-            let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
-            caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
-           
-            caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
-            Object.entries(analysis.classes).forEach(([className, count]) => {
-                caption += `• ${className}: ${count}\n`;
-            });
-           
-            if (vizPath) {
-    // ОТПРАВЛЯЕМ ТОЛЬКО ОДНУ ФОТОГРАФИЮ с краткой подписью
-    await bot.sendPhoto(chatId, vizPath, {
-        caption: `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`
-    });
-  
-    // Очистка временных файлов
-    [vizPath, topologyPath].forEach(path => {
-        try {
-            if (path && require('fs').existsSync(path)) {
-                require('fs').unlinkSync(path);
-                console.log('✅ Файл удален:', path);
-            }
-        } catch(e) {
-            console.log('⚠️ Не удалось удалить файл:', path);
-        }
-    });
-} else {
-    await bot.sendMessage(chatId, caption);
+// 🔄 НОВЫЙ КОД С ИНТЕГРАЦИЕЙ МЕНЕДЖЕРА ФАЙЛОВ
+try {
+    // СОЗДАЕМ ПУТИ ЧЕРЕЗ МЕНЕДЖЕР (автоматическое отслеживание)
+    const vizPath = tempFileManager.createTempFile('analysis', 'png');
+    const topologyPath = tempFileManager.createTempFile('topology', 'png');
+   
+    // Сохраняем визуализации в созданные пути
+    await vizModule.createVisualization(fileUrl, processedPredictions, userData, vizPath);
+    await topologyModule.createVisualization(fileUrl, processedPredictions, userData, topologyPath);
+   
+    // Отправка результата
+    if (vizPath && require('fs').existsSync(vizPath)) {
+        await bot.sendPhoto(chatId, vizPath, {
+            caption: `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`
+        });
+       
+        // 🔄 АВТОМАТИЧЕСКАЯ ОЧИСТКА ЧЕРЕЗ МЕНЕДЖЕР
+        tempFileManager.removeFile(vizPath);
+        tempFileManager.removeFile(topologyPath);
+    } else {
+        // Если визуализация не создалась, отправляем текстовый результат
+        let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
+        caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
+        caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
+        Object.entries(analysis.classes).forEach(([className, count]) => {
+            caption += `• ${className}: ${count}\n`;
+        });
+        await bot.sendMessage(chatId, caption);
+    }
+} catch (error) {
+    console.log('❌ Ошибка создания визуализации:', error);
+    // 🔄 ГАРАНТИРОВАННАЯ ОЧИСТКА ПРИ ОШИБКЕ
+    tempFileManager.removeFile(vizPath);
+    tempFileManager.removeFile(topologyPath);
+    throw error;
 }
            
         } else {
