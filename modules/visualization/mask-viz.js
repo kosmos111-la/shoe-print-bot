@@ -11,7 +11,7 @@ class MaskStyleVisualization {
 
     async createVisualization(imageUrl, predictions, userData = {}) {
         try {
-            console.log('🎨 Создаем оптимизированную MASK визуализацию...');
+            console.log('🎨 Создаем улучшенную MASK визуализацию...');
            
             if (!imageUrl) {
                 console.log('❌ Нет imageUrl');
@@ -58,12 +58,12 @@ class MaskStyleVisualization {
                
                 // Сохраняем результат
                 const tempDir = this.ensureTempDir();
-                const outputPath = path.join(tempDir, `optimized_mask_${Date.now()}.png`);
+                const outputPath = path.join(tempDir, `enhanced_mask_${Date.now()}.png`);
                
                 const bufferOut = canvas.toBuffer('image/png');
                 fs.writeFileSync(outputPath, bufferOut);
                
-                console.log('✅ Оптимизированная mask визуализация создана:', outputPath);
+                console.log('✅ Улучшенная mask визуализация создана:', outputPath);
                 return outputPath;
                
             } catch (fetchError) {
@@ -155,23 +155,10 @@ class MaskStyleVisualization {
     drawProtector(ctx, points, prediction) {
         const confidence = prediction.confidence || 0;
        
-        // ОБВОДКА В 1 ПИКСЕЛЬ для деталей
+        // ОБВОДКА В 1 ПИКСЕЛЬ - ВСЕГДА ЧЕРНАЯ
         ctx.lineWidth = 1;
-       
-        // ЦВЕТ В ЗАВИСИМОСТИ ОТ УВЕРЕННОСТИ
-        if (confidence > 0.8) {
-            // ОЧЕНЬ ВЫСОКАЯ УВЕРЕННОСТЬ - КРАСНЫЙ
-            ctx.strokeStyle = '#ff0000';
-            ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
-        } else if (confidence > 0.6) {
-            // ВЫСОКАЯ УВЕРЕННОСТЬ - ТЕМНО-СЕРЫЙ
-            ctx.strokeStyle = '#333333';
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-        } else {
-            // СРЕДНЯЯ/НИЗКАЯ УВЕРЕННОСТЬ - СВЕТЛО-СЕРЫЙ
-            ctx.strokeStyle = '#666666';
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.02)';
-        }
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
        
         // Рисуем полигон с легкой заливкой
         ctx.beginPath();
@@ -183,12 +170,25 @@ class MaskStyleVisualization {
         ctx.fill();
         ctx.stroke();
        
-        // Центральная точка (цвет зависит от уверенности)
+        // Центральная точка - ЧЕРНАЯ С КРАСНОЙ ОБВОДКОЙ для высокой уверенности
         const center = this.calculateCenter(points);
-        ctx.fillStyle = ctx.strokeStyle;
-        ctx.beginPath();
-        ctx.arc(center.x, center.y, 3, 0, 2 * Math.PI);
-        ctx.fill();
+       
+        if (confidence > 0.8) {
+            // ВЫСОКАЯ УВЕРЕННОСТЬ - красная обводка
+            ctx.fillStyle = '#000000';
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(center.x, center.y, 4, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.stroke();
+        } else {
+            // ОБЫЧНАЯ ТОЧКА - просто черная
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(center.x, center.y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+        }
        
         // Сохраняем центр для связей
         prediction.center = center;
@@ -227,11 +227,11 @@ class MaskStyleVisualization {
            
             if (protectors.length < 2) return;
            
-            // ЗАМЕТНЫЕ СВЯЗИ
+            // Сначала рисуем все линии ЧЕРНЫМИ
             ctx.lineWidth = 1.5;
-            ctx.setLineDash([]); // Сплошные линии
+            ctx.strokeStyle = '#000000';
+            ctx.setLineDash([]);
            
-            // Рисуем связи между близкими центрами
             for (let i = 0; i < protectors.length; i++) {
                 for (let j = i + 1; j < protectors.length; j++) {
                     const center1 = protectors[i].center;
@@ -242,21 +242,32 @@ class MaskStyleVisualization {
                         Math.pow(center2.y - center1.y, 2)
                     );
                    
-                    // Соединяем близкие точки (расстояние меньше 150px)
                     if (distance < 150) {
-                        // Цвет линии зависит от МИНИМАЛЬНОЙ уверенности соединенных деталей
-                        const minConfidence = Math.min(protectors[i].confidence || 0, protectors[j].confidence || 0);
-                       
-                        if (minConfidence > 0.8) {
-                            ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)'; // Очень высокая уверенность - КРАСНЫЙ
-                        } else if (minConfidence > 0.6) {
-                            ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)'; // Высокая уверенность - темный
-                        } else if (minConfidence > 0.4) {
-                            ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)'; // Средняя уверенность
-                        } else {
-                            ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)'; // Низкая уверенность - светлый
-                        }
-                       
+                        ctx.beginPath();
+                        ctx.moveTo(center1.x, center1.y);
+                        ctx.lineTo(center2.x, center2.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+           
+            // Затем поверх рисуем КРАСНЫЕ ПОДСВЕТКИ для высокоуверенных связей
+            ctx.lineWidth = 3; // Толще для подсветки
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)'; // Полупрозрачный красный
+           
+            for (let i = 0; i < protectors.length; i++) {
+                for (let j = i + 1; j < protectors.length; j++) {
+                    const center1 = protectors[i].center;
+                    const center2 = protectors[j].center;
+                    const minConfidence = Math.min(protectors[i].confidence || 0, protectors[j].confidence || 0);
+                   
+                    const distance = Math.sqrt(
+                        Math.pow(center2.x - center1.x, 2) +
+                        Math.pow(center2.y - center1.y, 2)
+                    );
+                   
+                    // Подсвечиваем только высокоуверенные связи
+                    if (distance < 150 && minConfidence > 0.8) {
                         ctx.beginPath();
                         ctx.moveTo(center1.x, center1.y);
                         ctx.lineTo(center2.x, center2.y);
@@ -372,5 +383,3 @@ class MaskStyleVisualization {
         }
     }
 }
-
-module.exports = MaskStyleVisualization;
