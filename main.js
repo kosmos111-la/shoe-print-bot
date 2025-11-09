@@ -33,9 +33,12 @@
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 // ИМПОРТ МОДУЛЕЙ
 const visualizationModule = require('./modules/visualization');
+const yandexDiskModule = require('./modules/yandex-disk');
 const tempManagerModule = require('./modules/temp-manager');
 
 
@@ -118,35 +121,64 @@ try {
 
 console.log('🚀 Запуск системы с модульной визуализацией...');
 
-// 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
-let visualization;
-let tempFileManager; 
+// 🔄 АСИНХРОННАЯ ИНИЦИАЛИЗАЦИЯ ВСЕХ МОДУЛЕЙ
+async function initializeAllModules() {
+    // 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
+    let visualization;
+    let tempFileManager;
+    let yandexDisk;
 
-try {
-    visualization = visualizationModule.initialize();
-    console.log('✅ Модуль визуализации загружен');
-} catch (error) {
-    console.log('❌ Ошибка модуля визуализации:', error.message);
-    // заглушка...
+    try {
+        visualization = visualizationModule.initialize();
+        console.log('✅ Модуль визуализации загружен');
+    } catch (error) {
+        console.log('❌ Ошибка модуля визуализации:', error.message);
+        // заглушка...
+    }
+
+    // ИНИЦИАЛИЗИРУЕМ МЕНЕДЖЕР ВРЕМЕННЫХ ФАЙЛОВ
+    try {
+        tempFileManager = tempManagerModule.initialize({
+            tempDir: './temp',
+            autoCleanup: true
+        });
+        console.log('✅ Менеджер временных файлов загружен');
+    } catch (error) {
+        console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить менеджер файлов:', error.message);
+        tempFileManager = {
+            track: () => {},
+            removeFile: () => false,
+            cleanup: () => 0,
+            getStats: () => ({ totalTracked: 0, existingFiles: 0, totalSize: '0 MB' })
+        };
+    }
+
+    // ИНИЦИАЛИЗИРУЕМ МОДУЛЬ ЯНДЕКС.ДИСКА
+    try {
+        yandexDisk = await yandexDiskModule.initialize(config.YANDEX_DISK_TOKEN);
+        if (yandexDisk) {
+            console.log('✅ Модуль Яндекс.Диска загружен');
+            await yandexDisk.createAppFolder();
+            console.log('✅ Папка Яндекс.Диска готова');
+        } else {
+            console.log('⚠️ Модуль Яндекс.Диска отключен (нет токена)');
+        }
+    } catch (error) {
+        console.log('❌ Ошибка инициализации Яндекс.Диска:', error.message);
+        yandexDisk = {
+            isAvailable: () => false,
+            uploadFile: async () => ({ success: false, error: 'Модуль отключен' }),
+            createFolder: async () => ({ success: false }),
+            getAvailableSpace: async () => ({ available: 0, total: 0 }),
+            saveAnalysisResults: async () => ({ success: false, error: 'Модуль отключен' })
+        };
+    }
+
+    return { visualization, tempFileManager, yandexDisk };
 }
 
-// ИНИЦИАЛИЗИРУЕМ МЕНЕДЖЕР ВРЕМЕННЫХ ФАЙЛОВ ← ДОБАВЛЯЕМ
-try {
-    tempFileManager = tempManagerModule.initialize({
-        tempDir: './temp',
-        autoCleanup: true
-    });
-    console.log('✅ Менеджер временных файлов загружен');
-} catch (error) {
-    console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить менеджер файлов:', error.message);
-    // Создаем заглушку чтобы бот не падал
-    tempFileManager = {
-        track: () => {},
-        removeFile: () => false,
-        cleanup: () => 0,
-        getStats: () => ({ totalTracked: 0, existingFiles: 0, totalSize: '0 MB' })
-    };
-}
+// ВЫЗЫВАЕМ ИНИЦИАЛИЗАЦИЮ
+const { visualization, tempFileManager, yandexDisk } = await initializeAllModules();
 
 const app = express();
 const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
