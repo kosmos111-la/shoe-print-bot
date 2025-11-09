@@ -383,3 +383,5 @@ class MaskStyleVisualization {
         }
     }
 }
+
+module.exports = MaskStyleVisualization;
