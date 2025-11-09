@@ -13,24 +13,26 @@ class YandexDiskService {
             'Accept': 'application/json',
         };
     }
-// 🔍 ДОБАВИТЬ ЭТУ ФУНКЦИЮ - проверка существования файла
-    async fileExists(remotePath) {
-        try {
-            const response = await axios.get(`${this.apiBaseUrl}`, {
-                headers: this.uploadHeaders,
-                params: {
-                    path: remotePath
-                }
-            });
-            return true; // Файл существует
-        } catch (error) {
-            if (error.response?.status === 404) {
-                return false; // Файл не найден
-            }
-            console.error('❌ Ошибка проверки файла на Яндекс.Диске:', error.response?.data || error.message);
-            return false;
-        }
-    }
+
+    // 🔍 ДОБАВИТЬ ЭТУ ФУНКЦИЮ - проверка существования файла
+    async fileExists(remotePath) {
+        try {
+            const response = await axios.get(`${this.apiBaseUrl}`, {
+                headers: this.uploadHeaders,
+                params: {
+                    path: remotePath
+                }
+            });
+            return true; // Файл существует
+        } catch (error) {
+            if (error.response?.status === 404) {
+                return false; // Файл не найден
+            }
+            console.error('❌ Ошибка проверки файла на Яндекс.Диске:', error.response?.data || error.message);
+            return false;
+        }
+    },
+
     // 1. Проверка существования файла и получение ссылки для загрузки
     async getUploadUrl(remoteFilePath) {
         try {
@@ -46,7 +48,7 @@ class YandexDiskService {
             console.error('❌ Ошибка получения ссылки для загрузки на Яндекс.Диск:', error.response?.data || error.message);
             throw new Error(`Не удалось получить ссылку для загрузки: ${error.response?.data?.message || error.message}`);
         }
-    }
+    },
 
     // 2. Прямая загрузка файла по полученной ссылке
     async uploadFile(localFilePath, remoteFileName) {
@@ -84,7 +86,7 @@ class YandexDiskService {
             console.error('❌ Фатальная ошибка загрузки на Яндекс.Диск:', error.response?.data || error.message);
             return false;
         }
-    }
+    },
 
     // 3. Метод для создания папки (можно вызвать один раз при инициализации)
     async createAppFolder() {
@@ -100,7 +102,7 @@ class YandexDiskService {
                 console.error('❌ Ошибка создания папки на Яндекс.Диске:', error.response?.data || error.message);
             }
         }
-    }
+    },
 
     // 4. Проверка доступности сервиса
     async checkConnection() {
@@ -113,22 +115,22 @@ class YandexDiskService {
             console.error('❌ Ошибка подключения к Яндекс.Диск:', error.message);
             return false;
         }
-    }
-}
-// 📅 Создание папки с датой и временем
+    }, // ← ЗАПЯТАЯ ЗДЕСЬ!
+
+    // 📅 Создание папки с датой и временем
     async createDatedFolder(userId = 'unknown') {
         try {
             const now = new Date();
             const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
             const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
-           
+
             const folderName = `user_${userId}_${dateStr}_${timeStr}`;
             const remoteFolderPath = `apps/ShoeBot/analyses/${folderName}`;
-           
+
             await axios.put(`${this.apiBaseUrl}?path=${encodeURIComponent(remoteFolderPath)}`, {}, {
                 headers: this.uploadHeaders
             });
-           
+
             console.log(`✅ Папка создана: ${remoteFolderPath}`);
             return remoteFolderPath;
         } catch (error) {
@@ -139,7 +141,7 @@ class YandexDiskService {
             console.error('❌ Ошибка создания папки:', error.response?.data || error.message);
             return null;
         }
-    }
+    },
 
     // 💾 Сохранение результатов анализа
     async saveAnalysisResults(userId, files, analysisData = {}) {
@@ -166,12 +168,12 @@ class YandexDiskService {
                 if (file.localPath && fs.existsSync(file.localPath)) {
                     const fileName = file.name || path.basename(file.localPath);
                     const remotePath = `${folderPath}/${fileName}`;
-                   
+
                     const uploadSuccess = await this.uploadFileToPath(
                         file.localPath,
                         remotePath
                     );
-                   
+
                     if (uploadSuccess) {
                         results.uploadedFiles.push({
                             name: fileName,
@@ -190,7 +192,7 @@ class YandexDiskService {
                     timestamp: new Date().toISOString(),
                     analysis: analysisData
                 }, null, 2);
-               
+
                 // Создаем временный файл для метаданных
                 const tempDir = path.join(process.cwd(), 'temp');
                 if (!fs.existsSync(tempDir)) {
@@ -198,9 +200,9 @@ class YandexDiskService {
                 }
                 const tempMetadataPath = path.join(tempDir, `metadata_${Date.now()}.json`);
                 fs.writeFileSync(tempMetadataPath, metadataContent);
-               
+
                 await this.uploadFileToPath(tempMetadataPath, metadataPath);
-               
+
                 // Удаляем временный файл
                 fs.unlinkSync(tempMetadataPath);
             }
@@ -212,13 +214,13 @@ class YandexDiskService {
             console.error('❌ Ошибка сохранения анализа:', error.message);
             return { success: false, error: error.message };
         }
-    }
+    },
 
     // 🔄 Улучшенная загрузка файла с указанием пути
     async uploadFileToPath(localFilePath, remoteFilePath) {
         try {
             const uploadUrl = await this.getUploadUrl(remoteFilePath);
-           
+
             const fileStream = fs.createReadStream(localFilePath);
             const response = await axios.put(uploadUrl, fileStream, {
                 headers: {
@@ -233,7 +235,7 @@ class YandexDiskService {
             console.error(`❌ Ошибка загрузки файла ${remoteFilePath}:`, error.message);
             return false;
         }
-    }
+    },
 
     // 📊 Получение информации о доступном месте
     async getDiskInfo() {
@@ -241,7 +243,7 @@ class YandexDiskService {
             const response = await axios.get('https://cloud-api.yandex.net/v1/disk/', {
                 headers: this.uploadHeaders
             });
-           
+
             return {
                 success: true,
                 total: response.data.total_space,
@@ -254,5 +256,8 @@ class YandexDiskService {
                 error: error.response?.data?.message || error.message
             };
         }
-    }
+    } // ← НЕТ запятой у последнего метода!
+
+} // ← ЗДЕСЬ ДОЛЖНА БЫТЬ ЕДИНСТВЕННАЯ ЗАКРЫВАЮЩАЯ СКОБКА КЛАССА
+
 module.exports = YandexDiskService;
