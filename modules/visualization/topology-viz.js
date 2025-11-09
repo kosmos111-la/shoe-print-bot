@@ -2,7 +2,7 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 
 class TopologyVisualizer {
-    async createVisualization(imageUrl, predictions, userData) {
+    async createVisualization(imageUrl, predictions, userData = {}, outputPath = null) {
         try {
             console.log('🕵️‍♂️ Создаю карту топологии деталей...');
           
@@ -117,13 +117,13 @@ class TopologyVisualizer {
             ctx.strokeText(`Точки анализа: ${centers.length}`, 20, 95);
             ctx.fillText(`Точки анализа: ${centers.length}`, 20, 95);
 
-            // Сохраняем
-            const tempPath = `topology_${Date.now()}.png`;
-            const buffer = canvas.toBuffer('image/png');
-            fs.writeFileSync(tempPath, buffer);
+            // 🔄 ИСПОЛЬЗУЕМ ПЕРЕДАННЫЙ ПУТЬ ИЛИ СОЗДАЕМ СВОЙ
+const tempPath = outputPath || `topology_${Date.now()}.png`;
+const buffer = canvas.toBuffer('image/png');
+fs.writeFileSync(tempPath, buffer);
 
-            console.log('✅ Топологическая визуализация создана успешно!');
-            return tempPath;
+console.log('✅ Топологическая визуализация создана:', tempPath);
+return tempPath;
 
         } catch (error) {
             console.error('❌ Ошибка создания топологической визуализации:', error);
