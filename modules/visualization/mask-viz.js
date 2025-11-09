@@ -11,7 +11,7 @@ class MaskStyleVisualization {
 
     async createVisualization(imageUrl, predictions, userData = {}) {
         try {
-            console.log('🎨 Создаем улучшенную MASK визуализацию...');
+            console.log('🎨 Создаем оптимизированную MASK визуализацию...');
            
             if (!imageUrl) {
                 console.log('❌ Нет imageUrl');
@@ -58,12 +58,12 @@ class MaskStyleVisualization {
                
                 // Сохраняем результат
                 const tempDir = this.ensureTempDir();
-                const outputPath = path.join(tempDir, `stamp_mask_${Date.now()}.png`);
+                const outputPath = path.join(tempDir, `optimized_mask_${Date.now()}.png`);
                
                 const bufferOut = canvas.toBuffer('image/png');
                 fs.writeFileSync(outputPath, bufferOut);
                
-                console.log('✅ Улучшенная mask визуализация создана:', outputPath);
+                console.log('✅ Оптимизированная mask визуализация создана:', outputPath);
                 return outputPath;
                
             } catch (fetchError) {
@@ -139,7 +139,7 @@ class MaskStyleVisualization {
     drawOutline(ctx, points) {
         // Толстый пунктир для контура следа
         ctx.setLineDash([20, 10]);
-        ctx.lineWidth = 8;
+        ctx.lineWidth = 6;
         ctx.strokeStyle = '#000000';
        
         ctx.beginPath();
@@ -153,44 +153,50 @@ class MaskStyleVisualization {
     }
 
     drawProtector(ctx, points, prediction) {
-        // СТИЛЬ КАК У КОНТУРА - толстый пунктир для деталей
-        ctx.setLineDash([8, 6]); // Более частый пунктир чем у контура
-        ctx.lineWidth = 5;
-        ctx.strokeStyle = '#000000';
+        const confidence = prediction.confidence || 0;
        
-        // Рисуем полигон
+        // ОБВОДКА В 1 ПИКСЕЛЬ для деталей
+        ctx.lineWidth = 1;
+       
+        // ЦВЕТ В ЗАВИСИМОСТИ ОТ УВЕРЕННОСТИ
+        if (confidence > 0.8) {
+            // ОЧЕНЬ ВЫСОКАЯ УВЕРЕННОСТЬ - КРАСНЫЙ
+            ctx.strokeStyle = '#ff0000';
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
+        } else if (confidence > 0.6) {
+            // ВЫСОКАЯ УВЕРЕННОСТЬ - ТЕМНО-СЕРЫЙ
+            ctx.strokeStyle = '#333333';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+        } else {
+            // СРЕДНЯЯ/НИЗКАЯ УВЕРЕННОСТЬ - СВЕТЛО-СЕРЫЙ
+            ctx.strokeStyle = '#666666';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.02)';
+        }
+       
+        // Рисуем полигон с легкой заливкой
         ctx.beginPath();
         points.forEach((point, index) => {
             if (index === 0) ctx.moveTo(point.x, point.y);
             else ctx.lineTo(point.x, point.y);
         });
         ctx.closePath();
+        ctx.fill();
         ctx.stroke();
-        ctx.setLineDash([]);
        
-        // Центральная точка (крупнее)
+        // Центральная точка (цвет зависит от уверенности)
         const center = this.calculateCenter(points);
-        ctx.fillStyle = '#000000';
+        ctx.fillStyle = ctx.strokeStyle;
         ctx.beginPath();
-        ctx.arc(center.x, center.y, 5, 0, 2 * Math.PI);
+        ctx.arc(center.x, center.y, 3, 0, 2 * Math.PI);
         ctx.fill();
        
         // Сохраняем центр для связей
         prediction.center = center;
-       
-        // Если уверенность низкая, добавляем предупреждающий знак
-        if (prediction.confidence < 0.4) {
-            ctx.strokeStyle = '#ff0000';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(center.x, center.y, 8, 0, 2 * Math.PI);
-            ctx.stroke();
-        }
     }
 
     drawMorphology(ctx, points) {
         // Тонкие сплошные линии для морфологии
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1;
         ctx.strokeStyle = '#000000';
        
         ctx.beginPath();
@@ -203,7 +209,7 @@ class MaskStyleVisualization {
     }
 
     drawDefault(ctx, points) {
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 1;
         ctx.strokeStyle = '#000000';
        
         ctx.beginPath();
@@ -221,8 +227,8 @@ class MaskStyleVisualization {
            
             if (protectors.length < 2) return;
            
-            // ЗАМЕТНЫЕ СВЯЗИ - толще и контрастнее
-            ctx.lineWidth = 2;
+            // ЗАМЕТНЫЕ СВЯЗИ
+            ctx.lineWidth = 1.5;
             ctx.setLineDash([]); // Сплошные линии
            
             // Рисуем связи между близкими центрами
@@ -236,16 +242,19 @@ class MaskStyleVisualization {
                         Math.pow(center2.y - center1.y, 2)
                     );
                    
-                    // Соединяем близкие точки (расстояние меньше 200px)
-                    if (distance < 200) {
-                        // Цвет линии зависит от средней уверенности
-                        const avgConfidence = (protectors[i].confidence + protectors[j].confidence) / 2;
-                        if (avgConfidence > 0.6) {
-                            ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; // Высокая уверенность - темнее
-                        } else if (avgConfidence > 0.4) {
-                            ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)'; // Средняя уверенность
+                    // Соединяем близкие точки (расстояние меньше 150px)
+                    if (distance < 150) {
+                        // Цвет линии зависит от МИНИМАЛЬНОЙ уверенности соединенных деталей
+                        const minConfidence = Math.min(protectors[i].confidence || 0, protectors[j].confidence || 0);
+                       
+                        if (minConfidence > 0.8) {
+                            ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)'; // Очень высокая уверенность - КРАСНЫЙ
+                        } else if (minConfidence > 0.6) {
+                            ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)'; // Высокая уверенность - темный
+                        } else if (minConfidence > 0.4) {
+                            ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)'; // Средняя уверенность
                         } else {
-                            ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)'; // Низкая уверенность - красный
+                            ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)'; // Низкая уверенность - светлый
                         }
                        
                         ctx.beginPath();
@@ -270,29 +279,22 @@ class MaskStyleVisualization {
             // ПРОЗРАЧНЫЙ ШТАМП - только рамка и текст
             ctx.strokeStyle = '#000000';
             ctx.lineWidth = 2;
-            ctx.strokeRect(10, 10, 280, 100);
+            ctx.strokeRect(10, 10, 250, 70);
            
             // Текст статистики (прямо на изображении)
             ctx.fillStyle = '#000000';
-            ctx.font = 'bold 16px Arial';
-            ctx.fillText('🔍 АНАЛИЗ СЛЕДА', 20, 30);
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText('🔍 АНАЛИЗ СЛЕДА', 20, 28);
            
-            ctx.font = '12px Arial';
-            ctx.fillText(`• Деталей протектора: ${stats.protectors}`, 20, 50);
-            ctx.fillText(`• Контуров следа: ${stats.outlines}`, 20, 65);
-            ctx.fillText(`• Уверенность: ${confidenceStats.avgConfidence}%`, 20, 80);
-           
-            // Дополнительная информация об уверенности
-            if (confidenceStats.lowConfidence > 0) {
-                ctx.fillStyle = '#ff0000';
-                ctx.fillText(`• Низкая уверенность: ${confidenceStats.lowConfidence} дет.`, 20, 95);
-                ctx.fillStyle = '#000000';
-            }
+            ctx.font = '11px Arial';
+            ctx.fillText(`• Деталей: ${stats.protectors}`, 20, 45);
+            ctx.fillText(`• Контуров: ${stats.outlines}`, 20, 60);
+            ctx.fillText(`• Уверенность: ${confidenceStats.avgConfidence}%`, 20, 75);
            
             // Информация в правом нижнем углу
-            ctx.font = '10px Arial';
+            ctx.font = '9px Arial';
             ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillText(`${currentDate} | ${this.modelVersion}`, width - 200, height - 20);
+            ctx.fillText(`${currentDate} | ${this.modelVersion}`, width - 180, height - 15);
            
         } catch (error) {
             console.log('❌ Ошибка в drawInfoStamp:', error.message);
@@ -325,15 +327,15 @@ class MaskStyleVisualization {
 
     calculateConfidenceStats(predictions) {
         let totalConfidence = 0;
-        let lowConfidenceCount = 0;
+        let highConfidenceCount = 0;
         let validPredictions = 0;
        
         predictions.forEach(pred => {
             if (pred.confidence) {
                 totalConfidence += pred.confidence;
                 validPredictions++;
-                if (pred.confidence < 0.4) {
-                    lowConfidenceCount++;
+                if (pred.confidence > 0.8) {
+                    highConfidenceCount++;
                 }
             }
         });
@@ -344,7 +346,7 @@ class MaskStyleVisualization {
            
         return {
             avgConfidence: avgConfidence,
-            lowConfidence: lowConfidenceCount
+            highConfidence: highConfidenceCount
         };
     }
 
