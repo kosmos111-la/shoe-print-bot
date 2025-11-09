@@ -6,14 +6,14 @@ const fs = require('fs');
 class MaskStyleVisualization {
     constructor() {
         this.styleName = 'mask';
+        this.modelVersion = 'Roboflow v13';
         console.log('✅ MaskStyleVisualization создан');
     }
 
     async createVisualization(imageUrl, predictions, userData = {}) {
         try {
-            console.log('🎨 Создаем MASK визуализацию...');
+            console.log('🎨 Создаем улучшенную MASK визуализацию...');
            
-            // 🔒 ПРОВЕРКА ВХОДНЫХ ДАННЫХ
             if (!imageUrl) {
                 console.log('❌ Нет imageUrl');
                 return null;
@@ -24,9 +24,8 @@ class MaskStyleVisualization {
                 return null;
             }
 
-            // Загружаем изображение с таймаутом
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 10000); // 10 сек таймаут
+            const timeout = setTimeout(() => controller.abort(), 15000);
            
             try {
                 const response = await fetch(imageUrl, { signal: controller.signal });
@@ -40,30 +39,33 @@ class MaskStyleVisualization {
                 const buffer = await response.arrayBuffer();
                 const image = await loadImage(Buffer.from(buffer));
                
-                // Создаем canvas
+                // Создаем canvas с небольшим отступом для текста
                 const canvas = createCanvas(image.width, image.height);
                 const ctx = canvas.getContext('2d');
                
-                // 1. Оригинальное изображение с полупрозрачностью
-                ctx.globalAlpha = 0.3;
+                // 1. Рисуем оригинальное изображение (более насыщенное)
+                ctx.globalAlpha = 0.4;
                 ctx.drawImage(image, 0, 0);
                 ctx.globalAlpha = 1.0;
                
-                // 2. Темная полупрозрачная маска
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                // 2. Темная маска (менее прозрачная для лучшего контраста)
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                
-                // 3. Рисуем предсказания черными линиями
-                this.drawPredictions(ctx, predictions);
+                // 3. Рисуем предсказания и связи
+                this.drawPredictionsWithConnections(ctx, predictions);
                
-                // Сохраняем с уникальным именем
+                // 4. Добавляем информационную панель
+                this.drawInfoPanel(ctx, canvas.width, canvas.height, predictions);
+               
+                // Сохраняем результат
                 const tempDir = this.ensureTempDir();
-                const outputPath = path.join(tempDir, `mask_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`);
+                const outputPath = path.join(tempDir, `enhanced_mask_${Date.now()}.png`);
                
                 const bufferOut = canvas.toBuffer('image/png');
                 fs.writeFileSync(outputPath, bufferOut);
                
-                console.log('✅ Mask визуализация создана:', outputPath);
+                console.log('✅ Улучшенная mask визуализация создана:', outputPath);
                 return outputPath;
                
             } catch (fetchError) {
@@ -78,26 +80,12 @@ class MaskStyleVisualization {
             return null;
            
         } catch (error) {
-            console.log('❌ Критическая ошибка в createVisualization:', error.message);
+            console.log('❌ Ошибка в createVisualization:', error.message);
             return null;
         }
     }
 
-    ensureTempDir() {
-        const tempDir = path.join(__dirname, '../../temp');
-        try {
-            if (!fs.existsSync(tempDir)) {
-                fs.mkdirSync(tempDir, { recursive: true });
-            }
-            return tempDir;
-        } catch (error) {
-            console.log('❌ Ошибка создания temp dir:', error.message);
-            // Fallback - текущая директория
-            return __dirname;
-        }
-    }
-
-    drawPredictions(ctx, predictions) {
+    drawPredictionsWithConnections(ctx, predictions) {
         try {
             const validPredictions = predictions.filter(pred =>
                 pred && pred.points && Array.isArray(pred.points) && pred.points.length >= 3
@@ -107,13 +95,17 @@ class MaskStyleVisualization {
                 console.log('⚠️ Нет валидных predictions для отрисовки');
                 return;
             }
-           
+
+            // Сначала рисуем все полигоны
             validPredictions.forEach(prediction => {
                 this.drawSinglePrediction(ctx, prediction);
             });
+
+            // Затем рисуем связи между центрами близких точек
+            this.drawConnections(ctx, validPredictions);
            
         } catch (error) {
-            console.log('❌ Ошибка в drawPredictions:', error.message);
+            console.log('❌ Ошибка в drawPredictionsWithConnections:', error.message);
         }
     }
 
@@ -131,7 +123,7 @@ class MaskStyleVisualization {
                     this.drawOutline(ctx, points);
                     break;
                 case 'shoe-protector':
-                    this.drawProtector(ctx, points);
+                    this.drawProtector(ctx, points, prediction);
                     break;
                 case 'Morphology':
                     this.drawMorphology(ctx, points);
@@ -145,29 +137,53 @@ class MaskStyleVisualization {
     }
 
     drawOutline(ctx, points) {
-        ctx.setLineDash([15, 10]);
-        ctx.lineWidth = 6;
-        this.drawPolygon(ctx, points);
+        // Толстый пунктир для контура следа
+        ctx.setLineDash([20, 10]);
+        ctx.lineWidth = 8;
+        ctx.strokeStyle = '#000000';
+       
+        ctx.beginPath();
+        points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+        });
+        ctx.closePath();
+        ctx.stroke();
         ctx.setLineDash([]);
     }
 
-    drawProtector(ctx, points) {
-        ctx.lineWidth = 2;
-        this.drawPolygon(ctx, points);
-        this.drawCenterPoint(ctx, points, 3);
+    drawProtector(ctx, points, prediction) {
+        // Черные полигоны для деталей протектора
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'; // Легкая заливка
+       
+        // Рисуем полигон
+        ctx.beginPath();
+        points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+       
+        // Центральная точка (черная)
+        const center = this.calculateCenter(points);
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, 4, 0, 2 * Math.PI);
+        ctx.fill();
+       
+        // Сохраняем центр для связей
+        prediction.center = center;
     }
 
     drawMorphology(ctx, points) {
-        ctx.lineWidth = 1;
-        this.drawPolygon(ctx, points);
-    }
-
-    drawDefault(ctx, points) {
-        ctx.lineWidth = 2;
-        this.drawPolygon(ctx, points);
-    }
-
-    drawPolygon(ctx, points) {
+        // Тонкие линии для морфологии
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#000000';
+       
         ctx.beginPath();
         points.forEach((point, index) => {
             if (index === 0) ctx.moveTo(point.x, point.y);
@@ -177,15 +193,112 @@ class MaskStyleVisualization {
         ctx.stroke();
     }
 
-    drawCenterPoint(ctx, points, radius = 3) {
+    drawDefault(ctx, points) {
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#000000';
+       
+        ctx.beginPath();
+        points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+        });
+        ctx.closePath();
+        ctx.stroke();
+    }
+
+    drawConnections(ctx, predictions) {
         try {
-            const center = this.calculateCenter(points);
-            ctx.beginPath();
-            ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
-            ctx.fill();
+            const protectors = predictions.filter(p => p.class === 'shoe-protector' && p.center);
+           
+            if (protectors.length < 2) return;
+           
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 3]);
+           
+            // Рисуем связи между близкими центрами
+            for (let i = 0; i < protectors.length; i++) {
+                for (let j = i + 1; j < protectors.length; j++) {
+                    const center1 = protectors[i].center;
+                    const center2 = protectors[j].center;
+                   
+                    const distance = Math.sqrt(
+                        Math.pow(center2.x - center1.x, 2) +
+                        Math.pow(center2.y - center1.y, 2)
+                    );
+                   
+                    // Соединяем только близкие точки (расстояние меньше 150px)
+                    if (distance < 150) {
+                        ctx.beginPath();
+                        ctx.moveTo(center1.x, center1.y);
+                        ctx.lineTo(center2.x, center2.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+           
+            ctx.setLineDash([]);
+           
         } catch (error) {
-            console.log('❌ Ошибка рисования центральной точки');
+            console.log('❌ Ошибка в drawConnections:', error.message);
         }
+    }
+
+    drawInfoPanel(ctx, width, height, predictions) {
+        try {
+            const stats = this.calculateStats(predictions);
+            const currentDate = new Date().toLocaleDateString('ru-RU');
+           
+            // Фон для информационной панели
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillRect(10, 10, 250, 80);
+           
+            // Рамка
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(10, 10, 250, 80);
+           
+            // Текст статистики
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText('📊 АНАЛИЗ СЛЕДА', 20, 30);
+           
+            ctx.font = '12px Arial';
+            ctx.fillText(`• Деталей: ${stats.protectors}`, 20, 50);
+            ctx.fillText(`• Контуров: ${stats.outlines}`, 20, 65);
+            ctx.fillText(`• Морфология: ${stats.morphology}`, 20, 80);
+           
+            // Информация в правом нижнем углу
+            ctx.font = '10px Arial';
+            ctx.fillText(`${currentDate} | ${this.modelVersion}`, width - 200, height - 20);
+           
+        } catch (error) {
+            console.log('❌ Ошибка в drawInfoPanel:', error.message);
+        }
+    }
+
+    calculateStats(predictions) {
+        const stats = {
+            protectors: 0,
+            outlines: 0,
+            morphology: 0
+        };
+       
+        predictions.forEach(pred => {
+            switch(pred.class) {
+                case 'shoe-protector':
+                    stats.protectors++;
+                    break;
+                case 'Outline-trail':
+                    stats.outlines++;
+                    break;
+                case 'Morphology':
+                    stats.morphology++;
+                    break;
+            }
+        });
+       
+        return stats;
     }
 
     calculateCenter(points) {
@@ -195,6 +308,19 @@ class MaskStyleVisualization {
             x: (Math.min(...xs) + Math.max(...xs)) / 2,
             y: (Math.min(...ys) + Math.max(...ys)) / 2
         };
+    }
+
+    ensureTempDir() {
+        const tempDir = path.join(__dirname, '../../temp');
+        try {
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
+            }
+            return tempDir;
+        } catch (error) {
+            console.log('❌ Ошибка создания temp dir:', error.message);
+            return __dirname;
+        }
     }
 }
 
