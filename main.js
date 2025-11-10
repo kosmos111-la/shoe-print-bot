@@ -40,7 +40,8 @@ const path = require('path');
 const visualizationModule = require('./modules/visualization');
 const yandexDiskModule = require('./modules/yandex-disk');
 const tempManagerModule = require('./modules/temp-manager');
-
+const calculatorsModule = require('./modules/calculators');
+const appsModule = require('./modules/apps');
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
@@ -160,6 +161,25 @@ let yandexDisk;
         };
     }
 
+let calculators;
+let apps;
+
+try {
+  calculators = calculatorsModule.initialize();
+  console.log('✅ Модуль калькуляторов загружен');
+} catch (error) {
+  console.log('❌ Ошибка модуля калькуляторов:', error.message);
+  calculators = createCalculatorsStub();
+}
+
+try {
+  apps = appsModule.initialize();
+  console.log('✅ Модуль приложений загружен');
+} catch (error) {
+  console.log('❌ Ошибка модуля приложений:', error.message);
+  apps = createAppsStub();
+}
+    
     // ИНИЦИАЛИЗИРУЕМ ЯНДЕКС.ДИСК (асинхронно)
     try {
         yandexDisk = await yandexDiskModule.initialize(config.YANDEX_DISK_TOKEN);
@@ -192,6 +212,24 @@ function createYandexDiskStub() {
 
 // Временная заглушка пока идет инициализация
 yandexDisk = createYandexDiskStub();
+
+function createCalculatorsStub() {
+  return {
+    getMenu: () => ({ title: "🧮 КАЛЬКУЛЯТОРЫ", sections: [] }),
+    calculateShoeSize: () => "Модуль временно недоступен",
+    estimateHeight: () => "Модуль временно недоступен",
+    calculateSnowDepth: () => "Модуль временно недоступен",
+    getWeatherData: () => "Модуль временно недоступен"
+  };
+}
+
+function createAppsStub() {
+  return {
+    getMenu: () => ({ title: "📱 ПРИЛОЖЕНИЯ", categories: [] }),
+    getAppsByCategory: () => [],
+    getAllApps: () => ({})
+  };
+}
 
 const app = express();
 const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
