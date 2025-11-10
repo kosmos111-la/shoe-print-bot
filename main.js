@@ -355,7 +355,6 @@ app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
 bot.onText(/\/start/, (msg) => {
     updateUserStats(msg.from.id, msg.from.username || msg.from.first_name);
    
-    // Получаем текущий стиль пользователя
     const currentStyle = visualization.getUserStyle(msg.from.id);
     const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
    
@@ -368,6 +367,8 @@ bot.onText(/\/start/, (msg) => {
         `• Визуализация контуров\n` +
         `• Топология протектора\n` +
         `• Выбор стиля визуализации\n\n` +
+        `🧮 **ИНСТРУМЕНТЫ:**\n` +
+        `/calculators - Калькуляторы и расчеты\n\n` +  // ← ДОБАВИТЬ ЭТУ СТРОКУ
         `🎯 **Команды:**\n` +
         `/style - Выбор стиля визуализации\n` +
         `/currentstyle - Текущий стиль\n` +
@@ -515,7 +516,11 @@ bot.onText(/\/help/, (msg) => {
         `• Контуры подошвы\n` +
         `• Детали протектора\n` +
         `• Топология узора\n\n` +
-        `🎨 **Стили визуализации:**\n` +
+        `🧮 **ИНСТРУМЕНТЫ:**\n` +
+        `/calculators - Калькуляторы и расчеты\n\n` +  // ← ДОБАВИТЬ
+        `📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n` +
+        `/apps - Рекомендованные приложения\n\n` +  // ← ДОБАВИТЬ
+                    `🎨 **Стили визуализации:**\n` +
         `/style - Выбрать стиль отображения\n` +
         `/currentstyle - Текущий стиль\n` +
         `• Стиль маски (по умолчанию) - черные линии на полупрозрачном фоне\n` +
@@ -532,6 +537,84 @@ bot.onText(/\/help/, (msg) => {
         `/statistics - Статистика системы`
     );
 });
+
+// Добавьте после других команд (после /help)
+bot.onText(/\/calculators/, async (msg) => {
+    cont chatId = msg.chat.id;
+   
+    try {
+        const menu = calculators.getMenu();
+       
+        let message = `🧮 ${menu.title}\n\n`;
+        message += `Выберите тип расчета:\n\n`;
+       
+        menu.sections.forEach(section => {
+            message += `📌 ${section.name}\n`;
+            message += `└ ${section.description}\n`;
+            message += `└ Команда: ${section.command}\n\n`;
+        });
+       
+        message += `💡 Пример: /calc_shoe размер=42 система=RU`;
+       
+        await bot.sendMessage(chatId, message);
+    } catch (error) {
+        await bot.sendMessage(chatId, '❌ Ошибка загрузки калькуляторов');
+    }
+});
+
+bot.onText(/\/apps/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    try {
+        const menu = apps.getMenu();
+       
+        let message = `📱 ${menu.title}\n\n`;
+        message += `Категории приложений:\n\n`;
+       
+        menu.categories.forEach(category => {
+            message += `📂 ${category.name}\n`;
+            message += `└ /apps_${category.id}\n\n`;
+        });
+       
+        message += `💡 Выберите категорию для просмотра приложений`;
+       
+        await bot.sendMessage(chatId, message);
+    } catch (error) {
+        await bot.sendMessage(chatId, '❌ Ошибка загрузки приложений');
+    }
+});
+
+// Обработчик для категорий приложений
+bot.onText(/\/apps_(.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const categoryId = match[1];
+   
+    try {
+        const categoryApps = apps.getAppsByCategory(categoryId);
+       
+        if (categoryApps.apps && categoryApps.apps.length > 0) {
+            let message = `📱 ${categoryApps.name}\n\n`;
+           
+            categoryApps.apps.forEach(app => {
+                message += `📲 ${app.name}\n`;
+                message += `└ ${app.description}\n`;
+                if (app.platform) message += `└ Платформа: ${app.platform}\n`;
+                if (app.link) message += `└ Ссылка: ${app.link}\n`;
+                message += `\n`;
+            });
+           
+            await bot.sendMessage(chatId, message);
+        } else {
+            await bot.sendMessage(chatId,
+                `📱 Категория: ${categoryApps.name}\n\n` +
+                `Приложения пока не добавлены. Скоро здесь появятся полезные программы!`
+            );
+        }
+    } catch (error) {
+        await bot.sendMessage(chatId, '❌ Ошибка загрузки приложений');
+    }
+});
+
 
 
 // Обработка фото
