@@ -1,84 +1,135 @@
 /**
-* Калькулятор размеров обуви
+* Калькулятор размеров обуви для взрослых
 */
-function calculateShoeSize(options) {
-    const { fromSize, fromSystem = 'RU', toSystem = 'EU', footLength } = options;
-   
-    // Таблица конвертации размеров (примерные значения)
-    const sizeTable = {
-        'RU': { min: 34, max: 48, step: 0.5 },
-        'EU': { min: 34, max: 48, step: 0.5 },
-        'US': { min: 5, max: 14, step: 0.5 },
-        'UK': { min: 3, max: 12, step: 0.5 }
-    };
+class AdultFootwearCalculator {
+    constructor() {
+        // Константы штихмассовой системы для взрослых
+        this.STICH_CM = 2.0 / 3.0; // 0.666 см
+        this.ADULT_INSOLE_ADDITION = 1.0; // 1 см припуск для взрослых
+       
+        // Типы обуви с добавками
+        this.footwearTypes = {
+            GALOSHI: { name: "Галоши", addition: 2.5 },
+            RUBBER_BOOTS: { name: "Резиновый сапог, кеды, тапки, сланцы", addition: 3.5 },
+            BOOTS: { name: "Ботинки, берец, резиновые сапоги для охоты и рыбалки", addition: 4.5 },
+            TREKKING: { name: "Трекинговые", addition: 5.0 },
+            SNEAKERS: { name: "Кроссовки", addition: 6.0 },
+            UNKNOWN: { name: "Неизвестно", addition: 6.0 }
+        };
+    }
 
-    // Формулы конвертации (упрощенные)
-    const conversionFormulas = {
-        'RU→EU': (size) => size,
-        'EU→RU': (size) => size,
-        'RU→US': (size) => size - 31,
-        'US→RU': (size) => size + 31,
-        'RU→UK': (size) => size - 32,
-        'UK→RU': (size) => size + 32
-    };
+    /**
+     * Основной расчет для взрослых
+     */
+    calculateForAdult(shoeSize, footwearTypeName) {
+        const footwearType = this.footwearTypes[footwearTypeName] || this.footwearTypes.UNKNOWN;
+       
+        // 1. Длина стельки по штихмассовой системе
+        const insoleLength = shoeSize * this.STICH_CM;
+       
+        // 2. Длина стопы взрослого (стелька - 1 см припуска)
+        const footLength = insoleLength - this.ADULT_INSOLE_ADDITION;
+       
+        // 3. Диапазон отпечатка
+        const footprintMin = footLength; // Абсолютный минимум - длина стопы
+        const footprintMax = insoleLength + footwearType.addition;
+       
+        return {
+            shoeSize: shoeSize,
+            footLength: this.round(footLength),
+            insoleLength: this.round(insoleLength),
+            footprintMin: this.round(footprintMin),
+            footprintMax: this.round(footprintMax),
+            footwearType: footwearType.name,
+            footwearAddition: footwearType.addition
+        };
+    }
 
-    // Расчет длины стопы по размеру
-    const calculateFootLength = (size, system) => {
-        const baseLength = 20; // см для размера 34
-        const cmPerSize = 0.67; // примерно 2/3 см на размер
-        return baseLength + (size - 34) * cmPerSize;
-    };
-
-    // Расчет размера по длине стопы
-    const calculateSizeFromLength = (length, system) => {
-        const baseLength = 20;
-        const cmPerSize = 0.67;
-        return 34 + Math.round((length - baseLength) / cmPerSize);
-    };
-
-    try {
-        if (footLength) {
-            // Расчет размера по длине стопы
-            const calculatedSize = calculateSizeFromLength(footLength, toSystem);
-            return {
-                success: true,
-                result: {
-                    size: calculatedSize,
-                    system: toSystem,
-                    footLength: footLength,
-                    message: `📏 Длина стопы ${footLength}см ≈ размер ${calculatedSize} (${toSystem})`
-                }
-            };
-        } else if (fromSize) {
-            // Конвертация размера
-            const conversionKey = `${fromSystem}→${toSystem}`;
-            const formula = conversionFormulas[conversionKey];
-           
-            if (formula) {
-                const convertedSize = formula(fromSize);
-                const estimatedLength = calculateFootLength(convertedSize, toSystem);
-               
-                return {
-                    success: true,
-                    result: {
-                        original: { size: fromSize, system: fromSystem },
-                        converted: { size: convertedSize, system: toSystem },
-                        estimatedFootLength: estimatedLength.toFixed(1),
-                        message: `👟 ${fromSize} (${fromSystem}) = ${convertedSize} (${toSystem})\n📏 Примерная длина стопы: ${estimatedLength.toFixed(1)}см`
-                    }
-                };
-            } else {
-                return {
-                    success: false,
-                    error: `Конвертация из ${fromSystem} в ${toSystem} не поддерживается`
-                };
-            }
-        } else {
-            return {
-                success: false,
-                error: 'Укажите размер или длину стопы'
-            };
+    /**
+     * Поиск типа обуви по ключевым словам
+     */
+    findFootwearType(input) {
+        if (!input || input.trim() === '') {
+            return 'UNKNOWN';
         }
+       
+        const lowerInput = input.toLowerCase();
+       
+        if (this.containsAny(lowerInput, ["галоши", "галоша"])) {
+            return 'GALOSHI';
+        } else if (this.containsAny(lowerInput, ["резиновый", "сапог", "кеды", "тапки", "сланцы", "тапочки"])) {
+            return 'RUBBER_BOOTS';
+        } else if (this.containsAny(lowerInput, ["ботинки", "берец", "охота", "рыбалка", "охотничьи", "рыбацкие"])) {
+            return 'BOOTS';
+        } else if (this.containsAny(lowerInput, ["трекинговые", "треккинговые", "походные", "горные"])) {
+            return 'TREKKING';
+        } else if (this.containsAny(lowerInput, ["кроссовки", "кроссы", "sneakers"])) {
+            return 'SNEAKERS';
+        } else {
+            return 'UNKNOWN';
+        }
+    }
+
+    /**
+     * Получить список всех типов для отображения
+     */
+    getFootwearTypesList() {
+        let list = "👟 <b>Выберите тип обуви:</b>\n\n";
+       
+        Object.keys(this.footwearTypes).forEach(key => {
+            if (key !== 'UNKNOWN') {
+                const type = this.footwearTypes[key];
+                list += `• <b>${type.name}</b> (+${type.addition} см)\n`;
+            }
+        });
+       
+        list += "\n💡 Можно ввести название или часть названия.\n";
+        list += "❓ Если тип неизвестен, введите <i>\"не знаю\"</i>";
+       
+        return list;
+    }
+
+    /**
+     * Форматирование результата для Telegram
+     */
+    formatResult(result) {
+        return `📊 <b>Результаты расчета для взрослого:</b>
+
+👣 Размер обуви: <b>${result.shoeSize}</b>
+🦶 Длина стопы: <b>${result.footLength} см</b>
+📏 Длина стельки: <b>${result.insoleLength} см</b>
+👟 Тип обуви: <b>${result.footwearType}</b>
+➕ Добавка к стельке: <b>${result.footwearAddition} см</b>
+
+🔍 <b>Диапазон отпечатка для поиска:</b>
+🔻 Мин. длина: <b>${result.footprintMin} см</b> (длина стопы)
+🔺 Макс. длина: <b>${result.footprintMax} см</b>
+
+⚠️ <i>Учитывайте особенности грунта и конструкцию подошвы</i>`;
+    }
+
+    // Вспомогательные методы
+    containsAny(input, keywords) {
+        return keywords.some(keyword => input.includes(keyword));
+    }
+
+    round(value) {
+        return Math.round(value * 10) / 10;
+    }
+}
+
+// Экспортируем класс
+const calculator = new AdultFootwearCalculator();
+
+function calculate(options) {
+    try {
+        const { size, type } = options;
+        const footwearType = calculator.findFootwearType(type);
+        const result = calculator.calculateForAdult(parseInt(size), footwearType);
+        return {
+            success: true,
+            result: calculator.formatResult(result)
+        };
     } catch (error) {
         return {
             success: false,
@@ -87,4 +138,7 @@ function calculateShoeSize(options) {
     }
 }
 
-module.exports = { calculate: calculateShoeSize };
+module.exports = {
+    calculate,
+    getFootwearTypesList: () => calculator.getFootwearTypesList()
+};
