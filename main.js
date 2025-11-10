@@ -402,21 +402,17 @@ bot.onText(/\/currentstyle/, async (msg) => {
 bot.onText(/\/calculators/, async (msg) => {
     const chatId = msg.chat.id;
    
-    let message = `🧮 КАЛЬКУЛЯТОРЫ И РАСЧЕТЫ\n\n`;
-    message += `Выберите тип расчета:\n\n`;
-    message += `📌 Размеры обуви\n`;
-    message += `└ Расчет длины стопы по размеру и обратно\n`;
-    message += `└ Команда: /calc_shoe\n\n`;
+    let message = `🧮 КАЛЬКУЛЯТОРЫ\n\n`;
+    message += `📏 Размеры обуви\n`;
+    message += `• Расчет длины стопы по размеру\n`;
+    message += `• Конвертация между системами\n\n`;
     message += `📐 Антропометрия\n`;
-    message += `└ Оценка роста по размеру стопы\n`;
-    message += `└ Команда: /calc_height\n\n`;
+    message += `• Оценка роста по размеру стопы\n\n`;
     message += `❄️ Снежный покров\n`;
-    message += `└ Расчет высоты снега по следам\n`;
-    message += `└ Команда: /calc_snow\n\n`;
+    message += `• Расчет высоты снега по следам\n\n`;
     message += `🌤️ Погода\n`;
-    message += `└ Метеоданные для анализа следов\n`;
-    message += `└ Команда: /calc_weather\n\n`;
-    message += `💡 Пример: /calc_shoe размер=42 система=RU`;
+    message += `• Метеоданные для анализа\n\n`;
+    message += `⚡ Калькуляторы скоро будут доступны!`;
    
     await bot.sendMessage(chatId, message);
 });
@@ -426,86 +422,32 @@ bot.onText(/\/apps/, async (msg) => {
     const chatId = msg.chat.id;
    
     let message = `📱 ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ\n\n`;
-    message += `Категории приложений:\n\n`;
-    message += `📸 Фотофиксация\n`;
-    message += `└ /apps_photo\n\n`;
-    message += `📏 Измерения\n`;
-    message += `└ /apps_measure\n\n`;
-    message += `🔍 Анализ\n`;
-    message += `└ /apps_analysis\n\n`;
-    message += `🛠️ Утилиты\n`;
-    message += `└ /apps_tools\n\n`;
-    message += `💡 Выберите категорию для просмотра приложений`;
    
-    await bot.sendMessage(chatId, message);
-});
-
-// Категории приложений
-bot.onText(/\/apps_photo/, async (msg) => {
-    const chatId = msg.chat.id;
+    message += `🔍 **Честный знак**\n`;
+    message += `• Узнать дату и место продажи по QR-коду\n`;
+    message += `• 📲 https://www.rustore.ru/catalog/app/ru.crptech.mark\n\n`;
    
-    let message = `📸 ФОТОФИКСАЦИЯ И ЗАМЕРЫ\n\n`;
-    message += `PhotoMetrix Pro\n`;
-    message += `└ Измерения по фотографиям с эталоном\n`;
-    message += `└ iOS/Android\n\n`;
-    message += `CamScanner\n`;
-    message += `└ Сканирование документов и следов\n`;
-    message += `└ iOS/Android\n\n`;
-    message += `Adobe Lightroom\n`;
-    message += `└ Профессиональная обработка фото\n`;
-    message += `└ iOS/Android\n\n`;
-    message += `📱 Все приложения доступны в App Store и Google Play`;
+    message += `🍷 **Антиконтрафакт алко**\n`;
+    message += `• Проверка акцизных марок алкоголя\n`;
+    message += `• 📲 https://public.fsrar.ru/checkmark\n\n`;
    
-    await bot.sendMessage(chatId, message);
-});
-
-bot.onText(/\/apps_measure/, async (msg) => {
-    const chatId = msg.chat.id;
+    message += `🌤️ **Погода - архив погоды**\n`;
+    message += `• Архивные погодные данные\n`;
+    message += `• 📲 https://www.rustore.ru/catalog/app/com.mart.weather\n\n`;
    
-    let message = `📏 ИЗМЕРИТЕЛЬНЫЕ ИНСТРУМЕНТЫ\n\n`;
-    message += `Ruler App\n`;
-    message += `└ Виртуальная линейка для измерений\n`;
-    message += `└ iOS/Android\n\n`;
-    message += `Measure (от Google)\n`;
-    message += `└ AR-измерения с помощью камеры\n`;
-    message += `└ iOS/Android\n\n`;
-    message += `GPS Fields Area Measure\n`;
-    message += `└ Измерения на карте\n`;
-    message += `└ Android\n\n`;
-    message += `📱 Используйте для точных замеров следов`;
+    message += `📏 **ImageMeter**\n`;
+    message += `• Измерения размеров на фото по эталону\n`;
+    message += `• 📲 https://play.google.com/store/apps/details?id=de.dirkfarin.imagemeter\n\n`;
    
-    await bot.sendMessage(chatId, message);
-});
-
-bot.onText(/\/apps_analysis/, async (msg) => {
-    const chatId = msg.chat.id;
+    message += `🦴 **Скелет | 3D Анатомии**\n`;
+    message += `• Анатомический справочник\n`;
+    message += `• 📲 https://play.google.com/store/apps/details?id=com.catfishanimationstudio.SkeletalSystemPreview\n\n`;
    
-    let message = `🔍 АНАЛИЗ И ОБРАБОТКА\n\n`;
-    message += `ImageMeter\n`;
-    message += `└ Измерения и аннотации на фото\n`;
-    message += `└ Android\n\n`;
-    message += `Photo Editor Pro\n`;
-    message += `└ Редактирование и анализ изображений\n`;
-    message += `└ iOS/Android\n\n`;
-    message += `📱 Инструменты для детального анализа`;
+    message += `📍 **Conota: GPS-камера**\n`;
+    message += `• Фото с логотипом и GPS-данными\n`;
+    message += `• 📲 https://play.google.com/store/apps/details?id=com.gps.survey.cam\n\n`;
    
-    await bot.sendMessage(chatId, message);
-});
-
-bot.onText(/\/apps_tools/, async (msg) => {
-    const chatId = msg.chat.id;
-   
-    let message = `🛠️ ВСПОМОГАТЕЛЬНЫЕ УТИЛИТЫ\n\n`;
-    message += `GPS Map Camera\n`;
-    message += `└ Фото с координатами и данными\n`;
-    message += `└ iOS/Android\n\n`;
-    message += `Compass\n`;
-    message += `└ Точный компас для ориентации\n`;
-    message += `└ iOS/Android\n\n`;
-    message += `Weather Underground\n`;
-    message += `└ Детальные погодные данные\n`;
-    message += `└ iOS/Android\n\n`;
-    message += `📱 Полезные инструменты для работы в поле`;
+    message += `💡 Все ссылки кликабельны в Telegram`;
    
     await bot.sendMessage(chatId, message);
 });
