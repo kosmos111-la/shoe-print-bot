@@ -6,7 +6,7 @@ class AdultFootwearCalculator {
         // Константы штихмассовой системы для взрослых
         this.STICH_CM = 2.0 / 3.0; // 0.666 см
         this.ADULT_INSOLE_ADDITION = 1.0; // 1 см припуск для взрослых
-
+       
         // Типы обуви с добавками
         this.footwearTypes = {
             GALOSHI: { name: "Галоши", addition: 2.5 },
@@ -23,17 +23,17 @@ class AdultFootwearCalculator {
      */
     calculateForAdult(shoeSize, footwearTypeName) {
         const footwearType = this.footwearTypes[footwearTypeName] || this.footwearTypes.UNKNOWN;
-
+       
         // 1. Длина стельки по штихмассовой системе
         const insoleLength = shoeSize * this.STICH_CM;
-
+       
         // 2. Длина стопы взрослого (стелька - 1 см припуска)
         const footLength = insoleLength - this.ADULT_INSOLE_ADDITION;
-
+       
         // 3. Диапазон отпечатка
         const footprintMin = footLength; // Абсолютный минимум - длина стопы
         const footprintMax = insoleLength + footwearType.addition;
-
+       
         return {
             shoeSize: shoeSize,
             footLength: this.round(footLength),
@@ -46,15 +46,50 @@ class AdultFootwearCalculator {
     }
 
     /**
+     * Обратный расчет: отпечаток → диапазон размеров
+     */
+    footprintToSizeRange(footprintLength) {
+        // Верхний предел: стелька = отпечатку
+        const maxInsole = footprintLength;
+        const maxSize = this.insoleToWholeSize(maxInsole);
+       
+        // Нижний предел: отпечаток = стелька + 6 см
+        const minInsole = footprintLength - 6.0;
+        const minSize = this.insoleToWholeSize(minInsole);
+       
+        return {
+            footprintLength: this.round(footprintLength),
+            minSize: minSize,
+            maxSize: maxSize,
+            minInsole: this.round(minInsole),
+            maxInsole: this.round(maxInsole)
+        };
+    }
+
+    /**
+     * Форматирование результата обратного расчета
+     */
+    formatReverseResult(result) {
+        return `👣 <b>Обратный расчет:</b>\n\n` +
+               `📏 Длина отпечатка: <b>${result.footprintLength} см</b>\n` +
+               `👟 Диапазон размеров: <b>${result.minSize}-${result.maxSize}</b>\n` +
+               `📐 Диапазон стелек: <b>${result.minInsole}-${result.maxInsole} см</b>\n\n` +
+               `💡 <b>Логика расчета:</b>\n` +
+               `• Макс: стелька = отпечатку (<b>${result.maxSize}</b> размер)\n` +
+               `• Мин: стелька + 6 см = отпечатку (<b>${result.minSize}</b> размер)\n\n` +
+               `⚠️ <i>Учитывайте тип грунта и конструкцию подошвы</i>`;
+    }
+
+    /**
      * Поиск типа обуви по ключевым словам
      */
     findFootwearType(input) {
         if (!input || input.trim() === '') {
             return 'UNKNOWN';
         }
-
+       
         const lowerInput = input.toLowerCase();
-
+       
         if (this.containsAny(lowerInput, ["галоши", "галоша"])) {
             return 'GALOSHI';
         } else if (this.containsAny(lowerInput, ["резиновый", "сапог", "кеды", "тапки", "сланцы", "тапочки"])) {
@@ -75,17 +110,17 @@ class AdultFootwearCalculator {
      */
     getFootwearTypesList() {
         let list = "👟 <b>Выберите тип обуви:</b>\n\n";
-
+       
         Object.keys(this.footwearTypes).forEach(key => {
             if (key !== 'UNKNOWN') {
                 const type = this.footwearTypes[key];
                 list += `• <b>${type.name}</b> (+${type.addition} см)\n`;
             }
         });
-
+       
         list += "\n💡 Можно ввести название или часть названия.\n";
         list += "❓ Если тип неизвестен, введите <i>\"не знаю\"</i>";
-
+       
         return list;
     }
 
@@ -116,6 +151,10 @@ class AdultFootwearCalculator {
     round(value) {
         return Math.round(value * 10) / 10;
     }
+
+    insoleToWholeSize(insoleLength) {
+        return Math.round(insoleLength / this.STICH_CM);
+    }
 }
 
 // Экспортируем класс
@@ -138,7 +177,32 @@ function calculate(options) {
     }
 }
 
+// Функция обратного расчета
+function calculateReverse(footprintLength) {
+    try {
+        const length = parseFloat(footprintLength);
+        if (isNaN(length) || length <= 0) {
+            return {
+                success: false,
+                error: "Некорректная длина отпечатка"
+            };
+        }
+       
+        const result = calculator.footprintToSizeRange(length);
+        return {
+            success: true,
+            result: calculator.formatReverseResult(result)
+        };
+    } catch (error) {
+        return {
+            success: false,
+            error: `Ошибка обратного расчета: ${error.message}`
+        };
+    }
+}
+
 module.exports = {
     calculate,
+    calculateReverse,
     getFootwearTypesList: () => calculator.getFootwearTypesList()
 };
