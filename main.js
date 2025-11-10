@@ -461,7 +461,7 @@ bot.onText(/\/calc_reverse/, async (msg) => {
     }
 });
 
-/ Обработчик ввода данных для калькулятора
+// Обработчик ввода данных для калькулятора
 bot.on('message', async (msg) => {
     // Пропускаем команды и служебные сообщения
     if (msg.text && msg.text.startsWith('/')) return;
