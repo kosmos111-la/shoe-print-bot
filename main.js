@@ -398,7 +398,27 @@ bot.onText(/\/currentstyle/, async (msg) => {
     );
 });
 
-bot.onText(/\/calculators/
+// Команда /calculators
+bot.onText(/\/calculators/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    try {
+        const menu = calculators.getMenu();
+       
+        let message = `🧮 ${menu.title}\n\n`;
+       
+        menu.sections.forEach(section => {
+            message += `📌 ${section.name}\n`;
+            message += `└ ${section.description}\n`;
+            message += `└ Команда: ${section.command}\n\n`;
+        });
+       
+        await bot.sendMessage(chatId, message);
+    } catch (error) {
+        console.log('❌ Ошибка в /calculators:', error);
+        await bot.sendMessage(chatId, '❌ Ошибка загрузки калькуляторов');
+    }
+});
 
 // Команда калькулятора обуви
 bot.onText(/\/calc_shoe/, async (msg) => {
