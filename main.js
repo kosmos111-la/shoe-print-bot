@@ -417,6 +417,78 @@ bot.onText(/\/calculators/, async (msg) => {
     await bot.sendMessage(chatId, message);
 });
 
+// Команда калькулятора обуви
+bot.onText(/\/calc_shoe/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    try {
+        console.log('🔍 Вызвана команда /calc_shoe');
+        const typesMessage = calculators.getShoeTypes();
+        await bot.sendMessage(chatId, typesMessage, { parse_mode: 'HTML' });
+       
+        await bot.sendMessage(chatId,
+            '💡 <b>Как использовать:</b>\n\n' +
+            'Отправьте сообщение в формате:\n' +
+            '<code>размер=42 тип=кроссовки</code>\n\n' +
+            'Или просто:\n' +
+            '<code>42 кроссовки</code>',
+            { parse_mode: 'HTML' }
+        );
+    } catch (error) {
+        console.log('❌ Ошибка в /calc_shoe:', error);
+        await bot.sendMessage(chatId, '❌ Ошибка загрузки калькулятора');
+    }
+});
+
+// Обработчик ввода данных для калькулятора
+bot.on('message', async (msg) => {
+    // Пропускаем команды и служебные сообщения
+    if (msg.text && msg.text.startsWith('/')) return;
+    if (!msg.text) return;
+   
+    const chatId = msg.chat.id;
+    const text = msg.text.toLowerCase();
+   
+    console.log('🔍 Получено сообщение для обработки:', text);
+   
+    // Проверяем, относится ли сообщение к калькулятору обуви
+    if ((text.includes('размер=') && text.includes('тип=')) ||
+        (/^\d+/.test(text) && text.split(' ').length >= 2)) {
+       
+        try {
+            console.log('🔍 Обрабатываем как калькулятор обуви');
+            // Парсим размер и тип из сообщения
+            let size, type;
+           
+            if (text.includes('размер=') && text.includes('тип=')) {
+                const sizeMatch = text.match(/размер=(\d+)/);
+                const typeMatch = text.match(/тип=([^]+)/);
+                size = sizeMatch ? sizeMatch[1] : null;
+                type = typeMatch ? typeMatch[1].trim() : null;
+            } else {
+                // Простой формат: "42 кроссовки"
+                const parts = text.split(' ');
+                size = parts[0];
+                type = parts.slice(1).join(' ');
+            }
+           
+            console.log('🔍 Парсинг:', { size, type });
+           
+            if (size && type) {
+                const result = calculators.calculateShoeSize(size, type);
+                console.log('🔍 Результат калькулятора:', result);
+                await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            } else {
+                console.log('❌ Не удалось распарсить размер или тип');
+                await bot.sendMessage(chatId, '❌ Не удалось распознать размер или тип обуви. Используйте формат: <code>42 кроссовки</code>', { parse_mode: 'HTML' });
+            }
+        } catch (error) {
+            console.log('❌ Ошибка обработки калькулятора:', error);
+            await bot.sendMessage(chatId, '❌ Ошибка расчета. Проверьте формат ввода.');
+        }
+    }
+});
+
 // Команда /apps
 bot.onText(/\/apps/, async (msg) => {
     const chatId = msg.chat.id;
