@@ -1,7 +1,7 @@
 const shoeSizeCalculator = require('./shoe-size');
-const heightCalculator = { estimate: () => ({ success: false, error: 'В разработке' }) };
-const snowCalculator = { calculate: () => ({ success: false, error: 'В разработке' }) };
-const weatherModule = { getWeather: () => ({ success: false, error: 'В разработке' }) };
+//const heightCalculator = { estimate: () => ({ success: false, error: 'В разработке' }) };
+// const snowCalculator = { calculate: () => ({ success: false, error: 'В разработке' }) };
+// const weatherModule = { getWeather: () => ({ success: false, error: 'В разработке' }) };
 
 /**
 * Меню калькуляторов
