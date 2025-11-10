@@ -585,54 +585,149 @@ if (yandexDisk && vizPath && topologyPath) {
         const saveResult = await yandexDisk.saveAnalysisResults(
             msg.from.id,
             filesToUpload,
-            analysisData
-        );
+// Обработка фото
+bot.on('photo', async (msg) => {
+    const chatId = msg.chat.id;
 
-        if (saveResult.success) {
-            await bot.sendMessage(chatId,
-                `💾 **Результаты сохранены в Яндекс.Диск**\n\n` +
-                `📁 Папка: ${path.basename(saveResult.folderPath)}\n` +
-                `📊 Файлов: ${saveResult.uploadedFiles.length}\n` +
-                `🕒 ${new Date().toLocaleString('ru-RU')}`
-            );
-        }
-    } catch (uploadError) {
-        console.log('⚠️ Ошибка загрузки в Яндекс.Диск:', uploadError.message);
-        // Не прерываем основной поток из-за ошибки загрузки
-    }
-}
-        // 🔄 АВТОМАТИЧЕСКАЯ ОЧИСТКА ЧЕРЕЗ МЕНЕДЖЕР
-        tempFileManager.removeFile(vizPath);
-        tempFileManager.removeFile(topologyPath);
-    } else {
-        // Если визуализация не создалась, отправляем текстовый результат
-        let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
-        caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
-        caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
-        Object.entries(analysis.classes).forEach(([className, count]) => {
-            caption += `• ${className}: ${count}\n`;
-        });
-        await bot.sendMessage(chatId, caption);
-    }
-} catch (error) {
-    console.log('❌ Ошибка создания визуализации:', error);
-    // 🔄 ГАРАНТИРОВАННАЯ ОЧИСТКА ПРИ ОШИБКЕ
-    tempFileManager.removeFile(vizPath);
-    tempFileManager.removeFile(topologyPath);
-    throw error;
-}
-           
-        } else {
-            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
-        }
+    try {
+        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
 
-        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
+        // 🎨 ПОДСКАЗКА О СТИЛЕ ПРИ ПЕРВОМ ИСПОЛЬЗОВАНИИ
+        const userId = msg.from.id;
+        if (!visualization.userPreferences.has(String(userId))) {
+            // Первое использование - показываем подсказку о стиле
+            const currentStyle = visualization.getUserStyle(userId);
+            const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
 
-    } catch (error) {
-        console.log('❌ Ошибка анализа фото:', error.message);
-        await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
-    }
-});
+            await bot.sendMessage(chatId,
+                `🎨 **Стиль визуализации:** ${styleInfo?.name || 'Стиль маски'}\n` +
+                `Изменить: /style`
+            );
+        }
+        await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
+
+        const photo = msg.photo[msg.photo.length - 1];
+        const file = await bot.getFile(photo.file_id);
+        const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
+
+        await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
+
+        const response = await axios({
+            method: "POST",
+            url: config.ROBOFLOW.API_URL,
+            params: {
+                api_key: config.ROBOFLOW.API_KEY,
+                image: fileUrl,
+                confidence: config.ROBOFLOW.CONFIDENCE,
+                overlap: config.ROBOFLOW.OVERLAP,
+                format: 'json'
+            },
+            timeout: 30000
+        });
+
+        const predictions = response.data.predictions || [];
+        const processedPredictions = smartPostProcessing(predictions);
+        const analysis = analyzePredictions(processedPredictions);
+
+        if (analysis.total > 0) {
+            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
+
+            const userData = {
+                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
+            };
+
+            // ИСПОЛЬЗУЕМ МОДУЛИ ВИЗУАЛИЗАЦИИ С ВЫБОРОМ СТИЛЯ
+            const userId = msg.from.id;
+            const vizModule = visualization.getVisualization(msg.from.id, 'analysis');
+            const topologyModule = visualization.getVisualization(msg.from.id, 'topology');
+
+            // 🔄 НОВЫЙ КОД С ИНТЕГРАЦИЕЙ МЕНЕДЖЕРА ФАЙЛОВ
+            let vizPath, topologyPath; // ← ОБЪЯВЛЯЕМ ПЕРЕМЕННЫЕ ЗАРАНЕЕ
+            
+            try {
+                // СОЗДАЕМ ПУТИ ЧЕРЕЗ МЕНЕДЖЕР (автоматическое отслеживание)
+                vizPath = tempFileManager.createTempFile('analysis', 'png');
+                topologyPath = tempFileManager.createTempFile('topology', 'png');
+
+                // Сохраняем визуализации в созданные пути
+                await vizModule.createVisualization(fileUrl, processedPredictions, userData, vizPath);
+                await topologyModule.createVisualization(fileUrl, processedPredictions, userData, topologyPath);
+
+                // Отправка результата
+                if (vizPath && require('fs').existsSync(vizPath)) {
+                    await bot.sendPhoto(chatId, vizPath, {
+                        caption: `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`
+                    });
+
+                    // 💾 СОХРАНЕНИЕ В ЯНДЕКС.ДИСК
+                    if (yandexDisk && vizPath && topologyPath) {
+                        try {
+                            await bot.sendMessage(chatId, '💾 Сохраняю результаты в облако...');
+
+                            const filesToUpload = [
+                                { localPath: vizPath, name: 'visualization.png', type: 'visualization' },
+                                { localPath: topologyPath, name: 'topology_map.png', type: 'topology' }
+                            ];
+
+                            const analysisData = {
+                                predictions: processedPredictions.length,
+                                classes: analysis.classes,
+                                timestamp: new Date().toISOString(),
+                                user: userData.username
+                            };
+
+                            const saveResult = await yandexDisk.saveAnalysisResults(
+                                msg.from.id,
+                                filesToUpload,
+                                analysisData
+                            );
+
+                            if (saveResult.success) {
+                                await bot.sendMessage(chatId,
+                                    `💾 **Результаты сохранены в Яндекс.Диск**\n\n` +
+                                    `📁 Папка: ${path.basename(saveResult.folderPath)}\n` +
+                                    `📊 Файлов: ${saveResult.uploadedFiles.length}\n` +
+                                    `🕒 ${new Date().toLocaleString('ru-RU')}`
+                                );
+                            }
+                        } catch (uploadError) {
+                            console.log('⚠️ Ошибка загрузки в Яндекс.Диск:', uploadError.message);
+                            // Не прерываем основной поток из-за ошибки загрузки
+                        }
+                    }
+
+                    // 🔄 АВТОМАТИЧЕСКАЯ ОЧИСТКА ЧЕРЕЗ МЕНЕДЖЕР
+                    tempFileManager.removeFile(vizPath);
+                    tempFileManager.removeFile(topologyPath);
+                } else {
+                    // Если визуализация не создалась, отправляем текстовый результат
+                    let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
+                    caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
+                    caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
+                    Object.entries(analysis.classes).forEach(([className, count]) => {
+                        caption += `• ${className}: ${count}\n`;
+                    });
+                    await bot.sendMessage(chatId, caption);
+                }
+            } catch (error) {
+                console.log('❌ Ошибка создания визуализации:', error);
+                // 🔄 ГАРАНТИРОВАННАЯ ОЧИСТКА ПРИ ОШИБКЕ
+                if (vizPath) tempFileManager.removeFile(vizPath);
+                if (topologyPath) tempFileManager.removeFile(topologyPath);
+                throw error;
+            }
+
+        } else {
+            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+        }
+
+        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
+
+    } catch (error) {
+        console.log('❌ Ошибка анализа фото:', error.message);
+        await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
+    }
+}); // ← ЗДЕСЬ ЗАКАНЧИВАЕТСЯ ОБРАБОТЧИК PHOTO
 
 // =============================================================================
 // 🚀 ЗАПУСК СЕРВЕРА
