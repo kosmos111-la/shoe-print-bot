@@ -6,7 +6,7 @@ const shoeSizeCalculator = require('./shoe-size');
 /**
 * Меню калькуляторов
 */
-function initialize() {
+ffunction initialize() {
     console.log('✅ Модуль калькуляторов загружен');
    
     return {
