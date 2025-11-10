@@ -3,27 +3,32 @@ const appsDatabase = {
   photography: {
     name: "📸 Фотофиксация и замеры",
     apps: [
-      // Сюда добавим приложения, которые вы предоставите
+      {
+        name: "PhotoMetrix",
+        description: "Измерения по фотографиям с эталоном",
+        platform: "iOS/Android",
+        link: "https://example.com"
+      },
+      {
+        name: "CamScanner",
+        description: "Сканирование документов и следов",
+        platform: "iOS/Android",
+        link: "https://camscanner.com"
+      }
     ]
   },
   measurement: {
     name: "📏 Измерительные инструменты",
     apps: [
-      // Сюда добавим приложения, которые вы предоставите
-    ]
-  },
-  analysis: {
-    name: "🔍 Анализ и обработка",
-    apps: [
-      // Сюда добавим приложения, которые вы предоставите
-    ]
-  },
-  utilities: {
-    name: "🛠️ Вспомогательные утилиты",
-    apps: [
-      // Сюда добавим приложения, которые вы предоставите
+      {
+        name: "Ruler App",
+        description: "Виртуальная линейка для измерений",
+        platform: "iOS/Android",
+        link: "https://example.com"
+      }
     ]
   }
+  // ... остальные категории можно оставить пустыми пока
 };
 
 function getApps(categoryId) {
