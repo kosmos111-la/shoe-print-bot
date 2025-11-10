@@ -27,8 +27,29 @@ const appsDatabase = {
         link: "https://example.com"
       }
     ]
+  },
+  analysis: {
+    name: "🔍 Анализ и обработка",
+    apps: [
+      {
+        name: "ImageMeter",
+        description: "Измерения и аннотации на фото",
+        platform: "Android",
+        link: "https://example.com"
+      }
+    ]
+  },
+  utilities: {
+    name: "🛠️ Вспомогательные утилиты",
+    apps: [
+      {
+        name: "GPS Map Camera",
+        description: "Фото с координатами и данными",
+        platform: "iOS/Android",
+        link: "https://example.com"
+      }
+    ]
   }
-  // ... остальные категории можно оставить пустыми пока
 };
 
 function getApps(categoryId) {
