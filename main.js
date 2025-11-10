@@ -234,6 +234,25 @@ function createAppsStub() {
 const app = express();
 const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
 
+// 🆕 ДОБАВЬТЕ ЭТОТ КОД ДЛЯ ИСПРАВЛЕНИЯ ОШИБКИ PARSING
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  },
+  limit: '10mb'  // Увеличиваем лимит для фото
+}));
+
+app.use(express.urlencoded({
+  extended: true,
+  limit: '10mb'
+}));
+
+// Webhook для Telegram - ПЕРЕМЕСТИТЕ ЭТОТ КОД ВЫШЕ
+app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
 // =============================================================================
 // 📊 СИСТЕМА СТАТИСТИКИ
 // =============================================================================
