@@ -558,6 +558,7 @@ bot.onText(/\/calculators/, async (msg) => {
        
         await bot.sendMessage(chatId, message);
     } catch (error) {
+        console.log('❌ Ошибка в /calculators:', error);
         await bot.sendMessage(chatId, '❌ Ошибка загрузки калькуляторов');
     }
 });
@@ -580,6 +581,7 @@ bot.onText(/\/apps/, async (msg) => {
        
         await bot.sendMessage(chatId, message);
     } catch (error) {
+        console.log('❌ Ошибка в /apps:', error);
         await bot.sendMessage(chatId, '❌ Ошибка загрузки приложений');
     }
 });
@@ -611,6 +613,7 @@ bot.onText(/\/apps_(.+)/, async (msg, match) => {
             );
         }
     } catch (error) {
+        console.log('❌ Ошибка в /apps_:', error);
         await bot.sendMessage(chatId, '❌ Ошибка загрузки приложений');
     }
 });
