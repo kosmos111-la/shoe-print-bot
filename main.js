@@ -30,6 +30,10 @@
 //
 // =============================================================================
 
+// =============================================================================
+// 🎯 СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ - ОСНОВНОЙ ФАЙЛ
+// =============================================================================
+
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
@@ -61,16 +65,11 @@ const config = {
 // 🔒 ВАЛИДАЦИЯ КОНФИГУРАЦИИ
 // =============================================================================
 
-/**
-* Проверяет корректность конфигурации перед запуском системы
-* @param {Object} config - объект конфигурации
-* @throws {Error} если конфигурация невалидна
-*/
 function validateConfig(config) {
     console.log('🔍 Проверяю конфигурацию...');
-   
+  
     const errors = [];
-   
+  
     // Проверка Telegram токена
     if (!config.TELEGRAM_TOKEN) {
         errors.push('❌ TELEGRAM_TOKEN: отсутствует');
@@ -79,7 +78,7 @@ function validateConfig(config) {
     } else if (!config.TELEGRAM_TOKEN.startsWith('')) {
         errors.push('❌ TELEGRAM_TOKEN: должен начинаться с цифр и содержать двоеточие');
     }
-   
+  
     // Проверка Roboflow конфигурации
     if (!config.ROBOFLOW) {
         errors.push('❌ ROBOFLOW: отсутствует конфигурация');
@@ -94,12 +93,12 @@ function validateConfig(config) {
             errors.push('❌ ROBOFLOW.CONFIDENCE: должен быть между 0 и 100');
         }
     }
-   
+  
     // Проверка порта
     if (!config.PORT || config.PORT < 1000 || config.PORT > 65535) {
         errors.push('❌ PORT: должен быть между 1000 и 65535');
     }
-   
+  
     // Если есть ошибки - бросаем исключение
     if (errors.length > 0) {
         const errorMessage = `Ошибки конфигурации:\n${errors.join('\n')}`;
@@ -107,97 +106,27 @@ function validateConfig(config) {
         console.log(errorMessage);
         throw new Error(errorMessage);
     }
-   
+  
     console.log('✅ Конфигурация прошла валидацию');
     return true;
 }
 
-// ВЫЗЫВАЕМ ВАЛИДАЦИЮ СРАЗУ ПОСЛЕ ОБЪЯВЛЕНИЯ CONFIG
+// ВЫЗЫВАЕМ ВАЛИДАЦИЮ
 try {
     validateConfig(config);
 } catch (error) {
     console.log('💥 Невозможно запустить систему с некорректной конфигурацией');
-    process.exit(1); // Завершаем процесс с ошибкой
+    process.exit(1);
 }
 
 console.log('🚀 Запуск системы с модульной визуализацией...');
 
-
-    // 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
+// 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
 let visualization;
 let tempFileManager;
 let yandexDisk;
-
-// НЕМЕДЛЕННО ВЫЗЫВАЕМАЯ АСИНХРОННАЯ ФУНКЦИЯ (IIFE)
-(async function() {
-    // ИНИЦИАЛИЗИРУЕМ СИНХРОННЫЕ МОДУЛИ
-    try {
-        visualization = visualizationModule.initialize();
-        console.log('✅ Модуль визуализации загружен');
-    } catch (error) {
-        console.log('❌ Ошибка модуля визуализации:', error.message);
-        visualization = {
-            getVisualization: () => ({ createVisualization: async () => null }),
-            setUserStyle: () => false,
-            getUserStyle: () => 'original',
-            getAvailableStyles: () => [{ id: 'original', name: 'Оригинальный', description: 'Основной стиль' }],
-            userPreferences: new Map()
-        };
-    }
-
-    try {
-        tempFileManager = tempManagerModule.initialize({
-            tempDir: './temp',
-            autoCleanup: true
-        });
-        console.log('✅ Менеджер временных файлов загружен');
-    } catch (error) {
-        console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить менеджер файлов:', error.message);
-        tempFileManager = {
-            track: () => {},
-            removeFile: () => false,
-            cleanup: () => 0,
-            getStats: () => ({ totalTracked: 0, existingFiles: 0, totalSize: '0 MB' })
-        };
-    }
-
 let calculators;
 let apps;
-
-try {
-  calculators = calculatorsModule.initialize();
-  console.log('✅ Модуль калькуляторов загружен');
-} catch (error) {
-  console.log('❌ Ошибка модуля калькуляторов:', error.message);
-  calculators = createCalculatorsStub();
-}
-
-try {
-  apps = appsModule.initialize();
-  console.log('✅ Модуль приложений загружен');
-} catch (error) {
-  console.log('❌ Ошибка модуля приложений:', error.message);
-  apps = createAppsStub();
-}
-    
-    // ИНИЦИАЛИЗИРУЕМ ЯНДЕКС.ДИСК (асинхронно)
-    try {
-        yandexDisk = await yandexDiskModule.initialize(config.YANDEX_DISK_TOKEN);
-        if (yandexDisk) {
-            console.log('✅ Модуль Яндекс.Диска загружен');
-            await yandexDisk.createAppFolder();
-            console.log('✅ Папка Яндекс.Диска готова');
-        } else {
-            console.log('⚠️ Модуль Яндекс.Диска отключен (нет токена)');
-            yandexDisk = createYandexDiskStub();
-        }
-    } catch (error) {
-        console.log('❌ Ошибка инициализации Яндекс.Диска:', error.message);
-        yandexDisk = createYandexDiskStub();
-    }
-
-    console.log('🚀 Все модули инициализированы, бот готов к работе!');
-})();
 
 // Функция-заглушка для Яндекс.Диска
 function createYandexDiskStub() {
@@ -210,48 +139,45 @@ function createYandexDiskStub() {
     };
 }
 
-// Временная заглушка пока идет инициализация
-yandexDisk = createYandexDiskStub();
-
+// Заглушки для новых модулей
 function createCalculatorsStub() {
-  return {
-    getMenu: () => ({ title: "🧮 КАЛЬКУЛЯТОРЫ", sections: [] }),
-    calculateShoeSize: () => "Модуль временно недоступен",
-    estimateHeight: () => "Модуль временно недоступен",
-    calculateSnowDepth: () => "Модуль временно недоступен",
-    getWeatherData: () => "Модуль временно недоступен"
-  };
+    return {
+        getMenu: () => ({ title: "🧮 КАЛЬКУЛЯТОРЫ", sections: [] }),
+        calculateShoeSize: () => "Модуль временно недоступен",
+        estimateHeight: () => "Модуль временно недоступен",
+        calculateSnowDepth: () => "Модуль временно недоступен",
+        getWeatherData: () => "Модуль временно недоступен"
+    };
 }
 
 function createAppsStub() {
-  return {
-    getMenu: () => ({ title: "📱 ПРИЛОЖЕНИЯ", categories: [] }),
-    getAppsByCategory: () => [],
-    getAllApps: () => ({})
-  };
+    return {
+        getMenu: () => ({ title: "📱 ПРИЛОЖЕНИЯ", categories: [] }),
+        getAppsByCategory: () => [],
+        getAllApps: () => ({})
+    };
 }
+
+// Временные заглушки пока идет инициализация
+yandexDisk = createYandexDiskStub();
+calculators = createCalculatorsStub();
+apps = createAppsStub();
 
 const app = express();
 const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
 
-// 🆕 ДОБАВЬТЕ ЭТОТ КОД ДЛЯ ИСПРАВЛЕНИЯ ОШИБКИ PARSING
+// 🔧 НАСТРОЙКА EXPRESS
 app.use(express.json({
-  verify: (req, res, buf) => {
-    req.rawBody = buf;
-  },
-  limit: '10mb'  // Увеличиваем лимит для фото
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    },
+    limit: '10mb'
 }));
 
 app.use(express.urlencoded({
-  extended: true,
-  limit: '10mb'
+    extended: true,
+    limit: '10mb'
 }));
-
-// Webhook для Telegram - ПЕРЕМЕСТИТЕ ЭТОТ КОД ВЫШЕ
-app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
 
 // =============================================================================
 // 📊 СИСТЕМА СТАТИСТИКИ
@@ -276,10 +202,10 @@ function updateUserStats(userId, username, action = 'photo') {
         });
         globalStats.totalUsers++;
     }
-  
+ 
     const user = userStats.get(userId);
     user.lastSeen = new Date();
-  
+ 
     switch(action) {
         case 'photo':
             user.photosCount++;
@@ -299,7 +225,7 @@ function updateUserStats(userId, username, action = 'photo') {
 // =============================================================================
 function smartPostProcessing(predictions) {
     if (!predictions || predictions.length === 0) return [];
-  
+ 
     const filtered = predictions.filter(pred => {
         if (!pred.points || pred.points.length < 3) return false;
         const points = pred.points;
@@ -322,7 +248,7 @@ function analyzePredictions(predictions) {
     predictions.forEach(pred => {
         classes[pred.class] = (classes[pred.class] || 0) + 1;
     });
-   
+  
     return {
         total: predictions.length,
         classes: classes,
@@ -334,10 +260,10 @@ function analyzePredictions(predictions) {
 function generateTopologyText(predictions) {
     const protectors = predictions.filter(p => p.class === 'shoe-protector');
     if (protectors.length === 0) return "Детали протектора не обнаружены";
-   
+  
     let text = `🔍 Топология протектора:\n`;
     text += `• Всего деталей: ${protectors.length}\n`;
-   
+  
     // Анализ распределения
     const centers = protectors.map(pred => {
         const points = pred.points;
@@ -348,21 +274,20 @@ function generateTopologyText(predictions) {
             y: (Math.min(...ys) + Math.max(...ys)) / 2
         };
     });
-   
+  
     // Простой анализ кластеризации
     const leftCount = centers.filter(c => c.x < 400).length;
     const rightCount = centers.filter(c => c.x >= 400).length;
-   
+  
     text += `• Распределение: ${leftCount} слева, ${rightCount} справа\n`;
     text += `• Плотность: ${(protectors.length / 10).toFixed(1)} дет/сектор\n`;
-   
+  
     return text;
 }
 
 // =============================================================================
-// 🤖 TELEGRAM БОТ
+// 🤖 TELEGRAM БОТ - КОМАНДЫ
 // =============================================================================
-app.use(express.json());
 
 // Webhook для Telegram
 app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
@@ -370,13 +295,13 @@ app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
     res.sendStatus(200);
 });
 
-// Команды бота
+// Команда /start
 bot.onText(/\/start/, (msg) => {
     updateUserStats(msg.from.id, msg.from.username || msg.from.first_name);
-   
+  
     const currentStyle = visualization.getUserStyle(msg.from.id);
     const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
-   
+  
     bot.sendMessage(msg.chat.id,
         `👟 **СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ** 🚀\n\n` +
         `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} отпечатков\n\n` +
@@ -387,7 +312,7 @@ bot.onText(/\/start/, (msg) => {
         `• Топология протектора\n` +
         `• Выбор стиля визуализации\n\n` +
         `🧮 **ИНСТРУМЕНТЫ:**\n` +
-        `/calculators - Калькуляторы и расчеты\n\n` +  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+        `/calculators - Калькуляторы и расчеты\n\n` +
         `🎯 **Команды:**\n` +
         `/style - Выбор стиля визуализации\n` +
         `/currentstyle - Текущий стиль\n` +
@@ -397,44 +322,45 @@ bot.onText(/\/start/, (msg) => {
     );
 });
 
+// Команда /statistics
 bot.onText(/\/statistics/, (msg) => {
     const activeUsers = Array.from(userStats.values()).filter(user =>
         (new Date() - user.lastSeen) < 7 * 24 * 60 * 60 * 1000
     ).length;
-  
+ 
     const stats = `📊 **СТАТИСТИКА СИСТЕМЫ:**\n\n` +
                  `👥 Пользователи: ${globalStats.totalUsers} (${activeUsers} активных)\n` +
                  `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
                  `🔍 Анализов проведено: ${globalStats.totalAnalyses}\n` +
                  `📅 Последний анализ: ${globalStats.lastAnalysis ?
                      globalStats.lastAnalysis.toLocaleString('ru-RU') : 'еще нет'}`;
-  
+ 
     bot.sendMessage(msg.chat.id, stats);
 });
 
-// Команда выбора стиля визуализации
+// Команда /style
 bot.onText(/\/style/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+  
     const styles = visualization.getAvailableStyles();
     const currentStyle = visualization.getUserStyle(userId);
     const currentStyleInfo = styles.find(s => s.id === currentStyle);
-   
+  
     let message = `🎨 **ВЫБОР СТИЛЯ ВИЗУАЛИЗАЦИИ**\n\n`;
     message += `📊 Текущий стиль: ${currentStyleInfo?.name || 'Стиль маски'}\n\n`;
     message += `Доступные стили:\n`;
-   
+  
     styles.forEach(style => {
         const isCurrent = style.id === currentStyle ? ' ✅' : '';
         message += `\n${style.name}${isCurrent}\n`;
         message += `└ ${style.description}\n`;
         message += `└ /setstyle_${style.id}\n`;
     });
-   
+  
     message += `\n💡 Стиль сохранится до перезагрузки бота`;
     message += `\n\n📸 Отправьте фото для анализа в выбранном стиле!`;
-   
+  
     await bot.sendMessage(chatId, message);
 });
 
@@ -443,7 +369,7 @@ bot.onText(/\/setstyle_(.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const styleId = match[1];
-   
+  
     if (visualization.setUserStyle(userId, styleId)) {
         const styleName = visualization.getAvailableStyles().find(s => s.id === styleId)?.name;
         await bot.sendMessage(chatId,
@@ -456,14 +382,14 @@ bot.onText(/\/setstyle_(.+)/, async (msg, match) => {
     }
 });
 
-// Показ текущего стиля
+// Команда /currentstyle
 bot.onText(/\/currentstyle/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+  
     const currentStyle = visualization.getUserStyle(userId);
     const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
-   
+  
     await bot.sendMessage(chatId,
         `🎨 **ТЕКУЩИЙ СТИЛЬ ВИЗУАЛИЗАЦИИ**\n\n` +
         `📝 ${styleInfo?.name || 'Оригинальный'}\n` +
@@ -472,92 +398,7 @@ bot.onText(/\/currentstyle/, async (msg) => {
     );
 });
 
-bot.onText(/\/filestats/, (msg) => {
-    const stats = tempFileManager.getStats();
-   
-    const fileStats = `📊 **СТАТИСТИКА ФАЙЛОВОЙ СИСТЕМЫ:**\n\n` +
-                     `📁 Отслеживается файлов: ${stats.totalTracked}\n` +
-                     `💾 Существует на диске: ${stats.existingFiles}\n` +
-                     `📦 Общий размер: ${stats.totalSize}\n` +
-                     `📂 Папка: ${stats.tempDirectory}\n\n` +
-                     `🔄 Автоочистка: каждые 30 минут\n` +
-                     `⏰ Следующая очистка: через 30 мин`;
-   
-    bot.sendMessage(msg.chat.id, fileStats);
-   
-    // Также выводим в консоль для отладки
-    tempFileManager.printStats();
-});
-
-// Команда для проверки Яндекс.Диска
-bot.onText(/\/yandex/, async (msg) => {
-    const chatId = msg.chat.id;
-   
-    if (!yandexDisk) {
-        await bot.sendMessage(chatId,
-            '❌ **Яндекс.Диск не настроен**\n\n' +
-            'Добавьте YANDEX_DISK_TOKEN в конфигурацию'
-        );
-        return;
-    }
-
-    try {
-        await bot.sendMessage(chatId, '🔍 Проверяю подключение к Яндекс.Диску...');
-       
-        const diskInfo = await yandexDisk.getDiskInfo();
-        const connectionOk = await yandexDisk.checkConnection();
-       
-        if (connectionOk && diskInfo.success) {
-            const freeGB = (diskInfo.free / 1024 / 1024 / 1024).toFixed(2);
-            const totalGB = (diskInfo.total / 1024 / 1024 / 1024).toFixed(2);
-           
-            await bot.sendMessage(chatId,
-                '✅ **Яндекс.Диск подключен**\n\n' +
-                `💾 Доступно: ${freeGB} GB / ${totalGB} GB\n` +
-                `📁 Папка: apps/ShoeBot/\n` +
-                `🔄 Автосохранение: включено\n\n` +
-                `Все результаты анализов автоматически сохраняются в облако.`
-            );
-        } else {
-            await bot.sendMessage(chatId, '❌ Ошибка подключения к Яндекс.Диску');
-        }
-    } catch (error) {
-        await bot.sendMessage(chatId, '❌ Ошибка проверки Яндекс.Диска');
-    }
-});
-
-bot.onText(/\/help/, (msg) => {
-    bot.sendMessage(msg.chat.id,
-        `🆘 **ПОМОЩЬ**\n\n` +
-        `📸 **Как использовать:**\n` +
-        `Просто отправьте фото следа обуви\n\n` +
-        `🔍 **Что анализируется:**\n` +
-        `• Контуры подошвы\n` +
-        `• Детали протектора\n` +
-        `• Топология узора\n\n` +
-        `🧮 **ИНСТРУМЕНТЫ:**\n` +
-        `/calculators - Калькуляторы и расчеты\n\n` +  // ← ДОБАВИТЬ
-        `📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n` +
-        `/apps - Рекомендованные приложения\n\n` +  // ← ДОБАВИТЬ
-                    `🎨 **Стили визуализации:**\n` +
-        `/style - Выбрать стиль отображения\n` +
-        `/currentstyle - Текущий стиль\n` +
-        `• Стиль маски (по умолчанию) - черные линии на полупрозрачном фоне\n` +
-        `• Оригинальный стиль - цветная визуализация\n\n` +
-        `💡 **Советы по съемке:**\n` +
-        `• Прямой угол\n` +
-        `• Хорошее освещение\n` +
-        `• Четкий фокус\n\n` +
-        `💾 **Сохранение результатов:**\n` +
-        `/yandex - Статус Яндекс.Диска\n` +
-        `• Автоматическое сохранение в облако\n\n` +
-        `📊 **Другие команды:**\n` +
-        `/start - Главное меню\n` +
-        `/statistics - Статистика системы`
-    );
-});
-
-// Добавьте после других команд (после /help)
+// Команда /calculators
 bot.onText(/\/calculators/, async (msg) => {
     const chatId = msg.chat.id;
    
@@ -582,6 +423,7 @@ bot.onText(/\/calculators/, async (msg) => {
     }
 });
 
+// Команда /apps
 bot.onText(/\/apps/, async (msg) => {
     const chatId = msg.chat.id;
    
@@ -605,7 +447,7 @@ bot.onText(/\/apps/, async (msg) => {
     }
 });
 
-// Обработчик для категорий приложений
+// Обработчик категорий приложений
 bot.onText(/\/apps_(.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const categoryId = match[1];
@@ -637,153 +479,218 @@ bot.onText(/\/apps_(.+)/, async (msg, match) => {
     }
 });
 
+// Команда /help
+bot.onText(/\/help/, (msg) => {
+    bot.sendMessage(msg.chat.id,
+        `🆘 **ПОМОЩЬ**\n\n` +
+        `📸 **Как использовать:**\n` +
+        `Просто отправьте фото следа обуви\n\n` +
+        `🔍 **Что анализируется:**\n` +
+        `• Контуры подошвы\n` +
+        `• Детали протектора\n` +
+        `• Топология узора\n\n` +
+        `🧮 **ИНСТРУМЕНТЫ:**\n` +
+        `/calculators - Калькуляторы и расчеты\n\n` +
+        `📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n` +
+        `/apps - Рекомендованные приложения\n\n` +
+        `🎨 **Стили визуализации:**\n` +
+        `/style - Выбрать стиль отображения\n` +
+        `/currentstyle - Текущий стиль\n` +
+        `• Стиль маски (по умолчанию) - черные линии на полупрозрачном фоне\n` +
+        `• Оригинальный стиль - цветная визуализация\n\n` +
+        `💡 **Советы по съемке:**\n` +
+        `• Прямой угол\n` +
+        `• Хорошее освещение\n` +
+        `• Четкий фокус\n\n` +
+        `💾 **Сохранение результатов:**\n` +
+        `/yandex - Статус Яндекс.Диска\n` +
+        `• Автоматическое сохранение в облако\n\n` +
+        `📊 **Другие команды:**\n` +
+        `/start - Главное меню\n` +
+        `/statistics - Статистика системы`
+    );
+});
 
+// Команда /yandex
+bot.onText(/\/yandex/, async (msg) => {
+    const chatId = msg.chat.id;
+  
+    if (!yandexDisk) {
+        await bot.sendMessage(chatId,
+            '❌ **Яндекс.Диск не настроен**\n\n' +
+            'Добавьте YANDEX_DISK_TOKEN в конфигурацию'
+        );
+        return;
+    }
 
-// Обработка фото
-            
+    try {
+        await bot.sendMessage(chatId, '🔍 Проверяю подключение к Яндекс.Диску...');
+      
+        const diskInfo = await yandexDisk.getDiskInfo();
+        const connectionOk = await yandexDisk.checkConnection();
+      
+        if (connectionOk && diskInfo.success) {
+            const freeGB = (diskInfo.free / 1024 / 1024 / 1024).toFixed(2);
+            const totalGB = (diskInfo.total / 1024 / 1024 / 1024).toFixed(2);
+          
+            await bot.sendMessage(chatId,
+                '✅ **Яндекс.Диск подключен**\n\n' +
+                `💾 Доступно: ${freeGB} GB / ${totalGB} GB\n` +
+                `📁 Папка: apps/ShoeBot/\n` +
+                `🔄 Автосохранение: включено\n\n` +
+                `Все результаты анализов автоматически сохраняются в облако.`
+            );
+        } else {
+            await bot.sendMessage(chatId, '❌ Ошибка подключения к Яндекс.Диску');
+        }
+    } catch (error) {
+        await bot.sendMessage(chatId, '❌ Ошибка проверки Яндекс.Диска');
+    }
+});
+
 // Обработка фото
 bot.on('photo', async (msg) => {
-    const chatId = msg.chat.id;
+    const chatId = msg.chat.id;
 
-    try {
-        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
+    try {
+        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
 
-        // 🎨 ПОДСКАЗКА О СТИЛЕ ПРИ ПЕРВОМ ИСПОЛЬЗОВАНИИ
-        const userId = msg.from.id;
-        if (!visualization.userPreferences.has(String(userId))) {
-            // Первое использование - показываем подсказку о стиле
-            const currentStyle = visualization.getUserStyle(userId);
-            const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
+        // 🎨 ПОДСКАЗКА О СТИЛЕ ПРИ ПЕРВОМ ИСПОЛЬЗОВАНИИ
+        const userId = msg.from.id;
+        if (!visualization.userPreferences.has(String(userId))) {
+            // Первое использование - показываем подсказку о стиле
+            const currentStyle = visualization.getUserStyle(userId);
+            const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
 
-            await bot.sendMessage(chatId,
-                `🎨 **Стиль визуализации:** ${styleInfo?.name || 'Стиль маски'}\n` +
-                `Изменить: /style`
-            );
-        }
-        await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
+            await bot.sendMessage(chatId,
+                `🎨 **Стиль визуализации:** ${styleInfo?.name || 'Стиль маски'}\n` +
+                `Изменить: /style`
+            );
+        }
+        await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
 
-        const photo = msg.photo[msg.photo.length - 1];
-        const file = await bot.getFile(photo.file_id);
-        const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
+        const photo = msg.photo[msg.photo.length - 1];
+        const file = await bot.getFile(photo.file_id);
+        const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
 
-        await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
+        await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
 
-        const response = await axios({
-            method: "POST",
-            url: config.ROBOFLOW.API_URL,
-            params: {
-                api_key: config.ROBOFLOW.API_KEY,
-                image: fileUrl,
-                confidence: config.ROBOFLOW.CONFIDENCE,
-                overlap: config.ROBOFLOW.OVERLAP,
-                format: 'json'
-            },
-            timeout: 30000
-        });
+        const response = await axios({
+            method: "POST",
+            url: config.ROBOFLOW.API_URL,
+            params: {
+                api_key: config.ROBOFLOW.API_KEY,
+                image: fileUrl,
+                confidence: config.ROBOFLOW.CONFIDENCE,
+                overlap: config.ROBOFLOW.OVERLAP,
+                format: 'json'
+            },
+            timeout: 30000
+        });
 
-        const predictions = response.data.predictions || [];
-        const processedPredictions = smartPostProcessing(predictions);
-        const analysis = analyzePredictions(processedPredictions);
+        const predictions = response.data.predictions || [];
+        const processedPredictions = smartPostProcessing(predictions);
+        const analysis = analyzePredictions(processedPredictions);
 
-        if (analysis.total > 0) {
-            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
+        if (analysis.total > 0) {
+            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
 
-            const userData = {
-                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
-            };
+            const userData = {
+                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
+            };
 
-            // ИСПОЛЬЗУЕМ МОДУЛИ ВИЗУАЛИЗАЦИИ С ВЫБОРОМ СТИЛЯ
-            const userId = msg.from.id;
-            const vizModule = visualization.getVisualization(msg.from.id, 'analysis');
-            const topologyModule = visualization.getVisualization(msg.from.id, 'topology');
+            // ИСПОЛЬЗУЕМ МОДУЛИ ВИЗУАЛИЗАЦИИ С ВЫБОРОМ СТИЛЯ
+            const userId = msg.from.id;
+            const vizModule = visualization.getVisualization(msg.from.id, 'analysis');
+            const topologyModule = visualization.getVisualization(msg.from.id, 'topology');
 
-            // 🔄 НОВЫЙ КОД С ИНТЕГРАЦИЕЙ МЕНЕДЖЕРА ФАЙЛОВ
-            let vizPath, topologyPath; // ← ОБЪЯВЛЯЕМ ПЕРЕМЕННЫЕ ЗАРАНЕЕ
-            
-            try {
-                // СОЗДАЕМ ПУТИ ЧЕРЕЗ МЕНЕДЖЕР (автоматическое отслеживание)
-                vizPath = tempFileManager.createTempFile('analysis', 'png');
-                topologyPath = tempFileManager.createTempFile('topology', 'png');
+            // 🔄 НОВЫЙ КОД С ИНТЕГРАЦИЕЙ МЕНЕДЖЕРА ФАЙЛОВ
+            let vizPath, topologyPath;
+           
+            try {
+                // СОЗДАЕМ ПУТИ ЧЕРЕЗ МЕНЕДЖЕР (автоматическое отслеживание)
+                vizPath = tempFileManager.createTempFile('analysis', 'png');
+                topologyPath = tempFileManager.createTempFile('topology', 'png');
 
-                // Сохраняем визуализации в созданные пути
-                await vizModule.createVisualization(fileUrl, processedPredictions, userData, vizPath);
-                await topologyModule.createVisualization(fileUrl, processedPredictions, userData, topologyPath);
+                // Сохраняем визуализации в созданные пути
+                await vizModule.createVisualization(fileUrl, processedPredictions, userData, vizPath);
+                await topologyModule.createVisualization(fileUrl, processedPredictions, userData, topologyPath);
 
-                // Отправка результата
-                if (vizPath && require('fs').existsSync(vizPath)) {
-                    await bot.sendPhoto(chatId, vizPath, {
-                        caption: `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`
-                    });
+                // Отправка результата
+                if (vizPath && require('fs').existsSync(vizPath)) {
+                    await bot.sendPhoto(chatId, vizPath, {
+                        caption: `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`
+                    });
 
-                    // 💾 СОХРАНЕНИЕ В ЯНДЕКС.ДИСК
-                    if (yandexDisk && vizPath && topologyPath) {
-                        try {
-                            await bot.sendMessage(chatId, '💾 Сохраняю результаты в облако...');
+                    // 💾 СОХРАНЕНИЕ В ЯНДЕКС.ДИСК
+                    if (yandexDisk && vizPath && topologyPath) {
+                        try {
+                            await bot.sendMessage(chatId, '💾 Сохраняю результаты в облако...');
 
-                            const filesToUpload = [
-                                { localPath: vizPath, name: 'visualization.png', type: 'visualization' },
-                                { localPath: topologyPath, name: 'topology_map.png', type: 'topology' }
-                            ];
+                            const filesToUpload = [
+                                { localPath: vizPath, name: 'visualization.png', type: 'visualization' },
+                                { localPath: topologyPath, name: 'topology_map.png', type: 'topology' }
+                            ];
 
-                            const analysisData = {
-                                predictions: processedPredictions.length,
-                                classes: analysis.classes,
-                                timestamp: new Date().toISOString(),
-                                user: userData.username
-                            };
+                            const analysisData = {
+                                predictions: processedPredictions.length,
+                                classes: analysis.classes,
+                                timestamp: new Date().toISOString(),
+                                user: userData.username
+                            };
 
-                            const saveResult = await yandexDisk.saveAnalysisResults(
-                                msg.from.id,
-                                filesToUpload,
-                                analysisData
-                            );
+                            const saveResult = await yandexDisk.saveAnalysisResults(
+                                msg.from.id,
+                                filesToUpload,
+                                analysisData
+                            );
 
-                            if (saveResult.success) {
-                                await bot.sendMessage(chatId,
-                                    `💾 **Результаты сохранены в Яндекс.Диск**\n\n` +
-                                    `📁 Папка: ${path.basename(saveResult.folderPath)}\n` +
-                                    `📊 Файлов: ${saveResult.uploadedFiles.length}\n` +
-                                    `🕒 ${new Date().toLocaleString('ru-RU')}`
-                                );
-                            }
-                        } catch (uploadError) {
-                            console.log('⚠️ Ошибка загрузки в Яндекс.Диск:', uploadError.message);
-                            // Не прерываем основной поток из-за ошибки загрузки
-                        }
-                    }
+                            if (saveResult.success) {
+                                await bot.sendMessage(chatId,
+                                    `💾 **Результаты сохранены в Яндекс.Диск**\n\n` +
+                                    `📁 Папка: ${path.basename(saveResult.folderPath)}\n` +
+                                    `📊 Файлов: ${saveResult.uploadedFiles.length}\n` +
+                                    `🕒 ${new Date().toLocaleString('ru-RU')}`
+                                );
+                            }
+                        } catch (uploadError) {
+                            console.log('⚠️ Ошибка загрузки в Яндекс.Диск:', uploadError.message);
+                            // Не прерываем основной поток из-за ошибки загрузки
+                        }
+                    }
 
-                    // 🔄 АВТОМАТИЧЕСКАЯ ОЧИСТКА ЧЕРЕЗ МЕНЕДЖЕР
-                    tempFileManager.removeFile(vizPath);
-                    tempFileManager.removeFile(topologyPath);
-                } else {
-                    // Если визуализация не создалась, отправляем текстовый результат
-                    let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
-                    caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
-                    caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
-                    Object.entries(analysis.classes).forEach(([className, count]) => {
-                        caption += `• ${className}: ${count}\n`;
-                    });
-                    await bot.sendMessage(chatId, caption);
-                }
-            } catch (error) {
-                console.log('❌ Ошибка создания визуализации:', error);
-                // 🔄 ГАРАНТИРОВАННАЯ ОЧИСТКА ПРИ ОШИБКЕ
-                if (vizPath) tempFileManager.removeFile(vizPath);
-                if (topologyPath) tempFileManager.removeFile(topologyPath);
-                throw error;
-            }
+                    // 🔄 АВТОМАТИЧЕСКАЯ ОЧИСТКА ЧЕРЕЗ МЕНЕДЖЕР
+                    tempFileManager.removeFile(vizPath);
+                    tempFileManager.removeFile(topologyPath);
+                } else {
+                    // Если визуализация не создалась, отправляем текстовый результат
+                    let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
+                    caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
+                    caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
+                    Object.entries(analysis.classes).forEach(([className, count]) => {
+                        caption += `• ${className}: ${count}\n`;
+                    });
+                    await bot.sendMessage(chatId, caption);
+                }
+            } catch (error) {
+                console.log('❌ Ошибка создания визуализации:', error);
+                // 🔄 ГАРАНТИРОВАННАЯ ОЧИСТКА ПРИ ОШИБКЕ
+                if (vizPath) tempFileManager.removeFile(vizPath);
+                if (topologyPath) tempFileManager.removeFile(topologyPath);
+                throw error;
+            }
 
-        } else {
-            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
-        }
+        } else {
+            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+        }
 
-        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
+        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
 
-    } catch (error) {
-        console.log('❌ Ошибка анализа фото:', error.message);
-        await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
-    }
-}); // ← ЗДЕСЬ ЗАКАНЧИВАЕТСЯ ОБРАБОТЧИК PHOTO
+    } catch (error) {
+        console.log('❌ Ошибка анализа фото:', error.message);
+        await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
+    }
+});
 
 // =============================================================================
 // 🚀 ЗАПУСК СЕРВЕРА
@@ -810,29 +717,6 @@ app.get('/health', (req, res) => {
         }
     });
 });
-// 🔒 ЗАЩИЩЕННАЯ ОЧИСТКА ФАЙЛОВ
-function safeFileCleanup(paths) {
-    if (!paths || !Array.isArray(paths)) return;
-   
-    paths.forEach(filePath => {
-        try {
-            if (filePath && typeof filePath === 'string' && fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-                console.log('✅ Файл удален:', filePath);
-            }
-        } catch (e) {
-            console.log('⚠️ Не удалось удалить файл:', filePath);
-        }
-    });
-}
-
-// 🚀 ЗАПУСК СЕРВЕРА
-app.listen(config.PORT, () => {
-    console.log(`✅ Сервер запущен на порту ${config.PORT}`);
-    console.log(`🤖 Telegram бот готов к работе`);
-    console.log(`🎯 Модульная система с визуализацией активирована`);
-});
-
 
 // =============================================================================
 // 🛡️ ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ОШИБОК
@@ -878,3 +762,83 @@ setInterval(() => {
 }, 30 * 60 * 1000); // 30 минут
 
 console.log('🛡️ Глобальные обработчики ошибок активированы');
+
+// =============================================================================
+// 🔄 ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
+// =============================================================================
+
+// НЕМЕДЛЕННО ВЫЗЫВАЕМАЯ АСИНХРОННАЯ ФУНКЦИЯ (IIFE)
+(async function() {
+    // ИНИЦИАЛИЗИРУЕМ СИНХРОННЫЕ МОДУЛИ
+    try {
+        visualization = visualizationModule.initialize();
+        console.log('✅ Модуль визуализации загружен');
+    } catch (error) {
+        console.log('❌ Ошибка модуля визуализации:', error.message);
+        visualization = {
+            getVisualization: () => ({ createVisualization: async () => null }),
+            setUserStyle: () => false,
+            getUserStyle: () => 'original',
+            getAvailableStyles: () => [{ id: 'original', name: 'Оригинальный', description: 'Основной стиль' }],
+            userPreferences: new Map()
+        };
+    }
+
+    try {
+        tempFileManager = tempManagerModule.initialize({
+            tempDir: './temp',
+            autoCleanup: true
+        });
+        console.log('✅ Менеджер временных файлов загружен');
+    } catch (error) {
+        console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить менеджер файлов:', error.message);
+        tempFileManager = {
+            track: () => {},
+            removeFile: () => false,
+            cleanup: () => 0,
+            getStats: () => ({ totalTracked: 0, existingFiles: 0, totalSize: '0 MB' })
+        };
+    }
+
+    // ИНИЦИАЛИЗИРУЕМ НОВЫЕ МОДУЛИ
+    try {
+        calculators = calculatorsModule.initialize();
+        console.log('✅ Модуль калькуляторов загружен');
+    } catch (error) {
+        console.log('❌ Ошибка модуля калькуляторов:', error.message);
+        calculators = createCalculatorsStub();
+    }
+
+    try {
+        apps = appsModule.initialize();
+        console.log('✅ Модуль приложений загружен');
+    } catch (error) {
+        console.log('❌ Ошибка модуля приложений:', error.message);
+        apps = createAppsStub();
+    }
+
+    // ИНИЦИАЛИЗИРУЕМ ЯНДЕКС.ДИСК (асинхронно)
+    try {
+        yandexDisk = await yandexDiskModule.initialize(config.YANDEX_DISK_TOKEN);
+        if (yandexDisk) {
+            console.log('✅ Модуль Яндекс.Диска загружен');
+            await yandexDisk.createAppFolder();
+            console.log('✅ Папка Яндекс.Диска готова');
+        } else {
+            console.log('⚠️ Модуль Яндекс.Диска отключен (нет токена)');
+            yandexDisk = createYandexDiskStub();
+        }
+    } catch (error) {
+        console.log('❌ Ошибка инициализации Яндекс.Диска:', error.message);
+        yandexDisk = createYandexDiskStub();
+    }
+
+    console.log('🚀 Все модули инициализированы, бот готов к работе!');
+})();
+
+// Запуск сервера
+app.listen(config.PORT, () => {
+    console.log(`✅ Сервер запущен на порту ${config.PORT}`);
+    console.log(`🤖 Telegram бот готов к работе`);
+    console.log(`🎯 Модульная система с визуализацией активирована`);
+});
