@@ -106,16 +106,21 @@ class YandexDiskService {
 
     // 4. Проверка доступности сервиса
     async checkConnection() {
-        try {
-            await axios.get(`${this.apiBaseUrl}`, {
-                headers: this.uploadHeaders
-            });
-            return true;
-        } catch (error) {
+    try {
+        // Используем правильный endpoint для проверки
+        await axios.get('https://cloud-api.yandex.net/v1/disk/', {
+            headers: this.uploadHeaders
+        });
+        return true;
+    } catch (error) {
+        if (error.response?.status === 401) {
+            console.error('❌ Неверный токен Яндекс.Диска');
+        } else {
             console.error('❌ Ошибка подключения к Яндекс.Диск:', error.message);
-            return false;
         }
+        return false;
     }
+}
 
     // 📅 Создание папки с датой и временем
     async createDatedFolder(userId = 'unknown') {
