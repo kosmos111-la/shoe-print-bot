@@ -43,29 +43,3 @@ function initialize() {
 }
 
 module.exports = { initialize };
-```
-
-🎯 ДОБАВЛЯЕМ КОМАНДЫ В ОСНОВНОЙ ФАЙЛ:
-
-```javascript
-// Команда калькулятора обуви
-bot.onText(/\/calc_shoe/, async (msg) => {
-    const chatId = msg.chat.id;
-   
-    try {
-        const typesMessage = calculators.getShoeTypes();
-        await bot.sendMessage(chatId, typesMessage, { parse_mode: 'HTML' });
-       
-        await bot.sendMessage(chatId,
-            '💡 <b>Как использовать:</b>\n\n' +
-            'Отправьте сообщение в формате:\n' +
-            '<code>размер=42 тип=кроссовки</code>\n\n' +
-            'Или просто:\n' +
-            '<code>42 кроссовки</code>',
-            { parse_mode: 'HTML' }
-        );
-    } catch (error) {
-        console.log('❌ Ошибка в /calc_shoe:', error);
-        await bot.sendMessage(chatId, '❌ Ошибка загрузки калькулятора');
-    }
-});
