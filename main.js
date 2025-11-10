@@ -312,7 +312,7 @@ bot.onText(/\/start/, (msg) => {
         `• Топология протектора\n` +
         `• Выбор стиля визуализации\n\n` +
         `🧮 **ИНСТРУМЕНТЫ:**\n` +
-        `/calculators - Калькуляторы и расчеты\n\n` +
+`/calculators - Калькуляторы и расчеты\n\n` +
         `🎯 **Команды:**\n` +
         `/style - Выбор стиля визуализации\n` +
         `/currentstyle - Текущий стиль\n` +
@@ -402,81 +402,112 @@ bot.onText(/\/currentstyle/, async (msg) => {
 bot.onText(/\/calculators/, async (msg) => {
     const chatId = msg.chat.id;
    
-    try {
-        const menu = calculators.getMenu();
-       
-        let message = `🧮 ${menu.title}\n\n`;
-        message += `Выберите тип расчета:\n\n`;
-       
-        menu.sections.forEach(section => {
-            message += `📌 ${section.name}\n`;
-            message += `└ ${section.description}\n`;
-            message += `└ Команда: ${section.command}\n\n`;
-        });
-       
-        message += `💡 Пример: /calc_shoe размер=42 система=RU`;
-       
-        await bot.sendMessage(chatId, message);
-    } catch (error) {
-        console.log('❌ Ошибка в /calculators:', error);
-        await bot.sendMessage(chatId, '❌ Ошибка загрузки калькуляторов');
-    }
+    let message = `🧮 КАЛЬКУЛЯТОРЫ И РАСЧЕТЫ\n\n`;
+    message += `Выберите тип расчета:\n\n`;
+    message += `📌 Размеры обуви\n`;
+    message += `└ Расчет длины стопы по размеру и обратно\n`;
+    message += `└ Команда: /calc_shoe\n\n`;
+    message += `📐 Антропометрия\n`;
+    message += `└ Оценка роста по размеру стопы\n`;
+    message += `└ Команда: /calc_height\n\n`;
+    message += `❄️ Снежный покров\n`;
+    message += `└ Расчет высоты снега по следам\n`;
+    message += `└ Команда: /calc_snow\n\n`;
+    message += `🌤️ Погода\n`;
+    message += `└ Метеоданные для анализа следов\n`;
+    message += `└ Команда: /calc_weather\n\n`;
+    message += `💡 Пример: /calc_shoe размер=42 система=RU`;
+   
+    await bot.sendMessage(chatId, message);
 });
 
 // Команда /apps
 bot.onText(/\/apps/, async (msg) => {
     const chatId = msg.chat.id;
    
-    try {
-        const menu = apps.getMenu();
-       
-        let message = `📱 ${menu.title}\n\n`;
-        message += `Категории приложений:\n\n`;
-       
-        menu.categories.forEach(category => {
-            message += `📂 ${category.name}\n`;
-            message += `└ /apps_${category.id}\n\n`;
-        });
-       
-        message += `💡 Выберите категорию для просмотра приложений`;
-       
-        await bot.sendMessage(chatId, message);
-    } catch (error) {
-        console.log('❌ Ошибка в /apps:', error);
-        await bot.sendMessage(chatId, '❌ Ошибка загрузки приложений');
-    }
+    let message = `📱 ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ\n\n`;
+    message += `Категории приложений:\n\n`;
+    message += `📸 Фотофиксация\n`;
+    message += `└ /apps_photo\n\n`;
+    message += `📏 Измерения\n`;
+    message += `└ /apps_measure\n\n`;
+    message += `🔍 Анализ\n`;
+    message += `└ /apps_analysis\n\n`;
+    message += `🛠️ Утилиты\n`;
+    message += `└ /apps_tools\n\n`;
+    message += `💡 Выберите категорию для просмотра приложений`;
+   
+    await bot.sendMessage(chatId, message);
 });
 
-// Обработчик категорий приложений
-bot.onText(/\/apps_(.+)/, async (msg, match) => {
+// Категории приложений
+bot.onText(/\/apps_photo/, async (msg) => {
     const chatId = msg.chat.id;
-    const categoryId = match[1];
    
-    try {
-        const categoryApps = apps.getAppsByCategory(categoryId);
-       
-        if (categoryApps.apps && categoryApps.apps.length > 0) {
-            let message = `📱 ${categoryApps.name}\n\n`;
-           
-            categoryApps.apps.forEach(app => {
-                message += `📲 ${app.name}\n`;
-                message += `└ ${app.description}\n`;
-                if (app.platform) message += `└ Платформа: ${app.platform}\n`;
-                if (app.link) message += `└ Ссылка: ${app.link}\n`;
-                message += `\n`;
-            });
-           
-            await bot.sendMessage(chatId, message);
-        } else {
-            await bot.sendMessage(chatId,
-                `📱 Категория: ${categoryApps.name}\n\n` +
-                `Приложения пока не добавлены. Скоро здесь появятся полезные программы!`
-            );
-        }
-    } catch (error) {
-        console.log('❌ Ошибка в /apps_:', error);
-        await bot.sendMessage(chatId, '❌ Ошибка загрузки приложений');
-    }
+    let message = `📸 ФОТОФИКСАЦИЯ И ЗАМЕРЫ\n\n`;
+    message += `PhotoMetrix Pro\n`;
+    message += `└ Измерения по фотографиям с эталоном\n`;
+    message += `└ iOS/Android\n\n`;
+    message += `CamScanner\n`;
+    message += `└ Сканирование документов и следов\n`;
+    message += `└ iOS/Android\n\n`;
+    message += `Adobe Lightroom\n`;
+    message += `└ Профессиональная обработка фото\n`;
+    message += `└ iOS/Android\n\n`;
+    message += `📱 Все приложения доступны в App Store и Google Play`;
+   
+    await bot.sendMessage(chatId, message);
+});
+
+bot.onText(/\/apps_measure/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    let message = `📏 ИЗМЕРИТЕЛЬНЫЕ ИНСТРУМЕНТЫ\n\n`;
+    message += `Ruler App\n`;
+    message += `└ Виртуальная линейка для измерений\n`;
+    message += `└ iOS/Android\n\n`;
+    message += `Measure (от Google)\n`;
+    message += `└ AR-измерения с помощью камеры\n`;
+    message += `└ iOS/Android\n\n`;
+    message += `GPS Fields Area Measure\n`;
+    message += `└ Измерения на карте\n`;
+    message += `└ Android\n\n`;
+    message += `📱 Используйте для точных замеров следов`;
+   
+    await bot.sendMessage(chatId, message);
+});
+
+bot.onText(/\/apps_analysis/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    let message = `🔍 АНАЛИЗ И ОБРАБОТКА\n\n`;
+    message += `ImageMeter\n`;
+    message += `└ Измерения и аннотации на фото\n`;
+    message += `└ Android\n\n`;
+    message += `Photo Editor Pro\n`;
+    message += `└ Редактирование и анализ изображений\n`;
+    message += `└ iOS/Android\n\n`;
+    message += `📱 Инструменты для детального анализа`;
+   
+    await bot.sendMessage(chatId, message);
+});
+
+bot.onText(/\/apps_tools/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    let message = `🛠️ ВСПОМОГАТЕЛЬНЫЕ УТИЛИТЫ\n\n`;
+    message += `GPS Map Camera\n`;
+    message += `└ Фото с координатами и данными\n`;
+    message += `└ iOS/Android\n\n`;
+    message += `Compass\n`;
+    message += `└ Точный компас для ориентации\n`;
+    message += `└ iOS/Android\n\n`;
+    message += `Weather Underground\n`;
+    message += `└ Детальные погодные данные\n`;
+    message += `└ iOS/Android\n\n`;
+    message += `📱 Полезные инструменты для работы в поле`;
+   
+    await bot.sendMessage(chatId, message);
 });
 
 // Команда /help
@@ -490,9 +521,9 @@ bot.onText(/\/help/, (msg) => {
         `• Детали протектора\n` +
         `• Топология узора\n\n` +
         `🧮 **ИНСТРУМЕНТЫ:**\n` +
-        `/calculators - Калькуляторы и расчеты\n\n` +
-        `📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n` +
-        `/apps - Рекомендованные приложения\n\n` +
+`/calculators - Калькуляторы и расчеты\n\n` +
+`📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n` +
+`/apps - Рекомендованные приложения\n\n` +
         `🎨 **Стили визуализации:**\n` +
         `/style - Выбрать стиль отображения\n` +
         `/currentstyle - Текущий стиль\n` +
