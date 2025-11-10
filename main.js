@@ -439,36 +439,81 @@ bot.onText(/\/calc_shoe/, async (msg) => {
     }
 });
 
-// Обработчик ввода данных для калькулятора
+// Команда обратного калькулятора
+bot.onText(/\/calc_reverse/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    try {
+        await bot.sendMessage(chatId,
+            '🔄 <b>Обратный калькулятор</b>\n\n' +
+            'Расчет размера обуви по длине отпечатка\n\n' +
+            '💡 <b>Как использовать:</b>\n\n' +
+            'Отправьте длину отпечатка в см:\n' +
+            '<code>33 см</code>\n\n' +
+            'Или просто число:\n' +
+            '<code>33</code>\n\n' +
+            '📝 <i>Пример: отпечаток 33 см → размеры 41-50</i>',
+            { parse_mode: 'HTML' }
+        );
+    } catch (error) {
+        console.log('❌ Ошибка в /calc_reverse:', error);
+        await bot.sendMessage(chatId, '❌ Ошибка загрузки калькулятора');
+    }
+});
+
+/ Обработчик ввода данных для калькулятора
 bot.on('message', async (msg) => {
-    if (msg.text && msg.text.includes('=') && !msg.text.startsWith('/')) {
-        const chatId = msg.chat.id;
-        const text = msg.text.toLowerCase();
-
-        try {
-            // Парсим размер и тип из сообщения
+    // Пропускаем команды и служебные сообщения
+    if (msg.text && msg.text.startsWith('/')) return;
+    if (!msg.text) return;
+   
+    const chatId = msg.chat.id;
+    const text = msg.text.toLowerCase();
+   
+    console.log('🔍 Получено сообщение для обработки:', text);
+   
+    try {
+        // Проверяем обратный расчет (длина отпечатка)
+        if (text.includes('см') || /^\d+[.,]?\d*$/.test(text.trim())) {
+            const lengthMatch = text.match(/(\d+[.,]?\d*)\s*см/) || [null, text.trim()];
+            const footprintLength = lengthMatch[1].replace(',', '.');
+           
+            console.log('🔍 Обратный расчет для длины:', footprintLength);
+           
+            const result = calculators.calculateReverse(footprintLength);
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            return;
+        }
+       
+        // Проверяем прямой расчет (размер + тип обуви)
+        if ((text.includes('размер=') && text.includes('тип=')) ||
+            (/^\d+/.test(text) && text.split(' ').length >= 2)) {
+           
+            console.log('🔍 Обрабатываем как прямой калькулятор');
             let size, type;
-
+           
             if (text.includes('размер=') && text.includes('тип=')) {
                 const sizeMatch = text.match(/размер=(\d+)/);
                 const typeMatch = text.match(/тип=([^]+)/);
                 size = sizeMatch ? sizeMatch[1] : null;
                 type = typeMatch ? typeMatch[1].trim() : null;
             } else {
-                // Простой формат: "42 кроссовки"
                 const parts = text.split(' ');
                 size = parts[0];
                 type = parts.slice(1).join(' ');
             }
-
+           
+            console.log('🔍 Парсинг:', { size, type });
+           
             if (size && type) {
                 const result = calculators.calculateShoeSize(size, type);
+                console.log('🔍 Результат калькулятора:', result);
                 await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
             }
-        } catch (error) {
-            console.log('❌ Ошибка обработки калькулятора:', error);
-            // Игнорируем ошибки парсинга
         }
+    } catch (error) {
+        console.log('❌ Ошибка обработки калькулятора:', error);
+        // Игнорируем ошибки парсинга
     }
 });
 
