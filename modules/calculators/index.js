@@ -1,0 +1,47 @@
+const shoeSizeCalculator = require('./shoe-size');
+const heightCalculator = require('./height-estimate');
+const snowCalculator = require('./snow-depth');
+const weatherModule = require('./weather');
+
+/**
+* Меню калькуляторов
+*/
+function initialize() {
+  console.log('✅ Модуль калькуляторов загружен');
+ 
+  return {
+    getMenu: () => ({
+      title: "🧮 КАЛЬКУЛЯТОРЫ И РАСЧЕТЫ",
+      sections: [
+        {
+          name: "📏 Размеры обуви",
+          command: "/calc_shoe",
+          description: "Расчет длины стопы по размеру и обратно"
+        },
+        {
+          name: "📐 Антропометрия",
+          command: "/calc_height",
+          description: "Оценка роста по размеру стопы"
+        },
+        {
+          name: "❄️ Снежный покров",
+          command: "/calc_snow",
+          description: "Расчет высоты снега по следам"
+        },
+        {
+          name: "🌤️ Погода",
+          command: "/calc_weather",
+          description: "Метеоданные для анализа следов"
+        }
+      ]
+    }),
+   
+    // Реализации калькуляторов
+    calculateShoeSize: shoeSizeCalculator.calculate,
+    estimateHeight: heightCalculator.estimate,
+    calculateSnowDepth: snowCalculator.calculate,
+    getWeatherData: weatherModule.getWeather
+  };
+}
+
+module.exports = { initialize };
