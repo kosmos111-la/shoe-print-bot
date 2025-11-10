@@ -91,7 +91,7 @@ class YandexDiskService {
     // 3. Метод для создания папки (можно вызвать один раз при инициализации)
     async createAppFolder() {
         try {
-            await axios.put(`${this.apiBaseUrl}?path=apps/ShoeBot`, null, {
+            await axios.put(`${this.apiBaseUrl}?path=apps/ShoeBot`, null, { // ← УЖЕ ИСПРАВЛЕНО
                 headers: this.uploadHeaders
             });
             console.log('✅ Папка apps/ShoeBot на Яндекс.Диске создана или уже существует.');
@@ -132,7 +132,7 @@ class YandexDiskService {
             const folderName = `user_${userId}_${dateStr}_${timeStr}`;
             const remoteFolderPath = `apps/ShoeBot/analyses/${folderName}`;
 
-            await axios.put(`${this.apiBaseUrl}?path=${encodeURIComponent(remoteFolderPath)}`, {}, {
+            await axios.put(`${this.apiBaseUrl}?path=${encodeURIComponent(remoteFolderPath)}`, null, { // ← ИЗМЕНИТЬ {} на null
                 headers: this.uploadHeaders
             });
 
