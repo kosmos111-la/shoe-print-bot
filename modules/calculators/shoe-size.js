@@ -6,7 +6,7 @@ class AdultFootwearCalculator {
         // Константы штихмассовой системы для взрослых
         this.STICH_CM = 2.0 / 3.0; // 0.666 см
         this.ADULT_INSOLE_ADDITION = 1.0; // 1 см припуск для взрослых
-       
+
         // Типы обуви с добавками
         this.footwearTypes = {
             GALOSHI: { name: "Галоши", addition: 2.5 },
@@ -23,17 +23,17 @@ class AdultFootwearCalculator {
      */
     calculateForAdult(shoeSize, footwearTypeName) {
         const footwearType = this.footwearTypes[footwearTypeName] || this.footwearTypes.UNKNOWN;
-       
+
         // 1. Длина стельки по штихмассовой системе
         const insoleLength = shoeSize * this.STICH_CM;
-       
+
         // 2. Длина стопы взрослого (стелька - 1 см припуска)
         const footLength = insoleLength - this.ADULT_INSOLE_ADDITION;
-       
+
         // 3. Диапазон отпечатка
         const footprintMin = footLength; // Абсолютный минимум - длина стопы
         const footprintMax = insoleLength + footwearType.addition;
-       
+
         return {
             shoeSize: shoeSize,
             footLength: this.round(footLength),
@@ -52,9 +52,9 @@ class AdultFootwearCalculator {
         if (!input || input.trim() === '') {
             return 'UNKNOWN';
         }
-       
+
         const lowerInput = input.toLowerCase();
-       
+
         if (this.containsAny(lowerInput, ["галоши", "галоша"])) {
             return 'GALOSHI';
         } else if (this.containsAny(lowerInput, ["резиновый", "сапог", "кеды", "тапки", "сланцы", "тапочки"])) {
@@ -75,17 +75,17 @@ class AdultFootwearCalculator {
      */
     getFootwearTypesList() {
         let list = "👟 <b>Выберите тип обуви:</b>\n\n";
-       
+
         Object.keys(this.footwearTypes).forEach(key => {
             if (key !== 'UNKNOWN') {
                 const type = this.footwearTypes[key];
                 list += `• <b>${type.name}</b> (+${type.addition} см)\n`;
             }
         });
-       
+
         list += "\n💡 Можно ввести название или часть названия.\n";
         list += "❓ Если тип неизвестен, введите <i>\"не знаю\"</i>";
-       
+
         return list;
     }
 
