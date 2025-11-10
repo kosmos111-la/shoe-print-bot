@@ -540,7 +540,7 @@ bot.onText(/\/help/, (msg) => {
 
 // Добавьте после других команд (после /help)
 bot.onText(/\/calculators/, async (msg) => {
-    cont chatId = msg.chat.id;
+    const chatId = msg.chat.id;
    
     try {
         const menu = calculators.getMenu();
