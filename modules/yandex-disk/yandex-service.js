@@ -123,7 +123,7 @@ class YandexDiskService {
 }
 
     // 📅 Создание папки с датой и временем
-    async createDatedFolder(userId = 'unknown') {
+async createDatedFolder(userId = 'unknown') {
         try {
             const now = new Date();
             const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
@@ -132,7 +132,7 @@ class YandexDiskService {
             const folderName = `user_${userId}_${dateStr}_${timeStr}`;
             const remoteFolderPath = `apps/ShoeBot/analyses/${folderName}`;
 
-            await axios.put(`${this.apiBaseUrl}?path=${encodeURIComponent(remoteFolderPath)}`, null, { // ← ИЗМЕНИТЬ {} на null
+            await axios.put(`${this.apiBaseUrl}?path=${encodeURIComponent(remoteFolderPath)}`, null, {
                 headers: this.uploadHeaders
             });
 
@@ -140,8 +140,15 @@ class YandexDiskService {
             return remoteFolderPath;
         } catch (error) {
             if (error.response?.status === 409) {
-                console.log('ℹ️ Папка уже существует');
-                return remoteFolderPath;
+                // ПАПКА УЖЕ СУЩЕСТВУЕТ - нужно вернуть путь к существующей папке
+                const now = new Date();
+                const dateStr = now.toISOString().split('T')[0];
+                const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+                const folderName = `user_${userId}_${dateStr}_${timeStr}`;
+                const remoteFolderPath = `apps/ShoeBot/analyses/${folderName}`;
+               
+                console.log(`ℹ️ Папка уже существует: ${remoteFolderPath}`);
+                return remoteFolderPath; // ← ВОЗВРАЩАЕМ ПУТЬ!
             }
             console.error('❌ Ошибка создания папки:', error.response?.data || error.message);
             return null;
