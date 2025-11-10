@@ -425,29 +425,29 @@ bot.onText(/\/apps/, async (msg) => {
    
     message += `🔍 **Честный знак**\n`;
     message += `• Узнать дату и место продажи по QR-коду\n`;
-    message += `• 📲 https://www.rustore.ru/catalog/app/ru.crptech.mark\n\n`;
+    message += `• Ссылка: rustore.ru/catalog/app/ru.crptech.mark\n\n`;
    
     message += `🍷 **Антиконтрафакт алко**\n`;
     message += `• Проверка акцизных марок алкоголя\n`;
-    message += `• 📲 https://public.fsrar.ru/checkmark\n\n`;
+    message += `• Ссылка: public.fsrar.ru/checkmark\n\n`;
    
     message += `🌤️ **Погода - архив погоды**\n`;
     message += `• Архивные погодные данные\n`;
-    message += `• 📲 https://www.rustore.ru/catalog/app/com.mart.weather\n\n`;
+    message += `• Ссылка: rustore.ru/catalog/app/com.mart.weather\n\n`;
    
     message += `📏 **ImageMeter**\n`;
     message += `• Измерения размеров на фото по эталону\n`;
-    message += `• 📲 https://play.google.com/store/apps/details?id=de.dirkfarin.imagemeter\n\n`;
+    message += `• Ссылка: play.google.com/store/apps/details?id=de.dirkfarin.imagemeter\n\n`;
    
     message += `🦴 **Скелет | 3D Анатомии**\n`;
     message += `• Анатомический справочник\n`;
-    message += `• 📲 https://play.google.com/store/apps/details?id=com.catfishanimationstudio.SkeletalSystemPreview\n\n`;
+    message += `• Ссылка: play.google.com/store/apps/details?id=com.catfishanimationstudio.SkeletalSystemPreview\n\n`;
    
     message += `📍 **Conota: GPS-камера**\n`;
     message += `• Фото с логотипом и GPS-данными\n`;
-    message += `• 📲 https://play.google.com/store/apps/details?id=com.gps.survey.cam\n\n`;
+    message += `• Ссылка: play.google.com/store/apps/details?id=com.gps.survey.cam\n\n`;
    
-    message += `💡 Все ссылки кликабельны в Telegram`;
+    message += `💡 Скопируйте ссылки для перехода`;
    
     await bot.sendMessage(chatId, message);
 });
