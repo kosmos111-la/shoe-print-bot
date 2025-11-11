@@ -324,7 +324,7 @@ class WeatherService {
     }
    
     return history;
-},
+}
 
 getHistoricalWeatherCondition(temperature, hasPrecipitation) {
     const clearConditions = ['☀️ Ясно', '⛅ Облачно', '☁️ Пасмурно'];
