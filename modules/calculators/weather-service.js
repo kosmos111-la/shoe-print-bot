@@ -357,7 +357,7 @@ generateSearchSummary(weatherData) {
     }
    
     return summary;
-},
+}
 
     // Демо-данные
     generateDemoCurrentWeather() {
