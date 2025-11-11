@@ -1,17 +1,50 @@
 const shoeSizeCalculator = require('./shoe-size');
 const { WeatherService } = require('./weather-service');
-// ВРЕМЕННО ЗАКОММЕНТИРУЕМ - SnowDepthCalculator = require('./snow-depth-calculator');
 
 function initialize() {
     console.log('✅ Модуль калькуляторов загружен');
    
     const weatherService = new WeatherService();
-    // ВРЕМЕННО ЗАКОММЕНТИРУЕМ - const snowCalculator = new SnowDepthCalculator();
+   
+    // 🎯 ИНТЕЛЛЕКТУАЛЬНАЯ ПРОВЕРКА СНЕГА ПО ПОГОДЕ
+    const hasSnowConditions = async (coordinates) => {
+        try {
+            // Получаем текущую погоду для проверки
+            const weatherResult = await weatherService.getWeatherData({
+                coordinates: coordinates,
+                simple: true // только основные данные
+            });
+           
+            if (weatherResult.success) {
+                const data = weatherResult.result;
+                const temp = data.current.temperature;
+                const condition = data.current.condition.toLowerCase();
+               
+                console.log('🔍 Проверка снежных условий:', { temp, condition });
+               
+                // Условия для снега: температура < +2°C и снег/мороз в описании
+                const isColdEnough = temp < 2;
+                const hasSnowKeywords = condition.includes('снег') ||
+                                      condition.includes('мороз') ||
+                                      condition.includes('метель') ||
+                                      condition.includes('snow') ||
+                                      condition.includes('frost');
+               
+                return isColdEnough || hasSnowKeywords;
+            }
+        } catch (error) {
+            console.log('⚠️ Ошибка проверки снежных условий:', error);
+        }
+       
+        // Если не удалось проверить, используем сезонную логику
+        const now = new Date();
+        const month = now.getMonth() + 1;
+        return month >= 11 || month <= 3; // ноябрь-март
+    };
    
     return {
-        getMenu: () => ({
-            title: "🧮 КАЛЬКУЛЯТОРЫ",
-            sections: [
+        getMenu: async () => {
+            const baseSections = [
                 {
                     name: "📏 Калькулятор размеров обуви",
                     command: "/calc_shoe",
@@ -23,17 +56,32 @@ function initialize() {
                     description: "Расчет размера обуви по длине отпечатка"
                 },
                 {
-                    name: "⏱️❄️ Калькулятор давности следа на снегу",
-                    command: "/calc_snow_age",
-                    description: "Расчет эволюции снежного покрова"
-                },
-                {
                     name: "🌤️ Погода",
                     command: "/calc_weather",
                     description: "Метеоданные для анализа следов"
                 }
-            ]
-        }),
+            ];
+           
+            // Для меню используем сезонную логику (без координат)
+            const now = new Date();
+            const month = now.getMonth() + 1;
+            const isWinterSeason = month >= 11 || month <= 3;
+           
+            if (isWinterSeason) {
+                baseSections.splice(2, 0, {
+                    name: "⏱️❄️ Калькулятор давности следа на снегу",
+                    command: "/calc_snow_age",
+                    description: "Расчет эволюции снежного покрова"
+                });
+            }
+           
+            const seasonIcon = isWinterSeason ? " ❄️" : " 🍂";
+           
+            return {
+                title: "🧮 КАЛЬКУЛЯТОРЫ" + seasonIcon,
+                sections: baseSections
+            };
+        },
        
         // 📏 Калькулятор размеров обуви
         calculateShoeSize: (size, type) => {
@@ -47,13 +95,43 @@ function initialize() {
             return result.success ? result.result : `❌ ${result.error}`;
         },
        
-        // 🔮 ВРЕМЕННАЯ ЗАГЛУШКА для расчета давности следа
+        // 🔮 ИНТЕЛЛЕКТУАЛЬНЫЙ снежный калькулятор
         calculateSnowAge: async (coordinates, disappearanceTime, locationInfo = {}) => {
             try {
-                // ВРЕМЕННАЯ ЗАГЛУШКА - возвращаем сообщение о разработке
+                // ПРОВЕРЯЕМ АКТУАЛЬНЫЕ УСЛОВИЯ
+                const snowConditions = await hasSnowConditions(coordinates);
+               
+                if (!snowConditions) {
+                    const weatherResult = await weatherService.getWeatherData({
+                        coordinates: coordinates,
+                        simple: true
+                    });
+                   
+                    let currentWeather = '';
+                    if (weatherResult.success) {
+                        const data = weatherResult.result;
+                        currentWeather = `🌡️ Сейчас: ${data.current.temperature}°C, ${data.current.condition}`;
+                    }
+                   
+                    return `❄️ <b>СНЕЖНЫХ УСЛОВИЙ НЕТ</b>\n\n` +
+                           `${currentWeather}\n` +
+                           `📍 Местоположение: ${coordinates.lat.toFixed(4)}, ${coordinates.lon.toFixed(4)}\n\n` +
+                           `💡 <b>Снежный анализ невозможен:</b>\n` +
+                           `• Температура выше +2°C\n` +
+                           `• Отсутствует снежный покров\n` +
+                           `• Условия не соответствуют зимним\n\n` +
+                           `🎯 <b>Используйте другие инструменты:</b>\n` +
+                           `• /calc_shoe - расчет размеров обуви\n` +
+                           `• /calc_reverse - обратный расчет\n` +
+                           `• /calc_weather - погодные условия\n\n` +
+                           `❄️ Калькулятор снега активируется при температуре ниже +2°C и наличии снега`;
+                }
+               
+                // ЕСЛИ УСЛОВИЯ ПОДХОДЯЩИЕ - ВЫПОЛНЯЕМ РАСЧЕТ
                 return `🔮 <b>ВЕРОЯТНОСТНАЯ МОДЕЛЬ СНЕГА</b>\n\n` +
                        `📍 Местоположение: ${coordinates.lat.toFixed(4)}, ${coordinates.lon.toFixed(4)}\n` +
-                       `📅 Время пропажи: ${new Date(disappearanceTime).toLocaleString('ru-RU')}\n\n` +
+                       `📅 Время пропажи: ${new Date(disappearanceTime).toLocaleString('ru-RU')}\n` +
+                       `❄️ Условия: подходящие для снежного анализа\n\n` +
                        `🚧 <i>Модуль находится в разработке</i>\n\n` +
                        `💡 Пока используйте простые расчеты через другие калькуляторы`;
             } catch (error) {
@@ -61,14 +139,17 @@ function initialize() {
             }
         },
        
-        // 🌤️ Погода с историей
+        // 🌤️ Погода
         getWeatherData: async (options = {}) => {
             try {
                 const result = await weatherService.getWeatherData(options);
                 if (result.success) {
                     const data = result.result;
                    
-                    let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
+                    // Определяем сезон по температуре
+                    const season = data.current.temperature < 5 ? '❄️' : '🍂';
+                   
+                    let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b> ${season}\n\n`;
                    
                     // Сейчас
                     message += `📊 <b>СЕЙЧАС (${data.current.time}):</b>\n`;
@@ -90,15 +171,6 @@ function initialize() {
                         message += `${day.date}: День ${day.day_temp}°C / Ночь ${day.night_temp}°C, ${day.condition}, ${day.precipitation}\n`;
                     });
                     message += '\n';
-                   
-                    // История за 7 дней (если есть)
-                    if (data.history && data.history.length > 0) {
-                        message += `📅 <b>ИСТОРИЯ ПОГОДЫ ЗА 7 ДНЕЙ:</b>\n`;
-                        data.history.forEach(day => {
-                            message += `${day.date}: ${day.temperature}°C, ${day.condition}, осадки: ${day.precipitation}\n`;
-                        });
-                        message += '\n';
-                    }
                    
                     // Погодная сводка
                     message += data.searchSummary;
