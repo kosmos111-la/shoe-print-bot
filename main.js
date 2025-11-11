@@ -469,7 +469,9 @@ bot.onText(/\/calc_weather/, async (msg) => {
     const chatId = msg.chat.id;
    
     try {
-        const result = calculators.getWeatherData();
+        await bot.sendMessage(chatId, '🌤️ Запрашиваю актуальные данные погоды...');
+       
+        const result = await calculators.getWeatherData();
         await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
     } catch (error) {
         console.log('❌ Ошибка в /calc_weather:', error);
