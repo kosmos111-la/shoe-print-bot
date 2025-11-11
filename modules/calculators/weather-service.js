@@ -335,7 +335,7 @@ getHistoricalWeatherCondition(temperature, hasPrecipitation) {
     } else {
         return clearConditions[Math.floor(Math.random() * clearConditions.length)];
     }
-},
+}
 
 generateSearchSummary(weatherData) {
     const current = weatherData.current;
