@@ -80,24 +80,26 @@ class WeatherService {
     }
 
     async getCompleteWeatherData(lat, lon) {
-        try {
-            const [forecastData, historyData] = await Promise.all([
-                this.getOpenWeatherForecast(lat, lon),
-                this.getRealWeatherHistory(lat, lon, 7)
-            ]);
+    try {
+        const [forecastData, historyData] = await Promise.all([
+            this.getOpenWeatherForecast(lat, lon),
+            this.getRealWeatherHistory(lat, lon, 7)  // ← Должен возвращать историю
+        ]);
 
-            return {
-                history: historyData,
-                current: this.formatCurrentWeather(forecastData.list[0]),
-                hourly: this.formatHourlyForecast(forecastData.list.slice(0, 6)),
-                forecast: this.formatTwoDayForecast(forecastData.list)
-            };
-           
-        } catch (error) {
-            console.error('Weather API error:', error);
-            return this.getDemoData();
-        }
+        console.log('📊 История получена:', historyData.length, 'дней'); // Для отладки
+
+        return {
+            history: historyData,  // ← Должен быть заполнен
+            current: this.formatCurrentWeather(forecastData.list[0]),
+            hourly: this.formatHourlyForecast(forecastData.list.slice(0, 6)),
+            forecast: this.formatTwoDayForecast(forecastData.list)
+        };
+       
+    } catch (error) {
+        console.error('Weather API error:', error);
+        return this.getDemoData();
     }
+}
 
     async getOpenWeatherForecast(lat, lon) {
         const response = await axios.get(`${this.baseURL}/forecast`, {
@@ -113,28 +115,31 @@ class WeatherService {
     }
 
     async getRealWeatherHistory(lat, lon, daysCount) {
-        try {
-            const endDate = new Date();
-            const startDate = new Date();
-            startDate.setDate(startDate.getDate() - daysCount);
+    try {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - daysCount);
 
-            const response = await axios.get(this.openMeteoURL, {
-                params: {
-                    latitude: lat,
-                    longitude: lon,
-                    start_date: startDate.toISOString().split('T')[0],
-                    end_date: endDate.toISOString().split('T')[0],
-                    daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code',
-                    timezone: 'auto'
-                }
-            });
+        console.log('🔍 Запрос истории:', startDate, 'до', endDate);
+       
+        const response = await axios.get(this.openMeteoURL, {
+            params: {
+                latitude: lat,
+                longitude: lon,
+                start_date: startDate.toISOString().split('T')[0],
+                end_date: endDate.toISOString().split('T')[0],
+                daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code',
+                timezone: 'auto'
+            }
+        });
 
-            return this.formatOpenMeteoHistory(response.data);
-        } catch (error) {
-            console.error('OpenMeteo history error:', error);
-            return this.generateFallbackHistory(daysCount);
-        }
+        console.log('✅ История получена от OpenMeteo');
+        return this.formatOpenMeteoHistory(response.data);
+    } catch (error) {
+        console.error('❌ OpenMeteo history error:', error.message);
+        return this.generateFallbackHistory(daysCount);
     }
+}
 
     formatOpenMeteoHistory(openMeteoData) {
         if (!openMeteoData.daily) return [];
