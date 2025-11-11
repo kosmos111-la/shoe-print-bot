@@ -39,6 +39,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const userContext = {};
 
 // ИМПОРТ МОДУЛЕЙ
 const visualizationModule = require('./modules/visualization');
@@ -479,6 +480,122 @@ bot.onText(/\/calc_weather/, async (msg) => {
     }
 });
 
+// 🌤️ Команда погоды
+bot.onText(/\/calc_weather/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    // Устанавливаем контекст - пользователь хочет погоду
+    userContext[userId] = 'waiting_for_location';
+   
+    await bot.sendMessage(chatId,
+        '🌤️ <b>ДЛЯ КАКОГО МЕСТА НУЖНА ПОГОДА?</b>\n\n' +
+        '📍 <b>Отправьте местоположение</b> (скрепка → Местоположение)\n\n' +
+        '🏙️ <b>Или напишите город:</b>\n' +
+        '<code>Москва</code>\n' +
+        '<code>Санкт-Петербург</code>\n' +
+        '<code>Новосибирск</code>\n\n' +
+        '📌 <b>Или координаты:</b>\n' +
+        '<code>55.7558 37.6173</code>',
+        {
+            parse_mode: 'HTML',
+            reply_markup: {
+                keyboard: [
+                    [{ text: "📍 Отправить местоположение", request_location: true }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: true
+            }
+        }
+    );
+});
+
+// 📍 Обработчик геолокации
+bot.on('location', async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    // Проверяем, ждем ли мы местоположение от этого пользователя
+    if (userContext[userId] !== 'waiting_for_location') return;
+   
+    const location = msg.location;
+   
+    try {
+        await bot.sendMessage(chatId, '📍 Получаю погоду для вашего местоположения...');
+       
+        const result = await calculators.getWeatherData({
+            coordinates: {
+                lat: location.latitude,
+                lon: location.longitude
+            }
+        });
+       
+        // Очищаем контекст
+        delete userContext[userId];
+       
+        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+       
+    } catch (error) {
+        console.log('❌ Ошибка обработки местоположения:', error);
+        await bot.sendMessage(chatId, '❌ Ошибка получения погоды');
+        delete userContext[userId];
+    }
+});
+
+// 💬 Обработчик текстового ввода (города/координаты)
+bot.on('message', async (msg) => {
+    // Пропускаем команды, местоположения и служебные сообщения
+    if (msg.text && msg.text.startsWith('/')) return;
+    if (msg.location) return;
+    if (!msg.text) return;
+   
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const text = msg.text.trim();
+   
+    // Проверяем, ждем ли мы запрос погоды от этого пользователя
+    if (userContext[userId] !== 'waiting_for_location') return;
+   
+    try {
+        await bot.sendMessage(chatId, '🌤️ Запрашиваю погоду...');
+       
+        let options = {};
+       
+        // Проверяем формат ввода
+        if (this.isCoordinates(text)) {
+            // Координаты: "55.7558 37.6173"
+            const coords = text.split(' ').map(coord => parseFloat(coord));
+            options.coordinates = { lat: coords[0], lon: coords[1] };
+        } else {
+            // Название города
+            options.location = text;
+        }
+       
+        const result = await calculators.getWeatherData(options);
+       
+        // Очищаем контекст
+        delete userContext[userId];
+       
+        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+       
+    } catch (error) {
+        console.log('❌ Ошибка получения погоды:', error);
+        await bot.sendMessage(chatId, '❌ Ошибка получения данных погоды');
+        delete userContext[userId];
+    }
+});
+
+// 📍 Вспомогательные функции (добавить в конец файла)
+function isCoordinates(text) {
+    // Проверяем формат "число число" или "число,число"
+    const coordRegex = /^-?\d+\.?\d*[\s,]+-?\d+\.?\d*$/;
+    return coordRegex.test(text);
+}
+
+function isCoordinates(text) {
+    const coordRegex = /^-?\d+\.?\d*\s+-?\d+\.?\d*$/;
+    return coordRegex.test(text);
+}
 
 // Обработчик ввода данных для калькуляторов
 bot.on('message', async (msg) => {
