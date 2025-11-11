@@ -296,81 +296,68 @@ class WeatherService {
     }
 
     generateWeatherHistory(daysCount) {
-        const history = [];
-        const baseDate = new Date();
+    const history = [];
+    const baseDate = new Date();
+   
+    for (let i = daysCount; i > 0; i--) {
+        const date = new Date(baseDate);
+        date.setDate(date.getDate() - i);
        
-        for (let i = daysCount; i > 0; i--) {
-            const date = new Date(baseDate);
-            date.setDate(date.getDate() - i);
-           
-            const baseTemp = -3 + Math.random() * 10 - 4;
-            const precipitationType = baseTemp > 2 ? '🌧️' : '❄️';
-            const precipAmount = Math.random() > 0.6 ? (Math.random() * 5).toFixed(1) : 0;
-           
-            history.push({
-                date: date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
-                day_temp: Math.round(baseTemp + 3),
-                night_temp: Math.round(baseTemp - 3),
-                condition: this.getHistoricalWeatherCondition(baseTemp),
-                precipitation: precipAmount > 0 ? `${precipitationType} ${precipAmount}мм` : 'нет осадков',
-                cloudiness: Math.round(30 + Math.random() * 60),
-                humidity: Math.round(60 + Math.random() * 35),
-                wind_speed: (2 + Math.random() * 5).toFixed(1)
-            });
-        }
+        const baseTemp = -3 + Math.random() * 10 - 4;
+        const hasPrecipitation = Math.random() > 0.6;
+        const precipitationType = baseTemp > 2 ? '🌧️' : '❄️';
+        const precipAmount = hasPrecipitation ? (Math.random() * 5).toFixed(1) : 0;
        
-        return history;
+        // Связываем условие с наличием осадков
+        const condition = this.getHistoricalWeatherCondition(baseTemp, hasPrecipitation);
+       
+        history.push({
+            date: date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
+            day_temp: Math.round(baseTemp + 3),
+            night_temp: Math.round(baseTemp - 3),
+            condition: condition,
+            precipitation: hasPrecipitation ? `${precipitationType} ${precipAmount}мм` : 'нет осадков',
+            cloudiness: Math.round(30 + Math.random() * 60),
+            humidity: Math.round(60 + Math.random() * 35),
+            wind_speed: (2 + Math.random() * 5).toFixed(1)
+        });
     }
+   
+    return history;
+},
 
-    getHistoricalWeatherCondition(temperature) {
-        if (temperature > 5) {
-            return ['☀️ Ясно', '⛅ Облачно', '☁️ Пасмурно', '🌧️ Дождь'][Math.floor(Math.random() * 4)];
-        } else if (temperature > 0) {
-            return ['⛅ Облачно', '☁️ Пасмурно', '🌧️ Дождь', '🌧️❄️ Мокрый снег'][Math.floor(Math.random() * 4)];
-        } else {
-            return ['❄️ Снег', '☁️ Пасмурно', '⛅ Облачно', '❄️ Снегопад'][Math.floor(Math.random() * 4)];
-        }
+getHistoricalWeatherCondition(temperature, hasPrecipitation) {
+    const clearConditions = ['☀️ Ясно', '⛅ Облачно', '☁️ Пасмурно'];
+    const precipConditions = temperature > 2 ? ['🌧️ Дождь', '🌧️ Ливень'] : ['❄️ Снег', '❄️ Снегопад'];
+   
+    if (hasPrecipitation) {
+        return precipConditions[Math.floor(Math.random() * precipConditions.length)];
+    } else {
+        return clearConditions[Math.floor(Math.random() * clearConditions.length)];
     }
+},
 
-    generateSearchSummary(weatherData) {
-        const current = weatherData.current;
-        const hourly = weatherData.hourly;
-       
-        let summary = "🔍 <b>Анализ для поисковых работ:</b>\n\n";
-       
-        // Анализ текущих условий
-        summary += `🌡️ <b>Сейчас:</b> ${current.temperature}°C\n`;
-       
-        if (current.temperature > 5) {
-            summary += "⚠️ <b>Следы:</b> Быстро разрушаются (тепло)\n";
-        } else if (current.temperature > 0) {
-            summary += "🔄 <b>Следы:</b> Сохраняются 1-2 дня\n";
-        } else if (current.temperature > -10) {
-            summary += "✅ <b>Следы:</b> Сохраняются 3-5 дней\n";
-        } else {
-            summary += "🔄 <b>Следы:</b> Сохраняются 5-7 дней (мороз)\n";
-        }
-       
-        // Анализ осадков
-        if (current.precipitation !== 'нет осадков') {
-            summary += `💧 <b>Осадки:</b> ${current.precipitation} - могут повлиять на следы\n`;
-        }
-       
-        // Анализ видимости
-        if (current.cloudiness > 70) {
-            summary += "☁️ <b>Облачность:</b> Пасмурно, видимость снижена\n";
-        } else {
-            summary += "☀️ <b>Облачность:</b> Хорошая видимость\n";
-        }
-       
-        // Анализ ближайших часов
-        const willRain = hourly.slice(1).some(hour => hour.precipitation.includes('🌧️'));
-        if (willRain) {
-            summary += "\n⚠️ <b>В ближайшие часы:</b> Ожидаются осадки\n";
-        }
-       
-        return summary;
+generateSearchSummary(weatherData) {
+    const current = weatherData.current;
+    const hourly = weatherData.hourly;
+   
+    let summary = "📋 <b>Погодная сводка:</b>\n\n";
+   
+    // Только факты о текущей погоде
+    summary += `🌡️ <b>Температура:</b> ${current.temperature}°C\n`;
+    summary += `💨 <b>Ветер:</b> ${current.wind_speed} м/с\n`;
+    summary += `💧 <b>Влажность:</b> ${current.humidity}%\n`;
+    summary += `☁️ <b>Облачность:</b> ${current.cloudiness}%\n`;
+    summary += `🌧️ <b>Осадки:</b> ${current.precipitation}\n`;
+   
+    // Ближайшие часы
+    const nextPrecip = hourly.slice(1).filter(hour => hour.precipitation !== 'нет осадков');
+    if (nextPrecip.length > 0) {
+        summary += `\n🕒 <b>В ближайшие 6 часов:</b> ожидаются осадки`;
     }
+   
+    return summary;
+},
 
     // Демо-данные
     generateDemoCurrentWeather() {
