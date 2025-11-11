@@ -759,6 +759,104 @@ bot.onText(/\/calc_shoe/, async (msg) => {
     }
 });
 
+// Команда калькулятора давности следа на снегу
+bot.onText(/\/calc_snow_age/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    await bot.sendMessage(chatId,
+        '⏱️ <b>КАЛЬКУЛЯТОР ДАВНОСТИ СЛЕДА</b>\n\n' +
+        'Расчет эволюции снежного покрова с момента пропажи\n\n' +
+        '💡 <b>Как использовать:</b>\n\n' +
+        '1. 📍 <b>Отправьте местоположение</b> поиска\n\n' +
+        '2. 📅 <b>Укажите дату и время пропажи:</b>\n' +
+        '<code>2024-01-15 08:00</code>\n' +
+        '<code>15.01.2024 8:00</code>\n\n' +
+        '3. 🤖 <b>Бот рассчитает</b> как менялся снег с того момента\n\n' +
+        '📍 <i>Сначала отправьте местоположение</i>',
+        {
+            parse_mode: 'HTML',
+            reply_markup: {
+                keyboard: [
+                    [{ text: "📍 Отправить местоположение", request_location: true }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: true
+            }
+        }
+    );
+   
+    userContext[msg.from.id] = 'waiting_snow_age_location';
+});
+
+// Обработчик для калькулятора давности
+userContext[/waiting_snow_age_location/] = async (msg, text) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    if (msg.location) {
+        userContext[userId] = {
+            type: 'snow_age_calc',
+            coordinates: {
+                lat: msg.location.latitude,
+                lon: msg.location.longitude
+            }
+        };
+       
+        await bot.sendMessage(chatId,
+            '📍 Местоположение получено. Теперь укажите <b>дату и время пропажи</b>:\n\n' +
+            '<code>2024-01-15 08:00</code>\n' +
+            '<code>15.01.2024 8:00</code>\n\n' +
+            '<i>Формат: ГГГГ-ММ-ДД ЧЧ:ММ или ДД.ММ.ГГГГ ЧЧ:ММ</i>',
+            { parse_mode: 'HTML' }
+        );
+    }
+};
+
+// Обработчик даты пропажи
+userContext[/snow_age_calc/] = async (msg, text) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const context = userContext[userId];
+   
+    try {
+        await bot.sendMessage(chatId, '❄️ Анализирую эволюцию снежного покрова...');
+       
+        const disappearanceTime = this.parseDateTime(text);
+        if (!disappearanceTime) {
+            await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-15 08:00</code>', { parse_mode: 'HTML' });
+            return;
+        }
+       
+        const result = await calculators.calculateSnowAge(context.coordinates, disappearanceTime);
+        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+       
+        delete userContext[userId];
+       
+    } catch (error) {
+        console.log('❌ Ошибка расчета давности:', error);
+        await bot.sendMessage(chatId, '❌ Ошибка расчета эволюции снега');
+        delete userContext[userId];
+    }
+};
+
+// Вспомогательная функция для парсинга даты
+function parseDateTime(dateString) {
+    try {
+        // Пробуем разные форматы
+        let date = new Date(dateString);
+        if (isNaN(date.getTime())) {
+            // Формат DD.MM.YYYY
+            const parts = dateString.split('.');
+            if (parts.length === 3) {
+                date = new Date(parts[2], parts[1] - 1, parts[0]);
+            }
+        }
+        return isNaN(date.getTime()) ? null : date;
+    } catch (error) {
+        return null;
+    }
+}
+
 // Команда /apps
 bot.onText(/\/apps/, async (msg) => {
     const chatId = msg.chat.id;
