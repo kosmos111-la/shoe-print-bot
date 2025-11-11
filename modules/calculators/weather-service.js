@@ -9,23 +9,28 @@ class WeatherService {
 
     setupWeatherConditions() {
         this.weatherConditions = {
-            '200': '⛈️ Гроза с дождем', '201': '⛈️ Гроза', '202': '⛈️ Сильная гроза',
-            '210': '⛈️ Легкая гроза', '211': '⛈️ Гроза', '212': '⛈️ Сильная гроза',
+            '200': '⛈️ Гроза', '201': '⛈️ Гроза', '202': '⛈️ Сильная гроза',
+            '210': '⛈️ Гроза', '211': '⛈️ Гроза', '212': '⛈️ Сильная гроза',
+            '221': '⛈️ Гроза', '230': '⛈️ Гроза', '231': '⛈️ Гроза', '232': '⛈️ Сильная гроза',
            
-            '300': '🌧️ Легкая морось', '301': '🌧️ Морось', '302': '🌧️ Сильная морось',
-            '310': '🌧️ Моросящий дождь', '311': '🌧️ Моросящий дождь', '312': '🌧️ Сильный моросящий дождь',
+            '300': '🌧️ Морось', '301': '🌧️ Морось', '302': '🌧️ Сильная морось',
+            '310': '🌧️ Морось', '311': '🌧️ Морось', '312': '🌧️ Сильная морось',
+            '313': '🌧️ Ливень', '314': '🌧️ Сильный ливень', '321': '🌧️ Ливень',
            
-            '500': '🌧️ Легкий дождь', '501': '🌧️ Умеренный дождь', '502': '🌧️ Сильный дождь',
+            '500': '🌧️ Легкий дождь', '501': '🌧️ Дождь', '502': '🌧️ Сильный дождь',
             '503': '🌧️ Очень сильный дождь', '504': '🌧️ Экстремальный дождь',
-            '511': '🌧️❄️ Ледяной дождь', '520': '🌦️ Легкий ливень', '521': '🌦️ Ливень',
+            '511': '🌧️❄️ Ледяной дождь', '520': '🌦️ Ливень', '521': '🌦️ Ливень',
+            '522': '🌦️ Сильный ливень', '531': '🌦️ Ливень',
            
             '600': '❄️ Легкий снег', '601': '❄️ Снег', '602': '❄️ Сильный снег',
-            '611': '🌧️❄️ Мокрый снег', '612': '🌧️❄️ Мокрый снег', '613': '🌧️❄️ Ливень с мокрым снегом',
-            '615': '🌧️❄️ Легкий дождь со снегом', '616': '🌧️❄️ Дождь со снегом',
+            '611': '🌧️❄️ Мокрый снег', '612': '🌧️❄️ Мокрый снег', '613': '🌧️❄️ Мокрый снег',
+            '615': '🌧️❄️ Дождь со снегом', '616': '🌧️❄️ Дождь со снегом',
             '620': '❄️ Легкий снегопад', '621': '❄️ Снегопад', '622': '❄️ Сильный снегопад',
            
-            '701': '🌫️ Туман', '711': '🌫️ Дым', '721': '🌫️ Дымка', '731': '🌫️ Песчаная буря',
-            '741': '🌫️ Туман', '751': '🌫️ Песок',
+            '701': '🌫️ Туман', '711': '🌫️ Дым', '721': '🌫️ Дымка',
+            '731': '🌫️ Песчаная буря', '741': '🌫️ Туман', '751': '🌫️ Песок',
+            '761': '🌫️ Пыль', '762': '🌫️ Вулканический пепел', '771': '💨 Шквал',
+            '781': '🌪️ Торнадо',
            
             '800': '☀️ Ясно', '801': '⛅ Малооблачно', '802': '⛅ Облачно',
             '803': '☁️ Пасмурно', '804': '☁️ Пасмурно'
@@ -119,6 +124,54 @@ class WeatherService {
                 forecast: this.generateDemoForecast()
             };
         }
+    }
+
+    // ДОБАВЛЯЕМ ПРОПУЩЕННЫЕ МЕТОДЫ:
+
+    async geocodeCity(cityName) {
+        try {
+            const response = await axios.get('http://api.openweathermap.org/geo/1.0/direct', {
+                params: {
+                    q: cityName + ',RU',
+                    limit: 1,
+                    appid: this.apiKey
+                }
+            });
+
+            if (response.data && response.data.length > 0) {
+                return {
+                    lat: response.data[0].lat,
+                    lon: response.data[0].lon,
+                    name: response.data[0].name
+                };
+            } else {
+                throw new Error('Город не найден');
+            }
+        } catch (error) {
+            console.error('Geocoding error:', error);
+            return { lat: 55.7558, lon: 37.6173, name: 'Москва' };
+        }
+    }
+
+    async reverseGeocode(lat, lon) {
+        try {
+            const response = await axios.get('http://api.openweathermap.org/geo/1.0/reverse', {
+                params: {
+                    lat: lat,
+                    lon: lon,
+                    limit: 1,
+                    appid: this.apiKey
+                }
+            });
+
+            if (response.data && response.data.length > 0) {
+                return response.data[0].name;
+            }
+        } catch (error) {
+            console.error('Reverse geocoding error:', error);
+        }
+       
+        return `📍 ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     }
 
     formatCurrentWeather(currentData) {
@@ -322,8 +375,6 @@ class WeatherService {
         return summary;
     }
 
-    // ... остальные методы (geocodeCity, reverseGeocode) остаются без изменений ...
-
     // Демо-данные для ошибок
     generateDemoCurrentWeather() {
         return {
@@ -370,8 +421,34 @@ class WeatherService {
                 wind_speed: 4.2,
                 feels_like: -6
             },
-            // ... еще 3 часа
-        ].slice(0, 6);
+            {
+                time: new Date(now.getTime() + 3 * 60 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit' }),
+                temperature: -3,
+                condition: '❄️ Снег',
+                precipitation: '❄️ 1.8мм',
+                cloudiness: 85,
+                wind_speed: 3.8,
+                feels_like: -7
+            },
+            {
+                time: new Date(now.getTime() + 4 * 60 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit' }),
+                temperature: -4,
+                condition: '☁️ Пасмурно',
+                precipitation: 'нет осадков',
+                cloudiness: 95,
+                wind_speed: 3.2,
+                feels_like: -8
+            },
+            {
+                time: new Date(now.getTime() + 5 * 60 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit' }),
+                temperature: -5,
+                condition: '⛅ Облачно',
+                precipitation: 'нет осадков',
+                cloudiness: 65,
+                wind_speed: 2.9,
+                feels_like: -8
+            }
+        ];
     }
 
     generateDemoForecast() {
