@@ -93,12 +93,7 @@ function initialize() {
            
             let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
            
-            // История за 7 дней
-            message += `📅 <b>ИСТОРИЯ (7 ДНЕЙ):</b>\n`;
-            data.history.forEach(day => {
-                message += `${day.date}: День ${day.day_temp}°C / Ночь ${day.night_temp}°C, ${day.condition}, ${day.precipitation}\n`;
-            });
-            message += '\n';
+            // УБИРАЕМ ИСТОРИЮ - оставляем только реальные данные
            
             // Сейчас
             message += `📊 <b>СЕЙЧАС (${data.current.time}):</b>\n`;
@@ -115,14 +110,10 @@ function initialize() {
             message += '\n';
            
             // Прогноз на 2 дня
-            message += `📈 <b>ПРОГНОЗ (2 ДНЯ):</b>\n`;
+            message += `📈 <b>ПРОГНОЗ НА 2 ДНЯ:</b>\n`;
             data.forecast.forEach(day => {
                 message += `${day.date}: День ${day.day_temp}°C / Ночь ${day.night_temp}°C, ${day.condition}, ${day.precipitation}\n`;
             });
-            message += '\n';
-           
-            // Анализ
-            message += data.searchSummary;
            
             return message;
         } else {
