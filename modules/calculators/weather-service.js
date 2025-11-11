@@ -1,12 +1,8 @@
-/**
-* Модуль погоды
-*/
-// weatherService.js
 const axios = require('axios');
 
 class WeatherService {
     constructor() {
-        this.apiKey = 'f5cc2e480cb5a7dc580b07920c32250c'; // ваш ключ
+        this.apiKey = 'f5cc2e480cb5a7dc580b07920c32250c';
         this.baseURL = 'https://api.openweathermap.org/data/2.5';
         this.setupWeatherConditions();
     }
@@ -38,33 +34,29 @@ class WeatherService {
 
     async getWeatherData(options) {
         try {
-            const { location, date, coordinates } = options;
+            const { location, coordinates } = options;
            
             // Используем координаты или Москву по умолчанию
             const lat = coordinates?.lat || 55.7558;
             const lon = coordinates?.lon || 37.6173;
            
-            // Получаем все данные погоды
-            const weatherData = await this.getCompleteWeather(lat, lon);
-           
+            // Получаем текущую погоду и прогноз
+            const [current, forecast] = await Promise.all([
+                this.getCurrentWeather(lat, lon),
+                this.getWeatherForecast(lat, lon)
+            ]);
+
+            // Генерируем историю
+            const history = this.generateWeatherHistory(7);
+
             return {
                 success: true,
                 result: {
-                    location: location || `Координаты: ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
-                    date: date || new Date().toLocaleDateString('ru-RU'),
-                    coordinates: { lat, lon },
-                   
-                    // Текущая погода
-                    current: weatherData.current,
-                   
-                    // Прогноз на 2 дня вперед
-                    forecast: weatherData.forecast,
-                   
-                    // История на 7 дней назад
-                    history: weatherData.history,
-                   
-                    // Сводка для поисковых работ
-                    searchSummary: this.generateSearchSummary(weatherData)
+                    location: location || current.city || `Координаты: ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+                    current: current,
+                    forecast: forecast,
+                    history: history,
+                    searchSummary: this.generateSearchSummary(current, history)
                 }
             };
            
@@ -76,23 +68,6 @@ class WeatherService {
                 details: error.message
             };
         }
-    }
-
-    async getCompleteWeather(lat, lon) {
-        // Получаем текущую погоду и прогноз
-        const [currentData, forecastData] = await Promise.all([
-            this.getCurrentWeather(lat, lon),
-            this.getWeatherForecast(lat, lon)
-        ]);
-
-        // Генерируем историю (в бесплатном API нет истории, используем демо-данные)
-        const history = this.generateWeatherHistory(7);
-
-        return {
-            current: currentData,
-            forecast: forecastData,
-            history: history
-        };
     }
 
     async getCurrentWeather(lat, lon) {
@@ -112,14 +87,9 @@ class WeatherService {
             temperature: Math.round(data.main.temp),
             feels_like: Math.round(data.main.feels_like),
             condition: this.weatherConditions[data.weather[0].id] || data.weather[0].description,
-            description: data.weather[0].description,
             wind_speed: data.wind.speed,
-            wind_gust: data.wind.gust || data.wind.speed * 1.5,
-            wind_deg: data.wind.deg,
             pressure: data.main.pressure,
             humidity: data.main.humidity,
-            visibility: data.visibility ? (data.visibility / 1000).toFixed(1) + ' км' : 'н/д',
-            cloudiness: data.clouds.all,
             city: data.name
         };
     }
@@ -138,7 +108,6 @@ class WeatherService {
         const forecast = [];
         const processedDays = new Set();
 
-        // Группируем по дням (берем прогноз на 2 дня)
         response.data.list.forEach(item => {
             const date = item.dt_txt.split(' ')[0];
             if (!processedDays.has(date) && forecast.length < 2) {
@@ -146,16 +115,9 @@ class WeatherService {
                
                 forecast.push({
                     date: date,
-                    temperature: Math.round(item.main.temp),
                     temp_min: Math.round(item.main.temp_min),
                     temp_max: Math.round(item.main.temp_max),
-                    condition: this.weatherConditions[item.weather[0].id] || item.weather[0].description,
-                    wind_speed: item.wind.speed,
-                    pressure: item.main.pressure,
-                    humidity: item.main.humidity,
-                    precipitation: item.rain ? item.rain['3h'] || 0 : 0,
-                    snow: item.snow ? item.snow['3h'] || 0 : 0,
-                    pop: Math.round((item.pop || 0) * 100) // вероятность осадков %
+                    condition: this.weatherConditions[item.weather[0].id] || item.weather[0].description
                 });
             }
         });
@@ -167,24 +129,18 @@ class WeatherService {
         const history = [];
         const baseDate = new Date();
        
-        // Генерируем правдоподобные исторические данные
         for (let i = daysCount; i > 0; i--) {
             const date = new Date(baseDate);
             date.setDate(date.getDate() - i);
            
-            const baseTemp = -3 + Math.random() * 8 - 4; // Случайная температура вокруг -3°C
+            const baseTemp = -3 + Math.random() * 8 - 4;
            
             history.push({
                 date: date.toISOString().split('T')[0],
                 temperature: Math.round(baseTemp),
-                temp_min: Math.round(baseTemp - 2 - Math.random() * 3),
-                temp_max: Math.round(baseTemp + 1 + Math.random() * 2),
                 condition: this.getRandomWeatherCondition(baseTemp),
                 wind_speed: (1.5 + Math.random() * 5).toFixed(1),
-                pressure: Math.round(740 + Math.random() * 20),
-                humidity: Math.round(70 + Math.random() * 25),
-                precipitation: Math.random() > 0.7 ? (Math.random() * 4).toFixed(1) : 0,
-                snow_depth: baseTemp < 0 ? (5 + Math.random() * 15).toFixed(1) : 0
+                precipitation: Math.random() > 0.7 ? (Math.random() * 4).toFixed(1) : 0
             });
         }
        
@@ -201,30 +157,22 @@ class WeatherService {
         }
     }
 
-    generateSearchSummary(weatherData) {
-        const current = weatherData.current;
-        const recentHistory = weatherData.history.slice(-3); // Последние 3 дня
+    generateSearchSummary(current, history) {
+        let summary = "📊 <b>Условия для поиска:</b>\n\n";
        
-        let summary = "📊 *Условия для поиска:*\n\n";
+        summary += `🌡️ <b>Температура:</b> ${current.temperature}°C\n`;
        
-        // Анализ текущих условий
-        summary += `*Сейчас:* ${current.temperature}°C, ${current.condition}\n`;
-        summary += `💨 Ветер: ${current.wind_speed} м/с\n`;
-        summary += `👁️ Видимость: ${current.visibility}\n\n`;
-       
-        // Анализ следов
         if (current.temperature > 0) {
-            summary += "⚠️ *Следы:* Быстро разрушаются (температура выше нуля)\n";
+            summary += "⚠️ <b>Следы:</b> Быстро разрушаются (температура выше нуля)\n";
         } else if (current.temperature > -5) {
-            summary += "✅ *Следы:* Сохраняются 1-2 дня\n";
+            summary += "✅ <b>Следы:</b> Сохраняются 1-2 дня\n";
         } else {
-            summary += "🔄 *Следы:* Сохраняются 3-5 дней\n";
+            summary += "🔄 <b>Следы:</b> Сохраняются 3-5 дней\n";
         }
        
-        // Анализ осадков
-        const hasRecentSnow = recentHistory.some(day => day.precipitation > 0 && day.temperature < 2);
+        const hasRecentSnow = history.some(day => day.precipitation > 0 && day.temperature < 2);
         if (hasRecentSnow) {
-            summary += "❄️ *Снег:* Недавние осадки могут скрывать следы\n";
+            summary += "❄️ <b>Снег:</b> Недавние осадки могут скрывать следы\n";
         }
        
         return summary;
