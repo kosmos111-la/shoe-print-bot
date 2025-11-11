@@ -39,7 +39,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const userContext = {};
+
 
 // ИМПОРТ МОДУЛЕЙ
 const visualizationModule = require('./modules/visualization');
