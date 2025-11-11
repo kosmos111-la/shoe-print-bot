@@ -66,10 +66,10 @@ function initialize() {
                 const result = snowCalc.calculateSnowDepth({
                     trackDepth: parseFloat(trackDepth),
                     snowType: snowType,
-                    compression:сжатие                 если (результат.успех) {
+                    compression: compression
                 });
                
-
+                if (result.success) {
                     return `❄️ <b>РАСЧЕТ ВЫСОТЫ СНЕГА</b>\n\n` +
                            `📏 Глубина следа: <b>${result.result.trackDepth} см</b>\n` +
                            `🏷️ Тип снега: <b>${result.result.snowType}</b>\n` +
@@ -107,9 +107,6 @@ function initialize() {
             return shoeSizeCalculator.getFootwearTypesList();
         }
     };
-}
-
-module.exports = { инициализировать };
 }
 
 module.exports = { initialize };
