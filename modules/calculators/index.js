@@ -1,17 +1,12 @@
 const shoeSizeCalculator = require('./shoe-size');
-//const heightCalculator = { estimate: () => ({ success: false, error: 'В разработке' }) };
-const { SnowCalculator } = require('./snow-calculator');
 const { WeatherService } = require('./weather-service');
+const SnowDepthCalculator = require('./snow-depth-calculator'); // ← ДОБАВИЛИ
 
-/**
-* Меню калькуляторов
-*/
 function initialize() {
     console.log('✅ Модуль калькуляторов загружен');
    
-    // Инициализируем калькуляторы
-    const snowCalc = new SnowCalculator();
     const weatherService = new WeatherService();
+    const snowDepthCalculator = new SnowDepthCalculator(); // ← ДОБАВИЛИ
    
     return {
         getMenu: () => ({
@@ -33,6 +28,11 @@ function initialize() {
                     description: "Расчет высоты снега по следам"
                 },
                 {
+                    name: "⏱️❄️ Калькулятор давности следа на снегу", // ← НОВЫЙ КАЛЬКУЛЯТОР
+                    command: "/calc_snow_age",
+                    description: "Расчет эволюции снежного покрова"
+                },
+                {
                     name: "🌤️ Погода",
                     command: "/calc_weather",
                     description: "Метеоданные для анализа следов"
@@ -40,100 +40,132 @@ function initialize() {
             ]
         }),
        
-        // Прямой расчет размеров
+        // Существующие методы...
         calculateShoeSize: (size, type) => {
             const result = shoeSizeCalculator.calculate({ size, type });
-            if (result.success) {
-                return result.result;
-            } else {
-                return `❌ ${result.error}`;
-            }
+            return result.success ? result.result : `❌ ${result.error}`;
         },
        
-        // Обратный расчет размеров
         calculateReverse: (footprintLength) => {
             const result = shoeSizeCalculator.calculateReverse(footprintLength);
-            if (result.success) {
-                return result.result;
-            } else {
-                return `❌ ${result.error}`;
-            }
+            return result.success ? result.result : `❌ ${result.error}`;
         },
        
-        // Калькулятор снега
+        // Старый простой калькулятор снега
         calculateSnowDepth: (trackDepth, snowType = 'fresh', compression = 'medium') => {
             try {
-                const result = snowCalc.calculateSnowDepth({
-                    trackDepth: parseFloat(trackDepth),
-                    snowType: snowType,
-                    compression: compression
-                });
+                const depth = parseFloat(trackDepth);
+                const factors = {
+                    'fresh': { low: 1.8, medium: 2.2, high: 2.5 },
+                    'settled': { low: 1.3, medium: 1.6, high: 1.9 },
+                    'compact': { low: 1.1, medium: 1.3, high: 1.5 },
+                    'icy': { low: 1.0, medium: 1.1, high: 1.2 }
+                };
                
-                if (result.success) {
-                    return `❄️ <b>РАСЧЕТ ВЫСОТЫ СНЕГА</b>\n\n` +
-                           `📏 Глубина следа: <b>${result.result.trackDepth} см</b>\n` +
-                           `🏷️ Тип снега: <b>${result.result.snowType}</b>\n` +
-                           `📊 Коэффициент уплотнения: <b>${result.result.compressionFactor}</b>\n` +
-                           `📐 Расчетная высота снега: <b>${result.result.estimatedSnowDepth} см</b>\n\n` +
-                           `💡 <i>${result.result.message}</i>`;
-                } else {
-                    return `❌ ${result.error}`;
-                }
+                const factor = factors[snowType]?.[compression] || 2.0;
+                const estimatedDepth = depth * factor;
+               
+                return `❄️ <b>РАСЧЕТ ВЫСОТЫ СНЕГА</b>\n\n` +
+                       `📏 Глубина следа: <b>${depth} см</b>\n` +
+                       `📊 Коэффициент: <b>${factor}</b>\n` +
+                       `📐 Высота снега: <b>${Math.round(estimatedDepth * 10) / 10} см</b>\n\n` +
+                       `💡 Используйте /calc_snow_age для точного расчета с историей погоды`;
             } catch (error) {
                 return `❌ Ошибка расчета снега: ${error.message}`;
             }
         },
        
-        // Модуль погоды - теперь асинхронный
-        getWeatherData: async (options = {}) => {
-    try {
-        const result = await weatherService.getWeatherData(options);
-        if (result.success) {
-            const data = result.result;
-           
-            let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
-           
-            // ✅ ДОБАВЛЯЕМ ИСТОРИЮ
-            if (data.history && data.history.length > 0) {
-                message += `📅 <b>ИСТОРИЯ (7 ДНЕЙ):</b>\n`;
-                data.history.forEach(day => {
-                    message += `${day.date}: День ${day.day_temp}°C / Ночь ${day.night_temp}°C, ${day.condition}, ${day.precipitation}\n`;
-                });
-                message += '\n';
+        // НОВЫЙ МЕТОД - расчет давности следа
+        calculateSnowAge: async (coordinates, disappearanceTime) => {
+            try {
+                const result = await snowDepthCalculator.calculateSnowDepth(
+                    coordinates.lat,
+                    coordinates.lon,
+                    disappearanceTime
+                );
+               
+                if (result.success) {
+                    let message = `❄️ <b>РАСЧЕТ СНЕЖНОГО ПОКРОВА</b>\n\n`;
+                   
+                    message += `📍 Место: ${result.location.lat}, ${result.location.lon}\n`;
+                    message += `📅 Период анализа: ${result.periodDays} дней\n`;
+                    message += `⏰ Время пропажи: ${new Date(result.disappearanceTime).toLocaleString('ru-RU')}\n\n`;
+                   
+                    message += `📏 <b>Ожидаемая высота снега:</b>\n`;
+                    message += `• Общая: <b>${result.estimatedSnowDepth} см</b>\n`;
+                    message += `• Свежего снега: <b>${result.freshSnowDepth} см</b>\n`;
+                    message += `• Уплотнение: <b>${result.compaction} см</b>\n\n`;
+                   
+                    message += `📊 <b>Суммарные изменения:</b>\n`;
+                    message += `• Осадки: ${result.totalPrecipitation} мм\n`;
+                    message += `• Уплотнение: ${result.totalCompaction} см\n`;
+                    message += `• Испарение: ${result.totalEvaporation} см\n\n`;
+                   
+                    if (result.warnings.length > 0) {
+                        message += `⚠️ <b>ВНИМАНИЕ:</b>\n`;
+                        result.warnings.forEach(warning => {
+                            message += `• ${warning.message}\n`;
+                        });
+                        message += `\n`;
+                    }
+                   
+                    if (result.hasCrust) {
+                        message += `🧊 <b>Наст:</b> ${result.crustDepth} см - может мешать замерам!\n\n`;
+                    }
+                   
+                    message += `🎯 <b>Рекомендация:</b>\n`;
+                    message += `Ищите следы с глубиной <b>${result.estimatedSnowDepth} ±3 см</b>`;
+                   
+                    return message;
+                } else {
+                    return `❌ ${result.error}`;
+                }
+            } catch (error) {
+                return `❌ Ошибка расчета: ${error.message}`;
             }
-           
-            // Сейчас
-            message += `📊 <b>СЕЙЧАС (${data.current.time}):</b>\n`;
-            message += `🌡️ ${data.current.temperature}°C (ощущается ${data.current.feels_like}°C)\n`;
-            message += `${data.current.condition}\n`;
-            message += `💨 Ветер: ${data.current.wind_speed} м/с | 💧 Влажность: ${data.current.humidity}%\n`;
-            message += `🌧️ Осадки: ${data.current.precipitation} | ☁️ Облачность: ${data.current.cloudiness}%\n\n`;
-           
-            // Почасовой прогноз
-            message += `🕒 <b>БЛИЖАЙШИЕ 6 ЧАСОВ:</b>\n`;
-            data.hourly.forEach(hour => {
-                message += `${hour.time}: ${hour.temperature}°C, ${hour.condition}, ${hour.precipitation}\n`;
-            });
-            message += '\n';
-           
-            // Прогноз на 2 дня
-            message += `📈 <b>ПРОГНОЗ НА 2 ДНЯ:</b>\n`;
-            data.forecast.forEach(day => {
-                message += `${day.date}: День ${day.day_temp}°C / Ночь ${day.night_temp}°C, ${day.condition}, ${day.precipitation}\n`;
-            });
-            message += '\n';
-           
-            // Погодная сводка
-            message += data.searchSummary;
-           
-            return message;
-        } else {
-            return `❌ ${result.error}`;
-        }
-    } catch (error) {
-        return `❌ Ошибка получения погоды: ${error.message}`;
-    }
-},
+        },
+       
+        getWeatherData: async (options = {}) => {
+            try {
+                const result = await weatherService.getWeatherData(options);
+                if (result.success) {
+                    // ... существующий код вывода погоды
+                    const data = result.result;
+                   
+                    let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
+                   
+                    // Сейчас
+                    message += `📊 <b>СЕЙЧАС (${data.current.time}):</b>\n`;
+                    message += `🌡️ ${data.current.temperature}°C (ощущается ${data.current.feels_like}°C)\n`;
+                    message += `${data.current.condition}\n`;
+                    message += `💨 Ветер: ${data.current.wind_speed} м/с | 💧 Влажность: ${data.current.humidity}%\n`;
+                    message += `🌧️ Осадки: ${data.current.precipitation} | ☁️ Облачность: ${data.current.cloudiness}%\n\n`;
+                   
+                    // Почасовой прогноз
+                    message += `🕒 <b>БЛИЖАЙШИЕ 6 ЧАСОВ:</b>\n`;
+                    data.hourly.forEach(hour => {
+                        message += `${hour.time}: ${hour.temperature}°C, ${hour.condition}, ${hour.precipitation}\n`;
+                    });
+                    message += '\n';
+                   
+                    // Прогноз на 2 дня
+                    message += `📈 <b>ПРОГНОЗ НА 2 ДНЯ:</b>\n`;
+                    data.forecast.forEach(day => {
+                        message += `${day.date}: День ${day.day_temp}°C / Ночь ${day.night_temp}°C, ${day.condition}, ${day.precipitation}\n`;
+                    });
+                    message += '\n';
+                   
+                    // Погодная сводка
+                    message += data.searchSummary;
+                   
+                    return message;
+                } else {
+                    return `❌ ${result.error}`;
+                }
+            } catch (error) {
+                return `❌ Ошибка получения погоды: ${error.message}`;
+            }
+        },
        
         getShoeTypes: () => {
             return shoeSizeCalculator.getFootwearTypesList();
