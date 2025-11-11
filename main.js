@@ -490,20 +490,11 @@ bot.on('message', async (msg) => {
     console.log('🔍 Получено сообщение для обработки:', text);
    
     try {
-        // 1. Проверяем обратный расчет размеров (длина отпечатка)
-        if (text.includes('см') || /^\d+[.,]?\d*$/.test(text.trim())) {
-            const lengthMatch = text.match(/(\d+[.,]?\d*)\s*см/) || [null, text.trim()];
-            const footprintLength = lengthMatch[1].replace(',', '.');
-           
-            console.log('🔍 Обратный расчет для длины:', footprintLength);
-           
-            const result = calculators.calculateReverse(footprintLength);
-            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-            return;
-        }
+        // Сначала проверяем контекст - какая команда была вызвана последней
+        // Для этого нужно хранить контекст пользователя
        
-        // 2. Проверяем калькулятор снега (просто число или число + тип снега)
-        if (/^\d+$/.test(text.trim()) || /^\d+\s+[а-я]+/.test(text)) {
+        // 1. Если был вызван /calc_snow - обрабатываем как снег
+        if (userContext[msg.from.id] === 'calc_snow') {
             const parts = text.split(' ');
             const depth = parts[0];
             const snowType = parts[1] || 'fresh';
@@ -512,10 +503,56 @@ bot.on('message', async (msg) => {
            
             const result = calculators.calculateSnowDepth(depth, snowType);
             await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+           
+            // Очищаем контекст
+            delete userContext[msg.from.id];
             return;
         }
        
-        // 3. Проверяем прямой расчет размеров (размер + тип обуви)
+        // 2. Если был вызван /calc_reverse - обрабатываем как обратный расчет
+        if (userContext[msg.from.id] === 'calc_reverse') {
+            const lengthMatch = text.match(/(\d+[.,]?\d*)\s*см/) || [null, text.trim()];
+            const footprintLength = lengthMatch[1].replace(',', '.');
+           
+            console.log('🔍 Обратный расчет для длины:', footprintLength);
+           
+            const result = calculators.calculateReverse(footprintLength);
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+           
+            // Очищаем контекст
+            delete userContext[msg.from.id];
+            return;
+        }
+       
+        // 3. Автоматическое определение (только если нет контекста)
+        // Проверяем калькулятор снега (просто число или число + тип снега)
+        if (/^\d+$/.test(text.trim()) || /^\d+\s+[а-я]+/.test(text)) {
+            const parts = text.split(' ');
+            const depth = parts[0];
+            const snowType = parts[1] || 'fresh';
+           
+            console.log('🔍 Расчет снега (автоопределение):', { depth, snowType });
+           
+            const result = calculators.calculateSnowDepth(depth, snowType);
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            return;
+        }
+       
+        // 4. Проверяем обратный расчет размеров (длина отпечатка с "см")
+        if (text.includes('см')) {
+            const lengthMatch = text.match(/(\d+[.,]?\d*)\s*см/);
+            if (lengthMatch) {
+                const footprintLength = lengthMatch[1].replace(',', '.');
+               
+                console.log('🔍 Обратный расчет для длины:', footprintLength);
+               
+                const result = calculators.calculateReverse(footprintLength);
+                await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+                return;
+            }
+        }
+       
+        // 5. Проверяем прямой расчет размеров (размер + тип обуви)
         if ((text.includes('размер=') && text.includes('тип=')) ||
             (/^\d+/.test(text) && text.split(' ').length >= 2)) {
            
@@ -541,9 +578,65 @@ bot.on('message', async (msg) => {
                 await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
             }
         }
+       
     } catch (error) {
         console.log('❌ Ошибка обработки калькулятора:', error);
-        // Игнорируем ошибки парсинга
+        await bot.sendMessage(chatId, '❌ Не удалось обработать запрос. Проверьте формат ввода.');
+    }
+});
+
+// Добавляем хранение контекста пользователей
+const userContext = {};
+
+// Обновляем команды для установки контекста
+bot.onText(/\/calc_snow/, async (msg) => {
+    const chatId = msg.chat.id;
+    userContext[msg.from.id] = 'calc_snow'; // Устанавливаем контекст
+   
+    await bot.sendMessage(chatId,
+        '❄️ <b>КАЛЬКУЛЯТОР СНЕЖНОГО ПОКРОВА</b>\n\n' +
+        'Расчет высоты снега по глубине следа\n\n' +
+        '💡 <b>Отправьте глубину следа в см:</b>\n\n' +
+        '<code>10</code> - для свежего снега\n' +
+        '<code>10 уплотненный</code> - с указанием типа\n\n' +
+        '📝 <i>Типы снега: свежий, уплотненный, плотный, ледяной</i>',
+        { parse_mode: 'HTML' }
+    );
+});
+
+bot.onText(/\/calc_reverse/, async (msg) => {
+    const chatId = msg.chat.id;
+    userContext[msg.from.id] = 'calc_reverse'; // Устанавливаем контекст
+   
+    await bot.sendMessage(chatId,
+        '🔄 <b>Обратный калькулятор</b>\n\n' +
+        'Расчет размера обуви по длине отпечатка\n\n' +
+        '💡 <b>Отправьте длину отпечатка в см:</b>\n\n' +
+        '<code>33 см</code>\n\n' +
+        '<code>33</code>\n\n' +
+        '📝 <i>Пример: отпечаток 33 см → размеры 41-50</i>',
+        { parse_mode: 'HTML' }
+    );
+});
+
+bot.onText(/\/calc_shoe/, async (msg) => {
+    const chatId = msg.chat.id;
+    userContext[msg.from.id] = 'calc_shoe'; // Устанавливаем контекст
+   
+    try {
+        const typesMessage = calculators.getShoeTypes();
+        await bot.sendMessage(chatId, typesMessage, { parse_mode: 'HTML' });
+       
+        await bot.sendMessage(chatId,
+            '💡 <b>Отправьте размер и тип обуви:</b>\n\n' +
+            '<code>42 кроссовки</code>\n\n' +
+            'Или в формате:\n' +
+            '<code>размер=42 тип=кроссовки</code>',
+            { parse_mode: 'HTML' }
+        );
+    } catch (error) {
+        console.log('❌ Ошибка в /calc_shoe:', error);
+        await bot.sendMessage(chatId, '❌ Ошибка загрузки калькулятора');
     }
 });
 
