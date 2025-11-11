@@ -399,6 +399,10 @@ bot.onText(/\/currentstyle/, async (msg) => {
     );
 });
 
+// =============================================================================
+// 🧮 СИСТЕМА КАЛЬКУЛЯТОРОВ - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ
+// =============================================================================
+
 // Команда /calculators
 bot.onText(/\/calculators/, async (msg) => {
     const chatId = msg.chat.id;
@@ -421,20 +425,109 @@ bot.onText(/\/calculators/, async (msg) => {
     }
 });
 
-// Команда калькулятора обуви
+// 🎯 ПРАВИЛЬНАЯ СИСТЕМА КОНТЕКСТОВ
+const userContext = {};
+
+// ❄️ Команда калькулятора давности следа на снегу
+bot.onText(/\/calc_snow_age/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    await bot.sendMessage(chatId,
+        '⏱️❄️ <b>КАЛЬКУЛЯТОР ДАВНОСТИ СЛЕДА НА СНЕГУ</b>\n\n' +
+        '🔮 <b>ВЕРОЯТНОСТНАЯ МОДЕЛЬ С ИСТОРИЕЙ ПОГОДЫ</b>\n\n' +
+        '💡 <b>Как использовать:</b>\n\n' +
+        '1. 📍 <b>Отправьте местоположение</b> поиска\n\n' +
+        '2. 📅 <b>Укажите дату и время пропажи:</b>\n' +
+        '<code>2024-01-15 08:00</code>\n' +
+        '<code>15.01.2024 8:00</code>\n\n' +
+        '3. 🤖 <b>Бот рассчитает вероятностные коридоры</b> снежного покрова\n\n' +
+        '📍 <i>Сначала отправьте местоположение</i>',
+        {
+            parse_mode: 'HTML',
+            reply_markup: {
+                keyboard: [
+                    [{ text: "📍 Отправить местоположение", request_location: true }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: true
+            }
+        }
+    );
+   
+    userContext[userId] = 'waiting_snow_age_location';
+});
+
+// 📍 Обработчик геолокации для снега
+bot.on('location', async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    if (userContext[userId] === 'waiting_snow_age_location') {
+        const location = msg.location;
+       
+        userContext[userId] = {
+            type: 'snow_age_calc',
+            coordinates: {
+                lat: location.latitude,
+                lon: location.longitude
+            }
+        };
+       
+        await bot.sendMessage(chatId,
+            '📍 Местоположение получено. Теперь укажите <b>дату и время пропажи</b>:\n\n' +
+            '<code>2024-01-15 08:00</code>\n' +
+            '<code>15.01.2024 8:00</code>\n\n' +
+            '<i>Формат: ГГГГ-ММ-ДД ЧЧ:ММ или ДД.ММ.ГГГГ ЧЧ:ММ</i>',
+            { parse_mode: 'HTML' }
+        );
+    }
+});
+
+// 🎯 ОБНОВЛЕННЫЕ КОМАНДЫ ДЛЯ УСТАНОВКИ КОНТЕКСТА
+bot.onText(/\/calc_snow/, async (msg) => {
+    const chatId = msg.chat.id;
+    userContext[msg.from.id] = 'calc_snow';
+   
+    await bot.sendMessage(chatId,
+        '❄️ <b>КАЛЬКУЛЯТОР СНЕЖНОГО ПОКРОВА</b>\n\n' +
+        'Расчет высоты снега по глубине следа\n\n' +
+        '💡 <b>Отправьте глубину следа в см:</b>\n\n' +
+        '<code>10</code> - для свежего снега\n' +
+        '<code>10 уплотненный</code> - с указанием типа\n\n' +
+        '📝 <i>Типы снега: свежий, уплотненный, плотный, ледяной</i>',
+        { parse_mode: 'HTML' }
+    );
+});
+
+bot.onText(/\/calc_reverse/, async (msg) => {
+    const chatId = msg.chat.id;
+    userContext[msg.from.id] = 'calc_reverse';
+   
+    await bot.sendMessage(chatId,
+        '🔄 <b>ОБРАТНЫЙ КАЛЬКУЛЯТОР</b>\n\n' +
+        'Расчет размера обуви по длине отпечатка\n\n' +
+        '💡 <b>Отправьте длину отпечатка в см:</b>\n\n' +
+        '<code>33 см</code>\n\n' +
+        '<code>33</code>\n\n' +
+        '📝 <i>Пример: отпечаток 33 см → размеры 41-50</i>',
+        { parse_mode: 'HTML' }
+    );
+});
+
 bot.onText(/\/calc_shoe/, async (msg) => {
     const chatId = msg.chat.id;
-
+    userContext[msg.from.id] = 'calc_shoe';
+   
     try {
         const typesMessage = calculators.getShoeTypes();
         await bot.sendMessage(chatId, typesMessage, { parse_mode: 'HTML' });
-
+       
         await bot.sendMessage(chatId,
-            '💡 <b>Как использовать:</b>\n\n' +
-            'Отправьте сообщение в формате:\n' +
-            '<code>размер=42 тип=кроссовки</code>\n\n' +
-            'Или просто:\n' +
-            '<code>42 кроссовки</code>',
+            '💡 <b>Отправьте размер и тип обуви:</b>\n\n' +
+            '<code>42 кроссовки</code>\n\n' +
+            'Или в формате:\n' +
+            '<code>размер=42 тип=кроссовки</code>',
             { parse_mode: 'HTML' }
         );
     } catch (error) {
@@ -443,44 +536,7 @@ bot.onText(/\/calc_shoe/, async (msg) => {
     }
 });
 
-// Команда калькулятора снега
-bot.onText(/\/calc_snow/, async (msg) => {
-    const chatId = msg.chat.id;
-   
-    try {
-        await bot.sendMessage(chatId,
-            '❄️ <b>КАЛЬКУЛЯТОР СНЕЖНОГО ПОКРОВА</b>\n\n' +
-            'Расчет высоты снега по глубине следа\n\n' +
-            '💡 <b>Как использовать:</b>\n\n' +
-            'Отправьте глубину следа в см:\n' +
-            '<code>10</code>\n\n' +
-            'Или с типом снега:\n' +
-            '<code>10 свежий</code>\n\n' +
-            '📝 <i>Типы снега: свежий, уплотненный, плотный, ледяной</i>',
-            { parse_mode: 'HTML' }
-        );
-    } catch (error) {
-        console.log('❌ Ошибка в /calc_snow:', error);
-        await bot.sendMessage(chatId, '❌ Ошибка загрузки калькулятора');
-    }
-});
-
-// Команда модуля погоды
-bot.onText(/\/calc_weather/, async (msg) => {
-    const chatId = msg.chat.id;
-   
-    try {
-        await bot.sendMessage(chatId, '🌤️ Запрашиваю актуальные данные погоды...');
-       
-        const result = await calculators.getWeatherData();
-        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-    } catch (error) {
-        console.log('❌ Ошибка в /calc_weather:', error);
-        await bot.sendMessage(chatId, '❌ Ошибка загрузки модуля погоды');
-    }
-});
-
-// 🌤️ Команда погоды
+// 🌤️ Команда погоды (ОСТАВЛЯЕМ ТОЛЬКО ОДИН ОБРАБОТЧИК)
 bot.onText(/\/calc_weather/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -510,110 +566,73 @@ bot.onText(/\/calc_weather/, async (msg) => {
     );
 });
 
-// 📍 Обработчик геолокации
+// 📍 Обработчик геолокации для погоды
 bot.on('location', async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
    
     // Проверяем, ждем ли мы местоположение от этого пользователя
-    if (userContext[userId] !== 'waiting_for_location') return;
-   
-    const location = msg.location;
-   
-    try {
-        await bot.sendMessage(chatId, '📍 Получаю погоду для вашего местоположения...');
+    if (userContext[userId] === 'waiting_for_location') {
+        const location = msg.location;
        
-        const result = await calculators.getWeatherData({
-            coordinates: {
-                lat: location.latitude,
-                lon: location.longitude
-            }
-        });
-       
-        // Очищаем контекст
-        delete userContext[userId];
-       
-        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-       
-    } catch (error) {
-        console.log('❌ Ошибка обработки местоположения:', error);
-        await bot.sendMessage(chatId, '❌ Ошибка получения погоды');
-        delete userContext[userId];
+        try {
+            await bot.sendMessage(chatId, '📍 Получаю погоду для вашего местоположения...');
+           
+            const result = await calculators.getWeatherData({
+                coordinates: {
+                    lat: location.latitude,
+                    lon: location.longitude
+                }
+            });
+           
+            // Очищаем контекст
+            delete userContext[userId];
+           
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+           
+        } catch (error) {
+            console.log('❌ Ошибка обработки местоположения:', error);
+            await bot.sendMessage(chatId, '❌ Ошибка получения погоды');
+            delete userContext[userId];
+        }
     }
 });
 
-// 💬 Обработчик текстового ввода (города/координаты)
+// 🎯 ГЛАВНЫЙ ОБРАБОТЧИК СООБЩЕНИЙ ДЛЯ КАЛЬКУЛЯТОРОВ
 bot.on('message', async (msg) => {
-    // Пропускаем команды, местоположения и служебные сообщения
+    // Пропускаем команды и служебные сообщения
     if (msg.text && msg.text.startsWith('/')) return;
-    if (msg.location) return;
+    if (msg.location) return; // Обрабатывается отдельно
     if (!msg.text) return;
    
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const text = msg.text.trim();
    
-    // Проверяем, ждем ли мы запрос погоды от этого пользователя
-    if (userContext[userId] !== 'waiting_for_location') return;
+    console.log('🔍 Получено сообщение для обработки:', text, 'Контекст:', userContext[userId]);
    
     try {
-        await bot.sendMessage(chatId, '🌤️ Запрашиваю погоду...');
-       
-        let options = {};
-       
-        // Проверяем формат ввода
-        if (this.isCoordinates(text)) {
-            // Координаты: "55.7558 37.6173"
-            const coords = text.split(' ').map(coord => parseFloat(coord));
-            options.coordinates = { lat: coords[0], lon: coords[1] };
-        } else {
-            // Название города
-            options.location = text;
+        // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА
+        if (userContext[userId] && userContext[userId].type === 'snow_age_calc') {
+            const context = userContext[userId];
+            const disappearanceTime = parseDateTime(text);
+           
+            if (!disappearanceTime) {
+                await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-15 08:00</code>', { parse_mode: 'HTML' });
+                return;
+            }
+           
+            await bot.sendMessage(chatId, '❄️🔮 Анализирую эволюцию снежного покрова с вероятностной моделью...');
+           
+            const result = await calculators.calculateSnowAge(context.coordinates, disappearanceTime);
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+           
+            delete userContext[userId];
+            return;
         }
        
-        const result = await calculators.getWeatherData(options);
-       
-        // Очищаем контекст
-        delete userContext[userId];
-       
-        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-       
-    } catch (error) {
-        console.log('❌ Ошибка получения погоды:', error);
-        await bot.sendMessage(chatId, '❌ Ошибка получения данных погоды');
-        delete userContext[userId];
-    }
-});
-
-// 📍 Вспомогательные функции (добавить в конец файла)
-function isCoordinates(text) {
-    // Проверяем формат "число число" или "число,число"
-    const coordRegex = /^-?\d+\.?\d*[\s,]+-?\d+\.?\d*$/;
-    return coordRegex.test(text);
-}
-
-function isCoordinates(text) {
-    const coordRegex = /^-?\d+\.?\d*\s+-?\d+\.?\d*$/;
-    return coordRegex.test(text);
-}
-
-// Обработчик ввода данных для калькуляторов
-bot.on('message', async (msg) => {
-    // Пропускаем команды и служебные сообщения
-    if (msg.text && msg.text.startsWith('/')) return;
-    if (!msg.text) return;
-   
-    const chatId = msg.chat.id;
-    const text = msg.text.toLowerCase();
-   
-    console.log('🔍 Получено сообщение для обработки:', text);
-   
-    try {
-        // Сначала проверяем контекст - какая команда была вызвана последней
-        // Для этого нужно хранить контекст пользователя
-       
-        // 1. Если был вызван /calc_snow - обрабатываем как снег
-        if (userContext[msg.from.id] === 'calc_snow') {
+        // 🎯 ОБРАБОТКА ПРОСТЫХ КАЛЬКУЛЯТОРОВ
+        if (userContext[userId] === 'calc_snow') {
             const parts = text.split(' ');
             const depth = parts[0];
             const snowType = parts[1] || 'fresh';
@@ -623,13 +642,11 @@ bot.on('message', async (msg) => {
             const result = calculators.calculateSnowDepth(depth, snowType);
             await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
            
-            // Очищаем контекст
-            delete userContext[msg.from.id];
+            delete userContext[userId];
             return;
         }
        
-        // 2. Если был вызван /calc_reverse - обрабатываем как обратный расчет
-        if (userContext[msg.from.id] === 'calc_reverse') {
+        if (userContext[userId] === 'calc_reverse') {
             const lengthMatch = text.match(/(\d+[.,]?\d*)\s*см/) || [null, text.trim()];
             const footprintLength = lengthMatch[1].replace(',', '.');
            
@@ -638,13 +655,70 @@ bot.on('message', async (msg) => {
             const result = calculators.calculateReverse(footprintLength);
             await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
            
-            // Очищаем контекст
-            delete userContext[msg.from.id];
+            delete userContext[userId];
             return;
         }
        
-        // 3. Автоматическое определение (только если нет контекста)
-        // Проверяем калькулятор снега (просто число или число + тип снега)
+        if (userContext[userId] === 'calc_shoe') {
+            console.log('🔍 Обрабатываем как прямой калькулятор');
+            let size, type;
+           
+            if (text.includes('размер=') && text.includes('тип=')) {
+                const sizeMatch = text.match(/размер=(\d+)/);
+                const typeMatch = text.match(/тип=([^]+)/);
+                size = sizeMatch ? sizeMatch[1] : null;
+                type = typeMatch ? typeMatch[1].trim() : null;
+            } else {
+                const parts = text.split(' ');
+                size = parts[0];
+                type = parts.slice(1).join(' ');
+            }
+           
+            console.log('🔍 Парсинг:', { size, type });
+           
+            if (size && type) {
+                const result = calculators.calculateShoeSize(size, type);
+                console.log('🔍 Результат калькулятора:', result);
+                await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            }
+           
+            delete userContext[userId];
+            return;
+        }
+       
+        // 🎯 ОБРАБОТКА КОНТЕКСТА ПОГОДЫ
+        if (userContext[userId] === 'waiting_for_location') {
+            try {
+                await bot.sendMessage(chatId, '🌤️ Запрашиваю погоду...');
+               
+                let options = {};
+               
+                // Проверяем формат ввода
+                if (isCoordinates(text)) {
+                    // Координаты: "55.7558 37.6173"
+                    const coords = text.split(' ').map(coord => parseFloat(coord));
+                    options.coordinates = { lat: coords[0], lon: coords[1] };
+                } else {
+                    // Название города
+                    options.location = text;
+                }
+               
+                const result = await calculators.getWeatherData(options);
+               
+                // Очищаем контекст
+                delete userContext[userId];
+               
+                await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+               
+            } catch (error) {
+                console.log('❌ Ошибка получения погоды:', error);
+                await bot.sendMessage(chatId, '❌ Ошибка получения данных погоды');
+                delete userContext[userId];
+            }
+            return;
+        }
+       
+        // 🎯 АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ (если нет контекста)
         if (/^\d+$/.test(text.trim()) || /^\d+\s+[а-я]+/.test(text)) {
             const parts = text.split(' ');
             const depth = parts[0];
@@ -657,7 +731,6 @@ bot.on('message', async (msg) => {
             return;
         }
        
-        // 4. Проверяем обратный расчет размеров (длина отпечатка с "см")
         if (text.includes('см')) {
             const lengthMatch = text.match(/(\d+[.,]?\d*)\s*см/);
             if (lengthMatch) {
@@ -671,7 +744,6 @@ bot.on('message', async (msg) => {
             }
         }
        
-        // 5. Проверяем прямой расчет размеров (размер + тип обуви)
         if ((text.includes('размер=') && text.includes('тип=')) ||
             (/^\d+/.test(text) && text.split(' ').length >= 2)) {
            
@@ -704,148 +776,18 @@ bot.on('message', async (msg) => {
     }
 });
 
-// Добавляем хранение контекста пользователей
-const userContext = {};
+// 📍 Вспомогательные функции для координат
+function isCoordinates(text) {
+    // Проверяем формат "число число" или "число,число"
+    const coordRegex = /^-?\d+\.?\d*[\s,]+-?\d+\.?\d*$/;
+    return coordRegex.test(text);
+}
 
-// Обновляем команды для установки контекста
-bot.onText(/\/calc_snow/, async (msg) => {
-    const chatId = msg.chat.id;
-    userContext[msg.from.id] = 'calc_snow'; // Устанавливаем контекст
-   
-    await bot.sendMessage(chatId,
-        '❄️ <b>КАЛЬКУЛЯТОР СНЕЖНОГО ПОКРОВА</b>\n\n' +
-        'Расчет высоты снега по глубине следа\n\n' +
-        '💡 <b>Отправьте глубину следа в см:</b>\n\n' +
-        '<code>10</code> - для свежего снега\n' +
-        '<code>10 уплотненный</code> - с указанием типа\n\n' +
-        '📝 <i>Типы снега: свежий, уплотненный, плотный, ледяной</i>',
-        { parse_mode: 'HTML' }
-    );
-});
-
-bot.onText(/\/calc_reverse/, async (msg) => {
-    const chatId = msg.chat.id;
-    userContext[msg.from.id] = 'calc_reverse'; // Устанавливаем контекст
-   
-    await bot.sendMessage(chatId,
-        '🔄 <b>Обратный калькулятор</b>\n\n' +
-        'Расчет размера обуви по длине отпечатка\n\n' +
-        '💡 <b>Отправьте длину отпечатка в см:</b>\n\n' +
-        '<code>33 см</code>\n\n' +
-        '<code>33</code>\n\n' +
-        '📝 <i>Пример: отпечаток 33 см → размеры 41-50</i>',
-        { parse_mode: 'HTML' }
-    );
-});
-
-bot.onText(/\/calc_shoe/, async (msg) => {
-    const chatId = msg.chat.id;
-    userContext[msg.from.id] = 'calc_shoe'; // Устанавливаем контекст
-   
-    try {
-        const typesMessage = calculators.getShoeTypes();
-        await bot.sendMessage(chatId, typesMessage, { parse_mode: 'HTML' });
-       
-        await bot.sendMessage(chatId,
-            '💡 <b>Отправьте размер и тип обуви:</b>\n\n' +
-            '<code>42 кроссовки</code>\n\n' +
-            'Или в формате:\n' +
-            '<code>размер=42 тип=кроссовки</code>',
-            { parse_mode: 'HTML' }
-        );
-    } catch (error) {
-        console.log('❌ Ошибка в /calc_shoe:', error);
-        await bot.sendMessage(chatId, '❌ Ошибка загрузки калькулятора');
-    }
-});
-
-// Команда калькулятора давности следа на снегу
-bot.onText(/\/calc_snow_age/, async (msg) => {
-    const chatId = msg.chat.id;
-   
-    await bot.sendMessage(chatId,
-        '⏱️ <b>КАЛЬКУЛЯТОР ДАВНОСТИ СЛЕДА</b>\n\n' +
-        'Расчет эволюции снежного покрова с момента пропажи\n\n' +
-        '💡 <b>Как использовать:</b>\n\n' +
-        '1. 📍 <b>Отправьте местоположение</b> поиска\n\n' +
-        '2. 📅 <b>Укажите дату и время пропажи:</b>\n' +
-        '<code>2024-01-15 08:00</code>\n' +
-        '<code>15.01.2024 8:00</code>\n\n' +
-        '3. 🤖 <b>Бот рассчитает</b> как менялся снег с того момента\n\n' +
-        '📍 <i>Сначала отправьте местоположение</i>',
-        {
-            parse_mode: 'HTML',
-            reply_markup: {
-                keyboard: [
-                    [{ text: "📍 Отправить местоположение", request_location: true }]
-                ],
-                resize_keyboard: true,
-                one_time_keyboard: true
-            }
-        }
-    );
-   
-    userContext[msg.from.id] = 'waiting_snow_age_location';
-});
-
-// Обработчик для калькулятора давности
-userContext[/waiting_snow_age_location/] = async (msg, text) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-   
-    if (msg.location) {
-        userContext[userId] = {
-            type: 'snow_age_calc',
-            coordinates: {
-                lat: msg.location.latitude,
-                lon: msg.location.longitude
-            }
-        };
-       
-        await bot.sendMessage(chatId,
-            '📍 Местоположение получено. Теперь укажите <b>дату и время пропажи</b>:\n\n' +
-            '<code>2024-01-15 08:00</code>\n' +
-            '<code>15.01.2024 8:00</code>\n\n' +
-            '<i>Формат: ГГГГ-ММ-ДД ЧЧ:ММ или ДД.ММ.ГГГГ ЧЧ:ММ</i>',
-            { parse_mode: 'HTML' }
-        );
-    }
-};
-
-// Обработчик даты пропажи
-userContext[/snow_age_calc/] = async (msg, text) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const context = userContext[userId];
-   
-    try {
-        await bot.sendMessage(chatId, '❄️ Анализирую эволюцию снежного покрова...');
-       
-        const disappearanceTime = this.parseDateTime(text);
-        if (!disappearanceTime) {
-            await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-15 08:00</code>', { parse_mode: 'HTML' });
-            return;
-        }
-       
-        const result = await calculators.calculateSnowAge(context.coordinates, disappearanceTime);
-        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-       
-        delete userContext[userId];
-       
-    } catch (error) {
-        console.log('❌ Ошибка расчета давности:', error);
-        await bot.sendMessage(chatId, '❌ Ошибка расчета эволюции снега');
-        delete userContext[userId];
-    }
-};
-
-// Вспомогательная функция для парсинга даты
+// 🔧 ФУНКЦИЯ ПАРСИНГА ДАТЫ
 function parseDateTime(dateString) {
     try {
-        // Пробуем разные форматы
         let date = new Date(dateString);
         if (isNaN(date.getTime())) {
-            // Формат DD.MM.YYYY
             const parts = dateString.split('.');
             if (parts.length === 3) {
                 date = new Date(parts[2], parts[1] - 1, parts[0]);
@@ -856,6 +798,10 @@ function parseDateTime(dateString) {
         return null;
     }
 }
+
+// =============================================================================
+// 🏁 КОНЕЦ БЛОКА КАЛЬКУЛЯТОРОВ
+// =============================================================================
 
 // Команда /apps
 bot.onText(/\/apps/, async (msg) => {
