@@ -1,13 +1,17 @@
 const shoeSizeCalculator = require('./shoe-size');
 //const heightCalculator = { estimate: () => ({ success: false, error: 'В разработке' }) };
-// const snowCalculator = { calculate: () => ({ success: false, error: 'В разработке' }) };
-// const weatherModule = { getWeather: () => ({ success: false, error: 'В разработке' }) };
+const { SnowCalculator } = require('./snow-calculator');
+const { WeatherService } = require('./weather-service');
 
 /**
 * Меню калькуляторов
 */
 function initialize() {
     console.log('✅ Модуль калькуляторов загружен');
+   
+    // Инициализируем калькуляторы
+    const snowCalc = new SnowCalculator();
+    const weatherService = new WeatherService();
    
     return {
         getMenu: () => ({
@@ -22,11 +26,21 @@ function initialize() {
                     name: "🔄 Обратный калькулятор",
                     command: "/calc_reverse",
                     description: "Расчет размера обуви по длине отпечатка"
+                },
+                {
+                    name: "❄️ Снежный покров",
+                    command: "/calc_snow",
+                    description: "Расчет высоты снега по следам"
+                },
+                {
+                    name: "🌤️ Погода",
+                    command: "/calc_weather",
+                    description: "Метеоданные для анализа следов"
                 }
             ]
         }),
        
-        // Прямой расчет
+        // Прямой расчет размеров
         calculateShoeSize: (size, type) => {
             const result = shoeSizeCalculator.calculate({ size, type });
             if (result.success) {
@@ -36,7 +50,7 @@ function initialize() {
             }
         },
        
-        // Обратный расчет
+        // Обратный расчет размеров
         calculateReverse: (footprintLength) => {
             const result = shoeSizeCalculator.calculateReverse(footprintLength);
             if (result.success) {
@@ -46,15 +60,56 @@ function initialize() {
             }
         },
        
-        getShoeTypes: () => {
-            return shoeSizeCalculator.getFootwearTypesList();
+        // Калькулятор снега
+        calculateSnowDepth: (trackDepth, snowType = 'fresh', compression = 'medium') => {
+            try {
+                const result = snowCalc.calculateSnowDepth({
+                    trackDepth: parseFloat(trackDepth),
+                    snowType: snowType,
+                    compression:сжатие                 если (результат.успех) {
+                });
+               
+
+                    return `❄️ <b>РАСЧЕТ ВЫСОТЫ СНЕГА</b>\n\n` +
+                           `📏 Глубина следа: <b>${result.result.trackDepth} см</b>\n` +
+                           `🏷️ Тип снега: <b>${result.result.snowType}</b>\n` +
+                           `📊 Коэффициент уплотнения: <b>${result.result.compressionFactor}</b>\n` +
+                           `📐 Расчетная высота снега: <b>${result.result.estimatedSnowDepth} см</b>\n\n` +
+                           `💡 <i>${result.result.message}</i>`;
+                } else {
+                    return `❌ ${result.error}`;
+                }
+            } catch (error) {
+                return `❌ Ошибка расчета снега: ${error.message}`;
+            }
         },
        
-        // Остальные калькуляторы - заглушки
-        estimateHeight: () => "📏 Калькулятор роста в разработке",
-        calculateSnowDepth: () => "❄️ Калькулятор снега в разработке",
-        getWeatherData: () => "🌤️ Модуль погоды в разработке"
+        // Модуль погоды
+        getWeatherData: (location = 'Москва') => {
+            try {
+                const result = weatherService.getWeatherData({ location });
+                if (result.success) {
+                    return `🌤️ <b>МОДУЛЬ ПОГОДЫ</b>\n\n` +
+                           `📍 Локация: <b>${result.result.location}</b>\n` +
+                           `📅 Дата: <b>${result.result.date}</b>\n` +
+                           `🌡️ Температура: <b>${result.result.temperature}</b>\n` +
+                           `☁️ Условия: <b>${result.result.conditions}</b>\n\n` +
+                           `💡 <i>${result.result.message}</i>`;
+                } else {
+                    return `❌ ${result.error}`;
+                }
+            } catch (error) {
+                return `❌ Ошибка получения погоды: ${error.message}`;
+            }
+        },
+       
+        getShoeTypes: () => {
+            return shoeSizeCalculator.getFootwearTypesList();
+        }
     };
+}
+
+module.exports = { инициализировать };
 }
 
 module.exports = { initialize };
