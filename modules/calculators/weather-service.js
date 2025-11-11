@@ -81,50 +81,49 @@ class WeatherService {
     }
 
     async getCompleteWeatherData(lat, lon) {
-        try {
-            // Получаем прогноз на 5 дней
-            const response = await axios.get(`${this.baseURL}/forecast`, {
-                params: {
-                    lat: lat,
-                    lon: lon,
-                    appid: this.apiKey,
-                    units: 'metric',
-                    lang: 'ru'
-                }
-            });
+    try {
+        // Получаем прогноз на 5 дней (реальные данные)
+        const response = await axios.get(`${this.baseURL}/forecast`, {
+            params: {
+                lat: lat,
+                lon: lon,
+                appid: this.apiKey,
+                units: 'metric',
+                lang: 'ru'
+            }
+        });
 
-            const data = response.data;
-           
-            // Генерируем историю за 7 дней
-            const history = this.generateWeatherHistory(7);
-           
-            // Форматируем текущую погоду
-            const current = this.formatCurrentWeather(data.list[0]);
-           
-            // Форматируем почасовой прогноз на 6 часов
-            const hourly = this.formatHourlyForecast(data.list.slice(0, 6));
-           
-            // Форматируем прогноз на 2 дня вперед
-            const forecast = this.formatTwoDayForecast(data.list);
-           
-            return {
-                history: history,
-                current: current,
-                hourly: hourly,
-                forecast: forecast
-            };
-           
-        } catch (error) {
-            console.error('Weather API error:', error);
-            // Возвращаем демо-данные при ошибке
-            return {
-                history: this.generateWeatherHistory(7),
-                current: this.generateDemoCurrentWeather(),
-                hourly: this.generateDemoHourlyForecast(),
-                forecast: this.generateDemoForecast()
-            };
-        }
+        const data = response.data;
+       
+        // УБИРАЕМ ФЕЙКОВУЮ ИСТОРИЮ - оставляем только реальные данные
+        // const history = this.generateWeatherHistory(7); ← УДАЛИТЬ
+       
+        // Форматируем текущую погоду
+        const current = this.formatCurrentWeather(data.list[0]);
+       
+        // Форматируем почасовой прогноз на 6 часов
+        const hourly = this.formatHourlyForecast(data.list.slice(0, 6));
+       
+        // Форматируем прогноз на 2 дня вперед
+        const forecast = this.formatTwoDayForecast(data.list);
+       
+        return {
+            // history: history, ← УДАЛИТЬ
+            current: current,
+            hourly: hourly,
+            forecast: forecast
+        };
+       
+    } catch (error) {
+        console.error('Weather API error:', error);
+        // Возвращаем демо-данные при ошибке (только реальные периоды)
+        return {
+            current: this.generateDemoCurrentWeather(),
+            hourly: this.generateDemoHourlyForecast(),
+            forecast: this.generateDemoForecast()
+        };
     }
+}
 
     // ГЕОКОДИНГ
     async geocodeCity(cityName) {
