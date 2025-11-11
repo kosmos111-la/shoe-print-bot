@@ -400,7 +400,7 @@ bot.onText(/\/currentstyle/, async (msg) => {
 });
 
 // =============================================================================
-// 🧮 СИСТЕМА КАЛЬКУЛЯТОРОВ - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ
+// 🧮 СИСТЕМА КАЛЬКУЛЯТОРОВ - БЕЗ ПРОБЛЕМНОГО СНЕГА
 // =============================================================================
 
 // 🎯 ПРАВИЛЬНАЯ СИСТЕМА КОНТЕКСТОВ
@@ -462,26 +462,6 @@ bot.onText(/\/calc_snow_age/, async (msg) => {
 });
 
 // 🎯 ОБНОВЛЕННЫЕ КОМАНДЫ ДЛЯ УСТАНОВКИ КОНТЕКСТА
-bot.onText(/\/calc_snow/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-   
-    // ОЧИЩАЕМ КОНТЕКСТ ПЕРЕД НОВОЙ КОМАНДОЙ
-    delete userContext[userId];
-   
-    userContext[userId] = 'calc_snow';
-   
-    await bot.sendMessage(chatId,
-        '❄️ <b>КАЛЬКУЛЯТОР СНЕЖНОГО ПОКРОВА</b>\n\n' +
-        'Расчет высоты снега по глубине следа\n\n' +
-        '💡 <b>Отправьте глубину следа в см:</b>\n\n' +
-        '<code>10</code> - для свежего снега\n' +
-        '<code>10 уплотненный</code> - с указанием типа\n\n' +
-        '📝 <i>Типы снега: свежий, уплотненный, плотный, ледяной</i>',
-        { parse_mode: 'HTML' }
-    );
-});
-
 bot.onText(/\/calc_reverse/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -528,7 +508,7 @@ bot.onText(/\/calc_shoe/, async (msg) => {
     }
 });
 
-// 🌤️ Команда погоды (ТОЛЬКО ОДИН ОБРАБОТЧИК)
+// 🌤️ Команда погоды с историей
 bot.onText(/\/calc_weather/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -540,14 +520,15 @@ bot.onText(/\/calc_weather/, async (msg) => {
     userContext[userId] = 'calc_weather';
    
     await bot.sendMessage(chatId,
-        '🌤️ <b>ДЛЯ КАКОГО МЕСТА НУЖНА ПОГОДА?</b>\n\n' +
+        '🌤️ <b>ПОГОДА С ИСТОРИЕЙ ЗА 7 ДНЕЙ</b>\n\n' +
         '📍 <b>Отправьте местоположение</b> (скрепка → Местоположение)\n\n' +
         '🏙️ <b>Или напишите город:</b>\n' +
         '<code>Москва</code>\n' +
         '<code>Санкт-Петербург</code>\n' +
         '<code>Новосибирск</code>\n\n' +
         '📌 <b>Или координаты:</b>\n' +
-        '<code>55.7558 37.6173</code>',
+        '<code>55.7558 37.6173</code>\n\n' +
+        '📊 <i>Бот покажет текущую погоду, прогноз и историю за неделю</i>',
         {
             parse_mode: 'HTML',
             reply_markup: {
@@ -656,22 +637,6 @@ bot.on('message', async (msg) => {
         }
        
         // 🎯 ОБРАБОТКА ПРОСТЫХ КАЛЬКУЛЯТОРОВ
-        if (context === 'calc_snow') {
-            const parts = text.split(' ');
-            const depth = parts[0];
-            const snowType = parts[1] || 'fresh';
-           
-            console.log('🔍 Расчет снега:', { depth, snowType });
-           
-            const result = calculators.calculateSnowDepth(depth, snowType);
-           
-            // Очищаем контекст ПОСЛЕ выполнения
-            delete userContext[userId];
-           
-            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-            return;
-        }
-       
         if (context === 'calc_reverse') {
             const lengthMatch = text.match(/(\d+[.,]?\d*)\s*см/) || [null, text.trim()];
             const footprintLength = lengthMatch[1].replace(',', '.');
@@ -719,7 +684,7 @@ bot.on('message', async (msg) => {
        
         // 🌤️ ОБРАБОТКА КОНТЕКСТА ПОГОДЫ (город/координаты)
         if (context === 'calc_weather') {
-            await bot.sendMessage(chatId, '🌤️ Запрашиваю погоду...');
+            await bot.sendMessage(chatId, '🌤️ Запрашиваю погоду с историей...');
            
             let options = {};
            
@@ -745,19 +710,6 @@ bot.on('message', async (msg) => {
         // 🎯 АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ (если нет контекста)
         // Только если НЕТ активного контекста!
         if (!context) {
-            // ❄️ Автоопределение снега (просто число или число + тип снега)
-            if (/^\d+$/.test(text.trim()) || /^\d+\s+[а-я]+/.test(text)) {
-                const parts = text.split(' ');
-                const depth = parts[0];
-                const snowType = parts[1] || 'fresh';
-               
-                console.log('🔍 Расчет снега (автоопределение):', { depth, snowType });
-               
-                const result = calculators.calculateSnowDepth(depth, snowType);
-                await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-                return;
-            }
-           
             // 🔄 Автоопределение обратного расчета (длина с "см")
             if (text.includes('см')) {
                 const lengthMatch = text.match(/(\d+[.,]?\d*)\s*см/);
