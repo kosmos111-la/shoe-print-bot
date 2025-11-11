@@ -84,17 +84,27 @@ function initialize() {
             }
         },
        
-        // Модуль погоды
-        getWeatherData: (location = 'Москва') => {
+        // Модуль погоды - теперь асинхронный
+        getWeatherData: async (location = 'Москва') => {
             try {
-                const result = weatherService.getWeatherData({ location });
+                const result = await weatherService.getWeatherData({ location });
                 if (result.success) {
-                    return `🌤️ <b>МОДУЛЬ ПОГОДЫ</b>\n\n` +
-                           `📍 Локация: <b>${result.result.location}</b>\n` +
-                           `📅 Дата: <b>${result.result.date}</b>\n` +
-                           `🌡️ Температура: <b>${result.result.temperature}</b>\n` +
-                           `☁️ Условия: <b>${result.result.conditions}</b>\n\n` +
-                           `💡 <i>${result.result.message}</i>`;
+                    return `🌤️ <b>ПОГОДА - ${result.result.location.toUpperCase()}</b>\n\n` +
+                           `📅 <b>Текущие условия:</b>\n` +
+                           `🌡️ Температура: <b>${result.result.current.temperature}°C</b>\n` +
+                           `💨 Ощущается как: <b>${result.result.current.feels_like}°C</b>\n` +
+                           `☁️ Погода: <b>${result.result.current.condition}</b>\n` +
+                           `💨 Ветер: <b>${result.result.current.wind_speed} м/с</b>\n` +
+                           `📡 Давление: <b>${result.result.current.pressure} гПа</b>\n` +
+                           `💧 Влажность: <b>${result.result.current.humidity}%</b>\n\n` +
+                          
+                           `📊 <b>Прогноз на 2 дня:</b>\n` +
+                           result.result.forecast.map(day =>
+                               `📅 ${day.date}: ${day.temp_min}°C..${day.temp_max}°C, ${day.condition}`
+                           ).join('\n') + '\n\n' +
+                          
+                           `🔍 <b>Для поисковых работ:</b>\n` +
+                           `${result.result.searchSummary}`;
                 } else {
                     return `❌ ${result.error}`;
                 }
