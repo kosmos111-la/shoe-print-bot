@@ -95,49 +95,66 @@ function initialize() {
             return result.success ? result.result : `❌ ${result.error}`;
         },
        
-        // 🔮 ИНТЕЛЛЕКТУАЛЬНЫЙ снежный калькулятор
         calculateSnowAge: async (coordinates, disappearanceTime, locationInfo = {}) => {
-            try {
-                // ПРОВЕРЯЕМ АКТУАЛЬНЫЕ УСЛОВИЯ
-                const snowConditions = await hasSnowConditions(coordinates);
-               
-                if (!snowConditions) {
-                    const weatherResult = await weatherService.getWeatherData({
-                        coordinates: coordinates,
-                        simple: true
-                    });
-                   
-                    let currentWeather = '';
-                    if (weatherResult.success) {
-                        const data = weatherResult.result;
-                        currentWeather = `🌡️ Сейчас: ${data.current.temperature}°C, ${data.current.condition}`;
-                    }
-                   
-                    return `❄️ <b>СНЕЖНЫХ УСЛОВИЙ НЕТ</b>\n\n` +
-                           `${currentWeather}\n` +
-                           `📍 Местоположение: ${coordinates.lat.toFixed(4)}, ${coordinates.lon.toFixed(4)}\n\n` +
-                           `💡 <b>Снежный анализ невозможен:</b>\n` +
-                           `• Температура выше +2°C\n` +
-                           `• Отсутствует снежный покров\n` +
-                           `• Условия не соответствуют зимним\n\n` +
-                           `🎯 <b>Используйте другие инструменты:</b>\n` +
-                           `• /calc_shoe - расчет размеров обуви\n` +
-                           `• /calc_reverse - обратный расчет\n` +
-                           `• /calc_weather - погодные условия\n\n` +
-                           `❄️ Калькулятор снега активируется при температуре ниже +2°C и наличии снега`;
-                }
-               
-                // ЕСЛИ УСЛОВИЯ ПОДХОДЯЩИЕ - ВЫПОЛНЯЕМ РАСЧЕТ
-                return `🔮 <b>ВЕРОЯТНОСТНАЯ МОДЕЛЬ СНЕГА</b>\n\n` +
-                       `📍 Местоположение: ${coordinates.lat.toFixed(4)}, ${coordinates.lon.toFixed(4)}\n` +
-                       `📅 Время пропажи: ${new Date(disappearanceTime).toLocaleString('ru-RU')}\n` +
-                       `❄️ Условия: подходящие для снежного анализа\n\n` +
-                       `🚧 <i>Модуль находится в разработке</i>\n\n` +
-                       `💡 Пока используйте простые расчеты через другие калькуляторы`;
-            } catch (error) {
-                return `❌ Ошибка расчета: ${error.message}`;
-            }
-        },
+    try {
+        console.log('❄️ Проверяю снежные условия для:', coordinates);
+       
+        // ПРОВЕРЯЕМ АКТУАЛЬНЫЕ УСЛОВИЯ
+        const weatherResult = await weatherService.getWeatherData({
+            coordinates: coordinates,
+            simple: true
+        });
+       
+        if (!weatherResult.success) {
+            return `❌ Не удалось проверить погодные условия: ${weatherResult.error}`;
+        }
+       
+        const data = weatherResult.result;
+        const temp = data.current.temperature;
+        const condition = data.current.condition.toLowerCase();
+       
+        console.log('🔍 Погодные условия:', { temp, condition });
+       
+        // Условия для снега: температура < +2°C и снег/мороз в описании
+        const isColdEnough = temp < 2;
+        const hasSnowKeywords = condition.includes('снег') ||
+                              condition.includes('мороз') ||
+                              condition.includes('метель') ||
+                              condition.includes('snow') ||
+                              condition.includes('frost') ||
+                              condition.includes('ice');
+       
+        const snowConditions = isColdEnough || hasSnowKeywords;
+       
+        if (!snowConditions) {
+            return `❄️ <b>СНЕЖНЫХ УСЛОВИЙ НЕТ</b>\n\n` +
+                   `📍 Местоположение: ${data.location}\n` +
+                   `🌡️ Сейчас: ${temp}°C, ${data.current.condition}\n` +
+                   `💨 Ветер: ${data.current.wind_speed} м/с\n\n` +
+                   `💡 <b>Снежный анализ невозможен:</b>\n` +
+                   `• Температура выше +2°C\n` +
+                   `• Отсутствует снежный покров\n` +
+                   `• Условия не соответствуют зимним\n\n` +
+                   `🎯 <b>Используйте другие инструменты:</b>\n` +
+                   `• /calc_shoe - расчет размеров обуви\n` +
+                   `• /calc_reverse - обратный расчет\n` +
+                   `• /calc_weather - детальная погода\n\n` +
+                   `❄️ Калькулятор снега активируется при температуре ниже +2°C и наличии снега`;
+        }
+       
+        // ЕСЛИ УСЛОВИЯ ПОДХОДЯЩИЕ - ВЫПОЛНЯЕМ РАСЧЕТ
+        return `🔮 <b>ВЕРОЯТНОСТНАЯ МОДЕЛЬ СНЕГА</b>\n\n` +
+               `📍 Местоположение: ${data.location}\n` +
+               `🌡️ Текущие условия: ${temp}°C, ${data.current.condition}\n` +
+               `📅 Время пропажи: ${new Date(disappearanceTime).toLocaleString('ru-RU')}\n` +
+               `❄️ Условия: подходящие для снежного анализа\n\n` +
+               `🚧 <i>Модуль находится в разработке</i>\n\n` +
+               `💡 Пока используйте простые расчеты через другие калькуляторы`;
+    } catch (error) {
+        console.log('❌ Ошибка снежного калькулятора:', error);
+        return `❌ Ошибка расчета: ${error.message}`;
+    }
+},
        
         // 🌤️ Погода
         getWeatherData: async (options = {}) => {
