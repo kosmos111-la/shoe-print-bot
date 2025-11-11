@@ -54,7 +54,7 @@ class WeatherService {
                 cityName = coords.name;
             }
            
-            // Получаем данные: история 7 дней + сейчас + почасовой прогноз 6ч + прогноз 2 дня
+            // Получаем полные данные погоды
             const weatherData = await this.getCompleteWeatherData(lat, lon);
            
             return {
@@ -82,7 +82,7 @@ class WeatherService {
 
     async getCompleteWeatherData(lat, lon) {
         try {
-            // Получаем прогноз на 5 дней (максимум в бесплатном API)
+            // Получаем прогноз на 5 дней
             const response = await axios.get(`${this.baseURL}/forecast`, {
                 params: {
                     lat: lat,
@@ -98,7 +98,7 @@ class WeatherService {
             // Генерируем историю за 7 дней
             const history = this.generateWeatherHistory(7);
            
-            // Форматируем текущую погоду (первый элемент списка)
+            // Форматируем текущую погоду
             const current = this.formatCurrentWeather(data.list[0]);
            
             // Форматируем почасовой прогноз на 6 часов
@@ -126,13 +126,12 @@ class WeatherService {
         }
     }
 
-    // ДОБАВЛЯЕМ ПРОПУЩЕННЫЕ МЕТОДЫ:
-
+    // ГЕОКОДИНГ
     async geocodeCity(cityName) {
         try {
             const response = await axios.get('http://api.openweathermap.org/geo/1.0/direct', {
                 params: {
-                    q: cityName + ',RU',
+                    q: cityName,
                     limit: 1,
                     appid: this.apiKey
                 }
@@ -145,7 +144,7 @@ class WeatherService {
                     name: response.data[0].name
                 };
             } else {
-                throw new Error('Город не найден');
+                return { lat: 55.7558, lon: 37.6173, name: 'Москва' };
             }
         } catch (error) {
             console.error('Geocoding error:', error);
@@ -211,27 +210,31 @@ class WeatherService {
         const processedDays = new Set();
         const today = new Date().toDateString();
 
+        // Группируем по дням
+        const days = {};
         forecastList.forEach(item => {
             const itemDate = new Date(item.dt * 1000);
             const dateKey = itemDate.toDateString();
            
-            // Пропускаем сегодня и берем только 2 следующих дня
-            if (dateKey !== today && !processedDays.has(dateKey) && dailyForecast.length < 2) {
-                processedDays.add(dateKey);
-               
-                // Находим дневную и ночную температуру для этого дня
-                const dayItems = forecastList.filter(f =>
-                    new Date(f.dt * 1000).toDateString() === dateKey
-                );
-               
+            if (!days[dateKey]) {
+                days[dateKey] = [];
+            }
+            days[dateKey].push(item);
+        });
+
+        // Берем только 2 следующих дня (после сегодня)
+        const dayKeys = Object.keys(days).sort();
+        let daysAdded = 0;
+       
+        for (const dateKey of dayKeys) {
+            if (dateKey !== today && daysAdded < 2) {
+                const dayItems = days[dateKey];
                 const dayTemp = Math.round(Math.max(...dayItems.map(i => i.main.temp)));
                 const nightTemp = Math.round(Math.min(...dayItems.map(i => i.main.temp)));
-               
-                // Находим преобладающие условия дня
                 const mainCondition = this.getDominantCondition(dayItems);
                
                 dailyForecast.push({
-                    date: itemDate.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
+                    date: new Date(dateKey).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
                     day_temp: dayTemp,
                     night_temp: nightTemp,
                     condition: mainCondition,
@@ -240,8 +243,10 @@ class WeatherService {
                     humidity: Math.round(dayItems.reduce((sum, item) => sum + item.main.humidity, 0) / dayItems.length),
                     wind_speed: (dayItems.reduce((sum, item) => sum + item.wind.speed, 0) / dayItems.length).toFixed(1)
                 });
+               
+                daysAdded++;
             }
-        });
+        }
 
         return dailyForecast;
     }
@@ -266,7 +271,7 @@ class WeatherService {
         });
        
         if (totalRain > 0 && totalSnow > 0) {
-            return `🌧️❄️ ${totalRain.toFixed(1)}мм`;
+            return `🌧️❄️ ${(totalRain + totalSnow).toFixed(1)}мм`;
         } else if (totalRain > 0) {
             return `🌧️ ${totalRain.toFixed(1)}мм`;
         } else if (totalSnow > 0) {
@@ -280,14 +285,14 @@ class WeatherService {
         let result = '';
        
         if (data.rain && data.rain['3h'] > 0) {
-            result += `🌧️ ${data.rain['3h'].toFixed(1)}мм `;
+            result += `🌧️ ${data.rain['3h'].toFixed(1)}мм`;
+        } else if (data.snow && data.snow['3h'] > 0) {
+            result += `❄️ ${data.snow['3h'].toFixed(1)}мм`;
+        } else {
+            result = 'нет осадков';
         }
        
-        if (data.snow && data.snow['3h'] > 0) {
-            result += `❄️ ${data.snow['3h'].toFixed(1)}мм `;
-        }
-       
-        return result || 'нет осадков';
+        return result;
     }
 
     generateWeatherHistory(daysCount) {
@@ -330,8 +335,6 @@ class WeatherService {
     generateSearchSummary(weatherData) {
         const current = weatherData.current;
         const hourly = weatherData.hourly;
-        const history = weatherData.history;
-        const forecast = weatherData.forecast;
        
         let summary = "🔍 <b>Анализ для поисковых работ:</b>\n\n";
        
@@ -348,21 +351,9 @@ class WeatherService {
             summary += "🔄 <b>Следы:</b> Сохраняются 5-7 дней (мороз)\n";
         }
        
-        // Анализ ближайших часов
-        const nextHours = hourly.slice(1, 4); // Следующие 3 часа
-        const willChange = nextHours.some(hour =>
-            hour.precipitation !== 'нет осадков' ||
-            Math.abs(hour.temperature - current.temperature) > 3
-        );
-       
-        if (willChange) {
-            summary += "🕒 <b>Ближайшие часы:</b> Ожидаются изменения погоды\n";
-        }
-       
         // Анализ осадков
-        const hasPrecipitation = hourly.some(hour => hour.precipitation !== 'нет осадков');
-        if (hasPrecipitation) {
-            summary += "💧 <b>Осадки:</b> Могут повлиять на сохранность следов\n";
+        if (current.precipitation !== 'нет осадков') {
+            summary += `💧 <b>Осадки:</b> ${current.precipitation} - могут повлиять на следы\n`;
         }
        
         // Анализ видимости
@@ -372,10 +363,16 @@ class WeatherService {
             summary += "☀️ <b>Облачность:</b> Хорошая видимость\n";
         }
        
+        // Анализ ближайших часов
+        const willRain = hourly.slice(1).some(hour => hour.precipitation.includes('🌧️'));
+        if (willRain) {
+            summary += "\n⚠️ <b>В ближайшие часы:</b> Ожидаются осадки\n";
+        }
+       
         return summary;
     }
 
-    // Демо-данные для ошибок
+    // Демо-данные
     generateDemoCurrentWeather() {
         return {
             temperature: -2,
@@ -387,92 +384,25 @@ class WeatherService {
             humidity: 85,
             cloudiness: 75,
             precipitation: '❄️ 1.5мм',
-            time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+            time: '14:30'
         };
     }
 
     generateDemoHourlyForecast() {
-        const now = new Date();
         return [
-            {
-                time: 'Сейчас',
-                temperature: -2,
-                condition: '❄️ Снег',
-                precipitation: '❄️ 1.5мм',
-                cloudiness: 75,
-                wind_speed: 3.1,
-                feels_like: -5
-            },
-            {
-                time: new Date(now.getTime() + 60 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit' }),
-                temperature: -1,
-                condition: '❄️ Снег',
-                precipitation: '❄️ 2.0мм',
-                cloudiness: 80,
-                wind_speed: 3.5,
-                feels_like: -4
-            },
-            {
-                time: new Date(now.getTime() + 2 * 60 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit' }),
-                temperature: -2,
-                condition: '❄️ Снегопад',
-                precipitation: '❄️ 3.1мм',
-                cloudiness: 90,
-                wind_speed: 4.2,
-                feels_like: -6
-            },
-            {
-                time: new Date(now.getTime() + 3 * 60 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit' }),
-                temperature: -3,
-                condition: '❄️ Снег',
-                precipitation: '❄️ 1.8мм',
-                cloudiness: 85,
-                wind_speed: 3.8,
-                feels_like: -7
-            },
-            {
-                time: new Date(now.getTime() + 4 * 60 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit' }),
-                temperature: -4,
-                condition: '☁️ Пасмурно',
-                precipitation: 'нет осадков',
-                cloudiness: 95,
-                wind_speed: 3.2,
-                feels_like: -8
-            },
-            {
-                time: new Date(now.getTime() + 5 * 60 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit' }),
-                temperature: -5,
-                condition: '⛅ Облачно',
-                precipitation: 'нет осадков',
-                cloudiness: 65,
-                wind_speed: 2.9,
-                feels_like: -8
-            }
+            { time: 'Сейчас', temperature: -2, condition: '❄️ Снег', precipitation: '❄️ 1.5мм', cloudiness: 75, wind_speed: 3.1, feels_like: -5 },
+            { time: '15:00', temperature: -1, condition: '❄️ Снег', precipitation: '❄️ 2.0мм', cloudiness: 80, wind_speed: 3.5, feels_like: -4 },
+            { time: '16:00', temperature: -2, condition: '❄️ Снегопад', precipitation: '❄️ 3.1мм', cloudiness: 90, wind_speed: 4.2, feels_like: -6 },
+            { time: '17:00', temperature: -3, condition: '❄️ Снег', precipitation: '❄️ 1.8мм', cloudiness: 85, wind_speed: 3.8, feels_like: -7 },
+            { time: '18:00', temperature: -4, condition: '☁️ Пасмурно', precipitation: 'нет осадков', cloudiness: 95, wind_speed: 3.2, feels_like: -8 },
+            { time: '19:00', temperature: -5, condition: '⛅ Облачно', precipitation: 'нет осадков', cloudiness: 65, wind_speed: 2.9, feels_like: -8 }
         ];
     }
 
     generateDemoForecast() {
         return [
-            {
-                date: 'завтра',
-                day_temp: -1,
-                night_temp: -6,
-                condition: '❄️ Снег',
-                precipitation: '❄️ 2.0мм',
-                cloudiness: 80,
-                humidity: 90,
-                wind_speed: 4.2
-            },
-            {
-                date: 'послезавтра',
-                day_temp: 0,
-                night_temp: -4,
-                condition: '☁️ Пасмурно',
-                precipitation: 'нет осадков',
-                cloudiness: 95,
-                humidity: 75,
-                wind_speed: 2.8
-            }
+            { date: 'завтра', day_temp: -1, night_temp: -6, condition: '❄️ Снег', precipitation: '❄️ 2.0мм', cloudiness: 80, humidity: 90, wind_speed: '4.2' },
+            { date: 'послезавтра', day_temp: 0, night_temp: -4, condition: '☁️ Пасмурно', precipitation: 'нет осадков', cloudiness: 95, humidity: 75, wind_speed: '2.8' }
         ];
     }
 }
