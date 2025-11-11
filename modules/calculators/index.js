@@ -1,12 +1,12 @@
 const shoeSizeCalculator = require('./shoe-size');
 const { WeatherService } = require('./weather-service');
-const ProbabilisticSnowCalculator = require('./probabilistic-snow-calculator');
+// ВРЕМЕННО ЗАКОММЕНТИРУЕМ - SnowDepthCalculator = require('./snow-depth-calculator');
 
 function initialize() {
     console.log('✅ Модуль калькуляторов загружен');
    
     const weatherService = new WeatherService();
-    const snowCalculator = new ProbabilisticSnowCalculator();
+    // ВРЕМЕННО ЗАКОММЕНТИРУЕМ - const snowCalculator = new SnowDepthCalculator();
    
     return {
         getMenu: () => ({
@@ -21,11 +21,6 @@ function initialize() {
                     name: "🔄 Обратный калькулятор",
                     command: "/calc_reverse",
                     description: "Расчет размера обуви по длине отпечатка"
-                },
-                {
-                    name: "❄️ Снежный покров",
-                    command: "/calc_snow",
-                    description: "Расчет высоты снега по следам"
                 },
                 {
                     name: "⏱️❄️ Калькулятор давности следа на снегу",
@@ -52,54 +47,21 @@ function initialize() {
             return result.success ? result.result : `❌ ${result.error}`;
         },
        
-        // ❄️ Простой калькулятор снега
-        calculateSnowDepth: (trackDepth, snowType = 'fresh') => {
-            try {
-                const depth = parseFloat(trackDepth);
-                const factors = {
-                    'fresh': 2.2,
-                    'уплотненный': 1.6,
-                    'плотный': 1.3,
-                    'ледяной': 1.1,
-                    'settled': 1.6,
-                    'compact': 1.3,
-                    'icy': 1.1
-                };
-               
-                const factor = factors[snowType] || 2.0;
-                const estimatedDepth = depth * factor;
-               
-                return `❄️ <b>РАСЧЕТ ВЫСОТЫ СНЕГА</b>\n\n` +
-                       `📏 Глубина следа: <b>${depth} см</b>\n` +
-                       `🎯 Тип снега: <b>${snowType}</b>\n` +
-                       `📊 Коэффициент: <b>${factor}</b>\n` +
-                       `📐 Высота снега: <b>${Math.round(estimatedDepth * 10) / 10} см</b>\n\n` +
-                       `💡 Используйте /calc_snow_age для точного расчета с историей погоды`;
-            } catch (error) {
-                return `❌ Ошибка расчета снега: ${error.message}`;
-            }
-        },
-       
-        // 🔮 ВЕРОЯТНОСТНЫЙ расчет давности следа
+        // 🔮 ВРЕМЕННАЯ ЗАГЛУШКА для расчета давности следа
         calculateSnowAge: async (coordinates, disappearanceTime, locationInfo = {}) => {
             try {
-                const result = await snowCalculator.calculateSnowWithUncertainty(
-                    coordinates,
-                    disappearanceTime,
-                    locationInfo
-                );
-               
-                if (result.success) {
-                    return this.formatProbabilisticResult(result);
-                } else {
-                    return `❌ ${result.error}`;
-                }
+                // ВРЕМЕННАЯ ЗАГЛУШКА - возвращаем сообщение о разработке
+                return `🔮 <b>ВЕРОЯТНОСТНАЯ МОДЕЛЬ СНЕГА</b>\n\n` +
+                       `📍 Местоположение: ${coordinates.lat.toFixed(4)}, ${coordinates.lon.toFixed(4)}\n` +
+                       `📅 Время пропажи: ${new Date(disappearanceTime).toLocaleString('ru-RU')}\n\n` +
+                       `🚧 <i>Модуль находится в разработке</i>\n\n` +
+                       `💡 Пока используйте простые расчеты через другие калькуляторы`;
             } catch (error) {
                 return `❌ Ошибка расчета: ${error.message}`;
             }
         },
        
-        // 🌤️ Погода
+        // 🌤️ Погода с историей
         getWeatherData: async (options = {}) => {
             try {
                 const result = await weatherService.getWeatherData(options);
@@ -129,6 +91,15 @@ function initialize() {
                     });
                     message += '\n';
                    
+                    // История за 7 дней (если есть)
+                    if (data.history && data.history.length > 0) {
+                        message += `📅 <b>ИСТОРИЯ ПОГОДЫ ЗА 7 ДНЕЙ:</b>\n`;
+                        data.history.forEach(day => {
+                            message += `${day.date}: ${day.temperature}°C, ${day.condition}, осадки: ${day.precipitation}\n`;
+                        });
+                        message += '\n';
+                    }
+                   
                     // Погодная сводка
                     message += data.searchSummary;
                    
@@ -139,45 +110,6 @@ function initialize() {
             } catch (error) {
                 return `❌ Ошибка получения погоды: ${error.message}`;
             }
-        },
-       
-        // 📋 Форматирование вероятностного результата
-        formatProbabilisticResult: (result) => {
-            const base = result.base;
-            const prob = result.probability;
-           
-            let message = `🌲 <b>ВЕРОЯТНОСТНЫЙ РАСЧЕТ СНЕГА</b>\n\n`;
-           
-            message += `📍 <b>Место:</b> ${base.location.lat.toFixed(4)}, ${base.location.lon.toFixed(4)}\n`;
-            message += `📅 <b>Период анализа:</b> ${base.periodDays} дней\n`;
-            message += `⏰ <b>Время пропажи:</b> ${new Date(base.disappearanceTime).toLocaleString('ru-RU')}\n\n`;
-           
-            message += `📊 <b>БАЗОВЫЙ РАСЧЕТ:</b> ${base.estimatedSnowDepth} см снега\n\n`;
-           
-            message += `🎯 <b>ВЕРОЯТНОСТНЫЕ КОРИДОРЫ:</b>\n\n`;
-           
-            message += `📏 <b>ГЛУБИНА СНЕГА:</b>\n`;
-            message += `• 80% вероятность: ${prob.depth.high_confidence.min.toFixed(1)} - ${prob.depth.high_confidence.max.toFixed(1)} см\n`;
-            message += `• 95% вероятность: ${prob.depth.medium_confidence.min.toFixed(1)} - ${prob.depth.medium_confidence.max.toFixed(1)} см\n`;
-            message += `• 99% вероятность: ${prob.depth.low_confidence.min.toFixed(1)} - ${prob.depth.low_confidence.max.toFixed(1)} см\n\n`;
-           
-            message += `🎲 <b>ВЕРОЯТНОСТИ:</b>\n`;
-            message += `• Обнаружения следа: ${(prob.detection_probability * 100).toFixed(0)}%\n`;
-            message += `• Наличия наста: ${(prob.crust_probability * 100).toFixed(0)}%\n`;
-            message += `• Сохранения следа: ${(prob.preservation_probability * 100).toFixed(0)}%\n\n`;
-           
-            message += `⚠️ <b>НЕОПРЕДЕЛЕННОСТИ:</b>\n`;
-            message += `• Осадки: ±${(result.uncertainties.precipitation * 100).toFixed(0)}%\n`;
-            message += `• Температура: ±${(result.uncertainties.temperature * 100).toFixed(0)}%\n`;
-            message += `• Плотность снега: ±${(result.uncertainties.snowDensity * 100).toFixed(0)}%\n`;
-            message += `• Локальные условия: ±${(result.uncertainties.localEffects * 100).toFixed(0)}%\n\n`;
-           
-            message += `🎯 <b>РЕКОМЕНДАЦИИ:</b>\n`;
-            result.recommendations.forEach((rec, index) => {
-                message += `${index + 1}. ${rec.message}\n`;
-            });
-           
-            return message;
         },
        
         getShoeTypes: () => {
