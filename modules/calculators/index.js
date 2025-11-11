@@ -85,33 +85,53 @@ function initialize() {
         },
        
         // Модуль погоды - теперь асинхронный
-        getWeatherData: async (location = 'Москва') => {
-            try {
-                const result = await weatherService.getWeatherData({ location });
-                if (result.success) {
-                    return `🌤️ <b>ПОГОДА - ${result.result.location.toUpperCase()}</b>\n\n` +
-                           `📅 <b>Текущие условия:</b>\n` +
-                           `🌡️ Температура: <b>${result.result.current.temperature}°C</b>\n` +
-                           `💨 Ощущается как: <b>${result.result.current.feels_like}°C</b>\n` +
-                           `☁️ Погода: <b>${result.result.current.condition}</b>\n` +
-                           `💨 Ветер: <b>${result.result.current.wind_speed} м/с</b>\n` +
-                           `📡 Давление: <b>${result.result.current.pressure} гПа</b>\n` +
-                           `💧 Влажность: <b>${result.result.current.humidity}%</b>\n\n` +
-                          
-                           `📊 <b>Прогноз на 2 дня:</b>\n` +
-                           result.result.forecast.map(day =>
-                               `📅 ${day.date}: ${day.temp_min}°C..${day.temp_max}°C, ${day.condition}`
-                           ).join('\n') + '\n\n' +
-                          
-                           `🔍 <b>Для поисковых работ:</b>\n` +
-                           `${result.result.searchSummary}`;
-                } else {
-                    return `❌ ${result.error}`;
-                }
-            } catch (error) {
-                return `❌ Ошибка получения погоды: ${error.message}`;
-            }
-        },
+        getWeatherData: async (options = {}) => {
+    try {
+        const result = await weatherService.getWeatherData(options);
+        if (result.success) {
+            const data = result.result;
+           
+            let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
+           
+            // История за 7 дней
+            message += `📅 <b>ИСТОРИЯ (7 ДНЕЙ):</b>\n`;
+            data.history.forEach(day => {
+                message += `${day.date}: День ${day.day_temp}°C / Ночь ${day.night_temp}°C, ${day.condition}, ${day.precipitation}\n`;
+            });
+            message += '\n';
+           
+            // Сейчас
+            message += `📊 <b>СЕЙЧАС (${data.current.time}):</b>\n`;
+            message += `🌡️ ${data.current.temperature}°C (ощущается ${data.current.feels_like}°C)\n`;
+            message += `${data.current.condition}\n`;
+            message += `💨 Ветер: ${data.current.wind_speed} м/с | 💧 Влажность: ${data.current.humidity}%\n`;
+            message += `🌧️ Осадки: ${data.current.precipitation} | ☁️ Облачность: ${data.current.cloudiness}%\n\n`;
+           
+            // Почасовой прогноз
+            message += `🕒 <b>БЛИЖАЙШИЕ 6 ЧАСОВ:</b>\n`;
+            data.hourly.forEach(hour => {
+                message += `${hour.time}: ${hour.temperature}°C, ${hour.condition}, ${hour.precipitation}\n`;
+            });
+            message += '\n';
+           
+            // Прогноз на 2 дня
+            message += `📈 <b>ПРОГНОЗ (2 ДНЯ):</b>\n`;
+            data.forecast.forEach(day => {
+                message += `${day.date}: День ${day.day_temp}°C / Ночь ${day.night_temp}°C, ${day.condition}, ${day.precipitation}\n`;
+            });
+            message += '\n';
+           
+            // Анализ
+            message += data.searchSummary;
+           
+            return message;
+        } else {
+            return `❌ ${result.error}`;
+        }
+    } catch (error) {
+        return `❌ Ошибка получения погоды: ${error.message}`;
+    }
+},
        
         getShoeTypes: () => {
             return shoeSizeCalculator.getFootwearTypesList();
