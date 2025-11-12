@@ -77,7 +77,7 @@ class SnowCalculator {
     else return 0;                                  // выше 0 - дождь
    
     return (day.precipitation / density) / 10; // перевод в см
-},
+}
 
     calculateSnowCompaction(snowPack, day) {
         if (snowPack.totalDepth <= 0) return 0;
