@@ -249,18 +249,26 @@ class SnowCalculator {
 
     // 🎯 ФОРМАТИРОВАНИЕ РЕЗУЛЬТАТА
     formatSnowAnalysisResult(result) {
-        let message = `🌲 <b>ВЕРОЯТНОСТНЫЙ РАСЧЕТ СНЕГА</b>\n\n`;
-        
-        message += `📍 <b>Место:</b> ${result.location.lat.toFixed(4)}°N, ${result.location.lon.toFixed(4)}°E\n`;
-        message += `📅 <b>Период анализа:</b> ${result.periodDays} дней\n`;
-        message += `⏰ <b>Время пропажи:</b> ${result.disappearanceTime.toLocaleString('ru-RU')}\n\n`;
-        
-        message += `📊 <b>БАЗОВЫЙ РАСЧЕТ:</b> ${result.estimatedSnowDepth} см снега\n\n`;
-        
-        message += `🎯 <b>ВЕРОЯТНОСТНЫЕ КОРИДОРЫ:</b>\n\n`;
-        message += `📏 <b>ГЛУБИНА СНЕГА:</b>\n`;
-        message += `• 80% вероятность: ${result.probability.depth.high_confidence.min}-${result.probability.depth.high_confidence.max} см\n`;
-        message += `• 95% вероятность: ${result.probability.depth.medium_confidence.min}-${result.probability.depth.medium_confidence.max} см\n\n`;
+    let message = '';
+   
+    if (result.testMode) {
+        message += `🧪 <b>ТЕСТОВЫЙ РАСЧЕТ СНЕЖНОГО ПОКРОВА</b>\n\n`;
+        message += `📅 <b>Период анализа:</b> ${result.startDate.toLocaleDateString('ru-RU')} → ${result.endDate.toLocaleDateString('ru-RU')}\n`;
+        message += `⏱️ <b>Длительность:</b> ${result.periodDays} суток\n\n`;
+    } else {
+        message += `🌲 <b>ВЕРОЯТНОСТНЫЙ РАСЧЕТ СНЕГА</b>\n\n`;
+        message += `📍 <b>Место:</b> ${result.location.lat.toFixed(4)}°N, ${result.location.lon.toFixed(4)}°E\n`;
+        message += `📅 <b>Период анализа:</b> ${result.periodDays} дней\n`;
+        message += `⏰ <b>Время пропажи:</b> ${result.disappearanceTime.toLocaleString('ru-RU')}\n\n`;
+    }
+   
+    // Остальной код форматирования остается без изменений...
+    message += `📊 <b>БАЗОВЫЙ РАСЧЕТ:</b> ${result.estimatedSnowDepth} см снега\n\n`;
+   
+    message += `🎯 <b>ВЕРОЯТНОСТНЫЕ КОРИДОРЫ:</b>\n\n`;
+    message += `📏 <b>ГЛУБИНА СНЕГА:</b>\n`;
+    message += `• 80% вероятность: ${result.probability.depth.high_confidence.min}-${result.probability.depth.high_confidence.max} см\n`;
+    message += `• 95% вероятность: ${result.probability.depth.medium_confidence.min}-${result.probability.depth.medium_confidence.max} см\n\n`;
         
         message += `🎲 <b>ВЕРОЯТНОСТИ:</b>\n`;
         message += `• Обнаружения следа: ${(result.probability.detection_probability * 100).toFixed(0)}%\n`;
@@ -288,6 +296,9 @@ class SnowCalculator {
         message += `🎯 <b>РЕКОМЕНДАЦИЯ:</b>\n`;
         message += `Ищите следы с глубиной <b>${result.probability.depth.high_confidence.min}-${result.probability.depth.high_confidence.max} см</b>`;
         
+        if (result.testMode) {
+        message += `\n💡 <b>Сравните с реальными замерами</b> для оценки точности модели`;
+    }
         return message;
     }
 
