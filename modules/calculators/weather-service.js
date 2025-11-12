@@ -1,15 +1,15 @@
 const axios = require('axios');
 
 class WeatherService {
-    constructor() {
-        // OpenWeather API (текущая погода + прогноз)
-        this.openWeatherKey = 'f5cc2e480cb5a7dc580b07920c32250c';
-        this.openWeatherURL = 'https://api.openweathermap.org/data/2.5';
-        this.openWeatherGeoURL = 'http://api.openweathermap.org/geo/1.0';
-        
-        // Open-Meteo API (история)
-        this.openMeteoArchiveURL = 'https://archive-api.open-meteo.com/v1/archive';
-    }
+    constructor() {
+        // OpenWeather API (текущая погода + прогноз)
+        this.openWeatherKey = process.env.OPENWEATHER_API_KEY; // ← ИСПОЛЬЗУЕМ ПЕРЕМЕННУЮ ОКРУЖЕНИЯ
+        this.openWeatherURL = 'https://api.openweathermap.org/data/2.5';
+        this.openWeatherGeoURL = 'http://api.openweathermap.org/geo/1.0';
+       
+        // Open-Meteo API (история)
+        this.openMeteoArchiveURL = 'https://archive-api.open-meteo.com/v1/archive';
+    }
 
     async getWeatherData(options = {}) {
         try {
