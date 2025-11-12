@@ -169,7 +169,7 @@ class WeatherService {
         }
     }
 
-    // 📊 ИСТОРИЯ ПОГОДЫ ЗА 7 ДНЕЙ
+    // 📊 ИСТОРИЯ ПОГОДЫ ЗА 7 СУТОК С ВЕТРОМ
     async getWeatherHistory(lat, lon, days = 7) {
         try {
             const endDate = new Date();
@@ -182,7 +182,7 @@ class WeatherService {
                     longitude: lon,
                     start_date: startDate.toISOString().split('T')[0],
                     end_date: endDate.toISOString().split('T')[0],
-                    daily: 'temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum',
+                    daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max',
                     timezone: 'auto'
                 }
             });
@@ -193,9 +193,11 @@ class WeatherService {
             for (let i = 0; i < daily.time.length; i++) {
                 history.push({
                     date: new Date(daily.time[i]).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
-                    temperature: Math.round((daily.temperature_2m_max[i] + daily.temperature_2m_min[i]) / 2),
+                    day_temp: Math.round(daily.temperature_2m_max[i]),
+                    night_temp: Math.round(daily.temperature_2m_min[i]),
                     condition: this.getWeatherCondition(daily.weather_code[i]),
-                    precipitation: daily.precipitation_sum[i]
+                    precipitation: daily.precipitation_sum[i],
+                    wind_speed: daily.wind_speed_10m_max[i].toFixed(1)
                 });
             }
            
