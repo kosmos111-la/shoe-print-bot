@@ -638,75 +638,75 @@ bot.on('message', async (msg) => {
         }
        
         // 🎯 ОБРАБОТКА ПРОСТЫХ КАЛЬКУЛЯТОРОВ
-if (context === 'calc_snow') {
-    // ❄️ Калькулятор снега - здесь только глубина снега
-    const depth = text.trim();
-   
-    console.log('🔍 Расчет снега:', { depth });
-   
-    const result = calculators.calculateSnowDepth(depth, 'fresh');
-   
-    // Очищаем контекст ПОСЛЕ выполнения
-    delete userContext[userId];
-   
-    await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-    return;
-}
-
-if (context === 'calc_reverse') {
-    // 🔄 Обратный калькулятор - здесь только длина отпечатка
-    let footprintLength = text.trim();
-   
-    // Убираем "см" если есть
-    footprintLength = footprintLength.replace('см', '').trim();
-   
-    console.log('🔍 Обратный расчет для длины:', footprintLength);
-   
-    const result = calculators.calculateReverse(footprintLength);
-   
-    // Очищаем контекст ПОСЛЕ выполнения
-    delete userContext[userId];
-   
-    await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-    return;
-}
-
-if (context === 'calc_shoe') {
-    // 👟 Калькулятор обуви - здесь только размер обуви
-    console.log('🔍 Обрабатываем как прямой калькулятор обуви');
-    let size, type;
-   
-    // ЕСЛИ ПРОСТО ЧИСЛО - считаем это размером с неизвестным типом
-    if (/^\d+$/.test(text.trim())) {
-        size = text.trim();
-        type = 'неизвестно';
-    }
-    // ЕСЛИ РАЗМЕР + ТИП
-    else if (text.includes('размер=') && text.includes('тип=')) {
-        const sizeMatch = text.match(/размер=(\d+)/);
-        const typeMatch = text.match(/тип=([^]+)/);
-        size = sizeMatch ? sizeMatch[1] : null;
-        type = typeMatch ? typeMatch[1].trim() : null;
-    } else {
-        const parts = text.split(' ');
-        size = parts[0];
-        type = parts.slice(1).join(' ');
-    }
-   
-    console.log('🔍 Парсинг обуви:', { size, type });
-   
-    if (size) {
-        const result = calculators.calculateShoeSize(size, type || 'неизвестно');
+        if (context === 'calc_snow') {
+            // ❄️ Калькулятор снега - здесь только глубина снега
+            const depth = text.trim();
+           
+            console.log('🔍 Расчет снега:', { depth });
+           
+            const result = calculators.calculateSnowDepth(depth, 'fresh');
+           
+            // Очищаем контекст ПОСЛЕ выполнения
+            delete userContext[userId];
+           
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            return;
+        }
        
-        // Очищаем контекст ПОСЛЕ выполнения
-        delete userContext[userId];
+        if (context === 'calc_reverse') {
+            // 🔄 Обратный калькулятор - здесь только длина отпечатка
+            let footprintLength = text.trim();
+           
+            // Убираем "см" если есть
+            footprintLength = footprintLength.replace('см', '').trim();
+           
+            console.log('🔍 Обратный расчет для длины:', footprintLength);
+           
+            const result = calculators.calculateReverse(footprintLength);
+           
+            // Очищаем контекст ПОСЛЕ выполнения
+            delete userContext[userId];
+           
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            return;
+        }
        
-        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-    } else {
-        await bot.sendMessage(chatId, '❌ Неверный формат. Пример: <code>42</code> или <code>42 кроссовки</code>', { parse_mode: 'HTML' });
-    }
-    return;
-}
+        if (context === 'calc_shoe') {
+            // 👟 Калькулятор обуви - здесь только размер обуви
+            console.log('🔍 Обрабатываем как прямой калькулятор обуви');
+            let size, type;
+           
+            // ЕСЛИ ПРОСТО ЧИСЛО - считаем это размером с неизвестным типом
+            if (/^\d+$/.test(text.trim())) {
+                size = text.trim();
+                type = 'неизвестно';
+            }
+            // ЕСЛИ РАЗМЕР + ТИП
+            else if (text.includes('размер=') && text.includes('тип=')) {
+                const sizeMatch = text.match(/размер=(\d+)/);
+                const typeMatch = text.match(/тип=([^]+)/);
+                size = sizeMatch ? sizeMatch[1] : null;
+                type = typeMatch ? typeMatch[1].trim() : null;
+            } else {
+                const parts = text.split(' ');
+                size = parts[0];
+                type = parts.slice(1).join(' ');
+            }
+           
+            console.log('🔍 Парсинг обуви:', { size, type });
+           
+            if (size) {
+                const result = calculators.calculateShoeSize(size, type || 'неизвестно');
+               
+                // Очищаем контекст ПОСЛЕ выполнения
+                delete userContext[userId];
+               
+                await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            } else {
+                await bot.sendMessage(chatId, '❌ Неверный формат. Пример: <code>42</code> или <code>42 кроссовки</code>', { parse_mode: 'HTML' });
+            }
+            return;
+        }
        
         // 🌤️ ОБРАБОТКА КОНТЕКСТА ПОГОДЫ (город/координаты)
         if (context === 'calc_weather') {
@@ -733,47 +733,15 @@ if (context === 'calc_shoe') {
             return;
         }
        
-        // 🎯 АВТООПРЕДЕЛЕНИЕ ТОЛЬКО ДЛЯ КОНТЕКСТА (без общего автоопределения)
-// Только если НЕТ активного контекста - ничего не делаем!
-if (!context) {
-    // Если нет контекста - просто выходим, не пытаемся угадать
-    console.log('⚠️ Нет активного контекста, сообщение не обработано');
-    return;
-}
-           
-            // 📏 Автоопределение калькулятора обуви (размер + тип)
-            if ((text.includes('размер=') && text.includes('тип=')) ||
-                (/^\d+/.test(text) && text.split(' ').length >= 2)) {
-               
-                console.log('🔍 Обрабатываем как прямой калькулятор обуви (автоопределение)');
-                let size, type;
-               
-                if (text.includes('размер=') && text.includes('тип=')) {
-                    const sizeMatch = text.match(/размер=(\d+)/);
-                    const typeMatch = text.match(/тип=([^]+)/);
-                    size = sizeMatch ? sizeMatch[1] : null;
-                    type = typeMatch ? typeMatch[1].trim() : null;
-                } else {
-                    const parts = text.split(' ');
-                    size = parts[0];
-                    type = parts.slice(1).join(' ');
-                }
-               
-                console.log('🔍 Парсинг обуви (автоопределение):', { size, type });
-               
-                if (size && type) {
-                    const result = calculators.calculateShoeSize(size, type);
-                    await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-                    return;
-                }
-            }
+        // 🚫 ЕСЛИ НЕТ КОНТЕКСТА - НИЧЕГО НЕ ДЕЛАЕМ
+        if (!context) {
+            console.log('⚠️ Нет активного контекста, сообщение не обработано');
+            return;
         }
        
         // Если дошли сюда и есть контекст, но не обработали - очищаем
-        if (context) {
-            console.log('⚠️ Неизвестный контекст:', context);
-            delete userContext[userId];
-        }
+        console.log('⚠️ Неизвестный контекст:', context);
+        delete userContext[userId];
        
     } catch (error) {
         console.log('❌ Ошибка обработки калькулятора:', error);
