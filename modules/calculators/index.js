@@ -357,20 +357,20 @@ class SnowCalculator {
     }
 
     // 🔮 ПОЛНОЦЕННЫЙ ВЕРОЯТНОСТНЫЙ КАЛЬКУЛЯТОР СНЕГА
-async calculateSnowAge(coordinates, disappearanceTime, options = {}) {
+calculateSnowAge(coordinates, disappearanceTime, options = {}) {
     try {
         console.log('❄️ Запуск калькулятора снега для:', coordinates, 'Options:', options);
-       
+
         const now = options.endDate ? new Date(options.endDate) : new Date();
         const disappearanceDate = new Date(disappearanceTime);
-       
+
         if (isNaN(disappearanceDate.getTime())) {
             throw new Error('Неверная дата пропажи');
         }
 
         // 🎯 ГЕНЕРАЦИЯ ИСТОРИИ ПОГОДЫ
         const weatherHistory = this.generateWeatherHistory(disappearanceDate, now, coordinates);
-       
+
         if (!weatherHistory || weatherHistory.length === 0) {
             throw new Error('Не удалось получить данные погоды за период');
         }
@@ -383,7 +383,7 @@ async calculateSnowAge(coordinates, disappearanceTime, options = {}) {
         // 🎯 РАСЧЕТ НЕОПРЕДЕЛЕННОСТЕЙ И ВЕРОЯТНОСТНЫХ КОРИДОРОВ
         const uncertainties = this.calculateSnowUncertainties(weatherHistory, coordinates);
         const probabilityCorridors = this.calculateProbabilityCorridors(currentSnow, uncertainties);
-       
+
         // 🎯 ФОРМАТИРОВАНИЕ РЕЗУЛЬТАТА
         return this.formatSnowAnalysisResult({
             disappearanceTime: disappearanceDate,
@@ -405,7 +405,7 @@ async calculateSnowAge(coordinates, disappearanceTime, options = {}) {
             startDate: disappearanceDate,
             endDate: now
         });
-       
+
     } catch (error) {
         console.log('❌ Ошибка вероятностного калькулятора:', error);
         return `❌ Ошибка расчета: ${error.message}`;
@@ -413,37 +413,37 @@ async calculateSnowAge(coordinates, disappearanceTime, options = {}) {
 },
 
 function initialize() {
-    console.log('✅ Модуль калькуляторов загружен');
-    
-    const snowCalculator = new SnowCalculator();
-    const weatherService = new WeatherService();
-    
-    return {
-        getMenu: () => ({
-            title: "🧮 КАЛЬКУЛЯТОРЫ",
-            sections: [
-                {
-                    name: "📏 Калькулятор размеров обуви",
-                    command: "/calc_shoe",
-                    description: "Расчет длины отпечатка по размеру обуви"
-                },
-                {
-                    name: "🔄 Обратный калькулятор", 
-                    command: "/calc_reverse",
-                    description: "Расчет размера обуви по длине отпечатка"
-                },
-                {
-                    name: "⏱️❄️ Калькулятор давности следа на снегу",
-                    command: "/calc_snow_age",
-                    description: "Расчет эволюции снежного покрова"
-                },
-                {
-                    name: "🌤️ Погода",
-                    command: "/calc_weather",
-                    description: "Метеоданные для анализа следов"
-                }
-            ]
-        }),
+    console.log('✅ Модуль калькуляторов загружен');
+
+    const snowCalculator = new SnowCalculator();
+    const weatherService = new WeatherService();
+
+    return {
+        getMenu: () => ({
+            title: "🧮 КАЛЬКУЛЯТОРЫ",
+            sections: [
+                {
+                    name: "📏 Калькулятор размеров обуви",
+                    command: "/calc_shoe",
+                    description: "Расчет длины отпечатка по размеру обуви"
+                },
+                {
+                    name: "🔄 Обратный калькулятор",
+                    command: "/calc_reverse",
+                    description: "Расчет размера обуви по длине отпечатка"
+                },
+                {
+                    name: "⏱️❄️ Калькулятор давности следа на снегу",
+                    command: "/calc_snow_age",
+                    description: "Расчет эволюции снежного покрова"
+                },
+                {
+                    name: "🌤️ Погода",
+                    command: "/calc_weather",
+                    description: "Метеоданные для анализа следов"
+                }
+            ]
+        }),
         
         // 📏 Калькулятор размеров обуви
         calculateShoeSize: (size, type) => {
