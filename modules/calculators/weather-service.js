@@ -412,3 +412,19 @@ class WeatherService {
 }
 
 module.exports = { WeatherService };
+```
+
+🔧 ОБНОВИТЕ ФОРМАТИРОВАНИЕ В INDEX.JS
+
+В modules/calculators/index.js в методе getWeatherData обновите форматирование истории:
+
+```javascript
+// В методе getWeatherData замените вывод истории на:
+if (data.history && data.history.length > 0) {
+    message += `📅 <b>ИСТОРИЯ ПОГОДЫ ЗА 7 СУТОК:</b>\n`;
+    data.history.forEach(day => {
+        const precipIcon = day.precipitation > 0 ? '🌧️' : '';
+        message += `${day.date}: День ${day.day_temp}°C / Ночь ${day.night_temp}°C, ${day.condition}, ${precipIcon}${day.precipitation}мм, 💨${day.wind_speed}м/с\n`;
+    });
+    message += '\n';
+}
