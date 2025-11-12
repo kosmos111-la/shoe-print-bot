@@ -346,58 +346,60 @@ class SnowCalculator {
     }
 
     // 🔮 ПОЛНОЦЕННЫЙ ВЕРОЯТНОСТНЫЙ КАЛЬКУЛЯТОР СНЕГА
-    async calculateSnowAge(coordinates, disappearanceTime, locationInfo = {}) {
-        try {
-            console.log('❄️ Запуск вероятностного калькулятора снега для:', coordinates);
-            
-            const now = new Date();
-            const disappearanceDate = new Date(disappearanceTime);
-            
-            if (isNaN(disappearanceDate.getTime())) {
-                throw new Error('Неверная дата пропажи');
-            }
+async calculateSnowAge(coordinates, disappearanceTime, options = {}) {
+    try {
+        console.log('❄️ Запуск калькулятора снега для:', coordinates, 'Options:', options);
+       
+        const now = options.endDate ? new Date(options.endDate) : new Date();
+        const disappearanceDate = new Date(disappearanceTime);
+       
+        if (isNaN(disappearanceDate.getTime())) {
+            throw new Error('Неверная дата пропажи');
+        }
 
-            // 🎯 ГЕНЕРАЦИЯ ИСТОРИИ ПОГОДЫ
-            const weatherHistory = this.generateWeatherHistory(disappearanceDate, now, coordinates);
-            
-            if (!weatherHistory || weatherHistory.length === 0) {
-                throw new Error('Не удалось получить данные погоды за период');
-            }
+        // 🎯 ГЕНЕРАЦИЯ ИСТОРИИ ПОГОДЫ
+        const weatherHistory = this.generateWeatherHistory(disappearanceDate, now, coordinates);
+       
+        if (!weatherHistory || weatherHistory.length === 0) {
+            throw new Error('Не удалось получить данные погоды за период');
+        }
 
-            // 🎯 РАСЧЕТ ЭВОЛЮЦИИ СНЕГА
-            const snowEvolution = this.calculateSnowEvolution(weatherHistory);
-            const currentSnow = snowEvolution[snowEvolution.length - 1];
-            const warnings = this.analyzeSnowDangers(snowEvolution);
+        // 🎯 РАСЧЕТ ЭВОЛЮЦИИ СНЕГА
+        const snowEvolution = this.calculateSnowEvolution(weatherHistory);
+        const currentSnow = snowEvolution[snowEvolution.length - 1];
+        const warnings = this.analyzeSnowDangers(snowEvolution);
 
-            // 🎯 РАСЧЕТ НЕОПРЕДЕЛЕННОСТЕЙ И ВЕРОЯТНОСТНЫХ КОРИДОРОВ
-            const uncertainties = this.calculateSnowUncertainties(weatherHistory, coordinates);
-            const probabilityCorridors = this.calculateProbabilityCorridors(currentSnow, uncertainties);
-            
-            // 🎯 ФОРМАТИРОВАНИЕ РЕЗУЛЬТАТА
-            return this.formatSnowAnalysisResult({
-                disappearanceTime: disappearanceDate,
-                calculationTime: now,
-                location: coordinates,
-                periodDays: weatherHistory.length,
-                estimatedSnowDepth: Math.round(currentSnow.totalDepth * 10) / 10,
-                freshSnowDepth: Math.round(currentSnow.freshSnow * 10) / 10,
-                compaction: Math.round(currentSnow.compaction * 10) / 10,
-                totalPrecipitation: Math.round(snowEvolution.reduce((sum, day) => sum + day.precipitation, 0) * 10) / 10,
-                totalCompaction: Math.round(snowEvolution.reduce((sum, day) => sum + day.compaction, 0) * 10) / 10,
-                totalEvaporation: Math.round(snowEvolution.reduce((sum, day) => sum + day.evaporation, 0) * 10) / 10,
-                warnings: warnings,
-                hasCrust: currentSnow.hasCrust,
-                crustDepth: Math.round(currentSnow.crustDepth * 10) / 10,
-                probability: probabilityCorridors,
-                uncertainties: uncertainties
-            });
-            
-        } catch (error) {
-            console.log('❌ Ошибка вероятностного калькулятора:', error);
-            return `❌ Ошибка расчета: ${error.message}`;
-        }
-    }
-}
+        // 🎯 РАСЧЕТ НЕОПРЕДЕЛЕННОСТЕЙ И ВЕРОЯТНОСТНЫХ КОРИДОРОВ
+        const uncertainties = this.calculateSnowUncertainties(weatherHistory, coordinates);
+        const probabilityCorridors = this.calculateProbabilityCorridors(currentSnow, uncertainties);
+       
+        // 🎯 ФОРМАТИРОВАНИЕ РЕЗУЛЬТАТА
+        return this.formatSnowAnalysisResult({
+            disappearanceTime: disappearanceDate,
+            calculationTime: now,
+            location: coordinates,
+            periodDays: weatherHistory.length,
+            estimatedSnowDepth: Math.round(currentSnow.totalDepth * 10) / 10,
+            freshSnowDepth: Math.round(currentSnow.freshSnow * 10) / 10,
+            compaction: Math.round(currentSnow.compaction * 10) / 10,
+            totalPrecipitation: Math.round(snowEvolution.reduce((sum, day) => sum + day.precipitation, 0) * 10) / 10,
+            totalCompaction: Math.round(snowEvolution.reduce((sum, day) => sum + day.compaction, 0) * 10) / 10,
+            totalEvaporation: Math.round(snowEvolution.reduce((sum, day) => sum + day.evaporation, 0) * 10) / 10,
+            warnings: warnings,
+            hasCrust: currentSnow.hasCrust,
+            crustDepth: Math.round(currentSnow.crustDepth * 10) / 10,
+            probability: probabilityCorridors,
+            uncertainties: uncertainties,
+            testMode: options.testMode || false,
+            startDate: disappearanceDate,
+            endDate: now
+        });
+       
+    } catch (error) {
+        console.log('❌ Ошибка вероятностного калькулятора:', error);
+        return `❌ Ошибка расчета: ${error.message}`;
+    }
+},
 
 function initialize() {
     console.log('✅ Модуль калькуляторов загружен');
