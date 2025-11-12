@@ -1,6 +1,7 @@
+
 const shoeSizeCalculator = require('./shoe-size');
 const { WeatherService } = require('./weather-service');
-const axios = require('axios'); // Добавлена отсутствующая зависимость
+const axios = require('axios');
 
 class SnowCalculator {
     constructor() {
@@ -292,6 +293,7 @@ class SnowCalculator {
             message += `🧪 <b>ТЕСТОВЫЙ РАСЧЕТ СНЕЖНОГО ПОКРОВА</b>\n\n`;
             message += `📅 <b>Период анализа:</b> ${result.startDate.toLocaleDateString('ru-RU')} → ${result.endDate.toLocaleDateString('ru-RU')}\n`;
             message += `⏱️ <b>Длительность:</b> ${result.periodDays} суток\n\n`;
+            message += `🌲 <b>РАСЧЕТ НА РЕАЛЬНЫХ ДАННЫХ ПОГОДЫ</b>\n\n`;
         } else {
             message += `🌲 <b>ВЕРОЯТНОСТНЫЙ РАСЧЕТ СНЕГА</b>\n\n`;
             message += `📍 <b>Место:</b> ${result.location.lat.toFixed(4)}°N, ${result.location.lon.toFixed(4)}°E\n`;
@@ -351,6 +353,13 @@ class SnowCalculator {
         try {
             const openMeteoArchiveURL = 'https://archive-api.open-meteo.com/v1/archive';
            
+            console.log('🌐 Запрос реальных исторических данных:', {
+                lat: coordinates.lat,
+                lon: coordinates.lon, 
+                start: startDate.toISOString().split('T')[0],
+                end: endDate.toISOString().split('T')[0]
+            });
+           
             const response = await axios.get(openMeteoArchiveURL, {
                 params: {
                     latitude: coordinates.lat,
@@ -365,7 +374,7 @@ class SnowCalculator {
             const daily = response.data.daily;
             const history = [];
            
-            console.log('📊 Получены реальные исторические данные:', daily);
+            console.log('📊 Получены реальные исторические данные за', daily.time.length, 'дней');
            
             for (let i = 0; i < daily.time.length; i++) {
                 // Определяем тип осадков
@@ -392,117 +401,13 @@ class SnowCalculator {
                 });
             }
            
-            console.log('✅ Успешно получена история погоды за', history.length, 'дней');
+            console.log('✅ Успешно получена реальная история погоды за', history.length, 'дней');
             return history;
            
         } catch (error) {
-            console.log('❌ Ошибка получения исторических данных Open-Meteo:', error.message);
-           
-            // 🔧 РЕЗЕРВНЫЙ ВАРИАНТ - более реалистичная эмуляция на основе сезона
-            return this.generateRealisticMockHistory(startDate, endDate, coordinates);
+            console.log('❌ Ошибка получения реальных исторических данных Open-Meteo:', error.message);
+            throw new Error('Не удалось получить реальные данные погоды. Попробуйте позже.');
         }
-    }
-
-    // 🎯 РЕЗЕРВНЫЙ ВАРИАНТ - РЕАЛИСТИЧНАЯ ЭМУЛЯЦИЯ
-    generateRealisticMockHistory(startDate, endDate, coordinates) {
-        const history = [];
-        const currentDate = new Date(startDate);
-        const lat = coordinates.lat;
-       
-        // Определяем сезон по датам
-        const startMonth = startDate.getMonth() + 1;
-        const isWinter = startMonth >= 11 || startMonth <= 2;
-        const isSpring = startMonth >= 3 && startMonth <= 5;
-       
-        // Базовые параметры в зависимости от сезона и широты
-        let baseTemp, tempRange, precipProbability;
-       
-        if (isWinter) {
-            baseTemp = lat > 55 ? -8 : lat > 50 ? -5 : -2;
-            tempRange = 6;
-            precipProbability = 0.4; // Снег более вероятен зимой
-        } else if (isSpring) {
-            baseTemp = lat > 55 ? 2 : lat > 50 ? 5 : 8;
-            tempRange = 8;
-            precipProbability = 0.3;
-        } else {
-            baseTemp = lat > 55 ? 10 : lat > 50 ? 15 : 18;
-            tempRange = 10;
-            precipProbability = 0.25;
-        }
-       
-        let totalPrecipitation = 0;
-       
-        while (currentDate <= endDate) {
-            const daysFromStart = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
-           
-            // Реалистичная температура с суточными колебаниями
-            const dailyBaseTemp = baseTemp + Math.sin(daysFromStart * 0.15) * (tempRange / 2);
-            const temperature = dailyBaseTemp + (Math.random() - 0.5) * 4;
-           
-            // Реалистичные осадки в зависимости от температуры
-            let precipitation = 0;
-            let rain = 0;
-            let snow = 0;
-           
-            if (Math.random() < precipProbability) {
-                if (temperature > 2) {
-                    // Дождь
-                    rain = 0.5 + Math.random() * 8;
-                    precipitation = rain;
-                } else {
-                    // Снег
-                    snow = 0.5 + Math.random() * 5;
-                    precipitation = snow;
-                }
-                totalPrecipitation += precipitation;
-            }
-           
-            const wind_speed = 1 + Math.random() * 10;
-            const humidity = 60 + Math.random() * 30;
-           
-            history.push({
-                date: currentDate.toISOString().split('T')[0],
-                temperature: Math.round(temperature * 10) / 10,
-                temperature_min: Math.round((temperature - 3) * 10) / 10,
-                temperature_max: Math.round((temperature + 3) * 10) / 10,
-                precipitation: Math.round(precipitation * 10) / 10,
-                rain: Math.round(rain * 10) / 10,
-                snow: Math.round(snow * 10) / 10,
-                wind_speed: Math.round(wind_speed * 10) / 10,
-                humidity: Math.round(humidity),
-                weather_code: this.getWeatherCodeFromConditions(temperature, precipitation, rain, snow)
-            });
-           
-            currentDate.setDate(currentDate.getDate() + 1);
-        }
-       
-        console.log('⚠️ Использованы эмулированные данные. Всего осадков:', totalPrecipitation.toFixed(1), 'мм');
-       
-        return history;
-    }
-
-    // 🎯 ОПРЕДЕЛЕНИЕ КОДА ПОГОДЫ ДЛЯ ЭМУЛЯЦИИ
-    getWeatherCodeFromConditions(temperature, precipitation, rain, snow) {
-        if (precipitation === 0) {
-            if (Math.random() > 0.7) return 3; // Пасмурно
-            if (Math.random() > 0.5) return 2; // Переменная облачность
-            return 1; // Преимущественно ясно
-        }
-       
-        if (snow > 0) {
-            if (snow > 3) return 75; // Сильный снег
-            if (snow > 1) return 73; // Снег
-            return 71; // Небольшой снег
-        }
-       
-        if (rain > 0) {
-            if (rain > 5) return 65; // Сильный дождь
-            if (rain > 2) return 63; // Дождь
-            return 61; // Небольшой дождь
-        }
-       
-        return 3; // По умололчанию - пасмурно
     }
 
     // 🎯 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
@@ -533,17 +438,17 @@ class SnowCalculator {
                 throw new Error('Неверная дата пропажи');
             }
 
-            // 🎯 ГЕНЕРАЦИЯ ИСТОРИИ ПОГОДЫ
+            // 🎯 ГЕНЕРАЦИЯ ИСТОРИИ ПОГОДЫ - ТОЛЬКО РЕАЛЬНЫЕ ДАННЫЕ
             const weatherHistory = await this.generateWeatherHistory(disappearanceDate, now, coordinates);
-            console.log('📊 История погоды:', weatherHistory);
+            console.log('📊 Реальные исторические данные за', weatherHistory.length, 'дней');
            
             if (!weatherHistory || weatherHistory.length === 0) {
-                throw new Error('Не удалось получить данные погоды за период');
+                throw new Error('Не удалось получить реальные данные погоды за период');
             }
 
-            // 🎯 РАСЧЕТ ЭВОЛЮЦИИ СНЕГА
+            // 🎯 РАСЧЕТ ЭВОЛЮЦИИ СНЕГА НА РЕАЛЬНЫХ ДАННЫХ
             const snowEvolution = this.calculateSnowEvolution(weatherHistory);
-            console.log('📈 Эволюция снега за', snowEvolution.length, 'дней:');
+            console.log('📈 Эволюция снега на реальных данных за', snowEvolution.length, 'дней:');
             snowEvolution.forEach((day, index) => {
                 console.log(`День ${index + 1}: ${day.totalDepth.toFixed(1)}см (свежий: ${day.freshSnow.toFixed(1)}см, уплотнение: ${day.compaction.toFixed(1)}см)`);
             });
@@ -613,7 +518,7 @@ function initialize() {
                 {
                     name: "⏱️❄️ Калькулятор давности следа на снегу",
                     command: "/calc_snow_age",
-                    description: "Расчет эволюции снежного покрова"
+                    description: "Расчет эволюции снежного покрова на реальных данных"
                 },
                 {
                     name: "🌤️ Погода",
