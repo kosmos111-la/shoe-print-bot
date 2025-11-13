@@ -47,6 +47,7 @@ const yandexDiskModule = require('./modules/yandex-disk');
 const tempManagerModule = require('./modules/temp-manager');
 const calculatorsModule = require('./modules/calculators');
 const appsModule = require('./modules/apps');
+const { AnalysisModule } = require('./modules/analysis');
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
@@ -129,6 +130,7 @@ let tempFileManager;
 let yandexDisk;
 let calculators;
 let apps;
+let analysisModule; // 🧠 ДОБАВЬ ЭТУ СТРОЧКУ
 
 // Функция-заглушка для Яндекс.Диска
 function createYandexDiskStub() {
@@ -1103,9 +1105,23 @@ bot.on('photo', async (msg) => {
         const file = await bot.getFile(photo.file_id);
         const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
 
+        // 🔄 СОХРАНЯЕМ ФОТО ВО ВРЕМЕННЫЙ ФАЙЛ ДЛЯ АНАЛИЗА
+        const tempImagePath = tempFileManager.createTempFile('original', 'jpg');
+        const response = await axios({
+            method: 'GET',
+            url: fileUrl,
+            responseType: 'stream'
+        });
+        await new Promise((resolve, reject) => {
+            const writer = require('fs').createWriteStream(tempImagePath);
+            response.data.pipe(writer);
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
+
         await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
 
-        const response = await axios({
+        const roboflowResponse = await axios({
             method: "POST",
             url: config.ROBOFLOW.API_URL,
             params: {
@@ -1118,11 +1134,41 @@ bot.on('photo', async (msg) => {
             timeout: 30000
         });
 
-        const predictions = response.data.predictions || [];
+        const predictions = roboflowResponse.data.predictions || [];
         const processedPredictions = smartPostProcessing(predictions);
         const analysis = analyzePredictions(processedPredictions);
 
         if (analysis.total > 0) {
+            // 🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ СЛЕДА
+            await bot.sendMessage(chatId, '🧠 Провожу интеллектуальный анализ...');
+           
+            let intelligentAnalysis = null;
+            try {
+                intelligentAnalysis = await analysisModule.performComprehensiveAnalysis(
+                    tempImagePath,
+                    processedPredictions,
+                    {
+                        userId: msg.from.id,
+                        username: msg.from.username || msg.from.first_name
+                    }
+                );
+               
+                // 📊 ВЫВОД РЕЗУЛЬТАТОВ ИНТЕЛЛЕКТУАЛЬНОГО АНАЛИЗА
+                const summary = intelligentAnalysis.summary;
+                await bot.sendMessage(chatId,
+                    `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ СЛЕДА**\n\n` +
+                    `🧭 Ориентация: ${summary.orientation}\n` +
+                    `📊 Уверенность: ${summary.confidence}\n` +
+                    `👟 Тип обуви: ${summary.footprintType}\n` +
+                    `📏 Примерный размер: ${summary.sizeEstimation}\n\n` +
+                    `💡 Рекомендации:\n${summary.recommendations.join('\n')}`
+                );
+               
+            } catch (analysisError) {
+                console.log('⚠️ Ошибка интеллектуального анализа:', analysisError.message);
+                await bot.sendMessage(chatId, '⚠️ Базовый анализ завершен (расширенный анализ временно недоступен)');
+            }
+
             await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
 
             const userData = {
@@ -1130,13 +1176,12 @@ bot.on('photo', async (msg) => {
             };
 
             // ИСПОЛЬЗУЕМ МОДУЛИ ВИЗУАЛИЗАЦИИ С ВЫБОРОМ СТИЛЯ
-            const userId = msg.from.id;
             const vizModule = visualization.getVisualization(msg.from.id, 'analysis');
             const topologyModule = visualization.getVisualization(msg.from.id, 'topology');
 
             // 🔄 НОВЫЙ КОД С ИНТЕГРАЦИЕЙ МЕНЕДЖЕРА ФАЙЛОВ
             let vizPath, topologyPath;
-           
+
             try {
                 // СОЗДАЕМ ПУТИ ЧЕРЕЗ МЕНЕДЖЕР (автоматическое отслеживание)
                 vizPath = tempFileManager.createTempFile('analysis', 'png');
@@ -1146,11 +1191,22 @@ bot.on('photo', async (msg) => {
                 await vizModule.createVisualization(fileUrl, processedPredictions, userData, vizPath);
                 await topologyModule.createVisualization(fileUrl, processedPredictions, userData, topologyPath);
 
+                // 📝 ДОБАВЛЯЕМ ДАННЫЕ ИНТЕЛЛЕКТУАЛЬНОГО АНАЛИЗА К ВИЗУАЛИЗАЦИИ
+                if (intelligentAnalysis) {
+                    await this.enhanceVisualizationWithAnalysis(vizPath, intelligentAnalysis);
+                }
+
                 // Отправка результата
                 if (vizPath && require('fs').existsSync(vizPath)) {
-                    await bot.sendPhoto(chatId, vizPath, {
-                        caption: `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`
-                    });
+                    let caption = `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`;
+                   
+                    // ДОБАВЛЯЕМ ИНТЕЛЛЕКТУАЛЬНЫЕ ВЫВОДЫ В ПОДПИСЬ
+                    if (intelligentAnalysis) {
+                        caption += `\n🧭 Ориентация: ${intelligentAnalysis.summary.orientation}`;
+                        caption += `\n👟 Тип: ${intelligentAnalysis.summary.footprintType}`;
+                    }
+
+                    await bot.sendPhoto(chatId, vizPath, { caption: caption });
 
                     // 💾 СОХРАНЕНИЕ В ЯНДЕКС.ДИСК
                     if (yandexDisk && vizPath && topologyPath) {
@@ -1159,14 +1215,20 @@ bot.on('photo', async (msg) => {
 
                             const filesToUpload = [
                                 { localPath: vizPath, name: 'visualization.png', type: 'visualization' },
-                                { localPath: topologyPath, name: 'topology_map.png', type: 'topology' }
+                                { localPath: topologyPath, name: 'topology_map.png', type: 'topology' },
+                                { localPath: tempImagePath, name: 'original_photo.jpg', type: 'original' }
                             ];
 
                             const analysisData = {
                                 predictions: processedPredictions.length,
                                 classes: analysis.classes,
                                 timestamp: new Date().toISOString(),
-                                user: userData.username
+                                user: userData.username,
+                                intelligentAnalysis: intelligentAnalysis ? {
+                                    orientation: intelligentAnalysis.topography.orientation,
+                                    geometry: intelligentAnalysis.topography.geometry,
+                                    topology: intelligentAnalysis.topography.topology
+                                } : null
                             };
 
                             const saveResult = await yandexDisk.saveAnalysisResults(
@@ -1192,10 +1254,20 @@ bot.on('photo', async (msg) => {
                     // 🔄 АВТОМАТИЧЕСКАЯ ОЧИСТКА ЧЕРЕЗ МЕНЕДЖЕР
                     tempFileManager.removeFile(vizPath);
                     tempFileManager.removeFile(topologyPath);
+                    tempFileManager.removeFile(tempImagePath); // Очищаем временное фото
                 } else {
                     // Если визуализация не создалась, отправляем текстовый результат
                     let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
                     caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
+                   
+                    // ДОБАВЛЯЕМ ИНТЕЛЛЕКТУАЛЬНЫЕ ВЫВОДЫ
+                    if (intelligentAnalysis) {
+                        caption += `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:**\n`;
+                        caption += `• Ориентация: ${intelligentAnalysis.summary.orientation}\n`;
+                        caption += `• Тип обуви: ${intelligentAnalysis.summary.footprintType}\n`;
+                        caption += `• Размер: ${intelligentAnalysis.summary.sizeEstimation}\n\n`;
+                    }
+                   
                     caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
                     Object.entries(analysis.classes).forEach(([className, count]) => {
                         caption += `• ${className}: ${count}\n`;
@@ -1207,6 +1279,7 @@ bot.on('photo', async (msg) => {
                 // 🔄 ГАРАНТИРОВАННАЯ ОЧИСТКА ПРИ ОШИБКЕ
                 if (vizPath) tempFileManager.removeFile(vizPath);
                 if (topologyPath) tempFileManager.removeFile(topologyPath);
+                if (tempImagePath) tempFileManager.removeFile(tempImagePath);
                 throw error;
             }
 
@@ -1221,6 +1294,14 @@ bot.on('photo', async (msg) => {
         await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
     }
 });
+
+// 📝 ВСПОМОГАТЕЛЬНЫЙ МЕТОД ДЛЯ УЛУЧШЕНИЯ ВИЗУАЛИЗАЦИИ
+async function enhanceVisualizationWithAnalysis(imagePath, analysis) {
+    // Здесь можно добавить аннотации к визуализации на основе анализа
+    // Например: стрелки направления, подписи типа обуви и т.д.
+    // Пока оставляем как заглушку для будущего улучшения
+    return true;
+}
 
 // =============================================================================
 // 🚀 ЗАПУСК СЕРВЕРА
@@ -1327,6 +1408,21 @@ console.log('🛡️ Глобальные обработчики ошибок а
             removeFile: () => false,
             cleanup: () => 0,
             getStats: () => ({ totalTracked: 0, existingFiles: 0, totalSize: '0 MB' })
+        };
+    }
+
+    // 🧠 ДОБАВЛЯЕМ МОДУЛЬ АНАЛИЗА ЗДЕСЬ!
+    try {
+        analysisModule = new AnalysisModule();
+        console.log('✅ Модуль анализа загружен');
+    } catch (error) {
+        console.log('❌ Ошибка модуля анализа:', error.message);
+        // Создаем заглушку для модуля анализа
+        analysisModule = {
+            performComprehensiveAnalysis: async () => {
+                console.log('⚠️ Модуль анализа временно недоступен');
+                return null;
+            }
         };
     }
 
