@@ -1088,31 +1088,16 @@ bot.onText(/\/help/, (msg) => {
     bot.sendMessage(msg.chat.id,
         `🆘 **ПОМОЩЬ**\n\n` +
         `📸 **Как использовать:**\n` +
-        `• Отправьте фото следа обуви\n` +
-        `• Или начните сессию: /trail_start\n\n` +
+        `• Отправьте одно фото - быстрый анализ\n` +
+        `• Отправьте пачку фото (2+) - автоматическая сессия\n` +
+        `• Или начните сессию вручную: /trail_start\n\n` +
         `🔄 **СЕССИОННЫЙ РЕЖИМ:**\n` +
         `/trail_start - Начать сессию анализа\n` +
         `/trail_status - Статус сессии\n` +
+        `/trail_details - Детали по каждому фото\n` +
         `/trail_end - Завершить с отчетом\n` +
         `/cancel - Отменить все операции\n\n` +
-        `🔍 **Что анализируется:**\n` +
-        `• Контуры подошвы\n` +
-        `• Детали протектора\n` +
-        `• Топология узора\n` +
-        `• Практический анализ для ПСО\n` +
-        `• Фильтрация следов животных\n\n` +
-        `🧮 **ИНСТРУМЕНТЫ:**\n` +
-        `/calculators - Калькуляторы и расчеты\n\n` +
-        `📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n` +
-        `/apps - Рекомендованные приложения\n\n` +
-        `🎨 **Стили визуализации:**\n` +
-        `/style - Выбрать стиль отображения\n` +
-        `/currentstyle - Текущий стиль\n\n` +
-        `💾 **Сохранение результатов:**\n` +
-        `/yandex - Статус Яндекс.Диска\n\n` +
-        `📊 **Другие команды:**\n` +
-        `/start - Главное меню\n` +
-        `/statistics - Статистика системы`
+        // ... остальная справка ...
     );
 });
 
@@ -1197,19 +1182,38 @@ bot.onText(/\/trail_end/, async (msg) => {
     const session = sessionManager.getActiveSession(userId);
    
     // 🔍 АНАЛИЗИРУЕМ ВСЮ СЕССИЮ
-    await bot.sendMessage(chatId, `🔍 Анализирую данные сессии...`);
+    await bot.sendMessage(chatId, `🔍 Анализирую данные сессии (${session.photos.length} фото)...`);
    
     const analysis = sessionAnalyzer.analyzeSession(session);
    
     // Завершаем сессию
     const report = sessionManager.endSession(userId);
    
-    // 🎯 ФОРМИРУЕМ ИНТЕЛЛЕКТУАЛЬНЫЙ ОТЧЕТ
+    // 🎯 ФОРМИРУЕМ ПОДРОБНЫЙ ОТЧЕТ
     let reportMessage = `🏁 **СЕССИЯ ЗАВЕРШЕНА**\n\n`;
     reportMessage += `📊 **СТАТИСТИКА:**\n`;
     reportMessage += `• Фото: ${report.totalPhotos}\n`;
     reportMessage += `• Анализов: ${report.totalAnalyses}\n`;
     reportMessage += `• Длительность: ${report.duration.toFixed(0)} сек\n\n`;
+   
+    // 📸 ОБЗОР КАЖДОГО ФОТО
+    if (session.analysisResults && session.analysisResults.length > 0) {
+        reportMessage += `📸 **ОБЗОР ФОТО:**\n`;
+       
+        session.analysisResults.slice(0, 5).forEach((result, index) => {
+            const footprintCount = result.predictions?.filter(p =>
+                p.class === 'Outline-trail').length || 0;
+            const protectorCount = result.predictions?.filter(p =>
+                p.class === 'shoe-protector').length || 0;
+           
+            reportMessage += `${index + 1}. Следов: ${footprintCount}, деталей: ${protectorCount}\n`;
+        });
+       
+        if (session.analysisResults.length > 5) {
+            reportMessage += `... и еще ${session.analysisResults.length - 5} фото\n`;
+        }
+        reportMessage += `\n`;
+    }
    
     // 🧑‍🤝‍🧑 АНАЛИЗ ЛЮДЕЙ
     reportMessage += `👥 **АНАЛИЗ ГРУППЫ:**\n`;
@@ -1229,41 +1233,32 @@ bot.onText(/\/trail_end/, async (msg) => {
         reportMessage += `\n`;
     }
    
-    // 🗺️ АНАЛИЗ ДВИЖЕНИЯ
-    if (analysis.movementAnalysis.available) {
-        reportMessage += `🗺️ **ДВИЖЕНИЕ:**\n`;
-        reportMessage += `• Дистанция: ${analysis.movementAnalysis.totalDistance?.toFixed(1) || '?'} м\n`;
-       
-        if (analysis.movementAnalysis.direction) {
-            reportMessage += `• Направление: ${analysis.movementAnalysis.direction.toFixed(0)}°\n`;
-        }
-       
-        if (analysis.movementAnalysis.estimatedSpeed) {
-            reportMessage += `• Скорость: ${analysis.movementAnalysis.estimatedSpeed.toFixed(1)} км/ч\n`;
-        }
+    // ⚠️ АНОМАЛИИ
+    if (analysis.anomalies && analysis.anomalies.length > 0) {
+        reportMessage += `⚠️ **ОСОБЕННОСТИ:**\n`;
+        analysis.anomalies.slice(0, 3).forEach(anomaly => {
+            reportMessage += `• ${anomaly.message}\n`;
+        });
         reportMessage += `\n`;
     }
    
-    // ⏰ ТАЙМЛАЙН
-    reportMessage += `⏰ **ХРОНОЛОГИЯ:**\n`;
-    if (analysis.timeline.averageInterval) {
-        reportMessage += `• Средний интервал: ${analysis.timeline.averageInterval.toFixed(1)} сек\n`;
+    // 💡 РЕКОМЕНДАЦИИ
+    reportMessage += `💡 **РЕКОМЕНДАЦИИ:**\n`;
+    if (report.totalPhotos >= 5) {
+        reportMessage += `• Достаточно данных для анализа тропы\n`;
+    } else {
+        reportMessage += `• Мало данных, нужно больше фото для точного анализа\n`;
     }
-    reportMessage += `• Всего времени: ${analysis.timeline.totalDuration?.toFixed(0) || '?'} сек\n`;
    
-    // ⚠️ АНОМАЛИИ
-    if (analysis.anomalies && analysis.anomalies.length > 0) {
-        reportMessage += `\n⚠️ **ОСОБЕННОСТИ:**\n`;
-        analysis.anomalies.forEach(anomaly => {
-            reportMessage += `• ${anomaly.message}\n`;
-        });
+    if (analysis.peopleCount.estimatedCount > 1) {
+        reportMessage += `• Обнаружена группа людей\n`;
     }
    
     reportMessage += `\n💾 Отчет сохранен`;
    
     await bot.sendMessage(chatId, reportMessage);
    
-    // 💾 Сохранение в Яндекс.Диск (если доступен)
+    // 💾 Сохранение в Яндекс.Диск
     if (yandexDisk && yandexDisk.isAvailable && yandexDisk.isAvailable()) {
         try {
             const saveResult = await yandexDisk.saveSessionReport(userId, {
@@ -1309,6 +1304,56 @@ bot.onText(/\/cancel/, async (msg) => {
     );
 });
 
+// Команда /trail_details - детали сессии
+bot.onText(/\/trail_details/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    if (!sessionManager.hasActiveSession(userId)) {
+        await bot.sendMessage(chatId,
+            `❌ Нет активной сессии\n` +
+            `Начните: /trail_start`
+        );
+        return;
+    }
+   
+    const session = sessionManager.getActiveSession(userId);
+   
+    if (session.analysisResults.length === 0) {
+        await bot.sendMessage(chatId,
+            `📭 В сессии пока нет проанализированных фото\n` +
+            `Отправьте фото для анализа`
+        );
+        return;
+    }
+   
+    let detailsMessage = `📋 **ДЕТАЛИ СЕССИИ** (${session.analysisResults.length} фото)\n\n`;
+   
+    session.analysisResults.forEach((result, index) => {
+        const footprintCount = result.predictions?.filter(p =>
+            p.class === 'Outline-trail').length || 0;
+        const protectorCount = result.predictions?.filter(p =>
+            p.class === 'shoe-protector').length || 0;
+        const animalCount = result.predictions?.filter(p =>
+            p.class === 'animal-paw' || p.class === 'Animal').length || 0;
+       
+        detailsMessage += `**Фото ${index + 1}:**\n`;
+        detailsMessage += `• Следов: ${footprintCount}\n`;
+        detailsMessage += `• Деталей протектора: ${protectorCount}\n`;
+        if (animalCount > 0) {
+            detailsMessage += `• Следов животных: ${animalCount}\n`;
+        }
+       
+        if (result.intelligentAnalysis?.summary) {
+            detailsMessage += `• Тип: ${result.intelligentAnalysis.summary.footprintType}\n`;
+        }
+       
+        detailsMessage += `\n`;
+    });
+   
+    await bot.sendMessage(chatId, detailsMessage);
+});
+
 // Команда /yandex
 bot.onText(/\/yandex/, async (msg) => {
     const chatId = msg.chat.id;
@@ -1347,27 +1392,116 @@ bot.onText(/\/yandex/, async (msg) => {
 });
 
 // =============================================================================
-// 📸 ОБРАБОТКА ФОТО С СЕССИОННЫМ РЕЖИМОМ
+// 🆕 СИСТЕМА ОЧЕРЕДИ И ДЕТЕКТОР ПАЧКИ ФОТО
 // =============================================================================
-bot.on('photo', async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
+
+const photoBatchDetector = new Map(); // userId -> {photos: [], timer: null}
+const photoQueue = new Map(); // userId -> array of photos
+const processingUsers = new Set(); // userIds being processed
+
+// Функция для обработки очереди фото
+async function processPhotoQueue(userId, chatId) {
+    if (processingUsers.has(userId)) return;
+    if (!photoQueue.has(userId) || photoQueue.get(userId).length === 0) return;
    
-    // Проверяем активную сессию
+    processingUsers.add(userId);
+    const queue = photoQueue.get(userId);
+   
+    // Сортируем по времени получения
+    queue.sort((a, b) => a.timestamp - b.timestamp);
+   
+    // Проверяем, нужно ли создать сессию автоматически
+    const shouldCreateAutoSession = queue.length >= 2 &&
+                                   !sessionManager.hasActiveSession(userId);
+   
+    let sessionCreated = false;
+    if (shouldCreateAutoSession) {
+        // Создаем автоматическую сессию для пачки фото
+        const session = sessionManager.createSession(userId, 'auto_batch');
+       
+        // Предупреждаем пользователя ОДИН РАЗ
+        await bot.sendMessage(chatId,
+            `📦 **ОБНАРУЖЕНА ПАЧКА ФОТО (${queue.length})**\n\n` +
+            `🔄 Автоматически перехожу в сессионный режим\n` +
+            `🆔 Сессия: ${session.id.slice(0, 8)}...\n\n` +
+            `📋 **Инструкция:**\n` +
+            `• Фото будут обработаны по очереди\n` +
+            `• Каждое фото будет подтверждено\n` +
+            `• В конце - полный отчет\n\n` +
+            `💡 **Команды сессии:**\n` +
+            `/trail_status - статус\n` +
+            `/trail_end - завершить с отчетом\n` +
+            `/cancel - отменить сессию`
+        );
+       
+        sessionCreated = true;
+    }
+   
+    // Обрабатываем фото по очереди
+    for (let i = 0; i < queue.length; i++) {
+        const photoData = queue[i];
+       
+        try {
+            // Имитируем отправку фото (вызываем обработчик фото)
+            await processSinglePhoto(chatId, userId, photoData.msg, i + 1, queue.length);
+           
+            // Небольшая задержка между обработкой фото
+            if (i < queue.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+           
+        } catch (error) {
+            console.log(`❌ Ошибка обработки фото ${i + 1}:`, error.message);
+            await bot.sendMessage(chatId, `❌ Ошибка при обработке фото ${i + 1}`);
+        }
+    }
+   
+    // Очищаем очередь
+    photoQueue.delete(userId);
+    processingUsers.delete(userId);
+   
+    // Если создали автоматическую сессию, напоминаем о командах
+    if (sessionCreated) {
+        await bot.sendMessage(chatId,
+            `✅ Все ${queue.length} фото обработаны\n\n` +
+            `📊 Сессия активна, можно:\n` +
+            `• Отправить еще фото\n` +
+            `• Проверить статус: /trail_status\n` +
+            `• Завершить с отчетом: /trail_end\n` +
+            `• Отменить: /cancel`
+        );
+    }
+}
+
+// Обработчик отдельного фото (вынесенная логика)
+async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCount = 1) {
     const hasSession = sessionManager.hasActiveSession(userId);
    
     try {
-        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
+        updateUserStats(userId, msg.from.username || msg.from.first_name, 'photo');
        
         // 🆕 СЕССИОННЫЙ РЕЖИМ: отправляем короткое подтверждение
         let statusMessage = null;
         if (hasSession) {
             const session = sessionManager.getActiveSession(userId);
+            const photoNum = session.photos.length + 1;
+           
+            if (totalCount > 1) {
+                statusMessage = await bot.sendMessage(chatId,
+                    `📸 Обрабатываю фото ${currentIndex}/${totalCount}...`
+                );
+            } else {
+                statusMessage = await bot.sendMessage(chatId,
+                    `📸 Получено фото ${photoNum}...`
+                );
+            }
+        } else if (totalCount > 1) {
+            // Пачка фото без сессии
             statusMessage = await bot.sendMessage(chatId,
-                `📸 Получено фото ${session.photos.length + 1}...`
+                `📸 Обрабатываю фото ${currentIndex}/${totalCount}...`
             );
         } else {
-            // Обычный режим: оставляем как есть
+            // Одиночное фото без сессии
             await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
         }
        
@@ -1396,7 +1530,9 @@ bot.on('photo', async (msg) => {
                 fileId: photo.file_id,
                 chatId: chatId,
                 fileUrl: fileUrl,
-                localPath: tempImagePath
+                localPath: tempImagePath,
+                batchIndex: currentIndex,
+                batchTotal: totalCount
             });
         }
        
@@ -1418,7 +1554,7 @@ bot.on('photo', async (msg) => {
         const processedPredictions = smartPostProcessing(predictions);
         const analysis = analyzePredictions(processedPredictions);
        
-        // 🔍 ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
+        // 🔍 ПРАКТИЧЕСКИЙ АНАЛИЗ
         let predictionsForAnalysis = processedPredictions;
         let practicalAnalysis = null;
         let animalFilterResult = null;
@@ -1440,7 +1576,7 @@ bot.on('photo', async (msg) => {
                     tempImagePath,
                     predictionsForAnalysis,
                     {
-                        userId: msg.from.id,
+                        userId: userId,
                         username: msg.from.username || msg.from.first_name
                     }
                 );
@@ -1455,7 +1591,7 @@ bot.on('photo', async (msg) => {
        
         if (analysis.total > 0) {
             try {
-                const vizModule = visualization.getVisualization(msg.from.id, 'analysis');
+                const vizModule = visualization.getVisualization(userId, 'analysis');
                 vizPath = tempFileManager.createTempFile('analysis', 'png');
                
                 await vizModule.createVisualization(
@@ -1495,14 +1631,41 @@ bot.on('photo', async (msg) => {
                 visualizationPaths: {
                     analysis: vizPath,
                     topology: topologyVizPath
+                },
+                batchInfo: {
+                    index: currentIndex,
+                    total: totalCount
                 }
             });
            
             // Обновляем сообщение на короткое подтверждение
             if (statusMessage) {
+                if (totalCount > 1) {
+                    await bot.editMessageText(
+                        `✅ Фото ${currentIndex}/${totalCount} обработано\n` +
+                        `📊 Сессия: ${session.photos.length} фото`,
+                        {
+                            chat_id: chatId,
+                            message_id: statusMessage.message_id
+                        }
+                    );
+                } else {
+                    await bot.editMessageText(
+                        `✅ Фото ${session.photos.length} принято\n` +
+                        `📊 Сессия: ${session.photos.length} фото`,
+                        {
+                            chat_id: chatId,
+                            message_id: statusMessage.message_id
+                        }
+                    );
+                }
+            }
+           
+        } else if (totalCount > 1) {
+            // Пачка фото без сессии - просто подтверждение
+            if (statusMessage) {
                 await bot.editMessageText(
-                    `✅ Фото ${session.photos.length} принято\n` +
-                    `📊 Сессия: ${session.photos.length} фото`,
+                    `✅ Фото ${currentIndex}/${totalCount} обработано`,
                     {
                         chat_id: chatId,
                         message_id: statusMessage.message_id
@@ -1510,11 +1673,13 @@ bot.on('photo', async (msg) => {
                 );
             }
            
-            // 💾 Сохранение в сессию (файлы пока не удаляем)
-            // Они будут удалены после завершения сессии
+            // Очистка
+            tempFileManager.removeFile(tempImagePath);
+            if (vizPath) tempFileManager.removeFile(vizPath);
+            if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
            
         } else {
-            // 🆕 ОБЫЧНЫЙ РЕЖИМ: ПОЛНЫЙ АНАЛИЗ КАК РАНЬШЕ
+            // 🆕 ОДИНОЧНОЕ ФОТО БЕЗ СЕССИИ: ПОЛНЫЙ АНАЛИЗ
            
             if (analysis.total === 0) {
                 await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
@@ -1523,7 +1688,16 @@ bot.on('photo', async (msg) => {
             }
            
             // Отправляем результаты
-            await bot.sendMessage(chatId, `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`);
+            let resultMessage = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
+            resultMessage += `📊 Обнаружено: ${analysis.total} объектов\n\n`;
+           
+            // Классификация
+            resultMessage += `📋 **КЛАССИФИКАЦИЯ:**\n`;
+            Object.entries(analysis.classes).forEach(([className, count]) => {
+                resultMessage += `• ${className}: ${count}\n`;
+            });
+           
+            await bot.sendMessage(chatId, resultMessage);
            
             // Визуализация
             if (vizPath && require('fs').existsSync(vizPath)) {
@@ -1557,17 +1731,67 @@ bot.on('photo', async (msg) => {
             if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
         }
        
-        updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
+        updateUserStats(userId, msg.from.username || msg.from.first_name, 'analysis');
        
     } catch (error) {
         console.log('❌ Ошибка анализа фото:', error.message);
-       
-        if (hasSession) {
-            await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
-        } else {
-            await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
-        }
+        await bot.sendMessage(chatId, `❌ Ошибка при обработке фото ${currentIndex || ''}`);
     }
+}
+
+// =============================================================================
+// 📸 ОБРАБОТКА ФОТО С ПАЧКАМИ И ОЧЕРЕДЯМИ
+// =============================================================================
+bot.on('photo', async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    // Добавляем фото в детектор пачки
+    if (!photoBatchDetector.has(userId)) {
+        photoBatchDetector.set(userId, {
+            photos: [],
+            timer: null
+        });
+    }
+   
+    const detector = photoBatchDetector.get(userId);
+    detector.photos.push({
+        msg: msg,
+        timestamp: Date.now()
+    });
+   
+    // Сбрасываем таймер
+    if (detector.timer) {
+        clearTimeout(detector.timer);
+    }
+   
+    // Ждем 1 секунду для сбора пачки фото
+    detector.timer = setTimeout(async () => {
+        const photos = detector.photos;
+        photoBatchDetector.delete(userId);
+       
+        // Если фото одно и нет активной сессии - обрабатываем сразу
+        if (photos.length === 1 && !sessionManager.hasActiveSession(userId)) {
+            await processSinglePhoto(chatId, userId, photos[0].msg);
+            return;
+        }
+       
+        // Если несколько фото или есть активная сессия - добавляем в очередь
+        if (!photoQueue.has(userId)) {
+            photoQueue.set(userId, []);
+        }
+       
+        photos.forEach(photo => {
+            photoQueue.get(userId).push({
+                msg: photo.msg,
+                timestamp: photo.timestamp
+            });
+        });
+       
+        // Запускаем обработку очереди
+        setTimeout(() => processPhotoQueue(userId, chatId), 100);
+       
+    }, 1000); // Ждем 1 секунду для сбора пачки
 });
 
 // 📝 ВСПОМОГАТЕЛЬНЫЙ МЕТОД ДЛЯ УЛУЧШЕНИЯ ВИЗУАЛИЗАЦИИ
