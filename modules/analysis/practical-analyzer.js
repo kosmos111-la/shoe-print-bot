@@ -5,29 +5,66 @@ class PracticalAnalyzer {
     }
 
     analyzeForPSO(predictions, userContext = {}) {
-        const analysis = {
-            // 🔍 КЛЮЧЕВЫЕ ПРИЗНАКИ
+        console.log('🔍 PracticalAnalyzer: анализирую', predictions.length, 'предсказаний');
+        console.log('🔍 Классы в предсказаниях:', [...new Set(predictions.map(p => p.class))]);
+       
+        // Проверка входных данных
+        if (!predictions || !Array.isArray(predictions)) {
+            console.log('❌ Ошибка: predictions не массив или отсутствует');
+            return this.getEmptyAnalysis();
+        }
+       
+        try {
+            const analysis = {
+                // 🔍 КЛЮЧЕВЫЕ ПРИЗНАКИ
+                keyFindings: {
+                    isAnimal: this.checkForAnimal(predictions),
+                    hasHeel: this.checkForHeel(predictions),
+                    hasToe: this.checkForToe(predictions),
+                    hasGroundDisturbance: this.checkForGroundDisturbance(predictions),
+                    footprintCount: this.countFootprints(predictions),
+                    protectorDetails: this.analyzeProtectorDetails(predictions)
+                },
+              
+                // 🎯 ПРАКТИЧЕСКИЕ РЕКОМЕНДАЦИИ
+                recommendations: this.generatePSORecommendations(predictions),
+              
+                // 📊 ЧИСТЫЕ ФАКТЫ
+                facts: {
+                    classesFound: this.listFoundClasses(predictions),
+                    objectCounts: this.countObjectsByClass(predictions),
+                    hasClearOutline: predictions.some(p => p.class === 'Outline-trail')
+                }
+            };
+          
+            console.log('✅ PracticalAnalyzer: анализ завершен успешно');
+            return analysis;
+           
+        } catch (error) {
+            console.log('❌ Ошибка в analyzeForPSO:', error);
+            console.log('🔍 Stack trace:', error.stack);
+            return this.getEmptyAnalysis();
+        }
+    }
+
+    // 🆕 ЗАЩИТНАЯ ФУНКЦИЯ ПРИ ОШИБКАХ
+    getEmptyAnalysis() {
+        return {
             keyFindings: {
-                isAnimal: this.checkForAnimal(predictions),
-                hasHeel: this.checkForHeel(predictions),
-                hasToe: this.checkForToe(predictions),
-                hasGroundDisturbance: this.checkForGroundDisturbance(predictions),
-                footprintCount: this.countFootprints(predictions),
-                protectorDetails: this.analyzeProtectorDetails(predictions)
+                isAnimal: { hasAnimal: false, count: 0, message: '❌ Ошибка анализа' },
+                hasHeel: { hasHeel: false, count: 0, message: '❌ Ошибка анализа' },
+                hasToe: { hasToe: false, count: 0, message: '❌ Ошибка анализа' },
+                hasGroundDisturbance: { hasDisturbance: false, count: 0, message: '❌ Ошибка анализа' },
+                footprintCount: { count: 0, message: '❌ Ошибка анализа' },
+                protectorDetails: { protectorCount: 0, disturbanceCount: 0, message: '❌ Ошибка анализа' }
             },
-          
-            // 🎯 ПРАКТИЧЕСКИЕ РЕКОМЕНДАЦИИ
-            recommendations: this.generatePSORecommendations(predictions),
-          
-            // 📊 ЧИСТЫЕ ФАКТЫ
+            recommendations: ['⚠️ Анализ временно недоступен'],
             facts: {
-                classesFound: this.listFoundClasses(predictions),
-                objectCounts: this.countObjectsByClass(predictions),
-                hasClearOutline: predictions.some(p => p.class === 'Outline-trail')
+                classesFound: [],
+                objectCounts: {},
+                hasClearOutline: false
             }
         };
-      
-        return analysis;
     }
 
     // 🐕 ФИЛЬТРАЦИЯ ЛАП ЖИВОТНЫХ
