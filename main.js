@@ -48,6 +48,8 @@ const tempManagerModule = require('./modules/temp-manager');
 const calculatorsModule = require('./modules/calculators');
 const appsModule = require('./modules/apps');
 const { AnalysisModule } = require('./modules/analysis');
+const { DetailEnhancer } = require('./modules/analysis/detail-enhancer');
+const { QualityVisualizer } = require('./modules/analysis/quality-visualizer');
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
@@ -130,7 +132,10 @@ let tempFileManager;
 let yandexDisk;
 let calculators;
 let apps;
-let analysisModule; // 🧠 ДОБАВЬ ЭТУ СТРОЧКУ
+let analysisModule;
+// 🔧 МОДУЛИ УЛУЧШЕНИЯ ДЕТЕКТА
+let detailEnhancer;
+let qualityVisualizer;
 
 // Функция-заглушка для Яндекс.Диска
 function createYandexDiskStub() {
@@ -1119,6 +1124,10 @@ bot.on('photo', async (msg) => {
             writer.on('error', reject);
         });
 
+        // Загружаем изображение для анализа размеров
+        const { loadImage, createCanvas } = require('canvas');
+        const image = await loadImage(tempImagePath);
+
         await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
 
         const roboflowResponse = await axios({
@@ -1138,21 +1147,70 @@ bot.on('photo', async (msg) => {
         const processedPredictions = smartPostProcessing(predictions);
         const analysis = analyzePredictions(processedPredictions);
 
+        // 🔬 УЛУЧШАЕМ ДЕТЕКТ СИСТЕМЫ
+        await bot.sendMessage(chatId, '🔧 Улучшаю точность детекции...');
+
+        const enhancedResult = detailEnhancer.enhancePredictions(
+            processedPredictions,
+            { width: image.width, height: image.height }
+        );
+
+        // Используем улучшенные предсказания для дальнейшего анализа
+        const enhancedPredictions = enhancedResult.enhanced;
+
+        // 🎯 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ КАЧЕСТВА
+        try {
+            const qualityCanvas = await qualityVisualizer.createQualityReport(
+                tempImagePath, // путь к сохраненному фото
+                processedPredictions, // оригинальные predictions
+                enhancedResult // результат улучшения
+            );
+
+            // Сохраняем визуализацию качества
+            const qualityPath = tempFileManager.createTempFile('quality', 'png');
+            const fs = require('fs');
+            const out = fs.createWriteStream(qualityPath);
+            const stream = qualityCanvas.createPNGStream();
+            stream.pipe(out);
+
+            await new Promise((resolve, reject) => {
+                out.on('finish', resolve);
+                out.on('error', reject);
+            });
+
+            // Отправляем визуализацию качества
+            await bot.sendPhoto(chatId, qualityPath, {
+                caption: `📊 Качество детекции улучшено:\n` +
+                        `• Добавлено: +${enhancedResult.stats.added || 0} деталей\n` +
+                        `• Исправлено: ${enhancedResult.stats.corrected || 0} форм\n` +
+                        `• Уверенность: ${enhancedResult.stats.confidenceBoost || '0'}%\n\n` +
+                        `🎯 Красный: Roboflow\n` +
+                        `🟢 Зеленый: Улучшенные`
+            });
+
+            // Очищаем временный файл
+            tempFileManager.removeFile(qualityPath);
+
+        } catch (qualityError) {
+            console.log('⚠️ Ошибка визуализации качества:', qualityError);
+            await bot.sendMessage(chatId, '📊 Базовый анализ завершен (визуализация качества временно недоступна)');
+        }
+
         if (analysis.total > 0) {
             // 🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ СЛЕДА
             await bot.sendMessage(chatId, '🧠 Провожу интеллектуальный анализ...');
-           
+
             let intelligentAnalysis = null;
             try {
                 intelligentAnalysis = await analysisModule.performComprehensiveAnalysis(
                     tempImagePath,
-                    processedPredictions,
+                    enhancedPredictions, // ИСПОЛЬЗУЕМ УЛУЧШЕННЫЕ ПРЕДСКАЗАНИЯ
                     {
                         userId: msg.from.id,
                         username: msg.from.username || msg.from.first_name
                     }
                 );
-               
+
                 // 📊 ВЫВОД РЕЗУЛЬТАТОВ ИНТЕЛЛЕКТУАЛЬНОГО АНАЛИЗА
                 const summary = intelligentAnalysis.summary;
                 await bot.sendMessage(chatId,
@@ -1163,7 +1221,7 @@ bot.on('photo', async (msg) => {
                     `📏 Примерный размер: ${summary.sizeEstimation}\n\n` +
                     `💡 Рекомендации:\n${summary.recommendations.join('\n')}`
                 );
-               
+
             } catch (analysisError) {
                 console.log('⚠️ Ошибка интеллектуального анализа:', analysisError.message);
                 await bot.sendMessage(chatId, '⚠️ Базовый анализ завершен (расширенный анализ временно недоступен)');
@@ -1187,19 +1245,19 @@ bot.on('photo', async (msg) => {
                 vizPath = tempFileManager.createTempFile('analysis', 'png');
                 topologyPath = tempFileManager.createTempFile('topology', 'png');
 
-                // Сохраняем визуализации в созданные пути
-                await vizModule.createVisualization(fileUrl, processedPredictions, userData, vizPath);
-                await topologyModule.createVisualization(fileUrl, processedPredictions, userData, topologyPath);
-
-                // 📝 ДОБАВЛЯЕМ ДАННЫЕ ИНТЕЛЛЕКТУАЛЬНОГО АНАЛИЗА К ВИЗУАЛИЗАЦИИ
-                if (intelligentAnalysis) {
-                    await this.enhanceVisualizationWithAnalysis(vizPath, intelligentAnalysis);
-                }
+                // Сохраняем визуализации в созданные пути (ИСПОЛЬЗУЕМ УЛУЧШЕННЫЕ ПРЕДСКАЗАНИЯ)
+                await vizModule.createVisualization(fileUrl, enhancedPredictions, userData, vizPath);
+                await topologyModule.createVisualization(fileUrl, enhancedPredictions, userData, topologyPath);
 
                 // Отправка результата
                 if (vizPath && require('fs').existsSync(vizPath)) {
-                    let caption = `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`;
+                    let caption = `✅ Анализ завершен\n🎯 Обнаружено объектов: ${enhancedPredictions.length}`;
                    
+                    // ДОБАВЛЯЕМ ИНФО ОБ УЛУЧШЕНИИ
+                    if (enhancedResult.stats.added > 0) {
+                        caption += `\n🔧 Улучшено: +${enhancedResult.stats.added} деталей`;
+                    }
+
                     // ДОБАВЛЯЕМ ИНТЕЛЛЕКТУАЛЬНЫЕ ВЫВОДЫ В ПОДПИСЬ
                     if (intelligentAnalysis) {
                         caption += `\n🧭 Ориентация: ${intelligentAnalysis.summary.orientation}`;
@@ -1220,14 +1278,18 @@ bot.on('photo', async (msg) => {
                             ];
 
                             const analysisData = {
-                                predictions: processedPredictions.length,
-                                classes: analysis.classes,
+                                predictions: {
+                                    raw: processedPredictions.length,
+                                    enhanced: enhancedPredictions.length
+                                },
+                                classes: analyzePredictions(enhancedPredictions).classes, // АНАЛИЗ УЛУЧШЕННЫХ
+                                enhancementStats: enhancedResult.stats,
                                 timestamp: new Date().toISOString(),
                                 user: userData.username,
                                 intelligentAnalysis: intelligentAnalysis ? {
-                                    orientation: intelligentAnalysis.topography.orientation,
-                                    geometry: intelligentAnalysis.topography.geometry,
-                                    topology: intelligentAnalysis.topography.topology
+                                    orientation: intelligentAnalysis.summary.orientation,
+                                    footprintType: intelligentAnalysis.summary.footprintType,
+                                    sizeEstimation: intelligentAnalysis.summary.sizeEstimation
                                 } : null
                             };
 
@@ -1258,8 +1320,12 @@ bot.on('photo', async (msg) => {
                 } else {
                     // Если визуализация не создалась, отправляем текстовый результат
                     let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
-                    caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
+                    caption += `🎯 Обнаружено объектов: ${enhancedPredictions.length}\n`;
                    
+                    if (enhancedResult.stats.added > 0) {
+                        caption += `🔧 Улучшено: +${enhancedResult.stats.added} деталей\n\n`;
+                    }
+
                     // ДОБАВЛЯЕМ ИНТЕЛЛЕКТУАЛЬНЫЕ ВЫВОДЫ
                     if (intelligentAnalysis) {
                         caption += `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:**\n`;
@@ -1267,11 +1333,13 @@ bot.on('photo', async (msg) => {
                         caption += `• Тип обуви: ${intelligentAnalysis.summary.footprintType}\n`;
                         caption += `• Размер: ${intelligentAnalysis.summary.sizeEstimation}\n\n`;
                     }
-                   
+
+                    const enhancedAnalysis = analyzePredictions(enhancedPredictions);
                     caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
-                    Object.entries(analysis.classes).forEach(([className, count]) => {
+                    Object.entries(enhancedAnalysis.classes).forEach(([className, count]) => {
                         caption += `• ${className}: ${count}\n`;
                     });
+                   
                     await bot.sendMessage(chatId, caption);
                 }
             } catch (error) {
@@ -1395,6 +1463,8 @@ console.log('🛡️ Глобальные обработчики ошибок а
         };
     }
 
+
+          
     try {
         tempFileManager = tempManagerModule.initialize({
             tempDir: './temp',
@@ -1411,21 +1481,42 @@ console.log('🛡️ Глобальные обработчики ошибок а
         };
     }
 
-    // 🧠 ДОБАВЛЯЕМ МОДУЛЬ АНАЛИЗА ЗДЕСЬ!
-    try {
-        analysisModule = new AnalysisModule();
-        console.log('✅ Модуль анализа загружен');
-    } catch (error) {
-        console.log('❌ Ошибка модуля анализа:', error.message);
-        // Создаем заглушку для модуля анализа
-        analysisModule = {
-            performComprehensiveAnalysis: async () => {
-                console.log('⚠️ Модуль анализа временно недоступен');
-                return null;
-            }
-        };
-    }
+   // 🧠 ДОБАВЛЯЕМ МОДУЛЬ АНАЛИЗА ЗДЕСЬ!
+try {
+    analysisModule = new AnalysisModule();
+    console.log('✅ Модуль анализа загружен');
+} catch (error) {
+    console.log('❌ Ошибка модуля анализа:', error.message);
+    analysisModule = {
+        performComprehensiveAnalysis: async () => {
+            console.log('⚠️ Модуль анализа временно недоступен');
+            return null;
+        }
+    };
+}
 
+// 🔧 ИНИЦИАЛИЗИРУЕМ МОДУЛИ УЛУЧШЕНИЯ ДЕТЕКТА
+try {
+    detailEnhancer = new DetailEnhancer();
+    qualityVisualizer = new QualityVisualizer();
+    console.log('✅ Модули улучшения детекта загружены');
+} catch (error) {
+    console.log('❌ Ошибка загрузки модулей улучшения:', error);
+    detailEnhancer = {
+        enhancePredictions: (p) => ({
+            raw: p,
+            enhanced: p,
+            stats: { added: 0, corrected: 0, confidenceBoost: '0' }
+        })
+    };
+    qualityVisualizer = {
+        createQualityReport: async () => {
+            console.log('⚠️ QualityVisualizer временно недоступен');
+            return null;
+        }
+    };
+}
+          
     // ИНИЦИАЛИЗИРУЕМ НОВЫЕ МОДУЛИ
     try {
         calculators = calculatorsModule.initialize();
