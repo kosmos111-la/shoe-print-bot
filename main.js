@@ -48,8 +48,9 @@ const tempManagerModule = require('./modules/temp-manager');
 const calculatorsModule = require('./modules/calculators');
 const appsModule = require('./modules/apps');
 const { AnalysisModule } = require('./modules/analysis');
-const { DetailEnhancer } = require('./modules/analysis/detail-enhancer');
-const { QualityVisualizer } = require('./modules/analysis/quality-visualizer');
+const { TopologyVisualizer } = require('./modules/visualization/topology-visualizer');
+// УБИРАЕМ: const { DetailEnhancer } = require('./modules/analysis/detail-enhancer');
+// УБИРАЕМ: const { QualityVisualizer } = require('./modules/analysis/quality-visualizer');
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
@@ -133,9 +134,8 @@ let yandexDisk;
 let calculators;
 let apps;
 let analysisModule;
-// 🔧 МОДУЛИ УЛУЧШЕНИЯ ДЕТЕКТА
-let detailEnhancer;
-let qualityVisualizer;
+// 🔧 ТОПОЛОГИЧЕСКИЙ ВИЗУАЛИЗАТОР
+let topologyVisualizer;
 
 // Функция-заглушка для Яндекс.Диска
 function createYandexDiskStub() {
@@ -1095,7 +1095,6 @@ bot.on('photo', async (msg) => {
         // 🎨 ПОДСКАЗКА О СТИЛЕ ПРИ ПЕРВОМ ИСПОЛЬЗОВАНИИ
         const userId = msg.from.id;
         if (!visualization.userPreferences.has(String(userId))) {
-            // Первое использование - показываем подсказку о стиле
             const currentStyle = visualization.getUserStyle(userId);
             const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
 
@@ -1124,10 +1123,6 @@ bot.on('photo', async (msg) => {
             writer.on('error', reject);
         });
 
-        // Загружаем изображение для анализа размеров
-        const { loadImage, createCanvas } = require('canvas');
-        const image = await loadImage(tempImagePath);
-
         await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
 
         const roboflowResponse = await axios({
@@ -1147,55 +1142,6 @@ bot.on('photo', async (msg) => {
         const processedPredictions = smartPostProcessing(predictions);
         const analysis = analyzePredictions(processedPredictions);
 
-        // 🔬 УЛУЧШАЕМ ДЕТЕКТ СИСТЕМЫ
-        await bot.sendMessage(chatId, '🔧 Улучшаю точность детекции...');
-
-        const enhancedResult = detailEnhancer.enhancePredictions(
-            processedPredictions,
-            { width: image.width, height: image.height }
-        );
-
-        // Используем улучшенные предсказания для дальнейшего анализа
-        const enhancedPredictions = enhancedResult.enhanced;
-
-        // 🎯 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ КАЧЕСТВА
-        try {
-            const qualityCanvas = await qualityVisualizer.createQualityReport(
-                tempImagePath, // путь к сохраненному фото
-                processedPredictions, // оригинальные predictions
-                enhancedResult // результат улучшения
-            );
-
-            // Сохраняем визуализацию качества
-            const qualityPath = tempFileManager.createTempFile('quality', 'png');
-            const fs = require('fs');
-            const out = fs.createWriteStream(qualityPath);
-            const stream = qualityCanvas.createPNGStream();
-            stream.pipe(out);
-
-            await new Promise((resolve, reject) => {
-                out.on('finish', resolve);
-                out.on('error', reject);
-            });
-
-            // Отправляем визуализацию качества
-            await bot.sendPhoto(chatId, qualityPath, {
-                caption: `📊 Качество детекции улучшено:\n` +
-                        `• Добавлено: +${enhancedResult.stats.added || 0} деталей\n` +
-                        `• Исправлено: ${enhancedResult.stats.corrected || 0} форм\n` +
-                        `• Уверенность: ${enhancedResult.stats.confidenceBoost || '0'}%\n\n` +
-                        `🎯 Красный: Roboflow\n` +
-                        `🟢 Зеленый: Улучшенные`
-            });
-
-            // Очищаем временный файл
-            tempFileManager.removeFile(qualityPath);
-
-        } catch (qualityError) {
-            console.log('⚠️ Ошибка визуализации качества:', qualityError);
-            await bot.sendMessage(chatId, '📊 Базовый анализ завершен (визуализация качества временно недоступна)');
-        }
-
         if (analysis.total > 0) {
             // 🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ СЛЕДА
             await bot.sendMessage(chatId, '🧠 Провожу интеллектуальный анализ...');
@@ -1204,7 +1150,7 @@ bot.on('photo', async (msg) => {
             try {
                 intelligentAnalysis = await analysisModule.performComprehensiveAnalysis(
                     tempImagePath,
-                    enhancedPredictions, // ИСПОЛЬЗУЕМ УЛУЧШЕННЫЕ ПРЕДСКАЗАНИЯ
+                    processedPredictions, // ⚠️ ИСПОЛЬЗУЕМ ОРИГИНАЛЬНЫЕ ПРЕДСКАЗАНИЯ
                     {
                         userId: msg.from.id,
                         username: msg.from.username || msg.from.first_name
@@ -1218,7 +1164,9 @@ bot.on('photo', async (msg) => {
                     `🧭 Ориентация: ${summary.orientation}\n` +
                     `📊 Уверенность: ${summary.confidence}\n` +
                     `👟 Тип обуви: ${summary.footprintType}\n` +
-                    `📏 Примерный размер: ${summary.sizeEstimation}\n\n` +
+                    `📏 Примерный размер: ${summary.sizeEstimation}\n` +
+                    `🔷 Морфология: ${summary.morphology}\n` +
+                    `🕸️ Топология: ${summary.topology}\n\n` +
                     `💡 Рекомендации:\n${summary.recommendations.join('\n')}`
                 );
 
@@ -1241,22 +1189,25 @@ bot.on('photo', async (msg) => {
             let vizPath, topologyPath;
 
             try {
-                // СОЗДАЕМ ПУТИ ЧЕРЕЗ МЕНЕДЖЕР (автоматическое отслеживание)
+                // СОЗДАЕМ ПУТИ ЧЕРЕЗ МЕНЕДЖЕР
                 vizPath = tempFileManager.createTempFile('analysis', 'png');
                 topologyPath = tempFileManager.createTempFile('topology', 'png');
 
-                // Сохраняем визуализации в созданные пути (ИСПОЛЬЗУЕМ УЛУЧШЕННЫЕ ПРЕДСКАЗАНИЯ)
-                await vizModule.createVisualization(fileUrl, enhancedPredictions, userData, vizPath);
-                await topologyModule.createVisualization(fileUrl, enhancedPredictions, userData, topologyPath);
+                // Сохраняем визуализации в созданные пути (ОРИГИНАЛЬНЫЕ ПРЕДСКАЗАНИЯ)
+                await vizModule.createVisualization(fileUrl, processedPredictions, userData, vizPath);
+                await topologyModule.createVisualization(fileUrl, processedPredictions, userData, topologyPath);
 
-                // Отправка результата
+                // 🆕 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ
+                const topologyVizPath = tempFileManager.createTempFile('topology_science', 'png');
+                const topologyCreated = await topologyVisualizer.createTopologyVisualization(
+                    fileUrl,
+                    processedPredictions,
+                    topologyVizPath
+                );
+
+                // Отправка результатов
                 if (vizPath && require('fs').existsSync(vizPath)) {
-                    let caption = `✅ Анализ завершен\n🎯 Обнаружено объектов: ${enhancedPredictions.length}`;
-                   
-                    // ДОБАВЛЯЕМ ИНФО ОБ УЛУЧШЕНИИ
-                    if (enhancedResult.stats.added > 0) {
-                        caption += `\n🔧 Улучшено: +${enhancedResult.stats.added} деталей`;
-                    }
+                    let caption = `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`;
 
                     // ДОБАВЛЯЕМ ИНТЕЛЛЕКТУАЛЬНЫЕ ВЫВОДЫ В ПОДПИСЬ
                     if (intelligentAnalysis) {
@@ -1264,7 +1215,16 @@ bot.on('photo', async (msg) => {
                         caption += `\n👟 Тип: ${intelligentAnalysis.summary.footprintType}`;
                     }
 
+                    // 1. ОСНОВНАЯ ВИЗУАЛИЗАЦИЯ
                     await bot.sendPhoto(chatId, vizPath, { caption: caption });
+
+                    // 2. ТОПОЛОГИЧЕСКАЯ КАРТА (если создалась)
+                    if (topologyCreated) {
+                        await bot.sendPhoto(chatId, topologyVizPath, {
+                            caption: '🕸️ Топологический анализ протектора\n• Зеленые точки - центры протекторов\n• Оранжевые линии - связи\n• Синий пунктир - контур следа'
+                        });
+                        tempFileManager.removeFile(topologyVizPath);
+                    }
 
                     // 💾 СОХРАНЕНИЕ В ЯНДЕКС.ДИСК
                     if (yandexDisk && vizPath && topologyPath) {
@@ -1277,19 +1237,25 @@ bot.on('photo', async (msg) => {
                                 { localPath: tempImagePath, name: 'original_photo.jpg', type: 'original' }
                             ];
 
+                            if (topologyCreated) {
+                                filesToUpload.push({
+                                    localPath: topologyVizPath,
+                                    name: 'topology_science.png',
+                                    type: 'topology_science'
+                                });
+                            }
+
                             const analysisData = {
-                                predictions: {
-                                    raw: processedPredictions.length,
-                                    enhanced: enhancedPredictions.length
-                                },
-                                classes: analyzePredictions(enhancedPredictions).classes, // АНАЛИЗ УЛУЧШЕННЫХ
-                                enhancementStats: enhancedResult.stats,
+                                predictions: processedPredictions.length,
+                                classes: analysis.classes,
                                 timestamp: new Date().toISOString(),
                                 user: userData.username,
                                 intelligentAnalysis: intelligentAnalysis ? {
                                     orientation: intelligentAnalysis.summary.orientation,
                                     footprintType: intelligentAnalysis.summary.footprintType,
-                                    sizeEstimation: intelligentAnalysis.summary.sizeEstimation
+                                    sizeEstimation: intelligentAnalysis.summary.sizeEstimation,
+                                    morphology: intelligentAnalysis.summary.morphology,
+                                    topology: intelligentAnalysis.summary.topology
                                 } : null
                             };
 
@@ -1309,34 +1275,29 @@ bot.on('photo', async (msg) => {
                             }
                         } catch (uploadError) {
                             console.log('⚠️ Ошибка загрузки в Яндекс.Диск:', uploadError.message);
-                            // Не прерываем основной поток из-за ошибки загрузки
                         }
                     }
 
-                    // 🔄 АВТОМАТИЧЕСКАЯ ОЧИСТКА ЧЕРЕЗ МЕНЕДЖЕР
+                    // 🔄 АВТОМАТИЧЕСКАЯ ОЧИСТКА
                     tempFileManager.removeFile(vizPath);
                     tempFileManager.removeFile(topologyPath);
-                    tempFileManager.removeFile(tempImagePath); // Очищаем временное фото
+                    tempFileManager.removeFile(tempImagePath);
                 } else {
-                    // Если визуализация не создалась, отправляем текстовый результат
+                    // Если визуализация не создалась
                     let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
-                    caption += `🎯 Обнаружено объектов: ${enhancedPredictions.length}\n`;
-                   
-                    if (enhancedResult.stats.added > 0) {
-                        caption += `🔧 Улучшено: +${enhancedResult.stats.added} деталей\n\n`;
-                    }
+                    caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
 
-                    // ДОБАВЛЯЕМ ИНТЕЛЛЕКТУАЛЬНЫЕ ВЫВОДЫ
                     if (intelligentAnalysis) {
                         caption += `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:**\n`;
                         caption += `• Ориентация: ${intelligentAnalysis.summary.orientation}\n`;
                         caption += `• Тип обуви: ${intelligentAnalysis.summary.footprintType}\n`;
-                        caption += `• Размер: ${intelligentAnalysis.summary.sizeEstimation}\n\n`;
+                        caption += `• Размер: ${intelligentAnalysis.summary.sizeEstimation}\n`;
+                        caption += `• Морфология: ${intelligentAnalysis.summary.morphology}\n`;
+                        caption += `• Топология: ${intelligentAnalysis.summary.topology}\n\n`;
                     }
 
-                    const enhancedAnalysis = analyzePredictions(enhancedPredictions);
                     caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
-                    Object.entries(enhancedAnalysis.classes).forEach(([className, count]) => {
+                    Object.entries(analysis.classes).forEach(([className, count]) => {
                         caption += `• ${className}: ${count}\n`;
                     });
                    
@@ -1344,7 +1305,6 @@ bot.on('photo', async (msg) => {
                 }
             } catch (error) {
                 console.log('❌ Ошибка создания визуализации:', error);
-                // 🔄 ГАРАНТИРОВАННАЯ ОЧИСТКА ПРИ ОШИБКЕ
                 if (vizPath) tempFileManager.removeFile(vizPath);
                 if (topologyPath) tempFileManager.removeFile(topologyPath);
                 if (tempImagePath) tempFileManager.removeFile(tempImagePath);
@@ -1481,7 +1441,7 @@ console.log('🛡️ Глобальные обработчики ошибок а
         };
     }
 
-   // 🧠 ДОБАВЛЯЕМ МОДУЛЬ АНАЛИЗА ЗДЕСЬ!
+// 🧠 ДОБАВЛЯЕМ МОДУЛЬ АНАЛИЗА ЗДЕСЬ!
 try {
     analysisModule = new AnalysisModule();
     console.log('✅ Модуль анализа загружен');
@@ -1495,44 +1455,36 @@ try {
     };
 }
 
-// 🔧 ИНИЦИАЛИЗИРУЕМ МОДУЛИ УЛУЧШЕНИЯ ДЕТЕКТА
+// 🔧 ИНИЦИАЛИЗИРУЕМ ТОПОЛОГИЧЕСКИЙ ВИЗУАЛИЗАТОР (ВМЕСТО УЛУЧШЕНИЯ ДЕТЕКТА)
 try {
-    detailEnhancer = new DetailEnhancer();
-    qualityVisualizer = new QualityVisualizer();
-    console.log('✅ Модули улучшения детекта загружены');
+    topologyVisualizer = new TopologyVisualizer();
+    console.log('✅ TopologyVisualizer загружен');
 } catch (error) {
-    console.log('❌ Ошибка загрузки модулей улучшения:', error);
-    detailEnhancer = {
-        enhancePredictions: (p) => ({
-            raw: p,
-            enhanced: p,
-            stats: { added: 0, corrected: 0, confidenceBoost: '0' }
-        })
-    };
-    qualityVisualizer = {
-        createQualityReport: async () => {
-            console.log('⚠️ QualityVisualizer временно недоступен');
-            return null;
+    console.log('❌ Ошибка TopologyVisualizer:', error);
+    topologyVisualizer = {
+        createTopologyVisualization: async () => {
+            console.log('⚠️ TopologyVisualizer временно недоступен');
+            return false;
         }
     };
 }
-          
-    // ИНИЦИАЛИЗИРУЕМ НОВЫЕ МОДУЛИ
-    try {
-        calculators = calculatorsModule.initialize();
-        console.log('✅ Модуль калькуляторов загружен');
-    } catch (error) {
-        console.log('❌ Ошибка модуля калькуляторов:', error.message);
-        calculators = createCalculatorsStub();
-    }
 
-    try {
-        apps = appsModule.initialize();
-        console.log('✅ Модуль приложений загружен');
-    } catch (error) {
-        console.log('❌ Ошибка модуля приложений:', error.message);
-        apps = createAppsStub();
-    }
+// ИНИЦИАЛИЗИРУЕМ НОВЫЕ МОДУЛИ
+try {
+    calculators = calculatorsModule.initialize();
+    console.log('✅ Модуль калькуляторов загружен');
+} catch (error) {
+    console.log('❌ Ошибка модуля калькуляторов:', error.message);
+    calculators = createCalculatorsStub();
+}
+
+try {
+    apps = appsModule.initialize();
+    console.log('✅ Модуль приложений загружен');
+} catch (error) {
+    console.log('❌ Ошибка модуля приложений:', error.message);
+    apps = createAppsStub();
+}
 
     // ИНИЦИАЛИЗИРУЕМ ЯНДЕКС.ДИСК (асинхронно)
     try {
