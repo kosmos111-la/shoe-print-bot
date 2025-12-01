@@ -33,7 +33,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
-// ИМПОРТ МОДУЛЕЙ
+// ИМПОРТ МОДУЛЕЙ (дополняем существующие)
 const visualizationModule = require('./modules/visualization');
 const yandexDiskModule = require('./modules/yandex-disk');
 const tempManagerModule = require('./modules/temp-manager');
@@ -45,6 +45,10 @@ const { TopologyVisualizer } = require('./modules/visualization/topology-visuali
 // 🔍 ДОБАВЛЯЕМ ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
 const { PracticalAnalyzer } = require('./modules/analysis/practical-analyzer');
 const { AnimalFilter } = require('./modules/correction/animal-filter');
+
+// 🆕 ДОБАВЛЯЕМ СЕССИОННЫЕ МОДУЛИ
+const { SessionManager } = require('./modules/session/session-manager');
+const { SessionAnalyzer } = require('./modules/session/session-analyzer');
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
@@ -134,6 +138,9 @@ let topologyVisualizer;
 // 🎯 ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
 let practicalAnalyzer;
 let animalFilter;
+// 🆕 ДОБАВЛЯЕМ СЕССИОННЫЕ МОДУЛИ
+let sessionManager;
+let sessionAnalyzer;
 
 // Функция-заглушка для Яндекс.Диска
 function createYandexDiskStub() {
@@ -191,6 +198,30 @@ function createAnimalFilterStub() {
             filtered: predictions,
             removed: 0,
             message: 'Модуль фильтрации животных временно недоступен'
+        })
+    };
+}
+
+// Заглушки для новых модулей
+function createSessionManagerStub() {
+    return {
+        createSession: () => ({ id: 'stub', photos: [] }),
+        hasActiveSession: () => false,
+        getActiveSession: () => null,
+        addPhotoToSession: () => false,
+        addAnalysisToSession: () => false,
+        endSession: () => ({ totalPhotos: 0 }),
+        getSessionSummary: () => null
+    };
+}
+
+function createSessionAnalyzerStub() {
+    return {
+        analyzeSession: () => ({
+            peopleCount: { estimatedCount: 1, confidence: 0.5 },
+            movementAnalysis: { available: false },
+            shoeReconstruction: { totalGroups: 0 },
+            timeline: { averageInterval: null }
         })
     };
 }
@@ -337,26 +368,28 @@ app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
 // Команда /start
 bot.onText(/\/start/, (msg) => {
     updateUserStats(msg.from.id, msg.from.username || msg.from.first_name);
- 
+   
     const currentStyle = visualization.getUserStyle(msg.from.id);
     const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
- 
+   
     bot.sendMessage(msg.chat.id,
         `👟 **СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ** 🚀\n\n` +
         `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} отпечатков\n\n` +
-        `🎨 **Текущий стиль визуализации:** ${styleInfo?.name || 'Стиль маски'}\n\n` +
+        `🎨 **Текущий стиль:** ${styleInfo?.name || 'Стиль маски'}\n\n` +
+        `🔄 **СЕССИОННЫЙ РЕЖИМ:**\n` +
+        `/trail_start - Анализ цепочки следов\n` +
+        `/trail_status - Статус сессии\n` +
+        `/trail_end - Завершить с отчетом\n\n` +
         `🔍 **ФУНКЦИОНАЛ:**\n` +
         `• Анализ через Roboflow API\n` +
         `• Визуализация контуров\n` +
         `• Топология протектора\n` +
-        `• Выбор стиля визуализации\n` +
-        `• 🆕 Практический анализ для ПСО\n` +
-        `• 🆕 Фильтрация следов животных\n\n` +
+        `• Практический анализ для ПСО\n` +
+        `• Фильтрация следов животных\n\n` +
         `🧮 **ИНСТРУМЕНТЫ:**\n` +
         `/calculators - Калькуляторы и расчеты\n\n` +
         `🎯 **Команды:**\n` +
         `/style - Выбор стиля визуализации\n` +
-        `/currentstyle - Текущий стиль\n` +
         `/help - Помощь\n` +
         `/statistics - Статистика\n\n` +
         `📸 **Просто отправьте фото следа обуви**`
@@ -1055,32 +1088,224 @@ bot.onText(/\/help/, (msg) => {
     bot.sendMessage(msg.chat.id,
         `🆘 **ПОМОЩЬ**\n\n` +
         `📸 **Как использовать:**\n` +
-        `Просто отправьте фото следа обуви\n\n` +
+        `• Отправьте фото следа обуви\n` +
+        `• Или начните сессию: /trail_start\n\n` +
+        `🔄 **СЕССИОННЫЙ РЕЖИМ:**\n` +
+        `/trail_start - Начать сессию анализа\n` +
+        `/trail_status - Статус сессии\n` +
+        `/trail_end - Завершить с отчетом\n` +
+        `/cancel - Отменить все операции\n\n` +
         `🔍 **Что анализируется:**\n` +
         `• Контуры подошвы\n` +
         `• Детали протектора\n` +
         `• Топология узора\n` +
-        `• 🆕 Практический анализ для ПСО\n` +
-        `• 🆕 Фильтрация следов животных\n\n` +
+        `• Практический анализ для ПСО\n` +
+        `• Фильтрация следов животных\n\n` +
         `🧮 **ИНСТРУМЕНТЫ:**\n` +
         `/calculators - Калькуляторы и расчеты\n\n` +
         `📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n` +
         `/apps - Рекомендованные приложения\n\n` +
         `🎨 **Стили визуализации:**\n` +
         `/style - Выбрать стиль отображения\n` +
-        `/currentstyle - Текущий стиль\n` +
-        `• Стиль маски (по умолчанию) - черные линии на полупрозрачном фоне\n` +
-        `• Оригинальный стиль - цветная визуализация\n\n` +
-        `💡 **Советы по съемке:**\n` +
-        `• Прямой угол\n` +
-        `• Хорошее освещение\n` +
-        `• Четкий фокус\n\n` +
+        `/currentstyle - Текущий стиль\n\n` +
         `💾 **Сохранение результатов:**\n` +
-        `/yandex - Статус Яндекс.Диска\n` +
-        `• Автоматическое сохранение в облако\n\n` +
+        `/yandex - Статус Яндекс.Диска\n\n` +
         `📊 **Другие команды:**\n` +
         `/start - Главное меню\n` +
         `/statistics - Статистика системы`
+    );
+});
+
+// =============================================================================
+// 🆕 СЕССИОННЫЕ КОМАНДЫ
+// =============================================================================
+
+// Команда /trail_start - начать сессию анализа следов
+bot.onText(/\/trail_start/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    if (sessionManager.hasActiveSession(userId)) {
+        const session = sessionManager.getActiveSession(userId);
+        await bot.sendMessage(chatId,
+            `⚠️ **СЕССИЯ УЖЕ АКТИВНА**\n\n` +
+            `🆔 ${session.id.slice(0, 8)}...\n` +
+            `⏰ Начата: ${session.startTime.toLocaleTimeString('ru-RU')}\n` +
+            `📸 Фото: ${session.photos.length}\n\n` +
+            `📊 Статус: /trail_status\n` +
+            `🏁 Завершить: /trail_end`
+        );
+        return;
+    }
+   
+    const session = sessionManager.createSession(userId, 'trail_analysis');
+   
+    await bot.sendMessage(chatId,
+        `🔄 **РЕЖИМ СЕССИИ АКТИВИРОВАН**\n\n` +
+        `📋 Отправляйте фото следов по одному\n` +
+        `✅ Каждое фото будет подтверждено\n` +
+        `📊 В конце - полный отчет\n\n` +
+        `📍 **Инструкция:**\n` +
+        `1. Сфотографируйте общую картину\n` +
+        `2. Сделайте детальные фото отдельных следов\n` +
+        `3. Сохраняйте последовательность\n\n` +
+        `📸 Отправьте первое фото`
+    );
+});
+
+// Команда /trail_status - статус текущей сессии
+bot.onText(/\/trail_status/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    if (!sessionManager.hasActiveSession(userId)) {
+        await bot.sendMessage(chatId,
+            `❌ Нет активной сессии\n` +
+            `Начните: /trail_start`
+        );
+        return;
+    }
+   
+    const session = sessionManager.getActiveSession(userId);
+    const summary = sessionManager.getSessionSummary(userId);
+   
+    await bot.sendMessage(chatId,
+        `📊 **СТАТУС СЕССИИ**\n\n` +
+        `🆔 ${session.id.slice(0, 8)}...\n` +
+        `⏰ Длительность: ${summary.duration.toFixed(0)} сек\n` +
+        `📸 Фото: ${summary.photoCount}\n` +
+        `🔍 Анализов: ${summary.analysisCount}\n\n` +
+        `📝 Последнее фото: ${session.photos[session.photos.length - 1]?.timestamp.toLocaleTimeString('ru-RU') || 'нет'}\n\n` +
+        `🏁 Завершить: /trail_end`
+    );
+});
+
+// Команда /trail_end - завершить сессию с анализом
+bot.onText(/\/trail_end/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    if (!sessionManager.hasActiveSession(userId)) {
+        await bot.sendMessage(chatId,
+            `❌ Нет активной сессии для завершения\n` +
+            `Начните: /trail_start`
+        );
+        return;
+    }
+   
+    // Получаем сессию перед завершением
+    const session = sessionManager.getActiveSession(userId);
+   
+    // 🔍 АНАЛИЗИРУЕМ ВСЮ СЕССИЮ
+    await bot.sendMessage(chatId, `🔍 Анализирую данные сессии...`);
+   
+    const analysis = sessionAnalyzer.analyzeSession(session);
+   
+    // Завершаем сессию
+    const report = sessionManager.endSession(userId);
+   
+    // 🎯 ФОРМИРУЕМ ИНТЕЛЛЕКТУАЛЬНЫЙ ОТЧЕТ
+    let reportMessage = `🏁 **СЕССИЯ ЗАВЕРШЕНА**\n\n`;
+    reportMessage += `📊 **СТАТИСТИКА:**\n`;
+    reportMessage += `• Фото: ${report.totalPhotos}\n`;
+    reportMessage += `• Анализов: ${report.totalAnalyses}\n`;
+    reportMessage += `• Длительность: ${report.duration.toFixed(0)} сек\n\n`;
+   
+    // 🧑‍🤝‍🧑 АНАЛИЗ ЛЮДЕЙ
+    reportMessage += `👥 **АНАЛИЗ ГРУППЫ:**\n`;
+    reportMessage += `• Людей: ${analysis.peopleCount.estimatedCount}\n`;
+   
+    if (analysis.peopleCount.estimatedCount > 1) {
+        reportMessage += `• Уверенность: ${(analysis.peopleCount.confidence * 100).toFixed(0)}%\n`;
+    }
+    reportMessage += `\n`;
+   
+    // 👟 РЕКОНСТРУКЦИЯ ОБУВИ
+    if (analysis.shoeReconstruction.totalGroups > 0) {
+        reportMessage += `👟 **РЕКОНСТРУКЦИЯ ОБУВИ:**\n`;
+        analysis.shoeReconstruction.reconstructions.forEach((rec, i) => {
+            reportMessage += `${i+1}. Размер ~${rec.estimatedSize}, уверенность: ${(rec.confidence * 100).toFixed(0)}%\n`;
+        });
+        reportMessage += `\n`;
+    }
+   
+    // 🗺️ АНАЛИЗ ДВИЖЕНИЯ
+    if (analysis.movementAnalysis.available) {
+        reportMessage += `🗺️ **ДВИЖЕНИЕ:**\n`;
+        reportMessage += `• Дистанция: ${analysis.movementAnalysis.totalDistance?.toFixed(1) || '?'} м\n`;
+       
+        if (analysis.movementAnalysis.direction) {
+            reportMessage += `• Направление: ${analysis.movementAnalysis.direction.toFixed(0)}°\n`;
+        }
+       
+        if (analysis.movementAnalysis.estimatedSpeed) {
+            reportMessage += `• Скорость: ${analysis.movementAnalysis.estimatedSpeed.toFixed(1)} км/ч\n`;
+        }
+        reportMessage += `\n`;
+    }
+   
+    // ⏰ ТАЙМЛАЙН
+    reportMessage += `⏰ **ХРОНОЛОГИЯ:**\n`;
+    if (analysis.timeline.averageInterval) {
+        reportMessage += `• Средний интервал: ${analysis.timeline.averageInterval.toFixed(1)} сек\n`;
+    }
+    reportMessage += `• Всего времени: ${analysis.timeline.totalDuration?.toFixed(0) || '?'} сек\n`;
+   
+    // ⚠️ АНОМАЛИИ
+    if (analysis.anomalies && analysis.anomalies.length > 0) {
+        reportMessage += `\n⚠️ **ОСОБЕННОСТИ:**\n`;
+        analysis.anomalies.forEach(anomaly => {
+            reportMessage += `• ${anomaly.message}\n`;
+        });
+    }
+   
+    reportMessage += `\n💾 Отчет сохранен`;
+   
+    await bot.sendMessage(chatId, reportMessage);
+   
+    // 💾 Сохранение в Яндекс.Диск (если доступен)
+    if (yandexDisk && yandexDisk.isAvailable && yandexDisk.isAvailable()) {
+        try {
+            const saveResult = await yandexDisk.saveSessionReport(userId, {
+                ...report,
+                intelligenceAnalysis: analysis
+            });
+           
+            if (saveResult.success) {
+                await bot.sendMessage(chatId,
+                    `✅ Полный отчет сохранен в облако\n` +
+                    `📁 ${saveResult.path || 'Яндекс.Диск'}`
+                );
+            }
+        } catch (error) {
+            console.log('⚠️ Ошибка сохранения отчета:', error.message);
+        }
+    }
+});
+
+// Команда /cancel - отменить все операции
+bot.onText(/\/cancel/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    // Очищаем контекст калькуляторов
+    delete userContext[userId];
+   
+    // Проверяем активную сессию
+    if (sessionManager.hasActiveSession(userId)) {
+        const session = sessionManager.endSession(userId);
+        await bot.sendMessage(chatId,
+            `🗑️ **СЕССИЯ ОТМЕНЕНА**\n\n` +
+            `Сессия "${session.id.slice(0, 8)}..." отменена\n` +
+            `Удалено: ${session.photos.length} фото\n\n` +
+            `🔄 Новая сессия: /trail_start`
+        );
+        return;
+    }
+   
+    await bot.sendMessage(chatId,
+        `✅ Все активные операции отменены\n` +
+        `Готов к новым командам`
     );
 });
 
@@ -1122,47 +1347,60 @@ bot.onText(/\/yandex/, async (msg) => {
 });
 
 // =============================================================================
-// 📸 ОБРАБОТКА ФОТО С ПРАКТИЧЕСКИМ АНАЛИЗОМ
+// 📸 ОБРАБОТКА ФОТО С СЕССИОННЫМ РЕЖИМОМ
 // =============================================================================
 bot.on('photo', async (msg) => {
     const chatId = msg.chat.id;
-
+    const userId = msg.from.id;
+   
+    // Проверяем активную сессию
+    const hasSession = sessionManager.hasActiveSession(userId);
+   
     try {
         updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'photo');
-
-        // 🎨 ПОДСКАЗКА О СТИЛЕ ПРИ ПЕРВОМ ИСПОЛЬЗОВАНИИ
-        const userId = msg.from.id;
-        if (!visualization.userPreferences.has(String(userId))) {
-            const currentStyle = visualization.getUserStyle(userId);
-            const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
-
-            await bot.sendMessage(chatId,
-                `🎨 **Стиль визуализации:** ${styleInfo?.name || 'Стиль маски'}\n` +
-                `Изменить: /style`
+       
+        // 🆕 СЕССИОННЫЙ РЕЖИМ: отправляем короткое подтверждение
+        let statusMessage = null;
+        if (hasSession) {
+            const session = sessionManager.getActiveSession(userId);
+            statusMessage = await bot.sendMessage(chatId,
+                `📸 Получено фото ${session.photos.length + 1}...`
             );
+        } else {
+            // Обычный режим: оставляем как есть
+            await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
         }
-        await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
-
+       
         const photo = msg.photo[msg.photo.length - 1];
         const file = await bot.getFile(photo.file_id);
         const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
-
-        // 🔄 СОХРАНЯЕМ ФОТО ВО ВРЕМЕННЫЙ ФАЙЛ ДЛЯ АНАЛИЗА
+       
+        // 🔄 СОХРАНЯЕМ ФОТО ВО ВРЕМЕННЫЙ ФАЙЛ
         const tempImagePath = tempFileManager.createTempFile('original', 'jpg');
         const response = await axios({
             method: 'GET',
             url: fileUrl,
             responseType: 'stream'
         });
+       
         await new Promise((resolve, reject) => {
             const writer = require('fs').createWriteStream(tempImagePath);
             response.data.pipe(writer);
             writer.on('finish', resolve);
             writer.on('error', reject);
         });
-
-        await bot.sendMessage(chatId, '🔍 Анализирую через Roboflow...');
-
+       
+        // Если сессия - добавляем фото
+        if (hasSession) {
+            sessionManager.addPhotoToSession(userId, {
+                fileId: photo.file_id,
+                chatId: chatId,
+                fileUrl: fileUrl,
+                localPath: tempImagePath
+            });
+        }
+       
+        // 🔍 АНАЛИЗ ROBOFLOW
         const roboflowResponse = await axios({
             method: "POST",
             url: config.ROBOFLOW.API_URL,
@@ -1175,271 +1413,160 @@ bot.on('photo', async (msg) => {
             },
             timeout: 30000
         });
-
+       
         const predictions = roboflowResponse.data.predictions || [];
         const processedPredictions = smartPostProcessing(predictions);
         const analysis = analyzePredictions(processedPredictions);
-
-   // 🔍 ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО (ВЫПОЛНЯЕТСЯ ВСЕГДА)
-let predictionsForAnalysis = processedPredictions; // По умолчанию используем все предсказания
        
-try {
-    await bot.sendMessage(chatId, '🎯 Провожу практический анализ для поисковых работ...');
-   
-    // 1. ФИЛЬТРАЦИЯ СЛЕДОВ ЖИВОТНЫХ
-    const animalFilterResult = animalFilter.filterAnimalPaws(processedPredictions);
-    const filteredPredictions = animalFilterResult.filtered;
-   
-    // 2. ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
-    const psoAnalysis = practicalAnalyzer.analyzeForPSO(filteredPredictions);
-   
-    // Формируем сообщение с практическими рекомендациями
-    let psoMessage = '🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО**\n\n';
-   
-    psoMessage += '🔍 **КЛЮЧЕВЫЕ НАХОДКИ:**\n';
-   
-    // ПРОВЕРЯЕМ КАЖДЫЙ ЭЛЕМЕНТ НА НАЛИЧИЕ
-    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.isAnimal) {
-        psoMessage += `• ${psoAnalysis.keyFindings.isAnimal.message}\n`;
-    }
-   
-    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.hasHeel) {
-        psoMessage += `• ${psoAnalysis.keyFindings.hasHeel.message}\n`;
-    }
-   
-    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.hasToe) {
-        psoMessage += `• ${psoAnalysis.keyFindings.hasToe.message}\n`;
-    }
-   
-    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.hasGroundDisturbance) {
-        psoMessage += `• ${psoAnalysis.keyFindings.hasGroundDisturbance.message}\n`;
-    }
-   
-    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.footprintCount) {
-        psoMessage += `• ${psoAnalysis.keyFindings.footprintCount.message}\n`;
-    }
-   
-    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.protectorDetails) {
-        psoMessage += `• ${psoAnalysis.keyFindings.protectorDetails.message}\n`;
-    }
-   
-    psoMessage += '\n💡 **РЕКОМЕНДАЦИИ:**\n';
-   
-    // ПРОВЕРЯЕМ ЕСТЬ ЛИ РЕКОМЕНДАЦИИ
-    if (psoAnalysis.recommendations && Array.isArray(psoAnalysis.recommendations)) {
-        psoAnalysis.recommendations.forEach(rec => {
-            psoMessage += `• ${rec}\n`;
-        });
-    } else {
-        psoMessage += '• Нет рекомендаций\n';
-    }
-   
-    psoMessage += '\n📊 **ФАКТЫ:**\n';
-   
-    if (psoAnalysis.facts && psoAnalysis.facts.classesFound) {
-        psoMessage += `• Найдено классов: ${psoAnalysis.facts.classesFound.join(', ') || 'нет'}\n`;
-    }
-   
-    if (psoAnalysis.facts && typeof psoAnalysis.facts.hasClearOutline !== 'undefined') {
-        psoMessage += `• Контур следа: ${psoAnalysis.facts.hasClearOutline ? 'да' : 'нет'}\n`;
-    }
-   
-    if (animalFilterResult.removed > 0) {
-        psoMessage += `\n🚫 **ФИЛЬТРАЦИЯ ЖИВОТНЫХ:** ${animalFilterResult.message}`;
-        predictionsForAnalysis = filteredPredictions; // Используем отфильтрованные предсказания
-    }
-   
-    // Отправляем практический анализ СРАЗУ
-    await bot.sendMessage(chatId, psoMessage);
-   
-} catch (psoError) {
-    console.log('⚠️ Ошибка практического анализа:', psoError);
-    console.log('🔍 Подробности ошибки:', psoError.stack);
-    await bot.sendMessage(chatId, '⚠️ Практический анализ временно недоступен, продолжаю базовый анализ...');
-    predictionsForAnalysis = processedPredictions;
-}
-
-        if (analysis.total > 0) {
-            // 🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ СЛЕДА (если модуль доступен)
-            let intelligentAnalysis = null;
-            try {
-                if (analysisModule && analysisModule.performComprehensiveAnalysis) {
-                    await bot.sendMessage(chatId, '🧠 Провожу интеллектуальный анализ...');
-                   
-                    intelligentAnalysis = await analysisModule.performComprehensiveAnalysis(
-                        tempImagePath,
-                        predictionsForAnalysis, // ⚠️ ИСПОЛЬЗУЕМ ОТФИЛЬТРОВАННЫЕ ПРЕДСКАЗАНИЯ
-                        {
-                            userId: msg.from.id,
-                            username: msg.from.username || msg.from.first_name
-                        }
-                    );
-
-                    // 📊 ВЫВОД РЕЗУЛЬТАТОВ ИНТЕЛЛЕКТУАЛЬНОГО АНАЛИЗА
-                    if (intelligentAnalysis && intelligentAnalysis.summary) {
-                        const summary = intelligentAnalysis.summary;
-                        await bot.sendMessage(chatId,
-                            `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ СЛЕДА**\n\n` +
-                            `🧭 Ориентация: ${summary.orientation}\n` +
-                            `📊 Уверенность: ${summary.confidence}\n` +
-                            `👟 Тип обуви: ${summary.footprintType}\n` +
-                            `📏 Примерный размер: ${summary.sizeEstimation}\n` +
-                            `🔷 Морфология: ${summary.morphology}\n` +
-                            `🕸️ Топология: ${summary.topology}\n\n` +
-                            `💡 Рекомендации:\n${summary.recommendations.join('\n')}`
-                        );
+        // 🔍 ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
+        let predictionsForAnalysis = processedPredictions;
+        let practicalAnalysis = null;
+        let animalFilterResult = null;
+       
+        try {
+            animalFilterResult = animalFilter.filterAnimalPaws(processedPredictions);
+            const filteredPredictions = animalFilterResult.filtered;
+            practicalAnalysis = practicalAnalyzer.analyzeForPSO(filteredPredictions);
+            predictionsForAnalysis = filteredPredictions;
+        } catch (psoError) {
+            console.log('⚠️ Практический анализ пропущен:', psoError.message);
+        }
+       
+        // 🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ
+        let intelligentAnalysis = null;
+        try {
+            if (analysisModule && analysisModule.performComprehensiveAnalysis) {
+                intelligentAnalysis = await analysisModule.performComprehensiveAnalysis(
+                    tempImagePath,
+                    predictionsForAnalysis,
+                    {
+                        userId: msg.from.id,
+                        username: msg.from.username || msg.from.first_name
                     }
-                }
-            } catch (analysisError) {
-                console.log('⚠️ Ошибка интеллектуального анализа:', analysisError.message);
-                // Не отправляем сообщение пользователю, чтобы не засорять чат
+                );
             }
-
-            await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
-
-            const userData = {
-                username: msg.from.username ? `@${msg.from.username}` : msg.from.first_name
-            };
-
-            // ИСПОЛЬЗУЕМ МОДУЛИ ВИЗУАЛИЗАЦИИ С ВЫБОРОМ СТИЛЯ
-            const vizModule = visualization.getVisualization(msg.from.id, 'analysis');
-            const topologyModule = visualization.getVisualization(msg.from.id, 'topology');
-
-            // 🔄 НОВЫЙ КОД С ИНТЕГРАЦИЕЙ МЕНЕДЖЕРА ФАЙЛОВ
-            let vizPath, topologyPath;
-
+        } catch (analysisError) {
+            console.log('⚠️ Интеллектуальный анализ пропущен:', analysisError.message);
+        }
+       
+        // 🎨 ВИЗУАЛИЗАЦИЯ
+        let vizPath = null;
+        let topologyVizPath = null;
+       
+        if (analysis.total > 0) {
             try {
-                // СОЗДАЕМ ПУТИ ЧЕРЕЗ МЕНЕДЖЕР
+                const vizModule = visualization.getVisualization(msg.from.id, 'analysis');
                 vizPath = tempFileManager.createTempFile('analysis', 'png');
-                topologyPath = tempFileManager.createTempFile('topology', 'png');
-
-                // Сохраняем визуализации в созданные пути (ИСПОЛЬЗУЕМ ОТФИЛЬТРОВАННЫЕ ПРЕДСКАЗАНИЯ)
-                await vizModule.createVisualization(fileUrl, predictionsForAnalysis, userData, vizPath);
-                await topologyModule.createVisualization(fileUrl, predictionsForAnalysis, userData, topologyPath);
-
-                // 🆕 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ
-                const topologyVizPath = tempFileManager.createTempFile('topology_science', 'png');
-                const topologyCreated = await topologyVisualizer.createTopologyVisualization(
+               
+                await vizModule.createVisualization(
                     fileUrl,
                     predictionsForAnalysis,
-                    topologyVizPath
+                    { username: msg.from.username || msg.from.first_name },
+                    vizPath
                 );
-
-                // Отправка результатов
-                if (vizPath && require('fs').existsSync(vizPath)) {
-                    let caption = `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`;
-
-                    // ДОБАВЛЯЕМ ИНТЕЛЛЕКТУАЛЬНЫЕ ВЫВОДЫ В ПОДПИСЬ (если есть)
-                    if (intelligentAnalysis && intelligentAnalysis.summary) {
-                        caption += `\n🧭 Ориентация: ${intelligentAnalysis.summary.orientation}`;
-                        caption += `\n👟 Тип: ${intelligentAnalysis.summary.footprintType}`;
-                    }
-
-                    // 1. ОСНОВНАЯ ВИЗУАЛИЗАЦИЯ
-                    await bot.sendPhoto(chatId, vizPath, { caption: caption });
-
-                    // 2. ТОПОЛОГИЧЕСКАЯ КАРТА (если создалась)
-                    if (topologyCreated) {
-                        await bot.sendPhoto(chatId, topologyVizPath, {
-                            caption: '🕸️ Топологический анализ протектора\n• Зеленые точки - центры протекторов\n• Оранжевые линии - связи\n• Синий пунктир - контур следа'
-                        });
-                        tempFileManager.removeFile(topologyVizPath);
-                    }
-
-                    // 💾 СОХРАНЕНИЕ В ЯНДЕКС.ДИСК
-                    if (yandexDisk && vizPath && topologyPath) {
-                        try {
-                            await bot.sendMessage(chatId, '💾 Сохраняю результаты в облако...');
-
-                            const filesToUpload = [
-                                { localPath: vizPath, name: 'visualization.png', type: 'visualization' },
-                                { localPath: topologyPath, name: 'topology_map.png', type: 'topology' },
-                                { localPath: tempImagePath, name: 'original_photo.jpg', type: 'original' }
-                            ];
-
-                            if (topologyCreated) {
-                                filesToUpload.push({
-                                    localPath: topologyVizPath,
-                                    name: 'topology_science.png',
-                                    type: 'topology_science'
-                                });
-                            }
-
-                            const analysisData = {
-                                predictions: predictionsForAnalysis.length,
-                                classes: analysis.classes,
-                                timestamp: new Date().toISOString(),
-                                user: userData.username,
-                                intelligentAnalysis: intelligentAnalysis ? {
-                                    orientation: intelligentAnalysis.summary.orientation,
-                                    footprintType: intelligentAnalysis.summary.footprintType,
-                                    sizeEstimation: intelligentAnalysis.summary.sizeEstimation,
-                                    morphology: intelligentAnalysis.summary.morphology,
-                                    topology: intelligentAnalysis.summary.topology
-                                } : null
-                            };
-
-                            const saveResult = await yandexDisk.saveAnalysisResults(
-                                msg.from.id,
-                                filesToUpload,
-                                analysisData
-                            );
-
-                            if (saveResult.success) {
-                                await bot.sendMessage(chatId,
-                                    `💾 **Результаты сохранены в Яндекс.Диск**\n\n` +
-                                    `📁 Папка: ${path.basename(saveResult.folderPath)}\n` +
-                                    `📊 Файлов: ${saveResult.uploadedFiles.length}\n` +
-                                    `🕒 ${new Date().toLocaleString('ru-RU')}`
-                                );
-                            }
-                        } catch (uploadError) {
-                            console.log('⚠️ Ошибка загрузки в Яндекс.Диск:', uploadError.message);
-                        }
-                    }
-
-                    // 🔄 АВТОМАТИЧЕСКАЯ ОЧИСТКА
-                    tempFileManager.removeFile(vizPath);
-                    tempFileManager.removeFile(topologyPath);
-                    tempFileManager.removeFile(tempImagePath);
-                } else {
-                    // Если визуализация не создалась
-                    let caption = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
-                    caption += `🎯 Обнаружено объектов: ${analysis.total}\n\n`;
-
-                    if (intelligentAnalysis && intelligentAnalysis.summary) {
-                        caption += `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:**\n`;
-                        caption += `• Ориентация: ${intelligentAnalysis.summary.orientation}\n`;
-                        caption += `• Тип обуви: ${intelligentAnalysis.summary.footprintType}\n`;
-                        caption += `• Размер: ${intelligentAnalysis.summary.sizeEstimation}\n`;
-                        caption += `• Морфология: ${intelligentAnalysis.summary.morphology}\n`;
-                        caption += `• Топология: ${intelligentAnalysis.summary.topology}\n\n`;
-                    }
-
-                    caption += `📋 **КЛАССИФИКАЦИЯ:**\n`;
-                    Object.entries(analysis.classes).forEach(([className, count]) => {
-                        caption += `• ${className}: ${count}\n`;
-                    });
-                  
-                    await bot.sendMessage(chatId, caption);
+               
+                // Топологическая визуализация только если есть протекторы
+                const protectors = predictionsForAnalysis.filter(p => p.class === 'shoe-protector');
+                if (protectors.length > 3) {
+                    topologyVizPath = tempFileManager.createTempFile('topology_science', 'png');
+                    await topologyVisualizer.createTopologyVisualization(
+                        fileUrl,
+                        predictionsForAnalysis,
+                        topologyVizPath
+                    );
                 }
-            } catch (error) {
-                console.log('❌ Ошибка создания визуализации:', error);
-                if (vizPath) tempFileManager.removeFile(vizPath);
-                if (topologyPath) tempFileManager.removeFile(topologyPath);
-                if (tempImagePath) tempFileManager.removeFile(tempImagePath);
-                throw error;
+               
+            } catch (vizError) {
+                console.log('⚠️ Визуализация пропущена:', vizError.message);
             }
-
-        } else {
-            await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
         }
-
+       
+        // 🆕 СЕССИОННЫЙ РЕЖИМ: КОРОТКОЕ ПОДТВЕРЖДЕНИЕ
+        if (hasSession) {
+            const session = sessionManager.getActiveSession(userId);
+           
+            // Добавляем анализ в сессию
+            sessionManager.addAnalysisToSession(userId, {
+                predictions: predictionsForAnalysis,
+                practicalAnalysis: practicalAnalysis,
+                intelligentAnalysis: intelligentAnalysis,
+                analysis: analysis,
+                timestamp: new Date(),
+                visualizationPaths: {
+                    analysis: vizPath,
+                    topology: topologyVizPath
+                }
+            });
+           
+            // Обновляем сообщение на короткое подтверждение
+            if (statusMessage) {
+                await bot.editMessageText(
+                    `✅ Фото ${session.photos.length} принято\n` +
+                    `📊 Сессия: ${session.photos.length} фото`,
+                    {
+                        chat_id: chatId,
+                        message_id: statusMessage.message_id
+                    }
+                );
+            }
+           
+            // 💾 Сохранение в сессию (файлы пока не удаляем)
+            // Они будут удалены после завершения сессии
+           
+        } else {
+            // 🆕 ОБЫЧНЫЙ РЕЖИМ: ПОЛНЫЙ АНАЛИЗ КАК РАНЬШЕ
+           
+            if (analysis.total === 0) {
+                await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+                tempFileManager.removeFile(tempImagePath);
+                return;
+            }
+           
+            // Отправляем результаты
+            await bot.sendMessage(chatId, `✅ Анализ завершен\n🎯 Обнаружено объектов: ${analysis.total}`);
+           
+            // Визуализация
+            if (vizPath && require('fs').existsSync(vizPath)) {
+                await bot.sendPhoto(chatId, vizPath, {
+                    caption: '🎨 Визуализация анализа'
+                });
+                tempFileManager.removeFile(vizPath);
+            }
+           
+            // Практический анализ
+            if (practicalAnalysis && practicalAnalysis.recommendations) {
+                let practicalMessage = `🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ:**\n\n`;
+                practicalAnalysis.recommendations.slice(0, 3).forEach(rec => {
+                    practicalMessage += `• ${rec}\n`;
+                });
+                await bot.sendMessage(chatId, practicalMessage);
+            }
+           
+            // Интеллектуальный анализ
+            if (intelligentAnalysis && intelligentAnalysis.summary) {
+                const intelMessage = `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:**\n\n` +
+                    `🧭 Ориентация: ${intelligentAnalysis.summary.orientation}\n` +
+                    `👟 Тип обуви: ${intelligentAnalysis.summary.footprintType}\n` +
+                    `📏 Примерный размер: ${intelligentAnalysis.summary.sizeEstimation}`;
+               
+                await bot.sendMessage(chatId, intelMessage);
+            }
+           
+            // Очистка
+            tempFileManager.removeFile(tempImagePath);
+            if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
+        }
+       
         updateUserStats(msg.from.id, msg.from.username || msg.from.first_name, 'analysis');
-
+       
     } catch (error) {
         console.log('❌ Ошибка анализа фото:', error.message);
-        await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
+       
+        if (hasSession) {
+            await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
+        } else {
+            await bot.sendMessage(chatId, '❌ Ошибка при анализе фото. Попробуйте еще раз.');
+        }
     }
 });
 
@@ -1611,6 +1738,17 @@ console.log('🛡️ Глобальные обработчики ошибок а
         animalFilter = createAnimalFilterStub();
     }
 
+// 🆕 ИНИЦИАЛИЗИРУЕМ СЕССИОННЫЕ МОДУЛИ
+    try {
+        sessionManager = new SessionManager();
+        sessionAnalyzer = new SessionAnalyzer();
+        console.log('✅ Сессионные модули загружены');
+    } catch (error) {
+        console.log('❌ Ошибка сессионных модулей:', error.message);
+        sessionManager = createSessionManagerStub();
+        sessionAnalyzer = createSessionAnalyzerStub();
+    }
+  
     // ИНИЦИАЛИЗИРУЕМ НОВЫЕ МОДУЛИ
     try {
         calculators = calculatorsModule.initialize();
