@@ -4,35 +4,44 @@ const { TopographyAnalyzer } = require('./topography-analyzer');
 
 class AnalysisModule {
     constructor() {
+        console.log('🔍 AnalysisModule: Конструктор вызван');
         this.topographyAnalyzer = new TopographyAnalyzer();
-        console.log('📊 Модуль анализа инициализирован (только топография)');
+        console.log('✅ AnalysisModule: Модуль анализа инициализирован с морфологией и топологией');
     }
 
     async performComprehensiveAnalysis(imagePath, predictions, userContext = {}) {
+        console.log(`🔍 AnalysisModule: Запуск анализа для ${predictions.length} предсказаний`);
+       
         try {
-            console.log('🎯 Запускаю ТОПОГРАФИЧЕСКИЙ анализ...');
-           
-            // ТОЛЬКО ТОПОГРАФИЯ (пока)
+            console.log('🔍 Шаг 1: Топография...');
             const topography = await this.topographyAnalyzer.analyzeFootprintTopography(
                 imagePath, predictions, userContext
             );
            
-            // 🆕 ДОБАВЛЯЕМ ПРОСТУЮ МОРФОЛОГИЮ И ТОПОЛОГИЮ
+            console.log('🔍 Шаг 2: Морфология...');
             const morphology = this.analyzeMorphology(predictions);
+           
+            console.log('🔍 Шаг 3: Топология...');
             const topology = this.analyzeTopology(predictions);
            
-            const result = {
+            console.log('🔍 Шаг 4: Генерация отчета...');
+            const summary = this.generateAnalysisSummary(topography, morphology, topology);
+           
+            console.log('✅ AnalysisModule: Анализ завершен');
+            console.log('- Ориентация:', summary.orientation);
+            console.log('- Морфология:', summary.morphology);
+            console.log('- Топология:', summary.topology);
+           
+            return {
                 topography,
-                morphology, // 🆕 НОВОЕ
-                topology,   // 🆕 НОВОЕ
-                summary: this.generateAnalysisSummary(topography, morphology, topology),
+                morphology,
+                topology,
+                summary,
                 timestamp: new Date().toISOString()
             };
            
-            return result;
-           
         } catch (error) {
-            console.log('❌ Ошибка анализа:', error);
+            console.log('❌ AnalysisModule: Ошибка анализа:', error);
             throw error;
         }
     }
