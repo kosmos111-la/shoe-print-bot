@@ -1180,50 +1180,84 @@ bot.on('photo', async (msg) => {
         const processedPredictions = smartPostProcessing(predictions);
         const analysis = analyzePredictions(processedPredictions);
 
-        // 🔍 ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО (ВЫПОЛНЯЕТСЯ ВСЕГДА)
-        let predictionsForAnalysis = processedPredictions; // По умолчанию используем все предсказания
+   // 🔍 ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО (ВЫПОЛНЯЕТСЯ ВСЕГДА)
+let predictionsForAnalysis = processedPredictions; // По умолчанию используем все предсказания
        
-        try {
-            await bot.sendMessage(chatId, '🎯 Провожу практический анализ для поисковых работ...');
-           
-            // 1. ФИЛЬТРАЦИЯ СЛЕДОВ ЖИВОТНЫХ
-            const animalFilterResult = animalFilter.filterAnimalPaws(processedPredictions);
-            const filteredPredictions = animalFilterResult.filtered;
-           
-            // 2. ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
-            const psoAnalysis = practicalAnalyzer.analyzeForPSO(filteredPredictions);
-           
-            // Формируем сообщение с практическими рекомендациями
-            let psoMessage = '🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО**\n\n';
-           
-            psoMessage += '🔍 **ИСКЛЮЧАЮЩИЕ ПРИЗНАКИ:**\n';
-            psoMessage += `• ${psoAnalysis.exclusionCheck.isAnimal.message}\n`;
-            psoMessage += `• ${psoAnalysis.exclusionCheck.hasHeel.message}\n`;
-            psoMessage += `• ${psoAnalysis.exclusionCheck.footprintCount.message}\n`;
-           
-            psoMessage += '\n💡 **РЕКОМЕНДАЦИИ ДЛЯ ПОИСКА:**\n';
-            psoAnalysis.recommendations.forEach(rec => {
-                psoMessage += `• ${rec}\n`;
-            });
-           
-            psoMessage += '\n📊 **ПРАКТИЧЕСКИЕ ВЫВОДЫ:**\n';
-            psoMessage += `• Пол: ${psoAnalysis.practicalInsights.likelyGender.gender} (уверенность: ${Math.round(psoAnalysis.practicalInsights.likelyGender.confidence * 100)}%)\n`;
-            psoMessage += `• Категория обуви: ${psoAnalysis.practicalInsights.shoeCategory}\n`;
-            psoMessage += `• Особенности: ${psoAnalysis.practicalInsights.distinctiveFeatures.join(', ')}\n`;
-           
-            if (animalFilterResult.removed > 0) {
-                psoMessage += `\n🚫 **ФИЛЬТРАЦИЯ ЖИВОТНЫХ:** ${animalFilterResult.message}`;
-                predictionsForAnalysis = filteredPredictions; // Используем отфильтрованные предсказания
-            }
-           
-            // Отправляем практический анализ СРАЗУ
-            await bot.sendMessage(chatId, psoMessage);
-           
-        } catch (psoError) {
-            console.log('⚠️ Ошибка практического анализа:', psoError.message);
-            await bot.sendMessage(chatId, '⚠️ Практический анализ временно недоступен, продолжаю базовый анализ...');
-            predictionsForAnalysis = processedPredictions;
-        }
+try {
+    await bot.sendMessage(chatId, '🎯 Провожу практический анализ для поисковых работ...');
+   
+    // 1. ФИЛЬТРАЦИЯ СЛЕДОВ ЖИВОТНЫХ
+    const animalFilterResult = animalFilter.filterAnimalPaws(processedPredictions);
+    const filteredPredictions = animalFilterResult.filtered;
+   
+    // 2. ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
+    const psoAnalysis = practicalAnalyzer.analyzeForPSO(filteredPredictions);
+   
+    // Формируем сообщение с практическими рекомендациями
+    let psoMessage = '🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО**\n\n';
+   
+    psoMessage += '🔍 **КЛЮЧЕВЫЕ НАХОДКИ:**\n';
+   
+    // ПРОВЕРЯЕМ КАЖДЫЙ ЭЛЕМЕНТ НА НАЛИЧИЕ
+    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.isAnimal) {
+        psoMessage += `• ${psoAnalysis.keyFindings.isAnimal.message}\n`;
+    }
+   
+    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.hasHeel) {
+        psoMessage += `• ${psoAnalysis.keyFindings.hasHeel.message}\n`;
+    }
+   
+    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.hasToe) {
+        psoMessage += `• ${psoAnalysis.keyFindings.hasToe.message}\n`;
+    }
+   
+    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.hasGroundDisturbance) {
+        psoMessage += `• ${psoAnalysis.keyFindings.hasGroundDisturbance.message}\n`;
+    }
+   
+    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.footprintCount) {
+        psoMessage += `• ${psoAnalysis.keyFindings.footprintCount.message}\n`;
+    }
+   
+    if (psoAnalysis.keyFindings && psoAnalysis.keyFindings.protectorDetails) {
+        psoMessage += `• ${psoAnalysis.keyFindings.protectorDetails.message}\n`;
+    }
+   
+    psoMessage += '\n💡 **РЕКОМЕНДАЦИИ:**\n';
+   
+    // ПРОВЕРЯЕМ ЕСТЬ ЛИ РЕКОМЕНДАЦИИ
+    if (psoAnalysis.recommendations && Array.isArray(psoAnalysis.recommendations)) {
+        psoAnalysis.recommendations.forEach(rec => {
+            psoMessage += `• ${rec}\n`;
+        });
+    } else {
+        psoMessage += '• Нет рекомендаций\n';
+    }
+   
+    psoMessage += '\n📊 **ФАКТЫ:**\n';
+   
+    if (psoAnalysis.facts && psoAnalysis.facts.classesFound) {
+        psoMessage += `• Найдено классов: ${psoAnalysis.facts.classesFound.join(', ') || 'нет'}\n`;
+    }
+   
+    if (psoAnalysis.facts && typeof psoAnalysis.facts.hasClearOutline !== 'undefined') {
+        psoMessage += `• Контур следа: ${psoAnalysis.facts.hasClearOutline ? 'да' : 'нет'}\n`;
+    }
+   
+    if (animalFilterResult.removed > 0) {
+        psoMessage += `\n🚫 **ФИЛЬТРАЦИЯ ЖИВОТНЫХ:** ${animalFilterResult.message}`;
+        predictionsForAnalysis = filteredPredictions; // Используем отфильтрованные предсказания
+    }
+   
+    // Отправляем практический анализ СРАЗУ
+    await bot.sendMessage(chatId, psoMessage);
+   
+} catch (psoError) {
+    console.log('⚠️ Ошибка практического анализа:', psoError);
+    console.log('🔍 Подробности ошибки:', psoError.stack);
+    await bot.sendMessage(chatId, '⚠️ Практический анализ временно недоступен, продолжаю базовый анализ...');
+    predictionsForAnalysis = processedPredictions;
+}
 
         if (analysis.total > 0) {
             // 🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ СЛЕДА (если модуль доступен)
