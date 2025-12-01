@@ -1301,6 +1301,39 @@ bot.onText(/\/trail_end/, async (msg) => {
             console.log('⚠️ Ошибка сохранения отчета:', error.message);
         }
     }
+
+  // ⭐ ДОБАВЬ ЭТОТ КОД ПРЯМО ЗДЕСЬ:
+// Показываем топологию лучшего фото в сессии
+if (session.analysisResults && session.analysisResults.length > 0) {
+    // Находим лучшее фото для топологической визуализации
+    const bestPhoto = findBestPhotoInSession(session);
+   
+    if (bestPhoto && bestPhoto.result.visualizationPaths?.topology) {
+        const topologyPath = bestPhoto.result.visualizationPaths.topology;
+       
+        // Проверяем что файл существует
+        if (topologyPath && require('fs').existsSync(topologyPath)) {
+            try {
+                await bot.sendPhoto(chatId, topologyPath, {
+                    caption: `🕸️ **Топология лучшего фото** (№${bestPhoto.index + 1})\n` +
+                             `• Протекторов: ${bestPhoto.protectorCount}\n` +
+                             '• 🟢 Зеленые точки - центры протекторов\n' +
+                             '• 🟠 Оранжевые линии - связи\n' +
+                             '• 🔵 Синий пунктир - контур следа'
+                });
+               
+                // Очистка файла после отправки
+                setTimeout(() => {
+                    tempFileManager.removeFile(topologyPath);
+                }, 1000);
+               
+            } catch (photoError) {
+                console.log('⚠️ Не удалось отправить топологию:', photoError.message);
+            }
+        }
+    }
+}
+  
 });
 
 // Команда /cancel - отменить все операции
@@ -1329,6 +1362,36 @@ bot.onText(/\/cancel/, async (msg) => {
     );
 });
 
+// =============================================================================
+// 🆕 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ СЕССИЙ
+// =============================================================================
+
+// Функция для поиска лучшего фото в сессии (с максимальным количеством протекторов)
+function findBestPhotoInSession(session) {
+    if (!session.analysisResults || session.analysisResults.length === 0) {
+        return null;
+    }
+   
+    let bestPhoto = null;
+    let maxProtectors = 0;
+   
+    session.analysisResults.forEach((result, index) => {
+        const protectorCount = result.predictions?.filter(p =>
+            p.class === 'shoe-protector').length || 0;
+       
+        if (protectorCount > maxProtectors) {
+            maxProtectors = protectorCount;
+            bestPhoto = {
+                index: index,
+                result: result,
+                protectorCount: protectorCount
+            };
+        }
+    });
+   
+    return bestPhoto;
+}
+
 // Команда /trail_details - детали сессии
 bot.onText(/\/trail_details/, async (msg) => {
     const chatId = msg.chat.id;
@@ -1354,6 +1417,14 @@ bot.onText(/\/trail_details/, async (msg) => {
    
     let detailsMessage = `📋 **ДЕТАЛИ СЕССИИ** (${session.analysisResults.length} фото)\n\n`;
    
+    // Находим лучшее фото
+    const bestPhoto = findBestPhotoInSession(session);
+   
+    if (bestPhoto) {
+        detailsMessage += `⭐ **ЛУЧШЕЕ ФОТО:** №${bestPhoto.index + 1}\n`;
+        detailsMessage += `• Протекторов: ${bestPhoto.protectorCount}\n\n`;
+    }
+   
     session.analysisResults.forEach((result, index) => {
         const footprintCount = result.predictions?.filter(p =>
             p.class === 'Outline-trail').length || 0;
@@ -1365,18 +1436,41 @@ bot.onText(/\/trail_details/, async (msg) => {
         detailsMessage += `**Фото ${index + 1}:**\n`;
         detailsMessage += `• Следов: ${footprintCount}\n`;
         detailsMessage += `• Деталей протектора: ${protectorCount}\n`;
+       
         if (animalCount > 0) {
             detailsMessage += `• Следов животных: ${animalCount}\n`;
         }
        
         if (result.intelligentAnalysis?.summary) {
             detailsMessage += `• Тип: ${result.intelligentAnalysis.summary.footprintType}\n`;
+            detailsMessage += `• Ориентация: ${result.intelligentAnalysis.summary.orientation}\n`;
+        }
+       
+        if (index === bestPhoto?.index) {
+            detailsMessage += `⭐ **Лучшее по детализации**\n`;
         }
        
         detailsMessage += `\n`;
     });
    
     await bot.sendMessage(chatId, detailsMessage);
+   
+    // Показываем топологию лучшего фото если есть
+    if (bestPhoto && bestPhoto.result.visualizationPaths?.topology) {
+        const topologyPath = bestPhoto.result.visualizationPaths.topology;
+       
+        if (require('fs').existsSync(topologyPath)) {
+            setTimeout(async () => {
+                await bot.sendPhoto(chatId, topologyPath, {
+                    caption: `🕸️ **Топология фото ${bestPhoto.index + 1}**\n` +
+                             `• Протекторов: ${bestPhoto.protectorCount}\n` +
+                             '• 🟢 Зеленые точки - центры протекторов\n' +
+                             '• 🟠 Оранжевые линии - связи\n' +
+                             '• 🔵 Синий пунктир - контур следа'
+                });
+            }, 500);
+        }
+    }
 });
 
 // Команда /yandex
@@ -1705,54 +1799,66 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
            
         } else {
             // 🆕 ОДИНОЧНОЕ ФОТО БЕЗ СЕССИИ: ПОЛНЫЙ АНАЛИЗ
-           
-            if (analysis.total === 0) {
-                await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
-                tempFileManager.removeFile(tempImagePath);
-                return;
-            }
-           
-            // Отправляем результаты
-            let resultMessage = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
-            resultMessage += `📊 Обнаружено: ${analysis.total} объектов\n\n`;
-           
-            // Классификация
-            resultMessage += `📋 **КЛАССИФИКАЦИЯ:**\n`;
-            Object.entries(analysis.classes).forEach(([className, count]) => {
-                resultMessage += `• ${className}: ${count}\n`;
-            });
-           
-            await bot.sendMessage(chatId, resultMessage);
-           
-            // Визуализация
-            if (vizPath && require('fs').existsSync(vizPath)) {
-                await bot.sendPhoto(chatId, vizPath, {
-                    caption: '🎨 Визуализация анализа'
-                });
-                tempFileManager.removeFile(vizPath);
-            }
-           
-            // Практический анализ
-            if (practicalAnalysis && practicalAnalysis.recommendations) {
-                let practicalMessage = `🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ:**\n\n`;
-                practicalAnalysis.recommendations.slice(0, 3).forEach(rec => {
-                    practicalMessage += `• ${rec}\n`;
-                });
-                await bot.sendMessage(chatId, practicalMessage);
-            }
-           
-            // Интеллектуальный анализ
-            if (intelligentAnalysis && intelligentAnalysis.summary) {
-                const intelMessage = `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:**\n\n` +
-                    `🧭 Ориентация: ${intelligentAnalysis.summary.orientation}\n` +
-                    `👟 Тип обуви: ${intelligentAnalysis.summary.footprintType}\n` +
-                    `📏 Примерный размер: ${intelligentAnalysis.summary.sizeEstimation}`;
-               
-                await bot.sendMessage(chatId, intelMessage);
-            }
-           
-            // Очистка
-            tempFileManager.removeFile(tempImagePath);
+if (analysis.total === 0) {
+    await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+    tempFileManager.removeFile(tempImagePath);
+    return;
+}
+
+// Отправляем результаты
+let resultMessage = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
+resultMessage += `📊 Обнаружено: ${analysis.total} объектов\n\n`;
+
+// Классификация
+resultMessage += `📋 **КЛАССИФИКАЦИЯ:**\n`;
+Object.entries(analysis.classes).forEach(([className, count]) => {
+    resultMessage += `• ${className}: ${count}\n`;
+});
+
+await bot.sendMessage(chatId, resultMessage);
+
+// Визуализация
+if (vizPath && require('fs').existsSync(vizPath)) {
+    await bot.sendPhoto(chatId, vizPath, {
+        caption: '🎨 Визуализация анализа'
+    });
+    tempFileManager.removeFile(vizPath);
+}
+
+// 🔥 ВЕРНУЛИ ТОПОЛОГИЧЕСКУЮ ВИЗУАЛИЗАЦИЮ ДЛЯ ОДИНОЧНОГО ФОТО
+if (topologyVizPath && require('fs').existsSync(topologyVizPath)) {
+    await bot.sendPhoto(chatId, topologyVizPath, {
+        caption: '🕸️ **Топологический анализ протектора**\n' +
+                 '• 🟢 Зеленые точки - центры протекторов\n' +
+                 '• 🟠 Оранжевые линии - связи\n' +
+                 '• 🔵 Синий пунктир - контур следа'
+    });
+    tempFileManager.removeFile(topologyVizPath);
+}
+
+// Практический анализ
+if (practicalAnalysis && practicalAnalysis.recommendations) {
+    let practicalMessage = `🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ:**\n\n`;
+    practicalAnalysis.recommendations.slice(0, 3).forEach(rec => {
+        practicalMessage += `• ${rec}\n`;
+    });
+    await bot.sendMessage(chatId, practicalMessage);
+}
+
+// Интеллектуальный анализ
+if (intelligentAnalysis && intelligentAnalysis.summary) {
+    const intelMessage = `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:**\n\n` +
+        `🧭 Ориентация: ${intelligentAnalysis.summary.orientation}\n` +
+        `👟 Тип обуви: ${intelligentAnalysis.summary.footprintType}\n` +
+        `📏 Примерный размер: ${intelligentAnalysis.summary.sizeEstimation}\n` +
+        `🔷 Морфология: ${intelligentAnalysis.summary.morphology}\n` +
+        `🕸️ Топология: ${intelligentAnalysis.summary.topology}`;
+   
+    await bot.sendMessage(chatId, intelMessage);
+}
+
+// Очистка
+tempFileManager.removeFile(tempImagePath);
             if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
         }
        
