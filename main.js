@@ -49,6 +49,8 @@ const { AnimalFilter } = require('./modules/correction/animal-filter');
 // 🆕 ДОБАВЛЯЕМ СЕССИОННЫЕ МОДУЛИ
 const { SessionManager } = require('./modules/session/session-manager');
 const { SessionAnalyzer } = require('./modules/session/session-analyzer');
+const { FeedbackDatabase } = require('./modules/feedback/feedback-db');
+const { FeedbackManager } = require('./modules/feedback/feedback-manager');
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
@@ -141,6 +143,28 @@ let animalFilter;
 // 🆕 ДОБАВЛЯЕМ СЕССИОННЫЕ МОДУЛИ
 let sessionManager;
 let sessionAnalyzer;
+
+// 🆕 ИНИЦИАЛИЗИРУЕМ ОБРАТНУЮ СВЯЗЬ
+let feedbackDB;
+let feedbackManager;
+
+try {
+    feedbackDB = new FeedbackDatabase();
+    feedbackManager = new FeedbackManager();
+    console.log('✅ Система обратной связи загружена');
+} catch (error) {
+    console.log('❌ Ошибка системы обратной связи:', error);
+    feedbackDB = {
+        addFeedback: () => ({ id: 'stub' }),
+        getStatistics: () => ({ total: 0, correct: 0 }),
+        exportForRoboflow: () => ({})
+    };
+    feedbackManager = {
+        requestFeedback: () => null,
+        createFeedbackKeyboard: () => ({ inline_keyboard: [] }),
+        processFeedback: () => null
+    };
+}
 
 // Функция-заглушка для Яндекс.Диска
 function createYandexDiskStub() {
@@ -411,6 +435,103 @@ bot.onText(/\/statistics/, (msg) => {
                  `🔄 Активных сессий: ${sessionManager ? Array.from(sessionManager.activeSessions.keys()).length : 0}`;
 
     bot.sendMessage(msg.chat.id, stats);
+});
+
+// Команда /feedback_stats - статистика обратной связи
+bot.onText(/\/feedback_stats/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    try {
+        const stats = feedbackDB.getStatistics();
+        const accuracy = stats.total > 0 ?
+            (stats.correct / stats.total) * 100 : 0;
+       
+        let message = `📊 **СТАТИСТИКА ОБРАТНОЙ СВЯЗИ**\n\n`;
+        message += `📈 Всего оценок: ${stats.total}\n`;
+        message += `✅ Правильных: ${stats.correct} (${accuracy.toFixed(1)}%)\n`;
+        message += `🔧 Исправлений: ${stats.total - stats.correct}\n\n`;
+       
+        if (Object.keys(stats.correctionsByType || {}).length > 0) {
+            message += `📋 **ТИПЫ ИСПРАВЛЕНИЙ:**\n`;
+            Object.entries(stats.correctionsByType).forEach(([type, count]) => {
+                message += `• ${getCorrectionDescription(type)}: ${count}\n`;
+            });
+        }
+       
+        if (stats.accuracyHistory && stats.accuracyHistory.length > 1) {
+            const first = stats.accuracyHistory[0].accuracy;
+            const last = stats.accuracyHistory[stats.accuracyHistory.length - 1].accuracy;
+            const trend = last - first;
+           
+            message += `\n📈 **ТРЕНД ТОЧНОСТИ:** `;
+            if (trend > 0) {
+                message += `+${trend.toFixed(1)}% улучшение`;
+            } else if (trend < 0) {
+                message += `${trend.toFixed(1)}% снижение`;
+            } else {
+                message += `стабильно`;
+            }
+        }
+       
+        message += `\n\n💡 Каждая ваша оценка делает анализ точнее!`;
+       
+        await bot.sendMessage(chatId, message);
+       
+    } catch (error) {
+        console.log('❌ Ошибка статистики:', error);
+        await bot.sendMessage(chatId, '❌ Не удалось получить статистику');
+    }
+});
+
+// Команда /feedback_export - экспорт для переобучения
+bot.onText(/\/feedback_export/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    // Только для администраторов или тестировщиков
+    const adminUsers = [699140291]; // Твой ID
+   
+    if (!adminUsers.includes(userId)) {
+        await bot.sendMessage(chatId,
+            `❌ Эта команда только для администраторов\n` +
+            `Статистику можно посмотреть: /feedback_stats`
+        );
+        return;
+    }
+   
+    try {
+        const exportData = feedbackDB.exportForRoboflow();
+       
+        let message = `📤 **ЭКСПОРТ ДАННЫХ ДЛЯ ПЕРЕОБУЧЕНИЯ**\n\n`;
+        message += `📊 Всего исправлений: ${exportData.total_corrections}\n`;
+       
+        if (exportData.corrections_by_class) {
+            message += `📋 **По классам:**\n`;
+            Object.entries(exportData.corrections_by_class).forEach(([cls, count]) => {
+                message += `• ${cls}: ${count}\n`;
+            });
+        }
+       
+        message += `\n💾 Данные готовы для загрузки в Roboflow\n`;
+        message += `📅 Версия: ${exportData.version}`;
+       
+        await bot.sendMessage(chatId, message);
+       
+        // Можно также сохранить в файл и отправить
+        const exportJson = JSON.stringify(exportData, null, 2);
+        const tempFile = tempFileManager.createTempFile('feedback_export', 'json');
+        require('fs').writeFileSync(tempFile, exportJson);
+       
+        await bot.sendDocument(chatId, tempFile, {
+            caption: `feedback_export_${new Date().toISOString().split('T')[0]}.json`
+        });
+       
+        tempFileManager.removeFile(tempFile);
+       
+    } catch (error) {
+        console.log('❌ Ошибка экспорта:', error);
+        await bot.sendMessage(chatId, '❌ Не удалось экспортировать данные');
+    }
 });
 
 // Команда /style
@@ -1850,13 +1971,52 @@ if (intelligentAnalysis && intelligentAnalysis.summary) {
     const intelMessage = `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:**\n\n` +
         `🧭 Ориентация: ${intelligentAnalysis.summary.orientation}\n` +
         `👟 Тип обуви: ${intelligentAnalysis.summary.footprintType}\n` +
-        `📏 Примерный размер: ${intelligentAnalysis.summary.sizeEstimation}\n` +
+        // `📏 Примерный размер: ${intelligentAnalysis.summary.sizeEstimation}\n` +
         `🔷 Морфология: ${intelligentAnalysis.summary.morphology}\n` +
         `🕸️ Топология: ${intelligentAnalysis.summary.topology}`;
    
     await bot.sendMessage(chatId, intelMessage);
 }
 
+  // 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥
+    // 🔥 ВСТАВЬ КОД ОБРАТНОЙ СВЯЗИ ПРЯМО ЗДЕСЬ:
+    // 🔥 ДОБАВЛЯЕМ ЗАПРОС ОБРАТНОЙ СВЯЗИ (только для одиночных фото с хорошими prediction)
+    if (!hasSession && totalCount === 1 && predictionsForAnalysis.length > 0) {
+        // Выбираем самый уверенный prediction
+        const bestPrediction = predictionsForAnalysis.reduce((best, current) =>
+            (current.confidence || 0) > (best.confidence || 0) ? current : best
+        );
+       
+        if (bestPrediction && bestPrediction.confidence > 0.6) {
+            // Случайный шанс 30% чтобы не спамить
+            if (Math.random() < 0.3) {
+                setTimeout(async () => {
+                    const feedbackRequest = feedbackManager.requestFeedback(
+                        userId,
+                        chatId,
+                        bestPrediction,
+                        {
+                            imageId: tempImagePath,
+                            analysisType: 'single_photo',
+                            timestamp: new Date()
+                        }
+                    );
+                   
+                    await bot.sendMessage(chatId,
+                        `💬 **ПОМОГИТЕ УЛУЧШИТЬ ТОЧНОСТЬ**\n\n` +
+                        `Насколько правильно определен этот элемент?\n` +
+                        `**Класс:** ${bestPrediction.class}\n` +
+                        `**Уверенность:** ${(bestPrediction.confidence * 100).toFixed(1)}%`,
+                        {
+                            reply_markup: feedbackManager.createFeedbackKeyboard()
+                        }
+                    );
+                }, 1000);
+            }
+        }
+    }
+    // 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥
+          
 // Очистка
 tempFileManager.removeFile(tempImagePath);
             if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
@@ -2141,6 +2301,115 @@ console.log('🛡️ Глобальные обработчики ошибок а
     console.log('🎯 Практический анализ для ПСО активирован');
     console.log('🐕 Фильтрация следов животных активирована');
 })();
+
+// =============================================================================
+// 🔄 ОБРАБОТЧИК CALLBACK-КНОПОК ДЛЯ ОБРАТНОЙ СВЯЗИ
+// =============================================================================
+
+// Глобальная переменная для временных данных
+const feedbackSessions = new Map();
+
+bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const userId = callbackQuery.from.id;
+    const messageId = callbackQuery.message.message_id;
+    const data = callbackQuery.data;
+   
+    try {
+        // Обработка основной feedback кнопки
+        if (data === 'feedback_correct') {
+            await bot.answerCallbackQuery(callbackQuery.id, {
+                text: 'Спасибо за подтверждение!'
+            });
+           
+            // Сохраняем в базу
+            const feedbackData = {
+                userId: userId,
+                prediction: null, // Нужно найти оригинальный prediction
+                correctionType: 'correct',
+                imageId: 'unknown',
+                timestamp: new Date().toISOString()
+            };
+           
+            feedbackDB.addFeedback(feedbackData);
+           
+            // Обновляем сообщение
+            await bot.editMessageText(
+                `✅ Спасибо! Ваш ответ поможет улучшить точность анализа.`,
+                {
+                    chat_id: chatId,
+                    message_id: messageId
+                }
+            );
+           
+        } else if (data === 'feedback_incorrect') {
+            await bot.answerCallbackQuery(callbackQuery.id);
+           
+            // Показываем меню выбора типа ошибки
+            await bot.editMessageText(
+                `Что не так с анализом? Выберите вариант:`,
+                {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    reply_markup: feedbackManager.createCorrectionKeyboard()
+                }
+            );
+           
+        }
+        // Обработка конкретных исправлений
+        else if (data.startsWith('correction_')) {
+            const correctionType = data.replace('correction_', '');
+           
+            await bot.answerCallbackQuery(callbackQuery.id, {
+                text: 'Спасибо за исправление!'
+            });
+           
+            // Сохраняем в базу
+            const feedbackData = {
+                userId: userId,
+                prediction: null,
+                correctionType: correctionType,
+                imageId: 'unknown',
+                timestamp: new Date().toISOString(),
+                notes: this.getCorrectionDescription(correctionType)
+            };
+           
+            feedbackDB.addFeedback(feedbackData);
+           
+            // Обновляем сообщение
+            await bot.editMessageText(
+                `✅ Спасибо за исправление!\n` +
+                `Тип: ${this.getCorrectionDescription(correctionType)}\n` +
+                `Это поможет значительно улучшить точность модели.`,
+                {
+                    chat_id: chatId,
+                    message_id: messageId
+                }
+            );
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка обработки callback:', error);
+        await bot.answerCallbackQuery(callbackQuery.id, {
+            text: 'Ошибка обработки'
+        });
+    }
+});
+
+// Вспомогательная функция для описаний исправлений
+function getCorrectionDescription(type) {
+    const descriptions = {
+        'animal': '🐾 След животного',
+        'other_shoe': '👞 Другая обувь',
+        'bounds': '📏 Неправильные границы',
+        'multiple': '👣 Несколько следов',
+        'not_footprint': '🚫 Не след вообще',
+        'other_class': '🔍 Другой класс',
+        'correct': '✅ Правильно'
+    };
+   
+    return descriptions[type] || type;
+}
 
 // Запуск сервера
 app.listen(config.PORT, () => {
