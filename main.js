@@ -1458,10 +1458,20 @@ bot.onText(/\/model_status/, async (msg) => {
       return;
     }
 
+    // 🆕 ПОЛНАЯ ИНФОРМАЦИЯ С КОНТУРАМИ
     let message = `🕸️ *СТАТУС АККУМУЛЯТИВНОЙ МОДЕЛИ*\n\n`;
     message += `🆔 ${status.sessionId.slice(0, 12)}...\n`;
     message += `📊 Узлов: ${status.totalNodes} (${status.highConfidenceNodes} высокоуверенных)\n`;
     message += `🔗 Связей: ${status.totalEdges}\n`;
+   
+    // 🆕 ИНФОРМАЦИЯ О КОНТУРАХ
+    if (status.contourInfo) {
+      message += `🎨 Контуров: ${status.totalContours || 0}\n`;
+      if (status.contourInfo.hasOutline) message += `• Основной контур: ✅\n`;
+      if (status.contourInfo.hasHeel) message += `• Каблук: ✅\n`;
+      if (status.contourInfo.hasToe) message += `• Носок: ✅\n`;
+    }
+   
     message += `🎯 Уверенность: ${(status.modelConfidence * 100).toFixed(1)}%\n`;
     message += `📸 Фото обработано: ${status.photosProcessed}\n`;
     message += `⏱️ Возраст: ${status.modelAge}\n`;
@@ -1481,55 +1491,92 @@ bot.onText(/\/model_status/, async (msg) => {
       message += `Проверить фрагмент: /check_fragment`;
     } else {
       message += `⚠️  Нужно больше фото для точного сравнения\n`;
+      message += `(минимум 5 узлов и 3 контура)\n`;
       message += `Добавить фото: отправьте фото с подписью "модель"`;
     }
 
     await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-    
-  // 🔥 ВСТАВЬ СЮДА ЭТОТ КОД:
-  // ============================
-  if (status.totalNodes > 0) {
+
+    // 🔥 КНОПКИ УПРАВЛЕНИЯ
+    if (status.totalNodes > 0) {
       const keyboard = {
-          inline_keyboard: [
-              [
-                  { text: "➕ Добавить фото", callback_data: "model_add_photo" },
-                  { text: "🔍 Проверить фрагмент", callback_data: "model_check_fragment" }
-              ],
-              [
-                  { text: "🎯 Уточнить модель", callback_data: "model_refine" },
-                  { text: "📊 Показать график", callback_data: "model_show_graph" }
-              ],
-              [
-                  { text: "🔄 Обновить", callback_data: "model_refresh" },
-                  { text: "❌ Удалить модель", callback_data: "model_delete_confirm" }
-              ]
+        inline_keyboard: [
+          [
+            { text: "➕ Добавить фото", callback_data: "model_add_photo" },
+            { text: "🔍 Проверить фрагмент", callback_data: "model_check_fragment" }
+          ],
+          [
+            { text: "🎯 Уточнить модель", callback_data: "model_refine" },
+            { text: "📊 Показать график", callback_data: "model_show_graph" }
+          ],
+          [
+            { text: "🔄 Обновить", callback_data: "model_refresh" },
+            { text: "❌ Удалить модель", callback_data: "model_delete_confirm" }
           ]
+        ]
       };
 
       await bot.sendMessage(chatId, "⚙️ **УПРАВЛЕНИЕ МОДЕЛЬЮ:**", {
-          parse_mode: 'Markdown',
-          reply_markup: keyboard
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
       });
-  }
-  // ============================
-    
-    // Визуализация если есть узлы
+    }
+
+    // 🆕 ВИЗУАЛИЗАЦИЯ С КОНТУРАМИ И КАБЛУКОМ/НОСКОМ
     if (status.totalNodes > 0) {
       try {
-        const modelData = enhancedSessionManager.exportModel(model.sessionId, 'simple');
+        // 🆕 ИСПОЛЬЗУЕМ ПОЛНЫЙ ФОРМАТ С КОНТУРАМИ
+        const modelData = enhancedSessionManager.exportModel(model.sessionId, 'full');
         const visualizer = new ModelVisualizer();
 
         // Текстовая визуализация для быстрого просмотра
         const textViz = visualizer.generateTextVisualization(modelData);
         await bot.sendMessage(chatId, textViz, { parse_mode: 'Markdown' });
 
-        // Графическая визуализация (только если больше 3 узлов)
-        if (status.totalNodes > 3) {
+        // Графическая визуализация (только если достаточно данных)
+        if (status.totalNodes > 3 && status.totalContours > 0) {
+          const vizPath = tempFileManager.createTempFile('model_viz', 'png');
+         
+          // 🆕 ПЕРЕДАЕМ ОПЦИИ ДЛЯ ПОКАЗА КОНТУРОВ И КАБЛУКА/НОСКА
+          await visualizer.visualizeModel(modelData, {
+            outputPath: vizPath,
+            showContours: true,           // показывать контуры
+            showHeelToe: true,            // показывать каблук и носок
+            showGrid: true,               // показывать сетку
+            showLabels: true              // показывать подписи
+          });
+
+          // 🆕 УЛУЧШЕННАЯ ПОДПИСЬ К ФОТО
+          let caption = '📊 *Визуализация аккумулятивной модели*\n\n';
+          caption += `• 🟢 Узлы - центры протекторов\n`;
+          caption += `• 🔵 Контуры - границы деталей\n`;
+         
+          if (status.contourInfo?.hasOutline) {
+            caption += `• 🟣 Основной контур следа\n`;
+          }
+          if (status.contourInfo?.hasHeel) {
+            caption += `• 🟠 Каблук\n`;
+          }
+          if (status.contourInfo?.hasToe) {
+            caption += `• 🔵 Носок\n`;
+          }
+         
+          caption += `\nУверенность: ${(status.modelConfidence * 100).toFixed(1)}%`;
+
+          await bot.sendPhoto(chatId, vizPath, {
+            caption: caption,
+            parse_mode: 'Markdown'
+          });
+
+          // Очистка файла после отправки
+          tempFileManager.removeFile(vizPath);
+        } else if (status.totalNodes > 3) {
+          // Если есть узлы, но нет контуров - обычная визуализация
           const vizPath = tempFileManager.createTempFile('model_viz', 'png');
           await visualizer.visualizeModel(modelData, { outputPath: vizPath });
 
           await bot.sendPhoto(chatId, vizPath, {
-            caption: '📊 Визуализация аккумулятивной модели'
+            caption: '📊 Визуализация аккумулятивной модели\n(контуры не сохранены, добавьте больше фото)'
           });
 
           tempFileManager.removeFile(vizPath);
@@ -1537,12 +1584,35 @@ bot.onText(/\/model_status/, async (msg) => {
 
       } catch (vizError) {
         console.log('⚠️ Ошибка визуализации:', vizError.message);
+       
+        // Фоллбэк: только текстовая визуализация
+        await bot.sendMessage(chatId,
+          '⚠️ *Произошла ошибка визуализации*\n\n' +
+          'Но модель сохранена и работает корректно. ' +
+          'Вы можете продолжить добавлять фото.',
+          { parse_mode: 'Markdown' }
+        );
       }
+    } else if (status.photosProcessed > 0) {
+      // Если фото есть, но узлов нет - возможно, плохое качество фото
+      await bot.sendMessage(chatId,
+        '⚠️ *Узлы не обнаружены*\n\n' +
+        'Возможные причины:\n' +
+        '• Плохое освещение на фото\n' +
+        '• Нечеткий фокус на деталях протектора\n' +
+        '• Слишком большой угол съемки\n\n' +
+        'Попробуйте сделать фото с более близкого расстояния при хорошем свете.',
+        { parse_mode: 'Markdown' }
+      );
     }
 
   } catch (error) {
     console.log('❌ Ошибка получения статуса модели:', error);
-    await bot.sendMessage(chatId, '❌ Не удалось получить статус модели');
+    await bot.sendMessage(chatId,
+      '❌ Не удалось получить статус модели\n\n' +
+      'Ошибка: ' + error.message,
+      { parse_mode: 'Markdown' }
+    );
   }
 });
 
