@@ -1,5 +1,5 @@
 // modules/session/footprint-model.js
-// Аккумулятивная модель следа с верификацией узлов
+// Аккумулятивная модель следа с верификацией узлов и контурами
 
 class FootprintNode {
   constructor(id, position, initialConfidence = 0.5) {
@@ -14,11 +14,8 @@ class FootprintNode {
     this.photoIds = new Set(); // ID фото, где был обнаружен
   }
  
-  /**
-   * Обновление узла при новом обнаружении
-   */
+  // ... существующие методы update, decay, isHighConfidence, getInfo ...
   update(position, confidenceBoost = 0.1, photoId = null) {
-    // Взвешенное обновление позиции
     const weight = this.confidence;
     const boostWeight = confidenceBoost;
    
@@ -27,7 +24,6 @@ class FootprintNode {
       y: (this.position.y * weight + position.y * boostWeight) / (weight + boostWeight)
     };
    
-    // Увеличиваем уверенность
     this.confidence = Math.min(this.confidence + confidenceBoost, 1.0);
     this.occurrences++;
     this.lastSeen = new Date();
@@ -39,24 +35,15 @@ class FootprintNode {
     return this.confidence;
   }
  
-  /**
-   * Постепенное снижение уверенности если узел не подтверждается
-   */
   decay(decayRate = 0.05) {
     this.confidence = Math.max(this.confidence - decayRate, 0.1);
     return this.confidence;
   }
  
-  /**
-   * Проверка высокой уверенности
-   */
   isHighConfidence(threshold = 0.7) {
     return this.confidence >= threshold;
   }
  
-  /**
-   * Получение информации об узле
-   */
   getInfo() {
     return {
       id: this.id,
@@ -74,8 +61,13 @@ class FootprintModel {
     this.sessionId = sessionId;
     this.nodes = new Map(); // nodeId -> FootprintNode
     this.edges = new Map(); // edgeId -> {node1, node2, confidence, distance}
+   
+    // 🆕 ХРАНИЛИЩЕ КОНТУРОВ
+    this.contours = new Map(); // contourId -> {points, class, confidence, photoIds}
+    this.contourHistory = []; // история изменений контуров
+   
     this.photosProcessed = 0;
-    this.photoMap = new Map(); // photoId -> {timestamp, nodeCount}
+    this.photoMap = new Map(); // photoId -> {timestamp, nodeCount, contourCount}
     this.referenceScale = 1.0;
     this.referenceOrientation = 0;
     this.creationTime = new Date();
@@ -83,21 +75,7 @@ class FootprintModel {
    
     console.log(`🆕 FootprintModel создана для сессии ${sessionId}`);
   }
-addPhotograph(normalizedPredictions, photoId) {
-    // Сохраняем контуры
-    this.contours = this.contours || [];
-    normalizedPredictions.forEach(pred => {
-      if (pred.points && pred.points.length > 2) {
-        this.contours.push({
-          ...pred,
-          photoId,
-          timestamp: new Date(),
-          age: 0
-        });
-      }
-    });
-}
-  
+ 
   /**
    * Добавление нового фото в модель
    */
@@ -108,12 +86,17 @@ addPhotograph(normalizedPredictions, photoId) {
     this.photoMap.set(photoId, {
       timestamp: new Date(),
       nodeCount: 0,
+      contourCount: 0,
       ...photoInfo
     });
    
     // Группируем предсказания
     const protectors = normalizedPredictions.filter(p => p.class === 'shoe-protector');
     const outlines = normalizedPredictions.filter(p => p.class === 'Outline-trail');
+   
+    // 🆕 СОХРАНЯЕМ КОНТУРЫ
+    const contourResult = this.addContours(normalizedPredictions, photoId);
+    console.log(`🎨 Сохранено контуров: ${contourResult.added}, всего: ${contourResult.total}`);
    
     // Обрабатываем протекторы (ключевые узлы)
     const processed = this.processProtectors(protectors, photoId);
@@ -134,17 +117,200 @@ addPhotograph(normalizedPredictions, photoId) {
    
     // Обновляем информацию о фото
     this.photoMap.get(photoId).nodeCount = processed.added + processed.updated;
+    this.photoMap.get(photoId).contourCount = contourResult.added;
    
     return {
       ...processed,
+      contours: contourResult,
       stats: this.getStats(),
       modelInfo: this.getModelInfo()
     };
   }
  
   /**
-   * Обработка протекторов
+   * 🆕 ДОБАВЛЕНИЕ КОНТУРОВ ИЗ ПРЕДСКАЗАНИЙ
    */
+  addContours(predictions, photoId) {
+    console.log(`🎨 Сохраняю контуры из фото ${photoId}`);
+   
+    const newContours = [];
+   
+    predictions.forEach(pred => {
+      if (pred.points && pred.points.length > 2) {
+        // Для протекторов проверяем, не добавлен ли уже похожий
+        if (pred.class === 'shoe-protector') {
+          const existingContour = this.findSimilarContour(pred);
+          if (existingContour) {
+            // Обновляем существующий
+            existingContour.photoIds.add(photoId);
+            existingContour.confidence = Math.max(
+              existingContour.confidence,
+              pred.confidence || 0.5
+            );
+            existingContour.lastSeen = new Date();
+            existingContour.occurrences = (existingContour.occurrences || 1) + 1;
+            newContours.push(existingContour);
+          } else {
+            // Новый контур
+            const contourId = `contour_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+            const newContour = {
+              id: contourId,
+              class: pred.class,
+              points: pred.points,
+              confidence: pred.confidence || 0.5,
+              photoIds: new Set([photoId]),
+              firstSeen: new Date(),
+              lastSeen: new Date(),
+              occurrences: 1,
+              age: 0
+            };
+            this.contours.set(contourId, newContour);
+            newContours.push(newContour);
+          }
+        } else {
+          // Для других классов (Outline-trail, Heel, Toe) - всегда добавляем
+          const contourId = `contour_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+          const newContour = {
+            id: contourId,
+            class: pred.class,
+            points: pred.points,
+            confidence: pred.confidence || 0.5,
+            photoIds: new Set([photoId]),
+            firstSeen: new Date(),
+            lastSeen: new Date(),
+            occurrences: 1,
+            age: 0
+          };
+          this.contours.set(contourId, newContour);
+          newContours.push(newContour);
+        }
+      }
+    });
+   
+    // Сохраняем в историю
+    this.contourHistory.push({
+      timestamp: new Date(),
+      photoId,
+      contoursAdded: newContours.length
+    });
+   
+    return {
+      added: newContours.length,
+      total: this.contours.size
+    };
+  }
+ 
+  /**
+   * 🆕 ПОИСК ПОХОЖЕГО КОНТУРА
+   */
+  findSimilarContour(newContour) {
+    if (this.contours.size === 0) return null;
+   
+    const newCenter = this.getCenter(newContour.points);
+    let mostSimilar = null;
+    let minDistance = Infinity;
+   
+    for (const [contourId, contour] of this.contours) {
+      if (contour.class !== newContour.class) continue;
+     
+      const contourCenter = this.getCenter(contour.points);
+      const distance = this.distance(newCenter, contourCenter);
+     
+      // Если центры близко (<20px) и класс совпадает - считаем похожим
+      if (distance < 20 && distance < minDistance) {
+        minDistance = distance;
+        mostSimilar = contour;
+      }
+    }
+   
+    return mostSimilar;
+  }
+ 
+  /**
+   * 🆕 ПОЛУЧЕНИЕ КОНТУРОВ ДЛЯ ВИЗУАЛИЗАЦИИ
+   */
+  getContoursForVisualization(minConfidence = 0.3) {
+    const visibleContours = [];
+    const now = new Date();
+   
+    for (const [contourId, contour] of this.contours) {
+      // Фильтруем по уверенности
+      if (contour.confidence < minConfidence) continue;
+     
+      // Вычисляем "возраст" контура
+      const ageMinutes = (now - contour.lastSeen) / (1000 * 60);
+      contour.age = ageMinutes;
+     
+      visibleContours.push({
+        id: contourId,
+        class: contour.class,
+        points: contour.points,
+        confidence: contour.confidence,
+        occurrences: contour.occurrences,
+        photoCount: contour.photoIds.size,
+        age: ageMinutes,
+        isRecent: ageMinutes < 5
+      });
+    }
+   
+    // Сортируем: сначала основные контуры, потом детали
+    visibleContours.sort((a, b) => {
+      const priority = {
+        'Outline-trail': 1,
+        'Heel': 2,
+        'Toe': 3,
+        'shoe-protector': 4
+      };
+      return (priority[a.class] || 99) - (priority[b.class] || 99);
+    });
+   
+    return visibleContours;
+  }
+ 
+  /**
+   * 🆕 ПОЛУЧЕНИЕ СПЕЦИАЛЬНЫХ ТОЧЕК (КАБЛУК, НОСОК)
+   */
+  getSpecialPoints() {
+    const specialPoints = {};
+   
+    for (const [contourId, contour] of this.contours) {
+      if (contour.class === 'Heel' || contour.class === 'Toe') {
+        const center = this.getCenter(contour.points);
+        specialPoints[contour.class.toLowerCase()] = {
+          x: center.x,
+          y: center.y,
+          confidence: contour.confidence,
+          occurrences: contour.occurrences
+        };
+      }
+    }
+   
+    return specialPoints;
+  }
+ 
+  /**
+   * 🆕 ПОЛУЧЕНИЕ КОНТУРОВ ДЛЯ ЭКСПОРТА
+   */
+  getContoursForExport() {
+    const result = [];
+   
+    for (const [contourId, contour] of this.contours) {
+      result.push({
+        id: contourId,
+        class: contour.class,
+        points: contour.points,
+        confidence: contour.confidence,
+        occurrences: contour.occurrences,
+        photoCount: contour.photoIds.size,
+        firstSeen: contour.firstSeen,
+        lastSeen: contour.lastSeen
+      });
+    }
+   
+    return result;
+  }
+ 
+  // ... существующие методы (processProtectors, findNearestNode, updateEdges, applyDecay) ...
   processProtectors(protectors, photoId) {
     let added = 0;
     let updated = 0;
@@ -175,9 +341,6 @@ addPhotograph(normalizedPredictions, photoId) {
     return { added, updated, skipped };
   }
  
-  /**
-   * Поиск ближайшего узла
-   */
   findNearestNode(point, maxDistance) {
     let nearest = null;
     let minDist = Infinity;
@@ -193,9 +356,6 @@ addPhotograph(normalizedPredictions, photoId) {
     return nearest;
   }
  
-  /**
-   * Обновление связей между узлами
-   */
   updateEdges() {
     this.edges.clear();
    
@@ -225,9 +385,6 @@ addPhotograph(normalizedPredictions, photoId) {
     }
   }
  
-  /**
-   * "Старение" неподтверждённых узлов
-   */
   applyDecay() {
     const now = new Date();
     const decayThreshold = 2 * 60 * 1000; // 2 минуты
@@ -284,6 +441,21 @@ addPhotograph(normalizedPredictions, photoId) {
   }
  
   /**
+   * 🆕 ПРОДВИНУТЫЙ ЭКСПОРТ С КОНТУРАМИ
+   */
+  getFullModel(minConfidence = 0.5) {
+    const consensus = this.getConsensusModel(minConfidence);
+   
+    return {
+      ...consensus,
+      contours: this.getContoursForVisualization(minConfidence * 0.8), // менее строгий порог для контуров
+      specialPoints: this.getSpecialPoints(),
+      contourCount: this.contours.size,
+      modelInfo: this.getModelInfo()
+    };
+  }
+ 
+  /**
    * Расчёт общей уверенности модели
    */
   calculateModelConfidence() {
@@ -311,6 +483,7 @@ addPhotograph(normalizedPredictions, photoId) {
     return {
       totalNodes: this.nodes.size,
       totalEdges: this.edges.size,
+      totalContours: this.contours.size,
       consensusNodes: consensus.nodes.length,
       highConfidenceNodes: highConfidence.nodes.length,
       modelConfidence: this.calculateModelConfidence(),
@@ -341,7 +514,7 @@ addPhotograph(normalizedPredictions, photoId) {
     const stats = this.getStats();
    
     if (stats.photosProcessed === 0) return '🆕 НОВАЯ';
-    if (stats.highConfidenceNodes >= 10) return '✅ ГОТОВА';
+    if (stats.highConfidenceNodes >= 10 && stats.totalContours >= 5) return '✅ ГОТОВА (с контурами)';
     if (stats.modelConfidence >= 0.7) return '⚡ АКТИВНА';
     if (stats.photosProcessed >= 3) return '📈 РАЗВИВАЕТСЯ';
     return '🧱 ФОРМИРУЕТСЯ';
@@ -364,6 +537,10 @@ addPhotograph(normalizedPredictions, photoId) {
       recs.push('Сфокусируйтесь на деталях протектора');
     }
    
+    if (stats.totalContours < 3) {
+      recs.push('Убедитесь, что контуры отрисовываются чётко');
+    }
+   
     if (stats.modelConfidence < 0.6) {
       recs.push('Снимите те же участки с более близкого расстояния');
     }
@@ -375,36 +552,12 @@ addPhotograph(normalizedPredictions, photoId) {
     return recs.length > 0 ? recs : ['Модель в хорошем состоянии ✓'];
   }
  
-  /**
-   * Быстрая проверка фрагмента
-   */
-  quickCheck(fragmentCenters, maxDistance = 30) {
-    const matches = [];
-   
-    fragmentCenters.forEach(fragCenter => {
-      const nearestNode = this.findNearestNode(fragCenter, maxDistance);
-      if (nearestNode) {
-        matches.push({
-          node: nearestNode.getInfo(),
-          fragmentCenter,
-          distance: this.distance(fragCenter, nearestNode.position),
-          confidence: nearestNode.confidence
-        });
-      }
-    });
-   
-    return {
-      matches,
-      matchCount: matches.length,
-      matchPercentage: this.nodes.size > 0 ?
-        (matches.length / this.nodes.size * 100) : 0,
-      isMatch: matches.length >= Math.max(3, this.nodes.size * 0.3)
-    };
+  updateOutline(outlines) {
+    // Простая обработка контуров - можно улучшить
+    console.log(`📐 Обнаружено контуров: ${outlines.length}`);
   }
  
-  /**
-   * Вспомогательные методы
-   */
+  // Вспомогательные методы
   getCenter(points) {
     const xs = points.map(p => p.x);
     const ys = points.map(p => p.y);
@@ -419,7 +572,7 @@ addPhotograph(normalizedPredictions, photoId) {
   }
  
   /**
-   * Экспорт модели
+   * Экспорт модели в JSON
    */
   toJSON() {
     const nodes = {};
@@ -440,6 +593,19 @@ addPhotograph(normalizedPredictions, photoId) {
       edges[id] = edge;
     }
    
+    const contours = {};
+    for (const [id, contour] of this.contours) {
+      contours[id] = {
+        class: contour.class,
+        points: contour.points,
+        confidence: contour.confidence,
+        occurrences: contour.occurrences,
+        photoIds: Array.from(contour.photoIds),
+        firstSeen: contour.firstSeen,
+        lastSeen: contour.lastSeen
+      };
+    }
+   
     const photos = {};
     for (const [id, photo] of this.photoMap) {
       photos[id] = photo;
@@ -449,6 +615,7 @@ addPhotograph(normalizedPredictions, photoId) {
       sessionId: this.sessionId,
       nodes,
       edges,
+      contours,
       photos,
       photosProcessed: this.photosProcessed,
       referenceScale: this.referenceScale,
