@@ -83,7 +83,21 @@ class FootprintModel {
    
     console.log(`🆕 FootprintModel создана для сессии ${sessionId}`);
   }
- 
+addPhotograph(normalizedPredictions, photoId) {
+    // Сохраняем контуры
+    this.contours = this.contours || [];
+    normalizedPredictions.forEach(pred => {
+      if (pred.points && pred.points.length > 2) {
+        this.contours.push({
+          ...pred,
+          photoId,
+          timestamp: new Date(),
+          age: 0
+        });
+      }
+    });
+}
+  
   /**
    * Добавление нового фото в модель
    */
