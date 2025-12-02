@@ -263,7 +263,17 @@ practicalAnalyzer = createPracticalAnalyzerStub();
 animalFilter = createAnimalFilterStub();
 
 const app = express();
-const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
+const bot = new TelegramBot(config.TELEGRAM_TOKEN, {
+    polling: true,
+    pollingOptions: {
+        interval: 300,      // Интервал опроса в мс
+        timeout: 10,        // Таймаут
+        autoStart: true,    // Автозапуск
+        params: {
+            allowed_updates: ["message", "callback_query", "location", "photo"]
+        }
+    }
+});
 
 // 🔧 НАСТРОЙКА EXPRESS
 app.use(express.json({
@@ -277,6 +287,25 @@ app.use(express.urlencoded({
     extended: true,
     limit: '10mb'
 }));
+
+// После создания бота добавь:
+bot.on('polling_error', (error) => {
+    console.log('⚠️ Ошибка polling:', error.code, error.message);
+   
+    // Если ошибка 409 (конфликт) - ждем и перезапускаем
+    if (error.code === 'ETELEGRAM' && error.message.includes('409')) {
+        console.log('🔄 Обнаружен конфликт polling. Ожидаю 10 секунд...');
+        setTimeout(() => {
+            console.log('🔄 Перезапускаю polling...');
+            bot.stopPolling();
+            setTimeout(() => bot.startPolling(), 2000);
+        }, 10000);
+    }
+});
+
+bot.on('webhook_error', (error) => {
+    console.log('⚠️ Ошибка webhook:', error);
+});
 
 // =============================================================================
 // 📊 СИСТЕМА СТАТИСТИКИ
@@ -389,10 +418,10 @@ function generateTopologyText(predictions) {
 // =============================================================================
 
 // Webhook для Telegram
-app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
-});
+// app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
+//    bot.processUpdate(req.body);
+//    res.sendStatus(200);
+// });
 
 // Команда /start
 bot.onText(/\/start/, (msg) => {
@@ -2413,22 +2442,22 @@ console.log('🛡️ Глобальные обработчики ошибок а
     console.log('🚀 Все модули инициализированы, бот готов к работе!');
 
     // 🆕 Установка Webhook
-    try {
-        const webhookUrl = `https://shoe-print-bot.onrender.com/bot${config.TELEGRAM_TOKEN}`;
-        await bot.setWebHook(webhookUrl);
-        console.log(`✅ Webhook установлен: ${webhookUrl}`);
-       
-        const webhookInfo = await bot.getWebHookInfo();
-        console.log('📊 Информация о Webhook:', {
-            url: webhookInfo.url,
-            has_custom_certificate: webhookInfo.has_custom_certificate,
-            pending_update_count: webhookInfo.pending_update_count,
-            max_connections: webhookInfo.max_connections,
-            allowed_updates: webhookInfo.allowed_updates
-        });
-    } catch (webhookError) {
-        console.log('❌ Ошибка установки Webhook:', webhookError.message);
-    }
+//   try {
+//        const webhookUrl = `https://shoe-print-bot.onrender.com/bot${config.TELEGRAM_TOKEN}`;
+//        await bot.setWebHook(webhookUrl);
+//        console.log(`✅ Webhook установлен: ${webhookUrl}`);
+//       
+//       const webhookInfo = await bot.getWebHookInfo();
+//       console.log('📊 Информация о Webhook:', {
+//            url: webhookInfo.url,
+//            has_custom_certificate: webhookInfo.has_custom_certificate,
+//            pending_update_count: webhookInfo.pending_update_count,
+//           max_connections: webhookInfo.max_connections,
+//            allowed_updates: webhookInfo.allowed_updates
+//        });
+//    } catch (webhookError) {
+//        console.log('❌ Ошибка установки Webhook:', webhookError.message);
+//    }
    
     console.log('🎯 Практический анализ для ПСО активирован');
     console.log('🐕 Фильтрация следов животных активирована');
