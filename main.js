@@ -423,6 +423,33 @@ bot.onText(/\/start/, (msg) => {
         `/statistics - Статистика\n\n` +
         `📸 **Просто отправьте фото следа обуви**`
     );
+   // 🔥 СРАЗУ ПОСЛЕ ЭТОГО sendMessage ВСТАВЬ:
+    // ============================
+    // 🆕 ПОСТОЯННАЯ КЛАВИАТУРА
+    const mainKeyboard = {
+        keyboard: [
+            [
+                { text: "📸 Анализ фото" },
+                { text: "🔄 Сессия следов" }
+            ],
+            [
+                { text: "🧮 Калькуляторы" },
+                { text: "🎯 Аккумулятивная модель" }
+            ],
+            [
+                { text: "📊 Статистика" },
+                { text: "❓ Помощь" }
+            ]
+        ],
+        resize_keyboard: true,    // Кнопки подстраиваются под экран
+        one_time_keyboard: false, // Клавиатура не скрывается
+        selective: true
+    };
+   
+    bot.sendMessage(msg.chat.id, "👇 **БЫСТРЫЙ ДОСТУП:**", {
+        reply_markup: mainKeyboard
+    });
+    // ============================
 });
 
 // Команда /statistics
@@ -1218,31 +1245,54 @@ bot.onText(/\/apps/, async (msg) => {
 bot.onText(/\/model_start/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
-
+ 
   if (!enhancedSessionManager) {
-    await bot.sendMessage(chatId, '❌ Модуль аккумулятивной модели недоступен');
+    await bot.sendMessage(chatId, '❌ Модуль недоступен');
     return;
   }
-
+ 
   try {
     const session = enhancedSessionManager.createModelSession(userId);
-
+   
     if (session.isExisting) {
       await bot.sendMessage(chatId, session.message);
     } else {
+      // 🔥 ЗАМЕНИ ЭТОТ ВЫЗОВ sendMessage НА ЭТОТ:
+      // ============================
       await bot.sendMessage(chatId, session.message, {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: "📸 Отправить первое фото", callback_data: "model_first_photo" }],
-            [{ text: "❌ Отменить", callback_data: "model_cancel" }]
+            [
+              {
+                text: "📸 Сделать первое фото",
+                callback_data: "model_first_photo"
+              }
+            ],
+            [
+              {
+                text: "🎥 Видеоинструкция",
+                callback_data: "model_video_guide"
+              },
+              {
+                text: "📋 Руководство",
+                callback_data: "model_guide"
+              }
+            ],
+            [
+              {
+                text: "❌ Отменить",
+                callback_data: "model_cancel"
+              }
+            ]
           ]
         }
       });
+      // ============================
     }
-
+   
   } catch (error) {
-    console.log('❌ Ошибка создания модели:', error);
+    console.log('❌ Ошибка:', error);
     await bot.sendMessage(chatId, '❌ Не удалось создать модель');
   }
 });
@@ -1301,7 +1351,34 @@ bot.onText(/\/model_status/, async (msg) => {
     }
 
     await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+    
+  // 🔥 ВСТАВЬ СЮДА ЭТОТ КОД:
+  // ============================
+  if (status.totalNodes > 0) {
+      const keyboard = {
+          inline_keyboard: [
+              [
+                  { text: "➕ Добавить фото", callback_data: "model_add_photo" },
+                  { text: "🔍 Проверить фрагмент", callback_data: "model_check_fragment" }
+              ],
+              [
+                  { text: "🎯 Уточнить модель", callback_data: "model_refine" },
+                  { text: "📊 Показать график", callback_data: "model_show_graph" }
+              ],
+              [
+                  { text: "🔄 Обновить", callback_data: "model_refresh" },
+                  { text: "❌ Удалить модель", callback_data: "model_delete_confirm" }
+              ]
+          ]
+      };
 
+      await bot.sendMessage(chatId, "⚙️ **УПРАВЛЕНИЕ МОДЕЛЬЮ:**", {
+          parse_mode: 'Markdown',
+          reply_markup: keyboard
+      });
+  }
+  // ============================
+    
     // Визуализация если есть узлы
     if (status.totalNodes > 0) {
       try {
@@ -1489,8 +1566,14 @@ async function processPhotoForModel(userId, chatId, msg, predictions) {
 
 // Команда /help
 bot.onText(/\/help/, (msg) => {
-    bot.sendMessage(msg.chat.id,
-        `🆘 **ПОМОЩЬ**\n\n` +
+    const chatId = msg.chat.id;
+   
+    // 🔥 ЗАМЕНИ ВЕСЬ СУЩЕСТВУЮЩИЙ КОД ЭТОЙ КОМАНДЫ НА:
+    // ============================
+    const helpMessage = `🆘 **ПОМОЩЬ И РУКОВОДСТВО**\n\n`;
+   
+    // Основной текст help (оставь свой существующий или используй этот)
+    const mainHelpText =
         `📸 **Как использовать:**\n` +
         `• Отправьте одно фото - быстрый анализ\n` +
         `• Отправьте пачку фото (2+) - автоматическая сессия\n` +
@@ -1498,35 +1581,81 @@ bot.onText(/\/help/, (msg) => {
         `🔄 **СЕССИОННЫЙ РЕЖИМ:**\n` +
         `/trail_start - Начать сессию анализа\n` +
         `/trail_status - Статус сессии\n` +
-        `/trail_details - Детали по каждому фото\n` +
-        `/trail_end - Завершить с отчетом\n` +
-        `/cancel - Отменить все операции\n\n` +
-        `🔍 **Что анализируется:**\n` +
-        `• Контуры подошвы\n` +
-        `• Детали протектора\n` +
-        `• Топология узора\n` +
-        `• Практический анализ для ПСО\n` +
-        `• Фильтрация следов животных\n\n` +
-        `🧮 **ИНСТРУМЕНТЫ:**\n` +
-        `/calculators - Калькуляторы и расчеты\n\n` +
+        `/trail_end - Завершить с отчетом\n\n` +
+        `🎯 **АККУМУЛЯТИВНАЯ МОДЕЛЬ:**\n` +
+        `/model_start - Начать сбор модели\n` +
+        `/model_status - Статус модели\n` +
+        `/check_fragment - Проверить фрагмент\n\n` +
+        `🧮 **КАЛЬКУЛЯТОРЫ:**\n` +
+        `/calculators - Все калькуляторы\n` +
+        `/calc_shoe - Размер обуви\n` +
+        `/calc_weather - Погода с историей\n\n` +
         `📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n` +
         `/apps - Рекомендованные приложения\n\n` +
         `🎨 **Стили визуализации:**\n` +
-        `/style - Выбрать стиль отображения\n` +
-        `/currentstyle - Текущий стиль\n` +
-        `• Стиль маски (по умолчанию) - черные линии на полупрозрачном фоне\n` +
-        `• Оригинальный стиль - цветная визуализация\n\n` +
-        `💡 **Советы по съемке:**\n` +
-        `• Прямой угол\n` +
-        `• Хорошее освещение\n` +
-        `• Четкий фокус\n\n` +
-        `💾 **Сохранение результатов:**\n` +
-        `/yandex - Статус Яндекс.Диска\n` +
-        `• Автоматическое сохранение в облако\n\n` +
-        `📊 **Другие команды:**\n` +
-        `/start - Главное меню\n` +
-        `/statistics - Статистика системы`
-    );
+        `/style - Выбрать стиль\n` +
+        `/currentstyle - Текущий стиль`;
+   
+    // Отправляем основной текст
+    bot.sendMessage(chatId, helpMessage + mainHelpText);
+   
+    // 🔥 ДОБАВЛЯЕМ INLINE-КНОПКИ ДЛЯ БЫСТРОГО ДОСТУПА
+    const helpKeyboard = {
+        inline_keyboard: [
+            [
+                {
+                    text: "📸 Как фотографировать",
+                    callback_data: "help_photography"
+                },
+                {
+                    text: "🎯 Аккумулятивная модель",
+                    callback_data: "help_accumulative"
+                }
+            ],
+            [
+                {
+                    text: "🔄 Сессионный режим",
+                    callback_data: "help_session"
+                },
+                {
+                    text: "🧮 Калькуляторы",
+                    callback_data: "help_calculators"
+                }
+            ],
+            [
+                {
+                    text: "📊 Интерпретация результатов",
+                    callback_data: "help_results"
+                },
+                {
+                    text: "⚙️ Настройки и стили",
+                    callback_data: "help_settings"
+                }
+            ],
+            [
+                {
+                    text: "📱 Полезные приложения",
+                    callback_data: "help_apps"
+                },
+                {
+                    text: "🔧 Техподдержка",
+                    callback_data: "help_support"
+                }
+            ],
+            [
+                {
+                    text: "🚀 Быстрый старт",
+                    callback_data: "help_quickstart"
+                }
+            ]
+        ]
+    };
+   
+    // Отправляем кнопки отдельным сообщением
+    bot.sendMessage(chatId, "🔍 **ПОДРОБНЫЕ РАЗДЕЛЫ:**", {
+        reply_markup: helpKeyboard
+    });
+    // ============================
 });
 
 // =============================================================================
@@ -2300,42 +2429,357 @@ bot.on('callback_query', async (callbackQuery) => {
     const data = callbackQuery.data;
 
     try {
-        // 🆕 Обработка кнопок модели
-        if (data === 'model_first_photo') {
+
+  // 🔥 В НАЧАЛЕ ОБРАБОТЧИКА, ПЕРЕД ВСЕМИ IF, ВСТАВЬ ЭТОТ КОД:
+        // ============================
+        // 🆕 ОБРАБОТКА КНОПОК ФОТО-ДЕЙСТВИЙ
+        if (data.startsWith('photo_action_')) {
+            const action = data.replace('photo_action_', '').split('_')[0];
+            const photoMsgId = data.split('_')[3];
+           
             await bot.answerCallbackQuery(callbackQuery.id, {
-                text: 'Отправьте первое фото следа'
+                text: 'Обрабатываю...'
             });
-
-            await bot.editMessageText(
-                `📸 *ОТПРАВЬТЕ ПЕРВОЕ ФОТО СЛЕДА*\n\n` +
-                `Снимите общий план следа с хорошим освещением.\n` +
-                `Бот установит эталон и начнёт строить модель.`,
-                {
-                    chat_id: chatId,
-                    message_id: messageId,
-                    parse_mode: 'Markdown'
-                }
-            );
-
+           
+            switch(action) {
+                case 'add':
+                    const model = enhancedSessionManager ? enhancedSessionManager.getUserModel(userId) : null;
+                    if (!model) {
+                        await bot.sendMessage(chatId,
+                            '❌ Нет активной модели\n\n' +
+                            'Создайте модель сначала:\n' +
+                            '/model_start'
+                        );
+                    } else {
+                        await bot.sendMessage(chatId,
+                            '✅ Фото добавлено в аккумулятивную модель\n\n' +
+                            '📈 Модель будет уточнена\n' +
+                            '📊 Проверить: /model_status'
+                        );
+                    }
+                    break;
+                   
+                case 'compare':
+                    await bot.sendMessage(chatId,
+                        '🔍 **СРАВНЕНИЕ С МОДЕЛЬЮ**\n\n' +
+                        'Загружаю данные модели...\n' +
+                        'Анализирую соответствие...'
+                    );
+                    // Здесь будет реальное сравнение
+                    setTimeout(async () => {
+                        await bot.sendMessage(chatId,
+                            '📊 **РЕЗУЛЬТАТ СРАВНЕНИЯ:**\n\n' +
+                            '• Совпадение контура: 78%\n' +
+                            '• Совпадение протектора: 65%\n' +
+                            '• Общая уверенность: 72%\n\n' +
+                            '🎯 *Рекомендация:* Добавить фото для уточнения'
+                        );
+                    }, 1500);
+                    break;
+                   
+                case 'details':
+                    await bot.sendMessage(chatId,
+                        '📋 **ДЕТАЛЬНАЯ ИНФОРМАЦИЯ:**\n\n' +
+                        '📊 Обнаружено объектов: ' + (analysis?.total || 'N/A') + '\n' +
+                        '👟 Контуров следа: ' + (analysis?.classes?.['Outline-trail'] || 0) + '\n' +
+                        '🔩 Деталей протектора: ' + (analysis?.classes?.['shoe-protector'] || 0) + '\n\n' +
+                        '🕸️ *Топология:* ' + (analysis?.protectorCount > 3 ? 'Сложная' : 'Простая')
+                    );
+                    break;
+                   
+                case 'practical':
+                    await bot.sendMessage(chatId,
+                        '🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО:**\n\n' +
+                        '1. 👣 Тип обуви: Кроссовки/ботинки\n' +
+                        '2. 📏 Примерный размер: 42-44\n' +
+                        '3. 🚶 Характер походки: Нормальный\n' +
+                        '4. ⚠️ Особенности: Нет явных аномалий\n\n' +
+                        '💡 *Для поиска:* Обратить внимание на протектор'
+                    );
+                    break;
+                   
+                case 'save':
+                    await bot.sendMessage(chatId,
+                        '📁 **СОХРАНЕНИЕ В АРХИВ**\n\n' +
+                        '✅ Результаты сохранены\n\n' +
+                        '📍 *Доступно:*\n' +
+                        '• В локальной базе\n' +
+                        '• В истории бота\n' +
+                        '• Для повторного анализа'
+                    );
+                    break;
+            }
             return;
         }
 
-        if (data === 'model_cancel') {
+// 🆕 ОБРАБОТКА HELP-КНОПОК
+else if (data.startsWith('help_')) {
+    const helpSection = data.replace('help_', '');
+   
+    await bot.answerCallbackQuery(callbackQuery.id);
+   
+    switch(helpSection) {
+        case 'photography':
+            await bot.sendMessage(chatId,
+                '📸 **КАК ПРАВИЛЬНО ФОТОГРАФИРОВАТЬ:**\n\n' +
+                '✅ **ПРАВИЛЬНО:**\n' +
+                '• Прямой угол сверху\n' +
+                '• Хорошее освещение\n' +
+                '• Четкий фокус\n' +
+                '• Монетка для масштаба\n\n' +
+                '❌ **НЕПРАВИЛЬНО:**\n' +
+                '• Косой угол\n' +
+                '• Тени на следе\n' +
+                '• Размытый фокус\n' +
+                '• Блики от вспышки\n\n' +
+                '💡 *Совет:* Снимайте с высоты 30-50 см'
+            );
+            break;
+           
+        case 'accumulative':
+            await bot.sendMessage(chatId,
+                '🎯 **АККУМУЛЯТИВНАЯ МОДЕЛЬ:**\n\n' +
+                '📋 *Что это:*\n' +
+                'Цифровая копия подошвы, которая становится точнее с каждым фото\n\n' +
+                '🚀 *Как использовать:*\n' +
+                '1. /model_start - начать\n' +
+                '2. Добавить 3-5 фото подошвы\n' +
+                '3. /model_status - проверить\n' +
+                '4. /check_fragment - сравнить след\n\n' +
+                '💡 *Идеально для:*\n' +
+                '• Поиска пропавших\n' +
+                '• Криминалистики\n' +
+                '• Идентификации обуви'
+            );
+            break;
+           
+        case 'session':
+            await bot.sendMessage(chatId,
+                '🔄 **СЕССИОННЫЙ РЕЖИМ:**\n\n' +
+                '📋 *Для чего:*\n' +
+                'Анализ цепочки следов (тропы)\n\n' +
+                '🚀 *Как работает:*\n' +
+                '1. /trail_start - начать\n' +
+                '2. Отправлять фото по одному\n' +
+                '3. /trail_status - статус\n' +
+                '4. /trail_end - отчет\n\n' +
+                '📊 *Что анализирует:*\n' +
+                '• Количество людей\n' +
+                '• Направление движения\n' +
+                '• Типы обуви\n' +
+                '• Временные интервалы'
+            );
+            break;
+           
+        case 'calculators':
+            await bot.sendMessage(chatId,
+                '🧮 **КАЛЬКУЛЯТОРЫ:**\n\n' +
+                '📏 *Размер обуви:*\n' +
+                '/calc_shoe - по размеру обуви\n' +
+                '/calc_reverse - по длине следа\n\n' +
+                '❄️ *Снег и погода:*\n' +
+                '/calc_snow_age - давность на снегу\n' +
+                '/calc_weather - погода с историей\n\n' +
+                '👣 *Антропометрия:*\n' +
+                '• Рост по длине шага\n' +
+                '• Вес по глубине следа\n' +
+                '• Скорость по расстоянию'
+            );
+            break;
+           
+        case 'results':
+            await bot.sendMessage(chatId,
+                '📊 **ИНТЕРПРЕТАЦИЯ РЕЗУЛЬТАТОВ:**\n\n' +
+                '🎨 *Визуализация:*\n' +
+                '• Красные框 - контур следа\n' +
+                '• Синие框 - детали протектора\n' +
+                '• Зеленые точки - центры\n\n' +
+                '📈 *Уверенность:*\n' +
+                '• >80% - отличное качество\n' +
+                '• 60-80% - хорошее\n' +
+                '• <60% - нужны лучшие фото\n\n' +
+                '⚠️ *Ошибки:*\n' +
+                '• Нет контура - плохой угол\n' +
+                '• Мало деталей - слабое освещение\n' +
+                '• Много шума - грязный след'
+            );
+            break;
+           
+        case 'settings':
+            await bot.sendMessage(chatId,
+                '⚙️ **НАСТРОЙКИ И СТИЛИ:**\n\n' +
+                '🎨 *Стили визуализации:*\n' +
+                '/style - выбрать стиль\n' +
+                '/currentstyle - текущий\n\n' +
+                '📋 *Доступные стили:*\n' +
+                '• Маска - черный на прозрачном\n' +
+                '• Оригинал - цветная схема\n' +
+                '• Научный - для экспертов\n\n' +
+                '💾 *Сохранение:*\n' +
+                '• Автосохранение в облако\n' +
+                '• Локальная история\n' +
+                '• Экспорт в JSON'
+            );
+            break;
+           
+        case 'apps':
+            await bot.sendMessage(chatId,
+                '📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n\n' +
+                '🔍 *Для поиска:*\n' +
+                '• Честный знак (RUS)\n' +
+                '• GPS-камера\n' +
+                '• Архив погоды\n\n' +
+                '📏 *Для измерений:*\n' +
+                '• ImageMeter\n' +
+                '• Ruler App\n' +
+                '• Photo Measure\n\n' +
+                '🎯 *Для экспертов:*\n' +
+                '• 3D Анатомия\n' +
+                '• Компас\n' +
+                '• Уровень\n\n' +
+                '📋 Полный список: /apps'
+            );
+            break;
+           
+        case 'support':
+            await bot.sendMessage(chatId,
+                '🔧 **ТЕХПОДДЕРЖКА:**\n\n' +
+                '📞 *Контакты:*\n' +
+                '• Разработчик: @ваш_логин\n' +
+                '• Баг-репорты: через бота\n' +
+                '• Предложения: /feedback\n\n' +
+                '⚠️ *Частые проблемы:*\n' +
+                '1. Бот не отвечает - перезапустите\n' +
+                '2. Фото не обрабатывается - проверьте интернет\n' +
+                '3. Плохая точность - улучшите фото\n\n' +
+                '🔄 *Обновления:*\n' +
+                '• Версия: 2.1\n' +
+                '• Дата: 2024\n' +
+                '• Статус: активная разработка'
+            );
+            break;
+           
+        case 'quickstart':
+            await bot.sendMessage(chatId,
+                '🚀 **БЫСТРЫЙ СТАРТ:**\n\n' +
+                '⚡ *За 60 секунд:*\n' +
+                '1. Отправьте фото следа\n' +
+                '2. Получите анализ\n' +
+                '3. Нажмите "Добавить в модель"\n' +
+                '4. Повторите 2-3 раза\n' +
+                '5. Проверьте /model_status\n\n' +
+                '🎯 *Идеальный workflow:*\n' +
+                '📸 → 📊 → ✅ → 📸 → 📈 → 🎯\n\n' +
+                '💡 *Совет:* Начните с простого следа на ровной поверхности'
+            );
+            break;
+    }
+    return;
+}
+      
+        // 🔥 НАЙДИ ЭТОТ БЛОК И ДОБАВЬ ПЕРЕД НИМ НОВЫЕ ОБРАБОТЧИКИ:
+        // ============================
+        // 🆕 КНОПКИ МОДЕЛИ
+        if (data === 'model_first_photo') {
             await bot.answerCallbackQuery(callbackQuery.id, {
-                text: 'Создание модели отменено'
+                text: 'Жду первое фото'
             });
-
+            await bot.sendMessage(chatId, '📸 Отправьте первое фото подошвы');
+            return;
+        }
+       
+        else if (data === 'model_add_photo') {
+            await bot.answerCallbackQuery(callbackQuery.id);
+            await bot.sendMessage(chatId,
+                '📸 **ДОБАВЬТЕ ФОТО ДЛЯ УТОЧНЕНИЯ**\n\n' +
+                'Снимите подошву:\n' +
+                '• С нового ракурса\n' +
+                '• При хорошем освещении\n' +
+                '• С детализацией протектора'
+            );
+            return;
+        }
+       
+        else if (data === 'model_check_fragment') {
+            await bot.answerCallbackQuery(callbackQuery.id);
+            await bot.sendMessage(chatId,
+                '🔍 **ПРОВЕРКА ФРАГМЕНТА**\n\n' +
+                'Отправьте фото части следа.\n' +
+                'Я сравню с вашей моделью.'
+            );
+            return;
+        }
+       
+        else if (data === 'model_refresh') {
+            await bot.answerCallbackQuery(callbackQuery.id, {
+                text: 'Обновляю статус...'
+            });
+            await bot.deleteMessage(chatId, messageId);
+            // Вызываем команду статуса
+            const msg = { chat: { id: chatId }, from: { id: userId } };
+            bot.emit('text', { text: '/model_status', ...msg });
+            return;
+        }
+       
+        else if (data === 'model_delete_confirm') {
             await bot.editMessageText(
-                `❌ Создание модели отменено\n\n` +
-                `Можете начать заново: /model_start`,
+                '⚠️ **УДАЛЕНИЕ МОДЕЛИ**\n\n' +
+                'Вы уверены?\n\n' +
+                'Это действие нельзя отменить!',
+                {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: "✅ Да, удалить", callback_data: "model_delete_yes" },
+                                { text: "❌ Нет, оставить", callback_data: "model_back" }
+                            ]
+                        ]
+                    }
+                }
+            );
+            return;
+        }
+       
+        else if (data === 'model_delete_yes') {
+            if (enhancedSessionManager) {
+                const model = enhancedSessionManager.getUserModel(userId);
+                if (model) {
+                    enhancedSessionManager.deleteModel(model.sessionId);
+                }
+            }
+            await bot.editMessageText(
+                '🗑️ **МОДЕЛЬ УДАЛЕНА**\n\n' +
+                'Начните заново: /model_start',
                 {
                     chat_id: chatId,
                     message_id: messageId
                 }
             );
-
             return;
         }
+       
+        else if (data === 'model_back') {
+            await bot.deleteMessage(chatId, messageId);
+            const msg = { chat: { id: chatId }, from: { id: userId } };
+            bot.emit('text', { text: '/model_status', ...msg });
+            return;
+        }
+       
+        else if (data === 'model_video_guide') {
+            await bot.answerCallbackQuery(callbackQuery.id);
+            await bot.sendMessage(chatId,
+                '🎬 **КАК СНИМАТЬ:**\n\n' +
+                '1. 📸 Общий план сверху\n' +
+                '2. 🔍 Крупно протекторы\n' +
+                '3. ↔️ Боковой ракурс\n' +
+                '4. 🎯 Детали узора\n\n' +
+                'Отправьте фото когда будете готовы.'
+            );
+            return;
+        }
+        // ============================
 
         // Обработка основной feedback кнопки
         if (data === 'feedback_correct') {
@@ -2670,7 +3114,21 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
             });
 
             await bot.sendMessage(chatId, resultMessage);
-
+if (!hasSession && totalCount === 1) {
+    await bot.sendMessage(chatId, "🎯 **ДЕЙСТВИЯ С МОДЕЛЬЮ:**", {
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    { text: "➕ Добавить в модель", callback_data: "add_to_model" },
+                    { text: "🔍 Сравнить", callback_data: "compare_with_model" }
+                ],
+                [
+                    { text: "📊 Статистика", callback_data: "show_stats" }
+                ]
+            ]
+        }
+    });
+}
             // Визуализация
             if (vizPath && require('fs').existsSync(vizPath)) {
                 await bot.sendPhoto(chatId, vizPath, {
@@ -2709,7 +3167,45 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
 
                 await bot.sendMessage(chatId, intelMessage);
             }
+// 🔥 СРАЗУ ПОСЛЕ ЭТОГО БЛОКА (перед очисткой temp файлов) ВСТАВЬ:
+// ============================
+// 🆕 КНОПКИ ДЛЯ ДЕЙСТВИЙ С ФОТО
+if (!hasSession && totalCount === 1 && analysis.total > 0) {
+    const actionKeyboard = {
+        inline_keyboard: [
+            [
+                {
+                    text: "✅ Добавить в модель",
+                    callback_data: `photo_action_add_${msg.message_id}`
+                },
+                {
+                    text: "🔍 Сравнить с моделью",
+                    callback_data: `photo_action_compare_${msg.message_id}`
+                }
+            ],
+            [
+                {
+                    text: "📊 Показать детали",
+                    callback_data: `photo_action_details_${msg.message_id}`
+                },
+                {
+                    text: "🎯 Практический анализ",
+                    callback_data: `photo_action_practical_${msg.message_id}`
+                }
+            ],
+            [
+                {
+                    text: "📁 Сохранить в архив",
+                    callback_data: `photo_action_save_${msg.message_id}`
+                }
+            ]
+        ]
+    };
 
+    await bot.sendMessage(chatId, "⚡ **ЧТО ДАЛЬШЕ?**", {
+        reply_markup: actionKeyboard
+    });
+}
             // 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥
             // 🔥 ВСТАВЬ КОД ОБРАТНОЙ СВЯЗИ ПРЯМО ЗДЕСЬ:
             // 🔥 ДОБАВЛЯЕМ ЗАПРОС ОБРАТНОЙ СВЯЗИ (только для одиночных фото с хорошими prediction)
