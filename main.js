@@ -263,7 +263,7 @@ practicalAnalyzer = createPracticalAnalyzerStub();
 animalFilter = createAnimalFilterStub();
 
 const app = express();
-const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
+const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true });
 
 // 🔧 НАСТРОЙКА EXPRESS
 app.use(express.json({
