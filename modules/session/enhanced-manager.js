@@ -5,6 +5,7 @@ const { ImageNormalizer } = require('../analysis/normalizer.js');
 const { FootprintModel } = require('./footprint-model.js');
 const { SimilarityEngine } = require('../comparison/similarity-engine.js');
 
+
 class EnhancedSessionManager {
   constructor() {
     this.models = new Map(); // sessionId -> FootprintModel
@@ -15,7 +16,7 @@ class EnhancedSessionManager {
    
     console.log('🚀 EnhancedSessionManager инициализирован');
   }
- 
+ const modelData = enhancedSessionManager.exportModel(model.sessionId, 'full');
   /**
    * Создание новой сессии с аккумулятивной моделью
    */
