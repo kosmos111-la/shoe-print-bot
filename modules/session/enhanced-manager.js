@@ -1,189 +1,223 @@
 // modules/session/enhanced-manager.js
-const { FootprintModel } = require('./footprint-model.js');
+// Расширенный менеджер с аккумулятивными моделями
+
 const { ImageNormalizer } = require('../analysis/normalizer.js');
+const { FootprintModel } = require('./footprint-model.js');
 const { SimilarityEngine } = require('../comparison/similarity-engine.js');
 
 class EnhancedSessionManager {
   constructor() {
     this.models = new Map(); // sessionId -> FootprintModel
+    this.userSessions = new Map(); // userId -> sessionId
     this.normalizer = new ImageNormalizer();
     this.similarityEngine = new SimilarityEngine();
-    this.referenceData = new Map(); // sessionId -> {scale, orientation}
+    this.referenceCache = new Map(); // sessionId -> reference data
+   
+    console.log('🚀 EnhancedSessionManager инициализирован');
   }
  
-  // Создание новой сессии с аккумулятивной моделью
-  createEnhancedSession(userId, sessionType = 'trail_analysis') {
-    const sessionId = `${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  /**
+   * Создание новой сессии с аккумулятивной моделью
+   */
+  createModelSession(userId, sessionName = '') {
+    // Проверяем существующую сессию
+    const existingSessionId = this.userSessions.get(userId);
+    if (existingSessionId && this.models.has(existingSessionId)) {
+      const existingModel = this.models.get(existingSessionId);
+      return {
+        sessionId: existingSessionId,
+        model: existingModel,
+        isExisting: true,
+        message: `🔄 У вас уже есть активная модель\n\n` +
+                 `🆔 ${existingSessionId.slice(0, 12)}...\n` +
+                 `📊 Узлов: ${existingModel.getStats().totalNodes}\n` +
+                 `📸 Фото: ${existingModel.photosProcessed}\n\n` +
+                 `Продолжайте добавлять фото для уточнения.`
+      };
+    }
+   
+    // Создаём новую сессию
+    const sessionId = `model_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const model = new FootprintModel(sessionId);
    
     this.models.set(sessionId, model);
-    console.log(`🆕 Создана enhanced сессия: ${sessionId}`);
+    this.userSessions.set(userId, sessionId);
    
     return {
       sessionId,
       model,
-      message: `🎯 Активирован РЕЖИМ НАКОПЛЕНИЯ МОДЕЛИ\n\n` +
-               `Каждое новое фото будет уточнять модель следа.\n` +
-               `📊 Текущая модель: 0 узлов\n` +
+      isExisting: false,
+      message: `🎯 **АКТИВИРОВАН РЕЖИМ НАКОПЛЕНИЯ МОДЕЛИ**\n\n` +
+               `🆔 ${sessionId.slice(0, 12)}...\n\n` +
+               `📋 **Как работает:**\n` +
+               `• Каждое фото уточняет модель следа\n` +
+               `• Узлы накапливают уверенность\n` +
+               `• Модель становится точнее с каждым фото\n\n` +
+               `💡 **Для начала:**\n` +
+               `1. Снимите общий план следа\n` +
+               `2. Снимите детали протектора\n` +
+               `3. Снимите под другим углом/освещением\n\n` +
                `📸 Отправьте первое фото для установки эталона`
     };
   }
  
-  // Добавление фото в аккумулятивную модель
-  async addPhotoToModel(sessionId, photoData, predictions) {
+  /**
+   * Добавление фото в аккумулятивную модель
+   */
+  async addPhotoToModel(sessionId, photoData, rawPredictions) {
     const model = this.models.get(sessionId);
     if (!model) {
-      throw new Error(`Сессия ${sessionId} не найдена`);
+      throw new Error(`Модель ${sessionId} не найдена`);
     }
    
-    // Первое фото - устанавливаем референс
-    if (model.photosProcessed === 0) {
-      this.setReferenceData(sessionId, predictions);
+    console.log(`📸 Добавляю фото в модель ${sessionId}`);
+   
+    try {
+      // Первое фото - устанавливаем референс
+      if (model.photosProcessed === 0) {
+        const referenceAnalysis = this.normalizer.analyzeForReference(rawPredictions);
+        if (referenceAnalysis.canBeReference) {
+          this.referenceCache.set(sessionId, {
+            scale: referenceAnalysis.scale,
+            orientation: referenceAnalysis.orientation,
+            timestamp: new Date()
+          });
+          console.log(`📏 Референс установлен: ${referenceAnalysis.message}`);
+        }
+      }
+     
+      // Нормализуем предсказания
+      const reference = this.referenceCache.get(sessionId);
+      let normalizedPredictions = rawPredictions;
+     
+      if (reference) {
+        normalizedPredictions = this.normalizer.normalizeToReference(
+          rawPredictions,
+          reference
+        );
+      }
+     
+      // Добавляем в модель
+      const result = model.addPhotograph(
+        normalizedPredictions,
+        photoData.fileId || `photo_${Date.now()}`,
+        {
+          timestamp: new Date(),
+          hasOutline: rawPredictions.some(p => p.class === 'Outline-trail'),
+          protectorCount: rawPredictions.filter(p => p.class === 'shoe-protector').length
+        }
+      );
+     
+      // Формируем ответ
+      const response = {
+        success: true,
+        sessionId,
+        photoNumber: model.photosProcessed,
+        ...result,
+        summary: this.generatePhotoSummary(result, model.photosProcessed)
+      };
+     
+      console.log(`✅ Фото добавлено в модель. Узлов: ${result.stats.totalNodes}`);
+      return response;
+     
+    } catch (error) {
+      console.log('❌ Ошибка добавления фото в модель:', error);
+      throw error;
     }
-   
-    // Нормализуем предсказания
-    const reference = this.referenceData.get(sessionId);
-    let normalizedPredictions = predictions;
-   
-    if (reference) {
-      normalizedPredictions = this.normalizer.normalizeToReference(predictions, reference);
-    }
-   
-    // Добавляем в модель
-    const stats = model.addPhotograph(normalizedPredictions, photoData.fileId);
-   
-    // Обновляем референс если нужно
-    if (model.photosProcessed === 1) {
-      this.updateReferenceFromModel(sessionId, model);
-    }
-   
-    return {
-      success: true,
-      stats,
-      model: model.getConsensusModel(),
-      photoNumber: model.photosProcessed,
-      message: this.generatePhotoAddedMessage(stats, model.photosProcessed)
-    };
   }
  
-  // Быстрая проверка фрагмента
+  /**
+   * Быстрая проверка фрагмента
+   */
   checkFragment(sessionId, fragmentPredictions) {
     const model = this.models.get(sessionId);
     if (!model) {
-      return { error: 'Модель не найдена' };
+      return { error: `Модель ${sessionId} не найдена` };
     }
    
-    const result = this.similarityEngine.quickCheck(fragmentPredictions, model);
-   
-    return {
-      ...result,
-      modelStats: model.getStats(),
-      recommendation: this.generateRecommendation(result, model)
-    };
+    try {
+      const result = this.similarityEngine.compareFragmentWithModel(
+        fragmentPredictions,
+        model,
+        { quickMode: true, allowMirroring: true }
+      );
+     
+      const modelStats = model.getStats();
+     
+      return {
+        ...result,
+        modelInfo: {
+          sessionId,
+          nodeCount: modelStats.totalNodes,
+          confidence: modelStats.modelConfidence,
+          photosProcessed: modelStats.photosProcessed
+        },
+        recommendation: this.generateRecommendation(result, modelStats)
+      };
+     
+    } catch (error) {
+      console.log('❌ Ошибка проверки фрагмента:', error);
+      return {
+        isMatch: false,
+        confidence: 0,
+        error: error.message,
+        message: '❌ Ошибка при проверке фрагмента'
+      };
+    }
   }
  
-  // Получение статуса модели
+  /**
+   * Получение статуса модели
+   */
   getModelStatus(sessionId) {
     const model = this.models.get(sessionId);
     if (!model) {
-      return { error: 'Модель не найдена' };
+      return { error: `Модель ${sessionId} не найдена` };
     }
    
     const stats = model.getStats();
-    const consensus = model.getConsensusModel(0.7);
+    const consensus = model.getConsensusModel(0.6);
    
     return {
       sessionId,
       ...stats,
       highConfidenceNodes: consensus.nodes.length,
-      modelAge: `${stats.ageMinutes.toFixed(1)} мин`,
+      modelAge: `${stats.ageMinutes} мин`,
       confidenceLevel: this.getConfidenceLevel(stats.modelConfidence),
-      recommendations: this.generateModelRecommendations(stats)
+      status: model.getModelStatus(),
+      recommendations: model.getRecommendations(),
+      canCompare: stats.highConfidenceNodes >= 5
     };
   }
  
-  // Экспорт модели
-  exportModel(sessionId, format = 'json') {
+  /**
+   * Получение модели пользователя
+   */
+  getUserModel(userId) {
+    const sessionId = this.userSessions.get(userId);
+    if (!sessionId) return null;
+   
+    return this.models.get(sessionId);
+  }
+ 
+  /**
+   * Экспорт модели
+   */
+  exportModel(sessionId, format = 'simple') {
     const model = this.models.get(sessionId);
     if (!model) return null;
    
     if (format === 'json') {
       return model.toJSON();
-    } else if (format === 'simple') {
-      return model.getConsensusModel(0.6);
-    }
-  }
- 
-  // Вспомогательные методы
-  setReferenceData(sessionId, predictions) {
-    const scale = this.normalizer.calculateAverageDistance(predictions);
-    const orientation = this.normalizer.calculateDominantOrientation(predictions);
-   
-    this.referenceData.set(sessionId, { scale, orientation });
-    console.log(`📏 Референс для ${sessionId}: scale=${scale}, orientation=${orientation}°`);
-  }
- 
-  updateReferenceFromModel(sessionId, model) {
-    // Можно обновить референс на основе модели для лучшей точности
-  }
- 
-  generatePhotoAddedMessage(stats, photoNumber) {
-    let message = `✅ Фото ${photoNumber} добавлено в модель\n\n`;
-    message += `📊 Узлов: ${stats.totalNodes} (+${stats.consensusNodes} подтверждённых)\n`;
-    message += `🎯 Уверенность модели: ${(stats.modelConfidence * 100).toFixed(1)}%\n`;
-   
-    if (photoNumber === 1) {
-      message += `\n🎯 Эталон установлен. Отправьте больше фото для уточнения модели.`;
-    } else if (stats.highConfidenceNodes > 10) {
-      message += `\n✅ Модель достаточно детализирована для сравнения.`;
     } else {
-      message += `\n📸 Отправьте ещё фото для повышения точности.`;
-    }
-   
-    return message;
-  }
- 
-  generateRecommendation(result, model) {
-    if (result.match) {
-      return `✅ Это ВАШ след! Совпадает ${result.nodesMatched} узлов.`;
-    } else if (model.getStats().totalNodes < 5) {
-      return `⚠️  Мало данных в модели. Снимите ещё 2-3 фото следа.`;
-    } else {
-      return `❌ Не похоже на ваш след. Совпадений: ${result.nodesMatched}`;
+      return model.getConsensusModel(0.5);
     }
   }
  
-  getConfidenceLevel(confidence) {
-    if (confidence > 0.8) return 'ВЫСОКАЯ 🟢';
-    if (confidence > 0.6) return 'СРЕДНЯЯ 🟡';
-    if (confidence > 0.4) return 'НИЗКАЯ 🟠';
-    return 'ОЧЕНЬ НИЗКАЯ 🔴';
-  }
- 
-  generateModelRecommendations(stats) {
-    const recs = [];
-   
-    if (stats.totalNodes < 5) {
-      recs.push('• Нужно больше фото для построения модели');
-    }
-   
-    if (stats.modelConfidence < 0.6) {
-      recs.push('• Снимите те же участки под другим углом');
-    }
-   
-    if (stats.highConfidenceNodes < 3) {
-      recs.push('• Сфокусируйтесь на деталях протектора');
-    }
-   
-    if (stats.photosProcessed >= 3 && stats.modelConfidence > 0.7) {
-      recs.push('• Модель готова для сравнения в полевых условиях');
-    }
-   
-    return recs.length > 0 ? recs : ['✅ Модель в хорошем состоянии'];
-  }
- 
-  // Очистка старых моделей
-  cleanupOldModels(maxAgeHours = 24) {
+  /**
+   * Очистка старых моделей
+   */
+  cleanupOldModels(maxAgeHours = 6) {
     const now = new Date();
     let cleaned = 0;
    
@@ -191,14 +225,75 @@ class EnhancedSessionManager {
       const ageHours = (now - model.creationTime) / (1000 * 60 * 60);
      
       if (ageHours > maxAgeHours) {
+        // Удаляем из всех карт
         this.models.delete(sessionId);
-        this.referenceData.delete(sessionId);
+        this.referenceCache.delete(sessionId);
+       
+        // Удаляем из userSessions
+        for (const [userId, userSessionId] of this.userSessions) {
+          if (userSessionId === sessionId) {
+            this.userSessions.delete(userId);
+            break;
+          }
+        }
+       
         cleaned++;
-        console.log(`🧹 Очищена старая модель: ${sessionId}`);
+        console.log(`🧹 Очищена старая модель: ${sessionId} (${ageHours.toFixed(1)} часов)`);
       }
     }
    
     return cleaned;
+  }
+ 
+  /**
+   * Вспомогательные методы
+   */
+  generatePhotoSummary(result, photoNumber) {
+    let summary = `✅ Фото ${photoNumber} добавлено\n\n`;
+    summary += `📊 Статистика:\n`;
+    summary += `• Новых узлов: ${result.added}\n`;
+    summary += `• Обновлённых: ${result.updated}\n`;
+    summary += `• Всего узлов: ${result.stats.totalNodes}\n`;
+    summary += `• Уверенность модели: ${(result.stats.modelConfidence * 100).toFixed(1)}%\n\n`;
+   
+    if (photoNumber === 1) {
+      summary += `🎯 Эталон установлен. Отправьте ещё фото для уточнения.`;
+    } else if (result.stats.highConfidenceNodes >= 8) {
+      summary += `✅ Модель хорошо детализирована. Можно сравнивать фрагменты.`;
+    } else if (photoNumber < 3) {
+      summary += `📸 Отправьте ещё ${3 - photoNumber} фото для повышения точности.`;
+    } else {
+      summary += `💡 Попробуйте снять под другим углом или с другим освещением.`;
+    }
+   
+    return summary;
+  }
+ 
+  generateRecommendation(result, modelStats) {
+    if (result.isMatch) {
+      if (result.confidence > 0.85) {
+        return `✅ Это ВАШ след с высокой уверенностью!`;
+      } else if (result.confidence > 0.7) {
+        return `✅ Это ваш след. Совпало ${result.matchCount} узлов.`;
+      } else {
+        return `✅ Возможно ваш след. Проверьте дополнительные детали.`;
+      }
+    } else {
+      if (modelStats.highConfidenceNodes < 5) {
+        return `⚠️  Мало данных в модели. Добавьте ещё фото.`;
+      } else if (result.matchCount >= 2) {
+        return `⚠️  Есть частичные совпадения. Возможно другой след той же обуви.`;
+      } else {
+        return `❌ Не похоже на ваш след. Совпадений: ${result.matchCount}`;
+      }
+    }
+  }
+ 
+  getConfidenceLevel(confidence) {
+    if (confidence > 0.8) return 'ВЫСОКАЯ 🟢';
+    if (confidence > 0.65) return 'СРЕДНЯЯ 🟡';
+    if (confidence > 0.5) return 'НИЗКАЯ 🟠';
+    return 'ОЧЕНЬ НИЗКАЯ 🔴';
   }
 }
 
