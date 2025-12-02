@@ -1,5 +1,6 @@
 // modules/session/footprint-model.js
-// Шаг 3.1: Создаём класс FootprintNode
+// Аккумулятивная модель следа с верификацией узлов
+
 class FootprintNode {
   constructor(id, position, initialConfidence = 0.5) {
     this.id = id;
@@ -8,97 +9,161 @@ class FootprintNode {
     this.occurrences = 1; // сколько раз встречался
     this.firstSeen = new Date();
     this.lastSeen = new Date();
-    this.class = ''; // тип узла (протектор, контур и т.д.)
+    this.class = 'protector'; // тип узла
     this.neighbors = []; // связи с другими узлами
+    this.photoIds = new Set(); // ID фото, где был обнаружен
   }
  
-  update(position, confidenceBoost = 0.1) {
-    // Обновляем позицию с учётом веса уверенности
+  /**
+   * Обновление узла при новом обнаружении
+   */
+  update(position, confidenceBoost = 0.1, photoId = null) {
+    // Взвешенное обновление позиции
     const weight = this.confidence;
+    const boostWeight = confidenceBoost;
+   
     this.position = {
-      x: (this.position.x * weight + position.x * confidenceBoost) / (weight + confidenceBoost),
-      y: (this.position.y * weight + position.y * confidenceBoost) / (weight + confidenceBoost)
+      x: (this.position.x * weight + position.x * boostWeight) / (weight + boostWeight),
+      y: (this.position.y * weight + position.y * boostWeight) / (weight + boostWeight)
     };
    
+    // Увеличиваем уверенность
     this.confidence = Math.min(this.confidence + confidenceBoost, 1.0);
     this.occurrences++;
     this.lastSeen = new Date();
+   
+    if (photoId) {
+      this.photoIds.add(photoId);
+    }
+   
+    return this.confidence;
   }
  
+  /**
+   * Постепенное снижение уверенности если узел не подтверждается
+   */
   decay(decayRate = 0.05) {
-    // Постепенное снижение уверенности если узел не подтверждается
     this.confidence = Math.max(this.confidence - decayRate, 0.1);
+    return this.confidence;
   }
  
+  /**
+   * Проверка высокой уверенности
+   */
   isHighConfidence(threshold = 0.7) {
     return this.confidence >= threshold;
   }
+ 
+  /**
+   * Получение информации об узле
+   */
+  getInfo() {
+    return {
+      id: this.id,
+      position: this.position,
+      confidence: this.confidence,
+      occurrences: this.occurrences,
+      lastSeen: this.lastSeen,
+      photoCount: this.photoIds.size
+    };
+  }
 }
 
-// Шаг 3.2: Создаём класс FootprintModel
 class FootprintModel {
   constructor(sessionId) {
     this.sessionId = sessionId;
     this.nodes = new Map(); // nodeId -> FootprintNode
-    this.edges = new Map(); // edgeId -> {node1, node2, confidence}
+    this.edges = new Map(); // edgeId -> {node1, node2, confidence, distance}
     this.photosProcessed = 0;
+    this.photoMap = new Map(); // photoId -> {timestamp, nodeCount}
     this.referenceScale = 1.0;
     this.referenceOrientation = 0;
     this.creationTime = new Date();
     this.lastUpdate = new Date();
+   
+    console.log(`🆕 FootprintModel создана для сессии ${sessionId}`);
   }
  
-  // Добавление нового фото в модель
-  addPhotograph(normalizedPredictions, photoId) {
-    console.log(`📸 Добавляю фото ${photoId} в модель ${this.sessionId}`);
+  /**
+   * Добавление нового фото в модель
+   */
+  addPhotograph(normalizedPredictions, photoId, photoInfo = {}) {
+    console.log(`📸 Добавляю фото ${photoId} в модель`);
    
-    // Группируем предсказания по классам
+    // Сохраняем информацию о фото
+    this.photoMap.set(photoId, {
+      timestamp: new Date(),
+      nodeCount: 0,
+      ...photoInfo
+    });
+   
+    // Группируем предсказания
     const protectors = normalizedPredictions.filter(p => p.class === 'shoe-protector');
     const outlines = normalizedPredictions.filter(p => p.class === 'Outline-trail');
    
-    // 1. Обрабатываем протекторы (ключевые узлы)
-    this.processProtectors(protectors);
+    // Обрабатываем протекторы (ключевые узлы)
+    const processed = this.processProtectors(protectors, photoId);
    
-    // 2. Обновляем контуры если есть
+    // Обновляем контуры если есть
     if (outlines.length > 0) {
       this.updateOutline(outlines);
     }
    
-    // 3. Обновляем связи между узлами
+    // Обновляем связи между узлами
     this.updateEdges();
    
-    // 4. "Старение" неподтверждённых узлов
+    // "Старение" неподтверждённых узлов
     this.applyDecay();
    
     this.photosProcessed++;
     this.lastUpdate = new Date();
    
-    return this.getStats();
+    // Обновляем информацию о фото
+    this.photoMap.get(photoId).nodeCount = processed.added + processed.updated;
+   
+    return {
+      ...processed,
+      stats: this.getStats(),
+      modelInfo: this.getModelInfo()
+    };
   }
  
-  processProtectors(protectors) {
+  /**
+   * Обработка протекторов
+   */
+  processProtectors(protectors, photoId) {
+    let added = 0;
+    let updated = 0;
+    let skipped = 0;
+   
     protectors.forEach(protector => {
       const center = this.getCenter(protector.points);
       const confidence = protector.confidence || 0.5;
      
       // Ищем ближайший существующий узел
-      const nearestNode = this.findNearestNode(center, 30); // радиус 30 пикселей
+      const nearestNode = this.findNearestNode(center, 25); // радиус 25 пикселей
      
       if (nearestNode) {
         // Узел уже существует - обновляем
-        nearestNode.update(center, confidence * 0.2);
-        console.log(`✅ Узел ${nearestNode.id} подтверждён`);
+        const confidenceBoost = confidence * 0.15; // 15% от confidence детекции
+        nearestNode.update(center, confidenceBoost, photoId);
+        updated++;
       } else {
         // Новый узел - добавляем
-        const nodeId = `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const nodeId = `node_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
         const newNode = new FootprintNode(nodeId, center, confidence);
-        newNode.class = 'protector';
+        newNode.photoIds.add(photoId);
         this.nodes.set(nodeId, newNode);
-        console.log(`➕ Добавлен новый узел ${nodeId}`);
+        added++;
       }
     });
+   
+    return { added, updated, skipped };
   }
  
+  /**
+   * Поиск ближайшего узла
+   */
   findNearestNode(point, maxDistance) {
     let nearest = null;
     let minDist = Infinity;
@@ -114,59 +179,74 @@ class FootprintModel {
     return nearest;
   }
  
+  /**
+   * Обновление связей между узлами
+   */
   updateEdges() {
-    // Обновляем связи между узлами на основе их позиций
     this.edges.clear();
    
     const nodeArray = Array.from(this.nodes.values());
    
     for (let i = 0; i < nodeArray.length; i++) {
       for (let j = i + 1; j < nodeArray.length; j++) {
-        const dist = this.distance(nodeArray[i].position, nodeArray[j].position);
+        const node1 = nodeArray[i];
+        const node2 = nodeArray[j];
        
-        // Если узлы близко и оба с высокой уверенностью - создаём связь
-        if (dist < 150 && nodeArray[i].confidence > 0.5 && nodeArray[j].confidence > 0.5) {
-          const edgeId = `edge_${nodeArray[i].id}_${nodeArray[j].id}`;
+        const dist = this.distance(node1.position, node2.position);
+       
+        // Создаём связь если узлы близко и оба с достаточной уверенностью
+        if (dist < 120 && node1.confidence > 0.4 && node2.confidence > 0.4) {
+          const edgeId = `edge_${node1.id}_${node2.id}`;
+          const edgeConfidence = Math.min(node1.confidence, node2.confidence);
+         
           this.edges.set(edgeId, {
-            node1: nodeArray[i].id,
-            node2: nodeArray[j].id,
+            node1: node1.id,
+            node2: node2.id,
             distance: dist,
-            confidence: Math.min(nodeArray[i].confidence, nodeArray[j].confidence)
+            confidence: edgeConfidence,
+            lastUpdated: new Date()
           });
         }
       }
     }
   }
  
+  /**
+   * "Старение" неподтверждённых узлов
+   */
   applyDecay() {
-    // Снижаем уверенность у узлов, которые давно не подтверждались
     const now = new Date();
-    const decayThreshold = 5 * 60 * 1000; // 5 минут
+    const decayThreshold = 2 * 60 * 1000; // 2 минуты
    
     for (const [nodeId, node] of this.nodes) {
       const timeSinceLastSeen = now - node.lastSeen;
       if (timeSinceLastSeen > decayThreshold && node.confidence > 0.2) {
-        node.decay(0.02);
+        node.decay(0.03); // 3% decay
       }
     }
   }
  
-  getConsensusModel(minConfidence = 0.6) {
-    // Возвращает только высокоуверенные узлы
+  /**
+   * Получение консенсусной модели
+   */
+  getConsensusModel(minConfidence = 0.5) {
     const consensusNodes = [];
     const consensusEdges = [];
    
+    // Фильтруем узлы по уверенности
     for (const [nodeId, node] of this.nodes) {
       if (node.confidence >= minConfidence) {
         consensusNodes.push({
           id: nodeId,
           ...node.position,
           confidence: node.confidence,
-          occurrences: node.occurrences
+          occurrences: node.occurrences,
+          photoCount: node.photoIds.size
         });
       }
     }
    
+    // Фильтруем связи
     for (const [edgeId, edge] of this.edges) {
       const node1 = this.nodes.get(edge.node1);
       const node2 = this.nodes.get(edge.node2);
@@ -183,11 +263,18 @@ class FootprintModel {
       edges: consensusEdges,
       timestamp: new Date(),
       photosProcessed: this.photosProcessed,
-      confidence: this.calculateModelConfidence()
+      confidence: this.calculateModelConfidence(),
+      nodeCount: consensusNodes.length,
+      edgeCount: consensusEdges.length
     };
   }
  
+  /**
+   * Расчёт общей уверенности модели
+   */
   calculateModelConfidence() {
+    if (this.nodes.size === 0) return 0;
+   
     let totalConfidence = 0;
     let count = 0;
    
@@ -196,10 +283,14 @@ class FootprintModel {
       count++;
     }
    
-    return count > 0 ? totalConfidence / count : 0;
+    return totalConfidence / count;
   }
  
+  /**
+   * Статистика модели
+   */
   getStats() {
+    const now = new Date();
     const consensus = this.getConsensusModel(0.4);
     const highConfidence = this.getConsensusModel(0.7);
    
@@ -210,11 +301,96 @@ class FootprintModel {
       highConfidenceNodes: highConfidence.nodes.length,
       modelConfidence: this.calculateModelConfidence(),
       photosProcessed: this.photosProcessed,
-      ageMinutes: (new Date() - this.creationTime) / (1000 * 60)
+      ageMinutes: Math.round((now - this.creationTime) / (1000 * 60)),
+      lastUpdateMinutes: Math.round((now - this.lastUpdate) / (1000 * 60))
     };
   }
  
-  // Вспомогательные методы
+  /**
+   * Информация о модели для пользователя
+   */
+  getModelInfo() {
+    const stats = this.getStats();
+   
+    return {
+      sessionId: this.sessionId,
+      ...stats,
+      status: this.getModelStatus(),
+      recommendations: this.getRecommendations()
+    };
+  }
+ 
+  /**
+   * Статус модели
+   */
+  getModelStatus() {
+    const stats = this.getStats();
+   
+    if (stats.photosProcessed === 0) return '🆕 НОВАЯ';
+    if (stats.highConfidenceNodes >= 10) return '✅ ГОТОВА';
+    if (stats.modelConfidence >= 0.7) return '⚡ АКТИВНА';
+    if (stats.photosProcessed >= 3) return '📈 РАЗВИВАЕТСЯ';
+    return '🧱 ФОРМИРУЕТСЯ';
+  }
+ 
+  /**
+   * Рекомендации по улучшению модели
+   */
+  getRecommendations() {
+    const stats = this.getStats();
+    const recs = [];
+   
+    if (stats.photosProcessed === 0) {
+      recs.push('Отправьте первое фото следа');
+    } else if (stats.photosProcessed < 3) {
+      recs.push(`Отправьте ещё ${3 - stats.photosProcessed} фото под разными углами`);
+    }
+   
+    if (stats.highConfidenceNodes < 5) {
+      recs.push('Сфокусируйтесь на деталях протектора');
+    }
+   
+    if (stats.modelConfidence < 0.6) {
+      recs.push('Снимите те же участки с более близкого расстояния');
+    }
+   
+    if (stats.totalNodes < 8 && stats.photosProcessed >= 2) {
+      recs.push('Попробуйте другое освещение для выявления деталей');
+    }
+   
+    return recs.length > 0 ? recs : ['Модель в хорошем состоянии ✓'];
+  }
+ 
+  /**
+   * Быстрая проверка фрагмента
+   */
+  quickCheck(fragmentCenters, maxDistance = 30) {
+    const matches = [];
+   
+    fragmentCenters.forEach(fragCenter => {
+      const nearestNode = this.findNearestNode(fragCenter, maxDistance);
+      if (nearestNode) {
+        matches.push({
+          node: nearestNode.getInfo(),
+          fragmentCenter,
+          distance: this.distance(fragCenter, nearestNode.position),
+          confidence: nearestNode.confidence
+        });
+      }
+    });
+   
+    return {
+      matches,
+      matchCount: matches.length,
+      matchPercentage: this.nodes.size > 0 ?
+        (matches.length / this.nodes.size * 100) : 0,
+      isMatch: matches.length >= Math.max(3, this.nodes.size * 0.3)
+    };
+  }
+ 
+  /**
+   * Вспомогательные методы
+   */
   getCenter(points) {
     const xs = points.map(p => p.x);
     const ys = points.map(p => p.y);
@@ -228,7 +404,9 @@ class FootprintModel {
     return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
   }
  
-  // Экспорт модели для сохранения
+  /**
+   * Экспорт модели
+   */
   toJSON() {
     const nodes = {};
     for (const [id, node] of this.nodes) {
@@ -238,7 +416,8 @@ class FootprintModel {
         occurrences: node.occurrences,
         class: node.class,
         firstSeen: node.firstSeen,
-        lastSeen: node.lastSeen
+        lastSeen: node.lastSeen,
+        photoIds: Array.from(node.photoIds)
       };
     }
    
@@ -247,37 +426,22 @@ class FootprintModel {
       edges[id] = edge;
     }
    
+    const photos = {};
+    for (const [id, photo] of this.photoMap) {
+      photos[id] = photo;
+    }
+   
     return {
       sessionId: this.sessionId,
       nodes,
       edges,
+      photos,
       photosProcessed: this.photosProcessed,
+      referenceScale: this.referenceScale,
+      referenceOrientation: this.referenceOrientation,
       creationTime: this.creationTime,
       lastUpdate: this.lastUpdate
     };
-  }
- 
-  // Импорт модели из JSON
-  static fromJSON(data) {
-    const model = new FootprintModel(data.sessionId);
-    model.photosProcessed = data.photosProcessed;
-    model.creationTime = new Date(data.creationTime);
-    model.lastUpdate = new Date(data.lastUpdate);
-   
-    for (const [id, nodeData] of Object.entries(data.nodes)) {
-      const node = new FootprintNode(id, nodeData.position, nodeData.confidence);
-      node.occurrences = nodeData.occurrences;
-      node.class = nodeData.class;
-      node.firstSeen = new Date(nodeData.firstSeen);
-      node.lastSeen = new Date(nodeData.lastSeen);
-      model.nodes.set(id, node);
-    }
-   
-    for (const [id, edgeData] of Object.entries(data.edges)) {
-      model.edges.set(id, edgeData);
-    }
-   
-    return model;
   }
 }
 
