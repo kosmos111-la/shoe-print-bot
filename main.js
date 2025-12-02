@@ -1180,6 +1180,287 @@ bot.onText(/\/statistics/, (msg) => {
     bot.sendMessage(msg.chat.id, stats);
 });
 
+// =============================================================================
+// 🧮 СИСТЕМА КАЛЬКУЛЯТОРОВ
+// =============================================================================
+
+// Команда /calculators
+bot.onText(/\/calculators/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    try {
+        const menu = calculators.getMenu();
+
+        let message = `🧮 ${menu.title}\n\n`;
+
+        menu.sections.forEach(section => {
+            message += `📌 ${section.name}\n`;
+            message += `└ ${section.description}\n`;
+            message += `└ Команда: ${section.command}\n\n`;
+        });
+
+        await bot.sendMessage(chatId, message);
+    } catch (error) {
+        console.log('❌ Ошибка в /calculators:', error);
+        await bot.sendMessage(chatId, '❌ Ошибка загрузки калькуляторов');
+    }
+});
+
+// Команда /calc_shoe
+bot.onText(/\/calc_shoe/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    delete userContext[userId];
+    userContext[userId] = 'calc_shoe';
+
+    await bot.sendMessage(chatId,
+        '👟 <b>КАЛЬКУЛЯТОР РАЗМЕРА ОБУВИ</b>\n\n' +
+        '💡 <b>Отправьте размер обуви:</b>\n\n' +
+        '<code>42</code>\n' +
+        '<code>42 кроссовки</code>\n\n' +
+        '📝 <i>Пример: 42 кроссовки → длина 27-28 см</i>',
+        { parse_mode: 'HTML' }
+    );
+});
+
+// Команда /calc_reverse
+bot.onText(/\/calc_reverse/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    delete userContext[userId];
+    userContext[userId] = 'calc_reverse';
+
+    await bot.sendMessage(chatId,
+        '🔄 <b>ОБРАТНЫЙ КАЛЬКУЛЯТОР</b>\n\n' +
+        'Расчет размера обуви по длине отпечатка\n\n' +
+        '💡 <b>Отправьте длину отпечатка в см:</b>\n\n' +
+        '<code>33 см</code>\n' +
+        '<code>33</code>\n\n' +
+        '📝 <i>Пример: отпечаток 33 см → размеры 41-50</i>',
+        { parse_mode: 'HTML' }
+    );
+});
+
+// Команда /calc_snow_age
+bot.onText(/\/calc_snow_age/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    delete userContext[userId];
+    userContext[userId] = 'waiting_snow_age_mode';
+
+    await bot.sendMessage(chatId,
+        '⏱️❄️ <b>КАЛЬКУЛЯТОР ДАВНОСТИ СЛЕДА НА СНЕГУ</b>\n\n' +
+        '🔮 <b>ВЕРОЯТНОСТНАЯ МОДЕЛЬ С ИСТОРИЕЙ ПОГОДЫ</b>\n\n' +
+        '🎯 <b>Выберите режим:</b>\n\n' +
+        '📅 <b>ОСНОВНОЙ РЕЖИМ</b> (поиск пропавших):\n' +
+        '• Расчет текущего снега по дате пропажи\n' +
+        '• Команда: <code>основной</code>\n\n' +
+        '🧪 <b>ТЕСТОВЫЙ РЕЖИМ</b> (проверка точности):\n' +
+        '• Расчет снега между двумя датами\n' +
+        '• Сравнение с реальными замерами\n' +
+        '• Команда: <code>тестовый</code>\n\n' +
+        '💡 <i>Отправьте "основной" или "тестовый"</i>',
+        { parse_mode: 'HTML' }
+    );
+});
+
+// Команда /calc_weather
+bot.onText(/\/calc_weather/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    delete userContext[userId];
+    userContext[userId] = 'calc_weather';
+
+    await bot.sendMessage(chatId,
+        '🌤️ <b>ПОГОДА С ИСТОРИЕЙ ЗА 7 ДНЕЙ</b>\n\n' +
+        '📍 <b>Отправьте местоположение</b> (скрепка → Местоположение)\n\n' +
+        '🏙️ <b>Или напишите город:</b>\n' +
+        '<code>Москва</code>\n' +
+        '<code>Санкт-Петербург</code>\n\n' +
+        '📌 <b>Или координаты:</b>\n' +
+        '<code>55.7558 37.6173</code>',
+        {
+            parse_mode: 'HTML',
+            reply_markup: {
+                keyboard: [
+                    [{ text: "📍 Отправить местоположение", request_location: true }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: true
+            }
+        }
+    );
+});
+
+// Обработчик геолокации
+bot.on('location', async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const context = userContext[userId];
+
+    if (!context) return;
+
+    const location = msg.location;
+
+    try {
+        // Обработка для погоды
+        if (context === 'calc_weather') {
+            await bot.sendMessage(chatId, '📍 Получаю погоду для вашего местоположения...');
+           
+            const result = await calculators.getWeatherData({
+                coordinates: {
+                    lat: location.latitude,
+                    lon: location.longitude
+                }
+            });
+
+            delete userContext[userId];
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            return;
+        }
+       
+        // Обработка для снега
+        if (context === 'waiting_snow_age_location') {
+            userContext[userId] = {
+                type: 'snow_age_calc',
+                coordinates: {
+                    lat: location.latitude,
+                    lon: location.longitude
+                }
+            };
+
+            await bot.sendMessage(chatId,
+                '📍 Местоположение получено. Укажите дату пропажи:\n\n' +
+                '<code>2024-01-15 08:00</code>\n' +
+                '<code>15.01.2024 8:00</code>',
+                { parse_mode: 'HTML' }
+            );
+            return;
+        }
+
+    } catch (error) {
+        console.log('❌ Ошибка обработки местоположения:', error);
+        await bot.sendMessage(chatId, '❌ Ошибка обработки местоположения');
+        delete userContext[userId];
+    }
+});
+
+// Обработчик текстовых сообщений для калькуляторов
+bot.on('message', async (msg) => {
+    if (msg.text && msg.text.startsWith('/')) return;
+    if (msg.location) return;
+    if (!msg.text) return;
+
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const text = msg.text.trim();
+    const context = userContext[userId];
+
+    try {
+        // Простые калькуляторы
+        if (context === 'calc_shoe') {
+            const result = calculators.calculateShoeSize(text);
+            delete userContext[userId];
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            return;
+        }
+
+        if (context === 'calc_reverse') {
+            const result = calculators.calculateReverse(text);
+            delete userContext[userId];
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            return;
+        }
+
+        if (context === 'calc_weather') {
+            const result = await calculators.getWeatherData({ location: text });
+            delete userContext[userId];
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            return;
+        }
+
+        // Сложный калькулятор снега
+        if (context === 'waiting_snow_age_mode') {
+            if (text.toLowerCase() === 'основной') {
+                userContext[userId] = 'waiting_snow_age_location';
+                await bot.sendMessage(chatId,
+                    '📅 <b>ОСНОВНОЙ РЕЖИМ</b>\n\n' +
+                    '📍 Отправьте местоположение поиска',
+                    {
+                        parse_mode: 'HTML',
+                        reply_markup: {
+                            keyboard: [
+                                [{ text: "📍 Отправить местоположение", request_location: true }]
+                            ],
+                            resize_keyboard: true,
+                            one_time_keyboard: true
+                        }
+                    }
+                );
+                return;
+            }
+        }
+
+        if (context && context.type === 'snow_age_calc') {
+            const date = parseDateTime(text);
+            if (!date) {
+                await bot.sendMessage(chatId, '❌ Неверный формат даты');
+                return;
+            }
+
+            await bot.sendMessage(chatId, '❄️🔮 Анализирую эволюцию снежного покрова...');
+            const result = await calculators.calculateSnowAge(context.coordinates, date);
+            delete userContext[userId];
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            return;
+        }
+
+    } catch (error) {
+        console.log('❌ Ошибка обработки калькулятора:', error);
+        await bot.sendMessage(chatId, '❌ Не удалось обработать запрос');
+        delete userContext[userId];
+    }
+});
+
+// Команда /apps
+bot.onText(/\/apps/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    let message = `📱 ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ\n\n`;
+
+    message += `🔍 **Честный знак**\n`;
+    message += `• Узнать дату и место продажи по QR-коду\n`;
+    message += `• Ссылка: rustore.ru/catalog/app/ru.crptech.mark\n\n`;
+
+    message += `🍷 **Антиконтрафакт алко**\n`;
+    message += `• Проверка акцизных марок алкоголя\n`;
+    message += `• Ссылка: public.fsrar.ru/checkmark\n\n`;
+
+    message += `🌤️ **Погода - архив погоды**\n`;
+    message += `• Архивные погодные данные\n`;
+    message += `• Ссылка: rustore.ru/catalog/app/com.mart.weather\n\n`;
+
+    message += `📏 **ImageMeter**\n`;
+    message += `• Измерения размеров на фото по эталону\n`;
+    message += `• Ссылка: play.google.com/store/apps/details?id=de.dirkfarin.imagemeter\n\n`;
+
+    message += `🦴 **Скелет | 3D Анатомии**\n`;
+    message += `• Анатомический справочник\n`;
+    message += `• Ссылка: play.google.com/store/apps/details?id=com.catfishanimationstudio.SkeletalSystemPreview\n\n`;
+
+    message += `📍 **Conota: GPS-камера**\n`;
+    message += `• Фото с логотипом и GPS-данными\n`;
+    message += `• Ссылка: play.google.com/store/apps/details?id=com.gps.survey.cam\n\n`;
+
+    message += `💡 Скопируйте ссылки для перехода`;
+
+    await bot.sendMessage(chatId, message);
+});
+
 // Остальные команды (style, calculators, apps, trail_start, trail_status, trail_end, trail_details, cancel, yandex)
 // остаются такими же как у вас в оригинальном коде...
 
