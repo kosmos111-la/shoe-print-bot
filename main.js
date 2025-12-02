@@ -2380,7 +2380,7 @@ bot.on('callback_query', async (callbackQuery) => {
     const data = callbackQuery.data;
 
     try {
-        // Обработка кнопок аккумулятивной модели
+        // 1. Обработка кнопок аккумулятивной модели
         if (data === 'model_first_photo') {
             await bot.answerCallbackQuery(callbackQuery.id, {
                 text: 'Отправьте первое фото следа'
@@ -2417,7 +2417,7 @@ bot.on('callback_query', async (callbackQuery) => {
             return;
         }
 
-        // Обработка основной feedback кнопки
+        // 2. Обработка основной feedback кнопки
         if (data === 'feedback_correct') {
             await bot.answerCallbackQuery(callbackQuery.id, {
                 text: 'Спасибо за подтверждение!'
@@ -2457,7 +2457,7 @@ bot.on('callback_query', async (callbackQuery) => {
             );
 
         }
-        // Обработка конкретных исправлений
+        // 3. Обработка конкретных исправлений
         else if (data.startsWith('correction_')) {
             const correctionType = data.replace('correction_', '');
 
@@ -2488,6 +2488,9 @@ bot.on('callback_query', async (callbackQuery) => {
                 }
             );
         }
+
+        // 4. Если callback не обработан - игнорируем
+        console.log(`⚠️ Необработанный callback: ${data}`);
 
     } catch (error) {
         console.log('❌ Ошибка обработки callback:', error);
