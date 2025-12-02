@@ -51,6 +51,8 @@ const { SessionManager } = require('./modules/session/session-manager');
 const { SessionAnalyzer } = require('./modules/session/session-analyzer');
 const { FeedbackDatabase } = require('./modules/feedback/feedback-db');
 const { FeedbackManager } = require('./modules/feedback/feedback-manager');
+const { EnhancedSessionManager } = require('./modules/session/enhanced-manager.js');
+const { ModelVisualizer } = require('./modules/visualization/model-visualizer.js');
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
@@ -143,6 +145,9 @@ let animalFilter;
 // 🆕 ДОБАВЛЯЕМ СЕССИОННЫЕ МОДУЛИ
 let sessionManager;
 let sessionAnalyzer;
+
+let enhancedSessionManager;
+let modelVisualizer;
 
 // 🆕 ИНИЦИАЛИЗИРУЕМ ОБРАТНУЮ СВЯЗЬ
 let feedbackDB;
@@ -1205,6 +1210,124 @@ bot.onText(/\/apps/, async (msg) => {
     await bot.sendMessage(chatId, message);
 });
 
+// Команда /model_start - начать сбор модели
+bot.onText(/\/model_start/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+ 
+  if (!enhancedSessionManager) {
+    await bot.sendMessage(chatId, '❌ Модуль аккумулятивной модели недоступен');
+    return;
+  }
+ 
+  const session = enhancedSessionManager.createEnhancedSession(userId);
+ 
+  await bot.sendMessage(chatId, session.message, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📸 Отправить первое фото", callback_data: "send_first_photo" }],
+        [{ text: "❌ Отменить", callback_data: "cancel_model" }]
+      ]
+    }
+  });
+});
+
+// Команда /model_status - статус модели
+bot.onText(/\/model_status/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+ 
+  // Находим последнюю сессию пользователя
+  // (здесь нужна логика поиска активной сессии)
+ 
+  const status = enhancedSessionManager.getModelStatus(sessionId);
+ 
+  let message = `🕸️ **СТАТУС АККУМУЛЯТИВНОЙ МОДЕЛИ**\n\n`;
+  message += `📊 Узлов: ${status.totalNodes}\n`;
+  message += `✅ Высокоуверенных: ${status.highConfidenceNodes}\n`;
+  message += `🎯 Общая уверенность: ${(status.modelConfidence * 100).toFixed(1)}%\n`;
+  message += `📸 Фото в модели: ${status.photosProcessed}\n`;
+  message += `⏱️ Возраст: ${status.modelAge}\n`;
+  message += `📈 Уровень: ${status.confidenceLevel}\n\n`;
+ 
+  if (status.recommendations) {
+    message += `💡 **Рекомендации:**\n`;
+    status.recommendations.forEach(rec => {
+      message += `• ${rec}\n`;
+    });
+  }
+ 
+  await bot.sendMessage(chatId, message);
+ 
+  // Визуализация если есть узлы
+  if (status.totalNodes > 0) {
+    const model = enhancedSessionManager.exportModel(sessionId, 'simple');
+    const vizPath = tempFileManager.createTempFile('model_viz', 'png');
+   
+    await modelVisualizer.visualizeModel(model, null, vizPath);
+   
+    await bot.sendPhoto(chatId, vizPath, {
+      caption: '📊 Визуализация аккумулятивной модели'
+    });
+   
+    tempFileManager.removeFile(vizPath);
+  }
+});
+
+// Команда /check_fragment - быстрая проверка фрагмента
+bot.onText(/\/check_fragment/, async (msg) => {
+  const chatId = msg.chat.id;
+ 
+  await bot.sendMessage(chatId,
+    `🔍 **БЫСТРАЯ ПРОВЕРКА ФРАГМЕНТА**\n\n` +
+    `Отправьте фото фрагмента следа.\n` +
+    `Бот сравнит его с вашей аккумулятивной моделью.\n\n` +
+    `⚠️  Сначала должна быть активная модель: /model_start`
+  );
+});
+
+// Обработка фото в режиме модели
+// (дополняем существующий обработчик фото)
+async function processPhotoForModel(chatId, userId, msg, sessionId) {
+  if (!enhancedSessionManager) return;
+ 
+  try {
+    // Получаем predictions как обычно...
+    // ...
+   
+    // Добавляем в аккумулятивную модель
+    const result = await enhancedSessionManager.addPhotoToModel(
+      sessionId,
+      {
+        fileId: photo.file_id,
+        chatId: chatId,
+        fileUrl: fileUrl
+      },
+      processedPredictions
+    );
+   
+    // Отправляем результат
+    await bot.sendMessage(chatId, result.message);
+   
+    // Периодически показываем визуализацию
+    if (result.stats.photosProcessed % 3 === 0) {
+      const model = enhancedSessionManager.exportModel(sessionId, 'simple');
+      const vizPath = tempFileManager.createTempFile('model_update', 'png');
+     
+      await modelVisualizer.visualizeModel(model, null, vizPath);
+     
+      await bot.sendPhoto(chatId, vizPath, {
+        caption: `📈 Модель после ${result.stats.photosProcessed} фото`
+      });
+     
+      tempFileManager.removeFile(vizPath);
+    }
+   
+  } catch (error) {
+    console.log('❌ Ошибка обработки для модели:', error);
+  }
+}
+
 // Команда /help
 bot.onText(/\/help/, (msg) => {
     bot.sendMessage(msg.chat.id,
@@ -2253,6 +2376,15 @@ console.log('🛡️ Глобальные обработчики ошибок а
         animalFilter = createAnimalFilterStub();
     }
 
+  try {
+  enhancedSessionManager = new EnhancedSessionManager();
+  modelVisualizer = new ModelVisualizer();
+  console.log('✅ Enhanced session manager загружен');
+} catch (error) {
+  console.log('❌ Ошибка enhanced manager:', error.message);
+  enhancedSessionManager = null;
+}
+  
 // 🆕 ИНИЦИАЛИЗИРУЕМ СЕССИОННЫЕ МОДУЛИ
     try {
         sessionManager = new SessionManager();
