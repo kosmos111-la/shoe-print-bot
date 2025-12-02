@@ -263,7 +263,7 @@ practicalAnalyzer = createPracticalAnalyzerStub();
 animalFilter = createAnimalFilterStub();
 
 const app = express();
-const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true });
+const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: false });
 
 // 🔧 НАСТРОЙКА EXPRESS
 app.use(express.json({
@@ -2411,6 +2411,25 @@ console.log('🛡️ Глобальные обработчики ошибок а
     }
 
     console.log('🚀 Все модули инициализированы, бот готов к работе!');
+
+    // 🆕 Установка Webhook
+    try {
+        const webhookUrl = `https://shoe-print-bot.onrender.com/bot${config.TELEGRAM_TOKEN}`;
+        await bot.setWebHook(webhookUrl);
+        console.log(`✅ Webhook установлен: ${webhookUrl}`);
+       
+        const webhookInfo = await bot.getWebHookInfo();
+        console.log('📊 Информация о Webhook:', {
+            url: webhookInfo.url,
+            has_custom_certificate: webhookInfo.has_custom_certificate,
+            pending_update_count: webhookInfo.pending_update_count,
+            max_connections: webhookInfo.max_connections,
+            allowed_updates: webhookInfo.allowed_updates
+        });
+    } catch (webhookError) {
+        console.log('❌ Ошибка установки Webhook:', webhookError.message);
+    }
+   
     console.log('🎯 Практический анализ для ПСО активирован');
     console.log('🐕 Фильтрация следов животных активирована');
 })();
