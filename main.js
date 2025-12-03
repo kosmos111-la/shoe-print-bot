@@ -12,6 +12,7 @@
 //   • Топологическая карта протектора
 //   • 🆕 Практический анализ для ПСО
 //   • 🆕 Фильтрация следов животных
+//   • 🆕 Аккумулятивная модель следов
 //
 // 🏗️ АРХИТЕКТУРА:
 //   • Express.js сервер + Telegram Bot API
@@ -23,6 +24,7 @@
 // 🔄 ПОСЛЕДНИЕ ИЗМЕНЕНИЯ:
 //   • Добавлен практический анализ для ПСО
 //   • Добавлен фильтр следов животных
+//   • Добавлена аккумулятивная модель следов
 //   • Улучшена логика обработки предсказаний
 //
 // =============================================================================
@@ -31,51 +33,7 @@ const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const fs = require('fs');
-const pidFile = './bot.pid';
-
-// Записываем текущий PID
-fs.writeFileSync(pidFile, process.pid.toString());
-console.log(`🚀 Бот запущен с PID: ${process.pid}`);
 const path = require('path');
-
-const enhancedManagerPath = path.join(__dirname, 'modules', 'session', 'enhanced-manager.js');
-console.log('🔍 Проверка файла enhanced-manager.js:');
-console.log('- Путь:', enhancedManagerPath);
-console.log('- Существует?', fs.existsSync(enhancedManagerPath));
-
-if (!fs.existsSync(enhancedManagerPath)) {
-  console.log('❌ ФАЙЛ НЕ НАЙДЕН! Создаю минимальную версию...');
- 
-  // Создаём минимальную рабочую версию
-  const minimalCode = `
-class EnhancedSessionManager {
-  constructor() {
-    console.log('🆘 МИНИМАЛЬНАЯ ВЕРСИЯ EnhancedSessionManager');
-    this.models = new Map();
-    this.userSessions = new Map();
-  }
- 
-  createModelSession(userId) {
-    const sessionId = 'minimal_' + Date.now();
-    return {
-      sessionId,
-      model: { photosProcessed: 0 },
-      isExisting: false,
-      message: '✅ Минимальная модель создана'
-    };
-  }
- 
-  getUserModel() { return null; }
-  getModelStatus() { return { error: 'Минимальная версия' }; }
-  exportModel() { return null; }
-}
-
-module.exports = { EnhancedSessionManager };
-`;
- 
-  fs.writeFileSync(enhancedManagerPath, minimalCode);
-  console.log('✅ Минимальный файл создан');
-}
 
 // ИМПОРТ МОДУЛЕЙ (дополняем существующие)
 const visualizationModule = require('./modules/visualization');
@@ -95,6 +53,8 @@ const { SessionManager } = require('./modules/session/session-manager');
 const { SessionAnalyzer } = require('./modules/session/session-analyzer');
 const { FeedbackDatabase } = require('./modules/feedback/feedback-db');
 const { FeedbackManager } = require('./modules/feedback/feedback-manager');
+
+// 🆕 ДОБАВЛЯЕМ МОДУЛИ АККУМУЛЯТИВНОЙ МОДЕЛИ
 const { EnhancedSessionManager } = require('./modules/session/enhanced-manager.js');
 const { ModelVisualizer } = require('./modules/visualization/model-visualizer.js');
 
@@ -167,11 +127,11 @@ function validateConfig(config) {
 try {
     validateConfig(config);
 } catch (error) {
-    console.log('💥 Невозможно запустить систему с некорректной конфигурации');
+    console.log('💥 Невозможно запустить систему с некорректной конфигурацией');
     process.exit(1);
 }
 
-console.log('🚀 Запуск системы с практическим анализом для ПСО...');
+console.log('🚀 Запуск системы с практическим анализом для ПСО и аккумулятивной моделью...');
 
 // 🔒 ЗАЩИЩЕННАЯ ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
 let visualization;
@@ -189,61 +149,14 @@ let animalFilter;
 // 🆕 ДОБАВЛЯЕМ СЕССИОННЫЕ МОДУЛИ
 let sessionManager;
 let sessionAnalyzer;
-// 🔥🔥🔥 ВСТАВЬТЕ ЗДЕСЬ ЗАЩИТУ ОТ ПЕРЕЗАПИСИ
-let _enhancedSessionManager = null;
-Object.defineProperty(global, 'enhancedSessionManager', {
-  get: function() {
-    // Можно раскомментировать для отладки:
-    // console.log('🔍 Чтение enhancedSessionManager');
-    return _enhancedSessionManager;
-  },
-  set: function(value) {
-    console.log('⚠️ ПЕРЕЗАПИСЬ enhancedSessionManager!');
-    console.log('Старое значение тип:', typeof _enhancedSessionManager);
-    console.log('Новое значение тип:', typeof value);
-    if (value && typeof value === 'object') {
-      console.log('Конструктор:', value.constructor?.name);
-    }
-    _enhancedSessionManager = value;
-  },
-  configurable: false // Запретить удаление свойства
-});
-let enhancedSessionManager;
-// 🔥 НЕМЕДЛЕННО ДОБАВЬТЕ ЭТОТ КОД:
-Object.defineProperty(global, 'enhancedSessionManager_access', {
-  get: () => enhancedSessionManager,
-  set: (value) => {
-    console.log('🚨 ВНИМАНИЕ: enhancedSessionManager перезаписывается!');
-    console.log('📌 Стек вызова:', new Error().stack);
-    enhancedSessionManager = value;
-  }
-});
 
-// 🔥 ТАКЖЕ ИЗМЕНИТЕ ВСЕ ОБРАЩЕНИЯ К enhancedSessionManager на enhancedSessionManager_access
-// (но это необязательно, если используете геттер/сеттер)
-let modelVisualizer;
+// 🆕 МОДУЛИ АККУМУЛЯТИВНОЙ МОДЕЛИ
+let enhancedSessionManager = null;
+let modelVisualizer = null;
 
 // 🆕 ИНИЦИАЛИЗИРУЕМ ОБРАТНУЮ СВЯЗЬ
 let feedbackDB;
 let feedbackManager;
-
-try {
-    feedbackDB = new FeedbackDatabase();
-    feedbackManager = new FeedbackManager();
-    console.log('✅ Система обратной связи загружена');
-} catch (error) {
-    console.log('❌ Ошибка системы обратной связи:', error);
-    feedbackDB = {
-        addFeedback: () => ({ id: 'stub' }),
-        getStatistics: () => ({ total: 0, correct: 0 }),
-        exportForRoboflow: () => ({})
-    };
-    feedbackManager = {
-        requestFeedback: () => null,
-        createFeedbackKeyboard: () => ({ inline_keyboard: [] }),
-        processFeedback: () => null
-    };
-}
 
 // Функция-заглушка для Яндекс.Диска
 function createYandexDiskStub() {
@@ -337,17 +250,7 @@ practicalAnalyzer = createPracticalAnalyzerStub();
 animalFilter = createAnimalFilterStub();
 
 const app = express();
-const bot = new TelegramBot(config.TELEGRAM_TOKEN, {
-    polling: true,
-    pollingOptions: {
-        interval: 300,      // Интервал опроса в мс
-        timeout: 10,        // Таймаут
-        autoStart: true,    // Автозапуск
-        params: {
-            allowed_updates: ["message", "callback_query", "location", "photo"]
-        }
-    }
-});
+const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true });
 
 // 🔧 НАСТРОЙКА EXPRESS
 app.use(express.json({
@@ -361,39 +264,6 @@ app.use(express.urlencoded({
     extended: true,
     limit: '10mb'
 }));
-
-// После создания бота добавь:
-bot.on('polling_error', (error) => {
-    console.log('⚠️ Ошибка polling:', error.code, error.message);
-   
-    // Если ошибка 409 (конфликт) - ждем и перезапускаем
-    if (error.code === 'ETELEGRAM' && error.message.includes('409')) {
-        console.log('🔄 Обнаружен конфликт polling. Ожидаю 10 секунд...');
-        setTimeout(() => {
-            console.log('🔄 Перезапускаю polling...');
-            bot.stopPolling();
-            setTimeout(() => bot.startPolling(), 2000);
-        }, 10000);
-    }
-});
-
-// Клавиатура постоянного меню
-const mainMenuKeyboard = {
-    reply_markup: {
-        keyboard: [
-            ['📸 Анализ фото', '🧮 Калькуляторы'],
-            ['🔄 Сессия следов', '🎯 Аккумулятивная модель'],
-            ['❓ Помощь', '📊 Статистика']
-        ],
-        resize_keyboard: true,
-        one_time_keyboard: false,
-        selective: true
-    }
-};
-
-bot.on('webhook_error', (error) => {
-    console.log('⚠️ Ошибка webhook:', error);
-});
 
 // =============================================================================
 // 📊 СИСТЕМА СТАТИСТИКИ
@@ -506,132 +376,46 @@ function generateTopologyText(predictions) {
 // =============================================================================
 
 // Webhook для Telegram
-// app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
-//    bot.processUpdate(req.body);
-//    res.sendStatus(200);
-// });
+app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+});
 
 // Команда /start
 bot.onText(/\/start/, (msg) => {
     updateUserStats(msg.from.id, msg.from.username || msg.from.first_name);
- 
+
     const currentStyle = visualization.getUserStyle(msg.from.id);
     const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
- 
-    const messageText =
+
+    bot.sendMessage(msg.chat.id,
         `👟 **СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ** 🚀\n\n` +
         `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} отпечатков\n\n` +
-        `🎨 **Текущий стиль визуализации:** ${styleInfo?.name || 'Стиль маски'}\n\n` +
+        `🎨 **Текущий стиль:** ${styleInfo?.name || 'Стиль маски'}\n\n` +
+        `🔄 **СЕССИОННЫЙ РЕЖИМ:**\n` +
+        `• Отправьте 2+ фото пачкой - автоматический запуск\n` +
+        `• Или вручную: /trail_start\n` +
+        `• Анализ цепочки следов с отчетом\n\n` +
+        `🕸️ **АККУМУЛЯТИВНАЯ МОДЕЛЬ:**\n` +
+        `• /model_start - начать сбор модели\n` +
+        `• /model_status - статус модели\n` +
+        `• /check_fragment - проверить фрагмент\n\n` +
         `🔍 **ФУНКЦИОНАЛ:**\n` +
         `• Анализ через Roboflow API\n` +
         `• Визуализация контуров\n` +
         `• Топология протектора\n` +
-        `• Выбор стиля визуализации\n` +
-        `• 🆕 Практический анализ для ПСО\n` +
-        `• 🆕 Фильтрация следов животных\n\n` +
-        `📸 **Просто отправьте фото следа обуви**\n\n` +
-        `👇 **Используйте меню ниже:**`;
- 
-    // Отправляем сообщение с клавиатурой
-    bot.sendMessage(msg.chat.id, messageText, {
-        parse_mode: 'Markdown',
-        reply_markup: mainMenuKeyboard.reply_markup
-    });
-});
-// Обработчики кнопок постоянного меню
-bot.onText(/📸 Анализ фото/, (msg) => {
-    bot.sendMessage(msg.chat.id,
-        '📸 **ОТПРАВЬТЕ ФОТО СЛЕДА ОБУВИ**\n\n' +
-        '📋 **Требования к фото:**\n' +
-        '• Четкий фокус на след\n' +
-        '• Хорошее освещение\n' +
-        '• Прямой угол съемки\n\n' +
-        '🤖 Бот проведет:\n' +
-        '• Анализ через Roboflow API\n' +
-        '• Практический анализ для ПСО\n' +
-        '• Визуализацию результатов',
-        { parse_mode: 'Markdown' }
-    );
-});
-
-bot.onText(/🧮 Калькуляторы/, (msg) => {
-    // Вызываем существующую команду /calculators
-    require('./modules/calculators').getMenu ?
-        bot.sendMessage(msg.chat.id, 'Загружаю калькуляторы...') :
-        bot.sendMessage(msg.chat.id, 'Калькуляторы временно недоступны');
-});
-
-bot.onText(/🔄 Сессия следов/, (msg) => {
-    bot.sendMessage(msg.chat.id,
-        '🔄 **РЕЖИМ СЕССИИ СЛЕДОВ**\n\n' +
-        '📋 **Функционал в разработке:**\n' +
-        '• /trail_start - начать сессию\n' +
-        '• /trail_add - добавить след\n' +
-        '• /trail_end - завершить сессию\n\n' +
-        '🎯 **Будет доступно:**\n' +
-        '• Анализ нескольких следов\n' +
-        '• Группировка по людям\n' +
-        '• Карта перемещений',
-        { parse_mode: 'Markdown' }
-    );
-});
-
-bot.onText(/🎯 Аккумулятивная модель/, (msg) => {
-    bot.sendMessage(msg.chat.id,
-        '🎯 **АККУМУЛЯТИВНАЯ МОДЕЛЬ**\n\n' +
-        '📋 **Функционал в разработке:**\n' +
-        '• Сохранение эталонных следов\n' +
-        '• Сравнение с базой данных\n' +
-        '• Статистика встречаемости\n\n' +
-        '🔍 **Для ПСО:**\n' +
-        '• Поиск совпадений\n' +
-        '• Исключение "чужих" следов\n' +
-        '• Профилирование обуви',
-        { parse_mode: 'Markdown' }
-    );
-});
-
-bot.onText(/❓ Помощь/, (msg) => {
-    // Вызываем существующую команду /help
-    const helpText =
-        `🆘 **ПОМОЩЬ**\n\n` +
-        `📸 **Как использовать:**\n` +
-        `Просто отправьте фото следа обуви\n\n` +
-        `🔍 **Что анализируется:**\n` +
-        `• Контуры подошвы\n` +
-        `• Детали протектора\n` +
-        `• Топология узора\n` +
-        `• 🆕 Практический анализ для ПСО\n` +
-        `• 🆕 Фильтрация следов животных\n\n` +
+        `• Практический анализ для ПСО\n` +
+        `• Фильтрация следов животных\n\n` +
         `🧮 **ИНСТРУМЕНТЫ:**\n` +
         `/calculators - Калькуляторы и расчеты\n\n` +
-        `🎨 **Стили визуализации:**\n` +
-        `/style - Выбрать стиль отображения\n` +
-        `/currentstyle - Текущий стиль\n\n` +
-        `💾 **Сохранение результатов:**\n` +
-        `/yandex - Статус Яндекс.Диска\n\n` +
-        `📊 **Другие команды:**\n` +
-        `/start - Главное меню\n` +
-        `/statistics - Статистика системы`;
-   
-    bot.sendMessage(msg.chat.id, helpText, { parse_mode: 'Markdown' });
+        `🎯 **Команды:**\n` +
+        `/style - Выбор стиля визуализации\n` +
+        `/help - Помощь\n` +
+        `/statistics - Статистика\n\n` +
+        `📸 **Просто отправьте фото следа обуви**`
+    );
 });
 
-bot.onText(/📊 Статистика/, (msg) => {
-    // Вызываем существующую команду /statistics
-    const activeUsers = Array.from(userStats.values()).filter(user =>
-        (new Date() - user.lastSeen) < 7 * 24 * 60 * 60 * 1000
-    ).length;
-
-    const stats = `📊 **СТАТИСТИКА СИСТЕМЫ:**\n\n` +
-                 `👥 Пользователи: ${globalStats.totalUsers} (${activeUsers} активных)\n` +
-                 `📸 Фото обработано: ${globalStats.totalPhotos}\n` +
-                 `🔍 Анализов проведено: ${globalStats.totalAnalyses}\n` +
-                 `📅 Последний анализ: ${globalStats.lastAnalysis ?
-                     globalStats.lastAnalysis.toLocaleString('ru-RU') : 'еще нет'}`;
-
-    bot.sendMessage(msg.chat.id, stats, { parse_mode: 'Markdown' });
-});
 // Команда /statistics
 bot.onText(/\/statistics/, (msg) => {
     const activeUsers = Array.from(userStats.values()).filter(user =>
@@ -644,16 +428,10 @@ bot.onText(/\/statistics/, (msg) => {
                  `🔍 Анализов проведено: ${globalStats.totalAnalyses}\n` +
                  `📅 Последний анализ: ${globalStats.lastAnalysis ?
                      globalStats.lastAnalysis.toLocaleString('ru-RU') : 'еще нет'}\n\n` +
-                 `🔄 Активных сессий: ${sessionManager ? Array.from(sessionManager.activeSessions.keys()).length : 0}`;
+                 `🔄 Активных сессий: ${sessionManager ? Array.from(sessionManager.activeSessions.keys()).length : 0}\n` +
+                 `🕸️ Активных моделей: ${enhancedSessionManager ? enhancedSessionManager.getActiveModelCount() : 0}`;
 
     bot.sendMessage(msg.chat.id, stats);
-   // 🆕 ПОКАЗЫВАЕМ МЕНЮ ПОСЛЕ СТАТИСТИКИ
-    setTimeout(() => {
-        bot.sendMessage(chatId, '👇 **Выберите следующее действие:**', {
-            parse_mode: 'Markdown',
-            reply_markup: mainMenuKeyboard.reply_markup
-        });
-    }, 500);
 });
 
 // Команда /feedback_stats - статистика обратной связи
@@ -777,13 +555,6 @@ bot.onText(/\/style/, async (msg) => {
     message += `\n\n📸 Отправьте фото для анализа в выбранном стиле!`;
 
     await bot.sendMessage(chatId, message);
-    // 🆕 ПОКАЗЫВАЕМ МЕНЮ ПОСЛЕ КАЛЬКУЛЯТОРОВ
-        setTimeout(() => {
-            bot.sendMessage(chatId, '👇 **Вернуться в главное меню:**', {
-                parse_mode: 'Markdown',
-                reply_markup: mainMenuKeyboard.reply_markup
-            });
-        }, 1000);
 });
 
 // Обработка выбора стиля
@@ -799,13 +570,6 @@ bot.onText(/\/setstyle_(.+)/, async (msg, match) => {
             `Теперь все новые анализы будут использовать выбранный стиль.\n\n` +
             `Проверить текущий стиль: /currentstyle`
         );
-        // 🆕 ПОКАЗЫВАЕМ МЕНЮ ПОСЛЕ КАЛЬКУЛЯТОРОВ
-        setTimeout(() => {
-            bot.sendMessage(chatId, '👇 **Вернуться в главное меню:**', {
-                parse_mode: 'Markdown',
-                reply_markup: mainMenuKeyboard.reply_markup
-            });
-        }, 1000);
     } else {
         await bot.sendMessage(chatId, '❌ Неизвестный стиль визуализации. Посмотрите доступные: /style');
     }
@@ -850,13 +614,6 @@ bot.onText(/\/calculators/, async (msg) => {
         });
 
         await bot.sendMessage(chatId, message);
-        // 🆕 ПОКАЗЫВАЕМ МЕНЮ ПОСЛЕ КАЛЬКУЛЯТОРОВ
-        setTimeout(() => {
-            bot.sendMessage(chatId, '👇 **Вернуться в главное меню:**', {
-                parse_mode: 'Markdown',
-                reply_markup: mainMenuKeyboard.reply_markup
-            });
-        }, 1000);
     } catch (error) {
         console.log('❌ Ошибка в /calculators:', error);
         await bot.sendMessage(chatId, '❌ Ошибка загрузки калькуляторов');
@@ -1449,334 +1206,280 @@ bot.onText(/\/apps/, async (msg) => {
 // 🆕 КОМАНДЫ АККУМУЛЯТИВНОЙ МОДЕЛИ
 // =============================================================================
 
-// Добавьте ЭТОТ КОД перед командой /model_start
-console.log('🔍 ДИАГНОСТИКА enhancedSessionManager:');
-console.log('1. enhancedSessionManager существует?', !!enhancedSessionManager);
-console.log('2. Тип:', typeof enhancedSessionManager);
-console.log('3. Конструктор:', enhancedSessionManager?.constructor?.name);
-console.log('4. Метод createModelSession?', typeof enhancedSessionManager?.createModelSession);
-
-// Если нужно, добавьте временную заглушку прямо здесь
-if (!enhancedSessionManager || typeof enhancedSessionManager.createModelSession !== 'function') {
-  console.log('⚠️ Создаю экстренную заглушку...');
-  enhancedSessionManager = {
-    createModelSession: (userId) => {
-      console.log('🆘 ЭКСТРЕННАЯ ЗАГЛУШКА для createModelSession');
-      return {
-        sessionId: 'emergency_' + Date.now(),
-        model: null,
-        isExisting: false,
-        message: '⚠️ Модуль в режиме заглушки. Функционал ограничен.'
-      };
-    },
-    getUserModel: () => null,
-    getModelStatus: () => ({ error: 'Модуль недоступен' }),
-    exportModel: () => null
-  };
-}
-
 // Команда /model_start - начать сбор модели
 bot.onText(/\/model_start/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
- 
-  if (!enhancedSessionManager) {
-    await bot.sendMessage(chatId, '❌ Модуль недоступен');
-    return;
-  }
- 
-  try {
-  console.log('🔍 Перед вызовом createModelSession:');
-  console.log('- userId:', userId);
-  console.log('- enhancedSessionManager тип:', typeof enhancedSessionManager);
-  console.log('- createModelSession тип:', typeof enhancedSessionManager?.createModelSession);
- 
-  if (!enhancedSessionManager || typeof enhancedSessionManager.createModelSession !== 'function') {
-    throw new Error('enhancedSessionManager не инициализирован правильно');
-  }
- 
-  const session = enhancedSessionManager.createModelSession(userId);
-   
-    if (session.isExisting) {
-      await bot.sendMessage(chatId, session.message);
-    } else {
-      // 🔥 ЗАМЕНИ ЭТОТ ВЫЗОВ sendMessage НА ЭТОТ:
-      // ============================
-      await bot.sendMessage(chatId, session.message, {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: "📸 Сделать первое фото",
-                callback_data: "model_first_photo"
-              }
-            ],
-            [
-              {
-                text: "🎥 Видеоинструкция",
-                callback_data: "model_video_guide"
-              },
-              {
-                text: "📋 Руководство",
-                callback_data: "model_guide"
-              }
-            ],
-            [
-              {
-                text: "❌ Отменить",
-                callback_data: "model_cancel"
-              }
-            ]
-          ]
-        }
-      });
-      // ============================
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!enhancedSessionManager) {
+        await bot.sendMessage(chatId, '❌ Модуль аккумулятивной модели недоступен');
+        return;
     }
-   
-  } catch (error) {
-    console.log('❌ Ошибка:', error);
-    await bot.sendMessage(chatId, '❌ Не удалось создать модель');
-  }
+
+    try {
+        const session = enhancedSessionManager.createModelSession(userId);
+
+        if (session.isExisting) {
+            await bot.sendMessage(chatId, session.message);
+        } else {
+            await bot.sendMessage(chatId, session.message, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "📸 Отправить первое фото", callback_data: "model_first_photo" }],
+                        [{ text: "❌ Отменить", callback_data: "model_cancel" }]
+                    ]
+                }
+            });
+        }
+
+    } catch (error) {
+        console.log('❌ Ошибка создания модели:', error);
+        await bot.sendMessage(chatId, '❌ Не удалось создать модель');
+    }
 });
 
 // Команда /model_status - статус модели
 bot.onText(/\/model_status/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
 
-  // 🔥 ПРОСТОЙ ФИКС
-  if (!enhancedSessionManager) {
-    await bot.sendMessage(chatId, '❌ Модуль аккумулятивной модели временно недоступен');
-    return;
-  }
-
-  try {
-    const model = enhancedSessionManager.getUserModel ? enhancedSessionManager.getUserModel(userId) : null;
-   
-    if (!model) {
-      await bot.sendMessage(chatId, '❌ У вас нет активной модели\n\nНачните сбор модели: /model_start');
-      return;
+    if (!enhancedSessionManager) {
+        await bot.sendMessage(chatId, '❌ Модуль аккумулятивной модели недоступен');
+        return;
     }
 
-    const status = enhancedSessionManager.getModelStatus ? enhancedSessionManager.getModelStatus(model.sessionId) : null;
-   
-    if (!status) {
-      await bot.sendMessage(chatId, '❌ Не удалось получить статус модели');
-      return;
+    try {
+        const model = enhancedSessionManager.getUserModel(userId);
+        if (!model) {
+            await bot.sendMessage(chatId,
+                `❌ У вас нет активной модели\n\n` +
+                `Начните сбор модели: /model_start`
+            );
+            return;
+        }
+
+        const status = enhancedSessionManager.getModelStatus(model.sessionId);
+
+        if (status.error) {
+            await bot.sendMessage(chatId, `❌ ${status.error}`);
+            return;
+        }
+
+        let message = `🕸️ *СТАТУС АККУМУЛЯТИВНОЙ МОДЕЛИ*\n\n`;
+        message += `🆔 ${status.sessionId.slice(0, 12)}...\n`;
+        message += `📊 Узлов: ${status.totalNodes} (${status.highConfidenceNodes} высокоуверенных)\n`;
+        message += `🔗 Связей: ${status.totalEdges}\n`;
+        message += `🎯 Уверенность: ${(status.modelConfidence * 100).toFixed(1)}%\n`;
+        message += `📸 Фото обработано: ${status.photosProcessed}\n`;
+        message += `⏱️ Возраст: ${status.modelAge}\n`;
+        message += `📈 Уровень: ${status.confidenceLevel}\n`;
+        message += `🔄 Статус: ${status.status}\n\n`;
+
+        if (status.recommendations && status.recommendations.length > 0) {
+            message += `💡 *Рекомендации:*\n`;
+            status.recommendations.forEach(rec => {
+                message += `• ${rec}\n`;
+            });
+            message += `\n`;
+        }
+
+        if (status.canCompare) {
+            message += `✅ Модель готова для сравнения\n`;
+            message += `Проверить фрагмент: /check_fragment`;
+        } else {
+            message += `⚠️  Нужно больше фото для точного сравнения\n`;
+            message += `Добавить фото: отправьте фото с подписью "модель"`;
+        }
+
+        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+        // Визуализация если есть узлы
+        if (status.totalNodes > 0) {
+            try {
+                const modelData = enhancedSessionManager.exportModel(model.sessionId, 'simple');
+
+                // Текстовая визуализация для быстрого просмотра
+                const textViz = modelVisualizer.generateTextVisualization(modelData);
+                await bot.sendMessage(chatId, textViz, { parse_mode: 'Markdown' });
+
+                // Графическая визуализация (только если больше 3 узлов)
+                if (status.totalNodes > 3) {
+                    const vizPath = tempFileManager.createTempFile('model_viz', 'png');
+                    await modelVisualizer.visualizeModel(modelData, { outputPath: vizPath });
+
+                    await bot.sendPhoto(chatId, vizPath, {
+                        caption: '📊 Визуализация аккумулятивной модели'
+                    });
+
+                    tempFileManager.removeFile(vizPath);
+                }
+
+            } catch (vizError) {
+                console.log('⚠️ Ошибка визуализации:', vizError.message);
+            }
+        }
+
+    } catch (error) {
+        console.log('❌ Ошибка получения статуса модели:', error);
+        await bot.sendMessage(chatId, '❌ Не удалось получить статус модели');
     }
-
-    // ПРОСТОЙ ТЕКСТ БЕЗ MARKDOWN
-    let message = 'СТАТУС МОДЕЛИ\n\n';
-    message += `ID: ${status.sessionId?.substring(0, 12) || 'unknown'}...\n`;
-    message += `Узлов: ${status.totalNodes || 0}\n`;
-    message += `Связей: ${status.totalEdges || 0}\n`;
-    message += `Уверенность: ${((status.modelConfidence || 0) * 100).toFixed(1)}%\n`;
-    message += `Фото: ${status.photosProcessed || 0}\n`;
-    message += `Статус: ${status.status || 'неизвестно'}\n`;
-   
-    if (status.recommendations && status.recommendations.length > 0) {
-      message += '\nРекомендации:\n';
-      status.recommendations.forEach(rec => {
-        message += `• ${rec}\n`;
-      });
-    }
-
-    // ОТПРАВЛЯЕМ БЕЗ parse_mode
-    await bot.sendMessage(chatId, message);
-
-  } catch (error) {
-    console.log('❌ Ошибка в /model_status:', error.message);
-    await bot.sendMessage(chatId, '❌ Ошибка при получении статуса модели');
-  }
 });
 
 // Команда /check_fragment - быстрая проверка фрагмента
 bot.onText(/\/check_fragment/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
 
-  if (!enhancedSessionManager) {
-    await bot.sendMessage(chatId, '❌ Модуль аккумулятивной модели недоступен');
-    return;
-  }
+    if (!enhancedSessionManager) {
+        await bot.sendMessage(chatId, '❌ Модуль аккумулятивной модели недоступен');
+        return;
+    }
 
-  const model = enhancedSessionManager.getUserModel(userId);
-  if (!model) {
+    const model = enhancedSessionManager.getUserModel(userId);
+    if (!model) {
+        await bot.sendMessage(chatId,
+            `❌ У вас нет активной модели для сравнения\n\n` +
+            `Сначала создайте модель: /model_start`
+        );
+        return;
+    }
+
+    const modelStats = model.getStats();
+    if (modelStats.highConfidenceNodes < 3) {
+        await bot.sendMessage(chatId,
+            `⚠️  Мало данных в модели (${modelStats.highConfidenceNodes} узлов)\n\n` +
+            `Нужно минимум 3 высокоуверенных узла для сравнения.\n` +
+            `Добавьте ещё фото в модель.`
+        );
+        return;
+    }
+
     await bot.sendMessage(chatId,
-      `❌ У вас нет активной модели для сравнения\n\n` +
-      `Сначала создайте модель: /model_start`
+        `🔍 *БЫСТРАЯ ПРОВЕРКА ФРАГМЕНТА*\n\n` +
+        `Отправьте фото фрагмента следа.\n` +
+        `Бот сравнит его с вашей моделью:\n\n` +
+        `📊 *Ваша модель:*\n` +
+        `• Узлов: ${modelStats.totalNodes}\n` +
+        `• Уверенность: ${(modelStats.modelConfidence * 100).toFixed(1)}%\n` +
+        `• Фото: ${modelStats.photosProcessed}\n\n` +
+        `📸 *Отправьте фото фрагмента*`,
+        { parse_mode: 'Markdown' }
     );
-    return;
-  }
-
-  const modelStats = model.getStats();
-  if (modelStats.highConfidenceNodes < 3) {
-    await bot.sendMessage(chatId,
-      `⚠️  Мало данных в модели (${modelStats.highConfidenceNodes} узлов)\n\n` +
-      `Нужно минимум 3 высокоуверенных узла для сравнения.\n` +
-      `Добавьте ещё фото в модель.`
-    );
-    return;
-  }
-
-  await bot.sendMessage(chatId,
-    `🔍 *БЫСТРАЯ ПРОВЕРКА ФРАГМЕНТА*\n\n` +
-    `Отправьте фото фрагмента следа.\n` +
-    `Бот сравнит его с вашей моделью:\n\n` +
-    `📊 *Ваша модель:*\n` +
-    `• Узлов: ${modelStats.totalNodes}\n` +
-    `• Уверенность: ${(modelStats.modelConfidence * 100).toFixed(1)}%\n` +
-    `• Фото: ${modelStats.photosProcessed}\n\n` +
-    `📸 *Отправьте фото фрагмента*`,
-    { parse_mode: 'Markdown' }
-  );
 });
 
 // Команда /model_export - экспорт модели
 bot.onText(/\/model_export/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
 
-  // Только для администраторов
-  const adminUsers = [699140291]; // ваш ID
+    // Только для администраторов
+    const adminUsers = [699140291]; // ваш ID
 
-  if (!adminUsers.includes(userId)) {
-    await bot.sendMessage(chatId,
-      `❌ Эта команда только для разработчиков\n` +
-      `Используйте /model_status для просмотра модели`
-    );
-    return;
-  }
+    if (!adminUsers.includes(userId)) {
+        await bot.sendMessage(chatId,
+            `❌ Эта команда только для разработчиков\n` +
+            `Используйте /model_status для просмотра модели`
+        );
+        return;
+    }
 
-  if (!enhancedSessionManager) {
-    await bot.sendMessage(chatId, '❌ Модуль недоступен');
-    return;
-  }
+    if (!enhancedSessionManager) {
+        await bot.sendMessage(chatId, '❌ Модуль недоступен');
+        return;
+    }
 
-  const model = enhancedSessionManager.getUserModel(userId);
-  if (!model) {
-    await bot.sendMessage(chatId, '❌ Нет активной модели');
-    return;
-  }
+    const model = enhancedSessionManager.getUserModel(userId);
+    if (!model) {
+        await bot.sendMessage(chatId, '❌ Нет активной модели');
+        return;
+    }
 
-  try {
-    const jsonData = enhancedSessionManager.exportModel(model.sessionId, 'json');
-    const tempFile = tempFileManager.createTempFile('model_export', 'json');
+    try {
+        const jsonData = enhancedSessionManager.exportModel(model.sessionId, 'json');
+        const tempFile = tempFileManager.createTempFile('model_export', 'json');
 
-    require('fs').writeFileSync(tempFile, JSON.stringify(jsonData, null, 2));
+        fs.writeFileSync(tempFile, JSON.stringify(jsonData, null, 2));
 
-    await bot.sendDocument(chatId, tempFile, {
-      caption: `Модель ${model.sessionId.slice(0, 12)}...`
-    });
+        await bot.sendDocument(chatId, tempFile, {
+            caption: `Модель ${model.sessionId.slice(0, 12)}...`
+        });
 
-    tempFileManager.removeFile(tempFile);
+        tempFileManager.removeFile(tempFile);
 
-  } catch (error) {
-    console.log('❌ Ошибка экспорта:', error);
-    await bot.sendMessage(chatId, '❌ Не удалось экспортировать модель');
-  }
-});
-
-bot.onText(/\/system_status/, async (msg) => {
-  const chatId = msg.chat.id;
- 
-  let status = `🖥️ *СТАТУС СИСТЕМЫ*\n\n`;
- 
-  // Модули
-  status += `📦 **МОДУЛИ:**\n`;
-  status += `• enhancedSessionManager: ${enhancedSessionManager ? '✅' : '❌'}\n`;
-  status += `• Тип: ${typeof enhancedSessionManager}\n`;
- 
-  if (enhancedSessionManager) {
-    status += `• Конструктор: ${enhancedSessionManager.constructor?.name || 'нет'}\n`;
-    status += `• createModelSession: ${typeof enhancedSessionManager.createModelSession}\n`;
-    status += `• models.size: ${enhancedSessionManager.models?.size || 'нет'}\n`;
-  }
- 
-  // Версии
-  status += `\n📊 **ВЕРСИИ:**\n`;
-  status += `• Node.js: ${process.version}\n`;
-  status += `• Память: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB\n`;
- 
-  await bot.sendMessage(chatId, status, { parse_mode: 'Markdown' });
+    } catch (error) {
+        console.log('❌ Ошибка экспорта:', error);
+        await bot.sendMessage(chatId, '❌ Не удалось экспортировать модель');
+    }
 });
 
 // =============================================================================
 // 🆕 ОБРАБОТКА ФОТО ДЛЯ АККУМУЛЯТИВНОЙ МОДЕЛИ
 // =============================================================================
 
-// Добавляем в существующий обработчик фото проверку на режим модели
 async function processPhotoForModel(userId, chatId, msg, predictions) {
-  if (!enhancedSessionManager) return false;
+    if (!enhancedSessionManager) return false;
 
-  try {
-    const model = enhancedSessionManager.getUserModel(userId);
-    if (!model) return false;
+    try {
+        const model = enhancedSessionManager.getUserModel(userId);
+        if (!model) return false;
 
-    console.log(`📸 Обрабатываю фото для модели ${model.sessionId}`);
+        console.log(`📸 Обрабатываю фото для модели ${model.sessionId}`);
 
-    const photo = msg.photo[msg.photo.length - 1];
-    const file = await bot.getFile(photo.file_id);
-    const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
+        const photo = msg.photo[msg.photo.length - 1];
+        const file = await bot.getFile(photo.file_id);
+        const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
 
-    const photoData = {
-      fileId: photo.file_id,
-      chatId,
-      fileUrl,
-      timestamp: new Date(),
-      messageId: msg.message_id
-    };
+        const photoData = {
+            fileId: photo.file_id,
+            chatId,
+            fileUrl,
+            timestamp: new Date(),
+            messageId: msg.message_id
+        };
 
-    const result = await enhancedSessionManager.addPhotoToModel(
-      model.sessionId,
-      photoData,
-      predictions
-    );
+        const result = await enhancedSessionManager.addPhotoToModel(
+            model.sessionId,
+            photoData,
+            predictions
+        );
 
-    if (result.success) {
-      await bot.sendMessage(chatId, result.summary, { parse_mode: 'Markdown' });
+        if (result.success) {
+            await bot.sendMessage(chatId, result.summary, { parse_mode: 'Markdown' });
 
-      // Показываем визуализацию каждое 3-е фото
-      if (result.photoNumber % 3 === 0) {
-        try {
-          const modelData = enhancedSessionManager.exportModel(model.sessionId, 'simple');
-          const visualizer = new ModelVisualizer();
-          const vizPath = tempFileManager.createTempFile('model_update', 'png');
+            // Показываем визуализацию каждое 3-е фото
+            if (result.photoNumber % 3 === 0) {
+                try {
+                    const modelData = enhancedSessionManager.exportModel(model.sessionId, 'simple');
+                    const vizPath = tempFileManager.createTempFile('model_update', 'png');
 
-          await visualizer.visualizeModel(modelData, { outputPath: vizPath });
+                    await modelVisualizer.visualizeModel(modelData, { outputPath: vizPath });
 
-          await bot.sendPhoto(chatId, vizPath, {
-            caption: `📈 Модель после ${result.photoNumber} фото`
-          });
+                    await bot.sendPhoto(chatId, vizPath, {
+                        caption: `📈 Модель после ${result.photoNumber} фото`
+                    });
 
-          tempFileManager.removeFile(vizPath);
+                    tempFileManager.removeFile(vizPath);
 
-        } catch (vizError) {
-          console.log('⚠️ Ошибка визуализации:', vizError.message);
+                } catch (vizError) {
+                    console.log('⚠️ Ошибка визуализации:', vizError.message);
+                }
+            }
+
+            return true;
         }
-      }
 
-      return true;
+    } catch (error) {
+        console.log('❌ Ошибка обработки фото для модели:', error);
     }
 
-  } catch (error) {
-    console.log('❌ Ошибка обработки фото для модели:', error);
-  }
-
-  return false;
+    return false;
 }
 
 // Команда /help
 bot.onText(/\/help/, (msg) => {
-    const chatId = msg.chat.id;
-   
-    // 🔥 ЗАМЕНИ ВЕСЬ СУЩЕСТВУЮЩИЙ КОД ЭТОЙ КОМАНДЫ НА:
-    // ============================
-    const helpMessage = `🆘 **ПОМОЩЬ И РУКОВОДСТВО**\n\n`;
-   
-    // Основной текст help (оставь свой существующий или используй этот)
-    const mainHelpText =
+    bot.sendMessage(msg.chat.id,
+        `🆘 **ПОМОЩЬ**\n\n` +
         `📸 **Как использовать:**\n` +
         `• Отправьте одно фото - быстрый анализ\n` +
         `• Отправьте пачку фото (2+) - автоматическая сессия\n` +
@@ -1784,81 +1487,40 @@ bot.onText(/\/help/, (msg) => {
         `🔄 **СЕССИОННЫЙ РЕЖИМ:**\n` +
         `/trail_start - Начать сессию анализа\n` +
         `/trail_status - Статус сессии\n` +
-        `/trail_end - Завершить с отчетом\n\n` +
-        `🎯 **АККУМУЛЯТИВНАЯ МОДЕЛЬ:**\n` +
+        `/trail_details - Детали по каждому фото\n` +
+        `/trail_end - Завершить с отчетом\n` +
+        `/cancel - Отменить все операции\n\n` +
+        `🕸️ **АККУМУЛЯТИВНАЯ МОДЕЛЬ:**\n` +
         `/model_start - Начать сбор модели\n` +
         `/model_status - Статус модели\n` +
-        `/check_fragment - Проверить фрагмент\n\n` +
-        `🧮 **КАЛЬКУЛЯТОРЫ:**\n` +
-        `/calculators - Все калькуляторы\n` +
-        `/calc_shoe - Размер обуви\n` +
-        `/calc_weather - Погода с историей\n\n` +
+        `/check_fragment - Проверить фрагмент\n` +
+        `/model_export - Экспорт модели (только для админов)\n\n` +
+        `🔍 **Что анализируется:**\n` +
+        `• Контуры подошвы\n` +
+        `• Детали протектора\n` +
+        `• Топология узора\n` +
+        `• Практический анализ для ПСО\n` +
+        `• Фильтрация следов животных\n\n` +
+        `🧮 **ИНСТРУМЕНТЫ:**\n` +
+        `/calculators - Калькуляторы и расчеты\n\n` +
         `📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n` +
         `/apps - Рекомендованные приложения\n\n` +
         `🎨 **Стили визуализации:**\n` +
-        `/style - Выбрать стиль\n` +
-        `/currentstyle - Текущий стиль`;
-   
-    // Отправляем основной текст
-    bot.sendMessage(chatId, helpMessage + mainHelpText);
-   
-    // 🔥 ДОБАВЛЯЕМ INLINE-КНОПКИ ДЛЯ БЫСТРОГО ДОСТУПА
-    const helpKeyboard = {
-        inline_keyboard: [
-            [
-                {
-                    text: "📸 Как фотографировать",
-                    callback_data: "help_photography"
-                },
-                {
-                    text: "🎯 Аккумулятивная модель",
-                    callback_data: "help_accumulative"
-                }
-            ],
-            [
-                {
-                    text: "🔄 Сессионный режим",
-                    callback_data: "help_session"
-                },
-                {
-                    text: "🧮 Калькуляторы",
-                    callback_data: "help_calculators"
-                }
-            ],
-            [
-                {
-                    text: "📊 Интерпретация результатов",
-                    callback_data: "help_results"
-                },
-                {
-                    text: "⚙️ Настройки и стили",
-                    callback_data: "help_settings"
-                }
-            ],
-            [
-                {
-                    text: "📱 Полезные приложения",
-                    callback_data: "help_apps"
-                },
-                {
-                    text: "🔧 Техподдержка",
-                    callback_data: "help_support"
-                }
-            ],
-            [
-                {
-                    text: "🚀 Быстрый старт",
-                    callback_data: "help_quickstart"
-                }
-            ]
-        ]
-    };
-   
-    // Отправляем кнопки отдельным сообщением
-    bot.sendMessage(chatId, "🔍 **ПОДРОБНЫЕ РАЗДЕЛЫ:**", {
-        reply_markup: helpKeyboard
-    });
-    // ============================
+        `/style - Выбрать стиль отображения\n` +
+        `/currentstyle - Текущий стиль\n` +
+        `• Стиль маски (по умолчанию) - черные линии на полупрозрачном фоне\n` +
+        `• Оригинальный стиль - цветная визуализация\n\n` +
+        `💡 **Советы по съемке:**\n` +
+        `• Прямой угол\n` +
+        `• Хорошее освещение\n` +
+        `• Четкий фокус\n\n` +
+        `💾 **Сохранение результатов:**\n` +
+        `/yandex - Статус Яндекс.Диска\n` +
+        `• Автоматическое сохранение в облако\n\n` +
+        `📊 **Другие команды:**\n` +
+        `/start - Главное меню\n` +
+        `/statistics - Статистика системы`
+    );
 });
 
 // =============================================================================
@@ -2037,37 +1699,36 @@ bot.onText(/\/trail_end/, async (msg) => {
         }
     }
 
-  // ⭐ ДОБАВЬ ЭТОТ КОД ПРЯМО ЗДЕСЬ:
-// Показываем топологию лучшего фото в сессии
-if (session.analysisResults && session.analysisResults.length > 0) {
-    // Находим лучшее фото для топологической визуализации
-    const bestPhoto = findBestPhotoInSession(session);
+    // ⭐ Показываем топологию лучшего фото в сессии
+    if (session.analysisResults && session.analysisResults.length > 0) {
+        // Находим лучшее фото для топологической визуализации
+        const bestPhoto = findBestPhotoInSession(session);
 
-    if (bestPhoto && bestPhoto.result.visualizationPaths?.topology) {
-        const topologyPath = bestPhoto.result.visualizationPaths.topology;
+        if (bestPhoto && bestPhoto.result.visualizationPaths?.topology) {
+            const topologyPath = bestPhoto.result.visualizationPaths.topology;
 
-        // Проверяем что файл существует
-        if (topologyPath && require('fs').existsSync(topologyPath)) {
-            try {
-                await bot.sendPhoto(chatId, topologyPath, {
-                    caption: `🕸️ **Топология лучшего фото** (№${bestPhoto.index + 1})\n` +
-                             `• Протекторов: ${bestPhoto.protectorCount}\n` +
-                             '• 🟢 Зеленые точки - центры протекторов\n' +
-                             '• 🟠 Оранжевые линии - связи\n' +
-                             '• 🔵 Синий пунктир - контур следа'
-                });
+            // Проверяем что файл существует
+            if (topologyPath && fs.existsSync(topologyPath)) {
+                try {
+                    await bot.sendPhoto(chatId, topologyPath, {
+                        caption: `🕸️ **Топология лучшего фото** (№${bestPhoto.index + 1})\n` +
+                                 `• Протекторов: ${bestPhoto.protectorCount}\n` +
+                                 '• 🟢 Зеленые точки - центры протекторов\n' +
+                                 '• 🟠 Оранжевые линии - связи\n' +
+                                 '• 🔵 Синий пунктир - контур следа'
+                    });
 
-                // Очистка файла после отправки
-                setTimeout(() => {
-                    tempFileManager.removeFile(topologyPath);
-                }, 1000);
+                    // Очистка файла после отправки
+                    setTimeout(() => {
+                        tempFileManager.removeFile(topologyPath);
+                    }, 1000);
 
-            } catch (photoError) {
-                console.log('⚠️ Не удалось отправить топологию:', photoError.message);
+                } catch (photoError) {
+                    console.log('⚠️ Не удалось отправить топологию:', photoError.message);
+                }
             }
         }
     }
-}
 });
 
 // Команда /cancel - отменить все операции
@@ -2193,7 +1854,7 @@ bot.onText(/\/trail_details/, async (msg) => {
     if (bestPhoto && bestPhoto.result.visualizationPaths?.topology) {
         const topologyPath = bestPhoto.result.visualizationPaths.topology;
 
-        if (require('fs').existsSync(topologyPath)) {
+        if (fs.existsSync(topologyPath)) {
             setTimeout(async () => {
                 await bot.sendPhoto(chatId, topologyPath, {
                     caption: `🕸️ **Топология фото ${bestPhoto.index + 1}**\n` +
@@ -2326,908 +1987,7 @@ async function processPhotoQueue(userId, chatId) {
     }
 }
 
-// =============================================================================
-// 📸 ОБРАБОТКА ФОТО С ПАЧКАМИ И ОЧЕРЕДЯМИ
-// =============================================================================
-bot.on('photo', async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-
-    // Добавляем фото в детектор пачки
-    if (!photoBatchDetector.has(userId)) {
-        photoBatchDetector.set(userId, {
-            photos: [],
-            timer: null
-        });
-    }
-
-    const detector = photoBatchDetector.get(userId);
-    detector.photos.push({
-        msg: msg,
-        timestamp: Date.now()
-    });
-
-    // Сбрасываем таймер
-    if (detector.timer) {
-        clearTimeout(detector.timer);
-    }
-
-    // Ждем 1 секунду для сбора пачки фото
-    detector.timer = setTimeout(async () => {
-        const photos = detector.photos;
-        photoBatchDetector.delete(userId);
-
-        // Если фото одно и нет активной сессии - обрабатываем сразу
-        if (photos.length === 1 && !sessionManager.hasActiveSession(userId)) {
-            await processSinglePhoto(chatId, userId, photos[0].msg);
-            return;
-        }
-
-        // Если несколько фото или есть активная сессия - добавляем в очередь
-        if (!photoQueue.has(userId)) {
-            photoQueue.set(userId, []);
-        }
-
-        photos.forEach(photo => {
-            photoQueue.get(userId).push({
-                msg: photo.msg,
-                timestamp: photo.timestamp
-            });
-        });
-
-        // Запускаем обработку очереди
-        setTimeout(() => processPhotoQueue(userId, chatId), 100);
-
-    }, 1000); // Ждем 1 секунду для сбора пачки
-});
-
-// 📝 ВСПОМОГАТЕЛЬНЫЙ МЕТОД ДЛЯ УЛУЧШЕНИЯ ВИЗУАЛИЗАЦИИ
-async function enhanceVisualizationWithAnalysis(imagePath, analysis) {
-    // Здесь можно добавить аннотации к визуализации на основе анализа
-    // Например: стрелки направления, подписи типа обуви и т.д.
-    // Пока оставляем как заглушку для будущего улучшения
-    return true;
-}
-
-// =============================================================================
-// 🚀 ЗАПУСК СЕРВЕРА
-// =============================================================================
-app.get('/', (req, res) => {
-    res.send(`
-        <h1>🤖 Система анализа следов обуви v2.1</h1>
-        <p>✅ Модульная система работает!</p>
-        <p>📊 Пользователей: ${globalStats.totalUsers}</p>
-        <p>📸 Фото обработано: ${globalStats.totalPhotos}</p>
-        <p>🎯 Практический анализ для ПСО: активен</p>
-        <p>🐕 Фильтрация животных: активна</p>
-        <p><a href="/health">Health Check</a></p>
-    `);
-});
-
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        statistics: {
-            users: globalStats.totalUsers,
-            photos: globalStats.totalPhotos,
-            analyses: globalStats.totalAnalyses
-        },
-        modules: {
-            practicalAnalyzer: practicalAnalyzer !== null,
-            animalFilter: animalFilter !== null,
-            visualization: visualization !== null,
-            yandexDisk: yandexDisk !== null
-        }
-    });
-});
-
-// =============================================================================
-// 🛡️ ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ОШИБОК
-// =============================================================================
-
-// Обработчик необработанных обещаний
-process.on('unhandledRejection', (reason, promise) => {
-    console.log('❌ Необработанное отклонение промиса:', reason);
-    console.log('📋 Promise:', promise);
-    // Очищаем временные файлы при критической ошибке
-    if (tempFileManager && tempFileManager.cleanup) {
-        tempFileManager.cleanup();
-    }
-});
-
-// Обработчик необработанных исключений
-process.on('uncaughtException', (error) => {
-    console.log('💥 Критическая ошибка:', error);
-    console.log('🔄 Очищаем временные файлы...');
-    if (tempFileManager && tempFileManager.cleanup) {
-        tempFileManager.cleanup();
-    }
-    process.exit(1);
-});
-
-// Graceful shutdown
-process.on('SIGINT', () => {
-    console.log('🛑 Получен SIGINT, очищаем ресурсы...');
-    const cleaned = tempFileManager.cleanup ? tempFileManager.cleanup() : 0;
-    console.log(`🧹 Удалено ${cleaned} временных файлов перед выходом`);
-    process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-    console.log('🛑 Получен SIGTERM, очищаем ресурсы...');
-    const cleaned = tempFileManager.cleanup ? tempFileManager.cleanup() : 0;
-    console.log(`🧹 Удалено ${cleaned} временных файлов перед выходом`);
-    process.exit(0);
-});
-
-// Периодическая очистка старых файлов (каждые 30 минут)
-setInterval(() => {
-    if (tempFileManager && tempFileManager.cleanupOldFiles) {
-        const cleaned = tempFileManager.cleanupOldFiles(60); // файлы старше 60 минут
-        if (cleaned > 0) {
-            console.log(`⏰ Периодическая очистка: удалено ${cleaned} старых файлов`);
-        }
-    }
-}, 30 * 60 * 1000); // 30 минут
-
-console.log('🛡️ Глобальные обработчики ошибок активированы');
-
-// =============================================================================
-// 🔄 ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
-// =============================================================================
-
-// НЕМЕДЛЕННО ВЫЗЫВАЕМАЯ АСИНХРОННАЯ ФУНКЦИЯ (IIFE)
-(async function() {
-    // ИНИЦИАЛИЗИРУЕМ СИНХРОННЫЕ МОДУЛИ
-    try {
-        visualization = visualizationModule.initialize();
-        console.log('✅ Модуль визуализации загружен');
-    } catch (error) {
-        console.log('❌ Ошибка модуля визуализации:', error.message);
-        visualization = {
-            getVisualization: () => ({ createVisualization: async () => null }),
-            setUserStyle: () => false,
-            getUserStyle: () => 'original',
-            getAvailableStyles: () => [{ id: 'original', name: 'Оригинальный', description: 'Основной стиль' }],
-            userPreferences: new Map()
-        };
-    }
-
-    try {
-        tempFileManager = tempManagerModule.initialize({
-            tempDir: './temp',
-            autoCleanup: true
-        });
-        console.log('✅ Менеджер временных файлов загружен');
-    } catch (error) {
-        console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить менеджер файлов:', error.message);
-        tempFileManager = {
-            track: () => {},
-            removeFile: () => false,
-            cleanup: () => 0,
-            getStats: () => ({ totalTracked: 0, existingFiles: 0, totalSize: '0 MB' })
-        };
-    }
-
-    // 🧠 ДОБАВЛЯЕМ МОДУЛЬ АНАЛИЗА
-    try {
-        analysisModule = new AnalysisModule();
-        console.log('✅ Модуль анализа загружен');
-    } catch (error) {
-        console.log('❌ Ошибка модуля анализа:', error.message);
-        analysisModule = {
-            performComprehensiveAnalysis: async () => {
-                console.log('⚠️ Модуль анализа временно недоступен');
-                return null;
-            }
-        };
-    }
-
-    // 🔧 ИНИЦИАЛИЗИРУЕМ ТОПОЛОГИЧЕСКИЙ ВИЗУАЛИЗАТОР
-    try {
-        topologyVisualizer = new TopologyVisualizer();
-        console.log('✅ TopologyVisualizer загружен');
-    } catch (error) {
-        console.log('❌ Ошибка TopologyVisualizer:', error);
-        topologyVisualizer = {
-            createTopologyVisualization: async () => {
-                console.log('⚠️ TopologyVisualizer временно недоступен');
-                return false;
-            }
-        };
-    }
-
-    // 🎯 ДОБАВЛЯЕМ ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
-    try {
-        practicalAnalyzer = new PracticalAnalyzer();
-        animalFilter = new AnimalFilter();
-        console.log('✅ Практический анализатор и фильтр животных загружены');
-    } catch (error) {
-        console.log('❌ Ошибка практического анализатора:', error.message);
-        practicalAnalyzer = createPracticalAnalyzerStub();
-        animalFilter = createAnimalFilterStub();
-    }
-
-  try {
-    enhancedSessionManager = new EnhancedSessionManager();
-    modelVisualizer = new ModelVisualizer();
-    console.log('✅ Enhanced session manager загружен');
-   
-    // Периодическая очистка старых моделей (каждые 30 минут)
-    setInterval(() => {
-        if (enhancedSessionManager && enhancedSessionManager.cleanupOldModels) {
-            const cleaned = enhancedSessionManager.cleanupOldModels(6); // 6 часов
-            if (cleaned > 0) {
-                console.log(`🧹 Очищено ${cleaned} старых моделей`);
-            }
-        }
-    }, 30 * 60 * 1000);
-   
-} catch (error) {
-    console.log('❌ Ошибка enhanced manager:', error.message);
-    enhancedSessionManager = null;
-}
-
-// 🆕 ИНИЦИАЛИЗИРУЕМ СЕССИОННЫЕ МОДУЛИ
-    try {
-        sessionManager = new SessionManager();
-        sessionAnalyzer = new SessionAnalyzer();
-        console.log('✅ Сессионные модули загружены');
-    } catch (error) {
-        console.log('❌ Ошибка сессионных модулей:', error.message);
-        sessionManager = createSessionManagerStub();
-        sessionAnalyzer = createSessionAnalyzerStub();
-    }
-
-    // ИНИЦИАЛИЗИРУЕМ НОВЫЕ МОДУЛИ
-    try {
-        calculators = calculatorsModule.initialize();
-        console.log('✅ Модуль калькуляторов загружен');
-    } catch (error) {
-        console.log('❌ Ошибка модуля калькуляторов:', error.message);
-        calculators = createCalculatorsStub();
-    }
-
-    try {
-        apps = appsModule.initialize();
-        console.log('✅ Модуль приложений загружен');
-    } catch (error) {
-        console.log('❌ Ошибка модуля приложений:', error.message);
-        apps = createAppsStub();
-    }
-
-try {
-  // 🔥 ПРОВЕРЯЕМ, НЕ ЗАГРУЖЕН ЛИ УЖЕ enhancedSessionManager
-  if (!enhancedSessionManager || typeof enhancedSessionManager.createModelSession !== 'function') {
-    enhancedSessionManager = new EnhancedSessionManager();
-    console.log('🔄 Enhanced session manager переинициализирован');
-  }
- 
-  if (!modelVisualizer) {
-    modelVisualizer = new ModelVisualizer();
-  }
- 
-} catch (error) {
-  console.log('❌ Ошибка EnhancedSessionManager:', error.message);
- 
-  // 🔥 СОЗДАЕМ ПОЛНУЮ ЗАГЛУШКУ СО ВСЕМИ МЕТОДАМИ
-  const stubManager = {
-    models: new Map(),
-    userSessions: new Map(),
-   
-    createModelSession: function(userId) {
-      console.log('🆘 ЗАГЛУШКА createModelSession');
-      const sessionId = 'stub_' + Date.now();
-      const model = {
-        sessionId: sessionId,
-        photosProcessed: 0,
-        getStats: function() {
-          return { highConfidenceNodes: 0, totalNodes: 0, modelConfidence: 0 };
-        }
-      };
-     
-      this.models.set(sessionId, model);
-      this.userSessions.set(userId, sessionId);
-     
-      return {
-        sessionId: sessionId,
-        model: model,
-        isExisting: false,
-        message: '✅ Модель создана (режим заглушки)'
-      };
-    },
-   
-    // 🔥 ВАЖНО: ДОБАВЛЯЕМ ВСЕ МЕТОДЫ
-    getUserModel: function(userId) {
-      console.log('🆘 ЗАГЛУШКА getUserModel');
-      const sessionId = this.userSessions.get(userId);
-      return sessionId ? this.models.get(sessionId) : null;
-    },
-   
-    getModelStatus: function(sessionId) {
-      console.log('🆘 ЗАГЛУШКА getModelStatus');
-      const model = this.models.get(sessionId);
-      return {
-        sessionId: sessionId,
-        totalNodes: model?.photosProcessed || 0,
-        highConfidenceNodes: 0,
-        totalEdges: 0,
-        totalContours: 0,
-        modelConfidence: 0.5,
-        photosProcessed: model?.photosProcessed || 0,
-        modelAge: '0 минут',
-        confidenceLevel: 'низкий',
-        status: 'заглушка',
-        canCompare: false,
-        recommendations: ['Добавьте фото для уточнения модели']
-      };
-    },
-   
-    exportModel: function(sessionId, format) {
-      console.log('🆘 ЗАГЛУШКА exportModel');
-      return {
-        nodes: [],
-        edges: [],
-        contours: [],
-        photosProcessed: 0,
-        confidence: 0
-      };
-    },
-   
-    addPhotoToModel: async function(sessionId, photoData, predictions) {
-      console.log('🆘 ЗАГЛУШКА addPhotoToModel');
-      const model = this.models.get(sessionId);
-      if (model) {
-        model.photosProcessed = (model.photosProcessed || 0) + 1;
-      }
-      return {
-        success: true,
-        error: null,
-        summary: `✅ Фото добавлено в заглушку (всего: ${model?.photosProcessed || 1})`,
-        photoNumber: model?.photosProcessed || 1
-      };
-    },
-   
-    checkFragment: function(sessionId, predictions) {
-      console.log('🆘 ЗАГЛУШКА checkFragment');
-      return {
-        isMatch: false,
-        confidence: 0,
-        message: 'Заглушка'
-      };
-    },
-   
-    cleanupOldModels: function() {
-      return 0;
-    },
-   
-    deleteModel: function(sessionId) {
-      this.models.delete(sessionId);
-      for (let [userId, sId] of this.userSessions.entries()) {
-        if (sId === sessionId) {
-          this.userSessions.delete(userId);
-          break;
-        }
-      }
-    }
-  };
- 
-  enhancedSessionManager = stubManager;
-  console.log('✅ Создана полная заглушка EnhancedSessionManager');
-}
-   
-    // ИНИЦИАЛИЗИРУЕМ ЯНДЕКС.ДИСК (асинхронно)
-    try {
-        yandexDisk = await yandexDiskModule.initialize(config.YANDEX_DISK_TOKEN);
-        if (yandexDisk) {
-            console.log('✅ Модуль Яндекс.Диска загружен');
-            await yandexDisk.createAppFolder();
-            console.log('✅ Папка Яндекс.Диска готова');
-        } else {
-            console.log('⚠️ Модуль Яндекс.Диска отключен (нет токена)');
-            yandexDisk = createYandexDiskStub();
-        }
-    } catch (error) {
-        console.log('❌ Ошибка инициализации Яндекс.Диска:', error.message);
-        yandexDisk = createYandexDiskStub();
-    }
-
-    console.log('🚀 Все модули инициализированы, бот готов к работе!');
- console.log('🔍 ПРОВЕРКА enhancedSessionManager ПОСЛЕ ИНИЦИАЛИЗАЦИИ:');
- if (!enhancedSessionManager || typeof enhancedSessionManager.createModelSession !== 'function') {
-    console.log('🆘 Проблема с инициализацией!');
-    // Дополнительная заглушка
-  }
-
-   
-    // 🆕 Установка Webhook
-//   try {
-//        const webhookUrl = `https://shoe-print-bot.onrender.com/bot${config.TELEGRAM_TOKEN}`;
-//        await bot.setWebHook(webhookUrl);
-//        console.log(`✅ Webhook установлен: ${webhookUrl}`);
-//       
-//       const webhookInfo = await bot.getWebHookInfo();
-//       console.log('📊 Информация о Webhook:', {
-//            url: webhookInfo.url,
-//            has_custom_certificate: webhookInfo.has_custom_certificate,
-//            pending_update_count: webhookInfo.pending_update_count,
-//           max_connections: webhookInfo.max_connections,
-//            allowed_updates: webhookInfo.allowed_updates
-//        });
-//    } catch (webhookError) {
-//        console.log('❌ Ошибка установки Webhook:', webhookError.message);
-//    }
-   
-    console.log('🎯 Практический анализ для ПСО активирован');
-    console.log('🐕 Фильтрация следов животных активирована');
-})();
-
-// =============================================================================
-// 🔄 ОБРАБОТЧИК CALLBACK-КНОПОК ДЛЯ ОБРАТНОЙ СВЯЗИ И МОДЕЛИ
-// =============================================================================
-
-// Глобальная переменная для временных данных
-const feedbackSessions = new Map();
-
-bot.on('callback_query', async (callbackQuery) => {
-    const chatId = callbackQuery.message.chat.id;
-    const userId = callbackQuery.from.id;
-    const messageId = callbackQuery.message.message_id;
-    const data = callbackQuery.data;
-
-    try {
-
-  // 🔥 В НАЧАЛЕ ОБРАБОТЧИКА, ПЕРЕД ВСЕМИ IF, ВСТАВЬ ЭТОТ КОД:
-        // ============================
-        // 🆕 ОБРАБОТКА КНОПОК ФОТО-ДЕЙСТВИЙ
-        if (data.startsWith('photo_action_')) {
-            const action = data.replace('photo_action_', '').split('_')[0];
-            const photoMsgId = data.split('_')[3];
-           
-            await bot.answerCallbackQuery(callbackQuery.id, {
-                text: 'Обрабатываю...'
-            });
-           
-            switch(action) {
-                case 'add':
-                    const model = enhancedSessionManager ? enhancedSessionManager.getUserModel(userId) : null;
-                    if (!model) {
-                        await bot.sendMessage(chatId,
-                            '❌ Нет активной модели\n\n' +
-                            'Создайте модель сначала:\n' +
-                            '/model_start'
-                        );
-                    } else {
-                        await bot.sendMessage(chatId,
-                            '✅ Фото добавлено в аккумулятивную модель\n\n' +
-                            '📈 Модель будет уточнена\n' +
-                            '📊 Проверить: /model_status'
-                        );
-                    }
-                    break;
-                   
-                case 'compare':
-                    await bot.sendMessage(chatId,
-                        '🔍 **СРАВНЕНИЕ С МОДЕЛЬЮ**\n\n' +
-                        'Загружаю данные модели...\n' +
-                        'Анализирую соответствие...'
-                    );
-                    // Здесь будет реальное сравнение
-                    setTimeout(async () => {
-                        await bot.sendMessage(chatId,
-                            '📊 **РЕЗУЛЬТАТ СРАВНЕНИЯ:**\n\n' +
-                            '• Совпадение контура: 78%\n' +
-                            '• Совпадение протектора: 65%\n' +
-                            '• Общая уверенность: 72%\n\n' +
-                            '🎯 *Рекомендация:* Добавить фото для уточнения'
-                        );
-                    }, 1500);
-                    break;
-                   
-                case 'details':
-                    await bot.sendMessage(chatId,
-                        '📋 **ДЕТАЛЬНАЯ ИНФОРМАЦИЯ:**\n\n' +
-                        '📊 Обнаружено объектов: ' + (analysis?.total || 'N/A') + '\n' +
-                        '👟 Контуров следа: ' + (analysis?.classes?.['Outline-trail'] || 0) + '\n' +
-                        '🔩 Деталей протектора: ' + (analysis?.classes?.['shoe-protector'] || 0) + '\n\n' +
-                        '🕸️ *Топология:* ' + (analysis?.protectorCount > 3 ? 'Сложная' : 'Простая')
-                    );
-                    break;
-                   
-                case 'practical':
-                    await bot.sendMessage(chatId,
-                        '🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО:**\n\n' +
-                        '1. 👣 Тип обуви: Кроссовки/ботинки\n' +
-                        '2. 📏 Примерный размер: 42-44\n' +
-                        '3. 🚶 Характер походки: Нормальный\n' +
-                        '4. ⚠️ Особенности: Нет явных аномалий\n\n' +
-                        '💡 *Для поиска:* Обратить внимание на протектор'
-                    );
-                    break;
-                   
-                case 'save':
-                    await bot.sendMessage(chatId,
-                        '📁 **СОХРАНЕНИЕ В АРХИВ**\n\n' +
-                        '✅ Результаты сохранены\n\n' +
-                        '📍 *Доступно:*\n' +
-                        '• В локальной базе\n' +
-                        '• В истории бота\n' +
-                        '• Для повторного анализа'
-                    );
-                    break;
-            }
-            return;
-        }
-
-// 🆕 ОБРАБОТКА HELP-КНОПОК
-else if (data.startsWith('help_')) {
-    const helpSection = data.replace('help_', '');
-   
-    await bot.answerCallbackQuery(callbackQuery.id);
-   
-    switch(helpSection) {
-        case 'photography':
-            await bot.sendMessage(chatId,
-                '📸 **КАК ПРАВИЛЬНО ФОТОГРАФИРОВАТЬ:**\n\n' +
-                '✅ **ПРАВИЛЬНО:**\n' +
-                '• Прямой угол сверху\n' +
-                '• Хорошее освещение\n' +
-                '• Четкий фокус\n' +
-                '• Масштабный предмет\n\n' +
-                '❌ **НЕПРАВИЛЬНО:**\n' +
-                '• Косой угол\n' +
-                '• Тени на следе\n' +
-                '• Размытый фокус\n' +
-                '• Блики от вспышки\n\n' +
-                '💡 *Совет:* Снимайте с высоты 30-50 см'
-            );
-            break;
-           
-        case 'accumulative':
-            await bot.sendMessage(chatId,
-                '🎯 **АККУМУЛЯТИВНАЯ МОДЕЛЬ:**\n\n' +
-                '📋 *Что это:*\n' +
-                'Цифровая копия подошвы, которая становится точнее с каждым фото\n\n' +
-                '🚀 *Как использовать:*\n' +
-                '1. /model_start - начать\n' +
-                '2. Добавить 3-5 фото подошвы\n' +
-                '3. /model_status - проверить\n' +
-                '4. /check_fragment - сравнить след\n\n' +
-                '💡 *Идеально для:*\n' +
-                '• Поиска пропавших\n' +
-                '• Криминалистики\n' +
-                '• Идентификации обуви'
-            );
-            break;
-           
-        case 'session':
-            await bot.sendMessage(chatId,
-                '🔄 **СЕССИОННЫЙ РЕЖИМ:**\n\n' +
-                '📋 *Для чего:*\n' +
-                'Анализ цепочки следов (тропы)\n\n' +
-                '🚀 *Как работает:*\n' +
-                '1. /trail_start - начать\n' +
-                '2. Отправлять фото по одному\n' +
-                '3. /trail_status - статус\n' +
-                '4. /trail_end - отчет\n\n' +
-                '📊 *Что анализирует:*\n' +
-                '• Количество людей\n' +
-                '• Направление движения\n' +
-                '• Типы обуви\n' +
-                '• Временные интервалы'
-            );
-            break;
-           
-        case 'calculators':
-            await bot.sendMessage(chatId,
-                '🧮 **КАЛЬКУЛЯТОРЫ:**\n\n' +
-                '📏 *Размер обуви:*\n' +
-                '/calc_shoe - по размеру обуви\n' +
-                '/calc_reverse - по длине следа\n\n' +
-                '❄️ *Снег и погода:*\n' +
-                '/calc_snow_age - давность на снегу\n' +
-                '/calc_weather - погода с историей\n\n' +
-                '👣 *Антропометрия:*\n' +
-                '• Рост по длине шага\n' +
-                '• Вес по глубине следа\n' +
-                '• Скорость по расстоянию'
-            );
-            break;
-           
-        case 'results':
-            await bot.sendMessage(chatId,
-                '📊 **ИНТЕРПРЕТАЦИЯ РЕЗУЛЬТАТОВ:**\n\n' +
-                '🎨 *Визуализация:*\n' +
-                '• Красные框 - контур следа\n' +
-                '• Синие框 - детали протектора\n' +
-                '• Зеленые точки - центры\n\n' +
-                '📈 *Уверенность:*\n' +
-                '• >80% - отличное качество\n' +
-                '• 60-80% - хорошее\n' +
-                '• <60% - нужны лучшие фото\n\n' +
-                '⚠️ *Ошибки:*\n' +
-                '• Нет контура - плохой угол\n' +
-                '• Мало деталей - слабое освещение\n' +
-                '• Много шума - грязный след'
-            );
-            break;
-           
-        case 'settings':
-            await bot.sendMessage(chatId,
-                '⚙️ **НАСТРОЙКИ И СТИЛИ:**\n\n' +
-                '🎨 *Стили визуализации:*\n' +
-                '/style - выбрать стиль\n' +
-                '/currentstyle - текущий\n\n' +
-                '📋 *Доступные стили:*\n' +
-                '• Маска - черный на прозрачном\n' +
-                '• Оригинал - цветная схема\n' +
-                '• Научный - для экспертов\n\n' +
-                '💾 *Сохранение:*\n' +
-                '• Автосохранение в облако\n' +
-                '• Локальная история\n' +
-                '• Экспорт в JSON'
-            );
-            break;
-           
-        case 'apps':
-            await bot.sendMessage(chatId,
-                '📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n\n' +
-                '🔍 *Для поиска:*\n' +
-                '• Честный знак (RUS)\n' +
-                '• GPS-камера\n' +
-                '• Архив погоды\n\n' +
-                '📏 *Для измерений:*\n' +
-                '• ImageMeter\n' +
-                '• Ruler App\n' +
-                '• Photo Measure\n\n' +
-                '🎯 *Для экспертов:*\n' +
-                '• 3D Анатомия\n' +
-                '• Компас\n' +
-                '• Уровень\n\n' +
-                '📋 Полный список: /apps'
-            );
-            break;
-           
-        case 'support':
-            await bot.sendMessage(chatId,
-                '🔧 **ТЕХПОДДЕРЖКА:**\n\n' +
-                '📞 *Контакты:*\n' +
-                '• Разработчик: @ваш_логин\n' +
-                '• Баг-репорты: через бота\n' +
-                '• Предложения: /feedback\n\n' +
-                '⚠️ *Частые проблемы:*\n' +
-                '1. Бот не отвечает - перезапустите\n' +
-                '2. Фото не обрабатывается - проверьте интернет\n' +
-                '3. Плохая точность - улучшите фото\n\n' +
-                '🔄 *Обновления:*\n' +
-                '• Версия: 2.1\n' +
-                '• Дата: 2024\n' +
-                '• Статус: активная разработка'
-            );
-            break;
-           
-        case 'quickstart':
-            await bot.sendMessage(chatId,
-                '🚀 **БЫСТРЫЙ СТАРТ:**\n\n' +
-                '⚡ *За 60 секунд:*\n' +
-                '1. Отправьте фото следа\n' +
-                '2. Получите анализ\n' +
-                '3. Нажмите "Добавить в модель"\n' +
-                '4. Повторите 2-3 раза\n' +
-                '5. Проверьте /model_status\n\n' +
-                '🎯 *Идеальный workflow:*\n' +
-                '📸 → 📊 → ✅ → 📸 → 📈 → 🎯\n\n' +
-                '💡 *Совет:* Начните с простого следа на ровной поверхности'
-            );
-            break;
-    }
-    return;
-}
-      
-        // 🔥 НАЙДИ ЭТОТ БЛОК И ДОБАВЬ ПЕРЕД НИМ НОВЫЕ ОБРАБОТЧИКИ:
-        // ============================
-        // 🆕 КНОПКИ МОДЕЛИ
-        if (data === 'model_first_photo') {
-            await bot.answerCallbackQuery(callbackQuery.id, {
-                text: 'Жду первое фото'
-            });
-            await bot.sendMessage(chatId, '📸 Отправьте первое фото подошвы');
-            return;
-        }
-       
-        else if (data === 'model_add_photo') {
-            await bot.answerCallbackQuery(callbackQuery.id);
-            await bot.sendMessage(chatId,
-                '📸 **ДОБАВЬТЕ ФОТО ДЛЯ УТОЧНЕНИЯ**\n\n' +
-                'Снимите подошву:\n' +
-                '• С нового ракурса\n' +
-                '• При хорошем освещении\n' +
-                '• С детализацией протектора'
-            );
-            return;
-        }
-       
-        else if (data === 'model_check_fragment') {
-            await bot.answerCallbackQuery(callbackQuery.id);
-            await bot.sendMessage(chatId,
-                '🔍 **ПРОВЕРКА ФРАГМЕНТА**\n\n' +
-                'Отправьте фото части следа.\n' +
-                'Я сравню с вашей моделью.'
-            );
-            return;
-        }
-       
-        else if (data === 'model_refresh') {
-            await bot.answerCallbackQuery(callbackQuery.id, {
-                text: 'Обновляю статус...'
-            });
-            await bot.deleteMessage(chatId, messageId);
-            // Вызываем команду статуса
-            const msg = { chat: { id: chatId }, from: { id: userId } };
-            bot.emit('text', { text: '/model_status', ...msg });
-            return;
-        }
-       
-        else if (data === 'model_delete_confirm') {
-            await bot.editMessageText(
-                '⚠️ **УДАЛЕНИЕ МОДЕЛИ**\n\n' +
-                'Вы уверены?\n\n' +
-                'Это действие нельзя отменить!',
-                {
-                    chat_id: chatId,
-                    message_id: messageId,
-                    reply_markup: {
-                        inline_keyboard: [
-                            [
-                                { text: "✅ Да, удалить", callback_data: "model_delete_yes" },
-                                { text: "❌ Нет, оставить", callback_data: "model_back" }
-                            ]
-                        ]
-                    }
-                }
-            );
-            return;
-        }
-       
-        else if (data === 'model_delete_yes') {
-            if (enhancedSessionManager) {
-                const model = enhancedSessionManager.getUserModel(userId);
-                if (model) {
-                    enhancedSessionManager.deleteModel(model.sessionId);
-                }
-            }
-            await bot.editMessageText(
-                '🗑️ **МОДЕЛЬ УДАЛЕНА**\n\n' +
-                'Начните заново: /model_start',
-                {
-                    chat_id: chatId,
-                    message_id: messageId
-                }
-            );
-            return;
-        }
-       
-        else if (data === 'model_back') {
-            await bot.deleteMessage(chatId, messageId);
-            const msg = { chat: { id: chatId }, from: { id: userId } };
-            bot.emit('text', { text: '/model_status', ...msg });
-            return;
-        }
-       
-        else if (data === 'model_video_guide') {
-            await bot.answerCallbackQuery(callbackQuery.id);
-            await bot.sendMessage(chatId,
-                '🎬 **КАК СНИМАТЬ:**\n\n' +
-                '1. 📸 Общий план сверху\n' +
-                '2. 🔍 Крупно протекторы\n' +
-                '3. ↔️ Боковой ракурс\n' +
-                '4. 🎯 Детали узора\n\n' +
-                'Отправьте фото когда будете готовы.'
-            );
-            return;
-        }
-        // ============================
-
-        // Обработка основной feedback кнопки
-        if (data === 'feedback_correct') {
-            await bot.answerCallbackQuery(callbackQuery.id, {
-                text: 'Спасибо за подтверждение!'
-            });
-
-            // Сохраняем в базу
-            const feedbackData = {
-                userId: userId,
-                prediction: null,
-                correctionType: 'correct',
-                imageId: 'unknown',
-                timestamp: new Date().toISOString()
-            };
-
-            feedbackDB.addFeedback(feedbackData);
-
-            // Обновляем сообщение
-            await bot.editMessageText(
-                `✅ Спасибо! Ваш ответ поможет улучшить точность анализа.`,
-                {
-                    chat_id: chatId,
-                    message_id: messageId
-                }
-            );
-
-        } else if (data === 'feedback_incorrect') {
-            await bot.answerCallbackQuery(callbackQuery.id);
-
-            // Показываем меню выбора типа ошибки
-            await bot.editMessageText(
-                `Что не так с анализом? Выберите вариант:`,
-                {
-                    chat_id: chatId,
-                    message_id: messageId,
-                    reply_markup: feedbackManager.createCorrectionKeyboard()
-                }
-            );
-
-        }
-        // Обработка конкретных исправлений
-        else if (data.startsWith('correction_')) {
-            const correctionType = data.replace('correction_', '');
-
-            await bot.answerCallbackQuery(callbackQuery.id, {
-                text: 'Спасибо за исправление!'
-            });
-
-            // Сохраняем в базу
-            const feedbackData = {
-                userId: userId,
-                prediction: null,
-                correctionType: correctionType,
-                imageId: 'unknown',
-                timestamp: new Date().toISOString(),
-                notes: getCorrectionDescription(correctionType)
-            };
-
-            feedbackDB.addFeedback(feedbackData);
-
-            // Обновляем сообщение
-            await bot.editMessageText(
-                `✅ Спасибо за исправление!\n` +
-                `Тип: ${getCorrectionDescription(correctionType)}\n` +
-                `Это поможет значительно улучшить точность модели.`,
-                {
-                    chat_id: chatId,
-                    message_id: messageId
-                }
-            );
-        }
-
-    } catch (error) {
-        console.log('❌ Ошибка обработки callback:', error);
-        await bot.answerCallbackQuery(callbackQuery.id, {
-            text: 'Ошибка обработки'
-        });
-    }
-});
-
-// Вспомогательная функция для описаний исправлений
-function getCorrectionDescription(type) {
-    const descriptions = {
-        'animal': '🐾 След животного',
-        'other_shoe': '👞 Другая обувь',
-        'bounds': '📏 Неправильные границы',
-        'multiple': '👣 Несколько следов',
-        'not_footprint': '🚫 Не след вообще',
-        'other_class': '🔍 Другой класс',
-        'correct': '✅ Правильно'
-    };
-
-    return descriptions[type] || type;
-}
-
-// =============================================================================
-// 🔄 ОБНОВЛЕННЫЙ ОБРАБОТЧИК ФОТО ДЛЯ ПОДДЕРЖКИ МОДЕЛИ
-// =============================================================================
-
+// Обработчик отдельного фото (вынесенная логика)
 async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCount = 1) {
     const hasSession = sessionManager.hasActiveSession(userId);
 
@@ -3272,7 +2032,7 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
         });
 
         await new Promise((resolve, reject) => {
-            const writer = require('fs').createWriteStream(tempImagePath);
+            const writer = fs.createWriteStream(tempImagePath);
             response.data.pipe(writer);
             writer.on('finish', resolve);
             writer.on('error', reject);
@@ -3308,6 +2068,17 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
         const processedPredictions = smartPostProcessing(predictions);
         const analysis = analyzePredictions(processedPredictions);
 
+        // 🔍 Проверяем, нужно ли обработать для аккумулятивной модели
+        const processedForModel = await processPhotoForModel(userId, chatId, msg, processedPredictions);
+        if (processedForModel) {
+            // Фото обработано для модели, не делаем обычный анализ
+            tempFileManager.removeFile(tempImagePath);
+            if (statusMessage) {
+                await bot.deleteMessage(chatId, statusMessage.message_id);
+            }
+            return;
+        }
+
         // 🔍 ПРАКТИЧЕСКИЙ АНАЛИЗ
         let predictionsForAnalysis = processedPredictions;
         let practicalAnalysis = null;
@@ -3320,17 +2091,6 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
             predictionsForAnalysis = filteredPredictions;
         } catch (psoError) {
             console.log('⚠️ Практический анализ пропущен:', psoError.message);
-        }
-
-        // 🆕 Проверяем, нужно ли обработать для аккумулятивной модели
-        const processedForModel = await processPhotoForModel(userId, chatId, msg, predictionsForAnalysis);
-        if (processedForModel) {
-            // Фото обработано для модели, не делаем обычный анализ
-            tempFileManager.removeFile(tempImagePath);
-            if (statusMessage) {
-                await bot.deleteMessage(chatId, statusMessage.message_id);
-            }
-            return;
         }
 
         // 🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ
@@ -3462,23 +2222,9 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
             });
 
             await bot.sendMessage(chatId, resultMessage);
-if (!hasSession && totalCount === 1) {
-    await bot.sendMessage(chatId, "🎯 **ДЕЙСТВИЯ С МОДЕЛЬЮ:**", {
-        reply_markup: {
-            inline_keyboard: [
-                [
-                    { text: "➕ Добавить в модель", callback_data: "add_to_model" },
-                    { text: "🔍 Сравнить", callback_data: "compare_with_model" }
-                ],
-                [
-                    { text: "📊 Статистика", callback_data: "show_stats" }
-                ]
-            ]
-        }
-    });
-}
+
             // Визуализация
-            if (vizPath && require('fs').existsSync(vizPath)) {
+            if (vizPath && fs.existsSync(vizPath)) {
                 await bot.sendPhoto(chatId, vizPath, {
                     caption: '🎨 Визуализация анализа'
                 });
@@ -3486,7 +2232,7 @@ if (!hasSession && totalCount === 1) {
             }
 
             // 🔥 ВЕРНУЛИ ТОПОЛОГИЧЕСКУЮ ВИЗУАЛИЗАЦИЮ ДЛЯ ОДИНОЧНОГО ФОТО
-            if (topologyVizPath && require('fs').existsSync(topologyVizPath)) {
+            if (topologyVizPath && fs.existsSync(topologyVizPath)) {
                 await bot.sendPhoto(chatId, topologyVizPath, {
                     caption: '🕸️ **Топологический анализ протектора**\n' +
                              '• 🟢 Зеленые точки - центры протекторов\n' +
@@ -3515,45 +2261,7 @@ if (!hasSession && totalCount === 1) {
 
                 await bot.sendMessage(chatId, intelMessage);
             }
-// 🔥 СРАЗУ ПОСЛЕ ЭТОГО БЛОКА (перед очисткой temp файлов) ВСТАВЬ:
-// ============================
-// 🆕 КНОПКИ ДЛЯ ДЕЙСТВИЙ С ФОТО
-if (!hasSession && totalCount === 1 && analysis.total > 0) {
-    const actionKeyboard = {
-        inline_keyboard: [
-            [
-                {
-                    text: "✅ Добавить в модель",
-                    callback_data: `photo_action_add_${msg.message_id}`
-                },
-                {
-                    text: "🔍 Сравнить с моделью",
-                    callback_data: `photo_action_compare_${msg.message_id}`
-                }
-            ],
-            [
-                {
-                    text: "📊 Показать детали",
-                    callback_data: `photo_action_details_${msg.message_id}`
-                },
-                {
-                    text: "🎯 Практический анализ",
-                    callback_data: `photo_action_practical_${msg.message_id}`
-                }
-            ],
-            [
-                {
-                    text: "📁 Сохранить в архив",
-                    callback_data: `photo_action_save_${msg.message_id}`
-                }
-            ]
-        ]
-    };
 
-    await bot.sendMessage(chatId, "⚡ **ЧТО ДАЛЬШЕ?**", {
-        reply_markup: actionKeyboard
-    });
-}
             // 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥
             // 🔥 ВСТАВЬ КОД ОБРАТНОЙ СВЯЗИ ПРЯМО ЗДЕСЬ:
             // 🔥 ДОБАВЛЯЕМ ЗАПРОС ОБРАТНОЙ СВЯЗИ (только для одиночных фото с хорошими prediction)
@@ -3606,10 +2314,466 @@ if (!hasSession && totalCount === 1 && analysis.total > 0) {
     }
 }
 
-// Запуск сервера
+// =============================================================================
+// 📸 ОБРАБОТКА ФОТО С ПАЧКАМИ И ОЧЕРЕДЯМИ
+// =============================================================================
+bot.on('photo', async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    // Добавляем фото в детектор пачки
+    if (!photoBatchDetector.has(userId)) {
+        photoBatchDetector.set(userId, {
+            photos: [],
+            timer: null
+        });
+    }
+
+    const detector = photoBatchDetector.get(userId);
+    detector.photos.push({
+        msg: msg,
+        timestamp: Date.now()
+    });
+
+    // Сбрасываем таймер
+    if (detector.timer) {
+        clearTimeout(detector.timer);
+    }
+
+    // Ждем 1 секунду для сбора пачки фото
+    detector.timer = setTimeout(async () => {
+        const photos = detector.photos;
+        photoBatchDetector.delete(userId);
+
+        // Если фото одно и нет активной сессии - обрабатываем сразу
+        if (photos.length === 1 && !sessionManager.hasActiveSession(userId)) {
+            await processSinglePhoto(chatId, userId, photos[0].msg);
+            return;
+        }
+
+        // Если несколько фото или есть активная сессия - добавляем в очередь
+        if (!photoQueue.has(userId)) {
+            photoQueue.set(userId, []);
+        }
+
+        photos.forEach(photo => {
+            photoQueue.get(userId).push({
+                msg: photo.msg,
+                timestamp: photo.timestamp
+            });
+        });
+
+        // Запускаем обработку очереди
+        setTimeout(() => processPhotoQueue(userId, chatId), 100);
+
+    }, 1000); // Ждем 1 секунду для сбора пачки
+});
+
+// =============================================================================
+// 🆕 ОБРАБОТКА CALLBACK-КНОПОК
+// =============================================================================
+
+bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const userId = callbackQuery.from.id;
+    const messageId = callbackQuery.message.message_id;
+    const data = callbackQuery.data;
+
+    try {
+        // 1. Обработка кнопок аккумулятивной модели
+        if (data === 'model_first_photo') {
+            await bot.answerCallbackQuery(callbackQuery.id, {
+                text: 'Отправьте первое фото следа'
+            });
+
+            await bot.editMessageText(
+                `📸 *ОТПРАВЬТЕ ПЕРВОЕ ФОТО СЛЕДА*\n\n` +
+                `Снимите общий план следа с хорошим освещением.\n` +
+                `Бот установит эталон и начнёт строить модель.`,
+                {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown'
+                }
+            );
+
+            return;
+        }
+
+        if (data === 'model_cancel') {
+            await bot.answerCallbackQuery(callbackQuery.id, {
+                text: 'Создание модели отменено'
+            });
+
+            await bot.editMessageText(
+                `❌ Создание модели отменено\n\n` +
+                `Можете начать заново: /model_start`,
+                {
+                    chat_id: chatId,
+                    message_id: messageId
+                }
+            );
+
+            return;
+        }
+
+        // 2. Обработка основной feedback кнопки
+        if (data === 'feedback_correct') {
+            await bot.answerCallbackQuery(callbackQuery.id, {
+                text: 'Спасибо за подтверждение!'
+            });
+
+            // Сохраняем в базу
+            const feedbackData = {
+                userId: userId,
+                prediction: null, // Нужно найти оригинальный prediction
+                correctionType: 'correct',
+                imageId: 'unknown',
+                timestamp: new Date().toISOString()
+            };
+
+            feedbackDB.addFeedback(feedbackData);
+
+            // Обновляем сообщение
+            await bot.editMessageText(
+                `✅ Спасибо! Ваш ответ поможет улучшить точность анализа.`,
+                {
+                    chat_id: chatId,
+                    message_id: messageId
+                }
+            );
+
+        } else if (data === 'feedback_incorrect') {
+            await bot.answerCallbackQuery(callbackQuery.id);
+
+            // Показываем меню выбора типа ошибки
+            await bot.editMessageText(
+                `Что не так с анализом? Выберите вариант:`,
+                {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    reply_markup: feedbackManager.createCorrectionKeyboard()
+                }
+            );
+
+        }
+        // 3. Обработка конкретных исправлений
+        else if (data.startsWith('correction_')) {
+            const correctionType = data.replace('correction_', '');
+
+            await bot.answerCallbackQuery(callbackQuery.id, {
+                text: 'Спасибо за исправление!'
+            });
+
+            // Сохраняем в базу
+            const feedbackData = {
+                userId: userId,
+                prediction: null,
+                correctionType: correctionType,
+                imageId: 'unknown',
+                timestamp: new Date().toISOString(),
+                notes: getCorrectionDescription(correctionType)
+            };
+
+            feedbackDB.addFeedback(feedbackData);
+
+            // Обновляем сообщение
+            await bot.editMessageText(
+                `✅ Спасибо за исправление!\n` +
+                `Тип: ${getCorrectionDescription(correctionType)}\n` +
+                `Это поможет значительно улучшить точность модели.`,
+                {
+                    chat_id: chatId,
+                    message_id: messageId
+                }
+            );
+        }
+
+        // 4. Если callback не обработан - игнорируем
+        console.log(`⚠️ Необработанный callback: ${data}`);
+
+    } catch (error) {
+        console.log('❌ Ошибка обработки callback:', error);
+        await bot.answerCallbackQuery(callbackQuery.id, {
+            text: 'Ошибка обработки'
+        });
+    }
+});
+
+// Вспомогательная функция для описаний исправлений
+function getCorrectionDescription(type) {
+    const descriptions = {
+        'animal': '🐾 След животного',
+        'other_shoe': '👞 Другая обувь',
+        'bounds': '📏 Неправильные границы',
+        'multiple': '👣 Несколько следов',
+        'not_footprint': '🚫 Не след вообще',
+        'other_class': '🔍 Другой класс',
+        'correct': '✅ Правильно'
+    };
+
+    return descriptions[type] || type;
+}
+
+// =============================================================================
+// 🚀 ЗАПУСК СЕРВЕРА
+// =============================================================================
+app.get('/', (req, res) => {
+    res.send(`
+        <h1>🤖 Система анализа следов обуви v2.1</h1>
+        <p>✅ Модульная система работает!</p>
+        <p>📊 Пользователей: ${globalStats.totalUsers}</p>
+        <p>📸 Фото обработано: ${globalStats.totalPhotos}</p>
+        <p>🎯 Практический анализ для ПСО: активен</p>
+        <p>🐕 Фильтрация животных: активна</p>
+        <p>🕸️ Аккумулятивная модель: активна</p>
+        <p><a href="/health">Health Check</a></p>
+    `);
+});
+
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        statistics: {
+            users: globalStats.totalUsers,
+            photos: globalStats.totalPhotos,
+            analyses: globalStats.totalAnalyses
+        },
+        modules: {
+            practicalAnalyzer: practicalAnalyzer !== null,
+            animalFilter: animalFilter !== null,
+            visualization: visualization !== null,
+            yandexDisk: yandexDisk !== null,
+            enhancedSessionManager: enhancedSessionManager !== null
+        }
+    });
+});
+
+// =============================================================================
+// 🛡️ ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ОШИБОК
+// =============================================================================
+
+// Обработчик необработанных обещаний
+process.on('unhandledRejection', (reason, promise) => {
+    console.log('❌ Необработанное отклонение промиса:', reason);
+    console.log('📋 Promise:', promise);
+    // Очищаем временные файлы при критической ошибке
+    if (tempFileManager && tempFileManager.cleanup) {
+        tempFileManager.cleanup();
+    }
+});
+
+// Обработчик необработанных исключений
+process.on('uncaughtException', (error) => {
+    console.log('💥 Критическая ошибка:', error);
+    console.log('🔄 Очищаем временные файлы...');
+    if (tempFileManager && tempFileManager.cleanup) {
+        tempFileManager.cleanup();
+    }
+    process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+    console.log('🛑 Получен SIGINT, очищаем ресурсы...');
+    const cleaned = tempFileManager.cleanup ? tempFileManager.cleanup() : 0;
+    console.log(`🧹 Удалено ${cleaned} временных файлов перед выходом`);
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('🛑 Получен SIGTERM, очищаем ресурсы...');
+    const cleaned = tempFileManager.cleanup ? tempFileManager.cleanup() : 0;
+    console.log(`🧹 Удалено ${cleaned} временных файлов перед выходом`);
+    process.exit(0);
+});
+
+// Периодическая очистка старых файлов (каждые 30 минут)
+setInterval(() => {
+    if (tempFileManager && tempFileManager.cleanupOldFiles) {
+        const cleaned = tempFileManager.cleanupOldFiles(60); // файлы старше 60 минут
+        if (cleaned > 0) {
+            console.log(`⏰ Периодическая очистка: удалено ${cleaned} старых файлов`);
+        }
+    }
+}, 30 * 60 * 1000); // 30 минут
+
+console.log('🛡️ Глобальные обработчики ошибок активированы');
+
+// =============================================================================
+// 🔄 ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
+// =============================================================================
+
+// НЕМЕДЛЕННО ВЫЗЫВАЕМАЯ АСИНХРОННАЯ ФУНКЦИЯ (IIFE)
+(async function() {
+    // ИНИЦИАЛИЗИРУЕМ СИНХРОННЫЕ МОДУЛИ
+    try {
+        visualization = visualizationModule.initialize();
+        console.log('✅ Модуль визуализации загружен');
+    } catch (error) {
+        console.log('❌ Ошибка модуля визуализации:', error.message);
+        visualization = {
+            getVisualization: () => ({ createVisualization: async () => null }),
+            setUserStyle: () => false,
+            getUserStyle: () => 'original',
+            getAvailableStyles: () => [{ id: 'original', name: 'Оригинальный', description: 'Основной стиль' }],
+            userPreferences: new Map()
+        };
+    }
+
+    try {
+        tempFileManager = tempManagerModule.initialize({
+            tempDir: './temp',
+            autoCleanup: true
+        });
+        console.log('✅ Менеджер временных файлов загружен');
+    } catch (error) {
+        console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить менеджер файлов:', error.message);
+        tempFileManager = {
+            track: () => {},
+            removeFile: () => false,
+            cleanup: () => 0,
+            getStats: () => ({ totalTracked: 0, existingFiles: 0, totalSize: '0 MB' })
+        };
+    }
+
+    // 🧠 ДОБАВЛЯЕМ МОДУЛЬ АНАЛИЗА
+    try {
+        analysisModule = new AnalysisModule();
+        console.log('✅ Модуль анализа загружен');
+    } catch (error) {
+        console.log('❌ Ошибка модуля анализа:', error.message);
+        analysisModule = {
+            performComprehensiveAnalysis: async () => {
+                console.log('⚠️ Модуль анализа временно недоступен');
+                return null;
+            }
+        };
+    }
+
+    // 🔧 ИНИЦИАЛИЗИРУЕМ ТОПОЛОГИЧЕСКИЙ ВИЗУАЛИЗАТОР
+    try {
+        topologyVisualizer = new TopologyVisualizer();
+        console.log('✅ TopologyVisualizer загружен');
+    } catch (error) {
+        console.log('❌ Ошибка TopologyVisualizer:', error);
+        topologyVisualizer = {
+            createTopologyVisualization: async () => {
+                console.log('⚠️ TopologyVisualizer временно недоступен');
+                return false;
+            }
+        };
+    }
+
+    // 🎯 ДОБАВЛЯЕМ ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
+    try {
+        practicalAnalyzer = new PracticalAnalyzer();
+        animalFilter = new AnimalFilter();
+        console.log('✅ Практический анализатор и фильтр животных загружены');
+    } catch (error) {
+        console.log('❌ Ошибка практического анализатора:', error.message);
+        practicalAnalyzer = createPracticalAnalyzerStub();
+        animalFilter = createAnimalFilterStub();
+    }
+
+    // 🆕 ИНИЦИАЛИЗИРУЕМ МОДУЛИ АККУМУЛЯТИВНОЙ МОДЕЛИ
+    try {
+        enhancedSessionManager = new EnhancedSessionManager();
+        modelVisualizer = new ModelVisualizer();
+        console.log('✅ Enhanced session manager загружен');
+
+        // Периодическая очистка старых моделей (каждые 30 минут)
+        setInterval(() => {
+            if (enhancedSessionManager && enhancedSessionManager.cleanupOldModels) {
+                const cleaned = enhancedSessionManager.cleanupOldModels(6); // 6 часов
+                if (cleaned > 0) {
+                    console.log(`🧹 Очищено ${cleaned} старых моделей`);
+                }
+            }
+        }, 30 * 60 * 1000);
+
+    } catch (error) {
+        console.log('❌ Ошибка enhanced manager:', error.message);
+        enhancedSessionManager = null;
+        modelVisualizer = null;
+    }
+
+    // 🆕 ИНИЦИАЛИЗИРУЕМ СЕССИОННЫЕ МОДУЛИ
+    try {
+        sessionManager = new SessionManager();
+        sessionAnalyzer = new SessionAnalyzer();
+        console.log('✅ Сессионные модули загружены');
+    } catch (error) {
+        console.log('❌ Ошибка сессионных модулей:', error.message);
+        sessionManager = createSessionManagerStub();
+        sessionAnalyzer = createSessionAnalyzerStub();
+    }
+
+    // 🆕 ИНИЦИАЛИЗИРУЕМ ОБРАТНУЮ СВЯЗЬ
+    try {
+        feedbackDB = new FeedbackDatabase();
+        feedbackManager = new FeedbackManager();
+        console.log('✅ Система обратной связи загружена');
+    } catch (error) {
+        console.log('❌ Ошибка системы обратной связи:', error);
+        feedbackDB = {
+            addFeedback: () => ({ id: 'stub' }),
+            getStatistics: () => ({ total: 0, correct: 0 }),
+            exportForRoboflow: () => ({})
+        };
+        feedbackManager = {
+            requestFeedback: () => null,
+            createFeedbackKeyboard: () => ({ inline_keyboard: [] }),
+            processFeedback: () => null,
+            createCorrectionKeyboard: () => ({ inline_keyboard: [] })
+        };
+    }
+
+    // ИНИЦИАЛИЗИРУЕМ НОВЫЕ МОДУЛИ
+    try {
+        calculators = calculatorsModule.initialize();
+        console.log('✅ Модуль калькуляторов загружен');
+    } catch (error) {
+        console.log('❌ Ошибка модуля калькуляторов:', error.message);
+        calculators = createCalculatorsStub();
+    }
+
+    try {
+        apps = appsModule.initialize();
+        console.log('✅ Модуль приложений загружен');
+    } catch (error) {
+        console.log('❌ Ошибка модуля приложений:', error.message);
+        apps = createAppsStub();
+    }
+
+    // ИНИЦИАЛИЗИРУЕМ ЯНДЕКС.ДИСК (асинхронно)
+    try {
+        yandexDisk = await yandexDiskModule.initialize(config.YANDEX_DISK_TOKEN);
+        if (yandexDisk) {
+            console.log('✅ Модуль Яндекс.Диска загружен');
+            await yandexDisk.createAppFolder();
+            console.log('✅ Папка Яндекс.Диска готова');
+        } else {
+            console.log('⚠️ Модуль Яндекс.Диска отключен (нет токена)');
+            yandexDisk = createYandexDiskStub();
+        }
+    } catch (error) {
+        console.log('❌ Ошибка инициализации Яндекс.Диска:', error.message);
+        yandexDisk = createYandexDiskStub();
+    }
+
+    console.log('🚀 Все модули инициализированы, бот готов к работе!');
+    console.log('🎯 Практический анализ для ПСО активирован');
+    console.log('🐕 Фильтрация животных активирована');
+    console.log('🕸️ Аккумулятивная модель следов активирована');
+})();
+
+// Запуск сервеера
 app.listen(config.PORT, () => {
     console.log(`✅ Сервер запущен на порту ${config.PORT}`);
     console.log(`🤖 Telegram бот готов к работе`);
     console.log(`🎯 Практический анализ для ПСО активирован`);
     console.log(`🐕 Фильтрация животных: активна`);
+    console.log(`🕸️ Аккумулятивная модель следов активирована`);
 });
