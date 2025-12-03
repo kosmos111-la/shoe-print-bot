@@ -2,13 +2,15 @@
 const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const path = require('path');
+
+// ✅ Импортируем DistortionTransformer
 const DistortionTransformer = require('./distortion-transformer');
 
 class EnhancedModelVisualizer {
     constructor() {
         console.log('🎨 EnhancedModelVisualizer создан');
         this.tempDir = path.join(process.cwd(), 'temp');
-        this.transformer = new DistortionTransformer();
+        this.transformer = new DistortionTransformer(); // ✅ Теперь работает
         this.ensureTempDir();
     }
 
