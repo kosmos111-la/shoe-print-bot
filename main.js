@@ -33,6 +33,45 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
+const enhancedManagerPath = path.join(__dirname, 'modules', 'session', 'enhanced-manager.js');
+console.log('🔍 Проверка файла enhanced-manager.js:');
+console.log('- Путь:', enhancedManagerPath);
+console.log('- Существует?', fs.existsSync(enhancedManagerPath));
+
+if (!fs.existsSync(enhancedManagerPath)) {
+  console.log('❌ ФАЙЛ НЕ НАЙДЕН! Создаю минимальную версию...');
+ 
+  // Создаём минимальную рабочую версию
+  const minimalCode = `
+class EnhancedSessionManager {
+  constructor() {
+    console.log('🆘 МИНИМАЛЬНАЯ ВЕРСИЯ EnhancedSessionManager');
+    this.models = new Map();
+    this.userSessions = new Map();
+  }
+ 
+  createModelSession(userId) {
+    const sessionId = 'minimal_' + Date.now();
+    return {
+      sessionId,
+      model: { photosProcessed: 0 },
+      isExisting: false,
+      message: '✅ Минимальная модель создана'
+    };
+  }
+ 
+  getUserModel() { return null; }
+  getModelStatus() { return { error: 'Минимальная версия' }; }
+  exportModel() { return null; }
+}
+
+module.exports = { EnhancedSessionManager };
+`;
+ 
+  fs.writeFileSync(enhancedManagerPath, minimalCode);
+  console.log('✅ Минимальный файл создан');
+}
+
 // ИМПОРТ МОДУЛЕЙ (дополняем существующие)
 const visualizationModule = require('./modules/visualization');
 const yandexDiskModule = require('./modules/yandex-disk');
@@ -53,6 +92,37 @@ const { FeedbackDatabase } = require('./modules/feedback/feedback-db');
 const { FeedbackManager } = require('./modules/feedback/feedback-manager');
 const { EnhancedSessionManager } = require('./modules/session/enhanced-manager.js');
 const { ModelVisualizer } = require('./modules/visualization/model-visualizer.js');
+
+console.log('🔍 ПРОВЕРКА enhancedSessionManager ПОСЛЕ ИНИЦИАЛИЗАЦИИ:');
+
+if (!enhancedSessionManager || typeof enhancedSessionManager.createModelSession !== 'function') {
+  console.log('🆘 ЭКСТРЕННЫЙ ФИКС: создаю заглушку на лету');
+ 
+  enhancedSessionManager = {
+    models: new Map(),
+    userSessions: new Map(),
+   
+    createModelSession: function(userId) {
+      console.log('🆘 ВЫЗОВ ЗАГЛУШКИ createModelSession для', userId);
+      const sessionId = 'stub_' + Date.now();
+      return {
+        sessionId,
+        model: { photosProcessed: 0 },
+        isExisting: false,
+        message: '✅ Тестовая модель создана (режим заглушки)'
+      };
+    },
+   
+    getUserModel: function() { return null; },
+    getModelStatus: function() { return { error: 'Заглушка' }; },
+    exportModel: function() { return null; },
+    addPhotoToModel: async function() {
+      return { success: false, error: 'Заглушка' };
+    }
+  };
+ 
+  console.log('✅ Заглушка создана');
+}
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
@@ -1375,6 +1445,32 @@ bot.onText(/\/apps/, async (msg) => {
 // 🆕 КОМАНДЫ АККУМУЛЯТИВНОЙ МОДЕЛИ
 // =============================================================================
 
+// Добавьте ЭТОТ КОД перед командой /model_start
+console.log('🔍 ДИАГНОСТИКА enhancedSessionManager:');
+console.log('1. enhancedSessionManager существует?', !!enhancedSessionManager);
+console.log('2. Тип:', typeof enhancedSessionManager);
+console.log('3. Конструктор:', enhancedSessionManager?.constructor?.name);
+console.log('4. Метод createModelSession?', typeof enhancedSessionManager?.createModelSession);
+
+// Если нужно, добавьте временную заглушку прямо здесь
+if (!enhancedSessionManager || typeof enhancedSessionManager.createModelSession !== 'function') {
+  console.log('⚠️ Создаю экстренную заглушку...');
+  enhancedSessionManager = {
+    createModelSession: (userId) => {
+      console.log('🆘 ЭКСТРЕННАЯ ЗАГЛУШКА для createModelSession');
+      return {
+        sessionId: 'emergency_' + Date.now(),
+        model: null,
+        isExisting: false,
+        message: '⚠️ Модуль в режиме заглушки. Функционал ограничен.'
+      };
+    },
+    getUserModel: () => null,
+    getModelStatus: () => ({ error: 'Модуль недоступен' }),
+    exportModel: () => null
+  };
+}
+
 // Команда /model_start - начать сбор модели
 bot.onText(/\/model_start/, async (msg) => {
   const chatId = msg.chat.id;
@@ -1386,7 +1482,16 @@ bot.onText(/\/model_start/, async (msg) => {
   }
  
   try {
-    const session = enhancedSessionManager.createModelSession(userId);
+  console.log('🔍 Перед вызовом createModelSession:');
+  console.log('- userId:', userId);
+  console.log('- enhancedSessionManager тип:', typeof enhancedSessionManager);
+  console.log('- createModelSession тип:', typeof enhancedSessionManager?.createModelSession);
+ 
+  if (!enhancedSessionManager || typeof enhancedSessionManager.createModelSession !== 'function') {
+    throw new Error('enhancedSessionManager не инициализирован правильно');
+  }
+ 
+  const session = enhancedSessionManager.createModelSession(userId);
    
     if (session.isExisting) {
       await bot.sendMessage(chatId, session.message);
@@ -1701,6 +1806,30 @@ bot.onText(/\/model_export/, async (msg) => {
     console.log('❌ Ошибка экспорта:', error);
     await bot.sendMessage(chatId, '❌ Не удалось экспортировать модель');
   }
+});
+
+bot.onText(/\/system_status/, async (msg) => {
+  const chatId = msg.chat.id;
+ 
+  let status = `🖥️ *СТАТУС СИСТЕМЫ*\n\n`;
+ 
+  // Модули
+  status += `📦 **МОДУЛИ:**\n`;
+  status += `• enhancedSessionManager: ${enhancedSessionManager ? '✅' : '❌'}\n`;
+  status += `• Тип: ${typeof enhancedSessionManager}\n`;
+ 
+  if (enhancedSessionManager) {
+    status += `• Конструктор: ${enhancedSessionManager.constructor?.name || 'нет'}\n`;
+    status += `• createModelSession: ${typeof enhancedSessionManager.createModelSession}\n`;
+    status += `• models.size: ${enhancedSessionManager.models?.size || 'нет'}\n`;
+  }
+ 
+  // Версии
+  status += `\n📊 **ВЕРСИИ:**\n`;
+  status += `• Node.js: ${process.version}\n`;
+  status += `• Память: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB\n`;
+ 
+  await bot.sendMessage(chatId, status, { parse_mode: 'Markdown' });
 });
 
 // =============================================================================
