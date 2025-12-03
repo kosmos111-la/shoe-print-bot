@@ -35,65 +35,138 @@ class DigitalFootprint {
     }
 
     // ОСНОВНОЙ МЕТОД: добавить данные из анализа
-    addAnalysis(analysis, sourceInfo = {}) {
-        const { predictions, timestamp } = analysis;
-        const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
+    addAnalysis(analysis, sourceInfo = {}) {addAnalysis(analysis, sourceInfo = {}) {
+    const { predictions, timestamp, imagePath } = analysis;
+    const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
+    const contours = predictions?.filter(p => p.class === 'Outline-trail') || [];
+    const heels = predictions?.filter(p => p.class === 'Heel') || [];
+   
+    console.log(`🔍 Добавляю ${protectors.length} протекторов, ${contours.length} контуров из анализа`);
+   
+    // Сохраняем контуры и каблуки в sourceInfo
+    const enhancedSourceInfo = {
+        ...sourceInfo,
+        imagePath: imagePath || sourceInfo.imagePath,
+        contours: contours.map(c => ({ points: c.points })),
+        heels: heels.map(h => ({ points: h.points })),
+        timestamp: timestamp || new Date()
+    };
+   
+    // Для каждого протектора
+    protectors.forEach(protector => {
+        const node = this.createNodeFromProtector(protector, enhancedSourceInfo);
        
-        console.log(`🔍 Добавляю ${protectors.length} протекторов из анализа`);
+        // Проверяем, нет ли уже похожего узла
+        const similarNode = this.findSimilarNode(node);
        
-        // Для каждого протектора
-        protectors.forEach(protector => {
-            const node = this.createNodeFromProtector(protector, sourceInfo);
-           
-            // Проверяем, нет ли уже похожего узла
-            const similarNode = this.findSimilarNode(node);
-           
-            if (similarNode) {
-                // УСИЛИВАЕМ существующий узел
-                this.mergeNodes(similarNode.id, node);
-            } else {
-                // ДОБАВЛЯЕМ новый узел
-                this.nodes.set(node.id, node);
-            }
-        });
-       
-        this.stats.totalSources++;
-        this.stats.lastUpdated = new Date();
-       
-        // Пересчитываем связи
-        this.rebuildEdges();
-       
-        // Обновляем быстрые индексы
-        this.updateIndices();
-       
-        return {
-            added: protectors.length,
-            merged: this.nodes.size,
-            confidence: this.stats.confidence
-        };
-    }
+        if (similarNode) {
+            // УСИЛИВАЕМ существующий узел
+            this.mergeNodes(similarNode.id, node);
+        } else {
+            // ДОБАВЛЯЕМ новый узел
+            this.nodes.set(node.id, node);
+        }
+    });
+   
+    // Сохраняем лучший контур и каблук если их еще нет или новые лучше
+    this.updateBestContours(contours, enhancedSourceInfo);
+    this.updateBestHeels(heels, enhancedSourceInfo);
+   
+    this.stats.totalSources++;
+    this.stats.lastUpdated = new Date();
+   
+    // Пересчитываем связи
+    this.rebuildEdges();
+   
+    // Обновляем быстрые индексы
+    this.updateIndices();
+   
+    return {
+        added: protectors.length,
+        contours: contours.length,
+        heels: heels.length,
+        merged: this.nodes.size,
+        confidence: this.stats.confidence
+    };
+}
 
-    // Создание узла из протектора
-    createNodeFromProtector(protector, sourceInfo) {
-        const center = this.calculateCenter(protector.points);
-        const size = this.calculateSize(protector.points);
+// НОВЫЕ МЕТОДЫ:
+updateBestContours(contours, sourceInfo) {
+    if (!contours || contours.length === 0) return;
+   
+    // Находим самый большой контур (по площади)
+    let bestContour = null;
+    let maxArea = 0;
+   
+    contours.forEach(contour => {
+        const area = this.calculateArea(contour.points);
+        if (area > maxArea) {
+            maxArea = area;
+            bestContour = {
+                points: contour.points,
+                area: area,
+                source: sourceInfo,
+                timestamp: new Date()
+            };
+        }
+    });
+   
+    if (bestContour) {
+        if (!this.bestContours) this.bestContours = [];
+        this.bestContours.push(bestContour);
        
-        return {
-            id: `node_${crypto.randomBytes(3).toString('hex')}`,
-            center: center,
-            size: size,
-            shape: this.estimateShape(protector.points),
-            confidence: protector.confidence || 0.5,
-            confirmationCount: 1,
-            sources: [{
-                ...sourceInfo,
-                timestamp: new Date(),
-                confidence: protector.confidence
-            }],
-            firstSeen: new Date(),
-            lastSeen: new Date()
-        };
+        // Оставляем только 3 лучших контура
+        this.bestContours.sort((a, b) => b.area - a.area);
+        if (this.bestContours.length > 3) {
+            this.bestContours = this.bestContours.slice(0, 3);
+        }
     }
+}
+
+updateBestHeels(heels, sourceInfo) {
+    if (!heels || heels.length === 0) return;
+   
+    // Находим самый четкий каблук (по уверенности если есть)
+    let bestHeel = null;
+    let maxConfidence = 0;
+   
+    heels.forEach(heel => {
+        const confidence = heel.confidence || 0.5;
+        if (confidence > maxConfidence) {
+            maxConfidence = confidence;
+            bestHeel = {
+                points: heel.points,
+                confidence: confidence,
+                source: sourceInfo,
+                timestamp: new Date()
+            };
+        }
+    });
+   
+    if (bestHeel) {
+        if (!this.bestHeels) this.bestHeels = [];
+        this.bestHeels.push(bestHeel);
+       
+        // Оставляем только 2 лучших каблука
+        this.bestHeels.sort((a, b) => b.confidence - a.confidence);
+        if (this.bestHeels.length > 2) {
+            this.bestHeels = this.bestHeels.slice(0, 2);
+        }
+    }
+}
+
+calculateArea(points) {
+    if (!points || points.length < 3) return 0;
+   
+    let area = 0;
+    for (let i = 0; i < points.length; i++) {
+        const j = (i + 1) % points.length;
+        area += points[i].x * points[j].y;
+        area -= points[j].x * points[i].y;
+    }
+   
+    return Math.abs(area) / 2;
+}
 
     // Поиск похожего узла
     findSimilarNode(newNode, tolerance = 15) {
