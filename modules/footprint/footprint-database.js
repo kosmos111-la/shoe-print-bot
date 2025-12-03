@@ -8,9 +8,9 @@ class FootprintDatabase {
         this.dataDir = dataDir;
         this.footprints = new Map(); // id -> DigitalFootprint
         this.userIndex = new Map(); // userId -> Set<footprintId>
-        this.hashIndex = new Map(); // hash -> footprintId (для быстрого поиска дубликатов)
+        this.hashIndex = new Map(); // hash -> footprintId
        
-        // Пространственный индекс для быстрого поиска
+        // ПРОСТРАНСТВЕННЫЙ ИНДЕКС - ИСПРАВЛЕНО!
         this.spatialIndex = {
             byWidth: new Map(),   // ширина -> Set<footprintId>
             byHeight: new Map(),  // высота -> Set<footprintId>
@@ -23,12 +23,8 @@ class FootprintDatabase {
     // ИНИЦИАЛИЗАЦИЯ
     async initialize() {
         try {
-            // Создаем директорию если нет
             await fs.mkdir(this.dataDir, { recursive: true });
-           
-            // Загружаем существующие данные
             await this.loadFromDisk();
-           
             console.log(`✅ FootprintDatabase готов: ${this.footprints.size} моделей`);
             return true;
         } catch (error) {
@@ -74,8 +70,6 @@ class FootprintDatabase {
             const data = JSON.stringify(footprint.toJSON(), null, 2);
            
             await fs.writeFile(filePath, data, 'utf8');
-           
-            // Также сохраняем в общий индекс
             await this.updateMasterIndex(footprint);
            
             return { success: true, path: filePath };
@@ -85,7 +79,7 @@ class FootprintDatabase {
         }
     }
 
-    // ДОБАВЛЕНИЕ В ПАМЯТЬ
+    // ДОБАВЛЕНИЕ В ПАМЯТЬ - ИСПРАВЛЕНО!
     addToMemory(footprint) {
         this.footprints.set(footprint.id, footprint);
        
@@ -97,37 +91,41 @@ class FootprintDatabase {
             this.userIndex.get(footprint.userId).add(footprint.id);
         }
        
-        // Индексируем по хешу (для поиска дубликатов)
+        // Индексируем по хешу
         if (footprint.hash) {
             this.hashIndex.set(footprint.hash, footprint.id);
         }
        
-        // Пространственный индекс
-        this.updateSpatialIndex(footprint);
+        // ПРОСТРАНСТВЕННЫЙ ИНДЕКС - ИСПРАВЛЕНО!
+        if (footprint.boundingBox) {
+            const { width, height } = footprint.boundingBox;
+            const nodeCount = footprint.nodes.size;
+           
+            // Округляем для группировки
+            const widthKey = Math.round(width / 10) * 10;
+            const heightKey = Math.round(height / 10) * 10;
+            const nodeCountKey = Math.round(nodeCount / 5) * 5;
+           
+            // Добавляем в ширину
+            if (!this.spatialIndex.byWidth.has(widthKey)) {
+                this.spatialIndex.byWidth.set(widthKey, new Set());
+            }
+            this.spatialIndex.byWidth.get(widthKey).add(footprint.id);
+           
+            // Добавляем в высоту
+            if (!this.spatialIndex.byHeight.has(heightKey)) {
+                this.spatialIndex.byHeight.set(heightKey, new Set());
+            }
+            this.spatialIndex.byHeight.get(heightKey).add(footprint.id);
+           
+            // Добавляем в количество узлов
+            if (!this.spatialIndex.byNodeCount.has(nodeCountKey)) {
+                this.spatialIndex.byNodeCount.set(nodeCountKey, new Set());
+            }
+            this.spatialIndex.byNodeCount.get(nodeCountKey).add(footprint.id);
+        }
        
         return footprint.id;
-    }
-
-    // ОБНОВЛЕНИЕ ПРОСТРАНСТВЕННОГО ИНДЕКСА
-    updateSpatialIndex(footprint) {
-        if (!footprint.boundingBox) return;
-       
-        const { width, height } = footprint.boundingBox;
-        const nodeCount = footprint.nodes.size;
-       
-        // Округляем для группировки
-        const widthKey = Math.round(width / 10) * 10; // Группируем по 10px
-        const heightKey = Math.round(height / 10) * 10;
-        const nodeCountKey = Math.round(nodeCount / 5) * 5; // Группируем по 5 узлов
-       
-        [this.spatialIndex.byWidth, widthKey,
-         this.spatialIndex.byHeight, heightKey,
-         this.spatialIndex.byNodeCount, nodeCountKey].forEach((index, key, i) => {
-            if (!index.has(key)) {
-                index.set(key, new Set());
-            }
-            index.get(key).add(footprint.id);
-        });
     }
 
     // ОБНОВЛЕНИЕ ОБЩЕГО ИНДЕКСА
@@ -143,7 +141,6 @@ class FootprintDatabase {
                 // Файла нет, создаем новый
             }
            
-            // Добавляем или обновляем запись
             const existingIndex = index.footprints.findIndex(f => f.id === footprint.id);
             const entry = {
                 id: footprint.id,
@@ -170,13 +167,12 @@ class FootprintDatabase {
         }
     }
 
-    // ПОИСК ПОХОЖИХ МОДЕЛЕЙ
+    // ПОИСК ПОХОЖИХ МОДЕЛЕЙ - УПРОЩЕННЫЙ ВАРИАНТ
     async findSimilar(analysis, options = {}) {
         const {
             userId = null,
             threshold = 0.6,
-            limit = 10,
-            quickFirst = true
+            limit = 10
         } = options;
        
         console.log(`🔍 Поиск похожих моделей, порог: ${threshold}`);
@@ -184,18 +180,21 @@ class FootprintDatabase {
         // 1. Создаем временный footprint из анализа
         const tempFootprint = this.createFootprintFromAnalysis(analysis);
        
-        // 2. БЫСТРЫЙ ПОИСК через индексы
-        const quickCandidates = quickFirst
-            ? await this.quickSearch(tempFootprint, userId)
-            : Array.from(this.footprints.values());
+        // 2. Получаем ВСЕ модели для пользователя
+        let candidates = Array.from(this.footprints.values());
        
-        // 3. ПОДРОБНОЕ СРАВНЕНИЕ
+        // 3. Фильтруем по пользователю если нужно
+        if (userId) {
+            candidates = candidates.filter(fp => fp.userId === userId);
+        }
+       
+        // 4. ПОДРОБНОЕ СРАВНЕНИЕ
         const matches = [];
        
-        for (const candidate of quickCandidates) {
-            if (matches.length >= limit * 3) break; // Ограничиваем для производительности
+        for (const candidate of candidates) {
+            if (matches.length >= limit * 3) break;
            
-            // Пропускаем если это та же модель (по хешу)
+            // Пропускаем если это та же модель
             if (candidate.hash === tempFootprint.hash) continue;
            
             const comparison = tempFootprint.compare(candidate);
@@ -211,52 +210,11 @@ class FootprintDatabase {
             }
         }
        
-        // 4. СОРТИРОВКА и обрезка
+        // 5. СОРТИРОВКА
         matches.sort((a, b) => b.score - a.score);
        
         console.log(`✅ Найдено ${matches.length} похожих моделей`);
-       
         return matches.slice(0, limit);
-    }
-
-    // БЫСТРЫЙ ПОИСК через индексы
-    quickSearch(footprint, userId = null) {
-        const candidates = new Set();
-       
-        if (!footprint.boundingBox) {
-            return Array.from(this.footprints.values());
-        }
-       
-        const { width, height } = footprint.boundingBox;
-        const nodeCount = footprint.nodes.size;
-       
-        // Поиск по похожим размерам
-        const widthKey = Math.round(width / 10) * 10;
-        const heightKey = Math.round(height / 10) * 10;
-        const nodeCountKey = Math.round(nodeCount / 5) * 5;
-       
-        // Добавляем кандидатов из соседних групп (±1 группа)
-        for (let w = widthKey - 10; w <= widthKey + 10; w += 10) {
-            const ids = this.spatialIndex.byWidth.get(w);
-            if (ids) ids.forEach(id => candidates.add(id));
-        }
-       
-        for (let h = heightKey - 10; h <= heightKey + 10; h += 10) {
-            const ids = this.spatialIndex.byHeight.get(h);
-            if (ids) ids.forEach(id => candidates.add(id));
-        }
-       
-        for (let n = nodeCountKey - 5; n <= nodeCountKey + 5; n += 5) {
-            const ids = this.spatialIndex.byNodeCount.get(n);
-            if (ids) ids.forEach(id => candidates.add(id));
-        }
-       
-        // Фильтр по пользователю если нужно
-        const result = Array.from(candidates)
-            .map(id => this.footprints.get(id))
-            .filter(fp => fp && (!userId || fp.userId === userId));
-       
-        return result;
     }
 
     // СОЗДАНИЕ ВРЕМЕННОГО FOOTPRINT ДЛЯ ПОИСКА
@@ -276,14 +234,13 @@ class FootprintDatabase {
         return footprint;
     }
 
-    // СОХРАНЕНИЕ МОДЕЛИ
+    // СОХРАНЕНИЕ МОДЕЛИ - ИСПРАВЛЕНО!
     async save(footprint) {
         try {
             // Проверяем на дубликаты
-            const duplicate = await this.findExactDuplicate(footprint);
+            const duplicate = this.findExactDuplicate(footprint);
             if (duplicate) {
                 console.log(`⚠️ Найден дубликат: ${duplicate.id}`);
-                // Можно предложить объединение
                 return duplicate;
             }
            
@@ -298,15 +255,15 @@ class FootprintDatabase {
             }
            
             console.log(`✅ Модель сохранена: ${footprint.id} (${footprint.nodes.size} узлов)`);
-           
             return footprint;
+           
         } catch (error) {
             console.log('❌ Ошибка сохранения модели:', error.message);
             throw error;
         }
     }
 
-    // ПОИСК ТОЧНОГО ДУБЛИКАТА (по хешу)
+    // ПОИСК ТОЧНОГО ДУБЛИКАТА
     findExactDuplicate(footprint) {
         if (!footprint.hash) return null;
         const duplicateId = this.hashIndex.get(footprint.hash);
@@ -335,7 +292,6 @@ class FootprintDatabase {
             const footprint = this.footprints.get(id);
             if (!footprint) return false;
            
-            // Проверяем права
             if (userId && footprint.userId !== userId) {
                 console.log(`❌ Пользователь ${userId} не может удалить модель ${id}`);
                 return false;
@@ -359,6 +315,7 @@ class FootprintDatabase {
            
             console.log(`🗑️ Модель удалена: ${id}`);
             return true;
+           
         } catch (error) {
             console.log('❌ Ошибка удаления модели:', error.message);
             return false;
