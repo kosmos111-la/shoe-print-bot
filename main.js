@@ -258,7 +258,8 @@ practicalAnalyzer = createPracticalAnalyzerStub();
 animalFilter = createAnimalFilterStub();
 
 const app = express();
-const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true });
+const bot = new TelegramBot(config.TELEGRAM_TOKEN);
+// polling не указываем
 
 // 🔧 НАСТРОЙКА EXPRESS
 app.use(express.json({
@@ -382,6 +383,19 @@ function generateTopologyText(predictions) {
 // =============================================================================
 // 🤖 TELEGRAM БОТ - КОМАНДЫ
 // =============================================================================
+
+// Логирование вебхук запросов
+app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
+    const update = req.body;
+    console.log('📨 Вебхук запрос:', {
+        update_id: update.update_id,
+        message: update.message ? '📝 есть' : 'нет',
+        callback_query: update.callback_query ? '🔄 есть' : 'нет'
+    });
+   
+    bot.processUpdate(update);
+    res.sendStatus(200);
+});
 
 // Webhook для Telegram
 app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
@@ -2410,6 +2424,91 @@ function getCorrectionDescription(type) {
    
     return descriptions[type] || type;
 }
+
+// =============================================================================
+// 🌐 НАСТРОЙКА ВЕБХУКА ДЛЯ RENDER.COM
+// =============================================================================
+
+async function setupWebhook() {
+    try {
+        console.log('🔄 Настраиваю вебхук...');
+       
+        // 1. Удаляем старый вебхук
+        const deleted = await bot.deleteWebHook({ drop_pending_updates: true });
+        console.log('✅ Старый вебхук удален:', deleted);
+       
+        // 2. Ждем 2 секунды
+        await new Promise(resolve => setTimeout(resolve, 2000));
+       
+        // 3. Устанавливаем новый вебхук
+        // ⚠️ ВАЖНО: Используйте ВАШ URL от Render
+        const webhookUrl = `https://shoe-print-bot.onrender.com/bot${config.TELEGRAM_TOKEN}`;
+        console.log('🔗 Устанавливаю вебхук:', webhookUrl);
+       
+        const result = await bot.setWebHook(webhookUrl, {
+            max_connections: 40,
+            allowed_updates: ["message", "callback_query", "polling_answer"]
+        });
+       
+        console.log('✅ Вебхук установлен:', result);
+       
+        // 4. Проверяем
+        const info = await bot.getWebHookInfo();
+        console.log('📊 Информация о вебхуке:');
+        console.log('- URL:', info.url);
+        console.log('- Ошибок:', info.last_error_message || 'нет');
+        console.log('- Ожидающих обновлений:', info.pending_update_count);
+       
+    } catch (error) {
+        console.log('❌ КРИТИЧЕСКАЯ ошибка вебхука:', error.message);
+        console.log('⚠️ Если вебхук не работает, запускаю polling как запасной вариант...');
+       
+        // Fallback на polling если вебхук не работает
+        setTimeout(() => {
+            bot.startPolling().then(() => {
+                console.log('✅ Polling запущен как запасной вариант');
+            }).catch(pollErr => {
+                console.log('❌ Не удалось запустить polling:', pollErr.message);
+            });
+        }, 5000);
+    }
+}
+
+// Запускаем настройку вебхука через 3 секунды после старта
+setTimeout(setupWebhook, 3000);
+
+// Периодическая проверка вебхука
+setInterval(async () => {
+    try {
+        const info = await bot.getWebHookInfo();
+        if (!info.url || info.pending_update_count > 50) {
+            console.log('⚠️ Вебхук требует внимания, переустанавливаю...');
+            await setupWebhook();
+        }
+    } catch (error) {
+        console.log('❌ Ошибка проверки вебхука:', error.message);
+    }
+}, 30 * 60 * 1000); // Проверка каждые 30 минут
+
+// Тестовый эндпоинт для проверки
+app.get('/webhook-test', async (req, res) => {
+    try {
+        const info = await bot.getWebHookInfo();
+        res.json({
+            status: 'ok',
+            webhook: {
+                url: info.url,
+                pending_updates: info.pending_update_count,
+                last_error: info.last_error_message,
+                has_custom_certificate: info.has_custom_certificate
+            },
+            bot: await bot.getMe(),
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Запуск сервера
 app.listen(config.PORT, () => {
