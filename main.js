@@ -189,8 +189,38 @@ let animalFilter;
 // 🆕 ДОБАВЛЯЕМ СЕССИОННЫЕ МОДУЛИ
 let sessionManager;
 let sessionAnalyzer;
-
+// 🔥🔥🔥 ВСТАВЬТЕ ЗДЕСЬ ЗАЩИТУ ОТ ПЕРЕЗАПИСИ
+let _enhancedSessionManager = null;
+Object.defineProperty(global, 'enhancedSessionManager', {
+  get: function() {
+    // Можно раскомментировать для отладки:
+    // console.log('🔍 Чтение enhancedSessionManager');
+    return _enhancedSessionManager;
+  },
+  set: function(value) {
+    console.log('⚠️ ПЕРЕЗАПИСЬ enhancedSessionManager!');
+    console.log('Старое значение тип:', typeof _enhancedSessionManager);
+    console.log('Новое значение тип:', typeof value);
+    if (value && typeof value === 'object') {
+      console.log('Конструктор:', value.constructor?.name);
+    }
+    _enhancedSessionManager = value;
+  },
+  configurable: false // Запретить удаление свойства
+});
 let enhancedSessionManager;
+// 🔥 НЕМЕДЛЕННО ДОБАВЬТЕ ЭТОТ КОД:
+Object.defineProperty(global, 'enhancedSessionManager_access', {
+  get: () => enhancedSessionManager,
+  set: (value) => {
+    console.log('🚨 ВНИМАНИЕ: enhancedSessionManager перезаписывается!');
+    console.log('📌 Стек вызова:', new Error().stack);
+    enhancedSessionManager = value;
+  }
+});
+
+// 🔥 ТАКЖЕ ИЗМЕНИТЕ ВСЕ ОБРАЩЕНИЯ К enhancedSessionManager на enhancedSessionManager_access
+// (но это необязательно, если используете геттер/сеттер)
 let modelVisualizer;
 
 // 🆕 ИНИЦИАЛИЗИРУЕМ ОБРАТНУЮ СВЯЗЬ
@@ -2702,22 +2732,124 @@ console.log('🛡️ Глобальные обработчики ошибок а
     }
 
 try {
+  // 🔥 ПРОВЕРЯЕМ, НЕ ЗАГРУЖЕН ЛИ УЖЕ enhancedSessionManager
+  if (!enhancedSessionManager || typeof enhancedSessionManager.createModelSession !== 'function') {
     enhancedSessionManager = new EnhancedSessionManager();
-    modelVisualizer = new ModelVisualizer();
-    console.log('✅ Enhanced session manager загружен');
-  } catch (error) {
-    console.log('❌ Ошибка EnhancedSessionManager:', error.message);
-    // Заглушка
-    enhancedSessionManager = {
-      createModelSession: (userId) => ({
-        sessionId: 'stub',
-        model: null,
-        isExisting: false,
-        message: '⚠️ Модуль в заглушке'
-      }),
-      // ... другие методы
-    };
+    console.log('🔄 Enhanced session manager переинициализирован');
   }
+ 
+  if (!modelVisualizer) {
+    modelVisualizer = new ModelVisualizer();
+  }
+ 
+} catch (error) {
+  console.log('❌ Ошибка EnhancedSessionManager:', error.message);
+ 
+  // 🔥 СОЗДАЕМ ПОЛНУЮ ЗАГЛУШКУ СО ВСЕМИ МЕТОДАМИ
+  const stubManager = {
+    models: new Map(),
+    userSessions: new Map(),
+   
+    createModelSession: function(userId) {
+      console.log('🆘 ЗАГЛУШКА createModelSession');
+      const sessionId = 'stub_' + Date.now();
+      const model = {
+        sessionId: sessionId,
+        photosProcessed: 0,
+        getStats: function() {
+          return { highConfidenceNodes: 0, totalNodes: 0, modelConfidence: 0 };
+        }
+      };
+     
+      this.models.set(sessionId, model);
+      this.userSessions.set(userId, sessionId);
+     
+      return {
+        sessionId: sessionId,
+        model: model,
+        isExisting: false,
+        message: '✅ Модель создана (режим заглушки)'
+      };
+    },
+   
+    // 🔥 ВАЖНО: ДОБАВЛЯЕМ ВСЕ МЕТОДЫ
+    getUserModel: function(userId) {
+      console.log('🆘 ЗАГЛУШКА getUserModel');
+      const sessionId = this.userSessions.get(userId);
+      return sessionId ? this.models.get(sessionId) : null;
+    },
+   
+    getModelStatus: function(sessionId) {
+      console.log('🆘 ЗАГЛУШКА getModelStatus');
+      const model = this.models.get(sessionId);
+      return {
+        sessionId: sessionId,
+        totalNodes: model?.photosProcessed || 0,
+        highConfidenceNodes: 0,
+        totalEdges: 0,
+        totalContours: 0,
+        modelConfidence: 0.5,
+        photosProcessed: model?.photosProcessed || 0,
+        modelAge: '0 минут',
+        confidenceLevel: 'низкий',
+        status: 'заглушка',
+        canCompare: false,
+        recommendations: ['Добавьте фото для уточнения модели']
+      };
+    },
+   
+    exportModel: function(sessionId, format) {
+      console.log('🆘 ЗАГЛУШКА exportModel');
+      return {
+        nodes: [],
+        edges: [],
+        contours: [],
+        photosProcessed: 0,
+        confidence: 0
+      };
+    },
+   
+    addPhotoToModel: async function(sessionId, photoData, predictions) {
+      console.log('🆘 ЗАГЛУШКА addPhotoToModel');
+      const model = this.models.get(sessionId);
+      if (model) {
+        model.photosProcessed = (model.photosProcessed || 0) + 1;
+      }
+      return {
+        success: true,
+        error: null,
+        summary: `✅ Фото добавлено в заглушку (всего: ${model?.photosProcessed || 1})`,
+        photoNumber: model?.photosProcessed || 1
+      };
+    },
+   
+    checkFragment: function(sessionId, predictions) {
+      console.log('🆘 ЗАГЛУШКА checkFragment');
+      return {
+        isMatch: false,
+        confidence: 0,
+        message: 'Заглушка'
+      };
+    },
+   
+    cleanupOldModels: function() {
+      return 0;
+    },
+   
+    deleteModel: function(sessionId) {
+      this.models.delete(sessionId);
+      for (let [userId, sId] of this.userSessions.entries()) {
+        if (sId === sessionId) {
+          this.userSessions.delete(userId);
+          break;
+        }
+      }
+    }
+  };
+ 
+  enhancedSessionManager = stubManager;
+  console.log('✅ Создана полная заглушка EnhancedSessionManager');
+}
    
     // ИНИЦИАЛИЗИРУЕМ ЯНДЕКС.ДИСК (асинхронно)
     try {
