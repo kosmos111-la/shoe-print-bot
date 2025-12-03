@@ -51,7 +51,8 @@ const { SessionManager } = require('./modules/session/session-manager');
 const { SessionAnalyzer } = require('./modules/session/session-analyzer');
 const { FeedbackDatabase } = require('./modules/feedback/feedback-db');
 const { FeedbackManager } = require('./modules/feedback/feedback-manager');
-
+// 🆕 СИСТЕМА ЦИФРОВЫХ ОТПЕЧАТКОВ
+const { FootprintManager } = require('./modules/footprint');
 // ВСТРОЕННЫЙ CONFIG
 const config = {
     TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI',
@@ -2029,7 +2030,56 @@ if (intelligentAnalysis && intelligentAnalysis.summary) {
             }
         }
     }
-    // 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥
+  // 🆕 СОХРАНЯЕМ ПОСЛЕДНИЙ АНАЛИЗ ДЛЯ FOOTPRINT SYSTEM
+if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
+    // Вычисляем среднюю уверенность
+    const avgConfidence = predictionsForAnalysis.length > 0
+        ? predictionsForAnalysis.reduce((sum, p) => sum + (p.confidence || 0), 0) / predictionsForAnalysis.length
+        : 0.5;
+   
+    // Сохраняем для быстрого поиска похожих
+    if (typeof saveUserLastAnalysis === 'function') {
+        saveUserLastAnalysis(userId, {
+            predictions: predictionsForAnalysis,
+            practicalAnalysis: practicalAnalysis,
+            intelligentAnalysis: intelligentAnalysis,
+            analysis: analysis,
+            timestamp: new Date(),
+            confidence: avgConfidence,
+            visualizationPaths: {
+                analysis: vizPath,
+                topology: topologyVizPath
+            }
+        });
+    }
+   
+    // 🆕 АВТОМАТИЧЕСКИЙ ПОИСК ПОХОЖИХ (опционально, можно включить позже)
+    // if (avgConfidence > 0.7 && FootprintManager && FootprintManager.initialized) {
+    //     setTimeout(async () => {
+    //         try {
+    //             const similar = await FootprintManager.findSimilarForAnalysis({
+    //                 predictions: predictionsForAnalysis,
+    //                 confidence: avgConfidence
+    //             }, userId, { threshold: 0.65, limit: 3 });
+    //            
+    //             if (similar && similar.length > 0) {
+    //                 const bestMatch = similar[0];
+    //                 if (bestMatch.score > 0.8) {
+    //                     await bot.sendMessage(chatId,
+    //                         `🔍 **ОБНАРУЖЕНА ПОХОЖАЯ МОДЕЛЬ!**\n\n` +
+    //                         `Совпадение: ${Math.round(bestMatch.score * 100)}%\n` +
+    //                         `Модель: ${bestMatch.footprint.name || 'Без имени'}\n\n` +
+    //                         `💡 Это может быть та же обувь!\n` +
+    //                         `Посмотреть: /view_${bestMatch.footprint.id.slice(0, 8)}`
+    //                     );
+    //                 }
+    //             }
+    //         } catch (error) {
+    //             console.log('⚠️ Автопоиск похожих пропущен:', error.message);
+    //         }
+    //     }, 2000); // Ждем 2 секунды
+    // }
+}
           
 // Очистка
 tempFileManager.removeFile(tempImagePath);
@@ -2311,10 +2361,451 @@ console.log('🛡️ Глобальные обработчики ошибок а
         yandexDisk = createYandexDiskStub();
     }
 
+try {
+    await FootprintManager.initialize();
+    console.log('✅ Система цифровых отпечатков готова');
+} catch (error) {
+    console.log('❌ Ошибка инициализации системы отпечатков:', error.message);
+    // Не падаем, система будет работать в ограниченном режиме
+}
+  
     console.log('🚀 Все модули инициализированы, бот готов к работе!');
     console.log('🎯 Практический анализ для ПСО активирован');
     console.log('🐕 Фильтрация следов животных активирована');
 })();
+
+// =============================================================================
+// 👣 СИСТЕМА ЦИФРОВЫХ ОТПЕЧАТКОВ ОБУВИ (FOOTPRINT SYSTEM)
+// =============================================================================
+
+// ИМПОРТ МЕНЕДЖЕРА (в самом начале импортов добавь эту строку)
+// НАЙДИ БЛОК ИМПОРТОВ В САМОМ НАЧАЛЕ main.js (после require)
+
+// ДОБАВЬ ЭТУ СТРОКУ в блок импортов (примерно строка 11):
+const { FootprintManager } = require('./modules/footprint');
+
+// =============================================================================
+// 🆕 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ FOOTPRINT SYSTEM
+// =============================================================================
+
+// Кэш последних анализов пользователей
+const userLastAnalysis = new Map(); // userId -> lastAnalysis
+
+// Сохранить последний анализ пользователя
+function saveUserLastAnalysis(userId, analysis) {
+    if (analysis && analysis.predictions) {
+        userLastAnalysis.set(userId, {
+            ...analysis,
+            timestamp: new Date()
+        });
+    }
+}
+
+// Получить последний анализ пользователя
+function getLastUserAnalysis(userId) {
+    // 1. Проверяем кэш
+    const cached = userLastAnalysis.get(userId);
+    if (cached && (new Date() - cached.timestamp) < 5 * 60 * 1000) { // 5 минут
+        return cached;
+    }
+   
+    // 2. Проверяем активную сессию
+    if (sessionManager && sessionManager.hasActiveSession(userId)) {
+        const session = sessionManager.getActiveSession(userId);
+        if (session.analysisResults && session.analysisResults.length > 0) {
+            const lastAnalysis = session.analysisResults[session.analysisResults.length - 1];
+            saveUserLastAnalysis(userId, lastAnalysis);
+            return lastAnalysis;
+        }
+    }
+   
+    return null;
+}
+
+// =============================================================================
+// 🆕 КОМАНДЫ ДЛЯ РАБОТЫ С МОДЕЛЯМИ ОТПЕЧАТКОВ
+// =============================================================================
+
+// Команда /save_model - сохранить сессию как модель
+bot.onText(/\/save_model(?: (.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const modelName = match[1] || `Модель_${new Date().toLocaleDateString('ru-RU')}`;
+   
+    console.log(`💾 Пользователь ${userId} сохраняет модель: "${modelName}"`);
+   
+    // Проверяем активную сессию
+    if (!sessionManager || !sessionManager.hasActiveSession(userId)) {
+        await bot.sendMessage(chatId,
+            `❌ **Нет активной сессии**\n\n` +
+            `Чтобы создать модель:\n` +
+            `1. Начните сессию: /trail_start\n` +
+            `2. Или отправьте пачку из 2+ фото\n` +
+            `3. Затем сохраните: /save_model "Имя модели"`
+        );
+        return;
+    }
+   
+    const session = sessionManager.getActiveSession(userId);
+   
+    if (!session.analysisResults || session.analysisResults.length < 2) {
+        await bot.sendMessage(chatId,
+            `⚠️ **Мало данных для модели**\n\n` +
+            `Нужно минимум **2 проанализированных фото**\n` +
+            `Сейчас в сессии: ${session.analysisResults?.length || 0} фото\n\n` +
+            `Отправьте еще фото или начните новую сессию`
+        );
+        return;
+    }
+   
+    await bot.sendMessage(chatId,
+        `🔄 **Создаю модель "${modelName}"**\n\n` +
+        `📊 Анализирую ${session.analysisResults.length} фото...`
+    );
+   
+    try {
+        const result = await FootprintManager.saveSessionAsModel(session, modelName, userId);
+       
+        let response = `✅ **МОДЕЛЬ СОХРАНЕНА!**\n\n`;
+        response += `📝 **Имя:** ${modelName}\n`;
+        response += `🆔 **ID:** ${result.footprint.id.slice(0, 8)}...\n`;
+        response += `📊 **Узлов:** ${result.stats.nodes}\n`;
+        response += `🔗 **Связей:** ${result.stats.edges}\n`;
+        response += `💎 **Уверенность:** ${Math.round(result.stats.confidence * 100)}%\n`;
+        response += `📸 **Источники:** ${result.stats.sources} фото\n\n`;
+       
+        if (result.similar && result.similar.length > 0) {
+            response += `🔍 **ПОХОЖИЕ МОДЕЛИ:**\n`;
+            result.similar.slice(0, 3).forEach((match, index) => {
+                const name = match.footprint.name || 'Без имени';
+                response += `${index + 1}. ${name} `;
+                response += `(${Math.round(match.score * 100)}% совпадение)\n`;
+            });
+            response += `\n💡 Возможно, это та же обувь?\n`;
+        } else {
+            response += `🎯 **НОВАЯ УНИКАЛЬНАЯ МОДЕЛЬ!**\n`;
+            response += `Таких протекторов еще не было в базе.\n`;
+        }
+       
+        response += `\n📋 **Команды для работы:**\n`;
+        response += `/my_models - Посмотреть все ваши модели\n`;
+        response += `/find_similar - Найти похожие\n`;
+        response += `/footprint_stats - Статистика системы`;
+       
+        await bot.sendMessage(chatId, response);
+       
+        // Сохраняем последний анализ для быстрого поиска
+        if (session.analysisResults.length > 0) {
+            saveUserLastAnalysis(userId, session.analysisResults[session.analysisResults.length - 1]);
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка сохранения модели:', error);
+        await bot.sendMessage(chatId,
+            `❌ **Не удалось сохранить модель**\n\n` +
+            `Ошибка: ${error.message}\n\n` +
+            `Попробуйте:\n` +
+            `1. Убедиться что есть проанализированные фото\n` +
+            `2. Проверить права на запись в папку data/\n` +
+            `3. Попробовать снова через минуту`
+        );
+    }
+});
+
+// Команда /my_models - показать мои модели
+bot.onText(/\/my_models/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    console.log(`📚 Пользователь ${userId} запрашивает свои модели`);
+   
+    await bot.sendMessage(chatId, '📚 Загружаю ваши модели...');
+   
+    try {
+        const models = await FootprintManager.getUserModels(userId);
+       
+        if (!models || models.length === 0) {
+            await bot.sendMessage(chatId,
+                `📭 **У вас нет сохраненных моделей**\n\n` +
+                `💡 **Как создать модель:**\n` +
+                `1. Отправьте **пачку из 2+ фото** (автосессия)\n` +
+                `2. Или начните сессию: /trail_start\n` +
+                `3. Отправьте несколько фото следов\n` +
+                `4. Сохраните: /save_model "Название модели"\n\n` +
+                `🎯 **Зачем сохранять модели?**\n` +
+                `• Сравнивать с новыми следами\n` +
+                `• Находить одинаковые протекторы\n` +
+                `• Улучшать точность анализа`
+            );
+            return;
+        }
+       
+        let response = `📚 **ВАШИ МОДЕЛИ** (${models.length})\n\n`;
+       
+        // Показываем максимум 5 моделей
+        models.slice(0, 5).forEach((model, index) => {
+            const date = new Date(model.stats.created).toLocaleDateString('ru-RU');
+            const shortId = model.id.slice(0, 8);
+           
+            response += `**${index + 1}. ${model.name}**\n`;
+            response += `   🆔 ${shortId}...\n`;
+            response += `   📅 ${date}\n`;
+            response += `   📊 ${model.nodes.size} узлов\n`;
+            response += `   💎 ${Math.round(model.stats.confidence * 100)}% уверенность\n`;
+            response += `   🔍 /view_${shortId}\n\n`;
+        });
+       
+        if (models.length > 5) {
+            response += `... и еще ${models.length - 5} моделей\n\n`;
+        }
+       
+        response += `💡 **Используйте:**\n`;
+        response += `/view_[ID] - Детали модели (первые 8 символов)\n`;
+        response += `/find_similar - Найти похожие\n`;
+        response += `/footprint_stats - Статистика системы`;
+       
+        await bot.sendMessage(chatId, response);
+       
+    } catch (error) {
+        console.log('❌ Ошибка загрузки моделей:', error);
+        await bot.sendMessage(chatId,
+            `❌ **Не удалось загрузить модели**\n\n` +
+            `Ошибка: ${error.message}\n` +
+            `Попробуйте позже или обратитесь к администратору`
+        );
+    }
+});
+
+// Команда /find_similar - найти похожие на текущий анализ
+bot.onText(/\/find_similar/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    console.log(`🔍 Пользователь ${userId} ищет похожие модели`);
+   
+    // Получаем последний анализ
+    const lastAnalysis = getLastUserAnalysis(userId);
+   
+    if (!lastAnalysis) {
+        await bot.sendMessage(chatId,
+            `❌ **Нет данных для поиска**\n\n` +
+            `Сначала отправьте фото для анализа.\n` +
+            `Система запомнит последний анализ и сможет найти похожие модели.\n\n` +
+            `📸 **Как сделать:**\n` +
+            `1. Отправьте фото следа\n` +
+            `2. Дождитесь анализа\n` +
+            `3. Используйте /find_similar\n\n` +
+            `Или начните сессию: /trail_start`
+        );
+        return;
+    }
+   
+    await bot.sendMessage(chatId,
+        `🔍 **Ищу похожие модели...**\n\n` +
+        `📊 Анализирую ${lastAnalysis.predictions?.length || 0} объектов\n` +
+        `💎 Уверенность: ${Math.round((lastAnalysis.confidence || 0.5) * 100)}%`
+    );
+   
+    try {
+        const similar = await FootprintManager.findSimilarForAnalysis(
+            lastAnalysis,
+            userId,
+            {
+                threshold: 0.6,
+                limit: 5,
+                quickFirst: true
+            }
+        );
+       
+        if (!similar || similar.length === 0) {
+            await bot.sendMessage(chatId,
+                `🎯 **УНИКАЛЬНЫЙ СЛЕД!**\n\n` +
+                `Похожих моделей не найдено.\n` +
+                `Это может быть:\n` +
+                `• Новая модель обуви\n` +
+                `• Редкий протектор\n` +
+                `• Уникальный отпечаток\n\n` +
+                `💡 **Сохраните как новую модель:**\n` +
+                `/save_model "Уникальный след"`
+            );
+            return;
+        }
+       
+        let response = `🔍 **НАЙДЕНО ПОХОЖИХ МОДЕЛЕЙ:** ${similar.length}\n\n`;
+       
+        similar.forEach((match, index) => {
+            const model = match.footprint;
+            const shortId = model.id.slice(0, 8);
+            const date = new Date(model.stats.created).toLocaleDateString('ru-RU');
+           
+            response += `**${index + 1}. ${model.name || 'Без имени'}**\n`;
+            response += `   🆔 ${shortId}...\n`;
+            response += `   📅 ${date}\n`;
+            response += `   📊 Совпадение: **${Math.round(match.score * 100)}%**\n`;
+            response += `   👣 Узлов: ${match.matched}/${match.total} совпало\n`;
+            response += `   👁️ /view_${shortId}\n\n`;
+        });
+       
+        response += `💡 **Что это значит?**\n`;
+        response += `• >80% - Возможно, та же обувь\n`;
+        response += `• 60-80% - Похожий тип протектора\n`;
+        response += `• <60% - Случайное совпадение\n\n`;
+        response += `📝 Используйте /view_[ID] для деталей`;
+       
+        await bot.sendMessage(chatId, response);
+       
+    } catch (error) {
+        console.log('❌ Ошибка поиска похожих:', error);
+        await bot.sendMessage(chatId,
+            `❌ **Не удалось выполнить поиск**\n\n` +
+            `Ошибка: ${error.message}\n` +
+            `Попробуйте позже или отправьте фото заново`
+        );
+    }
+});
+
+// Команда /footprint_stats - статистика системы
+bot.onText(/\/footprint_stats/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    console.log(`📊 Пользователь ${userId} запрашивает статистику`);
+   
+    // Проверяем права (опционально - можно сделать для всех)
+    const adminUsers = [699140291]; // Твой ID
+   
+    if (!adminUsers.includes(userId)) {
+        const userModels = await FootprintManager.getUserModels(userId);
+        const userCount = userModels.length;
+       
+        await bot.sendMessage(chatId,
+            `📊 **ВАША СТАТИСТИКА**\n\n` +
+            `👣 Ваших моделей: ${userCount}\n` +
+            `💎 Средняя уверенность: ${userCount > 0 ?
+                Math.round(userModels.reduce((sum, m) => sum + m.stats.confidence, 0) / userCount * 100) + '%' : 'нет данных'}\n\n` +
+            `💡 **Советы:**\n` +
+            `• Сохраняйте разные ракурсы одной обуви\n` +
+            `• Чем больше фото - тем точнее модель\n` +
+            `• Ищите похожие: /find_similar\n\n` +
+            `📈 Администраторы могут видеть общую статистику`
+        );
+        return;
+    }
+   
+    await bot.sendMessage(chatId, '📊 Собираю статистику системы...');
+   
+    try {
+        const stats = await FootprintManager.getStats();
+       
+        let response = `📊 **СТАТИСТИКА СИСТЕМЫ ОТПЕЧАТКОВ**\n\n`;
+        response += `👣 **Всего моделей:** ${stats.total}\n`;
+        response += `👥 **Пользователей с моделями:** ${stats.byUser?.length || 0}\n`;
+        response += `📁 **Индексов:** ${stats.spatialIndex?.byWidth || 0}\n\n`;
+       
+        if (stats.byUser && stats.byUser.length > 0) {
+            response += `🏆 **ТОП ПОЛЬЗОВАТЕЛЕЙ:**\n`;
+            stats.byUser
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5)
+                .forEach((user, index) => {
+                    response += `${index + 1}. 👤 ${user.userId}: ${user.count} моделей\n`;
+                });
+            response += `\n`;
+        }
+       
+        response += `💾 **Хранение:**\n`;
+        response += `• Модели: data/footprints/\n`;
+        response += `• Индекс: data/footprints/_index.json\n`;
+        response += `• Автосохранение: каждое изменение\n\n`;
+       
+        response += `🚀 **Следующие шаги:**\n`;
+        response += `• Сравнение с искажениями\n`;
+        response += `• Визуализация моделей\n`;
+        response += `• Автоматическое объединение дубликатов`;
+       
+        await bot.sendMessage(chatId, response);
+       
+    } catch (error) {
+        console.log('❌ Ошибка статистики:', error);
+        await bot.sendMessage(chatId,
+            `❌ **Не удалось получить статистику**\n\n` +
+            `Ошибка: ${error.message}`
+        );
+    }
+});
+
+// Обработка команд вида /view_XXXXXXX (просмотр модели)
+bot.onText(/\/view_([a-f0-9]+)/i, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const shortId = match[1];
+   
+    console.log(`👁️ Пользователь ${userId} просматривает модель ${shortId}`);
+   
+    await bot.sendMessage(chatId, `🔍 Ищу модель ${shortId}...`);
+   
+    try {
+        // Находим полный ID модели
+        const models = await FootprintManager.getUserModels(userId);
+        const model = models.find(m => m.id.startsWith(shortId));
+       
+        if (!model) {
+            await bot.sendMessage(chatId,
+                `❌ **Модель не найдена**\n\n` +
+                `ID: ${shortId}\n` +
+                `Возможно:\n` +
+                `• Модель удалена\n` +
+                `• Это не ваша модель\n` +
+                `• Ошибка в ID\n\n` +
+                `💡 Посмотреть все модели: /my_models`
+            );
+            return;
+        }
+       
+        const date = new Date(model.stats.created).toLocaleDateString('ru-RU');
+        const updated = new Date(model.stats.lastUpdated).toLocaleDateString('ru-RU');
+       
+        let response = `👣 **МОДЕЛЬ: ${model.name}**\n\n`;
+        response += `🆔 ID: ${model.id}\n`;
+        response += `📅 Создана: ${date}\n`;
+        response += `🔄 Обновлена: ${updated}\n`;
+        response += `📊 Узлов: ${model.nodes.size}\n`;
+        response += `🔗 Связей: ${model.edges.length}\n`;
+        response += `💎 Уверенность: ${Math.round(model.stats.confidence * 100)}%\n`;
+        response += `📸 Источников: ${model.stats.totalSources} фото\n\n`;
+       
+        if (model.metadata) {
+            response += `📋 **МЕТАДАННЫЕ:**\n`;
+            if (model.metadata.estimatedSize) {
+                response += `• Размер: ${model.metadata.estimatedSize}\n`;
+            }
+            if (model.metadata.footprintType && model.metadata.footprintType !== 'unknown') {
+                response += `• Тип: ${model.metadata.footprintType}\n`;
+            }
+            if (model.metadata.orientation) {
+                response += `• Ориентация: ${model.metadata.orientation}°\n`;
+            }
+            response += `\n`;
+        }
+       
+        response += `🎯 **ЧТО МОЖНО СДЕЛАТЬ:**\n`;
+        response += `1. Найти похожие: /find_similar\n`;
+        response += `2. Сравнить с другим следом\n`;
+        response += `3. Улучшить модель (отправьте больше фото)\n\n`;
+       
+        response += `💡 **СОВЕТ:**\n`;
+        response += `Чем больше фото одной обуви - тем точнее модель!`;
+       
+        await bot.sendMessage(chatId, response);
+       
+    } catch (error) {
+        console.log('❌ Ошибка просмотра модели:', error);
+        await bot.sendMessage(chatId,
+            `❌ **Не удалось загрузить модель**\n\n` +
+            `Ошибка: ${error.message}`
+        );
+    }
+});
 
 // =============================================================================
 // 🔄 ОБРАБОТЧИК CALLBACK-КНОПОК ДЛЯ ОБРАТНОЙ СВЯЗИ
