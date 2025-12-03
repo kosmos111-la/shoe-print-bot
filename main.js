@@ -2420,7 +2420,7 @@ try {
 // =============================================================================
 
 // Кэш последних анализов пользователей
-const userLastAnalysis = new Map(); // userId -> lastAnalysis
+// const userLastAnalysis = new Map(); // userId -> lastAnalysis
 
 // Сохранить последний анализ пользователя
 function saveUserLastAnalysis(userId, analysis) {
