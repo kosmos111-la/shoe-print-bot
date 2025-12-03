@@ -1,14 +1,40 @@
 {
-"name": "shoe-bot",
-"version": "1.0.0",
-"main": "main.js",
-"scripts": {
-"start": "node main.js"
-},
-"dependencies": {
-"node-telegram-bot-api": "0.64.0",
-"axios": "1.6.0",
-"express": "4.18.0",
-"canvas": "2.11.2"
-}
+  "name": "shoe-bot",
+  "version": "3.0.0",
+  "description": "Система анализа следов обуви с обратной связью",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js",
+    "dev": "nodemon main.js",
+    "test": "node test-webhook.js",
+    "health-check": "curl -f http://localhost:10000/health || exit 1",
+    "webhook-status": "curl -s https://shoe-print-bot.onrender.com/webhook-test | python3 -m json.tool"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "0.64.0",
+    "axios": "1.6.0",
+    "express": "4.18.0",
+    "canvas": "2.11.2",
+    "dotenv": "^16.3.0",
+    "sqlite3": "^5.1.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
+  "keywords": [
+    "telegram-bot",
+    "shoe-analysis",
+    "footprint",
+    "forensics"
+  ],
+  "author": "ShoeBot Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-repo/shoe-bot"
+  }
 }
