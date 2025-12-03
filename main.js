@@ -2627,7 +2627,7 @@ bot.onText(/\/find_similar/, async (msg) => {
        
         let response = `🔍 **НАЙДЕНО ПОХОЖИХ МОДЕЛЕЙ:** ${similar.length}\n\n`;
        
-        similar.forEach((match, index) => {
+       similar.forEach((match, index) => {
             const model = match.footprint;
             const shortId = model.id.slice(0, 8);
             const date = new Date(model.stats.created).toLocaleDateString('ru-RU');
@@ -2637,8 +2637,76 @@ bot.onText(/\/find_similar/, async (msg) => {
             response += `   📅 ${date}\n`;
             response += `   📊 Совпадение: **${Math.round(match.score * 100)}%**\n`;
             response += `   👣 Узлов: ${match.matched}/${match.total} совпало\n`;
+           
+            // Дополнительная информация о сравнении
+            if (match.details?.isLikelyMirrored) {
+                response += `   🪞 **Зеркальная совместимость!**\n`;
+            }
+           
+            if (model.metadata?.estimatedSize) {
+                response += `   📏 Размер: ${model.metadata.estimatedSize}\n`;
+            }
+           
             response += `   👁️ /view_${shortId}\n\n`;
         });
+       
+        response += `💡 **ИНТЕРПРЕТАЦИЯ РЕЗУЛЬТАТОВ:**\n`;
+        response += `• **>80%** - Высокая вероятность, что это та же обувь\n`;
+        response += `• **60-80%** - Похожий тип протектора, возможно один производитель\n`;
+        response += `• **<60%** - Случайное совпадение, разные модели\n\n`;
+       
+        response += `🎯 **РЕКОМЕНДАЦИИ:**\n`;
+       
+        // Проверяем лучший результат
+        const bestMatch = similar[0];
+        if (bestMatch && bestMatch.score > 0.8) {
+            response += `✅ **ВЫСОКАЯ ВЕРОЯТНОСТЬ СОВПАДЕНИЯ!**\n`;
+            response += `   Возможно, это та же обувь что и в базе.\n`;
+            response += `   Проверьте: /compare_with_best\n\n`;
+        } else if (bestMatch && bestMatch.score > 0.6) {
+            response += `⚠️ **СРЕДНЯЯ ВЕРОЯТНОСТЬ**\n`;
+            response += `   Похожие протекторы. Нужны дополнительные фото для уверенности.\n\n`;
+        }
+       
+        response += `📋 **ЧТО ДЕЛАТЬ ДАЛЬШЕ:**\n`;
+        response += `/view_[ID] - Детали модели\n`;
+        response += `/compare_models [ID1] [ID2] - Сравнить две модели\n`;
+        response += `/save_model "Имя" - Сохранить текущий анализ как новую модель\n`;
+       
+        await bot.sendMessage(chatId, response);
+       
+        // Автоматическое действие при высоком совпадении
+        if (bestMatch && bestMatch.score > 0.85) {
+            setTimeout(async () => {
+                await bot.sendMessage(chatId,
+                    `🤖 **АВТОМАТИЧЕСКАЯ ПОДСКАЗКА**\n\n` +
+                    `🎯 Обнаружено высокое совпадение (${Math.round(bestMatch.score * 100)}%)!\n\n` +
+                    `💡 **Это может быть:**\n` +
+                    `• Та же самая обувь\n` +
+                    `• Та же модель, но другой экземпляр\n` +
+                    `• Очень похожий протектор\n\n` +
+                    `🔍 **Рекомендую:**\n` +
+                    `1. Сравнить детально: /compare_with_last\n` +
+                    `2. Добавить фото в существующую модель\n` +
+                    `3. Объединить если это одно и то же\n\n` +
+                    `📊 Для сравнения используйте:\n` +
+                    `/view_${bestMatch.footprint.id.slice(0, 8)}`
+                );
+            }, 1000);
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка поиска похожих:', error);
+        await bot.sendMessage(chatId,
+            `❌ **НЕ УДАЛОСЬ ВЫПОЛНИТЬ ПОИСК**\n\n` +
+            `Ошибка: ${error.message}\n\n` +
+            `💡 **Попробуйте:**\n` +
+            `1. Отправить фото заново\n` +
+            `2. Подождать и попробовать снова\n` +
+            `3. Обратиться к администратору`
+        );
+    }
+});
        
         response += `💡 **Что это значит?**\n`;
         response += `• >80% - Возможно, та же обувь\n`;
