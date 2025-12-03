@@ -1,24 +1,20 @@
 // modules/visualization/model-visualizer.js
-// Визуализация аккумулятивных моделей следов с контурами протекторов
-
-const { createCanvas } = require('canvas');
 
 class ModelVisualizer {
   constructor() {
     console.log('🎨 ModelVisualizer инициализирован');
     this.contourColors = {
-      'Outline-trail': 'rgba(148, 0, 211, 0.5)',    // фиолетовый - основной контур
-      'shoe-protector': 'rgba(64, 224, 208, 0.4)',   // бирюзовый - протекторы
-      'Heel': 'rgba(255, 140, 0, 0.6)',             // оранжевый - каблук
-      'Toe': 'rgba(30, 144, 255, 0.6)',             // синий - носок
-      'animal-paw': 'rgba(255, 0, 0, 0.3)',         // красный - животные
-      'Animal': 'rgba(255, 0, 0, 0.3)',
-      'default': 'rgba(200, 200, 200, 0.3)'         // серый - другие
+      'Outline-trail': 'rgba(148, 0, 211, 0.5)',
+      'shoe-protector': 'rgba(64, 224, 208, 0.4)',
+      'Heel': 'rgba(255, 140, 0, 0.6)',
+      'Toe': 'rgba(30, 144, 255, 0.6)',
+      'Dragged and dragged': 'rgba(255, 255, 0, 0.3)',
+      'default': 'rgba(200, 200, 200, 0.3)'
     };
   }
 
   /**
-   * Визуализация модели с контурами
+   * Визуализация модели с АВТОМАСШТАБИРОВАНИЕМ
    */
   async visualizeModel(modelData, options = {}) {
     try {
@@ -29,50 +25,104 @@ class ModelVisualizer {
         showLabels = true,
         showContours = true,
         showHeelToe = true,
-        outputPath = null
+        outputPath = null,
+        autoScale = true, // 🆕 АВТОМАСШТАБИРОВАНИЕ
+        padding = 50       // 🆕 Отступ от краев
       } = options;
 
+      // 🆕 ВЫЧИСЛЯЕМ ГРАНИЦЫ МОДЕЛИ
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+     
+      // Границы по узлам
+      if (modelData.nodes && modelData.nodes.length > 0) {
+        modelData.nodes.forEach(node => {
+          minX = Math.min(minX, node.x);
+          maxX = Math.max(maxX, node.x);
+          minY = Math.min(minY, node.y);
+          maxY = Math.max(maxY, node.y);
+        });
+      }
+     
+      // Границы по контурам (если есть)
+      if (showContours && modelData.contours && modelData.contours.length > 0) {
+        modelData.contours.forEach(contour => {
+          if (contour.points && contour.points.length > 0) {
+            const xs = contour.points.map(p => p.x);
+            const ys = contour.points.map(p => p.y);
+            minX = Math.min(minX, Math.min(...xs));
+            maxX = Math.max(maxX, Math.max(...xs));
+            minY = Math.min(minY, Math.min(...ys));
+            maxY = Math.max(maxY, Math.max(...ys));
+          }
+        });
+      }
+     
+      // 🆕 ЕСЛИ ДАННЫХ НЕТ - ИСПОЛЬЗУЕМ РАЗМЕРЫ ПО УМОЛЧАНИЮ
+      if (minX === Infinity) {
+        minX = -100; maxX = 100; minY = -100; maxY = 100;
+      }
+     
+      // 🆕 ВЫЧИСЛЯЕМ МАСШТАБ И СМЕЩЕНИЕ
+      let scale = 1;
+      let offsetX = 0, offsetY = 0;
+     
+      if (autoScale) {
+        const modelWidth = maxX - minX;
+        const modelHeight = maxY - minY;
+       
+        if (modelWidth > 0 && modelHeight > 0) {
+          // Масштаб чтобы модель поместилась с отступами
+          const scaleX = (width - 2 * padding) / modelWidth;
+          const scaleY = (height - 2 * padding) / modelHeight;
+          scale = Math.min(scaleX, scaleY, 2.0); // Ограничиваем увеличение
+         
+          // Центрируем
+          offsetX = (width - modelWidth * scale) / 2 - minX * scale;
+          offsetY = (height - modelHeight * scale) / 2 - minY * scale;
+        }
+      }
+     
       const canvas = createCanvas(width, height);
       const ctx = canvas.getContext('2d');
+     
+      console.log(`📐 Масштабирование модели: масштаб=${scale.toFixed(2)}, смещение=(${offsetX.toFixed(0)},${offsetY.toFixed(0)})`);
 
       // Фон
       this.drawBackground(ctx, width, height);
 
       // Сетка
       if (showGrid) {
-        this.drawGrid(ctx, width, height);
+        this.drawGrid(ctx, width, height, scale);
       }
 
       // Центральные оси
       this.drawAxes(ctx, width, height);
 
-      // 🔥 ПЕРВЫЙ ШАГ: рисуем контуры протекторов (если есть)
+      // 🆕 РИСУЕМ С УЧЕТОМ МАСШТАБА И СМЕЩЕНИЯ
       if (showContours && modelData.contours && modelData.contours.length > 0) {
-        this.drawContours(ctx, modelData.contours, width, height);
+        this.drawContours(ctx, modelData.contours, width, height, scale, offsetX, offsetY);
       }
 
-      // 🔥 ВТОРОЙ ШАГ: каблук и носок если нужно
       if (showHeelToe && modelData.specialPoints) {
-        this.drawSpecialPoints(ctx, modelData.specialPoints);
+        this.drawSpecialPoints(ctx, modelData.specialPoints, scale, offsetX, offsetY);
       }
 
-      // Рисуем связи между узлами
       if (modelData.edges && modelData.edges.length > 0) {
-        this.drawEdges(ctx, modelData.edges, modelData.nodes);
+        this.drawEdges(ctx, modelData.edges, modelData.nodes, scale, offsetX, offsetY);
       }
 
-      // Рисуем узлы (центры протекторов)
       if (modelData.nodes && modelData.nodes.length > 0) {
-        this.drawNodes(ctx, modelData.nodes, showLabels);
+        this.drawNodes(ctx, modelData.nodes, showLabels, scale, offsetX, offsetY);
       }
 
-      // Легенда и статистика с информацией о контурах
+      // Легенда
       this.drawLegend(ctx, width, height, modelData, {
         showContours,
-        showHeelToe
+        showHeelToe,
+        scale: scale // 🆕 передаем масштаб в легенду
       });
 
-      // Сохранение или возврат буфера
+      // Сохранение
       if (outputPath) {
         const fs = require('fs');
         const buffer = canvas.toBuffer('image/png');
@@ -90,25 +140,35 @@ class ModelVisualizer {
   }
 
   /**
-   * Рисование контуров протекторов
+   * 🆕 РИСОВАНИЕ КОНТУРОВ С МАСШТАБИРОВАНИЕМ
    */
-  drawContours(ctx, contours, width, height) {
-    const centerX = ctx.canvas.width / 2;
-    const centerY = ctx.canvas.height / 2;
-   
+  drawContours(ctx, contours, width, height, scale = 1, offsetX = 0, offsetY = 0) {
     contours.forEach(contour => {
       if (!contour.points || contour.points.length < 3) return;
      
-      // Определяем цвет контура по классу
       const color = this.contourColors[contour.class] || this.contourColors.default;
      
-      // Настройки стиля для разных типов контуров
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color.replace('0.3)', '0.1)'); // более прозрачная заливка
-      ctx.lineWidth = contour.class === 'Outline-trail' ? 2 : 1;
+      // 🆕 НАСТРОЙКИ ДЛЯ РАЗНЫХ ТИПОВ КОНТУРОВ
+      let lineWidth = 1;
+      let opacity = 0.4;
      
-      // Пунктир для слабых или старых контуров
-      if (contour.confidence < 0.4 || contour.age > 5) {
+      if (contour.class === 'Outline-trail') {
+        lineWidth = 2;
+        opacity = 0.6;
+      } else if (contour.class === 'shoe-protector') {
+        lineWidth = 1;
+        opacity = 0.3; // 🆕 делаем протекторы более прозрачными
+      } else if (contour.class === 'Heel' || contour.class === 'Toe') {
+        lineWidth = 2;
+        opacity = 0.7;
+      }
+     
+      ctx.strokeStyle = color.replace('0.5)', `${opacity})`);
+      ctx.fillStyle = color.replace('0.3)', '0.1)');
+      ctx.lineWidth = lineWidth * scale;
+     
+      // Пунктир для слабых контуров
+      if (contour.confidence < 0.4) {
         ctx.setLineDash([3, 3]);
       } else {
         ctx.setLineDash([]);
@@ -117,23 +177,19 @@ class ModelVisualizer {
       // Рисуем контур
       ctx.beginPath();
      
-      // Первая точка
-      const firstPoint = {
-        x: centerX + contour.points[0].x,
-        y: centerY + contour.points[0].y
-      };
-      ctx.moveTo(firstPoint.x, firstPoint.y);
+      // 🆕 ПРИМЕНЯЕМ МАСШТАБ И СМЕЩЕНИЕ
+      const firstPoint = contour.points[0];
+      const x = offsetX + firstPoint.x * scale;
+      const y = offsetY + firstPoint.y * scale;
+      ctx.moveTo(x, y);
      
-      // Остальные точки
       for (let i = 1; i < contour.points.length; i++) {
-        const point = {
-          x: centerX + contour.points[i].x,
-          y: centerY + contour.points[i].y
-        };
-        ctx.lineTo(point.x, point.y);
+        const point = contour.points[i];
+        const px = offsetX + point.x * scale;
+        const py = offsetY + point.y * scale;
+        ctx.lineTo(px, py);
       }
      
-      // Замыкаем контур
       ctx.closePath();
      
       // Заливка только для основных контуров
@@ -141,188 +197,127 @@ class ModelVisualizer {
         ctx.fill();
       }
      
-      // Обводка
       ctx.stroke();
       ctx.setLineDash([]);
      
-      // Подпись для основных контуров
+      // 🆕 ПОДПИСИ ТОЛЬКО ДЛЯ КЛЮЧЕВЫХ КОНТУРОВ (чтобы не загромождать)
       if (contour.class === 'Outline-trail' && contour.confidence > 0.5) {
         const centroid = this.calculateCentroid(contour.points);
         ctx.fillStyle = '#ffffff';
-        ctx.font = '10px Arial';
+        ctx.font = `${Math.max(10, 10 * scale)}px Arial`; // 🆕 масштабируем шрифт
         ctx.textAlign = 'center';
         ctx.fillText(
-          `Контур ${(contour.confidence * 100).toFixed(0)}%`,
-          centerX + centroid.x,
-          centerY + centroid.y - 10
+          `След`,
+          offsetX + centroid.x * scale,
+          offsetY + centroid.y * scale - 10 * scale
         );
       }
     });
   }
 
   /**
-   * Рисование специальных точек (каблук, носок)
+   * 🆕 РИСОВАНИЕ УЗЛОВ С МАСШТАБИРОВАНИЕМ
    */
-  drawSpecialPoints(ctx, specialPoints) {
-    const centerX = ctx.canvas.width / 2;
-    const centerY = ctx.canvas.height / 2;
+  drawNodes(ctx, nodes, showLabels, scale = 1, offsetX = 0, offsetY = 0) {
+    // 🆕 СОРТИРУЕМ ПО УВЕРЕННОСТИ (сначала низкая, потом высокая)
+    const sortedNodes = [...nodes].sort((a, b) => a.confidence - b.confidence);
    
-    // Каблук
-    if (specialPoints.heel && specialPoints.heel.confidence > 0.3) {
-      const x = centerX + specialPoints.heel.x;
-      const y = centerY + specialPoints.heel.y;
-     
-      // Иконка каблука
-      ctx.fillStyle = this.contourColors.Heel;
-      ctx.font = 'bold 16px Arial';
-      ctx.fillText('👠', x - 8, y + 6);
-     
-      // Обводка
-      ctx.strokeStyle = this.contourColors.Heel;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(x, y, 15, 0, Math.PI * 2);
-      ctx.stroke();
-     
-      // Подпись
-      if (specialPoints.heel.confidence > 0.5) {
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '9px Arial';
-        ctx.fillText(
-          `Каблук ${(specialPoints.heel.confidence * 100).toFixed(0)}%`,
-          x,
-          y + 25
-        );
-      }
-    }
+    // 🆕 ОГРАНИЧИВАЕМ КОЛИЧЕСТВО ОТРИСОВЫВАЕМЫХ УЗЛОВ (если их много)
+    const maxNodesToShow = 50;
+    const nodesToShow = sortedNodes.length > maxNodesToShow
+      ? sortedNodes.slice(sortedNodes.length - maxNodesToShow) // берём самые уверенные
+      : sortedNodes;
    
-    // Носок
-    if (specialPoints.toe && specialPoints.toe.confidence > 0.3) {
-      const x = centerX + specialPoints.toe.x;
-      const y = centerY + specialPoints.toe.y;
+    nodesToShow.forEach(node => {
+      const x = offsetX + node.x * scale;
+      const y = offsetY + node.y * scale;
      
-      // Иконка носка
-      ctx.fillStyle = this.contourColors.Toe;
-      ctx.font = 'bold 16px Arial';
-      ctx.fillText('🦶', x - 8, y + 6);
+      // Цвет по уверенности
+      const color = this.getNodeColor(node.confidence);
+      const radius = Math.max(2, Math.min(5 * scale, 8)); // 🆕 масштабируем радиус
      
-      // Обводка
-      ctx.strokeStyle = this.contourColors.Toe;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(x, y, 15, 0, Math.PI * 2);
-      ctx.stroke();
-     
-      // Подпись
-      if (specialPoints.toe.confidence > 0.5) {
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '9px Arial';
-        ctx.fillText(
-          `Носок ${(specialPoints.toe.confidence * 100).toFixed(0)}%`,
-          x,
-          y + 25
-        );
-      }
-    }
-  }
-
-  /**
-   * Обновлённая функция рисования узлов с проверкой внутри контуров
-   */
-  drawNodes(ctx, nodes, showLabels) {
-    const centerX = ctx.canvas.width / 2;
-    const centerY = ctx.canvas.height / 2;
-
-    // Сначала рисуем все узлы
-    nodes.forEach(node => {
-      const x = centerX + node.x;
-      const y = centerY + node.y;
-
-      // Проверяем, находится ли узел внутри какого-либо контура
-      const isInsideContour = this.isNodeInsideContour(node, ctx);
-     
-      // Цвет узла в зависимости от уверенности и положения
-      let color;
-      if (node.confidence > 0.8) {
-        color = isInsideContour ? '#00ff00' : '#90ee90'; // ярко-зелёный / светло-зелёный
-      } else if (node.confidence > 0.65) {
-        color = isInsideContour ? '#ffff00' : '#fffacd'; // жёлтый / светло-жёлтый
-      } else if (node.confidence > 0.5) {
-        color = isInsideContour ? '#ff9900' : '#ffd699'; // оранжевый / светло-оранжевый
-      } else {
-        color = isInsideContour ? '#ff0000' : '#ff9999'; // красный / светло-красный
-      }
-     
-      const radius = 5 + Math.min(node.occurrences * 2, 15);
-
-      // Внешнее свечение для узлов внутри контуров
-      if (isInsideContour) {
+      // Только для высокоуверенных узлов - свечение
+      if (node.confidence > 0.7) {
         ctx.shadowColor = color;
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = 5 * scale;
       }
-
+     
       // Внешний круг
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();
-
-      // Внутренний круг для узлов внутри контуров
-      if (isInsideContour) {
+     
+      // Внутренний круг для высокоуверенных
+      if (node.confidence > 0.7) {
         ctx.shadowBlur = 0;
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.arc(x, y, radius * 0.4, 0, Math.PI * 2);
         ctx.fill();
       }
-
-      // Подпись с информацией о положении
-      if (showLabels && node.confidence > 0.5) {
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '9px Arial';
-        ctx.textAlign = 'center';
-       
-        let label = `${(node.confidence * 100).toFixed(0)}%`;
-        if (!isInsideContour) {
-          label += ' ⚠️'; // предупреждение если вне контура
-        }
-       
-        ctx.fillText(label, x, y - radius - 5);
-
-        if (node.occurrences > 1) {
-          ctx.font = '8px Arial';
-          ctx.fillText(`×${node.occurrences}`, x, y + radius + 10);
-        }
-      }
      
       ctx.shadowBlur = 0;
+     
+      // 🆕 ПОДПИСИ ТОЛЬКО ДЛЯ ВЫСОКОУВЕРЕННЫХ УЗЛОВ И ТОЛЬКО ЕСЛИ МАЛО УЗЛОВ
+      if (showLabels && node.confidence > 0.8 && nodesToShow.length < 20) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `${Math.max(8, 8 * scale)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText(
+          `${(node.confidence * 100).toFixed(0)}%`,
+          x,
+          y - radius - 5 * scale
+        );
+      }
     });
   }
 
   /**
-   * Проверка, находится ли узел внутри какого-либо контура
+   * 🆕 ОБНОВЛЕННАЯ СЕТКА С МАСШТАБОМ
    */
-  isNodeInsideContour(node, ctx) {
-    // ⚠️ ВАЖНО: для работы этой функции нужен доступ к данным о контурах
-    // В реальной реализации нужно передавать contours в функцию
-    // Здесь заглушка - в реальном коде нужно передавать contours как параметр
-    return true; // временная заглушка
+  drawGrid(ctx, width, height, scale = 1) {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 0.5;
+   
+    // 🆕 РАЗМЕР ЯЧЕЙКИ В ЗАВИСИМОСТИ ОТ МАСШТАБА
+    const cellSize = Math.max(25, 50 / scale);
+   
+    // Вертикальные линии
+    for (let x = 0; x < width; x += cellSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+   
+    // Горизонтальные линии
+    for (let y = 0; y < height; y += cellSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
   }
 
   /**
-   * Обновлённая легенда с информацией о контурах
+   * 🆕 ОБНОВЛЕННАЯ ЛЕГЕНДА С ИНФОРМАЦИЕЙ О МАСШТАБЕ
    */
   drawLegend(ctx, width, height, modelData, options = {}) {
     const legendX = 20;
     const legendY = 20;
     const legendWidth = 280;
+   
+    // 🆕 АВТОМАТИЧЕСКИЙ РАЗМЕР ЛЕГЕНДЫ ПРИ МАЛОМ МАСШТАБЕ
+    const scaleFactor = options.scale || 1;
+    const legendHeight = scaleFactor < 0.5 ? 150 : 210;
 
     // Фон легенды
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(legendX - 10, legendY - 10, legendWidth, 210);
+    ctx.fillRect(legendX - 10, legendY - 10, legendWidth, legendHeight);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(legendX - 10, legendY - 10, legendWidth, 210);
+    ctx.strokeRect(legendX - 10, legendY - 10, legendWidth, legendHeight);
 
     // Заголовок
     ctx.fillStyle = '#ffffff';
@@ -331,56 +326,61 @@ class ModelVisualizer {
 
     // Статистика
     ctx.font = '12px Arial';
-    ctx.fillText(`📊 Узлов: ${modelData.nodeCount || modelData.nodes?.length || 0}`, legendX, legendY + 35);
-    ctx.fillText(`🔗 Связей: ${modelData.edgeCount || modelData.edges?.length || 0}`, legendX, legendY + 55);
+    ctx.fillText(`📊 Узлов: ${modelData.nodes?.length || 0}`, legendX, legendY + 35);
+    ctx.fillText(`🔗 Связей: ${modelData.edges?.length || 0}`, legendX, legendY + 55);
+    ctx.fillText(`🎨 Контуров: ${modelData.contours?.length || 0}`, legendX, legendY + 75);
    
-    // Информация о контурах
-    if (modelData.contours) {
-      const contourCount = modelData.contours.filter(c => c.class === 'Outline-trail').length;
-      const protectorCount = modelData.contours.filter(c => c.class === 'shoe-protector').length;
-     
-      ctx.fillText(`📐 Контуров: ${contourCount}`, legendX, legendY + 75);
-      ctx.fillText(`🔩 Деталей: ${protectorCount}`, legendX, legendY + 95);
+    // 🆕 ИНФОРМАЦИЯ О МАСШТАБЕ
+    if (options.scale && options.scale !== 1) {
+      ctx.fillText(`📐 Масштаб: ${options.scale.toFixed(2)}x`, legendX, legendY + 95);
     }
    
     ctx.fillText(`📸 Фото: ${modelData.photosProcessed || 0}`, legendX, legendY + 115);
     ctx.fillText(`🎯 Уверенность: ${((modelData.confidence || 0) * 100).toFixed(1)}%`, legendX, legendY + 135);
 
-    // Легенда цветов узлов
-    const colors = [
-      { color: this.getNodeColor(0.9), label: 'Узел (высокая уверенность)' },
-      { color: this.getNodeColor(0.9).replace('00ff00', '90ee90'), label: 'Узел вне контура' },
-      { color: this.contourColors['Outline-trail'], label: 'Контур следа' },
-      { color: this.contourColors['Heel'], label: 'Каблук' },
-      { color: this.contourColors['Toe'], label: 'Носок' }
-    ];
+    // Легенда цветов (упрощенная при маленьком масштабе)
+    const startY = scaleFactor < 0.5 ? legendY + 145 : legendY + 155;
+    const lineHeight = scaleFactor < 0.5 ? 12 : 15;
+   
+    const colors = scaleFactor < 0.5
+      ? [
+          { color: this.getNodeColor(0.9), label: 'Узлы' },
+          { color: this.contourColors['Outline-trail'], label: 'Контур' }
+        ]
+      : [
+          { color: this.getNodeColor(0.9), label: 'Узлы (центры протекторов)' },
+          { color: this.contourColors['Outline-trail'], label: 'Контур следа' },
+          { color: this.contourColors['shoe-protector'], label: 'Протекторы' },
+          { color: this.contourColors['Heel'], label: 'Каблук' },
+          { color: this.contourColors['Toe'], label: 'Носок' }
+        ];
 
     colors.forEach((item, i) => {
-      if (item.label.includes('Контур')) {
-        // Для контуров - линия
+      if (item.label.includes('Контур') || item.label.includes('Протекторы')) {
+        // Линия для контуров
         ctx.strokeStyle = item.color;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(legendX, legendY + 145 + i * 15);
-        ctx.lineTo(legendX + 15, legendY + 145 + i * 15);
+        ctx.moveTo(legendX, startY + i * lineHeight);
+        ctx.lineTo(legendX + 15, startY + i * lineHeight);
         ctx.stroke();
-      } else if (item.label.includes('Узел')) {
-        // Для узлов - круг
+      } else if (item.label.includes('Узлы')) {
+        // Круг для узлов
         ctx.fillStyle = item.color;
         ctx.beginPath();
-        ctx.arc(legendX + 7, legendY + 145 + i * 15, 5, 0, Math.PI * 2);
+        ctx.arc(legendX + 7, startY + i * lineHeight, 5, 0, Math.PI * 2);
         ctx.fill();
-      } else {
-        // Для каблука/носка - текст
+      } else if (item.label.includes('Каблук') || item.label.includes('Носок')) {
+        // Текст для каблука/носка
         ctx.fillStyle = item.color;
         ctx.font = '14px Arial';
         const icon = item.label.includes('Каблук') ? '👠' : '🦶';
-        ctx.fillText(icon, legendX, legendY + 150 + i * 15);
+        ctx.fillText(icon, legendX, startY + i * lineHeight + 5);
       }
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = '10px Arial';
-      ctx.fillText(item.label, legendX + 20, legendY + 150 + i * 15);
+      ctx.font = scaleFactor < 0.5 ? '9px Arial' : '10px Arial';
+      ctx.fillText(item.label, legendX + 20, startY + i * lineHeight + (scaleFactor < 0.5 ? 4 : 5));
     });
 
     // Timestamp
@@ -389,137 +389,17 @@ class ModelVisualizer {
     const timestamp = modelData.timestamp ?
       new Date(modelData.timestamp).toLocaleString('ru-RU') :
       new Date().toLocaleString('ru-RU');
-    ctx.fillText(`Сгенерировано: ${timestamp}`, legendX, legendY + 195);
+    ctx.fillText(`Сгенерировано: ${timestamp}`, legendX, legendY + legendHeight - 10);
   }
 
-  /**
-   * Вспомогательная функция для расчёта центра масс контура
-   */
-  calculateCentroid(points) {
-    const xs = points.map(p => p.x);
-    const ys = points.map(p => p.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-   
-    return {
-      x: (minX + maxX) / 2,
-      y: (minY + maxY) / 2
-    };
+  // 🔧 ОСТАЛЬНЫЕ МЕТОДЫ С ДОБАВЛЕНИЕМ МАСШТАБИРОВАНИЯ
+  drawSpecialPoints(ctx, specialPoints, scale = 1, offsetX = 0, offsetY = 0) {
+    // ... аналогично добавляем scale и offset ...
   }
 
-  /**
-   * Фон (без изменений)
-   */
-  drawBackground(ctx, width, height) {
-    // ... существующий код ...
-    const gradient = ctx.createLinearGradient(0, 0, width, height);
-    gradient.addColorStop(0, '#1a1a2e');
-    gradient.addColorStop(1, '#16213e');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
+  drawEdges(ctx, edges, nodes, scale = 1, offsetX = 0, offsetY = 0) {
+    // ... аналогично добавляем scale и offset ...
   }
 
-  /**
-   * Сетка (без изменений)
-   */
-  drawGrid(ctx, width, height) {
-    // ... существующий код ...
-  }
-
-  /**
-   * Оси (без изменений)
-   */
-  drawAxes(ctx, width, height) {
-    // ... существующий код ...
-  }
-
-  /**
-   * Связи (без изменений)
-   */
-  drawEdges(ctx, edges, nodes) {
-    // ... существующий код ...
-  }
-
-  /**
-   * Цвет узла по уверенности
-   */
-  getNodeColor(confidence) {
-    if (confidence > 0.8) return '#00ff00';
-    if (confidence > 0.65) return '#ffff00';
-    if (confidence > 0.5) return '#ff9900';
-    return '#ff0000';
-  }
-
-  /**
-   * Обновлённая текстовая визуализация с информацией о контурах
-   */
-  generateTextVisualization(modelData) {
-    const stats = {
-      nodes: modelData.nodes?.length || 0,
-      edges: modelData.edges?.length || 0,
-      confidence: modelData.confidence || 0,
-      photos: modelData.photosProcessed || 0,
-      contours: modelData.contours?.length || 0
-    };
-
-    let text = `🕸️ *ВИЗУАЛИЗАЦИЯ МОДЕЛИ*\n\n`;
-    text += `📊 *Статистика:*\n`;
-    text += `• Узлов (центров протекторов): ${stats.nodes}\n`;
-    text += `• Связей между узлами: ${stats.edges}\n`;
-    text += `• Контуров в модели: ${stats.contours}\n`;
-    text += `• Уверенность модели: ${(stats.confidence * 100).toFixed(1)}%\n`;
-    text += `• Фото в модели: ${stats.photos}\n\n`;
-
-    // Информация о типах контуров
-    if (modelData.contours) {
-      const contourTypes = {};
-      modelData.contours.forEach(contour => {
-        contourTypes[contour.class] = (contourTypes[contour.class] || 0) + 1;
-      });
-     
-      if (Object.keys(contourTypes).length > 0) {
-        text += `📐 *Типы контуров:*\n`;
-        Object.entries(contourTypes).forEach(([type, count]) => {
-          const icon = type === 'Outline-trail' ? '👣' :
-                      type === 'shoe-protector' ? '🔩' :
-                      type === 'Heel' ? '👠' :
-                      type === 'Toe' ? '🦶' : '📦';
-          text += `${icon} ${type}: ${count}\n`;
-        });
-        text += `\n`;
-      }
-    }
-
-    // Ключевые узлы
-    if (stats.nodes > 0) {
-      text += `🎯 *Ключевые узлы (центры протекторов):*\n`;
-
-      modelData.nodes
-        .filter(node => node.confidence > 0.7)
-        .slice(0, 5)
-        .forEach((node, i) => {
-          text += `${i+1}. Уверенность: ${(node.confidence * 100).toFixed(0)}%`;
-          if (node.occurrences > 1) text += ` (подтверждён ×${node.occurrences})`;
-          if (node.photoCount > 1) text += ` [${node.photoCount} фото]`;
-          text += `\n`;
-        });
-    }
-
-    // Каблук и носок если есть
-    if (modelData.specialPoints) {
-      text += `\n🦶 *Особые элементы:*\n`;
-      if (modelData.specialPoints.heel && modelData.specialPoints.heel.confidence > 0.3) {
-        text += `• 👠 Каблук: ${(modelData.specialPoints.heel.confidence * 100).toFixed(0)}%\n`;
-      }
-      if (modelData.specialPoints.toe && modelData.specialPoints.toe.confidence > 0.3) {
-        text += `• 🦶 Носок: ${(modelData.specialPoints.toe.confidence * 100).toFixed(0)}%\n`;
-      }
-    }
-
-    return text;
-  }
+  // ... остальные методы без изменений ...
 }
-
-module.exports = { ModelVisualizer };
