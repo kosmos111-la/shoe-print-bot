@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ✅ Импортируем DistortionTransformer
-const DistortionTransformer = require('./distortion-transformer.js');
+const DistortionTransformer = require('./distortion-transformer');
 class EnhancedModelVisualizer {
     constructor() {
         console.log('🎨 EnhancedModelVisualizer создан');
