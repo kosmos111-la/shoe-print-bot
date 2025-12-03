@@ -31,6 +31,11 @@ const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const fs = require('fs');
+const pidFile = './bot.pid';
+
+// Записываем текущий PID
+fs.writeFileSync(pidFile, process.pid.toString());
+console.log(`🚀 Бот запущен с PID: ${process.pid}`);
 const path = require('path');
 
 const enhancedManagerPath = path.join(__dirname, 'modules', 'session', 'enhanced-manager.js');
