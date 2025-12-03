@@ -2801,6 +2801,164 @@ bot.onText(/\/view_([a-f0-9]+)/i, async (msg, match) => {
     }
 });
 
+// Команда /compare_models - сравнить две модели
+bot.onText(/\/compare_models (.+) (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const [id1, id2] = match.slice(1);
+   
+    console.log(`🔍 Пользователь ${userId} сравнивает модели: ${id1} vs ${id2}`);
+   
+    await bot.sendMessage(chatId, `🔍 Сравниваю модели...`);
+   
+    try {
+        // Загружаем модели
+        const models = await FootprintManager.getUserModels(userId);
+        const model1 = models.find(m => m.id.startsWith(id1) || m.name.includes(id1));
+        const model2 = models.find(m => m.id.startsWith(id2) || m.name.includes(id2));
+       
+        if (!model1 || !model2) {
+            await bot.sendMessage(chatId,
+                `❌ **Не удалось найти модели**\n\n` +
+                `Модель 1 (${id1}): ${model1 ? 'найдена' : 'не найдена'}\n` +
+                `Модель 2 (${id2}): ${model2 ? 'найдена' : 'не найдена'}\n\n` +
+                `💡 Используйте ID или имя модели\n` +
+                `Пример: /compare_models da2a35b5 второй_след`
+            );
+            return;
+        }
+       
+        if (model1.id === model2.id) {
+            await bot.sendMessage(chatId, `❌ Это одна и та же модель!`);
+            return;
+        }
+       
+        // Сравниваем
+        const comparison = model1.compare(model2);
+       
+        // Создаем визуализацию
+        const ModelVisualizer = require('./modules/footprint/model-visualizer');
+        const visualizer = new ModelVisualizer();
+        const vizPath = await visualizer.visualizeComparison(model1, model2, comparison);
+       
+        let response = `🔍 **СРАВНЕНИЕ МОДЕЛЕЙ**\n\n`;
+        response += `📝 **${model1.name}** vs **${model2.name}**\n\n`;
+        response += `📊 **Результат:** ${Math.round(comparison.score * 100)}% совпадение\n`;
+        response += `✅ **Совпало:** ${comparison.matched} из ${comparison.total} узлов\n\n`;
+       
+        if (comparison.score > 0.8) {
+            response += `🎯 **ВЫСОКАЯ ВЕРОЯТНОСТЬ**\n`;
+            response += `Это может быть одна и та же обувь!\n`;
+        } else if (comparison.score > 0.6) {
+            response += `⚠️ **СРЕДНЯЯ ВЕРОЯТНОСТЬ**\n`;
+            response += `Похожие протекторы, но нужны доп. данные\n`;
+        } else {
+            response += `🟢 **НИЗКАЯ ВЕРОЯТНОСТЬ**\n`;
+            response += `Разные протекторы\n`;
+        }
+       
+        response += `\n💡 **Интерпретация:**\n`;
+        response += `• >80% - Возможно, та же обувь\n`;
+        response += `• 60-80% - Похожий тип протектора\n`;
+        response += `• <60% - Случайное совпадение`;
+       
+        await bot.sendMessage(chatId, response);
+       
+        // Отправляем визуализацию если есть
+        if (vizPath && fs.existsSync(vizPath)) {
+            await bot.sendPhoto(chatId, vizPath, {
+                caption: `🖼️ Визуализация сравнения моделей`
+            });
+           
+            // Очистка
+            setTimeout(() => {
+                if (tempFileManager && tempFileManager.removeFile) {
+                    tempFileManager.removeFile(vizPath);
+                }
+            }, 1000);
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка сравнения моделей:', error);
+        await bot.sendMessage(chatId,
+            `❌ **Не удалось сравнить модели**\n\n` +
+            `Ошибка: ${error.message}\n` +
+            `Проверьте ID моделей и попробуйте снова`
+        );
+    }
+});
+
+// Обнови команду /view чтобы показывала визуализацию модели
+// Найди команду /view_XXXXXXX и обнови:
+bot.onText(/\/view_([a-f0-9]+)/i, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const shortId = match[1];
+   
+    console.log(`👁️ Пользователь ${userId} просматривает модель ${shortId}`);
+   
+    await bot.sendMessage(chatId, `🔍 Ищу модель ${shortId}...`);
+   
+    try {
+        const models = await FootprintManager.getUserModels(userId);
+        const model = models.find(m => m.id.startsWith(shortId));
+       
+        if (!model) {
+            await bot.sendMessage(chatId, `❌ Модель не найдена`);
+            return;
+        }
+       
+        // Создаем визуализацию модели
+        const ModelVisualizer = require('./modules/footprint/model-visualizer');
+        const visualizer = new ModelVisualizer();
+        const vizPath = await visualizer.visualizeModel(model);
+       
+        // Текстовая информация
+        const date = new Date(model.stats.created).toLocaleDateString('ru-RU');
+       
+        let response = `👣 **МОДЕЛЬ: ${model.name}**\n\n`;
+        response += `📅 Создана: ${date}\n`;
+        response += `📊 Узлов: ${model.nodes.size}\n`;
+        response += `🔗 Связей: ${model.edges.length}\n`;
+        response += `💎 Уверенность: ${Math.round(model.stats.confidence * 100)}%\n`;
+        response += `📸 Источников: ${model.stats.totalSources} фото\n\n`;
+       
+        if (model.metadata && model.metadata.estimatedSize) {
+            response += `📏 Примерный размер: ${model.metadata.estimatedSize}\n`;
+        }
+       
+        response += `\n💡 **Как использовать:**\n`;
+        response += `/find_similar - Найти похожие следы\n`;
+        response += `/compare_models ${model.id.slice(0, 8)} [ID] - Сравнить с другой моделью\n`;
+        response += `📤 Отправьте больше фото этой обуви для улучшения модели`;
+       
+        // Отправляем текст
+        await bot.sendMessage(chatId, response);
+       
+        // Отправляем визуализацию
+        if (vizPath && fs.existsSync(vizPath)) {
+            await bot.sendPhoto(chatId, vizPath, {
+                caption: `🖼️ Визуализация модели "${model.name}"\n` +
+                        `• 🟢 Зеленые - высокоуверенные узлы\n` +
+                        `• 🟠 Оранжевые - среднеуверенные\n` +
+                        `• 🔵 Синие линии - связи между узлами`
+            });
+           
+            // Очистка
+            setTimeout(() => {
+                if (tempFileManager && tempFileManager.removeFile) {
+                    tempFileManager.removeFile(vizPath);
+                }
+            }, 1000);
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка просмотра модели:', error);
+        await bot.sendMessage(chatId, `❌ Не удалось загрузить модель`);
+    }
+});
+
+
 // =============================================================================
 // 🔄 ОБРАБОТЧИК CALLBACK-КНОПОК ДЛЯ ОБРАТНОЙ СВЯЗИ
 // =============================================================================
