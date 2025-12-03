@@ -2729,29 +2729,34 @@ bot.onText(/\/footprint_stats/, async (msg) => {
 });
 
 // Обработка команд вида /view_XXXXXXX (просмотр модели)
-bot.onText(/\/view_([a-f0-9]+)/i, async (msg, match) => {
+// Команда /view_XXXXXXX - просмотр модели с улучшенной визуализацией
+bot.onText(/\/view_([a-f0-9_]+)/i, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const shortId = match[1];
    
     console.log(`👁️ Пользователь ${userId} просматривает модель ${shortId}`);
    
-    await bot.sendMessage(chatId, `🔍 Ищу модель ${shortId}...`);
+    await bot.sendMessage(chatId, `🔍 Загружаю модель ${shortId}...`);
    
     try {
-        // Находим полный ID модели
+        // Загружаем модели пользователя
         const models = await FootprintManager.getUserModels(userId);
-        const model = models.find(m => m.id.startsWith(shortId));
+        const model = models.find(m =>
+            m.id.startsWith(shortId) ||
+            m.name.toLowerCase().includes(shortId.toLowerCase())
+        );
        
         if (!model) {
             await bot.sendMessage(chatId,
-                `❌ **Модель не найдена**\n\n` +
-                `ID: ${shortId}\n` +
-                `Возможно:\n` +
+                `❌ **МОДЕЛЬ НЕ НАЙДЕНА**\n\n` +
+                `ID: ${shortId}\n\n` +
+                `💡 **Возможные причины:**\n` +
                 `• Модель удалена\n` +
                 `• Это не ваша модель\n` +
                 `• Ошибка в ID\n\n` +
-                `💡 Посмотреть все модели: /my_models`
+                `📋 **Посмотреть все модели:**\n` +
+                `/my_models`
             );
             return;
         }
@@ -2759,15 +2764,28 @@ bot.onText(/\/view_([a-f0-9]+)/i, async (msg, match) => {
         const date = new Date(model.stats.created).toLocaleDateString('ru-RU');
         const updated = new Date(model.stats.lastUpdated).toLocaleDateString('ru-RU');
        
-        let response = `👣 **МОДЕЛЬ: ${model.name}**\n\n`;
-        response += `🆔 ID: ${model.id}\n`;
-        response += `📅 Создана: ${date}\n`;
-        response += `🔄 Обновлена: ${updated}\n`;
-        response += `📊 Узлов: ${model.nodes.size}\n`;
-        response += `🔗 Связей: ${model.edges.length}\n`;
-        response += `💎 Уверенность: ${Math.round(model.stats.confidence * 100)}%\n`;
-        response += `📸 Источников: ${model.stats.totalSources} фото\n\n`;
+        // 1. ОТПРАВЛЯЕМ ИНФОРМАЦИЮ О МОДЕЛИ
+        let response = `👣 **ЦИФРОВОЙ ОТПЕЧАТОК**\n\n`;
+        response += `📝 **Название:** ${model.name}\n`;
+        response += `🆔 **ID:** ${model.id.slice(0, 12)}...\n`;
+        response += `📅 **Создана:** ${date}\n`;
+        response += `🔄 **Обновлена:** ${updated}\n`;
+        response += `📊 **Узлов протектора:** ${model.nodes.size}\n`;
+        response += `🔗 **Топологических связей:** ${model.edges.length}\n`;
+        response += `💎 **Общая уверенность:** ${Math.round(model.stats.confidence * 100)}%\n`;
+        response += `📸 **Фото в модели:** ${model.stats.totalPhotos || model.stats.totalSources || 0}\n\n`;
        
+        // Контуры и каблуки
+        if (model.bestContours && model.bestContours.length > 0) {
+            response += `🎯 **Геометрия:**\n`;
+            response += `• Контуров сохранено: ${model.bestContours.length}\n`;
+            if (model.bestHeels && model.bestHeels.length > 0) {
+                response += `• Каблуков сохранено: ${model.bestHeels.length}\n`;
+            }
+            response += `\n`;
+        }
+       
+        // Метаданные
         if (model.metadata) {
             response += `📋 **МЕТАДАННЫЕ:**\n`;
             if (model.metadata.estimatedSize) {
@@ -2779,24 +2797,121 @@ bot.onText(/\/view_([a-f0-9]+)/i, async (msg, match) => {
             if (model.metadata.orientation) {
                 response += `• Ориентация: ${model.metadata.orientation}°\n`;
             }
+            if (model.metadata.isMirrored) {
+                response += `• 🪞 **ЗЕРКАЛЬНАЯ КОПИЯ**\n`;
+            }
             response += `\n`;
         }
        
-        response += `🎯 **ЧТО МОЖНО СДЕЛАТЬ:**\n`;
-        response += `1. Найти похожие: /find_similar\n`;
-        response += `2. Сравнить с другим следом\n`;
-        response += `3. Улучшить модель (отправьте больше фото)\n\n`;
+        // Искажения
+        if (model.bestContours && model.bestContours.some(c => c.isDistorted)) {
+            response += `⚠️ **Обнаружены искажения перспективы**\n`;
+            response += `Система автоматически их учитывает при сравнении\n\n`;
+        }
        
-        response += `💡 **СОВЕТ:**\n`;
-        response += `Чем больше фото одной обуви - тем точнее модель!`;
+        response += `🎯 **ЧТО МОЖНО СДЕЛАТЬ:**\n`;
+        response += `/find_similar - Найти похожие следы\n`;
+        response += `/compare_models ${model.id.slice(0, 8)} [ID] - Сравнить с другой моделью\n`;
+        if (model.metadata && model.metadata.isMirrored) {
+            response += `/view_${model.metadata.originalModelId?.slice(0, 8) || ''} - Посмотреть оригинал\n`;
+        } else {
+            response += `/create_mirror_${model.id.slice(0, 8)} - Создать зеркальную копию\n`;
+        }
+        response += `\n📤 **Совет:** Отправьте больше фото этой обуви для улучшения модели!`;
        
         await bot.sendMessage(chatId, response);
+       
+        // 2. СОЗДАЕМ И ОТПРАВЛЯЕМ УЛУЧШЕННУЮ ВИЗУАЛИЗАЦИЮ
+        await bot.sendMessage(chatId, `🎨 Создаю улучшенную визуализацию...`);
+       
+        try {
+            const { EnhancedModelVisualizer } = require('./modules/footprint/enhanced-model-visualizer');
+            const enhancedVisualizer = new EnhancedModelVisualizer();
+            const vizPath = await enhancedVisualizer.visualizeModelWithPhoto(model);
+           
+            if (vizPath && fs.existsSync(vizPath)) {
+                const caption = `🖼️ **ВИЗУАЛИЗАЦИЯ МОДЕЛИ "${model.name}"**\n\n` +
+                              `📊 **Легенда:**\n` +
+                              `• 🟢 Зеленые - высокоуверенные узлы (80-100%)\n` +
+                              `• 🟠 Оранжевые - среднеуверенные (50-80%)\n` +
+                              `• 🔴 Красные - низкоуверенные (<50%)\n` +
+                              `• 🔵 Синие линии - топологические связи\n` +
+                              `• 💙 Пунктир - контуры следа\n` +
+                              `• ❤️ Красные области - каблуки\n` +
+                              `• 📸 Фон - лучшее фото модели (под калькой)`;
+               
+                await bot.sendPhoto(chatId, vizPath, {
+                    caption: caption,
+                    parse_mode: 'Markdown'
+                });
+               
+                // Очистка через tempFileManager
+                setTimeout(() => {
+                    if (tempFileManager && tempFileManager.removeFile) {
+                        tempFileManager.removeFile(vizPath);
+                    } else {
+                        try { fs.unlinkSync(vizPath); } catch {}
+                    }
+                }, 10000); // Даем 10 секунд на отправку
+               
+            } else {
+                await bot.sendMessage(chatId,
+                    `⚠️ **Не удалось создать визуализацию**\n` +
+                    `Модель будет отображаться без фото-подложки`
+                );
+               
+                // Пробуем обычную визуализацию как fallback
+                const { ModelVisualizer } = require('./modules/footprint');
+                const visualizer = new ModelVisualizer();
+                const fallbackPath = await visualizer.visualizeModel(model);
+               
+                if (fallbackPath && fs.existsSync(fallbackPath)) {
+                    await bot.sendPhoto(chatId, fallbackPath, {
+                        caption: `📊 Базовая визуализация модели`
+                    });
+                   
+                    setTimeout(() => {
+                        if (tempFileManager && tempFileManager.removeFile) {
+                            tempFileManager.removeFile(fallbackPath);
+                        }
+                    }, 5000);
+                }
+            }
+           
+        } catch (vizError) {
+            console.log('❌ Ошибка визуализации:', vizError.message);
+            await bot.sendMessage(chatId,
+                `⚠️ **Визуализация пропущена**\n` +
+                `Ошибка: ${vizError.message}\n\n` +
+                `💡 Попробуйте позже или проверьте данные модели`
+            );
+        }
+       
+        // 3. ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ О КАЧЕСТВЕ
+        if (model.stats.avgPhotoQuality < 0.4) {
+            setTimeout(async () => {
+                await bot.sendMessage(chatId,
+                    `💡 **РЕКОМЕНДАЦИЯ ДЛЯ УЛУЧШЕНИЯ КАЧЕСТВА:**\n\n` +
+                    `📸 **Качество фото:** ${Math.round(model.stats.avgPhotoQuality * 100)}%\n` +
+                    `**Советы по съемке:**\n` +
+                    `• Используйте лучшее освещение\n` +
+                    `• Снимайте прямо сверху\n` +
+                    `• Убедитесь что след в фокусе\n` +
+                    `• Избегайте сильных теней\n\n` +
+                    `🎯 **Каждое новое качественное фото улучшает модель!**`
+                );
+            }, 1000);
+        }
        
     } catch (error) {
         console.log('❌ Ошибка просмотра модели:', error);
         await bot.sendMessage(chatId,
-            `❌ **Не удалось загрузить модель**\n\n` +
-            `Ошибка: ${error.message}`
+            `❌ **НЕ УДАЛОСЬ ЗАГРУЗИТЬ МОДЕЛЬ**\n\n` +
+            `Ошибка: ${error.message}\n\n` +
+            `💡 **Попробуйте:**\n` +
+            `1. Проверить ID модели\n` +
+            `2. Подождать и попробовать снова\n` +
+            `3. Обратиться к администратору`
         );
     }
 });
@@ -2809,21 +2924,39 @@ bot.onText(/\/compare_models (.+) (.+)/, async (msg, match) => {
    
     console.log(`🔍 Пользователь ${userId} сравнивает модели: ${id1} vs ${id2}`);
    
-    await bot.sendMessage(chatId, `🔍 Сравниваю модели...`);
+    await bot.sendMessage(chatId,
+        `🔍 **СРАВНИВАЮ МОДЕЛИ...**\n\n` +
+        `🔄 Учитываю:\n` +
+        `• Перспективные искажения\n` +
+        `• Разный масштаб съемки\n` +
+        `• Зеркальность (правый/левый)\n` +
+        `• Качество фото`
+    );
    
     try {
-        // Загружаем модели
+        // Загружаем модели пользователя
         const models = await FootprintManager.getUserModels(userId);
-        const model1 = models.find(m => m.id.startsWith(id1) || m.name.includes(id1));
-        const model2 = models.find(m => m.id.startsWith(id2) || m.name.includes(id2));
+        const model1 = models.find(m =>
+            m.id.startsWith(id1) ||
+            m.name.toLowerCase().includes(id1.toLowerCase())
+        );
+        const model2 = models.find(m =>
+            m.id.startsWith(id2) ||
+            m.name.toLowerCase().includes(id2.toLowerCase())
+        );
        
         if (!model1 || !model2) {
             await bot.sendMessage(chatId,
-                `❌ **Не удалось найти модели**\n\n` +
-                `Модель 1 (${id1}): ${model1 ? 'найдена' : 'не найдена'}\n` +
-                `Модель 2 (${id2}): ${model2 ? 'найдена' : 'не найдена'}\n\n` +
-                `💡 Используйте ID или имя модели\n` +
-                `Пример: /compare_models da2a35b5 второй_след`
+                `❌ **НЕ УДАЛОСЬ НАЙТИ МОДЕЛИ**\n\n` +
+                `Модель 1 (${id1}): ${model1 ? '✅ найдена' : '❌ не найдена'}\n` +
+                `Модель 2 (${id2}): ${model2 ? '✅ найдена' : '❌ не найдена'}\n\n` +
+                `💡 **Используйте:**\n` +
+                `• ID модели (первые 8 символов)\n` +
+                `• Имя модели\n` +
+                `• Комбинацию ID и имени\n\n` +
+                `📋 **Примеры:**\n` +
+                `/compare_models fp_17647 "Вторая модель"\n` +
+                `/compare_models "Моя модель" fp_62dd`
             );
             return;
         }
