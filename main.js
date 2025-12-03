@@ -93,37 +93,6 @@ const { FeedbackManager } = require('./modules/feedback/feedback-manager');
 const { EnhancedSessionManager } = require('./modules/session/enhanced-manager.js');
 const { ModelVisualizer } = require('./modules/visualization/model-visualizer.js');
 
-console.log('🔍 ПРОВЕРКА enhancedSessionManager ПОСЛЕ ИНИЦИАЛИЗАЦИИ:');
-
-if (!enhancedSessionManager || typeof enhancedSessionManager.createModelSession !== 'function') {
-  console.log('🆘 ЭКСТРЕННЫЙ ФИКС: создаю заглушку на лету');
- 
-  enhancedSessionManager = {
-    models: new Map(),
-    userSessions: new Map(),
-   
-    createModelSession: function(userId) {
-      console.log('🆘 ВЫЗОВ ЗАГЛУШКИ createModelSession для', userId);
-      const sessionId = 'stub_' + Date.now();
-      return {
-        sessionId,
-        model: { photosProcessed: 0 },
-        isExisting: false,
-        message: '✅ Тестовая модель создана (режим заглушки)'
-      };
-    },
-   
-    getUserModel: function() { return null; },
-    getModelStatus: function() { return { error: 'Заглушка' }; },
-    exportModel: function() { return null; },
-    addPhotoToModel: async function() {
-      return { success: false, error: 'Заглушка' };
-    }
-  };
- 
-  console.log('✅ Заглушка создана');
-}
-
 // ВСТРОЕННЫЙ CONFIG
 const config = {
     TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI',
@@ -2727,6 +2696,24 @@ console.log('🛡️ Глобальные обработчики ошибок а
         apps = createAppsStub();
     }
 
+try {
+    enhancedSessionManager = new EnhancedSessionManager();
+    modelVisualizer = new ModelVisualizer();
+    console.log('✅ Enhanced session manager загружен');
+  } catch (error) {
+    console.log('❌ Ошибка EnhancedSessionManager:', error.message);
+    // Заглушка
+    enhancedSessionManager = {
+      createModelSession: (userId) => ({
+        sessionId: 'stub',
+        model: null,
+        isExisting: false,
+        message: '⚠️ Модуль в заглушке'
+      }),
+      // ... другие методы
+    };
+  }
+   
     // ИНИЦИАЛИЗИРУЕМ ЯНДЕКС.ДИСК (асинхронно)
     try {
         yandexDisk = await yandexDiskModule.initialize(config.YANDEX_DISK_TOKEN);
@@ -2744,7 +2731,13 @@ console.log('🛡️ Глобальные обработчики ошибок а
     }
 
     console.log('🚀 Все модули инициализированы, бот готов к работе!');
+ console.log('🔍 ПРОВЕРКА enhancedSessionManager ПОСЛЕ ИНИЦИАЛИЗАЦИИ:');
+ if (!enhancedSessionManager || typeof enhancedSessionManager.createModelSession !== 'function') {
+    console.log('🆘 Проблема с инициализацией!');
+    // Дополнительная заглушка
+  }
 
+   
     // 🆕 Установка Webhook
 //   try {
 //        const webhookUrl = `https://shoe-print-bot.onrender.com/bot${config.TELEGRAM_TOKEN}`;
