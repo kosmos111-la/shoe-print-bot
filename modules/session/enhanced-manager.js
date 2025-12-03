@@ -1,5 +1,5 @@
 // modules/session/enhanced-manager.js
-// УПРОЩЕННАЯ РАБОЧАЯ ВЕРСИЯ
+//  УПРОЩЕННАЯ РАБОЧАЯ ВЕРСИЯ
 
 console.log('🚀 Загрузка EnhancedSessionManager...');
 
