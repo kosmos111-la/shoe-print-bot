@@ -2607,14 +2607,14 @@ bot.onText(/\/my_models/, async (msg) => {
     }
 });
 
-bot.onText(/\/find_similar/, async (msg) => {
+bot.onText(/\/find_similar/, async (msg) => {  // ⚠️ ВАЖНО: добавить async здесь
     const chatId = msg.chat.id;
     const userId = msg.from.id;
    
     console.log(`🔍 Пользователь ${userId} ищет похожие модели`);
    
     try {
-        // 1. Проверяем, есть ли последний анализ
+        // Проверяем, есть ли последний анализ
         const lastAnalysis = getLastUserAnalysis(userId);
        
         if (!lastAnalysis || !lastAnalysis.predictions || lastAnalysis.predictions.length === 0) {
@@ -2630,10 +2630,10 @@ bot.onText(/\/find_similar/, async (msg) => {
             return;
         }
        
-        // 2. Начинаем поиск
+        // Начинаем поиск
         await bot.sendMessage(chatId, `🔍 Ищу похожие модели...`);
        
-        // 3. Используем FootprintManager для поиска
+        // Используем FootprintManager для поиска
         const similar = await FootprintManager.findSimilarForAnalysis(
             lastAnalysis,
             userId,
@@ -2643,7 +2643,7 @@ bot.onText(/\/find_similar/, async (msg) => {
             }
         );
        
-        // 4. Формируем ответ
+        // Формируем ответ
         if (!similar || similar.length === 0) {
             await bot.sendMessage(chatId,
                 `🎯 **Уникальный след!**\n\n` +
@@ -2654,7 +2654,7 @@ bot.onText(/\/find_similar/, async (msg) => {
             return;
         }
        
-        // 5. Отображаем результаты
+        // Отображаем результаты
         let response = `🔍 **Найдено похожих моделей:** ${similar.length}\n\n`;
        
         similar.forEach((match, index) => {
@@ -2678,24 +2678,6 @@ bot.onText(/\/find_similar/, async (msg) => {
     } catch (error) {
         console.log('❌ Ошибка /find_similar:', error);
         await bot.sendMessage(chatId, `❌ Ошибка поиска: ${error.message}`);
-    }
-});
-       
-        response += `💡 **Что это значит?**\n`;
-        response += `• >80% - Возможно, та же обувь\n`;
-        response += `• 60-80% - Похожий тип протектора\n`;
-        response += `• <60% - Случайное совпадение\n\n`;
-        response += `📝 Используйте /view_[ID] для деталей`;
-       
-        await bot.sendMessage(chatId, response);
-       
-    } catch (error) {
-        console.log('❌ Ошибка поиска похожих:', error);
-        await bot.sendMessage(chatId,
-            `❌ **Не удалось выполнить поиск**\n\n` +
-            `Ошибка: ${error.message}\n` +
-            `Попробуйте позже или отправьте фото заново`
-        );
     }
 });
 
