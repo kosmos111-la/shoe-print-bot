@@ -3,14 +3,10 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const path = require('path');
 
-// ✅ Импортируем DistortionTransformer
-const DistortionTransformer = require('./distortion-transformer');
-
 class EnhancedModelVisualizer {
     constructor() {
         console.log('🎨 EnhancedModelVisualizer создан');
         this.tempDir = path.join(process.cwd(), 'temp');
-        this.transformer = new DistortionTransformer();
         this.ensureTempDir();
     }
 
@@ -22,68 +18,51 @@ class EnhancedModelVisualizer {
 
     async visualizeModelWithPhoto(footprint, outputPath = null) {
         try {
-            console.log(`🔍 DEBUG EnhancedModelVisualizer для модели: ${footprint.name}`);
+            console.log(`🔍 Визуализация модели: ${footprint.name}`);
             console.log(`📊 Узлов: ${footprint.nodes.size}`);
             console.log(`🎯 Контуров: ${footprint.bestContours?.length || 0}`);
             console.log(`👠 Каблуков: ${footprint.bestHeels?.length || 0}`);
-            console.log(`📸 Лучшее фото: ${footprint.bestPhotoInfo?.path || 'нет'}`);
-
-            // Вывод координат первых 3 узлов для отладки
-            const firstNodes = Array.from(footprint.nodes.values()).slice(0, 3);
-            firstNodes.forEach((node, i) => {
-                console.log(`📍 Узел ${i}: x=${node.center?.x}, y=${node.center?.y}, confidence=${node.confidence}`);
-            });
-
-            // Вывод координат контуров для отладки
-            if (footprint.bestContours && footprint.bestContours.length > 0) {
-                const contour = footprint.bestContours[0];
-                if (contour.points && contour.points.length > 0) {
-                    console.log(`🔵 Контур точка: x=${contour.points[0].x}, y=${contour.points[0].y}`);
-                }
-            }
-
-            // Вывод bounding box
-            if (footprint.boundingBox) {
-                console.log(`📦 BoundingBox: minX=${footprint.boundingBox.minX}, maxX=${footprint.boundingBox.maxX},
-                    minY=${footprint.boundingBox.minY}, maxY=${footprint.boundingBox.maxY},
-                    width=${footprint.boundingBox.width}, height=${footprint.boundingBox.height}`);
-            }
 
             if (!footprint || !footprint.nodes || footprint.nodes.size === 0) {
-                console.log('❌ Модель пуста для визуализации');
+                console.log('❌ Модель пуста');
                 return null;
             }
-
-            console.log(`🎨 Визуализирую модель с фото-подложкой: ${footprint.nodes.size} узлов`);
-
-            const bestPhoto = await this.findBestPhotoForModel(footprint);
 
             const canvasWidth = 1000;
             const canvasHeight = 800;
             const canvas = createCanvas(canvasWidth, canvasHeight);
             const ctx = canvas.getContext('2d');
 
-            // Если нет фото - рисуем фон с сеткой
-            if (!bestPhoto || !bestPhoto.image) {
-                console.log('⚠️ Нет фото для подложки, рисую фон с сеткой');
-                this.drawGridBackground(ctx, canvasWidth, canvasHeight);
-            } else {
-                ctx.fillStyle = '#1a1a1a';
-                ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+            // 1. Темный фон
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+            // 2. Пробуем загрузить фото для подложки
+            const bestPhoto = await this.findBestPhotoForModel(footprint);
+            if (bestPhoto && bestPhoto.image) {
                 await this.drawPhotoUnderlay(ctx, bestPhoto.image, canvasWidth, canvasHeight);
+            } else {
+                console.log('⚠️ Нет фото для подложки, рисую сетку');
+                this.drawGridBackground(ctx, canvasWidth, canvasHeight);
             }
 
+            // 3. Нормализуем данные
             const normalizedData = await this.normalizeAndAlignData(footprint, canvasWidth, canvasHeight);
 
-            // Рисуем элементы
-            this.drawContoursAndHeels(ctx, normalizedData.contours, normalizedData.heels);
-            this.drawEdges(ctx, normalizedData.nodes, footprint.edges);
-            this.drawNodes(ctx, normalizedData.nodes);
-            this.drawEnhancedInfoPanel(ctx, canvasWidth, canvasHeight, footprint, bestPhoto);
-            this.drawLegend(ctx, canvasWidth, canvasHeight);
+            // 4. Рисуем элементы В ПРАВИЛЬНОМ ПОРЯДКЕ
+            // Сначала контуры и каблуки (они должны быть ПОД узлами)
+            this.drawContoursAndHeelsForControl(ctx, normalizedData.contours, normalizedData.heels);
            
-            // Отладочная информация
-            this.drawDebugInfo(ctx, canvasWidth, canvasHeight, normalizedData, bestPhoto);
+            // Затем связи между узлами
+            this.drawEdges(ctx, normalizedData.nodes, footprint.edges);
+           
+            // И только потом узлы (чтобы они были СВЕРХУ)
+            this.drawNodesWithConfirmation(ctx, normalizedData.nodes);
+           
+            // 5. Панели информации
+            this.drawEnhancedInfoPanel(ctx, canvasWidth, canvasHeight, footprint, bestPhoto);
+            this.drawMergeDebugInfo(ctx, footprint, canvasWidth, canvasHeight);
+            this.drawLegend(ctx, canvasWidth, canvasHeight);
 
             const finalPath = outputPath || path.join(
                 this.tempDir,
@@ -97,18 +76,14 @@ class EnhancedModelVisualizer {
             return finalPath;
 
         } catch (error) {
-            console.log('❌ Ошибка улучшенной визуализации:', error.message);
+            console.log('❌ Ошибка визуализации:', error.message);
             return null;
         }
     }
 
+    // ФОН С СЕТКОЙ
     drawGridBackground(ctx, width, height) {
-        // Темный фон
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(0, 0, width, height);
-       
-        // Сетка
-        ctx.strokeStyle = 'rgba(100, 100, 100, 0.3)';
+        ctx.strokeStyle = 'rgba(100, 100, 100, 0.2)';
         ctx.lineWidth = 1;
        
         // Вертикальные линии
@@ -132,156 +107,75 @@ class EnhancedModelVisualizer {
         ctx.beginPath();
         ctx.arc(width / 2, height / 2, 10, 0, Math.PI * 2);
         ctx.fill();
-       
-        // Подписи осей
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-        ctx.font = '12px Arial';
-        ctx.fillText('← X →', width / 2 - 15, 20);
-        ctx.fillText('↑ Y ↓', 20, height / 2 + 4);
     }
 
-    drawDebugInfo(ctx, width, height, normalizedData, bestPhoto) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(10, height - 80, 400, 70);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '12px Arial';
-        ctx.fillText(`📐 Canvas: ${width}x${height}`, 20, height - 65);
-        ctx.fillText(`📍 Узлы: ${normalizedData.nodes.size}`, 20, height - 45);
-        ctx.fillText(`🔵 Контуры: ${normalizedData.contours.length}`, 150, height - 65);
-        ctx.fillText(`👠 Каблуки: ${normalizedData.heels.length}`, 150, height - 45);
-        ctx.fillText(`📸 Фото: ${bestPhoto ? '✅' : '❌'}`, 280, height - 55);
-       
-        // Границы canvas
-        ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(0, 0, width, height);
-    }
-
+    // ПОИСК ЛУЧШЕГО ФОТО
     async findBestPhotoForModel(footprint) {
         try {
-            console.log('🔍 Поиск лучшего фото для модели...');
+            console.log('🔍 Ищу фото для визуализации...');
            
-            // Пробуем разные источники фото
-            const photoSources = [];
-
-            // 1. Из bestPhotoInfo
+            // 1. Проверяем bestPhotoInfo
             if (footprint.bestPhotoInfo && footprint.bestPhotoInfo.path) {
-                console.log(`📸 Найден bestPhotoInfo: ${footprint.bestPhotoInfo.path}`);
-                photoSources.push({
-                    path: footprint.bestPhotoInfo.path,
-                    confidence: footprint.bestPhotoInfo.avgConfidence || 0.7,
-                    nodeCount: footprint.bestPhotoInfo.nodeCount || 0,
-                    source: 'bestPhotoInfo'
-                });
+                const photoPath = footprint.bestPhotoInfo.path;
+                console.log(`📸 Пробую bestPhotoInfo: ${photoPath}`);
+               
+                if (fs.existsSync(photoPath)) {
+                    const image = await loadImage(photoPath);
+                    console.log(`✅ Фото загружено`);
+                    return {
+                        path: photoPath,
+                        image: image,
+                        quality: footprint.bestPhotoInfo.quality || 0.5
+                    };
+                } else {
+                    console.log(`⚠️ Файл не существует: ${photoPath}`);
+                }
             }
-
-            // 2. Из sources узлов
+           
+            // 2. Ищем среди источников узлов
+            let bestLocalPath = null;
+           
             footprint.nodes.forEach(node => {
                 if (node.sources && Array.isArray(node.sources)) {
                     node.sources.forEach(source => {
-                        // Пробуем все возможные пути
+                        // Проверяем локальные пути
                         const possiblePaths = [
-                            source.photoPath,
+                            source.localPhotoPath,
                             source.localPath,
-                            source.path,
-                            source.imagePath,
-                            source.filePath,
-                            source.photo?.path
-                        ];
+                            source.imagePath
+                        ].filter(p => p && typeof p === 'string');
                        
-                        for (const photoPath of possiblePaths) {
-                            if (photoPath && typeof photoPath === 'string') {
-                                // Проверяем существование файла
-                                if (fs.existsSync(photoPath)) {
-                                    photoSources.push({
-                                        path: photoPath,
-                                        confidence: node.confidence,
-                                        nodeCount: 1,
-                                        source: 'node_source',
-                                        nodeId: node.id
-                                    });
-                                    break;
-                                } else {
-                                    console.log(`⚠️ Фото не найдено по пути: ${photoPath}`);
-                                }
+                        for (const path of possiblePaths) {
+                            // Ищем в папке temp
+                            if ((path.includes('temp/') || path.includes('temp\\')) && fs.existsSync(path)) {
+                                bestLocalPath = path;
+                                return;
                             }
                         }
                     });
                 }
             });
-
-            console.log(`📊 Найдено источников фото: ${photoSources.length}`);
-
-            if (photoSources.length === 0) {
-                console.log('⚠️ Не найдено доступных фото для модели');
-                return null;
+           
+            if (bestLocalPath) {
+                const image = await loadImage(bestLocalPath);
+                console.log(`✅ Нашел локальное фото: ${bestLocalPath}`);
+                return {
+                    path: bestLocalPath,
+                    image: image,
+                    quality: 0.5
+                };
             }
-
-            // Группируем по пути
-            const photoStats = {};
-            photoSources.forEach(photo => {
-                if (!photoStats[photo.path]) {
-                    photoStats[photo.path] = {
-                        path: photo.path,
-                        totalConfidence: 0,
-                        nodeCount: 0,
-                        uniqueNodes: new Set(),
-                        sources: []
-                    };
-                }
-                photoStats[photo.path].totalConfidence += photo.confidence;
-                photoStats[photo.path].nodeCount += 1;
-                if (photo.nodeId) {
-                    photoStats[photo.path].uniqueNodes.add(photo.nodeId);
-                }
-                photoStats[photo.path].sources.push(photo.source);
-            });
-
-            let bestPhoto = null;
-            let bestScore = -1;
-
-            Object.values(photoStats).forEach(stats => {
-                // Оценка: уверенность * логарифм уникальных узлов
-                const uniqueNodeCount = stats.uniqueNodes.size;
-                const score = stats.totalConfidence * Math.log(uniqueNodeCount + 2);
-               
-                console.log(`📊 Оценка фото ${stats.path}:`);
-                console.log(`  - Уникальных узлов: ${uniqueNodeCount}`);
-                console.log(`  - Total confidence: ${stats.totalConfidence}`);
-                console.log(`  - Score: ${score.toFixed(2)}`);
-                console.log(`  - Sources: ${stats.sources.join(', ')}`);
-               
-                if (score > bestScore && fs.existsSync(stats.path)) {
-                    bestScore = score;
-                    bestPhoto = stats;
-                }
-            });
-
-            if (!bestPhoto) {
-                console.log('⚠️ Не удалось выбрать лучшее фото');
-                return null;
-            }
-
-            console.log(`✅ Лучшее фото выбрано: ${bestPhoto.path}`);
-            console.log(`   Уникальных узлов: ${bestPhoto.uniqueNodes.size}`);
-            console.log(`   Общая уверенность: ${bestPhoto.totalConfidence}`);
-
-            // Загружаем изображение
-            const image = await loadImage(bestPhoto.path);
-
-            return {
-                ...bestPhoto,
-                image,
-                score: bestScore
-            };
-
+           
+            console.log('⚠️ Не найдено доступных фото');
+            return null;
+           
         } catch (error) {
-            console.log('⚠️ Не удалось найти лучшее фото:', error.message);
+            console.log('⚠️ Ошибка поиска фото:', error.message);
             return null;
         }
     }
 
+    // ФОТО-ПОДЛОЖКА
     async drawPhotoUnderlay(ctx, image, canvasWidth, canvasHeight) {
         try {
             // Масштабируем чтобы вместить в 80% canvas
@@ -293,336 +187,218 @@ class EnhancedModelVisualizer {
             const width = image.width * scale;
             const height = image.height * scale;
             const x = (canvasWidth - width) / 2;
-            const y = (canvasHeight - height) / 2;
+            const y = (canvasHeight - height) / 2 + 50; // Смещаем вниз для панели
 
-            // Белая подложка под фото
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-            ctx.fillRect(x - 10, y - 10, width + 20, height + 20);
+            // Темная подложка под фото
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(x - 5, y - 5, width + 10, height + 10);
 
             // Фото с низкой прозрачностью
-            ctx.globalAlpha = 0.15;
+            ctx.globalAlpha = 0.25;
             ctx.drawImage(image, x, y, width, height);
             ctx.globalAlpha = 1.0;
 
-            // Рамка вокруг фото
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+            // Рамка
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
             ctx.lineWidth = 2;
             ctx.strokeRect(x, y, width, height);
 
-            console.log(`📸 Фото нарисовано: ${x.toFixed(1)},${y.toFixed(1)} ${width.toFixed(1)}x${height.toFixed(1)}`);
-
         } catch (error) {
-            console.log('⚠️ Не удалось нарисовать фото-подложку:', error.message);
+            console.log('⚠️ Не удалось нарисовать фото:', error.message);
         }
     }
 
+    // НОРМАЛИЗАЦИЯ ДАННЫХ
     async normalizeAndAlignData(footprint, canvasWidth, canvasHeight) {
-    console.log('🎯 ВИЗУАЛИЗАЦИЯ: Контур для контроля, узлы для проверки топологии');
-   
-    const nodes = Array.from(footprint.nodes.values());
-    const normalizedNodes = new Map();
-   
-    // Проверяем зеркальность модели
-    const isMirrored = footprint.metadata?.isMirrored || false;
-    if (isMirrored) {
-        console.log('🪞 Модель ЗЕРКАЛЬНАЯ (вероятно левый ботинок)');
-    }
-   
-    // Берем контур для зрительного контроля
-    let controlContour = null;
-    let controlHeel = null;
-   
-    if (footprint.bestContours && footprint.bestContours.length > 0) {
-        // Берем лучший контур (самый качественный)
-        controlContour = footprint.bestContours.reduce((best, current) =>
-            (current.qualityScore || 0) > (best.qualityScore || 0) ? current : best
-        );
-        console.log(`🎯 Контрольный контур: ${controlContour.points.length} точек, качество: ${controlContour.qualityScore?.toFixed(2) || '?'}`);
-    }
-   
-    if (footprint.bestHeels && footprint.bestHeels.length > 0) {
-        controlHeel = footprint.bestHeels[0];
-        console.log(`👠 Контрольный каблук: ${controlHeel.points.length} точек`);
-    }
-   
-    // 1. НАХОДИМ ОРИЕНТАЦИЮ И ВЫРАВНИВАЕМ ВЕРТИКАЛЬНО
-    let rotationAngle = 0;
-    if (controlContour && controlContour.points.length > 2) {
-        // Оцениваем ориентацию контура
-        const xs = controlContour.points.map(p => p.x);
-        const ys = controlContour.points.map(p => p.y);
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-        const width = maxX - minX;
-        const height = maxY - minY;
+        console.log('🎯 Нормализую данные для визуализации...');
        
-        // Если след шире чем выше - он горизонтальный, нужно повернуть
-        if (width > height * 1.2) {
-            rotationAngle = 90; // Поворачиваем на 90 градусов
-            console.log(`↻ Контур горизонтальный, поворачиваю на ${rotationAngle}°`);
-        } else if (height > width * 1.2) {
-            console.log('↕ Контур вертикальный, оставляю как есть');
-        } else {
-            console.log('⬢ Контур примерно квадратный');
+        const nodes = Array.from(footprint.nodes.values());
+        const normalizedNodes = new Map();
+       
+        // Берем контур для контроля (если есть)
+        let controlContour = null;
+        let controlHeel = null;
+       
+        if (footprint.bestContours && footprint.bestContours.length > 0) {
+            controlContour = footprint.bestContours[0];
+            console.log(`🎯 Контрольный контур: ${controlContour.points?.length || 0} точек`);
         }
-    }
-   
-    // 2. СОБИРАЕМ ВСЕ ТОЧКИ (узлы + контур + каблук)
-    const allPoints = [];
-   
-    // Точки узлов (уже нормализованные системой)
-    nodes.forEach(node => {
-        if (node.center) {
-            // Если модель зеркальная - зеркалим X
-            const x = isMirrored ? -node.center.x : node.center.x;
-            allPoints.push({ x, y: node.center.y });
+       
+        if (footprint.bestHeels && footprint.bestHeels.length > 0) {
+            controlHeel = footprint.bestHeels[0];
         }
-    });
-   
-    // Точки контура (абсолютные от Roboflow)
-    if (controlContour && controlContour.points) {
-        controlContour.points.forEach(point => {
-            // Конвертируем абсолютные координаты Roboflow к системе узлов
-            // Эмпирически: координаты Roboflow / ~10 ≈ координаты узлов
-            const convertedX = point.x / 10;
-            const convertedY = point.y / 10;
-            allPoints.push({ x: convertedX, y: convertedY });
-        });
-    }
-   
-    // Точки каблука
-    if (controlHeel && controlHeel.points) {
-        controlHeel.points.forEach(point => {
-            const convertedX = point.x / 10;
-            const convertedY = point.y / 10;
-            allPoints.push({ x: convertedX, y: convertedY });
-        });
-    }
-   
-    if (allPoints.length === 0) {
-        console.log('⚠️ Нет точек для визуализации');
-        return { nodes: normalizedNodes, contours: [], heels: [] };
-    }
-   
-    // 3. НАХОДИМ ОБЩИЙ BOUNDING BOX
-    const xs = allPoints.map(p => p.x);
-    const ys = allPoints.map(p => p.y);
-    let minX = Math.min(...xs);
-    let maxX = Math.max(...xs);
-    let minY = Math.min(...ys);
-    let maxY = Math.max(...ys);
-   
-    // Добавляем небольшой отступ
-    const paddingBB = Math.max((maxX - minX) * 0.1, (maxY - minY) * 0.1);
-    minX -= paddingBB;
-    maxX += paddingBB;
-    minY -= paddingBB;
-    maxY += paddingBB;
-   
-    const width = Math.max(1, maxX - minX);
-    const height = Math.max(1, maxY - minY);
-   
-    console.log(`📐 Общий bounding box: ${width.toFixed(1)}x${height.toFixed(1)}`);
-    console.log(`   Узлы: ${nodes.length}, Контур: ${controlContour ? 'есть' : 'нет'}, Каблук: ${controlHeel ? 'есть' : 'нет'}`);
-   
-    // 4. МАСШТАБИРОВАНИЕ НА CANVAS
-    const canvasPadding = 80;
-    const availableWidth = canvasWidth - canvasPadding * 2;
-    const availableHeight = canvasHeight - canvasPadding * 2;
-   
-    let scale = Math.min(
-        availableWidth / width,
-        availableHeight / height
-    );
-   
-    // Оставляем место для легенды
-    scale = scale * 0.85;
-   
-    console.log(`📐 Масштаб: ${scale.toFixed(4)}`);
-   
-    // 5. НОРМАЛИЗАЦИЯ ВСЕХ ТОЧЕК
-    const normalizedContours = [];
-    const normalizedHeels = [];
-   
-    // Функция нормализации точки
-    const normalizePoint = (point, offsetY = 0) => {
-        const x = canvasPadding + (point.x - minX) * scale;
-        const y = canvasPadding + offsetY + (point.y - minY) * scale;
-        return { x, y };
-    };
-   
-    // Смещение для верхней панели
-    const topPanelOffset = 120;
-   
-    // Нормализуем узлы
-    console.log('📍 Нормализую узлы протектора...');
-    nodes.forEach(node => {
-        if (node.center) {
-            let x = node.center.x;
-           
-            // Зеркалим если нужно
-            if (isMirrored) {
-                x = -x;
+       
+        // Собираем все точки для bounding box
+        const allPoints = [];
+       
+        // Точки узлов
+        nodes.forEach(node => {
+            if (node.center) {
+                allPoints.push(node.center);
             }
+        });
+       
+        if (allPoints.length === 0) {
+            console.log('⚠️ Нет точек для визуализации');
+            return { nodes: normalizedNodes, contours: [], heels: [] };
+        }
+       
+        // Находим общий bounding box
+        const xs = allPoints.map(p => p.x);
+        const ys = allPoints.map(p => p.y);
+        let minX = Math.min(...xs);
+        let maxX = Math.max(...xs);
+        let minY = Math.min(...ys);
+        let maxY = Math.max(...ys);
+       
+        // Добавляем отступ
+        const padding = Math.max((maxX - minX) * 0.1, (maxY - minY) * 0.1, 50);
+        minX -= padding;
+        maxX += padding;
+        minY -= padding;
+        maxY += padding;
+       
+        const width = Math.max(1, maxX - minX);
+        const height = Math.max(1, maxY - minY);
+       
+        console.log(`📐 Bounding box: ${width.toFixed(0)}x${height.toFixed(0)}`);
+       
+        // Масштабирование на canvas
+        const canvasPadding = 100;
+        const availableWidth = canvasWidth - canvasPadding * 2;
+        const availableHeight = canvasHeight - canvasPadding * 2 - 100; // Место для панелей
+       
+        let scale = Math.min(
+            availableWidth / width,
+            availableHeight / height
+        );
+       
+        // Оставляем место для легенды
+        scale = scale * 0.9;
+       
+        console.log(`📐 Масштаб: ${scale.toFixed(4)}`);
+       
+        // Смещение для верхней панели
+        const topPanelOffset = 120;
+       
+        // Функция нормализации
+        const normalizePoint = (point, offsetY = 0) => {
+            const x = canvasPadding + (point.x - minX) * scale;
+            const y = canvasPadding + offsetY + (point.y - minY) * scale;
+            return { x, y };
+        };
+       
+        // Нормализуем узлы
+        console.log('📍 Нормализую узлы...');
+        nodes.forEach(node => {
+            if (node.center) {
+                const normalized = normalizePoint(node.center, topPanelOffset);
+               
+                normalizedNodes.set(node.id, {
+                    ...node,
+                    normalizedCenter: normalized,
+                    normalizedSize: Math.max(4, node.size * scale * 0.1)
+                });
+            }
+        });
+       
+        // Нормализуем контур для контроля
+        const normalizedContours = [];
+        if (controlContour && controlContour.points) {
+            console.log('🔵 Нормализую контур...');
+            const normalizedPoints = controlContour.points.map(point =>
+                normalizePoint(point, topPanelOffset)
+            );
            
-            const normalized = normalizePoint({ x, y: node.center.y }, topPanelOffset);
-           
-            console.log(`   Узел ${node.id.slice(-3)}: (${node.center.x.toFixed(1)},${node.center.y.toFixed(1)}) → (${normalized.x.toFixed(1)},${normalized.y.toFixed(1)})`);
-           
-            normalizedNodes.set(node.id, {
-                ...node,
-                normalizedCenter: normalized,
-                normalizedSize: Math.max(4, (node.size || 8) * scale * 0.15),
-                isMirrored: isMirrored
+            normalizedContours.push({
+                points: normalizedPoints,
+                confidence: controlContour.confidence,
+                isControl: true
             });
         }
-    });
-   
-    // Нормализуем контур для контроля
-    if (controlContour && controlContour.points) {
-        console.log('🔵 Нормализую контур для контроля...');
-        const normalizedPoints = controlContour.points.map(point => {
-            const convertedX = point.x / 10;
-            const convertedY = point.y / 10;
-            return normalizePoint({ x: convertedX, y: convertedY }, topPanelOffset);
-        });
        
-        normalizedContours.push({
-            points: normalizedPoints,
-            confidence: controlContour.confidence,
-            qualityScore: controlContour.qualityScore,
-            isControl: true
-        });
-       
-        console.log(`   Контур: ${normalizedPoints.length} точек`);
-        if (normalizedPoints.length > 0) {
-            console.log(`   Первая точка: (${normalizedPoints[0].x.toFixed(1)},${normalizedPoints[0].y.toFixed(1)})`);
+        // Нормализуем каблук для контроля
+        const normalizedHeels = [];
+        if (controlHeel && controlHeel.points) {
+            console.log('👠 Нормализую каблук...');
+            const normalizedPoints = controlHeel.points.map(point =>
+                normalizePoint(point, topPanelOffset)
+            );
+           
+            normalizedHeels.push({
+                points: normalizedPoints,
+                confidence: controlHeel.confidence,
+                isControl: true
+            });
         }
-    }
-   
-    // Нормализуем каблук для контроля
-    if (controlHeel && controlHeel.points) {
-        console.log('👠 Нормализую каблук для контроля...');
-        const normalizedPoints = controlHeel.points.map(point => {
-            const convertedX = point.x / 10;
-            const convertedY = point.y / 10;
-            return normalizePoint({ x: convertedX, y: convertedY }, topPanelOffset);
-        });
        
-        normalizedHeels.push({
-            points: normalizedPoints,
-            confidence: controlHeel.confidence,
-            qualityScore: controlHeel.qualityScore,
-            isControl: true
-        });
+        console.log(`✅ Готово: ${normalizedNodes.size} узлов, ${normalizedContours.length} контуров`);
+        return {
+            nodes: normalizedNodes,
+            contours: normalizedContours,
+            heels: normalizedHeels
+        };
     }
-   
-    console.log(`✅ Готово: ${normalizedNodes.size} узлов, ${normalizedContours.length} контуров, ${normalizedHeels.length} каблуков`);
-   
-    return {
-        nodes: normalizedNodes,
-        contours: normalizedContours,
-        heels: normalizedHeels
-    };
-}
 
-    drawContoursAndHeels(ctx, contours, heels) {
-    console.log(`🎨 Рисую элементы контроля...`);
-   
-    // 1. КОНТУР СЛЕДА (синий, прозрачный, ПУНКТИР)
-    contours.forEach(contour => {
-        if (contour.points && contour.points.length > 2) {
-            // Только для контрольных контуров
-            if (contour.isControl) {
-                ctx.strokeStyle = 'rgba(0, 100, 255, 0.6)'; // Синий пунктир
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 3]); // Пунктир
-               
+    // КОНТУРЫ И КАБЛУКИ ДЛЯ КОНТРОЛЯ (полупрозрачные, под узлами)
+    drawContoursAndHeelsForControl(ctx, contours, heels) {
+        console.log('🎨 Рисую контуры для контроля...');
+       
+        // 1. Контуры следа (синий, очень прозрачный)
+        contours.forEach(contour => {
+            if (contour.points && contour.points.length > 2 && contour.isControl) {
+                // Заливка (очень прозрачная)
+                ctx.fillStyle = 'rgba(0, 100, 255, 0.15)';
                 ctx.beginPath();
                 contour.points.forEach((point, index) => {
                     if (index === 0) ctx.moveTo(point.x, point.y);
                     else ctx.lineTo(point.x, point.y);
                 });
                 ctx.closePath();
+                ctx.fill();
+               
+                // Контур (пунктир)
+                ctx.strokeStyle = 'rgba(0, 100, 255, 0.4)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([5, 3]);
                 ctx.stroke();
-                ctx.setLineDash([]); // Сбрасываем пунктир
-               
-                // Подпись
-                ctx.fillStyle = 'rgba(0, 100, 255, 0.8)';
-                ctx.font = '12px Arial';
-                const firstPoint = contour.points[0];
-                ctx.fillText('🔵 Контур Roboflow', firstPoint.x + 10, firstPoint.y - 5);
-               
-                console.log(`🔵 Контур нарисован: ${contour.points.length} точек`);
+                ctx.setLineDash([]);
             }
-        }
-    });
-   
-    // 2. КАБЛУК (красный, полупрозрачный)
-    heels.forEach(heel => {
-        if (heel.points && heel.points.length > 2 && heel.isControl) {
-            // Заливка
-            ctx.fillStyle = 'rgba(255, 50, 50, 0.3)';
-            ctx.beginPath();
-            heel.points.forEach((point, index) => {
-                if (index === 0) ctx.moveTo(point.x, point.y);
-                else ctx.lineTo(point.x, point.y);
-            });
-            ctx.closePath();
-            ctx.fill();
-           
-            // Контур
-            ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)';
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-           
-            console.log(`👠 Каблук нарисован: ${heel.points.length} точек`);
-        }
-    });
-   
-    // 3. ЦЕНТР МАССЫ (для ориентации)
-    if (contours.length > 0 && contours[0].points) {
-        const contour = contours[0];
-        const xs = contour.points.map(p => p.x);
-        const ys = contour.points.map(p => p.y);
-        const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
-        const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+        });
        
-        // Красный крест в центре
-        ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
-        ctx.lineWidth = 2;
-       
-        // Вертикальная линия
-        ctx.beginPath();
-        ctx.moveTo(centerX, centerY - 20);
-        ctx.lineTo(centerX, centerY + 20);
-        ctx.stroke();
-       
-        // Горизонтальная линия
-        ctx.beginPath();
-        ctx.moveTo(centerX - 20, centerY);
-        ctx.lineTo(centerX + 20, centerY);
-        ctx.stroke();
-       
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.9)';
-        ctx.font = '10px Arial';
-        ctx.fillText('✛ Центр', centerX + 5, centerY - 25);
+        // 2. Каблуки (красный, очень прозрачный)
+        heels.forEach(heel => {
+            if (heel.points && heel.points.length > 2 && heel.isControl) {
+                // Заливка
+                ctx.fillStyle = 'rgba(255, 50, 50, 0.1)';
+                ctx.beginPath();
+                heel.points.forEach((point, index) => {
+                    if (index === 0) ctx.moveTo(point.x, point.y);
+                    else ctx.lineTo(point.x, point.y);
+                });
+                ctx.closePath();
+                ctx.fill();
+               
+                // Контур
+                ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+        });
     }
-}
 
+    // СВЯЗИ МЕЖДУ УЗЛАМИ
     drawEdges(ctx, normalizedNodes, edges) {
         if (!edges || edges.length === 0) return;
-
-        // Сначала рисуем все связи тонкими
-        ctx.strokeStyle = 'rgba(100, 200, 255, 0.15)';
+       
+        // Сначала тонкие линии для всех связей
+        ctx.strokeStyle = 'rgba(100, 200, 255, 0.1)';
         ctx.lineWidth = 1;
-
+       
         edges.forEach(edge => {
             const fromNode = normalizedNodes.get(edge.from);
             const toNode = normalizedNodes.get(edge.to);
-
+           
             if (fromNode && toNode && fromNode.normalizedCenter && toNode.normalizedCenter) {
                 ctx.beginPath();
                 ctx.moveTo(fromNode.normalizedCenter.x, fromNode.normalizedCenter.y);
@@ -630,19 +406,16 @@ class EnhancedModelVisualizer {
                 ctx.stroke();
             }
         });
-
-        // Затем рисуем уверенные связи толстыми
-        ctx.strokeStyle = 'rgba(50, 150, 255, 0.6)';
-        ctx.lineWidth = 3;
-
+       
+        // Затем толстые линии для уверенных связей
+        ctx.strokeStyle = 'rgba(50, 150, 255, 0.4)';
+        ctx.lineWidth = 2;
+       
         edges.forEach(edge => {
             const fromNode = normalizedNodes.get(edge.from);
             const toNode = normalizedNodes.get(edge.to);
-
-            if (fromNode && toNode &&
-                fromNode.confidence > 0.8 && toNode.confidence > 0.8 &&
-                fromNode.normalizedCenter && toNode.normalizedCenter) {
-
+           
+            if (fromNode && toNode && fromNode.confidence > 0.7 && toNode.confidence > 0.7) {
                 ctx.beginPath();
                 ctx.moveTo(fromNode.normalizedCenter.x, fromNode.normalizedCenter.y);
                 ctx.lineTo(toNode.normalizedCenter.x, toNode.normalizedCenter.y);
@@ -651,67 +424,69 @@ class EnhancedModelVisualizer {
         });
     }
 
-    drawNodes(ctx, normalizedNodes) {
+    // УЗЛЫ С УЧЕТОМ ПОДТВЕРЖДЕНИЙ
+    drawNodesWithConfirmation(ctx, normalizedNodes) {
         normalizedNodes.forEach((node, nodeId) => {
             if (!node.normalizedCenter) return;
-
+           
             const { x, y } = node.normalizedCenter;
-            const size = Math.max(3, node.normalizedSize || 5);
-
-            let gradient;
-            if (node.confidence > 0.8) {
-                gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
-                gradient.addColorStop(0, '#00ff00');
-                gradient.addColorStop(1, '#009900');
-            } else if (node.confidence > 0.5) {
-                gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
-                gradient.addColorStop(0, '#ffaa00');
-                gradient.addColorStop(1, '#cc8800');
+            const confirmationCount = node.confirmationCount || 1;
+           
+            // РАЗМЕР узла зависит от подтверждений
+            const baseSize = 5;
+            const confirmationBoost = Math.min(confirmationCount * 1.5, 6);
+            const size = baseSize + confirmationBoost;
+           
+            // ЦВЕТ по уверенности и подтверждениям
+            let color;
+            if (node.confidence > 0.7) {
+                color = confirmationCount > 2 ? '#00cc00' : '#00ff00'; // Темнее при многих подтверждениях
+            } else if (node.confidence > 0.4) {
+                color = confirmationCount > 2 ? '#ff9900' : '#ffaa00';
             } else {
-                gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
-                gradient.addColorStop(0, '#ff6666');
-                gradient.addColorStop(1, '#cc4444');
+                color = confirmationCount > 2 ? '#cc0000' : '#ff6666';
             }
-
-            // Узел с градиентом
-            ctx.fillStyle = gradient;
+           
+            // ОСНОВНОЙ КРУГ
+            ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(x, y, size, 0, Math.PI * 2);
             ctx.fill();
-
-            // Обводка узла
+           
+            // ОБВОДКА
             ctx.strokeStyle = '#000000';
-            ctx.lineWidth = 1;
+            ctx.lineWidth = confirmationCount > 1 ? 2 : 1;
             ctx.stroke();
-
-            // Белая точка в центре для высокоуверенных узлов
-            if (node.confidence > 0.8) {
+           
+            // БЕЛАЯ ТОЧКА для сильно подтвержденных
+            if (confirmationCount >= 3) {
                 ctx.fillStyle = '#ffffff';
                 ctx.beginPath();
                 ctx.arc(x, y, size * 0.4, 0, Math.PI * 2);
                 ctx.fill();
             }
-
-            // ID узла (опционально, для отладки)
-            if (node.confidence > 0.9) {
+           
+            // ЦИФРА с количеством подтверждений
+            if (confirmationCount > 1) {
                 ctx.fillStyle = '#ffffff';
-                ctx.font = '10px Arial';
+                ctx.font = 'bold 11px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(nodeId.slice(-3), x, y + size + 10);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(confirmationCount.toString(), x, y);
             }
         });
     }
 
+    // ПАНЕЛЬ ИНФОРМАЦИИ
     drawEnhancedInfoPanel(ctx, width, height, footprint, bestPhoto) {
-        // Уменьшенная панель информации
         const panelHeight = 100;
         ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
         ctx.fillRect(20, 20, width - 40, panelHeight);
-
+       
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
         ctx.lineWidth = 2;
         ctx.strokeRect(20, 20, width - 40, panelHeight);
-
+       
         // Заголовок
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 18px Arial';
@@ -719,146 +494,127 @@ class EnhancedModelVisualizer {
         const titleWidth = ctx.measureText(title).width;
         const titleX = Math.max(40, (width - titleWidth) / 2);
         ctx.fillText(title, titleX, 50);
-
+       
         // Основная информация
         ctx.font = '14px Arial';
         ctx.fillText(`👣 Узлов: ${footprint.nodes.size}`, 40, 75);
         ctx.fillText(`🔗 Связей: ${footprint.edges.length}`, 40, 95);
         ctx.fillText(`💎 Уверенность: ${Math.round((footprint.stats.confidence || 0.5) * 100)}%`, 40, 115);
-
+       
         // Правая колонка
         const rightColX = width - 200;
         if (bestPhoto) {
             ctx.fillText(`📸 Фото: ✅`, rightColX, 75);
         }
        
-        if (footprint.metadata) {
-            if (footprint.metadata.estimatedSize) {
-                ctx.fillText(`📏 Размер: ${footprint.metadata.estimatedSize}`, rightColX, 95);
-            }
-            if (footprint.metadata.footprintType && footprint.metadata.footprintType !== 'unknown') {
-                ctx.fillText(`👟 Тип: ${footprint.metadata.footprintType}`, rightColX, 115);
-            }
+        if (footprint.metadata?.estimatedSize) {
+            ctx.fillText(`📏 Размер: ${footprint.metadata.estimatedSize}`, rightColX, 95);
         }
-    // Добавь информацию о нормализации
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '12px Arial';
-   
-    const infoY = 140;
-    ctx.fillText(`🔄 Нормализация:`, 40, infoY);
-    ctx.fillText(`• Контур: ${footprint.bestContours?.length || 0}`, 60, infoY + 20);
-    ctx.fillText(`• Каблук: ${footprint.bestHeels?.length || 0}`, 60, infoY + 40);
-   
-    if (footprint.metadata?.isMirrored) {
-        ctx.fillText(`• 🪞 ЗЕРКАЛЬНАЯ модель`, 60, infoY + 60);
     }
-   
-    // Инструкция для пользователя
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.font = '11px Arial';
-    ctx.fillText(`💡 Синие пунктиры - контуры от Roboflow`, width - 350, height - 30);
-    ctx.fillText(`💡 Цветные точки - протекторы после нормализации`, width - 350, height - 15);
-    
-    }
 
+    // СТАТИСТИКА СЛИЯНИЯ
+    drawMergeDebugInfo(ctx, footprint, canvasWidth, canvasHeight) {
+        const nodes = Array.from(footprint.nodes.values());
+       
+        // Статистика по подтверждениям
+        const confirmations = nodes.map(n => n.confirmationCount || 1);
+        const avgConfirmations = confirmations.length > 0 ?
+            confirmations.reduce((a, b) => a + b, 0) / confirmations.length : 1;
+       
+        // Группируем по уверенности
+        const highConfidence = nodes.filter(n => n.confidence > 0.7).length;
+        const mediumConfidence = nodes.filter(n => n.confidence > 0.4 && n.confidence <= 0.7).length;
+        const lowConfidence = nodes.filter(n => n.confidence <= 0.4).length;
+       
+        // Рисуем панель статистики
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.fillRect(canvasWidth - 420, canvasHeight - 180, 400, 170);
+       
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText('📊 СТАТИСТИКА УЗЛОВ', canvasWidth - 410, canvasHeight - 160);
+       
+        ctx.font = '14px Arial';
+        ctx.fillText(`👣 Всего узлов: ${nodes.length}`, canvasWidth - 400, canvasHeight - 140);
+        ctx.fillText(`🔗 Среднее подтверждений: ${avgConfirmations.toFixed(1)}`, canvasWidth - 400, canvasHeight - 120);
+       
+        // Цветная легенда
+        ctx.fillText('🎯 УВЕРЕННОСТЬ:', canvasWidth - 400, canvasHeight - 100);
+       
+        // Высокая
+        ctx.fillStyle = '#00ff00';
+        ctx.beginPath();
+        ctx.arc(canvasWidth - 250, canvasHeight - 105, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`${highConfidence} высокая`, canvasWidth - 235, canvasHeight - 100);
+       
+        // Средняя
+        ctx.fillStyle = '#ffaa00';
+        ctx.beginPath();
+        ctx.arc(canvasWidth - 130, canvasHeight - 105, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`${mediumConfidence} средняя`, canvasWidth - 115, canvasHeight - 100);
+       
+        // Низкая
+        ctx.fillStyle = '#ff6666';
+        ctx.beginPath();
+        ctx.arc(canvasWidth - 250, canvasHeight - 85, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`${lowConfidence} низкая`, canvasWidth - 235, canvasHeight - 80);
+    }
+
+    // ЛЕГЕНДА
     drawLegend(ctx, width, height) {
-        const legendX = width - 220;
+        const legendX = 20;
         const legendY = height - 200;
         const legendWidth = 200;
-        const legendHeight = 180;
-
+        const legendHeight = 150;
+       
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fillRect(legendX, legendY, legendWidth, legendHeight);
-
+       
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 16px Arial';
         ctx.fillText('🎯 ЛЕГЕНДА', legendX + 10, legendY + 25);
-
+       
         ctx.font = '14px Arial';
-
-        // Высокая уверенность
+       
+        // Узлы с подтверждениями
         ctx.fillStyle = '#00ff00';
         ctx.beginPath();
         ctx.arc(legendX + 15, legendY + 50, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Высокая уверенность', legendX + 30, legendY + 55);
-
-        // Средняя уверенность
+       
         ctx.fillStyle = '#ffaa00';
         ctx.beginPath();
         ctx.arc(legendX + 15, legendY + 80, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Средняя уверенность', legendX + 30, legendY + 85);
-
-        // Низкая уверенность
+       
         ctx.fillStyle = '#ff6666';
         ctx.beginPath();
         ctx.arc(legendX + 15, legendY + 110, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Низкая уверенность', legendX + 30, legendY + 115);
-
-        // Связи
-        ctx.strokeStyle = 'rgba(50, 150, 255, 0.6)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(legendX + 10, legendY + 135);
-        ctx.lineTo(legendX + 40, legendY + 135);
-        ctx.stroke();
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText('Связи протектора', legendX + 50, legendY + 140);
-
+       
         // Контуры
-        ctx.strokeStyle = 'rgba(0, 100, 255, 0.5)';
+        ctx.strokeStyle = 'rgba(0, 100, 255, 0.4)';
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 3]);
         ctx.beginPath();
-        ctx.moveTo(legendX + 10, legendY + 160);
-        ctx.lineTo(legendX + 40, legendY + 160);
+        ctx.moveTo(legendX + 10, legendY + 140);
+        ctx.lineTo(legendX + 40, legendY + 140);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = '#ffffff';
-        ctx.fillText('Контуры следа', legendX + 50, legendY + 165);
-    }
-
-    drawComparisonRecommendations(ctx, width, height, comparison, mirrorAnalysis) {
-        const recX = 800;
-        const recY = 770;
-
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.fillRect(recX, recY - 100, width - 850, 120);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 16px Arial';
-        ctx.fillText('💡 РЕКОМЕНДАЦИИ:', recX + 20, recY - 70);
-
-        ctx.font = '14px Arial';
-        const score = comparison.score || 0;
-
-        if (score > 0.85) {
-            ctx.fillStyle = '#00cc00';
-            ctx.fillText('🔴 ВЫСОКАЯ ВЕРОЯТНОСТЬ - это одна и та же обувь', recX + 40, recY - 45);
-            ctx.fillText('Рекомендуется объединить модели', recX + 40, recY - 20);
-        } else if (score > 0.7) {
-            ctx.fillStyle = '#ffaa00';
-            ctx.fillText('🟡 СРЕДНЯЯ ВЕРОЯТНОСТЬ - похожие протекторы', recX + 40, recY - 45);
-            ctx.fillText('Нужны дополнительные фото для уверенности', recX + 40, recY - 20);
-        } else if (score > 0.5) {
-            ctx.fillStyle = '#ffaa00';
-            ctx.fillText('🟡 НИЗКАЯ ВЕРОЯТНОСТЬ - возможно один тип', recX + 40, recY - 45);
-            ctx.fillText('Разные модели, но возможно один производитель', recX + 40, recY - 20);
-        } else {
-            ctx.fillStyle = '#ff4444';
-            ctx.fillText('🟢 ОЧЕНЬ НИЗКАЯ ВЕРОЯТНОСТЬ - разные протекторы', recX + 40, recY - 45);
-            ctx.fillText('Совпадения случайны', recX + 40, recY - 20);
-        }
-
-        if (mirrorAnalysis && mirrorAnalysis.isMirrored) {
-            ctx.fillStyle = '#ffaa00';
-            ctx.fillText('🪞 Учтите зеркальность при сравнении!', recX + 40, recY + 5);
-        }
+        ctx.fillText('Контур следа (контроль)', legendX + 50, legendY + 145);
     }
 }
 
