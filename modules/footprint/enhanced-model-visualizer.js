@@ -21,28 +21,27 @@ class EnhancedModelVisualizer {
     }
 
     async visualizeModelWithPhoto(footprint, outputPath = null) {
-        
-      try {
-         console.log(`🔍 DEBUG EnhancedModelVisualizer для модели: ${footprint.name}`);
-        console.log(`📊 Узлов: ${footprint.nodes.size}`);
-        console.log(`🎯 Контуров: ${footprint.bestContours?.length || 0}`);
-        console.log(`👠 Каблуков: ${footprint.bestHeels?.length || 0}`);
-        console.log(`📸 Лучшее фото: ${footprint.bestPhotoInfo?.path || 'нет'}`);
-       
-        // Вывод координат первых 3 узлов для отладки
-        const firstNodes = Array.from(footprint.nodes.values()).slice(0, 3);
-        firstNodes.forEach((node, i) => {
-            console.log(`📍 Узел ${i}: x=${node.center?.x}, y=${node.center?.y}, confidence=${node.confidence}`);
-        });
-       
-        // Вывод bounding box
-        if (footprint.boundingBox) {
-            console.log(`📦 BoundingBox: minX=${footprint.boundingBox.minX}, maxX=${footprint.boundingBox.maxX},
-                minY=${footprint.boundingBox.minY}, maxY=${footprint.boundingBox.maxY},
-                width=${footprint.boundingBox.width}, height=${footprint.boundingBox.height}`);
-        }   
-        
-        if (!footprint || !footprint.nodes || footprint.nodes.size === 0) {
+        try {
+            console.log(`🔍 DEBUG EnhancedModelVisualizer для модели: ${footprint.name}`);
+            console.log(`📊 Узлов: ${footprint.nodes.size}`);
+            console.log(`🎯 Контуров: ${footprint.bestContours?.length || 0}`);
+            console.log(`👠 Каблуков: ${footprint.bestHeels?.length || 0}`);
+            console.log(`📸 Лучшее фото: ${footprint.bestPhotoInfo?.path || 'нет'}`);
+
+            // Вывод координат первых 3 узлов для отладки
+            const firstNodes = Array.from(footprint.nodes.values()).slice(0, 3);
+            firstNodes.forEach((node, i) => {
+                console.log(`📍 Узел ${i}: x=${node.center?.x}, y=${node.center?.y}, confidence=${node.confidence}`);
+            });
+
+            // Вывод bounding box
+            if (footprint.boundingBox) {
+                console.log(`📦 BoundingBox: minX=${footprint.boundingBox.minX}, maxX=${footprint.boundingBox.maxX},
+                    minY=${footprint.boundingBox.minY}, maxY=${footprint.boundingBox.maxY},
+                    width=${footprint.boundingBox.width}, height=${footprint.boundingBox.height}`);
+            }
+
+            if (!footprint || !footprint.nodes || footprint.nodes.size === 0) {
                 console.log('❌ Модель пуста для визуализации');
                 return null;
             }
@@ -50,7 +49,7 @@ class EnhancedModelVisualizer {
             console.log(`🎨 Визуализирую модель с фото-подложкой: ${footprint.nodes.size} узлов`);
 
             const bestPhoto = await this.findBestPhotoForModel(footprint);
-           
+
             const canvasWidth = 1000;
             const canvasHeight = 800;
             const canvas = createCanvas(canvasWidth, canvasHeight);
@@ -64,7 +63,7 @@ class EnhancedModelVisualizer {
             }
 
             const normalizedData = await this.normalizeAndAlignData(footprint, canvasWidth, canvasHeight);
-           
+
             this.drawContoursAndHeels(ctx, normalizedData.contours, normalizedData.heels);
             this.drawEdges(ctx, normalizedData.nodes, footprint.edges);
             this.drawNodes(ctx, normalizedData.nodes);
@@ -91,7 +90,7 @@ class EnhancedModelVisualizer {
     async findBestPhotoForModel(footprint) {
         try {
             const photoSources = [];
-           
+
             footprint.nodes.forEach(node => {
                 if (node.sources && Array.isArray(node.sources)) {
                     node.sources.forEach(source => {
@@ -140,7 +139,7 @@ class EnhancedModelVisualizer {
             }
 
             const image = await loadImage(bestPhoto.path);
-           
+
             return {
                 ...bestPhoto,
                 image,
@@ -159,23 +158,23 @@ class EnhancedModelVisualizer {
                 canvasWidth * 0.8 / image.width,
                 canvasHeight * 0.7 / image.height
             );
-           
+
             const width = image.width * scale;
             const height = image.height * scale;
             const x = (canvasWidth - width) / 2;
             const y = (canvasHeight - height) / 2;
-           
+
             ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
             ctx.fillRect(x - 10, y - 10, width + 20, height + 20);
-           
+
             ctx.globalAlpha = 0.15;
             ctx.drawImage(image, x, y, width, height);
             ctx.globalAlpha = 1.0;
-           
+
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
             ctx.lineWidth = 2;
             ctx.strokeRect(x, y, width, height);
-           
+
         } catch (error) {
             console.log('⚠️ Не удалось нарисовать фото-подложку:', error.message);
         }
@@ -186,140 +185,26 @@ class EnhancedModelVisualizer {
         const normalizedNodes = new Map();
         const contours = [];
         const heels = [];
-       
+
+        // ИСПРАВЛЕНО: Используем контуры из модели, а не из источников
         if (footprint.bestContours && footprint.bestContours.length > 0) {
-        contours.push(...footprint.bestContours.map(c => ({
-            points: c.points,
-            confidence: c.confidence,
-            qualityScore: c.qualityScore
-        })));
-    }
-   
-    if (footprint.bestHeels && footprint.bestHeels.length > 0) {
-        heels.push(...footprint.bestHeels.map(h => ({
-            points: h.points,
-            confidence: h.confidence,
-            qualityScore: h.qualityScore
-        })));
-    }
-   
-    console.log(`🎯 В normalizedAndAlignData: ${contours.length} контуров, ${heels.length} каблуков`);
-   
-    if (footprint.boundingBox && footprint.boundingBox.width > 0) {
-        const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
-        const padding = 100;
-        const scale = Math.min(
-            (canvasWidth - padding * 2) / Math.max(1, width),
-            (canvasHeight - padding * 2) / Math.max(1, height)
-        );
-       
-        console.log(`📏 Масштабирование: scale=${scale}, padding=${padding}`);
-       
-        nodes.forEach(node => {
-            if (node.center && node.center.x != null && node.center.y != null) {
-                const x = padding + (node.center.x - minX) * scale;
-                const y = padding + (node.center.y - minY) * scale;
-               
-                console.log(`📍 Нормализация узла: ${node.center.x},${node.center.y} -> ${x},${y}`);
-               
-                if (x >= 0 && x <= canvasWidth && y >= 0 && y <= canvasHeight) {
-                    normalizedNodes.set(node.id, {
-                        ...node,
-                        normalizedCenter: { x, y },
-                        normalizedSize: Math.max(2, (node.size || 5) * scale * 0.08)
-                    });
-                }
-            }
-        });
-    } else {
-        console.log('⚠️ Нет boundingBox, использую простую нормализацию');
-        // Простая нормализация если нет boundingBox
-        const xs = nodes.map(n => n.center?.x || 0);
-        const ys = nodes.map(n => n.center?.y || 0);
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-        const width = Math.max(1, maxX - minX);
-        const height = Math.max(1, maxY - minY);
-       
-        const padding = 100;
-        const scale = Math.min(
-            (canvasWidth - padding * 2) / width,
-            (canvasHeight - padding * 2) / height
-        );
-       
-        nodes.forEach(node => {
-            if (node.center && node.center.x != null && node.center.y != null) {
-                const x = padding + (node.center.x - minX) * scale;
-                const y = padding + (node.center.y - minY) * scale;
-               
-                normalizedNodes.set(node.id, {
-                    ...node,
-                    normalizedCenter: { x, y },
-                    normalizedSize: Math.max(2, (node.size || 5) * scale * 0.08)
-                });
-            }
-        });
-    }
-   
-    // Тоже нормализуем контуры
-    const normalizedContours = contours.map(contour => {
-        if (contour.points && contour.points.length > 0) {
-            return {
-                ...contour,
-                points: contour.points.map(point => {
-                    if (footprint.boundingBox) {
-                        const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
-                        const padding = 100;
-                        const scale = Math.min(
-                            (canvasWidth - padding * 2) / Math.max(1, width),
-                            (canvasHeight - padding * 2) / Math.max(1, height)
-                        );
-                        return {
-                            x: padding + (point.x - minX) * scale,
-                            y: padding + (point.y - minY) * scale
-                        };
-                    }
-                    return point;
-                })
-            };
+            contours.push(...footprint.bestContours.map(c => ({
+                points: c.points,
+                confidence: c.confidence,
+                qualityScore: c.qualityScore
+            })));
         }
-        return contour;
-    });
-   
-    const normalizedHeels = heels.map(heel => {
-        if (heel.points && heel.points.length > 0) {
-            return {
-                ...heel,
-                points: heel.points.map(point => {
-                    if (footprint.boundingBox) {
-                        const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
-                        const padding = 100;
-                        const scale = Math.min(
-                            (canvasWidth - padding * 2) / Math.max(1, width),
-                            (canvasHeight - padding * 2) / Math.max(1, height)
-                        );
-                        return {
-                            x: padding + (point.x - minX) * scale,
-                            y: padding + (point.y - minY) * scale
-                        };
-                    }
-                    return point;
-                })
-            };
+
+        if (footprint.bestHeels && footprint.bestHeels.length > 0) {
+            heels.push(...footprint.bestHeels.map(h => ({
+                points: h.points,
+                confidence: h.confidence,
+                qualityScore: h.qualityScore
+            })));
         }
-        return heel;
-    });
-   
-    return {
-        nodes: normalizedNodes,
-        contours: normalizedContours,
-        heels: normalizedHeels
-    };
-}
-        });
-       
+
+        console.log(`🎯 В normalizedAndAlignData: ${contours.length} контуров, ${heels.length} каблуков`);
+
         if (footprint.boundingBox && footprint.boundingBox.width > 0) {
             const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
             const padding = 100;
@@ -327,12 +212,16 @@ class EnhancedModelVisualizer {
                 (canvasWidth - padding * 2) / Math.max(1, width),
                 (canvasHeight - padding * 2) / Math.max(1, height)
             );
-           
+
+            console.log(`📏 Масштабирование: scale=${scale}, padding=${padding}`);
+
             nodes.forEach(node => {
                 if (node.center && node.center.x != null && node.center.y != null) {
                     const x = padding + (node.center.x - minX) * scale;
                     const y = padding + (node.center.y - minY) * scale;
-                   
+
+                    console.log(`📍 Нормализация узла: ${node.center.x},${node.center.y} -> ${x},${y}`);
+
                     if (x >= 0 && x <= canvasWidth && y >= 0 && y <= canvasHeight) {
                         normalizedNodes.set(node.id, {
                             ...node,
@@ -342,9 +231,92 @@ class EnhancedModelVisualizer {
                     }
                 }
             });
+        } else {
+            console.log('⚠️ Нет boundingBox, использую простую нормализацию');
+            // Простая нормализация если нет boundingBox
+            const xs = nodes.map(n => n.center?.x || 0);
+            const ys = nodes.map(n => n.center?.y || 0);
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+            const width = Math.max(1, maxX - minX);
+            const height = Math.max(1, maxY - minY);
+
+            const padding = 100;
+            const scale = Math.min(
+                (canvasWidth - padding * 2) / width,
+                (canvasHeight - padding * 2) / height
+            );
+
+            nodes.forEach(node => {
+                if (node.center && node.center.x != null && node.center.y != null) {
+                    const x = padding + (node.center.x - minX) * scale;
+                    const y = padding + (node.center.y - minY) * scale;
+
+                    normalizedNodes.set(node.id, {
+                        ...node,
+                        normalizedCenter: { x, y },
+                        normalizedSize: Math.max(2, (node.size || 5) * scale * 0.08)
+                    });
+                }
+            });
         }
-       
-        return { nodes: normalizedNodes, contours, heels };
+
+        // Тоже нормализуем контуры
+        const normalizedContours = contours.map(contour => {
+            if (contour.points && contour.points.length > 0) {
+                return {
+                    ...contour,
+                    points: contour.points.map(point => {
+                        if (footprint.boundingBox) {
+                            const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
+                            const padding = 100;
+                            const scale = Math.min(
+                                (canvasWidth - padding * 2) / Math.max(1, width),
+                                (canvasHeight - padding * 2) / Math.max(1, height)
+                            );
+                            return {
+                                x: padding + (point.x - minX) * scale,
+                                y: padding + (point.y - minY) * scale
+                            };
+                        }
+                        return point;
+                    })
+                };
+            }
+            return contour;
+        });
+
+        const normalizedHeels = heels.map(heel => {
+            if (heel.points && heel.points.length > 0) {
+                return {
+                    ...heel,
+                    points: heel.points.map(point => {
+                        if (footprint.boundingBox) {
+                            const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
+                            const padding = 100;
+                            const scale = Math.min(
+                                (canvasWidth - padding * 2) / Math.max(1, width),
+                                (canvasHeight - padding * 2) / Math.max(1, height)
+                            );
+                            return {
+                                x: padding + (point.x - minX) * scale,
+                                y: padding + (point.y - minY) * scale
+                            };
+                        }
+                        return point;
+                    })
+                };
+            }
+            return heel;
+        });
+
+        return {
+            nodes: normalizedNodes,
+            contours: normalizedContours,
+            heels: normalizedHeels
+        };
     }
 
     drawContoursAndHeels(ctx, contours, heels) {
@@ -353,7 +325,7 @@ class EnhancedModelVisualizer {
                 ctx.strokeStyle = 'rgba(0, 100, 255, 0.3)';
                 ctx.lineWidth = 2;
                 ctx.setLineDash([5, 3]);
-               
+
                 ctx.beginPath();
                 contour.points.forEach((point, index) => {
                     if (index === 0) ctx.moveTo(point.x, point.y);
@@ -361,17 +333,17 @@ class EnhancedModelVisualizer {
                 });
                 ctx.closePath();
                 ctx.stroke();
-               
+
                 ctx.setLineDash([]);
             }
         });
-       
+
         heels.forEach(heel => {
             if (heel.points && heel.points.length > 2) {
                 ctx.fillStyle = 'rgba(255, 50, 50, 0.2)';
                 ctx.strokeStyle = 'rgba(255, 0, 0, 0.4)';
                 ctx.lineWidth = 1;
-               
+
                 ctx.beginPath();
                 heel.points.forEach((point, index) => {
                     if (index === 0) ctx.moveTo(point.x, point.y);
@@ -386,14 +358,14 @@ class EnhancedModelVisualizer {
 
     drawEdges(ctx, normalizedNodes, edges) {
         if (!edges || edges.length === 0) return;
-       
+
         ctx.strokeStyle = 'rgba(100, 200, 255, 0.2)';
         ctx.lineWidth = 1;
-       
+
         edges.forEach(edge => {
             const fromNode = normalizedNodes.get(edge.from);
             const toNode = normalizedNodes.get(edge.to);
-           
+
             if (fromNode && toNode && fromNode.normalizedCenter && toNode.normalizedCenter) {
                 ctx.beginPath();
                 ctx.moveTo(fromNode.normalizedCenter.x, fromNode.normalizedCenter.y);
@@ -401,18 +373,18 @@ class EnhancedModelVisualizer {
                 ctx.stroke();
             }
         });
-       
+
         ctx.strokeStyle = 'rgba(50, 150, 255, 0.6)';
         ctx.lineWidth = 3;
-       
+
         edges.forEach(edge => {
             const fromNode = normalizedNodes.get(edge.from);
             const toNode = normalizedNodes.get(edge.to);
-           
+
             if (fromNode && toNode &&
                 fromNode.confidence > 0.8 && toNode.confidence > 0.8 &&
                 fromNode.normalizedCenter && toNode.normalizedCenter) {
-               
+
                 ctx.beginPath();
                 ctx.moveTo(fromNode.normalizedCenter.x, fromNode.normalizedCenter.y);
                 ctx.lineTo(toNode.normalizedCenter.x, toNode.normalizedCenter.y);
@@ -427,7 +399,7 @@ class EnhancedModelVisualizer {
 
             const { x, y } = node.normalizedCenter;
             const size = Math.max(3, node.normalizedSize || 5);
-           
+
             let gradient;
             if (node.confidence > 0.8) {
                 gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
@@ -442,16 +414,16 @@ class EnhancedModelVisualizer {
                 gradient.addColorStop(0, '#ff6666');
                 gradient.addColorStop(1, '#cc4444');
             }
-           
+
             ctx.fillStyle = gradient;
             ctx.beginPath();
             ctx.arc(x, y, size, 0, Math.PI * 2);
             ctx.fill();
-           
+
             ctx.strokeStyle = '#000000';
             ctx.lineWidth = 1;
             ctx.stroke();
-           
+
             if (node.confidence > 0.8) {
                 ctx.fillStyle = '#ffffff';
                 ctx.beginPath();
@@ -464,25 +436,25 @@ class EnhancedModelVisualizer {
     drawEnhancedInfoPanel(ctx, width, height, footprint, bestPhoto) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
         ctx.fillRect(20, 20, width - 40, 160);
-       
+
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
         ctx.lineWidth = 2;
         ctx.strokeRect(20, 20, width - 40, 160);
-       
+
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 24px Arial';
         ctx.fillText(`👣 ЦИФРОВОЙ ОТПЕЧАТОК: ${footprint.name || 'Без имени'}`, 40, 55);
-       
+
         ctx.font = '16px Arial';
         ctx.fillText(`🆔 ID: ${footprint.id.slice(0, 12)}...`, 40, 85);
         ctx.fillText(`📊 Узлов протектора: ${footprint.nodes.size}`, 40, 110);
         ctx.fillText(`🔗 Топологических связей: ${footprint.edges.length}`, 40, 135);
         ctx.fillText(`💎 Общая уверенность: ${Math.round((footprint.stats.confidence || 0.5) * 100)}%`, 40, 160);
-       
+
         if (bestPhoto) {
             ctx.fillText(`📸 Лучшее фото: ${bestPhoto.nodeCount} узлов, ${Math.round(bestPhoto.totalConfidence * 100)}% уверенность`, 40, 185);
         }
-       
+
         if (footprint.metadata) {
             let metaY = 210;
             if (footprint.metadata.estimatedSize) {
@@ -504,37 +476,37 @@ class EnhancedModelVisualizer {
         const legendY = height - 200;
         const legendWidth = 200;
         const legendHeight = 180;
-       
+
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fillRect(legendX, legendY, legendWidth, legendHeight);
-       
+
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 16px Arial';
         ctx.fillText('🎯 ЛЕГЕНДА', legendX + 10, legendY + 25);
-       
+
         ctx.font = '14px Arial';
-       
+
         ctx.fillStyle = '#00ff00';
         ctx.beginPath();
         ctx.arc(legendX + 15, legendY + 50, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Высокая уверенность', legendX + 30, legendY + 55);
-       
+
         ctx.fillStyle = '#ffaa00';
         ctx.beginPath();
         ctx.arc(legendX + 15, legendY + 80, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Средняя уверенность', legendX + 30, legendY + 85);
-       
+
         ctx.fillStyle = '#ff6666';
         ctx.beginPath();
         ctx.arc(legendX + 15, legendY + 110, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Низкая уверенность', legendX + 30, legendY + 115);
-       
+
         ctx.strokeStyle = 'rgba(50, 150, 255, 0.6)';
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -543,7 +515,7 @@ class EnhancedModelVisualizer {
         ctx.stroke();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Связи протектора', legendX + 50, legendY + 140);
-       
+
         ctx.strokeStyle = 'rgba(0, 100, 255, 0.3)';
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 3]);
@@ -559,17 +531,17 @@ class EnhancedModelVisualizer {
     drawComparisonRecommendations(ctx, width, height, comparison, mirrorAnalysis) {
         const recX = 800;
         const recY = 770;
-       
+
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fillRect(recX, recY - 100, width - 850, 120);
-       
+
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 16px Arial';
         ctx.fillText('💡 РЕКОМЕНДАЦИИ:', recX + 20, recY - 70);
-       
+
         ctx.font = '14px Arial';
         const score = comparison.score || 0;
-       
+
         if (score > 0.85) {
             ctx.fillStyle = '#00cc00';
             ctx.fillText('🔴 ВЫСОКАЯ ВЕРОЯТНОСТЬ - это одна и та же обувь', recX + 40, recY - 45);
@@ -587,7 +559,7 @@ class EnhancedModelVisualizer {
             ctx.fillText('🟢 ОЧЕНЬ НИЗКАЯ ВЕРОЯТНОСТЬ - разные протекторы', recX + 40, recY - 45);
             ctx.fillText('Совпадения случайны', recX + 40, recY - 20);
         }
-       
+
         if (mirrorAnalysis && mirrorAnalysis.isMirrored) {
             ctx.fillStyle = '#ffaa00';
             ctx.fillText('🪞 Учтите зеркальность при сравнении!', recX + 40, recY + 5);
