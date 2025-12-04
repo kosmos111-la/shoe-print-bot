@@ -79,18 +79,6 @@ function escapeHtml(text) {
         .replace(/'/g, '&#039;');
 }
 
-// Глобальная обработка ошибок
-bot.on('polling_error', (error) => {
-    console.log('❌ Ошибка Telegram API:', error.message);
-    if (error.message.includes('parse entities')) {
-        console.log('⚠️ Проблема с Markdown разметкой');
-    }
-});
-
-bot.on('error', (error) => {
-    console.log('❌ Общая ошибка бота:', error.message);
-});
-
 // =============================================================================
 // 📊 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПОИСКА
 // =============================================================================
