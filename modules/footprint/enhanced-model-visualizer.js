@@ -740,7 +740,26 @@ class EnhancedModelVisualizer {
                 ctx.fillText(`👟 Тип: ${footprint.metadata.footprintType}`, rightColX, 115);
             }
         }
+    // Добавь информацию о нормализации
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px Arial';
+   
+    const infoY = 140;
+    ctx.fillText(`🔄 Нормализация:`, 40, infoY);
+    ctx.fillText(`• Контур: ${footprint.bestContours?.length || 0}`, 60, infoY + 20);
+    ctx.fillText(`• Каблук: ${footprint.bestHeels?.length || 0}`, 60, infoY + 40);
+   
+    if (footprint.metadata?.isMirrored) {
+        ctx.fillText(`• 🪞 ЗЕРКАЛЬНАЯ модель`, 60, infoY + 60);
     }
+   
+    // Инструкция для пользователя
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.font = '11px Arial';
+    ctx.fillText(`💡 Синие пунктиры - контуры от Roboflow`, width - 350, height - 30);
+    ctx.fillText(`💡 Цветные точки - протекторы после нормализации`, width - 350, height - 15);
+    
+    }
 
     drawLegend(ctx, width, height) {
         const legendX = width - 220;
