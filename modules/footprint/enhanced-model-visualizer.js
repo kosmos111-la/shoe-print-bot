@@ -316,7 +316,7 @@ class EnhancedModelVisualizer {
         }
     }
 
-    async normalizeAndAlignData(footprint, canvasWidth, canvasHeight) async normalizeAndAlignData(footprint, canvasWidth, canvasHeight) {
+    async normalizeAndAlignData(footprint, canvasWidth, canvasHeight) {
     console.log('🎯 ВИЗУАЛИЗАЦИЯ: Контур для контроля, узлы для проверки топологии');
    
     const nodes = Array.from(footprint.nodes.values());
