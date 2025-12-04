@@ -55,20 +55,27 @@ class EnhancedModelVisualizer {
             const canvas = createCanvas(canvasWidth, canvasHeight);
             const ctx = canvas.getContext('2d');
 
-            ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-            if (bestPhoto && bestPhoto.image) {
+            // Если нет фото - рисуем фон с сеткой
+            if (!bestPhoto || !bestPhoto.image) {
+                console.log('⚠️ Нет фото для подложки, рисую фон с сеткой');
+                this.drawGridBackground(ctx, canvasWidth, canvasHeight);
+            } else {
+                ctx.fillStyle = '#1a1a1a';
+                ctx.fillRect(0, 0, canvasWidth, canvasHeight);
                 await this.drawPhotoUnderlay(ctx, bestPhoto.image, canvasWidth, canvasHeight);
             }
 
             const normalizedData = await this.normalizeAndAlignData(footprint, canvasWidth, canvasHeight);
 
+            // Рисуем элементы
             this.drawContoursAndHeels(ctx, normalizedData.contours, normalizedData.heels);
             this.drawEdges(ctx, normalizedData.nodes, footprint.edges);
             this.drawNodes(ctx, normalizedData.nodes);
             this.drawEnhancedInfoPanel(ctx, canvasWidth, canvasHeight, footprint, bestPhoto);
             this.drawLegend(ctx, canvasWidth, canvasHeight);
+           
+            // Отладочная информация
+            this.drawDebugInfo(ctx, canvasWidth, canvasHeight, normalizedData, bestPhoto);
 
             const finalPath = outputPath || path.join(
                 this.tempDir,
@@ -85,6 +92,62 @@ class EnhancedModelVisualizer {
             console.log('❌ Ошибка улучшенной визуализации:', error.message);
             return null;
         }
+    }
+
+    drawGridBackground(ctx, width, height) {
+        // Темный фон
+        ctx.fillStyle = '#2a2a2a';
+        ctx.fillRect(0, 0, width, height);
+       
+        // Сетка
+        ctx.strokeStyle = 'rgba(100, 100, 100, 0.3)';
+        ctx.lineWidth = 1;
+       
+        // Вертикальные линии
+        for (let x = 100; x < width; x += 100) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+       
+        // Горизонтальные линии
+        for (let y = 100; y < height; y += 100) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+       
+        // Центр
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.beginPath();
+        ctx.arc(width / 2, height / 2, 10, 0, Math.PI * 2);
+        ctx.fill();
+       
+        // Подписи осей
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.font = '12px Arial';
+        ctx.fillText('← X →', width / 2 - 15, 20);
+        ctx.fillText('↑ Y ↓', 20, height / 2 + 4);
+    }
+
+    drawDebugInfo(ctx, width, height, normalizedData, bestPhoto) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(10, height - 80, 400, 70);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '12px Arial';
+        ctx.fillText(`📐 Canvas: ${width}x${height}`, 20, height - 65);
+        ctx.fillText(`📍 Узлы: ${normalizedData.nodes.size}`, 20, height - 45);
+        ctx.fillText(`🔵 Контуры: ${normalizedData.contours.length}`, 150, height - 65);
+        ctx.fillText(`👠 Каблуки: ${normalizedData.heels.length}`, 150, height - 45);
+        ctx.fillText(`📸 Фото: ${bestPhoto ? '✅' : '❌'}`, 280, height - 55);
+       
+        // Границы canvas
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(0, 0, width, height);
     }
 
     async findBestPhotoForModel(footprint) {
@@ -186,7 +249,7 @@ class EnhancedModelVisualizer {
         const contours = [];
         const heels = [];
 
-        // ИСПРАВЛЕНО: Используем контуры из модели, а не из источников
+        // Используем контуры из модели
         if (footprint.bestContours && footprint.bestContours.length > 0) {
             contours.push(...footprint.bestContours.map(c => ({
                 points: c.points,
@@ -204,114 +267,122 @@ class EnhancedModelVisualizer {
         }
 
         console.log(`🎯 В normalizedAndAlignData: ${contours.length} контуров, ${heels.length} каблуков`);
+       
+        // ВАЖНО: Объединяем ВСЕ точки (узлы + контуры + каблуки) для расчета общего bounding box
+        const allPoints = [];
+       
+        // Точки узлов
+        nodes.forEach(node => {
+            if (node.center) {
+                allPoints.push({ x: node.center.x, y: node.center.y });
+            }
+        });
+       
+        // Точки контуров
+        contours.forEach(contour => {
+            if (contour.points) {
+                allPoints.push(...contour.points);
+            }
+        });
+       
+        // Точки каблуков
+        heels.forEach(heel => {
+            if (heel.points) {
+                allPoints.push(...heel.points);
+            }
+        });
 
-        if (footprint.boundingBox && footprint.boundingBox.width > 0) {
-            const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
-            const padding = 100;
-            const scale = Math.min(
-                (canvasWidth - padding * 2) / Math.max(1, width),
-                (canvasHeight - padding * 2) / Math.max(1, height)
-            );
+        if (allPoints.length === 0) {
+            console.log('⚠️ Нет точек для нормализации');
+            return { nodes: normalizedNodes, contours, heels };
+        }
 
-            console.log(`📏 Масштабирование: scale=${scale}, padding=${padding}`);
+        // Находим общие границы ВСЕХ точек
+        const xs = allPoints.map(p => p.x);
+        const ys = allPoints.map(p => p.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const width = Math.max(1, maxX - minX);
+        const height = Math.max(1, maxY - minY);
 
-            nodes.forEach(node => {
-                if (node.center && node.center.x != null && node.center.y != null) {
-                    const x = padding + (node.center.x - minX) * scale;
-                    const y = padding + (node.center.y - minY) * scale;
+        console.log(`📐 Общие границы: x=[${minX.toFixed(1)}-${maxX.toFixed(1)}], y=[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
+        console.log(`📏 Размеры: width=${width.toFixed(1)}, height=${height.toFixed(1)}`);
 
-                    console.log(`📍 Нормализация узла: ${node.center.x},${node.center.y} -> ${x},${y}`);
+        const padding = 30; // Минимальный отступ
+        const scale = Math.min(
+            (canvasWidth - padding * 2) / width,
+            (canvasHeight - padding * 2) / height
+        );
 
-                    if (x >= 0 && x <= canvasWidth && y >= 0 && y <= canvasHeight) {
-                        normalizedNodes.set(node.id, {
-                            ...node,
-                            normalizedCenter: { x, y },
-                            normalizedSize: Math.max(2, (node.size || 5) * scale * 0.08)
-                        });
-                    }
-                }
-            });
-        } else {
-            console.log('⚠️ Нет boundingBox, использую простую нормализацию');
-            // Простая нормализация если нет boundingBox
-            const xs = nodes.map(n => n.center?.x || 0);
-            const ys = nodes.map(n => n.center?.y || 0);
-            const minX = Math.min(...xs);
-            const maxX = Math.max(...xs);
-            const minY = Math.min(...ys);
-            const maxY = Math.max(...ys);
-            const width = Math.max(1, maxX - minX);
-            const height = Math.max(1, maxY - minY);
+        console.log(`📐 Масштабирование: scale=${scale.toFixed(4)}, padding=${padding}`);
+        console.log(`🎯 Canvas: ${canvasWidth}x${canvasHeight}, доступно для данных: ${(canvasWidth - padding * 2).toFixed(0)}x${(canvasHeight - padding * 2).toFixed(0)}`);
 
-            const padding = 100;
-            const scale = Math.min(
-                (canvasWidth - padding * 2) / width,
-                (canvasHeight - padding * 2) / height
-            );
+        // Нормализуем узлы
+        nodes.forEach(node => {
+            if (node.center && node.center.x != null && node.center.y != null) {
+                const x = padding + (node.center.x - minX) * scale;
+                const y = padding + (node.center.y - minY) * scale;
 
-            nodes.forEach(node => {
-                if (node.center && node.center.x != null && node.center.y != null) {
-                    const x = padding + (node.center.x - minX) * scale;
-                    const y = padding + (node.center.y - minY) * scale;
+                console.log(`📍 Узел: ${node.center.x.toFixed(1)},${node.center.y.toFixed(1)} -> ${x.toFixed(1)},${y.toFixed(1)}`);
 
+                if (x >= 0 && x <= canvasWidth && y >= 0 && y <= canvasHeight) {
                     normalizedNodes.set(node.id, {
                         ...node,
                         normalizedCenter: { x, y },
-                        normalizedSize: Math.max(2, (node.size || 5) * scale * 0.08)
+                        normalizedSize: Math.max(3, (node.size || 5) * scale * 0.1)
                     });
+                } else {
+                    console.log(`⚠️ Узел вне canvas: ${x.toFixed(1)},${y.toFixed(1)}`);
                 }
-            });
-        }
+            }
+        });
 
-        // Тоже нормализуем контуры
+        // Нормализуем контуры
         const normalizedContours = contours.map(contour => {
             if (contour.points && contour.points.length > 0) {
+                const normalizedPoints = contour.points.map(point => ({
+                    x: padding + (point.x - minX) * scale,
+                    y: padding + (point.y - minY) * scale
+                }));
+               
+                // Проверяем границы
+                const contourXs = normalizedPoints.map(p => p.x);
+                const contourYs = normalizedPoints.map(p => p.y);
+                const contourMinX = Math.min(...contourXs);
+                const contourMaxX = Math.max(...contourXs);
+                const contourMinY = Math.min(...contourYs);
+                const contourMaxY = Math.max(...contourYs);
+               
+                console.log(`🔵 Контур после нормализации: x=[${contourMinX.toFixed(1)}-${contourMaxX.toFixed(1)}], y=[${contourMinY.toFixed(1)}-${contourMaxY.toFixed(1)}]`);
+               
                 return {
                     ...contour,
-                    points: contour.points.map(point => {
-                        if (footprint.boundingBox) {
-                            const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
-                            const padding = 100;
-                            const scale = Math.min(
-                                (canvasWidth - padding * 2) / Math.max(1, width),
-                                (canvasHeight - padding * 2) / Math.max(1, height)
-                            );
-                            return {
-                                x: padding + (point.x - minX) * scale,
-                                y: padding + (point.y - minY) * scale
-                            };
-                        }
-                        return point;
-                    })
+                    points: normalizedPoints
                 };
             }
             return contour;
         });
 
+        // Нормализуем каблуки
         const normalizedHeels = heels.map(heel => {
             if (heel.points && heel.points.length > 0) {
+                const normalizedPoints = heel.points.map(point => ({
+                    x: padding + (point.x - minX) * scale,
+                    y: padding + (point.y - minY) * scale
+                }));
+               
                 return {
                     ...heel,
-                    points: heel.points.map(point => {
-                        if (footprint.boundingBox) {
-                            const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
-                            const padding = 100;
-                            const scale = Math.min(
-                                (canvasWidth - padding * 2) / Math.max(1, width),
-                                (canvasHeight - padding * 2) / Math.max(1, height)
-                            );
-                            return {
-                                x: padding + (point.x - minX) * scale,
-                                y: padding + (point.y - minY) * scale
-                            };
-                        }
-                        return point;
-                    })
+                    points: normalizedPoints
                 };
             }
             return heel;
         });
 
+        console.log(`✅ Нормализация завершена: ${normalizedNodes.size} узлов, ${normalizedContours.length} контуров, ${normalizedHeels.length} каблуков`);
+       
         return {
             nodes: normalizedNodes,
             contours: normalizedContours,
@@ -320,38 +391,71 @@ class EnhancedModelVisualizer {
     }
 
     drawContoursAndHeels(ctx, contours, heels) {
-        contours.forEach(contour => {
+        console.log(`🎨 Рисую контуры: ${contours.length}, каблуков: ${heels.length}`);
+       
+        contours.forEach((contour, index) => {
+            console.log(`🔵 Контур ${index}: ${contour.points?.length || 0} точек`);
+           
             if (contour.points && contour.points.length > 2) {
-                ctx.strokeStyle = 'rgba(0, 100, 255, 0.3)';
-                ctx.lineWidth = 2;
+                // Проверяем координаты
+                const firstPoint = contour.points[0];
+                console.log(`📍 Первая точка контура: x=${firstPoint?.x?.toFixed(1) || 'N/A'}, y=${firstPoint?.y?.toFixed(1) || 'N/A'}`);
+               
+                ctx.strokeStyle = 'rgba(0, 100, 255, 0.5)'; // Сделаем ярче
+                ctx.lineWidth = 3; // Толще
                 ctx.setLineDash([5, 3]);
 
                 ctx.beginPath();
-                contour.points.forEach((point, index) => {
-                    if (index === 0) ctx.moveTo(point.x, point.y);
-                    else ctx.lineTo(point.x, point.y);
+                contour.points.forEach((point, pointIndex) => {
+                    if (pointIndex === 0) {
+                        ctx.moveTo(point.x, point.y);
+                    } else {
+                        ctx.lineTo(point.x, point.y);
+                    }
                 });
                 ctx.closePath();
                 ctx.stroke();
 
                 ctx.setLineDash([]);
+               
+                // Рисуем точки контура для отладки
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
+                contour.points.forEach(point => {
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            } else {
+                console.log(`⚠️ Контур ${index} не имеет достаточно точек: ${contour.points?.length || 0}`);
             }
         });
 
-        heels.forEach(heel => {
+        heels.forEach((heel, index) => {
+            console.log(`🔴 Каблук ${index}: ${heel.points?.length || 0} точек`);
+           
             if (heel.points && heel.points.length > 2) {
-                ctx.fillStyle = 'rgba(255, 50, 50, 0.2)';
-                ctx.strokeStyle = 'rgba(255, 0, 0, 0.4)';
-                ctx.lineWidth = 1;
+                ctx.fillStyle = 'rgba(255, 50, 50, 0.5)'; // Ярче
+                ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+                ctx.lineWidth = 2;
 
                 ctx.beginPath();
-                heel.points.forEach((point, index) => {
-                    if (index === 0) ctx.moveTo(point.x, point.y);
+                heel.points.forEach((point, pointIndex) => {
+                    if (pointIndex === 0) ctx.moveTo(point.x, point.y);
                     else ctx.lineTo(point.x, point.y);
                 });
                 ctx.closePath();
                 ctx.fill();
                 ctx.stroke();
+               
+                // Рисуем точки каблука
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+                heel.points.forEach(point => {
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            } else {
+                console.log(`⚠️ Каблук ${index} не имеет достаточно точек: ${heel.points?.length || 0}`);
             }
         });
     }
