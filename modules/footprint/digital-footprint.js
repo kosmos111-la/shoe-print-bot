@@ -57,7 +57,27 @@ class DigitalFootprint {
        
         console.log(`🔍 Добавляю ${protectors.length} протекторов, ${contours.length} контуров, ${heels.length} каблуков из анализа`);
        
-        if (animals.length > 0) {
+      // 🆕 ВАЖНО: Сохраняем путь к фото для визуализации
+    if (sourceInfo.imagePath || sourceInfo.photoPath || sourceInfo.localPath) {
+        // Инициализируем bestPhotoInfo если еще нет
+        this.bestPhotoInfo = this.bestPhotoInfo || {};
+       
+        // Сохраняем первый найденный путь
+        if (!this.bestPhotoInfo.path) {
+            this.bestPhotoInfo.path = sourceInfo.imagePath ||
+                                      sourceInfo.photoPath ||
+                                      sourceInfo.localPath;
+            this.bestPhotoInfo.timestamp = new Date();
+            console.log(`📸 Сохраняю путь к фото для модели: ${this.bestPhotoInfo.path}`);
+        }
+       
+        // Также добавляем в статистику качества
+        if (sourceInfo.photoQuality && sourceInfo.photoQuality > (this.bestPhotoInfo.quality || 0)) {
+            this.bestPhotoInfo.quality = sourceInfo.photoQuality;
+        }
+    }
+
+      if (animals.length > 0) {
             console.log(`⚠️ Обнаружены следы животных: ${animals.length}, пропускаем`);
             return {
                 added: 0,
