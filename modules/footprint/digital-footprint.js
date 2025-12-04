@@ -152,33 +152,7 @@ class DigitalFootprint {
             }
         });
            
-            if (similarNode) {
-                // ОБЪЕДИНЯЕМ с большим допуском
-                this.mergeNodes(similarNode.id, node);
-                mergedNodes.push({
-                    existing: similarNode.id.slice(-3),
-                    new: node.id.slice(-3),
-                    type: nodeType,
-                    confidence: node.confidence,
-                    distance: this.calculateDistance(similarNode.center, node.center)
-                });
-            } else {
-                // НОВЫЙ узел
-                // Если слабый - понижаем рейтинг, но не отбрасываем
-                if (nodeType === 'weak') {
-                    node.confidence *= 0.7;
-                    node.metadata.isWeak = true;
-                }
-               
-                this.nodes.set(node.id, node);
-                addedNodes.push({
-                    id: node.id.slice(-3),
-                    type: nodeType,
-                    confidence: node.confidence
-                });
-            }
-        };
-       
+                   
         // Сохраняем лучший контур и каблук
         this.updateBestContours(contours, enhancedSourceInfo);
         this.updateBestHeels(heels, enhancedSourceInfo);
