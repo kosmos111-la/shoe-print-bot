@@ -50,159 +50,163 @@ class DigitalFootprint {
 
     // ОСНОВНОЙ МЕТОД: добавить данные из анализа
     addAnalysis(analysis, sourceInfo = {}) {
-        const { predictions, timestamp, imagePath, photoQuality = 0.5 } = analysis;
-        const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
-        const contours = predictions?.filter(p => p.class === 'Outline-trail') || [];
-        const heels = predictions?.filter(p => p.class === 'Heel') || [];
-       
-        console.log(`🔍 Добавляю ${protectors.length} протекторов, ${contours.length} контуров, ${heels.length} каблуков`);
-       
-        // СОХРАНЯЕМ ЛОКАЛЬНЫЙ ПУТЬ К ФОТО
-        let localPhotoPath = null;
-        if (sourceInfo.localPath && fs.existsSync(sourceInfo.localPath)) {
-            localPhotoPath = sourceInfo.localPath;
-        } else if (imagePath && (imagePath.includes('temp/') || imagePath.includes('temp\\'))) {
-            localPhotoPath = imagePath;
-        }
-       
-        // Улучшенный sourceInfo
-        const enhancedSourceInfo = {
-            ...sourceInfo,
-            localPhotoPath: localPhotoPath,
-            imagePath: localPhotoPath || imagePath,
-            photoQuality: photoQuality,
-            timestamp: timestamp || new Date(),
-            geometry: {
-                protectors: protectors.map(p => ({
-                    points: p.points,
-                    confidence: p.confidence || 0.5,
-                    class: p.class
-                })),
-                contours: contours.map(c => ({
-                    points: c.points,
-                    confidence: c.confidence || 0.5,
-                    area: this.calculateArea(c.points)
-                })),
-                heels: heels.map(h => ({
-                    points: h.points,
-                    confidence: h.confidence || 0.5,
-                    area: this.calculateArea(h.points)
-                }))
-            }
-        };
-       
-        const addedNodes = [];
-        const mergedNodes = [];
-        const weakNodes = [];
-       
-        // Для каждого протектора
-        // СЛОВАРЬ: протектор → найденный узел (чтобы не дублировать)
-        const matchedProtectors = new Map(); // protectorIndex -> nodeId
-        const matchedNodesInThisFrame = new Set(); // nodeId (чтобы узел не усиливался несколько раз из одного кадра)
-       
-        protectors.forEach((protector, protectorIndex) => {
-            const node = this.createNodeFromProtector(protector, enhancedSourceInfo);
-           
-            // Определяем тип узла
-            let nodeType = 'normal';
-            if (node.confidence < 0.3) {
-                nodeType = 'weak';
-                weakNodes.push(node);
-            } else if (node.confidence > 0.7) {
-                nodeType = 'strong';
-            }
-           
-            // Ищем похожий узел с БОЛЬШИМ допуском
-            const similarNode = this.findSimilarNode(node);
-           
-            if (similarNode) {
-                // Проверяем, не усиливали ли мы уже этот узел из этого кадра
-                if (!matchedNodesInThisFrame.has(similarNode.id)) {
-                    this.mergeNodes(similarNode.id, node);
-                    matchedProtectors.set(protectorIndex, similarNode.id);
-                    matchedNodesInThisFrame.add(similarNode.id);
-                    mergedNodes.push({
-                        existing: similarNode.id.slice(-3),
-                        new: node.id.slice(-3),
-                        type: nodeType,
-                        confidence: node.confidence,
-                        distance: this.calculateDistance(similarNode.center, node.center)
-                    });
-                   
-                    console.log(`🔗 Узел ${similarNode.id.slice(-3)} усилен из протектора ${protectorIndex}`);
-                } else {
-                    // Этот узел уже усилен из этого кадра - ПРОПУСКАЕМ!
-                    console.log(`⚠️  Протектор ${protectorIndex} уже учтен в узле ${matchedProtectors.get(protectorIndex)}`);
-                    stats.skipped = (stats.skipped || 0) + 1;
-                }
-            } else {
-                // НОВЫЙ узел
-                // Если слабый - понижаем рейтинг, но не отбрасываем
-                if (nodeType === 'weak') {
-                    node.confidence *= 0.7;
-                    node.metadata.isWeak = true;
-                }
-               
-                this.nodes.set(node.id, node);
-                addedNodes.push({
-                    id: node.id.slice(-3),
-                    type: nodeType,
-                    confidence: node.confidence
-                });
-            }
-        });
-           
-                   
-        // Сохраняем лучший контур и каблук
-        this.updateBestContours(contours, enhancedSourceInfo);
-        this.updateBestHeels(heels, enhancedSourceInfo);
-       
-        // Обновляем информацию о лучшем фото
-        this.updateBestPhotoInfo(enhancedSourceInfo);
-       
-        // Статистика
-        this.stats.totalSources++;
-        this.stats.totalPhotos++;
-        this.stats.avgPhotoQuality = (
-            this.stats.avgPhotoQuality * (this.stats.totalPhotos - 1) + photoQuality
-        ) / this.stats.totalPhotos;
-        this.stats.lastUpdated = new Date();
-        this.stats.lastPhotoAdded = new Date();
-       
-        // ПЕРЕСЧИТЫВАЕМ СВЯЗИ ТОЛЬКО ЕСЛИ ЕСТЬ НОВЫЕ УЗЛЫ
-        if (addedNodes.length > 0 || mergedNodes.length > 0) {
-            this.rebuildEdges();
-            this.updateIndices();
-        }
-       
-        // ВЫВОД ПОДРОБНОЙ СТАТИСТИКИ
-        console.log('\n📊 ========== ДЕТАЛЬНАЯ СТАТИСТИКА ==========');
-        console.log(`👟 Протекторов в анализе: ${protectors.length}`);
-        console.log(`🔗 Объединено узлов: ${mergedNodes.length} (расстояния: ${mergedNodes.map(m => m.distance.toFixed(0)).join(', ')})`);
-        console.log(`✨ Новых узлов: ${addedNodes.length}`);
-        console.log(`⚠️  Слабых узлов: ${weakNodes.length}`);
-        console.log(`📈 Итого узлов в модели: ${this.nodes.size}`);
-       
-        // Группировка по типам
-        if (mergedNodes.length > 0) {
-            const strongMerged = mergedNodes.filter(n => n.type === 'strong').length;
-            const weakMerged = mergedNodes.filter(n => n.type === 'weak').length;
-            console.log(`💪 Сильные объединения: ${strongMerged}`);
-            console.log(`🔍 Слабые объединения: ${weakMerged}`);
-        }
-        console.log('========================================\n');
-       
-        return {
-            added: addedNodes.length,
-            merged: mergedNodes.length,
-            weak: weakNodes.length,
-            contours: contours.length,
-            heels: heels.length,
-            totalNodes: this.nodes.size,
-            confidence: this.stats.confidence,
-            photoQuality: photoQuality
-        };
+    const { predictions, timestamp, imagePath, photoQuality = 0.5 } = analysis;
+    const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
+    const contours = predictions?.filter(p => p.class === 'Outline-trail') || [];
+    const heels = predictions?.filter(p => p.class === 'Heel') || [];
+   
+    console.log(`🔍 Добавляю ${protectors.length} протекторов, ${contours.length} контуров, ${heels.length} каблуков`);
+   
+    // СОХРАНЯЕМ ЛОКАЛЬНЫЙ ПУТЬ К ФОТО
+    let localPhotoPath = null;
+    if (sourceInfo.localPath && fs.existsSync(sourceInfo.localPath)) {
+        localPhotoPath = sourceInfo.localPath;
+    } else if (imagePath && (imagePath.includes('temp/') || imagePath.includes('temp\\'))) {
+        localPhotoPath = imagePath;
     }
+   
+    // Улучшенный sourceInfo
+    const enhancedSourceInfo = {
+        ...sourceInfo,
+        localPhotoPath: localPhotoPath,
+        imagePath: localPhotoPath || imagePath,
+        photoQuality: photoQuality,
+        timestamp: timestamp || new Date(),
+        geometry: {
+            protectors: protectors.map(p => ({
+                points: p.points,
+                confidence: p.confidence || 0.5,
+                class: p.class
+            })),
+            contours: contours.map(c => ({
+                points: c.points,
+                confidence: c.confidence || 0.5,
+                area: this.calculateArea(c.points)
+            })),
+            heels: heels.map(h => ({
+                points: h.points,
+                confidence: h.confidence || 0.5,
+                area: this.calculateArea(h.points)
+            }))
+        }
+    };
+   
+    const addedNodes = [];
+    const mergedNodes = [];
+    const weakNodes = [];
+   
+    // 🔴 ИСПРАВЛЕНИЕ: объявляем переменную stats
+    const stats = {
+        skipped: 0
+    };
+   
+    // Для каждого протектора
+    // СЛОВАРЬ: протектор → найденный узел (чтобы не дублировать)
+    const matchedProtectors = new Map(); // protectorIndex -> nodeId
+    const matchedNodesInThisFrame = new Set(); // nodeId (чтобы узел не усиливался несколько раз из одного кадра)
+   
+    protectors.forEach((protector, protectorIndex) => {
+        const node = this.createNodeFromProtector(protector, enhancedSourceInfo);
+       
+        // Определяем тип узла
+        let nodeType = 'normal';
+        if (node.confidence < 0.3) {
+            nodeType = 'weak';
+            weakNodes.push(node);
+        } else if (node.confidence > 0.7) {
+            nodeType = 'strong';
+        }
+       
+        // Ищем похожий узел с БОЛЬШИМ допуском
+        const similarNode = this.findSimilarNode(node);
+       
+        if (similarNode) {
+            // Проверяем, не усиливали ли мы уже этот узел из этого кадра
+            if (!matchedNodesInThisFrame.has(similarNode.id)) {
+                this.mergeNodes(similarNode.id, node);
+                matchedProtectors.set(protectorIndex, similarNode.id);
+                matchedNodesInThisFrame.add(similarNode.id);
+                mergedNodes.push({
+                    existing: similarNode.id.slice(-3),
+                    new: node.id.slice(-3),
+                    type: nodeType,
+                    confidence: node.confidence,
+                    distance: this.calculateDistance(similarNode.center, node.center)
+                });
+               
+                console.log(`🔗 Узел ${similarNode.id.slice(-3)} усилен из протектора ${protectorIndex}`);
+            } else {
+                // Этот узел уже усилен из этого кадра - ПРОПУСКАЕМ!
+                console.log(`⚠️  Протектор ${protectorIndex} уже учтен в узле ${matchedProtectors.get(protectorIndex)}`);
+                stats.skipped = (stats.skipped || 0) + 1;
+            }
+        } else {
+            // НОВЫЙ узел
+            // Если слабый - понижаем рейтинг, но не отбрасываем
+            if (nodeType === 'weak') {
+                node.confidence *= 0.7;
+                node.metadata.isWeak = true;
+            }
+           
+            this.nodes.set(node.id, node);
+            addedNodes.push({
+                id: node.id.slice(-3),
+                type: nodeType,
+                confidence: node.confidence
+            });
+        }
+    });
+   
+    // Сохраняем лучший контур и каблук
+    this.updateBestContours(contours, enhancedSourceInfo);
+    this.updateBestHeels(heels, enhancedSourceInfo);
+   
+    // Обновляем информацию о лучшем фото
+    this.updateBestPhotoInfo(enhancedSourceInfo);
+   
+    // Статистика
+    this.stats.totalSources++;
+    this.stats.totalPhotos++;
+    this.stats.avgPhotoQuality = (
+        this.stats.avgPhotoQuality * (this.stats.totalPhotos - 1) + photoQuality
+    ) / this.stats.totalPhotos;
+    this.stats.lastUpdated = new Date();
+    this.stats.lastPhotoAdded = new Date();
+   
+    // ПЕРЕСЧИТЫВАЕМ СВЯЗИ ТОЛЬКО ЕСЛИ ЕСТЬ НОВЫЕ УЗЛЫ
+    if (addedNodes.length > 0 || mergedNodes.length > 0) {
+        this.rebuildEdges();
+        this.updateIndices();
+    }
+   
+    // ВЫВОД ПОДРОБНОЙ СТАТИСТИКИ
+    console.log('\n📊 ========== ДЕТАЛЬНАЯ СТАТИСТИКА ==========');
+    console.log(`👟 Протекторов в анализе: ${protectors.length}`);
+    console.log(`🔗 Объединено узлов: ${mergedNodes.length} (расстояния: ${mergedNodes.map(m => m.distance.toFixed(0)).join(', ')})`);
+    console.log(`✨ Новых узлов: ${addedNodes.length}`);
+    console.log(`⚠️  Слабых узлов: ${weakNodes.length}`);
+    console.log(`📈 Итого узлов в модели: ${this.nodes.size}`);
+   
+    // Группировка по типам
+    if (mergedNodes.length > 0) {
+        const strongMerged = mergedNodes.filter(n => n.type === 'strong').length;
+        const weakMerged = mergedNodes.filter(n => n.type === 'weak').length;
+        console.log(`💪 Сильные объединения: ${strongMerged}`);
+        console.log(`🔍 Слабые объединения: ${weakMerged}`);
+    }
+    console.log('========================================\n');
+   
+    return {
+        added: addedNodes.length,
+        merged: mergedNodes.length,
+        weak: weakNodes.length,
+        contours: contours.length,
+        heels: heels.length,
+        totalNodes: this.nodes.size,
+        confidence: this.stats.confidence,
+        photoQuality: photoQuality
+    };
+}
 
     // СОЗДАНИЕ УЗЛА ИЗ ПРОТЕКТОРА (упрощенное, без искажений)
     createNodeFromProtector(protector, sourceInfo) {
