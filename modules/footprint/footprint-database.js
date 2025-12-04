@@ -190,23 +190,35 @@ class FootprintDatabase {
        
         // 4. ПОДРОБНОЕ СРАВНЕНИЕ
         const matches = [];
-       
+
         for (const candidate of candidates) {
             if (matches.length >= limit * 3) break;
-           
+
             // Пропускаем если это та же модель
             if (candidate.hash === tempFootprint.hash) continue;
-           
-            const comparison = tempFootprint.compare(candidate);
-           
-            if (comparison.score >= threshold) {
-                matches.push({
-                    footprint: candidate,
-                    score: comparison.score,
-                    matched: comparison.matched,
-                    total: comparison.total,
-                    details: comparison
-                });
+
+            // 🔧 ПРОВЕРЯЕМ, ЕСТЬ ЛИ МЕТОД compare
+            if (typeof tempFootprint.compare !== 'function') {
+                console.log('❌ У tempFootprint нет метода compare!');
+                console.log('   Методы tempFootprint:', Object.keys(tempFootprint).filter(k => typeof tempFootprint[k] === 'function'));
+                continue;
+            }
+
+            try {
+                const comparison = tempFootprint.compare(candidate);
+
+                if (comparison && comparison.score >= threshold) {
+                    matches.push({
+                        footprint: candidate,
+                        score: comparison.score,
+                        matched: comparison.matched,
+                        total: comparison.total,
+                        details: comparison
+                    });
+                }
+            } catch (compareError) {
+                console.log(`⚠️ Ошибка сравнения с моделью ${candidate.id}:`, compareError.message);
+                // Пропускаем эту модель, продолжаем с другими
             }
         }
        
@@ -223,14 +235,21 @@ class FootprintDatabase {
             id: `temp_${Date.now()}`,
             name: 'Временная модель для поиска'
         });
-       
+
         if (analysis.predictions) {
             footprint.addAnalysis(analysis, {
                 type: 'search',
                 timestamp: new Date()
             });
         }
-       
+
+        // 🔧 ВАЖНО: вызываем normalizeTopology для корректного сравнения
+        if (typeof footprint.normalizeTopology === 'function') {
+            footprint.normalizeTopology();
+        } else {
+            console.log('⚠️ У tempFootprint нет метода normalizeTopology');
+        }
+
         return footprint;
     }
 
