@@ -1040,7 +1040,7 @@ console.log('📐 drawPhotoUnderlay вызван с изображением:', 
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Низкая уверенность', legendX + 30, legendY + 115);
     }
-}
+// }
 // 🔍 МЕТОД ДЛЯ ОТЛАДКИ РАСПОЛОЖЕНИЯ
 drawDebugMarkers(ctx, canvasWidth, canvasHeight) {
     console.log('🎯 Рисую отладочные маркеры...');
