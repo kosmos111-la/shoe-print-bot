@@ -49,16 +49,58 @@ class FootprintManager {
         console.log(`🔄 Создаю модель из ${session.analysisResults.length} анализов...`);
 
         // Агрегируем все анализы сессии
-        session.analysisResults.forEach((analysis, index) => {
-            const added = footprint.addAnalysis(analysis, {
-                sessionId: session.id,
-                analysisIndex: index,
-                photoId: session.photos[index]?.fileId,
-                timestamp: analysis.timestamp || new Date()
-            });
-           
-            console.log(`   Анализ ${index + 1}: добавлено ${added.added} узлов`);
-        });
+session.analysisResults.forEach((analysis, index) => {
+    // Находим соответствующее фото из сессии
+    const photo = session.photos[index];
+   
+    // 🆕 ВАЖНО: Передаем ВСЕ возможные пути к фото
+    const sourceInfo = {
+        sessionId: session.id,
+        analysisIndex: index,
+        photoId: photo?.fileId,
+        timestamp: analysis.timestamp || new Date(),
+        // Пути к фото из сессии
+        imagePath: photo?.localPath,
+        photoPath: photo?.fileUrl,
+        localPath: photo?.localPath,
+        // Информация о качестве фото если есть
+        photoQuality: photo?.quality || 0.5
+    };
+   
+    // Добавляем анализ с путями к фото
+    const added = footprint.addAnalysis(analysis, sourceInfo);
+   
+    console.log(`   Анализ ${index + 1}: добавлено ${added.added} узлов, фото: ${photo?.localPath || 'нет'}`);
+});
+```
+
+Вот как должно выглядеть в контексте (примерно строки 40-60):
+
+```javascript
+// Агрегируем все анализы сессии
+session.analysisResults.forEach((analysis, index) => {
+    // Находим соответствующее фото из сессии
+    const photo = session.photos[index];
+   
+    // 🆕 ВАЖНО: Передаем ВСЕ возможные пути к фото
+    const sourceInfo = {
+        sessionId: session.id,
+        analysisIndex: index,
+        photoId: photo?.fileId,
+        timestamp: analysis.timestamp || new Date(),
+        // Пути к фото из сессии
+        imagePath: photo?.localPath,
+        photoPath: photo?.fileUrl,
+        localPath: photo?.localPath,
+        // Информация о качестве фото если есть
+        photoQuality: photo?.quality || 0.5
+    };
+   
+    // Добавляем анализ с путями к фото
+    const added = footprint.addAnalysis(analysis, sourceInfo);
+   
+    console.log(`   Анализ ${index + 1}: добавлено ${added.added} узлов, фото: ${photo?.localPath || 'нет'}`);
+});
 
         // Сохраняем в базу
         const saved = await this.db.save(footprint);
