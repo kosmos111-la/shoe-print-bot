@@ -2920,9 +2920,10 @@ bot.onText(/\/view_([a-f0-9_]+)/i, async (msg, match) => {
         await bot.sendMessage(chatId, `🎨 Создаю улучшенную визуализацию...`);
        
         try {
-            const { EnhancedModelVisualizer } = require('./modules/footprint/enhanced-model-visualizer');
-            const enhancedVisualizer = new EnhancedModelVisualizer();
-            const vizPath = await enhancedVisualizer.visualizeModelWithPhoto(model);
+    // Вариант 1: Используем прямой импорт (наиболее надежный)
+    const EnhancedModelVisualizer = require('./modules/footprint/enhanced-model-visualizer');
+    const enhancedVisualizer = new EnhancedModelVisualizer();
+    const vizPath = await enhancedVisualizer.visualizeModelWithPhoto(model);
            
             if (vizPath && fs.existsSync(vizPath)) {
                 const caption = `🖼️ **ВИЗУАЛИЗАЦИЯ МОДЕЛИ "${model.name}"**\n\n` +
