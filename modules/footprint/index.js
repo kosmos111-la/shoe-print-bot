@@ -1,16 +1,16 @@
 // modules/footprint/index.js
-const FootprintManager = require('./footprint-manager');
-const FootprintDatabase = require('./footprint-database');
 const DigitalFootprint = require('./digital-footprint');
+const FootprintDatabase = require('./footprint-database');
+const FootprintManager = require('./footprint-manager');
 const ModelVisualizer = require('./model-visualizer');
-const EnhancedModelVisualizer = require('./enhanced-model-visualizer'); // ✅ ДОБАВЬ ЭТО
+const EnhancedModelVisualizer = require('./enhanced-model-visualizer');
 
 module.exports = {
-    FootprintManager,
-    FootprintDatabase,
     DigitalFootprint,
+    FootprintDatabase,
+    FootprintManager,
     ModelVisualizer,
-    EnhancedModelVisualizer, // ✅ ДОБАВЬ ЭТО
+    EnhancedModelVisualizer
    
     // Короткие алиасы
     manager: FootprintManager,
