@@ -96,7 +96,11 @@ class DigitalFootprint {
         const weakNodes = [];
        
         // Для каждого протектора
-        protectors.forEach((protector, index) => {
+        // СЛОВАРЬ: протектор → найденный узел (чтобы не дублировать)
+        const matchedProtectors = new Map(); // protectorIndex -> nodeId
+        const matchedNodesInThisFrame = new Set(); // nodeId (чтобы узел не усиливался несколько раз из одного кадра)
+       
+        protectors.forEach((protector, protectorIndex) => {
             const node = this.createNodeFromProtector(protector, enhancedSourceInfo);
            
             // Определяем тип узла
@@ -110,6 +114,43 @@ class DigitalFootprint {
            
             // Ищем похожий узел с БОЛЬШИМ допуском
             const similarNode = this.findSimilarNode(node);
+           
+            if (similarNode) {
+                // Проверяем, не усиливали ли мы уже этот узел из этого кадра
+                if (!matchedNodesInThisFrame.has(similarNode.id)) {
+                    this.mergeNodes(similarNode.id, node);
+                    matchedProtectors.set(protectorIndex, similarNode.id);
+                    matchedNodesInThisFrame.add(similarNode.id);
+                    mergedNodes.push({
+                        existing: similarNode.id.slice(-3),
+                        new: node.id.slice(-3),
+                        type: nodeType,
+                        confidence: node.confidence,
+                        distance: this.calculateDistance(similarNode.center, node.center)
+                    });
+                   
+                    console.log(`🔗 Узел ${similarNode.id.slice(-3)} усилен из протектора ${protectorIndex}`);
+                } else {
+                    // Этот узел уже усилен из этого кадра - ПРОПУСКАЕМ!
+                    console.log(`⚠️  Протектор ${protectorIndex} уже учтен в узле ${matchedProtectors.get(protectorIndex)}`);
+                    stats.skipped = (stats.skipped || 0) + 1;
+                }
+            } else {
+                // НОВЫЙ узел
+                // Если слабый - понижаем рейтинг, но не отбрасываем
+                if (nodeType === 'weak') {
+                    node.confidence *= 0.7;
+                    node.metadata.isWeak = true;
+                }
+               
+                this.nodes.set(node.id, node);
+                addedNodes.push({
+                    id: node.id.slice(-3),
+                    type: nodeType,
+                    confidence: node.confidence
+                });
+            }
+        });
            
             if (similarNode) {
                 // ОБЪЕДИНЯЕМ с большим допуском
@@ -249,37 +290,37 @@ class DigitalFootprint {
         return bestMatch;
     }
 
-    // СЛИЯНИЕ УЗЛОВ С УСИЛЕНИЕМ
+    // СЛИЯНИЕ УЗЛОВ (консервативное - только одно подтверждение за кадр)
     mergeNodes(existingId, newNode) {
         const existing = this.nodes.get(existingId);
         if (!existing) return;
        
         const distance = this.calculateDistance(existing.center, newNode.center);
        
-        // 1. Усредняем координаты
-        existing.center.x = (existing.center.x + newNode.center.x) / 2;
-        existing.center.y = (existing.center.y + newNode.center.y) / 2;
+        // 1. Усредняем координаты (взвешенное среднее)
+        const weightExisting = existing.confirmationCount || 1;
+        const weightNew = 1;
+        const totalWeight = weightExisting + weightNew;
        
-        // 2. ЗНАЧИТЕЛЬНО УВЕЛИЧИВАЕМ УВЕРЕННОСТЬ
-        const confidenceBoost = 0.2 + (newNode.confidence * 0.1);
+        existing.center.x = (existing.center.x * weightExisting + newNode.center.x * weightNew) / totalWeight;
+        existing.center.y = (existing.center.y * weightExisting + newNode.center.y * weightNew) / totalWeight;
+       
+        // 2. НЕБОЛЬШОЕ УСИЛЕНИЕ (максимум 1.0)
+        const confidenceBoost = Math.min(0.1, 1.0 - existing.confidence);
         existing.confidence = Math.min(1.0, existing.confidence + confidenceBoost);
        
-        // 3. Увеличиваем счетчик подтверждений
+        // 3. Увеличиваем счетчик подтверждений (НО ТОЛЬКО НА 1!)
+        // Из одного кадра узел может получить максимум 1 подтверждение
         existing.confirmationCount = (existing.confirmationCount || 1) + 1;
         existing.lastSeen = new Date();
        
-        // 4. Помечаем как стабильный
-        if (existing.confirmationCount >= 2) {
-            existing.metadata.isStable = true;
-        }
-       
-        // 5. Добавляем источник
+        // 4. Добавляем источник
         if (!existing.sources) existing.sources = [];
         existing.sources.push(...newNode.sources);
        
         this.nodes.set(existingId, existing);
        
-        console.log(`   → Узел ${existingId.slice(-3)} усилен: ${existing.confidence.toFixed(2)} уверенность, ${existing.confirmationCount} подтверждений (расстояние: ${distance.toFixed(1)}px)`);
+        console.log(`   → Узел ${existingId.slice(-3)} подтвержден: ${existing.confidence.toFixed(2)} уверенность, ${existing.confirmationCount} подтверждений (расстояние: ${distance.toFixed(1)}px)`);
     }
 
     // ОБНОВЛЕНИЕ ЛУЧШИХ КОНТУРОВ
@@ -501,7 +542,112 @@ class DigitalFootprint {
        
         return Math.abs(area) / 2;
     }
+ // НОРМАЛИЗАЦИЯ ТОПОЛОГИИ (центр масс + масштаб)
+    normalizeTopology() {
+        const nodes = Array.from(this.nodes.values());
+       
+        if (nodes.length < 3) return;
+       
+        // Центр масс
+        const centerX = nodes.reduce((sum, n) => sum + n.center.x, 0) / nodes.length;
+        const centerY = nodes.reduce((sum, n) => sum + n.center.y, 0) / nodes.length;
+       
+        // Максимальное расстояние от центра
+        const distances = nodes.map(n =>
+            Math.sqrt(Math.pow(n.center.x - centerX, 2) + Math.pow(n.center.y - centerY, 2))
+        );
+        const maxDistance = Math.max(...distances);
+       
+        if (maxDistance === 0) return;
+       
+        // Нормализуем
+        nodes.forEach(node => {
+            node.normalized = {
+                x: (node.center.x - centerX) / maxDistance,
+                y: (node.center.y - centerY) / maxDistance
+            };
+        });
+    }
 
+    // СРАВНЕНИЕ ТОПОЛОГИЙ (относительные координаты)
+    compare(otherFootprint, options = {}) {
+        if (!otherFootprint || !otherFootprint.nodes || otherFootprint.nodes.size === 0) {
+            return { score: 0, matched: 0, total: 0, details: {} };
+        }
+       
+        // Нормализуем обе модели
+        this.normalizeTopology();
+        otherFootprint.normalizeTopology();
+       
+        const thisNodes = Array.from(this.nodes.values()).filter(n => n.normalized);
+        const otherNodes = Array.from(otherFootprint.nodes.values()).filter(n => n.normalized);
+       
+        if (thisNodes.length === 0 || otherNodes.length === 0) {
+            return { score: 0, matched: 0, total: 0, details: {} };
+        }
+       
+        // Простое сравнение: находим ближайшие нормализованные точки
+        const matches = [];
+        const usedOtherNodes = new Set();
+       
+        thisNodes.forEach(nodeA => {
+            let bestMatch = null;
+            let bestDistance = Infinity;
+            let bestIndex = -1;
+           
+            otherNodes.forEach((nodeB, index) => {
+                if (usedOtherNodes.has(index)) return;
+               
+                const dx = nodeA.normalized.x - nodeB.normalized.x;
+                const dy = nodeA.normalized.y - nodeB.normalized.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+               
+                if (distance < bestDistance && distance < 0.3) { // 30% от нормированного размера
+                    bestDistance = distance;
+                    bestMatch = nodeB;
+                    bestIndex = index;
+                }
+            });
+           
+            if (bestMatch && bestIndex !== -1) {
+                matches.push({
+                    nodeA: nodeA.id,
+                    nodeB: bestMatch.id,
+                    distance: bestDistance,
+                    score: Math.max(0, 1 - bestDistance / 0.3)
+                });
+                usedOtherNodes.add(bestIndex);
+            }
+        });
+       
+        // Общий счет (сколько узлов сопоставлено)
+        const maxNodes = Math.max(thisNodes.length, otherNodes.length);
+        const score = maxNodes > 0 ? matches.length / maxNodes : 0;
+       
+        return {
+            score: Math.min(1, score),
+            matched: matches.length,
+            total: thisNodes.length,
+            otherTotal: otherNodes.length,
+            matches: matches.slice(0, 10)
+        };
+    }
+
+    // СРАВНЕНИЕ ФОРМ (добавляем если нет)
+    compareShapes(shape1, shape2) {
+        if (shape1 === shape2) return 1.0;
+       
+        const similarPairs = [
+            ['horizontal', 'square'],
+            ['vertical', 'square'],
+            ['circle', 'square']
+        ];
+       
+        return similarPairs.some(pair =>
+            (pair[0] === shape1 && pair[1] === shape2) ||
+            (pair[1] === shape1 && pair[0] === shape2)
+        ) ? 0.7 : 0.3;
+    }
     // СЕРИАЛИЗАЦИЯ
     toJSON() {
         return {
