@@ -2086,6 +2086,13 @@ if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
         : 0.5;
    
     // Сохраняем для быстрого поиска похожих
+   if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
+    // 🆕 УЛУЧШЕННОЕ СОХРАНЕНИЕ ДЛЯ FOOTPRINT SYSTEM
+    const avgConfidence = predictionsForAnalysis.length > 0
+        ? predictionsForAnalysis.reduce((sum, p) => sum + (p.confidence || 0), 0) / predictionsForAnalysis.length
+        : 0.5;
+   
+    // Сохраняем для быстрого поиска похожих
     if (typeof saveUserLastAnalysis === 'function') {
         saveUserLastAnalysis(userId, {
             predictions: predictionsForAnalysis,
@@ -2097,7 +2104,9 @@ if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
             visualizationPaths: {
                 analysis: vizPath,
                 topology: topologyVizPath
-            }
+            },
+            // 🆕 ДОБАВЛЯЕМ локальный путь к фото
+            localPhotoPath: tempImagePath
         });
     }
    
@@ -2949,13 +2958,19 @@ bot.onText(/\/view_([a-f0-9_]+)/i, async (msg, match) => {
                 });
 
                 // Очистка через tempFileManager
-                setTimeout(() => {
-                    if (tempFileManager && tempFileManager.removeFile) {
-                        tempFileManager.removeFile(vizPath);
-                    } else {
-                        try { fs.unlinkSync(vizPath); } catch {}
-                    }
-                }, 10000);
+                const keepFileForMinutes = 5; // Храним 5 минут
+if (vizPath && fs.existsSync(vizPath)) {
+    setTimeout(() => {
+        try {
+            if (fs.existsSync(vizPath)) {
+                fs.unlinkSync(vizPath);
+                console.log(`🧹 Удален файл визуализации: ${vizPath}`);
+            }
+        } catch (err) {
+            console.log(`⚠️ Не удалось удалить файл: ${err.message}`);
+        }
+    }, keepFileForMinutes * 60 * 1000);
+}
 
             } else {
                 await bot.sendMessage(chatId,
