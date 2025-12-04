@@ -614,6 +614,6 @@ class EnhancedModelVisualizer {
             ctx.fillText(`🪞 Учтите зеркальность при сравнении!`, recX + 40, recY + 5);
         }
     }
-}
+
 
 module.exports = EnhancedModelVisualizer;
