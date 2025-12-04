@@ -21,8 +21,28 @@ class EnhancedModelVisualizer {
     }
 
     async visualizeModelWithPhoto(footprint, outputPath = null) {
-        try {
-            if (!footprint || !footprint.nodes || footprint.nodes.size === 0) {
+        
+      try {
+         console.log(`🔍 DEBUG EnhancedModelVisualizer для модели: ${footprint.name}`);
+        console.log(`📊 Узлов: ${footprint.nodes.size}`);
+        console.log(`🎯 Контуров: ${footprint.bestContours?.length || 0}`);
+        console.log(`👠 Каблуков: ${footprint.bestHeels?.length || 0}`);
+        console.log(`📸 Лучшее фото: ${footprint.bestPhotoInfo?.path || 'нет'}`);
+       
+        // Вывод координат первых 3 узлов для отладки
+        const firstNodes = Array.from(footprint.nodes.values()).slice(0, 3);
+        firstNodes.forEach((node, i) => {
+            console.log(`📍 Узел ${i}: x=${node.center?.x}, y=${node.center?.y}, confidence=${node.confidence}`);
+        });
+       
+        // Вывод bounding box
+        if (footprint.boundingBox) {
+            console.log(`📦 BoundingBox: minX=${footprint.boundingBox.minX}, maxX=${footprint.boundingBox.maxX},
+                minY=${footprint.boundingBox.minY}, maxY=${footprint.boundingBox.maxY},
+                width=${footprint.boundingBox.width}, height=${footprint.boundingBox.height}`);
+        }   
+        
+        if (!footprint || !footprint.nodes || footprint.nodes.size === 0) {
                 console.log('❌ Модель пуста для визуализации');
                 return null;
             }
