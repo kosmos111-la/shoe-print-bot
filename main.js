@@ -68,6 +68,29 @@ const config = {
     }
 };
 
+// Вставьте где-нибудь в начале main.js (после require)
+function escapeHtml(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// Глобальная обработка ошибок
+bot.on('polling_error', (error) => {
+    console.log('❌ Ошибка Telegram API:', error.message);
+    if (error.message.includes('parse entities')) {
+        console.log('⚠️ Проблема с Markdown разметкой');
+    }
+});
+
+bot.on('error', (error) => {
+    console.log('❌ Общая ошибка бота:', error.message);
+});
+
 // =============================================================================
 // 📊 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПОИСКА
 // =============================================================================
@@ -92,16 +115,6 @@ function getLastUserAnalysis(userId) {
         return cached;
     }
     return null;
-}
-
-function escapeHtml(text) {
-    if (!text) return '';
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
 }
 
 // =============================================================================
@@ -1989,11 +2002,11 @@ if (analysis.total === 0) {
 }
 
 // Отправляем результаты
-let resultMessage = `✅ **АНАЛИЗ ЗАВЕРШЕН**\n\n`;
+let resultMessage = `✅ АНАЛИЗ ЗАВЕРШЕН\n\n`;
 resultMessage += `📊 Обнаружено: ${analysis.total} объектов\n\n`;
 
 // Классификация
-resultMessage += `📋 **КЛАССИФИКАЦИЯ:**\n`;
+resultMessage += `📋 КЛАССИФИКАЦИЯ:\n`;
 Object.entries(analysis.classes).forEach(([className, count]) => {
     resultMessage += `• ${className}: ${count}\n`;
 });
@@ -2030,7 +2043,7 @@ if (practicalAnalysis && practicalAnalysis.recommendations) {
 
 // Интеллектуальный анализ
 if (intelligentAnalysis && intelligentAnalysis.summary) {
-    const intelMessage = `🧠 **ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:**\n\n` +
+    const intelMessage = `🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:\n\n` +
         `🧭 Ориентация: ${intelligentAnalysis.summary.orientation}\n` +
         `👟 Тип обуви: ${intelligentAnalysis.summary.footprintType}\n` +
         // `📏 Примерный размер: ${intelligentAnalysis.summary.sizeEstimation}\n` +
@@ -2870,37 +2883,37 @@ bot.onText(/\/view_([a-f0-9_]+)/i, async (msg, match) => {
         const updated = new Date(model.stats.lastUpdated).toLocaleDateString('ru-RU');
        
         // 1. ОТПРАВЛЯЕМ ИНФОРМАЦИЮ О МОДЕЛИ
-        let response = `👣 ЦИФРОВОЙ ОТПЕЧАТОК\n\n`;
-        response += `📝 Название: ${model.name}\n`;
-        response += `🆔 ID: ${model.id.slice(0, 12)}...\n`;
-        response += `📅 Создана: ${date}\n`;
-        response += `🔄 Обновлена: ${updated}\n`;
-        response += `📊 Узлов протектора: ${model.nodes.size}\n`;
-        response += `🔗 Топологических связей: ${model.edges.length}\n`;
-        response += `💎 Общая уверенность: ${Math.round(model.stats.confidence * 100)}%\n`;
-        response += `📸 Фото в модели: ${model.stats.totalPhotos || model.stats.totalSources || 0}\n\n`;
+        let response = `👣 **ЦИФРОВОЙ ОТПЕЧАТОК**\n\n`;
+        response += `📝 **Название:** ${model.name}\n`;
+        response += `🆔 **ID:** ${model.id.slice(0, 12)}...\n`;
+        response += `📅 **Создана:** ${date}\n`;
+        response += `🔄 **Обновлена:** ${updated}\n`;
+        response += `📊 **Узлов протектора:** ${model.nodes.size}\n`;
+        response += `🔗 **Топологических связей:** ${model.edges.length}\n`;
+        response += `💎 **Общая уверенность:** ${Math.round(model.stats.confidence * 100)}%\n`;
+        response += `📸 **Фото в модели:** ${model.stats.totalPhotos || model.stats.totalSources || 0}\n\n`;
        
         // Контуры и каблуки
         if (model.bestContours && model.bestContours.length > 0) {
-            response += `🎯 Геометрия:\n`;
-            response += ` Контуров сохранено: ${model.bestContours.length}\n`;
+            response += `🎯 **Геометрия:**\n`;
+            response += `• Контуров сохранено: ${model.bestContours.length}\n`;
             if (model.bestHeels && model.bestHeels.length > 0) {
-                response += ` Каблуков сохранено: ${model.bestHeels.length}\n`;
+                response += `• Каблуков сохранено: ${model.bestHeels.length}\n`;
             }
             response += `\n`;
         }
        
         // Метаданные
         if (model.metadata) {
-            response += `📋 МЕТАДАННЫЕ:\n`;
+            response += `📋 **МЕТАДАННЫЕ:**\n`;
             if (model.metadata.estimatedSize) {
-                response += ` Размер: ${model.metadata.estimatedSize}\n`;
+                response += `• Размер: ${model.metadata.estimatedSize}\n`;
             }
             if (model.metadata.footprintType && model.metadata.footprintType !== 'unknown') {
-                response += ` Тип: ${model.metadata.footprintType}\n`;
+                response += `• Тип: ${model.metadata.footprintType}\n`;
             }
             if (model.metadata.orientation) {
-                response += ` Ориентация: ${model.metadata.orientation}°\n`;
+                response += `• Ориентация: ${model.metadata.orientation}°\n`;
             }
             if (model.metadata.isMirrored) {
                 response += `• 🪞 **ЗЕРКАЛЬНАЯ КОПИЯ**\n`;
@@ -2910,11 +2923,11 @@ bot.onText(/\/view_([a-f0-9_]+)/i, async (msg, match) => {
        
         // Искажения
         if (model.bestContours && model.bestContours.some(c => c.isDistorted)) {
-            response += `⚠️ Обнаружены искажения перспективы\n`;
+            response += `⚠️ **Обнаружены искажения перспективы**\n`;
             response += `Система автоматически их учитывает при сравнении\n\n`;
         }
        
-        response += `🎯 ЧТО МОЖНО СДЕЛАТЬ:\n`;
+        response += `🎯 **ЧТО МОЖНО СДЕЛАТЬ:**\n`;
         response += `/find_similar - Найти похожие следы\n`;
         response += `/compare_models ${model.id.slice(0, 8)} [ID] - Сравнить с другой моделью\n`;
         if (model.metadata && model.metadata.isMirrored) {
@@ -2930,13 +2943,12 @@ bot.onText(/\/view_([a-f0-9_]+)/i, async (msg, match) => {
         await bot.sendMessage(chatId, `🎨 Создаю улучшенную визуализацию...`);
        
         try {
-    // Вариант 1: Используем прямой импорт (наиболее надежный)
-    const EnhancedModelVisualizer = require('./modules/footprint/enhanced-model-visualizer');
-    const enhancedVisualizer = new EnhancedModelVisualizer();
-    const vizPath = await enhancedVisualizer.visualizeModelWithPhoto(model);
+            const { EnhancedModelVisualizer } = require('./modules/footprint/enhanced-model-visualizer');
+            const enhancedVisualizer = new EnhancedModelVisualizer();
+            const vizPath = await enhancedVisualizer.visualizeModelWithPhoto(model);
            
             if (vizPath && fs.existsSync(vizPath)) {
-                const caption = `🖼️ ВИЗУАЛИЗАЦИЯ МОДЕЛИ "${model.name}"**\n\n` +
+                const caption = `🖼️ ВИЗУАЛИЗАЦИЯ МОДЕЛИ "${model.name}"\n\n` +
                               `📊 Легенда:\n` +
                               ` 🟢 Зеленые - высокоуверенные узлы (80-100%)\n` +
                               ` 🟠 Оранжевые - среднеуверенные (50-80%)\n` +
@@ -3105,12 +3117,12 @@ bot.onText(/\/compare_models (.+) (.+)/, async (msg, match) => {
        
         // Отправляем визуализацию если есть
         if (vizPath && fs.existsSync(vizPath)) {
-    
+    await bot.sendPhoto(chatId, vizPath, {
         caption: `🖼️ Визуализация модели "${model.name}"\n` +
-                `• 🟢 Зеленые - высокоуверенные узлы\n` +
-                `• 🟠 Оранжевые - среднеуверенные\n` +
-                `• 🔵 Синие линии - связи между узлами`
-    };
+                ` 🟢 Зеленые - высокоуверенные узлы\n` +
+                ` 🟠 Оранжевые - среднеуверенные\n` +
+                ` 🔵 Синие линии - связи между узлами`
+    });
    
     // Очистка через tempFileManager
     setTimeout(() => {
@@ -3161,7 +3173,7 @@ bot.onText(/\/view_([a-f0-9]+)/i, async (msg, match) => {
         // Текстовая информация
         const date = new Date(model.stats.created).toLocaleDateString('ru-RU');
        
-        let response = `👣 МОДЕЛЬ: ${model.name}**\n\n`;
+        let response = `👣 **МОДЕЛЬ: ${model.name}**\n\n`;
         response += `📅 Создана: ${date}\n`;
         response += `📊 Узлов: ${model.nodes.size}\n`;
         response += `🔗 Связей: ${model.edges.length}\n`;
@@ -3172,7 +3184,7 @@ bot.onText(/\/view_([a-f0-9]+)/i, async (msg, match) => {
             response += `📏 Примерный размер: ${model.metadata.estimatedSize}\n`;
         }
        
-        response += `\n💡 Как использовать:\n`;
+        response += `\n💡 **Как использовать:**\n`;
         response += `/find_similar - Найти похожие следы\n`;
         response += `/compare_models ${model.id.slice(0, 8)} [ID] - Сравнить с другой моделью\n`;
         response += `📤 Отправьте больше фото этой обуви для улучшения модели`;
@@ -3184,9 +3196,9 @@ bot.onText(/\/view_([a-f0-9]+)/i, async (msg, match) => {
         if (vizPath && fs.existsSync(vizPath)) {
             await bot.sendPhoto(chatId, vizPath, {
                 caption: `🖼️ Визуализация модели "${model.name}"\n` +
-                        ` 🟢 Зеленые - высокоуверенные узлы\n` +
-                        ` 🟠 Оранжевые - среднеуверенные\n` +
-                        ` 🔵 Синие линии - связи между узлами`
+                        `• 🟢 Зеленые - высокоуверенные узлы\n` +
+                        `• 🟠 Оранжевые - среднеуверенные\n` +
+                        `• 🔵 Синие линии - связи между узлами`
             });
            
             // Очистка
