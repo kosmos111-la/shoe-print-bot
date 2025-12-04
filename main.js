@@ -2928,70 +2928,65 @@ bot.onText(/\/view_([a-f0-9_]+)/i, async (msg, match) => {
         await bot.sendMessage(chatId, response);
        
         // 2. СОЗДАЕМ И ОТПРАВЛЯЕМ УЛУЧШЕННУЮ ВИЗУАЛИЗАЦИЮ
-        await bot.sendMessage(chatId, `🎨 Создаю улучшенную визуализацию...`);
+await bot.sendMessage(chatId, `🎨 Создаю улучшенную визуализацию...`);
+
+try {
+    const EnhancedModelVisualizer = require('./modules/footprint/enhanced-model-visualizer');
+    const enhancedVisualizer = new EnhancedModelVisualizer();
+    const vizPath = await enhancedVisualizer.visualizeModelWithPhoto(model);
+   
+    if (vizPath && fs.existsSync(vizPath)) {
+        const caption = `🎨 Улучшенная визуализация модели\n\n` +
+                       `📝 ${model.name}\n` +
+                       `📊 Узлов: ${model.nodes.size}\n` +
+                       `💎 Уверенность: ${Math.round(model.stats.confidence * 100)}%\n` +
+                       `📸 С фото-подложкой`;
        
-        try {
-            const { EnhancedModelVisualizer } = require('./modules/footprint/enhanced-model-visualizer');
-            const enhancedVisualizer = new EnhancedModelVisualizer();
-            const vizPath = await enhancedVisualizer.visualizeModelWithPhoto(model);
-           
-            if (vizPath && fs.existsSync(vizPath)) {
-                const caption = `🖼️ ВИЗУАЛИЗАЦИЯ МОДЕЛИ "${model.name}"\n\n` +
-                              `📊 Легенда:\n` +
-                              ` 🟢 Зеленые - высокоуверенные узлы (80-100%)\n` +
-                              ` 🟠 Оранжевые - среднеуверенные (50-80%)\n` +
-                              ` 🔴 Красные - низкоуверенные (<50%)\n` +
-                              ` 🔵 Синие линии - топологические связи\n` +
-                              ` 💙 Пунктир - контуры следа\n` +
-                              ` ❤️ Красные области - каблуки\n` +
-                              ` 📸 Фон - лучшее фото модели (под калькой)`;
-               
-                await bot.sendPhoto(chatId, vizPath, {
-                    caption: caption,
-                    parse_mode: 'Markdown'
-                });
-               
-                // Очистка через tempFileManager
-                setTimeout(() => {
-                    if (tempFileManager && tempFileManager.removeFile) {
-                        tempFileManager.removeFile(vizPath);
-                    } else {
-                        try { fs.unlinkSync(vizPath); } catch {}
-                    }
-                }, 10000); // Даем 10 секунд на отправку
-               
+        await bot.sendPhoto(chatId, vizPath, {
+            caption: caption
+            // Убрали parse_mode
+        });
+       
+        // Очистка через tempFileManager
+        setTimeout(() => {
+            if (tempFileManager && tempFileManager.removeFile) {
+                tempFileManager.removeFile(vizPath);
             } else {
-                await bot.sendMessage(chatId,
-                    `⚠️ **Не удалось создать визуализацию**\n` +
-                    `Модель будет отображаться без фото-подложки`
-                );
-               
-                // Пробуем обычную визуализацию как fallback
-                const { ModelVisualizer } = require('./modules/footprint');
-                const visualizer = new ModelVisualizer();
-                const fallbackPath = await visualizer.visualizeModel(model);
-               
-                if (fallbackPath && fs.existsSync(fallbackPath)) {
-                    await bot.sendPhoto(chatId, fallbackPath, {
-                        caption: `📊 Базовая визуализация модели`
-                    });
-                   
-                    setTimeout(() => {
-                        if (tempFileManager && tempFileManager.removeFile) {
-                            tempFileManager.removeFile(fallbackPath);
-                        }
-                    }, 5000);
-                }
+                try { fs.unlinkSync(vizPath); } catch {}
             }
+        }, 10000);
+       
+    } else {
+        await bot.sendMessage(chatId,
+            `⚠️ Не удалось создать визуализацию\n` +
+            `Модель будет отображаться без фото-подложки`
+        );
+       
+        // Пробуем обычную визуализацию как fallback
+        const { ModelVisualizer } = require('./modules/footprint');
+        const visualizer = new ModelVisualizer();
+        const fallbackPath = await visualizer.visualizeModel(model);
+       
+        if (fallbackPath && fs.existsSync(fallbackPath)) {
+            await bot.sendPhoto(chatId, fallbackPath, {
+                caption: `📊 Базовая визуализация модели`
+            });
            
-        } catch (vizError) {
-            console.log('❌ Ошибка визуализации:', vizError.message);
-            await bot.sendMessage(chatId,
-                `⚠️ **Визуализация пропущена**\n` +
-                `Ошибка: ${vizError.message}\n\n` +
-                `💡 Попробуйте позже или проверьте данные модели`
-            );
+            setTimeout(() => {
+                if (tempFileManager && tempFileManager.removeFile) {
+                    tempFileManager.removeFile(fallbackPath);
+                }
+            }, 5000);
         }
+    }
+   
+} catch (vizError) {
+    console.log('❌ Ошибка визуализации:', vizError.message);
+    await bot.sendMessage(chatId,
+        `⚠️ Улучшенная визуализация временно недоступна\n` +
+        `Ошибка: ${vizError.message}`
+    );
+}
        
         // 3. ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ О КАЧЕСТВЕ
         if (model.stats.avgPhotoQuality < 0.4) {
