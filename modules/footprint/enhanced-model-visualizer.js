@@ -47,7 +47,44 @@ class EnhancedModelVisualizer {
               
                 // 🔧 КЛЮЧЕВОЙ МОМЕНТ: ПОДГОНЯЕМ МОДЕЛЬ ПОД ФОТО
                 const transformedModel = await this.transformModelToPhoto(footprint, bestPhoto);
-              
+              console.log('\n=== 🔍 ДИАГНОСТИКА ТРАНСФОРМАЦИИ ===');
+console.log('📐 Canvas:', canvasWidth, 'x', canvasHeight);
+
+if (bestPhoto && bestPhoto.image) {
+    console.log('📸 Фото оригинальное:', bestPhoto.image.width, 'x', bestPhoto.image.height);
+}
+
+if (this.photoPosition) {
+    console.log('📍 Позиция фото на canvas:', this.photoPosition);
+}
+
+if (transformedModel && transformedModel.transformInfo) {
+    console.log('🔄 Инфо трансформации:');
+    console.log('  - Метод:', transformedModel.transformInfo.method);
+    console.log('  - Масштаб:', transformedModel.transformInfo.scale);
+    console.log('  - Смещение X:', transformedModel.transformInfo.offsetX);
+    console.log('  - Смещение Y:', transformedModel.transformInfo.offsetY);
+    console.log('  - Общих узлов:', transformedModel.transformInfo.commonNodesCount);
+   
+    // Первый узел
+    const nodes = Array.from(transformedModel.nodes.values());
+    if (nodes.length > 0) {
+        const firstNode = nodes[0];
+        console.log('🎯 Первый узел после трансформации:');
+        console.log('  - Было:', firstNode.center);
+        console.log('  - Стало:', firstNode.transformedCenter);
+    }
+   
+    // Первый контур
+    if (transformedModel.contours && transformedModel.contours.length > 0) {
+        const firstContour = transformedModel.contours[0];
+        if (firstContour.transformedPoints && firstContour.transformedPoints.length > 0) {
+            console.log('🔵 Первая точка контура после трансформации:', firstContour.transformedPoints[0]);
+        }
+    }
+}
+
+console.log('===================================\n');
                 if (transformedModel) {
                     // 3. Рисуем фото с подложкой
                     await this.drawPhotoUnderlay(ctx, bestPhoto.image, canvasWidth, canvasHeight);
@@ -78,7 +115,9 @@ class EnhancedModelVisualizer {
                 // Рисуем модель без фото
                 this.drawModelWithoutPhoto(ctx, footprint, canvasWidth, canvasHeight);
             }
-
+// 🔍 ОТЛАДОЧНЫЕ МАРКЕРЫ (всегда рисуем поверх всего)
+this.drawDebugMarkers(ctx, canvasWidth, canvasHeight);
+          
             const finalPath = outputPath || path.join(
                 this.tempDir,
                 `enhanced_model_${footprint.id.slice(0, 8)}_${Date.now()}.png`
@@ -88,6 +127,39 @@ class EnhancedModelVisualizer {
             fs.writeFileSync(finalPath, buffer);
 
             console.log(`✅ Улучшенная визуализация сохранена: ${finalPath}`);
+          // 🔍 ФИНАЛЬНАЯ ДИАГНОСТИКА
+console.log('\n=== 📊 ФИНАЛЬНАЯ СТАТИСТИКА ===');
+console.log('✅ Визуализация создана:', finalPath);
+
+// Проверяем что нарисовано
+if (transformedModel) {
+    console.log('📊 Модель после трансформации:');
+    console.log('  - Узлов:', transformedModel.nodes.size);
+    console.log('  - Контуров:', transformedModel.contours.length);
+   
+    const nodes = Array.from(transformedModel.nodes.values());
+    if (nodes.length > 0) {
+        const xs = nodes.map(n => n.transformedCenter?.x).filter(x => x !== undefined);
+        const ys = nodes.map(n => n.transformedCenter?.y).filter(y => y !== undefined);
+       
+        if (xs.length > 0 && ys.length > 0) {
+            console.log('  - X диапазон:', Math.min(...xs).toFixed(0), '-', Math.max(...xs).toFixed(0));
+            console.log('  - Y диапазон:', Math.min(...ys).toFixed(0), '-', Math.max(...ys).toFixed(0));
+            console.log('  - Центр:', {
+                x: (Math.min(...xs) + Math.max(...xs)) / 2,
+                y: (Math.min(...ys) + Math.max(...ys)) / 2
+            });
+        }
+    }
+}
+
+if (this.photoPosition) {
+    console.log('📍 Фото на canvas:');
+    console.log('  - X:', this.photoPosition.x, 'Y:', this.photoPosition.y);
+    console.log('  - Ширина:', this.photoPosition.width, 'Высота:', this.photoPosition.height);
+}
+
+console.log('===================================\n');
             return finalPath;
 
         } catch (error) {
@@ -119,7 +191,17 @@ class EnhancedModelVisualizer {
             }
           
             console.log(`✅ Нашел ${commonNodes.length} общих узлов для трансформации`);
-          
+          console.log('🔄 Входные данные для calculateTransform:');
+console.log('  - commonNodes:', commonNodes.length);
+console.log('  - currentPhotoScale:', this.currentPhotoScale);
+console.log('  - photoPosition:', this.photoPosition);
+
+if (commonNodes.length > 0) {
+    console.log('  - Пример узла:');
+    console.log('    • Модель:', commonNodes[0].modelNode.center);
+    console.log('    • Фото:', commonNodes[0].photoPoint);
+    console.log('    • Расстояние:', commonNodes[0].distance);
+}
              // 3. Вычисляем трансформацию С УЧЕТОМ МАСШТАБА ФОТО
         const transform = this.calculateTransform(
             commonNodes,
@@ -203,6 +285,9 @@ class EnhancedModelVisualizer {
 
     // ВЫЧИСЛЯЕМ ТРАНСФОРМАЦИЮ
     calculateTransform(commonNodes, photoScale = 1.0, photoPosition = null) {
+    console.log('📐 calculateTransform вызван с:');
+    console.log('  - photoScale:', photoScale);
+    console.log('  - photoPosition:', photoPosition);
     if (commonNodes.length < 2) return null;
       
         // Берем самые уверенные узлы (но не более 10)
@@ -283,6 +368,10 @@ class EnhancedModelVisualizer {
 
     // ПРИМЕНЯЕМ ТРАНСФОРМАЦИЮ К МОДЕЛИ
     applyTransformToModel(footprint, transform) {
+    console.log('🔄 applyTransformToModel:');
+    console.log('  - Масштаб:', transform.scale);
+    console.log('  - Смещение X:', transform.offsetX);
+    console.log('  - Смещение Y:', transform.offsetY);
         const transformed = {
             nodes: new Map(),
             contours: []
@@ -345,7 +434,8 @@ class EnhancedModelVisualizer {
 
     // РИСУЕМ ФОТО-ПОДЛОЖКУ (простая версия)
     async drawPhotoUnderlay(ctx, image, canvasWidth, canvasHeight) {
-    try {
+console.log('📐 drawPhotoUnderlay вызван с изображением:', image?.width, 'x', image?.height);
+      try {
         if (!image) return null;
        
         // Вычисляем масштаб чтобы фото вписать в 70% canvas
@@ -951,5 +1041,79 @@ class EnhancedModelVisualizer {
         ctx.fillText('Низкая уверенность', legendX + 30, legendY + 115);
     }
 }
-
+// 🔍 МЕТОД ДЛЯ ОТЛАДКИ РАСПОЛОЖЕНИЯ
+drawDebugMarkers(ctx, canvasWidth, canvasHeight) {
+    console.log('🎯 Рисую отладочные маркеры...');
+   
+    // 1. Центр canvas (КРАСНЫЙ)
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+    ctx.beginPath();
+    ctx.arc(canvasWidth / 2, canvasHeight / 2, 15, 0, Math.PI * 2);
+    ctx.fill();
+   
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('ЦЕНТР CANVAS', canvasWidth / 2, canvasHeight / 2 - 25);
+    ctx.fillText(`(${canvasWidth / 2}, ${canvasHeight / 2})`, canvasWidth / 2, canvasHeight / 2 + 20);
+   
+    // 2. Углы canvas (ОРАНЖЕВЫЕ)
+    ctx.fillStyle = 'rgba(255, 165, 0, 0.6)';
+    const corners = [
+        [50, 50], [canvasWidth - 50, 50],
+        [50, canvasHeight - 50], [canvasWidth - 50, canvasHeight - 50]
+    ];
+   
+    corners.forEach(([x, y], i) => {
+        ctx.beginPath();
+        ctx.arc(x, y, 10, 0, Math.PI * 2);
+        ctx.fill();
+       
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Угол ${i + 1}`, x, y - 20);
+        ctx.fillText(`(${x}, ${y})`, x, y + 15);
+        ctx.fillStyle = 'rgba(255, 165, 0, 0.6)';
+    });
+   
+    // 3. Позиция фото если есть (ЗЕЛЕНЫЕ)
+    if (this.photoPosition) {
+        const { x, y, width, height } = this.photoPosition;
+       
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.6)';
+       
+        // Углы фото
+        const photoCorners = [
+            [x, y], [x + width, y],
+            [x, y + height], [x + width, y + height]
+        ];
+       
+        photoCorners.forEach(([cornerX, cornerY], i) => {
+            ctx.beginPath();
+            ctx.arc(cornerX, cornerY, 8, 0, Math.PI * 2);
+            ctx.fill();
+           
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '11px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Фото ${i + 1}`, cornerX, cornerY - 15);
+            ctx.fillText(`(${cornerX.toFixed(0)}, ${cornerY.toFixed(0)})`, cornerX, cornerY + 12);
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.6)';
+        });
+       
+        // Центр фото (ЖЕЛТЫЙ)
+        ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
+        ctx.beginPath();
+        ctx.arc(x + width / 2, y + height / 2, 12, 0, Math.PI * 2);
+        ctx.fill();
+       
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('ЦЕНТР ФОТО', x + width / 2, y + height / 2 - 25);
+        ctx.fillText(`(${(x + width / 2).toFixed(0)}, ${(y + height / 2).toFixed(0)})`,
+                     x + width / 2, y + height / 2 + 20);
+    }
+}
 module.exports = EnhancedModelVisualizer;
