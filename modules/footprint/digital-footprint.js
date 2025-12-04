@@ -177,7 +177,7 @@ class DigitalFootprint {
                     confidence: node.confidence
                 });
             }
-        });
+        };
        
         // Сохраняем лучший контур и каблук
         this.updateBestContours(contours, enhancedSourceInfo);
