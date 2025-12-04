@@ -120,8 +120,12 @@ class EnhancedModelVisualizer {
           
             console.log(`✅ Нашел ${commonNodes.length} общих узлов для трансформации`);
           
-            // 3. Вычисляем трансформацию
-            const transform = this.calculateTransform(commonNodes);
+             // 3. Вычисляем трансформацию С УЧЕТОМ МАСШТАБА ФОТО
+        const transform = this.calculateTransform(
+            commonNodes,
+            this.currentPhotoScale || 0.5,
+            this.photoPosition
+        );
           
             if (!transform) {
                 console.log('⚠️ Не удалось вычислить трансформацию');
@@ -198,8 +202,8 @@ class EnhancedModelVisualizer {
     }
 
     // ВЫЧИСЛЯЕМ ТРАНСФОРМАЦИЮ
-    calculateTransform(commonNodes) {
-        if (commonNodes.length < 2) return null;
+    calculateTransform(commonNodes, photoScale = 1.0, photoPosition = null) {
+    if (commonNodes.length < 2) return null;
       
         // Берем самые уверенные узлы (но не более 10)
         const reliableNodes = commonNodes.slice(0, Math.min(10, commonNodes.length));
@@ -250,7 +254,32 @@ class EnhancedModelVisualizer {
             offsetX: medianOffsetX,
             offsetY: medianOffsetY
         };
+     // ✅ УЧИТЫВАЕМ МАСШТАБ ФОТО И ЕГО ПОЗИЦИЮ НА CANVAS
+    let finalScale = medianScale;
+    let finalOffsetX = medianOffsetX;
+    let finalOffsetY = medianOffsetY;
+   
+    if (photoScale && photoScale !== 1.0) {
+        finalScale = medianScale * photoScale;
+        finalOffsetX = medianOffsetX * photoScale;
+        finalOffsetY = medianOffsetY * photoScale;
     }
+   
+    // ✅ УЧИТЫВАЕМ ПОЗИЦИЮ ФОТО НА CANVAS
+    if (photoPosition) {
+        finalOffsetX += photoPosition.x;
+        finalOffsetY += photoPosition.y;
+    }
+   
+    return {
+        scale: finalScale,
+        offsetX: finalOffsetX,
+        offsetY: finalOffsetY,
+        originalScale: medianScale, // Для отладки
+        originalOffsetX: medianOffsetX,
+        originalOffsetY: medianOffsetY
+    };
+}
 
     // ПРИМЕНЯЕМ ТРАНСФОРМАЦИЮ К МОДЕЛИ
     applyTransformToModel(footprint, transform) {
@@ -316,35 +345,51 @@ class EnhancedModelVisualizer {
 
     // РИСУЕМ ФОТО-ПОДЛОЖКУ (простая версия)
     async drawPhotoUnderlay(ctx, image, canvasWidth, canvasHeight) {
-        try {
-            if (!image) return;
-          
-            // Простой подход: фото по центру
-            const scale = 0.5;
-          
-            const width = image.width * scale;
-            const height = image.height * scale;
-            const x = (canvasWidth - width) / 2;
-            const y = (canvasHeight - height) / 2 + 50;
-          
-            // Темная подложка
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillRect(x - 5, y - 5, width + 10, height + 10);
-          
-            // Фото с низкой прозрачностью
-            ctx.globalAlpha = 0.3;
-            ctx.drawImage(image, x, y, width, height);
-            ctx.globalAlpha = 1.0;
-          
-            // Рамка
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(x, y, width, height);
-          
-        } catch (error) {
-            console.log('⚠️ Не удалось нарисовать фото:', error.message);
-        }
+    try {
+        if (!image) return null;
+       
+        // Вычисляем масштаб чтобы фото вписать в 70% canvas
+        const targetWidth = canvasWidth * 0.7;
+        const targetHeight = canvasHeight * 0.6;
+       
+        const scaleX = targetWidth / image.width;
+        const scaleY = targetHeight / image.height;
+        const scale = Math.min(scaleX, scaleY);
+       
+        // Сохраняем масштаб для трансформации модели
+        this.currentPhotoScale = scale;
+       
+        const width = image.width * scale;
+        const height = image.height * scale;
+        const x = (canvasWidth - width) / 2;
+        const y = (canvasHeight - height) / 2 + 50;
+       
+        // Сохраняем позицию фото для трансформации
+        this.photoPosition = { x, y, width, height };
+       
+        // Темная подложка
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(x - 5, y - 5, width + 10, height + 10);
+       
+        // Фото
+        ctx.globalAlpha = 0.3;
+        ctx.drawImage(image, x, y, width, height);
+        ctx.globalAlpha = 1.0;
+       
+        // Рамка
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, width, height);
+       
+        console.log(`📐 Фото: ${image.width}x${image.height} → ${width.toFixed(0)}x${height.toFixed(0)}, scale=${scale.toFixed(3)}`);
+       
+        return { x, y, width, height, scale };
+       
+    } catch (error) {
+        console.log('⚠️ Не удалось нарисовать фото:', error.message);
+        return null;
     }
+}
 
     // РИСУЕМ ВСЕ КОНТУРЫ (ТРАНСФОРМИРОВАННЫЕ)
     drawAllContoursTransformed(ctx, contours, photoInfo) {
