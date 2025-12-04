@@ -316,311 +316,301 @@ class EnhancedModelVisualizer {
         }
     }
 
-    async normalizeAndAlignData(footprint, canvasWidth, canvasHeight) {
-        const nodes = Array.from(footprint.nodes.values());
-        const normalizedNodes = new Map();
-        const contours = [];
-        const heels = [];
-
-        console.log('🔍 ДЕТАЛЬНАЯ ОТЛАДКА КООРДИНАТ:');
-
-        // Используем контуры из модели
-        if (footprint.bestContours && footprint.bestContours.length > 0) {
-            contours.push(...footprint.bestContours.map(c => ({
-                points: c.points,
-                confidence: c.confidence,
-                qualityScore: c.qualityScore,
-                originalPoints: c.points // Сохраняем оригинальные точки
-            })));
-        }
-
-        if (footprint.bestHeels && footprint.bestHeels.length > 0) {
-            heels.push(...footprint.bestHeels.map(h => ({
-                points: h.points,
-                confidence: h.confidence,
-                qualityScore: h.qualityScore,
-                originalPoints: h.points
-            })));
-        }
-
-        console.log(`🎯 В normalizedAndAlignData: ${contours.length} контуров, ${heels.length} каблуков`);
-       
-        // Проверяем координаты контуров (они могут быть в абсолютных координатах от Roboflow)
-        if (contours.length > 0 && contours[0].points && contours[0].points.length > 0) {
-            const contourPoint = contours[0].points[0];
-            console.log(`🔵 Контур точка: x=${contourPoint.x}, y=${contourPoint.y}`);
-            console.log(`🔵 Тип координат: ${contourPoint.x > 1000 ? 'АБСОЛЮТНЫЕ (от Roboflow)' : 'НОРМАЛИЗОВАННЫЕ'}`);
-        }
-
-        // Проверяем координаты узлов
-        if (nodes.length > 0 && nodes[0].center) {
-            const nodeCenter = nodes[0].center;
-            console.log(`📍 Узел точка: x=${nodeCenter.x}, y=${nodeCenter.y}`);
-        }
-
-        // ВАЖНО: Объединяем ВСЕ точки (узлы + контуры + каблуки) для расчета общего bounding box
-        const allPoints = [];
-       
-        // Точки узлов
-        nodes.forEach(node => {
-            if (node.center) {
-                allPoints.push({ x: node.center.x, y: node.center.y });
-            }
-        });
-       
-        // Точки контуров - преобразуем абсолютные координаты если нужно
-        contours.forEach(contour => {
-            if (contour.points && contour.points.length > 0) {
-                // Если координаты контура в абсолютных (от Roboflow), преобразуем их
-                const firstPoint = contour.points[0];
-                let pointsToUse = contour.points;
-               
-                if (firstPoint.x > 1000 || firstPoint.y > 1000) {
-                    console.log(`🔄 Конвертирую абсолютные координаты контура к нормализованным`);
-                    pointsToUse = contour.points.map(p => ({
-                        x: p.x / 10,  // Делим на 10 для нормализации
-                        y: p.y / 10
-                    }));
-                }
-               
-                allPoints.push(...pointsToUse);
-            }
-        });
-       
-        // Точки каблуков - аналогично
-        heels.forEach(heel => {
-            if (heel.points && heel.points.length > 0) {
-                const firstPoint = heel.points[0];
-                let pointsToUse = heel.points;
-               
-                if (firstPoint.x > 1000 || firstPoint.y > 1000) {
-                    pointsToUse = heel.points.map(p => ({
-                        x: p.x / 10,
-                        y: p.y / 10
-                    }));
-                }
-               
-                allPoints.push(...pointsToUse);
-            }
-        });
-
-        if (allPoints.length === 0) {
-            console.log('⚠️ Нет точек для нормализации');
-            return { nodes: normalizedNodes, contours, heels };
-        }
-
-        // Находим общие границы ВСЕХ точек
-        const xs = allPoints.map(p => p.x);
-        const ys = allPoints.map(p => p.y);
+    async normalizeAndAlignData(footprint, canvasWidth, canvasHeight) async normalizeAndAlignData(footprint, canvasWidth, canvasHeight) {
+    console.log('🎯 ВИЗУАЛИЗАЦИЯ: Контур для контроля, узлы для проверки топологии');
+   
+    const nodes = Array.from(footprint.nodes.values());
+    const normalizedNodes = new Map();
+   
+    // Проверяем зеркальность модели
+    const isMirrored = footprint.metadata?.isMirrored || false;
+    if (isMirrored) {
+        console.log('🪞 Модель ЗЕРКАЛЬНАЯ (вероятно левый ботинок)');
+    }
+   
+    // Берем контур для зрительного контроля
+    let controlContour = null;
+    let controlHeel = null;
+   
+    if (footprint.bestContours && footprint.bestContours.length > 0) {
+        // Берем лучший контур (самый качественный)
+        controlContour = footprint.bestContours.reduce((best, current) =>
+            (current.qualityScore || 0) > (best.qualityScore || 0) ? current : best
+        );
+        console.log(`🎯 Контрольный контур: ${controlContour.points.length} точек, качество: ${controlContour.qualityScore?.toFixed(2) || '?'}`);
+    }
+   
+    if (footprint.bestHeels && footprint.bestHeels.length > 0) {
+        controlHeel = footprint.bestHeels[0];
+        console.log(`👠 Контрольный каблук: ${controlHeel.points.length} точек`);
+    }
+   
+    // 1. НАХОДИМ ОРИЕНТАЦИЮ И ВЫРАВНИВАЕМ ВЕРТИКАЛЬНО
+    let rotationAngle = 0;
+    if (controlContour && controlContour.points.length > 2) {
+        // Оцениваем ориентацию контура
+        const xs = controlContour.points.map(p => p.x);
+        const ys = controlContour.points.map(p => p.y);
         const minX = Math.min(...xs);
         const maxX = Math.max(...xs);
         const minY = Math.min(...ys);
         const maxY = Math.max(...ys);
-        const width = Math.max(1, maxX - minX);
-        const height = Math.max(1, maxY - minY);
-
-        console.log(`📐 Общие границы: x=[${minX.toFixed(1)}-${maxX.toFixed(1)}], y=[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
-        console.log(`📏 Размеры: width=${width.toFixed(1)}, height=${height.toFixed(1)}`);
-
-        // УВЕЛИЧИВАЕМ padding для центрирования
-        const padding = Math.min(canvasWidth * 0.1, canvasHeight * 0.1); // 10% от canvas
+        const width = maxX - minX;
+        const height = maxY - minY;
        
-        // Убедимся что данные поместятся с padding
-        const availableWidth = canvasWidth - padding * 2;
-        const availableHeight = canvasHeight - padding * 2;
-       
-        let scale = Math.min(
-            availableWidth / Math.max(1, width),
-            availableHeight / Math.max(1, height)
-        );
-       
-        // Уменьшаем масштаб чтобы оставить место для панели
-        scale = scale * 0.8;
-
-        console.log(`📐 Масштабирование: scale=${scale.toFixed(4)}, padding=${padding}`);
-        console.log(`🎯 Canvas: ${canvasWidth}x${canvasHeight}, доступно для данных: ${availableWidth.toFixed(0)}x${availableHeight.toFixed(0)}`);
-
-        // ФИКС: Смещаем данные вниз для верхней панели
-        const verticalOffset = 120; // Высота панели + отступ
-       
-        // Нормализуем узлы
-        nodes.forEach(node => {
-            if (node.center && node.center.x != null && node.center.y != null) {
-                const x = padding + (node.center.x - minX) * scale;
-                const y = verticalOffset + padding + (node.center.y - minY) * scale;
-
-                console.log(`📍 Узел: ${node.center.x.toFixed(1)},${node.center.y.toFixed(1)} -> ${x.toFixed(1)},${y.toFixed(1)}`);
-
-                if (x >= 0 && x <= canvasWidth && y >= 0 && y <= canvasHeight) {
-                    normalizedNodes.set(node.id, {
-                        ...node,
-                        normalizedCenter: { x, y },
-                        normalizedSize: Math.max(3, (node.size || 5) * scale * 0.1)
-                    });
-                } else {
-                    console.log(`⚠️ Узел вне canvas: ${x.toFixed(1)},${y.toFixed(1)}`);
-                }
-            }
-        });
-
-        // Нормализуем контуры с тем же преобразованием
-        const normalizedContours = contours.map(contour => {
-            if (contour.points && contour.points.length > 0) {
-                const normalizedPoints = contour.points.map(point => {
-                    // Преобразуем абсолютные координаты если нужно
-                    let x = point.x, y = point.y;
-                    if (x > 1000 || y > 1000) {
-                        x = x / 10;
-                        y = y / 10;
-                    }
-                    return {
-                        x: padding + (x - minX) * scale,
-                        y: verticalOffset + padding + (y - minY) * scale
-                    };
-                });
-               
-                // Проверяем границы
-                if (normalizedPoints.length > 0) {
-                    const contourXs = normalizedPoints.map(p => p.x);
-                    const contourYs = normalizedPoints.map(p => p.y);
-                    const contourMinX = Math.min(...contourXs);
-                    const contourMaxX = Math.max(...contourXs);
-                    const contourMinY = Math.min(...contourYs);
-                    const contourMaxY = Math.max(...contourYs);
-                   
-                    console.log(`🔵 Контур после нормализации: x=[${contourMinX.toFixed(1)}-${contourMaxX.toFixed(1)}], y=[${contourMinY.toFixed(1)}-${contourMaxY.toFixed(1)}]`);
-                }
-               
-                return {
-                    ...contour,
-                    points: normalizedPoints
-                };
-            }
-            return contour;
-        });
-
-        // Нормализуем каблуки с тем же преобразованием
-        const normalizedHeels = heels.map(heel => {
-            if (heel.points && heel.points.length > 0) {
-                const normalizedPoints = heel.points.map(point => {
-                    let x = point.x, y = point.y;
-                    if (x > 1000 || y > 1000) {
-                        x = x / 10;
-                        y = y / 10;
-                    }
-                    return {
-                        x: padding + (x - minX) * scale,
-                        y: verticalOffset + padding + (y - minY) * scale
-                    };
-                });
-               
-                return {
-                    ...heel,
-                    points: normalizedPoints
-                };
-            }
-            return heel;
-        });
-
-        console.log(`✅ Нормализация завершена: ${normalizedNodes.size} узлов, ${normalizedContours.length} контуров, ${normalizedHeels.length} каблуков`);
-       
-        return {
-            nodes: normalizedNodes,
-            contours: normalizedContours,
-            heels: normalizedHeels
-        };
+        // Если след шире чем выше - он горизонтальный, нужно повернуть
+        if (width > height * 1.2) {
+            rotationAngle = 90; // Поворачиваем на 90 градусов
+            console.log(`↻ Контур горизонтальный, поворачиваю на ${rotationAngle}°`);
+        } else if (height > width * 1.2) {
+            console.log('↕ Контур вертикальный, оставляю как есть');
+        } else {
+            console.log('⬢ Контур примерно квадратный');
+        }
     }
+   
+    // 2. СОБИРАЕМ ВСЕ ТОЧКИ (узлы + контур + каблук)
+    const allPoints = [];
+   
+    // Точки узлов (уже нормализованные системой)
+    nodes.forEach(node => {
+        if (node.center) {
+            // Если модель зеркальная - зеркалим X
+            const x = isMirrored ? -node.center.x : node.center.x;
+            allPoints.push({ x, y: node.center.y });
+        }
+    });
+   
+    // Точки контура (абсолютные от Roboflow)
+    if (controlContour && controlContour.points) {
+        controlContour.points.forEach(point => {
+            // Конвертируем абсолютные координаты Roboflow к системе узлов
+            // Эмпирически: координаты Roboflow / ~10 ≈ координаты узлов
+            const convertedX = point.x / 10;
+            const convertedY = point.y / 10;
+            allPoints.push({ x: convertedX, y: convertedY });
+        });
+    }
+   
+    // Точки каблука
+    if (controlHeel && controlHeel.points) {
+        controlHeel.points.forEach(point => {
+            const convertedX = point.x / 10;
+            const convertedY = point.y / 10;
+            allPoints.push({ x: convertedX, y: convertedY });
+        });
+    }
+   
+    if (allPoints.length === 0) {
+        console.log('⚠️ Нет точек для визуализации');
+        return { nodes: normalizedNodes, contours: [], heels: [] };
+    }
+   
+    // 3. НАХОДИМ ОБЩИЙ BOUNDING BOX
+    const xs = allPoints.map(p => p.x);
+    const ys = allPoints.map(p => p.y);
+    let minX = Math.min(...xs);
+    let maxX = Math.max(...xs);
+    let minY = Math.min(...ys);
+    let maxY = Math.max(...ys);
+   
+    // Добавляем небольшой отступ
+    const paddingBB = Math.max((maxX - minX) * 0.1, (maxY - minY) * 0.1);
+    minX -= paddingBB;
+    maxX += paddingBB;
+    minY -= paddingBB;
+    maxY += paddingBB;
+   
+    const width = Math.max(1, maxX - minX);
+    const height = Math.max(1, maxY - minY);
+   
+    console.log(`📐 Общий bounding box: ${width.toFixed(1)}x${height.toFixed(1)}`);
+    console.log(`   Узлы: ${nodes.length}, Контур: ${controlContour ? 'есть' : 'нет'}, Каблук: ${controlHeel ? 'есть' : 'нет'}`);
+   
+    // 4. МАСШТАБИРОВАНИЕ НА CANVAS
+    const canvasPadding = 80;
+    const availableWidth = canvasWidth - canvasPadding * 2;
+    const availableHeight = canvasHeight - canvasPadding * 2;
+   
+    let scale = Math.min(
+        availableWidth / width,
+        availableHeight / height
+    );
+   
+    // Оставляем место для легенды
+    scale = scale * 0.85;
+   
+    console.log(`📐 Масштаб: ${scale.toFixed(4)}`);
+   
+    // 5. НОРМАЛИЗАЦИЯ ВСЕХ ТОЧЕК
+    const normalizedContours = [];
+    const normalizedHeels = [];
+   
+    // Функция нормализации точки
+    const normalizePoint = (point, offsetY = 0) => {
+        const x = canvasPadding + (point.x - minX) * scale;
+        const y = canvasPadding + offsetY + (point.y - minY) * scale;
+        return { x, y };
+    };
+   
+    // Смещение для верхней панели
+    const topPanelOffset = 120;
+   
+    // Нормализуем узлы
+    console.log('📍 Нормализую узлы протектора...');
+    nodes.forEach(node => {
+        if (node.center) {
+            let x = node.center.x;
+           
+            // Зеркалим если нужно
+            if (isMirrored) {
+                x = -x;
+            }
+           
+            const normalized = normalizePoint({ x, y: node.center.y }, topPanelOffset);
+           
+            console.log(`   Узел ${node.id.slice(-3)}: (${node.center.x.toFixed(1)},${node.center.y.toFixed(1)}) → (${normalized.x.toFixed(1)},${normalized.y.toFixed(1)})`);
+           
+            normalizedNodes.set(node.id, {
+                ...node,
+                normalizedCenter: normalized,
+                normalizedSize: Math.max(4, (node.size || 8) * scale * 0.15),
+                isMirrored: isMirrored
+            });
+        }
+    });
+   
+    // Нормализуем контур для контроля
+    if (controlContour && controlContour.points) {
+        console.log('🔵 Нормализую контур для контроля...');
+        const normalizedPoints = controlContour.points.map(point => {
+            const convertedX = point.x / 10;
+            const convertedY = point.y / 10;
+            return normalizePoint({ x: convertedX, y: convertedY }, topPanelOffset);
+        });
+       
+        normalizedContours.push({
+            points: normalizedPoints,
+            confidence: controlContour.confidence,
+            qualityScore: controlContour.qualityScore,
+            isControl: true
+        });
+       
+        console.log(`   Контур: ${normalizedPoints.length} точек`);
+        if (normalizedPoints.length > 0) {
+            console.log(`   Первая точка: (${normalizedPoints[0].x.toFixed(1)},${normalizedPoints[0].y.toFixed(1)})`);
+        }
+    }
+   
+    // Нормализуем каблук для контроля
+    if (controlHeel && controlHeel.points) {
+        console.log('👠 Нормализую каблук для контроля...');
+        const normalizedPoints = controlHeel.points.map(point => {
+            const convertedX = point.x / 10;
+            const convertedY = point.y / 10;
+            return normalizePoint({ x: convertedX, y: convertedY }, topPanelOffset);
+        });
+       
+        normalizedHeels.push({
+            points: normalizedPoints,
+            confidence: controlHeel.confidence,
+            qualityScore: controlHeel.qualityScore,
+            isControl: true
+        });
+    }
+   
+    console.log(`✅ Готово: ${normalizedNodes.size} узлов, ${normalizedContours.length} контуров, ${normalizedHeels.length} каблуков`);
+   
+    return {
+        nodes: normalizedNodes,
+        contours: normalizedContours,
+        heels: normalizedHeels
+    };
+}
 
     drawContoursAndHeels(ctx, contours, heels) {
-        console.log(`🎨 Рисую контуры: ${contours.length}, каблуков: ${heels.length}`);
-       
-        // Сначала рисуем заливку контуров
-        contours.forEach((contour, index) => {
-            console.log(`🔵 Контур ${index}: ${contour.points?.length || 0} точек`);
-           
-            if (contour.points && contour.points.length > 2) {
-                // Проверяем координаты
-                const firstPoint = contour.points[0];
-                console.log(`📍 Первая точка контура: x=${firstPoint?.x?.toFixed(1) || 'N/A'}, y=${firstPoint?.y?.toFixed(1) || 'N/A'}`);
-               
-                // Полупрозрачная заливка контура
-                ctx.fillStyle = 'rgba(0, 100, 255, 0.1)';
-                ctx.beginPath();
-                contour.points.forEach((point, pointIndex) => {
-                    if (pointIndex === 0) {
-                        ctx.moveTo(point.x, point.y);
-                    } else {
-                        ctx.lineTo(point.x, point.y);
-                    }
-                });
-                ctx.closePath();
-                ctx.fill();
-               
-                // Контур пунктиром
-                ctx.strokeStyle = 'rgba(0, 100, 255, 0.5)';
-                ctx.lineWidth = 3;
-                ctx.setLineDash([5, 3]);
-
-                ctx.beginPath();
-                contour.points.forEach((point, pointIndex) => {
-                    if (pointIndex === 0) {
-                        ctx.moveTo(point.x, point.y);
-                    } else {
-                        ctx.lineTo(point.x, point.y);
-                    }
-                });
-                ctx.closePath();
-                ctx.stroke();
-
-                ctx.setLineDash([]);
-               
-                // Рисуем точки контура для отладки (опционально)
-                if (contour.points.length < 20) { // Только для не слишком больших контуров
-                    ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
-                    contour.points.forEach(point => {
-                        ctx.beginPath();
-                        ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
-                        ctx.fill();
-                    });
-                }
-            } else {
-                console.log(`⚠️ Контур ${index} не имеет достаточно точек: ${contour.points?.length || 0}`);
-            }
-        });
-
-        // Рисуем каблуки
-        heels.forEach((heel, index) => {
-            console.log(`🔴 Каблук ${index}: ${heel.points?.length || 0} точек`);
-           
-            if (heel.points && heel.points.length > 2) {
-                // Заливка каблука
-                ctx.fillStyle = 'rgba(255, 50, 50, 0.3)';
-                ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)';
+    console.log(`🎨 Рисую элементы контроля...`);
+   
+    // 1. КОНТУР СЛЕДА (синий, прозрачный, ПУНКТИР)
+    contours.forEach(contour => {
+        if (contour.points && contour.points.length > 2) {
+            // Только для контрольных контуров
+            if (contour.isControl) {
+                ctx.strokeStyle = 'rgba(0, 100, 255, 0.6)'; // Синий пунктир
                 ctx.lineWidth = 2;
-
+                ctx.setLineDash([5, 3]); // Пунктир
+               
                 ctx.beginPath();
-                heel.points.forEach((point, pointIndex) => {
-                    if (pointIndex === 0) ctx.moveTo(point.x, point.y);
+                contour.points.forEach((point, index) => {
+                    if (index === 0) ctx.moveTo(point.x, point.y);
                     else ctx.lineTo(point.x, point.y);
                 });
                 ctx.closePath();
-                ctx.fill();
                 ctx.stroke();
+                ctx.setLineDash([]); // Сбрасываем пунктир
                
-                // Рисуем точки каблука (опционально)
-                if (heel.points.length < 20) {
-                    ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
-                    heel.points.forEach(point => {
-                        ctx.beginPath();
-                        ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
-                        ctx.fill();
-                    });
-                }
-            } else {
-                console.log(`⚠️ Каблук ${index} не имеет достаточно точек: ${heel.points?.length || 0}`);
+                // Подпись
+                ctx.fillStyle = 'rgba(0, 100, 255, 0.8)';
+                ctx.font = '12px Arial';
+                const firstPoint = contour.points[0];
+                ctx.fillText('🔵 Контур Roboflow', firstPoint.x + 10, firstPoint.y - 5);
+               
+                console.log(`🔵 Контур нарисован: ${contour.points.length} точек`);
             }
-        });
+        }
+    });
+   
+    // 2. КАБЛУК (красный, полупрозрачный)
+    heels.forEach(heel => {
+        if (heel.points && heel.points.length > 2 && heel.isControl) {
+            // Заливка
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.3)';
+            ctx.beginPath();
+            heel.points.forEach((point, index) => {
+                if (index === 0) ctx.moveTo(point.x, point.y);
+                else ctx.lineTo(point.x, point.y);
+            });
+            ctx.closePath();
+            ctx.fill();
+           
+            // Контур
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+           
+            console.log(`👠 Каблук нарисован: ${heel.points.length} точек`);
+        }
+    });
+   
+    // 3. ЦЕНТР МАССЫ (для ориентации)
+    if (contours.length > 0 && contours[0].points) {
+        const contour = contours[0];
+        const xs = contour.points.map(p => p.x);
+        const ys = contour.points.map(p => p.y);
+        const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+       
+        // Красный крест в центре
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+        ctx.lineWidth = 2;
+       
+        // Вертикальная линия
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY - 20);
+        ctx.lineTo(centerX, centerY + 20);
+        ctx.stroke();
+       
+        // Горизонтальная линия
+        ctx.beginPath();
+        ctx.moveTo(centerX - 20, centerY);
+        ctx.lineTo(centerX + 20, centerY);
+        ctx.stroke();
+       
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.9)';
+        ctx.font = '10px Arial';
+        ctx.fillText('✛ Центр', centerX + 5, centerY - 25);
     }
+}
 
     drawEdges(ctx, normalizedNodes, edges) {
         if (!edges || edges.length === 0) return;
