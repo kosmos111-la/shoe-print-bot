@@ -13,7 +13,7 @@ module.exports = {
     EnhancedModelVisualizer
    
     // Короткие алиасы
-    manager: FootprintManager,
+   // manager: FootprintManager,
     database: FootprintDatabase,
     footprint: DigitalFootprint,
     visualizer: ModelVisualizer,
