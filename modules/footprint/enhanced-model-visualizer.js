@@ -187,13 +187,137 @@ class EnhancedModelVisualizer {
         const contours = [];
         const heels = [];
        
+        if (footprint.bestContours && footprint.bestContours.length > 0) {
+        contours.push(...footprint.bestContours.map(c => ({
+            points: c.points,
+            confidence: c.confidence,
+            qualityScore: c.qualityScore
+        })));
+    }
+   
+    if (footprint.bestHeels && footprint.bestHeels.length > 0) {
+        heels.push(...footprint.bestHeels.map(h => ({
+            points: h.points,
+            confidence: h.confidence,
+            qualityScore: h.qualityScore
+        })));
+    }
+   
+    console.log(`🎯 В normalizedAndAlignData: ${contours.length} контуров, ${heels.length} каблуков`);
+   
+    if (footprint.boundingBox && footprint.boundingBox.width > 0) {
+        const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
+        const padding = 100;
+        const scale = Math.min(
+            (canvasWidth - padding * 2) / Math.max(1, width),
+            (canvasHeight - padding * 2) / Math.max(1, height)
+        );
+       
+        console.log(`📏 Масштабирование: scale=${scale}, padding=${padding}`);
+       
         nodes.forEach(node => {
-            if (node.sources && node.sources.length > 0) {
-                node.sources.forEach(source => {
-                    if (source.contour) contours.push(source.contour);
-                    if (source.heel) heels.push(source.heel);
+            if (node.center && node.center.x != null && node.center.y != null) {
+                const x = padding + (node.center.x - minX) * scale;
+                const y = padding + (node.center.y - minY) * scale;
+               
+                console.log(`📍 Нормализация узла: ${node.center.x},${node.center.y} -> ${x},${y}`);
+               
+                if (x >= 0 && x <= canvasWidth && y >= 0 && y <= canvasHeight) {
+                    normalizedNodes.set(node.id, {
+                        ...node,
+                        normalizedCenter: { x, y },
+                        normalizedSize: Math.max(2, (node.size || 5) * scale * 0.08)
+                    });
+                }
+            }
+        });
+    } else {
+        console.log('⚠️ Нет boundingBox, использую простую нормализацию');
+        // Простая нормализация если нет boundingBox
+        const xs = nodes.map(n => n.center?.x || 0);
+        const ys = nodes.map(n => n.center?.y || 0);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const width = Math.max(1, maxX - minX);
+        const height = Math.max(1, maxY - minY);
+       
+        const padding = 100;
+        const scale = Math.min(
+            (canvasWidth - padding * 2) / width,
+            (canvasHeight - padding * 2) / height
+        );
+       
+        nodes.forEach(node => {
+            if (node.center && node.center.x != null && node.center.y != null) {
+                const x = padding + (node.center.x - minX) * scale;
+                const y = padding + (node.center.y - minY) * scale;
+               
+                normalizedNodes.set(node.id, {
+                    ...node,
+                    normalizedCenter: { x, y },
+                    normalizedSize: Math.max(2, (node.size || 5) * scale * 0.08)
                 });
             }
+        });
+    }
+   
+    // Тоже нормализуем контуры
+    const normalizedContours = contours.map(contour => {
+        if (contour.points && contour.points.length > 0) {
+            return {
+                ...contour,
+                points: contour.points.map(point => {
+                    if (footprint.boundingBox) {
+                        const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
+                        const padding = 100;
+                        const scale = Math.min(
+                            (canvasWidth - padding * 2) / Math.max(1, width),
+                            (canvasHeight - padding * 2) / Math.max(1, height)
+                        );
+                        return {
+                            x: padding + (point.x - minX) * scale,
+                            y: padding + (point.y - minY) * scale
+                        };
+                    }
+                    return point;
+                })
+            };
+        }
+        return contour;
+    });
+   
+    const normalizedHeels = heels.map(heel => {
+        if (heel.points && heel.points.length > 0) {
+            return {
+                ...heel,
+                points: heel.points.map(point => {
+                    if (footprint.boundingBox) {
+                        const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
+                        const padding = 100;
+                        const scale = Math.min(
+                            (canvasWidth - padding * 2) / Math.max(1, width),
+                            (canvasHeight - padding * 2) / Math.max(1, height)
+                        );
+                        return {
+                            x: padding + (point.x - minX) * scale,
+                            y: padding + (point.y - minY) * scale
+                        };
+                    }
+                    return point;
+                })
+            };
+        }
+        return heel;
+    });
+   
+    return {
+        nodes: normalizedNodes,
+        contours: normalizedContours,
+        heels: normalizedHeels
+    };
+}
         });
        
         if (footprint.boundingBox && footprint.boundingBox.width > 0) {
