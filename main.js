@@ -2614,8 +2614,19 @@ bot.onText(/\/find_similar/, async (msg) => {  // ⚠️ ВАЖНО: добав
         // Начинаем поиск
         await bot.sendMessage(chatId, `🔍 Ищу похожие модели...`);
        
-        // Используем FootprintManager для поиска
-        const similar = await FootprintManager.findSimilarForAnalysis(
+        // Начинаем поиск с топологической коррекцией
+        await bot.sendMessage(chatId,
+            `🔍 **Запускаю УМНЫЙ поиск...**\n\n` +
+            `Теперь учитываю:\n` +
+            `• Перспективные искажения\n` +
+            `• Разный масштаб съемки\n` +
+            `• Топологию протекторов\n` +
+            `• Зеркальность (правый/левый)\n\n` +
+            `⏳ Это может занять несколько секунд...`
+        );
+
+        // ✅ ИСПОЛЬЗУЕМ УЛУЧШЕННЫЙ ПОИСК
+        const similar = await FootprintManager.findSimilarWithTopologyCorrection(
             lastAnalysis,
             userId,
             {
