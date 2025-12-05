@@ -656,16 +656,17 @@ class DigitalFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Топологическое сравнение
     compareTopology(otherFootprint) {
-        const nodes1 = Array.from(this.topologyInvariants.normalizedNodes.values());
-        const nodes2 = Array.from(otherFootprint.topologyInvariants.normalizedNodes.values());
+    // Используем normalizedNodes ДРУГОЙ модели (уже повернутые временно)
+    const nodes1 = Array.from(this.topologyInvariants.normalizedNodes.values());
+    const nodes2 = Array.from(otherFootprint.topologyInvariants.normalizedNodes.values());
 
-        if (nodes1.length === 0 || nodes2.length === 0) {
-            return 0;
-        }
-
-        // Используем TopologyUtils
-        return TopologyUtils.compareTopologyForFootprint(nodes1, nodes2);
+    if (nodes1.length === 0 || nodes2.length === 0) {
+        return 0;
     }
+
+    // Используем TopologyUtils с текущими (возможно повернутыми) узлами
+    return TopologyUtils.compareTopologyForFootprint(nodes1, nodes2);
+}
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение графовых инвариантов
     compareGraphInvariants(otherFootprint) {
