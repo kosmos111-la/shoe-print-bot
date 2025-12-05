@@ -171,7 +171,7 @@ class FootprintDatabase {
     async findSimilar(analysis, options = {}) {
         const {
             userId = null,
-            threshold = 0.6,
+            threshold = 0.7,
             limit = 10
         } = options;
        
