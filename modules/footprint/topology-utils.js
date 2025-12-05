@@ -7,7 +7,7 @@ class TopologyUtils {
         }
 
         const n = Math.max(nodes1.length, nodes2.length);
-       
+      
         // Создаем матрицу стоимостей
         const costMatrix = [];
         for (let i = 0; i < n; i++) {
@@ -89,7 +89,7 @@ class TopologyUtils {
         const trace = covXX + covYY;
         const determinant = covXX * covYY - covXY * covXY;
         const discriminant = trace * trace - 4 * determinant;
-       
+      
         if (discriminant < 0) {
             return null;
         }
@@ -125,7 +125,7 @@ class TopologyUtils {
     static rotatePoints(points, angle) {
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
-       
+      
         return points.map(p => ({
             x: p.x * cos - p.y * sin,
             y: p.x * sin + p.y * cos
@@ -161,7 +161,7 @@ class TopologyUtils {
         });
 
         const n = nodes.length;
-       
+      
         // Инициализируем матрицу расстояний
         const dist = Array(n).fill().map(() => Array(n).fill(Infinity));
         for (let i = 0; i < n; i++) {
@@ -172,7 +172,7 @@ class TopologyUtils {
         edges.forEach(edge => {
             const i = idToIndex.get(edge.from);
             const j = idToIndex.get(edge.to);
-           
+          
             if (i !== undefined && j !== undefined) {
                 dist[i][j] = 1;
                 dist[j][i] = 1;
@@ -218,7 +218,7 @@ class TopologyUtils {
         edges.forEach(edge => {
             const fromNeighbors = neighbors.get(edge.from);
             const toNeighbors = neighbors.get(edge.to);
-           
+          
             if (fromNeighbors && toNeighbors) {
                 fromNeighbors.add(edge.to);
                 toNeighbors.add(edge.from);
@@ -231,7 +231,7 @@ class TopologyUtils {
         nodes.forEach(node => {
             const nodeNeighbors = neighbors.get(node.id);
             const k = nodeNeighbors ? nodeNeighbors.size : 0;
-           
+          
             if (k >= 2) {
                 // Считаем возможные связи между соседями
                 const neighborArray = Array.from(nodeNeighbors);
@@ -241,10 +241,10 @@ class TopologyUtils {
                 for (let i = 0; i < neighborArray.length; i++) {
                     for (let j = i + 1; j < neighborArray.length; j++) {
                         possibleConnections++;
-                       
+                      
                         const neighborI = neighborArray[i];
                         const neighborJ = neighborArray[j];
-                       
+                      
                         // Проверяем есть ли связь между соседями
                         if (neighbors.get(neighborI).has(neighborJ)) {
                             actualConnections++;
@@ -276,7 +276,7 @@ class TopologyUtils {
 
         const n = nodes.length;
         const dist = Array(n).fill().map(() => Array(n).fill(Infinity));
-       
+      
         for (let i = 0; i < n; i++) {
             dist[i][i] = 0;
         }
@@ -284,7 +284,7 @@ class TopologyUtils {
         edges.forEach(edge => {
             const i = idToIndex.get(edge.from);
             const j = idToIndex.get(edge.to);
-           
+          
             if (i !== undefined && j !== undefined) {
                 dist[i][j] = 1;
                 dist[j][i] = 1;
@@ -420,7 +420,7 @@ class TopologyUtils {
 
         // 3. Определяем зеркальность
         const isMirrored = mirroredDistance < originalDistance * 0.85;
-       
+      
         // 4. Вычисляем оценку сходства
         const bestDistance = Math.min(originalDistance, mirroredDistance);
         const score = Math.max(0, 1 - bestDistance / 0.3);
@@ -451,7 +451,7 @@ class TopologyUtils {
         edges.forEach(edge => {
             const i = idToIndex.get(edge.from);
             const j = idToIndex.get(edge.to);
-           
+          
             if (i !== undefined && j !== undefined) {
                 matrix[i][j] = 1;
                 matrix[j][i] = 1;
@@ -530,39 +530,39 @@ class TopologyUtils {
     // 18. НАХОЖДЕНИЕ ГЛАВНОЙ ОСИ
     static calculatePrincipalAxis(covarianceMatrix) {
         const { xx, xy, yy } = covarianceMatrix;
-       
+      
         // Собственные значения
         const trace = xx + yy;
         const determinant = xx * yy - xy * xy;
         const discriminant = trace * trace - 4 * determinant;
-       
+      
         if (discriminant < 0) {
             return { x: 1, y: 0 };
         }
-       
+      
         const lambda1 = (trace + Math.sqrt(discriminant)) / 2;
-       
+      
         // Собственный вектор для lambda1
         let vx = 1, vy = 0;
         if (Math.abs(xy) > 0.0001) {
             vx = -xy;
             vy = xx - lambda1;
         }
-       
+      
         // Нормализуем
         const length = Math.sqrt(vx * vx + vy * vy);
         if (length > 0) {
             vx /= length;
             vy /= length;
         }
-       
+      
         return { x: vx, y: vy };
     }
 
     // 19. НОРМАЛИЗАЦИЯ УЗЛОВ - КЛЮЧЕВОЙ МЕТОД!
     static normalizeNodes(nodes) {
         console.log('🔧 TopologyUtils.normalizeNodes вызван с', nodes?.length, 'узлами');
-       
+      
         if (!nodes || nodes.length < 2) {
             console.log('⚠️ Недостаточно узлов для нормализации');
             return {
@@ -570,7 +570,7 @@ class TopologyUtils {
                     x: n.x || n.center?.x || 0,
                     y: n.y || n.center?.y || 0
                 })) : [],
-                params: {
+                normalizationParams: {
                     center: {x: 0, y: 0},
                     scale: 1,
                     rotation: 0,
@@ -578,7 +578,7 @@ class TopologyUtils {
                 }
             };
         }
-       
+      
         // Преобразуем узлы в простые точки
         const points = nodes.map(n => {
             // Поддерживаем разные форматы: {x, y} или {center: {x, y}}
@@ -586,13 +586,13 @@ class TopologyUtils {
             const y = n.y || (n.center && n.center.y) || 0;
             const confidence = n.confidence || 0.5;
             const id = n.id || `node_${Math.random().toString(36).substr(2, 9)}`;
-           
+          
             return { x, y, confidence, id, originalNode: n };
         });
-       
+      
         // 1. ЦЕНТР МАСС
         const center = this.calculateCenterOfMass(points);
-       
+      
         // 2. ЦЕНТРИРУЕМ (переносим в начало координат)
         const centered = points.map(p => ({
             x: p.x - center.x,
@@ -600,7 +600,7 @@ class TopologyUtils {
             confidence: p.confidence,
             id: p.id
         }));
-       
+      
         // 3. СРЕДНЕЕ РАССТОЯНИЕ между всеми парами точек
         const distances = [];
         for (let i = 0; i < centered.length; i++) {
@@ -609,36 +609,36 @@ class TopologyUtils {
                 distances.push(dist);
             }
         }
-       
+      
         const meanDistance = distances.length > 0
             ? distances.reduce((sum, d) => sum + d, 0) / distances.length
             : 1;
-       
+      
         // 4. МАСШТАБИРОВАНИЕ (делаем среднее расстояние = 1)
         const scale = meanDistance > 0 ? 1.0 / meanDistance : 1.0;
-       
+      
         // 5. PCA - находим главную ось для выравнивания
         const pca = this.calculatePCA(points);
         let rotationAngle = 0;
-       
+      
         if (pca && pca.eigenvectors && pca.eigenvectors[0]) {
             const principalAxis = pca.eigenvectors[0];
             // Угол главной оси относительно горизонтали
             rotationAngle = -Math.atan2(principalAxis.y, principalAxis.x);
         }
-       
+      
         // 6. ПРИМЕНЯЕМ преобразования к каждой точке
         const normalized = centered.map(point => {
             // Масштабирование
             let x = point.x * scale;
             let y = point.y * scale;
-           
+          
             // Поворот (делаем главную ось горизонтальной)
             const cos = Math.cos(rotationAngle);
             const sin = Math.sin(rotationAngle);
             const rotatedX = x * cos - y * sin;
             const rotatedY = x * sin + y * cos;
-           
+          
             return {
                 x: rotatedX,
                 y: rotatedY,
@@ -646,13 +646,12 @@ class TopologyUtils {
                 id: point.id
             };
         });
-       
+      
         console.log(`🎯 Нормализовано ${normalized.length} узлов (масштаб=${scale.toFixed(4)}, поворот=${(rotationAngle * 180 / Math.PI).toFixed(1)}°)`);
-       
+      
         return {
-            normalized: normalized.map(n => ({ x: n.x, y: n.y })),
-            fullNormalized: normalized,
-            params: {
+            normalized: normalized,
+            normalizationParams: {
                 center,
                 scale,
                 rotation: rotationAngle,
@@ -664,15 +663,15 @@ class TopologyUtils {
     // 20. СРАВНЕНИЕ ГРАФОВЫХ ИНВАРИАНТОВ
     static compareGraphInvariants(invariants1, invariants2) {
         console.log('🔍 TopologyUtils.compareGraphInvariants вызван');
-       
+      
         if (!invariants1 || !invariants2) {
             console.log('⚠️ Нет данных для сравнения');
             return 0.5;
         }
-       
+      
         let totalScore = 0;
         let factors = 0;
-       
+      
         // 1. Сравнение распределения степеней
         if (invariants1.degreeDistribution && invariants2.degreeDistribution) {
             const degreeScore = this.compareHistograms(
@@ -683,7 +682,7 @@ class TopologyUtils {
             factors += 0.4;
             console.log(`   • Распределение степеней: ${(degreeScore * 100).toFixed(1)}%`);
         }
-       
+      
         // 2. Сравнение диаметра графа
         if (invariants1.graphDiameter !== null && invariants2.graphDiameter !== null) {
             const diam1 = invariants1.graphDiameter;
@@ -694,7 +693,7 @@ class TopologyUtils {
             factors += 0.3;
             console.log(`   • Диаметр графа: ${(diamScore * 100).toFixed(1)}% (${diam1} vs ${diam2})`);
         }
-       
+      
         // 3. Сравнение коэффициента кластеризации
         if (invariants1.clusteringCoefficient !== null &&
             invariants2.clusteringCoefficient !== null) {
@@ -705,10 +704,10 @@ class TopologyUtils {
             factors += 0.3;
             console.log(`   • Коэффициент кластеризации: ${(ccScore * 100).toFixed(1)}% (${cc1.toFixed(3)} vs ${cc2.toFixed(3)})`);
         }
-       
+      
         const finalScore = factors > 0 ? totalScore / factors : 0.5;
         console.log(`   🎯 Итоговый score: ${(finalScore * 100).toFixed(1)}%`);
-       
+      
         return finalScore;
     }
 
@@ -722,6 +721,290 @@ class TopologyUtils {
     static loadTopologyData(filePath) {
         console.log('📂 Загрузка топологических данных (заглушка)');
         return null;
+    }
+
+    // 🔥 НОВЫЕ МЕТОДЫ ДЛЯ digital-footprint.js
+   
+    // 23. ВЫЧИСЛЕНИЕ ГЕОМЕТРИЧЕСКИХ ИНВАРИАНТОВ
+    static calculateGeometricInvariantsForFootprint(normalizedNodes, existingInvariants) {
+        if (!normalizedNodes || normalizedNodes.length < 2) {
+            return {
+                boundingBox: null,
+                shapeDescriptors: null
+            };
+        }
+
+        const nodesArray = normalizedNodes;
+        const xs = nodesArray.map(n => n.x);
+        const ys = nodesArray.map(n => n.y);
+
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+
+        const width = maxX - minX;
+        const height = maxY - minY;
+
+        const boundingBox = {
+            minX,
+            maxX,
+            minY,
+            maxY,
+            width,
+            height,
+            center: {
+                x: (minX + maxX) / 2,
+                y: (minY + maxY) / 2
+            }
+        };
+
+        // Дескрипторы формы
+        const aspectRatio = height > 0 ? width / height : 1;
+        const area = width * height;
+        const compactness = area > 0 ? (4 * Math.PI * area) / (width * width + height * height) : 0;
+        const elongation = Math.max(width, height) / Math.max(Math.min(width, height), 0.001);
+
+        const shapeDescriptors = {
+            aspectRatio,
+            area,
+            compactness,
+            elongation
+        };
+
+        return {
+            boundingBox,
+            shapeDescriptors
+        };
+    }
+
+    // 24. ВЫЧИСЛЕНИЕ ГРАФОВЫХ ИНВАРИАНТОВ
+    static calculateGraphInvariantsForFootprint(nodes, edges) {
+        if (!nodes || nodes.length === 0 || !edges || edges.length === 0) {
+            return {
+                adjacencyMatrix: null,
+                degreeDistribution: null,
+                graphDiameter: 0,
+                clusteringCoefficient: 0,
+                averagePathLength: 0
+            };
+        }
+
+        // Матрица смежности
+        const adjacencyMatrix = this.buildAdjacencyMatrix(nodes, edges);
+
+        // Распределение степеней
+        const degreeDistribution = this.getDegreeDistribution(nodes, edges);
+
+        // Диаметр графа
+        const graphDiameter = this.calculateGraphDiameter(nodes, edges);
+
+        // Коэффициент кластеризации
+        const clusteringCoefficient = this.calculateClusteringCoefficient(nodes, edges);
+
+        // Средняя длина пути
+        const averagePathLength = this.calculateAveragePathLength(nodes, edges);
+
+        return {
+            adjacencyMatrix,
+            degreeDistribution,
+            graphDiameter,
+            clusteringCoefficient,
+            averagePathLength
+        };
+    }
+
+    // 25. ОЦЕНКА КАЧЕСТВА ТОПОЛОГИИ
+    static assessTopologyQualityForFootprint(nodes, edges, invariants) {
+        const nodesArray = nodes || [];
+        const edgesArray = edges || [];
+
+        let topologyQuality = 0.5;
+        let nodeUniformity = 0.5;
+        let graphConnectivity = 0.5;
+
+        // 1. Оценка качества узлов
+        if (nodesArray.length >= 3) {
+            // Равномерность распределения узлов
+            const boundingBox = invariants?.boundingBox;
+            if (boundingBox && boundingBox.width > 0 && boundingBox.height > 0) {
+                const area = boundingBox.width * boundingBox.height;
+                const density = nodesArray.length / (area || 1);
+                nodeUniformity = Math.min(1, density * 100);
+            }
+        }
+
+        // 2. Оценка связности графа
+        if (edgesArray.length > 0) {
+            const n = nodesArray.length;
+            const maxEdges = (n * (n - 1)) / 2;
+            if (maxEdges > 0) {
+                graphConnectivity = edgesArray.length / maxEdges;
+            }
+        }
+
+        // 3. Итоговое качество
+        topologyQuality = (nodeUniformity + graphConnectivity) / 2;
+
+        return {
+            topologyQuality,
+            nodeUniformity,
+            graphConnectivity
+        };
+    }
+
+    // 26. СРАВНЕНИЕ ТОПОЛОГИИ
+    static compareTopologyForFootprint(nodes1, nodes2) {
+        if (!nodes1 || !nodes2 || nodes1.length === 0 || nodes2.length === 0) {
+            return 0;
+        }
+
+        // Простое сравнение через Hungarian алгоритм
+        const assignment = this.hungarianMatching(nodes1, nodes2);
+
+        // Среднее расстояние между сопоставленными узлами
+        let totalDistance = 0;
+        let matchedPairs = 0;
+
+        assignment.forEach((j, i) => {
+            if (j !== -1 && i < nodes1.length && j < nodes2.length) {
+                const dx = nodes1[i].x - nodes2[j].x;
+                const dy = nodes1[i].y - nodes2[j].y;
+                totalDistance += Math.sqrt(dx * dx + dy * dy);
+                matchedPairs++;
+            }
+        });
+
+        if (matchedPairs === 0) return 0;
+
+        const avgDistance = totalDistance / matchedPairs;
+
+        // Преобразуем расстояние в оценку (0-1)
+        const score = Math.max(0, 1 - avgDistance / 0.2);
+
+        return Math.min(1.0, score);
+    }
+
+    // 27. СРАВНЕНИЕ НОРМИРОВАННОЙ ГЕОМЕТРИИ
+    static compareNormalizedGeometryForFootprint(invariants1, invariants2) {
+        if (!invariants1 || !invariants2) {
+            return 0;
+        }
+
+        let totalScore = 0;
+        let factors = 0;
+
+        // 1. Сравнение bounding box
+        if (invariants1.boundingBox && invariants2.boundingBox) {
+            const width1 = invariants1.boundingBox.width;
+            const height1 = invariants1.boundingBox.height;
+            const width2 = invariants2.boundingBox.width;
+            const height2 = invariants2.boundingBox.height;
+
+            const widthScore = 1 - Math.abs(width1 - width2) / Math.max(width1, width2, 0.001);
+            const heightScore = 1 - Math.abs(height1 - height2) / Math.max(height1, height2, 0.001);
+
+            totalScore += (widthScore + heightScore) / 2 * 0.4;
+            factors += 0.4;
+        }
+
+        // 2. Сравнение дескрипторов формы
+        if (invariants1.shapeDescriptors && invariants2.shapeDescriptors) {
+            const sd1 = invariants1.shapeDescriptors;
+            const sd2 = invariants2.shapeDescriptors;
+
+            const aspectRatioScore = 1 - Math.abs(sd1.aspectRatio - sd2.aspectRatio);
+            const compactnessScore = 1 - Math.abs(sd1.compactness - sd2.compactness);
+
+            totalScore += (aspectRatioScore + compactnessScore) / 2 * 0.3;
+            factors += 0.3;
+        }
+
+        // 3. Сравнение гистограмм расстояний
+        if (invariants1.distanceHistogram && invariants2.distanceHistogram) {
+            const distScore = this.compareHistograms(
+                invariants1.distanceHistogram,
+                invariants2.distanceHistogram
+            );
+            totalScore += distScore * 0.3;
+            factors += 0.3;
+        }
+
+        return factors > 0 ? totalScore / factors : 0;
+    }
+
+    // 28. ПОДСЧЕТ СОПОСТАВЛЕННЫХ УЗЛОВ
+    static countMatchedNodesForFootprint(nodes1, nodes2) {
+        if (!nodes1 || !nodes2 || nodes1.length === 0 || nodes2.length === 0) {
+            return { count: 0, avgDistance: 999 };
+        }
+
+        const assignment = this.hungarianMatching(nodes1, nodes2);
+
+        let totalDistance = 0;
+        let matchedCount = 0;
+
+        assignment.forEach((j, i) => {
+            if (j !== -1 && i < nodes1.length && j < nodes2.length) {
+                const dx = nodes1[i].x - nodes2[j].x;
+                const dy = nodes1[i].y - nodes2[j].y;
+                totalDistance += Math.sqrt(dx * dx + dy * dy);
+                matchedCount++;
+            }
+        });
+
+        const avgDistance = matchedCount > 0 ? totalDistance / matchedCount : 999;
+
+        return {
+            count: matchedCount,
+            avgDistance
+        };
+    }
+
+    // 29. РАСЧЕТ УВЕРЕННОСТИ СРАВНЕНИЯ
+    static calculateComparisonConfidenceForFootprint(footprint1, footprint2) {
+        const nodes1 = footprint1.nodes?.size || 0;
+        const nodes2 = footprint2.nodes?.size || 0;
+
+        if (nodes1 === 0 || nodes2 === 0) {
+            return 0;
+        }
+
+        // Уверенность зависит от количества узлов и их качества
+        const quality1 = footprint1.stats?.topologyQuality || 0.5;
+        const quality2 = footprint2.stats?.topologyQuality || 0.5;
+
+        const minNodes = Math.min(nodes1, nodes2);
+        const maxNodes = Math.max(nodes1, nodes2);
+
+        // Фактор на основе количества узлов
+        const nodeFactor = minNodes / Math.max(maxNodes, 3);
+
+        // Среднее качество топологии
+        const qualityFactor = (quality1 + quality2) / 2;
+
+        // Итоговая уверенность
+        const confidence = (nodeFactor * 0.4 + qualityFactor * 0.6);
+
+        return Math.min(1, Math.max(0, confidence));
+    }
+
+    // 30. ПОЛУЧЕНИЕ ИНФОРМАЦИИ О ТОПОЛОГИИ
+    static getTopologyInfoForFootprint(footprint) {
+        const invariants = footprint.topologyInvariants || {};
+       
+        return {
+            nodes: footprint.nodes?.size || 0,
+            edges: footprint.edges?.length || 0,
+            normalizedNodes: invariants.normalizedNodes?.size || 0,
+            graphDiameter: invariants.graphDiameter,
+            clusteringCoefficient: invariants.clusteringCoefficient,
+            averagePathLength: invariants.averagePathLength,
+            boundingBox: invariants.boundingBox,
+            shapeDescriptors: invariants.shapeDescriptors,
+            topologyQuality: footprint.stats?.topologyQuality || 0,
+            isNormalized: invariants.normalizedNodes && invariants.normalizedNodes.size > 0
+        };
     }
 }
 
