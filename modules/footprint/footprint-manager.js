@@ -127,13 +127,15 @@ class FootprintManager {
                 console.log(`❌ Ошибка добавления анализа ${index}:`, addError.message);
             }
         });
-
+// ✅ ОБНОВЛЯЕМ ТОПОЛОГИЧЕСКИЕ ИНВАРИАНТЫ
+footprint.updateTopologyInvariants();
         // ✅ ПРОВЕРЯЕМ ЧТО МОДЕЛЬ СОЗДАНА
         if (footprint.nodes.size === 0) {
             throw new Error('Не удалось создать модель: нет узлов протектора');
         }
 
         console.log(`📊 Итог модели: ${footprint.nodes.size} узлов, ${footprint.allContours?.length || 0} контуров`);
+console.log(`🎯 Топологическое качество: ${(footprint.stats.topologyQuality * 100).toFixed(1)}%`);
 
         // ✅ ОБНОВЛЯЕМ МЕТАДАННЫЕ НА ОСНОВЕ РЕЗУЛЬТАТОВ
         this.updateMetadataFromResults(footprint, session);
