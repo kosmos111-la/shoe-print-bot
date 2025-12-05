@@ -4,7 +4,7 @@ const FootprintDatabase = require('./footprint-database');
 const FootprintManager = require('./footprint-manager');
 const ModelVisualizer = require('./model-visualizer');
 const EnhancedModelVisualizer = require('./enhanced-model-visualizer');
-const TopologyUtils = require('./topology-utils'); // 🔥 ДОБАВЛЯЕМ
+const TopologyUtils = require('./topology-utils');
 
 module.exports = {
     DigitalFootprint,
@@ -12,5 +12,5 @@ module.exports = {
     FootprintManager,
     ModelVisualizer,
     EnhancedModelVisualizer,
-    TopologyUtils // 🔥 ДОБАВЛЯЕМ
+    TopologyUtils
 };
