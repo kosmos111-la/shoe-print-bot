@@ -484,18 +484,18 @@ class DigitalFootprint {
         const mirrorCheck = this.checkMirrorSymmetry(otherFootprint);
 
         // 🎯 ВЕСОВЫЕ КОЭФФИЦИЕНТЫ (настраиваемые)
-        const WEIGHTS = {
-            TOPOLOGY: 0.40,   // Самый важный - инвариантен к искажениям
-            GRAPH: 0.30,      // Важный - абсолютно инвариантен
-            GEOMETRY: 0.20,   // Менее важный - чувствителен к искажениям
-            MIRROR_BONUS: 0.10 // Бонус за обнаружение зеркальности
-        };
+const WEIGHTS = {
+    TOPOLOGY: 0.35,   // Было 0.40
+    GRAPH: 0.35,      // Было 0.30
+    GEOMETRY: 0.20,   // Было 0.20
+    MIRROR_BONUS: 0.10 // Бонус за обнаружение зеркальности
+};
 
-        // 📈 ВЫЧИСЛЯЕМ ИТОГОВУЮ ОЦЕНКЯ
-        let finalScore =
-            topologyScore * WEIGHTS.TOPOLOGY +
-            graphScore * WEIGHTS.GRAPH +
-            geometryScore * WEIGHTS.GEOMETRY;
+// 📈 ВЫЧИСЛЯЕМ ИТОГОВУЮ ОЦЕНКУ
+let finalScore =
+    topologyScore * WEIGHTS.TOPOLOGY +
+    graphScore * WEIGHTS.GRAPH +
+    geometryScore * WEIGHTS.GEOMETRY;
 
         // 🪞 КОРРЕКТИРУЕМ НА ЗЕРКАЛЬНОСТЬ
         if (mirrorCheck.isMirrored && mirrorCheck.score > 0.6) {
