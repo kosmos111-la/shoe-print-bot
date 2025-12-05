@@ -185,39 +185,94 @@ class DigitalFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Вычисление геометрических инвариантов
     calculateGeometricInvariants() {
-        const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
-
-        if (normalizedNodes.length < 2) {
-            return;
-        }
-
-        // Используем TopologyUtils
-        const geometryData = TopologyUtils.calculateGeometricInvariants(normalizedNodes);
-
-        this.topologyInvariants.boundingBox = geometryData.boundingBox;
-        this.topologyInvariants.shapeDescriptors = geometryData.shapeDescriptors;
-        this.topologyInvariants.principalAxes = geometryData.principalAxes;
-
-        console.log(`📏 Геометрия: ${geometryData.boundingBox.width.toFixed(3)}x${geometryData.boundingBox.height.toFixed(3)}, ` +
-                   `соотношение=${geometryData.shapeDescriptors.aspectRatio.toFixed(3)}`);
+    const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
+   
+    if (normalizedNodes.length < 2) {
+        return;
     }
-
-    // 🔥 НОВЫЙ МЕТОД: Вычисление статистических инвариантов
-    calculateStatisticalInvariants() {
-        const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
-
-        if (normalizedNodes.length < 3) {
-            return;
-        }
-
-        // Используем TopologyUtils
-        const statsData = TopologyUtils.calculateStatisticalInvariants(normalizedNodes);
-
-        this.topologyInvariants.distanceHistogram = statsData.distanceHistogram;
-        this.topologyInvariants.angleHistogram = statsData.angleHistogram;
-
-        console.log(`📈 Статистика: ${statsData.distanceCount} расстояний, ${statsData.angleCount} углов`);
+   
+    // 1. Bounding box нормированных узлов
+    const xs = normalizedNodes.map(n => n.x);
+    const ys = normalizedNodes.map(n => n.y);
+   
+    // 🔥 ИСПРАВЛЕНИЕ: проверяем что массивы не пустые
+    if (xs.length === 0 || ys.length === 0) {
+        return;
     }
+   
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+   
+    this.topologyInvariants.boundingBox = {
+        minX,
+        maxX,
+        minY,
+        maxY,
+        width: maxX - minX,
+        height: maxY - minY,
+        center: {
+            x: (minX + maxX) / 2,
+            y: (minY + maxY) / 2
+        }
+    };
+   
+    // 2. Дескрипторы формы
+    const width = this.topologyInvariants.boundingBox.width;
+    const height = this.topologyInvariants.boundingBox.height;
+   
+    // 🔥 ИСПРАВЛЕНИЕ: проверяем деление на ноль
+    const aspectRatio = height > 0 ? width / height : 1;
+    const area = width * height;
+   
+    this.topologyInvariants.shapeDescriptors = {
+        aspectRatio,
+        area,
+        compactness: area > 0 ? (4 * Math.PI * area) / (width * width + height * height) : 0,
+        elongation: Math.max(width, height) / Math.max(Math.min(width, height), 0.001)
+    };
+   
+    console.log(`📏 Геометрия: ${width.toFixed(3)}x${height.toFixed(3)}`);
+}
+
+calculateStatisticalInvariants() {
+    const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
+   
+    if (normalizedNodes.length < 3) {
+        return;
+    }
+   
+    // 1. Гистограмма расстояний
+    const distances = [];
+    for (let i = 0; i < normalizedNodes.length; i++) {
+        for (let j = i + 1; j < normalizedNodes.length; j++) {
+            const dist = TopologyUtils.calculateDistance(normalizedNodes[i], normalizedNodes[j]);
+            distances.push(dist);
+        }
+    }
+   
+    // 🔥 ИСПРАВЛЕНИЕ: проверяем что есть расстояния
+    if (distances.length > 0) {
+        this.topologyInvariants.distanceHistogram =
+            TopologyUtils.createHistogram(distances, 8);
+    }
+   
+    // 2. Гистограмма углов
+    const center = this.topologyInvariants.boundingBox?.center;
+    if (center) {
+        const angles = normalizedNodes.map(node => {
+            const dx = node.x - center.x;
+            const dy = node.y - center.y;
+            return Math.atan2(dy, dx);
+        });
+       
+        if (angles.length > 0) {
+            this.topologyInvariants.angleHistogram =
+                TopologyUtils.createHistogram(angles, 12);
+        }
+    }
+}
 
     // 🔥 НОВЫЙ МЕТОД: Оценка качества топологии
     assessTopologyQuality() {
