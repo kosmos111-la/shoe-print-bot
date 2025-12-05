@@ -205,7 +205,15 @@ class FootprintDatabase {
             }
 
             try {
-                const comparison = tempFootprint.compare(candidate);
+                let comparison;
+if (typeof tempFootprint.compareEnhanced === 'function') {
+    comparison = tempFootprint.compareEnhanced(candidate);
+} else if (typeof tempFootprint.compare === 'function') {
+    comparison = tempFootprint.compare(candidate);
+} else {
+    console.log('❌ У tempFootprint нет методов сравнения!');
+    continue;
+}
 
                 if (comparison && comparison.score >= threshold) {
                     matches.push({
