@@ -11,7 +11,7 @@ class FootprintManager {
 
     async initialize() {
         if (this.initialized) return true;
-      
+
         try {
             await this.db.initialize();
             this.initialized = true;
@@ -55,12 +55,12 @@ class FootprintManager {
         // ✅ ПОДРОБНОЕ ЛОГИРОВАНИЕ
         console.log(`📸 Фото в сессии: ${session.photos.length}`);
         console.log(`🔍 Анализов в сессии: ${session.analysisResults.length}`);
-      
+
         // Агрегируем все анализы сессии
         session.analysisResults.forEach((analysis, index) => {
             // Находим соответствующее фото из сессии
             const photo = session.photos[index];
-          
+
             if (!photo) {
                 console.log(`⚠️ Нет фото для анализа ${index}`);
                 return;
@@ -108,13 +108,13 @@ class FootprintManager {
                 hasVisualization: !!(analysis.visualizationPaths?.analysis),
                 hasTopology: !!(analysis.visualizationPaths?.topology)
             };
-          
+
             // Добавляем анализ с путями к фото
             try {
                 const added = footprint.addAnalysis(analysis, sourceInfo);
-              
+
                 console.log(`   Анализ ${index + 1}: добавлено ${added.added} узлов, фото: ${localPhotoPath ? '✅' : '❌'}`);
-              
+
                 // ✅ ПОДРОБНАЯ СТАТИСТИКА
                 if (added.contours > 0) {
                     console.log(`       🔵 Контуров: ${added.contours}`);
@@ -122,7 +122,7 @@ class FootprintManager {
                 if (added.heels > 0) {
                     console.log(`       👠 Каблуков: ${added.heels}`);
                 }
-              
+
             } catch (addError) {
                 console.log(`❌ Ошибка добавления анализа ${index}:`, addError.message);
             }
@@ -179,24 +179,24 @@ class FootprintManager {
     // ✅ НОВЫЙ МЕТОД: Обновляем метаданные на основе результатов
     updateMetadataFromResults(footprint, session) {
         if (!session.analysisResults || session.analysisResults.length === 0) return;
-      
+
         // Собираем информацию из всех анализов
         const allSizes = [];
         const allTypes = [];
         const allOrientations = [];
-      
+
         session.analysisResults.forEach(analysis => {
             if (analysis.intelligentAnalysis?.summary) {
                 const summary = analysis.intelligentAnalysis.summary;
-              
+
                 if (summary.sizeEstimation) {
                     allSizes.push(summary.sizeEstimation);
                 }
-              
+
                 if (summary.footprintType && summary.footprintType !== 'unknown') {
                     allTypes.push(summary.footprintType);
                 }
-              
+
                 if (summary.orientation) {
                     const match = summary.orientation.match(/(\d+)/);
                     if (match) {
@@ -205,27 +205,27 @@ class FootprintManager {
                 }
             }
         });
-      
+
         // Обновляем метаданные
         if (allSizes.length > 0) {
             footprint.metadata.estimatedSize = this.calculateAverageSize(allSizes);
         }
-      
+
         if (allTypes.length > 0) {
             footprint.metadata.footprintType = this.getMostFrequentType(allTypes);
         }
-      
+
         if (allOrientations.length > 0) {
             footprint.metadata.orientation = this.calculateAverageOrientationArray(allOrientations);
         }
-      
+
         console.log(`📋 Метаданные обновлены: размер=${footprint.metadata.estimatedSize || 'неизвестно'}, тип=${footprint.metadata.footprintType}`);
     }
 
     // ✅ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ МЕТАДАННЫХ
     calculateAverageSize(sizes) {
         if (!sizes || sizes.length === 0) return null;
-      
+
         // Преобразуем строки в числа (если нужно)
         const numericSizes = sizes.map(size => {
             if (typeof size === 'string') {
@@ -234,9 +234,9 @@ class FootprintManager {
             }
             return size;
         }).filter(Boolean);
-      
+
         if (numericSizes.length === 0) return null;
-      
+
         const avg = numericSizes.reduce((sum, size) => sum + size, 0) / numericSizes.length;
         return Math.round(avg);
     }
@@ -246,18 +246,18 @@ class FootprintManager {
         types.forEach(type => {
             frequency[type] = (frequency[type] || 0) + 1;
         });
-      
+
         return Object.entries(frequency)
             .sort((a, b) => b[1] - a[1])[0][0];
     }
 
     calculateAverageOrientationArray(orientations) {
         if (!orientations || orientations.length === 0) return 0;
-      
+
         // Усреднение углов (учитываем циклическую природу)
         const sinSum = orientations.reduce((sum, angle) => sum + Math.sin(angle * Math.PI / 180), 0);
         const cosSum = orientations.reduce((sum, angle) => sum + Math.cos(angle * Math.PI / 180), 0);
-      
+
         return Math.round(Math.atan2(sinSum, cosSum) * 180 / Math.PI);
     }
 
@@ -265,10 +265,10 @@ class FootprintManager {
         if (!session.startTime || !session.photos || session.photos.length === 0) {
             return 0;
         }
-      
+
         const lastPhoto = session.photos[session.photos.length - 1];
         if (!lastPhoto.timestamp) return 0;
-      
+
         const duration = (new Date(lastPhoto.timestamp) - new Date(session.startTime)) / 1000; // секунды
         return Math.round(duration);
     }
@@ -277,13 +277,13 @@ class FootprintManager {
         if (!session.analysisResults || session.analysisResults.length === 0) {
             return 0.5;
         }
-      
+
         const qualities = session.analysisResults
             .map(a => a.photoQuality)
             .filter(q => q !== undefined);
-      
+
         if (qualities.length === 0) return 0.5;
-      
+
         return qualities.reduce((sum, q) => sum + q, 0) / qualities.length;
     }
 
@@ -291,7 +291,7 @@ class FootprintManager {
         if (!session.analysisResults || session.analysisResults.length < 2) {
             return false;
         }
-      
+
         // Простая проверка: если есть анализы с разной ориентацией
         const orientations = [];
         session.analysisResults.forEach(analysis => {
@@ -302,9 +302,9 @@ class FootprintManager {
                 }
             }
         });
-      
+
         if (orientations.length < 2) return false;
-      
+
         // Проверяем разброс ориентаций
         const minOrientation = Math.min(...orientations);
         const maxOrientation = Math.max(...orientations);
@@ -323,6 +323,60 @@ class FootprintManager {
             limit: options.limit || 5,
             quickFirst: true
         });
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Умный поиск похожих с топологической коррекцией
+    async findSimilarWithTopologyCorrection(analysis, userId, options = {}) {
+        console.log('🔍 Запускаю УМНЫЙ поиск с топологической коррекцией');
+
+        if (!this.initialized) await this.initialize();
+
+        // 1. Создаем временную модель из анализа
+        const tempFootprint = this.createFootprintFromAnalysis(analysis, userId);
+
+        // 2. Нормализуем её топологию
+        tempFootprint.updateTopologyInvariants();
+
+        // 3. Получаем все модели пользователя
+        const userModels = await this.getUserModels(userId);
+        if (!userModels || userModels.length === 0) return [];
+
+        // 4. Сравниваем с каждой моделью
+        const comparisons = [];
+
+        for (const model of userModels) {
+            try {
+                // Обновляем инварианты модели (если ещё не обновлены)
+                if (!model.topologyInvariants || !model.topologyInvariants.normalizedNodes) {
+                    model.updateTopologyInvariants();
+                }
+
+                // УЛУЧШЕННОЕ сравнение
+                const comparison = tempFootprint.compareEnhanced(model);
+
+                if (comparison.score >= (options.threshold || 0.6)) {
+                    comparisons.push({
+                        footprint: model,
+                        score: comparison.score,
+                        details: comparison.details,
+                        isMirrored: comparison.isMirrored
+                    });
+                }
+            } catch (error) {
+                console.log(`⚠️ Ошибка сравнения с моделью ${model.id}:`, error.message);
+            }
+        }
+
+        // 5. Сортируем по убыванию оценки
+        comparisons.sort((a, b) => b.score - a.score);
+
+        // 6. Ограничиваем количество результатов
+        const limit = options.limit || 5;
+        const results = comparisons.slice(0, limit);
+
+        console.log(`✅ Найдено ${results.length} похожих моделей`);
+
+        return results;
     }
 
     // ПОЛУЧИТЬ МОДЕЛИ ПОЛЬЗОВАТЕЛЯ
@@ -398,7 +452,7 @@ class FootprintManager {
             .map(a => {
                 const orient = a.intelligentAnalysis?.summary?.orientation;
                 if (!orient) return null;
-              
+
                 const match = orient.match(/(\d+)/);
                 return match ? parseInt(match[1]) : null;
             })
@@ -409,7 +463,7 @@ class FootprintManager {
         // Усреднение углов (учитываем циклическую природу)
         const sinSum = orientations.reduce((sum, angle) => sum + Math.sin(angle * Math.PI / 180), 0);
         const cosSum = orientations.reduce((sum, angle) => sum + Math.cos(angle * Math.PI / 180), 0);
-      
+
         return Math.round(Math.atan2(sinSum, cosSum) * 180 / Math.PI);
     }
 
