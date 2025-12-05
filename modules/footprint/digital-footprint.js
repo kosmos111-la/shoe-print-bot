@@ -656,16 +656,33 @@ class DigitalFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Топологическое сравнение
     compareTopology(otherFootprint) {
-    // Используем normalizedNodes ДРУГОЙ модели (уже повернутые временно)
     const nodes1 = Array.from(this.topologyInvariants.normalizedNodes.values());
     const nodes2 = Array.from(otherFootprint.topologyInvariants.normalizedNodes.values());
 
     if (nodes1.length === 0 || nodes2.length === 0) {
-        return 0;
+        return 0.3; // 🔥 НЕ 0, а 0.3!
     }
 
-    // Используем TopologyUtils с текущими (возможно повернутыми) узлами
-    return TopologyUtils.compareTopologyForFootprint(nodes1, nodes2);
+    // 🔥 ПРОСТОЕ СРАВНЕНИЕ ВМЕСТО Hungarian алгоритма
+    const n = Math.min(nodes1.length, nodes2.length, 10); // Берем до 10 узлов
+    let totalDistance = 0;
+    let matched = 0;
+   
+    for (let i = 0; i < n; i++) {
+        const dx = nodes1[i].x - nodes2[i].x;
+        const dy = nodes1[i].y - nodes2[i].y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+       
+        if (distance < 0.3) { // 🔥 Разумный порог
+            totalDistance += distance;
+            matched++;
+        }
+    }
+   
+    if (matched === 0) return 0.2; // 🔥 Хотя бы 20%
+   
+    const avgDistance = totalDistance / matched;
+    return Math.max(0.2, 1 - avgDistance / 0.3); // 🔥 Минимум 20%
 }
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение графовых инвариантов
