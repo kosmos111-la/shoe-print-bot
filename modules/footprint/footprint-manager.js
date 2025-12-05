@@ -157,7 +157,7 @@ console.log(`🎯 Топологическое качество: ${(footprint.st
         // Ищем похожие модели
         const similar = await this.db.findSimilar(
             session.analysisResults[0],
-            { userId, threshold: 0.7, limit: 3 }
+            { userId, threshold: 0.3, limit: 3 }
         );
 
         return {
