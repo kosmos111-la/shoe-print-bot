@@ -2815,6 +2815,52 @@ bot.onText(/\/footprint_stats/, async (msg) => {
     }
 });
 
+// В main.js добавить:
+bot.onText(/\/trust_compare (.+) (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const [id1, id2] = match.slice(1);
+
+    try {
+        const models = await FootprintManager.getUserModels(userId);
+        const model1 = models.find(m => m.id.startsWith(id1));
+        const model2 = models.find(m => m.id.startsWith(id2));
+
+        if (!model1 || !model2) {
+            await bot.sendMessage(chatId, '❌ Модели не найдены');
+            return;
+        }
+
+        // Сравнение
+        const comparison = model1.compareEnhanced(model2);
+       
+        // Пути к фото
+        const photo1 = model1.bestPhotoInfo?.path;
+        const photo2 = model2.bestPhotoInfo?.path;
+       
+        // Создаем доверительную визуализацию
+        const TrustVisualizer = require('./modules/footprint/trust-visualizer');
+        const visualizer = new TrustVisualizer();
+        const vizPath = await visualizer.createTrustworthyComparison(
+            model1, model2, comparison, photo1, photo2
+        );
+       
+        if (vizPath) {
+            await bot.sendPhoto(chatId, vizPath, {
+                caption: `🔍 ДОВЕРИТЕЛЬНОЕ СРАВНЕНИЕ\n` +
+                        `🎯 Совпадение: ${Math.round(comparison.score * 100)}%\n` +
+                        `🔄 Применен поворот: ${comparison.details?.rotationAngleDegrees?.toFixed(1) || 0}°\n` +
+                        `📐 PCA модель1: ${(model1.topologyInvariants?.normalizationParams?.rotation * 180 / Math.PI || 0).toFixed(1)}°\n` +
+                        `📐 PCA модель2: ${(model2.topologyInvariants?.normalizationParams?.rotation * 180 / Math.PI || 0).toFixed(1)}°`
+            });
+        }
+
+    } catch (error) {
+        console.log('❌ Ошибка trust compare:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 // Обработка команд вида /view_XXXXXXX (просмотр модели)
 // Команда /view_XXXXXXX - просмотр модели с улучшенной визуализацией
 bot.onText(/\/view_([a-f0-9_]+)/i, async (msg, match) => {
