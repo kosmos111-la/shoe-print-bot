@@ -321,7 +321,7 @@ console.log(`🎯 Топологическое качество: ${(footprint.st
 
         return await this.db.findSimilar(analysis, {
             userId,
-            threshold: options.threshold || 0.6,
+            threshold: options.threshold || 0.4, // Было 0.6
             limit: options.limit || 5,
             quickFirst: true
         });
