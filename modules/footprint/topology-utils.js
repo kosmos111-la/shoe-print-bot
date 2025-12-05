@@ -1466,4 +1466,4 @@ class DigitalFootprint {
     }
 }
 
-module.exports = DigitalFootprint;
+module.exports = TopologyUtils;
