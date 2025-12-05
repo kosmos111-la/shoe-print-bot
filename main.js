@@ -2630,7 +2630,7 @@ bot.onText(/\/find_similar/, async (msg) => {  // ⚠️ ВАЖНО: добав
             lastAnalysis,
             userId,
             {
-                threshold: 0.6,
+                threshold: 0.3, // СНИЖАЕМ до 30%
                 limit: 5
             }
         );
