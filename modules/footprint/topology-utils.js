@@ -1303,6 +1303,167 @@ class DigitalFootprint {
             isMirrored: this.mirrorInfo.isMirrored
         };
     }
+  // 🔥 ДОБАВЛЯЕМ normalizeNodes
+    static normalizeNodes(nodes) {
+        console.log('🔧 TopologyUtils.normalizeNodes вызван с', nodes?.length, 'узлами');
+       
+        if (!nodes || nodes.length < 2) {
+            console.log('⚠️ Недостаточно узлов для нормализации');
+            return {
+                normalized: nodes ? nodes.map(n => ({
+                    x: n.x || n.center?.x || 0,
+                    y: n.y || n.center?.y || 0
+                })) : [],
+                params: {
+                    center: {x: 0, y: 0},
+                    scale: 1,
+                    rotation: 0,
+                    meanDistance: 0
+                }
+            };
+        }
+       
+        // Преобразуем узлы в простые точки
+        const points = nodes.map(n => {
+            // Поддерживаем разные форматы: {x, y} или {center: {x, y}}
+            const x = n.x || (n.center && n.center.x) || 0;
+            const y = n.y || (n.center && n.center.y) || 0;
+            const confidence = n.confidence || 0.5;
+            const id = n.id || `node_${Math.random().toString(36).substr(2, 9)}`;
+           
+            return { x, y, confidence, id, originalNode: n };
+        });
+       
+        console.log(`📊 Исходные точки: ${points.map(p => `(${p.x},${p.y})`).join(', ')}`);
+       
+        // 1. ЦЕНТР МАСС
+        const center = this.calculateCenterOfMass(points);
+        console.log(`📍 Центр масс: (${center.x.toFixed(2)}, ${center.y.toFixed(2)})`);
+       
+        // 2. ЦЕНТРИРУЕМ (переносим в начало координат)
+        const centered = points.map(p => ({
+            x: p.x - center.x,
+            y: p.y - center.y,
+            confidence: p.confidence,
+            id: p.id
+        }));
+       
+        // 3. СРЕДНЕЕ РАССТОЯНИЕ между всеми парами точек
+        const distances = [];
+        for (let i = 0; i < centered.length; i++) {
+            for (let j = i + 1; j < centered.length; j++) {
+                const dist = this.calculateDistance(centered[i], centered[j]);
+                distances.push(dist);
+            }
+        }
+       
+        const meanDistance = distances.length > 0
+            ? distances.reduce((sum, d) => sum + d, 0) / distances.length
+            : 1;
+       
+        console.log(`📏 Среднее расстояние: ${meanDistance.toFixed(2)}`);
+       
+        // 4. МАСШТАБИРОВАНИЕ (делаем среднее расстояние = 1)
+        const scale = meanDistance > 0 ? 1.0 / meanDistance : 1.0;
+       
+        // 5. PCA - находим главную ось для выравнивания
+        const pca = this.calculatePCA(points);
+        let rotationAngle = 0;
+       
+        if (pca && pca.eigenvectors && pca.eigenvectors[0]) {
+            const principalAxis = pca.eigenvectors[0];
+            // Угол главной оси относительно горизонтали
+            rotationAngle = -Math.atan2(principalAxis.y, principalAxis.x);
+            console.log(`🔄 Угол поворота: ${(rotationAngle * 180 / Math.PI).toFixed(1)}°`);
+        }
+       
+        // 6. ПРИМЕНЯЕМ преобразования к каждой точке
+        const normalized = centered.map(point => {
+            // Масштабирование
+            let x = point.x * scale;
+            let y = point.y * scale;
+           
+            // Поворот (делаем главную ось горизонтальной)
+            const cos = Math.cos(rotationAngle);
+            const sin = Math.sin(rotationAngle);
+            const rotatedX = x * cos - y * sin;
+            const rotatedY = x * sin + y * cos;
+           
+            return {
+                x: rotatedX,
+                y: rotatedY,
+                confidence: point.confidence,
+                id: point.id,
+                // Сохраняем оригинальные координаты для отладки
+                original: { x: point.x + center.x, y: point.y + center.y }
+            };
+        });
+       
+        console.log(`🎯 Нормализовано ${normalized.length} узлов`);
+        console.log(`📐 Параметры: масштаб=${scale.toFixed(4)}, поворот=${(rotationAngle * 180 / Math.PI).toFixed(1)}°`);
+       
+        return {
+            normalized: normalized.map(n => ({ x: n.x, y: n.y })),
+            fullNormalized: normalized,
+            params: {
+                center,
+                scale,
+                rotation: rotationAngle,
+                meanDistance
+            }
+        };
+    }
+
+    // 🔥 ДОБАВЛЯЕМ compareGraphInvariants (нужен для тестов)
+    static compareGraphInvariants(invariants1, invariants2) {
+        console.log('🔍 TopologyUtils.compareGraphInvariants вызван');
+       
+        if (!invariants1 || !invariants2) {
+            console.log('⚠️ Нет данных для сравнения');
+            return 0.5;
+        }
+       
+        let totalScore = 0;
+        let factors = 0;
+       
+        // 1. Сравнение распределения степеней
+        if (invariants1.degreeDistribution && invariants2.degreeDistribution) {
+            const degreeScore = this.compareHistograms(
+                invariants1.degreeDistribution,
+                invariants2.degreeDistribution
+            );
+            totalScore += degreeScore * 0.4;
+            factors += 0.4;
+            console.log(`   • Распределение степеней: ${(degreeScore * 100).toFixed(1)}%`);
+        }
+       
+        // 2. Сравнение диаметра графа
+        if (invariants1.graphDiameter !== null && invariants2.graphDiameter !== null) {
+            const diam1 = invariants1.graphDiameter;
+            const diam2 = invariants2.graphDiameter;
+            const maxDiam = Math.max(diam1, diam2, 1);
+            const diamScore = 1 - Math.abs(diam1 - diam2) / maxDiam;
+            totalScore += diamScore * 0.3;
+            factors += 0.3;
+            console.log(`   • Диаметр графа: ${(diamScore * 100).toFixed(1)}% (${diam1} vs ${diam2})`);
+        }
+       
+        // 3. Сравнение коэффициента кластеризации
+        if (invariants1.clusteringCoefficient !== null &&
+            invariants2.clusteringCoefficient !== null) {
+            const cc1 = invariants1.clusteringCoefficient;
+            const cc2 = invariants2.clusteringCoefficient;
+            const ccScore = 1 - Math.abs(cc1 - cc2);
+            totalScore += ccScore * 0.3;
+            factors += 0.3;
+            console.log(`   • Коэффициент кластеризации: ${(ccScore * 100).toFixed(1)}% (${cc1.toFixed(3)} vs ${cc2.toFixed(3)})`);
+        }
+       
+        const finalScore = factors > 0 ? totalScore / factors : 0.5;
+        console.log(`   🎯 Итоговый score: ${(finalScore * 100).toFixed(1)}%`);
+       
+        return finalScore;
+    }
 }
 
 module.exports = DigitalFootprint;
