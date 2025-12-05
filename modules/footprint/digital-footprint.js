@@ -1,5 +1,5 @@
 // modules/footprint/digital-footprint.js
-// ОБНОВЛЕННАЯ ВЕРСИЯ С ТОПОЛОГИЧЕСКИМИ ИНВАРИАНТАМИ
+// ОБНОВЛЕННАЯ ВЕРСИЯ С ТОПОЛОГИЧЕСКИМИ ИНВАРИАНТАМИ И ПОВОРОТОМ
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -93,7 +93,221 @@ class DigitalFootprint {
         this.hash = null;
         this.boundingBox = null;
         this.featureVector = null;
-        this.version = '2.3'; // 🔥 Обновили версию для топологии
+        this.version = '2.4'; // 🔥 Обновили версию для поворота
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Поиск оптимального поворота для сравнения
+    findOptimalRotationForComparison(otherFootprint) {
+        const nodes1 = Array.from(this.topologyInvariants.normalizedNodes.values());
+        const nodes2 = Array.from(otherFootprint.topologyInvariants.normalizedNodes.values());
+
+        if (nodes1.length < 3 || nodes2.length < 3) {
+            return { angle: 0, score: 0 };
+        }
+
+        // Тестируем 8 углов (0°, 45°, 90°, 135°, 180°, -45°, -90°, -135°)
+        const angles = [0, Math.PI/4, Math.PI/2, 3*Math.PI/4, Math.PI, -Math.PI/4, -Math.PI/2];
+        let bestAngle = 0;
+        let bestScore = -Infinity;
+
+        angles.forEach(angle => {
+            // Поворачиваем вторую модель
+            const rotatedNodes2 = nodes2.map(node => ({
+                x: node.x * Math.cos(angle) - node.y * Math.sin(angle),
+                y: node.x * Math.sin(angle) + node.y * Math.cos(angle),
+                confidence: node.confidence
+            }));
+
+            // Простое сравнение расстояний
+            const score = this.calculateNodeSimilarity(nodes1, rotatedNodes2);
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestAngle = angle;
+            }
+        });
+
+        console.log(`🔄 Найден оптимальный поворот: ${(bestAngle * 180 / Math.PI).toFixed(1)}° (сходство: ${(bestScore * 100).toFixed(1)}%)`);
+        return { angle: bestAngle, score: bestScore };
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Расчет сходства узлов
+    calculateNodeSimilarity(nodes1, nodes2) {
+        if (nodes1.length === 0 || nodes2.length === 0) return 0;
+
+        // Сопоставляем узлы по ближайшему расстоянию
+        let totalDistance = 0;
+        let matched = 0;
+
+        // Простой алгоритм: берем первые N узлов (где N = min(длин))
+        const n = Math.min(nodes1.length, nodes2.length);
+
+        for (let i = 0; i < n; i++) {
+            const dx = nodes1[i].x - nodes2[i].x;
+            const dy = nodes1[i].y - nodes2[i].y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Если расстояние разумное (меньше 0.5 в нормализованных координатах)
+            if (distance < 0.5) {
+                totalDistance += distance;
+                matched++;
+            }
+        }
+
+        if (matched === 0) return 0;
+
+        const avgDistance = totalDistance / matched;
+        // Преобразуем расстояние в сходство (0-1)
+        return Math.max(0, 1 - avgDistance / 0.5);
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД compareEnhanced с поворотом
+    compareEnhanced(otherFootprint) {
+        console.log(`🔍 Запускаю УЛУЧШЕННОЕ сравнение с поворотом: "${this.name}" vs "${otherFootprint.name}"`);
+
+        if (!otherFootprint || !otherFootprint.nodes || otherFootprint.nodes.size === 0) {
+            return {
+                score: 0,
+                matched: 0,
+                total: 0,
+                details: {
+                    topology: 0,
+                    graph: 0,
+                    geometry: 0
+                },
+                isMirrored: false,
+                confidence: 0
+            };
+        }
+
+        // 🔄 ОБНОВЛЯЕМ ИНВАРИАНТЫ если нужно
+        if (!this.topologyInvariants.normalizedNodes || this.topologyInvariants.normalizedNodes.size === 0) {
+            this.updateTopologyInvariants();
+        }
+
+        if (!otherFootprint.topologyInvariants.normalizedNodes ||
+            otherFootprint.topologyInvariants.normalizedNodes.size === 0) {
+            otherFootprint.updateTopologyInvariants();
+        }
+
+        // 🔥 1. НАХОДИМ ОПТИМАЛЬНЫЙ ПОВОРОТ
+        const rotationCheck = this.findOptimalRotationForComparison(otherFootprint);
+        console.log(`🎯 Оптимальный поворот для сравнения: ${(rotationCheck.angle * 180 / Math.PI).toFixed(1)}°`);
+
+        // 🔥 2. ВРЕМЕННО ПОВОРАЧИВАЕМ УЗЛЫ ВТОРОЙ МОДЕЛИ
+        const originalNodes = Array.from(otherFootprint.topologyInvariants.normalizedNodes.values());
+        const rotatedNodes = originalNodes.map((node, index) => {
+            // Используем оригинальные данные узла
+            const originalNode = node.originalNode ? node.originalNode : node;
+            return {
+                x: node.x * Math.cos(rotationCheck.angle) - node.y * Math.sin(rotationCheck.angle),
+                y: node.x * Math.sin(rotationCheck.angle) + node.y * Math.cos(rotationCheck.angle),
+                confidence: node.confidence,
+                id: `rotated_${index}`,
+                originalNode: originalNode
+            };
+        });
+
+        // Сохраняем оригинальные данные
+        const originalNormalized = otherFootprint.topologyInvariants.normalizedNodes;
+        const originalNormalizedArray = Array.from(originalNormalized.entries());
+
+        // Заменяем на повернутые узлы
+        otherFootprint.topologyInvariants.normalizedNodes = new Map(
+            rotatedNodes.map((node, i) => [node.id, node])
+        );
+
+        // 🔥 3. ВЫЧИСЛЯЕМ РАЗНЫЕ ТИПЫ СХОДСТВА С ПОВЕРНУТОЙ ВЕРСИЕЙ
+        let topologyScore, graphScore, geometryScore;
+
+        try {
+            topologyScore = this.compareTopology(otherFootprint);
+            graphScore = this.compareGraphInvariants(otherFootprint);
+            geometryScore = this.compareNormalizedGeometry(otherFootprint);
+        } catch (error) {
+            console.log(`❌ Ошибка сравнения:`, error.message);
+            topologyScore = 0;
+            graphScore = 0;
+            geometryScore = 0;
+        }
+
+        // 🔥 4. ВОССТАНАВЛИВАЕМ ОРИГИНАЛЬНЫЕ УЗЛЫ
+        otherFootprint.topologyInvariants.normalizedNodes = new Map(originalNormalizedArray);
+
+        // 🔥 5. ПРОВЕРКА ЗЕРКАЛЬНОСТИ (с учетом поворота)
+        const mirrorCheck = this.checkMirrorSymmetry(otherFootprint);
+
+        // 🔥 6. ВЕСОВЫЕ КОЭФФИЦИЕНТЫ (учитываем качество поворота)
+        const WEIGHTS = {
+            TOPOLOGY: 0.35,
+            GRAPH: 0.35,
+            GEOMETRY: 0.20,
+            ROTATION_BONUS: rotationCheck.score > 0.7 ? 0.10 : 0.05,
+            MIRROR_BONUS: 0.10
+        };
+
+        // 🔥 7. ИТОГОВАЯ ОЦЕНКА (учитываем качество поворота)
+        let finalScore =
+            topologyScore * WEIGHTS.TOPOLOGY +
+            graphScore * WEIGHTS.GRAPH +
+            geometryScore * WEIGHTS.GEOMETRY +
+            rotationCheck.score * WEIGHTS.ROTATION_BONUS;
+
+        // 🔥 8. КОРРЕКТИРУЕМ НА ЗЕРКАЛЬНОСТЬ
+        if (mirrorCheck.isMirrored && mirrorCheck.score > 0.6) {
+            finalScore = Math.min(1.0, finalScore + WEIGHTS.MIRROR_BONUS);
+        }
+
+        // 🔥 9. ПОДСЧЕТ СОПОСТАВЛЕННЫХ УЗЛОВ (с учетом поворота)
+        const matchedNodes = this.countMatchedNodes(otherFootprint);
+
+        // 🔥 10. ФОРМИРУЕМ РЕЗУЛЬТАТ
+        const result = {
+            score: Math.min(1.0, Math.max(0, finalScore)),
+            matched: matchedNodes.count,
+            total: Math.min(this.nodes.size, otherFootprint.nodes.size),
+            details: {
+                topology: topologyScore,
+                graph: graphScore,
+                geometry: geometryScore,
+                rotation: rotationCheck.score,
+                rotationAngle: rotationCheck.angle * 180 / Math.PI
+            },
+            isMirrored: mirrorCheck.isMirrored,
+            mirrorDetails: mirrorCheck,
+            rotationApplied: true,
+            rotationAngleDegrees: rotationCheck.angle * 180 / Math.PI,
+            confidence: this.calculateComparisonConfidence(otherFootprint),
+            diagnostic: {
+                nodes1: this.nodes.size,
+                nodes2: otherFootprint.nodes.size,
+                rotationUsed: true,
+                rotationAngle: rotationCheck.angle * 180 / Math.PI,
+                rotationQuality: rotationCheck.score
+            }
+        };
+
+        // 🔥 11. ЛОГИРУЕМ РЕЗУЛЬТАТЫ С ПОВОРОТОМ
+        console.log(`\n📊 ===== РЕЗУЛЬТАТЫ СРАВНЕНИЯ С ПОВОРОТОМ =====`);
+        console.log(`🎯 Итоговая оценка: ${(result.score * 100).toFixed(1)}%`);
+        console.log(`📈 Детализация:`);
+        console.log(`   • Топология: ${(topologyScore * 100).toFixed(1)}%`);
+        console.log(`   • Граф: ${(graphScore * 100).toFixed(1)}%`);
+        console.log(`   • Геометрия: ${(geometryScore * 100).toFixed(1)}%`);
+        console.log(`   • Поворот: ${(rotationCheck.score * 100).toFixed(1)}% (${(rotationCheck.angle * 180 / Math.PI).toFixed(1)}°)`);
+        console.log(`   • Узлов сопоставлено: ${matchedNodes.count}/${result.total}`);
+
+        if (mirrorCheck.isMirrored) {
+            console.log(`   • 🪞 ЗЕРКАЛЬНАЯ ПАРА обнаружена!`);
+        }
+
+        if (rotationCheck.angle !== 0) {
+            console.log(`   • 🔄 Применен поворот: ${(rotationCheck.angle * 180 / Math.PI).toFixed(1)}°`);
+        }
+
+        console.log(`============================================\n`);
+
+        return result;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Обновление топологических инвариантов
@@ -141,7 +355,7 @@ class DigitalFootprint {
 
         // Используем TopologyUtils
         const normalizedData = TopologyUtils.normalizeNodes(nodesArray);
-      
+
         this.topologyInvariants.normalizedNodes.clear();
         this.topologyInvariants.normalizationParams = normalizedData.normalizationParams;
 
@@ -190,11 +404,11 @@ class DigitalFootprint {
     // 🔥 НОВЫЙ МЕТОД: Вычисление геометрических инвариантов
     calculateGeometricInvariants() {
         const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
-      
+
         if (normalizedNodes.length < 2) {
             return;
         }
-      
+
         // Используем TopologyUtils
         const geometricData = TopologyUtils.calculateGeometricInvariantsForFootprint(
             normalizedNodes,
@@ -203,18 +417,18 @@ class DigitalFootprint {
 
         this.topologyInvariants.boundingBox = geometricData.boundingBox;
         this.topologyInvariants.shapeDescriptors = geometricData.shapeDescriptors;
-      
+
         console.log(`📏 Геометрия: ${geometricData.boundingBox?.width?.toFixed(3) || 0}x${geometricData.boundingBox?.height?.toFixed(3) || 0}`);
     }
 
     // 🔥 НОВЫЙ МЕТОД: Вычисление статистических инвариантов
     calculateStatisticalInvariants() {
         const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
-      
+
         if (normalizedNodes.length < 3) {
             return;
         }
-      
+
         // 1. Гистограмма расстояний
         const distances = [];
         for (let i = 0; i < normalizedNodes.length; i++) {
@@ -223,13 +437,13 @@ class DigitalFootprint {
                 distances.push(dist);
             }
         }
-      
+
         // 🔥 ИСПРАВЛЕНИЕ: проверяем что есть расстояния
         if (distances.length > 0) {
             this.topologyInvariants.distanceHistogram =
                 TopologyUtils.createHistogram(distances, 8);
         }
-      
+
         // 2. Гистограмма углов
         const center = this.topologyInvariants.boundingBox?.center;
         if (center) {
@@ -238,7 +452,7 @@ class DigitalFootprint {
                 const dy = node.y - center.y;
                 return Math.atan2(dy, dx);
             });
-          
+
             if (angles.length > 0) {
                 this.topologyInvariants.angleHistogram =
                     TopologyUtils.createHistogram(angles, 12);
@@ -402,7 +616,7 @@ class DigitalFootprint {
         if (addedNodes.length > 0 || mergedNodes.length > 0) {
             this.rebuildEdges();
             this.updateIndices();
-          
+
             // 🔥 ОБНОВЛЯЕМ ТОПОЛОГИЧЕСКИЕ ИНВАРИАНТЫ если изменилось много узлов
             if (addedNodes.length > 0 || mergedNodes.length > 2) {
                 this.updateTopologyInvariants();
@@ -438,120 +652,6 @@ class DigitalFootprint {
             confidence: this.stats.confidence,
             photoQuality: photoQuality
         };
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Улучшенное сравнение с топологической коррекцией
-    compareEnhanced(otherFootprint) {
-        console.log(`🔍 Запускаю УЛУЧШЕННОЕ сравнение: "${this.name}" vs "${otherFootprint.name}"`);
-
-        if (!otherFootprint || !otherFootprint.nodes || otherFootprint.nodes.size === 0) {
-            return {
-                score: 0,
-                matched: 0,
-                total: 0,
-                details: {
-                    topology: 0,
-                    graph: 0,
-                    geometry: 0
-                },
-                isMirrored: false,
-                confidence: 0
-            };
-        }
-
-        // 🔄 ОБНОВЛЯЕМ ИНВАРИАНТЫ если нужно
-        if (!this.topologyInvariants.normalizedNodes || this.topologyInvariants.normalizedNodes.size === 0) {
-            this.updateTopologyInvariants();
-        }
-
-        if (!otherFootprint.topologyInvariants.normalizedNodes ||
-            otherFootprint.topologyInvariants.normalizedNodes.size === 0) {
-            otherFootprint.updateTopologyInvariants();
-        }
-
-        // 📊 ВЫЧИСЛЯЕМ РАЗНЫЕ ТИПЫ СХОДСТВА
-
-        // 1. ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ (инвариантное к искажениям)
-        const topologyScore = this.compareTopology(otherFootprint);
-
-        // 2. ГРАФОВОЕ СРАВНЕНИЕ (абсолютно инвариантное)
-        const graphScore = this.compareGraphInvariants(otherFootprint);
-
-        // 3. ГЕОМЕТРИЧЕСКОЕ СРАВНЕНИЕ (нормированное)
-        const geometryScore = this.compareNormalizedGeometry(otherFootprint);
-
-        // 4. ПРОВЕРКА ЗЕРКАЛЬНОСТИ
-        const mirrorCheck = this.checkMirrorSymmetry(otherFootprint);
-
-        // 🎯 ВЕСОВЫЕ КОЭФФИЦИЕНТЫ (настраиваемые)
-const WEIGHTS = {
-    TOPOLOGY: 0.35,   // Было 0.40
-    GRAPH: 0.35,      // Было 0.30
-    GEOMETRY: 0.20,   // Было 0.20
-    MIRROR_BONUS: 0.10 // Бонус за обнаружение зеркальности
-};
-
-// 📈 ВЫЧИСЛЯЕМ ИТОГОВУЮ ОЦЕНКУ
-let finalScore =
-    topologyScore * WEIGHTS.TOPOLOGY +
-    graphScore * WEIGHTS.GRAPH +
-    geometryScore * WEIGHTS.GEOMETRY;
-
-        // 🪞 КОРРЕКТИРУЕМ НА ЗЕРКАЛЬНОСТЬ
-        if (mirrorCheck.isMirrored && mirrorCheck.score > 0.6) {
-            // Если зеркальная версия лучше, даем бонус
-            finalScore = Math.min(1.0, finalScore + WEIGHTS.MIRROR_BONUS);
-        }
-
-        // 🔍 ПОДСЧИТЫВАЕМ КОЛИЧЕСТВО СОПОСТАВЛЕННЫХ УЗЛОВ
-        const matchedNodes = this.countMatchedNodes(otherFootprint);
-
-        // 📊 ФОРМИРУЕМ РЕЗУЛЬТАТ
-        const result = {
-            score: Math.min(1.0, Math.max(0, finalScore)),
-            matched: matchedNodes.count,
-            total: Math.min(this.nodes.size, otherFootprint.nodes.size),
-            details: {
-                topology: topologyScore,
-                graph: graphScore,
-                geometry: geometryScore,
-                rawScores: {
-                    topology: topologyScore,
-                    graph: graphScore,
-                    geometry: geometryScore
-                }
-            },
-            isMirrored: mirrorCheck.isMirrored,
-            mirrorDetails: mirrorCheck,
-            confidence: this.calculateComparisonConfidence(otherFootprint),
-            // 🔥 Дополнительная диагностика
-            diagnostic: {
-                nodes1: this.nodes.size,
-                nodes2: otherFootprint.nodes.size,
-                normalized1: this.topologyInvariants.normalizedNodes.size,
-                normalized2: otherFootprint.topologyInvariants.normalizedNodes.size,
-                topologyQuality1: this.stats.topologyQuality,
-                topologyQuality2: otherFootprint.stats.topologyQuality || 0
-            }
-        };
-
-        // 📝 ЛОГИРУЕМ РЕЗУЛЬТАТЫ
-        console.log(`\n📊 ===== РЕЗУЛЬТАТЫ СРАВНЕНИЯ =====`);
-        console.log(`🎯 Итоговая оценка: ${(result.score * 100).toFixed(1)}%`);
-        console.log(`📈 Детализация:`);
-        console.log(`   • Топология: ${(topologyScore * 100).toFixed(1)}%`);
-        console.log(`   • Граф: ${(graphScore * 100).toFixed(1)}%`);
-        console.log(`   • Геометрия: ${(geometryScore * 100).toFixed(1)}%`);
-        console.log(`   • Узлов сопоставлено: ${matchedNodes.count}/${result.total}`);
-
-        if (mirrorCheck.isMirrored) {
-            console.log(`   • 🪞 ЗЕРКАЛЬНАЯ ПАРА обнаружена!`);
-            console.log(`     (зеркальная версия лучше на ${((mirrorCheck.mirroredDistance / mirrorCheck.originalDistance - 1) * -100).toFixed(1)}%)`);
-        }
-
-        console.log(`===================================\n`);
-
-        return result;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Топологическое сравнение
