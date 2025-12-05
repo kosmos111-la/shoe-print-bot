@@ -141,15 +141,19 @@ class DigitalFootprint {
 
         // Используем TopologyUtils
         const normalizedData = TopologyUtils.normalizeNodes(nodesArray);
-       
+      
         this.topologyInvariants.normalizedNodes.clear();
         this.topologyInvariants.normalizationParams = normalizedData.normalizationParams;
 
-        nodesArray.forEach((node, index) => {
-            if (normalizedData.normalizedNodes[index]) {
-                this.topologyInvariants.normalizedNodes.set(node.id, {
-                    ...normalizedData.normalizedNodes[index],
-                    originalId: node.id
+        // Сохраняем нормализованные узлы
+        normalizedData.normalized.forEach((normalizedNode, index) => {
+            const originalNode = nodesArray[index];
+            if (originalNode && normalizedNode) {
+                this.topologyInvariants.normalizedNodes.set(originalNode.id, {
+                    x: normalizedNode.x,
+                    y: normalizedNode.y,
+                    confidence: normalizedNode.confidence,
+                    originalId: originalNode.id
                 });
             }
         });
@@ -170,7 +174,7 @@ class DigitalFootprint {
         }
 
         // Используем TopologyUtils
-        const graphData = TopologyUtils.calculateGraphInvariants(nodesArray, this.edges);
+        const graphData = TopologyUtils.calculateGraphInvariantsForFootprint(nodesArray, this.edges);
 
         this.topologyInvariants.adjacencyMatrix = graphData.adjacencyMatrix;
         this.topologyInvariants.degreeDistribution = graphData.degreeDistribution;
@@ -185,94 +189,62 @@ class DigitalFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Вычисление геометрических инвариантов
     calculateGeometricInvariants() {
-    const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
-   
-    if (normalizedNodes.length < 2) {
-        return;
-    }
-   
-    // 1. Bounding box нормированных узлов
-    const xs = normalizedNodes.map(n => n.x);
-    const ys = normalizedNodes.map(n => n.y);
-   
-    // 🔥 ИСПРАВЛЕНИЕ: проверяем что массивы не пустые
-    if (xs.length === 0 || ys.length === 0) {
-        return;
-    }
-   
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-   
-    this.topologyInvariants.boundingBox = {
-        minX,
-        maxX,
-        minY,
-        maxY,
-        width: maxX - minX,
-        height: maxY - minY,
-        center: {
-            x: (minX + maxX) / 2,
-            y: (minY + maxY) / 2
+        const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
+      
+        if (normalizedNodes.length < 2) {
+            return;
         }
-    };
-   
-    // 2. Дескрипторы формы
-    const width = this.topologyInvariants.boundingBox.width;
-    const height = this.topologyInvariants.boundingBox.height;
-   
-    // 🔥 ИСПРАВЛЕНИЕ: проверяем деление на ноль
-    const aspectRatio = height > 0 ? width / height : 1;
-    const area = width * height;
-   
-    this.topologyInvariants.shapeDescriptors = {
-        aspectRatio,
-        area,
-        compactness: area > 0 ? (4 * Math.PI * area) / (width * width + height * height) : 0,
-        elongation: Math.max(width, height) / Math.max(Math.min(width, height), 0.001)
-    };
-   
-    console.log(`📏 Геометрия: ${width.toFixed(3)}x${height.toFixed(3)}`);
-}
+      
+        // Используем TopologyUtils
+        const geometricData = TopologyUtils.calculateGeometricInvariantsForFootprint(
+            normalizedNodes,
+            this.topologyInvariants
+        );
 
-calculateStatisticalInvariants() {
-    const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
-   
-    if (normalizedNodes.length < 3) {
-        return;
+        this.topologyInvariants.boundingBox = geometricData.boundingBox;
+        this.topologyInvariants.shapeDescriptors = geometricData.shapeDescriptors;
+      
+        console.log(`📏 Геометрия: ${geometricData.boundingBox?.width?.toFixed(3) || 0}x${geometricData.boundingBox?.height?.toFixed(3) || 0}`);
     }
-   
-    // 1. Гистограмма расстояний
-    const distances = [];
-    for (let i = 0; i < normalizedNodes.length; i++) {
-        for (let j = i + 1; j < normalizedNodes.length; j++) {
-            const dist = TopologyUtils.calculateDistance(normalizedNodes[i], normalizedNodes[j]);
-            distances.push(dist);
+
+    // 🔥 НОВЫЙ МЕТОД: Вычисление статистических инвариантов
+    calculateStatisticalInvariants() {
+        const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
+      
+        if (normalizedNodes.length < 3) {
+            return;
+        }
+      
+        // 1. Гистограмма расстояний
+        const distances = [];
+        for (let i = 0; i < normalizedNodes.length; i++) {
+            for (let j = i + 1; j < normalizedNodes.length; j++) {
+                const dist = TopologyUtils.calculateDistance(normalizedNodes[i], normalizedNodes[j]);
+                distances.push(dist);
+            }
+        }
+      
+        // 🔥 ИСПРАВЛЕНИЕ: проверяем что есть расстояния
+        if (distances.length > 0) {
+            this.topologyInvariants.distanceHistogram =
+                TopologyUtils.createHistogram(distances, 8);
+        }
+      
+        // 2. Гистограмма углов
+        const center = this.topologyInvariants.boundingBox?.center;
+        if (center) {
+            const angles = normalizedNodes.map(node => {
+                const dx = node.x - center.x;
+                const dy = node.y - center.y;
+                return Math.atan2(dy, dx);
+            });
+          
+            if (angles.length > 0) {
+                this.topologyInvariants.angleHistogram =
+                    TopologyUtils.createHistogram(angles, 12);
+            }
         }
     }
-   
-    // 🔥 ИСПРАВЛЕНИЕ: проверяем что есть расстояния
-    if (distances.length > 0) {
-        this.topologyInvariants.distanceHistogram =
-            TopologyUtils.createHistogram(distances, 8);
-    }
-   
-    // 2. Гистограмма углов
-    const center = this.topologyInvariants.boundingBox?.center;
-    if (center) {
-        const angles = normalizedNodes.map(node => {
-            const dx = node.x - center.x;
-            const dy = node.y - center.y;
-            return Math.atan2(dy, dx);
-        });
-       
-        if (angles.length > 0) {
-            this.topologyInvariants.angleHistogram =
-                TopologyUtils.createHistogram(angles, 12);
-        }
-    }
-}
 
     // 🔥 НОВЫЙ МЕТОД: Оценка качества топологии
     assessTopologyQuality() {
@@ -284,7 +256,7 @@ calculateStatisticalInvariants() {
         }
 
         // Используем TopologyUtils
-        const qualityData = TopologyUtils.assessTopologyQuality(
+        const qualityData = TopologyUtils.assessTopologyQualityForFootprint(
             nodesArray,
             this.edges,
             this.topologyInvariants
@@ -297,7 +269,7 @@ calculateStatisticalInvariants() {
         console.log(`🎯 Качество топологии: ${(this.stats.topologyQuality * 100).toFixed(1)}%`);
     }
 
-    // ОСНОВНОЙ МЕТОД: добавить данные из анализа (ТОЧНО КАК В ИСХОДНОМ КОДЕ)
+    // ОСНОВНОЙ МЕТОД: добавить данные из анализа
     addAnalysis(analysis, sourceInfo = {}) {
         const { predictions, timestamp, imagePath, photoQuality = 0.5 } = analysis;
         const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
@@ -430,7 +402,7 @@ calculateStatisticalInvariants() {
         if (addedNodes.length > 0 || mergedNodes.length > 0) {
             this.rebuildEdges();
             this.updateIndices();
-           
+          
             // 🔥 ОБНОВЛЯЕМ ТОПОЛОГИЧЕСКИЕ ИНВАРИАНТЫ если изменилось много узлов
             if (addedNodes.length > 0 || mergedNodes.length > 2) {
                 this.updateTopologyInvariants();
@@ -466,70 +438,6 @@ calculateStatisticalInvariants() {
             confidence: this.stats.confidence,
             photoQuality: photoQuality
         };
-    }
-
-    // ✅ НОВЫЙ МЕТОД: Сохраняем ВСЕ контуры (не только лучшие)
-    saveAllContours(contours, sourceInfo) {
-        if (!contours || contours.length === 0) return;
-
-        // Создаем специальное поле для ВСЕХ контуров
-        if (!this.allContours) this.allContours = [];
-
-        contours.forEach(contour => {
-            const area = this.calculateArea(contour.points);
-            const confidence = contour.confidence || 0.5;
-
-            const contourData = {
-                id: `contour_all_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
-                points: contour.points,
-                area: area,
-                confidence: confidence,
-                source: {
-                    ...sourceInfo,
-                    timestamp: new Date()
-                },
-                timestamp: new Date(),
-                // ✅ Дополнительные данные для визуализации
-                boundingBox: this.calculateBoundingBox(contour.points),
-                center: this.calculateCenter(contour.points)
-            };
-
-            this.allContours.push(contourData);
-        });
-
-        // Также сохраняем в bestContours (для обратной совместимости)
-        this.updateBestContours(contours, sourceInfo);
-    }
-
-    // ✅ НОВЫЙ МЕТОД: Сохраняем ВСЕ каблуки
-    saveAllHeels(heels, sourceInfo) {
-        if (!heels || heels.length === 0) return;
-
-        if (!this.allHeels) this.allHeels = [];
-
-        heels.forEach(heel => {
-            const area = this.calculateArea(heel.points);
-            const confidence = heel.confidence || 0.5;
-
-            const heelData = {
-                id: `heel_all_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
-                points: heel.points,
-                area: area,
-                confidence: confidence,
-                source: {
-                    ...sourceInfo,
-                    timestamp: new Date()
-                },
-                timestamp: new Date(),
-                boundingBox: this.calculateBoundingBox(heel.points),
-                center: this.calculateCenter(heel.points)
-            };
-
-            this.allHeels.push(heelData);
-        });
-
-        // Также сохраняем в bestHeels
-        this.updateBestHeels(heels, sourceInfo);
     }
 
     // 🔥 НОВЫЙ МЕТОД: Улучшенное сравнение с топологической коррекцией
@@ -583,7 +491,7 @@ calculateStatisticalInvariants() {
             MIRROR_BONUS: 0.10 // Бонус за обнаружение зеркальности
         };
 
-        // 📈 ВЫЧИСЛЯЕМ ИТОГОВУЮ ОЦЕНКУ
+        // 📈 ВЫЧИСЛЯЕМ ИТОГОВУЮ ОЦЕНКЯ
         let finalScore =
             topologyScore * WEIGHTS.TOPOLOGY +
             graphScore * WEIGHTS.GRAPH +
@@ -656,7 +564,7 @@ calculateStatisticalInvariants() {
         }
 
         // Используем TopologyUtils
-        return TopologyUtils.compareTopology(nodes1, nodes2);
+        return TopologyUtils.compareTopologyForFootprint(nodes1, nodes2);
     }
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение графовых инвариантов
@@ -669,14 +577,7 @@ calculateStatisticalInvariants() {
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение нормированной геометрии
     compareNormalizedGeometry(otherFootprint) {
-        const nodes1 = Array.from(this.topologyInvariants.normalizedNodes.values());
-        const nodes2 = Array.from(otherFootprint.topologyInvariants.normalizedNodes.values());
-
-        if (nodes1.length === 0 || nodes2.length === 0) {
-            return 0;
-        }
-
-        return TopologyUtils.compareNormalizedGeometry(
+        return TopologyUtils.compareNormalizedGeometryForFootprint(
             this.topologyInvariants,
             otherFootprint.topologyInvariants
         );
@@ -709,26 +610,23 @@ calculateStatisticalInvariants() {
             return { count: 0, avgDistance: 999 };
         }
 
-        return TopologyUtils.countMatchedNodes(nodes1, nodes2);
+        return TopologyUtils.countMatchedNodesForFootprint(nodes1, nodes2);
     }
 
     // 🔥 НОВЫЙ МЕТОД: Расчет уверенности сравнения
     calculateComparisonConfidence(otherFootprint) {
-        const nodes1 = this.nodes.size;
-        const nodes2 = otherFootprint.nodes.size;
-
-        if (nodes1 === 0 || nodes2 === 0) {
-            return 0;
-        }
-
-        // Используем TopologyUtils
-        return TopologyUtils.calculateComparisonConfidence(
+        return TopologyUtils.calculateComparisonConfidenceForFootprint(
             this,
             otherFootprint
         );
     }
 
-    // СОЗДАНИЕ УЗЛА ИЗ ПРОТЕКТОРА (ТОЧНО КАК В ИСХОДНОМ)
+    // 🔥 НОВЫЙ МЕТОД: Получить информацию о топологии
+    getTopologyInfo() {
+        return TopologyUtils.getTopologyInfoForFootprint(this);
+    }
+
+    // СОЗДАНИЕ УЗЛА ИЗ ПРОТЕКТОРА
     createNodeFromProtector(protector, sourceInfo) {
         const center = this.calculateCenter(protector.points);
         const size = this.calculateSize(protector.points);
@@ -758,7 +656,7 @@ calculateStatisticalInvariants() {
         };
     }
 
-    // ПОИСК ПОХОЖЕГО УЗЛА С БОЛЬШИМ ДОПУСКОМ (ТОЧНО КАК В ИСХОДНОМ)
+    // ПОИСК ПОХОЖЕГО УЗЛА С БОЛЬШИМ ДОПУСКОМ
     findSimilarNode(newNode, maxDistance = 60) {
         let bestMatch = null;
         let bestScore = 0;
@@ -791,7 +689,7 @@ calculateStatisticalInvariants() {
         return bestMatch;
     }
 
-    // СЛИЯНИЕ УЗЛОВ (ТОЧНО КАК В ИСХОДНОМ)
+    // СЛИЯНИЕ УЗЛОВ
     mergeNodes(existingId, newNode) {
         const existing = this.nodes.get(existingId);
         if (!existing) return;
@@ -823,7 +721,71 @@ calculateStatisticalInvariants() {
         console.log(`   → Узел ${existingId.slice(-3)} подтвержден: ${existing.confidence.toFixed(2)} уверенность, ${existing.confirmationCount} подтверждений (расстояние: ${distance.toFixed(1)}px)`);
     }
 
-    // ОБНОВЛЕНИЕ ЛУЧШИХ КОНТУРОВ (ТОЧНО КАК В ИСХОДНОМ)
+    // ✅ НОВЫЙ МЕТОД: Сохраняем ВСЕ контуры (не только лучшие)
+    saveAllContours(contours, sourceInfo) {
+        if (!contours || contours.length === 0) return;
+
+        // Создаем специальное поле для ВСЕХ контуров
+        if (!this.allContours) this.allContours = [];
+
+        contours.forEach(contour => {
+            const area = this.calculateArea(contour.points);
+            const confidence = contour.confidence || 0.5;
+
+            const contourData = {
+                id: `contour_all_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+                points: contour.points,
+                area: area,
+                confidence: confidence,
+                source: {
+                    ...sourceInfo,
+                    timestamp: new Date()
+                },
+                timestamp: new Date(),
+                // ✅ Дополнительные данные для визуализации
+                boundingBox: this.calculateBoundingBox(contour.points),
+                center: this.calculateCenter(contour.points)
+            };
+
+            this.allContours.push(contourData);
+        });
+
+        // Также сохраняем в bestContours (для обратной совместимости)
+        this.updateBestContours(contours, sourceInfo);
+    }
+
+    // ✅ НОВЫЙ МЕТОД: Сохраняем ВСЕ каблуки
+    saveAllHeels(heels, sourceInfo) {
+        if (!heels || heels.length === 0) return;
+
+        if (!this.allHeels) this.allHeels = [];
+
+        heels.forEach(heel => {
+            const area = this.calculateArea(heel.points);
+            const confidence = heel.confidence || 0.5;
+
+            const heelData = {
+                id: `heel_all_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+                points: heel.points,
+                area: area,
+                confidence: confidence,
+                source: {
+                    ...sourceInfo,
+                    timestamp: new Date()
+                },
+                timestamp: new Date(),
+                boundingBox: this.calculateBoundingBox(heel.points),
+                center: this.calculateCenter(heel.points)
+            };
+
+            this.allHeels.push(heelData);
+        });
+
+        // Также сохраняем в bestHeels
+        this.updateBestHeels(heels, sourceInfo);
+    }
+
+    // ОБНОВЛЕНИЕ ЛУЧШИХ КОНТУРОВ
     updateBestContours(contours, sourceInfo) {
         if (!contours || contours.length === 0) return;
 
@@ -861,7 +823,7 @@ calculateStatisticalInvariants() {
         this.bestContours.sort((a, b) => b.qualityScore - a.qualityScore);
     }
 
-    // ОБНОВЛЕНИЕ ЛУЧШИХ КАБЛУКОВ (ТОЧНО КАК В ИСХОДНОМ)
+    // ОБНОВЛЕНИЕ ЛУЧШИХ КАБЛУКОВ
     updateBestHeels(heels, sourceInfo) {
         if (!heels || heels.length === 0) return;
 
@@ -898,7 +860,7 @@ calculateStatisticalInvariants() {
         this.bestHeels.sort((a, b) => b.qualityScore - a.qualityScore);
     }
 
-    // ОБНОВЛЕНИЕ ИНФОРМАЦИИ О ЛУЧШЕМ ФОТО (ТОЧНО КАК В ИСХОДНОМ)
+    // ОБНОВЛЕНИЕ ИНФОРМАЦИИ О ЛУЧШЕМ ФОТО
     updateBestPhotoInfo(sourceInfo) {
         if (!sourceInfo.localPhotoPath) return;
 
@@ -921,7 +883,7 @@ calculateStatisticalInvariants() {
         }
     }
 
-    // ПЕРЕСТРОЕНИЕ СВЯЗЕЙ (ТОЧНО КАК В ИСХОДНОМ)
+    // ПЕРЕСТРОЕНИЕ СВЯЗЕЙ
     rebuildEdges() {
         this.edges = [];
         const nodeArray = Array.from(this.nodes.values());
@@ -964,7 +926,7 @@ calculateStatisticalInvariants() {
         this.edges.sort((a, b) => b.confidence - a.confidence);
     }
 
-    // ✅ НОВЫЙ МЕТОД: Определяем тип связи (ТОЧНО КАК В ИСХОДНОМ)
+    // ✅ НОВЫЙ МЕТОД: Определяем тип связи
     getEdgeType(node1, node2) {
         if (node1.confidence > 0.7 && node2.confidence > 0.7) {
             return 'strong';
@@ -975,24 +937,7 @@ calculateStatisticalInvariants() {
         }
     }
 
-    // ✅ НОВЫЙ МЕТОД: Расчет bounding box (ТОЧНО КАК В ИСХОДНОМ)
-    calculateBoundingBox(points) {
-        if (!points || points.length === 0) return null;
-
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-
-        return {
-            minX: Math.min(...xs),
-            maxX: Math.max(...xs),
-            minY: Math.min(...ys),
-            maxY: Math.max(...ys),
-            width: Math.max(...xs) - Math.min(...xs),
-            height: Math.max(...ys) - Math.min(...ys)
-        };
-    }
-
-    // ОБНОВЛЕНИЕ ИНДЕКСОВ (ТОЧНО КАК В ИСХОДНОМ)
+    // ОБНОВЛЕНИЕ ИНДЕКСОВ
     updateIndices() {
         // Хеш модели
         const nodeArray = Array.from(this.nodes.values());
@@ -1031,7 +976,7 @@ calculateStatisticalInvariants() {
             : 0.3;
     }
 
-    // ГЕОМЕТРИЧЕСКИЕ МЕТОДЫ (ТОЧНО КАК В ИСХОДНОМ)
+    // ГЕОМЕТРИЧЕСКИЕ МЕТОДЫ
     calculateCenter(points) {
         if (!points || points.length === 0) return { x: 0, y: 0 };
 
@@ -1084,6 +1029,22 @@ calculateStatisticalInvariants() {
         }
 
         return Math.abs(area) / 2;
+    }
+
+    calculateBoundingBox(points) {
+        if (!points || points.length === 0) return null;
+
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+
+        return {
+            minX: Math.min(...xs),
+            maxX: Math.max(...xs),
+            minY: Math.min(...ys),
+            maxY: Math.max(...ys),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys)
+        };
     }
 
     // НОРМАЛИЗАЦИЯ ТОПОЛОГИИ (старый метод, оставляем для совместимости)
@@ -1266,22 +1227,6 @@ calculateStatisticalInvariants() {
         }
 
         return footprint;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Получить информацию о топологии
-    getTopologyInfo() {
-        return {
-            nodes: this.nodes.size,
-            edges: this.edges.length,
-            normalizedNodes: this.topologyInvariants.normalizedNodes.size,
-            graphDiameter: this.topologyInvariants.graphDiameter,
-            clusteringCoefficient: this.topologyInvariants.clusteringCoefficient,
-            averagePathLength: this.topologyInvariants.averagePathLength,
-            topologyQuality: this.stats.topologyQuality,
-            isNormalized: this.topologyInvariants.normalizedNodes.size > 0,
-            mirrorChecked: this.mirrorInfo.checked,
-            isMirrored: this.mirrorInfo.isMirrored
-        };
     }
 }
 
