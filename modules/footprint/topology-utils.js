@@ -7,7 +7,7 @@ class TopologyUtils {
         }
 
         const n = Math.max(nodes1.length, nodes2.length);
-      
+
         // Создаем матрицу стоимостей
         const costMatrix = [];
         for (let i = 0; i < n; i++) {
@@ -89,7 +89,7 @@ class TopologyUtils {
         const trace = covXX + covYY;
         const determinant = covXX * covYY - covXY * covXY;
         const discriminant = trace * trace - 4 * determinant;
-      
+
         if (discriminant < 0) {
             return null;
         }
@@ -125,7 +125,7 @@ class TopologyUtils {
     static rotatePoints(points, angle) {
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
-      
+
         return points.map(p => ({
             x: p.x * cos - p.y * sin,
             y: p.x * sin + p.y * cos
@@ -161,7 +161,7 @@ class TopologyUtils {
         });
 
         const n = nodes.length;
-      
+
         // Инициализируем матрицу расстояний
         const dist = Array(n).fill().map(() => Array(n).fill(Infinity));
         for (let i = 0; i < n; i++) {
@@ -172,7 +172,7 @@ class TopologyUtils {
         edges.forEach(edge => {
             const i = idToIndex.get(edge.from);
             const j = idToIndex.get(edge.to);
-          
+
             if (i !== undefined && j !== undefined) {
                 dist[i][j] = 1;
                 dist[j][i] = 1;
@@ -218,7 +218,7 @@ class TopologyUtils {
         edges.forEach(edge => {
             const fromNeighbors = neighbors.get(edge.from);
             const toNeighbors = neighbors.get(edge.to);
-          
+
             if (fromNeighbors && toNeighbors) {
                 fromNeighbors.add(edge.to);
                 toNeighbors.add(edge.from);
@@ -231,7 +231,7 @@ class TopologyUtils {
         nodes.forEach(node => {
             const nodeNeighbors = neighbors.get(node.id);
             const k = nodeNeighbors ? nodeNeighbors.size : 0;
-          
+
             if (k >= 2) {
                 // Считаем возможные связи между соседями
                 const neighborArray = Array.from(nodeNeighbors);
@@ -241,10 +241,10 @@ class TopologyUtils {
                 for (let i = 0; i < neighborArray.length; i++) {
                     for (let j = i + 1; j < neighborArray.length; j++) {
                         possibleConnections++;
-                      
+
                         const neighborI = neighborArray[i];
                         const neighborJ = neighborArray[j];
-                      
+
                         // Проверяем есть ли связь между соседями
                         if (neighbors.get(neighborI).has(neighborJ)) {
                             actualConnections++;
@@ -276,7 +276,7 @@ class TopologyUtils {
 
         const n = nodes.length;
         const dist = Array(n).fill().map(() => Array(n).fill(Infinity));
-      
+
         for (let i = 0; i < n; i++) {
             dist[i][i] = 0;
         }
@@ -284,7 +284,7 @@ class TopologyUtils {
         edges.forEach(edge => {
             const i = idToIndex.get(edge.from);
             const j = idToIndex.get(edge.to);
-          
+
             if (i !== undefined && j !== undefined) {
                 dist[i][j] = 1;
                 dist[j][i] = 1;
@@ -420,7 +420,7 @@ class TopologyUtils {
 
         // 3. Определяем зеркальность
         const isMirrored = mirroredDistance < originalDistance * 0.85;
-      
+
         // 4. Вычисляем оценку сходства
         const bestDistance = Math.min(originalDistance, mirroredDistance);
         const score = Math.max(0, 1 - bestDistance / 0.3);
@@ -451,7 +451,7 @@ class TopologyUtils {
         edges.forEach(edge => {
             const i = idToIndex.get(edge.from);
             const j = idToIndex.get(edge.to);
-          
+
             if (i !== undefined && j !== undefined) {
                 matrix[i][j] = 1;
                 matrix[j][i] = 1;
@@ -530,39 +530,39 @@ class TopologyUtils {
     // 18. НАХОЖДЕНИЕ ГЛАВНОЙ ОСИ
     static calculatePrincipalAxis(covarianceMatrix) {
         const { xx, xy, yy } = covarianceMatrix;
-      
+
         // Собственные значения
         const trace = xx + yy;
         const determinant = xx * yy - xy * xy;
         const discriminant = trace * trace - 4 * determinant;
-      
+
         if (discriminant < 0) {
             return { x: 1, y: 0 };
         }
-      
+
         const lambda1 = (trace + Math.sqrt(discriminant)) / 2;
-      
+
         // Собственный вектор для lambda1
         let vx = 1, vy = 0;
         if (Math.abs(xy) > 0.0001) {
             vx = -xy;
             vy = xx - lambda1;
         }
-      
+
         // Нормализуем
         const length = Math.sqrt(vx * vx + vy * vy);
         if (length > 0) {
             vx /= length;
             vy /= length;
         }
-      
+
         return { x: vx, y: vy };
     }
 
     // 19. НОРМАЛИЗАЦИЯ УЗЛОВ - КЛЮЧЕВОЙ МЕТОД!
     static normalizeNodes(nodes) {
         console.log('🔧 TopologyUtils.normalizeNodes вызван с', nodes?.length, 'узлами');
-      
+
         if (!nodes || nodes.length < 2) {
             console.log('⚠️ Недостаточно узлов для нормализации');
             return {
@@ -578,7 +578,7 @@ class TopologyUtils {
                 }
             };
         }
-      
+
         // Преобразуем узлы в простые точки
         const points = nodes.map(n => {
             // Поддерживаем разные форматы: {x, y} или {center: {x, y}}
@@ -586,13 +586,13 @@ class TopologyUtils {
             const y = n.y || (n.center && n.center.y) || 0;
             const confidence = n.confidence || 0.5;
             const id = n.id || `node_${Math.random().toString(36).substr(2, 9)}`;
-          
+
             return { x, y, confidence, id, originalNode: n };
         });
-      
+
         // 1. ЦЕНТР МАСС
         const center = this.calculateCenterOfMass(points);
-      
+
         // 2. ЦЕНТРИРУЕМ (переносим в начало координат)
         const centered = points.map(p => ({
             x: p.x - center.x,
@@ -600,7 +600,7 @@ class TopologyUtils {
             confidence: p.confidence,
             id: p.id
         }));
-      
+
         // 3. СРЕДНЕЕ РАССТОЯНИЕ между всеми парами точек
         const distances = [];
         for (let i = 0; i < centered.length; i++) {
@@ -609,59 +609,59 @@ class TopologyUtils {
                 distances.push(dist);
             }
         }
-      
+
         const meanDistance = distances.length > 0
             ? distances.reduce((sum, d) => sum + d, 0) / distances.length
             : 1;
-      
+
         // 4. МАСШТАБИРОВАНИЕ (делаем среднее расстояние = 1)
         const scale = meanDistance > 0 ? 1.0 / meanDistance : 1.0;
-      
-         // 5. PCA - НАДЕЖНАЯ ПРОВЕРКА ОРИЕНТАЦИИ
-    const pca = this.calculatePCA(points);
-    let rotationAngle = 0;
-   
-    if (pca && pca.eigenvectors && pca.eigenvectors[0]) {
-        const principalAxis = pca.eigenvectors[0];
-       
-        // 🔥 УЛУЧШЕНИЕ 1: Проверяем надежность PCA
-        const confidence = pca.explainedVariance;
-       
-        // 🔥 УЛУЧШЕНИЕ 2: Если PCA ненадежен, используем bounding box
-        if (confidence > 0.7) { // PCA надежен (>70%)
-            rotationAngle = -Math.atan2(principalAxis.y, principalAxis.x);
-            console.log(`🎯 Использую PCA (надежность: ${(confidence * 100).toFixed(1)}%)`);
-        } else {
-            // PCA ненадежен - используем bounding box ориентацию
-            console.log(`⚠️ PCA ненадежен (${(confidence * 100).toFixed(1)}%), использую bounding box`);
-           
-            // Находим bounding box центрированных точек
-            const xs = centered.map(p => p.x);
-            const ys = centered.map(p => p.y);
-            const width = Math.max(...xs) - Math.min(...xs);
-            const height = Math.max(...ys) - Math.min(...ys);
-           
-            // Если форма вытянута по горизонтали, поворачиваем чтобы стала горизонтальной
-            if (width > height * 1.2) { // Ширина > высоты на 20%
-                // Уже горизонтальная, вращение не нужно
-            } else if (height > width * 1.2) { // Высота > ширины на 20%
-                rotationAngle = -Math.PI / 2; // Поворот на 90°
+
+         // 5. PCA - НАДЕЖНАЯ ПРОВЕРКА ОРИЕНТАЦИИ
+        const pca = this.calculatePCA(points);
+        let rotationAngle = 0;
+
+        if (pca && pca.eigenvectors && pca.eigenvectors[0]) {
+            const principalAxis = pca.eigenvectors[0];
+
+            // 🔥 УЛУЧШЕНИЕ 1: Проверяем надежность PCA
+            const confidence = pca.explainedVariance;
+
+            // 🔥 УЛУЧШЕНИЕ 2: Если PCA ненадежен, используем bounding box
+            if (confidence > 0.7) { // PCA надежен (>70%)
+                rotationAngle = -Math.atan2(principalAxis.y, principalAxis.x);
+                console.log(`🎯 Использую PCA (надежность: ${(confidence * 100).toFixed(1)}%)`);
+            } else {
+                // PCA ненадежен - используем bounding box ориентацию
+                console.log(`⚠️ PCA ненадежен (${(confidence * 100).toFixed(1)}%), использую bounding box`);
+
+                // Находим bounding box центрированных точек
+                const xs = centered.map(p => p.x);
+                const ys = centered.map(p => p.y);
+                const width = Math.max(...xs) - Math.min(...xs);
+                const height = Math.max(...ys) - Math.min(...ys);
+
+                // Если форма вытянута по горизонтали, поворачиваем чтобы стала горизонтальной
+                if (width > height * 1.2) { // Ширина > высоты на 20%
+                    // Уже горизонтальная, вращение не нужно
+                } else if (height > width * 1.2) { // Высота > ширины на 20%
+                    rotationAngle = -Math.PI / 2; // Поворот на 90°
+                }
             }
         }
-    }
-      
+
         // 6. ПРИМЕНЯЕМ преобразования к каждой точке
         const normalized = centered.map(point => {
             // Масштабирование
             let x = point.x * scale;
             let y = point.y * scale;
-          
+
             // Поворот (делаем главную ось горизонтальной)
             const cos = Math.cos(rotationAngle);
             const sin = Math.sin(rotationAngle);
             const rotatedX = x * cos - y * sin;
             const rotatedY = x * sin + y * cos;
-          
+
             return {
                 x: rotatedX,
                 y: rotatedY,
@@ -669,9 +669,9 @@ class TopologyUtils {
                 id: point.id
             };
         });
-      
+
         console.log(`🎯 Нормализовано ${normalized.length} узлов (масштаб=${scale.toFixed(4)}, поворот=${(rotationAngle * 180 / Math.PI).toFixed(1)}°)`);
-      
+
         return {
             normalized: normalized,
             normalizationParams: {
@@ -686,15 +686,15 @@ class TopologyUtils {
     // 20. СРАВНЕНИЕ ГРАФОВЫХ ИНВАРИАНТОВ
     static compareGraphInvariants(invariants1, invariants2) {
         console.log('🔍 TopologyUtils.compareGraphInvariants вызван');
-      
+
         if (!invariants1 || !invariants2) {
             console.log('⚠️ Нет данных для сравнения');
             return 0.5;
         }
-      
+
         let totalScore = 0;
         let factors = 0;
-      
+
         // 1. Сравнение распределения степеней
         if (invariants1.degreeDistribution && invariants2.degreeDistribution) {
             const degreeScore = this.compareHistograms(
@@ -705,7 +705,7 @@ class TopologyUtils {
             factors += 0.4;
             console.log(`   • Распределение степеней: ${(degreeScore * 100).toFixed(1)}%`);
         }
-      
+
         // 2. Сравнение диаметра графа
         if (invariants1.graphDiameter !== null && invariants2.graphDiameter !== null) {
             const diam1 = invariants1.graphDiameter;
@@ -716,7 +716,7 @@ class TopologyUtils {
             factors += 0.3;
             console.log(`   • Диаметр графа: ${(diamScore * 100).toFixed(1)}% (${diam1} vs ${diam2})`);
         }
-      
+
         // 3. Сравнение коэффициента кластеризации
         if (invariants1.clusteringCoefficient !== null &&
             invariants2.clusteringCoefficient !== null) {
@@ -727,10 +727,10 @@ class TopologyUtils {
             factors += 0.3;
             console.log(`   • Коэффициент кластеризации: ${(ccScore * 100).toFixed(1)}% (${cc1.toFixed(3)} vs ${cc2.toFixed(3)})`);
         }
-      
+
         const finalScore = factors > 0 ? totalScore / factors : 0.5;
         console.log(`   🎯 Итоговый score: ${(finalScore * 100).toFixed(1)}%`);
-      
+
         return finalScore;
     }
 
@@ -747,7 +747,7 @@ class TopologyUtils {
     }
 
     // 🔥 НОВЫЕ МЕТОДЫ ДЛЯ digital-footprint.js
-   
+
     // 23. ВЫЧИСЛЕНИЕ ГЕОМЕТРИЧЕСКИХ ИНВАРИАНТОВ
     static calculateGeometricInvariantsForFootprint(normalizedNodes, existingInvariants) {
         if (!normalizedNodes || normalizedNodes.length < 2) {
@@ -1015,7 +1015,7 @@ class TopologyUtils {
     // 30. ПОЛУЧЕНИЕ ИНФОРМАЦИИ О ТОПОЛОГИИ
     static getTopologyInfoForFootprint(footprint) {
         const invariants = footprint.topologyInvariants || {};
-       
+
         return {
             nodes: footprint.nodes?.size || 0,
             edges: footprint.edges?.length || 0,
@@ -1027,6 +1027,113 @@ class TopologyUtils {
             shapeDescriptors: invariants.shapeDescriptors,
             topologyQuality: footprint.stats?.topologyQuality || 0,
             isNormalized: invariants.normalizedNodes && invariants.normalizedNodes.size > 0
+        };
+    }
+
+    // ===============================================
+    // 🔥 НОВЫЕ МЕТОДЫ ПО ПЛАНУ (31-34)
+    // ===============================================
+
+    // 31. ТРАНСФОРМАЦИЯ ТОЧЕК ПО ПАРАМЕТРАМ НОРМАЛИЗАЦИИ
+    static transformPointsByParams(points, normalizationParams) {
+        if (!points || points.length === 0 || !normalizationParams) {
+            return points;
+        }
+
+        const { center, scale, rotation } = normalizationParams;
+
+        // 1. ЦЕНТРИРОВАНИЕ (перенос в начало координат)
+        const centered = points.map(p => ({
+            x: p.x - center.x,
+            y: p.y - center.y
+        }));
+
+        // 2. МАСШТАБИРОВАНИЕ
+        const scaled = centered.map(p => ({
+            x: p.x * scale,
+            y: p.y * scale
+        }));
+
+        // 3. ПОВОРОТ
+        const cos = Math.cos(rotation);
+        const sin = Math.sin(rotation);
+
+        const rotated = scaled.map(p => ({
+            x: p.x * cos - p.y * sin,
+            y: p.x * sin + p.y * cos
+        }));
+
+        return rotated;
+    }
+
+    // 32. ПРОВЕРКА КАЧЕСТВА ТРАНСФОРМАЦИИ (вертикальность)
+    static checkTransformationQuality(transformedPoints) {
+        if (!transformedPoints || transformedPoints.length < 3) {
+            return {
+                isVertical: false,
+                angleDiff: 90,
+                quality: 0,
+                message: 'Недостаточно точек'
+            };
+        }
+
+        // PCA для определения ориентации
+        const pca = this.calculatePCA(transformedPoints);
+        if (!pca || !pca.eigenvectors || !pca.eigenvectors[0]) {
+            return {
+                isVertical: false,
+                angleDiff: 90,
+                quality: 0,
+                message: 'Ошибка PCA'
+            };
+        }
+
+        // Угол главной оси (в градусах)
+        const principalAxis = pca.eigenvectors[0];
+        const angleRad = Math.atan2(principalAxis.y, principalAxis.x);
+        const angleDeg = Math.abs(angleRad * 180 / Math.PI);
+
+        // Нормализуем угол к 0-90 градусам
+        const normalizedAngle = Math.min(angleDeg, 180 - angleDeg, Math.abs(angleDeg - 90));
+
+        // Качество: 1.0 = идеально вертикально (0° или 90°), 0.0 = под 45°
+        // У нас целевая ориентация - вертикальная (близко к 0° или 90°)
+        const verticalQuality = 1 - (normalizedAngle / 45); // 0° -> 1.0, 45° -> 0.0
+
+        // Также проверяем объяснённую дисперсию PCA
+        const varianceQuality = pca.explainedVariance || 0;
+
+        // Итоговое качество
+        const quality = Math.max(0, (verticalQuality * 0.7 + varianceQuality * 0.3));
+
+        return {
+            isVertical: normalizedAngle < 15, // Угол меньше 15° считаем вертикальным
+            angleDiff: normalizedAngle,
+            quality: Math.min(1, Math.max(0, quality)),
+            principalAngle: angleDeg,
+            pcaQuality: pca.explainedVariance,
+            message: normalizedAngle < 15 ? 'Вертикальный ✓' : `Под углом: ${normalizedAngle.toFixed(1)}°`
+        };
+    }
+
+    // 33. ПОЛУЧЕНИЕ ЦВЕТА ПО КАЧЕСТВУ ТРАНСФОРМАЦИИ
+    static getTransformationColor(quality) {
+        if (quality >= 0.8) return '#00ff00'; // Зелёный - отлично
+        if (quality >= 0.6) return '#ffff00'; // Жёлтый - хорошо
+        if (quality >= 0.4) return '#ff9900'; // Оранжевый - удовлетворительно
+        return '#ff0000'; // Красный - плохо
+    }
+
+    // 34. РАСЧЁТ ЦЕНТРА ТОЧЕК
+    static calculatePointsCenter(points) {
+        if (!points || points.length === 0) return { x: 0, y: 0 };
+
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+
+        return {
+            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+            y: (Math.min(...ys) + Math.max(...ys)) / 2
         };
     }
 }
