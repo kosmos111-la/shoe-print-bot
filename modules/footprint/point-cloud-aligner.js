@@ -153,111 +153,114 @@ class PointCloudAligner {
     }
 
     // 📐 ВЫЧИСЛЕНИЕ ТРАНСФОРМАЦИИ ПО 3 ТОЧКАМ
-    calculateTransformationFromSamples(sample1, sample2, mirrored) {
-        if (sample1.length !== 3 || sample2.length !== 3) {
-            return null;
+   calculateTransformationFromSamples(sample1, sample2, mirrored) {
+    if (sample1.length !== 3 || sample2.length !== 3) {
+        return null;
+    }
+
+    try {
+        // 🔥 ИСПРАВЛЕНИЕ 1: Используем центры ДО вычислений
+        const center1 = this.calculateCenter(sample1);
+        const center2 = this.calculateCenter(sample2);
+       
+        // Центрируем точки
+        const centered1 = sample1.map(p => ({
+            x: p.x - center1.x,
+            y: p.y - center1.y
+        }));
+        const centered2 = sample2.map(p => ({
+            x: p.x - center2.x,
+            y: p.y - center2.y
+        }));
+
+        // 1. ВЫЧИСЛЕНИЕ МАСШТАБА (среднее отношение расстояний)
+        const scales = [];
+        for (let i = 0; i < 3; i++) {
+            for (let j = i + 1; j < 3; j++) {
+                const dist1 = this.calculateDistance(centered1[i], centered1[j]);
+                const dist2 = this.calculateDistance(centered2[i], centered2[j]);
+               
+                if (dist1 > 0 && dist2 > 0) {
+                    scales.push(dist2 / dist1);
+                }
+            }
         }
 
-        try {
-            // 1. ВЫЧИСЛЕНИЕ МАСШТАБА (среднее отношение расстояний)
-            const scales = [];
-            for (let i = 0; i < 3; i++) {
-                for (let j = i + 1; j < 3; j++) {
-                    const dist1 = this.calculateDistance(sample1[i], sample1[j]);
-                    const dist2 = this.calculateDistance(sample2[i], sample2[j]);
+        if (scales.length === 0) return null;
+       
+        const medianScale = this.getMedian(scales);
+        const scale = Math.max(
+            this.options.scaleRange.min,
+            Math.min(this.options.scaleRange.max, medianScale)
+        );
+
+        // 2. ВЫЧИСЛЕНИЕ ПОВОРОТА (через векторы между точками)
+        let totalAngle = 0;
+        let angleCount = 0;
+       
+        // Сравниваем векторы между точками 0→1 и 0→2
+        for (let i = 0; i < 3; i++) {
+            for (let j = 0; j < 3; j++) {
+                if (i !== j) {
+                    const v1 = {
+                        x: centered1[j].x - centered1[i].x,
+                        y: centered1[j].y - centered1[i].y
+                    };
+                    const v2 = {
+                        x: centered2[j].x - centered2[i].x,
+                        y: centered2[j].y - centered2[i].y
+                    };
                    
-                    if (dist1 > 0 && dist2 > 0) {
-                        scales.push(dist2 / dist1);
+                    const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+                    const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+                   
+                    if (len1 > 0 && len2 > 0) {
+                        // 🔥 ИСПРАВЛЕНИЕ 2: Правильный расчёт угла
+                        const dot = v1.x * v2.x + v1.y * v2.y;
+                        const cross = v1.x * v2.y - v1.y * v2.x;
+                        const angle = Math.atan2(cross, dot); // Используем atan2 вместо acos
+                       
+                        // Нормализуем угол
+                        const normalizedAngle = angle;
+                        totalAngle += normalizedAngle;
+                        angleCount++;
                     }
                 }
             }
+        }
 
-            if (scales.length === 0) return null;
-           
-            const medianScale = this.getMedian(scales);
-            const scale = Math.max(
-                this.options.scaleRange.min,
-                Math.min(this.options.scaleRange.max, medianScale)
-            );
+        const rotation = angleCount > 0 ? totalAngle / angleCount : 0;
 
-            // 2. ВЫЧИСЛЕНИЕ ПОВОРОТА (через векторы)
-            const vectors1 = [];
-            const vectors2 = [];
-           
-            for (let i = 0; i < 3; i++) {
-                for (let j = 0; j < 3; j++) {
-                    if (i !== j) {
-                        vectors1.push({
-                            dx: sample1[j].x - sample1[i].x,
-                            dy: sample1[j].y - sample1[i].y
-                        });
-                        vectors2.push({
-                            dx: sample2[j].x - sample2[i].x,
-                            dy: sample2[j].y - sample2[i].y
-                        });
-                    }
-                }
-            }
+        // 🔥 ИСПРАВЛЕНИЕ 3: Правильный расчёт смещения
+        // Смещение = center2 - (повёрнутый и масштабированный center1)
+        const translation = {
+            x: center2.x - (center1.x * scale * Math.cos(rotation) - center1.y * scale * Math.sin(rotation)),
+            y: center2.y - (center1.x * scale * Math.sin(rotation) + center1.y * scale * Math.cos(rotation))
+        };
 
-            let totalRotation = 0;
-            let rotationCount = 0;
-
-            for (let i = 0; i < vectors1.length; i++) {
-                const v1 = vectors1[i];
-                const v2 = vectors2[i];
-
-                // Нормализуем векторы
-                const len1 = Math.sqrt(v1.dx * v1.dx + v1.dy * v1.dy);
-                const len2 = Math.sqrt(v2.dx * v2.dx + v2.dy * v2.dy);
-
-                if (len1 > 0 && len2 > 0) {
-                    const cosAngle = (v1.dx * v2.dx + v1.dy * v2.dy) / (len1 * len2);
-                    const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
-                    totalRotation += angle;
-                    rotationCount++;
-                }
-            }
-
-            const rotation = rotationCount > 0 ? totalRotation / rotationCount : 0;
-
-            // 3. ВЫЧИСЛЕНИЕ СМЕЩЕНИЯ
-            const center1 = this.calculateCenter(sample1);
-            const center2 = this.calculateCenter(sample2);
-
-            // Применяем масштаб и поворот к центру первого набора
-            const rotatedCenter1 = {
-                x: center1.x * scale * Math.cos(rotation) - center1.y * scale * Math.sin(rotation),
-                y: center1.x * scale * Math.sin(rotation) + center1.y * scale * Math.cos(rotation)
-            };
-
-            const translation = {
-                x: center2.x - rotatedCenter1.x,
-                y: center2.y - rotatedCenter1.y
-            };
-
-            // 4. ЗЕРКАЛЬНОСТЬ
-            if (mirrored) {
-                // Для зеркала инвертируем X координату
-                return {
-                    scale: scale,
-                    rotation: rotation,
-                    translation: translation,
-                    mirrored: true
-                };
-            }
-
+        // 4. ЗЕРКАЛЬНОСТЬ
+        if (mirrored) {
+            // Для зеркала инвертируем X координату при трансформации
             return {
                 scale: scale,
                 rotation: rotation,
                 translation: translation,
-                mirrored: false
+                mirrored: true
             };
-
-        } catch (error) {
-            console.log('❌ Ошибка вычисления трансформации:', error.message);
-            return null;
         }
+
+        return {
+            scale: scale,
+            rotation: rotation,
+            translation: translation,
+            mirrored: false
+        };
+
+    } catch (error) {
+        console.log('❌ Ошибка вычисления трансформации:', error.message);
+        return null;
     }
+}
 
     // 📊 ОЦЕНКА ТРАНСФОРМАЦИИ
     evaluateTransformation(points1, points2, transform, mirrored) {
@@ -447,33 +450,33 @@ class PointCloudAligner {
 
     // Трансформация точки
     transformPoint(point, transform, mirrored) {
-        if (!transform) return point;
+    if (!transform) return point;
 
-        let x = point.x;
-        let y = point.y;
+    let x = point.x;
+    let y = point.y;
 
-        // Зеркало (инверсия по X)
-        if (mirrored) {
-            x = -x;
-        }
-
-        // Масштаб
-        x *= transform.scale;
-        y *= transform.scale;
-
-        // Поворот
-        const cos = Math.cos(transform.rotation);
-        const sin = Math.sin(transform.rotation);
-       
-        const rotatedX = x * cos - y * sin;
-        const rotatedY = x * sin + y * cos;
-
-        // Смещение
-        return {
-            x: rotatedX + transform.translation.x,
-            y: rotatedY + transform.translation.y
-        };
+    // 🔥 ИСПРАВЛЕНИЕ: Правильный порядок для зеркала
+    if (mirrored) {
+        x = -x; // Зеркалим по оси X
     }
+
+    // 🔥 ИСПРАВЛЕНИЕ: Сначала поворот, потом масштаб, потом смещение
+    // 1. Поворот
+    const cos = Math.cos(transform.rotation);
+    const sin = Math.sin(transform.rotation);
+    const rotatedX = x * cos - y * sin;
+    const rotatedY = x * sin + y * cos;
+
+    // 2. Масштаб
+    const scaledX = rotatedX * transform.scale;
+    const scaledY = rotatedY * transform.scale;
+
+    // 3. Смещение
+    return {
+        x: scaledX + transform.translation.x,
+        y: scaledY + transform.translation.y
+    };
+}
 
     // Случайная выборка
     getRandomSample(points, count) {
