@@ -1,525 +1,396 @@
 // modules/footprint/point-cloud-aligner.js
+const TopologyUtils = require('./topology-utils');
+
 class PointCloudAligner {
     constructor(options = {}) {
         this.options = {
-            // 🔧 НАСТРОЙКИ АЛГОРИТМА
-            minPointsForAlignment: 3,     // Минимум точек для совмещения
-            maxIterations: 100,           // Максимум итераций RANSAC
-            inlierThreshold: 20,          // Порог inlier в пикселях
-            minInliersRatio: 0.3,         // Минимум inlier для успеха
-            angleStep: 15,                // Шаг угла при поиске (градусы)
-            scaleRange: { min: 0.5, max: 2.0 }, // Диапазон масштабов
-            mirrorCheck: true,            // Проверять зеркальность
-           
-            // 🔍 НАСТРОЙКИ ПРОВЕРКИ
-            confidenceWeight: 0.7,        // Вес уверенности в оценке
-            distanceWeight: 0.3,          // Вес расстояния в оценке
-           
-            // 🎯 ЦЕЛЕВЫЕ ПАРАМЕТРЫ
-            targetAlignmentScore: 0.7,    // Порог успешного совмещения
-            goodAlignmentScore: 0.8,      // Оценка "хорошо"
-            excellentAlignmentScore: 0.9, // Оценка "отлично"
-           
+            maxIterations: options.maxIterations || 1000,
+            inlierThreshold: options.inlierThreshold || 10.0,
+            minInliersRatio: options.minInliersRatio || 0.3,
+            scaleRange: options.scaleRange || { min: 0.5, max: 2.0 },
             ...options
         };
 
-        console.log('🎯 PointCloudAligner создан');
+        console.log('🔧 PointCloudAligner создан с параметрами:', {
+            maxIterations: this.options.maxIterations,
+            inlierThreshold: this.options.inlierThreshold,
+            minInliersRatio: this.options.minInliersRatio,
+            scaleRange: this.options.scaleRange
+        });
     }
 
-    // 🔍 ОСНОВНОЙ МЕТОД: НАЙТИ ЛУЧШЕЕ СОВМЕЩЕНИЕ
-    findBestAlignment(points1, points2, initialGuess = null) {
-        console.log(`🔍 Ищу совмещение: ${points1.length} точек → ${points2.length} точек`);
+    // ОСНОВНОЙ МЕТОД: ПОИСК НАИЛУЧШЕГО ВЫРАВНИВАНИЯ
+    findBestAlignment(points1, points2) {
+        console.log(`🎯 Поиск наилучшего выравнивания для ${points1?.length || 0} и ${points2?.length || 0} точек`);
 
-        if (points1.length < this.options.minPointsForAlignment ||
-            points2.length < this.options.minPointsForAlignment) {
-            console.log('⚠️ Слишком мало точек для совмещения');
-            return this.createNullResult('Мало точек');
+        if (!points1 || !points2 || points1.length < 3 || points2.length < 3) {
+            console.log('⚠️ Недостаточно точек для выравнивания');
+            return {
+                score: 0,
+                transform: null,
+                inliers: [],
+                mirrored: false
+            };
         }
 
-        // 1. ПОДГОТОВКА ДАННЫХ
-        const prepared1 = this.preparePoints(points1);
-        const prepared2 = this.preparePoints(points2);
+        // Нормализуем точки для RANSAC
+        const normalized1 = this.normalizePointsForRANSAC(points1);
+        const normalized2 = this.normalizePointsForRANSAC(points2);
 
-        // 2. ПОИСК БЕЗ ЗЕРКАЛА
-        console.log('🔄 Пробую совмещение БЕЗ зеркала...');
-        const resultNoMirror = this.searchBestTransformation(
-            prepared1, prepared2, false, initialGuess
-        );
+        console.log(`📊 Нормализовано: ${normalized1.length} и ${normalized2.length} точек`);
 
-        // 3. ПОИСК С ЗЕРКАЛОМ (если включено)
-        let resultWithMirror = null;
-        if (this.options.mirrorCheck) {
-            console.log('🔄 Пробую совмещение С зеркалом...');
-            resultWithMirror = this.searchBestTransformation(
-                prepared1, prepared2, true, initialGuess
-            );
+        // Запускаем RANSAC для обычной и зеркальной трансформации
+        const resultRegular = this.runRANSAC(normalized1, normalized2, false);
+        const resultMirrored = this.runRANSAC(normalized1, normalized2, true);
+
+        // Выбираем лучший результат
+        let bestResult = resultRegular.score >= resultMirrored.score ? resultRegular : resultMirrored;
+
+        console.log(`📊 Результаты: Обычный=${resultRegular.score.toFixed(4)}, Зеркальный=${resultMirrored.score.toFixed(4)}`);
+
+        // 🔥 ДОПОЛНИТЕЛЬНО: Если результат плохой (score < 0.3), пробуем уточнить
+        if (bestResult.score < 0.3) {
+            console.log('🔄 Пробую уточнить трансформацию...');
+            bestResult = this.refineTransformation(normalized1, normalized2, bestResult);
         }
 
-        // 4. ВЫБОР ЛУЧШЕГО РЕЗУЛЬТАТА
-        const results = [resultNoMirror];
-        if (resultWithMirror) results.push(resultWithMirror);
-
-        const bestResult = results.reduce((best, current) =>
-            current.score > best.score ? current : best
-        );
-
-        // 5. ОЦЕНКА КАЧЕСТВА
-        bestResult.quality = this.evaluateAlignmentQuality(bestResult);
-
-        console.log(`✅ Лучшее совмещение: ${(bestResult.score * 100).toFixed(1)}%, ` +
-                   `угол: ${(bestResult.rotation * 180 / Math.PI).toFixed(1)}°, ` +
-                   `зеркало: ${bestResult.mirrored ? 'да' : 'нет'}`);
+        // Конвертируем трансформацию обратно в оригинальные координаты
+        if (bestResult.transform) {
+            bestResult.transform = this.convertToOriginalCoordinates(bestResult.transform, points1, points2);
+        }
 
         return bestResult;
     }
 
-    // 🔄 ПОИСК ЛУЧШЕЙ ТРАНСФОРМАЦИИ (RANSAC-подобный)
-    searchBestTransformation(points1, points2, mirrored = false, initialGuess = null) {
+    // RANSAC АЛГОРИТМ
+    runRANSAC(points1, points2, mirrored) {
+        const { maxIterations, inlierThreshold, minInliersRatio } = this.options;
+        const minInliers = Math.ceil(points1.length * minInliersRatio);
+
         let bestTransform = null;
-        let bestScore = -1;
         let bestInliers = [];
+        let bestScore = 0;
 
-        // Если есть начальное предположение - пробуем его
-        if (initialGuess) {
-            const transform = this.createTransformationFromGuess(initialGuess, mirrored);
-            const { score, inliers } = this.evaluateTransformation(
-                points1, points2, transform, mirrored
-            );
-           
-            if (score > bestScore) {
-                bestScore = score;
-                bestTransform = transform;
-                bestInliers = inliers;
-            }
-        }
+        console.log(`🔄 Запуск RANSAC (${mirrored ? 'зеркальный' : 'обычный'})...`);
 
-        // RANSAC цикл
-        for (let iteration = 0; iteration < this.options.maxIterations; iteration++) {
-            // 1. ВЫБОР СЛУЧАЙНЫХ ТОЧЕК
+        for (let iteration = 0; iteration < maxIterations; iteration++) {
+            // 1. Случайная выборка из 3 точек
             const sample1 = this.getRandomSample(points1, 3);
             const sample2 = this.getRandomSample(points2, 3);
 
-            // 2. ВЫЧИСЛЕНИЕ ТРАНСФОРМАЦИИ ПО 3 ТОЧКАМ
-            const transform = this.calculateTransformationFromSamples(
-                sample1, sample2, mirrored
-            );
+            // 2. Вычисление трансформации для этой выборки
+            const transform = this.calculateTransformationFromSamples(sample1, sample2, mirrored);
 
             if (!transform) continue;
 
-            // 3. ОЦЕНКА ТРАНСФОРМАЦИИ НА ВСЕХ ТОЧКАХ
-            const { score, inliers } = this.evaluateTransformation(
-                points1, points2, transform, mirrored
-            );
+            // 3. Подсчет inliers (точек, удовлетворяющих трансформации)
+            const { inliers, score } = this.evaluateTransformation(points1, points2, transform, mirrored);
 
-            // 4. ОБНОВЛЕНИЕ ЛУЧШЕГО РЕЗУЛЬТАТА
-            if (score > bestScore) {
+            // 4. Обновление лучшего результата
+            if (inliers.length >= minInliers && score > bestScore) {
                 bestScore = score;
-                bestTransform = transform;
                 bestInliers = inliers;
+                bestTransform = transform;
 
-                // РАННИЙ ВЫХОД ЕСЛИ ОТЛИЧНЫЙ РЕЗУЛЬТАТ
-                if (score > this.options.excellentAlignmentScore) {
-                    console.log(`🎯 Ранний выход: отличный score ${score.toFixed(3)}`);
+                // Ранняя остановка если нашли хорошее совпадение
+                if (score > 0.8 && inliers.length >= Math.max(5, points1.length * 0.7)) {
+                    console.log(`✅ Ранняя остановка на итерации ${iteration}: score=${score.toFixed(4)}`);
                     break;
                 }
             }
-        }
 
-        // УТОЧНЕНИЕ ПО INLIERS (если нашли хорошие совпадения)
-        if (bestInliers.length >= 3) {
-            const refinedTransform = this.refineTransformationWithInliers(
-                points1, points2, bestInliers, mirrored
-            );
-           
-            if (refinedTransform) {
-                const { score: refinedScore } = this.evaluateTransformation(
-                    points1, points2, refinedTransform, mirrored
-                );
-               
-                if (refinedScore > bestScore) {
-                    bestScore = refinedScore;
-                    bestTransform = refinedTransform;
-                }
+            // Прогресс
+            if (iteration % 100 === 0 && iteration > 0) {
+                console.log(`   Итерация ${iteration}/${maxIterations}, лучший score=${bestScore.toFixed(4)}`);
             }
         }
 
         return {
-            transform: bestTransform,
             score: bestScore,
+            transform: bestTransform,
             inliers: bestInliers,
-            mirrored: mirrored,
-            iterationCount: this.options.maxIterations
+            mirrored: mirrored
         };
     }
 
-    // 📐 ВЫЧИСЛЕНИЕ ТРАНСФОРМАЦИИ ПО 3 ТОЧКАМ
-   calculateTransformationFromSamples(sample1, sample2, mirrored) {
-    if (sample1.length !== 3 || sample2.length !== 3) {
-        return null;
-    }
-
-    try {
-        // 🔥 ИСПРАВЛЕНИЕ 1: Используем центры ДО вычислений
-        const center1 = this.calculateCenter(sample1);
-        const center2 = this.calculateCenter(sample2);
-       
-        // Центрируем точки
-        const centered1 = sample1.map(p => ({
-            x: p.x - center1.x,
-            y: p.y - center1.y
-        }));
-        const centered2 = sample2.map(p => ({
-            x: p.x - center2.x,
-            y: p.y - center2.y
-        }));
-
-        // 1. ВЫЧИСЛЕНИЕ МАСШТАБА (среднее отношение расстояний)
-        const scales = [];
-        for (let i = 0; i < 3; i++) {
-            for (let j = i + 1; j < 3; j++) {
-                const dist1 = this.calculateDistance(centered1[i], centered1[j]);
-                const dist2 = this.calculateDistance(centered2[i], centered2[j]);
-               
-                if (dist1 > 0 && dist2 > 0) {
-                    scales.push(dist2 / dist1);
-                }
-            }
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ВЫЧИСЛЕНИЕ ТРАНСФОРМАЦИИ ИЗ ВЫБОРКИ
+    calculateTransformationFromSamples(sample1, sample2, mirrored) {
+        if (sample1.length !== 3 || sample2.length !== 3) {
+            return null;
         }
 
-        if (scales.length === 0) return null;
-       
-        const medianScale = this.getMedian(scales);
-        const scale = Math.max(
-            this.options.scaleRange.min,
-            Math.min(this.options.scaleRange.max, medianScale)
-        );
+        try {
+            // 🔥 ИСПРАВЛЕНИЕ 1: Используем центры ДО вычислений
+            const center1 = this.calculateCenter(sample1);
+            const center2 = this.calculateCenter(sample2);
 
-        // 2. ВЫЧИСЛЕНИЕ ПОВОРОТА (через векторы между точками)
-        let totalAngle = 0;
-        let angleCount = 0;
-       
-        // Сравниваем векторы между точками 0→1 и 0→2
-        for (let i = 0; i < 3; i++) {
-            for (let j = 0; j < 3; j++) {
-                if (i !== j) {
-                    const v1 = {
-                        x: centered1[j].x - centered1[i].x,
-                        y: centered1[j].y - centered1[i].y
-                    };
-                    const v2 = {
-                        x: centered2[j].x - centered2[i].x,
-                        y: centered2[j].y - centered2[i].y
-                    };
-                   
-                    const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
-                    const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
-                   
-                    if (len1 > 0 && len2 > 0) {
-                        // 🔥 ИСПРАВЛЕНИЕ 2: Правильный расчёт угла
-                        const dot = v1.x * v2.x + v1.y * v2.y;
-                        const cross = v1.x * v2.y - v1.y * v2.x;
-                        const angle = Math.atan2(cross, dot); // Используем atan2 вместо acos
-                       
-                        // Нормализуем угол
-                        const normalizedAngle = angle;
-                        totalAngle += normalizedAngle;
-                        angleCount++;
+            // Центрируем точки
+            const centered1 = sample1.map(p => ({
+                x: p.x - center1.x,
+                y: p.y - center1.y
+            }));
+            const centered2 = sample2.map(p => ({
+                x: p.x - center2.x,
+                y: p.y - center2.y
+            }));
+
+            // 🔥 ИСПРАВЛЕНИЕ: Для зеркального случая инвертируем X координату
+            const adjustedCentered2 = mirrored ?
+                centered2.map(p => ({ x: -p.x, y: p.y })) :
+                centered2;
+
+            // 1. ВЫЧИСЛЕНИЕ МАСШТАБА (среднее отношение расстояний)
+            const scales = [];
+            for (let i = 0; i < 3; i++) {
+                for (let j = i + 1; j < 3; j++) {
+                    const dist1 = this.calculateDistance(centered1[i], centered1[j]);
+                    const dist2 = this.calculateDistance(adjustedCentered2[i], adjustedCentered2[j]);
+
+                    if (dist1 > 0 && dist2 > 0) {
+                        scales.push(dist2 / dist1);
                     }
                 }
             }
-        }
 
-        const rotation = angleCount > 0 ? totalAngle / angleCount : 0;
+            if (scales.length === 0) return null;
 
-        // 🔥 ИСПРАВЛЕНИЕ 3: Правильный расчёт смещения
-        // Смещение = center2 - (повёрнутый и масштабированный center1)
-        const translation = {
-            x: center2.x - (center1.x * scale * Math.cos(rotation) - center1.y * scale * Math.sin(rotation)),
-            y: center2.y - (center1.x * scale * Math.sin(rotation) + center1.y * scale * Math.cos(rotation))
-        };
+            const medianScale = this.getMedian(scales);
+            const scale = Math.max(
+                this.options.scaleRange.min,
+                Math.min(this.options.scaleRange.max, medianScale)
+            );
 
-        // 4. ЗЕРКАЛЬНОСТЬ
-        if (mirrored) {
-            // Для зеркала инвертируем X координату при трансформации
+            // 2. ВЫЧИСЛЕНИЕ ПОВОРОТА (через векторы между точками)
+            let totalAngle = 0;
+            let angleCount = 0;
+
+            // Сравниваем векторы между точками
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    if (i !== j) {
+                        const v1 = {
+                            x: centered1[j].x - centered1[i].x,
+                            y: centered1[j].y - centered1[i].y
+                        };
+                        const v2 = {
+                            x: adjustedCentered2[j].x - adjustedCentered2[i].x,
+                            y: adjustedCentered2[j].y - adjustedCentered2[i].y
+                        };
+
+                        const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+                        const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+
+                        if (len1 > 0 && len2 > 0) {
+                            // 🔥 ИСПРАВЛЕНИЕ 2: Правильный расчёт угла
+                            const dot = v1.x * v2.x + v1.y * v2.y;
+                            const cross = v1.x * v2.y - v1.y * v2.x;
+                            const angle = Math.atan2(cross, dot); // Используем atan2
+
+                            totalAngle += angle;
+                            angleCount++;
+                        }
+                    }
+                }
+            }
+
+            const rotation = angleCount > 0 ? totalAngle / angleCount : 0;
+
+            // 🔥 ИСПРАВЛЕНИЕ 3: Правильный расчёт смещения
+            // Смещение = center2 - (повёрнутый и масштабированный center1)
+            // Учитываем зеркальность при трансформации center1
+            const center1ForTransform = mirrored ?
+                { x: -center1.x, y: center1.y } :
+                center1;
+               
+            const translation = {
+                x: center2.x - (center1ForTransform.x * scale * Math.cos(rotation) - center1ForTransform.y * scale * Math.sin(rotation)),
+                y: center2.y - (center1ForTransform.x * scale * Math.sin(rotation) + center1ForTransform.y * scale * Math.cos(rotation))
+            };
+
             return {
                 scale: scale,
                 rotation: rotation,
                 translation: translation,
-                mirrored: true
-            };
-        }
-
-        return {
-            scale: scale,
-            rotation: rotation,
-            translation: translation,
-            mirrored: false
-        };
-
-    } catch (error) {
-        console.log('❌ Ошибка вычисления трансформации:', error.message);
-        return null;
-    }
-}
-
-    // 📊 ОЦЕНКА ТРАНСФОРМАЦИИ
-    evaluateTransformation(points1, points2, transform, mirrored) {
-    if (!transform || !points1 || !points2) {
-        return { score: 0, inliers: [], avgDistance: Infinity };
-    }
-
-    const inliers = [];
-    let totalDistance = 0;
-    let matchedPoints = 0;
-
-    // ТРАНСФОРМАЦИЯ всех точек из points1
-    const transformedPoints1 = points1.map(p =>
-        this.transformPoint(p, transform, mirrored)
-    );
-
-    // 🔥 ИСПРАВЛЕНИЕ: Используем Hungarian алгоритм или ближайшие соседи
-    // Для каждой трансформированной точки ищем ближайшую в points2
-    const usedIndices = new Set();
-   
-    transformedPoints1.forEach((transformedPoint, i) => {
-        let bestMatchIndex = -1;
-        let bestDistance = Infinity;
-       
-        // Ищем ближайшую НЕИСПОЛЬЗОВАННУЮ точку
-        for (let j = 0; j < points2.length; j++) {
-            if (usedIndices.has(j)) continue;
-           
-            const distance = this.calculateDistance(transformedPoint, points2[j]);
-            if (distance < bestDistance) {
-                bestDistance = distance;
-                bestMatchIndex = j;
-            }
-        }
-       
-        // Проверяем является ли inlier
-        if (bestMatchIndex !== -1 && bestDistance <= this.options.inlierThreshold) {
-            inliers.push({
-                point1: points1[i],
-                point2: points2[bestMatchIndex],
-                distance: bestDistance,
-                transformed: transformedPoint
-            });
-           
-            usedIndices.add(bestMatchIndex);
-            totalDistance += bestDistance;
-            matchedPoints++;
-        }
-    });
-
-    // 🔥 ИСПРАВЛЕНИЕ: БОЛЕЕ СТРОГИЙ РАСЧЁТ SCORE
-    let score = 0;
-   
-    if (matchedPoints > 0) {
-        // 1. ФАКТОР INLIER RATIO (теперь квадрат для усиления различий)
-        const inlierRatio = matchedPoints / Math.min(points1.length, points2.length);
-        const inlierScore = inlierRatio * inlierRatio; // Квадрат!
-       
-        // 2. ФАКТОР СРЕДНЕГО РАССТОЯНИЯ (теперь экспоненциальный штраф)
-        const avgDistance = totalDistance / matchedPoints;
-        const maxAllowedDistance = this.options.inlierThreshold * 2;
-        const distanceScore = Math.exp(-avgDistance / (maxAllowedDistance / 3));
-       
-        // 3. ФАКТОР РАВНОМЕРНОСТИ РАСПРЕДЕЛЕНИЯ inliers
-        let distributionScore = 1.0;
-        if (inliers.length > 3) {
-            // Проверяем, что inliers не сгруппированы в одном месте
-            const centers = inliers.map(inlier => inlier.point2);
-            const centerOfCenters = this.calculateCenter(centers);
-            const distancesToCenter = centers.map(p => this.calculateDistance(p, centerOfCenters));
-            const avgDistToCenter = distancesToCenter.reduce((a, b) => a + b, 0) / distancesToCenter.length;
-            const maxDist = Math.max(...distancesToCenter);
-           
-            // Если все inliers близко к центру - плохо, если равномерно - хорошо
-            distributionScore = Math.min(1.0, avgDistToCenter / (maxDist * 0.5));
-        }
-       
-        // 4. ФАКТОР УВЕРЕННОСТИ
-        let confidenceScore = 0.5;
-        if (points1[0]?.confidence && points2[0]?.confidence) {
-            const avgConf1 = points1.reduce((sum, p) => sum + (p.confidence || 0.5), 0) / points1.length;
-            const avgConf2 = points2.reduce((sum, p) => sum + (p.confidence || 0.5), 0) / points2.length;
-            confidenceScore = (avgConf1 + avgConf2) / 2;
-        }
-       
-        // 🔥 ИСПРАВЛЕНИЕ: ВЕСА
-        // Больше веса inlier ratio, меньше веса distance (так как расстояния могут быть большими)
-        const WEIGHTS = {
-            INLIER: 0.5,      // Самый важный - сколько точек совпало
-            DISTANCE: 0.2,    // Насколько точно
-            DISTRIBUTION: 0.2, // Равномерность
-            CONFIDENCE: 0.1   // Уверенность точек
-        };
-       
-        score = (inlierScore * WEIGHTS.INLIER) +
-                (distanceScore * WEIGHTS.DISTANCE) +
-                (distributionScore * WEIGHTS.DISTRIBUTION) +
-                (confidenceScore * WEIGHTS.CONFIDENCE);
-       
-        // 🔥 ИСПРАВЛЕНИЕ: ЖЁСТКИЙ ПОРОГ ДЛЯ СЛУЧАЙНЫХ ТОЧЕК
-        // Если inlier ratio низкий, сильно снижаем score
-        if (inlierRatio < 0.3) {
-            score *= 0.3;
-        }
-       
-        score = Math.max(0, Math.min(1, score));
-    }
-
-    return {
-        score: score,
-        inliers: inliers,
-        avgDistance: matchedPoints > 0 ? totalDistance / matchedPoints : Infinity,
-        matchedPoints: matchedPoints,
-        inlierRatio: matchedPoints / Math.min(points1.length, points2.length)
-    };
-}
-
-    // 🎨 УТОЧНЕНИЕ ТРАНСФОРМАЦИИ ПО INLIERS
-    refineTransformationWithInliers(points1, points2, inliers, mirrored) {
-        if (inliers.length < 3) return null;
-
-        try {
-            // Берем только точки из inliers
-            const inlierPoints1 = inliers.map(i => i.point1);
-            const inlierPoints2 = inliers.map(i => i.point2);
-
-            // Вычисляем новую трансформацию по всем inliers
-            // (можно использовать метод наименьших квадратов)
-           
-            // Пока упрощённо - усредняем параметры
-            const transforms = [];
-           
-            // Генерируем трансформации из разных комбинаций inliers
-            for (let i = 0; i < Math.min(10, inliers.length); i++) {
-                const sample1 = this.getRandomSample(inlierPoints1, 3);
-                const sample2 = this.getRandomSample(inlierPoints2, 3);
-               
-                const transform = this.calculateTransformationFromSamples(
-                    sample1, sample2, mirrored
-                );
-               
-                if (transform) transforms.push(transform);
-            }
-
-            if (transforms.length === 0) return null;
-
-            // Усредняем параметры
-            const avgScale = transforms.reduce((sum, t) => sum + t.scale, 0) / transforms.length;
-            const avgRotation = transforms.reduce((sum, t) => sum + t.rotation, 0) / transforms.length;
-            const avgTx = transforms.reduce((sum, t) => sum + t.translation.x, 0) / transforms.length;
-            const avgTy = transforms.reduce((sum, t) => sum + t.translation.y, 0) / transforms.length;
-
-            return {
-                scale: avgScale,
-                rotation: avgRotation,
-                translation: { x: avgTx, y: avgTy },
                 mirrored: mirrored
             };
 
         } catch (error) {
-            console.log('❌ Ошибка уточнения трансформации:', error.message);
+            console.log('❌ Ошибка вычисления трансформации:', error.message);
             return null;
         }
     }
 
-    // 🎯 ОЦЕНКА КАЧЕСТВА СОВМЕЩЕНИЯ
-    evaluateAlignmentQuality(result) {
-        if (!result || result.score <= 0) {
-            return {
-                quality: 'poor',
-                message: 'Совмещение не найдено',
-                color: '#ff0000'
-            };
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ТРАНСФОРМАЦИЯ ТОЧКИ
+    transformPoint(point, transform, mirrored) {
+        if (!transform) return point;
+
+        let x = point.x;
+        let y = point.y;
+
+        // 🔥 ИСПРАВЛЕНИЕ: Применяем зеркальность, если она указана в transform
+        const applyMirror = mirrored || (transform.mirrored || false);
+        if (applyMirror) {
+            x = -x; // Зеркалим по оси X
         }
 
-        const { score, inliers, mirrored } = result;
+        // 🔥 ИСПРАВЛЕНИЕ: Сначала поворот, потом масштаб, потом смещение
+        // 1. Поворот
+        const cos = Math.cos(transform.rotation);
+        const sin = Math.sin(transform.rotation);
+        const rotatedX = x * cos - y * sin;
+        const rotatedY = x * sin + y * cos;
 
-        if (score >= this.options.excellentAlignmentScore) {
-            return {
-                quality: 'excellent',
-                message: `Отличное совмещение (${(score * 100).toFixed(0)}%)`,
-                color: '#00ff00',
-                mirrored: mirrored ? 'зеркальное' : 'прямое'
+        // 2. Масштаб
+        const scaledX = rotatedX * transform.scale;
+        const scaledY = rotatedY * transform.scale;
+
+        // 3. Смещение
+        return {
+            x: scaledX + transform.translation.x,
+            y: scaledY + transform.translation.y
+        };
+    }
+
+    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+
+    // ОЦЕНКА ТРАНСФОРМАЦИИ
+    evaluateTransformation(points1, points2, transform, mirrored) {
+        if (!transform) return { inliers: [], score: 0 };
+
+        const inlierThreshold = this.options.inlierThreshold;
+        const inliers = [];
+
+        // Для каждой точки из первого набора ищем ближайшую во втором
+        for (const point1 of points1) {
+            const transformedPoint = this.transformPoint(point1, transform, mirrored);
+           
+            // Ищем ближайшую точку во втором наборе
+            let minDistance = Infinity;
+            let closestPoint = null;
+
+            for (const point2 of points2) {
+                const distance = this.calculateDistance(transformedPoint, point2);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestPoint = point2;
+                }
+            }
+
+            if (minDistance <= inlierThreshold && closestPoint) {
+                inliers.push({
+                    point1: point1,
+                    point2: closestPoint,
+                    distance: minDistance
+                });
+            }
+        }
+
+        // Вычисляем score: учитываем количество inliers и среднее расстояние
+        const inlierRatio = points1.length > 0 ? inliers.length / points1.length : 0;
+        const avgDistance = inliers.length > 0 ?
+            inliers.reduce((sum, inlier) => sum + inlier.distance, 0) / inliers.length :
+            inlierThreshold;
+
+        const distanceScore = Math.max(0, 1 - (avgDistance / inlierThreshold));
+        const score = (inlierRatio * 0.7 + distanceScore * 0.3);
+
+        return { inliers, score };
+    }
+
+    // УТОЧНЕНИЕ ТРАНСФОРМАЦИИ (использует все inliers)
+    refineTransformation(points1, points2, initialResult) {
+        const { transform, mirrored } = initialResult;
+
+        if (!transform || initialResult.inliers.length < 3) {
+            return initialResult;
+        }
+
+        try {
+            // Используем все inliers для уточнения
+            const inlierPoints1 = initialResult.inliers.map(inlier => inlier.point1);
+            const inlierPoints2 = initialResult.inliers.map(inlier => inlier.point2);
+
+            // Простая оптимизация: усредняем параметры трансформации
+            const transforms = [];
+
+            // Генерируем несколько вариантов из разных подмножеств inliers
+            for (let i = 0; i < Math.min(10, initialResult.inliers.length - 2); i++) {
+                const sample1 = this.getRandomSample(inlierPoints1, 3);
+                const sample2 = this.getRandomSample(inlierPoints2, 3);
+                const refinedTransform = this.calculateTransformationFromSamples(sample1, sample2, mirrored);
+               
+                if (refinedTransform) {
+                    transforms.push(refinedTransform);
+                }
+            }
+
+            if (transforms.length === 0) return initialResult;
+
+            // Усредняем параметры
+            const avgScale = transforms.reduce((sum, t) => sum + t.scale, 0) / transforms.length;
+            const avgRotation = transforms.reduce((sum, t) => sum + t.rotation, 0) / transforms.length;
+            const avgTranslationX = transforms.reduce((sum, t) => sum + t.translation.x, 0) / transforms.length;
+            const avgTranslationY = transforms.reduce((sum, t) => sum + t.translation.y, 0) / transforms.length;
+
+            const refinedTransform = {
+                scale: avgScale,
+                rotation: avgRotation,
+                translation: { x: avgTranslationX, y: avgTranslationY },
+                mirrored: mirrored
             };
-        } else if (score >= this.options.goodAlignmentScore) {
+
+            // Оцениваем уточненную трансформацию
+            const { inliers, score } = this.evaluateTransformation(points1, points2, refinedTransform, mirrored);
+
             return {
-                quality: 'good',
-                message: `Хорошее совмещение (${(score * 100).toFixed(0)}%)`,
-                color: '#ffff00',
-                mirrored: mirrored ? 'зеркальное' : 'прямое'
+                score: score,
+                transform: refinedTransform,
+                inliers: inliers,
+                mirrored: mirrored
             };
-        } else if (score >= this.options.targetAlignmentScore) {
-            return {
-                quality: 'acceptable',
-                message: `Приемлемое совмещение (${(score * 100).toFixed(0)}%)`,
-                color: '#ff9900',
-                mirrored: mirrored ? 'зеркальное' : 'прямое'
-            };
-        } else {
-            return {
-                quality: 'poor',
-                message: `Слабое совмещение (${(score * 100).toFixed(0)}%)`,
-                color: '#ff0000',
-                mirrored: mirrored ? 'зеркальное' : 'прямое'
-            };
+
+        } catch (error) {
+            console.log('⚠️ Ошибка уточнения трансформации:', error.message);
+            return initialResult;
         }
     }
 
-    // 🔧 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    // НОРМАЛИЗАЦИЯ ТОЧЕК ДЛЯ RANSAC
+    normalizePointsForRANSAC(points) {
+        if (!points || points.length === 0) return [];
 
-    // Подготовка точек
-    preparePoints(points) {
-        return points.map(p => ({
-            x: p.x || p.center?.x || 0,
-            y: p.y || p.center?.y || 0,
+        // Преобразуем в простой формат {x, y, confidence}
+        return points.map((p, index) => ({
+            x: p.x || (p.center && p.center.x) || 0,
+            y: p.y || (p.center && p.center.y) || 0,
             confidence: p.confidence || 0.5,
-            id: p.id || `p_${Math.random().toString(36).substr(2, 9)}`
+            id: p.id || `point_${index}`,
+            original: p
         }));
     }
 
-    // Трансформация точки
-    transformPoint(point, transform, mirrored) {
-    if (!transform) return point;
+    // ПОЛУЧЕНИЕ СЛУЧАЙНОЙ ВЫБОРКИ
+    getRandomSample(points, size) {
+        if (!points || points.length < size) return [];
 
-    let x = point.x;
-    let y = point.y;
-
-    // 🔥 ИСПРАВЛЕНИЕ: Правильный порядок для зеркала
-    if (mirrored) {
-        x = -x; // Зеркалим по оси X
-    }
-
-    // 🔥 ИСПРАВЛЕНИЕ: Сначала поворот, потом масштаб, потом смещение
-    // 1. Поворот
-    const cos = Math.cos(transform.rotation);
-    const sin = Math.sin(transform.rotation);
-    const rotatedX = x * cos - y * sin;
-    const rotatedY = x * sin + y * cos;
-
-    // 2. Масштаб
-    const scaledX = rotatedX * transform.scale;
-    const scaledY = rotatedY * transform.scale;
-
-    // 3. Смещение
-    return {
-        x: scaledX + transform.translation.x,
-        y: scaledY + transform.translation.y
-    };
-}
-
-    // Случайная выборка
-    getRandomSample(points, count) {
-        if (points.length <= count) return [...points];
-       
         const shuffled = [...points].sort(() => Math.random() - 0.5);
-        return shuffled.slice(0, count);
+        return shuffled.slice(0, size);
     }
 
-    // Расстояние между точками
+    // ВЫЧИСЛЕНИЕ ЦЕНТРА ТОЧЕК
+    calculateCenter(points) {
+        if (!points || points.length === 0) return { x: 0, y: 0 };
+
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+
+        return {
+            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+            y: (Math.min(...ys) + Math.max(...ys)) / 2
+        };
+    }
+
+    // ВЫЧИСЛЕНИЕ РАССТОЯНИЯ
     calculateDistance(p1, p2) {
         if (!p1 || !p2) return Infinity;
         const dx = p2.x - p1.x;
@@ -527,24 +398,11 @@ class PointCloudAligner {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // Центр точек
-    calculateCenter(points) {
-        if (!points || points.length === 0) return { x: 0, y: 0 };
+    // ПОЛУЧЕНИЕ МЕДИАНЫ
+    getMedian(numbers) {
+        if (!numbers || numbers.length === 0) return 0;
        
-        const sumX = points.reduce((sum, p) => sum + p.x, 0);
-        const sumY = points.reduce((sum, p) => sum + p.y, 0);
-       
-        return {
-            x: sumX / points.length,
-            y: sumY / points.length
-        };
-    }
-
-    // Медиана массива
-    getMedian(values) {
-        if (!values || values.length === 0) return 0;
-       
-        const sorted = [...values].sort((a, b) => a - b);
+        const sorted = [...numbers].sort((a, b) => a - b);
         const mid = Math.floor(sorted.length / 2);
        
         if (sorted.length % 2 === 0) {
@@ -554,44 +412,71 @@ class PointCloudAligner {
         }
     }
 
-    // Создание трансформации из предположения
-    createTransformationFromGuess(guess, mirrored) {
+    // КОНВЕРТАЦИЯ ТРАНСФОРМАЦИИ В ОРИГИНАЛЬНЫЕ КООРДИНАТЫ
+    convertToOriginalCoordinates(transform, originalPoints1, originalPoints2) {
+        if (!transform) return null;
+
+        // Для простоты возвращаем как есть
+        // В реальном случае нужно учитывать нормализацию
+        return transform;
+    }
+
+    // СОХРАНЕНИЕ ВЫРАВНИВАНИЯ (для отладки)
+    saveAlignmentDebug(points1, points2, result, filePath) {
+        console.log('💾 Сохранение отладочной информации (заглушка)');
+        return true;
+    }
+
+    // ПРОВЕРКА КАЧЕСТВА ВЫРАВНИВАНИЯ
+    checkAlignmentQuality(result) {
+        if (!result || !result.transform) {
+            return { quality: 0, message: 'Нет трансформации' };
+        }
+
+        const { score, inliers } = result;
+
+        let quality = score;
+        let message = '';
+
+        if (score >= 0.8) {
+            message = 'Отличное выравнивание';
+            quality = 0.9 + (score - 0.8) * 0.5; // Нормализуем к 0.9-1.0
+        } else if (score >= 0.6) {
+            message = 'Хорошее выравнивание';
+            quality = 0.7 + (score - 0.6) * 1.0; // Нормализуем к 0.7-0.9
+        } else if (score >= 0.4) {
+            message = 'Удовлетворительное выравнивание';
+            quality = 0.5 + (score - 0.4) * 1.0; // Нормализуем к 0.5-0.7
+        } else if (score >= 0.2) {
+            message = 'Плохое выравнивание';
+            quality = 0.3 + (score - 0.2) * 1.0; // Нормализуем к 0.3-0.5
+        } else {
+            message = 'Очень плохое выравнивание';
+            quality = score;
+        }
+
         return {
-            scale: guess.scale || 1.0,
-            rotation: guess.rotation || 0,
-            translation: guess.translation || { x: 0, y: 0 },
-            mirrored: mirrored
+            quality: Math.min(1, Math.max(0, quality)),
+            score: score,
+            inliersCount: inliers.length,
+            message: message
         };
     }
 
-    // Результат при ошибке
-    createNullResult(message) {
-        return {
-            transform: null,
-            score: 0,
-            inliers: [],
-            mirrored: false,
-            iterationCount: 0,
-            quality: {
-                quality: 'failed',
-                message: message || 'Ошибка совмещения',
-                color: '#ff0000'
-            }
-        };
-    }
+    // ЭКСПОРТ РЕЗУЛЬТАТОВ В ПРОСТОМ ФОРМАТЕ
+    exportResultsSimple(result) {
+        if (!result || !result.transform) {
+            return null;
+        }
 
-    // ЭКСПОРТ ДЛЯ ДЕБАГА
-    getDebugInfo() {
         return {
-            options: this.options,
-            algorithm: 'RANSAC-based point cloud alignment',
-            features: [
-                'Rotation detection (0-180°)',
-                'Scale detection (0.5x-2.0x)',
-                'Mirror detection',
-                'Inlier-based refinement',
-                'Confidence-weighted scoring'
-            ]
+            score: result.score,
+            scale: result.transform.scale,
+            rotationDeg: result.transform.rotation * 180 / Math.PI,
+            translationX: result.transform.translation.x,
+            translationY: result.transform.translation.y,
+            mirrored: result.mirrored,
+            inliersCount: result.inliers.length
         };
     }
 }
