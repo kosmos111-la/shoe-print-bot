@@ -153,8 +153,10 @@ class DigitalFootprint {
             if (alignmentResult.score > 0.6) {
                 // 🔥 ХОРОШЕЕ СОВМЕЩЕНИЕ - трансформируем и добавляем
                 console.log(`✅ Хорошее совмещение найдено!`);
-                console.log(`   • Угол: ${alignmentResult.transform ? (alignmentResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-                console.log(`   • Масштаб: ${alignmentResult.transform?.scale?.toFixed(3)}`);
+                if (alignmentResult.transform) {
+                    console.log(`   • Угол: ${(alignmentResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                    console.log(`   • Масштаб: ${alignmentResult.transform.scale?.toFixed(3)}`);
+                }
                 console.log(`   • Зеркало: ${alignmentResult.mirrored ? 'да' : 'нет'}`);
 
                 // Сохраняем информацию о трансформации
@@ -342,8 +344,10 @@ class DigitalFootprint {
 
             if (result.success) {
                 console.log(`✅ Модели успешно совмещены! Счет: ${(result.score * 100).toFixed(1)}%`);
-                console.log(`   • Угол: ${result.transform ? (result.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-                console.log(`   • Масштаб: ${result.transform?.scale?.toFixed(3)}`);
+                if (result.transform) {
+                    console.log(`   • Угол: ${(result.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                    console.log(`   • Масштаб: ${result.transform.scale?.toFixed(3)}`);
+                }
                 console.log(`   • Зеркало: ${result.mirrored ? 'да' : 'нет'}`);
                 console.log(`   • Inliers: ${result.inliersCount}/${points1.length}`);
             } else {
