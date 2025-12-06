@@ -1,9 +1,10 @@
 // modules/footprint/digital-footprint.js
-// ОБНОВЛЕННАЯ ВЕРСИЯ С ТОПОЛОГИЧЕСКИМИ ИНВАРИАНТАМИ И ПОВОРОТОМ
+// ОБНОВЛЕННАЯ ВЕРСИЯ С ТОПОЛОГИЧЕСКИМИ ИНВАРИАНТАМИ, ПОВОРОТОМ И ИНТЕГРАЦИЕЙ CLOUD ALIGNER
 
 const crypto = require('crypto');
 const fs = require('fs');
 const TopologyUtils = require('./topology-utils'); // 🔥 НОВЫЙ ИМПОРТ
+const PointCloudAligner = require('./point-cloud-aligner'); // 🔥 ДОБАВЛЯЕМ ИМПОРТ
 
 class DigitalFootprint {
     constructor(options = {}) {
@@ -93,7 +94,492 @@ class DigitalFootprint {
         this.hash = null;
         this.boundingBox = null;
         this.featureVector = null;
-        this.version = '2.4'; // 🔥 Обновили версию для поворота
+        this.version = '2.5'; // 🔥 Обновили версию для интеграции с PointCloudAligner
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Автоматическое совмещение нового анализа с существующей моделью
+    addAnalysisWithAlignment(analysis, sourceInfo = {}) {
+        console.log('🎯 Запуск добавления анализа с автоматическим совмещением');
+
+        const { predictions, timestamp, imagePath, photoQuality = 0.5 } = analysis;
+        const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
+
+        if (protectors.length < 3) {
+            console.log('⚠️ Слишком мало протекторов для совмещения');
+            return this.addAnalysis(analysis, sourceInfo);
+        }
+
+        // Если модель пустая или мало точек - просто добавляем
+        if (this.nodes.size < 3) {
+            console.log('📌 Модель пустая или мало точек, добавляем без совмещения');
+            return this.addAnalysis(analysis, sourceInfo);
+        }
+
+        try {
+            // 🔥 ИСПРАВЛЕНИЕ: Используем центры протекторов
+            const modelPoints = Array.from(this.nodes.values()).map(node => ({
+                x: node.center.x,
+                y: node.center.y,
+                confidence: node.confidence,
+                id: node.id
+            }));
+
+            const newPoints = protectors.map((p, index) => {
+                const center = this.calculateCenter(p.points);
+                return {
+                    x: center.x,
+                    y: center.y,
+                    confidence: p.confidence || 0.5,
+                    id: `new_${index}`
+                };
+            });
+
+            console.log(`🔍 Поиск совмещения: ${modelPoints.length} точек модели vs ${newPoints.length} новых точек`);
+
+            // Создаем aligner
+            const aligner = new PointCloudAligner({
+                maxIterations: 200,
+                inlierThreshold: 25,
+                minInliersRatio: 0.55, // Чуть ниже для лучших результатов
+                minInliersAbsolute: 3,
+                mirrorCheck: true
+            });
+
+            // Ищем лучшее совмещение
+            const alignmentResult = aligner.findBestAlignment(modelPoints, newPoints);
+
+            console.log(`📊 Результат совмещения: ${(alignmentResult.score * 100).toFixed(1)}%`);
+
+            if (alignmentResult.score > 0.6) {
+                // 🔥 ХОРОШЕЕ СОВМЕЩЕНИЕ - трансформируем и добавляем
+                console.log(`✅ Хорошее совмещение найдено!`);
+                console.log(`   • Угол: ${alignmentResult.transform ? (alignmentResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                console.log(`   • Масштаб: ${alignmentResult.transform?.scale?.toFixed(3)}`);
+                console.log(`   • Зеркало: ${alignmentResult.mirrored ? 'да' : 'нет'}`);
+
+                // Сохраняем информацию о трансформации
+                sourceInfo.alignmentInfo = {
+                    transform: alignmentResult.transform,
+                    score: alignmentResult.score,
+                    mirrored: alignmentResult.mirrored,
+                    inliersCount: alignmentResult.inliers?.length || 0
+                };
+
+                // Добавляем анализ с информацией о трансформации
+                return this.addAnalysis(analysis, sourceInfo);
+
+            } else if (alignmentResult.score > 0.3) {
+                // 🔥 СЛАБОЕ СОВМЕЩЕНИЕ - добавляем но помечаем
+                console.log(`⚠️ Слабое совмещение (${(alignmentResult.score * 100).toFixed(1)}%)`);
+
+                sourceInfo.alignmentInfo = {
+                    transform: alignmentResult.transform,
+                    score: alignmentResult.score,
+                    mirrored: alignmentResult.mirrored,
+                    inliersCount: alignmentResult.inliers?.length || 0,
+                    isWeak: true
+                };
+
+                return this.addAnalysis(analysis, sourceInfo);
+
+            } else {
+                // 🔥 ПЛОХОЕ СОВМЕЩЕНИЕ - возможно другой след
+                console.log(`❌ Плохое совмещение (${(alignmentResult.score * 100).toFixed(1)}%), добавляем как новый кластер`);
+
+                sourceInfo.alignmentInfo = {
+                    score: alignmentResult.score,
+                    isNewCluster: true
+                };
+
+                return this.addAnalysis(analysis, sourceInfo);
+            }
+
+        } catch (error) {
+            console.log('❌ Ошибка совмещения:', error.message);
+            console.log('🔄 Возвращаюсь к стандартному добавлению');
+            return this.addAnalysis(analysis, sourceInfo);
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить точки модели для совмещения
+    getNormalizedNodePoints() {
+        const points = [];
+
+        this.nodes.forEach((node, id) => {
+            points.push({
+                x: node.center.x,
+                y: node.center.y,
+                confidence: node.confidence,
+                id: id
+            });
+        });
+
+        return points;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Трансформировать точки с результатом
+    transformPointsWithResult(points, transformResult) {
+        if (!transformResult || !points) return points;
+
+        const aligner = new PointCloudAligner();
+        return points.map(point => {
+            const transformed = aligner.transformPoint(
+                { x: point.x, y: point.y },
+                transformResult.transform,
+                transformResult.mirrored
+            );
+
+            return {
+                ...point,
+                x: transformed.x,
+                y: transformed.y,
+                transformed: true
+            };
+        });
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Применить трансформацию к модели
+    applyTransformation(transform, mirrored = false) {
+        console.log(`🔄 Применение трансформации к модели: ${this.nodes.size} узлов`);
+
+        if (!transform) {
+            console.log('⚠️ Нет трансформации для применения');
+            return;
+        }
+
+        const aligner = new PointCloudAligner();
+        const transformedNodes = new Map();
+
+        this.nodes.forEach((node, id) => {
+            // Трансформируем центр узла
+            const transformedCenter = aligner.transformPoint(
+                node.center,
+                transform,
+                mirrored
+            );
+
+            // Создаем копию узла с новым центром
+            const transformedNode = {
+                ...node,
+                center: transformedCenter,
+                metadata: {
+                    ...node.metadata,
+                    transformed: true,
+                    originalCenter: node.center,
+                    transformApplied: {
+                        rotation: transform.rotation,
+                        scale: transform.scale,
+                        translation: transform.translation,
+                        mirrored: mirrored
+                    }
+                }
+            };
+
+            transformedNodes.set(id, transformedNode);
+        });
+
+        // Обновляем узлы модели
+        this.nodes = transformedNodes;
+
+        // Пересчитываем ребра
+        this.rebuildEdges();
+
+        // Обновляем топологические инварианты
+        this.updateTopologyInvariants();
+
+        // Помечаем в метаданных
+        this.metadata.transformationApplied = true;
+        this.metadata.lastAlignment = {
+            timestamp: new Date(),
+            transform: transform,
+            mirrored: mirrored
+        };
+
+        console.log(`✅ Трансформация применена к ${this.nodes.size} узлам`);
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Совместить с другой моделью (для слияния моделей)
+    alignWithOtherFootprint(otherFootprint, options = {}) {
+        console.log(`🔍 Запуск совмещения моделей: "${this.name}" vs "${otherFootprint.name}"`);
+
+        const points1 = this.getNormalizedNodePoints();
+        const points2 = otherFootprint.getNormalizedNodePoints();
+
+        if (points1.length < 3 || points2.length < 3) {
+            console.log('⚠️ Недостаточно точек для совмещения моделей');
+            return {
+                success: false,
+                score: 0,
+                error: 'Недостаточно точек'
+            };
+        }
+
+        const aligner = new PointCloudAligner({
+            maxIterations: 300,
+            inlierThreshold: 20,
+            minInliersRatio: 0.6,
+            minInliersAbsolute: 4,
+            mirrorCheck: true,
+            ...options
+        });
+
+        try {
+            const alignmentResult = aligner.findBestAlignment(points1, points2);
+
+            const result = {
+                success: alignmentResult.score > 0.5,
+                score: alignmentResult.score,
+                transform: alignmentResult.transform,
+                mirrored: alignmentResult.mirrored,
+                inliersCount: alignmentResult.inliers?.length || 0,
+                inliers: alignmentResult.inliers,
+                diagnostic: {
+                    points1Count: points1.length,
+                    points2Count: points2.length,
+                    iterations: alignmentResult.iterations || 0
+                }
+            };
+
+            if (result.success) {
+                console.log(`✅ Модели успешно совмещены! Счет: ${(result.score * 100).toFixed(1)}%`);
+                console.log(`   • Угол: ${result.transform ? (result.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                console.log(`   • Масштаб: ${result.transform?.scale?.toFixed(3)}`);
+                console.log(`   • Зеркало: ${result.mirrored ? 'да' : 'нет'}`);
+                console.log(`   • Inliers: ${result.inliersCount}/${points1.length}`);
+            } else {
+                console.log(`❌ Модели не совмещены. Счет: ${(result.score * 100).toFixed(1)}%`);
+            }
+
+            return result;
+
+        } catch (error) {
+            console.log('❌ Ошибка при совмещении моделей:', error.message);
+            return {
+                success: false,
+                score: 0,
+                error: error.message
+            };
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Объединить с другой моделью после совмещения
+    mergeWithAlignedFootprint(otherFootprint, alignmentResult) {
+        if (!alignmentResult.success) {
+            console.log('❌ Нельзя объединить: совмещение неудачное');
+            return false;
+        }
+
+        console.log(`🔄 Объединение моделей после совмещения`);
+
+        // Применяем трансформацию ко второй модели
+        const transformedOther = otherFootprint.clone();
+        transformedOther.applyTransformation(alignmentResult.transform, alignmentResult.mirrored);
+
+        // Объединяем узлы
+        let mergedCount = 0;
+        let addedCount = 0;
+
+        transformedOther.nodes.forEach((otherNode, otherId) => {
+            // Ищем похожий узел в текущей модели
+            const similarNode = this.findSimilarNode(otherNode, 30); // Меньший допуск после совмещения
+
+            if (similarNode) {
+                // Объединяем узлы
+                this.mergeNodes(similarNode.id, otherNode);
+                mergedCount++;
+            } else {
+                // Добавляем как новый узел
+                const newId = `merged_${crypto.randomBytes(3).toString('hex')}`;
+                otherNode.id = newId;
+                otherNode.metadata = {
+                    ...otherNode.metadata,
+                    sourceModel: otherFootprint.id,
+                    merged: true,
+                    mergeTimestamp: new Date()
+                };
+                this.nodes.set(newId, otherNode);
+                addedCount++;
+            }
+        });
+
+        // Объединяем контуры и каблуки
+        if (transformedOther.allContours) {
+            this.allContours = [...(this.allContours || []), ...transformedOther.allContours];
+        }
+
+        if (transformedOther.allHeels) {
+            this.allHeels = [...(this.allHeels || []), ...transformedOther.allHeels];
+        }
+
+        // Обновляем модель
+        this.rebuildEdges();
+        this.updateTopologyInvariants();
+
+        // Сохраняем информацию о слиянии
+        this.metadata.merges = this.metadata.merges || [];
+        this.metadata.merges.push({
+            mergedModelId: otherFootprint.id,
+            mergedModelName: otherFootprint.name,
+            timestamp: new Date(),
+            alignmentScore: alignmentResult.score,
+            mergedNodes: mergedCount,
+            addedNodes: addedCount,
+            totalNodesAfter: this.nodes.size
+        });
+
+        console.log(`✅ Модели объединены!`);
+        console.log(`   • Объединено узлов: ${mergedCount}`);
+        console.log(`   • Добавлено узлов: ${addedCount}`);
+        console.log(`   • Итого узлов: ${this.nodes.size}`);
+
+        return true;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Создать копию модели
+    clone() {
+        const clone = new DigitalFootprint({
+            id: `${this.id}_clone_${Date.now()}`,
+            name: `${this.name} (копия)`,
+            userId: this.userId,
+            sessionId: this.sessionId,
+            metadata: { ...this.metadata }
+        });
+
+        // Копируем узлы
+        this.nodes.forEach((node, id) => {
+            clone.nodes.set(id, {
+                ...node,
+                sources: node.sources ? [...node.sources] : []
+            });
+        });
+
+        // Копируем ребра
+        clone.edges = [...this.edges];
+
+        // Копируем контуры и каблуки
+        clone.bestContours = this.bestContours ? [...this.bestContours] : [];
+        clone.bestHeels = this.bestHeels ? [...this.bestHeels] : [];
+        clone.allContours = this.allContours ? [...this.allContours] : [];
+        clone.allHeels = this.allHeels ? [...this.allHeels] : [];
+
+        // Копируем статистику
+        clone.stats = { ...this.stats };
+
+        // Копируем топологические инварианты
+        if (this.topologyInvariants.normalizedNodes) {
+            clone.topologyInvariants.normalizedNodes = new Map(
+                Array.from(this.topologyInvariants.normalizedNodes.entries())
+            );
+        }
+
+        return clone;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Экспорт точек для отладки совмещения
+    exportPointsForDebug() {
+        const nodes = Array.from(this.nodes.values());
+        return {
+            modelId: this.id,
+            modelName: this.name,
+            points: nodes.map(node => ({
+                x: node.center.x,
+                y: node.center.y,
+                confidence: node.confidence,
+                id: node.id
+            })),
+            boundingBox: this.boundingBox,
+            stats: {
+                totalPoints: nodes.length,
+                avgConfidence: nodes.reduce((sum, n) => sum + n.confidence, 0) / nodes.length,
+                date: new Date().toISOString()
+            }
+        };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Визуализировать результат совмещения
+    visualizeAlignment(alignmentResult, otherPoints = []) {
+        if (!alignmentResult || !alignmentResult.transform) {
+            return null;
+        }
+
+        const aligner = new PointCloudAligner();
+        const transformedPoints = otherPoints.map(point => {
+            const transformed = aligner.transformPoint(
+                { x: point.x, y: point.y },
+                alignmentResult.transform,
+                alignmentResult.mirrored
+            );
+            return {
+                original: point,
+                transformed: transformed,
+                id: point.id
+            };
+        });
+
+        const modelPoints = this.getNormalizedNodePoints();
+
+        return {
+            modelPoints: modelPoints,
+            originalOtherPoints: otherPoints,
+            transformedOtherPoints: transformedPoints,
+            alignment: {
+                score: alignmentResult.score,
+                rotation: alignmentResult.transform.rotation,
+                scale: alignmentResult.transform.scale,
+                translation: alignmentResult.transform.translation,
+                mirrored: alignmentResult.mirrored,
+                inliers: alignmentResult.inliers || []
+            },
+            visualization: {
+                boundingBox1: this.calculateOverallBoundingBox(modelPoints),
+                boundingBox2: this.calculateOverallBoundingBox(transformedPoints),
+                overlapScore: this.calculateOverlapScore(modelPoints, transformedPoints)
+            }
+        };
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Расчет общего bounding box
+    calculateOverallBoundingBox(points) {
+        if (!points || points.length === 0) return null;
+
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+
+        return {
+            minX: Math.min(...xs),
+            maxX: Math.max(...xs),
+            minY: Math.min(...ys),
+            maxY: Math.max(...ys),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys),
+            center: {
+                x: (Math.min(...xs) + Math.max(...xs)) / 2,
+                y: (Math.min(...ys) + Math.max(...ys)) / 2
+            }
+        };
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Расчет перекрытия
+    calculateOverlapScore(points1, points2) {
+        if (!points1 || !points2 || points1.length === 0 || points2.length === 0) {
+            return 0;
+        }
+
+        let matched = 0;
+        const threshold = 20; // пикселей
+
+        points1.forEach(p1 => {
+            const closest = points2.reduce((min, p2) => {
+                const dist = this.calculateDistance(p1, p2);
+                return dist < min.dist ? { dist, point: p2 } : min;
+            }, { dist: Infinity, point: null });
+
+            if (closest.dist < threshold) {
+                matched++;
+            }
+        });
+
+        return matched / Math.max(points1.length, points2.length);
     }
 
     // 🔥 НОВЫЙ МЕТОД: Поиск оптимального поворота для сравнения
@@ -656,34 +1142,34 @@ class DigitalFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Топологическое сравнение
     compareTopology(otherFootprint) {
-    const nodes1 = Array.from(this.topologyInvariants.normalizedNodes.values());
-    const nodes2 = Array.from(otherFootprint.topologyInvariants.normalizedNodes.values());
+        const nodes1 = Array.from(this.topologyInvariants.normalizedNodes.values());
+        const nodes2 = Array.from(otherFootprint.topologyInvariants.normalizedNodes.values());
 
-    if (nodes1.length === 0 || nodes2.length === 0) {
-        return 0.3; // 🔥 НЕ 0, а 0.3!
-    }
-
-    // 🔥 ПРОСТОЕ СРАВНЕНИЕ ВМЕСТО Hungarian алгоритма
-    const n = Math.min(nodes1.length, nodes2.length, 10); // Берем до 10 узлов
-    let totalDistance = 0;
-    let matched = 0;
-   
-    for (let i = 0; i < n; i++) {
-        const dx = nodes1[i].x - nodes2[i].x;
-        const dy = nodes1[i].y - nodes2[i].y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-       
-        if (distance < 0.3) { // 🔥 Разумный порог
-            totalDistance += distance;
-            matched++;
+        if (nodes1.length === 0 || nodes2.length === 0) {
+            return 0.3; // 🔥 НЕ 0, а 0.3!
         }
+
+        // 🔥 ПРОСТОЕ СРАВНЕНИЕ ВМЕСТО Hungarian алгоритма
+        const n = Math.min(nodes1.length, nodes2.length, 10); // Берем до 10 узлов
+        let totalDistance = 0;
+        let matched = 0;
+
+        for (let i = 0; i < n; i++) {
+            const dx = nodes1[i].x - nodes2[i].x;
+            const dy = nodes1[i].y - nodes2[i].y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < 0.3) { // 🔥 Разумный порог
+                totalDistance += distance;
+                matched++;
+            }
+        }
+
+        if (matched === 0) return 0.2; // 🔥 Хотя бы 20%
+
+        const avgDistance = totalDistance / matched;
+        return Math.max(0.2, 1 - avgDistance / 0.3); // 🔥 Минимум 20%
     }
-   
-    if (matched === 0) return 0.2; // 🔥 Хотя бы 20%
-   
-    const avgDistance = totalDistance / matched;
-    return Math.max(0.2, 1 - avgDistance / 0.3); // 🔥 Минимум 20%
-}
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение графовых инвариантов
     compareGraphInvariants(otherFootprint) {
