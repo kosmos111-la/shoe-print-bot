@@ -176,7 +176,6 @@ const result4 = aligner.findBestAlignment(originalFootprint, randomPoints);
 console.log(`Score: ${result4.score.toFixed(3)} (ожидается < 0.3)`);
 console.log(`Качество: ${result4.quality.message}`);
 
-// Вспомогательная функция для вывода результатов
 function printResult(result, expectedAngle, expectedDx, expectedDy) {
     console.log(`Score: ${result.score.toFixed(3)}`);
    
@@ -196,11 +195,18 @@ function printResult(result, expectedAngle, expectedDx, expectedDy) {
     }
    
     console.log(`Зеркало: ${result.mirrored ? 'да' : 'нет'}`);
-    console.log(`Качество: ${result.quality.message}`);
-    console.log(`Inliers: ${result.inliers.length}/${Math.min(originalFootprint.length, rotatedFootprint.length)}`);
+   
+    // 🔥 ИСПРАВЛЕНИЕ: Проверяем existence quality
+    if (result.quality && result.quality.message) {
+        console.log(`Качество: ${result.quality.message}`);
+    } else {
+        console.log(`Качество: ${result.score > 0.7 ? 'хорошее' : 'плохое'}`);
+    }
+   
+    console.log(`Inliers: ${result.inliers ? result.inliers.length : 0}/${Math.min(originalFootprint.length, rotatedFootprint.length)}`);
    
     // Проверяем точность трансформации
-    if (result.transform && result.inliers.length > 0) {
+    if (result.transform && result.inliers && result.inliers.length > 0) {
         const avgError = result.inliers.reduce((sum, inlier) => sum + inlier.distance, 0) / result.inliers.length;
         console.log(`Средняя ошибка inliers: ${avgError.toFixed(1)}px`);
     }
