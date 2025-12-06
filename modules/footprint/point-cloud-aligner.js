@@ -1,4 +1,4 @@
-// modules/footprint/point-cloud-aligner.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// modules/footprint/point-cloud-aligner.js - ИСПРАВЛЕННАЯ И ФИНАЛЬНАЯ ВЕРСИЯ
 class PointCloudAligner {
     constructor(options = {}) {
         this.options = {
@@ -19,11 +19,7 @@ class PointCloudAligner {
             ...options
         };
 
-        console.log('🔧 PointCloudAligner создан с параметрами:', {
-            maxIterations: this.options.maxIterations,
-            inlierThreshold: this.options.inlierThreshold,
-            mirrorCheck: this.options.mirrorCheck
-        });
+        console.log('🔧 PointCloudAligner создан с исправленными параметрами');
     }
 
     // 🔍 ОСНОВНОЙ МЕТОД: НАЙТИ ЛУЧШЕЕ СОВМЕЩЕНИЕ (ИСПРАВЛЕННЫЙ)
@@ -44,8 +40,8 @@ class PointCloudAligner {
         let bestResult;
 
         if (this.options.mirrorCheck) {
-            // 🔥 ИСПОЛЬЗУЕМ УПРОЩЕННУЮ ПРОВЕРКУ ЗЕРКАЛА
-            bestResult = this.checkMirrorSimple(prepared1, prepared2, initialGuess);
+            // 🔥 ИСПОЛЬЗУЕМ ИСПРАВЛЕННУЮ ПРОВЕРКУ ЗЕРКАЛА
+            bestResult = this.checkMirrorImproved(prepared1, prepared2, initialGuess);
         } else {
             console.log('🔄 Запуск RANSAC (обычный, без зеркала)...');
             bestResult = this.searchBestTransformation(
@@ -53,7 +49,7 @@ class PointCloudAligner {
             );
         }
 
-        // 🔥 ПРОВЕРКА НА СЛУЧАЙНЫЕ ДАННЫЕ
+        // 🔥 ПРОВЕРКА НА СЛУЧАЙНЫЕ ДАННЫЕ С УЛУЧШЕННЫМ GRID DETECTION
         if (bestResult.inliers && bestResult.inliers.length > 0) {
             const isRandom = this.checkForRandomPattern(
                 bestResult.inliers,
@@ -87,76 +83,67 @@ class PointCloudAligner {
         return bestResult;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Простая проверка зеркала (РАБОЧАЯ ВЕРСИЯ)
-    checkMirrorSimple(points1, points2, initialGuess = null) {
-        console.log('🪞 Простая проверка зеркала...');
-
-        // 1. Обычный поиск
-        console.log('🔄 Запуск RANSAC (обычный)...');
-        const normalResult = this.searchBestTransformation(
-            points1, points2, false, initialGuess
-        );
-
-        // 2. Поиск с зеркальным отражением
-        console.log('🔄 Запуск RANSAC (зеркальный)...');
-        const mirroredResult = this.searchBestTransformationMirrored(
-            points1, points2, initialGuess
-        );
-
-        console.log(`📊 Сравнение: обычный=${normalResult.score.toFixed(3)}, зеркальный=${mirroredResult.score.toFixed(3)}`);
-
-        // 3. Если зеркальный результат значительно лучше
-        if (mirroredResult.score > normalResult.score + this.options.mirrorAdvantageThreshold &&
-            mirroredResult.score > 0.3) {
-            console.log(`✅ ОБНАРУЖЕНО ЗЕРКАЛО! +${((mirroredResult.score - normalResult.score) * 100).toFixed(1)}%`);
-
-            // Корректируем трансформацию для зеркала
-            mirroredResult.mirrored = true;
-            if (mirroredResult.transform) {
-                mirroredResult.transform.mirrored = true;
-                // Для зеркала инвертируем X координату трансляции и вращение
-                mirroredResult.transform.translation.x = -mirroredResult.transform.translation.x;
-                mirroredResult.transform.rotation = -mirroredResult.transform.rotation;
-            }
-
-            return mirroredResult;
-        }
-
-        // 4. Если обычный результат лучше
-        console.log(`📌 Использую обычный результат`);
-        normalResult.mirrored = false;
-        return normalResult;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Поиск с зеркальным отражением
-    searchBestTransformationMirrored(points1, points2, initialGuess = null) {
-        // Создаем зеркальную версию points2 (отражение по оси Y)
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Улучшенная проверка зеркала
+    checkMirrorImproved(points1, points2, initialGuess = null) {
+        console.log('🪞 УЛУЧШЕННАЯ проверка зеркала...');
+       
+        // 1. НАХОДИМ ЦЕНТРЫ ДЛЯ ПРАВИЛЬНОГО ЗЕРКАЛА
+        const center1 = this.calculateCenter(points1);
+        const center2 = this.calculateCenter(points2);
+       
+        // 🔥 ИСПРАВЛЕНИЕ: Правильное создание зеркальных точек
+        // Зеркало относительно вертикальной оси через center1.x
         const mirroredPoints2 = points2.map(p => ({
-            x: -p.x,  // 🔥 ОТРАЖАЕМ ПО ОСИ Y (инвертируем X)
+            x: 2 * center1.x - p.x,  // 🔥 ПРАВИЛЬНАЯ ФОРМУЛА: x' = 2*centerX - x
             y: p.y,
             confidence: p.confidence,
             id: `${p.id}_mirrored`
         }));
-
-        // Ищем совмещение с отраженными точками
+       
+        console.log(`📐 Параметры зеркала: center1=(${center1.x.toFixed(1)}, ${center1.y.toFixed(1)})`);
+       
+        // 2. Обычный поиск
+        console.log('🔄 Запуск RANSAC (обычный)...');
+        const normalResult = this.searchBestTransformation(
+            points1, points2, false, initialGuess
+        );
+       
+        // 3. Поиск с правильным зеркальным отражением
+        console.log('🔄 Запуск RANSAC (зеркальный)...');
         const mirroredResult = this.searchBestTransformation(
             points1, mirroredPoints2, false, initialGuess
         );
-
-        // 🔥 ВАЖНО: преобразуем результат обратно
+       
+        // 🔥 КОРРЕКТНО ПОМЕЧАЕМ ЗЕРКАЛЬНЫЙ РЕЗУЛЬТАТ
         if (mirroredResult.transform) {
             mirroredResult.transform.mirrored = true;
-            // Корректируем трансформацию для отражения
-            mirroredResult.transform.rotation = -mirroredResult.transform.rotation;
-            mirroredResult.transform.translation.x = -mirroredResult.transform.translation.x;
+            mirroredResult.mirrored = true;
+           
+            // Корректируем трансформацию для правильного зеркала
+            // При зеркале X координата трансляции тоже отражается
+            mirroredResult.transform.translation.x =
+                2 * center1.x - mirroredResult.transform.translation.x;
         }
-
-        return mirroredResult;
+       
+        console.log(`📊 Сравнение: обычный=${normalResult.score.toFixed(3)}, зеркальный=${mirroredResult.score.toFixed(3)}`);
+       
+        // 4. Выбираем лучший результат с порогом преимущества
+        const mirrorAdvantage = mirroredResult.score - normalResult.score;
+        const isMirrorBetter = mirrorAdvantage > this.options.mirrorAdvantageThreshold;
+       
+        if (isMirrorBetter && mirroredResult.score > 0.4) {
+            console.log(`✅ ОБНАРУЖЕНО ЗЕРКАЛО! Преимущество: +${(mirrorAdvantage * 100).toFixed(1)}%`);
+            return mirroredResult;
+        } else {
+            console.log(`📌 Использую обычный результат (зеркало не лучше)`);
+            normalResult.mirrored = false;
+            return normalResult;
+        }
     }
 
     // 🔄 ПОИСК ЛУЧШЕЙ ТРАНСФОРМАЦИИ (RANSAC-подобный) - ИСПРАВЛЕННЫЙ
     searchBestTransformation(points1, points2, mirrored = false, initialGuess = null) {
-        console.log(`🔍 searchBestTransformation вызван: mirrored=${mirrored}, точек: ${points1.length} vs ${points2.length}`);
+        console.log(`🔍 searchBestTransformation: ${points1.length} vs ${points2.length} точек`);
 
         let bestTransform = null;
         let bestScore = 0;
@@ -183,7 +170,7 @@ class PointCloudAligner {
 
         for (let iteration = 0; iteration < this.options.maxIterations; iteration++) {
             iterations++;
-           
+          
             // 1. ВЫБОР СЛУЧАЙНЫХ ТОЧЕК
             const sample1 = this.getRandomSample(points1, 3);
             const sample2 = this.getRandomSample(points2, 3);
@@ -221,7 +208,7 @@ class PointCloudAligner {
             }
         }
 
-        console.log(`📊 searchBestTransformation завершен: score=${bestScore}, mirrored=${mirrored}, iterations=${iterations}`);
+        console.log(`📊 Поиск завершен: score=${bestScore}, mirrored=${mirrored}, iterations=${iterations}`);
 
         // УТОЧНЕНИЕ ПО INLIERS (если нашли хорошие совпадения)
         if (bestInliers.length >= 3) {
@@ -259,27 +246,15 @@ class PointCloudAligner {
         }
 
         try {
-            // 🔥 ИСПРАВЛЕНИЕ: Правильная обработка зеркала
-            let workingSample2 = sample2;
-            if (mirrored) {
-                // Для зеркала корректируем координаты уже отраженных точек
-                workingSample2 = sample2.map(p => ({
-                    x: p.x,
-                    y: p.y,
-                    confidence: p.confidence,
-                    id: p.id
-                }));
-            }
-
             const center1 = this.calculateCenter(sample1);
-            const center2 = this.calculateCenter(workingSample2);
+            const center2 = this.calculateCenter(sample2);
 
             // Центрируем точки
             const centered1 = sample1.map(p => ({
                 x: p.x - center1.x,
                 y: p.y - center1.y
             }));
-            const centered2 = workingSample2.map(p => ({
+            const centered2 = sample2.map(p => ({
                 x: p.x - center2.x,
                 y: p.y - center2.y
             }));
@@ -332,15 +307,15 @@ class PointCloudAligner {
                             const cross = v1.x * v2.y - v1.y * v2.x;
                             const angle = Math.atan2(cross, dot);
 
-                            // Нормализуем угол
-                            let normalizedAngle = angle;
-                            if (normalizedAngle > Math.PI) normalizedAngle -= 2 * Math.PI;
-                            if (normalizedAngle < -Math.PI) normalizedAngle += 2 * Math.PI;
-
                             // 🔥 ДЛЯ ЗЕРКАЛА: инвертируем угол
+                            let normalizedAngle = angle;
                             if (mirrored) {
                                 normalizedAngle = -normalizedAngle;
                             }
+
+                            // Нормализуем угол
+                            if (normalizedAngle > Math.PI) normalizedAngle -= 2 * Math.PI;
+                            if (normalizedAngle < -Math.PI) normalizedAngle += 2 * Math.PI;
 
                             totalAngle += normalizedAngle;
                             angleCount++;
@@ -356,19 +331,19 @@ class PointCloudAligner {
 
             const rotation = totalAngle / angleCount;
 
-            // 🔥 ИСПРАВЛЕНИЕ: Правильный расчёт смещения (универсальная формула)
+            // 🔥 ИСПРАВЛЕНИЕ: Упрощенный и правильный расчёт смещения
             const cos = Math.cos(rotation);
             const sin = Math.sin(rotation);
 
-            // Для зеркала корректируем расчет
-            let adjustedCenter1X = center1.x;
+            // Для зеркала корректируем расчет центра
+            let effectiveCenter1X = center1.x;
             if (mirrored) {
-                adjustedCenter1X = -center1.x; // Отражение по оси Y
+                effectiveCenter1X = -center1.x; // Отражение по оси Y
             }
 
             const translation = {
-                x: center2.x - (adjustedCenter1X * cos * scale - center1.y * sin * scale),
-                y: center2.y - (adjustedCenter1X * sin * scale + center1.y * cos * scale)
+                x: center2.x - (effectiveCenter1X * cos * scale - center1.y * sin * scale),
+                y: center2.y - (effectiveCenter1X * sin * scale + center1.y * cos * scale)
             };
 
             return {
@@ -384,7 +359,7 @@ class PointCloudAligner {
         }
     }
 
-    // 📊 ОЦЕНКА ТРАНСФОРМАЦИИ (С АДАПТИВНЫМ ПОРОГОМ)
+    // 📊 ОЦЕНКА ТРАНСФОРМАЦИИ (С АДАПТИВНЫМИ ПОРОГАМИ)
     evaluateTransformation(points1, points2, transform, mirrored) {
         if (!transform || !points1 || !points2) {
             return { score: 0, inliers: [], avgDistance: Infinity, matchedPoints: 0, inlierRatio: 0 };
@@ -394,7 +369,19 @@ class PointCloudAligner {
         let totalDistance = 0;
         let matchedPoints = 0;
 
-        // 🔥 АДАПТИВНЫЙ ПОРОГ
+        // 🔥 АДАПТИВНЫЕ ПОРОГИ ДЛЯ МАЛЫХ НАБОРОВ
+        const minPoints = Math.min(points1.length, points2.length);
+        const adaptiveMinInliers = Math.max(
+            2, // Минимум 2 inliers
+            Math.floor(minPoints * 0.4) // 40% от меньшего набора
+        );
+       
+        const adaptiveMinInliersRatio = Math.max(
+            0.4, // Минимум 40%
+            Math.min(0.7, 0.3 + (minPoints / 20)) // Масштабируем с количеством точек
+        );
+
+        // 🔥 АДАПТИВНЫЙ ПОРОГ INLIERS
         let inlierThreshold = this.options.inlierThreshold;
         if (this.options.adaptiveInlierThreshold) {
             const avgPointDistance = this.calculateAveragePointDistance(points1);
@@ -446,9 +433,9 @@ class PointCloudAligner {
             }
         });
 
-        // 🔥 ПРОВЕРКА МИНИМАЛЬНЫХ ТРЕБОВАНИЙ
-        if (matchedPoints < this.options.minInliersAbsolute) {
-            console.log(`❌ Слишком мало inliers: ${matchedPoints} < ${this.options.minInliersAbsolute}`);
+        // 🔥 АДАПТИВНЫЕ ПРОВЕРКИ МИНИМАЛЬНЫХ ТРЕБОВАНИЙ
+        if (matchedPoints < adaptiveMinInliers) {
+            console.log(`❌ Слишком мало inliers: ${matchedPoints} < ${adaptiveMinInliers} (адаптивный порог)`);
             return {
                 score: 0,
                 inliers: [],
@@ -459,8 +446,8 @@ class PointCloudAligner {
         }
 
         const inlierRatio = matchedPoints / Math.min(points1.length, points2.length);
-        if (inlierRatio < this.options.minInliersRatio) {
-            console.log(`❌ Слишком низкий inlier ratio: ${inlierRatio.toFixed(3)} < ${this.options.minInliersRatio}`);
+        if (inlierRatio < adaptiveMinInliersRatio) {
+            console.log(`❌ Слишком низкий inlier ratio: ${inlierRatio.toFixed(3)} < ${adaptiveMinInliersRatio}`);
             return {
                 score: 0,
                 inliers: [],
@@ -529,7 +516,7 @@ class PointCloudAligner {
 
         score = Math.max(0, Math.min(1, score));
 
-        console.log(`📈 Оценка трансформации: score=${score.toFixed(3)}, inliers=${matchedPoints}, avgDist=${avgDistance.toFixed(1)}`);
+        console.log(`📈 Оценка: score=${score.toFixed(3)}, inliers=${matchedPoints}, avgDist=${avgDistance.toFixed(1)}`);
 
         return {
             score: score,
@@ -548,7 +535,6 @@ class PointCloudAligner {
         let y = point.y;
 
         // 🔥 КОРРЕКТНАЯ ОБРАБОТКА ЗЕРКАЛА
-        // mirrored - это параметр метода, transform.mirrored - это свойство трансформации
         const shouldMirror = mirrored || (transform && transform.mirrored);
 
         if (shouldMirror) {
@@ -572,8 +558,6 @@ class PointCloudAligner {
         };
     }
 
-    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ (из оригинального кода):
-   
     // 🎨 УТОЧНЕНИЕ ТРАНСФОРМАЦИИ ПО INLIERS
     refineTransformationWithInliers(points1, points2, inliers, mirrored) {
         if (inliers.length < 3) return null;
@@ -683,6 +667,52 @@ class PointCloudAligner {
         return count > 0 ? totalDistance / count : 20;
     }
 
+    // 🔥 УЛУЧШЕННЫЙ МЕТОД: Проверка регулярной сетки
+    checkUniformGrid(points) {
+        if (points.length < 9) return false;
+       
+        // 🔥 УЛУЧШЕНИЕ: Проверяем больше признаков регулярности
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+       
+        // 1. Проверка на квантование координат
+        const quantizedXs = xs.map(x => Math.round(x / 10) * 10);
+        const quantizedYs = ys.map(y => Math.round(y / 10) * 10);
+       
+        const uniqueQuantizedX = [...new Set(quantizedXs)];
+        const uniqueQuantizedY = [...new Set(quantizedYs)];
+       
+        // 2. Если много точек имеют одинаковые квантованные координаты
+        if (uniqueQuantizedX.length <= 4 && uniqueQuantizedY.length <= 4) {
+            console.log(`⚠️ Обнаружена квантованная сетка: ${uniqueQuantizedX.length}x${uniqueQuantizedY.length}`);
+            return true;
+        }
+       
+        // 3. Проверка равномерности расстояний между точками
+        const distances = [];
+        for (let i = 0; i < points.length; i++) {
+            for (let j = i + 1; j < points.length; j++) {
+                distances.push(this.calculateDistance(points[i], points[j]));
+            }
+        }
+       
+        // Группируем расстояния с допуском
+        const groupedDistances = {};
+        distances.forEach(d => {
+            const rounded = Math.round(d / 10) * 10;
+            groupedDistances[rounded] = (groupedDistances[rounded] || 0) + 1;
+        });
+       
+        // Если есть доминирующее расстояние
+        const maxCount = Math.max(...Object.values(groupedDistances));
+        if (maxCount > distances.length * 0.3) { // >30% одинаковых расстояний
+            console.log('⚠️ Обнаружены регулярные расстояния между точками');
+            return true;
+        }
+       
+        return false;
+    }
+
     // Подготовка точек
     preparePoints(points) {
         return points.map((p, index) => ({
@@ -762,7 +792,7 @@ class PointCloudAligner {
         };
     }
 
-    // 🔥 Методы для проверки случайных данных (из оригинального кода):
+    // 🔥 Методы для проверки случайных данных
     checkForRandomPattern(inliers, points1, points2) {
         if (inliers.length < 4) return false;
 
@@ -839,49 +869,6 @@ class PointCloudAligner {
         return cv < 0.2;
     }
 
-    checkUniformGrid(points) {
-        if (points.length < 9) return false;
-
-        const xs = [...new Set(points.map(p => Math.round(p.x / 20) * 20))];
-        const ys = [...new Set(points.map(p => Math.round(p.y / 20) * 20))];
-
-        if (xs.length >= 3 && ys.length >= 3) {
-            xs.sort((a, b) => a - b);
-            ys.sort((a, b) => a - b);
-
-            let xUniform = true;
-            if (xs.length > 2) {
-                const firstGap = xs[1] - xs[0];
-                for (let i = 2; i < xs.length; i++) {
-                    const gap = xs[i] - xs[i-1];
-                    if (Math.abs(gap - firstGap) > 10) {
-                        xUniform = false;
-                        break;
-                    }
-                }
-            }
-
-            let yUniform = true;
-            if (ys.length > 2) {
-                const firstGap = ys[1] - ys[0];
-                for (let i = 2; i < ys.length; i++) {
-                    const gap = ys[i] - ys[i-1];
-                    if (Math.abs(gap - firstGap) > 10) {
-                        yUniform = false;
-                        break;
-                    }
-                }
-            }
-
-            if (xUniform && yUniform) {
-                console.log(`⚠️ Обнаружена регулярная сетка: ${xs.length}x${ys.length}`);
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     calculateTriangleAngle(p1, p2, p3) {
         const a = this.calculateDistance(p1, p2);
         const b = this.calculateDistance(p2, p3);
@@ -895,12 +882,13 @@ class PointCloudAligner {
     getDebugInfo() {
         return {
             options: this.options,
-            algorithm: 'Fixed RANSAC with mirror detection',
+            algorithm: 'Improved RANSAC with fixed mirror detection',
             features: [
-                'Fixed mirror detection',
-                'Improved transformation calculation',
-                'Better point matching',
-                'Random pattern detection'
+                'Fixed mirror detection (correct formula)',
+                'Adaptive thresholds for small point sets',
+                'Improved grid pattern detection',
+                'Better transformation calculation',
+                'Enhanced point matching'
             ]
         };
     }
