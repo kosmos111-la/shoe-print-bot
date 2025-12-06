@@ -3,16 +3,21 @@ class PointCloudAligner {
     constructor(options = {}) {
         this.options = {
             // 🔥 ОПТИМАЛЬНЫЕ НАСТРОЙКИ ПО УМОЛЧАНИЮ
-            minPointsForAlignment: 3,
-            maxIterations: 100,
-            inlierThreshold: 25,
-            minInliersRatio: 0.4,
-            minInliersAbsolute: 3,
+            minPointsForAlignment: 4,
+            maxIterations: 150,
+            inlierThreshold: 20,
+            minInliersRatio: 0.6,
+            minInliersAbsolute: 4,
             scaleRange: { min: 0.5, max: 2.0 },
-            confidenceThreshold: 0.4,
+            confidenceThreshold: 0.5,
             mirrorCheck: true,
-            adaptiveInlierThreshold: true, // Автоматическая настройка порога
+            adaptiveInlierThreshold: true,
             requireGoodDistribution: true,
+            // 🔥 НОВЫЕ НАСТРОЙКИ ДЛЯ БОРЬБЫ СО СЛУЧАЙНЫМИ ДАННЫМИ
+            requireGoodSpread: true,
+            maxRandomScore: 0.3,
+            minUniqueAngles: 3,
+            mirrorAdvantageThreshold: 0.15,
 
             ...options
         };
@@ -24,7 +29,8 @@ class PointCloudAligner {
             minInliersAbsolute: this.options.minInliersAbsolute,
             scaleRange: this.options.scaleRange,
             confidenceThreshold: this.options.confidenceThreshold,
-            adaptiveInlierThreshold: this.options.adaptiveInlierThreshold
+            adaptiveInlierThreshold: this.options.adaptiveInlierThreshold,
+            maxRandomScore: this.options.maxRandomScore
         });
     }
 
@@ -59,21 +65,67 @@ class PointCloudAligner {
             );
         }
 
-        // 4. ВЫБОР ЛУЧШЕГО РЕЗУЛЬТАТА
+        // 4. ВЫБОР ЛУЧШЕГО РЕЗУЛЬТАТА С УЧЕТОМ ЗЕРКАЛА
         const results = [];
-        if (resultNoMirror && resultNoMirror.score > 0) results.push(resultNoMirror);
-        if (resultWithMirror && resultWithMirror.score > 0) results.push(resultWithMirror);
+        if (resultNoMirror && resultNoMirror.score > this.options.maxRandomScore) {
+            results.push(resultNoMirror);
+        }
+        if (resultWithMirror && resultWithMirror.score > this.options.maxRandomScore) {
+            results.push(resultWithMirror);
+        }
 
         if (results.length === 0) {
             console.log('❌ Не найдено приемлемых совмещений');
             return this.createNullResult('Нет совмещений');
         }
 
-        const bestResult = results.reduce((best, current) =>
-            current.score > best.score ? current : best
-        );
+        // 🔥 ЯВНОЕ СРАВНЕНИЕ ЗЕРКАЛА И НЕЗЕРКАЛА
+        let bestResult = results[0];
+        if (results.length > 1) {
+            const scoreDiff = Math.abs(results[0].score - results[1].score);
+            const mirrorAdvantage = results[1].score - results[0].score;
+           
+            if (scoreDiff > 0.1) { // Разница >10%
+                bestResult = results[0].score > results[1].score ? results[0] : results[1];
+               
+                // Если зеркальный результат лучше на порог
+                if (results[1].mirrored && mirrorAdvantage > this.options.mirrorAdvantageThreshold) {
+                    console.log(`🪞 ЗЕРКАЛО ОБНАРУЖЕНО: +${(mirrorAdvantage*100).toFixed(1)}% лучше`);
+                    bestResult.mirrored = true;
+                    bestResult.score *= 1.05; // Небольшой бонус
+                }
+            } else {
+                // Разница небольшая - берем незеркальный
+                bestResult = results.find(r => !r.mirrored) || results[0];
+            }
+        }
 
         console.log(`📊 Результаты: Обычный=${resultNoMirror?.score?.toFixed(4) || 0}, Зеркальный=${resultWithMirror?.score?.toFixed(4) || 0}`);
+
+        // 🔥 ПРОВЕРКА НА СЛУЧАЙНЫЕ ДАННЫЕ
+        if (bestResult.inliers && bestResult.inliers.length > 0) {
+            const isRandom = this.checkForRandomPattern(
+                bestResult.inliers,
+                prepared1,
+                prepared2
+            );
+           
+            if (isRandom && bestResult.score < 0.5) {
+                console.log('⚠️ Возможно случайные данные - снижаю score');
+                bestResult.score *= 0.5;
+            }
+        }
+
+        // 🔥 ОГРАНИЧИВАЕМ SCORE ДЛЯ СЛУЧАЙНЫХ ДАННЫХ
+        if (bestResult.score > this.options.maxRandomScore) {
+            // Проверяем, действительно ли это хорошее совмещение
+            const isGoodMatch = bestResult.inliers.length >= 6 &&
+                               bestResult.inliers.length > Math.min(prepared1.length, prepared2.length) * 0.5;
+           
+            if (!isGoodMatch) {
+                bestResult.score = Math.min(bestResult.score, this.options.maxRandomScore);
+            }
+        }
 
         // 5. ОЦЕНКА КАЧЕСТВА
         bestResult.quality = this.evaluateAlignmentQuality(bestResult);
@@ -83,6 +135,96 @@ class PointCloudAligner {
                    `зеркало: ${bestResult.mirrored ? 'да' : 'нет'}`);
 
         return bestResult;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Проверка на случайные данные
+    checkForRandomPattern(inliers, points1, points2) {
+        if (inliers.length < 4) return false;
+       
+        // 1. Проверка на равномерность распределения inliers
+        if (this.options.requireGoodSpread) {
+            const spreadScore = this.calculatePointSpreadScore(inliers.map(i => i.point2));
+            if (spreadScore < 0.3) {
+                console.log('⚠️ Слишком плотное скопление inliers (возможно случайные данные)');
+                return true;
+            }
+        }
+       
+        // 2. Проверка на уникальные углы между точками
+        const uniqueAngles = this.countUniqueAngles(points1);
+        if (uniqueAngles < this.options.minUniqueAngles) {
+            console.log('⚠️ Слишком мало уникальных углов');
+            return true;
+        }
+       
+        // 3. Проверка на слишком равномерные расстояния
+        if (this.checkUniformDistances(points1)) {
+            console.log('⚠️ Слишком равномерные расстояния (похоже на регулярную сетку)');
+            return true;
+        }
+       
+        return false;
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ПРОВЕРКИ СЛУЧАЙНЫХ ДАННЫХ:
+    calculatePointSpreadScore(points) {
+        if (points.length < 3) return 1.0;
+       
+        const center = this.calculateCenter(points);
+        const distances = points.map(p => this.calculateDistance(p, center));
+        const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
+        const maxDistance = Math.max(...distances);
+       
+        // Если все точки близко к центру - плохо
+        return avgDistance / Math.max(maxDistance, 1);
+    }
+
+    countUniqueAngles(points) {
+        if (points.length < 3) return 0;
+       
+        const angles = new Set();
+        for (let i = 0; i < points.length; i++) {
+            for (let j = i + 1; j < points.length; j++) {
+                for (let k = j + 1; k < points.length; k++) {
+                    const angle = this.calculateTriangleAngle(
+                        points[i], points[j], points[k]
+                    );
+                    const quantized = Math.round(angle * 10); // Квантуем до 0.1 радиана
+                    angles.add(quantized);
+                }
+            }
+        }
+        return angles.size;
+    }
+
+    checkUniformDistances(points) {
+        if (points.length < 4) return false;
+       
+        const distances = [];
+        for (let i = 0; i < points.length; i++) {
+            for (let j = i + 1; j < points.length; j++) {
+                distances.push(this.calculateDistance(points[i], points[j]));
+            }
+        }
+       
+        // Проверяем вариацию расстояний
+        const avg = distances.reduce((a, b) => a + b, 0) / distances.length;
+        const variance = distances.reduce((sum, d) => sum + Math.pow(d - avg, 2), 0) / distances.length;
+        const cv = Math.sqrt(variance) / avg; // Коэффициент вариации
+       
+        // Если расстояния слишком равномерны (CV маленький)
+        return cv < 0.2;
+    }
+
+    calculateTriangleAngle(p1, p2, p3) {
+        // Угол при вершине p2
+        const a = this.calculateDistance(p1, p2);
+        const b = this.calculateDistance(p2, p3);
+        const c = this.calculateDistance(p1, p3);
+       
+        // Теорема косинусов
+        const cosAngle = (a*a + b*b - c*c) / (2 * a * b);
+        return Math.acos(Math.max(-1, Math.min(1, cosAngle)));
     }
 
     // 🔄 ПОИСК ЛУЧШЕЙ ТРАНСФОРМАЦИИ (RANSAC-подобный)
@@ -265,8 +407,8 @@ class PointCloudAligner {
             // 🔥 ИСПРАВЛЕНИЕ: Правильный расчёт смещения
             // Смещение = center2 - (повёрнутый и масштабированный center1)
             const translation = {
-                x: center2.x - (center1.x * scale * Math.cos(rotation) - center1.y * scale * Math.sin(rotation)),
-                y: center2.y - (center1.x * scale * Math.sin(rotation) + center1.y * scale * Math.cos(rotation))
+                x: center2.x - (center1.x * Math.cos(rotation) * scale - center1.y * Math.sin(rotation) * scale),
+                y: center2.y - (center1.x * Math.sin(rotation) * scale + center1.y * Math.cos(rotation) * scale)
             };
 
             return {
@@ -565,8 +707,8 @@ class PointCloudAligner {
         let x = point.x;
         let y = point.y;
 
-        // Зеркало (инверсия по X) - уже учтено в searchBestTransformation
-        if (mirrored && !transform.mirrored) {
+        // Зеркало (инверсия по X)
+        if (mirrored) {
             x = -x;
         }
 
@@ -668,7 +810,8 @@ class PointCloudAligner {
                 'Mirror detection (fixed)',
                 'Adaptive inlier threshold',
                 'Confidence-weighted scoring',
-                'Distribution-aware evaluation'
+                'Distribution-aware evaluation',
+                'Random pattern detection'
             ]
         };
     }
