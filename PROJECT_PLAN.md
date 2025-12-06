@@ -1,542 +1,313 @@
-🚀 ОБНОВЛЕННЫЙ ПЛАН ПРОЕКТА: СИСТЕМА ЦИФРОВЫХ ОТПЕЧАТКОВ ОБУВИ
+// modules/footprint/model-visualizer.js
+const { createCanvas } = require('canvas');
+const fs = require('fs');
+const path = require('path');
 
-📋 ЧТО МЫ ДОБАВЛЯЕМ СЕЙЧАС:
-
-🎯 НОВАЯ ФИЧА: ЦИФРОВЫЕ ОТПЕЧАТКИ ОБУВИ
-
-Система, которая учится на каждом фото, запоминает модели протекторов и находит связи между разными следами.
-
----
-
-📁 НОВАЯ СТРУКТУРА ФАЙЛОВ:
-
-```
-📁 modules/
-├── 📁 footprint/              # 🆕 НОВАЯ ПАПКА!
-│   ├── 📄 digital-footprint.js      # Класс цифрового отпечатка
-│   ├── 📄 footprint-database.js     # База моделей
-│   ├── 📄 distortion-matcher.js     # Сравнение с учетом искажений
-│   ├── 📄 model-visualizer.js       # Визуализация моделей
-│   └── 📄 index.js                  # Экспорт модулей
-│
-├── 📁 session/                # ⬆️ ОБНОВЛЯЕМ!
-│   ├── 📄 session-manager.js        # + автосохранение
-│   ├── 📄 session-analyzer.js       # + создание моделей
-│   └── 📄 session-footprint.js      # 🆕 Мост между сессиями и отпечатками
-│
-├── 📁 visualization/          # ⬆️ ОБНОВЛЯЕМ!
-│   ├── 📄 ... (существующие файлы)
-│   └── 📄 comparison-viz.js         # 🆕 Визуализация сравнения
-│
-├── 📁 feedback/               # ⬆️ ДОРАБАТЫВАЕМ!
-│   └── 📄 feedback-to-model.js      # 🆕 Конвертация feedback в улучшения моделей
-│
-└── 📁 data/                   # ⬆️ ОБНОВЛЯЕМ!
-    ├── 📄 footprints.json           # 🆕 База цифровых отпечатков
-    ├── 📄 footprint-index.idx       # 🆕 Индекс для быстрого поиска
-    ├── 📄 feedback.json             # Существующий
-    └── 📄 sessions/                 # Архив сессий
-```
-
----
-
-🛠️ ПОШАГОВЫЙ ПЛАН РЕАЛИЗАЦИИ:
-
-ЭТАП 1: БАЗОВЫЕ КЛАССЫ (СЕЙЧАС - 2 ДНЯ)
-
-Задача 1.1: Создать DigitalFootprint класс
-
-```javascript
-// modules/footprint/digital-footprint.js
-class DigitalFootprint {
-  // Основные свойства:
-  // - id, name, confidence
-  // - nodes (Map) с координатами, уверенностью, историей подтверждений
-  // - edges (связи между узлами)
-  // - metadata (бренд, модель, размер)
-  // - sources (откуда собрана)
- 
-  // Основные методы:
-  // - match(otherFootprint) → {score, matchedNodes, transformation}
-  // - updateFromMatch(matchResult)
-  // - addNode(nodeData)
-  // - removeWeakNodes(threshold)
-  // - toJSON() / fromJSON()
-}
-```
-
-Задача 1.2: Создать FootprintDatabase
-
-```javascript
-// modules/footprint/footprint-database.js
-class FootprintDatabase {
-  // Основные методы:
-  // - save(footprint)
-  // - findSimilar(analysis, threshold=0.6) → Array<matches>
-  // - get(id)
-  // - getAllUserModels(userId)
-  // - rebuildIndex() - для производительности
-}
-```
-
-ЭТАП 2: ИНТЕГРАЦИЯ С СЕССИЯМИ (3-4 ДЕНЬ)
-
-Задача 2.1: Доработать SessionAnalyzer
-
-```javascript
-// modules/session/session-analyzer.js
-class EnhancedSessionAnalyzer extends SessionAnalyzer {
-  // Добавляем методы:
-  buildCompositeModel(session) → DigitalFootprint
-  compareSessionWithModel(session, modelId) → ComparisonResult
-  findBestMatchInSession(session) → BestMatch
-}
-```
-
-Задача 2.2: Создать мост SessionFootprint
-
-```javascript
-// modules/session/session-footprint.js
-class SessionFootprint {
-  // Конвертирует данные сессии в DigitalFootprint
-  // Обрабатывает разные ракурсы, освещение
-  // Усредняет координаты с учетом трансформаций
-}
-```
-
-ЭТАП 3: СИСТЕМА СРАВНЕНИЯ (5-7 ДЕНЬ)
-
-Задача 3.1: DistortionAwareMatcher
-
-```javascript
-// modules/footprint/distortion-matcher.js
-class DistortionAwareMatcher {
-  // Учитывает:
-  // - Разный масштаб (фотография с разного расстояния)
-  // - Перспективные искажения (угол съемки)
-  // - Поворот следа (ориентация на фото)
-  // - Частичное перекрытие (фрагмент протектора)
- 
-  // Методы:
-  // - alignPerspectives(model1, model2) → Transform
-  // - compareWithTolerance(node1, node2, tolerances) → Match
-  // - estimateTransformation(points1, points2) → {scale, rotation, ...}
-}
-```
-
-Задача 3.2: Визуализация сравнения
-
-```javascript
-// modules/visualization/comparison-viz.js
-class ComparisonVisualizer {
-  // Визуализирует:
-  // - Две модели рядом
-  // - Совпадающие узлы (зеленые)
-  // - Расходящиеся узлы (красные)
-  // - Новые узлы (синие)
-  // - Проценты совпадения
-}
-```
-
-ЭТАП 4: КОМАНДЫ БОТА (8-10 ДЕНЬ)
-
-Новые команды:
-
-```
-/save_model [name]           - Сохранить текущую сессию как модель
-/my_models                   - Показать мои сохраненные модели
-/find_similar                - Найти похожие на текущий анализ
-/compare_with [id]           - Сравнить с моделью #id
-/model_info [id]             - Информация о модели
-/merge_models [id1] [id2]    - Объединить две модели
-```
-
-ЭТАП 5: ПРОИЗВОДИТЕЛЬНОСТЬ (11-14 ДЕНЬ)
-
-Оптимизации:
-
-1. Пространственный индекс (R-tree)
-2. Кэширование сравнений
-3. Фоновая индексация
-4. Сжатие данных моделей
-
----
-
-🔥 ПЕРВЫЕ КОНКРЕТНЫЕ ШАГИ СЕЙЧАС:
-
-ШАГ 1: Создаем базовый класс DigitalFootprint
-
-```javascript
-// Создаем файл: modules/footprint/digital-footprint.js
-// Весь код готов, нужно только создать файл и интегрировать
-```
-
-ШАГ 2: Дорабатываем SessionAnalyzer
-
-Добавляем в существующий session-analyzer.js:
-
-```javascript
-// В конец файла session-analyzer.js добавляем:
-
-buildCompositeModel(session) {
-  console.log('🔄 Собираю composite модель из сессии...');
- 
-  // 1. Собираем ВСЕ протекторы из всех анализов сессии
-  const allProtectors = [];
-  session.analysisResults.forEach((result, index) => {
-    const protectors = result.predictions?.filter(p =>
-      p.class === 'shoe-protector'
-    ) || [];
-   
-    protectors.forEach(protector => {
-      // Добавляем информацию о источнике
-      allProtectors.push({
-        ...protector,
-        source: {
-          sessionId: session.id,
-          analysisIndex: index,
-          timestamp: result.timestamp
-        },
-        // Вычисляем центр
-        center: this.getCenter(protector.points)
-      });
-    });
-  });
- 
-  // 2. Кластеризуем похожие протекторы (объединяем дубликаты)
-  const clusters = this.clusterSimilarProtectors(allProtectors);
- 
-  // 3. Создаем модель
-  const model = {
-    id: `model_${session.id}_${Date.now()}`,
-    sessionId: session.id,
-    userId: session.userId,
-    creationDate: new Date(),
-    totalPhotos: session.photos.length,
-   
-    // УЗЛЫ (объединенные протекторы)
-    nodes: clusters.map(cluster => ({
-      id: `node_${generateShortId()}`,
-      center: cluster.averageCenter,
-      confidence: cluster.confidence, // чем больше фото подтверждает, тем выше
-      confirmationCount: cluster.protectors.length,
-      size: cluster.averageSize,
-      sources: cluster.protectors.map(p => p.source)
-    })),
-   
-    // СВЯЗИ между узлами
-    edges: this.buildEdges(clusters),
-   
-    // МЕТАДАННЫЕ
-    metadata: {
-      estimatedShoeSize: this.calculateAverageSize(session),
-      footprintType: this.determineFootprintType(session),
-      orientation: this.calculateAverageOrientation(session)
+class ModelVisualizer {
+    constructor() {
+        console.log('🎨 ModelVisualizer создан');
+        this.tempDir = path.join(process.cwd(), 'temp');
+        this.ensureTempDir();
     }
-  };
- 
-  console.log(`✅ Composite модель создана: ${model.nodes.length} узлов`);
-  return model;
+
+    ensureTempDir() {
+        if (!fs.existsSync(this.tempDir)) {
+            fs.mkdirSync(this.tempDir, { recursive: true });
+        }
+    }
+
+    // ВИЗУАЛИЗАЦИЯ ОДНОЙ МОДЕЛИ
+    async visualizeModel(footprint, outputPath = null) {
+        try {
+            if (!footprint || !footprint.nodes || footprint.nodes.size === 0) {
+                console.log('❌ Модель пуста для визуализации');
+                return null;
+            }
+
+            console.log(`🎨 Визуализирую модель: ${footprint.nodes.size} узлов`);
+
+            // Создаем canvas подходящего размера
+            const canvasWidth = 800;
+            const canvasHeight = 600;
+            const canvas = createCanvas(canvasWidth, canvasHeight);
+            const ctx = canvas.getContext('2d');
+
+            // 1. ФОН
+            ctx.fillStyle = '#f8f9fa';
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+            // 2. НОРМАЛИЗУЕМ координаты модели в границы canvas
+            const normalizedNodes = this.normalizeNodes(footprint, canvasWidth, canvasHeight);
+
+            // 3. РИСУЕМ СВЯЗИ (первыми, чтобы были под узлами)
+            this.drawEdges(ctx, normalizedNodes, footprint.edges);
+
+            // 4. РИСУЕМ УЗЛЫ
+            this.drawNodes(ctx, normalizedNodes);
+
+            // 5. РИСУЕМ ИНФОРМАЦИЮ
+            this.drawInfo(ctx, canvasWidth, canvasHeight, footprint);
+
+            // Сохраняем
+            const finalPath = outputPath || path.join(
+                this.tempDir,
+                `model_${footprint.id.slice(0, 8)}_${Date.now()}.png`
+            );
+
+            const buffer = canvas.toBuffer('image/png');
+            fs.writeFileSync(finalPath, buffer);
+
+            console.log(`✅ Визуализация модели сохранена: ${finalPath}`);
+            return finalPath;
+
+        } catch (error) {
+            console.log('❌ Ошибка визуализации модели:', error.message);
+            return null;
+        }
+    }
+
+    // НОРМАЛИЗАЦИЯ УЗЛОВ В ГРАНИЦЫ CANVAS
+    normalizeNodes(footprint, canvasWidth, canvasHeight) {
+        const nodes = Array.from(footprint.nodes.values());
+        const normalized = new Map();
+
+        if (!footprint.boundingBox || footprint.boundingBox.width === 0) {
+            // Если нет boundingBox или нулевая ширина, создаем искусственные границы
+            const xs = nodes.map(n => n.center?.x || 0);
+            const ys = nodes.map(n => n.center?.y || 0);
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+            const width = Math.max(1, maxX - minX);
+            const height = Math.max(1, maxY - minY);
+
+            footprint.boundingBox = {
+                minX: minX || 0,
+                maxX: maxX || canvasWidth,
+                minY: minY || 0,
+                maxY: maxY || canvasHeight,
+                width,
+                height
+            };
+        }
+
+        const { minX, maxX, minY, maxY, width, height } = footprint.boundingBox;
+       
+        // Добавляем отступы
+        const padding = 50;
+        const scale = Math.min(
+            (canvasWidth - padding * 2) / Math.max(1, width),
+            (canvasHeight - padding * 2) / Math.max(1, height)
+        );
+
+        nodes.forEach(node => {
+            // Проверяем что есть координаты
+            if (!node.center || node.center.x == null || node.center.y == null) {
+                return;
+            }
+           
+            // Масштабируем и центрируем
+            const x = padding + (node.center.x - minX) * scale;
+            const y = padding + (node.center.y - minY) * scale;
+           
+            // Проверяем что координаты в пределах canvas
+            if (x >= 0 && x <= canvasWidth && y >= 0 && y <= canvasHeight) {
+                normalized.set(node.id, {
+                    ...node,
+                    normalizedCenter: { x, y },
+                    normalizedSize: Math.max(2, (node.size || 5) * scale * 0.1)
+                });
+            }
+        });
+
+        return normalized;
+    }
+
+    // РИСОВАНИЕ СВЯЗЕЙ
+    drawEdges(ctx, normalizedNodes, edges) {
+        if (!edges || edges.length === 0) return;
+       
+        ctx.strokeStyle = 'rgba(0, 100, 255, 0.3)';
+        ctx.lineWidth = 1;
+
+        edges.forEach(edge => {
+            const fromNode = normalizedNodes.get(edge.from);
+            const toNode = normalizedNodes.get(edge.to);
+
+            if (fromNode && toNode &&
+                fromNode.normalizedCenter && toNode.normalizedCenter &&
+                this.isValidPoint(fromNode.normalizedCenter) &&
+                this.isValidPoint(toNode.normalizedCenter)) {
+               
+                ctx.beginPath();
+                ctx.moveTo(fromNode.normalizedCenter.x, fromNode.normalizedCenter.y);
+                ctx.lineTo(toNode.normalizedCenter.x, toNode.normalizedCenter.y);
+                ctx.stroke();
+            }
+        });
+    }
+
+    // РИСОВАНИЕ УЗЛОВ
+    drawNodes(ctx, normalizedNodes) {
+        normalizedNodes.forEach((node, nodeId) => {
+            if (!node.normalizedCenter || !this.isValidPoint(node.normalizedCenter)) {
+                return;
+            }
+
+            const { x, y } = node.normalizedCenter;
+            const size = Math.max(3, node.normalizedSize || 5);
+           
+            // Цвет по уверенности
+            let color;
+            if (node.confidence > 0.8) {
+                color = '#00cc00'; // Высокая уверенность - зеленый
+            } else if (node.confidence > 0.5) {
+                color = '#ff9900'; // Средняя - оранжевый
+            } else {
+                color = '#ff3333'; // Низкая - красный
+            }
+
+            // Узел
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Обводка
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Маленькая точка в центре для высокоуверенных
+            if (node.confidence > 0.8) {
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(x, y, size * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+    }
+
+    // РИСОВАНИЕ ИНФОРМАЦИИ
+    drawInfo(ctx, width, height, footprint) {
+        // Полупрозрачная панель
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(10, 10, 300, 120);
+
+        // Текст
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText(`👣 МОДЕЛЬ: ${footprint.name || 'Без имени'}`, 20, 35);
+
+        ctx.font = '14px Arial';
+        ctx.fillText(`🆔 ${footprint.id.slice(0, 8)}...`, 20, 60);
+        ctx.fillText(`📊 Узлов: ${footprint.nodes.size}`, 20, 85);
+        ctx.fillText(`🔗 Связей: ${footprint.edges.length}`, 20, 110);
+        ctx.fillText(`💎 Уверенность: ${Math.round((footprint.stats.confidence || 0.5) * 100)}%`, 20, 135);
+
+        // Легенда в правом нижнем углу
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(width - 160, height - 80, 150, 70);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '12px Arial';
+        ctx.fillText('🎯 ЛЕГЕНДА:', width - 150, height - 60);
+        ctx.fillStyle = '#00cc00';
+        ctx.fillRect(width - 150, height - 45, 10, 10);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('- Высокая уверенность', width - 135, height - 40);
+        ctx.fillStyle = '#ff9900';
+        ctx.fillRect(width - 150, height - 25, 10, 10);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('- Средняя уверенность', width - 135, height - 20);
+    }
+
+    // ВИЗУАЛИЗАЦИЯ СРАВНЕНИЯ ДВУХ МОДЕЛЕЙ
+    async visualizeComparison(model1, model2, comparisonResult, outputPath = null) {
+        try {
+            const canvasWidth = 1200;
+            const canvasHeight = 600;
+            const canvas = createCanvas(canvasWidth, canvasHeight);
+            const ctx = canvas.getContext('2d');
+
+            // 1. ФОН
+            ctx.fillStyle = '#f8f9fa';
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+            // 2. ЛЕВАЯ ЧАСТЬ - МОДЕЛЬ 1
+            ctx.fillStyle = 'rgba(0, 100, 255, 0.1)';
+            ctx.fillRect(0, 0, canvasWidth / 2, canvasHeight);
+
+            // 3. ПРАВАЯ ЧАСТЬ - МОДЕЛЬ 2
+            ctx.fillStyle = 'rgba(255, 100, 0, 0.1)';
+            ctx.fillRect(canvasWidth / 2, 0, canvasWidth / 2, canvasHeight);
+
+            // 4. ЗАГОЛОВОК
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText(`СРАВНЕНИЕ МОДЕЛЕЙ`, canvasWidth / 2 - 100, 40);
+            ctx.fillText(`Совпадение: ${Math.round((comparisonResult.score || 0) * 100)}%`, canvasWidth / 2 - 80, 70);
+
+            // 5. РИСУЕМ ОБЕ МОДЕЛИ (упрощенно - бок о бок)
+            const model1Viz = await this.visualizeModel(model1, path.join(this.tempDir, `temp_left_${Date.now()}.png`));
+            const model2Viz = await this.visualizeModel(model2, path.join(this.tempDir, `temp_right_${Date.now()}.png`));
+
+            // 6. ИНФОРМАЦИЯ О СРАВНЕНИИ
+            this.drawComparisonInfo(ctx, canvasWidth, canvasHeight, comparisonResult);
+
+            const finalPath = outputPath || path.join(
+                this.tempDir,
+                `compare_${model1.id.slice(0, 8)}_${model2.id.slice(0, 8)}_${Date.now()}.png`
+            );
+
+            const buffer = canvas.toBuffer('image/png');
+            fs.writeFileSync(finalPath, buffer);
+
+            // Очистка временных файлов
+            if (model1Viz) fs.unlinkSync(model1Viz);
+            if (model2Viz) fs.unlinkSync(model2Viz);
+
+            console.log(`✅ Визуализация сравнения сохранена: ${finalPath}`);
+            return finalPath;
+
+        } catch (error) {
+            console.log('❌ Ошибка визуализации сравнения:', error.message);
+            return null;
+        }
+    }
+
+    drawComparisonInfo(ctx, width, height, comparison) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(20, height - 120, width - 40, 100);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '14px Arial';
+       
+        if (comparison && comparison.matched !== undefined) {
+            ctx.fillText(`✅ Совпадающих узлов: ${comparison.matched || 0}`, 30, height - 95);
+            ctx.fillText(`📊 Общее количество узлов: ${comparison.total || 0}`, 30, height - 70);
+            ctx.fillText(`🎯 Процент совпадения: ${Math.round((comparison.score || 0) * 100)}%`, 30, height - 45);
+           
+            // Интерпретация
+            let interpretation = '';
+            const score = comparison.score || 0;
+            if (score > 0.8) interpretation = '🔴 ВЫСОКАЯ вероятность что это одна обувь';
+            else if (score > 0.6) interpretation = '🟡 СРЕДНЯЯ вероятность, нужны дополнительные данные';
+            else interpretation = '🟢 НИЗКАЯ вероятность, разные протекторы';
+           
+            ctx.fillText(interpretation, 30, height - 20);
+        } else {
+            ctx.fillText('❌ Нет данных для сравнения', 30, height - 70);
+        }
+    }
+
+    // Вспомогательная функция проверки координат
+    isValidPoint(point) {
+        return point &&
+               typeof point.x === 'number' && !isNaN(point.x) &&
+               typeof point.y === 'number' && !isNaN(point.y);
+    }
 }
 
-// Вспомогательные методы для кластеризации
-clusterSimilarProtectors(protectors) {
-  const clusters = [];
-  const used = new Set();
- 
-  protectors.forEach((protector, index) => {
-    if (used.has(index)) return;
-   
-    const cluster = [protector];
-    used.add(index);
-   
-    // Ищем похожие
-    for (let j = index + 1; j < protectors.length; j++) {
-      if (used.has(j)) continue;
-     
-      const other = protectors[j];
-      const distance = this.getDistance(
-        protector.center,
-        other.center
-      );
-     
-      // Если достаточно близко - добавляем в кластер
-      if (distance < 30) { // 30 пикселей порог
-        cluster.push(other);
-        used.add(j);
-      }
-    }
-   
-    if (cluster.length > 0) {
-      clusters.push(this.createClusterModel(cluster));
-    }
-  });
- 
-  return clusters;
-}
-```
-
-ШАГ 3: Немедленная интеграция в main.js
-
-```javascript
-// В main.js добавляем после инициализации сессионных модулей:
-
-// 🆕 ИНИЦИАЛИЗИРУЕМ СИСТЕМУ ЦИФРОВЫХ ОТПЕЧАТКОВ
-let footprintDB;
-try {
-  const { FootprintDatabase } = require('./modules/footprint/footprint-database');
-  footprintDB = new FootprintDatabase();
-  console.log('✅ Система цифровых отпечатков загружена');
-} catch (error) {
-  console.log('❌ Ошибка загрузки системы отпечатков:', error.message);
-  footprintDB = {
-    findSimilar: () => [],
-    save: () => ({ id: 'stub' }),
-    get: () => null
-  };
-}
-
-// 🆕 КОМАНДА ДЛЯ СОХРАНЕНИЯ МОДЕЛИ
-bot.onText(/\/save_model(?: (.+))?/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
-  const modelName = match[1] || `Модель_${new Date().toLocaleDateString('ru-RU')}`;
- 
-  if (!sessionManager.hasActiveSession(userId)) {
-    await bot.sendMessage(chatId,
-      `❌ Нет активной сессии для сохранения\n` +
-      `Сначала создайте сессию или отправьте пачку фото`
-    );
-    return;
-  }
- 
-  const session = sessionManager.getActiveSession(userId);
- 
-  if (session.analysisResults.length < 2) {
-    await bot.sendMessage(chatId,
-      `⚠️ Для создания модели нужно минимум 2 проанализированных фото\n` +
-      `Сейчас в сессии: ${session.analysisResults.length} фото`
-    );
-    return;
-  }
- 
-  await bot.sendMessage(chatId, `🔄 Создаю модель "${modelName}" из ${session.analysisResults.length} фото...`);
- 
-  try {
-    // 1. Собираем модель из сессии
-    const compositeModel = sessionAnalyzer.buildCompositeModel(session);
-    compositeModel.name = modelName;
-    compositeModel.userId = userId;
-   
-    // 2. Сохраняем
-    const saved = footprintDB.save(compositeModel);
-   
-    // 3. Ищем похожие (возможные дубликаты)
-    const similar = await footprintDB.findSimilar(compositeModel, 0.7);
-   
-    let response = `✅ **МОДЕЛЬ СОХРАНЕНА**\n\n`;
-    response += `🆔 ID: ${saved.id.slice(0, 8)}...\n`;
-    response += `📝 Имя: ${modelName}\n`;
-    response += `📊 Узлов: ${compositeModel.nodes.length}\n`;
-    response += `📸 Источников: ${session.analysisResults.length} фото\n\n`;
-   
-    if (similar.length > 0) {
-      response += `🔍 **НАЙДЕНЫ ПОХОЖИЕ МОДЕЛИ:**\n`;
-      similar.slice(0, 3).forEach((match, index) => {
-        response += `${index + 1}. ${match.footprint.name || 'Без имени'} (${Math.round(match.score * 100)}%)\n`;
-      });
-      response += `\n💡 Возможно, это та же самая обувь?`;
-    }
-   
-    // 4. Визуализация модели
-    const modelVizPath = await createModelVisualization(compositeModel);
-    if (modelVizPath) {
-      await bot.sendPhoto(chatId, modelVizPath, {
-        caption: `🕸️ Визуализация модели "${modelName}"`
-      });
-      // Очистка
-      setTimeout(() => tempFileManager.removeFile(modelVizPath), 1000);
-    }
-   
-    await bot.sendMessage(chatId, response);
-   
-  } catch (error) {
-    console.log('❌ Ошибка сохранения модели:', error);
-    await bot.sendMessage(chatId, `❌ Не удалось сохранить модель: ${error.message}`);
-  }
-});
-```
-
----
-
-📊 ОЖИДАЕМЫЙ РЕЗУЛЬТАТ ЧЕРЕЗ 2 НЕДЕЛИ:
-
-К концу этапа 1 (14 дней):
-
-· ✅ Пользователь может сохранить сессию как модель
-· ✅ Система автоматически находит похожие модели
-· ✅ Визуализация сравнения "модель vs текущий анализ"
-· ✅ База на 50-100 моделей с быстрым поиском
-· ✅ Точность сравнения: 75-85%
-
-Метрики успеха:
-
-· 30+ сохраненных моделей пользователями
-· 100+ автоматических сравнений в день
-· Среднее время поиска похожих: < 2 секунды
-· Полезность для пользователей (опрос)
-
----
-
-🔄 ОБНОВЛЕННЫЙ РАБОЧИЙ ПРОЦЕСС:
-
-Ежедневные задачи:
-
-1. Утро: Проверка логов системы сравнения
-2. День: Тестирование новых фото на существующих моделях
-3. Вечер: Анализ статистики, оптимизация индексов
-
-Еженедельные задачи:
-
-1. Очистка дубликатов в базе моделей
-2. Пересборка пространственного индекса
-3. Экспорт данных для анализа
-4. Резервное копирование базы моделей
-
----
-
-🎯 ДОЛГОСРОЧНАЯ ПЕРСПЕКТИВА:
-
-Через 1 месяц:
-
-· Коллективная база знаний (добровольный обмен моделями)
-· Распознавание по фрагментам (20% протектора → полная модель)
-· Интеграция с маркетплейсами
-
-Через 3 месяца:
-
-· Нейросетевое улучшение сравнения
-· 3D реконструкция по нескольким фото
-· API для внешних систем
-
-Через 6 месяцев:
-
-· Профессиональная версия для правоохранительных органов
-· Мобильное приложение с офлайн-базой
-· Партнерства с производителями обуви
-
----
-
-💰 БИЗНЕС-МОДЕЛЬ (перспектива):
-
-Бесплатно:
-
-· 10 сохраненных моделей
-· Базовое сравнение
-· Общедоступная база моделей
-
-Pro ($9.99/месяц):
-
-· Неограниченное количество моделей
-· Приоритетный поиск
-· Расширенная аналитика
-· Экспорт в CSV/JSON
-
-Enterprise ($499/месяц):
-
-· Приватная база для организации
-· API доступ
-· Кастомная тренировка моделей
-· Техническая поддержка
-
----
-
-🚨 РИСКИ И РЕШЕНИЯ:
-
-Риск 1: Низкая точность сравнения
-Решение: Сбор feedback, дообучение на ошибках
-
-Риск 2: Медленный поиск при 10к+ моделях
-Решение: Многоуровневое индексирование, кэширование
-
-Риск 3: Сложность для пользователей
-Решение: Постепенное введение, обучающие материалы
-
-Риск 4: Юридические вопросы (персональные данные)
-Решение: Анонимизация данных, согласие пользователей
-
----
-
-📞 ПОДДЕРЖКА РАЗРАБОТКИ:
-
-Каналы связи:
-
-1. Telegram-канал для пользователей (новости, обсуждения)
-2. GitHub Issues для багов и предложений
-3. Email для партнерств и бизнес-вопросов
-
-Документация:
-
-1. Руководство пользователя (в самом боте)
-2. Техническая документация (для разработчиков)
-3. API документация (для интеграций)
-
----
-
-🏁 ЧТО ДЕЛАТЬ ПРЯМО СЕЙЧАС:
-
-1. Создать базовую структуру:
-
-```bash
-mkdir modules/footprint
-touch modules/footprint/digital-footprint.js
-touch modules/footprint/footprint-database.js
-touch modules/footprint/index.js
-```
-
-2. Начать с DigitalFootprint класса:
-
-```javascript
-// Скопируй готовый код из сообщения выше
-// Начни с простейшей реализации
-```
-
-3. Протестировать на 2-3 сессиях:
-
-· Сохранить сессию как модель
-· Попробовать найти похожие
-· Получить первую обратную связь
-
----
-
-✅ КРИТЕРИИ УСПЕХА ПЕРВОГО ЭТАПА:
-
-1. Технические:
-   · Модель сохраняется и загружается
-   · Поиск похожих работает за < 3 сек
-   · Визуализация понятна пользователям
-2. Пользовательские:
-   · 10+ пользователей сохранили модели
-   · Положительные отзывы о сравнении
-   · Люди используют повторно (возвращаются)
-3. Бизнес:
-   · Снижение времени анализа повторных следов
-   · Повышение точности за счет накопления данных
-   · Формирование сообщества вокруг системы
-
----
-
-🎯 ФИНАЛЬНАЯ ЦЕЛЬ:
-
-Создать крупнейшую в мире базу цифровых отпечатков обуви, которая:
-
-1. Помогает находить пропавших
-2. Ускоряет расследования
-3. Соединяет разрозненные улики
-4. Постоянно учится на новых данных
-
----
-
-Начнем с DigitalFootprint класса? Я могу подготовить полный код для всех 3 файлов в папке modules/footprint/, чтобы ты мог сразу интегрировать.
-
-Или хочешь начать с доработки session-analyzer.js для создания composite-моделей?
+module.exports = ModelVisualizer;
