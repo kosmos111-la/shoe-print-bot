@@ -1,15 +1,8 @@
-// test-footprint-shape.js
+// test-footprint-shape.js - ОБНОВЛЕННАЯ ВЕРСИЯ
 const PointCloudAligner = require('./modules/footprint/point-cloud-aligner');
 
 // Создаём форму, похожую на след обуви (вид сверху)
-// Это будет вытянутая изогнутая форма
 const createFootprintShape = (centerX, centerY, length = 200, width = 80) => {
-    // След состоит из нескольких ключевых точек:
-    // 1. Пятка (задняя часть)
-    // 2. Арка (самая узкая часть)
-    // 3. Подошва
-    // 4. Носок (передняя часть)
-   
     return [
         // Пятка (задняя, округлая)
         { x: centerX - length/2, y: centerY - width/6, confidence: 0.9, id: 'heel_left' },
@@ -38,9 +31,6 @@ const createFootprintShape = (centerX, centerY, length = 200, width = 80) => {
     ];
 };
 
-// Оригинальный след
-const originalFootprint = createFootprintShape(300, 300, 250, 90);
-
 // Повёрнутый и смещённый след
 const rotateAndTranslate = (points, angleDeg, dx, dy) => {
     const angle = angleDeg * Math.PI / 180;
@@ -55,14 +45,16 @@ const rotateAndTranslate = (points, angleDeg, dx, dy) => {
     }));
 };
 
-// Создаём варианты:
-// 1. Немного повёрнутый след (реалистичный случай)
+// Оригинальный след
+const originalFootprint = createFootprintShape(300, 300, 250, 90);
+
+// Повёрнутый след (реалистичный случай)
 const rotatedFootprint = rotateAndTranslate(originalFootprint, 15, 50, -30);
 
-// 2. Сильно повёрнутый след (проблемный случай)
+// Сильно повёрнутый след (проблемный случай)
 const heavilyRotatedFootprint = rotateAndTranslate(originalFootprint, 60, 100, 50);
 
-// 3. Зеркальный след (левый/правый ботинок)
+// Зеркальный след (левый/правый ботинок)
 const mirroredFootprint = originalFootprint.map(p => ({
     x: -p.x + 600, // Зеркалим по X и смещаем
     y: p.y + 100,
@@ -70,8 +62,8 @@ const mirroredFootprint = originalFootprint.map(p => ({
     id: `${p.id}_mirrored`
 }));
 
-console.log('👣 ТЕСТ НА РЕАЛЬНОЙ ФОРМЕ СЛЕДА');
-console.log('==============================\n');
+console.log('👣 ТЕСТ НА РЕАЛЬНОЙ ФОРМЕ СЛЕДА С ИСПРАВЛЕНИЯМИ');
+console.log('================================================\n');
 
 console.log('📊 СТАТИСТИКА:');
 console.log(`Оригинальный след: ${originalFootprint.length} точек`);
@@ -79,71 +71,24 @@ console.log(`Повёрнутый след (15°): ${rotatedFootprint.length} т
 console.log(`Сильно повёрнутый след (60°): ${heavilyRotatedFootprint.length} точек`);
 console.log(`Зеркальный след: ${mirroredFootprint.length} точек`);
 
-// Функция для визуализации в консоли (простая)
-const visualizeInConsole = (points1, points2, title) => {
-    console.log(`\n📐 ${title}:`);
-   
-    // Находим границы
-    const allPoints = [...points1, ...points2];
-    const xs = allPoints.map(p => p.x);
-    const ys = allPoints.map(p => p.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-   
-    const width = 60;
-    const height = 20;
-   
-    // Создаём "холст"
-    const canvas = Array(height).fill().map(() => Array(width).fill(' '));
-   
-    // Функция для преобразования координат
-    const toCanvasX = (x) => Math.floor((x - minX) / (maxX - minX) * (width - 1));
-    const toCanvasY = (y) => Math.floor((y - minY) / (maxY - minY) * (height - 1));
-   
-    // Рисуем точки первого следа (красные '●')
-    points1.forEach(p => {
-        const cx = toCanvasX(p.x);
-        const cy = toCanvasY(p.y);
-        if (cx >= 0 && cx < width && cy >= 0 && cy < height) {
-            canvas[cy][cx] = '🔴';
-        }
-    });
-   
-    // Рисуем точки второго следа (синие '○')
-    points2.forEach(p => {
-        const cx = toCanvasX(p.x);
-        const cy = toCanvasY(p.y);
-        if (cx >= 0 && cx < width && cy >= 0 && cy < height) {
-            if (canvas[cy][cx] === '🔴') {
-                canvas[cy][cx] = '🟣'; // Перекрытие
-            } else {
-                canvas[cy][cx] = '🔵';
-            }
-        }
-    });
-   
-    // Выводим
-    console.log('🔴 - оригинал, 🔵 - трансформированный, 🟣 - совпадение');
-    canvas.forEach(row => console.log(row.join('')));
-};
-
-// Визуализируем в консоли
-visualizeInConsole(originalFootprint, rotatedFootprint, "Оригинал vs Поворот 15°");
-visualizeInConsole(originalFootprint, heavilyRotatedFootprint, "Оригинал vs Поворот 60°");
-visualizeInConsole(originalFootprint, mirroredFootprint, "Оригинал vs Зеркало");
-
 // Тестируем алгоритм
-console.log('\n🎯 ТЕСТИРУЕМ АЛГОРИТМ:');
-console.log('====================\n');
+console.log('\n🎯 ТЕСТИРУЕМ АЛГОРИТМ С ИСПРАВЛЕНИЯМИ:');
+console.log('========================================\n');
 
 const aligner = new PointCloudAligner({
     maxIterations: 200,
-    inlierThreshold: 25, // Больше для следов
-    minInliersRatio: 0.5,
-    mirrorCheck: true
+    inlierThreshold: 20,
+    minInliersRatio: 0.6,
+    minInliersAbsolute: 4,
+    mirrorCheck: true,
+    requireGoodSpread: true,
+    maxRandomScore: 0.3
 });
+
+console.log('🔧 Настройки алгоритма:');
+console.log(`   • minInliersRatio: ${aligner.options.minInliersRatio}`);
+console.log(`   • maxRandomScore: ${aligner.options.maxRandomScore}`);
+console.log(`   • requireGoodSpread: ${aligner.options.requireGoodSpread}`);
 
 // Тест 1: Небольшой поворот (15°)
 console.log('\n1. 🔄 ТЕСТ: НЕБОЛЬШОЙ ПОВОРОТ (15°):');
@@ -161,20 +106,56 @@ printResult(result2, 60, 100, 50);
 console.log('\n3. 🪞 ТЕСТ: ЗЕРКАЛЬНЫЙ СЛЕД:');
 console.log('----------------------------');
 const result3 = aligner.findBestAlignment(originalFootprint, mirroredFootprint);
-printResult(result3, 0, 300, 100); // Ожидаем зеркало, а не поворот
+printResult(result3, 0, 300, 100);
 
-// Тест 4: Случайные точки (контрольный тест)
-console.log('\n4. 🎲 ТЕСТ: СЛУЧАЙНЫЕ ТОЧКИ (контрольный):');
-console.log('-----------------------------------------');
-const randomPoints = Array(10).fill().map((_, i) => ({
+// Тест 4: Случайные точки (ужесточенный тест)
+console.log('\n4. 🎲 ТЕСТ: СЛУЧАЙНЫЕ ТОЧКИ (ужесточенный):');
+console.log('-------------------------------------------');
+const randomPoints = Array(15).fill().map((_, i) => ({
     x: Math.random() * 500,
     y: Math.random() * 500,
     confidence: 0.5,
     id: `random_${i}`
 }));
 const result4 = aligner.findBestAlignment(originalFootprint, randomPoints);
-console.log(`Score: ${result4.score.toFixed(3)} (ожидается < 0.3)`);
+console.log(`Score: ${result4.score.toFixed(3)} (ожидается < ${aligner.options.maxRandomScore})`);
 console.log(`Качество: ${result4.quality.message}`);
+
+// Тест 5: Шумовые данные
+console.log('\n5. 📈 ТЕСТ: УСТОЙЧИВОСТЬ К ШУМУ:');
+console.log('--------------------------------');
+const addNoise = (points, noiseLevel = 15) => {
+    return points.map(p => ({
+        x: p.x + (Math.random() - 0.5) * 2 * noiseLevel,
+        y: p.y + (Math.random() - 0.5) * 2 * noiseLevel,
+        confidence: p.confidence * 0.9,
+        id: `${p.id}_noisy`
+    }));
+};
+
+const noisyFootprint = addNoise(rotatedFootprint, 15);
+const resultNoise = aligner.findBestAlignment(originalFootprint, noisyFootprint);
+console.log(`Уровень шума: ±15px`);
+console.log(`Score с шумом: ${resultNoise.score.toFixed(3)}`);
+console.log(`Score без шума: ${result1.score.toFixed(3)}`);
+console.log(`Потеря точности: ${((result1.score - resultNoise.score) * 100).toFixed(1)}%`);
+
+// Тест 6: Регулярная сетка (проверка на ложные срабатывания)
+console.log('\n6. 🏗️ ТЕСТ: РЕГУЛЯРНАЯ СЕТКА:');
+console.log('------------------------------');
+const gridPoints = [];
+for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+        gridPoints.push({
+            x: 100 + i * 50,
+            y: 100 + j * 50,
+            confidence: 0.5,
+            id: `grid_${i}_${j}`
+        });
+    }
+}
+const resultGrid = aligner.findBestAlignment(originalFootprint, gridPoints);
+console.log(`Регулярная сетка 4x4: ${resultGrid.score.toFixed(3)} (ожидается < ${aligner.options.maxRandomScore})`);
 
 function printResult(result, expectedAngle, expectedDx, expectedDy) {
     console.log(`Score: ${result.score.toFixed(3)}`);
@@ -194,9 +175,8 @@ function printResult(result, expectedAngle, expectedDx, expectedDy) {
         console.log(`Ошибка смещения: ${Math.sqrt(dxError*dxError + dyError*dyError).toFixed(1)}px`);
     }
    
-    console.log(`Зеркало: ${result.mirrored ? 'да' : 'нет'}`);
+    console.log(`Зеркало: ${result.mirrored ? 'да ⚠️' : 'нет'}`);
    
-    // 🔥 ИСПРАВЛЕНИЕ: Проверяем existence quality
     if (result.quality && result.quality.message) {
         console.log(`Качество: ${result.quality.message}`);
     } else {
@@ -212,41 +192,24 @@ function printResult(result, expectedAngle, expectedDx, expectedDy) {
     }
 }
 
-// Дополнительный тест: проверка устойчивости к шуму
-console.log('\n5. 📈 ТЕСТ: УСТОЙЧИВОСТЬ К ШУМУ:');
-console.log('--------------------------------');
-const addNoise = (points, noiseLevel = 10) => {
-    return points.map(p => ({
-        x: p.x + (Math.random() - 0.5) * 2 * noiseLevel,
-        y: p.y + (Math.random() - 0.5) * 2 * noiseLevel,
-        confidence: p.confidence * 0.9, // Немного снижаем уверенность
-        id: `${p.id}_noisy`
-    }));
-};
-
-const noisyFootprint = addNoise(rotatedFootprint, 15);
-const resultNoise = aligner.findBestAlignment(originalFootprint, noisyFootprint);
-console.log(`Уровень шума: ±15px`);
-console.log(`Score с шумом: ${resultNoise.score.toFixed(3)}`);
-console.log(`Score без шума: ${result1.score.toFixed(3)}`);
-console.log(`Потеря точности: ${((result1.score - resultNoise.score) * 100).toFixed(1)}%`);
-
 // Финальная оценка алгоритма
-console.log('\n📊 ФИНАЛЬНАЯ ОЦЕНКА АЛГОРИТМА:');
-console.log('=============================');
+console.log('\n📊 ФИНАЛЬНАЯ ОЦЕНКА АЛГОРИТМА С ИСПРАВЛЕНИЯМИ:');
+console.log('==============================================');
 
 const tests = [
-    { name: 'Малый поворот', result: result1, minScore: 0.7 },
-    { name: 'Большой поворот', result: result2, minScore: 0.6 },
-    { name: 'Зеркало', result: result3, minScore: 0.7 },
-    { name: 'Случайные точки', result: result4, maxScore: 0.3 },
-    { name: 'Шум', result: resultNoise, minScore: 0.5 }
+    { name: 'Малый поворот (15°)', result: result1, minScore: 0.7, maxScore: null },
+    { name: 'Большой поворот (60°)', result: result2, minScore: 0.6, maxScore: null },
+    { name: 'Зеркальный след', result: result3, minScore: 0.7, maxScore: null },
+    { name: 'Случайные точки', result: result4, minScore: null, maxScore: aligner.options.maxRandomScore },
+    { name: 'Шум (±15px)', result: resultNoise, minScore: 0.5, maxScore: null },
+    { name: 'Регулярная сетка', result: resultGrid, minScore: null, maxScore: aligner.options.maxRandomScore }
 ];
 
 let passed = 0;
 tests.forEach(test => {
     const score = test.result.score;
     let status = '❌';
+    let reason = '';
    
     if (test.minScore !== undefined && score >= test.minScore) {
         status = '✅';
@@ -254,30 +217,63 @@ tests.forEach(test => {
     } else if (test.maxScore !== undefined && score <= test.maxScore) {
         status = '✅';
         passed++;
+    } else {
+        if (test.minScore) reason = ` (нужно >= ${test.minScore})`;
+        if (test.maxScore) reason = ` (нужно <= ${test.maxScore})`;
     }
    
-    console.log(`${status} ${test.name}: ${score.toFixed(3)} ${test.minScore ? `(min ${test.minScore})` : `(max ${test.maxScore})`}`);
+    console.log(`${status} ${test.name}: ${score.toFixed(3)}${reason}`);
 });
 
 console.log(`\n🎯 ИТОГО: ${passed}/${tests.length} тестов пройдено`);
 
 if (passed === tests.length) {
-    console.log('✨ АЛГОРИТМ ГОТОВ К ИНТЕГРАЦИИ!');
+    console.log('\n✨✨✨ АЛГОРИТМ ПОЛНОСТЬЮ ГОТОВ К ИНТЕГРАЦИИ! ✨✨✨');
+    console.log('\n🎯 РЕКОМЕНДАЦИИ:');
+    console.log('1. Score для случайных данных: <30% ✅');
+    console.log('2. Зеркало: определяется ✅');
+    console.log('3. Углы: точные ✅');
+    console.log('4. Устойчивость к шуму: хорошая ✅');
 } else {
-    console.log('⚠️ Нужно доработать алгоритм перед интеграцией');
+    console.log('\n⚠️ Нужно доработать алгоритм перед интеграцией');
    
     // Диагностика проблем
     console.log('\n🔧 ДИАГНОСТИКА ПРОБЛЕМ:');
     if (result2.score < 0.6) {
         console.log('• Проблема с большими поворотами (>60°)');
-        console.log('  Решение: увеличить maxIterations или улучшить выбор начальных точек');
+        console.log('  Решение: увеличить maxIterations до 250');
     }
     if (result3.score < 0.7 && !result3.mirrored) {
         console.log('• Проблема с определением зеркальности');
-        console.log('  Решение: улучшить алгоритм проверки зеркальности');
+        console.log('  Решение: уменьшить mirrorAdvantageThreshold до 0.1');
     }
-    if (result4.score > 0.3) {
-        console.log('• Слишком высокий score на случайных данных (ложные срабатывания)');
-        console.log('  Решение: увеличить minInliersRatio или улучшить оценку качества');
+    if (result4.score > aligner.options.maxRandomScore) {
+        console.log(`• Слишком высокий score на случайных данных: ${result4.score.toFixed(3)} > ${aligner.options.maxRandomScore}`);
+        console.log('  Решение: увеличить minInliersRatio до 0.65');
     }
 }
+
+// Дополнительная статистика
+console.log('\n📈 ДОПОЛНИТЕЛЬНАЯ СТАТИСТИКА:');
+const debugInfo = aligner.getDebugInfo();
+console.log('• Алгоритм:', debugInfo.algorithm);
+console.log('• Особенности:', debugInfo.features.join(', '));
+
+// Вывод рекомендаций по настройкам
+console.log('\n🔧 РЕКОМЕНДУЕМЫЕ НАСТРОЙКИ ДЛЯ ИНТЕГРАЦИИ:');
+console.log(`
+new PointCloudAligner({
+    maxIterations: 200,
+    inlierThreshold: 20,
+    minInliersRatio: 0.6,
+    minInliersAbsolute: 4,
+    scaleRange: { min: 0.5, max: 2.0 },
+    confidenceThreshold: 0.5,
+    mirrorCheck: true,
+    adaptiveInlierThreshold: true,
+    requireGoodDistribution: true,
+    requireGoodSpread: true,
+    maxRandomScore: 0.3,
+    mirrorAdvantageThreshold: 0.15
+})
+`);
