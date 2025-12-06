@@ -2,17 +2,18 @@
 class PointCloudAligner {
     constructor(options = {}) {
         this.options = {
-            // 🔥 СТРОГИЕ НАСТРОЙКИ ПО УМОЛЧАНИЮ
-            minPointsForAlignment: 4,
-            maxIterations: 200,
-            inlierThreshold: 20,          // Жёсткий порог
-            minInliersRatio: 0.6,         // Требуем 60% совпадений
-            minInliersAbsolute: 5,        // Абсолютный минимум
-            scaleRange: { min: 0.7, max: 1.3 }, // Узкий диапазон масштабов
-            confidenceThreshold: 0.6,      // Минимальная уверенность точек
+            // 🔥 ОПТИМАЛЬНЫЕ НАСТРОЙКИ ПО УМОЛЧАНИЮ
+            minPointsForAlignment: 3,
+            maxIterations: 100,
+            inlierThreshold: 25,
+            minInliersRatio: 0.4,
+            minInliersAbsolute: 3,
+            scaleRange: { min: 0.5, max: 2.0 },
+            confidenceThreshold: 0.4,
             mirrorCheck: true,
-            requireGoodDistribution: true, // Требуем равномерное распределение
-           
+            adaptiveInlierThreshold: true, // Автоматическая настройка порога
+            requireGoodDistribution: true,
+
             ...options
         };
 
@@ -22,7 +23,8 @@ class PointCloudAligner {
             minInliersRatio: this.options.minInliersRatio,
             minInliersAbsolute: this.options.minInliersAbsolute,
             scaleRange: this.options.scaleRange,
-            confidenceThreshold: this.options.confidenceThreshold
+            confidenceThreshold: this.options.confidenceThreshold,
+            adaptiveInlierThreshold: this.options.adaptiveInlierThreshold
         });
     }
 
@@ -30,17 +32,17 @@ class PointCloudAligner {
     findBestAlignment(points1, points2, initialGuess = null) {
         console.log(`🎯 Поиск наилучшего выравнивания для ${points1.length} и ${points2.length} точек`);
 
-        if (points1.length < this.options.minPointsForAlignment ||
-            points2.length < this.options.minPointsForAlignment) {
-            console.log('⚠️ Недостаточно точек для выравнивания');
+        // 🔥 ИСПРАВЛЕНИЕ: Проверка с минимальным количеством точек
+        const minPoints = Math.max(4, this.options.minPointsForAlignment);
+        if (points1.length < minPoints || points2.length < minPoints) {
+            console.log(`⚠️ Недостаточно точек для выравнивания: ${points1.length} и ${points2.length}`);
             return this.createNullResult('Мало точек');
         }
 
-        // 🔥 ИСПРАВЛЕНИЕ: Убираем normalizePointsForRANSAC, используем preparePoints
         const prepared1 = this.preparePoints(points1);
         const prepared2 = this.preparePoints(points2);
-       
-        console.log(`📊 Нормализовано: ${prepared1.length} и ${prepared2.length} точек`);
+
+        console.log(`📊 Подготовлено: ${prepared1.length} и ${prepared2.length} точек`);
 
         // 2. ПОИСК БЕЗ ЗЕРКАЛА
         console.log('🔄 Запуск RANSAC (обычный)...');
@@ -96,7 +98,7 @@ class PointCloudAligner {
             const { score, inliers } = this.evaluateTransformation(
                 points1, points2, transform, mirrored
             );
-           
+
             if (score > bestScore) {
                 bestScore = score;
                 bestTransform = transform;
@@ -104,18 +106,34 @@ class PointCloudAligner {
             }
         }
 
-        // RANSAC цикл
+        // RANSAC цикл - ИСПРАВЛЕНИЕ для зеркала
         for (let iteration = 0; iteration < this.options.maxIterations; iteration++) {
             // 1. ВЫБОР СЛУЧАЙНЫХ ТОЧЕК
             const sample1 = this.getRandomSample(points1, 3);
             const sample2 = this.getRandomSample(points2, 3);
 
+            // 🔥 ИСПРАВЛЕНИЕ: Для зеркала инвертируем X координаты sample2
+            let transformSample2 = sample2;
+            if (mirrored) {
+                transformSample2 = sample2.map(p => ({
+                    x: -p.x,
+                    y: p.y,
+                    confidence: p.confidence,
+                    id: p.id
+                }));
+            }
+
             // 2. ВЫЧИСЛЕНИЕ ТРАНСФОРМАЦИИ ПО 3 ТОЧКАМ
             const transform = this.calculateTransformationFromSamples(
-                sample1, sample2, mirrored
+                sample1, transformSample2, false // Всегда false, т.к. уже отразили
             );
 
             if (!transform) continue;
+
+            // 🔥 ИСПРАВЛЕНИЕ: Для зеркального результата помечаем mirrored
+            if (mirrored) {
+                transform.mirrored = true;
+            }
 
             // 3. ОЦЕНКА ТРАНСФОРМАЦИИ НА ВСЕХ ТОЧКАХ
             const { score, inliers } = this.evaluateTransformation(
@@ -138,16 +156,16 @@ class PointCloudAligner {
         }
 
         // УТОЧНЕНИЕ ПО INLIERS (если нашли хорошие совпадения)
-        if (bestInliers.length >= 5) {
+        if (bestInliers.length >= 3) {
             const refinedTransform = this.refineTransformationWithInliers(
                 points1, points2, bestInliers, mirrored
             );
-           
+
             if (refinedTransform) {
                 const { score: refinedScore } = this.evaluateTransformation(
                     points1, points2, refinedTransform, mirrored
                 );
-               
+
                 if (refinedScore > bestScore) {
                     bestScore = refinedScore;
                     bestTransform = refinedTransform;
@@ -174,7 +192,7 @@ class PointCloudAligner {
             // 🔥 ИСПРАВЛЕНИЕ: Используем центры ДО вычислений
             const center1 = this.calculateCenter(sample1);
             const center2 = this.calculateCenter(sample2);
-           
+
             // Центрируем точки
             const centered1 = sample1.map(p => ({
                 x: p.x - center1.x,
@@ -191,7 +209,7 @@ class PointCloudAligner {
                 for (let j = i + 1; j < 3; j++) {
                     const dist1 = this.calculateDistance(centered1[i], centered1[j]);
                     const dist2 = this.calculateDistance(centered2[i], centered2[j]);
-                   
+
                     if (dist1 > 10 && dist2 > 10) { // Избегаем очень близких точек
                         scales.push(dist2 / dist1);
                     }
@@ -199,7 +217,7 @@ class PointCloudAligner {
             }
 
             if (scales.length === 0) return null;
-           
+
             const medianScale = this.getMedian(scales);
             const scale = Math.max(
                 this.options.scaleRange.min,
@@ -209,7 +227,7 @@ class PointCloudAligner {
             // 2. ВЫЧИСЛЕНИЕ ПОВОРОТА (через векторы)
             let totalAngle = 0;
             let angleCount = 0;
-           
+
             for (let i = 0; i < 3; i++) {
                 for (let j = 0; j < 3; j++) {
                     if (i !== j) {
@@ -221,20 +239,20 @@ class PointCloudAligner {
                             x: centered2[j].x - centered2[i].x,
                             y: centered2[j].y - centered2[i].y
                         };
-                       
+
                         const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
                         const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
-                       
+
                         if (len1 > 10 && len2 > 10) { // Избегаем очень коротких векторов
                             const dot = v1.x * v2.x + v1.y * v2.y;
                             const cross = v1.x * v2.y - v1.y * v2.x;
                             const angle = Math.atan2(cross, dot);
-                           
+
                             // Нормализуем угол
-                            const normalizedAngle = angle;
+                            let normalizedAngle = angle;
                             if (normalizedAngle > Math.PI) normalizedAngle -= 2 * Math.PI;
                             if (normalizedAngle < -Math.PI) normalizedAngle += 2 * Math.PI;
-                           
+
                             totalAngle += normalizedAngle;
                             angleCount++;
                         }
@@ -251,7 +269,6 @@ class PointCloudAligner {
                 y: center2.y - (center1.x * scale * Math.sin(rotation) + center1.y * scale * Math.cos(rotation))
             };
 
-            // 4. ЗЕРКАЛЬНОСТЬ (уже учтена в mirrored параметре)
             return {
                 scale: scale,
                 rotation: rotation,
@@ -265,7 +282,7 @@ class PointCloudAligner {
         }
     }
 
-    // 📊 ОЦЕНКА ТРАНСФОРМАЦИИ (СТРОГАЯ ВЕРСИЯ)
+    // 📊 ОЦЕНКА ТРАНСФОРМАЦИИ (С АДАПТИВНЫМ ПОРОГОМ)
     evaluateTransformation(points1, points2, transform, mirrored) {
         if (!transform || !points1 || !points2) {
             return { score: 0, inliers: [], avgDistance: Infinity, matchedPoints: 0, inlierRatio: 0 };
@@ -275,6 +292,14 @@ class PointCloudAligner {
         let totalDistance = 0;
         let matchedPoints = 0;
 
+        // 🔥 АДАПТИВНЫЙ ПОРОГ
+        let inlierThreshold = this.options.inlierThreshold;
+        if (this.options.adaptiveInlierThreshold) {
+            // Для больших следов увеличиваем порог
+            const avgPointDistance = this.calculateAveragePointDistance(points1);
+            inlierThreshold = Math.max(15, Math.min(30, avgPointDistance * 0.3));
+        }
+
         // Трансформируем все точки
         const transformedPoints1 = points1.map(p =>
             this.transformPoint(p, transform, mirrored)
@@ -282,31 +307,31 @@ class PointCloudAligner {
 
         // Используем greedy matching
         const usedIndices = new Set();
-       
+
         transformedPoints1.forEach((transformedPoint, i) => {
             let bestMatchIndex = -1;
             let bestDistance = Infinity;
-           
+
             // Ищем ближайшую НЕИСПОЛЬЗОВАННУЮ точку
             for (let j = 0; j < points2.length; j++) {
                 if (usedIndices.has(j)) continue;
-               
+
                 const distance = this.calculateDistance(transformedPoint, points2[j]);
                 if (distance < bestDistance) {
                     bestDistance = distance;
                     bestMatchIndex = j;
                 }
             }
-           
-            // 🔥 СТРОГИЕ КРИТЕРИИ:
+
             const point1Confidence = points1[i].confidence || 0.5;
             const point2Confidence = points2[bestMatchIndex]?.confidence || 0.5;
             const avgConfidence = (point1Confidence + point2Confidence) / 2;
-           
+
+            // 🔥 ИСПРАВЛЕНИЕ: Используем адаптивный порог
             if (bestMatchIndex !== -1 &&
-                bestDistance <= this.options.inlierThreshold &&
+                bestDistance <= inlierThreshold &&
                 avgConfidence >= this.options.confidenceThreshold) {
-               
+
                 inliers.push({
                     point1: points1[i],
                     point2: points2[bestMatchIndex],
@@ -314,7 +339,7 @@ class PointCloudAligner {
                     transformed: transformedPoint,
                     confidence: avgConfidence
                 });
-               
+
                 usedIndices.add(bestMatchIndex);
                 totalDistance += bestDistance;
                 matchedPoints++;
@@ -331,7 +356,7 @@ class PointCloudAligner {
                 inlierRatio: 0
             };
         }
-       
+
         const inlierRatio = matchedPoints / Math.min(points1.length, points2.length);
         if (inlierRatio < this.options.minInliersRatio) {
             return {
@@ -343,10 +368,10 @@ class PointCloudAligner {
             };
         }
 
-        // 🔥 СТРОГИЙ РАСЧЁТ SCORE
+        // 🔥 РАСЧЁТ SCORE
         let score = 0;
         const avgDistance = totalDistance / matchedPoints;
-       
+
         // 1. ФАКТОР INLIER RATIO
         let inlierScore;
         if (inlierRatio >= 0.8) {
@@ -356,11 +381,11 @@ class PointCloudAligner {
         } else {
             inlierScore = inlierRatio * 0.7 / 0.6;
         }
-       
+
         // 2. ФАКТОР РАССТОЯНИЯ
-        const maxAllowedDistance = this.options.inlierThreshold;
+        const maxAllowedDistance = inlierThreshold;
         const distanceScore = Math.exp(-avgDistance / (maxAllowedDistance / 3));
-       
+
         // 3. ФАКТОР РАВНОМЕРНОСТИ
         let distributionScore = 1.0;
         if (this.options.requireGoodDistribution && inliers.length >= 3) {
@@ -369,40 +394,40 @@ class PointCloudAligner {
             const distancesToCenter = centers.map(p => this.calculateDistance(p, centerOfCenters));
             const avgDistToCenter = distancesToCenter.reduce((a, b) => a + b, 0) / distancesToCenter.length;
             const maxDist = Math.max(...distancesToCenter);
-           
+
             // Если все inliers близко к центру - плохо
             distributionScore = Math.min(1.0, avgDistToCenter / (maxDist * 0.5));
         }
-       
+
         // 4. ФАКТОР УВЕРЕННОСТИ
         const avgConfidence = inliers.reduce((sum, inlier) => sum + inlier.confidence, 0) / inliers.length;
         const confidenceScore = Math.max(0, (avgConfidence - 0.5) * 2);
-       
-        // 🔥 ЖЁСТКИЕ ВЕСА
+
+        // 🔥 БАЛАНСИРОВАННЫЕ ВЕСА
         const WEIGHTS = {
             INLIER: 0.4,
             DISTANCE: 0.3,
             DISTRIBUTION: 0.2,
             CONFIDENCE: 0.1
         };
-       
+
         score = (inlierScore * WEIGHTS.INLIER) +
                 (distanceScore * WEIGHTS.DISTANCE) +
                 (distributionScore * WEIGHTS.DISTRIBUTION) +
                 (confidenceScore * WEIGHTS.CONFIDENCE);
-       
+
         // 🔥 ШТРАФ ЗА БОЛЬШИЕ РАССТОЯНИЯ
-        if (avgDistance > 15) {
+        if (avgDistance > 20) {
             score *= 0.8;
         }
-       
+
         // 🔥 ШТРАФ ЗА МАЛО INLIERS
-        if (inlierRatio < 0.7) {
+        if (inlierRatio < 0.5) {
             score *= 0.7;
         }
-       
+
         score = Math.max(0, Math.min(1, score));
-       
+
         return {
             score: score,
             inliers: inliers,
@@ -414,7 +439,7 @@ class PointCloudAligner {
 
     // 🎨 УТОЧНЕНИЕ ТРАНСФОРМАЦИИ ПО INLIERS
     refineTransformationWithInliers(points1, points2, inliers, mirrored) {
-        if (inliers.length < 5) return null;
+        if (inliers.length < 3) return null;
 
         try {
             const inlierPoints1 = inliers.map(i => i.point1);
@@ -423,15 +448,15 @@ class PointCloudAligner {
             // Усредняем параметры из нескольких случайных выборок
             const transforms = [];
             const iterations = Math.min(20, Math.floor(inliers.length / 2));
-           
+
             for (let i = 0; i < iterations; i++) {
                 const sample1 = this.getRandomSample(inlierPoints1, 3);
                 const sample2 = this.getRandomSample(inlierPoints2, 3);
-               
+
                 const transform = this.calculateTransformationFromSamples(
                     sample1, sample2, mirrored
                 );
-               
+
                 if (transform) transforms.push(transform);
             }
 
@@ -442,7 +467,7 @@ class PointCloudAligner {
             const rotations = transforms.map(t => t.rotation).sort((a, b) => a - b);
             const translationsX = transforms.map(t => t.translation.x).sort((a, b) => a - b);
             const translationsY = transforms.map(t => t.translation.y).sort((a, b) => a - b);
-           
+
             const medianScale = scales[Math.floor(scales.length / 2)];
             const medianRotation = rotations[Math.floor(rotations.length / 2)];
             const medianTx = translationsX[Math.floor(translationsX.length / 2)];
@@ -473,21 +498,21 @@ class PointCloudAligner {
 
         const { score, inliers, mirrored } = result;
 
-        if (score >= 0.9) {
+        if (score >= 0.8) {
             return {
                 quality: 'excellent',
                 message: `Отличное совмещение (${(score * 100).toFixed(0)}%)`,
                 color: '#00ff00',
                 mirrored: mirrored ? 'зеркальное' : 'прямое'
             };
-        } else if (score >= 0.7) {
+        } else if (score >= 0.6) {
             return {
                 quality: 'good',
                 message: `Хорошее совмещение (${(score * 100).toFixed(0)}%)`,
                 color: '#ffff00',
                 mirrored: mirrored ? 'зеркальное' : 'прямое'
             };
-        } else if (score >= 0.5) {
+        } else if (score >= 0.4) {
             return {
                 quality: 'acceptable',
                 message: `Приемлемое совмещение (${(score * 100).toFixed(0)}%)`,
@@ -506,6 +531,23 @@ class PointCloudAligner {
 
     // 🔧 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 
+    // 🔥 НОВЫЙ МЕТОД: Расчёт среднего расстояния между точками
+    calculateAveragePointDistance(points) {
+        if (points.length < 2) return 20;
+
+        let totalDistance = 0;
+        let count = 0;
+
+        for (let i = 0; i < points.length; i++) {
+            for (let j = i + 1; j < points.length; j++) {
+                totalDistance += this.calculateDistance(points[i], points[j]);
+                count++;
+            }
+        }
+
+        return count > 0 ? totalDistance / count : 20;
+    }
+
     // Подготовка точек
     preparePoints(points) {
         return points.map((p, index) => ({
@@ -523,8 +565,8 @@ class PointCloudAligner {
         let x = point.x;
         let y = point.y;
 
-        // Зеркало (инверсия по X)
-        if (mirrored) {
+        // Зеркало (инверсия по X) - уже учтено в searchBestTransformation
+        if (mirrored && !transform.mirrored) {
             x = -x;
         }
 
@@ -549,7 +591,7 @@ class PointCloudAligner {
     // Случайная выборка
     getRandomSample(points, count) {
         if (points.length <= count) return [...points];
-       
+
         const shuffled = [...points].sort(() => Math.random() - 0.5);
         return shuffled.slice(0, count);
     }
@@ -565,10 +607,10 @@ class PointCloudAligner {
     // Центр точек
     calculateCenter(points) {
         if (!points || points.length === 0) return { x: 0, y: 0 };
-       
+
         const sumX = points.reduce((sum, p) => sum + p.x, 0);
         const sumY = points.reduce((sum, p) => sum + p.y, 0);
-       
+
         return {
             x: sumX / points.length,
             y: sumY / points.length
@@ -578,10 +620,10 @@ class PointCloudAligner {
     // Медиана массива
     getMedian(values) {
         if (!values || values.length === 0) return 0;
-       
+
         const sorted = [...values].sort((a, b) => a - b);
         const mid = Math.floor(sorted.length / 2);
-       
+
         if (sorted.length % 2 === 0) {
             return (sorted[mid - 1] + sorted[mid]) / 2;
         } else {
@@ -619,13 +661,14 @@ class PointCloudAligner {
     getDebugInfo() {
         return {
             options: this.options,
-            algorithm: 'Strict RANSAC-based point cloud alignment',
+            algorithm: 'Optimized RANSAC-based point cloud alignment',
             features: [
-                'Rotation detection with normalization',
-                'Scale detection (0.7x-1.3x)',
-                'Mirror detection',
-                'Confidence-weighted inliers',
-                'Distribution-aware scoring'
+                'Rotation detection',
+                'Scale detection (0.5x-2.0x)',
+                'Mirror detection (fixed)',
+                'Adaptive inlier threshold',
+                'Confidence-weighted scoring',
+                'Distribution-aware evaluation'
             ]
         };
     }
