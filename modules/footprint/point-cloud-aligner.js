@@ -264,86 +264,119 @@ class PointCloudAligner {
 
     // 📊 ОЦЕНКА ТРАНСФОРМАЦИИ
     evaluateTransformation(points1, points2, transform, mirrored) {
-        if (!transform || !points1 || !points2) {
-            return { score: 0, inliers: [], avgDistance: Infinity };
-        }
-
-        const inliers = [];
-        let totalDistance = 0;
-        let matchedPoints = 0;
-
-        // ТРАНСФОРМАЦИЯ всех точек из points1
-        const transformedPoints1 = points1.map(p =>
-            this.transformPoint(p, transform, mirrored)
-        );
-
-        // ПОИСК БЛИЖАЙШИХ СОСЕДЕЙ
-        for (let i = 0; i < transformedPoints1.length; i++) {
-            const transformedPoint = transformedPoints1[i];
-            const originalPoint = points1[i];
-
-            // Ищем ближайшую точку в points2
-            let bestMatch = null;
-            let bestDistance = Infinity;
-
-            for (const point2 of points2) {
-                const distance = this.calculateDistance(transformedPoint, point2);
-               
-                if (distance < bestDistance) {
-                    bestDistance = distance;
-                    bestMatch = point2;
-                }
-            }
-
-            // Проверяем является ли inlier
-            if (bestMatch && bestDistance <= this.options.inlierThreshold) {
-                inliers.push({
-                    point1: originalPoint,
-                    point2: bestMatch,
-                    distance: bestDistance,
-                    transformed: transformedPoint
-                });
-               
-                totalDistance += bestDistance;
-                matchedPoints++;
-            }
-        }
-
-        // РАСЧЁТ SCORE
-        let score = 0;
-       
-        if (matchedPoints > 0) {
-            // 1. ФАКТОР INLIER RATIO
-            const inlierRatio = matchedPoints / Math.min(points1.length, points2.length);
-           
-            // 2. ФАКТОР СРЕДНЕГО РАССТОЯНИЯ
-            const avgDistance = totalDistance / matchedPoints;
-            const distanceScore = Math.max(0, 1 - (avgDistance / this.options.inlierThreshold));
-           
-            // 3. ФАКТОР УВЕРЕННОСТИ (если есть)
-            let confidenceScore = 0.5; // По умолчанию
-            if (points1[0]?.confidence && points2[0]?.confidence) {
-                const avgConf1 = points1.reduce((sum, p) => sum + (p.confidence || 0.5), 0) / points1.length;
-                const avgConf2 = points2.reduce((sum, p) => sum + (p.confidence || 0.5), 0) / points2.length;
-                confidenceScore = (avgConf1 + avgConf2) / 2;
-            }
-
-            // ИТОГОВЫЙ SCORE
-            score = (inlierRatio * 0.4) +
-                   (distanceScore * this.options.distanceWeight) +
-                   (confidenceScore * this.options.confidenceWeight);
-           
-            score = Math.max(0, Math.min(1, score));
-        }
-
-        return {
-            score: score,
-            inliers: inliers,
-            avgDistance: matchedPoints > 0 ? totalDistance / matchedPoints : Infinity,
-            matchedPoints: matchedPoints,
-            inlierRatio: matchedPoints / Math.min(points1.length, points2.length)
-        };
+    if (!transform || !points1 || !points2) {
+        return { score: 0, inliers: [], avgDistance: Infinity };
     }
+
+    const inliers = [];
+    let totalDistance = 0;
+    let matchedPoints = 0;
+
+    // ТРАНСФОРМАЦИЯ всех точек из points1
+    const transformedPoints1 = points1.map(p =>
+        this.transformPoint(p, transform, mirrored)
+    );
+
+    // 🔥 ИСПРАВЛЕНИЕ: Используем Hungarian алгоритм или ближайшие соседи
+    // Для каждой трансформированной точки ищем ближайшую в points2
+    const usedIndices = new Set();
+   
+    transformedPoints1.forEach((transformedPoint, i) => {
+        let bestMatchIndex = -1;
+        let bestDistance = Infinity;
+       
+        // Ищем ближайшую НЕИСПОЛЬЗОВАННУЮ точку
+        for (let j = 0; j < points2.length; j++) {
+            if (usedIndices.has(j)) continue;
+           
+            const distance = this.calculateDistance(transformedPoint, points2[j]);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestMatchIndex = j;
+            }
+        }
+       
+        // Проверяем является ли inlier
+        if (bestMatchIndex !== -1 && bestDistance <= this.options.inlierThreshold) {
+            inliers.push({
+                point1: points1[i],
+                point2: points2[bestMatchIndex],
+                distance: bestDistance,
+                transformed: transformedPoint
+            });
+           
+            usedIndices.add(bestMatchIndex);
+            totalDistance += bestDistance;
+            matchedPoints++;
+        }
+    });
+
+    // 🔥 ИСПРАВЛЕНИЕ: БОЛЕЕ СТРОГИЙ РАСЧЁТ SCORE
+    let score = 0;
+   
+    if (matchedPoints > 0) {
+        // 1. ФАКТОР INLIER RATIO (теперь квадрат для усиления различий)
+        const inlierRatio = matchedPoints / Math.min(points1.length, points2.length);
+        const inlierScore = inlierRatio * inlierRatio; // Квадрат!
+       
+        // 2. ФАКТОР СРЕДНЕГО РАССТОЯНИЯ (теперь экспоненциальный штраф)
+        const avgDistance = totalDistance / matchedPoints;
+        const maxAllowedDistance = this.options.inlierThreshold * 2;
+        const distanceScore = Math.exp(-avgDistance / (maxAllowedDistance / 3));
+       
+        // 3. ФАКТОР РАВНОМЕРНОСТИ РАСПРЕДЕЛЕНИЯ inliers
+        let distributionScore = 1.0;
+        if (inliers.length > 3) {
+            // Проверяем, что inliers не сгруппированы в одном месте
+            const centers = inliers.map(inlier => inlier.point2);
+            const centerOfCenters = this.calculateCenter(centers);
+            const distancesToCenter = centers.map(p => this.calculateDistance(p, centerOfCenters));
+            const avgDistToCenter = distancesToCenter.reduce((a, b) => a + b, 0) / distancesToCenter.length;
+            const maxDist = Math.max(...distancesToCenter);
+           
+            // Если все inliers близко к центру - плохо, если равномерно - хорошо
+            distributionScore = Math.min(1.0, avgDistToCenter / (maxDist * 0.5));
+        }
+       
+        // 4. ФАКТОР УВЕРЕННОСТИ
+        let confidenceScore = 0.5;
+        if (points1[0]?.confidence && points2[0]?.confidence) {
+            const avgConf1 = points1.reduce((sum, p) => sum + (p.confidence || 0.5), 0) / points1.length;
+            const avgConf2 = points2.reduce((sum, p) => sum + (p.confidence || 0.5), 0) / points2.length;
+            confidenceScore = (avgConf1 + avgConf2) / 2;
+        }
+       
+        // 🔥 ИСПРАВЛЕНИЕ: ВЕСА
+        // Больше веса inlier ratio, меньше веса distance (так как расстояния могут быть большими)
+        const WEIGHTS = {
+            INLIER: 0.5,      // Самый важный - сколько точек совпало
+            DISTANCE: 0.2,    // Насколько точно
+            DISTRIBUTION: 0.2, // Равномерность
+            CONFIDENCE: 0.1   // Уверенность точек
+        };
+       
+        score = (inlierScore * WEIGHTS.INLIER) +
+                (distanceScore * WEIGHTS.DISTANCE) +
+                (distributionScore * WEIGHTS.DISTRIBUTION) +
+                (confidenceScore * WEIGHTS.CONFIDENCE);
+       
+        // 🔥 ИСПРАВЛЕНИЕ: ЖЁСТКИЙ ПОРОГ ДЛЯ СЛУЧАЙНЫХ ТОЧЕК
+        // Если inlier ratio низкий, сильно снижаем score
+        if (inlierRatio < 0.3) {
+            score *= 0.3;
+        }
+       
+        score = Math.max(0, Math.min(1, score));
+    }
+
+    return {
+        score: score,
+        inliers: inliers,
+        avgDistance: matchedPoints > 0 ? totalDistance / matchedPoints : Infinity,
+        matchedPoints: matchedPoints,
+        inlierRatio: matchedPoints / Math.min(points1.length, points2.length)
+    };
+}
 
     // 🎨 УТОЧНЕНИЕ ТРАНСФОРМАЦИИ ПО INLIERS
     refineTransformationWithInliers(points1, points2, inliers, mirrored) {
