@@ -19,7 +19,7 @@
 ├── 📄 topology-utils.js              # ✅ ГОТОВ (PCA, Hungarian, гистограммы)
 ├── 📄 model-visualizer.js            # ✅ ГОТОВ (базовая визуализация)
 ├── 📄 enhanced-model-visualizer.js   # ✅ ГОТОВ (фото-подложка, трансформация)
-└── (ожидается) trust-visualizer.js   # ⚠️ НЕОБХОДИМ для /trust_compare
+└── 
 ```
 
 🤖 ИНТЕГРАЦИЯ В MAIN.JS:
@@ -30,7 +30,7 @@
 · ✅ Команда /view_XXXXX - просмотр модели с визуализацией
 · ✅ Команда /compare_models - сравнение двух моделей
 · ✅ Команда /footprint_stats - статистика системы
-· ✅ Команда /trust_compare - ⚠️ ТРЕБУЕТ trust-visualizer.js
+· ✅ Команда /trust_compare - удалим
 
 ---
 
