@@ -2420,6 +2420,73 @@ bot.onText(/\/footprint_debug/, async (msg) => {
     await bot.sendMessage(chatId, response);
 });
 
+bot.onText(/\/db_test/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    try {
+        const { FootprintDatabase } = require('./modules/footprint');
+        const db = new FootprintDatabase();
+       
+        let response = `🗄️ **ТЕСТ DATABASE**\n\n`;
+       
+        // 1. Проверяем методы
+        response += `📊 **МЕТОДЫ:**\n`;
+        response += `• saveFootprint: ${typeof db.saveFootprint}\n`;
+        response += `• loadFootprint: ${typeof db.loadFootprint}\n`;
+        response += `• getUserModels: ${typeof db.getUserModels}\n`;
+        response += `• getStats: ${typeof db.getStats}\n\n`;
+       
+        // 2. Проверяем инстанс
+        response += `🔧 **ИНФОРМАЦИЯ:**\n`;
+        response += `• dbPath: ${db.dbPath}\n`;
+        response += `• spatialIndex: ${db.spatialIndex.size} записей\n`;
+       
+        // 3. Тестовое сохранение
+        response += `\n🧪 **ТЕСТ СОХРАНЕНИЯ:**\n`;
+       
+        const testFootprint = {
+            id: `test_${Date.now()}`,
+            name: 'Тестовая модель',
+            userId: 'test_user',
+            nodes: new Map([
+                ['node1', { x: 100, y: 100, confidence: 0.9 }],
+                ['node2', { x: 200, y: 200, confidence: 0.8 }]
+            ]),
+            edges: [],
+            stats: { confidence: 0.85, topologyQuality: 0.7 },
+            metadata: { test: true }
+        };
+       
+        const saveResult = db.saveFootprint(testFootprint);
+       
+        if (saveResult.success) {
+            response += `✅ Сохранено! ID: ${saveResult.id}\n`;
+           
+            // Пробуем загрузить
+            const loadResult = db.loadFootprint(saveResult.id);
+            if (loadResult.success) {
+                response += `✅ Загружено! Имя: ${loadResult.footprint.name}\n`;
+                response += `✅ Узлов: ${loadResult.footprint.nodes.size}\n`;
+            } else {
+                response += `❌ Ошибка загрузки: ${loadResult.error}\n`;
+            }
+        } else {
+            response += `❌ Ошибка сохранения: ${saveResult.error}\n`;
+        }
+       
+        // 4. Статистика
+        const stats = db.getStats();
+        response += `\n📈 **СТАТИСТИКА:**\n`;
+        response += `• Всего моделей: ${stats.total}\n`;
+        response += `• Пользователей: ${stats.byUser.length}\n`;
+       
+        await bot.sendMessage(chatId, response);
+       
+    } catch (error) {
+        await bot.sendMessage(chatId, `❌ Ошибка теста: ${error.message}\n${error.stack}`);
+    }
+});
+
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
