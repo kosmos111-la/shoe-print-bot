@@ -80,7 +80,7 @@ console.log(`   Лучший score: ${(stats.bestAlignmentScore * 100).toFixed
 
 // Тест 4: Качество модели
 console.log('\n4. 🎯 КАЧЕСТВО МОДЕЛИ ПОСЛЕ СОВМЕЩЕНИЙ');
-const quality = footprint.checkModelQualityAfterAlignment();
+const quality = footprint.stats.topologyQuality;
 console.log(`   Общий score: ${(quality.overall * 100).toFixed(1)}%`);
 console.log(`   Оценка: ${quality.grade} - ${quality.message}`);
 console.log(`   Средняя уверенность: ${(quality.metrics.avgConfidence * 100).toFixed(1)}%`);
