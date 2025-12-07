@@ -291,7 +291,8 @@ function createSessionAnalyzerStub() {
             peopleCount: { estimatedCount: 1, confidence: 0.5 },
             movementAnalysis: { available: false },
             shoeReconstruction: { totalGroups: 0 },
-            timeline: { averageInterval: null })
+            timeline: { averageInterval: null }
+        })
     };
 }
 
