@@ -2,7 +2,7 @@
 class PointCloudAligner {
     constructor(options = {}) {
         this.options = {
-            minPointsForAlignment: 4,
+            minPointsForAlignment: 3,
             maxIterations: 150,
             inlierThreshold: 20,
             minInliersRatio: 0.6,
