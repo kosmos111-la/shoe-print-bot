@@ -3010,7 +3010,7 @@ bot.onText(/\/auto_alignment (on|off)/, async (msg, match) => {
 });
 
 // Команда /my_models - показать мои модели
-bot.onText(/\/my_models/, async (msg) => {bot.onText(/\/my_models/, async (msg) => {
+bot.onText(/\/my_models/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
    
