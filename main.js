@@ -1878,15 +1878,100 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
         }
 
         if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
-            saveUserLastAnalysis(userId, {
-                predictions: predictionsForAnalysis,
-                practicalAnalysis: practicalAnalysis,
-                intelligentAnalysis: intelligentAnalysis,
-                analysis: analysis,
-                timestamp: new Date(),
-                confidence: predictionsForAnalysis.reduce((sum, p) => sum + (p.confidence || 0), 0) / predictionsForAnalysis.length
-            });
-        }
+    saveUserLastAnalysis(userId, {
+        predictions: predictionsForAnalysis,
+        practicalAnalysis: practicalAnalysis,
+        intelligentAnalysis: intelligentAnalysis,
+        analysis: analysis,
+        timestamp: new Date(),
+        confidence: avgConfidence,
+        visualizationPaths: {
+            analysis: vizPath,
+            topology: topologyVizPath
+        },
+        localPhotoPath: tempImagePath // 🆕 ДОБАВЛЯЕМ локальный путь к фото
+    });
+}
+
+// 🔥 ДОБАВИМ СРАЗУ ПОСЛЕ ЭТОГО:
+// ИНТЕГРАЦИЯ С FOOTPRINTMANAGER ДЛЯ АВТОСОВМЕЩЕНИЯ
+if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
+    try {
+        // Получаем FootprintManager из сессионной системы или создаем
+        let footprintManager;
+        if (typeof FootprintManager === 'function') {
+            footprintManager = new FootprintManager({
+                autoAlignment: true,
+                dbPath: './data/footprints'
+            });
+        }
+       
+        if (footprintManager) {
+            // Создаем анализ для FootprintManager
+            const footprintAnalysis = {
+                id: `analysis_${Date.now()}_${userId}`,
+                predictions: predictionsForAnalysis.filter(p => p.class === 'shoe-protector'),
+                timestamp: new Date(),
+                confidence: avgConfidence,
+                source: {
+                    userId: userId,
+                    chatId: chatId,
+                    photoPath: tempImagePath,
+                    batchInfo: {
+                        index: currentIndex,
+                        total: totalCount
+                    }
+                }
+            };
+           
+            // Проверяем, есть ли активная сессия у пользователя
+            const hasSession = sessionManager.hasActiveSession(userId);
+           
+            if (hasSession) {
+                // Используем сессионный режим с автосовмещением
+                const session = sessionManager.getActiveSession(userId);
+               
+                // Запускаем сессию в FootprintManager если ещё не запущена
+                if (!footprintManager.currentSession) {
+                    footprintManager.startNewSession(
+                        userId,
+                        session.id || `session_${Date.now()}`
+                    );
+                }
+               
+                // Добавляем фото с автосовмещением
+                const alignmentResult = await footprintManager.addPhotoToSession(
+                    footprintAnalysis,
+                    tempImagePath,
+                    {
+                        userId: userId,
+                        sessionId: session.id,
+                        photoIndex: session.photos.length + 1
+                    }
+                );
+               
+                console.log(`🎯 Результат автосовмещения: ${alignmentResult.alignmentScore ? (alignmentResult.alignmentScore * 100).toFixed(1) + '%' : 'не применено'}`);
+               
+                // Сохраняем информацию о совмещении в сессию
+                if (sessionManager.addAnalysisToSession) {
+                    sessionManager.addAnalysisToSession(userId, {
+                        ...footprintAnalysis,
+                        alignmentResult: alignmentResult
+                    });
+                }
+            }
+            // Сохраняем для будущего использования в /save_model
+            saveUserLastAnalysis(userId, {
+                ...footprintAnalysis,
+                alignmentApplied: hasSession,
+                footprintManager: footprintManager // сохраняем ссылку
+            });
+        }
+    } catch (error) {
+        console.log('⚠️ Ошибка интеграции с FootprintManager:', error.message);
+        // Не падаем, основная функциональность бота должна работать
+    }
+}
 
         // 🎨 ВИЗУАЛИЗАЦИЯ
         let vizPath = null;
@@ -2446,81 +2531,177 @@ bot.onText(/\/save_model(?: (.+))?/, async (msg, match) => {
    
     console.log(`💾 Пользователь ${userId} сохраняет модель: "${modelName}"`);
    
-    // Проверяем активную сессию
-    if (!sessionManager || !sessionManager.hasActiveSession(userId)) {
-        await bot.sendMessage(chatId,
-            `❌ **Нет активной сессии**\n\n` +
-            `Чтобы создать модель:\n` +
-            `1. Начните сессию: /trail_start\n` +
-            `2. Или отправьте пачку из 2+ фото\n` +
-            `3. Затем сохраните: /save_model "Имя модели"`
-        );
-        return;
-    }
-   
-    const session = sessionManager.getActiveSession(userId);
-   
-    if (!session.analysisResults || session.analysisResults.length < 2) {
-        await bot.sendMessage(chatId,
-            `⚠️ **Мало данных для модели**\n\n` +
-            `Нужно минимум **2 проанализированных фото**\n` +
-            `Сейчас в сессии: ${session.analysisResults?.length || 0} фото\n\n` +
-            `Отправьте еще фото или начните новую сессию`
-        );
-        return;
-    }
-   
-    await bot.sendMessage(chatId,
-        `🔄 **Создаю модель "${modelName}"**\n\n` +
-        `📊 Анализирую ${session.analysisResults.length} фото...`
-    );
-   
+    // 🔥 НОВАЯ ЛОГИКА: используем FootprintManager
     try {
-        const result = await FootprintManager.saveSessionAsModel(session, modelName, userId);
+        // 1. Проверяем, есть ли данные для сохранения
+        const lastAnalysis = getLastUserAnalysis(userId);
+        const hasSession = sessionManager.hasActiveSession(userId);
        
+        if (!lastAnalysis && !hasSession) {
+            await bot.sendMessage(chatId,
+                `❌ **Нет данных для сохранения**\n\n` +
+                `Сначала отправьте фото следа для анализа.\n\n` +
+                `📸 **Как сделать:**\n` +
+                `1. Отправьте одно фото для быстрого анализа\n` +
+                `2. Или начните сессию: /trail_start\n` +
+                `3. Отправьте 2+ фото одного следа\n` +
+                `4. Затем сохраните: /save_model "Имя модели"`
+            );
+            return;
+        }
+       
+        await bot.sendMessage(chatId,
+            `🔄 **Создаю модель "${modelName}"**\n\n` +
+            `📊 Анализирую данные...`
+        );
+       
+        let result;
+       
+        if (hasSession) {
+            // 🔥 СЕССИОННЫЙ РЕЖИМ: используем FootprintManager
+            const session = sessionManager.getActiveSession(userId);
+           
+            // Создаем FootprintManager
+            const footprintManager = new FootprintManager({
+                autoAlignment: true,
+                dbPath: './data/footprints'
+            });
+           
+            // Запускаем сессию
+            footprintManager.startNewSession(userId, session.name);
+           
+            // Добавляем все анализы из сессии
+            if (session.analysisResults && session.analysisResults.length > 0) {
+                let addedCount = 0;
+                for (const analysis of session.analysisResults) {
+                    if (analysis.predictions && analysis.predictions.length > 0) {
+                        const fpAnalysis = {
+                            id: analysis.id || `analysis_${Date.now()}`,
+                            predictions: analysis.predictions.filter(p => p.class === 'shoe-protector'),
+                            timestamp: analysis.timestamp || new Date(),
+                            confidence: analysis.confidence || 0.7
+                        };
+                       
+                        const photoPath = analysis.localPhotoPath || analysis.photoPath;
+                       
+                        const alignmentResult = await footprintManager.addPhotoToSession(
+                            fpAnalysis,
+                            photoPath,
+                            {
+                                userId: userId,
+                                sessionId: session.id,
+                                photoIndex: ++addedCount
+                            }
+                        );
+                       
+                        console.log(`📸 Добавлено фото ${addedCount}: ${alignmentResult.alignmentScore ? (alignmentResult.alignmentScore * 100).toFixed(1) + '%' : 'без совмещения'}`);
+                    }
+                }
+            }
+           
+            // Сохраняем модель
+            result = await footprintManager.saveSessionAsModel(modelName);
+           
+        } else {
+            // 🔥 ОДИНОЧНОЕ ФОТО: создаем модель из одного фото
+            const footprintManager = new FootprintManager({
+                autoAlignment: false, // для одного фото совмещение не нужно
+                dbPath: './data/footprints'
+            });
+           
+            footprintManager.startNewSession(userId, `single_${Date.now()}`);
+           
+            const fpAnalysis = {
+                id: lastAnalysis.id || `analysis_${Date.now()}`,
+                predictions: lastAnalysis.predictions.filter(p => p.class === 'shoe-protector'),
+                timestamp: lastAnalysis.timestamp || new Date(),
+                confidence: lastAnalysis.confidence || 0.7
+            };
+           
+            await footprintManager.addPhotoToSession(
+                fpAnalysis,
+                lastAnalysis.localPhotoPath,
+                {
+                    userId: userId,
+                    photoIndex: 1
+                }
+            );
+           
+            result = await footprintManager.saveSessionAsModel(modelName);
+        }
+       
+        // Формируем ответ
         let response = `✅ **МОДЕЛЬ СОХРАНЕНА!**\n\n`;
         response += `📝 **Имя:** ${modelName}\n`;
-        response += `🆔 **ID:** ${result.footprint.id.slice(0, 8)}...\n`;
-        response += `📊 **Узлов:** ${result.stats.nodes}\n`;
-        response += `🔗 **Связей:** ${result.stats.edges}\n`;
-        response += `💎 **Уверенность:** ${Math.round(result.stats.confidence * 100)}%\n`;
-        response += `📸 **Источники:** ${result.stats.sources} фото\n\n`;
+        response += `🆔 **ID:** ${result.modelId ? result.modelId.slice(0, 8) + '...' : 'сгенерирован'}\n`;
        
-        if (result.similar && result.similar.length > 0) {
-            response += `🔍 **ПОХОЖИЕ МОДЕЛИ:**\n`;
-            result.similar.slice(0, 3).forEach((match, index) => {
-                const name = match.footprint.name || 'Без имени';
-                response += `${index + 1}. ${name} `;
-                response += `(${Math.round(match.score * 100)}% совпадение)\n`;
-            });
-            response += `\n💡 Возможно, это та же обувь?\n`;
-        } else {
-            response += `🎯 **НОВАЯ УНИКАЛЬНАЯ МОДЕЛЬ!**\n`;
-            response += `Таких протекторов еще не было в базе.\n`;
+        if (result.stats) {
+            response += `📊 **Узлов:** ${result.stats.nodes || 0}\n`;
+            response += `🔗 **Связей:** ${result.stats.edges || 0}\n`;
+            response += `💎 **Качество:** ${result.stats.topologyQuality ? (result.stats.topologyQuality * 100).toFixed(1) + '%' : 'не оценено'}\n`;
         }
        
-        response += `\n📋 **Команды для работы:**\n`;
-        response += `/my_models - Посмотреть все ваши модели\n`;
-        response += `/find_similar - Найти похожие\n`;
-        response += `/footprint_stats - Статистика системы`;
+        response += `\n🎯 **ЧТО ДЕЛАТЬ ДАЛЬШЕ:**\n`;
+        response += `/my_models - Посмотреть все модели\n`;
+        response += `/find_similar - Найти похожие следы\n`;
+        response += `/view_[ID] - Просмотреть модель`;
        
         await bot.sendMessage(chatId, response);
-       
-        // Сохраняем последний анализ для быстрого поиска
-        if (session.analysisResults.length > 0) {
-            saveUserLastAnalysis(userId, session.analysisResults[session.analysisResults.length - 1]);
-        }
        
     } catch (error) {
         console.log('❌ Ошибка сохранения модели:', error);
         await bot.sendMessage(chatId,
             `❌ **Не удалось сохранить модель**\n\n` +
             `Ошибка: ${error.message}\n\n` +
-            `Попробуйте:\n` +
-            `1. Убедиться что есть проанализированные фото\n` +
-            `2. Проверить права на запись в папку data/\n` +
-            `3. Попробовать снова через минуту`
+            `💡 **Возможные причины:**\n` +
+            `• Нет данных о протекторах на фото\n` +
+            `• Проблема с записью в базу данных\n` +
+            `• Недостаточно памяти`
         );
+    }
+});
+
+// Команда /alignment_status - статус автосовмещения
+bot.onText(/\/alignment_status/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    try {
+        const footprintManager = new FootprintManager();
+       
+        const response = `🎯 **СТАТУС АВТОСОВМЕЩЕНИЯ**\n\n` +
+                        `🔧 **Состояние:** ${footprintManager.alignmentConfig.enabled ? 'ВКЛЮЧЕНО ✅' : 'ВЫКЛЮЧЕНО ⚠️'}\n` +
+                        `🎯 **Минимальный score:** ${footprintManager.alignmentConfig.minAlignmentScore}\n` +
+                        `📊 **Точек для совмещения:** от ${footprintManager.alignmentConfig.minPointsForAlignment}\n\n` +
+                        `💡 **Команды:**\n` +
+                        `/auto_alignment on - включить автосовмещение\n` +
+                        `/auto_alignment off - выключить\n` +
+                        `/alignment_settings - настроить параметры`;
+       
+        await bot.sendMessage(chatId, response);
+    } catch (error) {
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+// Команда /auto_alignment - включить/выключить
+bot.onText(/\/auto_alignment (on|off)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const action = match[1];
+   
+    try {
+        const footprintManager = new FootprintManager();
+        const enabled = footprintManager.setAutoAlignment(action === 'on');
+       
+        await bot.sendMessage(chatId,
+            `🔧 **АВТОСОВМЕЩЕНИЕ ${enabled ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}**\n\n` +
+            `Теперь при добавлении фото в сессию система будет:\n` +
+            `${enabled ? '✅ Автоматически искать совмещение с предыдущими фото' : '⚠️ Добавлять фото без совмещения'}\n\n` +
+            `Проверить статус: /alignment_status`
+        );
+    } catch (error) {
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
     }
 });
 
