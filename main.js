@@ -2364,6 +2364,62 @@ bot.onText(/\/footprint_test/, async (msg) => {
     }
 });
 
+bot.onText(/\/footprint_debug/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    let response = `🔧 **ДИАГНОСТИКА FOOTPRINT СИСТЕМЫ**\n\n`;
+   
+    try {
+        // Пробуем загрузить каждый модуль отдельно
+        const modules = [
+            { name: 'digital-footprint', path: './modules/footprint/digital-footprint.js' },
+            { name: 'footprint-database', path: './modules/footprint/footprint-database.js' },
+            { name: 'footprint-manager', path: './modules/footprint/footprint-manager.js' },
+            { name: 'point-cloud-aligner', path: './modules/footprint/point-cloud-aligner.js' },
+            { name: 'topology-utils', path: './modules/footprint/topology-utils.js' }
+        ];
+       
+        for (const module of modules) {
+            try {
+                require(module.path);
+                response += `✅ ${module.name}: ЗАГРУЖЕН\n`;
+            } catch (error) {
+                response += `❌ ${module.name}: ${error.message}\n`;
+            }
+        }
+       
+        // Проверяем index.js
+        response += `\n📦 **ПРОВЕРКА INDEX.JS:**\n`;
+        try {
+            const { FootprintManager } = require('./modules/footprint');
+            const manager = new FootprintManager();
+            response += `✅ FootprintManager создан\n`;
+            response += `✅ DB метод: ${typeof manager.database.saveFootprint}\n`;
+        } catch (error) {
+            response += `❌ Ошибка: ${error.message}\n`;
+        }
+       
+        // Проверяем папку data
+        response += `\n📁 **ПРОВЕРКА ПАПОК:**\n`;
+        const fs = require('fs');
+        if (fs.existsSync('./data/footprints')) {
+            const files = fs.readdirSync('./data/footprints');
+            response += `✅ Папка footprints: ${files.length} файлов\n`;
+        } else {
+            response += `⚠️ Папка footprints не существует\n`;
+        }
+       
+        if (fs.existsSync('./data')) {
+            response += `✅ Папка data существует\n`;
+        }
+       
+    } catch (error) {
+        response += `\n💥 Критическая ошибка: ${error.message}\n`;
+    }
+   
+    await bot.sendMessage(chatId, response);
+});
+
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
