@@ -2487,6 +2487,73 @@ bot.onText(/\/db_test/, async (msg) => {
     }
 });
 
+bot.onText(/\/alignment_test/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    try {
+        const { FootprintManager } = require('./modules/footprint');
+        const manager = new FootprintManager({ autoAlignment: true });
+       
+        // Тестовые данные
+        const testPoints1 = [
+            { x: 100, y: 100, confidence: 0.9, class: 'shoe-protector' },
+            { x: 200, y: 150, confidence: 0.8, class: 'shoe-protector' },
+            { x: 150, y: 250, confidence: 0.85, class: 'shoe-protector' }
+        ];
+       
+        const testPoints2 = [
+            { x: 105, y: 105, confidence: 0.9, class: 'shoe-protector' },
+            { x: 205, y: 155, confidence: 0.8, class: 'shoe-protector' },
+            { x: 155, y: 255, confidence: 0.85, class: 'shoe-protector' }
+        ];
+       
+        manager.startNewSession(userId, 'test_alignment');
+       
+        // Первое фото
+        const result1 = await manager.addPhotoToSession(
+            { id: 'test1', predictions: testPoints1 },
+            'test1.jpg',
+            { test: true }
+        );
+       
+        // Второе фото (немного смещено)
+        const result2 = await manager.addPhotoToSession(
+            { id: 'test2', predictions: testPoints2 },
+            'test2.jpg',
+            { test: true }
+        );
+       
+        let response = `🎯 **ТЕСТ АВТОСОВМЕЩЕНИЯ**\n\n`;
+        response += `📊 Первое фото: ${result1.added || 0} узлов\n`;
+        response += `📊 Второе фото: ${result2.added || 0} узлов\n`;
+       
+        if (result2.alignmentScore) {
+            response += `✅ **АВТОСОВМЕЩЕНИЕ РАБОТАЕТ!**\n`;
+            response += `🎯 Совпадение: ${(result2.alignmentScore * 100).toFixed(1)}%\n`;
+            response += `🔄 Трансформировано: ${result2.transformed ? 'да' : 'нет'}\n`;
+        } else {
+            response += `⚠️ **АВТОСОВМЕЩЕНИЕ НЕ СРАБОТАЛО**\n`;
+            response += `Возможные причины:\n`;
+            response += `• Слишком мало точек (нужно от ${manager.alignmentConfig.minPointsForAlignment})\n`;
+            response += `• Плохое совпадение (< ${manager.alignmentConfig.minAlignmentScore})\n`;
+        }
+       
+        response += `\n📈 **Статистика сессии:**\n`;
+        const stats = manager.getSessionStats();
+        if (stats) {
+            response += `• Фото: ${stats.photosCount}\n`;
+            response += `• Успешных совмещений: ${stats.successfulAlignments}\n`;
+            response += `• Средний score: ${(stats.avgAlignmentScore * 100).toFixed(1)}%\n`;
+        }
+       
+        await bot.sendMessage(chatId, response);
+       
+    } catch (error) {
+        await bot.sendMessage(chatId, `❌ Ошибка теста: ${error.message}`);
+    }
+});
+
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
@@ -2496,109 +2563,166 @@ bot.onText(/\/save_model(?: (.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const modelName = match[1] || `Модель_${new Date().toLocaleDateString('ru-RU')}`;
-
-    console.log(`💾 Пользователь ${userId} сохраняет модель: "${modelName}"`);
-
-    await bot.sendMessage(chatId,
-        `🔄 **Создаю модель "${modelName}"**\n\n` +
-        `📊 Анализирую данные...`
-    );
-
+   
+    console.log(`💾 СОХРАНЕНИЕ МОДЕЛИ: "${modelName}"`);
+   
     try {
-        // Вариант 1: Используем FootprintManager если он есть
-        let result;
-
-        if (global.footprintManagers && global.footprintManagers.has(userId)) {
-            console.log(`🎯 Использую существующий FootprintManager для сохранения`);
-            const fpManager = global.footprintManagers.get(userId);
-
-            if (fpManager.currentSession) {
-                result = await fpManager.saveSessionAsModel(modelName);
-
-                if (result.success) {
-                    // Удаляем менеджер из памяти
-                    global.footprintManagers.delete(userId);
-
-                    await bot.sendMessage(chatId,
-                        `✅ **МОДЕЛЬ СОХРАНЕНА С АВТОСОВМЕЩЕНИЕМ!**\n\n` +
-                        `📝 Название: ${modelName}\n` +
-                        `🆔 ID: ${result.modelId?.slice(0, 8) || 'сгенерирован'}...\n` +
-                        `📊 Узлов: ${result.stats?.nodes || 0}\n` +
-                        `🔗 Связей: ${result.stats?.edges || 0}\n` +
-                        `💎 Качество: ${result.stats?.topologyQuality ?
-                            (result.stats.topologyQuality * 100).toFixed(1) + '%' : 'не оценено'}\n\n` +
-                        `🎯 **Система автоматически совместила все следы для точной модели!**\n\n` +
-                        `📋 Команды:\n` +
-                        `/my_models - Посмотреть модели\n` +
-                        `/find_similar - Найти похожие`
-                    );
-                    return;
-                }
-            }
-        }
-
-        // Вариант 2: Создаем новую модель из последних данных
-        const lastAnalysis = getLastUserAnalysis(userId);
-
-        if (!lastAnalysis || !lastAnalysis.hasFootprintData) {
-            await bot.sendMessage(chatId,
-                `❌ **Нет данных для сохранения модели**\n\n` +
-                `💡 **Как создать модель:**\n` +
-                `1. Начните сессию: /trail_start\n` +
-                `2. Отправьте 2+ фото одного следа\n` +
-                `3. Система автоматически совместит следы\n` +
-                `4. Сохраните: /save_model "Название"\n\n` +
-                `📸 **Или отправьте одно фото и укажите название:**\n` +
-                `/save_model "Мой след"`
-            );
-            return;
-        }
-
-        // Создаем модель из последнего анализа
+        await bot.sendMessage(chatId, `🔄 Создаю модель "${modelName}"...`);
+       
+        // Используем FootprintManager
         const { FootprintManager } = require('./modules/footprint');
-        const fpManager = new FootprintManager({
-            autoAlignment: false,
+        const manager = new FootprintManager({
+            autoAlignment: true,
             dbPath: './data/footprints'
         });
-
-        fpManager.startNewSession(userId, `single_${Date.now()}`);
-
-        await fpManager.addPhotoToSession(
-            lastAnalysis.footprintAnalysis || {
-                id: `analysis_${Date.now()}`,
-                predictions: lastAnalysis.predictions?.filter(p => p.class === 'shoe-protector')
-                    .map(p => ({
-                        x: (p.points[0].x + p.points[1].x) / 2,
-                        y: (p.points[0].y + p.points[1].y) / 2,
-                        confidence: p.confidence || 0.5,
-                        class: p.class
-                    })),
-                timestamp: new Date(),
-                confidence: lastAnalysis.confidence || 0.5
-            },
-            lastAnalysis.localPhotoPath,
-            { userId: userId }
-        );
-
-        result = await fpManager.saveSessionAsModel(modelName);
-
-        await bot.sendMessage(chatId,
-            `✅ **МОДЕЛЬ СОХРАНЕНА!**\n\n` +
-            `📝 Название: ${modelName}\n` +
-            `📊 Узлов: ${result.stats?.nodes || 0}\n` +
-            `💎 Уверенность: ${lastAnalysis.confidence ? (lastAnalysis.confidence * 100).toFixed(1) + '%' : 'не оценено'}\n\n` +
-            `💡 **Совет:** Для более точной модели отправьте несколько фото одного следа в сессионном режиме.`
-        );
-
+       
+        // Проверяем активную сессию
+        const hasSession = sessionManager && sessionManager.hasActiveSession(userId);
+       
+        if (hasSession) {
+            // 🔥 СЕССИОННЫЙ РЕЖИМ: используем данные из сессии
+            const session = sessionManager.getActiveSession(userId);
+            console.log(`📊 Использую сессию: ${session.id}, фото: ${session.photos.length}`);
+           
+            manager.startNewSession(userId, session.name);
+           
+            // Добавляем все анализы из сессии
+            if (session.analysisResults && session.analysisResults.length > 0) {
+                console.log(`📸 Добавляю ${session.analysisResults.length} анализов из сессии`);
+               
+                for (let i = 0; i < session.analysisResults.length; i++) {
+                    const analysis = session.analysisResults[i];
+                   
+                    if (analysis.predictions && analysis.predictions.length > 0) {
+                        // Фильтруем только протекторы
+                        const shoeProtectors = analysis.predictions.filter(p => p.class === 'shoe-protector');
+                       
+                        if (shoeProtectors.length >= 3) {
+                            const footprintAnalysis = {
+                                id: `analysis_${Date.now()}_${i}`,
+                                predictions: shoeProtectors.map(p => {
+                                    const xs = p.points.map(pt => pt.x);
+                                    const ys = p.points.map(pt => pt.y);
+                                    return {
+                                        x: (Math.min(...xs) + Math.max(...xs)) / 2,
+                                        y: (Math.min(...ys) + Math.max(...ys)) / 2,
+                                        confidence: p.confidence || 0.5,
+                                        class: 'shoe-protector'
+                                    };
+                                }),
+                                timestamp: analysis.timestamp || new Date(),
+                                confidence: analysis.confidence || 0.5
+                            };
+                           
+                            const result = await manager.addPhotoToSession(
+                                footprintAnalysis,
+                                analysis.localPhotoPath,
+                                {
+                                    userId: userId,
+                                    sessionName: session.name,
+                                    photoIndex: i + 1
+                                }
+                            );
+                           
+                            console.log(`📸 Фото ${i+1}: ${result.added || 0} узлов, совмещение: ${result.alignmentScore ? (result.alignmentScore * 100).toFixed(1) + '%' : 'нет'}`);
+                        }
+                    }
+                }
+            }
+           
+        } else {
+            // 🔥 ОДИНОЧНОЕ ФОТО: используем последний анализ
+            const lastAnalysis = getLastUserAnalysis(userId);
+           
+            if (!lastAnalysis || !lastAnalysis.predictions) {
+                await bot.sendMessage(chatId,
+                    `❌ **Нет данных для сохранения**\n\n` +
+                    `Сначала отправьте фото следа.\n` +
+                    `Для лучших результатов используйте сессию: /trail_start`
+                );
+                return;
+            }
+           
+            console.log(`📸 Использую последний анализ: ${lastAnalysis.predictions.length} предсказаний`);
+           
+            manager.startNewSession(userId, `single_${Date.now()}`);
+           
+            const shoeProtectors = lastAnalysis.predictions.filter(p => p.class === 'shoe-protector');
+           
+            if (shoeProtectors.length >= 3) {
+                const footprintAnalysis = {
+                    id: `analysis_${Date.now()}`,
+                    predictions: shoeProtectors.map(p => {
+                        const xs = p.points.map(pt => pt.x);
+                        const ys = p.points.map(pt => pt.y);
+                        return {
+                            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+                            y: (Math.min(...ys) + Math.max(...ys)) / 2,
+                            confidence: p.confidence || 0.5,
+                            class: 'shoe-protector'
+                        };
+                    }),
+                    timestamp: new Date(),
+                    confidence: lastAnalysis.confidence || 0.5
+                };
+               
+                await manager.addPhotoToSession(
+                    footprintAnalysis,
+                    lastAnalysis.localPhotoPath,
+                    { userId: userId }
+                );
+            }
+        }
+       
+        // Сохраняем модель
+        console.log(`💾 Сохраняю модель "${modelName}"...`);
+        const saveResult = await manager.saveSessionAsModel(modelName);
+       
+        if (saveResult.success) {
+            let response = `✅ **МОДЕЛЬ СОХРАНЕНА!**\n\n`;
+            response += `📝 **Имя:** ${modelName}\n`;
+            response += `🆔 **ID:** ${saveResult.modelId?.slice(0, 8) || 'сгенерирован'}...\n`;
+           
+            if (saveResult.stats) {
+                response += `📊 **Узлов:** ${saveResult.stats.nodes || 0}\n`;
+                response += `🔗 **Ребер:** ${saveResult.stats.edges || 0}\n`;
+                response += `💎 **Качество:** ${saveResult.stats.topologyQuality ?
+                    (saveResult.stats.topologyQuality * 100).toFixed(1) + '%' : 'не оценено'}\n`;
+            }
+           
+            if (hasSession) {
+                const session = sessionManager.getActiveSession(userId);
+                response += `📸 **Фото в сессии:** ${session.photos.length}\n`;
+            }
+           
+            response += `\n🎯 **ЧТО ДЕЛАТЬ ДАЛЬШЕ:**\n`;
+            response += `/my_models - Посмотреть свои модели\n`;
+            response += `/find_similar - Найти похожие следы\n`;
+           
+            await bot.sendMessage(chatId, response);
+           
+            // Завершаем сессию если была
+            if (hasSession) {
+                sessionManager.endSession(userId);
+            }
+           
+        } else {
+            await bot.sendMessage(chatId,
+                `❌ **Не удалось сохранить модель**\n\n` +
+                `Ошибка: ${saveResult.error}\n\n` +
+                `💡 **Попробуйте:**\n` +
+                `1. Убедитесь, что на фото есть протекторы\n` +
+                `2. Отправьте больше фото\n` +
+                `3. Используйте сессию: /trail_start`
+            );
+        }
+       
     } catch (error) {
         console.log('❌ Ошибка сохранения модели:', error);
         await bot.sendMessage(chatId,
-            `❌ **Не удалось сохранить модель**\n\n` +
-            `Ошибка: ${error.message}\n\n` +
-            `💡 **Попробуйте:**\n` +
-            `1. Убедитесь, что на фото есть детали протектора\n` +
-            `2. Отправьте фото с лучшим освещением\n` +
-            `3. Начните сессию: /trail_start`
+            `💥 **Критическая ошибка**\n\n` +
+            `${error.message}\n\n` +
+            `Логи сохранены для отладки.`
         );
     }
 });
@@ -2886,65 +3010,67 @@ bot.onText(/\/auto_alignment (on|off)/, async (msg, match) => {
 });
 
 // Команда /my_models - показать мои модели
-bot.onText(/\/my_models/, async (msg) => {
+bot.onText(/\/my_models/, async (msg) => {bot.onText(/\/my_models/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-
-    console.log(`📚 Пользователь ${userId} запрашивает свои модели`);
-
-    await bot.sendMessage(chatId, '📚 Загружаю ваши модели...');
-
+   
     try {
-        const models = await FootprintManager.getUserModels(userId);
-
-        if (!models || models.length === 0) {
+        const { FootprintManager } = require('./modules/footprint');
+        const manager = new FootprintManager({ dbPath: './data/footprints' });
+       
+        // Загружаем модели пользователя
+        await bot.sendMessage(chatId, `📚 Загружаю ваши модели...`);
+       
+        // Получаем модели через database
+        const db = manager.database;
+        const userModels = db.getUserModels(userId);
+       
+        if (!userModels || userModels.length === 0) {
             await bot.sendMessage(chatId,
                 `📭 **У вас нет сохраненных моделей**\n\n` +
                 `💡 **Как создать модель:**\n` +
-                `1. Отправьте **пачку из 2+ фото** (автосессия)\n` +
-                `2. Или начните сессию: /trail_start\n` +
-                `3. Отправьте несколько фото следов\n` +
-                `4. Сохраните: /save_model "Название модели"\n\n` +
-                `🎯 **Зачем сохранять модели?**\n` +
-                `• Сравнивать с новыми следами\n` +
-                `• Находить одинаковые протекторы\n` +
-                `• Улучшать точность анализа`
+                `1. Отправьте фото следа\n` +
+                `2. Используйте /save_model "Название"\n\n` +
+                `🎯 **Для лучших результатов:**\n` +
+                `• Начните сессию: /trail_start\n` +
+                `• Отправьте 2+ фото одного следа\n` +
+                `• Сохраните: /save_model "Детальная модель"`
             );
             return;
         }
-
-        let response = `📚 **ВАШИ МОДЕЛИ** (${models.length})\n\n`;
-
-        // Показываем максимум 5 моделей
-        models.slice(0, 5).forEach((model, index) => {
-            const date = new Date(model.stats.created).toLocaleDateString('ru-RU');
-            const shortId = model.id.slice(0, 8);
-
-            response += `**${index + 1}. ${model.name}**\n`;
+       
+        let response = `📚 **ВАШИ МОДЕЛИ** (${userModels.length})\n\n`;
+       
+        // Показываем первые 5 моделей
+        userModels.slice(0, 5).forEach((model, index) => {
+            const date = model.created ? new Date(model.created).toLocaleDateString('ru-RU') : 'неизвестно';
+            const shortId = model.id ? model.id.slice(0, 8) : '???';
+           
+            response += `**${index + 1}. ${model.name || 'Без имени'}**\n`;
             response += `   🆔 ${shortId}...\n`;
             response += `   📅 ${date}\n`;
-            response += `   📊 ${model.nodes.size} узлов\n`;
-            response += `   💎 ${Math.round(model.stats.confidence * 100)}% уверенность\n`;
+            response += `   📊 ${model.nodes ? model.nodes.size : 0} узлов\n`;
+            response += `   💎 ${model.stats?.confidence ? (model.stats.confidence * 100).toFixed(1) + '%' : 'не оценено'}\n`;
             response += `   🔍 /view_${shortId}\n\n`;
         });
-
-        if (models.length > 5) {
-            response += `... и еще ${models.length - 5} моделей\n\n`;
+       
+        if (userModels.length > 5) {
+            response += `... и еще ${userModels.length - 5} моделей\n\n`;
         }
-
+       
         response += `💡 **Используйте:**\n`;
         response += `/view_[ID] - Детали модели (первые 8 символов)\n`;
         response += `/find_similar - Найти похожие\n`;
-        response += `/footprint_stats - Статистика системы`;
-
+        response += `/save_model "Название" - Создать новую`;
+       
         await bot.sendMessage(chatId, response);
-
+       
     } catch (error) {
-        console.log('❌ Ошибка загрузки моделей:', error);
+        console.log('❌ Ошибка /my_models:', error);
         await bot.sendMessage(chatId,
             `❌ **Не удалось загрузить модели**\n\n` +
             `Ошибка: ${error.message}\n` +
-            `Попробуйте позже или обратитесь к администратору`
+            `Проверьте папку data/footprints/`
         );
     }
 });
