@@ -1,490 +1,511 @@
-// modules/footprint/footprint-manager.js
-// Главный менеджер, который будет интегрирован в main.js
+// modules/footprint/footprint-manager.js - ОБНОВЛЁННАЯ ВЕРСИЯ
+const DigitalFootprint = require('./digital-footprint');
 const FootprintDatabase = require('./footprint-database');
+const fs = require('fs');
+const path = require('path');
 
 class FootprintManager {
-    constructor() {
-        this.db = new FootprintDatabase();
-        this.initialized = false;
-        console.log('👣 FootprintManager создан (УМНАЯ версия)');
+    constructor(options = {}) {
+        this.database = new FootprintDatabase(options.dbPath);
+        this.currentSession = null;
+        this.currentModel = null;
+       
+        // 🔥 НОВЫЕ НАСТРОЙКИ ДЛЯ СОВМЕЩЕНИЯ
+        this.alignmentConfig = {
+            enabled: options.autoAlignment !== false, // По умолчанию включено
+            minPointsForAlignment: 4,
+            minAlignmentScore: 0.6,
+            requireConfirmation: options.requireConfirmation !== false
+        };
+       
+        console.log('🔄 FootprintManager создан (с поддержкой автоматического совмещения)');
     }
 
-    async initialize() {
-        if (this.initialized) return true;
+    // 🔥 ОБНОВЛЁННЫЙ МЕТОД: Начать новую сессию
+    startNewSession(userId, sessionName = null) {
+        const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+       
+        this.currentSession = {
+            id: sessionId,
+            userId: userId,
+            name: sessionName || `Сессия_${new Date().toLocaleDateString('ru-RU')}`,
+            startTime: new Date(),
+            analyses: [],
+            photos: [],
+            model: null,
+            stats: {
+                totalPhotos: 0,
+                successfulAlignments: 0,
+                failedAlignments: 0,
+                avgAlignmentScore: 0
+            }
+        };
+       
+        console.log(`🆕 Новая сессия: ${this.currentSession.name} (ID: ${sessionId})`);
+        return this.currentSession;
+    }
 
-        try {
-            await this.db.initialize();
-            this.initialized = true;
-            console.log('✅ FootprintManager инициализирован');
-            return true;
-        } catch (error) {
-            console.log('❌ Ошибка инициализации FootprintManager:', error.message);
+    // 🔥 ОБНОВЛЁННЫЙ МЕТОД: Добавить фото в сессию с автоматическим совмещением
+    async addPhotoToSession(analysis, photoPath = null, sourceInfo = {}) {
+        if (!this.currentSession) {
+            console.log('❌ Нет активной сессии');
+            return { success: false, error: 'Нет активной сессии' };
+        }
+
+        console.log(`\n📸 ===== ДОБАВЛЕНИЕ ФОТО В СЕССИЮ =====`);
+        console.log(`📊 Сессия: ${this.currentSession.name}`);
+       
+        const enhancedSourceInfo = {
+            ...sourceInfo,
+            sessionId: this.currentSession.id,
+            photoPath: photoPath,
+            timestamp: new Date()
+        };
+
+        // 🔥 РЕШЕНИЕ: Использовать автоматическое совмещение или обычное добавление
+        let result;
+       
+        if (this.shouldUseAlignment()) {
+            console.log('🎯 Использую автоматическое совмещение...');
+            result = await this.addPhotoWithAlignment(analysis, enhancedSourceInfo);
+        } else {
+            console.log('📌 Использую стандартное добавление...');
+            result = await this.addPhotoStandard(analysis, enhancedSourceInfo);
+        }
+
+        // Обновляем статистику сессии
+        this.updateSessionStats(result);
+       
+        // Сохраняем информацию о фото
+        this.currentSession.photos.push({
+            path: photoPath,
+            timestamp: new Date(),
+            analysisId: analysis.id || `analysis_${Date.now()}`,
+            result: result
+        });
+       
+        console.log(`✅ Фото добавлено в сессию`);
+        console.log(`📊 Результат: ${result.transformed ? 'трансформировано' : 'не трансформировано'}`);
+        if (result.alignmentScore) {
+            console.log(`🎯 Score совмещения: ${(result.alignmentScore * 100).toFixed(1)}%`);
+        }
+       
+        return result;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Решение об использовании совмещения
+    shouldUseAlignment() {
+        if (!this.alignmentConfig.enabled) return false;
+       
+        // Если модель ещё не создана
+        if (!this.currentModel || !this.currentModel.nodes || this.currentModel.nodes.size === 0) {
+            console.log('📌 Модель пустая - совмещение не требуется');
             return false;
         }
+       
+        // Если в модели достаточно точек для совмещения
+        const hasEnoughPoints = this.currentModel.nodes.size >= this.alignmentConfig.minPointsForAlignment;
+       
+        return hasEnoughPoints;
     }
 
-    // ✅ УЛУЧШЕННЫЙ МЕТОД: СОХРАНИТЬ СЕССИЮ КАК МОДЕЛЬ
-    async saveSessionAsModel(session, modelName = null, userId = null) {
-        if (!this.initialized) {
-            await this.initialize();
+    // 🔥 НОВЫЙ МЕТОД: Добавить фото с автоматическим совмещением
+    async addPhotoWithAlignment(analysis, sourceInfo) {
+        try {
+            if (!this.currentModel) {
+                // Создаём новую модель если её нет
+                this.currentModel = new DigitalFootprint({
+                    name: this.currentSession.name,
+                    userId: this.currentSession.userId,
+                    sessionId: this.currentSession.id
+                });
+            }
+
+            // Используем новый метод с автоматическим совмещением
+            const result = this.currentModel.addAnalysisWithAlignment(analysis, sourceInfo);
+           
+            // Сохраняем информацию о совмещении в сессии
+            if (result.alignmentScore !== undefined) {
+                this.currentSession.analyses.push({
+                    type: 'aligned',
+                    timestamp: new Date(),
+                    alignmentScore: result.alignmentScore,
+                    transformed: result.transformed || false,
+                    nodeCount: result.totalNodes || 0
+                });
+            }
+           
+            return result;
+           
+        } catch (error) {
+            console.log('❌ Ошибка при совмещении:', error.message);
+           
+            // Fallback: используем стандартное добавление
+            console.log('🔄 Переключаюсь на стандартное добавление...');
+            return await this.addPhotoStandard(analysis, sourceInfo);
         }
+    }
 
-        if (!session || !session.analysisResults || session.analysisResults.length === 0) {
-            throw new Error('Сессия пуста или не содержит анализов');
-        }
-
-        const DigitalFootprint = require('./digital-footprint');
-        const footprint = new DigitalFootprint({
-            name: modelName || `Сессия_${session.id.slice(0, 8)}`,
-            userId: userId || session.userId,
-            sessionId: session.id,
-            metadata: {
-                estimatedSize: this.estimateSizeFromSession(session),
-                footprintType: this.determineFootprintType(session),
-                orientation: this.calculateAverageOrientation(session),
-                photosCount: session.photos.length,
-                // ✅ Дополнительные метаданные
-                sessionDuration: this.calculateSessionDuration(session),
-                avgPhotoQuality: this.calculateAvgPhotoQuality(session),
-                hasMultipleAngles: this.checkMultipleAngles(session)
-            }
-        });
-
-        console.log(`🔄 Создаю модель из ${session.analysisResults.length} анализов...`);
-
-        // ✅ ПОДРОБНОЕ ЛОГИРОВАНИЕ
-        console.log(`📸 Фото в сессии: ${session.photos.length}`);
-        console.log(`🔍 Анализов в сессии: ${session.analysisResults.length}`);
-
-        // Агрегируем все анализы сессии
-        session.analysisResults.forEach((analysis, index) => {
-            // Находим соответствующее фото из сессии
-            const photo = session.photos[index];
-
-            if (!photo) {
-                console.log(`⚠️ Нет фото для анализа ${index}`);
-                return;
+    // 🔥 МЕТОД: Стандартное добавление фото (без совмещения)
+    async addPhotoStandard(analysis, sourceInfo) {
+        try {
+            if (!this.currentModel) {
+                // Создаём новую модель
+                this.currentModel = new DigitalFootprint({
+                    name: this.currentSession.name,
+                    userId: this.currentSession.userId,
+                    sessionId: this.currentSession.id
+                });
             }
 
-            // ✅ ПРОВЕРЯЕМ ЧТО ЕСТЬ ПУТЬ К ФОТО
-            let localPhotoPath = null;
-            const possiblePaths = [
-                photo.localPath,
-                photo.filePath,
-                photo.path,
-                analysis.localPhotoPath,
-                analysis.imagePath
-            ].filter(p => p && typeof p === 'string');
-
-            for (const path of possiblePaths) {
-                const fs = require('fs');
-                if (fs.existsSync(path)) {
-                    localPhotoPath = path;
-                    console.log(`✅ Нашел фото для анализа ${index}: ${path}`);
-                    break;
-                }
-            }
-
-            if (!localPhotoPath) {
-                console.log(`⚠️ Не найден локальный файл фото для анализа ${index}`);
-            }
-
-            // ✅ ПЕРЕДАЕМ ВСЕ ВОЗМОЖНЫЕ ПУТИ К ФОТО
-            const sourceInfo = {
-                sessionId: session.id,
-                analysisIndex: index,
-                photoId: photo?.fileId,
-                timestamp: analysis.timestamp || new Date(),
-                // Пути к фото
-                localPath: localPhotoPath,
-                imagePath: localPhotoPath,
-                localPhotoPath: localPhotoPath,
-                photoPath: photo?.fileUrl,
-                filePath: localPhotoPath,
-                // Информация о качестве
-                photoQuality: photo?.quality || analysis.photoQuality || 0.5,
-                // ✅ Дополнительная информация
-                batchInfo: analysis.batchInfo || { index: index + 1, total: session.analysisResults.length },
-                hasVisualization: !!(analysis.visualizationPaths?.analysis),
-                hasTopology: !!(analysis.visualizationPaths?.topology)
+            const result = this.currentModel.addAnalysis(analysis, sourceInfo);
+           
+            // Сохраняем информацию в сессии
+            this.currentSession.analyses.push({
+                type: 'standard',
+                timestamp: new Date(),
+                nodeCount: result.totalNodes || 0,
+                addedNodes: result.added || 0,
+                mergedNodes: result.merged || 0
+            });
+           
+            return result;
+           
+        } catch (error) {
+            console.log('❌ Ошибка при стандартном добавлении:', error.message);
+            return {
+                success: false,
+                error: error.message,
+                added: 0,
+                merged: 0,
+                totalNodes: this.currentModel ? this.currentModel.nodes.size : 0
             };
+        }
+    }
 
-            // Добавляем анализ с путями к фото
-            try {
-                const added = footprint.addAnalysis(analysis, sourceInfo);
+    // 🔥 ОБНОВЛЁННЫЙ МЕТОД: Сохранить модель из сессии
+    async saveSessionAsModel(modelName = null, options = {}) {
+        if (!this.currentSession || !this.currentModel) {
+            console.log('❌ Нет активной сессии или модели');
+            return { success: false, error: 'Нет активной сессии' };
+        }
 
-                console.log(`   Анализ ${index + 1}: добавлено ${added.added} узлов, фото: ${localPhotoPath ? '✅' : '❌'}`);
-
-                // ✅ ПОДРОБНАЯ СТАТИСТИКА
-                if (added.contours > 0) {
-                    console.log(`       🔵 Контуров: ${added.contours}`);
-                }
-                if (added.heels > 0) {
-                    console.log(`       👠 Каблуков: ${added.heels}`);
-                }
-
-            } catch (addError) {
-                console.log(`❌ Ошибка добавления анализа ${index}:`, addError.message);
+        const finalModelName = modelName || this.currentSession.name;
+       
+        console.log(`\n💾 ===== СОХРАНЕНИЕ МОДЕЛИ =====`);
+        console.log(`📝 Название: ${finalModelName}`);
+        console.log(`📊 Узлов в модели: ${this.currentModel.nodes.size}`);
+        console.log(`📈 Совмещений: ${this.currentModel.alignmentHistory.length}`);
+       
+        // Обновляем имя модели
+        this.currentModel.name = finalModelName;
+       
+        // Добавляем метаданные сессии
+        this.currentModel.metadata.sessionInfo = {
+            sessionId: this.currentSession.id,
+            sessionName: this.currentSession.name,
+            photosCount: this.currentSession.photos.length,
+            analysesCount: this.currentSession.analyses.length,
+            startTime: this.currentSession.startTime,
+            endTime: new Date()
+        };
+       
+        // Добавляем статистику совмещений
+        this.currentModel.metadata.alignmentStats = {
+            totalAlignments: this.currentSession.stats.totalPhotos,
+            successfulAlignments: this.currentSession.stats.successfulAlignments,
+            successRate: this.currentSession.stats.totalPhotos > 0 ?
+                this.currentSession.stats.successfulAlignments / this.currentSession.stats.totalPhotos : 0,
+            avgAlignmentScore: this.currentSession.stats.avgAlignmentScore
+        };
+       
+        try {
+            // Сохраняем в базу данных
+            const saveResult = this.database.saveFootprint(this.currentModel);
+           
+            if (saveResult.success) {
+                console.log(`✅ Модель сохранена с ID: ${saveResult.id}`);
+                console.log(`📊 Статистика модели:`);
+                console.log(`   • Узлов: ${this.currentModel.nodes.size}`);
+                console.log(`   • Ребер: ${this.currentModel.edges.length}`);
+                console.log(`   • Совмещений: ${this.currentModel.alignmentHistory.length}`);
+                console.log(`   • Качество топологии: ${(this.currentModel.stats.topologyQuality * 100).toFixed(1)}%`);
+               
+                // Очищаем текущую сессию
+                this.endSession();
+               
+                return {
+                    success: true,
+                    modelId: saveResult.id,
+                    modelName: finalModelName,
+                    stats: {
+                        nodes: this.currentModel.nodes.size,
+                        edges: this.currentModel.edges.length,
+                        alignments: this.currentModel.alignmentHistory.length,
+                        topologyQuality: this.currentModel.stats.topologyQuality,
+                        confidence: this.currentModel.stats.confidence
+                    }
+                };
+            } else {
+                console.log('❌ Ошибка сохранения модели:', saveResult.error);
+                return { success: false, error: saveResult.error };
             }
-        });
-// ✅ ОБНОВЛЯЕМ ТОПОЛОГИЧЕСКИЕ ИНВАРИАНТЫ
-footprint.updateTopologyInvariants();
-        // ✅ ПРОВЕРЯЕМ ЧТО МОДЕЛЬ СОЗДАНА
-        if (footprint.nodes.size === 0) {
-            throw new Error('Не удалось создать модель: нет узлов протектора');
+           
+        } catch (error) {
+            console.log('❌ Исключение при сохранении:', error.message);
+            return { success: false, error: error.message };
         }
+    }
 
-        console.log(`📊 Итог модели: ${footprint.nodes.size} узлов, ${footprint.allContours?.length || 0} контуров`);
-console.log(`🎯 Топологическое качество: ${(footprint.stats.topologyQuality * 100).toFixed(1)}%`);
-
-        // ✅ ОБНОВЛЯЕМ МЕТАДАННЫЕ НА ОСНОВЕ РЕЗУЛЬТАТОВ
-        this.updateMetadataFromResults(footprint, session);
-
-        // ✅ ПРОВЕРЯЕМ ЧТО ЕСТЬ КОНТУРЫ
-        if (!footprint.allContours || footprint.allContours.length === 0) {
-            console.log('⚠️ В модели нет контуров');
-        } else {
-            console.log(`✅ Контуров сохранено: ${footprint.allContours.length}`);
+    // 🔥 НОВЫЙ МЕТОД: Обновить статистику сессии
+    updateSessionStats(photoResult) {
+        if (!this.currentSession) return;
+       
+        this.currentSession.stats.totalPhotos++;
+       
+        if (photoResult.alignmentScore !== undefined) {
+            if (photoResult.alignmentScore > this.alignmentConfig.minAlignmentScore) {
+                this.currentSession.stats.successfulAlignments++;
+            } else {
+                this.currentSession.stats.failedAlignments++;
+            }
+           
+            // Обновляем средний score
+            const totalScore = this.currentSession.stats.avgAlignmentScore * (this.currentSession.stats.totalPhotos - 1);
+            this.currentSession.stats.avgAlignmentScore =
+                (totalScore + (photoResult.alignmentScore || 0)) / this.currentSession.stats.totalPhotos;
         }
+    }
 
-        // Сохраняем в базу
-        const saved = await this.db.save(footprint);
+    // 🔥 НОВЫЙ МЕТОД: Получить статистику текущей сессии
+    getSessionStats() {
+        if (!this.currentSession) return null;
+       
+        const stats = {
+            ...this.currentSession.stats,
+            photosCount: this.currentSession.photos.length,
+            analysesCount: this.currentSession.analyses.length,
+            modelExists: !!this.currentModel,
+            modelNodeCount: this.currentModel ? this.currentModel.nodes.size : 0,
+            alignmentEnabled: this.alignmentConfig.enabled
+        };
+       
+        // Добавляем детализацию по типам анализов
+        const analysisTypes = this.currentSession.analyses.reduce((acc, analysis) => {
+            acc[analysis.type] = (acc[analysis.type] || 0) + 1;
+            return acc;
+        }, {});
+       
+        stats.analysisTypes = analysisTypes;
+       
+        return stats;
+    }
 
-        if (!saved) {
-            throw new Error('Не удалось сохранить модель в базу');
-        }
-
-        // Ищем похожие модели
-        const similar = await this.db.findSimilar(
-            session.analysisResults[0],
-            { userId, threshold: 0.3, limit: 3 }
-        );
-
+    // 🔥 НОВЫЙ МЕТОД: Получить информацию о совмещениях в текущей сессии
+    getAlignmentInfo() {
+        if (!this.currentModel) return null;
+       
         return {
-            footprint: saved,
-            similar: similar.filter(s => s.footprint.id !== saved.id),
-            stats: {
-                nodes: saved.nodes.size,
-                edges: saved.edges.length,
-                confidence: saved.stats.confidence,
-                sources: saved.stats.totalSources,
-                photos: saved.stats.totalPhotos,
-                // ✅ ДОПОЛНИТЕЛЬНАЯ СТАТИСТИКА
-                contours: saved.allContours?.length || 0,
-                heels: saved.allHeels?.length || 0,
-                avgPhotoQuality: saved.stats.avgPhotoQuality,
-                hasBestPhoto: !!saved.bestPhotoInfo
-            }
+            totalAlignments: this.currentModel.alignmentHistory.length,
+            successfulAlignments: this.currentModel.alignmentStats.successfulAlignments,
+            avgScore: this.currentModel.alignmentStats.avgAlignmentScore,
+            bestScore: this.currentModel.alignmentStats.bestAlignmentScore,
+            recentAlignments: this.currentModel.alignmentHistory.slice(-5).map(record => ({
+                score: record.score,
+                timestamp: record.timestamp,
+                inliersCount: record.inliersCount,
+                transformed: record.applied || false
+            }))
         };
     }
 
-    // ✅ НОВЫЙ МЕТОД: Обновляем метаданные на основе результатов
-    updateMetadataFromResults(footprint, session) {
-        if (!session.analysisResults || session.analysisResults.length === 0) return;
+    // 🔥 НОВЫЙ МЕТОД: Включить/выключить автоматическое совмещение
+    setAutoAlignment(enabled) {
+        this.alignmentConfig.enabled = enabled;
+        console.log(`🔧 Автоматическое совмещение: ${enabled ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`);
+        return this.alignmentConfig.enabled;
+    }
 
-        // Собираем информацию из всех анализов
-        const allSizes = [];
-        const allTypes = [];
-        const allOrientations = [];
+    // 🔥 НОВЫЙ МЕТОД: Настроить параметры совмещения
+    configureAlignment(options = {}) {
+        this.alignmentConfig = {
+            ...this.alignmentConfig,
+            ...options
+        };
+       
+        console.log('🔧 Параметры совмещения обновлены:', this.alignmentConfig);
+        return this.alignmentConfig;
+    }
 
-        session.analysisResults.forEach(analysis => {
-            if (analysis.intelligentAnalysis?.summary) {
-                const summary = analysis.intelligentAnalysis.summary;
+    // 🔥 НОВЫЙ МЕТОД: Оценить качество текущей модели
+    assessModelQuality() {
+        if (!this.currentModel) return null;
+       
+        const quality = {
+            nodes: this.currentModel.nodes.size,
+            edges: this.currentModel.edges.length,
+            confidence: this.currentModel.stats.confidence,
+            topologyQuality: this.currentModel.stats.topologyQuality,
+            alignmentStats: this.currentModel.getAlignmentStats ?
+                this.currentModel.getAlignmentStats() : { totalAlignments: 0, successfulAlignments: 0 }
+        };
+       
+        // Простая оценка
+        let overallScore = 0;
+        let factors = 0;
+       
+        if (quality.nodes >= 5) {
+            overallScore += 0.3;
+            factors += 0.3;
+        }
+       
+        if (quality.confidence > 0.7) {
+            overallScore += 0.3;
+            factors += 0.3;
+        }
+       
+        if (quality.topologyQuality > 0.6) {
+            overallScore += 0.2;
+            factors += 0.2;
+        }
+       
+        if (quality.alignmentStats.successfulAlignments > 0) {
+            overallScore += 0.2;
+            factors += 0.2;
+        }
+       
+        quality.overallScore = factors > 0 ? overallScore / factors : 0;
+       
+        // Оценка качества
+        if (quality.overallScore > 0.8) {
+            quality.grade = 'excellent';
+            quality.message = 'Модель отличного качества';
+        } else if (quality.overallScore > 0.6) {
+            quality.grade = 'good';
+            quality.message = 'Модель хорошего качества';
+        } else if (quality.overallScore > 0.4) {
+            quality.grade = 'acceptable';
+            quality.message = 'Модель приемлемого качества';
+        } else {
+            quality.grade = 'poor';
+            quality.message = 'Модель требует улучшения';
+        }
+       
+        return quality;
+    }
 
-                if (summary.sizeEstimation) {
-                    allSizes.push(summary.sizeEstimation);
+    // 🔥 НОВЫЙ МЕТОД: Рекомендации по улучшению модели
+    getImprovementRecommendations() {
+        if (!this.currentModel) return [];
+       
+        const recommendations = [];
+        const stats = this.getSessionStats();
+       
+        // Проверка количества узлов
+        if (this.currentModel.nodes.size < 8) {
+            recommendations.push({
+                type: 'nodes',
+                priority: 'high',
+                message: `Добавьте больше фото (сейчас ${this.currentModel.nodes.size} узлов, нужно минимум 8)`,
+                action: 'add_more_photos'
+            });
+        }
+       
+        // Проверка уверенности модели
+        if (this.currentModel.stats.confidence < 0.7) {
+            recommendations.push({
+                type: 'confidence',
+                priority: 'medium',
+                message: `Уверенность модели низкая (${(this.currentModel.stats.confidence * 100).toFixed(1)}%). Снимайте с разных ракурсов.`,
+                action: 'vary_angles'
+            });
+        }
+       
+        // Проверка совмещений
+        if (stats && stats.successfulAlignments < 2) {
+            recommendations.push({
+                type: 'alignment',
+                priority: 'medium',
+                message: 'Мало успешных совмещений. Убедитесь, что фото снимаются с одного следа.',
+                action: 'check_footprint'
+            });
+        }
+       
+        return recommendations;
+    }
+
+    // СУЩЕСТВУЮЩИЕ МЕТОДЫ (обновляем при необходимости)
+
+    endSession() {
+        if (!this.currentSession) return;
+       
+        console.log(`\n🔚 Завершение сессии: ${this.currentSession.name}`);
+        console.log(`📊 Итоги:`);
+        console.log(`   • Фото: ${this.currentSession.photos.length}`);
+        console.log(`   • Анализов: ${this.currentSession.analyses.length}`);
+        console.log(`   • Узлов в модели: ${this.currentModel ? this.currentModel.nodes.size : 0}`);
+       
+        this.currentSession = null;
+        this.currentModel = null;
+    }
+
+    loadModel(modelId) {
+        const result = this.database.loadFootprint(modelId);
+       
+        if (result.success) {
+            this.currentModel = result.footprint;
+            console.log(`✅ Модель загружена: ${this.currentModel.name}`);
+           
+            return {
+                success: true,
+                model: this.currentModel,
+                stats: {
+                    nodes: this.currentModel.nodes.size,
+                    edges: this.currentModel.edges.length,
+                    alignments: this.currentModel.alignmentHistory ? this.currentModel.alignmentHistory.length : 0
                 }
-
-                if (summary.footprintType && summary.footprintType !== 'unknown') {
-                    allTypes.push(summary.footprintType);
-                }
-
-                if (summary.orientation) {
-                    const match = summary.orientation.match(/(\d+)/);
-                    if (match) {
-                        allOrientations.push(parseInt(match[1]));
-                    }
-                }
-            }
-        });
-
-        // Обновляем метаданные
-        if (allSizes.length > 0) {
-            footprint.metadata.estimatedSize = this.calculateAverageSize(allSizes);
+            };
+        } else {
+            console.log('❌ Ошибка загрузки модели:', result.error);
+            return { success: false, error: result.error };
         }
-
-        if (allTypes.length > 0) {
-            footprint.metadata.footprintType = this.getMostFrequentType(allTypes);
-        }
-
-        if (allOrientations.length > 0) {
-            footprint.metadata.orientation = this.calculateAverageOrientationArray(allOrientations);
-        }
-
-        console.log(`📋 Метаданные обновлены: размер=${footprint.metadata.estimatedSize || 'неизвестно'}, тип=${footprint.metadata.footprintType}`);
     }
 
-    // ✅ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ МЕТАДАННЫХ
-    calculateAverageSize(sizes) {
-        if (!sizes || sizes.length === 0) return null;
-
-        // Преобразуем строки в числа (если нужно)
-        const numericSizes = sizes.map(size => {
-            if (typeof size === 'string') {
-                const match = size.match(/(\d+)/);
-                return match ? parseInt(match[1]) : null;
-            }
-            return size;
-        }).filter(Boolean);
-
-        if (numericSizes.length === 0) return null;
-
-        const avg = numericSizes.reduce((sum, size) => sum + size, 0) / numericSizes.length;
-        return Math.round(avg);
+    getCurrentModel() {
+        return this.currentModel;
     }
 
-    getMostFrequentType(types) {
-        const frequency = {};
-        types.forEach(type => {
-            frequency[type] = (frequency[type] || 0) + 1;
-        });
-
-        return Object.entries(frequency)
-            .sort((a, b) => b[1] - a[1])[0][0];
+    getCurrentSession() {
+        return this.currentSession;
     }
 
-    calculateAverageOrientationArray(orientations) {
-        if (!orientations || orientations.length === 0) return 0;
-
-        // Усреднение углов (учитываем циклическую природу)
-        const sinSum = orientations.reduce((sum, angle) => sum + Math.sin(angle * Math.PI / 180), 0);
-        const cosSum = orientations.reduce((sum, angle) => sum + Math.cos(angle * Math.PI / 180), 0);
-
-        return Math.round(Math.atan2(sinSum, cosSum) * 180 / Math.PI);
-    }
-
-    calculateSessionDuration(session) {
-        if (!session.startTime || !session.photos || session.photos.length === 0) {
-            return 0;
-        }
-
-        const lastPhoto = session.photos[session.photos.length - 1];
-        if (!lastPhoto.timestamp) return 0;
-
-        const duration = (new Date(lastPhoto.timestamp) - new Date(session.startTime)) / 1000; // секунды
-        return Math.round(duration);
-    }
-
-    calculateAvgPhotoQuality(session) {
-        if (!session.analysisResults || session.analysisResults.length === 0) {
-            return 0.5;
-        }
-
-        const qualities = session.analysisResults
-            .map(a => a.photoQuality)
-            .filter(q => q !== undefined);
-
-        if (qualities.length === 0) return 0.5;
-
-        return qualities.reduce((sum, q) => sum + q, 0) / qualities.length;
-    }
-
-    checkMultipleAngles(session) {
-        if (!session.analysisResults || session.analysisResults.length < 2) {
-            return false;
-        }
-
-        // Простая проверка: если есть анализы с разной ориентацией
-        const orientations = [];
-        session.analysisResults.forEach(analysis => {
-            if (analysis.intelligentAnalysis?.summary?.orientation) {
-                const match = analysis.intelligentAnalysis.summary.orientation.match(/(\d+)/);
-                if (match) {
-                    orientations.push(parseInt(match[1]));
-                }
-            }
-        });
-
-        if (orientations.length < 2) return false;
-
-        // Проверяем разброс ориентаций
-        const minOrientation = Math.min(...orientations);
-        const maxOrientation = Math.max(...orientations);
-        return (maxOrientation - minOrientation) > 30; // Разница более 30 градусов
-    }
-
-    // ПОИСК ПОХОЖИХ ДЛЯ АНАЛИЗА
-    async findSimilarForAnalysis(analysis, userId = null, options = {}) {
-        if (!this.initialized) {
-            await this.initialize();
-        }
-
-        return await this.db.findSimilar(analysis, {
-            userId,
-            threshold: options.threshold || 0.4, // Было 0.6
-            limit: options.limit || 5,
-            quickFirst: true
-        });
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Умный поиск похожих с топологической коррекцией
-    async findSimilarWithTopologyCorrection(analysis, userId, options = {}) {
-        console.log('🔍 Запускаю УМНЫЙ поиск с топологической коррекцией');
-
-        if (!this.initialized) await this.initialize();
-
-        // 1. Создаем временную модель из анализа
-        const tempFootprint = this.createFootprintFromAnalysis(analysis, userId);
-
-        // 2. Нормализуем её топологию
-        tempFootprint.updateTopologyInvariants();
-
-        // 3. Получаем все модели пользователя
-        const userModels = await this.getUserModels(userId);
-        if (!userModels || userModels.length === 0) return [];
-
-        // 4. Сравниваем с каждой моделью
-        const comparisons = [];
-
-        for (const model of userModels) {
-            try {
-                // Обновляем инварианты модели (если ещё не обновлены)
-                if (!model.topologyInvariants || !model.topologyInvariants.normalizedNodes) {
-                    model.updateTopologyInvariants();
-                }
-
-                // УЛУЧШЕННОЕ сравнение
-                const comparison = tempFootprint.compareEnhanced(model);
-
-                if (comparison.score >= (options.threshold || 0.6)) {
-                    comparisons.push({
-                        footprint: model,
-                        score: comparison.score,
-                        details: comparison.details,
-                        isMirrored: comparison.isMirrored
-                    });
-                }
-            } catch (error) {
-                console.log(`⚠️ Ошибка сравнения с моделью ${model.id}:`, error.message);
-            }
-        }
-
-        // 5. Сортируем по убыванию оценки
-        comparisons.sort((a, b) => b.score - a.score);
-
-        // 6. Ограничиваем количество результатов
-        const limit = options.limit || 5;
-        const results = comparisons.slice(0, limit);
-
-        console.log(`✅ Найдено ${results.length} похожих моделей`);
-
-        return results;
-    }
-
-    // ПОЛУЧИТЬ МОДЕЛИ ПОЛЬЗОВАТЕЛЯ
-    async getUserModels(userId) {
-        if (!this.initialized) {
-            await this.initialize();
-        }
-
-        return this.db.getByUser(userId);
-    }
-
-    // УДАЛИТЬ МОДЕЛЬ
-    async deleteModel(modelId, userId) {
-        if (!this.initialized) {
-            await this.initialize();
-        }
-
-        return await this.db.delete(modelId, userId);
-    }
-
-    // СТАТИСТИКА
-    async getStats() {
-        if (!this.initialized) {
-            await this.initialize();
-        }
-
-        return this.db.getStats();
-    }
-
-    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (оставлены для обратной совместимости)
-    estimateSizeFromSession(session) {
-        if (!session.analysisResults || session.analysisResults.length === 0) {
-            return null;
-        }
-
-        // Берем размер из первого анализа с интеллектуальным анализом
-        const firstWithIntel = session.analysisResults.find(a => a.intelligentAnalysis);
-        if (firstWithIntel?.intelligentAnalysis?.summary?.sizeEstimation) {
-            return firstWithIntel.intelligentAnalysis.summary.sizeEstimation;
-        }
-
-        return null;
-    }
-
-    determineFootprintType(session) {
-        if (!session.analysisResults || session.analysisResults.length === 0) {
-            return 'unknown';
-        }
-
-        // Анализируем типы следов в сессии
-        const types = session.analysisResults
-            .map(a => a.intelligentAnalysis?.summary?.footprintType)
-            .filter(Boolean);
-
-        if (types.length === 0) return 'unknown';
-
-        // Находим самый частый тип
-        const frequency = {};
-        types.forEach(type => {
-            frequency[type] = (frequency[type] || 0) + 1;
-        });
-
-        return Object.entries(frequency)
-            .sort((a, b) => b[1] - a[1])[0][0];
-    }
-
-    calculateAverageOrientation(session) {
-        if (!session.analysisResults || session.analysisResults.length === 0) {
-            return 0;
-        }
-
-        const orientations = session.analysisResults
-            .map(a => {
-                const orient = a.intelligentAnalysis?.summary?.orientation;
-                if (!orient) return null;
-
-                const match = orient.match(/(\d+)/);
-                return match ? parseInt(match[1]) : null;
-            })
-            .filter(Boolean);
-
-        if (orientations.length === 0) return 0;
-
-        // Усреднение углов (учитываем циклическую природу)
-        const sinSum = orientations.reduce((sum, angle) => sum + Math.sin(angle * Math.PI / 180), 0);
-        const cosSum = orientations.reduce((sum, angle) => sum + Math.cos(angle * Math.PI / 180), 0);
-
-        return Math.round(Math.atan2(sinSum, cosSum) * 180 / Math.PI);
-    }
-
-    // СОЗДАТЬ FOOTPRINT ИЗ ОДНОГО АНАЛИЗА (для поиска)
-    createFootprintFromAnalysis(analysis, userId = null) {
-        const DigitalFootprint = require('./digital-footprint');
-        const footprint = new DigitalFootprint({
-            name: 'Временная модель для поиска',
-            userId
-        });
-
-        footprint.addAnalysis(analysis, {
-            type: 'search',
-            timestamp: new Date()
-        });
-
-        return footprint;
+    // 🔥 НОВЫЙ МЕТОД: Экспорт данных сессии для отладки
+    exportSessionDebugInfo() {
+        if (!this.currentSession) return null;
+       
+        const debugInfo = {
+            session: {
+                id: this.currentSession.id,
+                name: this.currentSession.name,
+                startTime: this.currentSession.startTime,
+                photosCount: this.currentSession.photos.length,
+                analysesCount: this.currentSession.analyses.length,
+                stats: this.currentSession.stats
+            },
+            model: this.currentModel ? {
+                id: this.currentModel.id,
+                name: this.currentModel.name,
+                nodeCount: this.currentModel.nodes.size,
+                edgeCount: this.currentModel.edges.length,
+                confidence: this.currentModel.stats.confidence,
+                alignmentHistoryCount: this.currentModel.alignmentHistory ? this.currentModel.alignmentHistory.length : 0
+            } : null,
+            alignmentConfig: this.alignmentConfig,
+            recommendations: this.getImprovementRecommendations()
+        };
+       
+        return debugInfo;
     }
 }
 
-// Экспортируем синглтон
-module.exports = new FootprintManager();
+module.exports = FootprintManager;
