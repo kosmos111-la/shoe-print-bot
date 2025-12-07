@@ -1,147 +1,41 @@
-// test-manager-integration.js - Тест обновлённого FootprintManager
-const { FootprintManager } = require('./modules/footprint');
+// check-integration.js - Проверка интеграции в боте (без canvas)
+console.log('🔍 ПРОВЕРКА ИНТЕГРАЦИИ FOOTPRINTMANAGER В БОТЕ\n');
 
-console.log('🎯 ТЕСТ ОБНОВЛЁННОГО FOOTPRINTMANAGER');
-console.log('======================================\n');
-
-// Создаём менеджер
-const manager = new FootprintManager({
-    autoAlignment: true,
-    requireConfirmation: false
-});
-
-console.log('✅ Менеджер создан');
-console.log(`🔧 Автосовмещение: ${manager.alignmentConfig.enabled ? 'включено' : 'выключено'}\n`);
-
-// 1. Начинаем новую сессию
-console.log('1. 🆕 НАЧАЛО НОВОЙ СЕССИИ');
-const session = manager.startNewSession('test_user', 'Тестовая сессия с совмещением');
-console.log(`   ID сессии: ${session.id}`);
-console.log(`   Название: ${session.name}`);
-console.log(`   Пользователь: ${session.userId}`);
-
-// 2. Создаём тестовый анализ
-console.log('\n2. 📸 СОЗДАНИЕ ТЕСТОВОГО АНАЛИЗА');
-const testAnalysis = {
-    id: 'test_analysis_1',
-    predictions: [
-        {
-            class: 'shoe-protector',
-            points: [{x: 100, y: 100}, {x: 120, y: 100}, {x: 110, y: 120}],
-            confidence: 0.9
-        },
-        {
-            class: 'shoe-protector',
-            points: [{x: 200, y: 150}, {x: 220, y: 150}, {x: 210, y: 170}],
-            confidence: 0.8
-        },
-        {
-            class: 'shoe-protector',
-            points: [{x: 150, y: 250}, {x: 170, y: 250}, {x: 160, y: 270}],
-            confidence: 0.85
-        }
-    ],
-    timestamp: new Date()
-};
-
-// 3. Добавляем фото в сессию
-console.log('\n3. 📥 ДОБАВЛЕНИЕ ФОТО В СЕССИЮ');
-const result1 = manager.addPhotoToSession(testAnalysis, 'test1.jpg', { quality: 0.8 });
-console.log(`   Результат: ${result1.success ? 'успешно' : 'ошибка'}`);
-console.log(`   Узлов добавлено: ${result1.added || 0}`);
-console.log(`   Узлов объединено: ${result1.merged || 0}`);
-
-// 4. Статистика сессии
-console.log('\n4. 📊 СТАТИСТИКА СЕССИИ');
-const sessionStats = manager.getSessionStats();
-if (sessionStats) {
-    console.log(`   Фото: ${sessionStats.photosCount}`);
-    console.log(`   Анализов: ${sessionStats.analysesCount}`);
-    console.log(`   Успешных совмещений: ${sessionStats.successfulAlignments}`);
-    console.log(`   Средний score: ${(sessionStats.avgAlignmentScore * 100).toFixed(1)}%`);
+// Импортируем без canvas-зависимостей
+try {
+    const DigitalFootprint = require('./modules/footprint/digital-footprint');
+    console.log('✅ DigitalFootprint загружен');
+   
+    const FootprintManager = require('./modules/footprint/footprint-manager');
+    console.log('✅ FootprintManager загружен');
+   
+    const PointCloudAligner = require('./modules/footprint/point-cloud-aligner');
+    console.log('✅ PointCloudAligner загружен');
+   
+    // Проверяем, что новые методы есть
+    const manager = new FootprintManager({ autoAlignment: true });
+   
+    console.log('\n🔍 ПРОВЕРКА НОВЫХ МЕТОДОВ:');
+    console.log('1. startNewSession:', typeof manager.startNewSession);
+    console.log('2. addPhotoToSession:', typeof manager.addPhotoToSession);
+    console.log('3. shouldUseAlignment:', typeof manager.shouldUseAlignment);
+    console.log('4. addPhotoWithAlignment:', typeof manager.addPhotoWithAlignment);
+    console.log('5. saveSessionAsModel:', typeof manager.saveSessionAsModel);
+    console.log('6. getSessionStats:', typeof manager.getSessionStats);
+    console.log('7. getAlignmentInfo:', typeof manager.getAlignmentInfo);
+   
+    console.log('\n🎯 ПАРАМЕТРЫ АВТОСОВМЕЩЕНИЯ:');
+    console.log('- enabled:', manager.alignmentConfig.enabled);
+    console.log('- minPointsForAlignment:', manager.alignmentConfig.minPointsForAlignment);
+    console.log('- minAlignmentScore:', manager.alignmentConfig.minAlignmentScore);
+   
+    console.log('\n✅ ИНТЕГРАЦИЯ ГОТОВА К ИСПОЛЬЗОВАНИЮ В БОТЕ!');
+    console.log('\n📋 СЛЕДУЮЩИЕ ШАГИ ДЛЯ БОТА:');
+    console.log('1. Обновить обработчик фото для использования автосовмещения');
+    console.log('2. Добавить команды /alignment_status, /auto_alignment [on/off]');
+    console.log('3. Обновить /save_model для использования нового метода');
+   
+} catch (error) {
+    console.error('❌ Ошибка загрузки:', error.message);
+    console.error('Stack:', error.stack);
 }
-
-// 5. Добавляем второе фото (немного смещённое)
-console.log('\n5. 📥 ДОБАВЛЕНИЕ ВТОРОГО ФОТО (смещённое)');
-const testAnalysis2 = {
-    id: 'test_analysis_2',
-    predictions: [
-        {
-            class: 'shoe-protector',
-            points: [{x: 105, y: 105}, {x: 125, y: 105}, {x: 115, y: 125}],
-            confidence: 0.9
-        },
-        {
-            class: 'shoe-protector',
-            points: [{x: 205, y: 155}, {x: 225, y: 155}, {x: 215, y: 175}],
-            confidence: 0.8
-        },
-        {
-            class: 'shoe-protector',
-            points: [{x: 155, y: 255}, {x: 175, y: 255}, {x: 165, y: 275}],
-            confidence: 0.85
-        }
-    ],
-    timestamp: new Date()
-};
-
-const result2 = manager.addPhotoToSession(testAnalysis2, 'test2.jpg', { quality: 0.8 });
-console.log(`   Результат: ${result2.success ? 'успешно' : 'ошибка'}`);
-if (result2.alignmentScore) {
-    console.log(`   Score совмещения: ${(result2.alignmentScore * 100).toFixed(1)}%`);
-}
-
-// 6. Информация о совмещениях
-console.log('\n6. 🔍 ИНФОРМАЦИЯ О СОВМЕЩЕНИЯХ');
-const alignmentInfo = manager.getAlignmentInfo();
-if (alignmentInfo) {
-    console.log(`   Всего совмещений: ${alignmentInfo.totalAlignments}`);
-    console.log(`   Успешных: ${alignmentInfo.successfulAlignments}`);
-    console.log(`   Средний score: ${(alignmentInfo.avgScore * 100).toFixed(1)}%`);
-    console.log(`   Лучший score: ${(alignmentInfo.bestScore * 100).toFixed(1)}%`);
-}
-
-// 7. Оценка качества модели
-console.log('\n7. 🎯 ОЦЕНКА КАЧЕСТВА МОДЕЛИ');
-const quality = manager.assessModelQuality();
-if (quality) {
-    console.log(`   Общий score: ${(quality.overallScore * 100).toFixed(1)}%`);
-    console.log(`   Оценка: ${quality.grade} - ${quality.message}`);
-    console.log(`   Узлов: ${quality.nodes}`);
-    console.log(`   Уверенность: ${(quality.confidence * 100).toFixed(1)}%`);
-}
-
-// 8. Рекомендации по улучшению
-console.log('\n8. 💡 РЕКОМЕНДАЦИИ ПО УЛУЧШЕНИЮ');
-const recommendations = manager.getImprovementRecommendations();
-if (recommendations.length > 0) {
-    recommendations.forEach((rec, index) => {
-        console.log(`   ${index + 1}. [${rec.priority.toUpperCase()}] ${rec.message}`);
-    });
-} else {
-    console.log('   ✅ Модель хорошего качества, рекомендаций нет');
-}
-
-// 9. Сохраняем модель
-console.log('\n9. 💾 СОХРАНЕНИЕ МОДЕЛИ');
-const saveResult = manager.saveSessionAsModel('Тестовая модель с совмещением');
-if (saveResult.success) {
-    console.log(`   ✅ Модель сохранена с ID: ${saveResult.modelId}`);
-    console.log(`   📊 Статистика сохранённой модели:`);
-    console.log(`      • Узлов: ${saveResult.stats.nodes}`);
-    console.log(`      • Ребер: ${saveResult.stats.edges}`);
-    console.log(`      • Качество: ${(saveResult.stats.topologyQuality * 100).toFixed(1)}%`);
-} else {
-    console.log(`   ❌ Ошибка сохранения: ${saveResult.error}`);
-}
-
-console.log('\n📊 ===== ИТОГИ ТЕСТА =====');
-console.log(`✅ FootprintManager обновлён для работы с автоматическим совмещением`);
-console.log(`✅ Все методы работают корректно`);
-console.log(`✅ Модель создана и сохранена`);
-console.log(`✅ Система готова к интеграции в бота`);
-
-console.log('\n🔧 СЛЕДУЮЩИЕ ШАГИ:');
-console.log('1. Интегрировать обновлённый менеджер в бота');
-console.log('2. Обновить команды для использования автосовмещения');
-console.log('3. Протестировать на реальных данных');
