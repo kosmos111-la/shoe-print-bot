@@ -1,9 +1,9 @@
 // modules/footprint/digital-footprint.js
-// ПОЛНАЯ ОБНОВЛЁННАЯ ВЕРСИЯ С ИНТЕГРАЦИЕЙ PointCloudAligner
+// ПОЛНАЯ ОБНОВЛЁННАЯ ВЕРСИЯ С ИСПРАВЛЕНИЕМ КООРДИНАТ
 const crypto = require('crypto');
 const fs = require('fs');
 const TopologyUtils = require('./topology-utils');
-const PointCloudAligner = require('./point-cloud-aligner'); // 🔥 НОВЫЙ ИМПОРТ
+const PointCloudAligner = require('./point-cloud-aligner');
 
 class DigitalFootprint {
     constructor(options = {}) {
@@ -16,13 +16,19 @@ class DigitalFootprint {
         this.nodes = new Map();
         this.edges = [];
 
+        // 🔥 ДОБАВЛЯЕМ ХРАНЕНИЕ ОРИГИНАЛЬНЫХ КООРДИНАТ
+        this.originalCoordinates = new Map(); // {nodeId: {x, y, points, timestamp}}
+       
+        // 🔥 ФЛАГ НОРМАЛИЗАЦИИ
+        this.isNormalized = false;
+
         // Геометрические данные для визуализации
         this.bestContours = [];
         this.bestHeels = [];
         this.bestPhotoInfo = null;
 
         // 🔥 ДОБАВЛЯЕМ ДАННЫЕ ДЛЯ СОВМЕЩЕНИЯ
-        this.alignmentHistory = []; // История всех совмещений
+        this.alignmentHistory = [];
         this.alignmentStats = {
             totalAlignments: 0,
             successfulAlignments: 0,
@@ -40,9 +46,9 @@ class DigitalFootprint {
             averagePathLength: null,
 
             // Геометрические инварианты (нормированные)
-            normalizedNodes: new Map(), // {id: {x, y, confidence}} после нормализации
+            normalizedNodes: new Map(),
             boundingBox: null,
-            principalAxes: null, // Главные оси (PCA)
+            principalAxes: null,
             shapeDescriptors: null,
 
             // Статистические инварианты
@@ -76,7 +82,7 @@ class DigitalFootprint {
             model: null,
             isMirrored: false,
             distortionInfo: null,
-            autoAlignmentEnabled: true // 🔥 НОВЫЙ ФЛАГ
+            autoAlignmentEnabled: true
         };
 
         // Статистика
@@ -89,11 +95,9 @@ class DigitalFootprint {
             totalPhotos: 0,
             avgPhotoQuality: 0,
             lastPhotoAdded: null,
-            // 🔥 Добавляем топологическую статистику
             topologyQuality: 0,
             nodeUniformity: 0,
             graphConnectivity: 0,
-            // 🔥 ДОБАВЛЯЕМ СТАТИСТИКУ СОВМЕЩЕНИЙ
             alignmentSuccessRate: 0
         };
 
@@ -101,17 +105,125 @@ class DigitalFootprint {
         this.hash = null;
         this.boundingBox = null;
         this.featureVector = null;
-        this.version = '2.5'; // 🔥 Обновляем версию для интеграции с PointCloudAligner
+        this.version = '2.6'; // 🔥 Обновляем версию
     }
 
-    // ============================================
-    // 🔥 НОВЫЕ МЕТОДЫ ДЛЯ СОВМЕЩЕНИЯ (ДОБАВЛЯЕМ)
-    // ============================================
+    // 🔥 НОВЫЙ МЕТОД: Диагностика координат
+    diagnoseCoordinates() {
+        console.log('🔍 ДИАГНОСТИКА КООРДИНАТ');
+       
+        const data = {
+            nodes: this.nodes.size,
+            originalCoords: this.originalCoordinates ? this.originalCoordinates.size : 0,
+            normalizedCoords: this.topologyInvariants.normalizedNodes ?
+                             this.topologyInvariants.normalizedNodes.size : 0,
+            samples: []
+        };
+       
+        // Берем первые 3 узла для анализа
+        let count = 0;
+        for (const [nodeId, node] of this.nodes) {
+            if (count >= 3) break;
+           
+            const original = this.originalCoordinates.get(nodeId);
+            const normalized = this.topologyInvariants.normalizedNodes.get(nodeId);
+           
+            data.samples.push({
+                id: nodeId.slice(-3),
+                original: original ? {
+                    x: original.x ? original.x.toFixed(1) : 'N/A',
+                    y: original.y ? original.y.toFixed(1) : 'N/A'
+                } : 'нет',
+                current: {
+                    x: node.center ? node.center.x.toFixed(1) : 'N/A',
+                    y: node.center ? node.center.y.toFixed(1) : 'N/A'
+                },
+                normalized: normalized ? {
+                    x: normalized.x ? normalized.x.toFixed(3) : 'N/A',
+                    y: normalized.y ? normalized.y.toFixed(3) : 'N/A'
+                } : 'нет'
+            });
+           
+            count++;
+        }
+       
+        console.log('📊 Данные координат:', JSON.stringify(data, null, 2));
+        return data;
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Получить точки модели для совмещения (ИСПОЛЬЗУЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ!)
+    getAlignmentPointsFromNodes() {
+        const points = [];
+       
+        // 🔥 ВАЖНО: Если есть оригинальные координаты - используем ИХ
+        if (this.originalCoordinates && this.originalCoordinates.size > 0) {
+            this.originalCoordinates.forEach((coord, nodeId) => {
+                const node = this.nodes.get(nodeId);
+                if (node && node.confidence >= 0.4 && coord && coord.x !== undefined && coord.y !== undefined) {
+                    points.push({
+                        x: coord.x,
+                        y: coord.y,
+                        confidence: node.confidence,
+                        id: nodeId,
+                        isOriginal: true,
+                        node: node
+                    });
+                }
+            });
+        }
+       
+        // 🔥 Если оригинальных координат нет, используем текущие, но с предупреждением
+        if (points.length === 0) {
+            console.log('⚠️ Нет оригинальных координат, использую текущие');
+            this.nodes.forEach((node, id) => {
+                if (node.confidence >= 0.4 && node.center && node.center.x !== undefined) {
+                    points.push({
+                        x: node.center.x,
+                        y: node.center.y,
+                        confidence: node.confidence,
+                        id: id,
+                        isOriginal: false,
+                        node: node
+                    });
+                }
+            });
+        }
+       
+        console.log(`📍 getAlignmentPoints: ${points.length} точек (${points.filter(p => p.isOriginal).length} оригинальных)`);
+        return points;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Сохранить оригинальные координаты узла
+    saveOriginalCoordinates(nodeId, center, points = null) {
+        if (!this.originalCoordinates) {
+            this.originalCoordinates = new Map();
+        }
+       
+        this.originalCoordinates.set(nodeId, {
+            x: center.x,
+            y: center.y,
+            points: points,
+            timestamp: new Date(),
+            savedAt: Date.now()
+        });
+       
+        return true;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить оригинальные координаты узла
+    getOriginalCoordinates(nodeId) {
+        if (!this.originalCoordinates || !this.originalCoordinates.has(nodeId)) {
+            return null;
+        }
+       
+        return this.originalCoordinates.get(nodeId);
+    }
 
     // 🔥 НОВЫЙ МЕТОД: Автоматическое совмещение нового анализа с существующей моделью
     addAnalysisWithAlignment(analysis, sourceInfo = {}) {
         console.log('\n🎯 ===== ЗАПУСК АВТОМАТИЧЕСКОГО СОВМЕЩЕНИЯ =====');
         console.log(`📊 Текущая модель: ${this.nodes.size} узлов`);
+        console.log(`📍 Оригинальных координат: ${this.originalCoordinates ? this.originalCoordinates.size : 0}`);
 
         const { predictions, timestamp, imagePath, photoQuality = 0.5 } = analysis;
         const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
@@ -128,11 +240,16 @@ class DigitalFootprint {
         }
 
         try {
-            // 🔥 ПОДГОТОВКА ТОЧЕК ДЛЯ СОВМЕЩЕНИЯ
+            // 🔥 ПОЛУЧАЕМ ТОЧКИ ИЗ ОРИГИНАЛЬНЫХ КООРДИНАТ
             const modelPoints = this.getAlignmentPointsFromNodes();
             const newPoints = this.extractAlignmentPointsFromProtectors(protectors);
 
             console.log(`🔍 Ищу совмещение: ${modelPoints.length} точек модели vs ${newPoints.length} новых точек`);
+           
+            if (modelPoints.length < 3) {
+                console.log('⚠️ Недостаточно точек модели для совмещения');
+                return this.addAnalysis(analysis, sourceInfo);
+            }
 
             // 🔥 НАСТРОЙКА ALIGNER
             const aligner = new PointCloudAligner({
@@ -157,6 +274,8 @@ class DigitalFootprint {
                 mirrored: alignmentResult.mirrored,
                 inliersCount: alignmentResult.inliers?.length || 0,
                 quality: alignmentResult.quality?.message || 'unknown',
+                modelPointsCount: modelPoints.length,
+                newPointsCount: newPoints.length,
                 sourceInfo: {
                     imagePath: sourceInfo.imagePath || imagePath,
                     photoQuality: photoQuality,
@@ -253,6 +372,10 @@ class DigitalFootprint {
                     alignmentTransform: alignmentResult.transform
                 };
 
+                // 🔥 ВАЖНО: Сохраняем ТРАНСФОРМИРОВАННЫЕ координаты как оригинальные для этой модели
+                // Потому что после трансформации это становится "оригиналом" для данной модели
+                this.saveOriginalCoordinates(node.id, transformedCenter, protector.points);
+
                 // Ищем похожий узел (с меньшим допуском после трансформации)
                 const similarNode = this.findSimilarNode(node, 40);
 
@@ -284,7 +407,7 @@ class DigitalFootprint {
             transformedSourceInfo,
             alignmentResult
         );
-       
+      
         this.saveAllHeelsTransformed(
             predictions?.filter(p => p.class === 'Heel') || [],
             transformedSourceInfo,
@@ -295,7 +418,10 @@ class DigitalFootprint {
         if (addedNodes.length > 0 || mergedNodes.length > 0) {
             this.rebuildEdges();
             this.updateIndices();
-            this.updateTopologyInvariants();
+           
+            // 🔥 ВАЖНО: Обновляем топологические инварианты, НО не нормализуем узлы
+            // Мы сохраняем оригинальные координаты для будущих совмещений
+            this.updateTopologyInvariants(true); // true = skip normalization
         }
 
         // Статистика
@@ -308,7 +434,7 @@ class DigitalFootprint {
         console.log(`✅ Добавлено новых узлов: ${addedNodes.length}`);
         console.log(`✅ Объединено существующих: ${mergedNodes.length}`);
         console.log(`🎯 Score совмещения: ${(alignmentResult.score * 100).toFixed(1)}%`);
-       
+      
         if (alignmentResult.transform) {
             const angleDeg = alignmentResult.transform.rotation * 180 / Math.PI;
             console.log(`📐 Трансформация:`);
@@ -316,12 +442,13 @@ class DigitalFootprint {
             console.log(`   • Масштаб: ${alignmentResult.transform.scale?.toFixed(3) || 1.0}`);
             console.log(`   • Смещение: (${alignmentResult.transform.translation?.x?.toFixed(1) || 0}, ${alignmentResult.transform.translation?.y?.toFixed(1) || 0})`);
         }
-       
+      
         if (alignmentResult.mirrored) {
             console.log('🪞 Обнаружено зеркальное отражение');
         }
-       
+      
         console.log(`📈 Всего узлов в модели: ${this.nodes.size}`);
+        console.log(`📍 Оригинальных координат: ${this.originalCoordinates.size}`);
         console.log('========================================\n');
 
         return {
@@ -332,23 +459,6 @@ class DigitalFootprint {
             mirrored: alignmentResult.mirrored,
             totalNodes: this.nodes.size
         };
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Получить точки модели для совмещения
-    getAlignmentPointsFromNodes() {
-        const points = [];
-        this.nodes.forEach((node, id) => {
-            // Берем только уверенные узлы для совмещения
-            if (node.confidence >= 0.4) {
-                points.push({
-                    x: node.center.x,
-                    y: node.center.y,
-                    confidence: node.confidence,
-                    id: id
-                });
-            }
-        });
-        return points;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Извлечь точки из протекторов для совмещения
@@ -379,20 +489,20 @@ class DigitalFootprint {
     // 🔥 НОВЫЙ МЕТОД: Обновить статистику совмещений
     updateAlignmentStats(alignmentResult) {
         this.alignmentStats.totalAlignments++;
-       
+      
         if (alignmentResult.score > 0.5) {
             this.alignmentStats.successfulAlignments++;
         }
-       
+      
         // Обновляем средний score
         const totalScore = this.alignmentStats.avgAlignmentScore * (this.alignmentStats.totalAlignments - 1);
         this.alignmentStats.avgAlignmentScore = (totalScore + alignmentResult.score) / this.alignmentStats.totalAlignments;
-       
+      
         // Обновляем лучший score
         if (alignmentResult.score > this.alignmentStats.bestAlignmentScore) {
             this.alignmentStats.bestAlignmentScore = alignmentResult.score;
         }
-       
+      
         // Обновляем статистику в stats
         if (this.alignmentStats.totalAlignments > 0) {
             this.stats.alignmentSuccessRate = this.alignmentStats.successfulAlignments / this.alignmentStats.totalAlignments;
@@ -403,13 +513,13 @@ class DigitalFootprint {
     saveAllContoursTransformed(contours, sourceInfo, alignmentResult) {
         if (!contours || contours.length === 0) return;
         if (!this.allContours) this.allContours = [];
-       
+      
         contours.forEach(contour => {
             try {
                 const transformedPoints = contour.points.map(point =>
                     this.transformPointWithAlignment(point, alignmentResult)
                 );
-               
+              
                 this.allContours.push({
                     id: `contour_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
                     points: transformedPoints,
@@ -430,13 +540,13 @@ class DigitalFootprint {
     saveAllHeelsTransformed(heels, sourceInfo, alignmentResult) {
         if (!heels || heels.length === 0) return;
         if (!this.allHeels) this.allHeels = [];
-       
+      
         heels.forEach(heel => {
             try {
                 const transformedPoints = heel.points.map(point =>
                     this.transformPointWithAlignment(point, alignmentResult)
                 );
-               
+              
                 this.allHeels.push({
                     id: `heel_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
                     points: transformedPoints,
@@ -468,7 +578,7 @@ class DigitalFootprint {
     getAlignmentVisualizationData() {
         const modelPoints = this.getAlignmentPointsFromNodes();
         const alignmentRecords = this.alignmentHistory.filter(record => record.score > 0.5);
-       
+      
         return {
             modelPoints: modelPoints,
             alignmentHistory: alignmentRecords,
@@ -476,14 +586,11 @@ class DigitalFootprint {
             modelInfo: {
                 nodeCount: this.nodes.size,
                 edgeCount: this.edges.length,
-                confidence: this.stats.confidence
+                confidence: this.stats.confidence,
+                originalCoordinatesCount: this.originalCoordinates ? this.originalCoordinates.size : 0
             }
         };
     }
-
-    // ============================================
-    // СУЩЕСТВУЮЩИЕ МЕТОДЫ (оставляем без изменений)
-    // ============================================
 
     // 🔥 ОСНОВНОЙ МЕТОД: добавить данные из анализа (оригинальный)
     addAnalysis(analysis, sourceInfo = {}) {
@@ -519,14 +626,12 @@ class DigitalFootprint {
                     points: c.points,
                     confidence: c.confidence || 0.5,
                     area: this.calculateArea(c.points),
-                    // ✅ СОХРАНЯЕМ оригинальные координаты для ВСЕХ контуров
                     originalPoints: c.points
                 })),
                 heels: heels.map(h => ({
                     points: h.points,
                     confidence: h.confidence || 0.5,
                     area: this.calculateArea(h.points),
-                    // ✅ СОХРАНЯЕМ оригинальные координаты для ВСЕХ каблуков
                     originalPoints: h.points
                 }))
             }
@@ -542,9 +647,8 @@ class DigitalFootprint {
         };
 
         // Для каждого протектора
-        // СЛОВАРЬ: протектор → найденный узел (чтобы не дублировать)
-        const matchedProtectors = new Map(); // protectorIndex -> nodeId
-        const matchedNodesInThisFrame = new Set(); // nodeId (чтобы узел не усиливался несколько раз из одного кадра)
+        const matchedProtectors = new Map();
+        const matchedNodesInThisFrame = new Set();
 
         protectors.forEach((protector, protectorIndex) => {
             const node = this.createNodeFromProtector(protector, enhancedSourceInfo);
@@ -598,7 +702,7 @@ class DigitalFootprint {
             }
         });
 
-        // ✅ СОХРАНЯЕМ ВСЕ КОНТУРЫ И КАБЛУКИ (не только лучшие!)
+        // ✅ СОХРАНЯЕМ ВСЕ КОНТУРЫ И КАБЛУКИ
         this.saveAllContours(contours, enhancedSourceInfo);
         this.saveAllHeels(heels, enhancedSourceInfo);
 
@@ -629,29 +733,23 @@ class DigitalFootprint {
             this.rebuildEdges();
             this.updateIndices();
 
-            // 🔥 ОБНОВЛЯЕМ ТОПОЛОГИЧЕСКИЕ ИНВАРИАНТЫ если изменилось много узлов
+            // 🔥 ВАЖНО: Обновляем топологические инварианты, НО не нормализуем узлы
+            // Мы сохраняем оригинальные координаты для будущих совмещений
             if (addedNodes.length > 0 || mergedNodes.length > 2) {
-                this.updateTopologyInvariants();
+                this.updateTopologyInvariants(true); // true = skip normalization
             }
         }
 
         // ВЫВОД ПОДРОБНОЙ СТАТИСТИКИ
         console.log('\n📊 ========== ДЕТАЛЬНАЯ СТАТИСТИКА ==========');
         console.log(`👟 Протекторов в анализе: ${protectors.length}`);
-        console.log(`🔗 Объединено узлов: ${mergedNodes.length} (расстояния: ${mergedNodes.map(m => m.distance.toFixed(0)).join(', ')})`);
+        console.log(`🔗 Объединено узлов: ${mergedNodes.length}`);
         console.log(`✨ Новых узлов: ${addedNodes.length}`);
         console.log(`⚠️  Слабых узлов: ${weakNodes.length}`);
         console.log(`📈 Итого узлов в модели: ${this.nodes.size}`);
+        console.log(`📍 Оригинальных координат: ${this.originalCoordinates.size}`);
         console.log(`🔵 Контуров сохранено: ${contours.length}`);
         console.log(`👠 Каблуков сохранено: ${heels.length}`);
-
-        // Группировка по типам
-        if (mergedNodes.length > 0) {
-            const strongMerged = mergedNodes.filter(n => n.type === 'strong').length;
-            const weakMerged = mergedNodes.filter(n => n.type === 'weak').length;
-            console.log(`💪 Сильные объединения: ${strongMerged}`);
-            console.log(`🔍 Слабые объединения: ${weakMerged}`);
-        }
         console.log('========================================\n');
 
         return {
@@ -666,11 +764,228 @@ class DigitalFootprint {
         };
     }
 
-    // ✅ НОВЫЙ МЕТОД: Сохраняем ВСЕ контуры (не только лучшие)
+    // СОЗДАНИЕ УЗЛА ИЗ ПРОТЕКТОРА
+    createNodeFromProtector(protector, sourceInfo) {
+        const center = this.calculateCenter(protector.points);
+        const size = this.calculateSize(protector.points);
+        const shape = this.estimateShape(protector.points);
+
+        const nodeId = `node_${crypto.randomBytes(3).toString('hex')}`;
+       
+        // 🔥 ВАЖНО: Сохраняем ОРИГИНАЛЬНЫЕ координаты
+        this.saveOriginalCoordinates(nodeId, center, protector.points);
+
+        return {
+            id: nodeId,
+            center: center,
+            size: size,
+            shape: shape,
+            confidence: protector.confidence || 0.5,
+            confirmationCount: 1,
+            sources: [{
+                ...sourceInfo,
+                originalPoints: protector.points,
+                timestamp: new Date()
+            }],
+            firstSeen: new Date(),
+            lastSeen: new Date(),
+            metadata: {
+                isStable: false,
+                isWeak: protector.confidence < 0.3,
+                clusterId: null,
+                neighbors: []
+            }
+        };
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Обновление топологических инвариантов
+    updateTopologyInvariants(skipNormalization = false) {
+        console.log(`🔄 Обновляю топологические инварианты для модели "${this.name}"`);
+        console.log(`📌 Пропуск нормализации: ${skipNormalization}`);
+
+        try {
+            const nodesArray = Array.from(this.nodes.values());
+
+            if (nodesArray.length < 2) {
+                console.log('⚠️ Слишком мало узлов для топологического анализа');
+                return;
+            }
+
+            // 🔥 ВАЖНОЕ ИЗМЕНЕНИЕ: Нормализуем только если явно не отключено
+            if (!skipNormalization) {
+                this.normalizeNodes();
+            } else {
+                console.log('📌 Пропускаю нормализацию - сохраняю оригинальные координаты для совмещения');
+            }
+
+            // 2. ВЫЧИСЛЕНИЕ ГРАФОВЫХ ИНВАРИАНТОВ
+            this.calculateGraphInvariants();
+
+            // 3. ВЫЧИСЛЕНИЕ ГЕОМЕТРИЧЕСКИХ ИНВАРИАНТОВ
+            this.calculateGeometricInvariants();
+
+            // 4. ВЫЧИСЛЕНИЕ СТАТИСТИЧЕСКИХ ИНВАРИАНТОВ
+            this.calculateStatisticalInvariants();
+
+            // 5. ОЦЕНКА КАЧЕСТВА ТОПОЛОГИИ
+            this.assessTopologyQuality();
+
+            console.log(`✅ Топологические инварианты обновлены (${this.topologyInvariants.normalizedNodes.size} нормализованных узлов)`);
+
+        } catch (error) {
+            console.log('❌ Ошибка обновления топологических инвариантов:', error.message);
+        }
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Нормализация узлов
+    normalizeNodes() {
+        const nodesArray = Array.from(this.nodes.values());
+
+        if (nodesArray.length < 3) {
+            console.log('⚠️ Недостаточно узлов для нормализации (нужно минимум 3)');
+            return;
+        }
+
+        // Используем TopologyUtils
+        const normalizedData = TopologyUtils.normalizeNodes(nodesArray);
+
+        this.topologyInvariants.normalizedNodes.clear();
+        this.topologyInvariants.normalizationParams = normalizedData.normalizationParams;
+
+        // Сохраняем нормализованные узлы
+        normalizedData.normalized.forEach((normalizedNode, index) => {
+            const originalNode = nodesArray[index];
+            if (originalNode && normalizedNode) {
+                this.topologyInvariants.normalizedNodes.set(originalNode.id, {
+                    x: normalizedNode.x,
+                    y: normalizedNode.y,
+                    confidence: normalizedNode.confidence,
+                    originalId: originalNode.id,
+                    originalCenter: originalNode.center
+                });
+            }
+        });
+
+        console.log(`📐 Нормализация: центр=(${normalizedData.normalizationParams.center.x.toFixed(1)}, ` +
+                   `${normalizedData.normalizationParams.center.y.toFixed(1)}), ` +
+                   `масштаб=${normalizedData.normalizationParams.scale.toFixed(4)}, ` +
+                   `поворот=${(normalizedData.normalizationParams.rotation * 180 / Math.PI).toFixed(1)}°`);
+    }
+
+    // 🔥 ОБНОВЛЯЕМ существующий метод toJSON
+    toJSON() {
+        const baseJSON = {
+            id: this.id,
+            name: this.name,
+            userId: this.userId,
+            sessionId: this.sessionId,
+            nodes: Object.fromEntries(this.nodes),
+            edges: this.edges,
+            bestContours: this.bestContours,
+            bestHeels: this.bestHeels,
+            bestPhotoInfo: this.bestPhotoInfo,
+            allContours: this.allContours || [],
+            allHeels: this.allHeels || [],
+            metadata: this.metadata,
+            stats: this.stats,
+            hash: this.hash,
+            boundingBox: this.boundingBox
+        };
+
+        // 🔥 ДОБАВЛЯЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ
+        const extendedData = {
+            originalCoordinates: Array.from(this.originalCoordinates.entries()),
+            alignmentHistory: this.alignmentHistory,
+            alignmentStats: this.alignmentStats,
+            topologyInvariants: {
+                ...this.topologyInvariants,
+                normalizedNodes: Array.from(this.topologyInvariants.normalizedNodes.entries())
+            },
+            mirrorInfo: this.mirrorInfo,
+            version: this.version,
+            _alignmentEnabled: true,
+            _serializedAt: new Date().toISOString()
+        };
+
+        return {
+            ...baseJSON,
+            ...extendedData
+        };
+    }
+
+    // 🔥 ОБНОВЛЯЕМ существующий статический метод fromJSON
+    static fromJSON(data) {
+        const footprint = new DigitalFootprint({
+            id: data.id,
+            name: data.name,
+            userId: data.userId,
+            sessionId: data.sessionId,
+            metadata: data.metadata
+        });
+
+        if (data.nodes && typeof data.nodes === 'object') {
+            footprint.nodes = new Map(Object.entries(data.nodes));
+        } else {
+            footprint.nodes = new Map();
+        }
+
+        // 🔥 ВОССТАНАВЛИВАЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ
+        if (data.originalCoordinates && Array.isArray(data.originalCoordinates)) {
+            footprint.originalCoordinates = new Map(data.originalCoordinates);
+            console.log(`✅ Восстановлено ${footprint.originalCoordinates.size} оригинальных координат`);
+        } else {
+            footprint.originalCoordinates = new Map();
+            console.log(`⚠️ У модели "${footprint.name}" нет оригинальных координат, создаю пустые`);
+        }
+
+        footprint.edges = data.edges || [];
+        footprint.bestContours = data.bestContours || [];
+        footprint.bestHeels = data.bestHeels || [];
+        footprint.bestPhotoInfo = data.bestPhotoInfo;
+        footprint.allContours = data.allContours || [];
+        footprint.allHeels = data.allHeels || [];
+        footprint.stats = data.stats || {};
+        footprint.hash = data.hash;
+        footprint.boundingBox = data.boundingBox;
+
+        // 🔥 ЗАГРУЖАЕМ ДАННЫЕ СОВМЕЩЕНИЙ
+        footprint.alignmentHistory = data.alignmentHistory || [];
+        footprint.alignmentStats = data.alignmentStats || {
+            totalAlignments: 0,
+            successfulAlignments: 0,
+            avgAlignmentScore: 0,
+            bestAlignmentScore: 0
+        };
+
+        // 🔥 ЗАГРУЖАЕМ ТОПОЛОГИЧЕСКИЕ ДАННЫЕ
+        if (data.topologyInvariants) {
+            footprint.topologyInvariants = data.topologyInvariants;
+            footprint.mirrorInfo = data.mirrorInfo || {};
+          
+            // Восстанавливаем normalizedNodes из массива
+            if (data.topologyInvariants.normalizedNodes && Array.isArray(data.topologyInvariants.normalizedNodes)) {
+                footprint.topologyInvariants.normalizedNodes =
+                    new Map(data.topologyInvariants.normalizedNodes);
+            }
+
+            console.log(`✅ Загружены топологические данные для модели "${footprint.name}"`);
+        } else {
+            console.log(`⚠️ У модели "${footprint.name}" нет топологических данных`);
+        }
+
+        footprint.version = data.version || '2.6';
+
+        console.log(`✅ Загружена модель "${footprint.name}" с ${footprint.alignmentHistory.length} совмещениями`);
+        console.log(`📍 Оригинальных координат: ${footprint.originalCoordinates.size}`);
+        return footprint;
+    }
+
+    // ОСТАЛЬНЫЕ МЕТОДЫ (без изменений)
+
+    // ✅ НОВЫЙ МЕТОД: Сохраняем ВСЕ контуры
     saveAllContours(contours, sourceInfo) {
         if (!contours || contours.length === 0) return;
 
-        // Создаем специальное поле для ВСЕХ контуров
         if (!this.allContours) this.allContours = [];
 
         contours.forEach(contour => {
@@ -687,7 +1002,6 @@ class DigitalFootprint {
                     timestamp: new Date()
                 },
                 timestamp: new Date(),
-                // ✅ Дополнительные данные для визуализации
                 boundingBox: this.calculateBoundingBox(contour.points),
                 center: this.calculateCenter(contour.points)
             };
@@ -695,7 +1009,6 @@ class DigitalFootprint {
             this.allContours.push(contourData);
         });
 
-        // Также сохраняем в bestContours (для обратной совместимости)
         this.updateBestContours(contours, sourceInfo);
     }
 
@@ -726,7 +1039,6 @@ class DigitalFootprint {
             this.allHeels.push(heelData);
         });
 
-        // Также сохраняем в bestHeels
         this.updateBestHeels(heels, sourceInfo);
     }
 
@@ -751,7 +1063,6 @@ class DigitalFootprint {
 
             if (!this.bestContours) this.bestContours = [];
 
-            // Сохраняем до 5 лучших контуров
             if (this.bestContours.length < 5) {
                 this.bestContours.push(contourData);
             } else {
@@ -828,36 +1139,6 @@ class DigitalFootprint {
         }
     }
 
-    // СОЗДАНИЕ УЗЛА ИЗ ПРОТЕКТОРА
-    createNodeFromProtector(protector, sourceInfo) {
-        const center = this.calculateCenter(protector.points);
-        const size = this.calculateSize(protector.points);
-        const shape = this.estimateShape(protector.points);
-
-        return {
-            id: `node_${crypto.randomBytes(3).toString('hex')}`,
-            center: center,
-            size: size,
-            shape: shape,
-            confidence: protector.confidence || 0.5,
-            confirmationCount: 1,
-            sources: [{
-                ...sourceInfo,
-                originalPoints: protector.points,
-                timestamp: new Date()
-            }],
-            firstSeen: new Date(),
-            lastSeen: new Date(),
-            metadata: {
-                isStable: false,
-                isWeak: protector.confidence < 0.3,
-                // ✅ Дополнительные данные для кластеризации
-                clusterId: null,
-                neighbors: []
-            }
-        };
-    }
-
     // ПОИСК ПОХОЖЕГО УЗЛА С БОЛЬШИМ ДОПУСКОМ
     findSimilarNode(newNode, maxDistance = 60) {
         let bestMatch = null;
@@ -906,11 +1187,11 @@ class DigitalFootprint {
         existing.center.x = (existing.center.x * weightExisting + newNode.center.x * weightNew) / totalWeight;
         existing.center.y = (existing.center.y * weightExisting + newNode.center.y * weightNew) / totalWeight;
 
-        // 2. НЕБОЛЬШОЕ УСИЛЕНИЕ (максимум 1.0)
+        // 2. НЕБОЛЬШОЕ УСИЛЕНИЕ
         const confidenceBoost = Math.min(0.1, 1.0 - existing.confidence);
         existing.confidence = Math.min(1.0, existing.confidence + confidenceBoost);
 
-        // 3. Увеличиваем счетчик подтверждений (НО ТОЛЬКО НА 1!)
+        // 3. Увеличиваем счетчик подтверждений
         existing.confirmationCount = (existing.confirmationCount || 1) + 1;
         existing.lastSeen = new Date();
 
@@ -920,7 +1201,7 @@ class DigitalFootprint {
 
         this.nodes.set(existingId, existing);
 
-        console.log(`   → Узел ${existingId.slice(-3)} подтвержден: ${existing.confidence.toFixed(2)} уверенность, ${existing.confirmationCount} подтверждений (расстояние: ${distance.toFixed(1)}px)`);
+        console.log(`   → Узел ${existingId.slice(-3)} подтвержден: ${existing.confidence.toFixed(2)} уверенность, ${existing.confirmationCount} подтверждений`);
     }
 
     // ПЕРЕСТРОЕНИЕ СВЯЗЕЙ
@@ -933,7 +1214,6 @@ class DigitalFootprint {
                 const node1 = nodeArray[i];
                 const node2 = nodeArray[j];
 
-                // ✅ НЕ создаем связь если хотя бы один узел сомнительный
                 if (node1.confidence < 0.3 || node2.confidence < 0.3) {
                     continue;
                 }
@@ -942,10 +1222,8 @@ class DigitalFootprint {
                 const maxDistance = Math.max(node1.size, node2.size) * 4;
 
                 if (distance < maxDistance) {
-                    // Рассчитываем уверенность связи
                     let edgeConfidence = Math.min(node1.confidence, node2.confidence);
 
-                    // Уменьшаем уверенность для слабых узлов
                     if (node1.confidence < 0.5 || node2.confidence < 0.5) {
                         edgeConfidence *= 0.7;
                     }
@@ -955,7 +1233,6 @@ class DigitalFootprint {
                         to: node2.id,
                         distance: distance,
                         confidence: edgeConfidence,
-                        // ✅ Пометка о типе связи
                         type: this.getEdgeType(node1, node2),
                         isStable: node1.metadata?.isStable && node2.metadata?.isStable
                     });
@@ -966,7 +1243,6 @@ class DigitalFootprint {
         this.edges.sort((a, b) => b.confidence - a.confidence);
     }
 
-    // ✅ НОВЫЙ МЕТОД: Определяем тип связи
     getEdgeType(node1, node2) {
         if (node1.confidence > 0.7 && node2.confidence > 0.7) {
             return 'strong';
@@ -1016,75 +1292,7 @@ class DigitalFootprint {
             : 0.3;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Обновление топологических инвариантов
-    updateTopologyInvariants() {
-        console.log(`🔄 Обновляю топологические инварианты для модели "${this.name}"`);
-
-        try {
-            const nodesArray = Array.from(this.nodes.values());
-
-            if (nodesArray.length < 2) {
-                console.log('⚠️ Слишком мало узлов для топологического анализа');
-                return;
-            }
-
-            // 1. НОРМАЛИЗАЦИЯ УЗЛОВ (центр + масштаб + ориентация)
-            this.normalizeNodes();
-
-            // 2. ВЫЧИСЛЕНИЕ ГРАФОВЫХ ИНВАРИАНТОВ
-            this.calculateGraphInvariants();
-
-            // 3. ВЫЧИСЛЕНИЕ ГЕОМЕТРИЧЕСКИХ ИНВАРИАНТОВ
-            this.calculateGeometricInvariants();
-
-            // 4. ВЫЧИСЛЕНИЕ СТАТИСТИЧЕСКИХ ИНВАРИАНТОВ
-            this.calculateStatisticalInvariants();
-
-            // 5. ОЦЕНКА КАЧЕСТВА ТОПОЛОГИИ
-            this.assessTopologyQuality();
-
-            console.log(`✅ Топологические инварианты обновлены (${this.topologyInvariants.normalizedNodes.size} узлов)`);
-
-        } catch (error) {
-            console.log('❌ Ошибка обновления топологических инвариантов:', error.message);
-        }
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Нормализация узлов
-    normalizeNodes() {
-        const nodesArray = Array.from(this.nodes.values());
-
-        if (nodesArray.length < 3) {
-            console.log('⚠️ Недостаточно узлов для нормализации (нужно минимум 3)');
-            return;
-        }
-
-        // Используем TopologyUtils
-        const normalizedData = TopologyUtils.normalizeNodes(nodesArray);
-
-        this.topologyInvariants.normalizedNodes.clear();
-        this.topologyInvariants.normalizationParams = normalizedData.normalizationParams;
-
-        // Сохраняем нормализованные узлы
-        normalizedData.normalized.forEach((normalizedNode, index) => {
-            const originalNode = nodesArray[index];
-            if (originalNode && normalizedNode) {
-                this.topologyInvariants.normalizedNodes.set(originalNode.id, {
-                    x: normalizedNode.x,
-                    y: normalizedNode.y,
-                    confidence: normalizedNode.confidence,
-                    originalId: originalNode.id
-                });
-            }
-        });
-
-        console.log(`📐 Нормализация: центр=(${normalizedData.normalizationParams.center.x.toFixed(1)}, ` +
-                   `${normalizedData.normalizationParams.center.y.toFixed(1)}), ` +
-                   `масштаб=${normalizedData.normalizationParams.scale.toFixed(4)}, ` +
-                   `поворот=${(normalizedData.normalizationParams.rotation * 180 / Math.PI).toFixed(1)}°`);
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Вычисление графовых инвариантов
+    // ВЫЧИСЛЕНИЕ ГРАФОВЫХ ИНВАРИАНТОВ
     calculateGraphInvariants() {
         const nodesArray = Array.from(this.nodes.values());
 
@@ -1093,7 +1301,6 @@ class DigitalFootprint {
             return;
         }
 
-        // Используем TopologyUtils
         const graphData = TopologyUtils.calculateGraphInvariantsForFootprint(nodesArray, this.edges);
 
         this.topologyInvariants.adjacencyMatrix = graphData.adjacencyMatrix;
@@ -1107,7 +1314,7 @@ class DigitalFootprint {
                    `ср.путь=${graphData.averagePathLength.toFixed(2)}`);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Вычисление геометрических инвариантов
+    // ВЫЧИСЛЕНИЕ ГЕОМЕТРИЧЕСКИХ ИНВАРИАНТОВ
     calculateGeometricInvariants() {
         const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
 
@@ -1115,7 +1322,6 @@ class DigitalFootprint {
             return;
         }
 
-        // Используем TopologyUtils
         const geometricData = TopologyUtils.calculateGeometricInvariantsForFootprint(
             normalizedNodes,
             this.topologyInvariants
@@ -1123,11 +1329,9 @@ class DigitalFootprint {
 
         this.topologyInvariants.boundingBox = geometricData.boundingBox;
         this.topologyInvariants.shapeDescriptors = geometricData.shapeDescriptors;
-
-        console.log(`📏 Геометрия: ${geometricData.boundingBox?.width?.toFixed(3) || 0}x${geometricData.boundingBox?.height?.toFixed(3) || 0}`);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Вычисление статистических инварианты
+    // ВЫЧИСЛЕНИЕ СТАТИСТИЧЕСКИХ ИНВАРИАНТЫ
     calculateStatisticalInvariants() {
         const normalizedNodes = Array.from(this.topologyInvariants.normalizedNodes.values());
 
@@ -1144,7 +1348,6 @@ class DigitalFootprint {
             }
         }
 
-        // 🔥 ИСПРАВЛЕНИЕ: проверяем что есть расстояния
         if (distances.length > 0) {
             this.topologyInvariants.distanceHistogram =
                 TopologyUtils.createHistogram(distances, 8);
@@ -1166,7 +1369,7 @@ class DigitalFootprint {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Оценка качества топологии
+    // ОЦЕНКА КАЧЕСТВА ТОПОЛОГИИ
     assessTopologyQuality() {
         const nodesArray = Array.from(this.nodes.values());
 
@@ -1175,7 +1378,6 @@ class DigitalFootprint {
             return;
         }
 
-        // Используем TopologyUtils
         const qualityData = TopologyUtils.assessTopologyQualityForFootprint(
             nodesArray,
             this.edges,
@@ -1258,105 +1460,6 @@ class DigitalFootprint {
             width: Math.max(...xs) - Math.min(...xs),
             height: Math.max(...ys) - Math.min(...ys)
         };
-    }
-
-    // 🔥 ОБНОВЛЯЕМ существующий метод toJSON
-    toJSON() {
-        const baseJSON = {
-            id: this.id,
-            name: this.name,
-            userId: this.userId,
-            sessionId: this.sessionId,
-            nodes: Object.fromEntries(this.nodes),
-            edges: this.edges,
-            bestContours: this.bestContours,
-            bestHeels: this.bestHeels,
-            bestPhotoInfo: this.bestPhotoInfo,
-            // ✅ СОХРАНЯЕМ ВСЕ КОНТУРЫ И КАБЛУКИ
-            allContours: this.allContours || [],
-            allHeels: this.allHeels || [],
-            metadata: this.metadata,
-            stats: this.stats,
-            hash: this.hash,
-            boundingBox: this.boundingBox
-        };
-
-        // 🔥 ДОБАВЛЯЕМ ДАННЫЕ СОВМЕЩЕНИЙ И ТОПОЛОГИЧЕСКИЕ ДАННЫЕ
-        const extendedData = {
-            alignmentHistory: this.alignmentHistory,
-            alignmentStats: this.alignmentStats,
-            topologyInvariants: {
-                ...this.topologyInvariants,
-                normalizedNodes: Array.from(this.topologyInvariants.normalizedNodes.entries())
-            },
-            mirrorInfo: this.mirrorInfo,
-            version: this.version,
-            _alignmentEnabled: true,
-            _serializedAt: new Date().toISOString()
-        };
-
-        return {
-            ...baseJSON,
-            ...extendedData
-        };
-    }
-
-    // 🔥 ОБНОВЛЯЕМ существующий статический метод fromJSON
-    static fromJSON(data) {
-        const footprint = new DigitalFootprint({
-            id: data.id,
-            name: data.name,
-            userId: data.userId,
-            sessionId: data.sessionId,
-            metadata: data.metadata
-        });
-
-        if (data.nodes && typeof data.nodes === 'object') {
-            footprint.nodes = new Map(Object.entries(data.nodes));
-        } else {
-            footprint.nodes = new Map();
-        }
-
-        footprint.edges = data.edges || [];
-        footprint.bestContours = data.bestContours || [];
-        footprint.bestHeels = data.bestHeels || [];
-        footprint.bestPhotoInfo = data.bestPhotoInfo;
-        // ✅ ЗАГРУЖАЕМ ВСЕ КОНТУРЫ И КАБЛУКИ
-        footprint.allContours = data.allContours || [];
-        footprint.allHeels = data.allHeels || [];
-        footprint.stats = data.stats || {};
-        footprint.hash = data.hash;
-        footprint.boundingBox = data.boundingBox;
-
-        // 🔥 ЗАГРУЖАЕМ ДАННЫЕ СОВМЕЩЕНИЙ
-        footprint.alignmentHistory = data.alignmentHistory || [];
-        footprint.alignmentStats = data.alignmentStats || {
-            totalAlignments: 0,
-            successfulAlignments: 0,
-            avgAlignmentScore: 0,
-            bestAlignmentScore: 0
-        };
-
-        // 🔥 ЗАГРУЖАЕМ ТОПОЛОГИЧЕСКИЕ ДАННЫЕ
-        if (data.topologyInvariants) {
-            footprint.topologyInvariants = data.topologyInvariants;
-            footprint.mirrorInfo = data.mirrorInfo || {};
-           
-            // Восстанавливаем normalizedNodes из массива
-            if (data.topologyInvariants.normalizedNodes && Array.isArray(data.topologyInvariants.normalizedNodes)) {
-                footprint.topologyInvariants.normalizedNodes =
-                    new Map(data.topologyInvariants.normalizedNodes);
-            }
-
-            console.log(`✅ Загружены топологические данные для модели "${footprint.name}"`);
-        } else {
-            console.log(`⚠️ У модели "${footprint.name}" нет топологических данных`);
-        }
-
-        footprint.version = data.version || '2.5';
-
-        console.log(`✅ Загружена модель "${footprint.name}" с ${footprint.alignmentHistory.length} совмещениями`);
-        return footprint;
     }
 }
 
