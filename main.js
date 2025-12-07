@@ -2,28 +2,32 @@
 // 🎯 СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ - ОСНОВНОЙ ФАЙЛ
 // =============================================================================
 //
-// 📋 СТАТУС: РАБОЧАЯ ВЕРСИЯ 2.1 - С ПРАКТИЧЕСКИМ АНАЛИЗОМ ДЛЯ ПСО
+// 📋 СТАТУС: РАБОЧАЯ ВЕРСИЯ 2.2 - С ПОЛНОЙ ИНТЕГРАЦИЕЙ FOOTPRINT MANAGER
 // ✅ ЧТО РАБОТАЕТ:
 //   • Модульная система визуализации
 //   • Анализ через Roboflow API
-//   • Telegram бот с командами (/start, /help, /statistics)
-//   • Canvas визуализация с выбором стилей (оригинальный/маска)
+//   • Telegram бот с командами
+//   • Canvas визуализация с выбором стилей
 //   • Статистика пользователей
 //   • Топологическая карта протектора
 //   • 🆕 Практический анализ для ПСО
 //   • 🆕 Фильтрация следов животных
+//   • 🆕 ПОЛНАЯ ИНТЕГРАЦИЯ FOOTPRINT MANAGER
 //
 // 🏗️ АРХИТЕКТУРА:
 //   • Express.js сервер + Telegram Bot API
 //   • Модульная структура в папке modules/
 //   • Canvas для генерации визуализаций
 //   • Roboflow для ML-анализа изображений
+//   • FootprintManager для автосовмещения следов
 //   • Временные файлы в папке temp/
 //
 // 🔄 ПОСЛЕДНИЕ ИЗМЕНЕНИЯ:
-//   • Добавлен практический анализ для ПСО
-//   • Добавлен фильтр следов животных
-//   • Улучшена логика обработки предсказаний
+//   • Исправлена ошибка avgConfidence is not defined
+//   • Добавлена полная интеграция FootprintManager
+//   • Добавлен автосовмещение следов в сессиях
+//   • Улучшена система сохранения моделей
+//   • Добавлены команды для работы с моделями
 //
 // =============================================================================
 
@@ -53,6 +57,7 @@ const { FeedbackDatabase } = require('./modules/feedback/feedback-db');
 const { FeedbackManager } = require('./modules/feedback/feedback-manager');
 // 🆕 СИСТЕМА ЦИФРОВЫХ ОТПЕЧАТКОВ
 const { FootprintManager } = require('./modules/footprint');
+
 // ВСТРОЕННЫЙ CONFIG
 const config = {
     TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI',
@@ -86,6 +91,9 @@ function escapeHtml(text) {
 // Кэш последних анализов
 const userLastAnalysis = new Map();
 
+// Глобальный кэш FootprintManagers
+global.footprintManagers = new Map();
+
 // Сохранить последний анализ
 function saveUserLastAnalysis(userId, analysis) {
     if (analysis && analysis.predictions) {
@@ -111,9 +119,9 @@ function getLastUserAnalysis(userId) {
 
 function validateConfig(config) {
     console.log('🔍 Проверяю конфигурацию...');
- 
+
     const errors = [];
- 
+
     // Проверка Telegram токена
     if (!config.TELEGRAM_TOKEN) {
         errors.push('❌ TELEGRAM_TOKEN: отсутствует');
@@ -122,7 +130,7 @@ function validateConfig(config) {
     } else if (!config.TELEGRAM_TOKEN.startsWith('')) {
         errors.push('❌ TELEGRAM_TOKEN: должен начинаться с цифр и содержать двоеточие');
     }
- 
+
     // Проверка Roboflow конфигурации
     if (!config.ROBOFLOW) {
         errors.push('❌ ROBOFLOW: отсутствует конфигурация');
@@ -137,12 +145,12 @@ function validateConfig(config) {
             errors.push('❌ ROBOFLOW.CONFIDENCE: должен быть между 0 и 100');
         }
     }
- 
+
     // Проверка порта
     if (!config.PORT || config.PORT < 1000 || config.PORT > 65535) {
         errors.push('❌ PORT: должен быть между 1000 и 65535');
     }
- 
+
     // Если есть ошибки - бросаем исключение
     if (errors.length > 0) {
         const errorMessage = `Ошибки конфигурации:\n${errors.join('\n')}`;
@@ -150,7 +158,7 @@ function validateConfig(config) {
         console.log(errorMessage);
         throw new Error(errorMessage);
     }
- 
+
     console.log('✅ Конфигурация прошла валидацию');
     return true;
 }
@@ -283,8 +291,7 @@ function createSessionAnalyzerStub() {
             peopleCount: { estimatedCount: 1, confidence: 0.5 },
             movementAnalysis: { available: false },
             shoeReconstruction: { totalGroups: 0 },
-            timeline: { averageInterval: null }
-        })
+            timeline: { averageInterval: null })
     };
 }
 
@@ -381,7 +388,7 @@ function analyzePredictions(predictions) {
     predictions.forEach(pred => {
         classes[pred.class] = (classes[pred.class] || 0) + 1;
     });
- 
+
     return {
         total: predictions.length,
         classes: classes,
@@ -393,10 +400,10 @@ function analyzePredictions(predictions) {
 function generateTopologyText(predictions) {
     const protectors = predictions.filter(p => p.class === 'shoe-protector');
     if (protectors.length === 0) return "Детали протектора не обнаружены";
- 
+
     let text = `🔍 Топология протектора:\n`;
     text += `• Всего деталей: ${protectors.length}\n`;
- 
+
     // Анализ распределения
     const centers = protectors.map(pred => {
         const points = pred.points;
@@ -407,14 +414,14 @@ function generateTopologyText(predictions) {
             y: (Math.min(...ys) + Math.max(...ys)) / 2
         };
     });
- 
+
     // Простой анализ кластеризации
     const leftCount = centers.filter(c => c.x < 400).length;
     const rightCount = centers.filter(c => c.x >= 400).length;
- 
+
     text += `• Распределение: ${leftCount} слева, ${rightCount} справа\n`;
     text += `• Плотность: ${(protectors.length / 10).toFixed(1)} дет/сектор\n`;
- 
+
     return text;
 }
 
@@ -430,7 +437,7 @@ app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
         message: update.message ? '📝 есть' : 'нет',
         callback_query: update.callback_query ? '🔄 есть' : 'нет'
     });
-   
+
     bot.processUpdate(update);
     res.sendStatus(200);
 });
@@ -444,10 +451,10 @@ app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
 // Команда /start
 bot.onText(/\/start/, (msg) => {
     updateUserStats(msg.from.id, msg.from.username || msg.from.first_name);
-   
+
     const currentStyle = visualization.getUserStyle(msg.from.id);
     const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
-   
+
     bot.sendMessage(msg.chat.id,
         `👟 **СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ** 🚀\n\n` +
         `📊 Статистика: ${globalStats.totalUsers} пользователей, ${globalStats.totalPhotos} отпечатков\n\n` +
@@ -492,29 +499,29 @@ bot.onText(/\/statistics/, (msg) => {
 // Команда /feedback_stats - статистика обратной связи
 bot.onText(/\/feedback_stats/, async (msg) => {
     const chatId = msg.chat.id;
-   
+
     try {
         const stats = feedbackDB.getStatistics();
         const accuracy = stats.total > 0 ?
             (stats.correct / stats.total) * 100 : 0;
-       
+
         let message = `📊 **СТАТИСТИКА ОБРАТНОЙ СВЯЗИ**\n\n`;
         message += `📈 Всего оценок: ${stats.total}\n`;
         message += `✅ Правильных: ${stats.correct} (${accuracy.toFixed(1)}%)\n`;
         message += `🔧 Исправлений: ${stats.total - stats.correct}\n\n`;
-       
+
         if (Object.keys(stats.correctionsByType || {}).length > 0) {
             message += `📋 **ТИПЫ ИСПРАВЛЕНИЙ:**\n`;
             Object.entries(stats.correctionsByType).forEach(([type, count]) => {
                 message += `• ${getCorrectionDescription(type)}: ${count}\n`;
             });
         }
-       
+
         if (stats.accuracyHistory && stats.accuracyHistory.length > 1) {
             const first = stats.accuracyHistory[0].accuracy;
             const last = stats.accuracyHistory[stats.accuracyHistory.length - 1].accuracy;
             const trend = last - first;
-           
+
             message += `\n📈 **ТРЕНД ТОЧНОСТИ:** `;
             if (trend > 0) {
                 message += `+${trend.toFixed(1)}% улучшение`;
@@ -524,11 +531,11 @@ bot.onText(/\/feedback_stats/, async (msg) => {
                 message += `стабильно`;
             }
         }
-       
+
         message += `\n\n💡 Каждая ваша оценка делает анализ точнее!`;
-       
+
         await bot.sendMessage(chatId, message);
-       
+
     } catch (error) {
         console.log('❌ Ошибка статистики:', error);
         await bot.sendMessage(chatId, '❌ Не удалось получить статистику');
@@ -539,10 +546,10 @@ bot.onText(/\/feedback_stats/, async (msg) => {
 bot.onText(/\/feedback_export/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+
     // Только для администраторов или тестировщиков
     const adminUsers = [699140291]; // Твой ID
-   
+
     if (!adminUsers.includes(userId)) {
         await bot.sendMessage(chatId,
             `❌ Эта команда только для администраторов\n` +
@@ -550,36 +557,36 @@ bot.onText(/\/feedback_export/, async (msg) => {
         );
         return;
     }
-   
+
     try {
         const exportData = feedbackDB.exportForRoboflow();
-       
+
         let message = `📤 **ЭКСПОРТ ДАННЫХ ДЛЯ ПЕРЕОБУЧЕНИЯ**\n\n`;
         message += `📊 Всего исправлений: ${exportData.total_corrections}\n`;
-       
+
         if (exportData.corrections_by_class) {
             message += `📋 **По классам:**\n`;
             Object.entries(exportData.corrections_by_class).forEach(([cls, count]) => {
                 message += `• ${cls}: ${count}\n`;
             });
         }
-       
+
         message += `\n💾 Данные готовы для загрузки в Roboflow\n`;
         message += `📅 Версия: ${exportData.version}`;
-       
+
         await bot.sendMessage(chatId, message);
-       
+
         // Можно также сохранить в файл и отправить
         const exportJson = JSON.stringify(exportData, null, 2);
         const tempFile = tempFileManager.createTempFile('feedback_export', 'json');
         require('fs').writeFileSync(tempFile, exportJson);
-       
+
         await bot.sendDocument(chatId, tempFile, {
             caption: `feedback_export_${new Date().toISOString().split('T')[0]}.json`
         });
-       
+
         tempFileManager.removeFile(tempFile);
-       
+
     } catch (error) {
         console.log('❌ Ошибка экспорта:', error);
         await bot.sendMessage(chatId, '❌ Не удалось экспортировать данные');
@@ -590,25 +597,25 @@ bot.onText(/\/feedback_export/, async (msg) => {
 bot.onText(/\/style/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
- 
+
     const styles = visualization.getAvailableStyles();
     const currentStyle = visualization.getUserStyle(userId);
     const currentStyleInfo = styles.find(s => s.id === currentStyle);
- 
+
     let message = `🎨 **ВЫБОР СТИЛЯ ВИЗУАЛИЗАЦИИ**\n\n`;
     message += `📊 Текущий стиль: ${currentStyleInfo?.name || 'Стиль маски'}\n\n`;
     message += `Доступные стили:\n`;
- 
+
     styles.forEach(style => {
         const isCurrent = style.id === currentStyle ? ' ✅' : '';
         message += `\n${style.name}${isCurrent}\n`;
         message += `└ ${style.description}\n`;
         message += `└ /setstyle_${style.id}\n`;
     });
- 
+
     message += `\n💡 Стиль сохранится до перезагрузки бота`;
     message += `\n\n📸 Отправьте фото для анализа в выбранном стиле!`;
- 
+
     await bot.sendMessage(chatId, message);
 });
 
@@ -617,7 +624,7 @@ bot.onText(/\/setstyle_(.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const styleId = match[1];
- 
+
     if (visualization.setUserStyle(userId, styleId)) {
         const styleName = visualization.getAvailableStyles().find(s => s.id === styleId)?.name;
         await bot.sendMessage(chatId,
@@ -634,10 +641,10 @@ bot.onText(/\/setstyle_(.+)/, async (msg, match) => {
 bot.onText(/\/currentstyle/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
- 
+
     const currentStyle = visualization.getUserStyle(userId);
     const styleInfo = visualization.getAvailableStyles().find(s => s.id === currentStyle);
- 
+
     await bot.sendMessage(chatId,
         `🎨 **ТЕКУЩИЙ СТИЛЬ ВИЗУАЛИЗАЦИИ**\n\n` +
         `📝 ${styleInfo?.name || 'Оригинальный'}\n` +
@@ -656,18 +663,18 @@ const userContext = {};
 // Команда /calculators
 bot.onText(/\/calculators/, async (msg) => {
     const chatId = msg.chat.id;
-  
+
     try {
         const menu = calculators.getMenu();
-      
+
         let message = `🧮 ${menu.title}\n\n`;
-      
+
         menu.sections.forEach(section => {
             message += `📌 ${section.name}\n`;
             message += `└ ${section.description}\n`;
             message += `└ Команда: ${section.command}\n\n`;
         });
-      
+
         await bot.sendMessage(chatId, message);
     } catch (error) {
         console.log('❌ Ошибка в /calculators:', error);
@@ -679,12 +686,12 @@ bot.onText(/\/calculators/, async (msg) => {
 bot.onText(/\/calc_snow_age/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-  
+
     // ОЧИЩАЕМ КОНТЕКСТ ПЕРЕД НОВОЙ КОМАНДОЙ
     delete userContext[userId];
-  
+
     userContext[userId] = 'waiting_snow_age_mode';
-  
+
     await bot.sendMessage(chatId,
         '⏱️❄️ <b>КАЛЬКУЛЯТОР ДАВНОСТИ СЛЕДА НА СНЕГУ</b>\n\n' +
         '🔮 <b>ВЕРОЯТНОСТНАЯ МОДЕЛЬ С ИСТОРИЕЙ ПОГОДЫ</b>\n\n' +
@@ -705,12 +712,12 @@ bot.onText(/\/calc_snow_age/, async (msg) => {
 bot.onText(/\/calc_reverse/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-  
+
     // ОЧИЩАЕМ КОНТЕКСТ ПЕРЕД НОВОЙ КОМАНДОЙ
     delete userContext[userId];
-  
+
     userContext[userId] = 'calc_reverse';
-  
+
     await bot.sendMessage(chatId,
         '🔄 <b>ОБРАТНЫЙ КАЛЬКУЛЯТОР</b>\n\n' +
         'Расчет размера обуви по длине отпечатка\n\n' +
@@ -725,16 +732,16 @@ bot.onText(/\/calc_reverse/, async (msg) => {
 bot.onText(/\/calc_shoe/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-  
+
     // ОЧИЩАЕМ КОНТЕКСТ ПЕРЕД НОВОЙ КОМАНДОЙ
     delete userContext[userId];
-  
+
     userContext[userId] = 'calc_shoe';
-  
+
     try {
         const typesMessage = calculators.getShoeTypes();
         await bot.sendMessage(chatId, typesMessage, { parse_mode: 'HTML' });
-      
+
         await bot.sendMessage(chatId,
             '💡 <b>Отправьте размер и тип обуви:</b>\n\n' +
             '<code>42 кроссовки</code>\n\n' +
@@ -752,13 +759,13 @@ bot.onText(/\/calc_shoe/, async (msg) => {
 bot.onText(/\/calc_weather/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-  
+
     // ОЧИЩАЕМ КОНТЕКСТ ПЕРЕД НОВОЙ КОМАНДОЙ
     delete userContext[userId];
-  
+
     // Устанавливаем контекст - пользователь хочет погоду
     userContext[userId] = 'calc_weather';
-  
+
     await bot.sendMessage(chatId,
         '🌤️ <b>ПОГОДА С ИСТОРИЕЙ ЗА 7 ДНЕЙ</b>\n\n' +
         '📍 <b>Отправьте местоположение</b> (скрепка → Местоположение)\n\n' +
@@ -787,13 +794,13 @@ bot.on('location', async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const context = userContext[userId];
-  
+
     console.log('📍 Получена геолокация, контекст:', context);
-  
+
     if (!context) return;
-  
+
     const location = msg.location;
-  
+
     try {
         // ❄️ ОБРАБОТКА ДЛЯ СНЕГА (ОСНОВНОЙ РЕЖИМ)
         if (context === 'waiting_snow_age_location') {
@@ -804,7 +811,7 @@ bot.on('location', async (msg) => {
                     lon: location.longitude
                 }
             };
-          
+
             await bot.sendMessage(chatId,
                 '📍 Местоположение получено. Теперь укажите <b>дату и время пропажи</b>:\n\n' +
                 '<code>2024-01-15 08:00</code>\n' +
@@ -814,7 +821,7 @@ bot.on('location', async (msg) => {
             );
             return;
         }
-      
+
         // 🧪 ОБРАБОТКА ДЛЯ СНЕГА (ТЕСТОВЫЙ РЕЖИМ)
         if (context === 'waiting_test_snow_location') {
             userContext[userId] = {
@@ -825,7 +832,7 @@ bot.on('location', async (msg) => {
                 },
                 step: 'start_date'
             };
-          
+
             await bot.sendMessage(chatId,
                 '📍 Местоположение получено. Теперь укажите <b>дату оставления следа</b>:\n\n' +
                 '<code>2024-01-15 08:00</code>\n' +
@@ -835,25 +842,25 @@ bot.on('location', async (msg) => {
             );
             return;
         }
-      
+
         // 🌤️ ОБРАБОТКА ДЛЯ ПОГОДЫ
         if (context === 'calc_weather') {
             await bot.sendMessage(chatId, '📍 Получаю погоду для вашего местоположения...');
-          
+
             const result = await calculators.getWeatherData({
                 coordinates: {
                     lat: location.latitude,
                     lon: location.longitude
                 }
             });
-          
+
             // Очищаем контекст ПОСЛЕ выполнения
             delete userContext[userId];
-          
+
             await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
             return;
         }
-      
+
     } catch (error) {
         console.log('❌ Ошибка обработки местоположения:', error);
         await bot.sendMessage(chatId, '❌ Ошибка обработки местоположения');
@@ -868,31 +875,31 @@ bot.on('message', async (msg) => {
     if (msg.text && msg.text.startsWith('/')) return;
     if (msg.location) return; // Обрабатывается отдельно
     if (!msg.text) return;
-  
+
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const text = msg.text.trim();
     const context = userContext[userId];
-  
+
     console.log('🔍 Получено сообщение для обработки:', text, 'Контекст:', context);
-  
+
     try {
         // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА (дата пропажи)
         if (context && context.type === 'snow_age_calc') {
             const disappearanceTime = parseDateTime(text);
-          
+
             if (!disappearanceTime) {
                 await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-15 08:00</code>', { parse_mode: 'HTML' });
                 return;
             }
-          
+
             await bot.sendMessage(chatId, '❄️🔮 Анализирую эволюцию снежного покрова...');
-          
+
             const result = await calculators.calculateSnowAge(context.coordinates, disappearanceTime);
-          
+
             // Очищаем контекст ПОСЛЕ выполнения
             delete userContext[userId];
-          
+
             await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
             return;
         }
@@ -903,7 +910,7 @@ bot.on('message', async (msg) => {
             if (isCoordinates(text)) {
                 // Координаты в текстовом формате
                 const coords = text.split(' ').map(coord => parseFloat(coord));
-              
+
                 userContext[userId] = {
                     type: 'test_snow_calc',
                     coordinates: {
@@ -912,7 +919,7 @@ bot.on('message', async (msg) => {
                     },
                     step: 'start_date'
                 };
-              
+
                 await bot.sendMessage(chatId,
                     '📍 Координаты приняты. Теперь укажите <b>дату оставления следа</b>:\n\n' +
                     '<code>2024-01-15 08:00</code>\n' +
@@ -940,12 +947,12 @@ bot.on('message', async (msg) => {
                 return;
             }
         }
-             
+
         // 🎯 ОБРАБОТКА ВЫБОРА РЕЖИМА СНЕГА
         if (context === 'waiting_snow_age_mode') {
             if (text.toLowerCase() === 'основной' || text.toLowerCase() === 'основной режим') {
                 userContext[userId] = 'waiting_snow_age_location';
-              
+
                 await bot.sendMessage(chatId,
                     '📅 <b>ОСНОВНОЙ РЕЖИМ</b>\n\n' +
                     '💡 <b>Как использовать:</b>\n\n' +
@@ -968,10 +975,10 @@ bot.on('message', async (msg) => {
                 );
                 return;
             }
-          
+
             else if (text.toLowerCase() === 'тестовый' || text.toLowerCase() === 'тестовый режим') {
                 userContext[userId] = 'waiting_test_snow_location';
-              
+
                 await bot.sendMessage(chatId,
                     '🧪 <b>ТЕСТОВЫЙ РЕЖИМ</b>\n\n' +
                     '💡 <b>Для проверки точности модели:</b>\n\n' +
@@ -995,7 +1002,7 @@ bot.on('message', async (msg) => {
                 );
                 return;
             }
-          
+
             else {
                 await bot.sendMessage(chatId, '❌ Неверный режим. Отправьте "основной" или "тестовый"');
                 return;
@@ -1006,7 +1013,7 @@ bot.on('message', async (msg) => {
         if (context === 'waiting_test_snow_location') {
             if (msg.location) {
                 const location = msg.location;
-              
+
                 userContext[userId] = {
                     type: 'test_snow_calc',
                     coordinates: {
@@ -1015,7 +1022,7 @@ bot.on('message', async (msg) => {
                     },
                     step: 'start_date'
                 };
-              
+
                 await bot.sendMessage(chatId,
                     '📍 Местоположение получено. Теперь укажите <b>дату оставления следа</b>:\n\n' +
                     '<code>2024-01-15 08:00</code>\n' +
@@ -1029,18 +1036,18 @@ bot.on('message', async (msg) => {
 
         if (context && context.type === 'test_snow_calc') {
             const testContext = context;
-          
+
             if (testContext.step === 'start_date') {
                 const startDate = parseDateTime(text);
-              
+
                 if (!startDate) {
                     await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-15 08:00</code>', { parse_mode: 'HTML' });
                     return;
                 }
-              
+
                 testContext.startDate = startDate;
                 testContext.step = 'end_date';
-              
+
                 await bot.sendMessage(chatId,
                     '✅ Дата оставления следа принята. Теперь укажите <b>дату проверки/замеров</b>:\n\n' +
                     '<code>2024-01-20 14:00</code>\n' +
@@ -1050,76 +1057,76 @@ bot.on('message', async (msg) => {
                 );
                 return;
             }
-          
+
             if (testContext.step === 'end_date') {
                 const endDate = parseDateTime(text);
-              
+
                 if (!endDate) {
                     await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-20 14:00</code>', { parse_mode: 'HTML' });
                     return;
                 }
-              
+
                 if (endDate <= testContext.startDate) {
                     await bot.sendMessage(chatId, '❌ Дата проверки должна быть ПОСЛЕ даты оставления следа');
                     return;
                 }
-              
+
                 await bot.sendMessage(chatId, '🧪🔮 Анализирую эволюцию снежного покрова за указанный период...');
-              
+
                 // Используем ту же функцию calculateSnowAge, но с endDate
                 const result = await calculators.calculateSnowAge(
                     testContext.coordinates,
                     testContext.startDate,
                     { endDate: endDate, testMode: true }
                 );
-              
+
                 // Очищаем контекст ПОСЛЕ выполнения
                 delete userContext[userId];
-              
+
                 await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
                 return;
             }
         }
-             
+
         // 🎯 ОБРАБОТКА ПРОСТЫХ КАЛЬКУЛЯТОРОВ
         if (context === 'calc_snow') {
             // ❄️ Калькулятор снега - здесь только глубина снега
             const depth = text.trim();
-          
+
             console.log('🔍 Расчет снега:', { depth });
-          
+
             const result = calculators.calculateSnowDepth(depth, 'fresh');
-          
+
             // Очищаем контекст ПОСЛЕ выполнения
             delete userContext[userId];
-          
+
             await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
             return;
         }
-      
+
         if (context === 'calc_reverse') {
             // 🔄 Обратный калькулятор - здесь только длина отпечатка
             let footprintLength = text.trim();
-          
+
             // Убираем "см" если есть
             footprintLength = footprintLength.replace('см', '').trim();
-          
+
             console.log('🔍 Обратный расчет для длины:', footprintLength);
-          
+
             const result = calculators.calculateReverse(footprintLength);
-          
+
             // Очищаем контекст ПОСЛЕ выполнения
             delete userContext[userId];
-          
+
             await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
             return;
         }
-      
+
         if (context === 'calc_shoe') {
             // 👟 Калькулятор обуви - здесь только размер обуви
             console.log('🔍 Обрабатываем как прямой калькулятор обуви');
             let size, type;
-          
+
             // ЕСЛИ ПРОСТО ЧИСЛО - считаем это размером с неизвестным типом
             if (/^\d+$/.test(text.trim())) {
                 size = text.trim();
@@ -1136,28 +1143,28 @@ bot.on('message', async (msg) => {
                 size = parts[0];
                 type = parts.slice(1).join(' ');
             }
-          
+
             console.log('🔍 Парсинг обуви:', { size, type });
-          
+
             if (size) {
                 const result = calculators.calculateShoeSize(size, type || 'неизвестно');
-              
+
                 // Очищаем контекст ПОСЛЕ выполнения
                 delete userContext[userId];
-              
+
                 await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
             } else {
                 await bot.sendMessage(chatId, '❌ Неверный формат. Пример: <code>42</code> или <code>42 кроссовки</code>', { parse_mode: 'HTML' });
             }
             return;
         }
-      
+
         // 🌤️ ОБРАБОТКА КОНТЕКСТА ПОГОДЫ (город/координаты)
         if (context === 'calc_weather') {
             await bot.sendMessage(chatId, '🌤️ Запрашиваю погоду с историей...');
-          
+
             let options = {};
-          
+
             // Проверяем формат ввода
             if (isCoordinates(text)) {
                 // Координаты: "55.7558 37.6173"
@@ -1167,26 +1174,26 @@ bot.on('message', async (msg) => {
                 // Название города
                 options.location = text;
             }
-          
+
             const result = await calculators.getWeatherData(options);
-          
+
             // Очищаем контекст ПОСЛЕ выполнения
             delete userContext[userId];
-          
+
             await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
             return;
         }
-      
+
         // 🚫 ЕСЛИ НЕТ КОНТЕКСТА - НИЧЕГО НЕ ДЕЛАЕМ
         if (!context) {
             console.log('⚠️ Нет активного контекста, сообщение не обработано');
             return;
         }
-      
+
         // Если дошли сюда и есть контекст, но не обработали - очищаем
         console.log('⚠️ Неизвестный контекст:', context);
         delete userContext[userId];
-      
+
     } catch (error) {
         console.log('❌ Ошибка обработки калькулятора:', error);
         await bot.sendMessage(chatId, '❌ Не удалось обработать запрос. Проверьте формат ввода.');
@@ -1225,35 +1232,35 @@ function parseDateTime(dateString) {
 // Команда /apps
 bot.onText(/\/apps/, async (msg) => {
     const chatId = msg.chat.id;
-  
+
     let message = `📱 ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ\n\n`;
-  
+
     message += `🔍 **Честный знак**\n`;
     message += `• Узнать дату и место продажи по QR-коду\n`;
     message += `• Ссылка: rustore.ru/catalog/app/ru.crptech.mark\n\n`;
-  
+
     message += `🍷 **Антиконтрафакт алко**\n`;
     message += `• Проверка акцизных марок алкоголя\n`;
     message += `• Ссылка: public.fsrar.ru/checkmark\n\n`;
-  
+
     message += `🌤️ **Погода - архив погоды**\n`;
     message += `• Архивные погодные данные\n`;
     message += `• Ссылка: rustore.ru/catalog/app/com.mart.weather\n\n`;
-  
+
     message += `📏 **ImageMeter**\n`;
     message += `• Измерения размеров на фото по эталону\n`;
     message += `• Ссылка: play.google.com/store/apps/details?id=de.dirkfarin.imagemeter\n\n`;
-  
+
     message += `🦴 **Скелет | 3D Анатомии**\n`;
     message += `• Анатомический справочник\n`;
     message += `• Ссылка: play.google.com/store/apps/details?id=com.catfishanimationstudio.SkeletalSystemPreview\n\n`;
-  
+
     message += `📍 **Conota: GPS-камера**\n`;
     message += `• Фото с логотипом и GPS-данными\n`;
     message += `• Ссылка: play.google.com/store/apps/details?id=com.gps.survey.cam\n\n`;
-  
+
     message += `💡 Скопируйте ссылки для перехода`;
-  
+
     await bot.sendMessage(chatId, message);
 });
 
@@ -1307,7 +1314,7 @@ bot.onText(/\/help/, (msg) => {
 bot.onText(/\/trail_start/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+
     if (sessionManager.hasActiveSession(userId)) {
         const session = sessionManager.getActiveSession(userId);
         await bot.sendMessage(chatId,
@@ -1320,9 +1327,9 @@ bot.onText(/\/trail_start/, async (msg) => {
         );
         return;
     }
-   
+
     const session = sessionManager.createSession(userId, 'trail_analysis');
-   
+
     await bot.sendMessage(chatId,
         `🔄 **РЕЖИМ СЕССИИ АКТИВИРОВАН**\n\n` +
         `📋 Отправляйте фото следов по одному\n` +
@@ -1340,7 +1347,7 @@ bot.onText(/\/trail_start/, async (msg) => {
 bot.onText(/\/trail_status/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+
     if (!sessionManager.hasActiveSession(userId)) {
         await bot.sendMessage(chatId,
             `❌ Нет активной сессии\n` +
@@ -1348,10 +1355,10 @@ bot.onText(/\/trail_status/, async (msg) => {
         );
         return;
     }
-   
+
     const session = sessionManager.getActiveSession(userId);
     const summary = sessionManager.getSessionSummary(userId);
-   
+
     await bot.sendMessage(chatId,
         `📊 **СТАТУС СЕССИИ**\n\n` +
         `🆔 ${session.id.slice(0, 8)}...\n` +
@@ -1367,7 +1374,7 @@ bot.onText(/\/trail_status/, async (msg) => {
 bot.onText(/\/trail_end/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+
     if (!sessionManager.hasActiveSession(userId)) {
         await bot.sendMessage(chatId,
             `❌ Нет активной сессии для завершения\n` +
@@ -1375,53 +1382,53 @@ bot.onText(/\/trail_end/, async (msg) => {
         );
         return;
     }
-   
+
     // Получаем сессию перед завершением
     const session = sessionManager.getActiveSession(userId);
-   
+
     // 🔍 АНАЛИЗИРУЕМ ВСЮ СЕССИЮ
     await bot.sendMessage(chatId, `🔍 Анализирую данные сессии (${session.photos.length} фото)...`);
-   
+
     const analysis = sessionAnalyzer.analyzeSession(session);
-   
+
     // Завершаем сессию
     const report = sessionManager.endSession(userId);
-   
+
     // 🎯 ФОРМИРУЕМ ПОДРОБНЫЙ ОТЧЕТ
     let reportMessage = `🏁 **СЕССИЯ ЗАВЕРШЕНА**\n\n`;
     reportMessage += `📊 **СТАТИСТИКА:**\n`;
     reportMessage += `• Фото: ${report.totalPhotos}\n`;
     reportMessage += `• Анализов: ${report.totalAnalyses}\n`;
     reportMessage += `• Длительность: ${report.duration.toFixed(0)} сек\n\n`;
-   
+
     // 📸 ОБЗОР КАЖДОГО ФОТО
     if (session.analysisResults && session.analysisResults.length > 0) {
         reportMessage += `📸 **ОБЗОР ФОТО:**\n`;
-       
+
         session.analysisResults.slice(0, 5).forEach((result, index) => {
             const footprintCount = result.predictions?.filter(p =>
                 p.class === 'Outline-trail').length || 0;
             const protectorCount = result.predictions?.filter(p =>
                 p.class === 'shoe-protector').length || 0;
-           
+
             reportMessage += `${index + 1}. Следов: ${footprintCount}, деталей: ${protectorCount}\n`;
         });
-       
+
         if (session.analysisResults.length > 5) {
             reportMessage += `... и еще ${session.analysisResults.length - 5} фото\n`;
         }
         reportMessage += `\n`;
     }
-   
-    // 🧑‍🤝‍🧑 АНАЛИЗ ЛЮДЕЙ
+
+    // 🧑🤝🧑 АНАЛИЗ ЛЮДЕЙ
     reportMessage += `👥 **АНАЛИЗ ГРУППЫ:**\n`;
     reportMessage += `• Людей: ${analysis.peopleCount.estimatedCount}\n`;
-   
+
     if (analysis.peopleCount.estimatedCount > 1) {
         reportMessage += `• Уверенность: ${(analysis.peopleCount.confidence * 100).toFixed(0)}%\n`;
     }
     reportMessage += `\n`;
-   
+
     // 👟 РЕКОНСТРУКЦИЯ ОБУВИ
     if (analysis.shoeReconstruction.totalGroups > 0) {
         reportMessage += `👟 **РЕКОНСТРУКЦИЯ ОБУВИ:**\n`;
@@ -1430,7 +1437,7 @@ bot.onText(/\/trail_end/, async (msg) => {
         });
         reportMessage += `\n`;
     }
-   
+
     // ⚠️ АНОМАЛИИ
     if (analysis.anomalies && analysis.anomalies.length > 0) {
         reportMessage += `⚠️ **ОСОБЕННОСТИ:**\n`;
@@ -1439,7 +1446,7 @@ bot.onText(/\/trail_end/, async (msg) => {
         });
         reportMessage += `\n`;
     }
-   
+
     // 💡 РЕКОМЕНДАЦИИ
     reportMessage += `💡 **РЕКОМЕНДАЦИИ:**\n`;
     if (report.totalPhotos >= 5) {
@@ -1447,15 +1454,15 @@ bot.onText(/\/trail_end/, async (msg) => {
     } else {
         reportMessage += `• Мало данных, нужно больше фото для точного анализа\n`;
     }
-   
+
     if (analysis.peopleCount.estimatedCount > 1) {
         reportMessage += `• Обнаружена группа людей\n`;
     }
-   
+
     reportMessage += `\n💾 Отчет сохранен`;
-   
+
     await bot.sendMessage(chatId, reportMessage);
-   
+
     // 💾 Сохранение в Яндекс.Диск
     if (yandexDisk && yandexDisk.isAvailable && yandexDisk.isAvailable()) {
         try {
@@ -1463,7 +1470,7 @@ bot.onText(/\/trail_end/, async (msg) => {
                 ...report,
                 intelligenceAnalysis: analysis
             });
-           
+
             if (saveResult.success) {
                 await bot.sendMessage(chatId,
                     `✅ Полный отчет сохранен в облако\n` +
@@ -1475,48 +1482,47 @@ bot.onText(/\/trail_end/, async (msg) => {
         }
     }
 
-  // ⭐ ДОБАВЬ ЭТОТ КОД ПРЯМО ЗДЕСЬ:
-// Показываем топологию лучшего фото в сессии
-if (session.analysisResults && session.analysisResults.length > 0) {
-    // Находим лучшее фото для топологической визуализации
-    const bestPhoto = findBestPhotoInSession(session);
-   
-    if (bestPhoto && bestPhoto.result.visualizationPaths?.topology) {
-        const topologyPath = bestPhoto.result.visualizationPaths.topology;
-       
-        // Проверяем что файл существует
-        if (topologyPath && require('fs').existsSync(topologyPath)) {
-            try {
-                await bot.sendPhoto(chatId, topologyPath, {
-                    caption: `🕸️ **Топология лучшего фото** (№${bestPhoto.index + 1})\n` +
-                             `• Протекторов: ${bestPhoto.protectorCount}\n` +
-                             '• 🟢 Зеленые точки - центры протекторов\n' +
-                             '• 🟠 Оранжевые линии - связи\n' +
-                             '• 🔵 Синий пунктир - контур следа'
-                });
-               
-                // Очистка файла после отправки
-                setTimeout(() => {
-                    tempFileManager.removeFile(topologyPath);
-                }, 1000);
-               
-            } catch (photoError) {
-                console.log('⚠️ Не удалось отправить топологию:', photoError.message);
+    // ⭐ ДОБАВЬ ЭТОТ КОД ПРЯМО ЗДЕСЬ:
+    // Показываем топологию лучшего фото в сессии
+    if (session.analysisResults && session.analysisResults.length > 0) {
+        // Находим лучшее фото для топологической визуализации
+        const bestPhoto = findBestPhotoInSession(session);
+
+        if (bestPhoto && bestPhoto.result.visualizationPaths?.topology) {
+            const topologyPath = bestPhoto.result.visualizationPaths.topology;
+
+            // Проверяем что файл существует
+            if (topologyPath && fs.existsSync(topologyPath)) {
+                try {
+                    await bot.sendPhoto(chatId, topologyPath, {
+                        caption: `🕸️ **Топология лучшего фото** (№${bestPhoto.index + 1})\n` +
+                                 `• Протекторов: ${bestPhoto.protectorCount}\n` +
+                                 '• 🟢 Зеленые точки - центры протекторов\n' +
+                                 '• 🟠 Оранжевые линии - связи\n' +
+                                 '• 🔵 Синий пунктир - контур следа'
+                    });
+
+                    // Очистка файла после отправки
+                    setTimeout(() => {
+                        tempFileManager.removeFile(topologyPath);
+                    }, 1000);
+
+                } catch (photoError) {
+                    console.log('⚠️ Не удалось отправить топологию:', photoError.message);
+                }
             }
         }
     }
-}
-  
 });
 
 // Команда /cancel - отменить все операции
 bot.onText(/\/cancel/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+
     // Очищаем контекст калькуляторов
     delete userContext[userId];
-   
+
     // Проверяем активную сессию
     if (sessionManager.hasActiveSession(userId)) {
         const session = sessionManager.endSession(userId);
@@ -1524,11 +1530,11 @@ bot.onText(/\/cancel/, async (msg) => {
             `🗑️ **СЕССИЯ ОТМЕНЕНА**\n\n` +
             `Сессия "${session.id.slice(0, 8)}..." отменена\n` +
             `Удалено: ${session.photos.length} фото\n\n` +
-            `🔄 Новая сессия: /trail_start`
+            `🔄 Новая сессию: /trail_start`
         );
         return;
     }
-   
+
     await bot.sendMessage(chatId,
         `✅ Все активные операции отменены\n` +
         `Готов к новым командам`
@@ -1544,14 +1550,14 @@ function findBestPhotoInSession(session) {
     if (!session.analysisResults || session.analysisResults.length === 0) {
         return null;
     }
-   
+
     let bestPhoto = null;
     let maxProtectors = 0;
-   
+
     session.analysisResults.forEach((result, index) => {
         const protectorCount = result.predictions?.filter(p =>
             p.class === 'shoe-protector').length || 0;
-       
+
         if (protectorCount > maxProtectors) {
             maxProtectors = protectorCount;
             bestPhoto = {
@@ -1561,7 +1567,7 @@ function findBestPhotoInSession(session) {
             };
         }
     });
-   
+
     return bestPhoto;
 }
 
@@ -1569,7 +1575,7 @@ function findBestPhotoInSession(session) {
 bot.onText(/\/trail_details/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+
     if (!sessionManager.hasActiveSession(userId)) {
         await bot.sendMessage(chatId,
             `❌ Нет активной сессии\n` +
@@ -1577,9 +1583,9 @@ bot.onText(/\/trail_details/, async (msg) => {
         );
         return;
     }
-   
+
     const session = sessionManager.getActiveSession(userId);
-   
+
     if (session.analysisResults.length === 0) {
         await bot.sendMessage(chatId,
             `📭 В сессии пока нет проанализированных фото\n` +
@@ -1587,17 +1593,17 @@ bot.onText(/\/trail_details/, async (msg) => {
         );
         return;
     }
-   
+
     let detailsMessage = `📋 **ДЕТАЛИ СЕССИИ** (${session.analysisResults.length} фото)\n\n`;
-   
+
     // Находим лучшее фото
     const bestPhoto = findBestPhotoInSession(session);
-   
+
     if (bestPhoto) {
         detailsMessage += `⭐ **ЛУЧШЕЕ ФОТО:** №${bestPhoto.index + 1}\n`;
         detailsMessage += `• Протекторов: ${bestPhoto.protectorCount}\n\n`;
     }
-   
+
     session.analysisResults.forEach((result, index) => {
         const footprintCount = result.predictions?.filter(p =>
             p.class === 'Outline-trail').length || 0;
@@ -1605,34 +1611,34 @@ bot.onText(/\/trail_details/, async (msg) => {
             p.class === 'shoe-protector').length || 0;
         const animalCount = result.predictions?.filter(p =>
             p.class === 'animal-paw' || p.class === 'Animal').length || 0;
-       
+
         detailsMessage += `**Фото ${index + 1}:**\n`;
         detailsMessage += `• Следов: ${footprintCount}\n`;
         detailsMessage += `• Деталей протектора: ${protectorCount}\n`;
-       
+
         if (animalCount > 0) {
             detailsMessage += `• Следов животных: ${animalCount}\n`;
         }
-       
+
         if (result.intelligentAnalysis?.summary) {
             detailsMessage += `• Тип: ${result.intelligentAnalysis.summary.footprintType}\n`;
             detailsMessage += `• Ориентация: ${result.intelligentAnalysis.summary.orientation}\n`;
         }
-       
+
         if (index === bestPhoto?.index) {
             detailsMessage += `⭐ **Лучшее по детализации**\n`;
         }
-       
+
         detailsMessage += `\n`;
     });
-   
+
     await bot.sendMessage(chatId, detailsMessage);
-   
+
     // Показываем топологию лучшего фото если есть
     if (bestPhoto && bestPhoto.result.visualizationPaths?.topology) {
         const topologyPath = bestPhoto.result.visualizationPaths.topology;
-       
-        if (require('fs').existsSync(topologyPath)) {
+
+        if (fs.existsSync(topologyPath)) {
             setTimeout(async () => {
                 await bot.sendPhoto(chatId, topologyPath, {
                     caption: `🕸️ **Топология фото ${bestPhoto.index + 1}**\n` +
@@ -1649,7 +1655,7 @@ bot.onText(/\/trail_details/, async (msg) => {
 // Команда /yandex
 bot.onText(/\/yandex/, async (msg) => {
     const chatId = msg.chat.id;
- 
+
     if (!yandexDisk) {
         await bot.sendMessage(chatId,
             '❌ **Яндекс.Диск не настроен**\n\n' +
@@ -1660,14 +1666,14 @@ bot.onText(/\/yandex/, async (msg) => {
 
     try {
         await bot.sendMessage(chatId, '🔍 Проверяю подключение к Яндекс.Диску...');
-     
+
         const diskInfo = await yandexDisk.getDiskInfo();
         const connectionOk = await yandexDisk.checkConnection();
-     
+
         if (connectionOk && diskInfo.success) {
             const freeGB = (diskInfo.free / 1024 / 1024 / 1024).toFixed(2);
             const totalGB = (diskInfo.total / 1024 / 1024 / 1024).toFixed(2);
-         
+
             await bot.sendMessage(chatId,
                 '✅ **Яндекс.Диск подключен**\n\n' +
                 `💾 Доступно: ${freeGB} GB / ${totalGB} GB\n` +
@@ -1695,22 +1701,22 @@ const processingUsers = new Set(); // userIds being processed
 async function processPhotoQueue(userId, chatId) {
     if (processingUsers.has(userId)) return;
     if (!photoQueue.has(userId) || photoQueue.get(userId).length === 0) return;
-   
+
     processingUsers.add(userId);
     const queue = photoQueue.get(userId);
-   
+
     // Сортируем по времени получения
     queue.sort((a, b) => a.timestamp - b.timestamp);
-   
+
     // Проверяем, нужно ли создать сессию автоматически
     const shouldCreateAutoSession = queue.length >= 2 &&
                                    !sessionManager.hasActiveSession(userId);
-   
+
     let sessionCreated = false;
     if (shouldCreateAutoSession) {
         // Создаем автоматическую сессию для пачки фото
         const session = sessionManager.createSession(userId, 'auto_batch');
-       
+
         // Предупреждаем пользователя ОДИН РАЗ
         await bot.sendMessage(chatId,
             `📦 **ОБНАРУЖЕНА ПАЧКА ФОТО (${queue.length})**\n\n` +
@@ -1725,33 +1731,33 @@ async function processPhotoQueue(userId, chatId) {
             `/trail_end - завершить с отчетом\n` +
             `/cancel - отменить сессию`
         );
-       
+
         sessionCreated = true;
     }
-   
+
     // Обрабатываем фото по очереди
     for (let i = 0; i < queue.length; i++) {
         const photoData = queue[i];
-       
+
         try {
             // Имитируем отправку фото (вызываем обработчик фото)
             await processSinglePhoto(chatId, userId, photoData.msg, i + 1, queue.length);
-           
+
             // Небольшая задержка между обработкой фото
             if (i < queue.length - 1) {
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
-           
+
         } catch (error) {
             console.log(`❌ Ошибка обработки фото ${i + 1}:`, error.message);
             await bot.sendMessage(chatId, `❌ Ошибка при обработке фото ${i + 1}`);
         }
     }
-   
+
     // Очищаем очередь
     photoQueue.delete(userId);
     processingUsers.delete(userId);
-   
+
     // Если создали автоматическую сессию, напоминаем о командах
     if (sessionCreated) {
         await bot.sendMessage(chatId,
@@ -1765,491 +1771,664 @@ async function processPhotoQueue(userId, chatId) {
     }
 }
 
+// =============================================================================
+// 📸 ОСНОВНАЯ ФУНКЦИЯ ОБРАБОТКИ ФОТО С ИСПРАВЛЕННОЙ ОШИБКОЙ avgConfidence
+// =============================================================================
+
 // Обработчик отдельного фото (вынесенная логика)
 async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCount = 1) {
-    const hasSession = sessionManager.hasActiveSession(userId);
+    const hasSession = sessionManager.hasActiveSession(userId);
 
-    try {
-        updateUserStats(userId, msg.from.username || msg.from.first_name, 'photo');
-
-        // 🆕 СЕССИОННЫЙ РЕЖИМ: отправляем короткое подтверждение
-        let statusMessage = null;
-        if (hasSession) {
-            const session = sessionManager.getActiveSession(userId);
-            const photoNum = session.photos.length + 1;
-
-            if (totalCount > 1) {
-                statusMessage = await bot.sendMessage(chatId,
-                    `📸 Обрабатываю фото ${currentIndex}/${totalCount}...`
-                );
-            } else {
-                statusMessage = await bot.sendMessage(chatId,
-                    `📸 Получено фото ${photoNum}...`
-                );
-            }
-        } else if (totalCount > 1) {
-            // Пачка фото без сессии
-            statusMessage = await bot.sendMessage(chatId,
-                `📸 Обрабатываю фото ${currentIndex}/${totalCount}...`
-            );
-        } else {
-            // Одиночное фото без сессии
-            await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
-        }
-
-        const photo = msg.photo[msg.photo.length - 1];
-        const file = await bot.getFile(photo.file_id);
-        const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
-
-        // 🔄 СОХРАНЯЕМ ФОТО ВО ВРЕМЕННЫЙ ФАЙЛ
-        const tempImagePath = tempFileManager.createTempFile('original', 'jpg');
-        const response = await axios({
-            method: 'GET',
-            url: fileUrl,
-            responseType: 'stream'
-        });
-
-        await new Promise((resolve, reject) => {
-            const writer = require('fs').createWriteStream(tempImagePath);
-            response.data.pipe(writer);
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-
-        // Если сессия - добавляем фото
-        if (hasSession) {
-            sessionManager.addPhotoToSession(userId, {
-                fileId: photo.file_id,
-                chatId: chatId,
-                fileUrl: fileUrl,
-                localPath: tempImagePath,
-                batchIndex: currentIndex,
-                batchTotal: totalCount
-            });
-        }
-
-        // 🔍 АНАЛИЗ ROBOFLOW
-        const roboflowResponse = await axios({
-            method: "POST",
-            url: config.ROBOFLOW.API_URL,
-            params: {
-                api_key: config.ROBOFLOW.API_KEY,
-                image: fileUrl,
-                confidence: config.ROBOFLOW.CONFIDENCE,
-                overlap: config.ROBOFLOW.OVERLAP,
-                format: 'json'
-            },
-            timeout: 30000
-        });
-
-        const predictions = roboflowResponse.data.predictions || [];
-        const processedPredictions = smartPostProcessing(predictions);
-        const analysis = analyzePredictions(processedPredictions);
-
-        // 🔍 ПРАКТИЧЕСКИЙ АНАЛИЗ
-        let predictionsForAnalysis = processedPredictions;
-        let practicalAnalysis = null;
-        let animalFilterResult = null;
-
-        try {
-            animalFilterResult = animalFilter.filterAnimalPaws(processedPredictions);
-            const filteredPredictions = animalFilterResult.filtered;
-            practicalAnalysis = practicalAnalyzer.analyzeForPSO(filteredPredictions);
-            predictionsForAnalysis = filteredPredictions;
-        } catch (psoError) {
-            console.log('⚠️ Практический анализ пропущен:', psoError.message);
-        }
-
-        // 🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ
-        let intelligentAnalysis = null;
-        try {
-            if (analysisModule && analysisModule.performComprehensiveAnalysis) {
-                intelligentAnalysis = await analysisModule.performComprehensiveAnalysis(
-                    tempImagePath,
-                    predictionsForAnalysis,
-                    {
-                        userId: userId,
-                        username: msg.from.username || msg.from.first_name
-                    }
-                );
-            }
-        } catch (analysisError) {
-            console.log('⚠️ Интеллектуальный анализ пропущен:', analysisError.message);
-        }
-
-        if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
-    saveUserLastAnalysis(userId, {
-        predictions: predictionsForAnalysis,
-        practicalAnalysis: practicalAnalysis,
-        intelligentAnalysis: intelligentAnalysis,
-        analysis: analysis,
-        timestamp: new Date(),
-        confidence: avgConfidence,
-        visualizationPaths: {
-            analysis: vizPath,
-            topology: topologyVizPath
-        },
-        localPhotoPath: tempImagePath // 🆕 ДОБАВЛЯЕМ локальный путь к фото
-    });
-}
-
-// 🔥 ДОБАВИМ СРАЗУ ПОСЛЕ ЭТОГО:
-// ИНТЕГРАЦИЯ С FOOTPRINTMANAGER ДЛЯ АВТОСОВМЕЩЕНИЯ
-if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
     try {
-        // Получаем FootprintManager из сессионной системы или создаем
-        let footprintManager;
-        if (typeof FootprintManager === 'function') {
-            footprintManager = new FootprintManager({
-                autoAlignment: true,
-                dbPath: './data/footprints'
+        updateUserStats(userId, msg.from.username || msg.from.first_name, 'photo');
+
+        // 🆕 СЕССИОННЫЙ РЕЖИМ: отправляем короткое подтверждение
+        let statusMessage = null;
+        if (hasSession) {
+            const session = sessionManager.getActiveSession(userId);
+            const photoNum = session.photos.length + 1;
+
+            if (totalCount > 1) {
+                statusMessage = await bot.sendMessage(chatId,
+                    `📸 Обрабатываю фото ${currentIndex}/${totalCount}...`
+                );
+            } else {
+                statusMessage = await bot.sendMessage(chatId,
+                    `📸 Получено фото ${photoNum}...`
+                );
+            }
+        } else if (totalCount > 1) {
+            // Пачка фото без сессии
+            statusMessage = await bot.sendMessage(chatId,
+                `📸 Обрабатываю фото ${currentIndex}/${totalCount}...`
+            );
+        } else {
+            // Одиночное фото без сессии
+            await bot.sendMessage(chatId, '📥 Получено фото, начинаю анализ...');
+        }
+
+        const photo = msg.photo[msg.photo.length - 1];
+        const file = await bot.getFile(photo.file_id);
+        const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
+
+        // 🔄 СОХРАНЯЕМ ФОТО ВО ВРЕМЕННЫЙ ФАЙЛ
+        const tempImagePath = tempFileManager.createTempFile('original', 'jpg');
+        const response = await axios({
+            method: 'GET',
+            url: fileUrl,
+            responseType: 'stream'
+        });
+
+        await new Promise((resolve, reject) => {
+            const writer = fs.createWriteStream(tempImagePath);
+            response.data.pipe(writer);
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
+
+        // Если сессия - добавляем фото
+        if (hasSession) {
+            sessionManager.addPhotoToSession(userId, {
+                fileId: photo.file_id,
+                chatId: chatId,
+                fileUrl: fileUrl,
+                localPath: tempImagePath,
+                batchIndex: currentIndex,
+                batchTotal: totalCount
             });
         }
-       
-        if (footprintManager) {
-            // Создаем анализ для FootprintManager
-            const footprintAnalysis = {
-                id: `analysis_${Date.now()}_${userId}`,
-                predictions: predictionsForAnalysis.filter(p => p.class === 'shoe-protector'),
-                timestamp: new Date(),
-                confidence: avgConfidence,
-                source: {
-                    userId: userId,
-                    chatId: chatId,
-                    photoPath: tempImagePath,
-                    batchInfo: {
-                        index: currentIndex,
-                        total: totalCount
-                    }
-                }
-            };
-           
-            // Проверяем, есть ли активная сессия у пользователя
-            const hasSession = sessionManager.hasActiveSession(userId);
-           
-            if (hasSession) {
-                // Используем сессионный режим с автосовмещением
-                const session = sessionManager.getActiveSession(userId);
-               
-                // Запускаем сессию в FootprintManager если ещё не запущена
-                if (!footprintManager.currentSession) {
-                    footprintManager.startNewSession(
-                        userId,
-                        session.id || `session_${Date.now()}`
-                    );
-                }
-               
-                // Добавляем фото с автосовмещением
-                const alignmentResult = await footprintManager.addPhotoToSession(
-                    footprintAnalysis,
+
+        // 🔍 АНАЛИЗ ROBOFLOW
+        const roboflowResponse = await axios({
+            method: "POST",
+            url: config.ROBOFLOW.API_URL,
+            params: {
+                api_key: config.ROBOFLOW.API_KEY,
+                image: fileUrl,
+                confidence: config.ROBOFLOW.CONFIDENCE,
+                overlap: config.ROBOFLOW.OVERLAP,
+                format: 'json'
+            },
+            timeout: 30000
+        });
+
+        const predictions = roboflowResponse.data.predictions || [];
+        const processedPredictions = smartPostProcessing(predictions);
+        const analysis = analyzePredictions(processedPredictions);
+
+        // 🔍 ПРАКТИЧЕСКИЙ АНАЛИЗ
+        let predictionsForAnalysis = processedPredictions;
+        let practicalAnalysis = null;
+        let animalFilterResult = null;
+
+        try {
+            animalFilterResult = animalFilter.filterAnimalPaws(processedPredictions);
+            const filteredPredictions = animalFilterResult.filtered;
+            practicalAnalysis = practicalAnalyzer.analyzeForPSO(filteredPredictions);
+            predictionsForAnalysis = filteredPredictions;
+        } catch (psoError) {
+            console.log('⚠️ Практический анализ пропущен:', psoError.message);
+        }
+
+        // 🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ
+        let intelligentAnalysis = null;
+        try {
+            if (analysisModule && analysisModule.performComprehensiveAnalysis) {
+                intelligentAnalysis = await analysisModule.performComprehensiveAnalysis(
                     tempImagePath,
+                    predictionsForAnalysis,
                     {
                         userId: userId,
-                        sessionId: session.id,
-                        photoIndex: session.photos.length + 1
+                        username: msg.from.username || msg.from.first_name
                     }
                 );
-               
-                console.log(`🎯 Результат автосовмещения: ${alignmentResult.alignmentScore ? (alignmentResult.alignmentScore * 100).toFixed(1) + '%' : 'не применено'}`);
-               
-                // Сохраняем информацию о совмещении в сессию
-                if (sessionManager.addAnalysisToSession) {
-                    sessionManager.addAnalysisToSession(userId, {
-                        ...footprintAnalysis,
-                        alignmentResult: alignmentResult
+            }
+        } catch (analysisError) {
+            console.log('⚠️ Интеллектуальный анализ пропущен:', analysisError.message);
+        }
+
+        // 🔥 ИСПРАВЛЕНИЕ: СЧИТАЕМ avgConfidence ЗДЕСЬ, перед использованием
+        const avgConfidence = predictionsForAnalysis && predictionsForAnalysis.length > 0
+            ? predictionsForAnalysis.reduce((sum, p) => sum + (p.confidence || 0), 0) / predictionsForAnalysis.length
+            : 0.5;
+
+        // 🎨 ВИЗУАЛИЗАЦИЯ
+        let vizPath = null;
+        let topologyVizPath = null;
+
+        if (analysis.total > 0) {
+            try {
+                const vizModule = visualization.getVisualization(userId, 'analysis');
+                vizPath = tempFileManager.createTempFile('analysis', 'png');
+
+                await vizModule.createVisualization(
+                    fileUrl,
+                    predictionsForAnalysis,
+                    { username: msg.from.username || msg.from.first_name },
+                    vizPath
+                );
+
+                // Топологическая визуализация только если есть протекторы
+                const protectors = predictionsForAnalysis.filter(p => p.class === 'shoe-protector');
+                if (protectors.length > 3) {
+                    topologyVizPath = tempFileManager.createTempFile('topology_science', 'png');
+                    await topologyVisualizer.createTopologyVisualization(
+                        fileUrl,
+                        predictionsForAnalysis,
+                        topologyVizPath
+                    );
+                }
+
+            } catch (vizError) {
+                console.log('⚠️ Визуализация пропущена:', vizError.message);
+            }
+        }
+
+        // =============================================================================
+        // 🎯 ИНТЕГРАЦИЯ С FOOTPRINTMANAGER (АВТОСОВМЕЩЕНИЕ)
+        // =============================================================================
+        if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
+            try {
+                // Получаем протекторы для FootprintManager
+                const shoeProtectors = predictionsForAnalysis.filter(p => p.class === 'shoe-protector');
+
+                if (shoeProtectors.length >= 3) { // Минимум 3 протектора для работы
+                    console.log(`👣 FOOTPRINT INTEGRATION: ${shoeProtectors.length} протекторов для совмещения`);
+
+                    // Подготавливаем точки для FootprintManager
+                    const footprintPoints = shoeProtectors.map(p => {
+                        // Центр протектора
+                        const xs = p.points.map(pt => pt.x);
+                        const ys = p.points.map(pt => pt.y);
+                        const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+                        const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+
+                        return {
+                            x: centerX,
+                            y: centerY,
+                            confidence: p.confidence || 0.5,
+                            class: 'shoe-protector',
+                            originalPoints: p.points
+                        };
                     });
+
+                    // Создаем анализ для FootprintManager
+                    const footprintAnalysis = {
+                        id: `fp_${Date.now()}_${userId}`,
+                        predictions: footprintPoints,
+                        timestamp: new Date(),
+                        confidence: avgConfidence,
+                        source: {
+                            userId: userId,
+                            chatId: chatId,
+                            photoPath: tempImagePath,
+                            batchInfo: { index: currentIndex, total: totalCount }
+                        }
+                    };
+
+                    // Проверяем, есть ли активная сессия
+                    if (hasSession) {
+                        console.log(`🎯 Использую сессионный режим с автосовмещением`);
+
+                        // Инициализируем FootprintManager если еще нет
+                        if (!global.footprintManagers.has(userId)) {
+                            const { FootprintManager } = require('./modules/footprint');
+                            const fpManager = new FootprintManager({
+                                autoAlignment: true,
+                                dbPath: './data/footprints'
+                            });
+                            global.footprintManagers.set(userId, fpManager);
+
+                            // Начинаем сессию
+                            const session = sessionManager.getActiveSession(userId);
+                            fpManager.startNewSession(userId, session.name || `session_${session.id}`);
+                        }
+
+                        const fpManager = global.footprintManagers.get(userId);
+
+                        // Добавляем фото с автосовмещением
+                        const alignmentResult = await fpManager.addPhotoToSession(
+                            footprintAnalysis,
+                            tempImagePath,
+                            {
+                                userId: userId,
+                                sessionName: `Сессия_${userId}`,
+                                photoIndex: sessionManager.getActiveSession(userId).photos.length + 1
+                            }
+                        );
+
+                        console.log(`🎯 Результат автосовмещения: ${alignmentResult.alignmentScore ?
+                            (alignmentResult.alignmentScore * 100).toFixed(1) + '% совпадение' :
+                            'не применено'}`);
+
+                        // Сохраняем в сессию информацию о совмещении
+                        if (sessionManager.addAnalysisToSession) {
+                            sessionManager.addAnalysisToSession(userId, {
+                                ...footprintAnalysis,
+                                alignmentResult: alignmentResult,
+                                protectorCount: shoeProtectors.length
+                            });
+                        }
+
+                        // Показываем пользователю информацию о совмещении
+                        if (alignmentResult.alignmentScore && alignmentResult.alignmentScore > 0.4) {
+                            setTimeout(async () => {
+                                const scorePercent = (alignmentResult.alignmentScore * 100).toFixed(1);
+                                await bot.sendMessage(chatId,
+                                    `🎯 **АВТОСОВМЕЩЕНИЕ СРАБОТАЛО!**\n\n` +
+                                    `📊 Совпадение с предыдущими фото: ${scorePercent}%\n` +
+                                    `✅ Добавлено узлов: ${alignmentResult.added || 0}\n` +
+                                    `🔄 Объединено узлов: ${alignmentResult.merged || 0}\n\n` +
+                                    `💡 Система автоматически совмещает следы для создания точной модели.`
+                                );
+                            }, 1000);
+                        }
+                    }
+
+                    // Сохраняем анализ для будущего использования
+                    saveUserLastAnalysis(userId, {
+                        predictions: predictionsForAnalysis,
+                        practicalAnalysis: practicalAnalysis,
+                        intelligentAnalysis: intelligentAnalysis,
+                        analysis: analysis,
+                        timestamp: new Date(),
+                        confidence: avgConfidence,
+                        visualizationPaths: { analysis: vizPath, topology: topologyVizPath },
+                        localPhotoPath: tempImagePath,
+                        // 🔥 ДОБАВЛЯЕМ ДАННЫЕ ДЛЯ FOOTPRINT
+                        footprintAnalysis: footprintAnalysis,
+                        hasFootprintData: true,
+                        protectorCount: shoeProtectors.length
+                    });
+
+                } else {
+                    console.log(`⚠️ Слишком мало протекторов для совмещения: ${shoeProtectors.length}`);
+                }
+
+            } catch (error) {
+                console.log('⚠️ Ошибка интеграции FootprintManager:', error.message);
+                // Не падаем, продолжаем работу
+            }
+        }
+
+        // 🆕 СЕССИОННЫЙ РЕЖИМ: КОРОТКОЕ ПОДТВЕРЖДЕНИЕ
+        if (hasSession) {
+            const session = sessionManager.getActiveSession(userId);
+
+            // Добавляем анализ в сессию
+            sessionManager.addAnalysisToSession(userId, {
+                predictions: predictionsForAnalysis,
+                practicalAnalysis: practicalAnalysis,
+                intelligentAnalysis: intelligentAnalysis,
+                analysis: analysis,
+                timestamp: new Date(),
+                visualizationPaths: {
+                    analysis: vizPath,
+                    topology: topologyVizPath
+                },
+                batchInfo: {
+                    index: currentIndex,
+                    total: totalCount
+                }
+            });
+
+            // Обновляем сообщение на короткое подтверждение
+            if (statusMessage) {
+                if (totalCount > 1) {
+                    await bot.editMessageText(
+                        `✅ Фото ${currentIndex}/${totalCount} обработано\n` +
+                        `📊 Сессия: ${session.photos.length} фото`,
+                        {
+                            chat_id: chatId,
+                            message_id: statusMessage.message_id
+                        }
+                    );
+                } else {
+                    await bot.editMessageText(
+                        `✅ Фото ${session.photos.length} принято\n` +
+                        `📊 Сессия: ${session.photos.length} фото`,
+                        {
+                            chat_id: chatId,
+                            message_id: statusMessage.message_id
+                        }
+                    );
                 }
             }
-            // Сохраняем для будущего использования в /save_model
-            saveUserLastAnalysis(userId, {
-                ...footprintAnalysis,
-                alignmentApplied: hasSession,
-                footprintManager: footprintManager // сохраняем ссылку
+
+        } else if (totalCount > 1) {
+            // Пачка фото без сессии - просто подтверждение
+            if (statusMessage) {
+                await bot.editMessageText(
+                    `✅ Фото ${currentIndex}/${totalCount} обработано`,
+                    {
+                        chat_id: chatId,
+                        message_id: statusMessage.message_id
+                    }
+                );
+            }
+
+            // Очистка
+            tempFileManager.removeFile(tempImagePath);
+            if (vizPath) tempFileManager.removeFile(vizPath);
+            if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
+
+        } else {
+            // 🆕 ОДИНОЧНОЕ ФОТО БЕЗ СЕССИИ: ПОЛНЫЙ АНАЛИЗ
+            if (analysis.total === 0) {
+                await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+                tempFileManager.removeFile(tempImagePath);
+                return;
+            }
+
+            // Отправляем результаты
+            let resultMessage = `✅ АНАЛИЗ ЗАВЕРШЕН\n\n`;
+            resultMessage += `📊 Обнаружено: ${analysis.total} объектов\n\n`;
+
+            // Классификация
+            resultMessage += `📋 КЛАССИФИКАЦИЯ:\n`;
+            Object.entries(analysis.classes).forEach(([className, count]) => {
+                resultMessage += `• ${className}: ${count}\n`;
             });
-        }
-    } catch (error) {
-        console.log('⚠️ Ошибка интеграции с FootprintManager:', error.message);
-        // Не падаем, основная функциональность бота должна работать
-    }
-}
 
-        // 🎨 ВИЗУАЛИЗАЦИЯ
-        let vizPath = null;
-        let topologyVizPath = null;
+            await bot.sendMessage(chatId, resultMessage);
 
-        if (analysis.total > 0) {
-            try {
-                const vizModule = visualization.getVisualization(userId, 'analysis');
-                vizPath = tempFileManager.createTempFile('analysis', 'png');
+            // Визуализация
+            if (vizPath && fs.existsSync(vizPath)) {
+                await bot.sendPhoto(chatId, vizPath, {
+                    caption: '🎨 Визуализация анализа'
+                });
+                tempFileManager.removeFile(vizPath);
+            }
 
-                await vizModule.createVisualization(
-                    fileUrl,
-                    predictionsForAnalysis,
-                    { username: msg.from.username || msg.from.first_name },
-                    vizPath
-                );
-
-                // Топологическая визуализация только если есть протекторы
-                const protectors = predictionsForAnalysis.filter(p => p.class === 'shoe-protector');
-                if (protectors.length > 3) {
-                    topologyVizPath = tempFileManager.createTempFile('topology_science', 'png');
-                    await topologyVisualizer.createTopologyVisualization(
-                        fileUrl,
-                        predictionsForAnalysis,
-                        topologyVizPath
-                    );
-                }
-
-            } catch (vizError) {
-                console.log('⚠️ Визуализация пропущена:', vizError.message);
-            }
-        }
-
-        // 🆕 СЕССИОННЫЙ РЕЖИМ: КОРОТКОЕ ПОДТВЕРЖДЕНИЕ
-        if (hasSession) {
-            const session = sessionManager.getActiveSession(userId);
-
-            // Добавляем анализ в сессию
-            sessionManager.addAnalysisToSession(userId, {
-                predictions: predictionsForAnalysis,
-                practicalAnalysis: practicalAnalysis,
-                intelligentAnalysis: intelligentAnalysis,
-                analysis: analysis,
-                timestamp: new Date(),
-                visualizationPaths: {
-                    analysis: vizPath,
-                    topology: topologyVizPath
-                },
-                batchInfo: {
-                    index: currentIndex,
-                    total: totalCount
-                }
-            });
-
-            // Обновляем сообщение на короткое подтверждение
-            if (statusMessage) {
-                if (totalCount > 1) {
-                    await bot.editMessageText(
-                        `✅ Фото ${currentIndex}/${totalCount} обработано\n` +
-                        `📊 Сессия: ${session.photos.length} фото`,
-                        {
-                            chat_id: chatId,
-                            message_id: statusMessage.message_id
-                        }
-                    );
-                } else {
-                    await bot.editMessageText(
-                        `✅ Фото ${session.photos.length} принято\n` +
-                        `📊 Сессия: ${session.photos.length} фото`,
-                        {
-                            chat_id: chatId,
-                            message_id: statusMessage.message_id
-                        }
-                    );
-                }
-            }
-
-        } else if (totalCount > 1) {
-            // Пачка фото без сессии - просто подтверждение
-            if (statusMessage) {
-                await bot.editMessageText(
-                    `✅ Фото ${currentIndex}/${totalCount} обработано`,
-                    {
-                        chat_id: chatId,
-                        message_id: statusMessage.message_id
-                    }
-                );
-            }
-
-            // Очистка
-            tempFileManager.removeFile(tempImagePath);
-            if (vizPath) tempFileManager.removeFile(vizPath);
-            if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
-
-        } else {
-            // 🆕 ОДИНОЧНОЕ ФОТО БЕЗ СЕССИИ: ПОЛНЫЙ АНАЛИЗ
-            if (analysis.total === 0) {
-                await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
-                tempFileManager.removeFile(tempImagePath);
-                return;
-            }
-
-            // Отправляем результаты
-            let resultMessage = `✅ АНАЛИЗ ЗАВЕРШЕН\n\n`;
-            resultMessage += `📊 Обнаружено: ${analysis.total} объектов\n\n`;
-
-            // Классификация
-            resultMessage += `📋 КЛАССИФИКАЦИЯ:\n`;
-            Object.entries(analysis.classes).forEach(([className, count]) => {
-                resultMessage += `• ${className}: ${count}\n`;
-            });
-
-            await bot.sendMessage(chatId, resultMessage);
-
-            // Визуализация
-            if (vizPath && require('fs').existsSync(vizPath)) {
-                await bot.sendPhoto(chatId, vizPath, {
-                    caption: '🎨 Визуализация анализа'
-                });
-                tempFileManager.removeFile(vizPath);
-            }
-
-            // 🔥 ВЕРНУЛИ ТОПОЛОГИЧЕСКУЮ ВИЗУАЛИЗАЦИЮ ДЛЯ ОДИНОЧНОГО ФОТО
-            if (topologyVizPath && require('fs').existsSync(topologyVizPath)) {
-                await bot.sendPhoto(chatId, topologyVizPath, {
-                    caption: '🕸️ Топологический анализ протектора\n' +
+            // 🔥 ВЕРНУЛИ ТОПОЛОГИЧЕСКУЮ ВИЗУАЛИЗАЦИЮ ДЛЯ ОДИНОЧНОГО ФОТО
+            if (topologyVizPath && fs.existsSync(topologyVizPath)) {
+                await bot.sendPhoto(chatId, topologyVizPath, {
+                    caption: '🕸️ Топологический анализ протектора\n' +
                              ' 🟢 Зеленые точки - центры протекторов\n' +
                              ' 🟠 Оранжевые линии - связи\n' +
                              ' 🔵 Синий пунктир - контур следа'
-                });
-                tempFileManager.removeFile(topologyVizPath);
-            }
+                });
+                tempFileManager.removeFile(topologyVizPath);
+            }
 
-            // Практический анализ
-            if (practicalAnalysis && practicalAnalysis.recommendations) {
-                let practicalMessage = `🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ:**\n\n`;
-                practicalAnalysis.recommendations.slice(0, 3).forEach(rec => {
-                    practicalMessage += `• ${rec}\n`;
-                });
-                await bot.sendMessage(chatId, practicalMessage);
-            }
+            // Практический анализ
+            if (practicalAnalysis && practicalAnalysis.recommendations) {
+                let practicalMessage = `🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ:**\n\n`;
+                practicalAnalysis.recommendations.slice(0, 3).forEach(rec => {
+                    practicalMessage += `• ${rec}\n`;
+                });
+                await bot.sendMessage(chatId, practicalMessage);
+            }
 
-            // Интеллектуальный анализ
-            if (intelligentAnalysis && intelligentAnalysis.summary) {
-                const intelMessage = `🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:\n\n` +
-                    `🧭 Ориентация: ${intelligentAnalysis.summary.orientation}\n` +
-                    `👟 Тип обуви: ${intelligentAnalysis.summary.footprintType}\n` +
-                    `🔷 Морфология: ${intelligentAnalysis.summary.morphology}\n` +
-                    `🕸️ Топология: ${intelligentAnalysis.summary.topology}`;
+            // Интеллектуальный анализ
+            if (intelligentAnalysis && intelligentAnalysis.summary) {
+                const intelMessage = `🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:\n\n` +
+                    `🧭 Ориентация: ${intelligentAnalysis.summary.orientation}\n` +
+                    `👟 Тип обуви: ${intelligentAnalysis.summary.footprintType}\n` +
+                    `🔷 Морфология: ${intelligentAnalysis.summary.morphology}\n` +
+                    `🕸️ Топология: ${intelligentAnalysis.summary.topology}`;
 
-                await bot.sendMessage(chatId, intelMessage);
-            }
+                await bot.sendMessage(chatId, intelMessage);
+            }
 
-            // 🔥 ДОБАВЛЯЕМ ЗАПРОС ОБРАТНОЙ СВЯЗИ
-            if (!hasSession && totalCount === 1 && predictionsForAnalysis.length > 0) {
-                // Выбираем самый уверенный prediction
-                const bestPrediction = predictionsForAnalysis.reduce((best, current) =>
-                    (current.confidence || 0) > (best.confidence || 0) ? current : best
-                );
+            // 🔥 ДОБАВЛЯЕМ ЗАПРОС ОБРАТНОЙ СВЯЗИ
+            if (!hasSession && totalCount === 1 && predictionsForAnalysis.length > 0) {
+                // Выбираем самый уверенный prediction
+                const bestPrediction = predictionsForAnalysis.reduce((best, current) =>
+                    (current.confidence || 0) > (best.confidence || 0) ? current : best
+                );
 
-                if (bestPrediction && bestPrediction.confidence > 0.6) {
-                    // Случайный шанс 30% чтобы не спамить
-                    if (Math.random() < 0.3) {
-                        setTimeout(async () => {
-                            const feedbackRequest = feedbackManager.requestFeedback(
-                                userId,
-                                chatId,
-                                bestPrediction,
-                                {
-                                    imageId: tempImagePath,
-                                    analysisType: 'single_photo',
-                                    timestamp: new Date()
-                                }
-                            );
+                if (bestPrediction && bestPrediction.confidence > 0.6) {
+                    // Случайный шанс 30% чтобы не спамить
+                    if (Math.random() < 0.3) {
+                        setTimeout(async () => {
+                            const feedbackRequest = feedbackManager.requestFeedback(
+                                userId,
+                                chatId,
+                                bestPrediction,
+                                {
+                                    imageId: tempImagePath,
+                                    analysisType: 'single_photo',
+                                    timestamp: new Date()
+                                }
+                            );
 
-                            await bot.sendMessage(chatId,
-                                `💬 **ПОМОГИТЕ УЛУЧШИТЬ ТОЧНОСТЬ**\n\n` +
-                                `Насколько правильно определен этот элемент?\n` +
-                                `**Класс:** ${bestPrediction.class}\n` +
-                                `**Уверенность:** ${(bestPrediction.confidence * 100).toFixed(1)}%`,
-                                {
-                                    reply_markup: feedbackManager.createFeedbackKeyboard()
-                                }
-                            );
-                        }, 1000);
-                    }
-                }
-            }
-            
-            // 🆕 СОХРАНЯЕМ ПОСЛЕДНИЙ АНАЛИЗ ДЛЯ FOOTPRINT SYSTEM
-            if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
-                const avgConfidence = predictionsForAnalysis.length > 0
-                    ? predictionsForAnalysis.reduce((sum, p) => sum + (p.confidence || 0), 0) / predictionsForAnalysis.length
-                    : 0.5;
+                            await bot.sendMessage(chatId,
+                                `💬 **ПОМОГИТЕ УЛУЧШИТЬ ТОЧНОСТЬ**\n\n` +
+                                `Насколько правильно определен этот элемент?\n` +
+                                `**Класс:** ${bestPrediction.class}\n` +
+                                `**Уверенность:** ${(bestPrediction.confidence * 100).toFixed(1)}%`,
+                                {
+                                    reply_markup: feedbackManager.createFeedbackKeyboard()
+                                }
+                            );
+                        }, 1000);
+                    }
+                }
+            }
 
-                if (typeof saveUserLastAnalysis === 'function') {
-                    saveUserLastAnalysis(userId, {
-                        predictions: predictionsForAnalysis,
-                        practicalAnalysis: practicalAnalysis,
-                        intelligentAnalysis: intelligentAnalysis,
-                        analysis: analysis,
-                        timestamp: new Date(),
-                        confidence: avgConfidence,
-                        visualizationPaths: {
-                            analysis: vizPath,
-                            topology: topologyVizPath
-                        },
-                        localPhotoPath: tempImagePath // 🆕 ДОБАВЛЯЕМ локальный путь к фото
-                    });
-                }
-            }
+            // Очистка
+            tempFileManager.removeFile(tempImagePath);
+            if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
+        }
 
-            // Очистка
-            tempFileManager.removeFile(tempImagePath);
-            if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
-        }
+        updateUserStats(userId, msg.from.username || msg.from.first_name, 'analysis');
 
-        updateUserStats(userId, msg.from.username || msg.from.first_name, 'analysis');
-
-    } catch (error) {
-        console.log('❌ Ошибка анализа фото:', error.message);
-        await bot.sendMessage(chatId, `❌ Ошибка при обработке фото ${currentIndex || ''}`);
-    }
+    } catch (error) {
+        console.log('❌ Ошибка анализа фото:', error.message);
+        await bot.sendMessage(chatId, `❌ Ошибка при обработке фото ${currentIndex || ''}`);
+    }
 }
 
 // =============================================================================
 // 📸 ОБРАБОТКА ФОТО С ПАЧКАМИ И ОЧЕРЕДЯМИ
 // =============================================================================
 bot.on('photo', async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-   
-    // Добавляем фото в детектор пачки
-    if (!photoBatchDetector.has(userId)) {
-        photoBatchDetector.set(userId, {
-            photos: [],
-            timer: null
-        });
-    }
-   
-    const detector = photoBatchDetector.get(userId);
-    detector.photos.push({
-        msg: msg,
-        timestamp: Date.now()
-    });
-   
-    // Сбрасываем таймер
-    if (detector.timer) {
-        clearTimeout(detector.timer);
-    }
-   
-    // Ждем 1 секунду для сбора пачки фото
-    detector.timer = setTimeout(async () => {
-        const photos = detector.photos;
-        photoBatchDetector.delete(userId);
-       
-        // Если фото одно и нет активной сессии - обрабатываем сразу
-        if (photos.length === 1 && !sessionManager.hasActiveSession(userId)) {
-            await processSinglePhoto(chatId, userId, photos[0].msg);
-            return;
-        }
-       
-        // Если несколько фото или есть активная сессия - добавляем в очередь
-        if (!photoQueue.has(userId)) {
-            photoQueue.set(userId, []);
-        }
-       
-        photos.forEach(photo => {
-            photoQueue.get(userId).push({
-                msg: photo.msg,
-                timestamp: photo.timestamp
-            });
-        });
-       
-        // Запускаем обработку очереди
-        setTimeout(() => processPhotoQueue(userId, chatId), 100);
-       
-    }, 1000); // Ждем 1 секунду для сбора пачки
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    // Добавляем фото в детектор пачки
+    if (!photoBatchDetector.has(userId)) {
+        photoBatchDetector.set(userId, {
+            photos: [],
+            timer: null
+        });
+    }
+
+    const detector = photoBatchDetector.get(userId);
+    detector.photos.push({
+        msg: msg,
+        timestamp: Date.now()
+    });
+
+    // Сбрасываем таймер
+    if (detector.timer) {
+        clearTimeout(detector.timer);
+    }
+
+    // Ждем 1 секунду для сбора пачки фото
+    detector.timer = setTimeout(async () => {
+        const photos = detector.photos;
+        photoBatchDetector.delete(userId);
+
+        // Если фото одно и нет активной сессии - обрабатываем сразу
+        if (photos.length === 1 && !sessionManager.hasActiveSession(userId)) {
+            await processSinglePhoto(chatId, userId, photos[0].msg);
+            return;
+        }
+
+        // Если несколько фото или есть активная сессия - добавляем в очередь
+        if (!photoQueue.has(userId)) {
+            photoQueue.set(userId, []);
+        }
+
+        photos.forEach(photo => {
+            photoQueue.get(userId).push({
+                msg: photo.msg,
+                timestamp: photo.timestamp
+            });
+        });
+
+        // Запускаем обработку очереди
+        setTimeout(() => processPhotoQueue(userId, chatId), 100);
+
+    }, 1000); // Ждем 1 секунду для сбора пачки
+});
+
+// =============================================================================
+// 🔧 НОВЫЕ КОМАНДЫ ДЛЯ FOOTPRINT MANAGER
+// =============================================================================
+
+// Команда для проверки интеграции FootprintManager
+bot.onText(/\/footprint_test/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    try {
+        const { FootprintManager } = require('./modules/footprint');
+        const manager = new FootprintManager({ autoAlignment: true });
+
+        await bot.sendMessage(chatId,
+            `🎯 **ТЕСТ FOOTPRINTMANAGER**\n\n` +
+            `✅ Система загружена успешно!\n` +
+            `🔧 Автосовмещение: ${manager.alignmentConfig.enabled ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}\n` +
+            `🎯 Минимальный score: ${manager.alignmentConfig.minAlignmentScore}\n` +
+            `📊 Точек для совмещения: от ${manager.alignmentConfig.minPointsForAlignment}\n\n` +
+            `🚀 **Готов к работе!**\n\n` +
+            `💡 **Как использовать:**\n` +
+            `1. Начните сессию: /trail_start\n` +
+            `2. Отправьте 2+ фото одного следа\n` +
+            `3. Система автоматически совместит следы\n` +
+            `4. Сохраните модель: /save_model "Название"\n\n` +
+            `📊 Статус: /alignment_status`
+        );
+
+    } catch (error) {
+        await bot.sendMessage(chatId,
+            `❌ **Ошибка загрузки FootprintManager**\n\n` +
+            `Ошибка: ${error.message}\n\n` +
+            `💡 **Проверьте:**\n` +
+            `• Папка modules/footprint/ существует\n` +
+            `• Все файлы на месте\n` +
+            `• Зависимости установлены`
+        );
+    }
+});
+
+// =============================================================================
+// 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
+// =============================================================================
+
+// ЗАМЕНЯЕМ старую команду /save_model на новую:
+bot.onText(/\/save_model(?: (.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const modelName = match[1] || `Модель_${new Date().toLocaleDateString('ru-RU')}`;
+
+    console.log(`💾 Пользователь ${userId} сохраняет модель: "${modelName}"`);
+
+    await bot.sendMessage(chatId,
+        `🔄 **Создаю модель "${modelName}"**\n\n` +
+        `📊 Анализирую данные...`
+    );
+
+    try {
+        // Вариант 1: Используем FootprintManager если он есть
+        let result;
+
+        if (global.footprintManagers && global.footprintManagers.has(userId)) {
+            console.log(`🎯 Использую существующий FootprintManager для сохранения`);
+            const fpManager = global.footprintManagers.get(userId);
+
+            if (fpManager.currentSession) {
+                result = await fpManager.saveSessionAsModel(modelName);
+
+                if (result.success) {
+                    // Удаляем менеджер из памяти
+                    global.footprintManagers.delete(userId);
+
+                    await bot.sendMessage(chatId,
+                        `✅ **МОДЕЛЬ СОХРАНЕНА С АВТОСОВМЕЩЕНИЕМ!**\n\n` +
+                        `📝 Название: ${modelName}\n` +
+                        `🆔 ID: ${result.modelId?.slice(0, 8) || 'сгенерирован'}...\n` +
+                        `📊 Узлов: ${result.stats?.nodes || 0}\n` +
+                        `🔗 Связей: ${result.stats?.edges || 0}\n` +
+                        `💎 Качество: ${result.stats?.topologyQuality ?
+                            (result.stats.topologyQuality * 100).toFixed(1) + '%' : 'не оценено'}\n\n` +
+                        `🎯 **Система автоматически совместила все следы для точной модели!**\n\n` +
+                        `📋 Команды:\n` +
+                        `/my_models - Посмотреть модели\n` +
+                        `/find_similar - Найти похожие`
+                    );
+                    return;
+                }
+            }
+        }
+
+        // Вариант 2: Создаем новую модель из последних данных
+        const lastAnalysis = getLastUserAnalysis(userId);
+
+        if (!lastAnalysis || !lastAnalysis.hasFootprintData) {
+            await bot.sendMessage(chatId,
+                `❌ **Нет данных для сохранения модели**\n\n` +
+                `💡 **Как создать модель:**\n` +
+                `1. Начните сессию: /trail_start\n` +
+                `2. Отправьте 2+ фото одного следа\n` +
+                `3. Система автоматически совместит следы\n` +
+                `4. Сохраните: /save_model "Название"\n\n` +
+                `📸 **Или отправьте одно фото и укажите название:**\n` +
+                `/save_model "Мой след"`
+            );
+            return;
+        }
+
+        // Создаем модель из последнего анализа
+        const { FootprintManager } = require('./modules/footprint');
+        const fpManager = new FootprintManager({
+            autoAlignment: false,
+            dbPath: './data/footprints'
+        });
+
+        fpManager.startNewSession(userId, `single_${Date.now()}`);
+
+        await fpManager.addPhotoToSession(
+            lastAnalysis.footprintAnalysis || {
+                id: `analysis_${Date.now()}`,
+                predictions: lastAnalysis.predictions?.filter(p => p.class === 'shoe-protector')
+                    .map(p => ({
+                        x: (p.points[0].x + p.points[1].x) / 2,
+                        y: (p.points[0].y + p.points[1].y) / 2,
+                        confidence: p.confidence || 0.5,
+                        class: p.class
+                    })),
+                timestamp: new Date(),
+                confidence: lastAnalysis.confidence || 0.5
+            },
+            lastAnalysis.localPhotoPath,
+            { userId: userId }
+        );
+
+        result = await fpManager.saveSessionAsModel(modelName);
+
+        await bot.sendMessage(chatId,
+            `✅ **МОДЕЛЬ СОХРАНЕНА!**\n\n` +
+            `📝 Название: ${modelName}\n` +
+            `📊 Узлов: ${result.stats?.nodes || 0}\n` +
+            `💎 Уверенность: ${lastAnalysis.confidence ? (lastAnalysis.confidence * 100).toFixed(1) + '%' : 'не оценено'}\n\n` +
+            `💡 **Совет:** Для более точной модели отправьте несколько фото одного следа в сессионном режиме.`
+        );
+
+    } catch (error) {
+        console.log('❌ Ошибка сохранения модели:', error);
+        await bot.sendMessage(chatId,
+            `❌ **Не удалось сохранить модель**\n\n` +
+            `Ошибка: ${error.message}\n\n` +
+            `💡 **Попробуйте:**\n` +
+            `1. Убедитесь, что на фото есть детали протектора\n` +
+            `2. Отправьте фото с лучшим освещением\n` +
+            `3. Начните сессию: /trail_start`
+        );
+    }
 });
 
 // 📝 ВСПОМОГАТЕЛЬНЫЙ МЕТОД ДЛЯ УЛУЧШЕНИЯ ВИЗУАЛИЗАЦИИ
@@ -2265,12 +2444,13 @@ async function enhanceVisualizationWithAnalysis(imagePath, analysis) {
 // =============================================================================
 app.get('/', (req, res) => {
     res.send(`
-        <h1>🤖 Система анализа следов обуви v2.1</h1>
+        <h1>🤖 Система анализа следов обуви v2.2</h1>
         <p>✅ Модульная система работает!</p>
         <p>📊 Пользователей: ${globalStats.totalUsers}</p>
         <p>📸 Фото обработано: ${globalStats.totalPhotos}</p>
         <p>🎯 Практический анализ для ПСО: активен</p>
         <p>🐕 Фильтрация животных: активна</p>
+        <p>👣 FootprintManager: интегрирован</p>
         <p><a href="/health">Health Check</a></p>
     `);
 });
@@ -2288,7 +2468,8 @@ app.get('/health', (req, res) => {
             practicalAnalyzer: practicalAnalyzer !== null,
             animalFilter: animalFilter !== null,
             visualization: visualization !== null,
-            yandexDisk: yandexDisk !== null
+            yandexDisk: yandexDisk !== null,
+            footprintManager: true
         }
     });
 });
@@ -2420,7 +2601,7 @@ console.log('🛡️ Глобальные обработчики ошибок а
         animalFilter = createAnimalFilterStub();
     }
 
-// 🆕 ИНИЦИАЛИЗИРУЕМ СЕССИОННЫЕ МОДУЛИ
+    // 🆕 ИНИЦИАЛИЗИРУЕМ СЕССИОННЫЕ МОДУЛИ
     try {
         sessionManager = new SessionManager();
         sessionAnalyzer = new SessionAnalyzer();
@@ -2430,7 +2611,7 @@ console.log('🛡️ Глобальные обработчики ошибок а
         sessionManager = createSessionManagerStub();
         sessionAnalyzer = createSessionAnalyzerStub();
     }
-  
+
     // ИНИЦИАЛИЗИРУЕМ НОВЫЕ МОДУЛИ
     try {
         calculators = calculatorsModule.initialize();
@@ -2464,17 +2645,18 @@ console.log('🛡️ Глобальные обработчики ошибок а
         yandexDisk = createYandexDiskStub();
     }
 
-try {
-    await FootprintManager.initialize();
-    console.log('✅ Система цифровых отпечатков готова');
-} catch (error) {
-    console.log('❌ Ошибка инициализации системы отпечатков:', error.message);
-    // Не падаем, система будет работать в ограниченном режиме
-}
-  
+    try {
+        await FootprintManager.initialize();
+        console.log('✅ Система цифровых отпечатков готова');
+    } catch (error) {
+        console.log('❌ Ошибка инициализации системы отпечатков:', error.message);
+        // Не падаем, система будет работать в ограниченном режиме
+    }
+
     console.log('🚀 Все модули инициализированы, бот готов к работе!');
     console.log('🎯 Практический анализ для ПСО активирован');
     console.log('🐕 Фильтрация следов животных активирована');
+    console.log('👣 FootprintManager с автосовмещением активирован');
 })();
 
 // =============================================================================
@@ -2485,190 +2667,15 @@ try {
 // 🆕 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ FOOTPRINT SYSTEM
 // =============================================================================
 
-// Кэш последних анализов пользователей
-// const userLastAnalysis = new Map(); // userId -> lastAnalysis
-
-// Сохранить последний анализ пользователя
-function saveUserLastAnalysis(userId, analysis) {
-    if (analysis && analysis.predictions) {
-        userLastAnalysis.set(userId, {
-            ...analysis,
-            timestamp: new Date()
-        });
-    }
-}
-
-// Получить последний анализ пользователя
-function getLastUserAnalysis(userId) {
-    // 1. Проверяем кэш
-    const cached = userLastAnalysis.get(userId);
-    if (cached && (new Date() - cached.timestamp) < 5 * 60 * 1000) { // 5 минут
-        return cached;
-    }
-   
-    // 2. Проверяем активную сессию
-    if (sessionManager && sessionManager.hasActiveSession(userId)) {
-        const session = sessionManager.getActiveSession(userId);
-        if (session.analysisResults && session.analysisResults.length > 0) {
-            const lastAnalysis = session.analysisResults[session.analysisResults.length - 1];
-            saveUserLastAnalysis(userId, lastAnalysis);
-            return lastAnalysis;
-        }
-    }
-   
-    return null;
-}
-
-// =============================================================================
-// 🆕 КОМАНДЫ ДЛЯ РАБОТЫ С МОДЕЛЯМИ ОТПЕЧАТКОВ
-// =============================================================================
-
-// Команда /save_model - сохранить сессию как модель
-bot.onText(/\/save_model(?: (.+))?/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const modelName = match[1] || `Модель_${new Date().toLocaleDateString('ru-RU')}`;
-   
-    console.log(`💾 Пользователь ${userId} сохраняет модель: "${modelName}"`);
-   
-    // 🔥 НОВАЯ ЛОГИКА: используем FootprintManager
-    try {
-        // 1. Проверяем, есть ли данные для сохранения
-        const lastAnalysis = getLastUserAnalysis(userId);
-        const hasSession = sessionManager.hasActiveSession(userId);
-       
-        if (!lastAnalysis && !hasSession) {
-            await bot.sendMessage(chatId,
-                `❌ **Нет данных для сохранения**\n\n` +
-                `Сначала отправьте фото следа для анализа.\n\n` +
-                `📸 **Как сделать:**\n` +
-                `1. Отправьте одно фото для быстрого анализа\n` +
-                `2. Или начните сессию: /trail_start\n` +
-                `3. Отправьте 2+ фото одного следа\n` +
-                `4. Затем сохраните: /save_model "Имя модели"`
-            );
-            return;
-        }
-       
-        await bot.sendMessage(chatId,
-            `🔄 **Создаю модель "${modelName}"**\n\n` +
-            `📊 Анализирую данные...`
-        );
-       
-        let result;
-       
-        if (hasSession) {
-            // 🔥 СЕССИОННЫЙ РЕЖИМ: используем FootprintManager
-            const session = sessionManager.getActiveSession(userId);
-           
-            // Создаем FootprintManager
-            const footprintManager = new FootprintManager({
-                autoAlignment: true,
-                dbPath: './data/footprints'
-            });
-           
-            // Запускаем сессию
-            footprintManager.startNewSession(userId, session.name);
-           
-            // Добавляем все анализы из сессии
-            if (session.analysisResults && session.analysisResults.length > 0) {
-                let addedCount = 0;
-                for (const analysis of session.analysisResults) {
-                    if (analysis.predictions && analysis.predictions.length > 0) {
-                        const fpAnalysis = {
-                            id: analysis.id || `analysis_${Date.now()}`,
-                            predictions: analysis.predictions.filter(p => p.class === 'shoe-protector'),
-                            timestamp: analysis.timestamp || new Date(),
-                            confidence: analysis.confidence || 0.7
-                        };
-                       
-                        const photoPath = analysis.localPhotoPath || analysis.photoPath;
-                       
-                        const alignmentResult = await footprintManager.addPhotoToSession(
-                            fpAnalysis,
-                            photoPath,
-                            {
-                                userId: userId,
-                                sessionId: session.id,
-                                photoIndex: ++addedCount
-                            }
-                        );
-                       
-                        console.log(`📸 Добавлено фото ${addedCount}: ${alignmentResult.alignmentScore ? (alignmentResult.alignmentScore * 100).toFixed(1) + '%' : 'без совмещения'}`);
-                    }
-                }
-            }
-           
-            // Сохраняем модель
-            result = await footprintManager.saveSessionAsModel(modelName);
-           
-        } else {
-            // 🔥 ОДИНОЧНОЕ ФОТО: создаем модель из одного фото
-            const footprintManager = new FootprintManager({
-                autoAlignment: false, // для одного фото совмещение не нужно
-                dbPath: './data/footprints'
-            });
-           
-            footprintManager.startNewSession(userId, `single_${Date.now()}`);
-           
-            const fpAnalysis = {
-                id: lastAnalysis.id || `analysis_${Date.now()}`,
-                predictions: lastAnalysis.predictions.filter(p => p.class === 'shoe-protector'),
-                timestamp: lastAnalysis.timestamp || new Date(),
-                confidence: lastAnalysis.confidence || 0.7
-            };
-           
-            await footprintManager.addPhotoToSession(
-                fpAnalysis,
-                lastAnalysis.localPhotoPath,
-                {
-                    userId: userId,
-                    photoIndex: 1
-                }
-            );
-           
-            result = await footprintManager.saveSessionAsModel(modelName);
-        }
-       
-        // Формируем ответ
-        let response = `✅ **МОДЕЛЬ СОХРАНЕНА!**\n\n`;
-        response += `📝 **Имя:** ${modelName}\n`;
-        response += `🆔 **ID:** ${result.modelId ? result.modelId.slice(0, 8) + '...' : 'сгенерирован'}\n`;
-       
-        if (result.stats) {
-            response += `📊 **Узлов:** ${result.stats.nodes || 0}\n`;
-            response += `🔗 **Связей:** ${result.stats.edges || 0}\n`;
-            response += `💎 **Качество:** ${result.stats.topologyQuality ? (result.stats.topologyQuality * 100).toFixed(1) + '%' : 'не оценено'}\n`;
-        }
-       
-        response += `\n🎯 **ЧТО ДЕЛАТЬ ДАЛЬШЕ:**\n`;
-        response += `/my_models - Посмотреть все модели\n`;
-        response += `/find_similar - Найти похожие следы\n`;
-        response += `/view_[ID] - Просмотреть модель`;
-       
-        await bot.sendMessage(chatId, response);
-       
-    } catch (error) {
-        console.log('❌ Ошибка сохранения модели:', error);
-        await bot.sendMessage(chatId,
-            `❌ **Не удалось сохранить модель**\n\n` +
-            `Ошибка: ${error.message}\n\n` +
-            `💡 **Возможные причины:**\n` +
-            `• Нет данных о протекторах на фото\n` +
-            `• Проблема с записью в базу данных\n` +
-            `• Недостаточно памяти`
-        );
-    }
-});
-
 // Команда /alignment_status - статус автосовмещения
 bot.onText(/\/alignment_status/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+
     try {
+        const { FootprintManager } = require('./modules/footprint');
         const footprintManager = new FootprintManager();
-       
+
         const response = `🎯 **СТАТУС АВТОСОВМЕЩЕНИЯ**\n\n` +
                         `🔧 **Состояние:** ${footprintManager.alignmentConfig.enabled ? 'ВКЛЮЧЕНО ✅' : 'ВЫКЛЮЧЕНО ⚠️'}\n` +
                         `🎯 **Минимальный score:** ${footprintManager.alignmentConfig.minAlignmentScore}\n` +
@@ -2677,7 +2684,7 @@ bot.onText(/\/alignment_status/, async (msg) => {
                         `/auto_alignment on - включить автосовмещение\n` +
                         `/auto_alignment off - выключить\n` +
                         `/alignment_settings - настроить параметры`;
-       
+
         await bot.sendMessage(chatId, response);
     } catch (error) {
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
@@ -2689,11 +2696,12 @@ bot.onText(/\/auto_alignment (on|off)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const action = match[1];
-   
+
     try {
+        const { FootprintManager } = require('./modules/footprint');
         const footprintManager = new FootprintManager();
         const enabled = footprintManager.setAutoAlignment(action === 'on');
-       
+
         await bot.sendMessage(chatId,
             `🔧 **АВТОСОВМЕЩЕНИЕ ${enabled ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}**\n\n` +
             `Теперь при добавлении фото в сессию система будет:\n` +
@@ -2709,14 +2717,14 @@ bot.onText(/\/auto_alignment (on|off)/, async (msg, match) => {
 bot.onText(/\/my_models/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+
     console.log(`📚 Пользователь ${userId} запрашивает свои модели`);
-   
+
     await bot.sendMessage(chatId, '📚 Загружаю ваши модели...');
-   
+
     try {
         const models = await FootprintManager.getUserModels(userId);
-       
+
         if (!models || models.length === 0) {
             await bot.sendMessage(chatId,
                 `📭 **У вас нет сохраненных моделей**\n\n` +
@@ -2732,14 +2740,14 @@ bot.onText(/\/my_models/, async (msg) => {
             );
             return;
         }
-       
+
         let response = `📚 **ВАШИ МОДЕЛИ** (${models.length})\n\n`;
-       
+
         // Показываем максимум 5 моделей
         models.slice(0, 5).forEach((model, index) => {
             const date = new Date(model.stats.created).toLocaleDateString('ru-RU');
             const shortId = model.id.slice(0, 8);
-           
+
             response += `**${index + 1}. ${model.name}**\n`;
             response += `   🆔 ${shortId}...\n`;
             response += `   📅 ${date}\n`;
@@ -2747,18 +2755,18 @@ bot.onText(/\/my_models/, async (msg) => {
             response += `   💎 ${Math.round(model.stats.confidence * 100)}% уверенность\n`;
             response += `   🔍 /view_${shortId}\n\n`;
         });
-       
+
         if (models.length > 5) {
             response += `... и еще ${models.length - 5} моделей\n\n`;
         }
-       
+
         response += `💡 **Используйте:**\n`;
         response += `/view_[ID] - Детали модели (первые 8 символов)\n`;
         response += `/find_similar - Найти похожие\n`;
         response += `/footprint_stats - Статистика системы`;
-       
+
         await bot.sendMessage(chatId, response);
-       
+
     } catch (error) {
         console.log('❌ Ошибка загрузки моделей:', error);
         await bot.sendMessage(chatId,
@@ -2769,16 +2777,17 @@ bot.onText(/\/my_models/, async (msg) => {
     }
 });
 
-bot.onText(/\/find_similar/, async (msg) => {  // ⚠️ ВАЖНО: добавить async здесь
+// Команда /find_similar - найти похожие модели
+bot.onText(/\/find_similar/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+
     console.log(`🔍 Пользователь ${userId} ищет похожие модели`);
-   
+
     try {
         // Проверяем, есть ли последний анализ
         const lastAnalysis = getLastUserAnalysis(userId);
-       
+
         if (!lastAnalysis || !lastAnalysis.predictions || lastAnalysis.predictions.length === 0) {
             await bot.sendMessage(chatId,
                 `❌ **Нет данных для поиска**\n\n` +
@@ -2791,10 +2800,10 @@ bot.onText(/\/find_similar/, async (msg) => {  // ⚠️ ВАЖНО: добав
             );
             return;
         }
-       
+
         // Начинаем поиск
         await bot.sendMessage(chatId, `🔍 Ищу похожие модели...`);
-       
+
         // Начинаем поиск с топологической коррекцией
         await bot.sendMessage(chatId,
             `🔍 **Запускаю УМНЫЙ поиск...**\n\n` +
@@ -2815,7 +2824,7 @@ bot.onText(/\/find_similar/, async (msg) => {  // ⚠️ ВАЖНО: добав
                 limit: 5
             }
         );
-       
+
         // Формируем ответ
         if (!similar || similar.length === 0) {
             await bot.sendMessage(chatId,
@@ -2826,103 +2835,31 @@ bot.onText(/\/find_similar/, async (msg) => {  // ⚠️ ВАЖНО: добав
             );
             return;
         }
-       
+
         // Отображаем результаты
         let response = `🔍 **Найдено похожих моделей:** ${similar.length}\n\n`;
-       
+
         similar.forEach((match, index) => {
             const model = match.footprint;
             const shortId = model.id.slice(0, 8);
-           
+
             response += `**${index + 1}. ${model.name || 'Без имени'}**\n`;
             response += `   🆔 ${shortId}\n`;
             response += `   📊 Совпадение: ${Math.round(match.score * 100)}%\n`;
             response += `   👣 Узлов: ${model.nodes.size}\n`;
             response += `   👁️ /view_${shortId}\n\n`;
         });
-       
+
         response += `💡 **Что это значит?**\n`;
         response += `• >80% - Возможно, та же обувь\n`;
         response += `• 60-80% - Похожий тип протектора\n`;
         response += `• <60% - Случайное совпадение`;
-       
+
         await bot.sendMessage(chatId, response);
-       
+
     } catch (error) {
         console.log('❌ Ошибка /find_similar:', error);
         await bot.sendMessage(chatId, `❌ Ошибка поиска: ${error.message}`);
-    }
-});
-
-// =============================================================================
-// 🔍 КОМАНДА /FIND_SIMILAR_FOR - поиск похожих для конкретной модели
-// =============================================================================
-
-bot.onText(/\/find_similar_for (.+)/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const modelId = match[1];
-
-    try {
-        // 1. Находим модель
-        const models = await FootprintManager.getUserModels(userId);
-        const targetModel = models.find(m => m.id.startsWith(modelId));
-
-        if (!targetModel) {
-            await bot.sendMessage(chatId, `❌ Модель не найдена`);
-            return;
-        }
-
-        // 2. Создаем временный анализ из модели
-        const tempAnalysis = {
-            predictions: Array.from(targetModel.nodes.values()).map(node => ({
-                class: 'shoe-protector',
-                confidence: node.confidence,
-                points: [{ x: node.center.x, y: node.center.y }]
-            })),
-            confidence: targetModel.stats.confidence
-        };
-
-        // 3. Ищем похожие
-        await bot.sendMessage(chatId, `🔍 Ищу похожие для модели "${targetModel.name}"...`);
-
-        const similar = await FootprintManager.findSimilarForAnalysis(
-            tempAnalysis,
-            userId,
-            {
-                threshold: 0.6,
-                limit: 5,
-                excludeModelId: targetModel.id
-            }
-        );
-
-        // 4. Результаты
-        if (!similar || similar.length === 0) {
-            await bot.sendMessage(chatId,
-                `🎯 **Уникальная модель!**\n\n` +
-                `Модель "${targetModel.name}" не похожа ни на одну другую.\n\n` +
-                `👁️ /view_${targetModel.id.slice(0, 8)}`
-            );
-            return;
-        }
-
-        let response = `🔍 **Похожие для "${targetModel.name}":** ${similar.length}\n\n`;
-
-        similar.forEach((match, index) => {
-            const model = match.footprint;
-            const shortId = model.id.slice(0, 8);
-
-            response += `**${index + 1}. ${model.name}**\n`;
-            response += `   💎 ${Math.round(match.score * 100)}%\n`;
-            response += `   👣 ${model.nodes.size} узлов\n`;
-            response += `   🔄 /compare_models ${targetModel.id.slice(0, 8)} ${shortId}\n\n`;
-        });
-
-        await bot.sendMessage(chatId, response);
-
-    } catch (error) {
-        console.log('❌ Ошибка /find_similar_for:', error);
-        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
     }
 });
 
@@ -2996,53 +2933,6 @@ bot.onText(/\/footprint_stats/, async (msg) => {
     }
 });
 
-// В main.js добавить:
-bot.onText(/\/trust_compare (.+) (.+)/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const [id1, id2] = match.slice(1);
-
-    try {
-        const models = await FootprintManager.getUserModels(userId);
-        const model1 = models.find(m => m.id.startsWith(id1));
-        const model2 = models.find(m => m.id.startsWith(id2));
-
-        if (!model1 || !model2) {
-            await bot.sendMessage(chatId, '❌ Модели не найдены');
-            return;
-        }
-
-        // Сравнение
-        const comparison = model1.compareEnhanced(model2);
-       
-        // Пути к фото
-        const photo1 = model1.bestPhotoInfo?.path;
-        const photo2 = model2.bestPhotoInfo?.path;
-       
-        // Создаем доверительную визуализацию
-        const TrustVisualizer = require('./modules/footprint/trust-visualizer');
-        const visualizer = new TrustVisualizer();
-        const vizPath = await visualizer.createTrustworthyComparison(
-            model1, model2, comparison, photo1, photo2
-        );
-       
-        if (vizPath) {
-            await bot.sendPhoto(chatId, vizPath, {
-                caption: `🔍 ДОВЕРИТЕЛЬНОЕ СРАВНЕНИЕ\n` +
-                        `🎯 Совпадение: ${Math.round(comparison.score * 100)}%\n` +
-                        `🔄 Применен поворот: ${comparison.details?.rotationAngleDegrees?.toFixed(1) || 0}°\n` +
-                        `📐 PCA модель1: ${(model1.topologyInvariants?.normalizationParams?.rotation * 180 / Math.PI || 0).toFixed(1)}°\n` +
-                        `📐 PCA модель2: ${(model2.topologyInvariants?.normalizationParams?.rotation * 180 / Math.PI || 0).toFixed(1)}°`
-            });
-        }
-
-    } catch (error) {
-        console.log('❌ Ошибка trust compare:', error);
-        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
-    }
-});
-
-// Обработка команд вида /view_XXXXXXX (просмотр модели)
 // Команда /view_XXXXXXX - просмотр модели с улучшенной визуализацией
 bot.onText(/\/view_([a-f0-9_]+)/i, async (msg, match) => {
     const chatId = msg.chat.id;
@@ -3153,23 +3043,22 @@ bot.onText(/\/view_([a-f0-9_]+)/i, async (msg, match) => {
 
                 await bot.sendPhoto(chatId, vizPath, {
                     caption: caption
-                    // Убрали parse_mode
                 });
 
                 // Очистка через tempFileManager
                 const keepFileForMinutes = 5; // Храним 5 минут
-if (vizPath && fs.existsSync(vizPath)) {
-    setTimeout(() => {
-        try {
-            if (fs.existsSync(vizPath)) {
-                fs.unlinkSync(vizPath);
-                console.log(`🧹 Удален файл визуализации: ${vizPath}`);
-            }
-        } catch (err) {
-            console.log(`⚠️ Не удалось удалить файл: ${err.message}`);
-        }
-    }, keepFileForMinutes * 60 * 1000);
-}
+                if (vizPath && fs.existsSync(vizPath)) {
+                    setTimeout(() => {
+                        try {
+                            if (fs.existsSync(vizPath)) {
+                                fs.unlinkSync(vizPath);
+                                console.log(`🧹 Удален файл визуализации: ${vizPath}`);
+                            }
+                        } catch (err) {
+                            console.log(`⚠️ Не удалось удалить файл: ${err.message}`);
+                        }
+                    }, keepFileForMinutes * 60 * 1000);
+                }
 
             } else {
                 await bot.sendMessage(chatId,
@@ -3362,7 +3251,6 @@ bot.onText(/\/compare_models (.+) (.+)/, async (msg, match) => {
     }
 });
 
-
 // =============================================================================
 // 🔄 ОБРАБОТЧИК CALLBACK-КНОПОК ДЛЯ ОБРАТНОЙ СВЯЗИ
 // =============================================================================
@@ -3375,14 +3263,14 @@ bot.on('callback_query', async (callbackQuery) => {
     const userId = callbackQuery.from.id;
     const messageId = callbackQuery.message.message_id;
     const data = callbackQuery.data;
-   
+
     try {
         // Обработка основной feedback кнопки
         if (data === 'feedback_correct') {
             await bot.answerCallbackQuery(callbackQuery.id, {
                 text: 'Спасибо за подтверждение!'
             });
-           
+
             // Сохраняем в базу
             const feedbackData = {
                 userId: userId,
@@ -3391,9 +3279,9 @@ bot.on('callback_query', async (callbackQuery) => {
                 imageId: 'unknown',
                 timestamp: new Date().toISOString()
             };
-           
+
             feedbackDB.addFeedback(feedbackData);
-           
+
             // Обновляем сообщение
             await bot.editMessageText(
                 `✅ Спасибо! Ваш ответ поможет улучшить точность анализа.`,
@@ -3402,10 +3290,10 @@ bot.on('callback_query', async (callbackQuery) => {
                     message_id: messageId
                 }
             );
-           
+
         } else if (data === 'feedback_incorrect') {
             await bot.answerCallbackQuery(callbackQuery.id);
-           
+
             // Показываем меню выбора типа ошибки
             await bot.editMessageText(
                 `Что не так с анализом? Выберите вариант:`,
@@ -3415,16 +3303,16 @@ bot.on('callback_query', async (callbackQuery) => {
                     reply_markup: feedbackManager.createCorrectionKeyboard()
                 }
             );
-           
+
         }
         // Обработка конкретных исправлений
         else if (data.startsWith('correction_')) {
             const correctionType = data.replace('correction_', '');
-           
+
             await bot.answerCallbackQuery(callbackQuery.id, {
                 text: 'Спасибо за исправление!'
             });
-           
+
             // Сохраняем в базу
             const feedbackData = {
                 userId: userId,
@@ -3432,15 +3320,15 @@ bot.on('callback_query', async (callbackQuery) => {
                 correctionType: correctionType,
                 imageId: 'unknown',
                 timestamp: new Date().toISOString(),
-                notes: this.getCorrectionDescription(correctionType)
+                notes: getCorrectionDescription(correctionType)
             };
-           
+
             feedbackDB.addFeedback(feedbackData);
-           
+
             // Обновляем сообщение
             await bot.editMessageText(
                 `✅ Спасибо за исправление!\n` +
-                `Тип: ${this.getCorrectionDescription(correctionType)}\n` +
+                `Тип: ${getCorrectionDescription(correctionType)}\n` +
                 `Это поможет значительно улучшить точность модели.`,
                 {
                     chat_id: chatId,
@@ -3448,7 +3336,7 @@ bot.on('callback_query', async (callbackQuery) => {
                 }
             );
         }
-       
+
     } catch (error) {
         console.log('❌ Ошибка обработки callback:', error);
         await bot.answerCallbackQuery(callbackQuery.id, {
@@ -3468,7 +3356,7 @@ function getCorrectionDescription(type) {
         'other_class': '🔍 Другой класс',
         'correct': '✅ Правильно'
     };
-   
+
     return descriptions[type] || type;
 }
 
@@ -3479,37 +3367,37 @@ function getCorrectionDescription(type) {
 async function setupWebhook() {
     try {
         console.log('🔄 Настраиваю вебхук...');
-       
+
         // 1. Удаляем старый вебхук
         const deleted = await bot.deleteWebHook({ drop_pending_updates: true });
         console.log('✅ Старый вебхук удален:', deleted);
-       
+
         // 2. Ждем 2 секунды
         await new Promise(resolve => setTimeout(resolve, 2000));
-       
+
         // 3. Устанавливаем новый вебхук
         // ⚠️ ВАЖНО: Используйте ВАШ URL от Render
         const webhookUrl = `https://shoe-print-bot.onrender.com/bot${config.TELEGRAM_TOKEN}`;
         console.log('🔗 Устанавливаю вебхук:', webhookUrl);
-       
+
         const result = await bot.setWebHook(webhookUrl, {
             max_connections: 40,
             allowed_updates: ["message", "callback_query", "polling_answer"]
         });
-       
+
         console.log('✅ Вебхук установлен:', result);
-       
+
         // 4. Проверяем
         const info = await bot.getWebHookInfo();
         console.log('📊 Информация о вебхуке:');
         console.log('- URL:', info.url);
         console.log('- Ошибок:', info.last_error_message || 'нет');
         console.log('- Ожидающих обновлений:', info.pending_update_count);
-       
+
     } catch (error) {
         console.log('❌ КРИТИЧЕСКАЯ ошибка вебхука:', error.message);
         console.log('⚠️ Если вебхук не работает, запускаю polling как запасной вариант...');
-       
+
         // Fallback на polling если вебхук не работает
         setTimeout(() => {
             bot.startPolling().then(() => {
@@ -3557,10 +3445,11 @@ app.get('/webhook-test', async (req, res) => {
     }
 });
 
-// Запуск сервера
+// Запуск сервеера
 app.listen(config.PORT, () => {
     console.log(`✅ Сервер запущен на порту ${config.PORT}`);
     console.log(`🤖 Telegram бот готов к работе`);
     console.log(`🎯 Практический анализ для ПСО активирован`);
     console.log(`🐕 Фильтрация животных: активна`);
+    console.log(`👣 FootprintManager с автосовмещением: ИНТЕГРИРОВАН`);
 });
