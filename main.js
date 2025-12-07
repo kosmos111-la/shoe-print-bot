@@ -2284,34 +2284,82 @@ bot.on('photo', async (msg) => {
 bot.onText(/\/footprint_test/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-
+   
     try {
+        // Проверяем базовую функциональность
+        await bot.sendMessage(chatId, `🎯 **ТЕСТ СИСТЕМЫ ОТПЕЧАТКОВ**\n\nПроверяю модули...`);
+       
+        // 1. Проверяем импорт
+        let modulesLoaded = 0;
+        const modules = ['DigitalFootprint', 'FootprintDatabase', 'FootprintManager', 'PointCloudAligner'];
+       
+        for (const moduleName of modules) {
+            try {
+                const module = require(`./modules/footprint/${moduleName.toLowerCase()}`);
+                console.log(`✅ ${moduleName} загружен`);
+                modulesLoaded++;
+            } catch (e) {
+                console.log(`❌ ${moduleName}: ${e.message}`);
+            }
+        }
+       
+        // 2. Создаем тестовую модель
         const { FootprintManager } = require('./modules/footprint');
         const manager = new FootprintManager({ autoAlignment: true });
-
-        await bot.sendMessage(chatId,
-            `🎯 **ТЕСТ FOOTPRINTMANAGER**\n\n` +
-            `✅ Система загружена успешно!\n` +
-            `🔧 Автосовмещение: ${manager.alignmentConfig.enabled ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}\n` +
-            `🎯 Минимальный score: ${manager.alignmentConfig.minAlignmentScore}\n` +
-            `📊 Точек для совмещения: от ${manager.alignmentConfig.minPointsForAlignment}\n\n` +
-            `🚀 **Готов к работе!**\n\n` +
-            `💡 **Как использовать:**\n` +
-            `1. Начните сессию: /trail_start\n` +
-            `2. Отправьте 2+ фото одного следа\n` +
-            `3. Система автоматически совместит следы\n` +
-            `4. Сохраните модель: /save_model "Название"\n\n` +
-            `📊 Статус: /alignment_status`
-        );
-
+       
+        // 3. Тестируем сессию
+        const session = manager.startNewSession('test_user', 'Тестовая сессия');
+       
+        // 4. Создаем тестовые данные с реальными координатами
+        const testPoints = [];
+        for (let i = 0; i < 10; i++) {
+            testPoints.push({
+                x: Math.random() * 100 + 50,
+                y: Math.random() * 100 + 50,
+                confidence: 0.8,
+                class: 'shoe-protector'
+            });
+        }
+       
+        const testAnalysis = {
+            id: 'test_1',
+            predictions: testPoints,
+            timestamp: new Date()
+        };
+       
+        // 5. Добавляем фото
+        const result = await manager.addPhotoToSession(testAnalysis, 'test.jpg', {});
+       
+        let response = `🎯 **ТЕСТ ПРОЙДЕН!**\n\n`;
+        response += `✅ Модулей загружено: ${modulesLoaded}/${modules.length}\n`;
+        response += `✅ FootprintManager создан\n`;
+        response += `✅ Сессия запущена: ${session.id.slice(0, 8)}...\n`;
+        response += `✅ Фото добавлено: ${result.added || 0} узлов\n`;
+       
+        if (result.alignmentScore) {
+            response += `✅ Автосовмещение: ${(result.alignmentScore * 100).toFixed(1)}%\n`;
+        } else {
+            response += `📌 Автосовмещение: не применялось (первое фото)\n`;
+        }
+       
+        response += `\n🚀 **СИСТЕМА ГОТОВА К РАБОТЕ!**\n\n`;
+        response += `💡 **Попробуйте:**\n`;
+        response += `1. /trail_start - начать сессию\n`;
+        response += `2. Отправить 2+ фото одного следа\n`;
+        response += `3. /save_model "Моя модель" - сохранить\n`;
+        response += `4. /my_models - посмотреть модели`;
+       
+        await bot.sendMessage(chatId, response);
+       
     } catch (error) {
+        console.log('❌ Ошибка теста:', error);
         await bot.sendMessage(chatId,
-            `❌ **Ошибка загрузки FootprintManager**\n\n` +
+            `❌ **ОШИБКА ТЕСТА**\n\n` +
             `Ошибка: ${error.message}\n\n` +
             `💡 **Проверьте:**\n` +
-            `• Папка modules/footprint/ существует\n` +
-            `• Все файлы на месте\n` +
-            `• Зависимости установлены`
+            `1. Файлы в modules/footprint/\n` +
+            `2. Папка data/footprints/ существует\n` +
+            `3. Права на запись в папку data/`
         );
     }
 });
