@@ -2554,6 +2554,53 @@ bot.onText(/\/alignment_test/, async (msg) => {
     }
 });
 
+bot.onText(/\/debug_coords/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    try {
+        if (sessionManager && sessionManager.hasActiveSession(userId)) {
+            const session = sessionManager.getActiveSession(userId);
+           
+            // Создаем временный DigitalFootprint для проверки
+            const DigitalFootprint = require('./modules/footprint/digital-footprint');
+            const testFootprint = new DigitalFootprint({
+                name: 'Тест координат',
+                userId: userId
+            });
+           
+            // Добавляем данные из последнего анализа
+            if (session.analysisResults && session.analysisResults.length > 0) {
+                const lastAnalysis = session.analysisResults[session.analysisResults.length - 1];
+                testFootprint.addAnalysis(lastAnalysis, {});
+               
+                // Диагностика
+                const diagnosis = testFootprint.diagnoseCoordinates();
+               
+                await bot.sendMessage(chatId,
+                    `🔍 ДИАГНОСТИКА КООРДИНАТ:\n\n` +
+                    `Узлов: ${diagnosis.nodes}\n` +
+                    `Оригинальных координат: ${diagnosis.originalCoords}\n` +
+                    `Нормализованных: ${diagnosis.normalizedCoords}\n\n` +
+                    `Примеры узлов:\n` +
+                    diagnosis.samples.map(s =>
+                        `${s.id}: оригинал ${JSON.stringify(s.original)}\n` +
+                        `       текущие ${JSON.stringify(s.current)}\n` +
+                        `       нормал ${JSON.stringify(s.normalized)}`
+                    ).join('\n\n')
+                );
+            } else {
+                await bot.sendMessage(chatId, '❌ Нет данных анализа в сессии');
+            }
+        } else {
+            await bot.sendMessage(chatId, '❌ Нет активной сессии');
+        }
+    } catch (error) {
+        console.log('❌ Ошибка диагностики:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
