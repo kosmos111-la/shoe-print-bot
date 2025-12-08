@@ -472,22 +472,45 @@ class DigitalFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Извлечь точки из протекторов для совмещения
     extractAlignmentPointsFromProtectors(protectors) {
-        console.log('🔍 DEBUG extractAlignmentPointsFromProtectors CALLED');
-        console.log(`  - protectors.length: ${protectors.length}`);
-
-        const points = protectors.map((p, index) => {
-            const center = this.calculateCenter(p.points);
-            console.log(`  - Протектор ${index}: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
-            return {
-                x: center.x,
-                y: center.y,
-                confidence: p.confidence || 0.5,
-                id: `new_${Date.now()}_${index}`
-            };
-        });
-
-        return points;
+    console.log('🔍 DEBUG extractAlignmentPointsFromProtectors CALLED');
+    console.log(`  - protectors.length: ${protectors.length}`);
+   
+    if (!protectors || protectors.length === 0) {
+        console.log('⚠️ Нет протекторов для совмещения');
+        return [];
     }
+   
+    // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА: не все ли точки (0,0)?
+    const firstProtector = protectors[0];
+    if (firstProtector && firstProtector.points) {
+        const samplePoint = firstProtector.points[0];
+        console.log(`  - Пример точки: x=${samplePoint?.x || 'N/A'}, y=${samplePoint?.y || 'N/A'}`);
+       
+        // Если первая точка (0,0), проверяем все
+        if (samplePoint && samplePoint.x === 0 && samplePoint.y === 0) {
+            const allZero = protectors.every(p =>
+                p.points && p.points.every(pt => pt.x === 0 && pt.y === 0)
+            );
+            if (allZero) {
+                console.log('🚨 КРИТИЧЕСКАЯ ОШИБКА: Все точки протектора в (0,0)!');
+                console.log('   Возвращаю пустой массив для предотвращения ошибки');
+                return [];
+            }
+        }
+    }
+   
+    // Нормальная обработка
+    return protectors.map((p, index) => {
+        const center = this.calculateCenter(p.points);
+        console.log(`  - Протектор ${index}: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+        return {
+            x: center.x,
+            y: center.y,
+            confidence: p.confidence || 0.5,
+            id: `new_${Date.now()}_${index}`
+        };
+    });
+}
 
     // 🔥 НОВЫЙ МЕТОД: Трансформировать точку с результатом совмещения
     transformPointWithAlignment(point, alignmentResult) {
