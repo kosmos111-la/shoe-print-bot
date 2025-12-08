@@ -108,49 +108,6 @@ class DigitalFootprint {
         this.version = '2.6'; // 🔥 Обновляем версию
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Диагностика координат
-    diagnoseCoordinates() {
-        console.log('🔍 ДИАГНОСТИКА КООРДИНАТ');
-
-        const data = {
-            nodes: this.nodes.size,
-            originalCoords: this.originalCoordinates ? this.originalCoordinates.size : 0,
-            normalizedCoords: this.topologyInvariants.normalizedNodes ?
-                            this.topologyInvariants.normalizedNodes.size : 0,
-            samples: []
-        };
-
-        // Берем первые 3 узла для анализа
-        let count = 0;
-        for (const [nodeId, node] of this.nodes) {
-            if (count >= 3) break;
-
-            const original = this.originalCoordinates.get(nodeId);
-            const normalized = this.topologyInvariants.normalizedNodes.get(nodeId);
-
-            data.samples.push({
-                id: nodeId.slice(-3),
-                original: original ? {
-                    x: original.x ? original.x.toFixed(1) : 'N/A',
-                    y: original.y ? original.y.toFixed(1) : 'N/A'
-                } : 'нет',
-                current: {
-                    x: node.center ? node.center.x.toFixed(1) : 'N/A',
-                    y: node.center ? node.center.y.toFixed(1) : 'N/A'
-                },
-                normalized: normalized ? {
-                    x: normalized.x ? normalized.x.toFixed(3) : 'N/A',
-                    y: normalized.y ? normalized.y.toFixed(3) : 'N/A'
-                } : 'нет'
-            });
-
-            count++;
-        }
-
-        console.log('📊 Данные координат:', JSON.stringify(data, null, 2));
-        return data;
-    }
-
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Получить точки модели для совмещения (ИСПОЛЬЗУЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ!)
     getAlignmentPointsFromNodes() {
         console.log('🔍 DEBUG getAlignmentPointsFromNodes CALLED');
@@ -195,17 +152,29 @@ class DigitalFootprint {
 
         console.log(`  - Возвращаю ${points.length} точек`);
         if (points.length > 0) {
-            console.log(`  - Пример точки: x=${points[0].x.toFixed(1)}, y=${points[0].y.toFixed(1)}`);
+            console.log(`  - Пример точки: x=${points[0].x?.toFixed(1) || 'undefined'}, y=${points[0].y?.toFixed(1) || 'undefined'}`);
         }
 
         console.log(`📍 getAlignmentPoints: ${points.length} точек (${points.filter(p => p.isOriginal).length} оригинальных)`);
         return points;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Сохранить оригинальные координаты узла
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Сохранить оригинальные координаты узла
     saveOriginalCoordinates(nodeId, center, points = null) {
         if (!this.originalCoordinates) {
             this.originalCoordinates = new Map();
+        }
+
+        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА
+        console.log('📍 saveOriginalCoordinates:');
+        console.log(`  - nodeId: ${nodeId}`);
+        console.log(`  - center.x: ${center?.x || 'undefined'}, center.y: ${center?.y || 'undefined'}`);
+        console.log(`  - center is (0,0)?: ${center?.x === 0 && center?.y === 0 ? 'ДА!' : 'нет'}`);
+
+        // 🔥 Добавить проверку на undefined
+        if (center === undefined || center.x === undefined || center.y === undefined) {
+            console.log('🚨 ОШИБКА: center не определен!');
+            return false;
         }
 
         this.originalCoordinates.set(nodeId, {
@@ -219,51 +188,129 @@ class DigitalFootprint {
         return true;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Получить оригинальные координаты узла
-    getOriginalCoordinates(nodeId) {
-        if (!this.originalCoordinates || !this.originalCoordinates.has(nodeId)) {
-            return null;
+    // 🔥 НОВЫЙ МЕТОД: Диагностика координат
+    diagnoseCoordinates() {
+        console.log('🔍 ДИАГНОСТИКА КООРДИНАТ');
+
+        const data = {
+            nodes: this.nodes.size,
+            originalCoords: this.originalCoordinates ? this.originalCoordinates.size : 0,
+            normalizedCoords: this.topologyInvariants.normalizedNodes ?
+                            this.topologyInvariants.normalizedNodes.size : 0,
+            samples: []
+        };
+
+        // Берем первые 3 узла для анализа
+        let count = 0;
+        for (const [nodeId, node] of this.nodes) {
+            if (count >= 3) break;
+
+            const original = this.originalCoordinates.get(nodeId);
+            const normalized = this.topologyInvariants.normalizedNodes.get(nodeId);
+
+            data.samples.push({
+                id: nodeId.slice(-3),
+                original: original ? {
+                    x: original.x ? original.x.toFixed(1) : 'N/A',
+                    y: original.y ? original.y.toFixed(1) : 'N/A'
+                } : 'нет',
+                current: {
+                    x: node.center ? node.center.x.toFixed(1) : 'N/A',
+                    y: node.center ? node.center.y.toFixed(1) : 'N/A'
+                },
+                normalized: normalized ? {
+                    x: normalized.x ? normalized.x.toFixed(3) : 'N/A',
+                    y: normalized.y ? normalized.y.toFixed(3) : 'N/A'
+                } : 'нет'
+            });
+
+            count++;
         }
 
-        return this.originalCoordinates.get(nodeId);
+        console.log('📊 Данные координат:', JSON.stringify(data, null, 2));
+        return data;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Глубокая диагностика анализа
+    diagnoseAnalysisData(analysis) {
+        console.log('\n🔍 ГЛУБОКАЯ ДИАГНОСТИКА АНАЛИЗА 🔍');
+       
+        const { predictions } = analysis;
+       
+        if (!predictions) {
+            console.log('🚨 Нет predictions в анализе!');
+            return;
+        }
+       
+        console.log(`Всего объектов: ${predictions.length}`);
+       
+        const classes = {};
+        predictions.forEach(p => {
+            classes[p.class] = (classes[p.class] || 0) + 1;
+        });
+       
+        console.log('Распределение по классам:', classes);
+       
+        // Анализируем протекторы
+        const protectors = predictions.filter(p => p.class === 'shoe-protector');
+        console.log(`\n🎯 Протекторы (${protectors.length}):`);
+       
+        protectors.forEach((p, i) => {
+            console.log(`  ${i}. confidence: ${p.confidence}, points: ${p.points?.length || 0}`);
+            if (p.points && p.points.length > 0) {
+                const first = p.points[0];
+                console.log(`     первая точка: (${first.x}, ${first.y})`);
+               
+                // Проверяем все ли точки (0,0)
+                const allZero = p.points.every(pt => pt.x === 0 && pt.y === 0);
+                if (allZero) {
+                    console.log(`     🚨 ВСЕ ТОЧКИ (0,0)!`);
+                }
+            }
+        });
+       
+        // Сохраняем для отладки
+        this.lastAnalysisDiagnosis = {
+            timestamp: new Date(),
+            totalPredictions: predictions.length,
+            classes: classes,
+            protectors: protectors.map(p => ({
+                confidence: p.confidence,
+                pointCount: p.points?.length,
+                firstPoint: p.points?.[0],
+                allZero: p.points ? p.points.every(pt => pt.x === 0 && pt.y === 0) : null
+            }))
+        };
+       
+        console.log('========================================\n');
     }
 
     // 🔥 НОВЫЙ МЕТОД: Автоматическое совмещение нового анализа с существующей моделью
     addAnalysisWithAlignment(analysis, sourceInfo = {}) {
         console.log('\n🎯 ===== ЗАПУСК АВТОМАТИЧЕСКОГО СОВМЕЩЕНИЯ =====');
 
-        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 1: анализ данных
-        console.log('🔍 ДИАГНОСТИКА анализа:');
-        console.log('  - analysis type:', typeof analysis);
-        console.log('  - predictions exists:', !!analysis.predictions);
-        console.log('  - predictions count:', analysis.predictions?.length || 0);
+        // 🔥 Запускаем глубокую диагностику
+        this.diagnoseAnalysisData(analysis);
 
         const { predictions } = analysis;
         const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
 
-        console.log('  - protectors count:', protectors.length);
-
-        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 2: точки протекторов
+        // 🔥 ПРОВЕРЬ ЗДЕСЬ
+        console.log('📥 addAnalysis получил протекторы:');
         if (protectors.length > 0) {
-            const firstProtector = protectors[0];
-            console.log('🔍 ПЕРВЫЙ ПРОТЕКТОР:');
-            console.log('  - class:', firstProtector.class);
-            console.log('  - confidence:', firstProtector.confidence);
-            console.log('  - points exists:', !!firstProtector.points);
-            console.log('  - points count:', firstProtector.points?.length || 0);
-
-            if (firstProtector.points && firstProtector.points.length > 0) {
-                console.log('  - point[0]:', firstProtector.points[0]);
-
-                // Проверяем не все ли точки (0,0)
-                const allZero = firstProtector.points.every(p => p.x === 0 && p.y === 0);
-                if (allZero) {
-                    console.log('🚨 КРИТИЧЕСКАЯ ОШИБКА: Все точки первого протектора (0,0)!');
-                    console.log('   Скорее всего, данные повреждены при передаче');
+            const first = protectors[0];
+            console.log(`  - Первый протектор points[0]: x=${first.points[0]?.x}, y=${first.points[0]?.y}`);
+            console.log(`  - Все точки (0,0)?: ${first.points.every(p => p.x === 0 && p.y === 0) ? 'ДА!' : 'нет'}`);
+           
+            // Проверим все протекторы
+            protectors.forEach((p, i) => {
+                if (p.points && p.points.length > 0) {
+                    const allZero = p.points.every(pt => pt.x === 0 && pt.y === 0);
+                    if (allZero) {
+                        console.log(`🚨 Протектор ${i} все точки (0,0)!`);
+                    }
                 }
-            } else {
-                console.log('⚠️ У протектора нет точек!');
-            }
+            });
         }
 
         // Продолжение оригинального кода
@@ -271,6 +318,32 @@ class DigitalFootprint {
         console.log(`📍 Оригинальных координат: ${this.originalCoordinates ? this.originalCoordinates.size : 0}`);
 
         const { timestamp, imagePath, photoQuality = 0.5 } = analysis;
+
+        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА СТРУКТУРЫ ДАННЫХ
+        if (!predictions || !Array.isArray(predictions)) {
+            console.log('🚨 КРИТИЧЕСКАЯ ОШИБКА: predictions нет или не массив!');
+            console.log('  analysis:', Object.keys(analysis));
+            console.log('  predictions type:', typeof predictions);
+            return {
+                error: 'Invalid analysis data',
+                added: 0,
+                merged: 0
+            };
+        }
+
+        // 🔥 ПРОВЕРКА ПЕРВОГО ПРОТЕКТОРА
+        if (protectors.length > 0) {
+            const sampleProtector = protectors[0];
+            if (!sampleProtector.points || !Array.isArray(sampleProtector.points)) {
+                console.log('🚨 КРИТИЧЕСКАЯ ОШИБКА: points нет или не массив в протекторе!');
+                console.log('  sampleProtector:', Object.keys(sampleProtector));
+                return {
+                    error: 'Invalid protector points',
+                    added: 0,
+                    merged: 0
+                };
+            }
+        }
 
         if (protectors.length < 3) {
             console.log('⚠️ Слишком мало протекторов для совмещения');
@@ -547,6 +620,94 @@ class DigitalFootprint {
         });
     }
 
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: СОЗДАНИЕ УЗЛА ИЗ ПРОТЕКТОРА
+    createNodeFromProtector(protector, sourceInfo) {
+        // 🔥 СНАЧАЛА ПРОВЕРИМ protector.points
+        console.log('🔍 createNodeFromProtector НАЧАЛО:');
+        console.log(`  - protector.points:`, protector.points?.length || 0);
+        console.log(`  - protector.points[0]:`, protector.points?.[0]);
+       
+        const center = this.calculateCenter(protector.points);
+        const size = this.calculateSize(protector.points);
+        const shape = this.estimateShape(protector.points);
+
+        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА
+        console.log('🔍 createNodeFromProtector РЕЗУЛЬТАТЫ:');
+        console.log(`  - protector.points[0]: x=${protector.points[0]?.x}, y=${protector.points[0]?.y}`);
+        console.log(`  - calculated center: x=${center.x}, y=${center.y}`);
+        console.log(`  - center is (0,0)?: ${center.x === 0 && center.y === 0 ? 'ДА!' : 'нет'}`);
+       
+        // 🔥 Проверка: если центр (0,0) и точки не (0,0) - проблема в calculateCenter
+        if (center.x === 0 && center.y === 0 && protector.points && protector.points.length > 0) {
+            const firstPoint = protector.points[0];
+            if (firstPoint.x !== 0 || firstPoint.y !== 0) {
+                console.log('🚨 КРИТИЧЕСКАЯ ОШИБКА: calculateCenter вернул (0,0) при ненулевых точках!');
+                console.log('  Проверяем calculateCenter...');
+                console.log('  protector.points:', JSON.stringify(protector.points.slice(0, 2)));
+            }
+        }
+
+        const nodeId = `node_${crypto.randomBytes(3).toString('hex')}`;
+
+        // 🔥 Сохраняем ОРИГИНАЛЬНЫЕ координаты (это важно!)
+        this.saveOriginalCoordinates(nodeId, center, protector.points);
+
+        return {
+            id: nodeId,
+            center: center,
+            size: size,
+            shape: shape,
+            confidence: protector.confidence || 0.5,
+            confirmationCount: 1,
+            sources: [{
+                ...sourceInfo,
+                originalPoints: protector.points,
+                timestamp: new Date()
+            }],
+            firstSeen: new Date(),
+            lastSeen: new Date(),
+            metadata: {
+                isStable: false,
+                isWeak: protector.confidence < 0.3,
+                clusterId: null,
+                neighbors: []
+            }
+        };
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: calculateCenter
+    calculateCenter(points) {
+        // 🔥 СНАЧАЛА ПРОСТО ПРОВЕРИМ - ТОЧКИ ПРИХОДЯТ?
+        console.log('🚨 DEBUG calculateCenter ВХОД:');
+        console.log('  - points:', points);
+        console.log('  - points[0]:', points?.[0]);
+        console.log('  - points[0]?.x:', points?.[0]?.x);
+        console.log('  - points[0]?.y:', points?.[0]?.y);
+       
+        if (!points || points.length === 0) {
+            console.log('⚠️ calculateCenter: нет точек!');
+            return { x: 0, y: 0 };
+        }
+
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+       
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+       
+        const center = {
+            x: (minX + maxX) / 2,
+            y: (minY + maxY) / 2
+        };
+
+        console.log(`  - Результат: x=${center.x}, y=${center.y}`);
+        console.log(`  - Диапазон: X(${minX.toFixed(1)}-${maxX.toFixed(1)}), Y(${minY.toFixed(1)}-${maxY.toFixed(1)})`);
+       
+        return center;
+    }
+
     // 🔥 НОВЫЙ МЕТОД: Трансформировать точку с результатом совмещения
     transformPointWithAlignment(point, alignmentResult) {
         if (!alignmentResult || !alignmentResult.transform) return point;
@@ -636,6 +797,15 @@ class DigitalFootprint {
         });
     }
 
+    // 🔥 НОВЫЙ МЕТОД: Получить оригинальные координаты узла
+    getOriginalCoordinates(nodeId) {
+        if (!this.originalCoordinates || !this.originalCoordinates.has(nodeId)) {
+            return null;
+        }
+
+        return this.originalCoordinates.get(nodeId);
+    }
+
     // 🔥 НОВЫЙ МЕТОД: Получить статистику совмещений
     getAlignmentStats() {
         return {
@@ -667,8 +837,28 @@ class DigitalFootprint {
 
     // 🔥 ОСНОВНОЙ МЕТОД: добавить данные из анализа (оригинальный)
     addAnalysis(analysis, sourceInfo = {}) {
-        const { predictions, timestamp, imagePath, photoQuality = 0.5 } = analysis;
+        // 🔥 ПРОВЕРЬ ЗДЕСЬ
+        console.log('📥 addAnalysis получил протекторы:');
+        const { predictions } = analysis;
         const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
+       
+        if (protectors.length > 0) {
+            const first = protectors[0];
+            console.log(`  - Первый протектор points[0]: x=${first.points[0]?.x}, y=${first.points[0]?.y}`);
+            console.log(`  - Все точки (0,0)?: ${first.points.every(p => p.x === 0 && p.y === 0) ? 'ДА!' : 'нет'}`);
+           
+            // Проверим все протекторы
+            protectors.forEach((p, i) => {
+                if (p.points && p.points.length > 0) {
+                    const allZero = p.points.every(pt => pt.x === 0 && pt.y === 0);
+                    if (allZero) {
+                        console.log(`🚨 Протектор ${i} все точки (0,0)!`);
+                    }
+                }
+            });
+        }
+
+        const { timestamp, imagePath, photoQuality = 0.5 } = analysis;
         const contours = predictions?.filter(p => p.class === 'Outline-trail') || [];
         const heels = predictions?.filter(p => p.class === 'Heel') || [];
 
@@ -834,40 +1024,6 @@ class DigitalFootprint {
             totalNodes: this.nodes.size,
             confidence: this.stats.confidence,
             photoQuality: photoQuality
-        };
-    }
-
-    // СОЗДАНИЕ УЗЛА ИЗ ПРОТЕКТОРА
-    createNodeFromProtector(protector, sourceInfo) {
-        const center = this.calculateCenter(protector.points);
-        const size = this.calculateSize(protector.points);
-        const shape = this.estimateShape(protector.points);
-
-        const nodeId = `node_${crypto.randomBytes(3).toString('hex')}`;
-
-        // 🔥 ВАЖНО: Сохраняем ОРИГИНАЛЬНЫЕ координаты
-        this.saveOriginalCoordinates(nodeId, center, protector.points);
-
-        return {
-            id: nodeId,
-            center: center,
-            size: size,
-            shape: shape,
-            confidence: protector.confidence || 0.5,
-            confirmationCount: 1,
-            sources: [{
-                ...sourceInfo,
-                originalPoints: protector.points,
-                timestamp: new Date()
-            }],
-            firstSeen: new Date(),
-            lastSeen: new Date(),
-            metadata: {
-                isStable: false,
-                isWeak: protector.confidence < 0.3,
-                clusterId: null,
-                neighbors: []
-            }
         };
     }
 
@@ -1465,17 +1621,6 @@ class DigitalFootprint {
     }
 
     // ГЕОМЕТРИЧЕСКИЕ МЕТОДЫ
-    calculateCenter(points) {
-        if (!points || points.length === 0) return { x: 0, y: 0 };
-
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-        return {
-            x: (Math.min(...xs) + Math.max(...xs)) / 2,
-            y: (Math.min(...ys) + Math.max(...ys)) / 2
-        };
-    }
-
     calculateSize(points) {
         if (!points || points.length < 2) return 0;
 
