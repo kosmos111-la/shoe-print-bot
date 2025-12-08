@@ -73,6 +73,15 @@ const config = {
     }
 };
 
+// 🎯 ДОБАВЛЯЕМ КОНФИГ ДЛЯ FOOTPRINT MANAGER
+config.FOOTPRINT = {
+    AUTO_ALIGNMENT: true,
+    DB_PATH: './data/footprints'
+};
+
+// 🎯 ГЛОБАЛЬНЫЙ FOOTPRINT MANAGER
+let footprintManager = null;
+
 // Вставьте где-нибудь в начале main.js (после require)
 function escapeHtml(text) {
     if (!text) return '';
@@ -92,7 +101,7 @@ function escapeHtml(text) {
 const userLastAnalysis = new Map();
 
 // Глобальный кэш FootprintManagers
-global.footprintManagers = new Map();
+// global.footprintManagers = new Map();
 
 // Сохранить последний анализ
 function saveUserLastAnalysis(userId, analysis) {
@@ -169,6 +178,25 @@ try {
 } catch (error) {
     console.log('💥 Невозможно запустить систему с некорректной конфигурацией');
     process.exit(1);
+}
+
+// =============================================================================
+// 🎯 ИНИЦИАЛИЗАЦИЯ FOOTPRINT MANAGER
+// =============================================================================
+
+// Функция инициализации FootprintManager
+async function initializeFootprintManager() {
+    try {
+        footprintManager = new FootprintManager({
+            autoAlignment: config.FOOTPRINT.AUTO_ALIGNMENT,
+            dbPath: config.FOOTPRINT.DB_PATH
+        });
+        console.log('👣 FootprintManager инициализирован');
+        return true;
+    } catch (error) {
+        console.log('❌ Ошибка инициализации FootprintManager:', error.message);
+        return false;
+    }
 }
 
 console.log('🚀 Запуск системы с практическим анализом для ПСО...');
@@ -1943,116 +1971,63 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
         // 🎯 ИНТЕГРАЦИЯ С FOOTPRINTMANAGER (АВТОСОВМЕЩЕНИЕ)
         // =============================================================================
         if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
-            try {
-                // Получаем протекторы для FootprintManager
-                const shoeProtectors = predictionsForAnalysis.filter(p => p.class === 'shoe-protector');
+    try {
+        const shoeProtectors = predictionsForAnalysis.filter(p => p.class === 'shoe-protector');
 
-                if (shoeProtectors.length >= 3) { // Минимум 3 протектора для работы
-                    console.log(`👣 FOOTPRINT INTEGRATION: ${shoeProtectors.length} протекторов для совмещения`);
+        if (shoeProtectors.length >= 3) {
+            console.log(`👣 FOOTPRINT INTEGRATION: ${shoeProtectors.length} протекторов`);
 
-                   // 🔥 ИСПРАВЛЕНИЕ: FootprintManager ожидает оригинальные протекторы, а не центры!
-// Создаем анализ для FootprintManager с сохранением ВСЕХ точек протектора
-const footprintAnalysis = {
-    id: `fp_${Date.now()}_${userId}`,
-    predictions: shoeProtectors.map(p => ({
-        class: 'shoe-protector',
-        confidence: p.confidence || 0.5,
-        points: p.points || [] // 🔥 СОХРАНИ ОРИГИНАЛЬНЫЕ ТОЧКИ ПРОТЕКТОРА!
-    })),
-    timestamp: new Date(),
-    confidence: avgConfidence,
-    source: {
-        userId: userId,
-        chatId: chatId,
-        photoPath: tempImagePath,
-        batchInfo: { index: currentIndex, total: totalCount }
-    }
-};
+            // Проверяем, инициализирован ли менеджер
+            if (!footprintManager) {
+                console.log('⚠️ FootprintManager не инициализирован, создаю...');
+                await initializeFootprintManager();
+            }
 
-                    // Проверяем, есть ли активная сессия
-                    if (hasSession) {
-                        console.log(`🎯 Использую сессионный режим с автосовмещением`);
+            // Проверяем, есть ли сессия
+            if (!footprintManager.getSession(userId)) {
+                console.log(`🎯 Создаю сессию для пользователя ${userId}`);
+                footprintManager.startNewSession(userId, `Сессия_${userId}`);
+            }
 
-                        // Инициализируем FootprintManager если еще нет
-                        if (!global.footprintManagers.has(userId)) {
-                            const { FootprintManager } = require('./modules/footprint');
-                            const fpManager = new FootprintManager({
-                                autoAlignment: true,
-                                dbPath: './data/footprints'
-                            });
-                            global.footprintManagers.set(userId, fpManager);
-
-                            // Начинаем сессию
-                            const session = sessionManager.getActiveSession(userId);
-                            fpManager.startNewSession(userId, session.name || `session_${session.id}`);
-                        }
-
-                        const fpManager = global.footprintManagers.get(userId);
-
-                        // Добавляем фото с автосовмещением
-                        const alignmentResult = await fpManager.addPhotoToSession(
-                            footprintAnalysis,
-                            tempImagePath,
-                            {
-                                userId: userId,
-                                sessionName: `Сессия_${userId}`,
-                                photoIndex: sessionManager.getActiveSession(userId).photos.length + 1
-                            }
-                        );
-
-                        console.log(`🎯 Результат автосовмещения: ${alignmentResult.alignmentScore ?
-                            (alignmentResult.alignmentScore * 100).toFixed(1) + '% совпадение' :
-                            'не применено'}`);
-
-                        // Сохраняем в сессию информацию о совмещении
-                        if (sessionManager.addAnalysisToSession) {
-                            sessionManager.addAnalysisToSession(userId, {
-                                ...footprintAnalysis,
-                                alignmentResult: alignmentResult,
-                                protectorCount: shoeProtectors.length
-                            });
-                        }
-
-                        // Показываем пользователю информацию о совмещении
-                        if (alignmentResult.alignmentScore && alignmentResult.alignmentScore > 0.4) {
-                            setTimeout(async () => {
-                                const scorePercent = (alignmentResult.alignmentScore * 100).toFixed(1);
-                                await bot.sendMessage(chatId,
-                                    `🎯 **АВТОСОВМЕЩЕНИЕ СРАБОТАЛО!**\n\n` +
-                                    `📊 Совпадение с предыдущими фото: ${scorePercent}%\n` +
-                                    `✅ Добавлено узлов: ${alignmentResult.added || 0}\n` +
-                                    `🔄 Объединено узлов: ${alignmentResult.merged || 0}\n\n` +
-                                    `💡 Система автоматически совмещает следы для создания точной модели.`
-                                );
-                            }, 1000);
-                        }
-                    }
-
-                    // Сохраняем анализ для будущего использования
-                    saveUserLastAnalysis(userId, {
-                        predictions: predictionsForAnalysis,
-                        practicalAnalysis: practicalAnalysis,
-                        intelligentAnalysis: intelligentAnalysis,
-                        analysis: analysis,
-                        timestamp: new Date(),
-                        confidence: avgConfidence,
-                        visualizationPaths: { analysis: vizPath, topology: topologyVizPath },
-                        localPhotoPath: tempImagePath,
-                        // 🔥 ДОБАВЛЯЕМ ДАННЫЕ ДЛЯ FOOTPRINT
-                        footprintAnalysis: footprintAnalysis,
-                        hasFootprintData: true,
-                        protectorCount: shoeProtectors.length
-                    });
-
-                } else {
-                    console.log(`⚠️ Слишком мало протекторов для совмещения: ${shoeProtectors.length}`);
+            // Создаем анализ для FootprintManager
+            const footprintAnalysis = {
+                id: `fp_${Date.now()}_${userId}`,
+                predictions: shoeProtectors.map(p => ({
+                    class: 'shoe-protector',
+                    confidence: p.confidence || 0.5,
+                    points: p.points || []
+                })),
+                timestamp: new Date(),
+                confidence: avgConfidence,
+                source: {
+                    userId: userId,
+                    chatId: chatId,
+                    photoPath: tempImagePath,
+                    batchInfo: { index: currentIndex, total: totalCount }
                 }
+            };
 
-            } catch (error) {
-                console.log('⚠️ Ошибка интеграции FootprintManager:', error.message);
-                // Не падаем, продолжаем работу
+            // Добавляем фото в сессию
+            const alignmentResult = await footprintManager.addPhotoToSession(
+                footprintAnalysis,
+                tempImagePath,
+                {
+                    userId: userId,
+                    sessionName: `Сессия_${userId}`,
+                    photoIndex: sessionManager.getActiveSession(userId)?.photos.length + 1 || 1
+                }
+            );
+
+            console.log(`🎯 Результат: ${alignmentResult.added || 0} добавлено, ${alignmentResult.merged || 0} объединено`);
+
+            if (alignmentResult.alignmentScore) {
+                console.log(`✅ Автосовмещение сработало! Score: ${(alignmentResult.alignmentScore * 100).toFixed(1)}%`);
             }
         }
+    } catch (error) {
+        console.log('⚠️ Ошибка FootprintManager:', error.message);
+    }
+}
 
         // 🆕 СЕССИОННЫЙ РЕЖИМ: КОРОТКОЕ ПОДТВЕРЖДЕНИЕ
         if (hasSession) {
@@ -2825,44 +2800,65 @@ bot.onText(/\/check_model_coords/, async (msg) => {
 bot.onText(/\/debug_footprint/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+
     await bot.sendMessage(chatId, '🔍 Проверяю FootprintManager...');
-   
+
     try {
-        // 1. Проверяем есть ли FootprintManager
-        const hasManager = global.footprintManagers && global.footprintManagers.has(userId);
-       
+        // Проверяем глобальный footprintManager
+        if (!footprintManager) {
+            await bot.sendMessage(chatId,
+                '❌ FootprintManager не инициализирован\n' +
+                'Используйте команду /trail_start чтобы создать сессию'
+            );
+            return;
+        }
+
+        // Получаем сессию пользователя
+        const session = footprintManager.getSession(userId);
+        const model = footprintManager.getModel(userId);
+
         let message = `📊 **FOOTPRINT MANAGER STATUS**\n\n`;
         message += `👤 UserId: ${userId}\n`;
-        message += `📁 Manager exists: ${hasManager ? '✅' : '❌'}\n`;
-       
-        if (hasManager) {
-            const fpManager = global.footprintManagers.get(userId);
-           
-            // ПРОСТАЯ ПРОВЕРКА - без getUserSession
-            message += `\n✅ FootprintManager найден\n`;
-            message += `• Класс: ${fpManager.constructor.name}\n`;
-            message += `• Автосовмещение: ${fpManager.autoAlignment ? '✅' : '❌'}\n`;
-           
-            // Проверяем модель напрямую
-            if (fpManager.currentModel && fpManager.currentModel[userId]) {
-                const model = fpManager.currentModel[userId];
-                message += `\n📦 **МОДЕЛЬ:**\n`;
-                message += `• Имя: ${model.name || 'нет'}\n`;
-                message += `• Узлов: ${model.nodes?.size || 0}\n`;
-            } else {
-                message += `\n📭 Модель не создана\n`;
-            }
+        message += `📁 Manager: ${footprintManager ? '✅ инициализирован' : '❌ не инициализирован'}\n`;
+        message += `🎯 Автосовмещение: ${footprintManager.alignmentConfig.enabled ? '✅ ВКЛЮЧЕНО' : '❌ ВЫКЛЮЧЕНО'}\n\n`;
+
+        if (session) {
+            message += `🔄 **СЕССИЯ:**\n`;
+            message += `• ID: ${session.id}\n`;
+            message += `• Имя: ${session.name}\n`;
+            message += `• Фото: ${session.photos.length}\n`;
+            message += `• Успешных совмещений: ${session.stats.successfulAlignments}\n\n`;
         } else {
-            message += `\n💡 **Создайте сессию:** /trail_start`;
+            message += `📭 **Нет активной сессии**\n\n`;
         }
-       
+
+        if (model) {
+            message += `📦 **МОДЕЛЬ:**\n`;
+            message += `• Имя: ${model.name}\n`;
+            message += `• Узлов: ${model.nodes.size}\n`;
+            message += `• Оригинальных координат: ${model.originalCoordinates.size}\n`;
+            message += `• Совмещений: ${model.alignmentHistory.length}\n`;
+        } else {
+            message += `📭 **Модель не создана**\n`;
+        }
+
+        // Активные сессии
+        const activeSessions = footprintManager.getActiveSessions();
+        if (activeSessions.length > 0) {
+            message += `\n👥 **АКТИВНЫЕ СЕССИИ:** ${activeSessions.length}\n`;
+            activeSessions.forEach(s => {
+                message += `• ${s.userId}: ${s.sessionName} (${s.photosCount} фото)\n`;
+            });
+        }
+
         await bot.sendMessage(chatId, message);
-       
+
     } catch (error) {
+        console.log('❌ Ошибка debug_footprint:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
     }
 });
+
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
@@ -2872,149 +2868,43 @@ bot.onText(/\/save_model(?: (.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const modelName = match[1] || `Модель_${new Date().toLocaleDateString('ru-RU')}`;
-   
-    console.log(`💾 СОХРАНЕНИЕ МОДЕЛИ: "${modelName}"`);
-   
+
+    console.log(`💾 СОХРАНЕНИЕ МОДЕЛИ: "${modelName}" для пользователя ${userId}`);
+
     try {
-        await bot.sendMessage(chatId, `🔄 Создаю модель "${modelName}"...`);
-       
-        // Используем FootprintManager
-        const { FootprintManager } = require('./modules/footprint');
-        const manager = new FootprintManager({
-            autoAlignment: true,
-            dbPath: './data/footprints'
-        });
-       
-        // Проверяем активную сессию
-        const hasSession = sessionManager && sessionManager.hasActiveSession(userId);
-       
-        if (hasSession) {
-            // 🔥 СЕССИОННЫЙ РЕЖИМ: используем данные из сессии
-            const session = sessionManager.getActiveSession(userId);
-            console.log(`📊 Использую сессию: ${session.id}, фото: ${session.photos.length}`);
-           
-            manager.startNewSession(userId, session.name);
-           
-            // Добавляем все анализы из сессии
-            if (session.analysisResults && session.analysisResults.length > 0) {
-                console.log(`📸 Добавляю ${session.analysisResults.length} анализов из сессии`);
-               
-                for (let i = 0; i < session.analysisResults.length; i++) {
-                    const analysis = session.analysisResults[i];
-                   
-                    if (analysis.predictions && analysis.predictions.length > 0) {
-                        // Фильтруем только протекторы
-                        const shoeProtectors = analysis.predictions.filter(p => p.class === 'shoe-protector');
-                       
-                        if (shoeProtectors.length >= 3) {
-                            const footprintAnalysis = {
-                                id: `analysis_${Date.now()}_${i}`,
-                                predictions: shoeProtectors.map(p => {
-                                    const xs = p.points.map(pt => pt.x);
-                                    const ys = p.points.map(pt => pt.y);
-                                    return {
-                                        x: (Math.min(...xs) + Math.max(...xs)) / 2,
-                                        y: (Math.min(...ys) + Math.max(...ys)) / 2,
-                                        confidence: p.confidence || 0.5,
-                                        class: 'shoe-protector'
-                                    };
-                                }),
-                                timestamp: analysis.timestamp || new Date(),
-                                confidence: analysis.confidence || 0.5
-                            };
-                           
-                            const result = await manager.addPhotoToSession(
-                                footprintAnalysis,
-                                analysis.localPhotoPath,
-                                {
-                                    userId: userId,
-                                    sessionName: session.name,
-                                    photoIndex: i + 1
-                                }
-                            );
-                           
-                            console.log(`📸 Фото ${i+1}: ${result.added || 0} узлов, совмещение: ${result.alignmentScore ? (result.alignmentScore * 100).toFixed(1) + '%' : 'нет'}`);
-                        }
-                    }
-                }
-            }
-           
-        } else {
-            // 🔥 ОДИНОЧНОЕ ФОТО: используем последний анализ
-            const lastAnalysis = getLastUserAnalysis(userId);
-           
-            if (!lastAnalysis || !lastAnalysis.predictions) {
-                await bot.sendMessage(chatId,
-                    `❌ **Нет данных для сохранения**\n\n` +
-                    `Сначала отправьте фото следа.\n` +
-                    `Для лучших результатов используйте сессию: /trail_start`
-                );
-                return;
-            }
-           
-            console.log(`📸 Использую последний анализ: ${lastAnalysis.predictions.length} предсказаний`);
-           
-            manager.startNewSession(userId, `single_${Date.now()}`);
-           
-            const shoeProtectors = lastAnalysis.predictions.filter(p => p.class === 'shoe-protector');
-           
-            if (shoeProtectors.length >= 3) {
-                const footprintAnalysis = {
-                    id: `analysis_${Date.now()}`,
-                    predictions: shoeProtectors.map(p => {
-                        const xs = p.points.map(pt => pt.x);
-                        const ys = p.points.map(pt => pt.y);
-                        return {
-                            x: (Math.min(...xs) + Math.max(...xs)) / 2,
-                            y: (Math.min(...ys) + Math.max(...ys)) / 2,
-                            confidence: p.confidence || 0.5,
-                            class: 'shoe-protector'
-                        };
-                    }),
-                    timestamp: new Date(),
-                    confidence: lastAnalysis.confidence || 0.5
-                };
-               
-                await manager.addPhotoToSession(
-                    footprintAnalysis,
-                    lastAnalysis.localPhotoPath,
-                    { userId: userId }
-                );
-            }
+        await bot.sendMessage(chatId, `🔄 Сохраняю модель "${modelName}"...`);
+
+        // Проверяем FootprintManager
+        if (!footprintManager) {
+            await bot.sendMessage(chatId, '❌ FootprintManager не инициализирован');
+            return;
         }
-       
-        // Сохраняем модель
-        console.log(`💾 Сохраняю модель "${modelName}"...`);
-        const saveResult = await manager.saveSessionAsModel(modelName);
-       
+
+        // Сохраняем сессию как модель
+        const saveResult = await footprintManager.saveSessionAsModel(modelName, userId);
+
         if (saveResult.success) {
             let response = `✅ **МОДЕЛЬ СОХРАНЕНА!**\n\n`;
-            response += `📝 **Имя:** ${modelName}\n`;
+            response += `📝 **Имя:** ${saveResult.modelName}\n`;
             response += `🆔 **ID:** ${saveResult.modelId?.slice(0, 8) || 'сгенерирован'}...\n`;
-           
-            if (saveResult.stats) {
-                response += `📊 **Узлов:** ${saveResult.stats.nodes || 0}\n`;
-                response += `🔗 **Ребер:** ${saveResult.stats.edges || 0}\n`;
-                response += `💎 **Качество:** ${saveResult.stats.topologyQuality ?
-                    (saveResult.stats.topologyQuality * 100).toFixed(1) + '%' : 'не оценено'}\n`;
+
+            if (saveResult.modelStats) {
+                response += `📊 **Узлов:** ${saveResult.modelStats.nodes || 0}\n`;
+                response += `🔗 **Ребер:** ${saveResult.modelStats.edges || 0}\n`;
+                response += `💎 **Уверенность:** ${Math.round((saveResult.modelStats.confidence || 0) * 100)}%\n`;
             }
-           
-            if (hasSession) {
-                const session = sessionManager.getActiveSession(userId);
-                response += `📸 **Фото в сессии:** ${session.photos.length}\n`;
+
+            if (saveResult.sessionInfo) {
+                response += `📸 **Фото в сессии:** ${saveResult.sessionInfo.photosCount}\n`;
             }
-           
+
             response += `\n🎯 **ЧТО ДЕЛАТЬ ДАЛЬШЕ:**\n`;
             response += `/my_models - Посмотреть свои модели\n`;
             response += `/find_similar - Найти похожие следы\n`;
-           
+            response += `/trail_start - Начать новую сессию`;
+
             await bot.sendMessage(chatId, response);
-           
-            // Завершаем сессию если была
-            if (hasSession) {
-                sessionManager.endSession(userId);
-            }
-           
+
         } else {
             await bot.sendMessage(chatId,
                 `❌ **Не удалось сохранить модель**\n\n` +
@@ -3025,7 +2915,7 @@ bot.onText(/\/save_model(?: (.+))?/, async (msg, match) => {
                 `3. Используйте сессию: /trail_start`
             );
         }
-       
+
     } catch (error) {
         console.log('❌ Ошибка сохранения модели:', error);
         await bot.sendMessage(chatId,
@@ -3262,6 +3152,17 @@ console.log('🛡️ Глобальные обработчики ошибок а
     console.log('🎯 Практический анализ для ПСО активирован');
     console.log('🐕 Фильтрация следов животных активирована');
     console.log('👣 FootprintManager с автосовмещением активирован');
+// 🎯 ИНИЦИАЛИЗАЦИЯ FOOTPRINT MANAGER
+    try {
+        await initializeFootprintManager();
+        console.log('✅ FootprintManager инициализирован глобально');
+    } catch (error) {
+        console.log('❌ Ошибка инициализации FootprintManager:', error.message);
+        footprintManager = null;
+    }
+
+    console.log('🚀 Все модули инициализированы!');
+  
 })();
 
 // =============================================================================
