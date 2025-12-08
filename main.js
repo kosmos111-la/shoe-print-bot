@@ -1950,36 +1950,24 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                 if (shoeProtectors.length >= 3) { // Минимум 3 протектора для работы
                     console.log(`👣 FOOTPRINT INTEGRATION: ${shoeProtectors.length} протекторов для совмещения`);
 
-                    // Подготавливаем точки для FootprintManager
-                    const footprintPoints = shoeProtectors.map(p => {
-                        // Центр протектора
-                        const xs = p.points.map(pt => pt.x);
-                        const ys = p.points.map(pt => pt.y);
-                        const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
-                        const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
-
-                        return {
-                            x: centerX,
-                            y: centerY,
-                            confidence: p.confidence || 0.5,
-                            class: 'shoe-protector',
-                            originalPoints: p.points
-                        };
-                    });
-
-                    // Создаем анализ для FootprintManager
-                    const footprintAnalysis = {
-                        id: `fp_${Date.now()}_${userId}`,
-                        predictions: footprintPoints,
-                        timestamp: new Date(),
-                        confidence: avgConfidence,
-                        source: {
-                            userId: userId,
-                            chatId: chatId,
-                            photoPath: tempImagePath,
-                            batchInfo: { index: currentIndex, total: totalCount }
-                        }
-                    };
+                   // 🔥 ИСПРАВЛЕНИЕ: FootprintManager ожидает оригинальные протекторы, а не центры!
+// Создаем анализ для FootprintManager с сохранением ВСЕХ точек протектора
+const footprintAnalysis = {
+    id: `fp_${Date.now()}_${userId}`,
+    predictions: shoeProtectors.map(p => ({
+        class: 'shoe-protector',
+        confidence: p.confidence || 0.5,
+        points: p.points || [] // 🔥 СОХРАНИ ОРИГИНАЛЬНЫЕ ТОЧКИ ПРОТЕКТОРА!
+    })),
+    timestamp: new Date(),
+    confidence: avgConfidence,
+    source: {
+        userId: userId,
+        chatId: chatId,
+        photoPath: tempImagePath,
+        batchInfo: { index: currentIndex, total: totalCount }
+    }
+};
 
                     // Проверяем, есть ли активная сессия
                     if (hasSession) {
