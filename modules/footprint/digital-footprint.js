@@ -592,7 +592,7 @@ class DigitalFootprint {
         const firstProtector = protectors[0];
         if (firstProtector && firstProtector.points) {
             const samplePoint = firstProtector.points[0];
-            console.log(`  - Пример точки: x=${samplePoint?.x || 'N/A'}, y=${samplePoint?.y || 'N/A'}`);
+            // console.log(`  - Пример точки: x=${samplePoint?.x || 'N/A'}, y=${samplePoint?.y || 'N/A'}`);
 
             // Если первая точка (0,0), проверяем все
             if (samplePoint && samplePoint.x === 0 && samplePoint.y === 0) {
@@ -610,7 +610,7 @@ class DigitalFootprint {
         // Нормальная обработка
         return protectors.map((p, index) => {
             const center = this.calculateCenter(p.points);
-            console.log(`  - Протектор ${index}: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+           // console.log(`  - Протектор ${index}: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
             return {
                 x: center.x,
                 y: center.y,
@@ -1004,8 +1004,8 @@ class DigitalFootprint {
         }
 
         // ВЫВОД ПОДРОБНОЙ СТАТИСТИКИ
-        console.log('\n📊 ========== ДЕТАЛЬНАЯ СТАТИСТИКА ==========');
-        console.log(`👟 Протекторов в анализе: ${protectors.length}`);
+         console.log('\n📊 ========== ДЕТАЛЬНАЯ СТАТИСТИКА ==========');
+         console.log(`👟 Протекторов в анализе: ${protectors.length}`);
         console.log(`🔗 Объединено узлов: ${mergedNodes.length}`);
         console.log(`✨ Новых узлов: ${addedNodes.length}`);
         console.log(`⚠️  Слабых узлов: ${weakNodes.length}`);
