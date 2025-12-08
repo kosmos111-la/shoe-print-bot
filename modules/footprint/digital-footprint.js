@@ -838,6 +838,9 @@ class DigitalFootprint {
     // 🔥 ОСНОВНОЙ МЕТОД: добавить данные из анализа (оригинальный)
     addAnalysis(analysis, sourceInfo = {}) {
         // 🔥 ПРОВЕРЬ ЗДЕСЬ
+console.log('🎯 addAnalysis ВЫЗВАН!');
+    console.log(`  - analysis.predictions: ${analysis.predictions?.length || 0}`);
+    console.log(`  - sourceInfo:`, Object.keys(sourceInfo));    
         console.log('📥 addAnalysis получил протекторы:');
         const { predictions } = analysis;
         const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
