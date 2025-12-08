@@ -1968,24 +1968,25 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
         }
 
         // =============================================================================
-        // 🎯 ИНТЕГРАЦИЯ С FOOTPRINTMANAGER (АВТОСОВМЕЩЕНИЕ)
-        // =============================================================================
-        if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
+// 🎯 ИНТЕГРАЦИЯ С FOOTPRINTMANAGER (АВТОСОВМЕЩЕНИЕ)
+// =============================================================================
+if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
     try {
         const shoeProtectors = predictionsForAnalysis.filter(p => p.class === 'shoe-protector');
 
         if (shoeProtectors.length >= 3) {
             console.log(`👣 FOOTPRINT INTEGRATION: ${shoeProtectors.length} протекторов`);
 
-            // Проверяем, инициализирован ли менеджер
+            // 🔥 ИСПРАВЛЕНИЕ: ИСПОЛЬЗУЕМ ГЛОБАЛЬНЫЙ FOOTPRINTMANAGER
+            // Проверяем, инициализирован ли глобальный менеджер
             if (!footprintManager) {
-                console.log('⚠️ FootprintManager не инициализирован, создаю...');
+                console.log('⚠️ Глобальный FootprintManager не инициализирован, создаю...');
                 await initializeFootprintManager();
             }
 
-            // Проверяем, есть ли сессия
+            // Проверяем, есть ли сессия в глобальном менеджере
             if (!footprintManager.getSession(userId)) {
-                console.log(`🎯 Создаю сессию для пользователя ${userId}`);
+                console.log(`🎯 Создаю сессию в глобальном менеджере для пользователя ${userId}`);
                 footprintManager.startNewSession(userId, `Сессия_${userId}`);
             }
 
@@ -2007,25 +2008,58 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                 }
             };
 
-            // Добавляем фото в сессию
+            // Добавляем фото в сессию с автосовмещением
             const alignmentResult = await footprintManager.addPhotoToSession(
                 footprintAnalysis,
                 tempImagePath,
                 {
                     userId: userId,
                     sessionName: `Сессия_${userId}`,
-                    photoIndex: sessionManager.getActiveSession(userId)?.photos.length + 1 || 1
+                    photoIndex: hasSession ? sessionManager.getActiveSession(userId).photos.length + 1 : 1
                 }
             );
 
-            console.log(`🎯 Результат: ${alignmentResult.added || 0} добавлено, ${alignmentResult.merged || 0} объединено`);
+            console.log(`🎯 Результат автосовмещения: ${alignmentResult.added || 0} добавлено, ${alignmentResult.merged || 0} объединено`);
 
             if (alignmentResult.alignmentScore) {
                 console.log(`✅ Автосовмещение сработало! Score: ${(alignmentResult.alignmentScore * 100).toFixed(1)}%`);
+               
+                // Показываем пользователю информацию о совмещении
+                setTimeout(async () => {
+                    const scorePercent = (alignmentResult.alignmentScore * 100).toFixed(1);
+                    await bot.sendMessage(chatId,
+                        `🎯 **АВТОСОВМЕЩЕНИЕ СРАБОТАЛО!**\n\n` +
+                        `📊 Совпадение с предыдущими фото: ${scorePercent}%\n` +
+                        `✅ Добавлено узлов: ${alignmentResult.added || 0}\n` +
+                        `🔄 Объединено узлов: ${alignmentResult.merged || 0}\n\n` +
+                        `💡 Система автоматически совмещает следы для создания точной модели.`
+                    );
+                }, 1000);
             }
+
+            // Сохраняем анализ для будущего использования
+            saveUserLastAnalysis(userId, {
+                predictions: predictionsForAnalysis,
+                practicalAnalysis: practicalAnalysis,
+                intelligentAnalysis: intelligentAnalysis,
+                analysis: analysis,
+                timestamp: new Date(),
+                confidence: avgConfidence,
+                visualizationPaths: { analysis: vizPath, topology: topologyVizPath },
+                localPhotoPath: tempImagePath,
+                // ДОБАВЛЯЕМ ДАННЫЕ ДЛЯ FOOTPRINT
+                footprintAnalysis: footprintAnalysis,
+                hasFootprintData: true,
+                protectorCount: shoeProtectors.length
+            });
+
+        } else {
+            console.log(`⚠️ Слишком мало протекторов для совмещения: ${shoeProtectors.length}`);
         }
+
     } catch (error) {
-        console.log('⚠️ Ошибка FootprintManager:', error.message);
+        console.log('⚠️ Ошибка интеграции FootprintManager:', error.message);
+        // Не падаем, продолжаем работу
     }
 }
 
