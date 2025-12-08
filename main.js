@@ -2724,6 +2724,70 @@ bot.onText(/\/debug_analysis_data/, async (msg) => {
     }
 });
 
+bot.onText(/\/test_direct/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    await bot.sendMessage(chatId, '🧪 Прямой тест DigitalFootprint...');
+   
+    try {
+        // Создаем тестовые данные с РЕАЛЬНЫМИ координатами
+        const testData = {
+            predictions: [
+                {
+                    class: 'shoe-protector',
+                    confidence: 0.9,
+                    points: [
+                        { x: 392, y: 298.5500183105469 },
+                        { x: 410, y: 298.5500183105469 },
+                        { x: 410, y: 320.5500183105469 },
+                        { x: 392, y: 320.5500183105469 }
+                    ]
+                },
+                {
+                    class: 'shoe-protector',
+                    confidence: 0.8,
+                    points: [
+                        { x: 450, y: 300.5500183105469 },
+                        { x: 470, y: 300.5500183105469 },
+                        { x: 470, y: 320.5500183105469 },
+                        { x: 450, y: 320.5500183105469 }
+                    ]
+                }
+            ]
+        };
+       
+        const DigitalFootprint = require('./modules/footprint/digital-footprint');
+        const footprint = new DigitalFootprint({
+            name: 'Прямой тест',
+            userId: msg.from.id
+        });
+       
+        // Добавляем первый анализ
+        const result1 = footprint.addAnalysis(testData, { imagePath: 'test1.jpg' });
+       
+        await bot.sendMessage(chatId,
+            `✅ Прямой тест DigitalFootprint:\n` +
+            `Узлов создано: ${result1.totalNodes || 0}\n` +
+            `Оригинальных координат: ${footprint.originalCoordinates?.size || 0}`
+        );
+       
+        // Проверяем координаты
+        const points = footprint.getAlignmentPointsFromNodes();
+        if (points.length > 0) {
+            await bot.sendMessage(chatId,
+                `📍 Точки для совмещения:\n` +
+                `Количество: ${points.length}\n` +
+                `Первая точка: x=${points[0].x.toFixed(1)}, y=${points[0].y.toFixed(1)}\n` +
+                `(должно быть ~415, ~310)`
+            );
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка прямого теста:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}\n${error.stack}`);
+    }
+});
+
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
