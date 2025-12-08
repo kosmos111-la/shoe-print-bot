@@ -2295,211 +2295,7 @@ bot.on('photo', async (msg) => {
 // =============================================================================
 
 // Команда для проверки интеграции FootprintManager
-bot.onText(/\/footprint_test/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-   
-    try {
-        // Проверяем базовую функциональность
-        await bot.sendMessage(chatId, `🎯 **ТЕСТ СИСТЕМЫ ОТПЕЧАТКОВ**\n\nПроверяю модули...`);
-       
-        // 1. Проверяем импорт
-        let modulesLoaded = 0;
-        const modules = ['DigitalFootprint', 'FootprintDatabase', 'FootprintManager', 'PointCloudAligner'];
-       
-        for (const moduleName of modules) {
-            try {
-                const module = require(`./modules/footprint/${moduleName.toLowerCase()}`);
-                console.log(`✅ ${moduleName} загружен`);
-                modulesLoaded++;
-            } catch (e) {
-                console.log(`❌ ${moduleName}: ${e.message}`);
-            }
-        }
-       
-        // 2. Создаем тестовую модель
-        const { FootprintManager } = require('./modules/footprint');
-        const manager = new FootprintManager({ autoAlignment: true });
-       
-        // 3. Тестируем сессию
-        const session = manager.startNewSession('test_user', 'Тестовая сессия');
-       
-        // 4. Создаем тестовые данные с реальными координатами
-        const testPoints = [];
-        for (let i = 0; i < 10; i++) {
-            testPoints.push({
-                x: Math.random() * 100 + 50,
-                y: Math.random() * 100 + 50,
-                confidence: 0.8,
-                class: 'shoe-protector'
-            });
-        }
-       
-        const testAnalysis = {
-            id: 'test_1',
-            predictions: testPoints,
-            timestamp: new Date()
-        };
-       
-        // 5. Добавляем фото
-        const result = await manager.addPhotoToSession(testAnalysis, 'test.jpg', {});
-       
-        let response = `🎯 **ТЕСТ ПРОЙДЕН!**\n\n`;
-        response += `✅ Модулей загружено: ${modulesLoaded}/${modules.length}\n`;
-        response += `✅ FootprintManager создан\n`;
-        response += `✅ Сессия запущена: ${session.id.slice(0, 8)}...\n`;
-        response += `✅ Фото добавлено: ${result.added || 0} узлов\n`;
-       
-        if (result.alignmentScore) {
-            response += `✅ Автосовмещение: ${(result.alignmentScore * 100).toFixed(1)}%\n`;
-        } else {
-            response += `📌 Автосовмещение: не применялось (первое фото)\n`;
-        }
-       
-        response += `\n🚀 **СИСТЕМА ГОТОВА К РАБОТЕ!**\n\n`;
-        response += `💡 **Попробуйте:**\n`;
-        response += `1. /trail_start - начать сессию\n`;
-        response += `2. Отправить 2+ фото одного следа\n`;
-        response += `3. /save_model "Моя модель" - сохранить\n`;
-        response += `4. /my_models - посмотреть модели`;
-       
-        await bot.sendMessage(chatId, response);
-       
-    } catch (error) {
-        console.log('❌ Ошибка теста:', error);
-        await bot.sendMessage(chatId,
-            `❌ **ОШИБКА ТЕСТА**\n\n` +
-            `Ошибка: ${error.message}\n\n` +
-            `💡 **Проверьте:**\n` +
-            `1. Файлы в modules/footprint/\n` +
-            `2. Папка data/footprints/ существует\n` +
-            `3. Права на запись в папку data/`
-        );
-    }
-});
 
-bot.onText(/\/footprint_debug/, async (msg) => {
-    const chatId = msg.chat.id;
-   
-    let response = `🔧 **ДИАГНОСТИКА FOOTPRINT СИСТЕМЫ**\n\n`;
-   
-    try {
-        // Пробуем загрузить каждый модуль отдельно
-        const modules = [
-            { name: 'digital-footprint', path: './modules/footprint/digital-footprint.js' },
-            { name: 'footprint-database', path: './modules/footprint/footprint-database.js' },
-            { name: 'footprint-manager', path: './modules/footprint/footprint-manager.js' },
-            { name: 'point-cloud-aligner', path: './modules/footprint/point-cloud-aligner.js' },
-            { name: 'topology-utils', path: './modules/footprint/topology-utils.js' }
-        ];
-       
-        for (const module of modules) {
-            try {
-                require(module.path);
-                response += `✅ ${module.name}: ЗАГРУЖЕН\n`;
-            } catch (error) {
-                response += `❌ ${module.name}: ${error.message}\n`;
-            }
-        }
-       
-        // Проверяем index.js
-        response += `\n📦 **ПРОВЕРКА INDEX.JS:**\n`;
-        try {
-            const { FootprintManager } = require('./modules/footprint');
-            const manager = new FootprintManager();
-            response += `✅ FootprintManager создан\n`;
-            response += `✅ DB метод: ${typeof manager.database.saveFootprint}\n`;
-        } catch (error) {
-            response += `❌ Ошибка: ${error.message}\n`;
-        }
-       
-        // Проверяем папку data
-        response += `\n📁 **ПРОВЕРКА ПАПОК:**\n`;
-        const fs = require('fs');
-        if (fs.existsSync('./data/footprints')) {
-            const files = fs.readdirSync('./data/footprints');
-            response += `✅ Папка footprints: ${files.length} файлов\n`;
-        } else {
-            response += `⚠️ Папка footprints не существует\n`;
-        }
-       
-        if (fs.existsSync('./data')) {
-            response += `✅ Папка data существует\n`;
-        }
-       
-    } catch (error) {
-        response += `\n💥 Критическая ошибка: ${error.message}\n`;
-    }
-   
-    await bot.sendMessage(chatId, response);
-});
-
-bot.onText(/\/db_test/, async (msg) => {
-    const chatId = msg.chat.id;
-   
-    try {
-        const { FootprintDatabase } = require('./modules/footprint');
-        const db = new FootprintDatabase();
-       
-        let response = `🗄️ **ТЕСТ DATABASE**\n\n`;
-       
-        // 1. Проверяем методы
-        response += `📊 **МЕТОДЫ:**\n`;
-        response += `• saveFootprint: ${typeof db.saveFootprint}\n`;
-        response += `• loadFootprint: ${typeof db.loadFootprint}\n`;
-        response += `• getUserModels: ${typeof db.getUserModels}\n`;
-        response += `• getStats: ${typeof db.getStats}\n\n`;
-       
-        // 2. Проверяем инстанс
-        response += `🔧 **ИНФОРМАЦИЯ:**\n`;
-        response += `• dbPath: ${db.dbPath}\n`;
-        response += `• spatialIndex: ${db.spatialIndex.size} записей\n`;
-       
-        // 3. Тестовое сохранение
-        response += `\n🧪 **ТЕСТ СОХРАНЕНИЯ:**\n`;
-       
-        const testFootprint = {
-            id: `test_${Date.now()}`,
-            name: 'Тестовая модель',
-            userId: 'test_user',
-            nodes: new Map([
-                ['node1', { x: 100, y: 100, confidence: 0.9 }],
-                ['node2', { x: 200, y: 200, confidence: 0.8 }]
-            ]),
-            edges: [],
-            stats: { confidence: 0.85, topologyQuality: 0.7 },
-            metadata: { test: true }
-        };
-       
-        const saveResult = db.saveFootprint(testFootprint);
-       
-        if (saveResult.success) {
-            response += `✅ Сохранено! ID: ${saveResult.id}\n`;
-           
-            // Пробуем загрузить
-            const loadResult = db.loadFootprint(saveResult.id);
-            if (loadResult.success) {
-                response += `✅ Загружено! Имя: ${loadResult.footprint.name}\n`;
-                response += `✅ Узлов: ${loadResult.footprint.nodes.size}\n`;
-            } else {
-                response += `❌ Ошибка загрузки: ${loadResult.error}\n`;
-            }
-        } else {
-            response += `❌ Ошибка сохранения: ${saveResult.error}\n`;
-        }
-       
-        // 4. Статистика
-        const stats = db.getStats();
-        response += `\n📈 **СТАТИСТИКА:**\n`;
-        response += `• Всего моделей: ${stats.total}\n`;
-        response += `• Пользователей: ${stats.byUser.length}\n`;
-       
-        await bot.sendMessage(chatId, response);
-       
-    } catch (error) {
-        await bot.sendMessage(chatId, `❌ Ошибка теста: ${error.message}\n${error.stack}`);
-    }
-});
 
 bot.onText(/\/alignment_test/, async (msg) => {
     const chatId = msg.chat.id;
@@ -2789,6 +2585,82 @@ bot.onText(/\/test_reset/, async (msg) => {
     }
    
     await bot.sendMessage(chatId, '🔄 Система сброшена. Начинаем чистый тест.');
+});
+
+bot.onText(/\/debug_raw_data/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    await bot.sendMessage(chatId, '🔍 Проверяю сырые данные Roboflow...');
+   
+    try {
+        // Получаем последнее фото из сессии
+        if (sessionManager && sessionManager.hasActiveSession(userId)) {
+            const session = sessionManager.getActiveSession(userId);
+            if (session.photos && session.photos.length > 0) {
+                const lastPhoto = session.photos[session.photos.length - 1];
+               
+                // Имитируем запрос к Roboflow
+                const fileUrl = lastPhoto.fileUrl || lastPhoto.localPath;
+               
+                if (fileUrl) {
+                    const roboflowResponse = await axios({
+                        method: "POST",
+                        url: config.ROBOFLOW.API_URL,
+                        params: {
+                            api_key: config.ROBOFLOW.API_KEY,
+                            image: fileUrl,
+                            confidence: config.ROBOFLOW.CONFIDENCE,
+                            overlap: config.ROBOFLOW.OVERLAP,
+                            format: 'json'
+                        },
+                        timeout: 30000
+                    });
+                   
+                    const predictions = roboflowResponse.data.predictions || [];
+                   
+                    let message = `📊 СЫРЫЕ ДАННЫЕ ROBOFLOW:\n`;
+                    message += `Всего предсказаний: ${predictions.length}\n\n`;
+                   
+                    if (predictions.length > 0) {
+                        // Берем первый протектор
+                        const protector = predictions.find(p => p.class === 'shoe-protector');
+                        if (protector) {
+                            message += `🔍 ПЕРВЫЙ ПРОТЕКТОР:\n`;
+                            message += `Class: ${protector.class}\n`;
+                            message += `Confidence: ${protector.confidence}\n`;
+                            message += `Points count: ${protector.points?.length || 0}\n`;
+                           
+                            if (protector.points && protector.points.length > 0) {
+                                const firstPoint = protector.points[0];
+                                message += `\n📍 Point 0:\n`;
+                                message += `  x: ${firstPoint.x}\n`;
+                                message += `  y: ${firstPoint.y}\n`;
+                                message += `  (реальные координаты фото)\n`;
+                            }
+                        }
+                       
+                        // Проверяем координаты
+                        if (protector?.points) {
+                            const xs = protector.points.map(p => p.x);
+                            const ys = protector.points.map(p => p.y);
+                            const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+                            const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+                           
+                            message += `\n🎯 ЦЕНТР РАССЧИТАННЫЙ:\n`;
+                            message += `  x: ${centerX.toFixed(1)}\n`;
+                            message += `  y: ${centerY.toFixed(1)}\n`;
+                        }
+                    }
+                   
+                    await bot.sendMessage(chatId, message);
+                }
+            }
+        }
+    } catch (error) {
+        console.log('❌ Ошибка debug:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
 });
 
 // =============================================================================
