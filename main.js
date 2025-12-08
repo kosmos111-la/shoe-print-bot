@@ -2839,20 +2839,20 @@ bot.onText(/\/debug_footprint/, async (msg) => {
         if (hasManager) {
             const fpManager = global.footprintManagers.get(userId);
            
-            // Проверяем текущую модель
-            const currentModel = fpManager.getCurrentModel(userId);
+            // ПРОСТАЯ ПРОВЕРКА - без getUserSession
+            message += `\n✅ FootprintManager найден\n`;
+            message += `• Класс: ${fpManager.constructor.name}\n`;
+            message += `• Автосовмещение: ${fpManager.autoAlignment ? '✅' : '❌'}\n`;
            
-            message += `\n📦 **CURRENT MODEL:**\n`;
-            message += `• Name: ${currentModel?.name || 'нет'}\n`;
-            message += `• Nodes: ${currentModel?.nodes?.size || 0}\n`;
-            message += `• Original coords: ${currentModel?.originalCoordinates?.size || 0}\n`;
-           
-            // Проверяем сессию
-            const session = fpManager.getUserSession(userId);
-            message += `\n🔄 **SESSION:**\n`;
-            message += `• ID: ${session?.id || 'нет'}\n`;
-            message += `• Photos added: ${session?.photosAdded || 0}\n`;
-            message += `• Auto-alignment: ${session?.autoAlignment ? '✅' : '❌'}\n`;
+            // Проверяем модель напрямую
+            if (fpManager.currentModel && fpManager.currentModel[userId]) {
+                const model = fpManager.currentModel[userId];
+                message += `\n📦 **МОДЕЛЬ:**\n`;
+                message += `• Имя: ${model.name || 'нет'}\n`;
+                message += `• Узлов: ${model.nodes?.size || 0}\n`;
+            } else {
+                message += `\n📭 Модель не создана\n`;
+            }
         } else {
             message += `\n💡 **Создайте сессию:** /trail_start`;
         }
@@ -2863,7 +2863,6 @@ bot.onText(/\/debug_footprint/, async (msg) => {
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
     }
 });
-
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
