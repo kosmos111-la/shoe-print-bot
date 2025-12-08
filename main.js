@@ -2788,6 +2788,51 @@ bot.onText(/\/test_direct/, async (msg) => {
     }
 });
 
+bot.onText(/\/check_model_coords/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    await bot.sendMessage(chatId, '🔍 Проверяю координаты модели...');
+   
+    try {
+        // Проверяем активную сессию
+        if (sessionManager && sessionManager.hasActiveSession(userId)) {
+            const session = sessionManager.getActiveSession(userId);
+           
+            // Проверяем, есть ли FootprintManager для этой сессии
+            if (global.footprintManagers && global.footprintManagers.has(userId)) {
+                const fpManager = global.footprintManagers.get(userId);
+               
+                // Получаем текущую модель
+                const currentModel = fpManager.getCurrentModel(userId);
+               
+                if (currentModel) {
+                    // Проверяем координаты
+                    const alignmentPoints = currentModel.getAlignmentPointsFromNodes();
+                   
+                    await bot.sendMessage(chatId,
+                        `📊 Модель "${currentModel.name}":\n` +
+                        `- Узлов: ${currentModel.nodes.size}\n` +
+                        `- Оригинальных координат: ${currentModel.originalCoordinates?.size || 0}\n` +
+                        `- Точек для совмещения: ${alignmentPoints.length}\n` +
+                        (alignmentPoints.length > 0 ?
+                            `- Пример: x=${alignmentPoints[0].x.toFixed(1)}, y=${alignmentPoints[0].y.toFixed(1)}` :
+                            '')
+                    );
+                } else {
+                    await bot.sendMessage(chatId, '❌ Нет активной модели в сессии');
+                }
+            } else {
+                await bot.sendMessage(chatId, '❌ Нет FootprintManager для этой сессии');
+            }
+        } else {
+            await bot.sendMessage(chatId, '❌ Нет активной сессии');
+        }
+    } catch (error) {
+        console.log('❌ Ошибка проверки модели:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
 
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
