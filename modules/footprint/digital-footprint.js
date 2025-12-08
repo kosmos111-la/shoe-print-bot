@@ -197,7 +197,7 @@ class DigitalFootprint {
         if (points.length > 0) {
             console.log(`  - Пример точки: x=${points[0].x.toFixed(1)}, y=${points[0].y.toFixed(1)}`);
         }
-       
+
         console.log(`📍 getAlignmentPoints: ${points.length} точек (${points.filter(p => p.isOriginal).length} оригинальных)`);
         return points;
     }
@@ -230,148 +230,148 @@ class DigitalFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Автоматическое совмещение нового анализа с существующей моделью
     addAnalysisWithAlignment(analysis, sourceInfo = {}) {
-    console.log('\n🎯 ===== ЗАПУСК АВТОМАТИЧЕСКОГО СОВМЕЩЕНИЯ =====');
+        console.log('\n🎯 ===== ЗАПУСК АВТОМАТИЧЕСКОГО СОВМЕЩЕНИЯ =====');
 
-    // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 1: анализ данных
-    console.log('🔍 ДИАГНОСТИКА анализа:');
-    console.log('  - analysis type:', typeof analysis);
-    console.log('  - predictions exists:', !!analysis.predictions);
-    console.log('  - predictions count:', analysis.predictions?.length || 0);
+        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 1: анализ данных
+        console.log('🔍 ДИАГНОСТИКА анализа:');
+        console.log('  - analysis type:', typeof analysis);
+        console.log('  - predictions exists:', !!analysis.predictions);
+        console.log('  - predictions count:', analysis.predictions?.length || 0);
 
-    const { predictions } = analysis;
-    const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
+        const { predictions } = analysis;
+        const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
 
-    console.log('  - protectors count:', protectors.length);
+        console.log('  - protectors count:', protectors.length);
 
-    // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 2: точки протекторов
-    if (protectors.length > 0) {
-        const firstProtector = protectors[0];
-        console.log('🔍 ПЕРВЫЙ ПРОТЕКТОР:');
-        console.log('  - class:', firstProtector.class);
-        console.log('  - confidence:', firstProtector.confidence);
-        console.log('  - points exists:', !!firstProtector.points);
-        console.log('  - points count:', firstProtector.points?.length || 0);
+        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 2: точки протекторов
+        if (protectors.length > 0) {
+            const firstProtector = protectors[0];
+            console.log('🔍 ПЕРВЫЙ ПРОТЕКТОР:');
+            console.log('  - class:', firstProtector.class);
+            console.log('  - confidence:', firstProtector.confidence);
+            console.log('  - points exists:', !!firstProtector.points);
+            console.log('  - points count:', firstProtector.points?.length || 0);
 
-        if (firstProtector.points && firstProtector.points.length > 0) {
-            console.log('  - point[0]:', firstProtector.points[0]);
+            if (firstProtector.points && firstProtector.points.length > 0) {
+                console.log('  - point[0]:', firstProtector.points[0]);
 
-            // Проверяем не все ли точки (0,0)
-            const allZero = firstProtector.points.every(p => p.x === 0 && p.y === 0);
-            if (allZero) {
-                console.log('🚨 КРИТИЧЕСКАЯ ОШИБКА: Все точки первого протектора (0,0)!');
-                console.log('   Скорее всего, данные повреждены при передаче');
+                // Проверяем не все ли точки (0,0)
+                const allZero = firstProtector.points.every(p => p.x === 0 && p.y === 0);
+                if (allZero) {
+                    console.log('🚨 КРИТИЧЕСКАЯ ОШИБКА: Все точки первого протектора (0,0)!');
+                    console.log('   Скорее всего, данные повреждены при передаче');
+                }
+            } else {
+                console.log('⚠️ У протектора нет точек!');
             }
-        } else {
-            console.log('⚠️ У протектора нет точек!');
         }
-    }
 
-    // Продолжение оригинального кода
-    console.log(`📊 Текущая модель: ${this.nodes.size} узлов`);
-    console.log(`📍 Оригинальных координат: ${this.originalCoordinates ? this.originalCoordinates.size : 0}`);
+        // Продолжение оригинального кода
+        console.log(`📊 Текущая модель: ${this.nodes.size} узлов`);
+        console.log(`📍 Оригинальных координат: ${this.originalCoordinates ? this.originalCoordinates.size : 0}`);
 
-    const { timestamp, imagePath, photoQuality = 0.5 } = analysis;
+        const { timestamp, imagePath, photoQuality = 0.5 } = analysis;
 
-    if (protectors.length < 3) {
-        console.log('⚠️ Слишком мало протекторов для совмещения');
-        return this.addAnalysis(analysis, sourceInfo);
-    }
-
-    // Если модель пустая или мало точек - просто добавляем
-    if (this.nodes.size < 3) {
-        console.log('📌 Модель пустая, добавляем как основу');
-        return this.addAnalysis(analysis, sourceInfo);
-    }
-
-    try {
-        // 🔥 ПОЛУЧАЕМ ТОЧКИ ИЗ ОРИГИНАЛЬНЫХ КООРДИНАТ
-        const modelPoints = this.getAlignmentPointsFromNodes();
-        const newPoints = this.extractAlignmentPointsFromProtectors(protectors);
-
-        console.log(`🔍 Ищу совмещение: ${modelPoints.length} точек модели vs ${newPoints.length} новых точек`);
-
-        if (modelPoints.length < 3) {
-            console.log('⚠️ Недостаточно точек модели для совмещения');
+        if (protectors.length < 3) {
+            console.log('⚠️ Слишком мало протекторов для совмещения');
             return this.addAnalysis(analysis, sourceInfo);
         }
 
-        // 🔥 НАСТРОЙКА ALIGNER
-        const aligner = new PointCloudAligner({
-            maxIterations: 150,
-            inlierThreshold: 25,
-            minInliersRatio: 0.5,
-            minInliersAbsolute: 3,
-            mirrorCheck: true,
-            mirrorAdvantageThreshold: 0.15,
-            maxRandomScore: 0.3,
-            adaptiveInlierThreshold: true
-        });
+        // Если модель пустая или мало точек - просто добавляем
+        if (this.nodes.size < 3) {
+            console.log('📌 Модель пустая, добавляем как основу');
+            return this.addAnalysis(analysis, sourceInfo);
+        }
 
-        // 🔥 ПОИСК НАИЛУЧШЕГО СОВМЕЩЕНИЯ
-        const alignmentResult = aligner.findBestAlignment(modelPoints, newPoints);
+        try {
+            // 🔥 ПОЛУЧАЕМ ТОЧКИ ИЗ ОРИГИНАЛЬНЫХ КООРДИНАТ
+            const modelPoints = this.getAlignmentPointsFromNodes();
+            const newPoints = this.extractAlignmentPointsFromProtectors(protectors);
 
-        // 🔥 СОХРАНЯЕМ ИСТОРИЮ СОВМЕЩЕНИЙ
-        const alignmentRecord = {
-            timestamp: new Date(),
-            score: alignmentResult.score,
-            transform: alignmentResult.transform,
-            mirrored: alignmentResult.mirrored,
-            inliersCount: alignmentResult.inliers?.length || 0,
-            quality: alignmentResult.quality?.message || 'unknown',
-            modelPointsCount: modelPoints.length,
-            newPointsCount: newPoints.length,
-            sourceInfo: {
-                imagePath: sourceInfo.imagePath || imagePath,
-                photoQuality: photoQuality,
-                protectorCount: protectors.length
+            console.log(`🔍 Ищу совмещение: ${modelPoints.length} точек модели vs ${newPoints.length} новых точек`);
+
+            if (modelPoints.length < 3) {
+                console.log('⚠️ Недостаточно точек модели для совмещения');
+                return this.addAnalysis(analysis, sourceInfo);
             }
-        };
 
-        this.alignmentHistory.push(alignmentRecord);
-        this.updateAlignmentStats(alignmentResult);
+            // 🔥 НАСТРОЙКА ALIGNER
+            const aligner = new PointCloudAligner({
+                maxIterations: 150,
+                inlierThreshold: 25,
+                minInliersRatio: 0.5,
+                minInliersAbsolute: 3,
+                mirrorCheck: true,
+                mirrorAdvantageThreshold: 0.15,
+                maxRandomScore: 0.3,
+                adaptiveInlierThreshold: true
+            });
 
-        console.log(`📊 Результат совмещения: ${(alignmentResult.score * 100).toFixed(1)}%`);
+            // 🔥 ПОИСК НАИЛУЧШЕГО СОВМЕЩЕНИЯ
+            const alignmentResult = aligner.findBestAlignment(modelPoints, newPoints);
 
-        // 🔥 ПРИНЯТИЕ РЕШЕНИЯ НА ОСНОВЕ SCORE
-        if (alignmentResult.score > 0.7) {
-            console.log(`✅ Отличное совмещение! Трансформирую и добавляю...`);
-            return this.addTransformedAnalysis(analysis, sourceInfo, alignmentResult);
-
-        } else if (alignmentResult.score > 0.5) {
-            console.log(`✅ Хорошее совмещение. Добавляю с пометкой...`);
-            sourceInfo.alignmentInfo = {
-                ...alignmentRecord,
-                confidence: 'good',
-                applied: true
+            // 🔥 СОХРАНЯЕМ ИСТОРИЮ СОВМЕЩЕНИЙ
+            const alignmentRecord = {
+                timestamp: new Date(),
+                score: alignmentResult.score,
+                transform: alignmentResult.transform,
+                mirrored: alignmentResult.mirrored,
+                inliersCount: alignmentResult.inliers?.length || 0,
+                quality: alignmentResult.quality?.message || 'unknown',
+                modelPointsCount: modelPoints.length,
+                newPointsCount: newPoints.length,
+                sourceInfo: {
+                    imagePath: sourceInfo.imagePath || imagePath,
+                    photoQuality: photoQuality,
+                    protectorCount: protectors.length
+                }
             };
-            return this.addAnalysis(analysis, sourceInfo);
 
-        } else if (alignmentResult.score > 0.3) {
-            console.log(`⚠️ Слабое совмещение. Возможно новый кластер...`);
-            sourceInfo.alignmentInfo = {
-                ...alignmentRecord,
-                confidence: 'weak',
-                isNewCluster: true
-            };
-            return this.addAnalysis(analysis, sourceInfo);
+            this.alignmentHistory.push(alignmentRecord);
+            this.updateAlignmentStats(alignmentResult);
 
-        } else {
-            console.log(`❌ Плохое совмещение. Добавляю как отдельный след...`);
-            sourceInfo.alignmentInfo = {
-                ...alignmentRecord,
-                confidence: 'poor',
-                isSeparateCluster: true,
-                warning: 'Возможно другой след'
-            };
+            console.log(`📊 Результат совмещения: ${(alignmentResult.score * 100).toFixed(1)}%`);
+
+            // 🔥 ПРИНЯТИЕ РЕШЕНИЯ НА ОСНОВЕ SCORE
+            if (alignmentResult.score > 0.7) {
+                console.log(`✅ Отличное совмещение! Трансформирую и добавляю...`);
+                return this.addTransformedAnalysis(analysis, sourceInfo, alignmentResult);
+
+            } else if (alignmentResult.score > 0.5) {
+                console.log(`✅ Хорошее совмещение. Добавляю с пометкой...`);
+                sourceInfo.alignmentInfo = {
+                    ...alignmentRecord,
+                    confidence: 'good',
+                    applied: true
+                };
+                return this.addAnalysis(analysis, sourceInfo);
+
+            } else if (alignmentResult.score > 0.3) {
+                console.log(`⚠️ Слабое совмещение. Возможно новый кластер...`);
+                sourceInfo.alignmentInfo = {
+                    ...alignmentRecord,
+                    confidence: 'weak',
+                    isNewCluster: true
+                };
+                return this.addAnalysis(analysis, sourceInfo);
+
+            } else {
+                console.log(`❌ Плохое совмещение. Добавляю как отдельный след...`);
+                sourceInfo.alignmentInfo = {
+                    ...alignmentRecord,
+                    confidence: 'poor',
+                    isSeparateCluster: true,
+                    warning: 'Возможно другой след'
+                };
+                return this.addAnalysis(analysis, sourceInfo);
+            }
+
+        } catch (error) {
+            console.log('❌ Ошибка совмещения:', error.message);
+            console.log('🔄 Возвращаюсь к стандартному добавлению');
             return this.addAnalysis(analysis, sourceInfo);
         }
-
-    } catch (error) {
-        console.log('❌ Ошибка совмещения:', error.message);
-        console.log('🔄 Возвращаюсь к стандартному добавлению');
-        return this.addAnalysis(analysis, sourceInfo);
     }
-}
 
     // 🔥 НОВЫЙ МЕТОД: Добавление трансформированного анализа
     addTransformedAnalysis(analysis, sourceInfo, alignmentResult) {
@@ -505,47 +505,47 @@ class DigitalFootprint {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Извлечь точки из протекторов для совмещения
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Извлечь точки из протекторов для совмещения
     extractAlignmentPointsFromProtectors(protectors) {
-    console.log('🔍 DEBUG extractAlignmentPointsFromProtectors CALLED');
-    console.log(`  - protectors.length: ${protectors.length}`);
-   
-    if (!protectors || protectors.length === 0) {
-        console.log('⚠️ Нет протекторов для совмещения');
-        return [];
-    }
-   
-    // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА: не все ли точки (0,0)?
-    const firstProtector = protectors[0];
-    if (firstProtector && firstProtector.points) {
-        const samplePoint = firstProtector.points[0];
-        console.log(`  - Пример точки: x=${samplePoint?.x || 'N/A'}, y=${samplePoint?.y || 'N/A'}`);
-       
-        // Если первая точка (0,0), проверяем все
-        if (samplePoint && samplePoint.x === 0 && samplePoint.y === 0) {
-            const allZero = protectors.every(p =>
-                p.points && p.points.every(pt => pt.x === 0 && pt.y === 0)
-            );
-            if (allZero) {
-                console.log('🚨 КРИТИЧЕСКАЯ ОШИБКА: Все точки протектора в (0,0)!');
-                console.log('   Возвращаю пустой массив для предотвращения ошибки');
-                return [];
+        console.log('🔍 DEBUG extractAlignmentPointsFromProtectors CALLED');
+        console.log(`  - protectors.length: ${protectors.length}`);
+
+        if (!protectors || protectors.length === 0) {
+            console.log('⚠️ Нет протекторов для совмещения');
+            return [];
+        }
+
+        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА: не все ли точки (0,0)?
+        const firstProtector = protectors[0];
+        if (firstProtector && firstProtector.points) {
+            const samplePoint = firstProtector.points[0];
+            console.log(`  - Пример точки: x=${samplePoint?.x || 'N/A'}, y=${samplePoint?.y || 'N/A'}`);
+
+            // Если первая точка (0,0), проверяем все
+            if (samplePoint && samplePoint.x === 0 && samplePoint.y === 0) {
+                const allZero = protectors.every(p =>
+                    p.points && p.points.every(pt => pt.x === 0 && pt.y === 0)
+                );
+                if (allZero) {
+                    console.log('🚨 КРИТИЧЕСКАЯ ОШИБКА: Все точки протектора в (0,0)!');
+                    console.log('   Возвращаю пустой массив для предотвращения ошибки');
+                    return [];
+                }
             }
         }
+
+        // Нормальная обработка
+        return protectors.map((p, index) => {
+            const center = this.calculateCenter(p.points);
+            console.log(`  - Протектор ${index}: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+            return {
+                x: center.x,
+                y: center.y,
+                confidence: p.confidence || 0.5,
+                id: `new_${Date.now()}_${index}`
+            };
+        });
     }
-   
-    // Нормальная обработка
-    return protectors.map((p, index) => {
-        const center = this.calculateCenter(p.points);
-        console.log(`  - Протектор ${index}: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
-        return {
-            x: center.x,
-            y: center.y,
-            confidence: p.confidence || 0.5,
-            id: `new_${Date.now()}_${index}`
-        };
-    });
-}
 
     // 🔥 НОВЫЙ МЕТОД: Трансформировать точку с результатом совмещения
     transformPointWithAlignment(point, alignmentResult) {
