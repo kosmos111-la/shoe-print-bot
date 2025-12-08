@@ -2663,12 +2663,73 @@ bot.onText(/\/debug_raw_data/, async (msg) => {
     }
 });
 
+// Команда для проверки данных в сессии
+bot.onText(/\/debug_analysis_data/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    await bot.sendMessage(chatId, '🔍 Проверяю данные анализа в сессии...');
+   
+    try {
+        if (!sessionManager || !sessionManager.hasActiveSession(userId)) {
+            await bot.sendMessage(chatId, '❌ Нет активной сессии');
+            return;
+        }
+       
+        const session = sessionManager.getActiveSession(userId);
+       
+        if (!session.analysisResults || session.analysisResults.length === 0) {
+            await bot.sendMessage(chatId, '❌ Нет данных анализа в сессии');
+            return;
+        }
+       
+        const lastAnalysis = session.analysisResults[session.analysisResults.length - 1];
+       
+        let message = `📊 ДАННЫЕ АНАЛИЗА В СЕССИИ:\n\n`;
+        message += `Всего анализов: ${session.analysisResults.length}\n`;
+        message += `Последний анализ:\n`;
+        message += `- predictions count: ${lastAnalysis.predictions?.length || 0}\n`;
+       
+        // Проверяем протекторы
+        const protectors = lastAnalysis.predictions?.filter(p => p.class === 'shoe-protector') || [];
+        message += `- protectors count: ${protectors.length}\n\n`;
+       
+        if (protectors.length > 0) {
+            const firstProtector = protectors[0];
+            message += `🔍 ПЕРВЫЙ ПРОТЕКТОР:\n`;
+            message += `- class: ${firstProtector.class}\n`;
+            message += `- confidence: ${firstProtector.confidence?.toFixed(3) || 'нет'}\n`;
+            message += `- points count: ${firstProtector.points?.length || 0}\n`;
+           
+            if (firstProtector.points && firstProtector.points.length > 0) {
+                const point = firstProtector.points[0];
+                message += `- point[0]: x=${point.x}, y=${point.y}\n`;
+               
+                // Проверяем координаты
+                const allZero = firstProtector.points.every(p => p.x === 0 && p.y === 0);
+                message += `- all points zero? ${allZero ? 'ДА!' : 'нет'}\n`;
+               
+                if (allZero) {
+                    message += `\n🚨 ВНИМАНИЕ: Все точки в (0,0)!\n`;
+                    message += `Проблема в передаче данных между модулями.`;
+                }
+            }
+        }
+       
+        await bot.sendMessage(chatId, message);
+       
+    } catch (error) {
+        console.log('❌ Ошибка debug:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
 
 // ЗАМЕНЯЕМ старую команду /save_model на новую:
-bot.onText(/\/save_model(?: (.+))?/, async (msg, match) => {
+/\/save_model(?: (.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const modelName = match[1] || `Модель_${new Date().toLocaleDateString('ru-RU')}`;
