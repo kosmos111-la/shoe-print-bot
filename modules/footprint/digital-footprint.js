@@ -1,5 +1,4 @@
 // modules/footprint/digital-footprint.js
-// ПОЛНАЯ ОБНОВЛЁННАЯ ВЕРСИЯ С ИСПРАВЛЕНИЕМ КООРДИНАТ И ЛОГИРОВАНИЕМ
 const crypto = require('crypto');
 const fs = require('fs');
 const TopologyUtils = require('./topology-utils');
@@ -188,101 +187,255 @@ class DigitalFootprint {
         return true;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Диагностика координат
-    diagnoseCoordinates() {
-        console.log('🔍 ДИАГНОСТИКА КООРДИНАТ');
+    // 🔥 ОСНОВНОЙ МЕТОД: добавить данные из анализа (ИСПРАВЛЕННЫЙ)
+    addAnalysis(analysis, sourceInfo = {}) {
+        console.log('🎯 addAnalysis ВЫЗВАН!');
+        console.log(`  - analysis.predictions: ${analysis.predictions?.length || 0}`);
 
-        const data = {
-            nodes: this.nodes.size,
-            originalCoords: this.originalCoordinates ? this.originalCoordinates.size : 0,
-            normalizedCoords: this.topologyInvariants.normalizedNodes ?
-                            this.topologyInvariants.normalizedNodes.size : 0,
-            samples: []
-        };
+        const { predictions } = analysis;
 
-        // Берем первые 3 узла для анализа
-        let count = 0;
-        for (const [nodeId, node] of this.nodes) {
-            if (count >= 3) break;
-
-            const original = this.originalCoordinates.get(nodeId);
-            const normalized = this.topologyInvariants.normalizedNodes.get(nodeId);
-
-            data.samples.push({
-                id: nodeId.slice(-3),
-                original: original ? {
-                    x: original.x ? original.x.toFixed(1) : 'N/A',
-                    y: original.y ? original.y.toFixed(1) : 'N/A'
-                } : 'нет',
-                current: {
-                    x: node.center ? node.center.x.toFixed(1) : 'N/A',
-                    y: node.center ? node.center.y.toFixed(1) : 'N/A'
-                },
-                normalized: normalized ? {
-                    x: normalized.x ? normalized.x.toFixed(3) : 'N/A',
-                    y: normalized.y ? normalized.y.toFixed(3) : 'N/A'
-                } : 'нет'
-            });
-
-            count++;
+        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА: что в predictions?
+        console.log('🔍 Структура первого prediction:');
+        if (predictions && predictions.length > 0) {
+            const firstPred = predictions[0];
+            console.log('  - class:', firstPred.class);
+            console.log('  - confidence:', firstPred.confidence);
+            console.log('  - points exists:', !!firstPred.points);
+            console.log('  - points type:', typeof firstPred.points);
+            console.log('  - points length:', firstPred.points?.length || 0);
         }
 
-        console.log('📊 Данные координат:', JSON.stringify(data, null, 2));
-        return data;
+        // 🔥 ВАЖНО: predictions могут быть уже центрами точек, а не протекторами!
+        // FootprintManager передает centers, а не исходные протекторы
+        const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
+
+        console.log(`  - protectors после фильтра: ${protectors.length}`);
+
+        // Если нет class, значит это уже центры протекторов
+        if (protectors.length === 0 && predictions && predictions.length > 0) {
+            console.log('⚠️ Нет класса shoe-protector, возможно это уже центры');
+            console.log('  - Первая prediction структура:', Object.keys(predictions[0]));
+
+            // Преобразуем центры в протекторы
+            const convertedProtectors = predictions.map((point, index) => ({
+                class: 'shoe-protector',
+                confidence: point.confidence || 0.5,
+                points: point.x !== undefined && point.y !== undefined ?
+                    [{ x: point.x, y: point.y }] : // Создаем массив из одной точки
+                    []
+            }));
+
+            // Используем convertedProtectors
+            return this.processProtectors(convertedProtectors, sourceInfo);
+        }
+
+        // Продолжаем с оригинальными протекторами
+        return this.processProtectors(protectors, sourceInfo);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Глубокая диагностика анализа
-    diagnoseAnalysisData(analysis) {
-        console.log('\n🔍 ГЛУБОКАЯ ДИАГНОСТИКА АНАЛИЗА 🔍');
-       
-        const { predictions } = analysis;
-       
-        if (!predictions) {
-            console.log('🚨 Нет predictions в анализе!');
-            return;
+    // 🔥 НОВЫЙ МЕТОД: Обработка протекторов
+    processProtectors(protectors, sourceInfo) {
+        console.log(`🔍 Обрабатываю ${protectors.length} протекторов...`);
+
+        // ЗАЩИТА ОТ undefined точек
+        const validProtectors = protectors.filter(p =>
+            p.points &&
+            Array.isArray(p.points) &&
+            p.points.length > 0 &&
+            p.points[0] &&
+            p.points[0].x !== undefined &&
+            p.points[0].y !== undefined
+        );
+
+        console.log(`  - Валидных протекторов: ${validProtectors.length}`);
+
+        if (validProtectors.length === 0) {
+            console.log('⚠️ Нет валидных протекторов');
+            return { added: 0, merged: 0, totalNodes: this.nodes.size };
         }
-       
-        console.log(`Всего объектов: ${predictions.length}`);
-       
-        const classes = {};
-        predictions.forEach(p => {
-            classes[p.class] = (classes[p.class] || 0) + 1;
-        });
-       
-        console.log('Распределение по классам:', classes);
-       
-        // Анализируем протекторы
-        const protectors = predictions.filter(p => p.class === 'shoe-protector');
-        console.log(`\n🎯 Протекторы (${protectors.length}):`);
-       
-        protectors.forEach((p, i) => {
-            console.log(`  ${i}. confidence: ${p.confidence}, points: ${p.points?.length || 0}`);
-            if (p.points && p.points.length > 0) {
-                const first = p.points[0];
-                console.log(`     первая точка: (${first.x}, ${first.y})`);
-               
-                // Проверяем все ли точки (0,0)
-                const allZero = p.points.every(pt => pt.x === 0 && pt.y === 0);
-                if (allZero) {
-                    console.log(`     🚨 ВСЕ ТОЧКИ (0,0)!`);
+
+        const photoQuality = sourceInfo.photoQuality || 0.5;
+
+        console.log(`🔍 Добавляю ${validProtectors.length} протекторов`);
+
+        // СОХРАНЯЕМ ЛОКАЛЬНЫЙ ПУТЬ К ФОТО
+        let localPhotoPath = null;
+        if (sourceInfo.localPath && fs.existsSync(sourceInfo.localPath)) {
+            localPhotoPath = sourceInfo.localPath;
+        } else if (sourceInfo.imagePath && (sourceInfo.imagePath.includes('temp/') || sourceInfo.imagePath.includes('temp\\'))) {
+            localPhotoPath = sourceInfo.imagePath;
+        }
+
+        // Улучшенный sourceInfo
+        const enhancedSourceInfo = {
+            ...sourceInfo,
+            localPhotoPath: localPhotoPath,
+            imagePath: localPhotoPath || sourceInfo.imagePath,
+            photoQuality: photoQuality,
+            timestamp: sourceInfo.timestamp || new Date(),
+            geometry: {
+                protectors: validProtectors.map(p => ({
+                    points: p.points,
+                    confidence: p.confidence || 0.5,
+                    class: p.class
+                }))
+            }
+        };
+
+        const addedNodes = [];
+        const mergedNodes = [];
+        const weakNodes = [];
+
+        // Для каждого протектора
+        const matchedProtectors = new Map();
+        const matchedNodesInThisFrame = new Set();
+
+        validProtectors.forEach((protector, protectorIndex) => {
+            const node = this.createNodeFromProtector(protector, enhancedSourceInfo);
+
+            // Определяем тип узла
+            let nodeType = 'normal';
+            if (node.confidence < 0.3) {
+                nodeType = 'weak';
+                weakNodes.push(node);
+            } else if (node.confidence > 0.7) {
+                nodeType = 'strong';
+            }
+
+            // Ищем похожий узел с БОЛЬШИМ допуском
+            const similarNode = this.findSimilarNode(node);
+
+            if (similarNode) {
+                // Проверяем, не усиливали ли мы уже этот узел из этого кадра
+                if (!matchedNodesInThisFrame.has(similarNode.id)) {
+                    this.mergeNodes(similarNode.id, node);
+                    matchedProtectors.set(protectorIndex, similarNode.id);
+                    matchedNodesInThisFrame.add(similarNode.id);
+                    mergedNodes.push({
+                        existing: similarNode.id.slice(-3),
+                        new: node.id.slice(-3),
+                        type: nodeType,
+                        confidence: node.confidence,
+                        distance: this.calculateDistance(similarNode.center, node.center)
+                    });
+
+                    console.log(`🔗 Узел ${similarNode.id.slice(-3)} усилен из протектора ${protectorIndex}`);
+                } else {
+                    // Этот узел уже усилен из этого кадра - ПРОПУСКАЕМ!
+                    console.log(`⚠️  Протектор ${protectorIndex} уже учтен в узле ${matchedProtectors.get(protectorIndex)}`);
                 }
+            } else {
+                // НОВЫЙ узел
+                // Если слабый - понижаем рейтинг, но не отбрасываем
+                if (nodeType === 'weak') {
+                    node.confidence *= 0.7;
+                    node.metadata.isWeak = true;
+                }
+
+                this.nodes.set(node.id, node);
+                addedNodes.push({
+                    id: node.id.slice(-3),
+                    type: nodeType,
+                    confidence: node.confidence
+                });
             }
         });
-       
-        // Сохраняем для отладки
-        this.lastAnalysisDiagnosis = {
-            timestamp: new Date(),
-            totalPredictions: predictions.length,
-            classes: classes,
-            protectors: protectors.map(p => ({
-                confidence: p.confidence,
-                pointCount: p.points?.length,
-                firstPoint: p.points?.[0],
-                allZero: p.points ? p.points.every(pt => pt.x === 0 && pt.y === 0) : null
-            }))
-        };
-       
+
+        // Статистика
+        this.stats.totalSources++;
+        this.stats.totalPhotos++;
+        this.stats.avgPhotoQuality = (
+            this.stats.avgPhotoQuality * (this.stats.totalPhotos - 1) + photoQuality
+        ) / this.stats.totalPhotos;
+        this.stats.lastUpdated = new Date();
+        this.stats.lastPhotoAdded = new Date();
+
+        // ПЕРЕСЧИТЫВАЕМ СВЯЗИ ТОЛЬКО ЕСЛИ ЕСТЬ НОВЫЕ УЗЛОВ
+        if (addedNodes.length > 0 || mergedNodes.length > 0) {
+            this.rebuildEdges();
+            this.updateIndices();
+
+            // 🔥 ВАЖНО: Обновляем топологические инварианты, НО не нормализуем узлы
+            // Мы сохраняем оригинальные координаты для будущих совмещений
+            if (addedNodes.length > 0 || mergedNodes.length > 2) {
+                this.updateTopologyInvariants(true); // true = skip normalization
+            }
+        }
+
+        // ВЫВОД ПОДРОБНОЙ СТАТИСТИКИ
+        console.log('\n📊 ========== ДЕТАЛЬНАЯ СТАТИСТИКА ==========');
+        console.log(`👟 Протекторов в анализе: ${validProtectors.length}`);
+        console.log(`🔗 Объединено узлов: ${mergedNodes.length}`);
+        console.log(`✨ Новых узлов: ${addedNodes.length}`);
+        console.log(`⚠️  Слабых узлов: ${weakNodes.length}`);
+        console.log(`📈 Итого узлов в модели: ${this.nodes.size}`);
+        console.log(`📍 Оригинальных координат: ${this.originalCoordinates.size}`);
         console.log('========================================\n');
+
+        return {
+            added: addedNodes.length,
+            merged: mergedNodes.length,
+            weak: weakNodes.length,
+            totalNodes: this.nodes.size,
+            confidence: this.stats.confidence,
+            photoQuality: photoQuality
+        };
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: СОЗДАНИЕ УЗЛА ИЗ ПРОТЕКТОРА
+    createNodeFromProtector(protector, sourceInfo) {
+        // 🔥 СНАЧАЛА ПРОВЕРИМ protector.points
+        console.log('🔍 createNodeFromProtector НАЧАЛО:');
+        console.log(`  - protector.points:`, protector.points?.length || 0);
+        console.log(`  - protector.points[0]:`, protector.points?.[0]);
+
+        // 🔥 ЗАЩИТА: если points undefined или пустой, создаем дефолтные точки
+        if (!protector.points || !Array.isArray(protector.points) || protector.points.length === 0) {
+            console.log('⚠️ Нет точек в протекторе, создаю дефолтные');
+            protector.points = [{ x: 0, y: 0 }];
+        }
+
+        // 🔥 ЗАЩИТА: если все точки (0,0), логгируем предупреждение
+        if (protector.points.every(p => p.x === 0 && p.y === 0)) {
+            console.log('🚨 ВНИМАНИЕ: Все точки протектора в (0,0)!');
+        }
+
+        const center = this.calculateCenter(protector.points);
+        const size = this.calculateSize(protector.points);
+        const shape = this.estimateShape(protector.points);
+
+        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА
+        console.log('🔍 createNodeFromProtector РЕЗУЛЬТАТЫ:');
+        console.log(`  - protector.points[0]: x=${protector.points[0]?.x}, y=${protector.points[0]?.y}`);
+        console.log(`  - calculated center: x=${center.x}, y=${center.y}`);
+        console.log(`  - center is (0,0)?: ${center.x === 0 && center.y === 0 ? 'ДА!' : 'нет'}`);
+
+        const nodeId = `node_${crypto.randomBytes(3).toString('hex')}`;
+
+        // 🔥 Сохраняем ОРИГИНАЛЬНЫЕ координаты (это важно!)
+        this.saveOriginalCoordinates(nodeId, center, protector.points);
+
+        return {
+            id: nodeId,
+            center: center,
+            size: size,
+            shape: shape,
+            confidence: protector.confidence || 0.5,
+            confirmationCount: 1,
+            sources: [{
+                ...sourceInfo,
+                originalPoints: protector.points,
+                timestamp: new Date()
+            }],
+            firstSeen: new Date(),
+            lastSeen: new Date(),
+            metadata: {
+                isStable: false,
+                isWeak: protector.confidence < 0.3,
+                clusterId: null,
+                neighbors: []
+            }
+        };
     }
 
     // 🔥 НОВЫЙ МЕТОД: Автоматическое совмещение нового анализа с существующей моделью
@@ -301,7 +454,7 @@ class DigitalFootprint {
             const first = protectors[0];
             console.log(`  - Первый протектор points[0]: x=${first.points[0]?.x}, y=${first.points[0]?.y}`);
             console.log(`  - Все точки (0,0)?: ${first.points.every(p => p.x === 0 && p.y === 0) ? 'ДА!' : 'нет'}`);
-           
+
             // Проверим все протекторы
             protectors.forEach((p, i) => {
                 if (p.points && p.points.length > 0) {
@@ -518,19 +671,6 @@ class DigitalFootprint {
             }
         });
 
-        // Сохраняем контуры и каблуки (трансформированные)
-        this.saveAllContoursTransformed(
-            predictions?.filter(p => p.class === 'Outline-trail') || [],
-            transformedSourceInfo,
-            alignmentResult
-        );
-
-        this.saveAllHeelsTransformed(
-            predictions?.filter(p => p.class === 'Heel') || [],
-            transformedSourceInfo,
-            alignmentResult
-        );
-
         // Обновляем модель
         if (addedNodes.length > 0 || mergedNodes.length > 0) {
             this.rebuildEdges();
@@ -610,7 +750,7 @@ class DigitalFootprint {
         // Нормальная обработка
         return protectors.map((p, index) => {
             const center = this.calculateCenter(p.points);
-           // console.log(`  - Протектор ${index}: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+            // console.log(`  - Протектор ${index}: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
             return {
                 x: center.x,
                 y: center.y,
@@ -620,92 +760,101 @@ class DigitalFootprint {
         });
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: СОЗДАНИЕ УЗЛА ИЗ ПРОТЕКТОРА
-    createNodeFromProtector(protector, sourceInfo) {
-        // 🔥 СНАЧАЛА ПРОВЕРИМ protector.points
-        console.log('🔍 createNodeFromProtector НАЧАЛО:');
-        console.log(`  - protector.points:`, protector.points?.length || 0);
-        console.log(`  - protector.points[0]:`, protector.points?.[0]);
-       
-        const center = this.calculateCenter(protector.points);
-        const size = this.calculateSize(protector.points);
-        const shape = this.estimateShape(protector.points);
+    // 🔥 НОВЫЙ МЕТОД: Диагностика координат
+    diagnoseCoordinates() {
+        console.log('🔍 ДИАГНОСТИКА КООРДИНАТ');
 
-        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА
-        console.log('🔍 createNodeFromProtector РЕЗУЛЬТАТЫ:');
-        console.log(`  - protector.points[0]: x=${protector.points[0]?.x}, y=${protector.points[0]?.y}`);
-        console.log(`  - calculated center: x=${center.x}, y=${center.y}`);
-        console.log(`  - center is (0,0)?: ${center.x === 0 && center.y === 0 ? 'ДА!' : 'нет'}`);
-       
-        // 🔥 Проверка: если центр (0,0) и точки не (0,0) - проблема в calculateCenter
-        if (center.x === 0 && center.y === 0 && protector.points && protector.points.length > 0) {
-            const firstPoint = protector.points[0];
-            if (firstPoint.x !== 0 || firstPoint.y !== 0) {
-                console.log('🚨 КРИТИЧЕСКАЯ ОШИБКА: calculateCenter вернул (0,0) при ненулевых точках!');
-                console.log('  Проверяем calculateCenter...');
-                console.log('  protector.points:', JSON.stringify(protector.points.slice(0, 2)));
-            }
+        const data = {
+            nodes: this.nodes.size,
+            originalCoords: this.originalCoordinates ? this.originalCoordinates.size : 0,
+            normalizedCoords: this.topologyInvariants.normalizedNodes ?
+                            this.topologyInvariants.normalizedNodes.size : 0,
+            samples: []
+        };
+
+        // Берем первые 3 узла для анализа
+        let count = 0;
+        for (const [nodeId, node] of this.nodes) {
+            if (count >= 3) break;
+
+            const original = this.originalCoordinates.get(nodeId);
+            const normalized = this.topologyInvariants.normalizedNodes.get(nodeId);
+
+            data.samples.push({
+                id: nodeId.slice(-3),
+                original: original ? {
+                    x: original.x ? original.x.toFixed(1) : 'N/A',
+                    y: original.y ? original.y.toFixed(1) : 'N/A'
+                } : 'нет',
+                current: {
+                    x: node.center ? node.center.x.toFixed(1) : 'N/A',
+                    y: node.center ? node.center.y.toFixed(1) : 'N/A'
+                },
+                normalized: normalized ? {
+                    x: normalized.x ? normalized.x.toFixed(3) : 'N/A',
+                    y: normalized.y ? normalized.y.toFixed(3) : 'N/A'
+                } : 'нет'
+            });
+
+            count++;
         }
 
-        const nodeId = `node_${crypto.randomBytes(3).toString('hex')}`;
-
-        // 🔥 Сохраняем ОРИГИНАЛЬНЫЕ координаты (это важно!)
-        this.saveOriginalCoordinates(nodeId, center, protector.points);
-
-        return {
-            id: nodeId,
-            center: center,
-            size: size,
-            shape: shape,
-            confidence: protector.confidence || 0.5,
-            confirmationCount: 1,
-            sources: [{
-                ...sourceInfo,
-                originalPoints: protector.points,
-                timestamp: new Date()
-            }],
-            firstSeen: new Date(),
-            lastSeen: new Date(),
-            metadata: {
-                isStable: false,
-                isWeak: protector.confidence < 0.3,
-                clusterId: null,
-                neighbors: []
-            }
-        };
+        console.log('📊 Данные координат:', JSON.stringify(data, null, 2));
+        return data;
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: calculateCenter
-    calculateCenter(points) {
-        // 🔥 СНАЧАЛА ПРОСТО ПРОВЕРИМ - ТОЧКИ ПРИХОДЯТ?
-        console.log('🚨 DEBUG calculateCenter ВХОД:');
-        console.log('  - points:', points);
-        console.log('  - points[0]:', points?.[0]);
-        console.log('  - points[0]?.x:', points?.[0]?.x);
-        console.log('  - points[0]?.y:', points?.[0]?.y);
-       
-        if (!points || points.length === 0) {
-            console.log('⚠️ calculateCenter: нет точек!');
-            return { x: 0, y: 0 };
+    // 🔥 НОВЫЙ МЕТОД: Глубокая диагностика анализа
+    diagnoseAnalysisData(analysis) {
+        console.log('\n🔍 ГЛУБОКАЯ ДИАГНОСТИКА АНАЛИЗА 🔍');
+
+        const { predictions } = analysis;
+
+        if (!predictions) {
+            console.log('🚨 Нет predictions в анализе!');
+            return;
         }
 
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-       
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-       
-        const center = {
-            x: (minX + maxX) / 2,
-            y: (minY + maxY) / 2
+        console.log(`Всего объектов: ${predictions.length}`);
+
+        const classes = {};
+        predictions.forEach(p => {
+            classes[p.class] = (classes[p.class] || 0) + 1;
+        });
+
+        console.log('Распределение по классам:', classes);
+
+        // Анализируем протекторы
+        const protectors = predictions.filter(p => p.class === 'shoe-protector');
+        console.log(`\n🎯 Протекторы (${protectors.length}):`);
+
+        protectors.forEach((p, i) => {
+            console.log(`  ${i}. confidence: ${p.confidence}, points: ${p.points?.length || 0}`);
+            if (p.points && p.points.length > 0) {
+                const first = p.points[0];
+                console.log(`     первая точка: (${first.x}, ${first.y})`);
+
+                // Проверяем все ли точки (0,0)
+                const allZero = p.points.every(pt => pt.x === 0 && pt.y === 0);
+                if (allZero) {
+                    console.log(`     🚨 ВСЕ ТОЧКИ (0,0)!`);
+                }
+            }
+        });
+
+        // Сохраняем для отладки
+        this.lastAnalysisDiagnosis = {
+            timestamp: new Date(),
+            totalPredictions: predictions.length,
+            classes: classes,
+            protectors: protectors.map(p => ({
+                confidence: p.confidence,
+                pointCount: p.points?.length,
+                firstPoint: p.points?.[0],
+                allZero: p.points ? p.points.every(pt => pt.x === 0 && pt.y === 0) : null
+            }))
         };
 
-        console.log(`  - Результат: x=${center.x}, y=${center.y}`);
-        console.log(`  - Диапазон: X(${minX.toFixed(1)}-${maxX.toFixed(1)}), Y(${minY.toFixed(1)}-${maxY.toFixed(1)})`);
-       
-        return center;
+        console.log('========================================\n');
     }
 
     // 🔥 НОВЫЙ МЕТОД: Трансформировать точку с результатом совмещения
@@ -743,58 +892,30 @@ class DigitalFootprint {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Сохранить трансформированные контуры
-    saveAllContoursTransformed(contours, sourceInfo, alignmentResult) {
-        if (!contours || contours.length === 0) return;
-        if (!this.allContours) this.allContours = [];
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: calculateCenter
+    calculateCenter(points) {
+        if (!points || points.length === 0) {
+            console.log('⚠️ calculateCenter: нет точек!');
+            return { x: 0, y: 0 };
+        }
 
-        contours.forEach(contour => {
-            try {
-                const transformedPoints = contour.points.map(point =>
-                    this.transformPointWithAlignment(point, alignmentResult)
-                );
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
 
-                this.allContours.push({
-                    id: `contour_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
-                    points: transformedPoints,
-                    originalPoints: contour.points,
-                    confidence: contour.confidence || 0.5,
-                    source: sourceInfo,
-                    alignmentScore: alignmentResult.score,
-                    transformed: true,
-                    timestamp: new Date()
-                });
-            } catch (error) {
-                console.log('⚠️ Ошибка трансформации контура:', error.message);
-            }
-        });
-    }
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
 
-    // 🔥 НОВЫЙ МЕТОД: Сохранить трансформированные каблуки
-    saveAllHeelsTransformed(heels, sourceInfo, alignmentResult) {
-        if (!heels || heels.length === 0) return;
-        if (!this.allHeels) this.allHeels = [];
+        const center = {
+            x: (minX + maxX) / 2,
+            y: (minY + maxY) / 2
+        };
 
-        heels.forEach(heel => {
-            try {
-                const transformedPoints = heel.points.map(point =>
-                    this.transformPointWithAlignment(point, alignmentResult)
-                );
+        console.log(`  - Результат: x=${center.x}, y=${center.y}`);
+        console.log(`  - Диапазон: X(${minX.toFixed(1)}-${maxX.toFixed(1)}), Y(${minY.toFixed(1)}-${maxY.toFixed(1)})`);
 
-                this.allHeels.push({
-                    id: `heel_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
-                    points: transformedPoints,
-                    originalPoints: heel.points,
-                    confidence: heel.confidence || 0.5,
-                    source: sourceInfo,
-                    alignmentScore: alignmentResult.score,
-                    transformed: true,
-                    timestamp: new Date()
-                });
-            } catch (error) {
-                console.log('⚠️ Ошибка трансформации каблука:', error.message);
-            }
-        });
+        return center;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Получить оригинальные координаты узла
@@ -832,201 +953,6 @@ class DigitalFootprint {
                 confidence: this.stats.confidence,
                 originalCoordinatesCount: this.originalCoordinates ? this.originalCoordinates.size : 0
             }
-        };
-    }
-
-    // 🔥 ОСНОВНОЙ МЕТОД: добавить данные из анализа (оригинальный)
-    addAnalysis(analysis, sourceInfo = {}) {
-        // 🔥 ПРОВЕРЬ ЗДЕСЬ
-console.log('🎯 addAnalysis ВЫЗВАН!');
-    console.log(`  - analysis.predictions: ${analysis.predictions?.length || 0}`);
-    console.log(`  - sourceInfo:`, Object.keys(sourceInfo));    
-        console.log('📥 addAnalysis получил протекторы:');
-        const { predictions } = analysis;
-        const protectors = predictions?.filter(p => p.class === 'shoe-protector') || [];
-       
-        if (protectors.length > 0) {
-            const first = protectors[0];
-            console.log(`  - Первый протектор points[0]: x=${first.points[0]?.x}, y=${first.points[0]?.y}`);
-            console.log(`  - Все точки (0,0)?: ${first.points.every(p => p.x === 0 && p.y === 0) ? 'ДА!' : 'нет'}`);
-           
-            // Проверим все протекторы
-            protectors.forEach((p, i) => {
-                if (p.points && p.points.length > 0) {
-                    const allZero = p.points.every(pt => pt.x === 0 && pt.y === 0);
-                    if (allZero) {
-                        console.log(`🚨 Протектор ${i} все точки (0,0)!`);
-                    }
-                }
-            });
-        }
-
-        const { timestamp, imagePath, photoQuality = 0.5 } = analysis;
-        const contours = predictions?.filter(p => p.class === 'Outline-trail') || [];
-        const heels = predictions?.filter(p => p.class === 'Heel') || [];
-
-        console.log(`🔍 Добавляю ${protectors.length} протекторов, ${contours.length} контуров, ${heels.length} каблуков`);
-
-        // СОХРАНЯЕМ ЛОКАЛЬНЫЙ ПУТЬ К ФОТО
-        let localPhotoPath = null;
-        if (sourceInfo.localPath && fs.existsSync(sourceInfo.localPath)) {
-            localPhotoPath = sourceInfo.localPath;
-        } else if (imagePath && (imagePath.includes('temp/') || imagePath.includes('temp\\'))) {
-            localPhotoPath = imagePath;
-        }
-
-        // Улучшенный sourceInfo
-        const enhancedSourceInfo = {
-            ...sourceInfo,
-            localPhotoPath: localPhotoPath,
-            imagePath: localPhotoPath || imagePath,
-            photoQuality: photoQuality,
-            timestamp: timestamp || new Date(),
-            geometry: {
-                protectors: protectors.map(p => ({
-                    points: p.points,
-                    confidence: p.confidence || 0.5,
-                    class: p.class
-                })),
-                contours: contours.map(c => ({
-                    points: c.points,
-                    confidence: c.confidence || 0.5,
-                    area: this.calculateArea(c.points),
-                    originalPoints: c.points
-                })),
-                heels: heels.map(h => ({
-                    points: h.points,
-                    confidence: h.confidence || 0.5,
-                    area: this.calculateArea(h.points),
-                    originalPoints: h.points
-                }))
-            }
-        };
-
-        const addedNodes = [];
-        const mergedNodes = [];
-        const weakNodes = [];
-
-        // ✅ ИСПРАВЛЕНИЕ: объявляем переменную stats
-        const stats = {
-            skipped: 0
-        };
-
-        // Для каждого протектора
-        const matchedProtectors = new Map();
-        const matchedNodesInThisFrame = new Set();
-
-        protectors.forEach((protector, protectorIndex) => {
-            const node = this.createNodeFromProtector(protector, enhancedSourceInfo);
-
-            // Определяем тип узла
-            let nodeType = 'normal';
-            if (node.confidence < 0.3) {
-                nodeType = 'weak';
-                weakNodes.push(node);
-            } else if (node.confidence > 0.7) {
-                nodeType = 'strong';
-            }
-
-            // Ищем похожий узел с БОЛЬШИМ допуском
-            const similarNode = this.findSimilarNode(node);
-
-            if (similarNode) {
-                // Проверяем, не усиливали ли мы уже этот узел из этого кадра
-                if (!matchedNodesInThisFrame.has(similarNode.id)) {
-                    this.mergeNodes(similarNode.id, node);
-                    matchedProtectors.set(protectorIndex, similarNode.id);
-                    matchedNodesInThisFrame.add(similarNode.id);
-                    mergedNodes.push({
-                        existing: similarNode.id.slice(-3),
-                        new: node.id.slice(-3),
-                        type: nodeType,
-                        confidence: node.confidence,
-                        distance: this.calculateDistance(similarNode.center, node.center)
-                    });
-
-                    console.log(`🔗 Узел ${similarNode.id.slice(-3)} усилен из протектора ${protectorIndex}`);
-                } else {
-                    // Этот узел уже усилен из этого кадра - ПРОПУСКАЕМ!
-                    console.log(`⚠️  Протектор ${protectorIndex} уже учтен в узле ${matchedProtectors.get(protectorIndex)}`);
-                    stats.skipped = (stats.skipped || 0) + 1;
-                }
-            } else {
-                // НОВЫЙ узел
-                // Если слабый - понижаем рейтинг, но не отбрасываем
-                if (nodeType === 'weak') {
-                    node.confidence *= 0.7;
-                    node.metadata.isWeak = true;
-                }
-
-                this.nodes.set(node.id, node);
-                addedNodes.push({
-                    id: node.id.slice(-3),
-                    type: nodeType,
-                    confidence: node.confidence
-                });
-            }
-        });
-
-        // ✅ СОХРАНЯЕМ ВСЕ КОНТУРЫ И КАБЛУКИ
-        this.saveAllContours(contours, enhancedSourceInfo);
-        this.saveAllHeels(heels, enhancedSourceInfo);
-
-        // Обновляем информацию о лучшем фото
-        this.updateBestPhotoInfo(enhancedSourceInfo);
-
-        // 🔥 ВАЖНО: Если есть alignmentInfo в sourceInfo, сохраняем его
-        if (sourceInfo.alignmentInfo) {
-            this.alignmentHistory.push({
-                ...sourceInfo.alignmentInfo,
-                timestamp: new Date(),
-                applied: sourceInfo.alignmentInfo.applied || false
-            });
-            this.updateAlignmentStats({ score: sourceInfo.alignmentInfo.score || 0 });
-        }
-
-        // Статистика
-        this.stats.totalSources++;
-        this.stats.totalPhotos++;
-        this.stats.avgPhotoQuality = (
-            this.stats.avgPhotoQuality * (this.stats.totalPhotos - 1) + photoQuality
-        ) / this.stats.totalPhotos;
-        this.stats.lastUpdated = new Date();
-        this.stats.lastPhotoAdded = new Date();
-
-        // ПЕРЕСЧИТЫВАЕМ СВЯЗИ ТОЛЬКО ЕСЛИ ЕСТЬ НОВЫЕ УЗЛОВ
-        if (addedNodes.length > 0 || mergedNodes.length > 0) {
-            this.rebuildEdges();
-            this.updateIndices();
-
-            // 🔥 ВАЖНО: Обновляем топологические инварианты, НО не нормализуем узлы
-            // Мы сохраняем оригинальные координаты для будущих совмещений
-            if (addedNodes.length > 0 || mergedNodes.length > 2) {
-                this.updateTopologyInvariants(true); // true = skip normalization
-            }
-        }
-
-        // ВЫВОД ПОДРОБНОЙ СТАТИСТИКИ
-         console.log('\n📊 ========== ДЕТАЛЬНАЯ СТАТИСТИКА ==========');
-         console.log(`👟 Протекторов в анализе: ${protectors.length}`);
-        console.log(`🔗 Объединено узлов: ${mergedNodes.length}`);
-        console.log(`✨ Новых узлов: ${addedNodes.length}`);
-        console.log(`⚠️  Слабых узлов: ${weakNodes.length}`);
-        console.log(`📈 Итого узлов в модели: ${this.nodes.size}`);
-        console.log(`📍 Оригинальных координат: ${this.originalCoordinates.size}`);
-        console.log(`🔵 Контуров сохранено: ${contours.length}`);
-        console.log(`👠 Каблуков сохранено: ${heels.length}`);
-        console.log('========================================\n');
-
-        return {
-            added: addedNodes.length,
-            merged: mergedNodes.length,
-            weak: weakNodes.length,
-            contours: contours.length,
-            heels: heels.length,
-            totalNodes: this.nodes.size,
-            confidence: this.stats.confidence,
-            photoQuality: photoQuality
         };
     }
 
@@ -1211,8 +1137,6 @@ console.log('🎯 addAnalysis ВЫЗВАН!');
         console.log(`📍 Оригинальных координат: ${footprint.originalCoordinates.size}`);
         return footprint;
     }
-
-    // ОСТАЛЬНЫЕ МЕТОДЫ (без изменений)
 
     // ✅ НОВЫЙ МЕТОД: Сохраняем ВСЕ контуры
     saveAllContours(contours, sourceInfo) {
