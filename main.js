@@ -1853,7 +1853,21 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
             timeout: 30000
         });
 
-        const predictions = roboflowResponse.data.predictions || [];
+        // 🔥 ДИАГНОСТИКА: проверяем что приходит от Roboflow
+    console.log('🔍 ДИАГНОСТИКА Roboflow данных:');
+    console.log('  - roboflowResponse.data:', JSON.stringify(roboflowResponse.data, null, 2));
+   
+    const predictions = roboflowResponse.data.predictions || [];
+    if (predictions.length > 0) {
+        const firstPred = predictions[0];
+        console.log('  - Первое предсказание:');
+        console.log('    class:', firstPred.class);
+        console.log('    confidence:', firstPred.confidence);
+        console.log('    points count:', firstPred.points?.length || 0);
+        if (firstPred.points && firstPred.points.length > 0) {
+            console.log('    point 0:', firstPred.points[0]);
+        }
+    }
         const processedPredictions = smartPostProcessing(predictions);
         const analysis = analyzePredictions(processedPredictions);
 
