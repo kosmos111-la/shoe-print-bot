@@ -2601,6 +2601,182 @@ bot.onText(/\/debug_coords/, async (msg) => {
     }
 });
 
+// 1. Команда для проверки координат текущей модели
+bot.onText(/\/test_coords/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    await bot.sendMessage(chatId, '🔍 Проверяю координаты...');
+   
+    try {
+        // Проверяем активную сессию
+        if (!sessionManager || !sessionManager.hasActiveSession(userId)) {
+            await bot.sendMessage(chatId, '❌ Нет активной сессии. Начните: /trail_start');
+            return;
+        }
+       
+        const session = sessionManager.getActiveSession(userId);
+        await bot.sendMessage(chatId, `📊 Сессия: ${session.photos.length} фото, ${session.analysisResults?.length || 0} анализов`);
+       
+        // Если есть анализ - проверяем координаты
+        if (session.analysisResults && session.analysisResults.length > 0) {
+            const lastAnalysis = session.analysisResults[session.analysisResults.length - 1];
+           
+            if (lastAnalysis.predictions && lastAnalysis.predictions.length > 0) {
+                const protectors = lastAnalysis.predictions.filter(p => p.class === 'shoe-protector');
+               
+                let message = `📊 ДАННЫЕ АНАЛИЗА:\n`;
+                message += `Всего объектов: ${lastAnalysis.predictions.length}\n`;
+                message += `Протекторов: ${protectors.length}\n\n`;
+               
+                // Показываем первые 3 протектора
+                if (protectors.length > 0) {
+                    message += `📍 КООРДИНАТЫ ПРОТЕКТОРОВ:\n`;
+                    protectors.slice(0, 3).forEach((p, i) => {
+                        const center = { x: 0, y: 0 };
+                        if (p.points && p.points.length > 0) {
+                            const xs = p.points.map(pt => pt.x);
+                            const ys = p.points.map(pt => pt.y);
+                            center.x = (Math.min(...xs) + Math.max(...xs)) / 2;
+                            center.y = (Math.min(...ys) + Math.max(...ys)) / 2;
+                        }
+                        message += `${i+1}. x=${center.x.toFixed(0)}, y=${center.y.toFixed(0)}\n`;
+                    });
+                }
+               
+                await bot.sendMessage(chatId, message);
+               
+                // Тестируем создание DigitalFootprint
+                if (protectors.length >= 3) {
+                    await bot.sendMessage(chatId, '🧪 Тестирую создание DigitalFootprint...');
+                   
+                    const DigitalFootprint = require('./modules/footprint/digital-footprint');
+                    const testFootprint = new DigitalFootprint({
+                        name: 'Тестовая модель',
+                        userId: userId
+                    });
+                   
+                    // Добавляем первый анализ
+                    const result1 = testFootprint.addAnalysis(lastAnalysis, {
+                        imagePath: 'test.jpg',
+                        photoQuality: 0.8
+                    });
+                   
+                    await bot.sendMessage(chatId,
+                        `✅ DigitalFootprint создан\n` +
+                        `Узлов: ${result1.totalNodes || 0}\n` +
+                        `Оригинальных координат сохранено: ${testFootprint.originalCoordinates?.size || 0}`
+                    );
+                   
+                    // Тестируем getAlignmentPointsFromNodes
+                    const alignmentPoints = testFootprint.getAlignmentPointsFromNodes();
+                    await bot.sendMessage(chatId,
+                        `📍 Точки для совмещения: ${alignmentPoints.length}\n` +
+                        `Пример: ${alignmentPoints.length > 0 ?
+                            `x=${alignmentPoints[0].x.toFixed(1)}, y=${alignmentPoints[0].y.toFixed(1)}` :
+                            'нет точек'}`
+                    );
+                   
+                } else {
+                    await bot.sendMessage(chatId, '⚠️ Мало протекторов для теста (нужно минимум 3)');
+                }
+            }
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка тестирования:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+// 2. Команда для принудительного запуска автосовмещения
+bot.onText(/\/test_align/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    await bot.sendMessage(chatId, '🧪 ЗАПУСК ТЕСТА АВТОСОВМЕЩЕНИЯ...');
+   
+    try {
+        // Создаем тестовые данные
+        const DigitalFootprint = require('./modules/footprint/digital-footprint');
+       
+        // МОДЕЛЬ 1 - 5 точек в форме квадрата
+        const model = new DigitalFootprint({
+            name: 'Тестовая модель 1',
+            userId: userId
+        });
+       
+        // Имитируем добавление анализа с протекторами
+        const mockAnalysis1 = {
+            predictions: [
+                { class: 'shoe-protector', confidence: 0.8, points: [{x: 100, y: 100}, {x: 120, y: 100}, {x: 120, y: 120}, {x: 100, y: 120}] },
+                { class: 'shoe-protector', confidence: 0.7, points: [{x: 200, y: 100}, {x: 220, y: 100}, {x: 220, y: 120}, {x: 200, y: 120}] },
+                { class: 'shoe-protector', confidence: 0.9, points: [{x: 150, y: 200}, {x: 170, y: 200}, {x: 170, y: 220}, {x: 150, y: 220}] },
+                { class: 'shoe-protector', confidence: 0.6, points: [{x: 250, y: 200}, {x: 270, y: 200}, {x: 270, y: 220}, {x: 250, y: 220}] },
+                { class: 'shoe-protector', confidence: 0.8, points: [{x: 300, y: 300}, {x: 320, y: 300}, {x: 320, y: 320}, {x: 300, y: 320}] }
+            ]
+        };
+       
+        // МОДЕЛЬ 2 - те же точки, но смещенные на +50, +30
+        const mockAnalysis2 = {
+            predictions: [
+                { class: 'shoe-protector', confidence: 0.8, points: [{x: 150, y: 130}, {x: 170, y: 130}, {x: 170, y: 150}, {x: 150, y: 150}] },
+                { class: 'shoe-protector', confidence: 0.7, points: [{x: 250, y: 130}, {x: 270, y: 130}, {x: 270, y: 150}, {x: 250, y: 150}] },
+                { class: 'shoe-protector', confidence: 0.9, points: [{x: 200, y: 230}, {x: 220, y: 230}, {x: 220, y: 250}, {x: 200, y: 250}] },
+                { class: 'shoe-protector', confidence: 0.6, points: [{x: 300, y: 230}, {x: 320, y: 230}, {x: 320, y: 250}, {x: 300, y: 250}] },
+                { class: 'shoe-protector', confidence: 0.8, points: [{x: 350, y: 330}, {x: 370, y: 330}, {x: 370, y: 350}, {x: 350, y: 350}] }
+            ]
+        };
+       
+        // Добавляем первый анализ (создает модель)
+        const result1 = model.addAnalysis(mockAnalysis1, { imagePath: 'test1.jpg' });
+        await bot.sendMessage(chatId, `✅ Модель создана: ${result1.totalNodes} узлов`);
+       
+        // Пытаемся добавить второй анализ с автосовмещением
+        await bot.sendMessage(chatId, '🔄 Пробую автосовмещение...');
+       
+        const result2 = model.addAnalysisWithAlignment(mockAnalysis2, { imagePath: 'test2.jpg' });
+       
+        await bot.sendMessage(chatId,
+            `📊 РЕЗУЛЬТАТ АВТОСОВМЕЩЕНИЯ:\n\n` +
+            `Добавлено: ${result2.added || 0}\n` +
+            `Объединено: ${result2.merged || 0}\n` +
+            `Трансформировано: ${result2.transformed ? 'ДА' : 'НЕТ'}\n` +
+            `Score совмещения: ${result2.alignmentScore ? (result2.alignmentScore * 100).toFixed(1) + '%' : 'НЕТ'}\n` +
+            `Всего узлов: ${result2.totalNodes || 0}`
+        );
+       
+        // Проверяем координаты
+        const alignmentPoints = model.getAlignmentPointsFromNodes();
+        await bot.sendMessage(chatId,
+            `📍 Точки в модели: ${alignmentPoints.length}\n` +
+            `Оригинальных координат сохранено: ${model.originalCoordinates?.size || 0}`
+        );
+       
+    } catch (error) {
+        console.log('❌ Ошибка теста:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка теста: ${error.message}\n${error.stack}`);
+    }
+});
+
+// 3. Команда для очистки и перезапуска
+bot.onText(/\/test_reset/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    // Очищаем сессии
+    if (sessionManager) {
+        sessionManager.endSession(userId);
+    }
+   
+    // Очищаем кэш
+    if (userLastAnalysis) {
+        userLastAnalysis.delete(userId);
+    }
+   
+    await bot.sendMessage(chatId, '🔄 Система сброшена. Начинаем чистый тест.');
+});
+
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
