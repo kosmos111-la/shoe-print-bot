@@ -2,7 +2,7 @@
 // 🎯 СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ - ОСНОВНОЙ ФАЙЛ
 // =============================================================================
 //
-// 📋 СТАТУС: РАБОЧАЯ ВЕРСИЯ 2.3 - С ПОЛНОЙ ИНТЕГРАЦИЕЙ НОВОЙ ГРАФОВОЙ СИСТЕМЫ
+// 📋 СТАТУС: РАБОЧАЯ ВЕРСИЯ 2.4 - С ИСПРАВЛЕННЫМИ ЛОГАМИ И ГРАФОВОЙ СИСТЕМОЙ
 // ✅ ЧТО РАБОТАЕТ:
 //   • Модульная система визуализации
 //   • Анализ через Roboflow API
@@ -12,7 +12,7 @@
 //   • Топологическая карта протектора
 //   • Практический анализ для ПСО
 //   • Фильтрация следов животных
-//   • 🆕 ПОЛНАЯ ГРАФОВАЯ СИСТЕМА С АВТОСОВМЕЩЕНИЕМ
+//   • 🆕 ГРАФОВАЯ СИСТЕМА С АВТОСОВМЕЩЕНИЕМ
 //
 // 🏗️ АРХИТЕКТУРА:
 //   • Express.js сервер + Telegram Bot API
@@ -23,10 +23,10 @@
 //   • Временные файлы в папке temp/
 //
 // 🔄 ПОСЛЕДНИЕ ИЗМЕНЕНИЯ:
-//   • Интегрирована новая графовая система с автосовмещением
-//   • Удалены старые нерабочие модули
-//   • Добавлены команды для работы с цифровыми отпечатками
-//   • Улучшена система сохранения моделей
+//   • Убраны спам-логи с координатами точек
+//   • Добавлен DEBUG_MODE для управляемого дебага
+//   • Интегрирована новая графовая система
+//   • Исправлены ошибки интеграции
 //
 // =============================================================================
 
@@ -36,7 +36,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
-// ИМПОРТ МОДУЛЕЙ (дополняем существующие)
+// ИМПОРТ МОДУЛЕЙ
 const visualizationModule = require('./modules/visualization');
 const yandexDiskModule = require('./modules/yandex-disk');
 const tempManagerModule = require('./modules/temp-manager');
@@ -45,11 +45,11 @@ const appsModule = require('./modules/apps');
 const { AnalysisModule } = require('./modules/analysis');
 const { TopologyVisualizer } = require('./modules/visualization/topology-visualizer');
 
-// 🔍 ДОБАВЛЯЕМ ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
+// 🔍 ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
 const { PracticalAnalyzer } = require('./modules/analysis/practical-analyzer');
 const { AnimalFilter } = require('./modules/correction/animal-filter');
 
-// 🆕 ДОБАВЛЯЕМ СЕССИОННЫЕ МОДУЛИ
+// 🆕 СЕССИОННЫЕ МОДУЛИ
 const { SessionManager } = require('./modules/session/session-manager');
 const { SessionAnalyzer } = require('./modules/session/session-analyzer');
 const { FeedbackDatabase } = require('./modules/feedback/feedback-db');
@@ -66,6 +66,9 @@ const SimpleFootprintManager = require('./modules/footprint/simple-manager');
 // Глобальный менеджер новой системы
 let footprintManager = null;
 
+// Режим отладки (управляется переменной окружения)
+const DEBUG_MODE = process.env.DEBUG_MODE === 'true' || false;
+
 // Инициализация новой системы
 async function initializeNewFootprintSystem() {
     try {
@@ -73,7 +76,7 @@ async function initializeNewFootprintSystem() {
             dbPath: './data/footprints',
             autoAlignment: true,
             autoSave: true,
-            debug: false
+            debug: DEBUG_MODE
         });
 
         console.log('✅ Новая графовая система цифровых отпечатков готова!');
@@ -107,7 +110,7 @@ config.FOOTPRINT = {
     DB_PATH: './data/footprints'
 };
 
-// Вставьте где-нибудь в начале main.js (после require)
+// Вспомогательная функция для экранирования HTML
 function escapeHtml(text) {
     if (!text) return '';
     return text
@@ -221,11 +224,11 @@ let topologyVisualizer;
 // 🎯 ПРАКТИЧЕСКИЙ АНАЛИЗ ДЛЯ ПСО
 let practicalAnalyzer;
 let animalFilter;
-// 🆕 ДОБАВЛЯЕМ СЕССИОННЫЕ МОДУЛИ
+// 🆕 СЕССИОННЫЕ МОДУЛИ
 let sessionManager;
 let sessionAnalyzer;
 
-// 🆕 ИНИЦИАЛИЗИРУЕМ ОБРАТНУЮ СВЯЗЬ
+// 🆕 СИСТЕМА ОБРАТНОЙ СВЯЗИ
 let feedbackDB;
 let feedbackManager;
 
@@ -468,11 +471,13 @@ function generateTopologyText(predictions) {
 // Логирование вебхук запросов
 app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
     const update = req.body;
-    console.log('📨 Вебхук запрос:', {
-        update_id: update.update_id,
-        message: update.message ? '📝 есть' : 'нет',
-        callback_query: update.callback_query ? '🔄 есть' : 'нет'
-    });
+    if (DEBUG_MODE) {
+        console.log('📨 Вебхук запрос:', {
+            update_id: update.update_id,
+            message: update.message ? '📝 есть' : 'нет',
+            callback_query: update.callback_query ? '🔄 есть' : 'нет'
+        });
+    }
 
     bot.processUpdate(update);
     res.sendStatus(200);
@@ -695,7 +700,7 @@ bot.onText(/\/currentstyle/, async (msg) => {
 });
 
 // =============================================================================
-// 🧮 СИСТЕМА КАЛЬКУЛЯТОРОВ - БЕЗ ПРОБЛЕМНОГО СНЕГА
+// 🧮 СИСТЕМА КАЛЬКУЛЯТОРОВ
 // =============================================================================
 
 // 🎯 ПРАВИЛЬНАЯ СИСТЕМА КОНТЕКСТОВ
@@ -836,8 +841,6 @@ bot.on('location', async (msg) => {
     const userId = msg.from.id;
     const context = userContext[userId];
 
-    console.log('📍 Получена геолокация, контекст:', context);
-
     if (!context) return;
 
     const location = msg.location;
@@ -921,8 +924,6 @@ bot.on('message', async (msg) => {
     const userId = msg.from.id;
     const text = msg.text.trim();
     const context = userContext[userId];
-
-    console.log('🔍 Получено сообщение для обработки:', text, 'Контекст:', context);
 
     try {
         // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА (дата пропажи)
@@ -1227,7 +1228,9 @@ bot.on('message', async (msg) => {
 
         // 🚫 ЕСЛИ НЕТ КОНТЕКСТА - НИЧЕГО НЕ ДЕЛАЕМ
         if (!context) {
-            console.log('⚠️ Нет активного контекста, сообщение не обработано');
+            if (DEBUG_MODE) {
+                console.log('⚠️ Нет активного контекста, сообщение не обработано');
+            }
             return;
         }
 
@@ -1529,8 +1532,7 @@ bot.onText(/\/trail_end/, async (msg) => {
         }
     }
 
-    // ⭐ ДОБАВЬ ЭТОТ КОД ПРЯМО ЗДЕСЬ:
-    // Показываем топологию лучшего фото в сессии
+    // ⭐ Показываем топологию лучшего фото в сессии
     if (session.analysisResults && session.analysisResults.length > 0) {
         // Находим лучшее фото для топологической визуализации
         const bestPhoto = findBestPhotoInSession(session);
@@ -1899,20 +1901,32 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
             timeout: 30000
         });
 
-        // 🔥 ДИАГНОСТИКА: проверяем что приходит от Roboflow
-        console.log('🔍 ДИАГНОСТИКА Roboflow данных:');
-        console.log('  - roboflowResponse.data:', JSON.stringify(roboflowResponse.data, null, 2));
-
+        // 🔥 ИСПРАВЛЕННЫЙ БЛОК ДИАГНОСТИКИ (без спама координатами)
         const predictions = roboflowResponse.data.predictions || [];
+
         if (predictions.length > 0) {
-            const firstPred = predictions[0];
-            console.log('  - Первое предсказание:');
-            console.log('    class:', firstPred.class);
-            console.log('    confidence:', firstPred.confidence);
-            console.log('    points count:', firstPred.points?.length || 0);
-            if (firstPred.points && firstPred.points.length > 0) {
-                console.log('    point 0:', firstPred.points[0]);
+            // Подсчитаем классы для информативного лога
+            const classCount = {};
+            predictions.forEach(pred => {
+                const className = pred.class || 'unknown';
+                classCount[className] = (classCount[className] || 0) + 1;
+            });
+           
+            console.log(`📊 Roboflow: ${predictions.length} объектов. Распределение: ${JSON.stringify(classCount)}`);
+           
+            // Покажем только первую точку если включен расширенный дебаг
+            if (DEBUG_MODE) {
+                const firstPred = predictions[0];
+                console.log('🔍 Расширенный дебаг (первый объект):');
+                console.log(`  class: ${firstPred.class}, confidence: ${firstPred.confidence}`);
+               
+                if (firstPred.points && firstPred.points.length > 0) {
+                    const firstPoint = firstPred.points[0];
+                    console.log(`  point[0]: x=${firstPoint.x}, y=${firstPoint.y}`);
+                }
             }
+        } else {
+            console.log('📭 Roboflow: объектов не обнаружено');
         }
        
         const processedPredictions = smartPostProcessing(predictions);
@@ -1989,40 +2003,45 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
         }
 
         // =============================================================================
-        // 🔄 ИНТЕГРАЦИЯ С НОВОЙ ГРАФОВОЙ СИСТЕМОЙ
+        // 🎯 ИНТЕГРАЦИЯ С НОВОЙ ГРАФОВОЙ СИСТЕМОЙ
         // =============================================================================
-        if (predictionsForAnalysis && predictionsForAnalysis.length > 0) {
+        if (predictionsForAnalysis && predictionsForAnalysis.length > 0 && footprintManager) {
             try {
-                // Используем новую систему
-                if (footprintManager) {
+                const shoeProtectors = predictionsForAnalysis.filter(p =>
+                    p.class === 'shoe-protector' ||
+                    (p.confidence || 0) > 0.3
+                );
+               
+                if (shoeProtectors.length >= 3) {
+                    console.log(`👣 Интеграция с новой системой: ${shoeProtectors.length} протекторов`);
+                   
                     // Проверяем, есть ли активная сессия
                     if (!footprintManager.getActiveSession(userId)) {
-                        // Создаём автоматическую сессию для пачки фото
+                        // Создаём автоматическую сессию
                         footprintManager.createSession(userId, `Автосессия_${new Date().toLocaleTimeString('ru-RU')}`);
+                        console.log(`🔄 Создана автосессия для пользователя ${userId}`);
                     }
-
+                   
                     // Добавляем фото с автосовмещением
                     const addResult = await footprintManager.addPhotoToSession(
                         userId,
                         {
-                            predictions: predictionsForAnalysis.filter(p =>
-                                p.class === 'shoe-protector' ||
-                                (p.confidence || 0) > 0.3
-                            )
+                            predictions: shoeProtectors
                         },
                         {
                             photoId: photo.file_id,
                             chatId: chatId,
                             localPath: tempImagePath,
                             photoQuality: avgConfidence,
-                            timestamp: new Date()
+                            timestamp: new Date(),
+                            username: msg.from.username || msg.from.first_name
                         }
                     );
-
+                   
                     // Показываем пользователю результат автосовмещения
-                    if (addResult.alignment) {
-                        console.log(`🎯 Результат автосовмещения: ${addResult.alignment.decision}, similarity: ${addResult.alignment.similarity}`);
-
+                    if (addResult.alignment && addResult.alignment.success) {
+                        console.log(`🎯 Автосовмещение: ${addResult.alignment.decision}, similarity: ${addResult.alignment.similarity}`);
+                       
                         // Если произошло объединение - сообщаем пользователю
                         if (addResult.alignment.decision === 'merged') {
                             setTimeout(async () => {
@@ -2036,7 +2055,7 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                             }, 1000);
                         }
                     }
-
+                   
                     // Сохраняем для будущего использования
                     saveUserLastAnalysis(userId, {
                         predictions: predictionsForAnalysis,
@@ -2050,7 +2069,8 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                         // ДАННЫЕ ДЛЯ НОВОЙ СИСТЕМЫ
                         hasSimpleFootprintData: true,
                         sessionId: footprintManager.getActiveSession(userId)?.id,
-                        nodesCount: addResult.totalNodes || 0
+                        nodesCount: addResult.totalNodes || 0,
+                        protectorCount: shoeProtectors.length
                     });
                 }
             } catch (error) {
@@ -2674,13 +2694,14 @@ async function enhanceVisualizationWithAnalysis(imagePath, analysis) {
 // =============================================================================
 app.get('/', (req, res) => {
     res.send(`
-        <h1>🤖 Система анализа следов обуви v2.3</h1>
+        <h1>🤖 Система анализа следов обуви v2.4</h1>
         <p>✅ Модульная система работает!</p>
         <p>📊 Пользователей: ${globalStats.totalUsers}</p>
         <p>📸 Фото обработано: ${globalStats.totalPhotos}</p>
         <p>🎯 Практический анализ для ПСО: активен</p>
         <p>🐕 Фильтрация животных: активна</p>
         <p>👣 Новая графовая система: АКТИВИРОВАНА ✅</p>
+        <p>🔧 DEBUG_MODE: ${DEBUG_MODE ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}</p>
         <p><a href="/health">Health Check</a></p>
     `);
 });
@@ -2700,6 +2721,10 @@ app.get('/health', (req, res) => {
             visualization: visualization !== null,
             yandexDisk: yandexDisk !== null,
             footprintManager: footprintManager !== null
+        },
+        debug: {
+            mode: DEBUG_MODE,
+            footprintSessions: footprintManager ? Array.from(footprintManager.userSessions.keys()).length : 0
         }
     });
 });
@@ -2888,6 +2913,7 @@ console.log('🛡️ Глобальные обработчики ошибок а
     console.log('🎯 Практический анализ для ПСО активирован');
     console.log('🐕 Фильтрация следов животных активирована');
     console.log('👣 Новая графовая система с автосовмещением: АКТИВИРОВАНА ✅');
+    console.log(`🔧 DEBUG_MODE: ${DEBUG_MODE ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
 
 })();
 
@@ -2934,7 +2960,7 @@ bot.on('callback_query', async (callbackQuery) => {
         } else if (data === 'feedback_incorrect') {
             await bot.answerCallbackQuery(callbackQuery.id);
 
-            // Показываем меню выбора типа ошибка
+            // Показываем меню выбора типа ошибки
             await bot.editMessageText(
                 `Что не так с анализом? Выберите вариант:`,
                 {
@@ -3092,4 +3118,5 @@ app.listen(config.PORT, () => {
     console.log(`🎯 Практический анализ для ПСО активирован`);
     console.log(`🐕 Фильтрация животных: активна`);
     console.log(`👣 Графовая система с автосовмещением: АКТИВИРОВАНА`);
+    console.log(`🔧 DEBUG_MODE: ${DEBUG_MODE ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
 });
