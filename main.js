@@ -2663,13 +2663,138 @@ bot.onText(/\/debug_raw_data/, async (msg) => {
     }
 });
 
+// Команда для проверки данных в сессии
+bot.onText(/\/debug_analysis_data/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    await bot.sendMessage(chatId, '🔍 Проверяю данные анализа в сессии...');
+   
+    try {
+        if (!sessionManager || !sessionManager.hasActiveSession(userId)) {
+            await bot.sendMessage(chatId, '❌ Нет активной сессии');
+            return;
+        }
+       
+        const session = sessionManager.getActiveSession(userId);
+       
+        if (!session.analysisResults || session.analysisResults.length === 0) {
+            await bot.sendMessage(chatId, '❌ Нет данных анализа в сессии');
+            return;
+        }
+       
+        const lastAnalysis = session.analysisResults[session.analysisResults.length - 1];
+       
+        let message = `📊 ДАННЫЕ АНАЛИЗА В СЕССИИ:\n\n`;
+        message += `Всего анализов: ${session.analysisResults.length}\n`;
+        message += `Последний анализ:\n`;
+        message += `- predictions count: ${lastAnalysis.predictions?.length || 0}\n`;
+       
+        // Проверяем протекторы
+        const protectors = lastAnalysis.predictions?.filter(p => p.class === 'shoe-protector') || [];
+        message += `- protectors count: ${protectors.length}\n\n`;
+       
+        if (protectors.length > 0) {
+            const firstProtector = protectors[0];
+            message += `🔍 ПЕРВЫЙ ПРОТЕКТОР:\n`;
+            message += `- class: ${firstProtector.class}\n`;
+            message += `- confidence: ${firstProtector.confidence?.toFixed(3) || 'нет'}\n`;
+            message += `- points count: ${firstProtector.points?.length || 0}\n`;
+           
+            if (firstProtector.points && firstProtector.points.length > 0) {
+                const point = firstProtector.points[0];
+                message += `- point[0]: x=${point.x}, y=${point.y}\n`;
+               
+                // Проверяем координаты
+                const allZero = firstProtector.points.every(p => p.x === 0 && p.y === 0);
+                message += `- all points zero? ${allZero ? 'ДА!' : 'нет'}\n`;
+               
+                if (allZero) {
+                    message += `\n🚨 ВНИМАНИЕ: Все точки в (0,0)!\n`;
+                    message += `Проблема в передаче данных между модулями.`;
+                }
+            }
+        }
+       
+        await bot.sendMessage(chatId, message);
+       
+    } catch (error) {
+        console.log('❌ Ошибка debug:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+bot.onText(/\/test_direct/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    await bot.sendMessage(chatId, '🧪 Прямой тест DigitalFootprint...');
+   
+    try {
+        // Создаем тестовые данные с РЕАЛЬНЫМИ координатами
+        const testData = {
+            predictions: [
+                {
+                    class: 'shoe-protector',
+                    confidence: 0.9,
+                    points: [
+                        { x: 392, y: 298.5500183105469 },
+                        { x: 410, y: 298.5500183105469 },
+                        { x: 410, y: 320.5500183105469 },
+                        { x: 392, y: 320.5500183105469 }
+                    ]
+                },
+                {
+                    class: 'shoe-protector',
+                    confidence: 0.8,
+                    points: [
+                        { x: 450, y: 300.5500183105469 },
+                        { x: 470, y: 300.5500183105469 },
+                        { x: 470, y: 320.5500183105469 },
+                        { x: 450, y: 320.5500183105469 }
+                    ]
+                }
+            ]
+        };
+       
+        const DigitalFootprint = require('./modules/footprint/digital-footprint');
+        const footprint = new DigitalFootprint({
+            name: 'Прямой тест',
+            userId: msg.from.id
+        });
+       
+        // Добавляем первый анализ
+        const result1 = footprint.addAnalysis(testData, { imagePath: 'test1.jpg' });
+       
+        await bot.sendMessage(chatId,
+            `✅ Прямой тест DigitalFootprint:\n` +
+            `Узлов создано: ${result1.totalNodes || 0}\n` +
+            `Оригинальных координат: ${footprint.originalCoordinates?.size || 0}`
+        );
+       
+        // Проверяем координаты
+        const points = footprint.getAlignmentPointsFromNodes();
+        if (points.length > 0) {
+            await bot.sendMessage(chatId,
+                `📍 Точки для совмещения:\n` +
+                `Количество: ${points.length}\n` +
+                `Первая точка: x=${points[0].x.toFixed(1)}, y=${points[0].y.toFixed(1)}\n` +
+                `(должно быть ~415, ~310)`
+            );
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка прямого теста:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}\n${error.stack}`);
+    }
+});
+
 
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
 
 // ЗАМЕНЯЕМ старую команду /save_model на новую:
-/\/save_model(?: (.+))?/, async (msg, match) => {
+bot.onText(/\/save_model(?: (.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const modelName = match[1] || `Модель_${new Date().toLocaleDateString('ru-RU')}`;
