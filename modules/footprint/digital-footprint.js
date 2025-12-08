@@ -1,5 +1,5 @@
 // modules/footprint/digital-footprint.js
-// ПОЛНАЯ ОБНОВЛЁННАЯ ВЕРСИЯ С ИСПРАВЛЕНИЕМ КООРДИНАТ
+// ПОЛНАЯ ОБНОВЛЁННАЯ ВЕРСИЯ С ИСПРАВЛЕНИЕМ КООРДИНАТ И ЛОГИРОВАНИЕМ
 const crypto = require('crypto');
 const fs = require('fs');
 const TopologyUtils = require('./topology-utils');
@@ -18,7 +18,7 @@ class DigitalFootprint {
 
         // 🔥 ДОБАВЛЯЕМ ХРАНЕНИЕ ОРИГИНАЛЬНЫХ КООРДИНАТ
         this.originalCoordinates = new Map(); // {nodeId: {x, y, points, timestamp}}
-       
+
         // 🔥 ФЛАГ НОРМАЛИЗАЦИИ
         this.isNormalized = false;
 
@@ -111,23 +111,23 @@ class DigitalFootprint {
     // 🔥 НОВЫЙ МЕТОД: Диагностика координат
     diagnoseCoordinates() {
         console.log('🔍 ДИАГНОСТИКА КООРДИНАТ');
-       
+
         const data = {
             nodes: this.nodes.size,
             originalCoords: this.originalCoordinates ? this.originalCoordinates.size : 0,
             normalizedCoords: this.topologyInvariants.normalizedNodes ?
-                             this.topologyInvariants.normalizedNodes.size : 0,
+                            this.topologyInvariants.normalizedNodes.size : 0,
             samples: []
         };
-       
+
         // Берем первые 3 узла для анализа
         let count = 0;
         for (const [nodeId, node] of this.nodes) {
             if (count >= 3) break;
-           
+
             const original = this.originalCoordinates.get(nodeId);
             const normalized = this.topologyInvariants.normalizedNodes.get(nodeId);
-           
+
             data.samples.push({
                 id: nodeId.slice(-3),
                 original: original ? {
@@ -143,18 +143,22 @@ class DigitalFootprint {
                     y: normalized.y ? normalized.y.toFixed(3) : 'N/A'
                 } : 'нет'
             });
-           
+
             count++;
         }
-       
+
         console.log('📊 Данные координат:', JSON.stringify(data, null, 2));
         return data;
     }
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Получить точки модели для совмещения (ИСПОЛЬЗУЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ!)
     getAlignmentPointsFromNodes() {
+        console.log('🔍 DEBUG getAlignmentPointsFromNodes CALLED');
+        console.log(`  - this.nodes.size: ${this.nodes.size}`);
+        console.log(`  - this.originalCoordinates?.size: ${this.originalCoordinates?.size || 0}`);
+
         const points = [];
-       
+
         // 🔥 ВАЖНО: Если есть оригинальные координаты - используем ИХ
         if (this.originalCoordinates && this.originalCoordinates.size > 0) {
             this.originalCoordinates.forEach((coord, nodeId) => {
@@ -171,7 +175,7 @@ class DigitalFootprint {
                 }
             });
         }
-       
+
         // 🔥 Если оригинальных координат нет, используем текущие, но с предупреждением
         if (points.length === 0) {
             console.log('⚠️ Нет оригинальных координат, использую текущие');
@@ -188,6 +192,11 @@ class DigitalFootprint {
                 }
             });
         }
+
+        console.log(`  - Возвращаю ${points.length} точек`);
+        if (points.length > 0) {
+            console.log(`  - Пример точки: x=${points[0].x.toFixed(1)}, y=${points[0].y.toFixed(1)}`);
+        }
        
         console.log(`📍 getAlignmentPoints: ${points.length} точек (${points.filter(p => p.isOriginal).length} оригинальных)`);
         return points;
@@ -198,7 +207,7 @@ class DigitalFootprint {
         if (!this.originalCoordinates) {
             this.originalCoordinates = new Map();
         }
-       
+
         this.originalCoordinates.set(nodeId, {
             x: center.x,
             y: center.y,
@@ -206,7 +215,7 @@ class DigitalFootprint {
             timestamp: new Date(),
             savedAt: Date.now()
         });
-       
+
         return true;
     }
 
@@ -215,7 +224,7 @@ class DigitalFootprint {
         if (!this.originalCoordinates || !this.originalCoordinates.has(nodeId)) {
             return null;
         }
-       
+
         return this.originalCoordinates.get(nodeId);
     }
 
@@ -245,7 +254,7 @@ class DigitalFootprint {
             const newPoints = this.extractAlignmentPointsFromProtectors(protectors);
 
             console.log(`🔍 Ищу совмещение: ${modelPoints.length} точек модели vs ${newPoints.length} новых точек`);
-           
+
             if (modelPoints.length < 3) {
                 console.log('⚠️ Недостаточно точек модели для совмещения');
                 return this.addAnalysis(analysis, sourceInfo);
@@ -407,7 +416,7 @@ class DigitalFootprint {
             transformedSourceInfo,
             alignmentResult
         );
-      
+
         this.saveAllHeelsTransformed(
             predictions?.filter(p => p.class === 'Heel') || [],
             transformedSourceInfo,
@@ -418,7 +427,7 @@ class DigitalFootprint {
         if (addedNodes.length > 0 || mergedNodes.length > 0) {
             this.rebuildEdges();
             this.updateIndices();
-           
+
             // 🔥 ВАЖНО: Обновляем топологические инварианты, НО не нормализуем узлы
             // Мы сохраняем оригинальные координаты для будущих совмещений
             this.updateTopologyInvariants(true); // true = skip normalization
@@ -434,7 +443,7 @@ class DigitalFootprint {
         console.log(`✅ Добавлено новых узлов: ${addedNodes.length}`);
         console.log(`✅ Объединено существующих: ${mergedNodes.length}`);
         console.log(`🎯 Score совмещения: ${(alignmentResult.score * 100).toFixed(1)}%`);
-      
+
         if (alignmentResult.transform) {
             const angleDeg = alignmentResult.transform.rotation * 180 / Math.PI;
             console.log(`📐 Трансформация:`);
@@ -442,11 +451,11 @@ class DigitalFootprint {
             console.log(`   • Масштаб: ${alignmentResult.transform.scale?.toFixed(3) || 1.0}`);
             console.log(`   • Смещение: (${alignmentResult.transform.translation?.x?.toFixed(1) || 0}, ${alignmentResult.transform.translation?.y?.toFixed(1) || 0})`);
         }
-      
+
         if (alignmentResult.mirrored) {
             console.log('🪞 Обнаружено зеркальное отражение');
         }
-      
+
         console.log(`📈 Всего узлов в модели: ${this.nodes.size}`);
         console.log(`📍 Оригинальных координат: ${this.originalCoordinates.size}`);
         console.log('========================================\n');
@@ -463,8 +472,12 @@ class DigitalFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Извлечь точки из протекторов для совмещения
     extractAlignmentPointsFromProtectors(protectors) {
-        return protectors.map((p, index) => {
+        console.log('🔍 DEBUG extractAlignmentPointsFromProtectors CALLED');
+        console.log(`  - protectors.length: ${protectors.length}`);
+
+        const points = protectors.map((p, index) => {
             const center = this.calculateCenter(p.points);
+            console.log(`  - Протектор ${index}: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
             return {
                 x: center.x,
                 y: center.y,
@@ -472,6 +485,8 @@ class DigitalFootprint {
                 id: `new_${Date.now()}_${index}`
             };
         });
+
+        return points;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Трансформировать точку с результатом совмещения
@@ -489,20 +504,20 @@ class DigitalFootprint {
     // 🔥 НОВЫЙ МЕТОД: Обновить статистику совмещений
     updateAlignmentStats(alignmentResult) {
         this.alignmentStats.totalAlignments++;
-      
+
         if (alignmentResult.score > 0.5) {
             this.alignmentStats.successfulAlignments++;
         }
-      
+
         // Обновляем средний score
         const totalScore = this.alignmentStats.avgAlignmentScore * (this.alignmentStats.totalAlignments - 1);
         this.alignmentStats.avgAlignmentScore = (totalScore + alignmentResult.score) / this.alignmentStats.totalAlignments;
-      
+
         // Обновляем лучший score
         if (alignmentResult.score > this.alignmentStats.bestAlignmentScore) {
             this.alignmentStats.bestAlignmentScore = alignmentResult.score;
         }
-      
+
         // Обновляем статистику в stats
         if (this.alignmentStats.totalAlignments > 0) {
             this.stats.alignmentSuccessRate = this.alignmentStats.successfulAlignments / this.alignmentStats.totalAlignments;
@@ -513,13 +528,13 @@ class DigitalFootprint {
     saveAllContoursTransformed(contours, sourceInfo, alignmentResult) {
         if (!contours || contours.length === 0) return;
         if (!this.allContours) this.allContours = [];
-      
+
         contours.forEach(contour => {
             try {
                 const transformedPoints = contour.points.map(point =>
                     this.transformPointWithAlignment(point, alignmentResult)
                 );
-              
+
                 this.allContours.push({
                     id: `contour_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
                     points: transformedPoints,
@@ -540,13 +555,13 @@ class DigitalFootprint {
     saveAllHeelsTransformed(heels, sourceInfo, alignmentResult) {
         if (!heels || heels.length === 0) return;
         if (!this.allHeels) this.allHeels = [];
-      
+
         heels.forEach(heel => {
             try {
                 const transformedPoints = heel.points.map(point =>
                     this.transformPointWithAlignment(point, alignmentResult)
                 );
-              
+
                 this.allHeels.push({
                     id: `heel_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
                     points: transformedPoints,
@@ -578,7 +593,7 @@ class DigitalFootprint {
     getAlignmentVisualizationData() {
         const modelPoints = this.getAlignmentPointsFromNodes();
         const alignmentRecords = this.alignmentHistory.filter(record => record.score > 0.5);
-      
+
         return {
             modelPoints: modelPoints,
             alignmentHistory: alignmentRecords,
@@ -771,7 +786,7 @@ class DigitalFootprint {
         const shape = this.estimateShape(protector.points);
 
         const nodeId = `node_${crypto.randomBytes(3).toString('hex')}`;
-       
+
         // 🔥 ВАЖНО: Сохраняем ОРИГИНАЛЬНЫЕ координаты
         this.saveOriginalCoordinates(nodeId, center, protector.points);
 
@@ -961,7 +976,7 @@ class DigitalFootprint {
         if (data.topologyInvariants) {
             footprint.topologyInvariants = data.topologyInvariants;
             footprint.mirrorInfo = data.mirrorInfo || {};
-          
+
             // Восстанавливаем normalizedNodes из массива
             if (data.topologyInvariants.normalizedNodes && Array.isArray(data.topologyInvariants.normalizedNodes)) {
                 footprint.topologyInvariants.normalizedNodes =
