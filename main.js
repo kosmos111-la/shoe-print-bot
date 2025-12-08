@@ -2834,6 +2834,48 @@ bot.onText(/\/check_model_coords/, async (msg) => {
     }
 });
 
+bot.onText(/\/debug_footprint/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    await bot.sendMessage(chatId, '🔍 Проверяю FootprintManager...');
+   
+    try {
+        // 1. Проверяем есть ли FootprintManager
+        const hasManager = global.footprintManagers && global.footprintManagers.has(userId);
+       
+        let message = `📊 **FOOTPRINT MANAGER STATUS**\n\n`;
+        message += `👤 UserId: ${userId}\n`;
+        message += `📁 Manager exists: ${hasManager ? '✅' : '❌'}\n`;
+       
+        if (hasManager) {
+            const fpManager = global.footprintManagers.get(userId);
+           
+            // Проверяем текущую модель
+            const currentModel = fpManager.getCurrentModel(userId);
+           
+            message += `\n📦 **CURRENT MODEL:**\n`;
+            message += `• Name: ${currentModel?.name || 'нет'}\n`;
+            message += `• Nodes: ${currentModel?.nodes?.size || 0}\n`;
+            message += `• Original coords: ${currentModel?.originalCoordinates?.size || 0}\n`;
+           
+            // Проверяем сессию
+            const session = fpManager.getUserSession(userId);
+            message += `\n🔄 **SESSION:**\n`;
+            message += `• ID: ${session?.id || 'нет'}\n`;
+            message += `• Photos added: ${session?.photosAdded || 0}\n`;
+            message += `• Auto-alignment: ${session?.autoAlignment ? '✅' : '❌'}\n`;
+        } else {
+            message += `\n💡 **Создайте сессию:** /trail_start`;
+        }
+       
+        await bot.sendMessage(chatId, message);
+       
+    } catch (error) {
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 // =============================================================================
 // 🎯 ОБНОВЛЕННАЯ КОМАНДА /save_model С ИНТЕГРАЦИЕЙ FOOTPRINTMANAGER
 // =============================================================================
