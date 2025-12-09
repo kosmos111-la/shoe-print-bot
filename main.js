@@ -2435,29 +2435,38 @@ bot.onText(/\/my_footprints/, async (msg) => {
 
         let response = `📚 **ВАШИ МОДЕЛИ** (${userModels.length})\n\n`;
 
-        // Показываем первые 5 моделей
-        userModels.slice(0, 5).forEach((model, index) => {
-            const date = model.metadata?.created?.toLocaleDateString('ru-RU') || 'неизвестно';
-            const shortId = model.id ? model.id.slice(0, 8) : 'unknown';
+        // Показываем все модели с полными ID
+        userModels.slice(0, 10).forEach((model, index) => {
+            const date = model.metadata?.created
+                ? new Date(model.metadata.created).toLocaleDateString('ru-RU')
+                : 'неизвестно';
+            const fullId = model.id || 'unknown';
+            const shortId = fullId.slice(0, 8);
             const nodeCount = model.graph?.nodes?.size || model.nodes?.length || 0;
             const confidence = Math.round((model.stats?.confidence || model.confidence || 0) * 100);
+            const photoCount = model.metadata?.totalPhotos || model.photoHistory?.length || 0;
 
             response += `**${index + 1}. ${model.name || 'Без имени'}**\n`;
-            response += `   🆔 ${shortId}...\n`;
+            response += `   🆔 ${fullId}\n`;
+            response += `   👁️ Короткий: ${shortId}...\n`;
             response += `   📅 ${date}\n`;
             response += `   📊 ${nodeCount} узлов\n`;
+            response += `   📸 ${photoCount} фото\n`;
             response += `   💎 ${confidence}% уверенность\n`;
-            response += `   👁️ /view_footprint_${shortId}\n\n`;
+            response += `   🎨 /visualize_model ${fullId}\n`;
+            response += `   🔍 /visualize_compare ${fullId} [ID_другой_модели]\n`;
+            response += `   📋 /view_model ${fullId}\n\n`;
         });
 
-        if (userModels.length > 5) {
-            response += `... и ещё ${userModels.length - 5} моделей\n\n`;
+        if (userModels.length > 10) {
+            response += `... и ещё ${userModels.length - 10} моделей\n\n`;
         }
 
         response += `💡 **Используйте:**\n`;
-        response += `/view_footprint_[ID] - Детали модели\n`;
-        response += `/find_similar_footprints - Найти похожие\n`;
-        response += `/footprint_start - Создать новую`;
+        response += `/visualize_model [ID] - Визуализация\n`;
+        response += `/visualize_compare [ID1] [ID2] - Сравнение\n`;
+        response += `/view_model [ID] - Детальная информация\n`;
+        response += `\n📋 **Совет:** ID можно копировать из списка выше`;
 
         await bot.sendMessage(chatId, response);
 
@@ -2850,6 +2859,117 @@ bot.onText(/\/visualize_session/, async (msg) => {
         console.log('❌ Ошибка команды visualize_session:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
     }
+});
+
+bot.onText(/\/view_model(?: (.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const modelId = match[1];
+
+    try {
+        if (!footprintManager) {
+            await bot.sendMessage(chatId, '❌ Система отпечатков не инициализирована');
+            return;
+        }
+
+        if (!modelId) {
+            await bot.sendMessage(chatId,
+                `🔍 **ПРОСМОТР МОДЕЛИ**\n\n` +
+                `📝 Формат:\n` +
+                `/view_model [ID_модели]\n\n` +
+                `📋 Получить ID моделей:\n` +
+                `/my_footprints`
+            );
+            return;
+        }
+
+        const model = footprintManager.getModelById(modelId);
+        if (!model) {
+            await bot.sendMessage(chatId,
+                `❌ **МОДЕЛЬ НЕ НАЙДЕНА**\n\n` +
+                `ID: ${modelId}\n\n` +
+                `💡 **Проверьте:**\n` +
+                `1. Правильность ID\n` +
+                `2. Это ваша модель?\n` +
+                `3. Модель существует?\n\n` +
+                `📋 **Ваши модели:**\n` +
+                `/my_footprints`
+            );
+            return;
+        }
+
+        // Получаем информацию о модели
+        const info = model.getInfo ? model.getInfo() : {
+            name: model.name || 'Без имени',
+            id: model.id || 'unknown',
+            metadata: {
+                created: model.createdAt ? new Date(model.createdAt).toLocaleString('ru-RU') : 'неизвестно',
+                lastUpdated: model.updatedAt ? new Date(model.updatedAt).toLocaleString('ru-RU') : 'неизвестно'
+            },
+            graph: {
+                nodes: model.graph?.nodes?.size || model.nodes?.length || 0,
+                edges: model.graph?.edges?.size || model.edges?.length || 0
+            },
+            stats: {
+                confidence: model.stats?.confidence || model.confidence || 0,
+                qualityScore: Math.round((model.stats?.confidence || model.confidence || 0) * 100)
+            },
+            history: {
+                photos: model.metadata?.totalPhotos || model.photoHistory?.length || 0,
+                analyses: model.analysisHistory?.length || 0
+            }
+        };
+
+        let response = `👣 **ЦИФРОВОЙ ОТПЕЧАТОК - ПОЛНАЯ ИНФОРМАЦИЯ**\n\n`;
+        response += `📝 **Название:** ${info.name}\n`;
+        response += `🆔 **Полный ID:** ${info.id}\n`;
+        response += `📅 **Создана:** ${info.metadata.created}\n`;
+        response += `🔄 **Обновлена:** ${info.metadata.lastUpdated}\n\n`;
+       
+        response += `📊 **СТАТИСТИКА:**\n`;
+        response += `• Узлов в графе: ${info.graph.nodes}\n`;
+        response += `• Рёбер в графе: ${info.graph.edges}\n`;
+        response += `• Фото в истории: ${info.history.photos}\n`;
+        response += `• Анализов: ${info.history.analyses}\n`;
+        response += `• Уверенность: ${info.stats.qualityScore}%\n\n`;
+       
+        // Показываем инварианты если есть
+        if (model.graph && model.graph.getBasicInvariants) {
+            const invariants = model.graph.getBasicInvariants();
+            response += `📈 **ИНВАРИАНТЫ ГРАФА:**\n`;
+            response += `• Диаметр: ${invariants.graphDiameter}\n`;
+            response += `• Коэф. кластеризации: ${invariants.clusteringCoefficient.toFixed(3)}\n`;
+            response += `• Средняя степень: ${invariants.avgDegree.toFixed(2)}\n`;
+            response += `• Плотность: ${invariants.density.toFixed(4)}\n\n`;
+        }
+       
+        // История фото
+        if (model.photoHistory && model.photoHistory.length > 0) {
+            response += `📸 **ИСТОРИЯ ФОТО:**\n`;
+            model.photoHistory.slice(0, 5).forEach((photo, idx) => {
+                const date = photo.timestamp ? new Date(photo.timestamp).toLocaleString('ru-RU') : 'неизвестно';
+                const points = photo.points || '?';
+                response += `${idx + 1}. ${date} - ${points} точек\n`;
+            });
+            if (model.photoHistory.length > 5) {
+                response += `... и ещё ${model.photoHistory.length - 5} фото\n`;
+            }
+            response += `\n`;
+        }
+       
+        response += `🎯 **КОМАНДЫ ДЛЯ ЭТОЙ МОДЕЛИ:**\n`;
+        response += `/visualize_model ${info.id} - Визуализация\n`;
+        response += `/visualize_compare ${info.id} [ID] - Сравнить с другой\n`;
+        response += `/find_similar_footprints - Найти похожие\n\n`;
+       
+        response += `📤 **Экспорт:** /export_model ${info.id}`;
+
+        await bot.sendMessage(chatId, response);
+
+    } catch (error) {
+        console.log('❌ Ошибка /view_model:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
 });
 
 // =============================================================================
