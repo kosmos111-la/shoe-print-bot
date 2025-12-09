@@ -82,7 +82,7 @@ class GraphVisualizer {
         
         // Если есть результаты сравнения - показать совпадения
         if (comparisonResult && comparisonResult.matchedNodes) {
-             this.drawMatchedNodesDetailed(ctx, graph1, graph2, comparisonResult.matchedNodes, scale, offset);
+            this.drawMatchedNodesDetailed(ctx, graph1, graph2, comparisonResult.matchedNodes, scale, offset);
         }
         
         // Информационная панель
@@ -94,68 +94,7 @@ class GraphVisualizer {
         await this.saveCanvas(canvas, outputPath);
         
         return outputPath;
-    }}
-
-// Новый метод для детальной отрисовки совпадений
-drawMatchedNodesDetailed(ctx, graph1, graph2, matchedNodes, scale, offset) {
-    if (!matchedNodes || matchedNodes.length === 0) return;
-   
-    // Считаем статистику
-    const totalMatches = matchedNodes.length;
-    const totalNodes1 = graph1.nodes.size;
-    const totalNodes2 = graph2.nodes.size;
-    const matchPercent1 = (totalMatches / totalNodes1 * 100).toFixed(1);
-    const matchPercent2 = (totalMatches / totalNodes2 * 100).toFixed(1);
-   
-    // Отрисовываем линии совпадений
-    ctx.strokeStyle = '#ffdd59';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([3, 3]);
-   
-    matchedNodes.forEach((pair, index) => {
-        const node1 = graph1.nodes.get(pair.node1);
-        const node2 = graph2.nodes.get(pair.node2);
-       
-        if (node1 && node2) {
-            const x1 = node1.x * scale + offset.x;
-            const y1 = node1.y * scale + offset.y;
-            const x2 = node2.x * scale + offset.x;
-            const y2 = node2.y * scale + offset.y;
-           
-            // Линия
-            ctx.beginPath();
-            ctx.moveTo(x1, y1);
-            ctx.lineTo(x2, y2);
-            ctx.stroke();
-           
-            // Номер совпадения (каждое 5-е)
-            if (index % 5 === 0) {
-                const midX = (x1 + x2) / 2;
-                const midY = (y1 + y2) / 2;
-               
-                ctx.fillStyle = '#000000';
-                ctx.fillRect(midX - 8, midY - 6, 16, 12);
-               
-                ctx.fillStyle = '#ffdd59';
-                ctx.font = 'bold 10px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText((index + 1).toString(), midX, midY);
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'alphabetic';
-            }
-        }
-    });
-   
-    ctx.setLineDash([]);
-   
-    // Добавляем статистику совпадений на изображение
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '14px Arial';
-    ctx.fillText(`Совпало узлов: ${totalMatches}`, 20, this.canvasHeight - 120);
-    ctx.fillText(`Из ${totalNodes1} узлов (${matchPercent1}%)`, 20, this.canvasHeight - 100);
-    ctx.fillText(`Из ${totalNodes2} узлов (${matchPercent2}%)`, 20, this.canvasHeight - 80);
-}
+    }
     
     // 3. ВИЗУАЛИЗАЦИЯ МОДЕЛИ С КОНТУРОМ (лучший снимок)
     async visualizeModelWithContour(footprint, contourImagePath = null, options = {}) {
@@ -355,205 +294,281 @@ drawMatchedNodesDetailed(ctx, graph1, graph2, matchedNodes, scale, offset) {
         
         return frames;
     }
-
-// 6. ВИЗУАЛИЗАЦИЯ МОДЕЛИ С ИСТОРИЕЙ СОВПАДЕНИЙ
-async visualizeModelWithHistory(footprint, options = {}) {
-    const canvas = createCanvas(this.canvasWidth, this.canvasHeight);
-    const ctx = canvas.getContext('2d');
-   
-    // Тёмный фон
-    ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
-   
-    // Собираем статистику по узлам
-    const nodeStats = this.calculateNodeStatistics(footprint);
-   
-    // Находим границы
-    const bounds = this.calculateBounds(footprint.graph);
-    const scale = this.calculateScale(bounds, 150);
-    const offset = this.calculateOffset(bounds, scale);
-   
-    // Отрисовываем граф с цветами по статистике
-    this.drawGraphWithStats(ctx, footprint.graph, nodeStats, scale, offset, options);
-   
-    // Отрисовываем легенду статистики
-    this.drawStatsLegend(ctx, nodeStats);
-   
-    // Отрисовываем информацию о модели
-    this.drawModelStats(ctx, footprint);
-   
-    // Сохранение
-    const filename = options.filename || `model_history_${footprint.id?.slice(0, 8) || 'unknown'}.png`;
-    const outputPath = path.join(this.outputDir, filename);
-    await this.saveCanvas(canvas, outputPath);
-   
-    return outputPath;
-}
-
-// Метод для расчета статистики узлов
-calculateNodeStatistics(footprint) {
-    const stats = {
-        nodes: new Map(), // nodeId -> { count: X, photos: [] }
-        totalPhotos: footprint.metadata?.totalPhotos || footprint.photoHistory?.length || 0,
-        photoHistory: footprint.photoHistory || []
-    };
-   
-    // Собираем историю из анализов
-    if (footprint.analysisHistory && footprint.analysisHistory.length > 0) {
-        footprint.analysisHistory.forEach((analysis, photoIndex) => {
-            if (analysis.graphSnapshot && analysis.graphSnapshot.nodes) {
-                // Здесь нужно сопоставить узлы между фото
-                // Пока упростим - считаем что узлы в том же порядке
-                analysis.graphSnapshot.nodes.forEach((node, nodeIndex) => {
-                    const nodeId = `n${nodeIndex + 1}`;
-                    if (!stats.nodes.has(nodeId)) {
-                        stats.nodes.set(nodeId, {
-                            count: 0,
-                            photos: [],
-                            x: node.x,
-                            y: node.y
-                        });
-                    }
-                   
-                    const nodeStat = stats.nodes.get(nodeId);
-                    nodeStat.count++;
-                    nodeStat.photos.push(photoIndex + 1);
-                });
-            }
-        });
-    }
-   
-    return stats;
-}
-
-// Отрисовка графа со статистикой
-drawGraphWithStats(ctx, graph, nodeStats, scale, offset, options = {}) {
-    const nodes = Array.from(graph.nodes?.values() || []);
-    const edges = Array.from(graph.edges?.values() || []);
-   
-    if (nodes.length === 0) return;
-   
-    // Отрисовка рёбер
-    ctx.strokeStyle = options.edgeColor || '#70a1ff50';
-    ctx.lineWidth = 1;
-   
-    edges.forEach(edge => {
-        const fromNode = graph.nodes?.get(edge.from);
-        const toNode = graph.nodes?.get(edge.to);
-       
-        if (fromNode && toNode) {
-            const x1 = fromNode.x * scale + offset.x;
-            const y1 = fromNode.y * scale + offset.y;
-            const x2 = toNode.x * scale + offset.x;
-            const y2 = toNode.y * scale + offset.y;
-           
-            ctx.beginPath();
-            ctx.moveTo(x1, y1);
-            ctx.lineTo(x2, y2);
-            ctx.stroke();
-        }
-    });
-   
-    // Отрисовка узлов с цветами по статистике
-    nodes.forEach(node => {
-        const x = node.x * scale + offset.x;
-        const y = node.y * scale + offset.y;
-        const nodeStat = nodeStats.nodes.get(node.id);
-        const matchCount = nodeStat ? nodeStat.count : 1;
-       
-        // Цвет в зависимости от количества совпадений
-        let color, radius;
-       
-        if (matchCount === 1) {
-            color = '#ff4757'; // Красный - 1 фото
-            radius = 3;
-        } else if (matchCount === 2) {
-            color = '#ff9f43'; // Оранжевый - 2 фото
-            radius = 4;
-        } else if (matchCount === 3) {
-            color = '#feca57'; // Желтый - 3 фото
-            radius = 5;
-        } else if (matchCount >= 4 && matchCount <= 6) {
-            color = '#2ed573'; // Зеленый - 4-6 фото
-            radius = 6;
-        } else {
-            color = '#54a0ff'; // Синий - 7+ фото
-            radius = 7;
-        }
-       
-        // Отрисовка узла
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fill();
-       
-        // Обводка
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-       
-        // Цифра с количеством совпадений
-        if (matchCount > 1) {
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 10px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(matchCount.toString(), x, y);
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'alphabetic';
-        }
-    });
-}
-
-// Легенда статистики
-drawStatsLegend(ctx, nodeStats) {
-    const legendX = 20;
-    let legendY = this.canvasHeight - 180;
-   
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText('📊 СТАТИСТИКА СОВПАДЕНИЙ:', legendX, legendY);
-   
-    legendY += 25;
-    ctx.font = '12px Arial';
-   
-    const legendItems = [
-        { color: '#ff4757', label: '1 фото', desc: 'Точка с 1 фото' },
-        { color: '#ff9f43', label: '2 фото', desc: 'Совпала на 2 фото' },
-        { color: '#feca57', label: '3 фото', desc: 'Совпала на 3 фото' },
-        { color: '#2ed573', label: '4-6 фото', desc: 'Хорошее совпадение' },
-        { color: '#54a0ff', label: '7+ фото', desc: 'Отличное совпадение' }
-    ];
-   
-    legendItems.forEach((item, index) => {
-        // Цветной круг
-        ctx.fillStyle = item.color;
-        ctx.beginPath();
-        ctx.arc(legendX + 10, legendY + index * 25 + 5, 6, 0, Math.PI * 2);
-        ctx.fill();
-       
-        // Текст
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(`${item.label}: ${item.desc}`, legendX + 25, legendY + index * 25 + 10);
-    });
-   
-    // Общая статистика
-    legendY += legendItems.length * 25 + 15;
-    ctx.fillStyle = '#70a1ff';
-    ctx.font = 'bold 13px Arial';
-   
-    const totalNodes = nodeStats.nodes.size;
-    const avgMatches = totalNodes > 0
-        ? Array.from(nodeStats.nodes.values()).reduce((sum, stat) => sum + stat.count, 0) / totalNodes
-        : 0;
-   
-    const strongMatches = Array.from(nodeStats.nodes.values()).filter(stat => stat.count >= 3).length;
-   
-    ctx.fillText(`Всего узлов: ${totalNodes}`, legendX, legendY);
-    ctx.fillText(`Среднее совпадений: ${avgMatches.toFixed(1)}`, legendX, legendY + 20);
-    ctx.fillText(`Надёжных узлов (≥3 фото): ${strongMatches}`, legendX, legendY + 40);
-    ctx.fillText(`Всего фото в модели: ${nodeStats.totalPhotos}`, legendX, legendY + 60);
-}
+    
+    // 6. ВИЗУАЛИЗАЦИЯ МОДЕЛИ С ИСТОРИЕЙ СОВПАДЕНИЙ
+    async visualizeModelWithHistory(footprint, options = {}) {
+        const canvas = createCanvas(this.canvasWidth, this.canvasHeight);
+        const ctx = canvas.getContext('2d');
+        
+        // Тёмный фон
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
+        
+        // Собираем статистику по узлам
+        const nodeStats = this.calculateNodeStatistics(footprint);
+        
+        // Находим границы
+        const bounds = this.calculateBounds(footprint.graph);
+        const scale = this.calculateScale(bounds, 150);
+        const offset = this.calculateOffset(bounds, scale);
+        
+        // Отрисовываем граф с цветами по статистике
+        this.drawGraphWithStats(ctx, footprint.graph, nodeStats, scale, offset, options);
+        
+        // Отрисовываем легенду статистики
+        this.drawStatsLegend(ctx, nodeStats);
+        
+        // Отрисовываем информацию о модели
+        this.drawModelStats(ctx, footprint);
+        
+        // Сохранение
+        const filename = options.filename || `model_history_${footprint.id?.slice(0, 8) || 'unknown'}.png`;
+        const outputPath = path.join(this.outputDir, filename);
+        await this.saveCanvas(canvas, outputPath);
+        
+        return outputPath;
+    }
+    
+    // Метод для расчета статистики узлов
+    calculateNodeStatistics(footprint) {
+        const stats = {
+            nodes: new Map(), // nodeId -> { count: X, photos: [] }
+            totalPhotos: footprint.metadata?.totalPhotos || footprint.photoHistory?.length || 0,
+            photoHistory: footprint.photoHistory || [],
+            totalNodes: 0,
+            avgMatches: 0,
+            strongMatches: 0
+        };
+        
+        // Если есть анализ история - собираем статистику
+        if (footprint.analysisHistory && footprint.analysisHistory.length > 0) {
+            // Группируем по ID узлов из разных анализов
+            footprint.analysisHistory.forEach((analysis, photoIndex) => {
+                if (analysis.graphSnapshot && analysis.graphSnapshot.nodes) {
+                    analysis.graphSnapshot.nodes.forEach((node, nodeIndex) => {
+                        // Используем координаты для идентификации узла (упрощённо)
+                        const nodeKey = `node_${Math.round(node.x * 100)}_${Math.round(node.y * 100)}`;
+                        
+                        if (!stats.nodes.has(nodeKey)) {
+                            stats.nodes.set(nodeKey, {
+                                count: 0,
+                                photos: [],
+                                x: node.x,
+                                y: node.y,
+                                coordinates: `${Math.round(node.x)}, ${Math.round(node.y)}`
+                            });
+                        }
+                        
+                        const nodeStat = stats.nodes.get(nodeKey);
+                        nodeStat.count++;
+                        nodeStat.photos.push(photoIndex + 1);
+                    });
+                }
+            });
+            
+            // Рассчитываем общую статистику
+            stats.totalNodes = stats.nodes.size;
+            if (stats.totalNodes > 0) {
+                const totalMatches = Array.from(stats.nodes.values()).reduce((sum, stat) => sum + stat.count, 0);
+                stats.avgMatches = totalMatches / stats.totalNodes;
+                stats.strongMatches = Array.from(stats.nodes.values()).filter(stat => stat.count >= 3).length;
+            }
+        }
+        
+        return stats;
+    }
+    
+    // Отрисовка графа со статистикой
+    drawGraphWithStats(ctx, graph, nodeStats, scale, offset, options = {}) {
+        const nodes = Array.from(graph.nodes?.values() || []);
+        const edges = Array.from(graph.edges?.values() || []);
+        
+        if (nodes.length === 0) return;
+        
+        // Отрисовка рёбер
+        ctx.strokeStyle = options.edgeColor || '#70a1ff50';
+        ctx.lineWidth = 1;
+        
+        edges.forEach(edge => {
+            const fromNode = graph.nodes?.get(edge.from);
+            const toNode = graph.nodes?.get(edge.to);
+            
+            if (fromNode && toNode) {
+                const x1 = fromNode.x * scale + offset.x;
+                const y1 = fromNode.y * scale + offset.y;
+                const x2 = toNode.x * scale + offset.x;
+                const y2 = toNode.y * scale + offset.y;
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            }
+        });
+        
+        // Отрисовка узлов с цветами по статистике
+        nodes.forEach(node => {
+            const x = node.x * scale + offset.x;
+            const y = node.y * scale + offset.y;
+            const nodeStat = nodeStats.nodes.get(node.id);
+            const matchCount = nodeStat ? nodeStat.count : 1;
+            
+            // Цвет в зависимости от количества совпадений
+            let color, radius;
+            
+            if (matchCount === 1) {
+                color = '#ff4757'; // Красный - 1 фото
+                radius = 3;
+            } else if (matchCount === 2) {
+                color = '#ff9f43'; // Оранжевый - 2 фото
+                radius = 4;
+            } else if (matchCount === 3) {
+                color = '#feca57'; // Желтый - 3 фото
+                radius = 5;
+            } else if (matchCount >= 4 && matchCount <= 6) {
+                color = '#2ed573'; // Зеленый - 4-6 фото
+                radius = 6;
+            } else {
+                color = '#54a0ff'; // Синий - 7+ фото
+                radius = 7;
+            }
+            
+            // Отрисовка узла
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Обводка
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            
+            // Цифра с количеством совпадений
+            if (matchCount > 1) {
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(matchCount.toString(), x, y);
+            }
+        });
+        
+        // Сбрасываем выравнивание текста
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+    }
+    
+    // Легенда статистики
+    drawStatsLegend(ctx, nodeStats) {
+        const legendX = 20;
+        let legendY = this.canvasHeight - 180;
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText('📊 СТАТИСТИКА СОВПАДЕНИЙ:', legendX, legendY);
+        
+        legendY += 25;
+        ctx.font = '12px Arial';
+        
+        const legendItems = [
+            { color: '#ff4757', label: '1 фото', desc: 'Точка с 1 фото' },
+            { color: '#ff9f43', label: '2 фото', desc: 'Совпала на 2 фото' },
+            { color: '#feca57', label: '3 фото', desc: 'Совпала на 3 фото' },
+            { color: '#2ed573', label: '4-6 фото', desc: 'Хорошее совпадение' },
+            { color: '#54a0ff', label: '7+ фото', desc: 'Отличное совпадение' }
+        ];
+        
+        legendItems.forEach((item, index) => {
+            // Цветной круг
+            ctx.fillStyle = item.color;
+            ctx.beginPath();
+            ctx.arc(legendX + 10, legendY + index * 25 + 5, 6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Текст
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(`${item.label}: ${item.desc}`, legendX + 25, legendY + index * 25 + 10);
+        });
+        
+        // Общая статистика
+        legendY += legendItems.length * 25 + 15;
+        ctx.fillStyle = '#70a1ff';
+        ctx.font = 'bold 13px Arial';
+        
+        const totalNodes = nodeStats.totalNodes || nodeStats.nodes.size;
+        const avgMatches = nodeStats.avgMatches ? nodeStats.avgMatches.toFixed(1) : '0.0';
+        const strongMatches = nodeStats.strongMatches || 0;
+        const totalPhotos = nodeStats.totalPhotos || 0;
+        
+        ctx.fillText(`Всего узлов: ${totalNodes}`, legendX, legendY);
+        ctx.fillText(`Среднее совпадений: ${avgMatches}`, legendX, legendY + 20);
+        ctx.fillText(`Надёжных узлов (≥3 фото): ${strongMatches}`, legendX, legendY + 40);
+        ctx.fillText(`Всего фото в модели: ${totalPhotos}`, legendX, legendY + 60);
+    }
+    
+    // Новый метод для детальной отрисовки совпадений
+    drawMatchedNodesDetailed(ctx, graph1, graph2, matchedNodes, scale, offset) {
+        if (!matchedNodes || matchedNodes.length === 0) return;
+        
+        // Считаем статистику
+        const totalMatches = matchedNodes.length;
+        const totalNodes1 = graph1.nodes ? graph1.nodes.size : 0;
+        const totalNodes2 = graph2.nodes ? graph2.nodes.size : 0;
+        const matchPercent1 = totalNodes1 > 0 ? (totalMatches / totalNodes1 * 100).toFixed(1) : "0.0";
+        const matchPercent2 = totalNodes2 > 0 ? (totalMatches / totalNodes2 * 100).toFixed(1) : "0.0";
+        
+        // Отрисовываем линии совпадений
+        ctx.strokeStyle = '#ffdd59';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        
+        matchedNodes.forEach((pair, index) => {
+            const node1 = graph1.nodes ? graph1.nodes.get(pair.node1) : null;
+            const node2 = graph2.nodes ? graph2.nodes.get(pair.node2) : null;
+            
+            if (node1 && node2) {
+                const x1 = node1.x * scale + offset.x;
+                const y1 = node1.y * scale + offset.y;
+                const x2 = node2.x * scale + offset.x;
+                const y2 = node2.y * scale + offset.y;
+                
+                // Линия
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+                
+                // Номер совпадения (каждое 5-е)
+                if (index % 5 === 0) {
+                    const midX = (x1 + x2) / 2;
+                    const midY = (y1 + y2) / 2;
+                    
+                    ctx.fillStyle = '#000000';
+                    ctx.fillRect(midX - 8, midY - 6, 16, 12);
+                    
+                    ctx.fillStyle = '#ffdd59';
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText((index + 1).toString(), midX, midY);
+                }
+            }
+        });
+        
+        ctx.setLineDash([]);
+        
+        // Сбрасываем выравнивание текста
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        
+        // Добавляем статистику совпадений на изображение
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '14px Arial';
+        ctx.fillText(`Совпало узлов: ${totalMatches}`, 20, this.canvasHeight - 120);
+        ctx.fillText(`Из ${totalNodes1} узлов (${matchPercent1}%)`, 20, this.canvasHeight - 100);
+        ctx.fillText(`Из ${totalNodes2} узлов (${matchPercent2}%)`, 20, this.canvasHeight - 80);
+    }
     
     // ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
     
