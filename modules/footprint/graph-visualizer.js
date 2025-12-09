@@ -82,7 +82,7 @@ class GraphVisualizer {
         
         // Если есть результаты сравнения - показать совпадения
         if (comparisonResult && comparisonResult.matchedNodes) {
-            this.drawMatchedNodes(ctx, graph1, graph2, comparisonResult.matchedNodes, scale, offset);
+             this.drawMatchedNodesDetailed(ctx, graph1, graph2, comparisonResult.matchedNodes, scale, offset);
         }
         
         // Информационная панель
@@ -94,7 +94,68 @@ class GraphVisualizer {
         await this.saveCanvas(canvas, outputPath);
         
         return outputPath;
-    }
+    }}
+
+// Новый метод для детальной отрисовки совпадений
+drawMatchedNodesDetailed(ctx, graph1, graph2, matchedNodes, scale, offset) {
+    if (!matchedNodes || matchedNodes.length === 0) return;
+   
+    // Считаем статистику
+    const totalMatches = matchedNodes.length;
+    const totalNodes1 = graph1.nodes.size;
+    const totalNodes2 = graph2.nodes.size;
+    const matchPercent1 = (totalMatches / totalNodes1 * 100).toFixed(1);
+    const matchPercent2 = (totalMatches / totalNodes2 * 100).toFixed(1);
+   
+    // Отрисовываем линии совпадений
+    ctx.strokeStyle = '#ffdd59';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+   
+    matchedNodes.forEach((pair, index) => {
+        const node1 = graph1.nodes.get(pair.node1);
+        const node2 = graph2.nodes.get(pair.node2);
+       
+        if (node1 && node2) {
+            const x1 = node1.x * scale + offset.x;
+            const y1 = node1.y * scale + offset.y;
+            const x2 = node2.x * scale + offset.x;
+            const y2 = node2.y * scale + offset.y;
+           
+            // Линия
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+           
+            // Номер совпадения (каждое 5-е)
+            if (index % 5 === 0) {
+                const midX = (x1 + x2) / 2;
+                const midY = (y1 + y2) / 2;
+               
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(midX - 8, midY - 6, 16, 12);
+               
+                ctx.fillStyle = '#ffdd59';
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText((index + 1).toString(), midX, midY);
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'alphabetic';
+            }
+        }
+    });
+   
+    ctx.setLineDash([]);
+   
+    // Добавляем статистику совпадений на изображение
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '14px Arial';
+    ctx.fillText(`Совпало узлов: ${totalMatches}`, 20, this.canvasHeight - 120);
+    ctx.fillText(`Из ${totalNodes1} узлов (${matchPercent1}%)`, 20, this.canvasHeight - 100);
+    ctx.fillText(`Из ${totalNodes2} узлов (${matchPercent2}%)`, 20, this.canvasHeight - 80);
+}
     
     // 3. ВИЗУАЛИЗАЦИЯ МОДЕЛИ С КОНТУРОМ (лучший снимок)
     async visualizeModelWithContour(footprint, contourImagePath = null, options = {}) {
