@@ -2689,6 +2689,169 @@ async function enhanceVisualizationWithAnalysis(imagePath, analysis) {
     return true;
 }
 
+// Команда /visualize_model - визуализация модели
+bot.onText(/\/visualize_model(?: (.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const modelId = match[1]; // Можно передать ID или использовать последнюю модель
+    
+    try {
+        await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
+        
+        let model;
+        if (modelId) {
+            // Ищем модель по ID
+            model = footprintManager.getModelById(modelId);
+        } else {
+            // Берем последнюю модель пользователя
+            const userModels = footprintManager.getUserModels(userId);
+            if (userModels.length > 0) {
+                model = userModels[userModels.length - 1];
+            }
+        }
+        
+        if (!model) {
+            await bot.sendMessage(chatId,
+                `❌ **Модель не найдена**\n\n` +
+                `Укажите ID модели:\n` +
+                `/visualize_model [ID]\n\n` +
+                `📋 Посмотреть ваши модели:\n` +
+                `/my_footprints`
+            );
+            return;
+        }
+        
+        // Создаем визуализацию
+        const vizPath = await model.visualizeGraph();
+        
+        if (vizPath && fs.existsSync(vizPath)) {
+            await bot.sendPhoto(chatId, vizPath, {
+                caption: `🎨 **ВИЗУАЛИЗАЦИЯ МОДЕЛИ**\n\n` +
+                        `📝 ${model.name}\n` +
+                        `📊 Узлов: ${model.graph.nodes.size}\n` +
+                        `🔗 Рёбер: ${model.graph.edges.size}\n` +
+                        `💎 Уверенность: ${Math.round(model.stats.confidence * 100)}%\n\n` +
+                        `🔴 Точки - центры протекторов\n` +
+                        `🔵 Линии - связи между протекторами`
+            });
+            
+            // Очистка файла через минуту
+            setTimeout(() => {
+                if (fs.existsSync(vizPath)) {
+                    fs.unlinkSync(vizPath);
+                }
+            }, 60000);
+        } else {
+            await bot.sendMessage(chatId, '❌ Не удалось создать визуализацию');
+        }
+        
+    } catch (error) {
+        console.log('❌ Ошибка команды visualize_model:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+// Команда /visualize_compare - сравнение двух моделей
+bot.onText(/\/visualize_compare(?: (.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const input = match[1];
+    
+    try {
+        if (!input || !input.includes(' ')) {
+            await bot.sendMessage(chatId,
+                `🔍 **Сравнение моделей**\n\n` +
+                `📝 Формат:\n` +
+                `/visualize_compare [ID1] [ID2]\n\n` +
+                `Пример:\n` +
+                `/visualize_compare fp_123 fp_456\n\n` +
+                `📋 Ваши модели:\n` +
+                `/my_footprints`
+            );
+            return;
+        }
+        
+        const [modelId1, modelId2] = input.split(' ');
+        await bot.sendMessage(chatId, '🎨 Создаю визуализацию сравнения...');
+        
+        const result = await footprintManager.visualizeComparison(modelId1, modelId2);
+        
+        if (result.success && result.visualization && fs.existsSync(result.visualization)) {
+            await bot.sendPhoto(chatId, result.visualization, {
+                caption: `🔍 **СРАВНЕНИЕ МОДЕЛЕЙ**\n\n` +
+                        `📊 Similarity: ${Math.round(result.comparison.similarity * 100)}%\n` +
+                        `🎯 Решение: ${result.comparison.decision}\n` +
+                        `💡 ${result.comparison.reason}\n\n` +
+                        `🔴 Красный - модель 1\n` +
+                        `🟢 Зеленый - модель 2\n` +
+                        `🟡 Желтые линии - совпадения`
+            });
+            
+            // Очистка файла
+            setTimeout(() => {
+                if (fs.existsSync(result.visualization)) {
+                    fs.unlinkSync(result.visualization);
+                }
+            }, 60000);
+        } else {
+            await bot.sendMessage(chatId,
+                `❌ **Не удалось сравнить модели**\n\n` +
+                `Ошибка: ${result.error || 'неизвестная ошибка'}\n\n` +
+                `💡 **Возможные причины:**\n` +
+                `• Неверные ID моделей\n` +
+                `• Модели не найдены\n` +
+                `• Ошибка визуализации`
+            );
+        }
+        
+    } catch (error) {
+        console.log('❌ Ошибка команды visualize_compare:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+// Команда /visualize_session - визуализация текущей сессии
+bot.onText(/\/visualize_session/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    try {
+        await bot.sendMessage(chatId, '🎨 Создаю визуализацию сессии...');
+        
+        const result = await footprintManager.visualizeSession(userId);
+        
+        if (result.success && result.visualization && fs.existsSync(result.visualization)) {
+            await bot.sendPhoto(chatId, result.visualization, {
+                caption: `🔄 **ВИЗУАЛИЗАЦИЯ СЕССИИ**\n\n` +
+                        `🆔 ${result.sessionId?.slice(0, 8) || 'unknown'}\n` +
+                        `📊 Разные цвета - разные фото\n` +
+                        `⚪ Белый - финальная модель\n\n` +
+                        `💡 **Как читать:**\n` +
+                        `• Каждый цвет - отдельное фото\n` +
+                        `• Точки накладываются при совпадении\n` +
+                        `• Чем больше перекрытий - лучше совмещение`
+            });
+            
+            // Очистка файла
+            setTimeout(() => {
+                if (fs.existsSync(result.visualization)) {
+                    fs.unlinkSync(result.visualization);
+                }
+            }, 60000);
+        } else {
+            await bot.sendMessage(chatId,
+                `❌ **Нет активной сессии**\n\n` +
+                `Начните сессию для визуализации:\n` +
+                `/footprint_start`
+            );
+        }
+        
+    } catch (error) {
+        console.log('❌ Ошибка команды visualize_session:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 // =============================================================================
 // 🚀 ЗАПУСК СЕРВЕРА
 // =============================================================================
