@@ -3051,6 +3051,79 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
     }
 });
 
+bot.onText(/\/show_why_same/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    try {
+        await bot.sendMessage(chatId, '🔍 Анализирую почему система видит одинаковые следы...');
+       
+        // Создаём два тестовых графа
+        const SimpleGraph = require('./modules/footprint/simple-graph');
+       
+        // Граф 1 - "вертикальный" след
+        const graph1 = new SimpleGraph("След вертикально");
+        const points1 = [];
+        for (let i = 0; i < 30; i++) {
+            points1.push({
+                x: 100 + Math.random() * 200,
+                y: 100 + Math.random() * 100,
+                confidence: 0.8
+            });
+        }
+        graph1.buildFromPoints(points1);
+       
+        // Граф 2 - тот же след, но "горизонтальный" (повёрнутый на 90°)
+        const graph2 = new SimpleGraph("След горизонтально");
+        const points2 = points1.map(p => ({
+            x: 300 - p.y,  // Поворот на 90° + смещение
+            y: 100 + p.x - 100,
+            confidence: 0.8
+        }));
+        graph2.buildFromPoints(points2);
+       
+        // Сравниваем
+        const SimpleGraphMatcher = require('./modules/footprint/simple-matcher');
+        const matcher = new SimpleGraphMatcher({ debug: true });
+        const comparison = matcher.compareGraphs(graph1, graph2);
+       
+        // Создаём визуализацию
+        const InvariantVisualizer = require('./modules/footprint/invariant-visualizer');
+        const visualizer = new InvariantVisualizer();
+        const imagePath = await visualizer.visualizeComparison(graph1, graph2, comparison);
+       
+        if (imagePath && fs.existsSync(imagePath)) {
+            await bot.sendPhoto(chatId, imagePath, {
+                caption: `🎯 **ПОЧЕМУ СИСТЕМА ВИДИТ ОДИН СЛЕД**\n\n` +
+                        `📊 Similarity: ${(comparison.similarity * 100).toFixed(1)}%\n` +
+                        `🤔 Решение: ${comparison.decision}\n` +
+                        `💡 Причина: ${comparison.reason}\n\n` +
+                        `🔴 **Слева:** След в вертикальной ориентации\n` +
+                        `🟢 **Справа:** Тот же след в горизонтальной ориентации\n` +
+                        `🎨 **В центре:** Что сравнивает система (инварианты)\n\n` +
+                        `💪 **СИСТЕМА НЕ СМОТРИТ:**\n` +
+                        `• Абсолютные координаты точек\n` +
+                        `• Ориентацию в кадре\n` +
+                        `• Абсолютный размер\n\n` +
+                        `🔍 **СИСТЕМА СМОТРИТ:**\n` +
+                        `• Структуру (кто с кем связан)\n` +
+                        `• Относительные расстояния\n` +
+                        `• "Форму" облака точек`
+            });
+           
+            // Очистка
+            setTimeout(() => {
+                if (fs.existsSync(imagePath)) {
+                    fs.unlinkSync(imagePath);
+                }
+            }, 60000);
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка show_why_same:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 // =============================================================================
 // 🚀 ЗАПУСК СЕРВЕРА
 // =============================================================================
