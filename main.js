@@ -2972,6 +2972,85 @@ bot.onText(/\/view_model(?: (.+))?/, async (msg, match) => {
     }
 });
 
+// Команда /visualize_stats - визуализация со статистикой совпадений
+bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const modelId = match[1];
+   
+    try {
+        await bot.sendMessage(chatId, '📊 Создаю визуализацию со статистикой...');
+       
+        let model;
+        if (modelId) {
+            model = footprintManager.getModelById(modelId);
+        } else {
+            const userModels = footprintManager.getUserModels(userId);
+            if (userModels.length > 0) {
+                model = userModels[userModels.length - 1];
+            }
+        }
+       
+        if (!model) {
+            await bot.sendMessage(chatId,
+                `❌ **Модель не найдена**\n\n` +
+                `Укажите ID модели:\n` +
+                `/visualize_stats [ID]\n\n` +
+                `📋 Получить ID моделей:\n` +
+                `/my_footprints`
+            );
+            return;
+        }
+       
+        // Создаём визуализацию со статистикой
+        const GraphVisualizer = require('./modules/footprint/graph-visualizer');
+        const visualizer = new GraphVisualizer();
+       
+        const vizPath = await visualizer.visualizeModelWithHistory(model, {
+            filename: `stats_${model.id.slice(0, 8)}.png`
+        });
+       
+        if (vizPath && fs.existsSync(vizPath)) {
+            // Считаем статистику для текста
+            const nodeStats = visualizer.calculateNodeStatistics(model);
+            const totalNodes = nodeStats.nodes.size;
+            const avgMatches = totalNodes > 0
+                ? Array.from(nodeStats.nodes.values()).reduce((sum, stat) => sum + stat.count, 0) / totalNodes
+                : 0;
+            const strongMatches = Array.from(nodeStats.nodes.values()).filter(stat => stat.count >= 3).length;
+           
+            await bot.sendPhoto(chatId, vizPath, {
+                caption: `📊 **СТАТИСТИКА СОВПАДЕНИЙ**\n\n` +
+                        `📝 ${model.name}\n` +
+                        `📊 Узлов: ${totalNodes}\n` +
+                        `📸 Фото: ${model.metadata?.totalPhotos || 0}\n` +
+                        `🎯 Среднее совпадений: ${avgMatches.toFixed(1)}\n` +
+                        `💪 Надёжных узлов (≥3 фото): ${strongMatches}\n\n` +
+                        `🎨 **ЦВЕТА:**\n` +
+                        `🔴 1 фото - точка с одного фото\n` +
+                        `🟠 2 фото - совпала на двух фото\n` +
+                        `🟡 3 фото - совпала на трёх фото\n` +
+                        `🟢 4-6 фото - хорошее совпадение\n` +
+                        `🔵 7+ фото - отличное совпадение\n\n` +
+                        `📈 **Чем больше синих точек - тем надёжнее модель!**`
+            });
+           
+            // Очистка файла
+            setTimeout(() => {
+                if (fs.existsSync(vizPath)) {
+                    fs.unlinkSync(vizPath);
+                }
+            }, 60000);
+        } else {
+            await bot.sendMessage(chatId, '❌ Не удалось создать визуализацию со статистикой');
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка команды visualize_stats:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 // =============================================================================
 // 🚀 ЗАПУСК СЕРВЕРА
 // =============================================================================
