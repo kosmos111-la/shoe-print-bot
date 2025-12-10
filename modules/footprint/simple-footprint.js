@@ -286,7 +286,7 @@ class SimpleFootprint {
     }
 
     // 5a. ГИБРИДНОЕ СРАВНЕНИЕ
-    ccompareHybrid(otherFootprint) {
+    compareHybrid(otherFootprint) {
     const hybridComparison = this.hybridFootprint.compare(otherFootprint.hybridFootprint);
    
     // Также получить сравнение графов для полного результата
