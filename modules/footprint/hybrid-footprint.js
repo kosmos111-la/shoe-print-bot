@@ -209,7 +209,7 @@ class HybridFootprint {
         });
 
         // 🔴 БОЛЕЕ ЖЁСТКИЙ ПОРОГ ДЛЯ БИТОВОЙ МАСКИ
-        if (bitmaskResult.distance > 15) { // Было 25
+        if (bitmaskResult.distance > 25) { // Было 15 (ослаблено для автосовмещения)
             console.log(`🚫 Быстрый отсев по битовой маске (расстояние: ${bitmaskResult.distance})`);
             return {
                 similarity: bitmaskResult.similarity,
@@ -234,7 +234,7 @@ class HybridFootprint {
         });
 
         // 🔴 БОЛЕЕ ЖЁСТКИЙ ПОРОГ ДЛЯ МОМЕНТОВ
-        if (momentResult.distance > 0.3) { // Было 0.5
+        if (momentResult.distance > 0.5) { // Было 0.3 (ослаблено)
             console.log(`🚫 Отсев по моментам (расстояние: ${momentResult.distance.toFixed(4)})`);
             return {
                 similarity: momentResult.similarity,
@@ -259,7 +259,7 @@ class HybridFootprint {
         });
 
         // 🔴 МАТРИЦА - САМЫЙ ВАЖНЫЙ КРИТЕРИЙ
-        if (matrixResult.similarity < 0.6) { // Было 0.5
+        if (matrixResult.similarity < 0.5) { // Было 0.6 (ослаблено)
             console.log(`🚫 Отсев по матрице расстояний (similarity: ${matrixResult.similarity.toFixed(3)})`);
             return {
                 similarity: matrixResult.similarity,
@@ -284,7 +284,7 @@ class HybridFootprint {
         });
 
         // 🔴 ВЕКТОРЫ ДОЛЖНЫ ИМЕТЬ МИНИМАЛЬНОЕ КОЛИЧЕСТВО СОВПАДЕНИЙ
-        if (vectorResult.similarity < 0.7 || vectorResult.totalMatches < 5) { // Было 0.6
+        if (vectorResult.similarity < 0.6 || vectorResult.totalMatches < 3) { // Было 0.7 и 5 (ослаблено)
             console.log(`🚫 Отсев по векторной схеме (similarity: ${vectorResult.similarity.toFixed(3)}, matches: ${vectorResult.totalMatches})`);
             return {
                 similarity: vectorResult.similarity,
@@ -312,13 +312,12 @@ class HybridFootprint {
 
         // 🔴 НОВАЯ ФОРМУЛА ВЕСОВ - больше веса матрице и векторам
         const weights = {
-            bitmask: 0.10,   // 10% - быстро, но неточно
-            moments: 0.15,   // 15% - форма
-            matrix: 0.40,    // 40% - САМЫЙ ВАЖНЫЙ! структура
-            vector: 0.30,    // 30% - локальные связи
-            graph: 0.05      // 5% - только подтверждение
-        };
-
+    bitmask: 0.05,   // 5% - быстро, но неточно (уменьшено)
+    moments: 0.10,   // 10% - форма (уменьшено)
+    matrix: 0.45,    // 45% - САМЫЙ ВАЖНЫЙ! структура (увеличено)
+    vector: 0.35,    // 35% - локальные связи (увеличено)
+    graph: 0.05      // 5% - только подтверждение (оставлено)
+};
         const totalSimilarity = (
             bitmaskResult.similarity * weights.bitmask +
             momentResult.similarity * weights.moments +
@@ -331,7 +330,7 @@ class HybridFootprint {
         let decision, reason;
 
         // Критически важны матрица и векторы
-        const criticalPass = matrixResult.similarity > 0.7 && vectorResult.similarity > 0.75;
+        const criticalPass = matrixResult.similarity > 0.65 && vectorResult.similarity > 0.70; // Ослаблено
 
         // 🔴 СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ПОХОЖИХ ФОРМ РАЗНОГО РАЗМЕРА
         const isSimilarShapeDifferentSize =
@@ -346,7 +345,7 @@ class HybridFootprint {
         else if (criticalPass && totalSimilarity > 0.85) {
             decision = 'same';
             reason = `Очень высокая схожесть структуры (${totalSimilarity.toFixed(3)})`;
-        } else if (totalSimilarity > 0.75 && matrixResult.similarity > 0.6) {
+        } else if (totalSimilarity > 0.65 && matrixResult.similarity > 0.5) { // Ослаблено
             decision = 'similar';
             reason = `Похожая структура (${totalSimilarity.toFixed(3)})`;
         } else {
