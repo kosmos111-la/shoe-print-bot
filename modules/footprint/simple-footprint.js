@@ -286,47 +286,49 @@ class SimpleFootprint {
     }
 
     // 5a. ГИБРИДНОЕ СРАВНЕНИЕ
-    compareHybrid(otherFootprint) {
-        const hybridComparison = this.hybridFootprint.compare(otherFootprint.hybridFootprint);
-
-        // Также получить сравнение графов для полного результата
-        const graphComparison = this.compareGraphBased(otherFootprint);
-
-        // Комбинировать результаты
-        const hybridWeight = 0.7;  // Вес гибридного сравнения
-        const graphWeight = 0.3;   // Вес графового сравнения
-
-        const combinedSimilarity = hybridComparison.similarity * hybridWeight +
-                                  graphComparison.similarity * graphWeight;
-
-        // Решение на основе комбинированного результата
-        let decision, reason;
-        if (combinedSimilarity > 0.75) {
-            decision = 'same';
-            reason = `Высокая схожесть (гибридный: ${hybridComparison.similarity}, ` +
-                    `граф: ${graphComparison.similarity})`;
-        } else if (combinedSimilarity > 0.5) {
-            decision = 'similar';
-            reason = `Умеренная схожесть (гибридный: ${hybridComparison.similarity}, ` +
-                    `граф: ${graphComparison.similarity})`;
-        } else {
-            decision = 'different';
-            reason = `Низкая схожесть (гибридный: ${hybridComparison.similarity}, ` +
-                    `граф: ${graphComparison.similarity})`;
-        }
-
-        return {
-            similarity: Math.round(combinedSimilarity * 100) / 100,
-            decision: decision,
-            reason: reason,
-            method: 'hybrid',
-            comparisons: {
-                hybrid: hybridComparison,
-                graph: graphComparison
-            },
-            confidence: hybridComparison.confidence || 0.5
-        };
+    ccompareHybrid(otherFootprint) {
+    const hybridComparison = this.hybridFootprint.compare(otherFootprint.hybridFootprint);
+   
+    // Также получить сравнение графов для полного результата
+    const graphComparison = this.compareGraphBased(otherFootprint);
+   
+    // Комбинировать результаты
+    const hybridWeight = 0.7;  // Вес гибридного сравнения
+    const graphWeight = 0.3;   // Вес графового сравнения
+   
+    const combinedSimilarity = hybridComparison.similarity * hybridWeight +
+                              graphComparison.similarity * graphWeight;
+   
+    // 🔴 ИСПРАВЛЕННЫЙ КОД:
+    // Используем данные из hybridComparison
+    let decision, reason;
+   
+    if (combinedSimilarity > 0.75) {
+        decision = 'same';
+        reason = `Высокая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
+                `граф: ${graphComparison.similarity.toFixed(3)})`;
+    } else if (combinedSimilarity > 0.5) {
+        decision = 'similar';
+        reason = `Умеренная схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
+                `граф: ${graphComparison.similarity.toFixed(3)})`;
+    } else {
+        decision = 'different';
+        reason = `Низкая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
+                `граф: ${graphComparison.similarity.toFixed(3)})`;
     }
+   
+    return {
+        similarity: Math.round(combinedSimilarity * 100) / 100,
+        decision: decision,
+        reason: reason,
+        method: 'hybrid',
+        comparisons: {
+            hybrid: hybridComparison,
+            graph: graphComparison
+        },
+        confidence: hybridComparison.confidence || 0.5
+    };
+}
 
     // 5b. КЛАССИЧЕСКОЕ СРАВНЕНИЕ ПО ГРАФАМ
     compareGraphBased(otherFootprint) {
