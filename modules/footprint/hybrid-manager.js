@@ -48,6 +48,52 @@ class HybridManager {
         });
     }
 
+    // ОБНОВИТЬ СТАТИСТИКУ
+    updateStats(comparisonResult) {
+        this.stats.totalComparisons++;
+
+        if (comparisonResult && comparisonResult.fastReject) {
+            this.stats.fastRejects++;
+        }
+
+        if (comparisonResult && comparisonResult.decision) {
+            if (comparisonResult.decision === 'same') {
+                this.stats.sameDecisions++;
+            } else if (comparisonResult.decision === 'similar') {
+                this.stats.similarDecisions++;
+            } else {
+                this.stats.differentDecisions++;
+            }
+        }
+
+        // Рассчитать среднее время
+        if (comparisonResult && comparisonResult.timeMs) {
+            const totalTime = this.stats.avgComparisonTime * (this.stats.totalComparisons - 1);
+            this.stats.avgComparisonTime = (totalTime + comparisonResult.timeMs) / this.stats.totalComparisons;
+        }
+
+        // Сохранить статистику
+        this.saveStats();
+    }
+
+    // СОХРАНИТЬ СТАТИСТИКУ
+    saveStats() {
+        if (!this.config.autoSave) return;
+
+        try {
+            const statsPath = path.join(this.config.dbPath, 'stats.json');
+            const statsData = {
+                ...this.stats,
+                updatedAt: new Date().toISOString(),
+                config: this.config
+            };
+           
+            fsSync.writeFileSync(statsPath, JSON.stringify(statsData, null, 2));
+        } catch (error) {
+            console.log('⚠️ Не удалось сохранить статистику:', error.message);
+        }
+    }
+
     // 1. ОБРАБОТКА НОВОГО ФОТО
     async processPhoto(userId, analysis, photoInfo) {
         console.log(`📸 Обрабатываю фото через гибридную систему (user: ${userId})...`);
@@ -135,7 +181,7 @@ class HybridManager {
                 // Добавить в кэш
                 userFootprints.push(newFootprint);
                 this.userFootprints.set(userId, userFootprints);
-               
+
                 // Обновить статистику
                 this.stats.differentDecisions++;
             }
@@ -173,7 +219,12 @@ class HybridManager {
         console.log(`   📊 После битовой маски: ${bitmaskCandidates.length} кандидатов`);
 
         if (bitmaskCandidates.length === 0) {
-            this.stats.fastRejects++;
+            this.updateStats({
+                fastReject: 'bitmask',
+                decision: 'different',
+                timeMs: Date.now() - startTime
+            });
+           
             return {
                 found: false,
                 candidates: 0,
@@ -187,7 +238,7 @@ class HybridManager {
             if (results.length >= maxResults * 2) return; // Ограничиваем для производительности
 
             const comparison = queryFootprint.compare(footprint);
-            this.stats.totalComparisons++;
+            this.updateStats(comparison);
 
             if (comparison.similarity >= minSimilarity) {
                 results.push({
@@ -205,12 +256,6 @@ class HybridManager {
         const topResults = results.slice(0, maxResults);
 
         const totalTime = Date.now() - startTime;
-        // Безопасное обновление средней
-        if (this.stats.totalComparisons > 0) {
-            this.stats.avgComparisonTime =
-                (this.stats.avgComparisonTime * (this.stats.totalComparisons - 1) + totalTime) /
-                this.stats.totalComparisons;
-        }
 
         return {
             found: topResults.length > 0,
@@ -437,10 +482,10 @@ class HybridManager {
         // Итог теста
         const passed = results.filter(r => r.success).length;
         const total = results.length;
-       
+
         console.log('\n🎯 ТЕСТ ЗАВЕРШЕН');
         console.log(`📈 Результат: ${passed}/${total} тестов пройдено (${total > 0 ? Math.round(passed/total*100) : 0}%)`);
-       
+
         return {
             success: passed === total,
             stats: stats,
