@@ -552,7 +552,7 @@ class HybridManager {
 
         // Очистка тестовых данных
         if (fsSync.existsSync('./test-data/hybrid')) {
-            fsSync.rmSync('./test-data/hybrid, { recursive: true, force: true });
+            fsSync.rmSync('./test-data/hybrid', { recursive: true, force: true }); // ← ИСПРАВЛЕНО ЗДЕСЬ!
         }
 
         // Итог теста
