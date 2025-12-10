@@ -196,20 +196,30 @@ class HybridFootprint {
             console.log(`⚠️ Разные размеры точек (ratio: ${sizeRatio.toFixed(2)}), продолжаю сравнение...`);
         }
 
-        // 🔴 ШАГ 1: БИТОВАЯ МАСКА (ТОЛЬКО ИНФОРМАЦИЯ, БЕЗ ОТСЕВА)
-const bitmaskResult = this.bitmask.compare(otherFootprint.bitmask);
-steps.push({
-    step: 'bitmask',
-    time: Date.now() - startTime,
-    result: bitmaskResult,
-    details: {
-        distance: bitmaskResult.distance,
-        similarity: bitmaskResult.similarity
-    }
-});
+        // ШАГ 1: БЫСТРАЯ ПРОВЕРКА - БИТОВАЯ МАСКА
+        const bitmaskResult = this.bitmask.compare(otherFootprint.bitmask);
+        steps.push({
+            step: 'bitmask',
+            time: Date.now() - startTime,
+            result: bitmaskResult,
+            details: {
+                distance: bitmaskResult.distance,
+                similarity: bitmaskResult.similarity
+            }
+        });
 
-console.log(`📊 Битовые маски: расстояние=${bitmaskResult.distance}/64, similarity=${bitmaskResult.similarity.toFixed(3)}`);
-// ⚠️ БЕЗ ОТСЕВА - продолжаем сравнение!
+        // 🔴 БОЛЕЕ ЖЁСТКИЙ ПОРОГ ДЛЯ БИТОВОЙ МАСКИ
+        if (bitmaskResult.distance > 15) { // Было 25
+            console.log(`🚫 Быстрый отсев по битовой маске (расстояние: ${bitmaskResult.distance})`);
+            return {
+                similarity: bitmaskResult.similarity,
+                decision: 'different',
+                reason: `Битовые маски сильно различаются (${bitmaskResult.distance}/64)`,
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
+        }
 
         // ШАГ 2: ПРОВЕРКА МОМЕНТОВ
         const momentResult = this.moments.compare(otherFootprint.moments);
@@ -224,7 +234,7 @@ console.log(`📊 Битовые маски: расстояние=${bitmaskResul
         });
 
         // 🔴 БОЛЕЕ ЖЁСТКИЙ ПОРОГ ДЛЯ МОМЕНТОВ
-        if (momentResult.distance > 0.5) { // Было 0.3 (ослаблено)
+        if (momentResult.distance > 0.3) { // Было 0.5
             console.log(`🚫 Отсев по моментам (расстояние: ${momentResult.distance.toFixed(4)})`);
             return {
                 similarity: momentResult.similarity,
@@ -249,7 +259,7 @@ console.log(`📊 Битовые маски: расстояние=${bitmaskResul
         });
 
         // 🔴 МАТРИЦА - САМЫЙ ВАЖНЫЙ КРИТЕРИЙ
-        if (matrixResult.similarity < 0.5) { // Было 0.6 (ослаблено)
+        if (matrixResult.similarity < 0.6) { // Было 0.5
             console.log(`🚫 Отсев по матрице расстояний (similarity: ${matrixResult.similarity.toFixed(3)})`);
             return {
                 similarity: matrixResult.similarity,
@@ -274,7 +284,7 @@ console.log(`📊 Битовые маски: расстояние=${bitmaskResul
         });
 
         // 🔴 ВЕКТОРЫ ДОЛЖНЫ ИМЕТЬ МИНИМАЛЬНОЕ КОЛИЧЕСТВО СОВПАДЕНИЙ
-        if (vectorResult.similarity < 0.6 || vectorResult.totalMatches < 3) { // Было 0.7 и 5 (ослаблено)
+        if (vectorResult.similarity < 0.7 || vectorResult.totalMatches < 5) { // Было 0.6
             console.log(`🚫 Отсев по векторной схеме (similarity: ${vectorResult.similarity.toFixed(3)}, matches: ${vectorResult.totalMatches})`);
             return {
                 similarity: vectorResult.similarity,
@@ -302,24 +312,38 @@ console.log(`📊 Битовые маски: расстояние=${bitmaskResul
 
         // 🔴 НОВАЯ ФОРМУЛА ВЕСОВ - больше веса матрице и векторам
         const weights = {
-    bitmask: 0.05,   // 5% - почти не учитываем (только информация)
-    moments: 0.20,   // 20% - форма (увеличили)
-    matrix: 0.45,    // 45% - САМОЕ ВАЖНОЕ! структура (увеличили)
-    vector: 0.25,    // 25% - локальные связи
-    graph: 0.05      // 5% - подтверждение
-};
+            bitmask: 0.10,   // 10% - быстро, но неточно
+            moments: 0.15,   // 15% - форма
+            matrix: 0.40,    // 40% - САМЫЙ ВАЖНЫЙ! структура
+            vector: 0.30,    // 30% - локальные связи
+            graph: 0.05      // 5% - только подтверждение
+        };
+
+        // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ЗНАЧЕНИЙ (ИСПРАВЛЕНИЕ criticalPass ОШИБКИ)
+        const bitmaskSimilarity = bitmaskResult?.similarity || 0;
+        const momentSimilarity = momentResult?.similarity || 0;
+        const matrixSimilarity = matrixResult?.similarity || 0;
+        const vectorSimilarity = vectorResult?.similarity || 0;
+        const graphSimilarity = graphResult?.similarity || 0;
+
         const totalSimilarity = (
-            bitmaskResult.similarity * weights.bitmask +
-            momentResult.similarity * weights.moments +
-            matrixResult.similarity * weights.matrix +
-            vectorResult.similarity * weights.vector +
-            graphResult.similarity * weights.graph
+            bitmaskSimilarity * weights.bitmask +
+            momentSimilarity * weights.moments +
+            matrixSimilarity * weights.matrix +
+            vectorSimilarity * weights.vector +
+            graphSimilarity * weights.graph
         );
+
+        // 🔴 КОМБИНИРОВАННЫЕ КРИТЕРИИ ДЛЯ РЕШЕНИЯ
+        let decision, reason;
+
+        // Критически важны матрица и векторы (ИСПРАВЛЕНО: определяем ДО использования)
+        const criticalPass = matrixSimilarity > 0.7 && vectorSimilarity > 0.75;
 
         // 🔴 СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ПОХОЖИХ ФОРМ РАЗНОГО РАЗМЕРА
         const isSimilarShapeDifferentSize =
-            momentResult.similarity > 0.9 && // Очень похожие моменты (форма)
-            matrixResult.similarity > 0.7 && // Похожие матрицы (структура)
+            momentSimilarity > 0.9 && // Очень похожие моменты (форма)
+            matrixSimilarity > 0.7 && // Похожие матрицы (структура)
             sizeRatio < 0.7 && sizeRatio > 0.4; // Разные, но не экстремальные размеры
 
         if (isSimilarShapeDifferentSize && totalSimilarity > 0.7) {
@@ -329,7 +353,7 @@ console.log(`📊 Битовые маски: расстояние=${bitmaskResul
         else if (criticalPass && totalSimilarity > 0.85) {
             decision = 'same';
             reason = `Очень высокая схожесть структуры (${totalSimilarity.toFixed(3)})`;
-        } else if (totalSimilarity > 0.65 && matrixResult.similarity > 0.5) { // Ослаблено
+        } else if (totalSimilarity > 0.75 && matrixSimilarity > 0.6) {
             decision = 'similar';
             reason = `Похожая структура (${totalSimilarity.toFixed(3)})`;
         } else {
@@ -338,7 +362,7 @@ console.log(`📊 Битовые маски: расстояние=${bitmaskResul
         }
 
         console.log(`📊 Каскадное сравнение завершено: ${totalSimilarity.toFixed(3)} (${decision})`);
-        console.log(`   🎭 Матрица: ${matrixResult.similarity.toFixed(3)}, Векторы: ${vectorResult.similarity.toFixed(3)}`);
+        console.log(`   🎭 Матрица: ${matrixSimilarity.toFixed(3)}, Векторы: ${vectorSimilarity.toFixed(3)}`);
         console.log(`   📏 Соотношение размеров: ${sizeRatio.toFixed(2)}`);
 
         return {
