@@ -14,6 +14,7 @@
 //   • Фильтрация следов животных
 //   • 🆕 ГРАФОВАЯ СИСТЕМА С АВТОСОВМЕЩЕНИЕМ
 //   • 🆕 ГИБРИДНАЯ СИСТЕМА (БИТМАСКА + ГРАФ)
+//   • 🆕 ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ СЛЕДОВ
 //
 // 🏗️ АРХИТЕКТУРА:
 //   • Express.js сервер + Telegram Bot API
@@ -29,6 +30,7 @@
 //   • Новые команды /hybrid_stats и /hybrid_test
 //   • Улучшена точность сравнения следов
 //   • Добавлена система быстрого отсева
+//   • Добавлена визуализация объединения следов
 //
 // =============================================================================
 
@@ -82,11 +84,13 @@ async function initializeNewFootprintSystem() {
             dbPath: './data/footprints',
             autoAlignment: true,
             autoSave: true,
-            debug: DEBUG_MODE
+            debug: DEBUG_MODE,
+            enableMergeVisualization: true  // 🔴 ДОБАВЛЕНО: Включить визуализацию объединения
         });
 
         console.log('✅ Новая графовая система цифровых отпечатков готова!');
         console.log('🎯 Автосовмещение на основе графов работает!');
+        console.log('🎨 Визуализация объединения включена!');
 
         return true;
     } catch (error) {
@@ -224,7 +228,7 @@ function validateConfig(config) {
 try {
     validateConfig(config);
 } catch (error) {
-    console.log('💥 Невозможно запустить систему с некорректной конфигурацией');
+    console.log('💥 Невозможно запустить систему с некорректной конфигурации');
     process.exit(1);
 }
 
@@ -569,21 +573,6 @@ bot.onText(/\/statistics/, (msg) => {
     bot.sendMessage(msg.chat.id, stats);
 });
 
-// 🔧 ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОПИСАНИЙ ИСПРАВЛЕНИЙ (ДОБАВЬТЕ ЭТОТ КОД)
-function getCorrectionDescription(type) {
-    const descriptions = {
-        'animal': '🐾 След животного',
-        'other_shoe': '👞 Другая обувь',
-        'bounds': '📏 Неправильные границы',
-        'multiple': '👣 Несколько следов',
-        'not_footprint': '🚫 Не след вообще',
-        'other_class': '🔍 Другой класс',
-        'correct': '✅ Правильно'
-    };
-
-    return descriptions[type] || type;
-}
-
 // Команда /feedback_stats - статистика обратной связи
 bot.onText(/\/feedback_stats/, async (msg) => {
     const chatId = msg.chat.id;
@@ -704,7 +693,7 @@ bot.onText(/\/style/, async (msg) => {
     message += `\n💡 Стиль сохранится до перезагрузки бота`;
     message += `\n\n📸 Отправьте фото для анализа в выбранном стиле!`;
 
-    await bot.sendMessage(chatId, message);
+    await bot.sendMessage(msg.chat.id, message);
 });
 
 // Обработка выбора стиля
@@ -2107,7 +2096,7 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                         console.log(`🔄 Создана автосессия для пользователя ${userId}`);
                     }
 
-                    // Добавляем фото с автосовмещением
+                    // 🔴 ОБНОВЛЕНО: Добавляем bot и chatId для визуализации
                     const addResult = await footprintManager.addPhotoToSession(
                         userId,
                         {
@@ -2120,10 +2109,12 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                             photoQuality: avgConfidence,
                             timestamp: new Date(),
                             username: msg.from.username || msg.from.first_name
-                        }
+                        },
+                        bot, // 🔴 ДОБАВЛЕНО: передаем бота
+                        chatId // 🔴 ДОБАВЛЕНО: передаем chatId
                     );
 
-                    // Показываем пользователю результат автосовмещения
+                    // 🔴 ОБНОВЛЕНО: Показываем пользователю результат автосовмещения с визуализацией
                     if (addResult.alignment && addResult.alignment.success) {
                         console.log(`🎯 Автосовмещение: ${addResult.alignment.decision}, similarity: ${addResult.alignment.similarity}`);
 
@@ -2137,6 +2128,12 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                                     `📈 Всего узлов в модели: ${addResult.totalNodes || 0}\n\n` +
                                     `💡 Система автоматически объединяет следы одной обуви!`
                                 );
+                               
+                                // 🔴 ДОБАВЛЕНО: Проверяем наличие визуализации
+                                if (addResult.mergeVisualization) {
+                                    console.log(`🎨 Визуализация объединения доступна: ${addResult.mergeVisualization}`);
+                                    // Картинка уже отправлена автоматически в менеджере
+                                }
                             }, 1000);
                         }
                     }
@@ -2423,7 +2420,8 @@ bot.onText(/\/footprint_start(?: (.+))?/, async (msg, match) => {
         await bot.sendMessage(chatId,
             `🔄 **НОВАЯ СЕССИЯ СОЗДАНА**\n\n` +
             `📝 Название: ${sessionName}\n` +
-            `🎯 Автосовмещение: ВКЛЮЧЕНО\n\n` +
+            `🎯 Автосовмещение: ВКЛЮЧЕНО\n` +
+            `🎨 Визуализация объединения: ВКЛЮЧЕНА\n\n` +
             `📸 **Как использовать:**\n` +
             `1. Отправляйте фото следов по одному\n` +
             `2. Система автоматически определит, это тот же след или другой\n` +
@@ -2763,7 +2761,8 @@ bot.onText(/\/footprint_stats/, async (msg) => {
         }
 
         response += `\n🎯 **Автосовмещение:** ${stats.config?.autoAlignment ? '✅ ВКЛЮЧЕНО' : '❌ ВЫКЛЮЧЕНО'}\n`;
-        response += `💾 **Автосохранение:** ${stats.config?.autoSave ? '✅ ВКЛЮЧЕНО' : '❌ ВЫКЛЮЧЕНО'}\n\n`;
+        response += `💾 **Автосохранение:** ${stats.config?.autoSave ? '✅ ВКЛЮЧЕНО' : '❌ ВЫКЛЮЧЕНО'}\n`;
+        response += `🎨 **Визуализация объединения:** ${stats.config?.enableMergeVisualization ? '✅ ВКЛЮЧЕНО' : '❌ ВЫКЛЮЧЕНО'}\n\n`;
 
         response += `🚀 **Система работает:** ${stats.system?.uptime || 0} секунд`;
 
@@ -3209,6 +3208,61 @@ bot.onText(/\/show_why_same/, async (msg) => {
     }
 });
 
+// 🔴 НОВАЯ КОМАНДА: /visualize_merge - показать визуализацию объединения
+bot.onText(/\/visualize_merge/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    try {
+        if (!footprintManager) {
+            await bot.sendMessage(chatId, '❌ Система отпечатков не инициализирована');
+            return;
+        }
+
+        // Получаем последнюю визуализацию объединения
+        const mergeViz = footprintManager.getLastMergeVisualization(userId);
+
+        if (!mergeViz) {
+            await bot.sendMessage(chatId,
+                `📭 **Нет визуализаций объединения**\n\n` +
+                `💡 **Как получить визуализацию:**\n` +
+                `1. Начните сессию: /footprint_start\n` +
+                `2. Отправьте 2+ фото одного следа\n` +
+                `3. Система автоматически создаст визуализацию при объединении\n\n` +
+                `🎯 **После объединения вы получите картинку автоматически!**`
+            );
+            return;
+        }
+
+        // Проверяем существует ли файл
+        if (!fs.existsSync(mergeViz.path)) {
+            await bot.sendMessage(chatId, '❌ Файл визуализации не найден или был удалён');
+            return;
+        }
+
+        await bot.sendPhoto(chatId, mergeViz.path, {
+            caption: `🎭 **ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ СЛЕДОВ**\n\n` +
+                    `📊 Схожесть: ${Math.round(mergeViz.similarity * 100)}%\n` +
+                    `👣 Объединено узлов: ${mergeViz.mergedNodes || 0}\n` +
+                    `📸 Фото: ${mergeViz.photos?.length || 2}\n` +
+                    `🕰️ Дата: ${new Date(mergeViz.timestamp).toLocaleString('ru-RU')}\n\n` +
+                    `🎨 **ЦВЕТА:**\n` +
+                    `🔴 Красный - первое фото\n` +
+                    `🔵 Синий - второе фото\n` +
+                    `🟢 Зеленый - совпавшие точки\n` +
+                    `⚪ Белый - объединённый граф\n\n` +
+                    `💡 **Как читать:**\n` +
+                    `• Чем больше зелёных точек - лучше совмещение\n` +
+                    `• Белый граф - итоговая модель\n` +
+                    `• Точки накладываются при совпадении`
+        });
+
+    } catch (error) {
+        console.log('❌ Ошибка команды visualize_merge:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 // =============================================================================
 // 🧪 НОВЫЕ КОМАНДЫ ДЛЯ ГИБРИДНОЙ СИСТЕМЫ
 // =============================================================================
@@ -3270,6 +3324,7 @@ app.get('/', (req, res) => {
         <p>🐕 Фильтрация животных: активна</p>
         <p>👣 Новая графовая система: АКТИВИРОВАНА ✅</p>
         <p>🧪 Гибридная система (битмаска + граф): АКТИВИРОВАНА ✅</p>
+        <p>🎨 Визуализация объединения: АКТИВИРОВАНА ✅</p>
         <p>🔧 DEBUG_MODE: ${DEBUG_MODE ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}</p>
         <p><a href="/health">Health Check</a></p>
     `);
@@ -3295,7 +3350,8 @@ app.get('/health', (req, res) => {
         debug: {
             mode: DEBUG_MODE,
             footprintSessions: footprintManager ? Array.from(footprintManager.userSessions.keys()).length : 0,
-            hybridSessions: hybridManager ? 'активна' : 'не активна'
+            hybridSessions: hybridManager ? 'активна' : 'не активна',
+            mergeVisualizations: footprintManager ? footprintManager.getMergeVisualizationCount() : 0
         }
     });
 });
@@ -3494,6 +3550,7 @@ console.log('🛡️ Глобальные обработчики ошибок а
     console.log('🐕 Фильтрация следов животных активирована');
     console.log('👣 Новая графовая система с автосовмещением: АКТИВИРОВАНА ✅');
     console.log('🧪 Гибридная система (битмаска + граф): АКТИВИРОВАНА ✅');
+    console.log('🎨 Визуализация объединения следов: АКТИВИРОВАНА ✅');
     console.log(`🔧 DEBUG_MODE: ${DEBUG_MODE ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
 
 })();
@@ -3700,5 +3757,6 @@ app.listen(config.PORT, () => {
     console.log(`🐕 Фильтрация животных: активна`);
     console.log(`👣 Графовая система с автосовмещением: АКТИВИРОВАНА`);
     console.log(`🧪 Гибридная система (битмаска + граф): АКТИВИРОВАНА`);
+    console.log(`🎨 Визуализация объединения следов: АКТИВИРОВАНА`);
     console.log(`🔧 DEBUG_MODE: ${DEBUG_MODE ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
 });
