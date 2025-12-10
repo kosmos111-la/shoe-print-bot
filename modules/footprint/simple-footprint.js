@@ -15,7 +15,7 @@ class SimpleFootprint {
 
         // Граф - основа отпечатка
         this.graph = options.graph || new SimpleGraph(this.name);
-       
+
         // Гибридный отпечаток (если доступен)
         this.hybridFootprint = options.hybridFootprint || null;
         if (!this.hybridFootprint && HybridFootprint) {
@@ -105,7 +105,7 @@ class SimpleFootprint {
             // Использовать гибридный отпечаток если доступен
             console.log('🎯 Использую гибридный отпечаток...');
             hybridResult = this.hybridFootprint.createFromPoints(protectorPoints, sourceInfo);
-           
+
             // Также обновляем граф для обратной совместимости
             graphInvariants = this.graph.buildFromPoints(protectorPoints);
         } else {
@@ -146,7 +146,7 @@ class SimpleFootprint {
 
         console.log(`✅ Анализ добавлен: +${addedNodes} новых узлов, ` +
                   `всего ${this.graph.nodes.size} узлов`);
-       
+
         if (hybridResult) {
             console.log(`   🎯 Гибридные признаки: моменты=${this.hybridFootprint?.moments?.length || 0}, ` +
                       `битмаска=${this.hybridFootprint?.bitmask ? 'да' : 'нет'}`);
@@ -229,17 +229,26 @@ class SimpleFootprint {
         this.stats.clusteringCoefficient = graphInvariants.clusteringCoefficient;
 
         // Рассчитать confidence на основе инвариантов
-        const nodeScore = Math.min(1, graphInvariants.nodeCount / 20); // Хотя бы 20 узлов
+        const nodeScore = Math.min(1, graphInvariants.nodeCount / 20);
         const edgeScore = graphInvariants.edgeCount > 0 ?
             Math.min(1, graphInvariants.edgeCount / graphInvariants.nodeCount / 2) : 0;
         const clusteringScore = graphInvariants.clusteringCoefficient;
 
         const graphConfidence = (nodeScore * 0.4 + edgeScore * 0.3 + clusteringScore * 0.3);
-       
+
         // Добавить гибридный score если есть
         let hybridScore = 0;
         if (this.hybridFootprint) {
-            hybridScore = this.hybridFootprint.calculateConfidence() || 0;
+            // ПРОВЕРЯЕМ, ЕСТЬ ЛИ МЕТОД calculateConfidence
+            if (typeof this.hybridFootprint.calculateConfidence === 'function') {
+                hybridScore = this.hybridFootprint.calculateConfidence();
+            } else if (this.hybridFootprint.stats?.confidence) {
+                // Или берем напрямую из stats
+                hybridScore = this.hybridFootprint.stats.confidence;
+            } else if (this.hybridFootprint.getConfidence && typeof this.hybridFootprint.getConfidence === 'function') {
+                // Или используем getConfidence
+                hybridScore = this.hybridFootprint.getConfidence();
+            }
         }
 
         // Комбинированный confidence
@@ -254,7 +263,6 @@ class SimpleFootprint {
 
         // Обновить метаданные
         if (graphInvariants.nodeCount > 30 && !this.metadata.estimatedSize) {
-            // Очень грубая оценка размера по количеству протекторов
             this.metadata.estimatedSize = Math.round(35 + (graphInvariants.nodeCount - 30) / 3);
         }
     }
@@ -280,17 +288,17 @@ class SimpleFootprint {
     // 5a. ГИБРИДНОЕ СРАВНЕНИЕ
     compareHybrid(otherFootprint) {
         const hybridComparison = this.hybridFootprint.compare(otherFootprint.hybridFootprint);
-       
+
         // Также получить сравнение графов для полного результата
         const graphComparison = this.compareGraphBased(otherFootprint);
-       
+
         // Комбинировать результаты
         const hybridWeight = 0.7;  // Вес гибридного сравнения
         const graphWeight = 0.3;   // Вес графового сравнения
-       
+
         const combinedSimilarity = hybridComparison.similarity * hybridWeight +
                                   graphComparison.similarity * graphWeight;
-       
+
         // Решение на основе комбинированного результата
         let decision, reason;
         if (combinedSimilarity > 0.75) {
@@ -439,7 +447,7 @@ class SimpleFootprint {
         // Обновить статистику (усреднить)
         this.stats.confidence = (this.stats.confidence + otherFootprint.stats.confidence) / 2;
         this.stats.qualityScore = Math.max(this.stats.qualityScore, otherFootprint.stats.qualityScore);
-       
+
         if (this.hybridFootprint) {
             this.stats.hybridScore = this.hybridFootprint.calculateConfidence();
         }
@@ -578,7 +586,7 @@ class SimpleFootprint {
         console.log(`├─ Фото в истории: ${this.photoHistory.length}`);
         console.log(`├─ Уверенность: ${Math.round(this.stats.confidence * 100)}%`);
         console.log(`├─ Качество: ${Math.round(this.stats.qualityScore * 100)}%`);
-       
+
         if (this.hybridFootprint) {
             console.log(`├─ Гибридный режим: ВКЛЮЧЕН`);
             console.log(`├─ Гибридный score: ${Math.round(this.stats.hybridScore * 100)}%`);
@@ -586,7 +594,7 @@ class SimpleFootprint {
             console.log(`├─ Моменты: ${hybridInfo.momentsCount || 0}`);
             console.log(`├─ Битмаска: ${hybridInfo.hasBitmask ? 'да' : 'нет'}`);
         }
-       
+
         console.log(`└─ Создан: ${this.metadata.created.toLocaleString('ru-RU')}`);
 
         // Показать инварианты графа
@@ -666,11 +674,11 @@ class SimpleFootprint {
         this.metadata.features.hasHybrid = true;
         this.metadata.features.hasMoments = hybridFootprint?.moments ? true : false;
         this.metadata.features.hasBitmask = hybridFootprint?.bitmask ? true : false;
-       
+
         if (this.hybridFootprint) {
             this.stats.hybridScore = this.hybridFootprint.calculateConfidence();
         }
-       
+
         return this;
     }
 }
