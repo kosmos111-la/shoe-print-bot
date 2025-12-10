@@ -2,7 +2,7 @@
 // 🎯 СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ - ОСНОВНОЙ ФАЙЛ
 // =============================================================================
 //
-// 📋 СТАТУС: РАБОЧАЯ ВЕРСИЯ 2.4 - С ИСПРАВЛЕННЫМИ ЛОГАМИ И ГРАФОВОЙ СИСТЕМОЙ
+// 📋 СТАТУС: РАБОЧАЯ ВЕРСИЯ 2.5 - С ГИБРИДНОЙ СИСТЕМОЙ ОТПЕЧАТКОВ
 // ✅ ЧТО РАБОТАЕТ:
 //   • Модульная система визуализации
 //   • Анализ через Roboflow API
@@ -13,6 +13,7 @@
 //   • Практический анализ для ПСО
 //   • Фильтрация следов животных
 //   • 🆕 ГРАФОВАЯ СИСТЕМА С АВТОСОВМЕЩЕНИЕМ
+//   • 🆕 ГИБРИДНАЯ СИСТЕМА (БИТМАСКА + ГРАФ)
 //
 // 🏗️ АРХИТЕКТУРА:
 //   • Express.js сервер + Telegram Bot API
@@ -20,13 +21,14 @@
 //   • Canvas для генерации визуализаций
 //   • Roboflow для ML-анализа изображений
 //   • SimpleFootprintManager для автосовмещения следов
+//   • HybridManager для гибридной системы
 //   • Временные файлы в папке temp/
 //
 // 🔄 ПОСЛЕДНИЕ ИЗМЕНЕНИЯ:
-//   • Убраны спам-логи с координатами точек
-//   • Добавлен DEBUG_MODE для управляемого дебага
-//   • Интегрирована новая графовая система
-//   • Исправлены ошибки интеграции
+//   • Добавлена гибридная система (битмаска + граф)
+//   • Новые команды /hybrid_stats и /hybrid_test
+//   • Улучшена точность сравнения следов
+//   • Добавлена система быстрого отсева
 //
 // =============================================================================
 
@@ -56,15 +58,19 @@ const { FeedbackDatabase } = require('./modules/feedback/feedback-db');
 const { FeedbackManager } = require('./modules/feedback/feedback-manager');
 
 // =============================================================================
-// 🚀 НОВАЯ ГРАФОВАЯ СИСТЕМА ЦИФРОВЫХ ОТПЕЧАТКОВ
+// 🚀 ГИБРИДНАЯ СИСТЕМА ЦИФРОВЫХ ОТПЕЧАТКОВ
 // =============================================================================
 
 // НОВАЯ СИСТЕМА
 const SimpleFootprint = require('./modules/footprint/simple-footprint');
 const SimpleFootprintManager = require('./modules/footprint/simple-manager');
 
+// 🆕 ГИБРИДНАЯ СИСТЕМА
+const HybridManager = require('./modules/footprint/hybrid-manager');
+
 // Глобальный менеджер новой системы
 let footprintManager = null;
+let hybridManager = null; // 🆕 Гибридный менеджер
 
 // Режим отладки (управляется переменной окружения)
 const DEBUG_MODE = process.env.DEBUG_MODE === 'true' || false;
@@ -85,6 +91,23 @@ async function initializeNewFootprintSystem() {
         return true;
     } catch (error) {
         console.log('❌ Ошибка инициализации новой системы:', error.message);
+        return false;
+    }
+}
+
+// 🆕 ИНИЦИАЛИЗАЦИЯ ГИБРИДНОЙ СИСТЕМЫ
+async function initializeHybridSystem() {
+    try {
+        hybridManager = new HybridManager({
+            dbPath: './data/hybrid-footprints',
+            autoSave: true,
+            minSimilarityForSame: 0.85,
+            fastRejectBitmaskDistance: 15
+        });
+        console.log('✅ Гибридная система инициализирована');
+        return true;
+    } catch (error) {
+        console.log('❌ Ошибка инициализации гибридной системы:', error);
         return false;
     }
 }
@@ -510,7 +533,8 @@ bot.onText(/\/start/, (msg) => {
         `• Топология протектора\n` +
         `• Практический анализ для ПСО\n` +
         `• Фильтрация следов животных\n` +
-        `• 🆕 Графовая система автосовмещения\n\n` +
+        `• 🆕 Графовая система автосовмещения\n` +
+        `• 🆕 Гибридная система (битмаска + граф)\n\n` +
         `🧮 **ИНСТРУМЕНТЫ:**\n` +
         `/calculators - Калькуляторы и расчеты\n\n` +
         `🎯 **Команды цифровых отпечатков:**\n` +
@@ -518,6 +542,9 @@ bot.onText(/\/start/, (msg) => {
         `/my_footprints - Мои модели отпечатков\n` +
         `/find_similar_footprints - Найти похожие\n` +
         `/footprint_stats - Статистика системы\n\n` +
+        `🧪 **Команды гибридной системы:**\n` +
+        `/hybrid_stats - Статистика гибридной системы\n` +
+        `/hybrid_test - Тест гибридной системы\n\n` +
         `/style - Выбор стиля визуализации\n` +
         `/help - Помощь\n` +
         `/statistics - Статистика\n\n` +
@@ -1327,13 +1354,17 @@ bot.onText(/\/help/, (msg) => {
         `/my_footprints - Мои модели отпечатков\n` +
         `/find_similar_footprints - Найти похожие\n` +
         `/footprint_stats - Статистика системы\n\n` +
+        `🧪 **ГИБРИДНАЯ СИСТЕМА:**\n` +
+        `/hybrid_stats - Статистика гибридной системы\n` +
+        `/hybrid_test - Тест гибридной системы\n\n` +
         `🔍 **Что анализируется:**\n` +
         `• Контуры подошвы\n` +
         `• Детали протектора\n` +
         `• Топология узора\n` +
         `• Практический анализ для ПСО\n` +
         `• Фильтрация следов животных\n` +
-        `• 🆕 Автосовмещение следов\n\n` +
+        `• 🆕 Автосовмещение следов\n` +
+        `• 🆕 Гибридная система (битмаска + граф)\n\n` +
         `🧮 **ИНСТРУМЕНТЫ:**\n` +
         `/calculators - Калькуляторы и расчеты\n\n` +
         `📱 **ПОЛЕЗНЫЕ ПРИЛОЖЕНИЯ:**\n` +
@@ -1911,15 +1942,15 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                 const className = pred.class || 'unknown';
                 classCount[className] = (classCount[className] || 0) + 1;
             });
-           
+
             console.log(`📊 Roboflow: ${predictions.length} объектов. Распределение: ${JSON.stringify(classCount)}`);
-           
+
             // Покажем только первую точку если включен расширенный дебаг
             if (DEBUG_MODE) {
                 const firstPred = predictions[0];
                 console.log('🔍 Расширенный дебаг (первый объект):');
                 console.log(`  class: ${firstPred.class}, confidence: ${firstPred.confidence}`);
-               
+
                 if (firstPred.points && firstPred.points.length > 0) {
                     const firstPoint = firstPred.points[0];
                     console.log(`  point[0]: x=${firstPoint.x}, y=${firstPoint.y}`);
@@ -1928,7 +1959,7 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
         } else {
             console.log('📭 Roboflow: объектов не обнаружено');
         }
-       
+
         const processedPredictions = smartPostProcessing(predictions);
         const analysis = analyzePredictions(processedPredictions);
 
@@ -2003,6 +2034,45 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
         }
 
         // =============================================================================
+        // 🎯 ИНТЕГРАЦИЯ С ГИБРИДНОЙ СИСТЕМОЙ
+        // =============================================================================
+        if (hybridManager && processedPredictions.length >= 10) {
+            try {
+                const hybridResult = await hybridManager.processPhoto(
+                    userId,
+                    { predictions: processedPredictions },
+                    {
+                        photoId: photo.file_id,
+                        chatId: chatId,
+                        localPath: tempImagePath,
+                        username: msg.from.username || msg.from.first_name,
+                        timestamp: new Date()
+                    }
+                );
+
+                if (hybridResult.success) {
+                    console.log(`🎯 Гибридная система: ${hybridResult.merged ? 'Объединён с существующим' : 'Создан новый'} отпечаток`);
+
+                    if (hybridResult.merged) {
+                        // Уведомить пользователя об автосовмещении
+                        setTimeout(async () => {
+                            await bot.sendMessage(chatId,
+                                `🎯 **АВТОСОВМЕЩЕНИЕ СРАБОТАЛО!**\n\n` +
+                                `📊 Определено как тот же след\n` +
+                                `🔗 Схожесть: ${Math.round(hybridResult.similarity * 100)}%\n` +
+                                `📈 Точек в модели: ${hybridResult.mergeResult?.totalPoints || '?'}\n\n` +
+                                `💡 Система автоматически объединяет следы одной обуви!`
+                            );
+                        }, 1000);
+                    }
+                }
+            } catch (error) {
+                console.log('⚠️ Ошибка гибридной системы:', error.message);
+                // Не падаем, продолжаем обычную обработку
+            }
+        }
+
+        // =============================================================================
         // 🎯 ИНТЕГРАЦИЯ С НОВОЙ ГРАФОВОЙ СИСТЕМОЙ
         // =============================================================================
         if (predictionsForAnalysis && predictionsForAnalysis.length > 0 && footprintManager) {
@@ -2011,17 +2081,17 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                     p.class === 'shoe-protector' ||
                     (p.confidence || 0) > 0.3
                 );
-               
+
                 if (shoeProtectors.length >= 3) {
                     console.log(`👣 Интеграция с новой системой: ${shoeProtectors.length} протекторов`);
-                   
+
                     // Проверяем, есть ли активная сессия
                     if (!footprintManager.getActiveSession(userId)) {
                         // Создаём автоматическую сессию
                         footprintManager.createSession(userId, `Автосессия_${new Date().toLocaleTimeString('ru-RU')}`);
                         console.log(`🔄 Создана автосессия для пользователя ${userId}`);
                     }
-                   
+
                     // Добавляем фото с автосовмещением
                     const addResult = await footprintManager.addPhotoToSession(
                         userId,
@@ -2037,11 +2107,11 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                             username: msg.from.username || msg.from.first_name
                         }
                     );
-                   
+
                     // Показываем пользователю результат автосовмещения
                     if (addResult.alignment && addResult.alignment.success) {
                         console.log(`🎯 Автосовмещение: ${addResult.alignment.decision}, similarity: ${addResult.alignment.similarity}`);
-                       
+
                         // Если произошло объединение - сообщаем пользователю
                         if (addResult.alignment.decision === 'merged') {
                             setTimeout(async () => {
@@ -2055,7 +2125,7 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                             }, 1000);
                         }
                     }
-                   
+
                     // Сохраняем для будущего использования
                     saveUserLastAnalysis(userId, {
                         predictions: predictionsForAnalysis,
@@ -2700,165 +2770,165 @@ async function enhanceVisualizationWithAnalysis(imagePath, analysis) {
 
 // Команда /visualize_model - визуализация модели
 bot.onText(/\/visualize_model(?: (.+))?/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const modelId = match[1]; // Можно передать ID или использовать последнюю модель
-    
-    try {
-        await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
-        
-        let model;
-        if (modelId) {
-            // Ищем модель по ID
-            model = footprintManager.getModelById(modelId);
-        } else {
-            // Берем последнюю модель пользователя
-            const userModels = footprintManager.getUserModels(userId);
-            if (userModels.length > 0) {
-                model = userModels[userModels.length - 1];
-            }
-        }
-        
-        if (!model) {
-            await bot.sendMessage(chatId,
-                `❌ **Модель не найдена**\n\n` +
-                `Укажите ID модели:\n` +
-                `/visualize_model [ID]\n\n` +
-                `📋 Посмотреть ваши модели:\n` +
-                `/my_footprints`
-            );
-            return;
-        }
-        
-        // Создаем визуализацию
-        const vizPath = await model.visualizeGraph();
-        
-        if (vizPath && fs.existsSync(vizPath)) {
-            await bot.sendPhoto(chatId, vizPath, {
-                caption: `🎨 **ВИЗУАЛИЗАЦИЯ МОДЕЛИ**\n\n` +
-                        `📝 ${model.name}\n` +
-                        `📊 Узлов: ${model.graph.nodes.size}\n` +
-                        `🔗 Рёбер: ${model.graph.edges.size}\n` +
-                        `💎 Уверенность: ${Math.round(model.stats.confidence * 100)}%\n\n` +
-                        `🔴 Точки - центры протекторов\n` +
-                        `🔵 Линии - связи между протекторами`
-            });
-            
-            // Очистка файла через минуту
-            setTimeout(() => {
-                if (fs.existsSync(vizPath)) {
-                    fs.unlinkSync(vizPath);
-                }
-            }, 60000);
-        } else {
-            await bot.sendMessage(chatId, '❌ Не удалось создать визуализацию');
-        }
-        
-    } catch (error) {
-        console.log('❌ Ошибка команды visualize_model:', error);
-        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
-    }
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const modelId = match[1]; // Можно передать ID или использовать последнюю модель
+
+    try {
+        await bot.sendMessage(chatId, '🎨 Создаю визуализацию...');
+
+        let model;
+        if (modelId) {
+            // Ищем модель по ID
+            model = footprintManager.getModelById(modelId);
+        } else {
+            // Берем последнюю модель пользователя
+            const userModels = footprintManager.getUserModels(userId);
+            if (userModels.length > 0) {
+                model = userModels[userModels.length - 1];
+            }
+        }
+
+        if (!model) {
+            await bot.sendMessage(chatId,
+                `❌ **Модель не найдена**\n\n` +
+                `Укажите ID модели:\n` +
+                `/visualize_model [ID]\n\n` +
+                `📋 Посмотреть ваши модели:\n` +
+                `/my_footprints`
+            );
+            return;
+        }
+
+        // Создаем визуализацию
+        const vizPath = await model.visualizeGraph();
+
+        if (vizPath && fs.existsSync(vizPath)) {
+            await bot.sendPhoto(chatId, vizPath, {
+                caption: `🎨 **ВИЗУАЛИЗАЦИЯ МОДЕЛИ**\n\n` +
+                        `📝 ${model.name}\n` +
+                        `📊 Узлов: ${model.graph.nodes.size}\n` +
+                        `🔗 Рёбер: ${model.graph.edges.size}\n` +
+                        `💎 Уверенность: ${Math.round(model.stats.confidence * 100)}%\n\n` +
+                        `🔴 Точки - центры протекторов\n` +
+                        `🔵 Линии - связи между протекторами`
+            });
+
+            // Очистка файла через минуту
+            setTimeout(() => {
+                if (fs.existsSync(vizPath)) {
+                    fs.unlinkSync(vizPath);
+                }
+            }, 60000);
+        } else {
+            await bot.sendMessage(chatId, '❌ Не удалось создать визуализацию');
+        }
+
+    } catch (error) {
+        console.log('❌ Ошибка команды visualize_model:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
 });
 
 // Команда /visualize_compare - сравнение двух моделей
 bot.onText(/\/visualize_compare(?: (.+))?/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const input = match[1];
-    
-    try {
-        if (!input || !input.includes(' ')) {
-            await bot.sendMessage(chatId,
-                `🔍 **Сравнение моделей**\n\n` +
-                `📝 Формат:\n` +
-                `/visualize_compare [ID1] [ID2]\n\n` +
-                `Пример:\n` +
-                `/visualize_compare fp_123 fp_456\n\n` +
-                `📋 Ваши модели:\n` +
-                `/my_footprints`
-            );
-            return;
-        }
-        
-        const [modelId1, modelId2] = input.split(' ');
-        await bot.sendMessage(chatId, '🎨 Создаю визуализацию сравнения...');
-        
-        const result = await footprintManager.visualizeComparison(modelId1, modelId2);
-        
-        if (result.success && result.visualization && fs.existsSync(result.visualization)) {
-            await bot.sendPhoto(chatId, result.visualization, {
-                caption: `🔍 **СРАВНЕНИЕ МОДЕЛЕЙ**\n\n` +
-                        `📊 Similarity: ${Math.round(result.comparison.similarity * 100)}%\n` +
-                        `🎯 Решение: ${result.comparison.decision}\n` +
-                        `💡 ${result.comparison.reason}\n\n` +
-                        `🔴 Красный - модель 1\n` +
-                        `🟢 Зеленый - модель 2\n` +
-                        `🟡 Желтые линии - совпадения`
-            });
-            
-            // Очистка файла
-            setTimeout(() => {
-                if (fs.existsSync(result.visualization)) {
-                    fs.unlinkSync(result.visualization);
-                }
-            }, 60000);
-        } else {
-            await bot.sendMessage(chatId,
-                `❌ **Не удалось сравнить модели**\n\n` +
-                `Ошибка: ${result.error || 'неизвестная ошибка'}\n\n` +
-                `💡 **Возможные причины:**\n` +
-                `• Неверные ID моделей\n` +
-                `• Модели не найдены\n` +
-                `• Ошибка визуализации`
-            );
-        }
-        
-    } catch (error) {
-        console.log('❌ Ошибка команды visualize_compare:', error);
-        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
-    }
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const input = match[1];
+
+    try {
+        if (!input || !input.includes(' ')) {
+            await bot.sendMessage(chatId,
+                `🔍 **Сравнение моделей**\n\n` +
+                `📝 Формат:\n` +
+                `/visualize_compare [ID1] [ID2]\n\n` +
+                `Пример:\n` +
+                `/visualize_compare fp_123 fp_456\n\n` +
+                `📋 Ваши модели:\n` +
+                `/my_footprints`
+            );
+            return;
+        }
+
+        const [modelId1, modelId2] = input.split(' ');
+        await bot.sendMessage(chatId, '🎨 Создаю визуализацию сравнения...');
+
+        const result = await footprintManager.visualizeComparison(modelId1, modelId2);
+
+        if (result.success && result.visualization && fs.existsSync(result.visualization)) {
+            await bot.sendPhoto(chatId, result.visualization, {
+                caption: `🔍 **СРАВНЕНИЕ МОДЕЛЕЙ**\n\n` +
+                        `📊 Similarity: ${Math.round(result.comparison.similarity * 100)}%\n` +
+                        `🎯 Решение: ${result.comparison.decision}\n` +
+                        `💡 ${result.comparison.reason}\n\n` +
+                        `🔴 Красный - модель 1\n` +
+                        `🟢 Зеленый - модель 2\n` +
+                        `🟡 Желтые линии - совпадения`
+            });
+
+            // Очистка файла
+            setTimeout(() => {
+                if (fs.existsSync(result.visualization)) {
+                    fs.unlinkSync(result.visualization);
+                }
+            }, 60000);
+        } else {
+            await bot.sendMessage(chatId,
+                `❌ **Не удалось сравнить модели**\n\n` +
+                `Ошибка: ${result.error || 'неизвестная ошибка'}\n\n` +
+                `💡 **Возможные причины:**\n` +
+                `• Неверные ID моделей\n` +
+                `• Модели не найдены\n` +
+                `• Ошибка визуализации`
+            );
+        }
+
+    } catch (error) {
+        console.log('❌ Ошибка команды visualize_compare:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
 });
 
 // Команда /visualize_session - визуализация текущей сессии
 bot.onText(/\/visualize_session/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    
-    try {
-        await bot.sendMessage(chatId, '🎨 Создаю визуализацию сессии...');
-        
-        const result = await footprintManager.visualizeSession(userId);
-        
-        if (result.success && result.visualization && fs.existsSync(result.visualization)) {
-            await bot.sendPhoto(chatId, result.visualization, {
-                caption: `🔄 **ВИЗУАЛИЗАЦИЯ СЕССИИ**\n\n` +
-                        `🆔 ${result.sessionId?.slice(0, 8) || 'unknown'}\n` +
-                        `📊 Разные цвета - разные фото\n` +
-                        `⚪ Белый - финальная модель\n\n` +
-                        `💡 **Как читать:**\n` +
-                        `• Каждый цвет - отдельное фото\n` +
-                        `• Точки накладываются при совпадении\n` +
-                        `• Чем больше перекрытий - лучше совмещение`
-            });
-            
-            // Очистка файла
-            setTimeout(() => {
-                if (fs.existsSync(result.visualization)) {
-                    fs.unlinkSync(result.visualization);
-                }
-            }, 60000);
-        } else {
-            await bot.sendMessage(chatId,
-                `❌ **Нет активной сессии**\n\n` +
-                `Начните сессию для визуализации:\n` +
-                `/footprint_start`
-            );
-        }
-        
-    } catch (error) {
-        console.log('❌ Ошибка команды visualize_session:', error);
-        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
-    }
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    try {
+        await bot.sendMessage(chatId, '🎨 Создаю визуализацию сессии...');
+
+        const result = await footprintManager.visualizeSession(userId);
+
+        if (result.success && result.visualization && fs.existsSync(result.visualization)) {
+            await bot.sendPhoto(chatId, result.visualization, {
+                caption: `🔄 **ВИЗУАЛИЗАЦИЯ СЕССИИ**\n\n` +
+                        `🆔 ${result.sessionId?.slice(0, 8) || 'unknown'}\n` +
+                        `📊 Разные цвета - разные фото\n` +
+                        `⚪ Белый - финальная модель\n\n` +
+                        `💡 **Как читать:**\n` +
+                        `• Каждый цвет - отдельное фото\n` +
+                        `• Точки накладываются при совпадении\n` +
+                        `• Чем больше перекрытий - лучше совмещение`
+            });
+
+            // Очистка файла
+            setTimeout(() => {
+                if (fs.existsSync(result.visualization)) {
+                    fs.unlinkSync(result.visualization);
+                }
+            }, 60000);
+        } else {
+            await bot.sendMessage(chatId,
+                `❌ **Нет активной сессии**\n\n` +
+                `Начните сессию для визуализации:\n` +
+                `/footprint_start`
+            );
+        }
+
+    } catch (error) {
+        console.log('❌ Ошибка команды visualize_session:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
 });
 
 bot.onText(/\/view_model(?: (.+))?/, async (msg, match) => {
@@ -2925,14 +2995,14 @@ bot.onText(/\/view_model(?: (.+))?/, async (msg, match) => {
         response += `🆔 **Полный ID:** ${info.id}\n`;
         response += `📅 **Создана:** ${info.metadata.created}\n`;
         response += `🔄 **Обновлена:** ${info.metadata.lastUpdated}\n\n`;
-       
+
         response += `📊 **СТАТИСТИКА:**\n`;
         response += `• Узлов в графе: ${info.graph.nodes}\n`;
         response += `• Рёбер в графе: ${info.graph.edges}\n`;
         response += `• Фото в истории: ${info.history.photos}\n`;
         response += `• Анализов: ${info.history.analyses}\n`;
         response += `• Уверенность: ${info.stats.qualityScore}%\n\n`;
-       
+
         // Показываем инварианты если есть
         if (model.graph && model.graph.getBasicInvariants) {
             const invariants = model.graph.getBasicInvariants();
@@ -2942,7 +3012,7 @@ bot.onText(/\/view_model(?: (.+))?/, async (msg, match) => {
             response += `• Средняя степень: ${invariants.avgDegree.toFixed(2)}\n`;
             response += `• Плотность: ${invariants.density.toFixed(4)}\n\n`;
         }
-       
+
         // История фото
         if (model.photoHistory && model.photoHistory.length > 0) {
             response += `📸 **ИСТОРИЯ ФОТО:**\n`;
@@ -2956,12 +3026,12 @@ bot.onText(/\/view_model(?: (.+))?/, async (msg, match) => {
             }
             response += `\n`;
         }
-       
+
         response += `🎯 **КОМАНДЫ ДЛЯ ЭТОЙ МОДЕЛИ:**\n`;
         response += `/visualize_model ${info.id} - Визуализация\n`;
         response += `/visualize_compare ${info.id} [ID] - Сравнить с другой\n`;
         response += `/find_similar_footprints - Найти похожие\n\n`;
-       
+
         response += `📤 **Экспорт:** /export_model ${info.id}`;
 
         await bot.sendMessage(chatId, response);
@@ -2977,10 +3047,10 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const modelId = match[1];
-   
+
     try {
         await bot.sendMessage(chatId, '📊 Создаю визуализацию со статистикой...');
-       
+
         let model;
         if (modelId) {
             model = footprintManager.getModelById(modelId);
@@ -2990,7 +3060,7 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
                 model = userModels[userModels.length - 1];
             }
         }
-       
+
         if (!model) {
             await bot.sendMessage(chatId,
                 `❌ **Модель не найдена**\n\n` +
@@ -3001,15 +3071,15 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
             );
             return;
         }
-       
+
         // Создаём визуализацию со статистикой
         const GraphVisualizer = require('./modules/footprint/graph-visualizer');
         const visualizer = new GraphVisualizer();
-       
+
         const vizPath = await visualizer.visualizeModelWithHistory(model, {
             filename: `stats_${model.id.slice(0, 8)}.png`
         });
-       
+
         if (vizPath && fs.existsSync(vizPath)) {
             // Считаем статистику для текста
             const nodeStats = visualizer.calculateNodeStatistics(model);
@@ -3018,7 +3088,7 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
                 ? Array.from(nodeStats.nodes.values()).reduce((sum, stat) => sum + stat.count, 0) / totalNodes
                 : 0;
             const strongMatches = Array.from(nodeStats.nodes.values()).filter(stat => stat.count >= 3).length;
-           
+
             await bot.sendPhoto(chatId, vizPath, {
                 caption: `📊 **СТАТИСТИКА СОВПАДЕНИЙ**\n\n` +
                         `📝 ${model.name}\n` +
@@ -3034,7 +3104,7 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
                         `🔵 7+ фото - отличное совпадение\n\n` +
                         `📈 **Чем больше синих точек - тем надёжнее модель!**`
             });
-           
+
             // Очистка файла
             setTimeout(() => {
                 if (fs.existsSync(vizPath)) {
@@ -3044,7 +3114,7 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
         } else {
             await bot.sendMessage(chatId, '❌ Не удалось создать визуализацию со статистикой');
         }
-       
+
     } catch (error) {
         console.log('❌ Ошибка команды visualize_stats:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
@@ -3053,13 +3123,13 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
 
 bot.onText(/\/show_why_same/, async (msg) => {
     const chatId = msg.chat.id;
-   
+
     try {
         await bot.sendMessage(chatId, '🔍 Анализирую почему система видит одинаковые следы...');
-       
+
         // Создаём два тестовых графа
         const SimpleGraph = require('./modules/footprint/simple-graph');
-       
+
         // Граф 1 - "вертикальный" след
         const graph1 = new SimpleGraph("След вертикально");
         const points1 = [];
@@ -3071,7 +3141,7 @@ bot.onText(/\/show_why_same/, async (msg) => {
             });
         }
         graph1.buildFromPoints(points1);
-       
+
         // Граф 2 - тот же след, но "горизонтальный" (повёрнутый на 90°)
         const graph2 = new SimpleGraph("След горизонтально");
         const points2 = points1.map(p => ({
@@ -3080,17 +3150,17 @@ bot.onText(/\/show_why_same/, async (msg) => {
             confidence: 0.8
         }));
         graph2.buildFromPoints(points2);
-       
+
         // Сравниваем
         const SimpleGraphMatcher = require('./modules/footprint/simple-matcher');
         const matcher = new SimpleGraphMatcher({ debug: true });
         const comparison = matcher.compareGraphs(graph1, graph2);
-       
+
         // Создаём визуализацию
         const InvariantVisualizer = require('./modules/footprint/invariant-visualizer');
         const visualizer = new InvariantVisualizer();
         const imagePath = await visualizer.visualizeComparison(graph1, graph2, comparison);
-       
+
         if (imagePath && fs.existsSync(imagePath)) {
             await bot.sendPhoto(chatId, imagePath, {
                 caption: `🎯 **ПОЧЕМУ СИСТЕМА ВИДИТ ОДИН СЛЕД**\n\n` +
@@ -3109,7 +3179,7 @@ bot.onText(/\/show_why_same/, async (msg) => {
                         `• Относительные расстояния\n` +
                         `• "Форму" облака точек`
             });
-           
+
             // Очистка
             setTimeout(() => {
                 if (fs.existsSync(imagePath)) {
@@ -3117,10 +3187,58 @@ bot.onText(/\/show_why_same/, async (msg) => {
                 }
             }, 60000);
         }
-       
+
     } catch (error) {
         console.log('❌ Ошибка show_why_same:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+// =============================================================================
+// 🧪 НОВЫЕ КОМАНДЫ ДЛЯ ГИБРИДНОЙ СИСТЕМЫ
+// =============================================================================
+
+// Команда /hybrid_stats
+bot.onText(/\/hybrid_stats/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    if (!hybridManager) {
+        await bot.sendMessage(chatId, '❌ Гибридная система не инициализирована');
+        return;
+    }
+
+    const stats = hybridManager.getStats();
+
+    let message = `🎭 **СТАТИСТИКА ГИБРИДНОЙ СИСТЕМЫ**\n\n`;
+    message += `📊 Всего сравнений: ${stats.totalComparisons}\n`;
+    message += `🚫 Быстрых отсевов: ${stats.fastRejects} (${stats.totalComparisons > 0 ? Math.round(stats.fastRejects/stats.totalComparisons*100) : 0}%)\n`;
+    message += `⏱️ Среднее время: ${stats.avgComparisonTime.toFixed(1)}ms\n`;
+    message += `👥 Пользователей: ${stats.totalUsers}\n`;
+    message += `👣 Отпечатков: ${stats.totalFootprints}\n\n`;
+
+    message += `✅ Same: ${stats.sameDecisions}\n`;
+    message += `🔍 Similar: ${stats.similarDecisions}\n`;
+    message += `❌ Different: ${stats.differentDecisions}\n\n`;
+
+    message += `🎯 **Настройки:**\n`;
+    message += `• Порог same: ${stats.config.minSimilarityForSame}\n`;
+    message += `• Порог similar: ${stats.config.minSimilarityForSimilar}\n`;
+    message += `• Fast reject: ${stats.config.fastRejectBitmaskDistance}/64\n`;
+
+    await bot.sendMessage(chatId, message);
+});
+
+// Команда /hybrid_test
+bot.onText(/\/hybrid_test/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    await bot.sendMessage(chatId, '🧪 Тестирую гибридную систему...');
+
+    try {
+        const result = await HybridManager.test();
+        await bot.sendMessage(chatId, '✅ Тест гибридной системы завершён\n\nПосмотреть статистику: /hybrid_stats');
+    } catch (error) {
+        await bot.sendMessage(chatId, `❌ Ошибка теста: ${error.message}`);
     }
 });
 
@@ -3129,13 +3247,14 @@ bot.onText(/\/show_why_same/, async (msg) => {
 // =============================================================================
 app.get('/', (req, res) => {
     res.send(`
-        <h1>🤖 Система анализа следов обуви v2.4</h1>
+        <h1>🤖 Система анализа следов обуви v2.5</h1>
         <p>✅ Модульная система работает!</p>
         <p>📊 Пользователей: ${globalStats.totalUsers}</p>
         <p>📸 Фото обработано: ${globalStats.totalPhotos}</p>
         <p>🎯 Практический анализ для ПСО: активен</p>
         <p>🐕 Фильтрация животных: активна</p>
         <p>👣 Новая графовая система: АКТИВИРОВАНА ✅</p>
+        <p>🧪 Гибридная система (битмаска + граф): АКТИВИРОВАНА ✅</p>
         <p>🔧 DEBUG_MODE: ${DEBUG_MODE ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}</p>
         <p><a href="/health">Health Check</a></p>
     `);
@@ -3155,11 +3274,13 @@ app.get('/health', (req, res) => {
             animalFilter: animalFilter !== null,
             visualization: visualization !== null,
             yandexDisk: yandexDisk !== null,
-            footprintManager: footprintManager !== null
+            footprintManager: footprintManager !== null,
+            hybridManager: hybridManager !== null // 🆕 Добавили гибридный менеджер
         },
         debug: {
             mode: DEBUG_MODE,
-            footprintSessions: footprintManager ? Array.from(footprintManager.userSessions.keys()).length : 0
+            footprintSessions: footprintManager ? Array.from(footprintManager.userSessions.keys()).length : 0,
+            hybridSessions: hybridManager ? 'активна' : 'не активна'
         }
     });
 });
@@ -3344,10 +3465,20 @@ console.log('🛡️ Глобальные обработчики ошибок а
         footprintManager = null;
     }
 
+    // 🧪 ИНИЦИАЛИЗАЦИЯ ГИБРИДНОЙ СИСТЕМЫ
+    try {
+        await initializeHybridSystem();
+        console.log('✅ Гибридная система (битмаска + граф) активирована!');
+    } catch (error) {
+        console.log('❌ Ошибка инициализации гибридной системы:', error.message);
+        hybridManager = null;
+    }
+
     console.log('🚀 Все модули инициализированы!');
     console.log('🎯 Практический анализ для ПСО активирован');
     console.log('🐕 Фильтрация следов животных активирована');
     console.log('👣 Новая графовая система с автосовмещением: АКТИВИРОВАНА ✅');
+    console.log('🧪 Гибридная система (битмаска + граф): АКТИВИРОВАНА ✅');
     console.log(`🔧 DEBUG_MODE: ${DEBUG_MODE ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
 
 })();
@@ -3553,5 +3684,6 @@ app.listen(config.PORT, () => {
     console.log(`🎯 Практический анализ для ПСО активирован`);
     console.log(`🐕 Фильтрация животных: активна`);
     console.log(`👣 Графовая система с автосовмещением: АКТИВИРОВАНА`);
+    console.log(`🧪 Гибридная система (битмаска + граф): АКТИВИРОВАНА`);
     console.log(`🔧 DEBUG_MODE: ${DEBUG_MODE ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
 });
