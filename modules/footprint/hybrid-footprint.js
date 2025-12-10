@@ -196,30 +196,20 @@ class HybridFootprint {
             console.log(`⚠️ Разные размеры точек (ratio: ${sizeRatio.toFixed(2)}), продолжаю сравнение...`);
         }
 
-        // ШАГ 1: БЫСТРАЯ ПРОВЕРКА - БИТОВАЯ МАСКА
-        const bitmaskResult = this.bitmask.compare(otherFootprint.bitmask);
-        steps.push({
-            step: 'bitmask',
-            time: Date.now() - startTime,
-            result: bitmaskResult,
-            details: {
-                distance: bitmaskResult.distance,
-                similarity: bitmaskResult.similarity
-            }
-        });
+        // 🔴 ШАГ 1: БИТОВАЯ МАСКА (ТОЛЬКО ИНФОРМАЦИЯ, БЕЗ ОТСЕВА)
+const bitmaskResult = this.bitmask.compare(otherFootprint.bitmask);
+steps.push({
+    step: 'bitmask',
+    time: Date.now() - startTime,
+    result: bitmaskResult,
+    details: {
+        distance: bitmaskResult.distance,
+        similarity: bitmaskResult.similarity
+    }
+});
 
-        // 🔴 БОЛЕЕ ЖЁСТКИЙ ПОРОГ ДЛЯ БИТОВОЙ МАСКИ
-        if (bitmaskResult.distance > 25) { // Было 15 (ослаблено для автосовмещения)
-            console.log(`🚫 Быстрый отсев по битовой маске (расстояние: ${bitmaskResult.distance})`);
-            return {
-                similarity: bitmaskResult.similarity,
-                decision: 'different',
-                reason: `Битовые маски сильно различаются (${bitmaskResult.distance}/64)`,
-                steps,
-                fastReject: true,
-                timeMs: Date.now() - startTime
-            };
-        }
+console.log(`📊 Битовые маски: расстояние=${bitmaskResult.distance}/64, similarity=${bitmaskResult.similarity.toFixed(3)}`);
+// ⚠️ БЕЗ ОТСЕВА - продолжаем сравнение!
 
         // ШАГ 2: ПРОВЕРКА МОМЕНТОВ
         const momentResult = this.moments.compare(otherFootprint.moments);
@@ -312,11 +302,11 @@ class HybridFootprint {
 
         // 🔴 НОВАЯ ФОРМУЛА ВЕСОВ - больше веса матрице и векторам
         const weights = {
-    bitmask: 0.05,   // 5% - быстро, но неточно (уменьшено)
-    moments: 0.10,   // 10% - форма (уменьшено)
-    matrix: 0.45,    // 45% - САМЫЙ ВАЖНЫЙ! структура (увеличено)
-    vector: 0.35,    // 35% - локальные связи (увеличено)
-    graph: 0.05      // 5% - только подтверждение (оставлено)
+    bitmask: 0.05,   // 5% - почти не учитываем (только информация)
+    moments: 0.20,   // 20% - форма (увеличили)
+    matrix: 0.45,    // 45% - САМОЕ ВАЖНОЕ! структура (увеличили)
+    vector: 0.25,    // 25% - локальные связи
+    graph: 0.05      // 5% - подтверждение
 };
         const totalSimilarity = (
             bitmaskResult.similarity * weights.bitmask +
@@ -325,12 +315,6 @@ class HybridFootprint {
             vectorResult.similarity * weights.vector +
             graphResult.similarity * weights.graph
         );
-
-        // 🔴 КОМБИНИРОВАННЫЕ КРИТЕРИИ ДЛЯ РЕШЕНИЯ
-        let decision, reason;
-
-        // Критически важны матрица и векторы
-        const criticalPass = matrixResult.similarity > 0.65 && vectorResult.similarity > 0.70; // Ослаблено
 
         // 🔴 СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ПОХОЖИХ ФОРМ РАЗНОГО РАЗМЕРА
         const isSimilarShapeDifferentSize =
