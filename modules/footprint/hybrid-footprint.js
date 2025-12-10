@@ -89,7 +89,7 @@ class HybridFootprint {
         this.updateConfidence();
 
         console.log(`✅ Гибридный отпечаток создан:`);
-        console.log(`   🎭 Битовая маска: ${this.bitmask.bitmask.toString(16).slice(0, 16)}...`);
+        console.log(`   🎭 Битовая маска: ${this.bitmask.bitmask.toString(16).slice(0, 8)}...`);
         console.log(`   📐 Моменты: ${this.moments.get7Moments().length} инвариантов`);
         console.log(`   🕸️ Граф: ${this.graph.nodes.size} узлов, ${this.graph.edges.size} рёбер`);
         console.log(`   📊 Матрица: ${this.getMatrixSizeString()}`);
@@ -145,84 +145,164 @@ class HybridFootprint {
             Math.min(1, this.metadata.totalPhotos / 3);
     }
 
-    // 3. КАСКАДНОЕ СРАВНЕНИЕ С ДРУГИМ ОТПЕЧАТКОМ
+    // 3. КАСКАДНОЕ СРАВНЕНИЕ С ДРУГИМ ОТПЕЧАТКОМ (ОБНОВЛЁННАЯ ВЕРСИЯ)
     compare(otherFootprint) {
         console.log(`🔍 Каскадное сравнение с "${otherFootprint.name}"...`);
-
+       
         const steps = [];
         const startTime = Date.now();
-
-        // ШАГ 1: БЫСТРАЯ ПРОВЕРКА - БИТОВАЯ МАСКА (0ms)
+       
+        // ПРОВЕРКА КАЧЕСТВА ДАННЫХ
+        if (this.originalPoints.length < 15 || otherFootprint.originalPoints.length < 15) {
+            return {
+                similarity: 0,
+                decision: 'different',
+                reason: 'Слишком мало точек для сравнения',
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
+        }
+       
+        // 🔴 ШАГ 0: ПРОВЕРКА РАЗМЕРОВ (НОВОЕ!)
+        const sizeRatio = Math.min(this.originalPoints.length, otherFootprint.originalPoints.length) /
+                         Math.max(this.originalPoints.length, otherFootprint.originalPoints.length);
+       
+        if (sizeRatio < 0.7) {
+            console.log(`🚫 Отсев по размеру (ratio: ${sizeRatio.toFixed(2)})`);
+            return {
+                similarity: sizeRatio,
+                decision: 'different',
+                reason: `Слишком разное количество точек: ${this.originalPoints.length} vs ${otherFootprint.originalPoints.length}`,
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
+        }
+       
+        // ШАГ 1: БЫСТРАЯ ПРОВЕРКА - БИТОВАЯ МАСКА
         const bitmaskResult = this.bitmask.compare(otherFootprint.bitmask);
         steps.push({
             step: 'bitmask',
             time: Date.now() - startTime,
-            result: bitmaskResult
+            result: bitmaskResult,
+            details: {
+                distance: bitmaskResult.distance,
+                similarity: bitmaskResult.similarity
+            }
         });
-
-        // Если битовые маски сильно отличаются - быстро отсеиваем
-        if (bitmaskResult.distance > 40) {
+       
+        // 🔴 БОЛЕЕ ЖЁСТКИЙ ПОРОГ ДЛЯ БИТОВОЙ МАСКИ
+        if (bitmaskResult.distance > 15) { // Было 25
             console.log(`🚫 Быстрый отсев по битовой маске (расстояние: ${bitmaskResult.distance})`);
-            return this.quickReject('bitmask', bitmaskResult, steps, startTime);
+            return {
+                similarity: bitmaskResult.similarity,
+                decision: 'different',
+                reason: `Битовые маски сильно различаются (${bitmaskResult.distance}/64)`,
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
         }
-
-        // ШАГ 2: ПРОВЕРКА МОМЕНТОВ (1ms)
+       
+        // ШАГ 2: ПРОВЕРКА МОМЕНТОВ
         const momentResult = this.moments.compare(otherFootprint.moments);
         steps.push({
             step: 'moments',
             time: Date.now() - startTime,
-            result: momentResult
+            result: momentResult,
+            details: {
+                distance: momentResult.distance,
+                similarity: momentResult.similarity
+            }
         });
-
-        // Если моменты сильно отличаются
-        if (momentResult.distance > 0.7) {
+       
+        // 🔴 БОЛЕЕ ЖЁСТКИЙ ПОРОГ ДЛЯ МОМЕНТОВ
+        if (momentResult.distance > 0.3) { // Было 0.5
             console.log(`🚫 Отсев по моментам (расстояние: ${momentResult.distance.toFixed(4)})`);
-            return this.quickReject('moments', momentResult, steps, startTime);
+            return {
+                similarity: momentResult.similarity,
+                decision: 'different',
+                reason: `Геометрические моменты различаются`,
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
         }
-
-        // ШАГ 3: МАТРИЦА РАССТОЯНИЙ (10ms)
+       
+        // ШАГ 3: МАТРИЦА РАССТОЯНИЙ
         const matrixResult = this.distanceMatrix.compare(otherFootprint.distanceMatrix);
         steps.push({
             step: 'distance_matrix',
             time: Date.now() - startTime,
-            result: matrixResult
+            result: matrixResult,
+            details: {
+                similarity: matrixResult.similarity,
+                isMirrored: matrixResult.isMirrored
+            }
         });
-
-        if (matrixResult.similarity < 0.3) {
-            console.log(`🚫 Отсев по матрице расстояний (схожесть: ${matrixResult.similarity.toFixed(3)})`);
-            return this.quickReject('matrix', matrixResult, steps, startTime);
+       
+        // 🔴 МАТРИЦА - САМЫЙ ВАЖНЫЙ КРИТЕРИЙ
+        if (matrixResult.similarity < 0.6) { // Было 0.5
+            console.log(`🚫 Отсев по матрице расстояний (similarity: ${matrixResult.similarity.toFixed(3)})`);
+            return {
+                similarity: matrixResult.similarity,
+                decision: 'different',
+                reason: `Матрицы расстояний различаются`,
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
         }
-
-        // ШАГ 4: ВЕКТОРНАЯ СХЕМА (50ms)
+       
+        // ШАГ 4: ВЕКТОРНАЯ СХЕМА (только если матрицы похожи)
         const vectorResult = this.vectorGraph.compare(otherFootprint.vectorGraph);
         steps.push({
             step: 'vector_graph',
             time: Date.now() - startTime,
-            result: vectorResult
+            result: vectorResult,
+            details: {
+                similarity: vectorResult.similarity,
+                totalMatches: vectorResult.totalMatches
+            }
         });
-
-        // ШАГ 5: ГРАФ (100ms) - только если всё остальное похоже
+       
+        // 🔴 ВЕКТОРЫ ДОЛЖНЫ ИМЕТЬ МИНИМАЛЬНОЕ КОЛИЧЕСТВО СОВПАДЕНИЙ
+        if (vectorResult.similarity < 0.7 || vectorResult.totalMatches < 5) { // Было 0.6
+            console.log(`🚫 Отсев по векторной схеме (similarity: ${vectorResult.similarity.toFixed(3)}, matches: ${vectorResult.totalMatches})`);
+            return {
+                similarity: vectorResult.similarity,
+                decision: 'different',
+                reason: `Векторные схемы различаются`,
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
+        }
+       
+        // ШАГ 5: ГРАФ - только для финального подтверждения
         let graphResult = { similarity: 0 };
-        if (vectorResult.similarity > 0.6) {
-            graphResult = this.graph.compareGraphs
-                ? this.graph.compareGraphs(otherFootprint.graph)
-                : this.compareGraphsSimple(otherFootprint.graph);
+        if (vectorResult.similarity > 0.8) { // Было 0.7
+            graphResult = this.compareGraphsSimple(otherFootprint.graph);
             steps.push({
                 step: 'graph',
                 time: Date.now() - startTime,
-                result: graphResult
+                result: graphResult,
+                details: {
+                    similarity: graphResult.similarity
+                }
             });
         }
-
-        // Рассчитать общую схожесть (взвешенная)
+       
+        // 🔴 НОВАЯ ФОРМУЛА ВЕСОВ - больше веса матрице и векторам
         const weights = {
-            bitmask: 0.1,
-            moments: 0.15,
-            matrix: 0.25,
-            vector: 0.25,
-            graph: 0.25
+            bitmask: 0.10,   // 10% - быстро, но неточно
+            moments: 0.15,   // 15% - форма
+            matrix: 0.40,    // 40% - САМЫЙ ВАЖНЫЙ! структура
+            vector: 0.30,    // 30% - локальные связи
+            graph: 0.05      // 5% - только подтверждение
         };
-
+       
         const totalSimilarity = (
             bitmaskResult.similarity * weights.bitmask +
             momentResult.similarity * weights.moments +
@@ -230,46 +310,42 @@ class HybridFootprint {
             vectorResult.similarity * weights.vector +
             graphResult.similarity * weights.graph
         );
-
-        // Принять решение
+       
+        // 🔴 КОМБИНИРОВАННЫЕ КРИТЕРИИ ДЛЯ РЕШЕНИЯ
         let decision, reason;
-        if (totalSimilarity > 0.7) {
+       
+        // Критически важны матрица и векторы
+        const criticalPass = matrixResult.similarity > 0.7 && vectorResult.similarity > 0.75;
+       
+        if (criticalPass && totalSimilarity > 0.85) {
             decision = 'same';
-            reason = `Высокая схожесть во всех представлениях (${totalSimilarity.toFixed(3)})`;
-        } else if (totalSimilarity > 0.4) {
+            reason = `Очень высокая схожесть структуры (${totalSimilarity.toFixed(3)})`;
+        } else if (totalSimilarity > 0.75 && matrixResult.similarity > 0.6) {
             decision = 'similar';
-            reason = `Умеренная схожесть (${totalSimilarity.toFixed(3)})`;
+            reason = `Похожая структура (${totalSimilarity.toFixed(3)})`;
         } else {
             decision = 'different';
-            reason = `Низкая схожесть (${totalSimilarity.toFixed(3)})`;
+            reason = `Разные структуры (${totalSimilarity.toFixed(3)})`;
         }
-
+       
         console.log(`📊 Каскадное сравнение завершено: ${totalSimilarity.toFixed(3)} (${decision})`);
-
+        console.log(`   🎭 Матрица: ${matrixResult.similarity.toFixed(3)}, Векторы: ${vectorResult.similarity.toFixed(3)}`);
+       
         return {
             similarity: totalSimilarity,
             decision,
             reason,
             steps,
+            criticalPass,
             details: {
                 bitmask: bitmaskResult,
                 moments: momentResult,
                 matrix: matrixResult,
                 vector: vectorResult,
-                graph: graphResult
+                graph: graphResult,
+                weights,
+                sizeRatio
             },
-            timeMs: Date.now() - startTime
-        };
-    }
-   
-    // Быстрый отсев
-    quickReject(stage, result, steps, startTime) {
-        return {
-            similarity: result.similarity || 0,
-            decision: 'different',
-            reason: `Быстрый отсев на этапе ${stage}`,
-            steps,
-            fastReject: true,
             timeMs: Date.now() - startTime
         };
     }
@@ -295,8 +371,20 @@ class HybridFootprint {
             invariants2
         };
     }
+   
+    // 5. БЫСТРЫЙ ОТСЕВ
+    quickReject(stage, result, steps, startTime) {
+        return {
+            similarity: result.similarity || 0,
+            decision: 'different',
+            reason: `Быстрый отсев на этапе ${stage}`,
+            steps,
+            fastReject: true,
+            timeMs: Date.now() - startTime
+        };
+    }
 
-    // 5. ОБЪЕДИНЕНИЕ С ДРУГИМ ОТПЕЧАТКОМ
+    // 6. ОБЪЕДИНЕНИЕ С ДРУГИМ ОТПЕЧАТКОМ
     merge(otherFootprint, transformation = null) {
         console.log(`🔄 Объединяю с "${otherFootprint.name}"...`);
 
@@ -383,7 +471,7 @@ class HybridFootprint {
         };
     }
    
-    // 6. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ (новый улучшенный метод)
+    // 7. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ (новый улучшенный метод)
     mergeWithTransformation(otherFootprint) {
         console.log(`🔄 Объединяю с преобразованием "${otherFootprint.name}"...`);
 
@@ -464,7 +552,7 @@ class HybridFootprint {
         };
     }
 
-    // 7. БЫСТРЫЙ ПОИСК ПО БИТОВОЙ МАСКЕ (для базы данных)
+    // 8. БЫСТРЫЙ ПОИСК ПО БИТОВОЙ МАСКЕ (для базы данных)
     static fastSearch(queryBitmask, database, maxDistance = 20) {
         const startTime = Date.now();
         const results = [];
@@ -495,7 +583,7 @@ class HybridFootprint {
         return results;
     }
 
-    // 8. ПОЛУЧИТЬ ИНФОРМАЦИЮ
+    // 9. ПОЛУЧИТЬ ИНФОРМАЦИЮ
     getInfo() {
         const trackerStats = this.pointTracker.getStats();
        
@@ -513,7 +601,7 @@ class HybridFootprint {
                 lastUpdated: this.metadata.lastUpdated.toLocaleString('ru-RU')
             },
             representations: {
-                bitmask: `0x${this.bitmask.bitmask.toString(16).slice(0, 16)}...`,
+                bitmask: `0x${this.bitmask.bitmask.toString(16).slice(0, 8)}...`,
                 moments: this.moments.get7Moments().length,
                 graphNodes: this.graph.nodes.size,
                 graphEdges: this.graph.edges.size,
@@ -525,7 +613,7 @@ class HybridFootprint {
         };
     }
 
-    // 9. ВИЗУАЛИЗИРОВАТЬ ВСЕ ПРЕДСТАВЛЕНИЯ
+    // 10. ВИЗУАЛИЗИРОВАТЬ ВСЕ ПРЕДСТАВЛЕНИЯ
     visualize() {
         console.log(`\n🎭 ГИБРИДНЫЙ ОТПЕЧАТОК "${this.name}":`);
         console.log(`├─ ID: ${this.id}`);
@@ -554,7 +642,7 @@ class HybridFootprint {
         this.graph.visualize();
     }
 
-    // 10. СОХРАНИТЬ В JSON
+    // 11. СОХРАНИТЬ В JSON
     toJSON() {
         return {
             id: this.id,
@@ -578,7 +666,7 @@ class HybridFootprint {
         };
     }
 
-    // 11. ЗАГРУЗИТЬ ИЗ JSON
+    // 12. ЗАГРУЗИТЬ ИЗ JSON
     static fromJSON(data) {
         console.log(`📂 Загружаю гибридный отпечаток "${data.name}"...`);
 
@@ -606,7 +694,7 @@ class HybridFootprint {
         return footprint;
     }
 
-    // 12. ТЕСТ: СОЗДАТЬ И СРАВНИТЬ ДВА ОТПЕЧАТКА
+    // 13. ТЕСТ: СОЗДАТЬ И СРАВНИТЬ ДВА ОТПЕЧАТКА
     static testComparison() {
         console.log('\n🧪 ТЕСТ ГИБРИДНОЙ СИСТЕМЫ:');
 
