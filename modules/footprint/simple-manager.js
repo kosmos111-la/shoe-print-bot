@@ -6,6 +6,7 @@ const path = require('path');
 const SimpleFootprint = require('./simple-footprint');
 const SimpleGraphMatcher = require('./simple-matcher');
 const HybridFootprint = require('./hybrid-footprint');
+const MergeVisualizer = require('./merge-visualizer'); // 🔴 ДОБАВЛЕНО
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -18,6 +19,7 @@ class SimpleFootprintManager {
             debug: options.debug || false,
             useHybridMode: options.useHybridMode !== false, // Новая опция для гибридного режима
             hybridSearchThreshold: options.hybridSearchThreshold || 0.6,
+            enableMergeVisualization: options.enableMergeVisualization !== false, // 🔴 НОВАЯ ОПЦИЯ
             ...options
         };
 
@@ -26,6 +28,9 @@ class SimpleFootprintManager {
             debug: this.config.debug,
             enableDetailedMatch: true
         });
+
+        // 🔴 ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАТОРА ОБЪЕДИНЕНИЙ
+        this.mergeVisualizer = new MergeVisualizer();
 
         // Хранилища
         this.userSessions = new Map();      // userId -> session
@@ -41,6 +46,7 @@ class SimpleFootprintManager {
             successfulAlignments: 0,
             hybridComparisons: 0,
             hybridSearches: 0,
+            mergeVisualizations: 0, // 🔴 ДОБАВЛЕНО
             startedAt: new Date()
         };
 
@@ -56,6 +62,7 @@ class SimpleFootprintManager {
         console.log(`📁 База данных: ${this.config.dbPath}`);
         console.log(`🎯 Автосовмещение: ${this.config.autoAlignment ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`);
         console.log(`🎯 Гибридный режим: ${this.config.useHybridMode ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
+        console.log(`🎨 Визуализация объединений: ${this.config.enableMergeVisualization ? 'ВКЛЮЧЕНА' : 'ВЫКЛЮЧЕНА'}`); // 🔴 ДОБАВЛЕНО
     }
 
     // 1. ОБЕСПЕЧИТЬ СУЩЕСТВОВАНИЕ БАЗЫ ДАННЫХ
@@ -78,6 +85,13 @@ class SimpleFootprintManager {
                     stats: this.stats
                 };
                 fs.writeFileSync(indexPath, JSON.stringify(index, null, 2));
+            }
+           
+            // 🔴 СОЗДАТЬ ПАПКУ ДЛЯ ВИЗУАЛИЗАЦИЙ ОБЪЕДИНЕНИЯ
+            const mergeVizDir = path.join(this.config.dbPath, 'merge_visualizations');
+            if (!fs.existsSync(mergeVizDir)) {
+                fs.mkdirSync(mergeVizDir, { recursive: true });
+                console.log(`📁 Создана папка для визуализаций объединений: ${mergeVizDir}`);
             }
         } catch (error) {
             console.log(`❌ Ошибка создания базы данных: ${error.message}`);
@@ -120,7 +134,7 @@ class SimpleFootprintManager {
                     }
 
                     loaded++;
-                   
+
                     // Подсчитать гибридные модели
                     if (footprint.hybridFootprint) {
                         hybridLoaded++;
@@ -173,7 +187,8 @@ class SimpleFootprintManager {
                 analysisCount: 0,
                 autoAlignments: 0,
                 mergedCount: 0,
-                hybridComparisons: 0
+                hybridComparisons: 0,
+                mergeVisualizations: 0 // 🔴 ДОБАВЛЕНО
             }
         };
 
@@ -194,8 +209,8 @@ class SimpleFootprintManager {
         return this.userSessions.get(userId);
     }
 
-    // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ
-    async addPhotoToSession(userId, analysis, photoInfo = {}) {
+    // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ (ОБНОВЛЕННЫЙ)
+    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) { // 🔴 ДОБАВЛЕНО bot и chatId
         const session = this.getActiveSession(userId);
 
         if (!session) {
@@ -272,19 +287,50 @@ class SimpleFootprintManager {
         // АВТОСОВМЕЩЕНИЕ
         let alignmentResult = null;
         let mergeResult = null;
+        let mergeVisualizationPath = null; // 🔴 ДОБАВЛЕНО
+        let mergeVisualizationStats = null; // 🔴 ДОБАВЛЕНО
 
         if (this.config.autoAlignment && session.currentFootprint) {
             console.log(`🎯 Запускаю автосовмещение...`);
 
             // Сравнить с текущим отпечатком в сессии
             const comparison = session.currentFootprint.compare(tempFootprint);
-           
+
             if (tempFootprint.hybridFootprint && session.currentFootprint.hybridFootprint) {
                 session.stats.hybridComparisons++;
             }
 
             if (comparison.decision === 'same') {
                 console.log(`✅ Автосовмещение: тот же след (similarity: ${comparison.similarity})`);
+
+                // 🔴 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕНИЯ
+                if (this.config.enableMergeVisualization) {
+                    try {
+                        const timestamp = Date.now();
+                        const vizFilename = `merge_${session.id.slice(0, 8)}_${timestamp}.png`;
+                        const vizPath = path.join(this.config.dbPath, 'merge_visualizations', vizFilename);
+                       
+                        const vizResult = this.mergeVisualizer.visualizeMerge(
+                            session.currentFootprint,
+                            tempFootprint,
+                            comparison,
+                            vizPath
+                        );
+                       
+                        mergeVisualizationPath = vizPath;
+                        mergeVisualizationStats = vizResult?.stats;
+                        session.stats.mergeVisualizations++;
+                        this.stats.mergeVisualizations++;
+                       
+                        console.log(`🎨 Визуализация объединения создана: ${vizPath}`);
+                        if (vizResult?.stats) {
+                            console.log(`   📊 ${vizResult.stats.points1} + ${vizResult.stats.points2} точек, схожесть: ${vizResult.stats.similarity?.toFixed(3)}`);
+                        }
+                       
+                    } catch (vizError) {
+                        console.log('⚠️ Не удалось создать визуализацию объединения:', vizError.message);
+                    }
+                }
 
                 // СОЗДАЕМ ВИЗУАЛИЗАЦИЮ АВТОСОВМЕЩЕНИЯ (если включен debug)
                 if (this.graphVisualizer && this.config.debug) {
@@ -297,7 +343,6 @@ class SimpleFootprintManager {
                                 { filename: `automerge_${session.id.slice(0, 8)}.png` }
                             );
 
-                            // Логируем создание визуализации
                             if (vizPath && fs.existsSync(vizPath)) {
                                 console.log(`🎨 Визуализация автосовмещения создана: ${vizPath}`);
                             }
@@ -320,8 +365,40 @@ class SimpleFootprintManager {
                         decision: 'merged',
                         mergedNodes: mergeResult.mergedPhotos,
                         totalNodes: session.currentFootprint.graph.nodes.size,
-                        method: comparison.method || 'graph'
+                        method: comparison.method || 'graph',
+                        visualization: mergeVisualizationPath, // 🔴 ДОБАВЛЕНО
+                        visualizationStats: mergeVisualizationStats // 🔴 ДОБАВЛЕНО
                     };
+                   
+                    // 🔴 ОТПРАВКА ВИЗУАЛИЗАЦИИ В TELEGRAM
+                    if (bot && chatId && mergeVisualizationPath && fs.existsSync(mergeVisualizationPath)) {
+                        setTimeout(async () => {
+                            try {
+                                const caption = this.mergeVisualizer.createMergeCaption(
+                                    session.currentFootprint,
+                                    tempFootprint,
+                                    mergeVisualizationStats || {
+                                        points1: session.currentFootprint.graph.nodes.size,
+                                        points2: tempFootprint.graph.nodes.size,
+                                        totalPoints: session.currentFootprint.graph.nodes.size + tempFootprint.graph.nodes.size,
+                                        intersections: 0,
+                                        similarity: comparison.similarity,
+                                        decision: comparison.decision
+                                    }
+                                );
+                               
+                                await bot.sendPhoto(chatId, mergeVisualizationPath, {
+                                    caption: caption,
+                                    parse_mode: 'HTML'
+                                });
+                               
+                                console.log(`✅ Визуализация объединения отправлена в чат ${chatId}`);
+                               
+                            } catch (sendError) {
+                                console.log('⚠️ Не удалось отправить визуализацию:', sendError.message);
+                            }
+                        }, 500);
+                    }
                 }
             } else {
                 console.log(`⚠️ Автосовмещение: другой след (similarity: ${comparison.similarity})`);
@@ -350,7 +427,8 @@ class SimpleFootprintManager {
             nodesAdded: addResult.added,
             totalNodes: tempFootprint.graph.nodes.size,
             alignment: alignmentResult,
-            footprintId: session.currentFootprint?.id
+            footprintId: session.currentFootprint?.id,
+            mergeVisualization: mergeVisualizationPath // 🔴 ДОБАВЛЕНО
         });
 
         session.stats.analysisCount++;
@@ -361,7 +439,9 @@ class SimpleFootprintManager {
             totalNodes: session.currentFootprint?.graph?.nodes?.size || 0,
             alignment: alignmentResult,
             sessionStats: session.stats,
-            hasHybrid: tempFootprint.hybridFootprint !== null
+            hasHybrid: tempFootprint.hybridFootprint !== null,
+            mergeVisualization: mergeVisualizationPath, // 🔴 ДОБАВЛЕНО
+            mergeStats: mergeVisualizationStats // 🔴 ДОБАВЛЕНО
         };
 
         // Автосохранение
@@ -442,7 +522,8 @@ class SimpleFootprintManager {
                 photos: session.photos.length,
                 analyses: session.analyses.length,
                 autoAlignments: session.stats.autoAlignments,
-                hybridComparisons: session.stats.hybridComparisons
+                hybridComparisons: session.stats.hybridComparisons,
+                mergeVisualizations: session.stats.mergeVisualizations // 🔴 ДОБАВЛЕНО
             }
         };
     }
@@ -531,6 +612,7 @@ class SimpleFootprintManager {
                 totalModels: this.modelCache.size,
                 hybridModels: this.stats.hybridModels,
                 totalUsers: this.userModels.size,
+                mergeVisualizations: this.stats.mergeVisualizations, // 🔴 ДОБАВЛЕНО
                 users: {},
                 stats: this.stats
             };
@@ -582,6 +664,7 @@ class SimpleFootprintManager {
         console.log(`   Фото: ${session.photos.length}`);
         console.log(`   Анализов: ${session.analyses.length}`);
         console.log(`   Гибридных сравнений: ${session.stats.hybridComparisons}`);
+        console.log(`   Визуализаций объединения: ${session.stats.mergeVisualizations}`); // 🔴 ДОБАВЛЕНО
 
         return {
             success: true,
@@ -610,7 +693,7 @@ class SimpleFootprintManager {
         // ПРОВЕРКА: Если у целевого отпечатка есть гибридные признаки, использовать гибридный поиск
         if (this.config.useHybridMode && targetFootprint.hybridFootprint &&
             targetFootprint.hybridFootprint.bitmask && targetFootprint.hybridFootprint.moments) {
-           
+
             console.log('🎯 Использую гибридный поиск...');
             return this.findSimilarHybrid(targetFootprint, userId, options);
         }
@@ -840,7 +923,8 @@ class SimpleFootprintManager {
                 hybridModels: this.stats.hybridModels,
                 totalUsers: this.userModels.size,
                 activeSessions: this.activeSessions.size,
-                modelCache: this.modelCache.size
+                modelCache: this.modelCache.size,
+                mergeVisualizations: this.stats.mergeVisualizations // 🔴 ДОБАВЛЕНО
             },
             performance: {
                 totalSessions: this.stats.totalSessions,
@@ -848,6 +932,7 @@ class SimpleFootprintManager {
                 successfulAlignments: this.stats.successfulAlignments,
                 hybridComparisons: this.stats.hybridComparisons,
                 hybridSearches: this.stats.hybridSearches,
+                mergeVisualizations: this.stats.mergeVisualizations, // 🔴 ДОБАВЛЕНО
                 matcherStats: this.matcher.getStats()
             },
             config: {
@@ -856,6 +941,7 @@ class SimpleFootprintManager {
                 autoSave: this.config.autoSave,
                 useHybridMode: this.config.useHybridMode,
                 hybridSearchThreshold: this.config.hybridSearchThreshold,
+                enableMergeVisualization: this.config.enableMergeVisualization, // 🔴 ДОБАВЛЕНО
                 debug: this.config.debug
             }
         };
@@ -993,7 +1079,7 @@ class SimpleFootprintManager {
             };
 
         } catch (error) {
-            console.log(`⚠️ Ошибка очистки автосохранений: ${error.message}`);
+            console.log(`⚠️ Ошибка очистка автосохранений: ${error.message}`);
             return {
                 success: false,
                 error: error.message
@@ -1113,7 +1199,7 @@ class SimpleFootprintManager {
         // Нормализовать расстояния в схожести (1 = идеально, 0 = плохо)
         const bitmaskSimilarity = 1 - (bitmaskDistance / 100); // bitmaskDistance от 0 до ~100
         const momentSimilarity = 1 - momentDistance; // momentDistance от 0 до 1
-       
+
         // Взвешенное среднее
         return (bitmaskSimilarity * 0.3 + momentSimilarity * 0.3 + graphSimilarity * 0.4);
     }
@@ -1170,7 +1256,7 @@ class SimpleFootprintManager {
                     candidate.item.hybridFootprint.moments
                 );
                 const graphComparison = candidate.item.compare;
-               
+
                 return {
                     model: candidate.item,
                     bitmaskDistance: candidate.bitmaskDistance,
@@ -1194,6 +1280,71 @@ class SimpleFootprintManager {
             similarCount: results.length,
             method: 'hybrid-only'
         };
+    }
+
+    // 🔴 25. НОВЫЙ МЕТОД: СОЗДАТЬ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕНИЯ ДЛЯ СУЩЕСТВУЮЩИХ МОДЕЛЕЙ
+    async createMergeVisualization(modelId1, modelId2, outputPath = null) {
+        try {
+            const model1 = this.getModelById(modelId1);
+            const model2 = this.getModelById(modelId2);
+           
+            if (!model1 || !model2) {
+                return { success: false, error: 'Модели не найдены' };
+            }
+           
+            // Сравниваем модели
+            const comparison = model1.compare(model2);
+           
+            // Создаем визуализацию
+            const timestamp = Date.now();
+            const defaultPath = outputPath || path.join(this.config.dbPath, 'merge_visualizations', `merge_${modelId1}_${modelId2}_${timestamp}.png`);
+           
+            const vizResult = this.mergeVisualizer.visualizeMerge(
+                model1,
+                model2,
+                comparison,
+                defaultPath
+            );
+           
+            this.stats.mergeVisualizations++;
+           
+            return {
+                success: true,
+                visualizationPath: defaultPath,
+                comparison: comparison,
+                stats: vizResult.stats,
+                caption: this.mergeVisualizer.createMergeCaption(model1, model2, vizResult.stats)
+            };
+           
+        } catch (error) {
+            console.log('❌ Ошибка создания визуализации объединения:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // 🔴 26. НОВЫЙ МЕТОД: ПОЛУЧИТЬ ВСЕ ВИЗУАЛИЗАЦИИ ОБЪЕДИНЕНИЯ
+    getAllMergeVisualizations(userId = null) {
+        try {
+            const vizDir = path.join(this.config.dbPath, 'merge_visualizations');
+            if (!fs.existsSync(vizDir)) {
+                return [];
+            }
+           
+            const files = fs.readdirSync(vizDir)
+                .filter(f => f.endsWith('.png'))
+                .map(f => path.join(vizDir, f));
+           
+            if (userId) {
+                // Фильтровать по пользователю (если в имени файла есть userId)
+                return files.filter(f => f.includes(`user_${userId}`) || f.includes(`session_${userId}`));
+            }
+           
+            return files;
+           
+        } catch (error) {
+            console.log('⚠️ Ошибка получения визуализаций:', error.message);
+            return [];
+        }
     }
 }
 
