@@ -1,4 +1,4 @@
-// hybrid-manager.js
+// modules/footprint/hybrid-manager.js
 const HybridFootprint = require('./hybrid-footprint');
 const fs = require('fs').promises;
 const path = require('path');
