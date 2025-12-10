@@ -490,85 +490,87 @@ class HybridFootprint {
     }
    
     // 7. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ (новый улучшенный метод)
-    mergeWithTransformation(otherFootprint) {
-        console.log(`🔄 Объединяю с преобразованием "${otherFootprint.name}"...`);
+   mergeWithTransformation(otherFootprint) {
+    console.log(`🔄 Объединяю с преобразованием "${otherFootprint.name}"...`);
 
-        // 1. Сравнить векторные схемы для нахождения трансформации
-        const vectorComparison = this.vectorGraph.compare(otherFootprint.vectorGraph);
+    // 1. Сравнить векторные схемы для нахождения трансформации
+    const vectorComparison = this.vectorGraph.compare(otherFootprint.vectorGraph);
 
-        if (vectorComparison.similarity < 0.6) {
-            console.log(`❌ Векторные схемы слишком разные: ${vectorComparison.similarity.toFixed(3)}`);
-            return {
-                success: false,
-                reason: `Векторные схемы слишком разные: ${vectorComparison.similarity.toFixed(3)}`
-            };
-        }
-
-        // 2. Применить трансформацию к точкам другого отпечатка
-        const transformedPoints = this.vectorGraph.applyTransformation(
-            otherFootprint.originalPoints,
-            vectorComparison.transformation
-        );
-
-        // 3. Обработать точки через трекер
-        const trackerResult = this.pointTracker.processNewPoints(
-            transformedPoints,
-            {
-                source: 'merge',
-                fromFootprint: otherFootprint.id,
-                transformation: vectorComparison.transformation
-            }
-        );
-
-        // 4. Пересчитать все представления из трекера
-        const highConfidencePoints = this.pointTracker.getHighConfidencePoints(0.5);
-
-        // Обновить все представления
-        this.bitmask.createFromPoints(highConfidencePoints);
-        this.moments.calculateFromPoints(highConfidencePoints);
-        this.distanceMatrix.createFromPoints(highConfidencePoints);
-        this.vectorGraph.createFromPoints(highConfidencePoints);
-
-        // Обновить граф
-        const graphPoints = highConfidencePoints.map(pt => ({
-            x: pt.x,
-            y: pt.y,
-            confidence: pt.rating
-        }));
-        this.graph.buildFromPoints(graphPoints);
-
-        // Обновить оригинальные точки
-        this.originalPoints = highConfidencePoints;
-
-        // Обновить метаданные
-        this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos;
-        this.metadata.lastUpdated = new Date();
-        this.metadata.transformations.push({
-            timestamp: new Date(),
-            with: otherFootprint.id,
-            transformation: vectorComparison.transformation,
-            pointsAdded: trackerResult.added,
-            pointsUpdated: trackerResult.updated
-        });
-
-        // Обновить статистику
-        this.updateConfidence();
-
-        console.log(`✅ Объединено с преобразованием успешно!`);
-        console.log(`   🧭 Трансформация:`, vectorComparison.transformation);
-        console.log(`   📍 Добавлено точек: ${trackerResult.added}`);
-        console.log(`   📊 Высокодостоверных точек: ${highConfidencePoints.length}`);
-        console.log(`   💎 Новая уверенность: ${Math.round(this.stats.confidence * 100)}%`);
-
+    if (vectorComparison.similarity < 0.6) {
+        console.log(`❌ Векторные схемы слишком разные: ${vectorComparison.similarity.toFixed(3)}`);
         return {
-            success: true,
-            transformation: vectorComparison.transformation,
-            trackerResult,
-            highConfidencePoints: highConfidencePoints.length,
-            totalPoints: this.pointTracker.getStats().totalPoints,
-            confidence: this.stats.confidence
+            success: false,
+            reason: `Векторные схемы слишком разные: ${vectorComparison.similarity.toFixed(3)}`
         };
     }
+
+    // 2. Применить трансформацию к точкам другого отпечатка
+    const transformedPoints = otherFootprint.originalPoints; // Пока без трансформации
+   
+    // 3. Обработать точки через трекер
+    const trackerResult = this.pointTracker.processNewPoints(
+        transformedPoints,
+        {
+            source: 'merge',
+            fromFootprint: otherFootprint.id,
+            transformation: vectorComparison.transformation || {}
+        }
+    );
+
+    // 4. Пересчитать все представления из ВСЕХ точек (не только высокодостоверных)
+    const allPoints = this.pointTracker.getAllPoints();
+   
+    if (allPoints.length < 10) {
+        console.log('❌ Недостаточно точек после объединения:', allPoints.length);
+        return {
+            success: false,
+            reason: `Недостаточно точек после объединения: ${allPoints.length}`
+        };
+    }
+
+    // Обновить все представления
+    this.originalPoints = allPoints;
+    this.bitmask.createFromPoints(allPoints);
+    this.moments.calculateFromPoints(allPoints);
+    this.distanceMatrix.createFromPoints(allPoints);
+    this.vectorGraph.createFromPoints(allPoints);
+
+    // Обновить граф
+    const graphPoints = allPoints.map(pt => ({
+        x: pt.x,
+        y: pt.y,
+        confidence: pt.rating || pt.confidence || 0.5
+    }));
+    this.graph.buildFromPoints(graphPoints);
+
+    // Обновить метаданные
+    this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos;
+    this.metadata.lastUpdated = new Date();
+    this.metadata.transformations.push({
+        timestamp: new Date(),
+        with: otherFootprint.id,
+        transformation: vectorComparison.transformation || {},
+        pointsAdded: trackerResult.added || 0,
+        pointsUpdated: trackerResult.updated || 0
+    });
+
+    // Обновить статистику
+    this.updateConfidence();
+
+    console.log(`✅ Объединено с преобразованием успешно!`);
+    console.log(`   📍 Добавлено точек: ${trackerResult.added || 0}`);
+    console.log(`   📊 Всего точек: ${allPoints.length}`);
+    console.log(`   💎 Новая уверенность: ${Math.round(this.stats.confidence * 100)}%`);
+
+    return {
+        success: true,
+        transformation: vectorComparison.transformation || {},
+        trackerResult,
+        totalPoints: allPoints.length,
+        addedPoints: trackerResult.added || 0,
+        confidence: this.stats.confidence
+    };
+}
 
     // 8. БЫСТРЫЙ ПОИСК ПО БИТОВОЙ МАСКЕ (для базы данных)
     static fastSearch(queryBitmask, database, maxDistance = 20) {
