@@ -196,7 +196,7 @@ class HybridFootprint {
             console.log(`⚠️ Разные размеры точек (ratio: ${sizeRatio.toFixed(2)}), продолжаю сравнение...`);
         }
 
-        // ШАГ 1: БЫСТРАЯ ПРОВЕРКА - БИТОВАЯ МАСКА
+        // ШАГ 1: БЫСТРАЯ ПРОВЕРКА - БИТОВАЯ МАСКА (ТОЛЬКО ИНФОРМАЦИЯ, НЕ ОТСЕВ)
         const bitmaskResult = this.bitmask.compare(otherFootprint.bitmask);
         steps.push({
             step: 'bitmask',
@@ -208,17 +208,13 @@ class HybridFootprint {
             }
         });
 
-        // 🔴 БОЛЕЕ ЖЁСТКИЙ ПОРОГ ДЛЯ БИТОВОЙ МАСКИ
-        if (bitmaskResult.distance > 15) { // Было 25
-            console.log(`🚫 Быстрый отсев по битовой маске (расстояние: ${bitmaskResult.distance})`);
-            return {
-                similarity: bitmaskResult.similarity,
-                decision: 'different',
-                reason: `Битовые маски сильно различаются (${bitmaskResult.distance}/64)`,
-                steps,
-                fastReject: true,
-                timeMs: Date.now() - startTime
-            };
+        // 🔴 ИСПРАВЛЕНИЕ: БИТОВАЯ МАСКА - ТОЛЬКО ИНФОРМАЦИЯ, НЕ ОТСЕВ
+        console.log(`📊 Битовые маски: расстояние=${bitmaskResult.distance}/64, similarity=${bitmaskResult.similarity.toFixed(3)}`);
+
+        // ⚠️ ПРЕДУПРЕЖДЕНИЕ, НО ПРОДОЛЖАЕМ (НЕ ОТСЕИВАЕМ!)
+        if (bitmaskResult.distance > 25) {
+            console.log(`⚠️ Битовые маски различаются (${bitmaskResult.distance}/64), но продолжаю сравнение...`);
+            // НЕ ВЫХОДИМ - продолжаем каскад!
         }
 
         // ШАГ 2: ПРОВЕРКА МОМЕНТОВ
@@ -312,11 +308,11 @@ class HybridFootprint {
 
         // 🔴 НОВАЯ ФОРМУЛА ВЕСОВ - больше веса матрице и векторам
         const weights = {
-            bitmask: 0.10,   // 10% - быстро, но неточно
+            bitmask: 0.10,   // 10% - быстро, но неточно (теперь только информация)
             moments: 0.15,   // 15% - форма
-            matrix: 0.40,    // 40% - САМЫЙ ВАЖНЫЙ! структура
+            matrix: 0.45,    // 45% - САМЫЙ ВАЖНЫЙ! структура (увеличено с 40%)
             vector: 0.30,    // 30% - локальные связи
-            graph: 0.05      // 5% - только подтверждение
+            graph: 0.00      // 0% - только подтверждение (уменьшено с 5%)
         };
 
         // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ЗНАЧЕНИЙ (ИСПРАВЛЕНИЕ criticalPass ОШИБКИ)
