@@ -569,6 +569,21 @@ bot.onText(/\/statistics/, (msg) => {
     bot.sendMessage(msg.chat.id, stats);
 });
 
+// 🔧 ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОПИСАНИЙ ИСПРАВЛЕНИЙ (ДОБАВЬТЕ ЭТОТ КОД)
+function getCorrectionDescription(type) {
+    const descriptions = {
+        'animal': '🐾 След животного',
+        'other_shoe': '👞 Другая обувь',
+        'bounds': '📏 Неправильные границы',
+        'multiple': '👣 Несколько следов',
+        'not_footprint': '🚫 Не след вообще',
+        'other_class': '🔍 Другой класс',
+        'correct': '✅ Правильно'
+    };
+
+    return descriptions[type] || type;
+}
+
 // Команда /feedback_stats - статистика обратной связи
 bot.onText(/\/feedback_stats/, async (msg) => {
     const chatId = msg.chat.id;
