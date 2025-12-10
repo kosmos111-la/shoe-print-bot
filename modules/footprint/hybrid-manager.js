@@ -154,17 +154,17 @@ class HybridManager {
                 console.log(`   Решение: ${searchResult.bestMatch.decision}`);
                 console.log(`   Отпечаток: ${searchResult.bestMatch.footprint.name}`);
                 console.log(`   ID: ${searchResult.bestMatch.footprint.id}`);
-               
+              
                 if (searchResult.bestMatch.details) {
                     console.log(`   Детали: матрица=${searchResult.bestMatch.details.matrixSimilarity?.toFixed(3) || 'нет'}, векторы=${searchResult.bestMatch.details.vectorSimilarity?.toFixed(3) || 'нет'}`);
                 }
-               
+              
                 // Проверяем, проходит ли порог
                 const meetsThreshold = searchResult.bestMatch.similarity >= this.config.minSimilarityForSame;
                 console.log(`   Порог (${this.config.minSimilarityForSame}): ${meetsThreshold ? '✅ ПРОЙДЕН' : '❌ НЕ ПРОЙДЕН'}`);
             } else if (userFootprints.length > 0) {
                 console.log(`\n🔧 ДИАГНОСТИКА (почему не нашлось совпадений):`);
-               
+              
                 // Проверить все отпечатки вручную для диагностики
                 for (let i = 0; i < Math.min(userFootprints.length, 3); i++) {
                     const fp = userFootprints[i];
@@ -173,12 +173,12 @@ class HybridManager {
                     console.log(`       схожесть=${compareResult.similarity.toFixed(3)}`);
                     console.log(`       решение=${compareResult.decision}`);
                     console.log(`       время=${compareResult.timeMs}ms`);
-                   
+                  
                     if (compareResult.details) {
                         console.log(`       матрица=${compareResult.details.matrixSimilarity?.toFixed(3) || 'нет'}`);
                         console.log(`       векторы=${compareResult.details.vectorSimilarity?.toFixed(3) || 'нет'}`);
                     }
-                   
+                  
                     // Порог
                     const meetsThreshold = compareResult.similarity >= this.config.minSimilarityForSame;
                     console.log(`       порог (${this.config.minSimilarityForSame}): ${meetsThreshold ? '✅' : '❌'}`);
@@ -202,7 +202,7 @@ class HybridManager {
                 if (mergeResult.success) {
                     console.log(`   ✅ Успешно объединено!`);
                     console.log(`   📈 Улучшение: ${mergeResult.improvement ? mergeResult.improvement.toFixed(3) : 'нет'}`);
-                   
+                  
                     result.merged = true;
                     result.footprintId = searchResult.bestMatch.footprint.id;
                     result.similarity = searchResult.bestMatch.similarity;
@@ -286,26 +286,26 @@ class HybridManager {
 
         // ПРЯМОЕ СРАВНЕНИЕ ВСЕХ ОТПЕЧАТКОВ (НИКАКОГО ФИЛЬТРА!)
         console.log(`\n   📊 ДЕТАЛЬНОЕ СРАВНЕНИЕ ${footprintList.length} отпечатков...`);
-       
+      
         for (let i = 0; i < footprintList.length; i++) {
             const footprint = footprintList[i];
-           
+          
             if (results.length >= maxResults * 2) {
                 console.log(`   ⏹️  Достигнут лимит сравнений (${maxResults * 2})`);
                 break;
             }
 
             console.log(`\n   🔍 Сравнение ${i + 1}/${footprintList.length}: "${footprint.name || 'Без названия'}"`);
-           
+          
             // ЗАПУСКАЕМ ПОЛНОЕ СРАВНЕНИЕ (включая каскадное и повороты)
             const comparison = queryFootprint.compare(footprint);
             this.updateStats(comparison);
 
             console.log(`      Результат: схожесть=${comparison.similarity.toFixed(3)}, решение=${comparison.decision}`);
-           
+          
             if (comparison.details) {
                 console.log(`      Детали: матрица=${comparison.details.matrixSimilarity?.toFixed(3) || 'нет'}, векторы=${comparison.details.vectorSimilarity?.toFixed(3) || 'нет'}`);
-               
+              
                 // Показать, если было вращение
                 if (comparison.details.bestRotation !== undefined) {
                     console.log(`      Лучший поворот: ${comparison.details.bestRotation}°`);
@@ -435,7 +435,7 @@ class HybridManager {
         analysis.predictions.forEach((prediction, index) => {
             const confidence = prediction.confidence || 0;
             const isShoeProtector = prediction.class === 'shoe-protector';
-           
+          
             if (isShoeProtector || confidence > 0.3) {
                 if (prediction.points && prediction.points.length > 0) {
                     // Взять центр точек
@@ -448,7 +448,7 @@ class HybridManager {
                         confidence: confidence,
                         class: prediction.class
                     };
-                   
+                  
                     points.push(centerPoint);
                 }
             }
@@ -550,9 +550,20 @@ class HybridManager {
         console.log(`   Среднее время: ${stats.avgComparisonTime.toFixed(1)}ms`);
         console.log(`   Отпечатков: ${stats.totalFootprints}`);
 
-        // Очистка тестовых данных
+        // Очистка тестовых данных (ИСПРАВЛЕНО: используем rmdirSync вместо rmSync)
         if (fsSync.existsSync('./test-data/hybrid')) {
-            fsSync.rmSync('./test-data/hybrid', { recursive: true, force: true }); // ← ИСПРАВЛЕНО ЗДЕСЬ!
+            try {
+                // Для Node.js < 14.14.0
+                if (typeof fsSync.rmSync === 'function') {
+                    fsSync.rmSync('./test-data/hybrid', { recursive: true, force: true });
+                } else {
+                    // Для старых версий Node.js
+                    fsSync.rmdirSync('./test-data/hybrid', { recursive: true });
+                }
+                console.log('🧹 Тестовые данные очищены');
+            } catch (cleanError) {
+                console.log('⚠️ Ошибка очистки тестовых данных:', cleanError.message);
+            }
         }
 
         // Итог теста
