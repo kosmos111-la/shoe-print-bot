@@ -164,11 +164,12 @@ class HybridFootprint {
             };
         }
        
-        // 🔴 ШАГ 0: ПРОВЕРКА РАЗМЕРОВ (НОВОЕ!)
+        // 🔴 ШАГ 0: ПРОВЕРКА РАЗМЕРОВ (ОСЛАБЛЕННАЯ ВЕРСИЯ)
         const sizeRatio = Math.min(this.originalPoints.length, otherFootprint.originalPoints.length) /
                          Math.max(this.originalPoints.length, otherFootprint.originalPoints.length);
-       
-        if (sizeRatio < 0.7) {
+
+        // Для совсем разных размеров - быстрый отсев
+        if (sizeRatio < 0.4) { // Было 0.7 - ТЕПЕРЬ ТОЛЬКО СОВСЕМ РАЗНЫЕ РАЗМЕРЫ
             console.log(`🚫 Отсев по размеру (ratio: ${sizeRatio.toFixed(2)})`);
             return {
                 similarity: sizeRatio,
@@ -178,6 +179,11 @@ class HybridFootprint {
                 fastReject: true,
                 timeMs: Date.now() - startTime
             };
+        }
+
+        // Для умеренно разных размеров - предупреждение, но продолжаем сравнение
+        if (sizeRatio < 0.7) {
+            console.log(`⚠️ Разные размеры точек (ratio: ${sizeRatio.toFixed(2)}), продолжаю сравнение...`);
         }
        
         // ШАГ 1: БЫСТРАЯ ПРОВЕРКА - БИТОВАЯ МАСКА
@@ -317,7 +323,17 @@ class HybridFootprint {
         // Критически важны матрица и векторы
         const criticalPass = matrixResult.similarity > 0.7 && vectorResult.similarity > 0.75;
        
-        if (criticalPass && totalSimilarity > 0.85) {
+        // 🔴 СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ПОХОЖИХ ФОРМ РАЗНОГО РАЗМЕРА
+        const isSimilarShapeDifferentSize =
+            momentResult.similarity > 0.9 && // Очень похожие моменты (форма)
+            matrixResult.similarity > 0.7 && // Похожие матрицы (структура)
+            sizeRatio < 0.7 && sizeRatio > 0.4; // Разные, но не экстремальные размеры
+
+        if (isSimilarShapeDifferentSize && totalSimilarity > 0.7) {
+            decision = 'similar';
+            reason = `Похожие формы разного размера (${totalSimilarity.toFixed(3)})`;
+        }
+        else if (criticalPass && totalSimilarity > 0.85) {
             decision = 'same';
             reason = `Очень высокая схожесть структуры (${totalSimilarity.toFixed(3)})`;
         } else if (totalSimilarity > 0.75 && matrixResult.similarity > 0.6) {
@@ -330,6 +346,7 @@ class HybridFootprint {
        
         console.log(`📊 Каскадное сравнение завершено: ${totalSimilarity.toFixed(3)} (${decision})`);
         console.log(`   🎭 Матрица: ${matrixResult.similarity.toFixed(3)}, Векторы: ${vectorResult.similarity.toFixed(3)}`);
+        console.log(`   📏 Соотношение размеров: ${sizeRatio.toFixed(2)}`);
        
         return {
             similarity: totalSimilarity,
@@ -337,6 +354,7 @@ class HybridFootprint {
             reason,
             steps,
             criticalPass,
+            isSimilarShapeDifferentSize,
             details: {
                 bitmask: bitmaskResult,
                 moments: momentResult,
