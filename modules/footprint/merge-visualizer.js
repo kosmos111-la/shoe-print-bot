@@ -1,15 +1,207 @@
-// modules/footprint/merge-visualizer.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
-const { createCanvas, loadImage } = require('canvas');
+// modules/footprint/merge-visualizer.js - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ
+const { createCanvas } = require('canvas');
 const fs = require('fs');
 const path = require('path');
 
 class MergeVisualizer {
     constructor() {
-        console.log('🎨 Создан УЛУЧШЕННЫЙ визуализатор объединений');
+        console.log('🎨 Создан визуализатор объединений');
     }
 
-    // 1. ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ С ТРАНСФОРМАЦИЕЙ И СТАТИСТИКОЙ
-    async visualizeMerge(footprint1, footprint2, comparisonResult = null, options = {}) {
+    // 1. СОВМЕСТИМЫЙ МЕТОД (старый стиль вызова)
+    visualizeMerge(footprint1, footprint2, comparisonResult, outputPath = null) {
+        console.log(`🎨 Создаю визуализацию объединения "${footprint1.name}" + "${footprint2.name}"...`);
+       
+        try {
+            // Размеры канваса
+            const canvas = createCanvas(1000, 800);
+            const ctx = canvas.getContext('2d');
+           
+            // Очистка фона
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, 1000, 800);
+           
+            // ========== ЗАГОЛОВОК ==========
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 24px Arial';
+            ctx.fillText('🎭 ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ СЛЕДОВ', 50, 40);
+           
+            ctx.font = '18px Arial';
+            ctx.fillText(`${footprint1.name} + ${footprint2.name}`, 50, 70);
+           
+            // ========== СТАТИСТИКА ==========
+            ctx.font = '16px Arial';
+            ctx.fillStyle = '#333333';
+           
+            const points1 = footprint1.originalPoints || (footprint1.graph ? Array.from(footprint1.graph.nodes.values()).map(n => ({x: n.x, y: n.y})) : []);
+            const points2 = footprint2.originalPoints || (footprint2.graph ? Array.from(footprint2.graph.nodes.values()).map(n => ({x: n.x, y: n.y})) : []);
+           
+            ctx.fillText(`📊 СТАТИСТИКА ОБЪЕДИНЕНИЯ:`, 50, 110);
+            ctx.fillText(`📸 ${footprint1.name}: ${points1.length} точек`, 70, 135);
+            ctx.fillText(`📸 ${footprint2.name}: ${points2.length} точек`, 70, 160);
+            ctx.fillText(`📊 Всего точек после объединения: ${points1.length + points2.length}`, 70, 185);
+           
+            if (comparisonResult) {
+                ctx.fillText(`💎 Схожесть: ${comparisonResult.similarity?.toFixed(3) || 'N/A'}`, 70, 210);
+                ctx.fillText(`🤔 Решение: ${comparisonResult.decision || 'N/A'}`, 70, 235);
+            }
+           
+            // ========== ОБЛАСТЬ ВИЗУАЛИЗАЦИИ ==========
+            ctx.strokeStyle = '#cccccc';
+            ctx.strokeRect(50, 260, 900, 480);
+            ctx.fillStyle = '#f5f5f5';
+            ctx.fillRect(51, 261, 898, 478);
+           
+            // Нормализация координат для отображения
+            const allPoints = [...points1, ...points2];
+           
+            if (allPoints.length === 0) {
+                ctx.fillStyle = '#999999';
+                ctx.font = '20px Arial';
+                ctx.fillText('Нет точек для визуализации', 400, 500);
+               
+                if (outputPath) {
+                    const buffer = canvas.toBuffer('image/png');
+                    fs.writeFileSync(outputPath, buffer);
+                    console.log(`✅ Визуализация сохранена: ${outputPath}`);
+                }
+               
+                return {
+                    canvas,
+                    buffer: canvas.toBuffer('image/png'),
+                    stats: {
+                        points1: points1.length,
+                        points2: points2.length,
+                        totalPoints: points1.length + points2.length,
+                        intersections: 0,
+                        similarity: comparisonResult?.similarity,
+                        decision: comparisonResult?.decision
+                    }
+                };
+            }
+           
+            const minX = Math.min(...allPoints.map(p => p.x));
+            const maxX = Math.max(...allPoints.map(p => p.x));
+            const minY = Math.min(...allPoints.map(p => p.y));
+            const maxY = Math.max(...allPoints.map(p => p.y));
+           
+            const scale = Math.min(800 / Math.max(maxX - minX, 1), 400 / Math.max(maxY - minY, 1)) * 0.8;
+            const offsetX = 100 + (400 - (maxX - minX) * scale / 2);
+            const offsetY = 300 + (200 - (maxY - minY) * scale / 2);
+           
+            // ========== ТОЧКИ ИЗ ПЕРВОГО ОТПЕЧАТКА (СИНИЕ) ==========
+            ctx.fillStyle = 'rgba(0, 100, 255, 0.7)';
+            points1.forEach(point => {
+                const x = offsetX + (point.x - minX) * scale;
+                const y = offsetY + (point.y - minY) * scale;
+               
+                ctx.beginPath();
+                ctx.arc(x, y, 6, 0, Math.PI * 2);
+                ctx.fill();
+               
+                // Контур для лучшей видимости
+                ctx.strokeStyle = 'rgba(0, 50, 200, 0.9)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(x, y, 6, 0, Math.PI * 2);
+                ctx.stroke();
+            });
+           
+            // ========== ТОЧКИ ИЗ ВТОРОГО ОТПЕЧАТКА (КРАСНЫЕ) ==========
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.7)';
+            points2.forEach(point => {
+                const x = offsetX + (point.x - minX) * scale;
+                const y = offsetY + (point.y - minY) * scale;
+               
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fill();
+               
+                // Контур
+                ctx.strokeStyle = 'rgba(200, 0, 0, 0.9)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.stroke();
+            });
+           
+            // ========== ЛЕГЕНДА ==========
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 16px Arial';
+            ctx.fillText('📋 ЛЕГЕНДА:', 50, 770);
+           
+            ctx.font = '14px Arial';
+            // Синий (первый отпечаток)
+            ctx.fillStyle = 'rgba(0, 100, 255, 0.7)';
+            ctx.fillRect(150, 755, 20, 20);
+            ctx.fillStyle = '#000000';
+            ctx.fillText(`${footprint1.name} (${points1.length} точек)`, 180, 770);
+           
+            // Красный (второй отпечаток)
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.7)';
+            ctx.fillRect(400, 755, 20, 20);
+            ctx.fillStyle = '#000000';
+            ctx.fillText(`${footprint2.name} (${points2.length} точек)`, 430, 770);
+           
+            // ========== РАСЧЕТ ПЕРЕСЕЧЕНИЙ ==========
+            let intersections = 0;
+            if (points1.length > 0 && points2.length > 0) {
+                // Простой расчет пересечений (точки в радиусе 10px)
+                const threshold = 10;
+               
+                points1.forEach(p1 => {
+                    points2.forEach(p2 => {
+                        const dist = Math.sqrt(
+                            Math.pow(p1.x - p2.x, 2) +
+                            Math.pow(p1.y - p2.y, 2)
+                        );
+                        if (dist < threshold) {
+                            intersections++;
+                        }
+                    });
+                });
+               
+                // Отображение процента пересечения
+                const intersectionPercent = Math.min(points1.length, points2.length) > 0
+                    ? Math.round(intersections / Math.min(points1.length, points2.length) * 100)
+                    : 0;
+                ctx.fillText(`🔗 Пересечений: ${intersections} (~${intersectionPercent}%)`, 600, 770);
+            }
+           
+            // ========== СОХРАНЕНИЕ ==========
+            if (outputPath) {
+                // Создаем папку если нет
+                const dir = path.dirname(outputPath);
+                if (!fs.existsSync(dir)) {
+                    fs.mkdirSync(dir, { recursive: true });
+                }
+               
+                const buffer = canvas.toBuffer('image/png');
+                fs.writeFileSync(outputPath, buffer);
+                console.log(`✅ Визуализация объединения сохранена: ${outputPath}`);
+            }
+           
+            return {
+                canvas,
+                buffer: canvas.toBuffer('image/png'),
+                stats: {
+                    points1: points1.length,
+                    points2: points2.length,
+                    totalPoints: points1.length + points2.length,
+                    intersections: intersections,
+                    similarity: comparisonResult?.similarity,
+                    decision: comparisonResult?.decision
+                }
+            };
+           
+        } catch (error) {
+            console.log(`❌ Ошибка создания визуализации: ${error.message}`);
+            throw error;
+        }
+    }
+
+    // 2. НОВАЯ УЛУЧШЕННАЯ ВИЗУАЛИЗАЦИЯ (опционально)
+    async visualizeMergeEnhanced(footprint1, footprint2, comparisonResult = null, options = {}) {
         console.log(`🎨 Создаю УЛУЧШЕННУЮ визуализацию объединения...`);
        
         try {
@@ -63,7 +255,7 @@ class MergeVisualizer {
 
             console.log(`📊 Точки: ${points1.length} из ${footprint1.name}, ${points2.length} из ${footprint2.name}`);
 
-            // Найти совпадения точек (используем трекер или простой поиск)
+            // Найти совпадения точек
             const matches = this.findPointMatches(points1, points2);
             const transformation = this.calculateTransformation(matches);
 
@@ -74,7 +266,7 @@ class MergeVisualizer {
             const canvas = createCanvas(1200, 800);
             const ctx = canvas.getContext('2d');
 
-            // Очистка фона (градиент как в топологии)
+            // Очистка фона
             this.drawBackground(ctx, canvas.width, canvas.height);
 
             // ========== ЗАГОЛОВОК ==========
@@ -178,7 +370,8 @@ class MergeVisualizer {
         }
     }
 
-    // 2. НАЙТИ СОВПАДЕНИЯ ТОЧЕК
+    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ УЛУЧШЕННОЙ ВИЗУАЛИЗАЦИИ
+   
     findPointMatches(points1, points2, maxDistance = 15) {
         const matches = [];
         const usedIndices = new Set();
@@ -219,7 +412,6 @@ class MergeVisualizer {
         return matches;
     }
 
-    // 3. РАССЧИТАТЬ ТРАНСФОРМАЦИЮ
     calculateTransformation(matches) {
         if (matches.length < 3) {
             return {
@@ -240,14 +432,13 @@ class MergeVisualizer {
         return {
             dx: sumDx / matches.length,
             dy: sumDy / matches.length,
-            rotation: 0, // В будущем можно добавить расчет поворота
-            scale: 1,    // В будущем можно добавить расчет масштаба
+            rotation: 0,
+            scale: 1,
             confidence: Math.min(1, matches.length / 5),
             matchesUsed: matches.length
         };
     }
 
-    // 4. ПРИМЕНИТЬ ТРАНСФОРМАЦИЮ
     applyTransformation(points, transformation) {
         return points.map(p => ({
             ...p,
@@ -256,7 +447,6 @@ class MergeVisualizer {
         }));
     }
 
-    // 5. НОРМАЛИЗАЦИЯ ТОЧЕК ДЛЯ ОТОБРАЖЕНИЯ
     normalizePoints(points, vizArea) {
         if (points.length === 0) {
             return { scale: 1, offsetX: vizArea.x + vizArea.width / 2, offsetY: vizArea.y + vizArea.height / 2 };
@@ -283,32 +473,28 @@ class MergeVisualizer {
         return { scale, offsetX, offsetY, minX, minY };
     }
 
-    // 6. ПОЛУЧИТЬ ЦВЕТ ТОЧКИ ПО ВЕСУ
     getPointColor(weight, confidence, isSecondFootprint = false) {
-        if (weight >= 3) return 'rgba(0, 200, 83, 0.9)';      // Зеленый - ядро (вес 3+)
-        if (weight == 2) return 'rgba(156, 39, 176, 0.8)';   // Фиолетовый - совпадение (вес 2)
+        if (weight >= 3) return 'rgba(0, 200, 83, 0.9)';
+        if (weight == 2) return 'rgba(156, 39, 176, 0.8)';
        
         if (isSecondFootprint) {
-            return 'rgba(255, 50, 50, 0.7)';  // Красный - только во втором отпечатке
+            return 'rgba(255, 50, 50, 0.7)';
         } else {
-            return 'rgba(50, 100, 255, 0.7)'; // Синий - только в первом отпечатке
+            return 'rgba(50, 100, 255, 0.7)';
         }
     }
 
-    // 7. РАССЧИТАТЬ СТАТИСТИКУ
     calculateStats(points1, points2, matches, comparisonResult, transformation) {
         const matchRate = Math.min(points1.length, points2.length) > 0
             ? (matches.length / Math.min(points1.length, points2.length)) * 100
             : 0;
 
-        // Среднее расстояние между совпавшими точками
         let avgDistance = 0;
         if (matches.length > 0) {
             const totalDistance = matches.reduce((sum, m) => sum + m.distance, 0);
             avgDistance = totalDistance / matches.length;
         }
 
-        // Распределение весов
         const weightDistribution = { weight1: 0, weight2: 0, weight3plus: 0 };
         const allPoints = [...points1, ...points2];
         allPoints.forEach(p => {
@@ -332,17 +518,13 @@ class MergeVisualizer {
         };
     }
 
-    // 8. МЕТОДЫ ОТРИСОВКИ (стиль как в топологии)
-
     drawBackground(ctx, width, height) {
-        // Градиентный фон
         const gradient = ctx.createLinearGradient(0, 0, width, height);
         gradient.addColorStop(0, '#1a1a2e');
         gradient.addColorStop(1, '#16213e');
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, width, height);
 
-        // Сетка
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
         ctx.lineWidth = 1;
         const gridSize = 50;
@@ -368,7 +550,6 @@ class MergeVisualizer {
         ctx.lineWidth = 4;
         ctx.font = 'bold 32px Arial';
        
-        // Заголовок с обводкой
         ctx.strokeText(title, 50, 60);
         ctx.fillText(title, 50, 60);
        
@@ -384,36 +565,30 @@ class MergeVisualizer {
     }
 
     drawVisualizationArea(ctx, area) {
-        // Прямоугольник области визуализации
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
         ctx.lineWidth = 3;
         ctx.strokeRect(area.x, area.y, area.width, area.height);
        
-        // Внутренняя заливка
         ctx.fillStyle = 'rgba(30, 30, 46, 0.8)';
         ctx.fillRect(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
     }
 
     drawPoint(ctx, x, y, color, size, label = '') {
-        // Внешний контур
         ctx.beginPath();
         ctx.arc(x, y, size + 2, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
         ctx.fill();
        
-        // Основной круг
         ctx.beginPath();
         ctx.arc(x, y, size, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
        
-        // Внутренний круг для объема
         ctx.beginPath();
         ctx.arc(x - size * 0.3, y - size * 0.3, size * 0.5, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
         ctx.fill();
        
-        // Текст веса
         if (label) {
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 12px Arial';
@@ -447,14 +622,11 @@ class MergeVisualizer {
         const boxWidth = 200;
         const boxHeight = 460;
        
-        // Фон статистики
         ctx.fillStyle = 'rgba(25, 25, 35, 0.9)';
         ctx.strokeStyle = 'rgba(100, 100, 200, 0.5)';
         ctx.lineWidth = 2;
        
-        // Используем обычный прямоугольник вместо roundRect для совместимости
-        ctx.beginPath();
-        this.roundRect(ctx, x, y, boxWidth, boxHeight, 10);
+        this.drawRoundedRect(ctx, x, y, boxWidth, boxHeight, 10);
         ctx.fill();
         ctx.stroke();
        
@@ -481,7 +653,6 @@ class MergeVisualizer {
             lineY += 25;
         });
        
-        // Веса точек
         lineY += 15;
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 14px Arial';
@@ -499,7 +670,6 @@ class MergeVisualizer {
         ctx.fillStyle = '#66bb6a';
         ctx.fillText(`🟢 Вес 3+: ${stats.weightDistribution.weight3plus}`, x + 15, lineY);
        
-        // Решение
         if (stats.decision) {
             lineY += 30;
             ctx.font = 'bold 16px Arial';
@@ -516,8 +686,7 @@ class MergeVisualizer {
         }
     }
 
-    // Вспомогательная функция для рисования скругленных прямоугольников
-    roundRect(ctx, x, y, width, height, radius) {
+    drawRoundedRect(ctx, x, y, width, height, radius) {
         if (width < 2 * radius) radius = width / 2;
         if (height < 2 * radius) radius = height / 2;
        
@@ -535,7 +704,7 @@ class MergeVisualizer {
     }
 
     drawLegend(ctx, count1, count2, matchesCount) {
-        const startY = 700;
+        let startY = 700; // ИСПРАВЛЕНО: let вместо const
        
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 18px Arial';
@@ -551,11 +720,9 @@ class MergeVisualizer {
        
         let x = 200;
         legendItems.forEach((item, index) => {
-            // Цветной квадрат
             ctx.fillStyle = item.color;
             ctx.fillRect(x, startY - 15, 20, 20);
            
-            // Текст
             ctx.fillStyle = '#cccccc';
             ctx.font = '14px Arial';
             ctx.fillText(item.text, x + 25, startY);
@@ -579,107 +746,21 @@ class MergeVisualizer {
         ctx.fillText(`└─ Уверенность: ${Math.round(transformation.confidence * 100)}%`, x + 10, y + 80);
     }
 
-    // 9. СОЗДАТЬ ОПИСАНИЕ ДЛЯ TELEGRAM
+    // 3. СОЗДАТЬ ОПИСАНИЕ ДЛЯ TELEGRAM
     createMergeCaption(footprint1, footprint2, stats) {
-        return `<b>🎭 УЛУЧШЕННАЯ ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ</b>\n\n` +
+        const intersectionPercent = Math.min(stats.points1, stats.points2) > 0
+            ? Math.round(stats.intersections / Math.min(stats.points1, stats.points2) * 100)
+            : 0;
+           
+        return `<b>🎭 ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ</b>\n\n` +
                `<b>📸 ${footprint1.name}:</b> ${stats.points1} точек\n` +
                `<b>📸 ${footprint2.name}:</b> ${stats.points2} точек\n` +
-               `<b>🔗 Совпадений:</b> ${stats.matches} (${stats.matchRate}%)\n` +
-               `<b>📏 Среднее расстояние:</b> ${stats.avgDistance}px\n` +
+               `<b>📊 Всего точек:</b> ${stats.totalPoints}\n` +
+               `<b>🔗 Пересечений:</b> ${stats.intersections} (${intersectionPercent}%)\n` +
                `<b>💎 Схожесть:</b> ${stats.similarity?.toFixed(3) || 'N/A'}\n` +
                `<b>🤔 Решение:</b> ${stats.decision || 'N/A'}\n\n` +
-               `<b>⚖️ ВЕСА ТОЧЕК:</b>\n` +
-               `🔵 Вес 1: ${stats.weightDistribution.weight1}\n` +
-               `🟣 Вес 2: ${stats.weightDistribution.weight2}\n` +
-               `🟢 Вес 3+: ${stats.weightDistribution.weight3plus}\n\n` +
-               `<i>🔵 ${footprint1.name} | 🔴 ${footprint2.name} | 🟣 Совпадения</i>`;
-    }
-
-    // 10. ТЕСТИРОВАНИЕ НА ДВУХ ТЕСТОВЫХ НАБОРАХ ТОЧЕК
-    static testVisualization() {
-        console.log('\n🧪 ТЕСТИРУЮ УЛУЧШЕННУЮ ВИЗУАЛИЗАЦИЮ...');
-       
-        // Создаем тестовые отпечатки
-        const testFootprint1 = {
-            name: 'Тестовый след 1',
-            originalPoints: []
-        };
-       
-        const testFootprint2 = {
-            name: 'Тестовый след 2',
-            originalPoints: []
-        };
-       
-        // Генерируем похожие точки
-        for (let i = 0; i < 25; i++) {
-            const x1 = 100 + Math.random() * 300;
-            const y1 = 100 + Math.random() * 200;
-           
-            // Второй набор - немного смещенный
-            const x2 = x1 + Math.random() * 40 - 20;
-            const y2 = y1 + Math.random() * 40 - 20;
-           
-            testFootprint1.originalPoints.push({
-                x: x1,
-                y: y1,
-                confidence: 0.7 + Math.random() * 0.3,
-                weight: Math.random() > 0.7 ? 2 : 1
-            });
-           
-            testFootprint2.originalPoints.push({
-                x: x2,
-                y: y2,
-                confidence: 0.7 + Math.random() * 0.3,
-                weight: Math.random() > 0.6 ? 2 : 1
-            });
-        }
-       
-        const visualizer = new MergeVisualizer();
-        const testResult = {
-            similarity: 0.85,
-            decision: 'same',
-            reason: 'Тестовое сравнение'
-        };
-       
-        const outputPath = `test_merge_visualization_${Date.now()}.png`;
-       
-        // Оборачиваем в async функцию для теста
-        return new Promise((resolve, reject) => {
-            visualizer.visualizeMerge(
-                testFootprint1,
-                testFootprint2,
-                testResult,
-                {
-                    outputPath: outputPath,
-                    showTransformation: true,
-                    showWeights: true,
-                    showConnections: true,
-                    showStats: true,
-                    title: 'ТЕСТ УЛУЧШЕННОЙ ВИЗУАЛИЗАЦИИ'
-                }
-            )
-            .then(result => {
-                console.log(`✅ Тестовая визуализация сохранена: ${outputPath}`);
-                console.log(`📊 Статистика: ${result.stats.matches} совпадений из ${result.stats.points1 + result.stats.points2} точек`);
-                resolve(result);
-            })
-            .catch(error => {
-                console.error('❌ Ошибка тестирования:', error);
-                reject(error);
-            });
-        });
-    }
-
-    // 11. КОМПАТИБИЛЬНЫЙ МЕТОД ДЛЯ СТАРОГО ИСПОЛЬЗОВАНИЯ
-    visualizeMergeOldStyle(footprint1, footprint2, comparisonResult, outputPath) {
-        // Старый стиль вызова - преобразуем в новый
-        return this.visualizeMerge(footprint1, footprint2, comparisonResult, {
-            outputPath: outputPath,
-            showTransformation: true,
-            showWeights: true,
-            showConnections: true,
-            showStats: true
-        });
+               `<i>🔵 Синие точки - ${footprint1.name}\n` +
+               `🔴 Красные точки - ${footprint2.name}</i>`;
     }
 }
 
