@@ -1,12 +1,12 @@
 // modules/footprint/simple-manager.js
-// МЕНЕДЖЕР СИСТЕМЫ ЦИФРОВЫХ ОТПЕЧАТКОВ - УПРАВЛЕНИЕ ВСЕМ (С ГИБРИДНОЙ ПОДДЕРЖКОЙ)
+// МЕНЕДЖЕР СИСТЕМЫ ЦИФРОВЫХ ОТПЕЧАТКОВ - УПРАВЛЕНИЕ ВСЕМ (С ИНТЕЛЛЕКТУАЛЬНЫМ СЛИЯНИЕМ)
 
 const fs = require('fs');
 const path = require('path');
 const SimpleFootprint = require('./simple-footprint');
 const SimpleGraphMatcher = require('./simple-matcher');
 const HybridFootprint = require('./hybrid-footprint');
-const MergeVisualizer = require('./merge-visualizer'); // 🔴 ДОБАВЛЕНО
+const MergeVisualizer = require('./merge-visualizer');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -17,9 +17,10 @@ class SimpleFootprintManager {
             autoSave: options.autoSave !== false,
             maxModelsPerUser: options.maxModelsPerUser || 50,
             debug: options.debug || false,
-            useHybridMode: options.useHybridMode !== false, // Новая опция для гибридного режима
+            useHybridMode: options.useHybridMode !== false,
             hybridSearchThreshold: options.hybridSearchThreshold || 0.6,
-            enableMergeVisualization: options.enableMergeVisualization !== false, // 🔴 НОВАЯ ОПЦИЯ
+            enableMergeVisualization: options.enableMergeVisualization !== false,
+            enableIntelligentMerge: options.enableIntelligentMerge !== false, // 🔴 НОВАЯ ОПЦИЯ
             ...options
         };
 
@@ -46,7 +47,8 @@ class SimpleFootprintManager {
             successfulAlignments: 0,
             hybridComparisons: 0,
             hybridSearches: 0,
-            mergeVisualizations: 0, // 🔴 ДОБАВЛЕНО
+            mergeVisualizations: 0,
+            intelligentMerges: 0, // 🔴 ДОБАВЛЕНО
             startedAt: new Date()
         };
 
@@ -62,7 +64,8 @@ class SimpleFootprintManager {
         console.log(`📁 База данных: ${this.config.dbPath}`);
         console.log(`🎯 Автосовмещение: ${this.config.autoAlignment ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`);
         console.log(`🎯 Гибридный режим: ${this.config.useHybridMode ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
-        console.log(`🎨 Визуализация объединений: ${this.config.enableMergeVisualization ? 'ВКЛЮЧЕНА' : 'ВЫКЛЮЧЕНА'}`); // 🔴 ДОБАВЛЕНО
+        console.log(`🎨 Визуализация объединений: ${this.config.enableMergeVisualization ? 'ВКЛЮЧЕНА' : 'ВЫКЛЮЧЕНА'}`);
+        console.log(`🧠 Интеллектуальное слияние: ${this.config.enableIntelligentMerge ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`); // 🔴 ДОБАВЛЕНО
     }
 
     // 1. ОБЕСПЕЧИТЬ СУЩЕСТВОВАНИЕ БАЗЫ ДАННЫХ
@@ -77,7 +80,7 @@ class SimpleFootprintManager {
             const indexPath = path.join(this.config.dbPath, '_index.json');
             if (!fs.existsSync(indexPath)) {
                 const index = {
-                    version: '1.1', // Обновили версию
+                    version: '1.1',
                     created: new Date().toISOString(),
                     totalModels: 0,
                     hybridModels: 0,
@@ -181,14 +184,16 @@ class SimpleFootprintManager {
             analyses: [],
             currentFootprint: null,
             status: 'active',
-            useHybrid: this.config.useHybridMode, // Сохраняем настройку гибридного режима для сессии
+            useHybrid: this.config.useHybridMode,
+            useIntelligentMerge: this.config.enableIntelligentMerge, // 🔴 ДОБАВЛЕНО
             stats: {
                 photoCount: 0,
                 analysisCount: 0,
                 autoAlignments: 0,
                 mergedCount: 0,
                 hybridComparisons: 0,
-                mergeVisualizations: 0 // 🔴 ДОБАВЛЕНО
+                mergeVisualizations: 0,
+                intelligentMerges: 0 // 🔴 ДОБАВЛЕНО
             }
         };
 
@@ -200,6 +205,9 @@ class SimpleFootprintManager {
         if (session.useHybrid) {
             console.log(`   🎯 Гибридный режим: ВКЛЮЧЕН`);
         }
+        if (session.useIntelligentMerge) {
+            console.log(`   🧠 Интеллектуальное слияние: ВКЛЮЧЕНО`);
+        }
 
         return session;
     }
@@ -209,8 +217,8 @@ class SimpleFootprintManager {
         return this.userSessions.get(userId);
     }
 
-    // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ (ОБНОВЛЕННЫЙ)
-    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) { // 🔴 ДОБАВЛЕНО bot и chatId
+    // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ (ОБНОВЛЕННЫЙ С ИНТЕЛЛЕКТУАЛЬНЫМ СЛИЯНИЕМ)
+    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         const session = this.getActiveSession(userId);
 
         if (!session) {
@@ -284,11 +292,11 @@ class SimpleFootprintManager {
             console.log(`   🎯 Создан гибридный отпечаток`);
         }
 
-        // АВТОСОВМЕЩЕНИЕ
+        // АВТОСОВМЕЩЕНИЕ С ИНТЕЛЛЕКТУАЛЬНЫМ СЛИЯНИЕМ
         let alignmentResult = null;
         let mergeResult = null;
-        let mergeVisualizationPath = null; // 🔴 ДОБАВЛЕНО
-        let mergeVisualizationStats = null; // 🔴 ДОБАВЛЕНО
+        let mergeVisualizationPath = null;
+        let mergeVisualizationStats = null;
 
         if (this.config.autoAlignment && session.currentFootprint) {
             console.log(`🎯 Запускаю автосовмещение...`);
@@ -303,124 +311,137 @@ class SimpleFootprintManager {
             if (comparison.decision === 'same') {
                 console.log(`✅ Автосовмещение: тот же след (similarity: ${comparison.similarity})`);
 
-                // 🔴 ИСПРАВЛЕННАЯ ЧАСТЬ: ИСПОЛЬЗУЕМ ГИБРИДНОЕ СРАВНЕНИЕ ДЛЯ ТРАНСФОРМАЦИИ
-                if (this.config.enableMergeVisualization) {
-                    try {
-                        const timestamp = Date.now();
-                        const vizFilename = `merge_${session.id.slice(0, 8)}_${timestamp}.png`;
-                        const vizPath = path.join(this.config.dbPath, 'merge_visualizations', vizFilename);
+                // 🔴 ВЫБОР МЕТОДА СЛИЯНИЯ
+                if (session.useIntelligentMerge && session.currentFootprint.hybridFootprint && tempFootprint.hybridFootprint) {
+                    // ИСПОЛЬЗУЕМ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
+                    console.log('🧠 Использую интеллектуальное слияние...');
+                   
+                    // Находим трансформацию
+                    const hybridComparison = session.currentFootprint.hybridFootprint.compare(
+                        tempFootprint.hybridFootprint
+                    );
 
-                        // 🔴 ВМЕСТО ЭТОГО:
-                        // const vizResult = this.mergeVisualizer.visualizeMerge(
-                        //     session.currentFootprint,
-                        //     tempFootprint,
-                        //     comparison,
-                        //     vizPath
-                        // );
+                    // Выполняем интеллектуальное слияние
+                    mergeResult = session.currentFootprint.hybridFootprint.mergeWithTransformation(
+                        tempFootprint.hybridFootprint
+                    );
 
-                        // 🔴 ИСПОЛЬЗУЕМ ГИБРИДНОЕ СРАВНЕНИЕ ДЛЯ ТРАНСФОРМАЦИИ:
-                        let transformation = null;
-                        let vectorMatches = null;
-
-                        // Если оба отпечатка имеют гибридные признаки, используем векторное сравнение
-                        if (session.currentFootprint.hybridFootprint && tempFootprint.hybridFootprint) {
-                            const hybridComparison = session.currentFootprint.hybridFootprint.compare(
-                                tempFootprint.hybridFootprint
-                            );
-
-                            // Берем трансформацию из векторного сравнения
-                            transformation = hybridComparison.details?.vector?.transformation ||
-                                            hybridComparison.transformation;
-                            vectorMatches = hybridComparison.details?.vector?.pointMatches;
-                        }
-
-                        // 🔴 ИСПОЛЬЗУЕМ УЛУЧШЕННУЮ ВИЗУАЛИЗАЦИЮ С ТРАНСФОРМАЦИЕЙ:
-                        const vizResult = await this.mergeVisualizer.visualizeMergeEnhanced(
-                            session.currentFootprint,
-                            tempFootprint,
-                            {
-                                ...comparison,
-                                transformation: transformation,
-                                vectorMatches: vectorMatches
-                            },
-                            {
-                                outputPath: vizPath,
-                                showTransformation: true,
-                                showWeights: true,
-                                showConnections: true,
-                                showStats: true,
-                                title: 'АВТООБЪЕДИНЕНИЕ С ТРАНСФОРМАЦИЕЙ'
-                            }
-                        );
-
-                        mergeVisualizationPath = vizPath;
-                        mergeVisualizationStats = vizResult?.stats;
-                        session.stats.mergeVisualizations++;
-                        this.stats.mergeVisualizations++;
-
-                        console.log(`🎨 Улучшенная визуализация создана: ${vizPath}`);
-                        console.log(`   📊 Трансформация: ${transformation ? 'есть' : 'нет'}`);
-                        console.log(`   📍 Соответствий: ${vectorMatches?.length || 0}`);
-
-                    } catch (vizError) {
-                        console.log('⚠️ Не удалось создать визуализацию объединения:', vizError.message);
+                    if (mergeResult.success) {
+                        session.stats.intelligentMerges++;
+                        this.stats.intelligentMerges++;
                     }
+                } else {
+                    // Классическое слияние
+                    console.log('📊 Использую классическое слияние...');
+                    mergeResult = session.currentFootprint.merge(tempFootprint);
                 }
-
-                // СОЗДАЕМ ВИЗУАЛИЗАЦИЮ АВТОСОВМЕЩЕНИЯ (если включен debug)
-                if (this.graphVisualizer && this.config.debug) {
-                    setTimeout(async () => {
-                        try {
-                            const vizPath = await this.graphVisualizer.visualizeComparison(
-                                session.currentFootprint.graph,
-                                tempFootprint.graph,
-                                comparison,
-                                { filename: `automerge_${session.id.slice(0, 8)}.png` }
-                            );
-
-                            if (vizPath && fs.existsSync(vizPath)) {
-                                console.log(`🎨 Визуализация автосовмещения создана: ${vizPath}`);
-                            }
-                        } catch (vizError) {
-                            console.log('⚠️ Не удалось создать визуализацию автосовмещения:', vizError.message);
-                        }
-                    }, 1000);
-                }
-
-                // Объединить отпечатки
-                mergeResult = session.currentFootprint.merge(tempFootprint);
 
                 if (mergeResult.success) {
                     session.stats.autoAlignments++;
-                    session.stats.mergedCount += mergeResult.mergedPhotos;
+                    session.stats.mergedCount += mergeResult.mergedPhotos || 0;
 
                     alignmentResult = {
                         success: true,
                         similarity: comparison.similarity,
-                        decision: 'merged',
-                        mergedNodes: mergeResult.mergedPhotos,
+                        decision: mergeResult.transformation ? 'merged_intelligently' : 'merged',
+                        mergedNodes: mergeResult.mergedPoints || mergeResult.mergedPhotos || mergeResult.mergedPoints,
                         totalNodes: session.currentFootprint.graph.nodes.size,
-                        method: comparison.method || 'graph',
-                        visualization: mergeVisualizationPath, // 🔴 ДОБАВЛЕНО
-                        visualizationStats: mergeVisualizationStats // 🔴 ДОБАВЛЕНО
+                        method: comparison.method || (mergeResult.transformation ? 'hybrid_with_transform' : 'graph'),
+                        mergeStats: mergeResult.stats || null,
+                        transformation: mergeResult.transformation || null
                     };
+
+                    // 🔴 СОЗДАЁМ ВИЗУАЛИЗАЦИЮ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ
+                    if (this.config.enableMergeVisualization) {
+                        try {
+                            const timestamp = Date.now();
+                            let vizFilename, vizTitle;
+                           
+                            if (mergeResult.transformation) {
+                                vizFilename = `intelligent_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
+                                vizTitle = 'ИНТЕЛЛЕКТУАЛЬНОЕ АВТООБЪЕДИНЕНИЕ';
+                            } else {
+                                vizFilename = `classic_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
+                                vizTitle = 'КЛАССИЧЕСКОЕ ОБЪЕДИНЕНИЕ';
+                            }
+                           
+                            const vizPath = path.join(this.config.dbPath, 'merge_visualizations', vizFilename);
+
+                            // Выбираем метод визуализации
+                            let vizResult;
+                            if (mergeResult.transformation) {
+                                // Интеллектуальная визуализация
+                                vizResult = await this.mergeVisualizer.visualizeIntelligentMerge(
+                                    session.currentFootprint,
+                                    tempFootprint,
+                                    comparison,
+                                    {
+                                        outputPath: vizPath,
+                                        title: vizTitle,
+                                        showTransformation: true,
+                                        showStats: true
+                                    }
+                                );
+                            } else {
+                                // Классическая визуализация
+                                vizResult = await this.mergeVisualizer.visualizeMergeEnhanced(
+                                    session.currentFootprint,
+                                    tempFootprint,
+                                    comparison,
+                                    {
+                                        outputPath: vizPath,
+                                        title: vizTitle,
+                                        showTransformation: false,
+                                        showStats: true
+                                    }
+                                );
+                            }
+
+                            mergeVisualizationPath = vizPath;
+                            mergeVisualizationStats = vizResult?.stats;
+                            session.stats.mergeVisualizations++;
+                            this.stats.mergeVisualizations++;
+
+                            console.log(`🎨 Визуализация создана: ${vizPath}`);
+                            console.log(`   📊 Эффективность: ${vizResult?.stats?.reductionPercent || 0}% сокращение`);
+
+                        } catch (vizError) {
+                            console.log('⚠️ Не удалось создать визуализацию:', vizError.message);
+                        }
+                    }
 
                     // 🔴 ОТПРАВКА ВИЗУАЛИЗАЦИИ В TELEGRAM
                     if (bot && chatId && mergeVisualizationPath && fs.existsSync(mergeVisualizationPath)) {
                         setTimeout(async () => {
                             try {
-                                const caption = this.mergeVisualizer.createMergeCaption(
-                                    session.currentFootprint,
-                                    tempFootprint,
-                                    mergeVisualizationStats || {
-                                        points1: session.currentFootprint.graph.nodes.size,
-                                        points2: tempFootprint.graph.nodes.size,
-                                        totalPoints: session.currentFootprint.graph.nodes.size + tempFootprint.graph.nodes.size,
-                                        intersections: 0,
-                                        similarity: comparison.similarity,
-                                        decision: comparison.decision
-                                    }
-                                );
+                                let caption;
+                                if (mergeResult.transformation) {
+                                    caption = this.mergeVisualizer.createIntelligentMergeCaption(
+                                        session.currentFootprint,
+                                        tempFootprint,
+                                        mergeVisualizationStats || {
+                                            points1: session.currentFootprint.graph.nodes.size,
+                                            points2: tempFootprint.graph.nodes.size,
+                                            matchesCount: mergeResult.mergeResult?.matches?.length || 0,
+                                            mergedPoints: mergeResult.mergedPoints || 0,
+                                            reductionPercent: mergeResult.stats?.efficiency || '0%',
+                                            confidenceImprovement: '0%'
+                                        }
+                                    );
+                                } else {
+                                    caption = this.mergeVisualizer.createMergeCaption(
+                                        session.currentFootprint,
+                                        tempFootprint,
+                                        mergeVisualizationStats || {
+                                            points1: session.currentFootprint.graph.nodes.size,
+                                            points2: tempFootprint.graph.nodes.size,
+                                            matches: mergeResult.mergedPhotos || 0,
+                                            matchRate: '0%',
+                                            similarity: comparison.similarity,
+                                            decision: comparison.decision
+                                        }
+                                    );
+                                }
 
                                 await bot.sendPhoto(chatId, mergeVisualizationPath, {
                                     caption: caption,
@@ -463,7 +484,8 @@ class SimpleFootprintManager {
             totalNodes: tempFootprint.graph.nodes.size,
             alignment: alignmentResult,
             footprintId: session.currentFootprint?.id,
-            mergeVisualization: mergeVisualizationPath // 🔴 ДОБАВЛЕНО
+            mergeVisualization: mergeVisualizationPath,
+            mergeMethod: mergeResult?.transformation ? 'intelligent' : 'classic' // 🔴 ДОБАВЛЕНО
         });
 
         session.stats.analysisCount++;
@@ -475,8 +497,9 @@ class SimpleFootprintManager {
             alignment: alignmentResult,
             sessionStats: session.stats,
             hasHybrid: tempFootprint.hybridFootprint !== null,
-            mergeVisualization: mergeVisualizationPath, // 🔴 ДОБАВЛЕНО
-            mergeStats: mergeVisualizationStats // 🔴 ДОБАВЛЕНО
+            mergeVisualization: mergeVisualizationPath,
+            mergeStats: mergeVisualizationStats,
+            mergeMethod: mergeResult?.transformation ? 'intelligent' : 'classic' // 🔴 ДОБАВЛЕНО
         };
 
         // Автосохранение
@@ -558,7 +581,8 @@ class SimpleFootprintManager {
                 analyses: session.analyses.length,
                 autoAlignments: session.stats.autoAlignments,
                 hybridComparisons: session.stats.hybridComparisons,
-                mergeVisualizations: session.stats.mergeVisualizations // 🔴 ДОБАВЛЕНО
+                mergeVisualizations: session.stats.mergeVisualizations,
+                intelligentMerges: session.stats.intelligentMerges // 🔴 ДОБАВЛЕНО
             }
         };
     }
@@ -647,7 +671,8 @@ class SimpleFootprintManager {
                 totalModels: this.modelCache.size,
                 hybridModels: this.stats.hybridModels,
                 totalUsers: this.userModels.size,
-                mergeVisualizations: this.stats.mergeVisualizations, // 🔴 ДОБАВЛЕНО
+                mergeVisualizations: this.stats.mergeVisualizations,
+                intelligentMerges: this.stats.intelligentMerges, // 🔴 ДОБАВЛЕНО
                 users: {},
                 stats: this.stats
             };
@@ -699,7 +724,8 @@ class SimpleFootprintManager {
         console.log(`   Фото: ${session.photos.length}`);
         console.log(`   Анализов: ${session.analyses.length}`);
         console.log(`   Гибридных сравнений: ${session.stats.hybridComparisons}`);
-        console.log(`   Визуализаций объединения: ${session.stats.mergeVisualizations}`); // 🔴 ДОБАВЛЕНО
+        console.log(`   Визуализаций объединения: ${session.stats.mergeVisualizations}`);
+        console.log(`   Интеллектуальных слияний: ${session.stats.intelligentMerges}`); // 🔴 ДОБАВЛЕНО
 
         return {
             success: true,
@@ -721,7 +747,7 @@ class SimpleFootprintManager {
         return this.userModels.get(userId) || [];
     }
 
-    // 12. НАЙТИ ПОХОЖИЕ МОДЕЛИ - ОБНОВЛЕННЫЙ
+    // 12. НАЙТИ ПОХОЖИЕ МОДЕЛИ
     findSimilarModels(targetFootprint, userId = null, options = {}) {
         console.log(`🔎 Ищу похожие модели для "${targetFootprint.name}"...`);
 
@@ -959,7 +985,8 @@ class SimpleFootprintManager {
                 totalUsers: this.userModels.size,
                 activeSessions: this.activeSessions.size,
                 modelCache: this.modelCache.size,
-                mergeVisualizations: this.stats.mergeVisualizations // 🔴 ДОБАВЛЕНО
+                mergeVisualizations: this.stats.mergeVisualizations,
+                intelligentMerges: this.stats.intelligentMerges // 🔴 ДОБАВЛЕНО
             },
             performance: {
                 totalSessions: this.stats.totalSessions,
@@ -967,7 +994,8 @@ class SimpleFootprintManager {
                 successfulAlignments: this.stats.successfulAlignments,
                 hybridComparisons: this.stats.hybridComparisons,
                 hybridSearches: this.stats.hybridSearches,
-                mergeVisualizations: this.stats.mergeVisualizations, // 🔴 ДОБАВЛЕНО
+                mergeVisualizations: this.stats.mergeVisualizations,
+                intelligentMerges: this.stats.intelligentMerges, // 🔴 ДОБАВЛЕНО
                 matcherStats: this.matcher.getStats()
             },
             config: {
@@ -976,7 +1004,8 @@ class SimpleFootprintManager {
                 autoSave: this.config.autoSave,
                 useHybridMode: this.config.useHybridMode,
                 hybridSearchThreshold: this.config.hybridSearchThreshold,
-                enableMergeVisualization: this.config.enableMergeVisualization, // 🔴 ДОБАВЛЕНО
+                enableMergeVisualization: this.config.enableMergeVisualization,
+                enableIntelligentMerge: this.config.enableIntelligentMerge, // 🔴 ДОБАВЛЕНО
                 debug: this.config.debug
             }
         };
@@ -1154,233 +1183,525 @@ class SimpleFootprintManager {
             const comparison = model1.compare(model2);
 
             // Создаём визуализацию
-            const vizPath = await this.graphVisualizer.visualizeComparison(
-                model1.graph,
-                model2.graph,
-                comparison,
-                {
-                    filename: `compare_${modelId1.slice(0, 8)}_${modelId2.slice(0, 8)}.png`
-                }
-            );
-
-            return {
-                success: true,
-                visualization: vizPath,
-                comparison: comparison
-            };
-
-        } catch (error) {
-            console.log('❌ Ошибка визуализации сравнения:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    // 21. ВИЗУАЛИЗАЦИЯ СЕССИИ
-    async visualizeSession(userId) {
-        try {
-            if (!this.graphVisualizer) {
-                this.initializeVisualizer();
-            }
-
-            const session = this.getActiveSession(userId);
-            if (!session) {
-                return { success: false, error: 'Нет активной сессии' };
-            }
-
-            const vizPath = await this.graphVisualizer.visualizeSessionHistory(session, {
-                filename: `session_${session.id.slice(0, 8)}.png`
-            });
-
-            return {
-                success: true,
-                visualization: vizPath,
-                sessionId: session.id
-            };
-
-        } catch (error) {
-            console.log('❌ Ошибка визуализации сессии:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    // 22. ВИЗУАЛИЗАЦИЯ МОДЕЛИ
-    async visualizeModel(modelId) {
-        try {
-            const model = this.getModelById(modelId);
-            if (!model) {
-                return { success: false, error: 'Модель не найдена' };
-            }
-
-            const vizPath = await model.visualizeGraph();
-
-            return {
-                success: true,
-                visualization: vizPath,
-                model: {
-                    id: model.id,
-                    name: model.name,
-                    stats: model.getInfo()
-                }
-            };
-
-        } catch (error) {
-            console.log('❌ Ошибка визуализации модели:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    // 23. РАССЧИТАТЬ КОМБИНИРОВАННЫЙ SCORE ДЛЯ ГИБРИДНОГО ПОИСКА
-    calculateCombinedScore(bitmaskDistance, momentDistance, graphSimilarity) {
-        // Нормализовать расстояния в схожести (1 = идеально, 0 = плохо)
-        const bitmaskSimilarity = 1 - (bitmaskDistance / 100); // bitmaskDistance от 0 до ~100
-        const momentSimilarity = 1 - momentDistance; // momentDistance от 0 до 1
-
-        // Взвешенное среднее
-        return (bitmaskSimilarity * 0.3 + momentSimilarity * 0.3 + graphSimilarity * 0.4);
-    }
-
-    // 24. ПОИСК С ИСПОЛЬЗОВАНИЕМ ТОЛЬКО ГИБРИДНЫХ ПРИЗНАКОВ
-    async findSimilarHybridOnly(hybridFootprint, userId = null, options = {}) {
-        if (!hybridFootprint || !hybridFootprint.bitmask || !hybridFootprint.moments) {
-            return { success: false, error: 'Недостаточно гибридных признаков' };
-        }
-
-        console.log('🎯 Запускаю поиск только по гибридным признакам...');
-        this.stats.hybridSearches++;
-
-        // Определить какие модели сравнивать
-        let modelsToCompare = [];
-
-        if (userId) {
-            modelsToCompare = this.getUserModels(userId);
-        } else {
-            modelsToCompare = Array.from(this.modelCache.values());
-        }
-
-        // Фильтровать модели с гибридными признаками
-        modelsToCompare = modelsToCompare.filter(model =>
-            model.hybridFootprint !== null &&
-            model.hybridFootprint.bitmask !== null &&
-            model.hybridFootprint.moments !== null
-        );
-
-        if (modelsToCompare.length === 0) {
-            return {
-                success: false,
-                error: 'Нет моделей с гибридными признаками',
-                similarCount: 0
-            };
-        }
-
-        console.log(`   Сравниваю с ${modelsToCompare.length} гибридными моделями...`);
-
-        // Быстрый поиск по битовым маскам
-        const bitmaskCandidates = HybridFootprint.fastSearch(
-            hybridFootprint.bitmask.bitmask,
-            modelsToCompare.map(m => ({
-                item: m,
-                bitmask: m.hybridFootprint.bitmask.bitmask
-            })),
-            options.maxBitmaskDistance || 30
-        );
-
-        // Сравнение моментов и графов
-        const results = bitmaskCandidates
-            .map(candidate => {
-                const momentResult = hybridFootprint.moments.compare(
-                    candidate.item.hybridFootprint.moments
+                const vizPath = await this.graphVisualizer.visualizeComparison(
+                    model1.graph,
+                    model2.graph,
+                    comparison,
+                    {
+                        filename: `compare_${modelId1.slice(0, 8)}_${modelId2.slice(0, 8)}.png`
+                    }
                 );
-                const graphComparison = candidate.item.compare;
 
                 return {
-                    model: candidate.item,
-                    bitmaskDistance: candidate.bitmaskDistance,
-                    momentDistance: momentResult.distance,
-                    momentSimilarity: 1 - momentResult.distance,
-                    combinedScore: this.calculateCombinedScore(
-                        candidate.bitmaskDistance,
-                        momentResult.distance,
-                        0.5 // базовое значение для графа
-                    )
+                    success: true,
+                    visualization: vizPath,
+                    comparison: comparison
                 };
-            })
-            .filter(r => r.momentDistance < (options.momentThreshold || 0.6))
-            .sort((a, b) => b.combinedScore - a.combinedScore)
-            .slice(0, options.maxResults || 10);
 
-        return {
-            success: true,
-            similarModels: results,
-            totalCompared: modelsToCompare.length,
-            similarCount: results.length,
-            method: 'hybrid-only'
-        };
-    }
+            } catch (error) {
+                console.log('❌ Ошибка визуализации сравнения:', error);
+                return { success: false, error: error.message };
+            }
+        }
 
-    // 🔴 25. НОВЫЙ МЕТОД: СОЗДАТЬ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕНИЯ ДЛЯ СУЩЕСТВУЮЩИХ МОДЕЛЕЙ
-    async createMergeVisualization(modelId1, modelId2, outputPath = null) {
-        try {
-            const model1 = this.getModelById(modelId1);
-            const model2 = this.getModelById(modelId2);
+        // 21. ВИЗУАЛИЗАЦИЯ СЕССИИ
+        async visualizeSession(userId) {
+            try {
+                if (!this.graphVisualizer) {
+                    this.initializeVisualizer();
+                }
 
-            if (!model1 || !model2) {
-                return { success: false, error: 'Модели не найдены' };
+                const session = this.getActiveSession(userId);
+                if (!session) {
+                    return { success: false, error: 'Нет активной сессии' };
+                }
+
+                const vizPath = await this.graphVisualizer.visualizeSessionHistory(session, {
+                    filename: `session_${session.id.slice(0, 8)}.png`
+                });
+
+                return {
+                    success: true,
+                    visualization: vizPath,
+                    sessionId: session.id
+                };
+
+            } catch (error) {
+                console.log('❌ Ошибка визуализации сессии:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // 22. ВИЗУАЛИЗАЦИЯ МОДЕЛИ
+        async visualizeModel(modelId) {
+            try {
+                const model = this.getModelById(modelId);
+                if (!model) {
+                    return { success: false, error: 'Модель не найдена' };
+                }
+
+                const vizPath = await model.visualizeGraph();
+
+                return {
+                    success: true,
+                    visualization: vizPath,
+                    model: {
+                        id: model.id,
+                        name: model.name,
+                        stats: model.getInfo()
+                    }
+                };
+
+            } catch (error) {
+                console.log('❌ Ошибка визуализации модели:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // 23. РАССЧИТАТЬ КОМБИНИРОВАННЫЙ SCORE ДЛЯ ГИБРИДНОГО ПОИСКА
+        calculateCombinedScore(bitmaskDistance, momentDistance, graphSimilarity) {
+            // Нормализовать расстояния в схожести (1 = идеально, 0 = плохо)
+            const bitmaskSimilarity = 1 - (bitmaskDistance / 100); // bitmaskDistance от 0 до ~100
+            const momentSimilarity = 1 - momentDistance; // momentDistance от 0 до 1
+
+            // Взвешенное среднее
+            return (bitmaskSimilarity * 0.3 + momentSimilarity * 0.3 + graphSimilarity * 0.4);
+        }
+
+        // 24. ПОИСК С ИСПОЛЬЗОВАНИЕМ ТОЛЬКО ГИБРИДНЫХ ПРИЗНАКОВ
+        async findSimilarHybridOnly(hybridFootprint, userId = null, options = {}) {
+            if (!hybridFootprint || !hybridFootprint.bitmask || !hybridFootprint.moments) {
+                return { success: false, error: 'Недостаточно гибридных признаков' };
             }
 
-            // Сравниваем модели
-            const comparison = model1.compare(model2);
+            console.log('🎯 Запускаю поиск только по гибридным признакам...');
+            this.stats.hybridSearches++;
 
-            // Создаем визуализацию
-            const timestamp = Date.now();
-            const defaultPath = outputPath || path.join(this.config.dbPath, 'merge_visualizations', `merge_${modelId1}_${modelId2}_${timestamp}.png`);
+            // Определить какие модели сравнивать
+            let modelsToCompare = [];
 
-            const vizResult = this.mergeVisualizer.visualizeMerge(
-                model1,
-                model2,
-                comparison,
-                defaultPath
+            if (userId) {
+                modelsToCompare = this.getUserModels(userId);
+            } else {
+                modelsToCompare = Array.from(this.modelCache.values());
+            }
+
+            // Фильтровать модели с гибридными признаками
+            modelsToCompare = modelsToCompare.filter(model =>
+                model.hybridFootprint !== null &&
+                model.hybridFootprint.bitmask !== null &&
+                model.hybridFootprint.moments !== null
             );
 
-            this.stats.mergeVisualizations++;
+            if (modelsToCompare.length === 0) {
+                return {
+                    success: false,
+                    error: 'Нет моделей с гибридными признаками',
+                    similarCount: 0
+                };
+            }
+
+            console.log(`   Сравниваю с ${modelsToCompare.length} гибридными моделями...`);
+
+            // Быстрый поиск по битовым маскам
+            const bitmaskCandidates = HybridFootprint.fastSearch(
+                hybridFootprint.bitmask.bitmask,
+                modelsToCompare.map(m => ({
+                    item: m,
+                    bitmask: m.hybridFootprint.bitmask.bitmask
+                })),
+                options.maxBitmaskDistance || 30
+            );
+
+            // Сравнение моментов и графов
+            const results = bitmaskCandidates
+                .map(candidate => {
+                    const momentResult = hybridFootprint.moments.compare(
+                        candidate.item.hybridFootprint.moments
+                    );
+                    const graphComparison = candidate.item.compare;
+
+                    return {
+                        model: candidate.item,
+                        bitmaskDistance: candidate.bitmaskDistance,
+                        momentDistance: momentResult.distance,
+                        momentSimilarity: 1 - momentResult.distance,
+                        combinedScore: this.calculateCombinedScore(
+                            candidate.bitmaskDistance,
+                            momentResult.distance,
+                            0.5 // базовое значение для графа
+                        )
+                    };
+                })
+                .filter(r => r.momentDistance < (options.momentThreshold || 0.6))
+                .sort((a, b) => b.combinedScore - a.combinedScore)
+                .slice(0, options.maxResults || 10);
 
             return {
                 success: true,
-                visualizationPath: defaultPath,
-                comparison: comparison,
-                stats: vizResult.stats,
-                caption: this.mergeVisualizer.createMergeCaption(model1, model2, vizResult.stats)
+                similarModels: results,
+                totalCompared: modelsToCompare.length,
+                similarCount: results.length,
+                method: 'hybrid-only'
             };
-
-        } catch (error) {
-            console.log('❌ Ошибка создания визуализации объединения:', error);
-            return { success: false, error: error.message };
         }
-    }
 
-    // 🔴 26. НОВЫЙ МЕТОД: ПОЛУЧИТЬ ВСЕ ВИЗУАЛИЗАЦИИ ОБЪЕДИНЕНИЯ
-    getAllMergeVisualizations(userId = null) {
-        try {
-            const vizDir = path.join(this.config.dbPath, 'merge_visualizations');
-            if (!fs.existsSync(vizDir)) {
+        // 🔴 25. НОВЫЙ МЕТОД: СОЗДАТЬ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕНИЯ ДЛЯ СУЩЕСТВУЮЩИХ МОДЕЛЕЙ
+        async createMergeVisualization(modelId1, modelId2, outputPath = null) {
+            try {
+                const model1 = this.getModelById(modelId1);
+                const model2 = this.getModelById(modelId2);
+
+                if (!model1 || !model2) {
+                    return { success: false, error: 'Модели не найдены' };
+                }
+
+                // Сравниваем модели
+                const comparison = model1.compare(model2);
+
+                // Создаем визуализацию
+                const timestamp = Date.now();
+                const defaultPath = outputPath || path.join(this.config.dbPath, 'merge_visualizations', `merge_${modelId1}_${modelId2}_${timestamp}.png`);
+
+                const vizResult = this.mergeVisualizer.visualizeMerge(
+                    model1,
+                    model2,
+                    comparison,
+                    defaultPath
+                );
+
+                this.stats.mergeVisualizations++;
+
+                return {
+                    success: true,
+                    visualizationPath: defaultPath,
+                    comparison: comparison,
+                    stats: vizResult.stats,
+                    caption: this.mergeVisualizer.createMergeCaption(model1, model2, vizResult.stats)
+                };
+
+            } catch (error) {
+                console.log('❌ Ошибка создания визуализации объединения:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // 🔴 26. НОВЫЙ МЕТОД: СОЗДАТЬ ИНТЕЛЛЕКТУАЛЬНУЮ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕНИЯ
+        async createIntelligentMergeVisualization(modelId1, modelId2, outputPath = null) {
+            try {
+                const model1 = this.getModelById(modelId1);
+                const model2 = this.getModelById(modelId2);
+
+                if (!model1 || !model2) {
+                    return { success: false, error: 'Модели не найдены' };
+                }
+
+                // Проверяем, есть ли гибридные отпечатки
+                if (!model1.hybridFootprint || !model2.hybridFootprint) {
+                    return {
+                        success: false,
+                        error: 'Для интеллектуального слияния нужны гибридные отпечатки'
+                    };
+                }
+
+                // Сравниваем модели
+                const comparison = model1.hybridFootprint.compare(model2.hybridFootprint);
+
+                // Создаем интеллектуальную визуализацию
+                const timestamp = Date.now();
+                const defaultPath = outputPath || path.join(this.config.dbPath, 'merge_visualizations', `intelligent_merge_${modelId1}_${modelId2}_${timestamp}.png`);
+
+                const vizResult = await this.mergeVisualizer.visualizeIntelligentMerge(
+                    model1,
+                    model2,
+                    comparison,
+                    {
+                        outputPath: defaultPath,
+                        title: 'ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ МОДЕЛЕЙ',
+                        showTransformation: true,
+                        showStats: true
+                    }
+                );
+
+                this.stats.mergeVisualizations++;
+                this.stats.intelligentMerges++;
+
+                return {
+                    success: true,
+                    visualizationPath: defaultPath,
+                    comparison: comparison,
+                    stats: vizResult.stats,
+                    caption: this.mergeVisualizer.createIntelligentMergeCaption(model1, model2, vizResult.stats),
+                    mergeResult: vizResult.mergeResult
+                };
+
+            } catch (error) {
+                console.log('❌ Ошибка создания интеллектуальной визуализации:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // 🔴 27. НОВЫЙ МЕТОД: ВЫПОЛНИТЬ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ МОДЕЛЕЙ
+        async performIntelligentMerge(modelId1, modelId2, options = {}) {
+            try {
+                const model1 = this.getModelById(modelId1);
+                const model2 = this.getModelById(modelId2);
+
+                if (!model1 || !model2) {
+                    return { success: false, error: 'Модели не найдены' };
+                }
+
+                // Проверяем, есть ли гибридные отпечатки
+                if (!model1.hybridFootprint || !model2.hybridFootprint) {
+                    return {
+                        success: false,
+                        error: 'Для интеллектуального слияния нужны гибридные отпечатки'
+                    };
+                }
+
+                console.log(`🧠 Выполняю интеллектуальное слияние моделей:`);
+                console.log(`   📸 ${model1.name} (${model1.hybridFootprint.originalPoints.length} точек)`);
+                console.log(`   📸 ${model2.name} (${model2.hybridFootprint.originalPoints.length} точек)`);
+
+                // Выполняем интеллектуальное слияние
+                const mergeResult = model1.hybridFootprint.mergeWithTransformation(
+                    model2.hybridFootprint
+                );
+
+                if (!mergeResult.success) {
+                    return mergeResult;
+                }
+
+                // Обновляем модель1
+                model1.graph = model1.hybridFootprint.graph;
+                model1.originalPoints = model1.hybridFootprint.originalPoints;
+                model1.stats.confidence = model1.hybridFootprint.stats.confidence;
+                model1.metadata.totalPhotos += model2.metadata.totalPhotos;
+                model1.metadata.lastUpdated = new Date();
+
+                // Создаем визуализацию если нужно
+                let visualizationPath = null;
+                if (options.createVisualization) {
+                    const timestamp = Date.now();
+                    const vizPath = path.join(this.config.dbPath, 'merge_visualizations',
+                        `intelligent_merge_result_${modelId1}_${timestamp}.png`);
+
+                    const vizResult = await this.mergeVisualizer.visualizeIntelligentMerge(
+                        model1,
+                        model2,
+                        { similarity: mergeResult.confidence, decision: 'same' },
+                        {
+                            outputPath: vizPath,
+                            title: 'РЕЗУЛЬТАТ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ',
+                            showTransformation: true,
+                            showStats: true
+                        }
+                    );
+
+                    visualizationPath = vizPath;
+                    this.stats.mergeVisualizations++;
+                }
+
+                // Сохраняем обновленную модель
+                this.saveModel(model1);
+
+                this.stats.intelligentMerges++;
+
+                console.log(`✅ Интеллектуальное слияние успешно выполнено!`);
+                console.log(`   📊 Результат: ${mergeResult.allPoints} точек`);
+                console.log(`   🔗 Слито: ${mergeResult.mergedPoints} точек`);
+                console.log(`   💎 Уверенность: ${Math.round(mergeResult.confidence * 100)}%`);
+
+                return {
+                    success: true,
+                    mergedModelId: modelId1,
+                    stats: mergeResult.stats,
+                    transformation: mergeResult.transformation,
+                    visualization: visualizationPath,
+                    result: {
+                        totalPoints: mergeResult.allPoints,
+                        mergedPoints: mergeResult.mergedPoints,
+                        confidence: mergeResult.confidence,
+                        efficiency: mergeResult.stats?.efficiency || 'N/A'
+                    }
+                };
+
+            } catch (error) {
+                console.log('❌ Ошибка интеллектуального слияния:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // 🔴 28. НОВЫЙ МЕТОД: ПОЛУЧИТЬ ВСЕ ВИЗУАЛИЗАЦИИ ОБЪЕДИНЕНИЯ
+        getAllMergeVisualizations(userId = null) {
+            try {
+                const vizDir = path.join(this.config.dbPath, 'merge_visualizations');
+                if (!fs.existsSync(vizDir)) {
+                    return [];
+                }
+
+                const files = fs.readdirSync(vizDir)
+                    .filter(f => f.endsWith('.png'))
+                    .map(f => ({
+                        filename: f,
+                        path: path.join(vizDir, f),
+                        size: fs.statSync(path.join(vizDir, f)).size,
+                        created: fs.statSync(path.join(vizDir, f)).birthtime
+                    }));
+
+                if (userId) {
+                    // Фильтровать по пользователю (если в имени файла есть userId)
+                    return files.filter(f =>
+                        f.filename.includes(`user_${userId}`) ||
+                        f.filename.includes(`session_${userId}`)
+                    );
+                }
+
+                return files;
+
+            } catch (error) {
+                console.log('⚠️ Ошибка получения визуализаций:', error.message);
                 return [];
             }
+        }
 
-            const files = fs.readdirSync(vizDir)
-                .filter(f => f.endsWith('.png'))
-                .map(f => path.join(vizDir, f));
+        // 🔴 29. НОВЫЙ МЕТОД: ПОЛУЧИТЬ СТАТИСТИКУ ИНТЕЛЛЕКТУАЛЬНЫХ СЛИЯНИЙ
+        getIntelligentMergeStats(userId = null) {
+            const sessions = userId
+                ? [this.getActiveSession(userId)].filter(s => s)
+                : Array.from(this.activeSessions.values());
 
-            if (userId) {
-                // Фильтровать по пользователю (если в имени файла есть userId)
-                return files.filter(f => f.includes(`user_${userId}`) || f.includes(`session_${userId}`));
+            const totalIntelligentMerges = sessions.reduce((sum, session) =>
+                sum + (session.stats.intelligentMerges || 0), 0);
+
+            const totalMerges = sessions.reduce((sum, session) =>
+                sum + (session.stats.autoAlignments || 0), 0);
+
+            const intelligentMergeRate = totalMerges > 0
+                ? (totalIntelligentMerges / totalMerges * 100).toFixed(1)
+                : 0;
+
+            return {
+                totalIntelligentMerges,
+                totalMerges,
+                intelligentMergeRate: `${intelligentMergeRate}%`,
+                sessionsWithIntelligentMerge: sessions.filter(s => s.stats.intelligentMerges > 0).length,
+                totalSessions: sessions.length,
+                systemStats: {
+                    intelligentMerges: this.stats.intelligentMerges,
+                    totalVisualizations: this.stats.mergeVisualizations
+                }
+            };
+        }
+
+        // 🔴 30. НОВЫЙ МЕТОД: ТЕСТ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ
+        async testIntelligentMerge(testPointsCount = 30) {
+            console.log('🧪 Запускаю тест интеллектуального слияния...');
+
+            // Создать два похожих отпечатка
+            const points1 = [];
+            const points2 = [];
+
+            // Общие точки (70% совпадений)
+            const commonPoints = Math.floor(testPointsCount * 0.7);
+            for (let i = 0; i < commonPoints; i++) {
+                const baseX = 100 + Math.random() * 300;
+                const baseY = 100 + Math.random() * 200;
+
+                points1.push({
+                    x: baseX,
+                    y: baseY,
+                    confidence: 0.7 + Math.random() * 0.3
+                });
+
+                // Точки во втором отпечатке немного смещены
+                points2.push({
+                    x: baseX + Math.random() * 20 - 10,
+                    y: baseY + Math.random() * 20 - 10,
+                    confidence: 0.7 + Math.random() * 0.3
+                });
             }
 
-            return files;
+            // Уникальные точки (30%)
+            const unique1 = Math.floor(testPointsCount * 0.15);
+            for (let i = 0; i < unique1; i++) {
+                points1.push({
+                    x: 100 + Math.random() * 300,
+                    y: 100 + Math.random() * 200,
+                    confidence: 0.6 + Math.random() * 0.4
+                });
+            }
 
-        } catch (error) {
-            console.log('⚠️ Ошибка получения визуализаций:', error.message);
-            return [];
+            const unique2 = Math.floor(testPointsCount * 0.15);
+            for (let i = 0; i < unique2; i++) {
+                points2.push({
+                    x: 100 + Math.random() * 300,
+                    y: 100 + Math.random() * 200,
+                    confidence: 0.6 + Math.random() * 0.4
+                });
+            }
+
+            console.log(`📊 Созданы тестовые данные:`);
+            console.log(`   🟦 Отпечаток 1: ${points1.length} точек`);
+            console.log(`   🟥 Отпечаток 2: ${points2.length} точек`);
+            console.log(`   🔗 Ожидаемые совпадения: ~${commonPoints}`);
+
+            // Создаем гибридные отпечатки
+            const footprint1 = new HybridFootprint({ name: 'Тестовый отпечаток 1' });
+            const footprint2 = new HybridFootprint({ name: 'Тестовый отпечаток 2' });
+
+            footprint1.createFromPoints(points1);
+            footprint2.createFromPoints(points2);
+
+            // Тест интеллектуального слияния
+            console.log('\n🧠 ТЕСТ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ:');
+            const mergeResult = footprint1.mergeWithTransformation(footprint2);
+
+            if (mergeResult.success) {
+                console.log(`✅ Тест успешен!`);
+                console.log(`📊 Результаты:`);
+                console.log(`   ├─ Всего точек до: ${points1.length + points2.length}`);
+                console.log(`   ├─ Всего точек после: ${mergeResult.allPoints}`);
+                console.log(`   ├─ Слито точек: ${mergeResult.mergedPoints}`);
+                console.log(`   ├─ Сокращение дубликатов: ${mergeResult.stats?.efficiency || 'N/A'}`);
+                console.log(`   └─ Уверенность: ${Math.round(mergeResult.confidence * 100)}%`);
+
+                // Создаем визуализацию
+                const vizPath = path.join(this.config.dbPath, 'merge_visualizations', `test_intelligent_merge_${Date.now()}.png`);
+               
+                await this.mergeVisualizer.visualizeIntelligentMerge(
+                    { name: 'Тест 1', hybridFootprint: footprint1 },
+                    { name: 'Тест 2', hybridFootprint: footprint2 },
+                    { similarity: 0.8, decision: 'same' },
+                    {
+                        outputPath: vizPath,
+                        title: 'ТЕСТ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ',
+                        showTransformation: true,
+                        showStats: true
+                    }
+                );
+
+                console.log(`🎨 Визуализация создана: ${vizPath}`);
+
+                return {
+                    success: true,
+                    testResults: mergeResult,
+                    visualization: vizPath,
+                    stats: {
+                        reductionPercentage: ((points1.length + points2.length - mergeResult.allPoints) /
+                                            (points1.length + points2.length) * 100).toFixed(1),
+                        mergedPoints: mergeResult.mergedPoints,
+                        confidence: mergeResult.confidence
+                    }
+                };
+            } else {
+                console.log(`❌ Тест не удался: ${mergeResult.reason}`);
+                return {
+                    success: false,
+                    error: mergeResult.reason
+                };
+            }
         }
     }
-}
 
-module.exports = SimpleFootprintManager;
+    module.exports = SimpleFootprintManager;
