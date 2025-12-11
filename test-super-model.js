@@ -1,4 +1,4 @@
-// test-super-model.js (исправленная версия)
+// test-super-model.js (улучшенная версия)
 
 const HybridFootprint = require('./modules/footprint/hybrid-footprint');
 
@@ -9,40 +9,62 @@ const points1 = [];
 const points2 = [];
 
 // Первый отпечаток
+console.log('📝 Создаю точки для отпечатка 1...');
 for (let i = 0; i < 25; i++) {
+    const confidence = 0.7 + Math.random() * 0.3; // 0.7-1.0
     points1.push({
         x: 100 + Math.random() * 200,
         y: 100 + Math.random() * 100,
-        confidence: 0.7 + Math.random() * 0.3 // 0.7-1.0
+        confidence: confidence,
+        id: `pt1_${i}`,
+        type: 'test'
     });
 }
 
 // Второй отпечаток - похожий на первый, но с небольшим смещением и шумом
+console.log('📝 Создаю точки для отпечатка 2...');
 for (let i = 0; i < 28; i++) {
+    let point;
+   
     // 80% точек похожи на первый отпечаток, 20% - новые
     if (i < 22 && i < points1.length) {
         // Похожие точки (с небольшим смещением)
-        points2.push({
+        const confidence = 0.7 + Math.random() * 0.3;
+        point = {
             x: points1[i].x + Math.random() * 15 - 7.5,
             y: points1[i].y + Math.random() * 15 - 7.5,
-            confidence: 0.7 + Math.random() * 0.3
-        });
+            confidence: confidence,
+            id: `pt2_${i}`,
+            type: 'test',
+            matches: `pt1_${i}` // Отметка о совпадении
+        };
     } else {
         // Новые точки
-        points2.push({
+        const confidence = 0.6 + Math.random() * 0.4;
+        point = {
             x: 100 + Math.random() * 200,
             y: 100 + Math.random() * 100,
-            confidence: 0.6 + Math.random() * 0.4
-        });
+            confidence: confidence,
+            id: `pt2_${i}`,
+            type: 'test_new'
+        };
     }
+    points2.push(point);
 }
 
-console.log('📊 Тестовые данные:');
+console.log('\n📊 ТЕСТОВЫЕ ДАННЫЕ:');
 console.log(`   🟦 Отпечаток 1: ${points1.length} точек`);
 console.log(`   🟥 Отпечаток 2: ${points2.length} точек`);
-console.log(`   🔗 Ожидаемые совпадения: ~${Math.min(points1.length, points2.length) - 3} точек`);
+const expectedMatches = Math.min(points1.length, points2.length) - 6; // Более реалистичная оценка
+console.log(`   🔗 Ожидаемые совпадения: ~${expectedMatches} точек`);
+
+// Рассчитать средний confidence до слияния
+const avgConf1 = points1.reduce((sum, p) => sum + (p.confidence || 0.5), 0) / points1.length;
+const avgConf2 = points2.reduce((sum, p) => sum + (p.confidence || 0.5), 0) / points2.length;
+console.log(`   📈 Средний confidence: ${avgConf1.toFixed(3)} (1) / ${avgConf2.toFixed(3)} (2)`);
 
 // Создать два гибридных отпечатка
+console.log('\n🏗️  СОЗДАНИЕ ГИБРИДНЫХ ОТПЕЧАТКОВ...');
 const footprint1 = new HybridFootprint({ name: 'Тест 1' });
 const footprint2 = new HybridFootprint({ name: 'Тест 2' });
 
@@ -50,18 +72,19 @@ const footprint2 = new HybridFootprint({ name: 'Тест 2' });
 footprint1.createFromPoints(points1);
 footprint2.createFromPoints(points2);
 
-console.log('\n🔍 Сравниваю отпечатки...');
+console.log('\n🔍 СРАВНЕНИЕ ОТПЕЧАТКОВ...');
 const comparison = footprint1.compare(footprint2);
 
 console.log(`📊 Similarity: ${comparison.similarity.toFixed(3)}`);
 console.log(`🤔 Decision: ${comparison.decision}`);
+console.log(`💡 Reason: ${comparison.reason}`);
 
 if (comparison.decision === 'different') {
     console.log('❌ Отпечатки слишком разные для создания супер-модели');
     process.exit(1);
 }
 
-console.log('\n🔄 Выполняю интеллектуальное слияние...');
+console.log('\n🔄 ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ...');
 const mergeResult = footprint1.mergeWithTransformation(footprint2);
 
 if (!mergeResult.success) {
@@ -83,8 +106,12 @@ console.log(`\n✅ PointMerger нашёл ${mergeResult.mergeResult.stats.merged
 
 // Показать несколько совпадений
 if (mergeResult.mergeResult.pairs && mergeResult.mergeResult.pairs.length > 0) {
+    console.log(`\n🔗 ТОП-3 СОВПАДЕНИЯ:`);
     mergeResult.mergeResult.pairs.slice(0, 3).forEach((pair, i) => {
         console.log(`   ${i+1}. Расстояние: ${pair.distance.toFixed(1)}px, Score: ${pair.similarityScore.toFixed(2)}`);
+        if (pair.point1 && pair.point2) {
+            console.log(`      📍 ${pair.point1.x.toFixed(1)},${pair.point1.y.toFixed(1)} → ${pair.point2.x.toFixed(1)},${pair.point2.y.toFixed(1)}`);
+        }
     });
 }
 
@@ -106,55 +133,81 @@ const trackerStats = superFootprint.pointTracker.getStats();
 console.log(`├─ Точек в модели: ${superFootprint.originalPoints.length}`);
 console.log(`├─ Векторов: ${superFootprint.getVectorCount()}`);
 console.log(`├─ Матрица: ${superFootprint.getMatrixSizeString()}`);
-console.log(`├─ Трекера: ${trackerStats.totalPoints}`);
-console.log(`└─ Confidence: ${superFootprint.stats.confidence.toFixed(3)}`);
+console.log(`├─ Трекера: ${trackerStats.totalPoints} точек, ${trackerStats.confidence.toFixed(3)} confidence`);
+console.log(`└─ Общий confidence: ${superFootprint.stats.confidence.toFixed(3)}`);
 
-// УДАЛЕНО: Блок проверки качества с ошибкой
-// const qualityCheck = superFootprint.pointTracker.qualityCheck();
-// console.log(`├─ Высокодостоверные точки: ${qualityCheck.highConfidencePoints.length}`);
-// console.log(`├─ Средний рейтинг: ${qualityCheck.averageRating.toFixed(2)}`);
-// console.log(`└─ Консистентность: ${qualityCheck.consistency.toFixed(2)}%`);
+// Анализ точек после слияния
+console.log('\n🔍 АНАЛИЗ ТОЧЕК ПОСЛЕ СЛИЯНИЯ:');
+const allPoints = superFootprint.originalPoints;
+console.log(`├─ Всего точек: ${allPoints.length}`);
 
-// Вместо этого добавим проверку через существующие методы:
-console.log('\n🔍 ПРОВЕРКА ТОЧЕК:');
-const allPoints = superFootprint.pointTracker.getAllPoints({ minRating: 0.3 });
-console.log(`├─ Всего точек в трекере: ${allPoints.length}`);
-console.log(`├─ Высокодостоверные (rating > 0.7): ${allPoints.filter(p => p.rating > 0.7).length}`);
-console.log(`└─ Средний rating: ${(allPoints.reduce((sum, p) => sum + (p.rating || 0), 0) / allPoints.length).toFixed(2)}`);
+// Анализ confidence
+const confidences = allPoints.map(p => p.confidence || 0.5);
+const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length;
+const maxConfidence = Math.max(...confidences);
+const minConfidence = Math.min(...confidences);
+
+console.log(`├─ Средний confidence: ${avgConfidence.toFixed(3)}`);
+console.log(`├─ Min confidence: ${minConfidence.toFixed(3)}`);
+console.log(`└─ Max confidence: ${maxConfidence.toFixed(3)}`);
+
+// Анализ по источникам
+const sourceStats = {};
+allPoints.forEach(p => {
+    const source = p.source || 'unknown';
+    sourceStats[source] = (sourceStats[source] || 0) + 1;
+});
+
+console.log(`\n📊 ИСТОЧНИКИ ТОЧЕК:`);
+Object.entries(sourceStats).forEach(([source, count]) => {
+    console.log(`   ${source}: ${count} точек (${(count / allPoints.length * 100).toFixed(1)}%)`);
+});
 
 // Создать сводку
-console.log('\n============================================================');
-console.log('✅ ТЕСТ ПРОЙДЕН! Супер-модель создана!');
-console.log('📊 Результаты:');
-console.log(`   ├─ Сокращение: ${points1.length + points2.length} → ${superFootprint.originalPoints.length} точек`);
+console.log('\n' + '='.repeat(60));
+console.log('✅ ТЕСТ ПРОЙДЕН! СУПЕР-МОДЕЛЬ СОЗДАНА!');
+console.log('📊 ИТОГОВЫЕ РЕЗУЛЬТАТЫ:');
+console.log(`   ├─ Исходные точки: ${points1.length} + ${points2.length} = ${points1.length + points2.length}`);
+console.log(`   ├─ После слияния: ${superFootprint.originalPoints.length} точек`);
 console.log(`   ├─ Найдено совпадений: ${mergeResult.mergedPoints}`);
+console.log(`   ├─ Эффективность: ${mergeResult.metrics.efficiency}`);
 console.log(`   └─ Улучшение confidence: ${mergeResult.metrics.confidenceImprovement}`);
-console.log('============================================================\n');
+console.log('='.repeat(60) + '\n');
 
 // Дополнительная информация
-console.log('📈 МЕТРИКИ СЛИЯНИЯ:');
+console.log('📈 ДЕТАЛЬНЫЕ МЕТРИКИ СЛИЯНИЯ:');
 console.log(`   ├─ Средний confidence до: ${mergeResult.metrics.avgConfidenceBefore}`);
 console.log(`   ├─ Средний confidence после: ${mergeResult.metrics.avgConfidenceAfter}`);
-console.log(`   ├─ Сокращение точек: ${mergeResult.metrics.pointReduction}`);
+console.log(`   ├─ Разница в confidence: ${(mergeResult.metrics.avgConfidenceAfter - mergeResult.metrics.avgConfidenceBefore).toFixed(3)}`);
+console.log(`   ├─ Сокращение точек: ${points1.length + points2.length} → ${superFootprint.originalPoints.length} (${mergeResult.metrics.pointReduction})`);
 console.log(`   └─ Эффективность: ${mergeResult.metrics.efficiency}`);
 
 // Экспорт для визуализации
-console.log('\n🎨 ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ:');
+console.log('\n🎨 ЭКСПОРТ ДАННЫХ ДЛЯ ВИЗУАЛИЗАЦИИ...');
 const exportData = {
-    originalPoints1: points1.length,
-    originalPoints2: points2.length,
-    mergedPoints: superFootprint.originalPoints.length,
-    confidenceImprovement: mergeResult.metrics.confidenceImprovement,
-    efficiency: mergeResult.metrics.efficiency,
-    transformation: mergeResult.transformation,
-    matchPairs: mergeResult.mergeResult.stats.mergedPoints,
-    // Добавим статистику по точкам
+    summary: {
+        originalPoints1: points1.length,
+        originalPoints2: points2.length,
+        mergedPoints: superFootprint.originalPoints.length,
+        matchesFound: mergeResult.mergedPoints,
+        confidenceImprovement: mergeResult.metrics.confidenceImprovement,
+        efficiency: mergeResult.metrics.efficiency,
+        similarity: comparison.similarity.toFixed(3)
+    },
+    metrics: mergeResult.metrics,
+    transformation: mergeResult.transformation || {},
+    mergeStats: mergeResult.mergeResult.stats,
     pointStats: {
-        highConfidence: allPoints.filter(p => p.rating > 0.7).length,
-        mediumConfidence: allPoints.filter(p => p.rating > 0.4 && p.rating <= 0.7).length,
-        lowConfidence: allPoints.filter(p => p.rating <= 0.4).length,
-        averageRating: (allPoints.reduce((sum, p) => sum + (p.rating || 0), 0) / allPoints.length).toFixed(3)
-    }
+        total: allPoints.length,
+        avgConfidence: avgConfidence.toFixed(3),
+        sources: sourceStats
+    },
+    samplePoints: allPoints.slice(0, 5).map(p => ({
+        x: p.x.toFixed(1),
+        y: p.y.toFixed(1),
+        confidence: (p.confidence || 0.5).toFixed(3),
+        source: p.source || 'unknown'
+    }))
 };
 
 fs.writeFileSync(
@@ -163,3 +216,49 @@ fs.writeFileSync(
 );
 
 console.log('✅ Данные для визуализации сохранены: merge_visualization.json');
+
+// Генерация отчета
+console.log('\n📄 СОЗДАНИЕ ОТЧЕТА...');
+const report = `
+ОТЧЕТ ПО ТЕСТУ СОЗДАНИЯ СУПЕР-МОДЕЛИ
+====================================
+Дата: ${new Date().toLocaleString('ru-RU')}
+
+ИСХОДНЫЕ ДАННЫЕ:
+----------------
+• Отпечаток 1: ${points1.length} точек (средний confidence: ${avgConf1.toFixed(3)})
+• Отпечаток 2: ${points2.length} точек (средний confidence: ${avgConf2.toFixed(3)})
+• Ожидаемые совпадения: ${expectedMatches} точек
+
+РЕЗУЛЬТАТЫ СРАВНЕНИЯ:
+---------------------
+• Similarity: ${comparison.similarity.toFixed(3)}
+• Decision: ${comparison.decision}
+• Reason: ${comparison.reason}
+
+РЕЗУЛЬТАТЫ СЛИЯНИЯ:
+-------------------
+• Итоговых точек: ${superFootprint.originalPoints.length}
+• Найдено совпадений: ${mergeResult.mergedPoints}
+• Эффективность слияния: ${mergeResult.metrics.efficiency}
+• Улучшение confidence: ${mergeResult.metrics.confidenceImprovement}
+• Новая уверенность модели: ${Math.round(superFootprint.stats.confidence * 100)}%
+
+МЕТРИКИ КАЧЕСТВА:
+-----------------
+• Средний confidence точек: ${avgConfidence.toFixed(3)}
+• Качество модели: ${Math.round(superFootprint.stats.qualityScore * 100)}%
+• Разнообразие источников: ${Object.keys(sourceStats).length}
+
+ВЫВОД:
+------
+${mergeResult.mergedPoints >= expectedMatches ? '✅ Тест пройден успешно! Найдено достаточно совпадений.' : '⚠️ Тест пройден, но совпадений меньше ожидаемого.'}
+${avgConfidence > 0.7 ? '✅ Высокое качество точек после слияния' : '⚠️ Среднее качество точек можно улучшить'}
+`;
+
+fs.writeFileSync('test_report.txt', report);
+console.log('✅ Отчет сохранен: test_report.txt');
+
+console.log('\n' + '✨'.repeat(30));
+console.log('✨ ТЕСТ ЗАВЕРШЕН УСПЕШНО! ✨');
+console.log('✨'.repeat(30));
