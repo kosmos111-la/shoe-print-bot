@@ -502,9 +502,9 @@ class HybridFootprint {
         };
     }
 
-    // 7. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ (новый улучшенный метод)
+    // 7. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ (НОВЫЙ ИНТЕЛЛЕКТУАЛЬНЫЙ МЕТОД)
     mergeWithTransformation(otherFootprint) {
-        console.log(`🔄 Объединяю с преобразованием "${otherFootprint.name}"...`);
+        console.log(`🔄 Интеллектуальное объединение с "${otherFootprint.name}"...`);
 
         // 1. Сравнить векторные схемы для нахождения трансформации
         const vectorComparison = this.vectorGraph.compare(otherFootprint.vectorGraph);
@@ -517,32 +517,49 @@ class HybridFootprint {
             };
         }
 
-        // 2. Применить трансформацию к точкам другого отпечатка
-        const transformedPoints = otherFootprint.originalPoints; // Пока без трансформации
+        // 2. Извлечь точки из обоих отпечатков
+        const points1 = this.originalPoints;
+        const points2 = otherFootprint.originalPoints;
 
-        // 3. Обработать точки через трекер
+        console.log(`📊 Точки для слияния: ${points1.length} + ${points2.length}`);
+
+        // 3. СОЗДАТЬ POINT MERGER И ВЫПОЛНИТЬ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
+        const PointMerger = require('./point-merger');
+        const pointMerger = new PointMerger({
+            mergeDistance: 15,
+            confidenceBoost: 1.3,
+            minConfidenceForMerge: 0.4
+        });
+
+        const mergeResult = pointMerger.mergePoints(
+            points1,
+            points2,
+            vectorComparison.transformation
+        );
+
+        // 4. Обработать результат слияния через трекер
         const trackerResult = this.pointTracker.processNewPoints(
-            transformedPoints,
+            mergeResult.points.filter(p => p.source === 'footprint2' || p.source === 'merged'),
             {
-                source: 'merge',
+                source: 'intelligent_merge',
                 fromFootprint: otherFootprint.id,
-                transformation: vectorComparison.transformation || {}
+                transformation: vectorComparison.transformation,
+                mergeStats: mergeResult.stats
             }
         );
 
-        // 4. Пересчитать все представления из ВСЕХ точек (не только высокодостоверных)
-        const allPoints = this.pointTracker.getAllPoints();
+        // 5. Получить ВСЕ точки (высокодостоверные + новые)
+        const allPoints = this.pointTracker.getAllPoints({
+            minRating: 0.3, // Более низкий порог для получения всех точек
+            minConfirmations: 0
+        });
 
-        if (allPoints.length < 10) {
-            console.log('❌ Недостаточно точек после объединения:', allPoints.length);
-            return {
-                success: false,
-                reason: `Недостаточно точек после объединения: ${allPoints.length}`
-            };
-        }
+        console.log(`📈 После слияния: ${allPoints.length} точек (было ${points1.length})`);
 
-        // Обновить все представления
+        // 6. Обновить все представления из ОБЪЕДИНЁННЫХ точек
         this.originalPoints = allPoints;
+
+        // Пересчитать все представления
         this.bitmask.createFromPoints(allPoints);
         this.moments.calculateFromPoints(allPoints);
         this.distanceMatrix.createFromPoints(allPoints);
@@ -552,36 +569,43 @@ class HybridFootprint {
         const graphPoints = allPoints.map(pt => ({
             x: pt.x,
             y: pt.y,
-            confidence: pt.rating || pt.confidence || 0.5
+            confidence: pt.confidence || pt.rating || 0.5
         }));
         this.graph.buildFromPoints(graphPoints);
 
-        // Обновить метаданные
+        // 7. Обновить метаданные
         this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos;
         this.metadata.lastUpdated = new Date();
         this.metadata.transformations.push({
             timestamp: new Date(),
             with: otherFootprint.id,
             transformation: vectorComparison.transformation || {},
-            pointsAdded: trackerResult.added || 0,
-            pointsUpdated: trackerResult.updated || 0
+            mergeStats: mergeResult.stats,
+            trackerResult: trackerResult
         });
 
-        // Обновить статистику
+        // 8. Обновить статистику
         this.updateConfidence();
 
-        console.log(`✅ Объединено с преобразованием успешно!`);
-        console.log(`   📍 Добавлено точек: ${trackerResult.added || 0}`);
+        console.log(`✅ Интеллектуальное объединение успешно!`);
+        console.log(`   📍 Уникальных точек: ${mergeResult.stats.uniqueFrom1 + mergeResult.stats.uniqueFrom2}`);
+        console.log(`   🔗 Слитых точек: ${mergeResult.stats.mergedPoints}`);
         console.log(`   📊 Всего точек: ${allPoints.length}`);
         console.log(`   💎 Новая уверенность: ${Math.round(this.stats.confidence * 100)}%`);
 
         return {
             success: true,
             transformation: vectorComparison.transformation || {},
-            trackerResult,
-            totalPoints: allPoints.length,
-            addedPoints: trackerResult.added || 0,
-            confidence: this.stats.confidence
+            mergeResult: mergeResult,
+            trackerResult: trackerResult,
+            allPoints: allPoints.length,
+            mergedPoints: mergeResult.stats.mergedPoints,
+            confidence: this.stats.confidence,
+            stats: {
+                before: { points1: points1.length, points2: points2.length },
+                after: { total: allPoints.length, merged: mergeResult.stats.mergedPoints },
+                efficiency: `${mergeResult.stats.reductionPercentage}% сокращение дубликатов`
+            }
         };
     }
 
@@ -776,7 +800,8 @@ class HybridFootprint {
         const mergeResult = footprint1.mergeWithTransformation(footprint2);
         console.log(`✅ Успех: ${mergeResult.success}`);
         if (mergeResult.success) {
-            console.log(`   📍 Высокодостоверных точек: ${mergeResult.highConfidencePoints}`);
+            console.log(`   📍 Всего точек: ${mergeResult.allPoints}`);
+            console.log(`   🔗 Слито точек: ${mergeResult.mergedPoints}`);
             console.log(`   💎 Уверенность: ${Math.round(mergeResult.confidence * 100)}%`);
         }
 
