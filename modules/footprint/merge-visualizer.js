@@ -24,7 +24,7 @@ class MergeVisualizer {
         );
     }
 
-    // 🔴 ДОБАВЛЕНО: МЕТОД ДЛЯ СОВМЕСТИМОСТИ С simple-manager.js
+    // 🔴 МЕТОД ДЛЯ СОВМЕСТИМОСТИ С simple-manager.js
     visualizeMergeEnhanced(footprint1, footprint2, comparisonResult, options = {}) {
         console.log('⚡ Использую совместимую версию visualizeMergeEnhanced');
         return this.visualizeMergedResult(
@@ -51,7 +51,7 @@ class MergeVisualizer {
                 showStats = true,
                 showLegend = true,
                 showConfidence = true,
-                title = 'ОБЪЕДИНЕННЫЙ СЛЕД РОБОФЛО'
+                title = 'ОБЪЕДИНЕНИЕ СЛЕДОВ РОБОФЛО'
             } = options;
 
             // 🔴 ШАГ 1: ИЗВЛЕЧЬ ДАННЫЕ ИЗ ОТПЕЧАТКОВ
@@ -67,7 +67,7 @@ class MergeVisualizer {
                 transformationResult = vectorComparison.transformation;
             }
 
-            // 🔴 ШАГ 3: ПРИМЕНИТЬ ТРАНСФОРМАЦИЮ И СОВМЕСТИТЬ
+            // 🔴 ШАГ 3: ПРИМЕНИТЬ ТРАНСФОРМАЦИЮ К ТОЧКАМ ВТОРОГО СЛЕДА
             const transformedPoints2 = transformationResult
                 ? this.applyTransformation(points2, transformationResult)
                 : points2;
@@ -95,16 +95,23 @@ class MergeVisualizer {
             const vizArea = { x: 50, y: 120, width: 900, height: 700 };
             this.drawVisualizationArea(ctx, vizArea);
 
+            // 🔴 ВАЖНО: ДЛЯ НОРМАЛИЗАЦИИ ИСПОЛЬЗУЕМ ТОЛЬКО ПЕРВЫЙ СЛЕД И ТРАНСФОРМИРОВАННЫЙ ВТОРОЙ
+            const pointsForNormalization = [...points1, ...transformedPoints2];
+
             // Нормализация
             const { scale, offsetX, offsetY } = this.normalizePoints(
-                mergedResult.allPoints,
+                pointsForNormalization,
                 vizArea
             );
 
-            // 🔴 ОТРИСОВАТЬ ОБЪЕДИНЕННЫЙ СЛЕД
+            // 🔴 ШАГ 6: ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ
+            // 6a. Сначала рисуем исходные следы (полупрозрачные)
+            this.drawOriginalFootprints(ctx, points1, transformedPoints2, scale, offsetX, offsetY);
+           
+            // 6b. Рисуем объединенный след (поверх)
             this.drawMergedFootprint(ctx, mergedResult, scale, offsetX, offsetY, showConfidence);
-
-            // 🔴 ПОДПИСАТЬ СОВПАДЕНИЯ (зеленые линии между подтвержденными точками)
+           
+            // 6c. Линии подтверждения между совпавшими точками
             if (mergedResult.matches.length > 0) {
                 this.drawConfirmationLines(ctx, mergedResult.matches, scale, offsetX, offsetY);
             }
@@ -132,6 +139,9 @@ class MergeVisualizer {
 
             // 🔴 КАЧЕСТВО ОБЪЕДИНЕНИЯ
             this.drawMergeQuality(ctx, mergedResult, 1000, 600);
+
+            // 🔴 КООРДИНАТНАЯ СЕТКА С ТОЧКАМИ
+            this.drawCoordinateGrid(ctx, points1, transformedPoints2, vizArea, scale, offsetX, offsetY);
 
             // Сохранение
             if (outputPath) {
@@ -165,20 +175,23 @@ class MergeVisualizer {
     }
 
     // 🔴 3. ОБЪЕДИНЕНИЕ ТОЧЕК С УЧЕТОМ ПОДТВЕРЖДЕНИЙ
-    mergePointsWithConfidence(points1, points2, matchThreshold = 15) {
+    mergePointsWithConfidence(points1, transformedPoints2, matchThreshold = 30) {
         const confirmedPoints = [];  // ✅ Совпали в обоих следах
         const newPointsFrom1 = [];   // 🔍 Были только в следе 1
         const newPointsFrom2 = [];   // 🔍 Были только в следе 2
         const matches = [];         // Связи между совпавшими точками
         const usedPoints2 = new Set();
 
+        console.log(`🎯 Объединяю ${points1.length} и ${transformedPoints2.length} точек`);
+        console.log(`   Порог совпадения: ${matchThreshold} пикселей`);
+
         // 🔍 Ищем совпадения
-        points1.forEach(p1 => {
+        points1.forEach((p1, i) => {
             let bestMatch = null;
             let bestDistance = Infinity;
             let bestIndex = -1;
 
-            points2.forEach((p2, j) => {
+            transformedPoints2.forEach((p2, j) => {
                 if (usedPoints2.has(j)) return;
 
                 const dx = p2.x - p1.x;
@@ -201,7 +214,8 @@ class MergeVisualizer {
                     confidence: Math.max(p1.confidence || 0.5, bestMatch.confidence || 0.5),
                     confirmationCount: (p1.confirmationCount || 1) + (bestMatch.confirmationCount || 1),
                     source: 'confirmed',
-                    originalPoints: [p1, bestMatch]
+                    originalPoints: [p1, bestMatch],
+                    matchDistance: bestDistance
                 };
 
                 confirmedPoints.push(confirmedPoint);
@@ -213,6 +227,10 @@ class MergeVisualizer {
                 });
 
                 usedPoints2.add(bestIndex);
+               
+                if (confirmedPoints.length <= 3) {
+                    console.log(`   Совпадение ${confirmedPoints.length}: расстояние ${bestDistance.toFixed(2)}`);
+                }
             } else {
                 // 🔍 НОВАЯ ТОЧКА ИЗ СЛЕДА 1
                 newPointsFrom1.push({
@@ -223,8 +241,8 @@ class MergeVisualizer {
             }
         });
 
-        // 🔍 НОВЫЕ ТОЧКИ ИЗ СЛЕДА 2 (которые не совпали)
-        points2.forEach((p2, j) => {
+        // 🔍 НОВЫЕ ТОЧКИ ИЗ ТРАНСФОРМИРОВАННОГО СЛЕДА 2
+        transformedPoints2.forEach((p2, j) => {
             if (!usedPoints2.has(j)) {
                 newPointsFrom2.push({
                     ...p2,
@@ -234,19 +252,14 @@ class MergeVisualizer {
             }
         });
 
-        // 🔗 ВСЕ ТОЧКИ ОБЪЕДИНЕННОГО СЛЕДА
-        const allPoints = [
-            ...confirmedPoints,
-            ...newPointsFrom1,
-            ...newPointsFrom2
-        ];
+        console.log(`📊 Результат: ${confirmedPoints.length} совпадений, ${newPointsFrom1.length}+${newPointsFrom2.length} новых`);
 
         return {
             confirmedPoints,
             newPointsFrom1,
             newPointsFrom2,
             matches,
-            allPoints,
+            allPoints: [...confirmedPoints, ...newPointsFrom1, ...newPointsFrom2],
             totalConfirmed: confirmedPoints.length,
             totalNew: newPointsFrom1.length + newPointsFrom2.length
         };
@@ -304,7 +317,32 @@ class MergeVisualizer {
         return points;
     }
 
-    // 🔴 5. ОТРИСОВКА ОБЪЕДИНЕННОГО СЛЕДА
+    // 🔴 5. ОТРИСОВКА ИСХОДНЫХ СЛЕДОВ (полупрозрачные)
+    drawOriginalFootprints(ctx, points1, transformedPoints2, scale, offsetX, offsetY) {
+        // 🔴 СЛЕД 1 (синий, полупрозрачный)
+        points1.forEach(point => {
+            const x = offsetX + point.x * scale;
+            const y = offsetY + point.y * scale;
+           
+            ctx.fillStyle = 'rgba(50, 100, 255, 0.3)';
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // 🔴 СЛЕД 2 (красный, полупрозрачный)
+        transformedPoints2.forEach(point => {
+            const x = offsetX + point.x * scale;
+            const y = offsetY + point.y * scale;
+           
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.3)';
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+
+    // 🔴 6. ОТРИСОВКА ОБЪЕДИНЕННОГО СЛЕДА
     drawMergedFootprint(ctx, mergedResult, scale, offsetX, offsetY, showConfidence = true) {
         // 🔴 1. ПОДТВЕРЖДЕННЫЕ ТОЧКИ (ядро - ЗЕЛЕНЫЙ)
         mergedResult.confirmedPoints.forEach(point => {
@@ -314,7 +352,7 @@ class MergeVisualizer {
             const size = 5 + Math.min(point.confirmationCount, 5); // Размер зависит от подтверждений
             const color = this.getConfirmationColor(point.confirmationCount);
            
-            // Точка
+            // Внешний круг
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(x, y, size, 0, Math.PI * 2);
@@ -382,14 +420,14 @@ class MergeVisualizer {
         });
     }
 
-    // 🔴 6. ЦВЕТ В ЗАВИСИМОСТИ ОТ КОЛИЧЕСТВА ПОДТВЕРЖДЕНИЙ
+    // 🔴 7. ЦВЕТ В ЗАВИСИМОСТИ ОТ КОЛИЧЕСТВА ПОДТВЕРЖДЕНИЙ
     getConfirmationColor(count) {
         if (count >= 3) return 'rgba(0, 200, 83, 0.9)';    // Высокая уверенность - зеленый
         if (count === 2) return 'rgba(156, 39, 176, 0.8)'; // Средняя - фиолетовый
         return 'rgba(255, 152, 0, 0.7)';                   // Низкая - оранжевый
     }
 
-    // 🔴 7. ЛИНИИ ПОДТВЕРЖДЕНИЯ МЕЖДУ СОВПАВШИМИ ТОЧКАМИ
+    // 🔴 8. ЛИНИИ ПОДТВЕРЖДЕНИЯ МЕЖДУ СОВПАВШИМИ ТОЧКАМИ
     drawConfirmationLines(ctx, matches, scale, offsetX, offsetY) {
         ctx.strokeStyle = 'rgba(0, 200, 83, 0.4)';
         ctx.lineWidth = 1;
@@ -410,7 +448,7 @@ class MergeVisualizer {
         ctx.setLineDash([]);
     }
 
-    // 🔴 8. ДЕТАЛЬНАЯ ЛЕГЕНДА
+    // 🔴 9. ДЕТАЛЬНАЯ ЛЕГЕНДА
     drawDetailedLegend(ctx, mergedResult, x, y) {
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 20px Arial';
@@ -420,13 +458,14 @@ class MergeVisualizer {
         ctx.font = '14px Arial';
 
         const legendItems = [
+            { color: 'rgba(50, 100, 255, 0.3)', text: `🔵 Исходный след 1` },
+            { color: 'rgba(255, 50, 50, 0.3)', text: `🔴 Исходный след 2 (трансформированный)` },
             { color: 'rgba(0, 200, 83, 0.9)', text: `✅ Ядро (подтверждено) - ${mergedResult.confirmedPoints.length} точек` },
             { color: 'rgba(50, 100, 255, 0.7)', text: `🔍 Новые из следа 1 - ${mergedResult.newPointsFrom1.length}` },
             { color: 'rgba(255, 50, 50, 0.7)', text: `🔍 Новые из следа 2 - ${mergedResult.newPointsFrom2.length}` },
             { color: 'rgba(0, 200, 83, 0.4)', text: '📐 Линии подтверждения' },
             { text: '✓3+ - подтверждено 3+ раза', color: 'rgba(0, 200, 83, 0.9)' },
-            { text: '✓2 - подтверждено 2 раза', color: 'rgba(156, 39, 176, 0.8)' },
-            { text: '✓1 - первое обнаружение', color: 'rgba(255, 152, 0, 0.7)' }
+            { text: '✓2 - подтверждено 2 раза', color: 'rgba(156, 39, 176, 0.8)' }
         ];
 
         legendItems.forEach((item, index) => {
@@ -443,7 +482,7 @@ class MergeVisualizer {
         });
     }
 
-    // 🔴 9. СТАТИСТИКА ОБЪЕДИНЕНИЯ
+    // 🔴 10. СТАТИСТИКА ОБЪЕДИНЕНИЯ
     calculateMergeStats(mergedResult, comparisonResult, transformationResult) {
         const totalPoints = mergedResult.allPoints.length;
         const confirmedPercent = totalPoints > 0
@@ -492,7 +531,7 @@ class MergeVisualizer {
         });
     }
 
-    // 🔴 10. КАРТА УВЕРЕННОСТИ
+    // 🔴 11. КАРТА УВЕРЕННОСТИ
     drawConfidenceHeatmap(ctx, points, vizArea, scale, offsetX, offsetY) {
         // Создаем градиенты уверенности
         points.forEach(point => {
@@ -513,7 +552,7 @@ class MergeVisualizer {
         });
     }
 
-    // 🔴 11. КАЧЕСТВО ОБЪЕДИНЕНИЯ
+    // 🔴 12. КАЧЕСТВО ОБЪЕДИНЕНИЯ
     calculateMergeQuality(mergedResult) {
         if (mergedResult.allPoints.length === 0) return 0;
        
@@ -563,34 +602,43 @@ class MergeVisualizer {
         ctx.fillText(`${quality}%`, x + barWidth / 2 - 15, y + barHeight / 2 + 5);
     }
 
-    // 🔴 12. СИМУЛЯЦИЯ ПРОЦЕССА ОБЪЕДИНЕНИЯ (для обратной совместимости)
-    simulateMergeProcess(points1, points2) {
-        const mergedResult = this.mergePointsWithConfidence(points1, points2);
-        return {
-            mergedPoints: mergedResult.allPoints,
-            matchedPoints: mergedResult.confirmedPoints,
-            newPointsFrom1: mergedResult.newPointsFrom1,
-            newPointsFrom2: mergedResult.newPointsFrom2,
-            matches: mergedResult.matches
-        };
+    // 🔴 13. КООРДИНАТНАЯ СЕТКА С ТОЧКАМИ
+    drawCoordinateGrid(ctx, points1, points2, vizArea, scale, offsetX, offsetY) {
+        // Подписи координат для первых 3 точек каждого следа
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.font = '10px Arial';
+       
+        // Точки из следа 1
+        points1.slice(0, 3).forEach((point, i) => {
+            const x = offsetX + point.x * scale;
+            const y = offsetY + point.y * scale;
+            ctx.fillText(`P1_${i}: (${point.x.toFixed(0)}, ${point.y.toFixed(0)})`, x + 8, y + 5);
+        });
+       
+        // Точки из следа 2 (трансформированные)
+        points2.slice(0, 3).forEach((point, i) => {
+            const x = offsetX + point.x * scale;
+            const y = offsetY + point.y * scale;
+            ctx.fillText(`P2_${i}: (${point.x.toFixed(0)}, ${point.y.toFixed(0)})`, x + 8, y + 15);
+        });
     }
 
-    // 🔴 13. СОЗДАТЬ ОПИСАНИЕ ДЛЯ TELEGRAM
+    // 🔴 14. СОЗДАТЬ ОПИСАНИЕ ДЛЯ TELEGRAM
     createMergeCaption(footprint1, footprint2, stats) {
-        return `<b>🎯 ОБЪЕДИНЕННЫЙ СЛЕД РОБОФЛО</b>\n\n` +
+        return `<b>🎯 ОБЪЕДИНЕНИЕ СЛЕДОВ РОБОФЛО</b>\n\n` +
                `<b>📸 ${footprint1.name}:</b> + ${footprint2.name}\n` +
                `<b>✅ Подтвержденных деталей:</b> ${stats.confirmedPoints} (${stats.confirmedPercent}%)\n` +
                `<b>🔍 Новых деталей:</b> ${stats.newPoints}\n` +
                `<b>📈 Среднее подтверждений:</b> ${stats.avgConfirmations} раз\n` +
                `<b>🎯 Качество объединения:</b> ${stats.quality}/100\n` +
                `<b>🔄 Трансформация:</b> ${stats.transformation}\n\n` +
-               `<i>✅ Ядро | 🔍 Новые | 📐 Подтверждения</i>`;
+               `<i>🔵 След 1 | 🔴 След 2 (трансформированный) | ✅ Ядро | 🔍 Новые</i>`;
     }
 
-    // 🔴 14. ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (из предыдущей версии, оставляем для совместимости)
-
+    // 🔴 15. ВЕКТОРНОЕ СРАВНЕНИЕ ДЛЯ ТРАНСФОРМАЦИИ
     compareWithVectorGraphs(points1, points2) {
         if (points1.length < 4 || points2.length < 4) {
+            console.log('⚠️ Недостаточно точек для векторного сравнения');
             return { transformation: null, pointMatches: [], similarity: 0 };
         }
 
@@ -617,7 +665,15 @@ class MergeVisualizer {
                 };
             }).filter(match => match !== null);
 
-            console.log(`🔗 Преобразовано ${pointMatches.length} векторных соответствий`);
+            console.log(`🔗 Векторное сравнение: ${pointMatches.length} соответствий`);
+           
+            if (vectorComparison.transformation) {
+                console.log(`🔄 Трансформация найдена:`);
+                console.log(`   Смещение: dx=${vectorComparison.transformation.translation?.dx?.toFixed(2) || 0}, dy=${vectorComparison.transformation.translation?.dy?.toFixed(2) || 0}`);
+                console.log(`   Поворот: ${vectorComparison.transformation.rotation?.toFixed(2) || 0}°`);
+                console.log(`   Масштаб: ${vectorComparison.transformation.scale?.toFixed(3) || 1}`);
+                console.log(`   Уверенность: ${vectorComparison.transformation.confidence?.toFixed(3) || 0}`);
+            }
 
             return {
                 transformation: vectorComparison.transformation,
@@ -632,18 +688,28 @@ class MergeVisualizer {
         }
     }
 
+    // 🔴 16. ПРИМЕНИТЬ ТРАНСФОРМАЦИЮ (С ЛОГИРОВАНИЕМ)
     applyTransformation(points, transformation) {
         if (!transformation || transformation.type === 'insufficient_points') {
+            console.log('⚠️ Трансформация не применена');
             return points;
         }
 
-        return points.map(p => {
+        console.log(`🔄 Применяю трансформацию к ${points.length} точкам:`);
+        console.log(`   Смещение: dx=${transformation.translation?.dx?.toFixed(2) || 0}, dy=${transformation.translation?.dy?.toFixed(2) || 0}`);
+        console.log(`   Поворот: ${transformation.rotation?.toFixed(2) || 0}°`);
+        console.log(`   Масштаб: ${transformation.scale?.toFixed(3) || 1}`);
+        console.log(`   Уверенность: ${transformation.confidence?.toFixed(3) || 0}`);
+
+        const transformed = points.map(p => {
             let x = p.x;
             let y = p.y;
 
+            // Применяем смещение
             x += transformation.translation?.dx || 0;
             y += transformation.translation?.dy || 0;
 
+            // Применяем поворот (если есть)
             if (transformation.rotation && transformation.rotation !== 0) {
                 const rad = transformation.rotation * Math.PI / 180;
                 const cos = Math.cos(rad);
@@ -654,6 +720,7 @@ class MergeVisualizer {
                 y = newY;
             }
 
+            // Применяем масштаб (если есть)
             if (transformation.scale && transformation.scale !== 1) {
                 x *= transformation.scale;
                 y *= transformation.scale;
@@ -661,7 +728,18 @@ class MergeVisualizer {
 
             return { ...p, x, y };
         });
+
+        // Логируем первую точку для проверки
+        if (points.length > 0 && transformed.length > 0) {
+            console.log(`   Пример точки: (${points[0].x.toFixed(2)}, ${points[0].y.toFixed(2)}) → ` +
+                       `(${transformed[0].x.toFixed(2)}, ${transformed[0].y.toFixed(2)})`);
+        }
+
+        console.log(`✅ Трансформация применена`);
+        return transformed;
     }
+
+    // 🔴 17. ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ОТРИСОВКИ
 
     drawBackground(ctx, width, height) {
         const gradient = ctx.createLinearGradient(0, 0, width, height);
@@ -730,6 +808,10 @@ class MergeVisualizer {
 
         const offsetX = area.x + (area.width - rangeX * scale) / 2 - minX * scale;
         const offsetY = area.y + (area.height - rangeY * scale) / 2 - minY * scale;
+
+        console.log(`📐 Нормализация: масштаб ${scale.toFixed(4)}, смещение (${offsetX.toFixed(0)}, ${offsetY.toFixed(0)})`);
+        console.log(`   Диапазон X: ${minX.toFixed(0)} - ${maxX.toFixed(0)} (${rangeX.toFixed(0)})`);
+        console.log(`   Диапазон Y: ${minY.toFixed(0)} - ${maxY.toFixed(0)} (${rangeY.toFixed(0)})`);
 
         return { scale, offsetX, offsetY };
     }
