@@ -505,15 +505,16 @@ class HybridFootprint {
     // 7. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ (НОВЫЙ ИНТЕЛЛЕКТУАЛЬНЫЙ МЕТОД)
 mergeWithTransformation(otherFootprint) {
     console.log(`🔄 Интеллектуальное объединение с "${otherFootprint.name}"...`);
-
-    // 1. Сравнить векторные схемы для нахождения трансформации
+   
+    // 🔴 ДОБАВИТЬ ПРОВЕРКУ МИНИМАЛЬНОГО СХОДСТВА
     const vectorComparison = this.vectorGraph.compare(otherFootprint.vectorGraph);
-
-    if (vectorComparison.similarity < 0.6) {
-        console.log(`❌ Векторные схемы слишком разные: ${vectorComparison.similarity.toFixed(3)}`);
+   
+    if (vectorComparison.similarity < 0.3) { // Более строгий порог
+        console.log(`❌ Отпечатки слишком разные: similarity=${vectorComparison.similarity.toFixed(3)}`);
         return {
             success: false,
-            reason: `Векторные схемы слишком разные: ${vectorComparison.similarity.toFixed(3)}`
+            reason: `Отпечатки слишком разные (similarity: ${vectorComparison.similarity.toFixed(3)})`,
+            similarity: vectorComparison.similarity
         };
     }
 
