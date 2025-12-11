@@ -7,6 +7,8 @@ const SimpleGraph = require('./simple-graph');
 const DistanceMatrix = require('./distance-matrix');
 const VectorGraph = require('./vector-graph');
 const PointTracker = require('./point-tracker');
+// 🔴 ДОБАВЛЕН ВАЛИДАТОР CONFIDENCE
+const ConfidenceValidator = require('../utils/confidence-validator');
 
 class HybridFootprint {
     constructor(options = {}) {
@@ -25,8 +27,8 @@ class HybridFootprint {
         this.vectorGraph = new VectorGraph(options.vectorGraphData);
         this.pointTracker = new PointTracker(options.pointTrackerData);
 
-        // Оригинальные точки (для пересчёта)
-        this.originalPoints = options.originalPoints || [];
+        // 🔴 НОРМАЛИЗОВАТЬ ТОЧКИ ПРИ СОЗДАНИИ
+        this.originalPoints = ConfidenceValidator.validatePointsArray(options.originalPoints || []);
 
         // Метаданные
         this.metadata = {
@@ -39,7 +41,7 @@ class HybridFootprint {
 
         // Статистика
         this.stats = {
-            confidence: options.confidence || 0.5,
+            confidence: Math.max(0.0, Math.min(1.0, options.confidence || 0.5)),
             bitmaskConfidence: 0,
             momentConfidence: 0,
             graphConfidence: 0,
@@ -54,12 +56,12 @@ class HybridFootprint {
 
     // ДОБАВЛЕНО: Метод calculateConfidence
     calculateConfidence() {
-        return this.stats.confidence || 0.5;
+        return Math.max(0.0, Math.min(1.0, this.stats.confidence || 0.5));
     }
 
     // ДОБАВЛЕНО: Метод getConfidence для совместимости
     getConfidence() {
-        return this.stats.confidence || 0.5;
+        return Math.max(0.0, Math.min(1.0, this.stats.confidence || 0.5));
     }
 
     // 1. СОЗДАТЬ ВСЕ ПРЕДСТАВЛЕНИЯ ИЗ ТОЧЕК
@@ -71,25 +73,26 @@ class HybridFootprint {
             return false;
         }
 
-        this.originalPoints = points;
+        // 🔴 ВАЛИДИРОВАТЬ И НОРМАЛИЗОВАТЬ ТОЧКИ ПЕРЕД ИСПОЛЬЗОВАНИЕМ
+        this.originalPoints = ConfidenceValidator.validatePointsArray(points);
 
         // 1. БИТОВАЯ МАСКА (самое быстрое)
-        this.bitmask.createFromPoints(points);
+        this.bitmask.createFromPoints(this.originalPoints);
 
         // 2. ГЕОМЕТРИЧЕСКИЕ МОМЕНТЫ (быстрое)
-        this.moments.calculateFromPoints(points);
+        this.moments.calculateFromPoints(this.originalPoints);
 
         // 3. ГРАФ (медленное, но точное)
-        const graphInvariants = this.graph.buildFromPoints(points);
+        const graphInvariants = this.graph.buildFromPoints(this.originalPoints);
 
         // 4. МАТРИЦА РАССТОЯНИЙ
-        this.distanceMatrix.createFromPoints(points);
+        this.distanceMatrix.createFromPoints(this.originalPoints);
 
         // 5. ВЕКТОРНАЯ СХЕМА
-        this.vectorGraph.createFromPoints(points);
+        this.vectorGraph.createFromPoints(this.originalPoints);
 
         // 6. ТРЕКЕР ТОЧЕК
-        this.pointTracker.processNewPoints(points, sourceInfo);
+        this.pointTracker.processNewPoints(this.originalPoints, sourceInfo);
 
         // Обновить метаданные
         this.metadata.totalPhotos++;
@@ -109,39 +112,39 @@ class HybridFootprint {
         return true;
     }
 
-    // 2. ОБНОВИТЬ УВЕРЕННОСТИ
+    // 2. ОБНОВИТЬ УВЕРЕННОСТИ (С ОГРАНИЧЕНИЕМ)
     updateConfidence() {
         // Уверенность на основе битовой маски (сколько заполнено)
         const bitmaskOnes = BitmaskFootprint.countBits(this.bitmask.bitmask);
-        this.stats.bitmaskConfidence = bitmaskOnes / 64;
+        this.stats.bitmaskConfidence = Math.min(1.0, bitmaskOnes / 64);
 
         // Уверенность на основе моментов (сложность формы)
         const moments = this.moments.get7Moments();
         const momentSum = moments.reduce((sum, m) => sum + Math.abs(m), 0);
-        this.stats.momentConfidence = Math.min(1, momentSum * 10);
+        this.stats.momentConfidence = Math.min(1.0, momentSum * 10);
 
         // Уверенность на основе графа
         const nodeCount = this.graph.nodes.size;
         const edgeCount = this.graph.edges.size;
-        const graphConfidence = Math.min(1,
+        const graphConfidence = Math.min(1.0,
             (nodeCount / 30) * 0.4 + // Хотя бы 30 узлов
             (edgeCount / Math.max(1, nodeCount * 2)) * 0.3 + // Связность
-            this.graph.getBasicInvariants().clusteringCoefficient * 0.3
+            (this.graph.getBasicInvariants().clusteringCoefficient || 0) * 0.3
         );
         this.stats.graphConfidence = graphConfidence;
 
         // Уверенность на основе матрицы расстояний
-        this.stats.matrixConfidence = this.distanceMatrix.confidence || 0.8;
+        this.stats.matrixConfidence = Math.min(1.0, this.distanceMatrix.confidence || 0.8);
 
         // Уверенность на основе векторной схемы
-        this.stats.vectorConfidence = this.vectorGraph.confidence || 0.8;
+        this.stats.vectorConfidence = Math.min(1.0, this.vectorGraph.confidence || 0.8);
 
         // Уверенность на основе трекера точек
         const trackerStats = this.pointTracker.getStats();
-        this.stats.trackerConfidence = trackerStats.confidence || 0.8;
+        this.stats.trackerConfidence = Math.min(1.0, trackerStats.confidence || 0.8);
 
         // Общая уверенность (взвешенная)
-        this.stats.confidence = (
+        const calculatedConfidence = (
             this.stats.bitmaskConfidence * 0.1 +
             this.stats.momentConfidence * 0.15 +
             this.stats.graphConfidence * 0.2 +
@@ -150,9 +153,13 @@ class HybridFootprint {
             this.stats.trackerConfidence * 0.15
         );
 
+        // 🔴 ОГРАНИЧИТЬ В ДИАПАЗОНЕ [0.0, 1.0]
+        this.stats.confidence = Math.max(0.0, Math.min(1.0, calculatedConfidence));
+
         // Качество (уверенность × количество фото)
-        this.stats.qualityScore = this.stats.confidence *
-            Math.min(1, this.metadata.totalPhotos / 3);
+        this.stats.qualityScore = Math.max(0.0, Math.min(1.0,
+            this.stats.confidence * Math.min(1, this.metadata.totalPhotos / 3)
+        ));
     }
 
     // 3. КАСКАДНОЕ СРАВНЕНИЕ С ДРУГИМ ОТПЕЧАТКОМ (ОБНОВЛЁННАЯ ВЕРСИЯ)
@@ -162,8 +169,16 @@ class HybridFootprint {
         const steps = [];
         const startTime = Date.now();
 
+        // 🔴 ВАЛИДИРОВАТЬ ТОЧКИ ПЕРЕД СРАВНЕНИЕМ
+        const validatedPoints1 = ConfidenceValidator.validatePointsArray(this.originalPoints);
+        const validatedPoints2 = ConfidenceValidator.validatePointsArray(otherFootprint.originalPoints);
+       
+        // Использовать валидированные точки
+        const points1 = validatedPoints1;
+        const points2 = validatedPoints2;
+
         // ПРОВЕРКА КАЧЕСТВА ДАННЫХ
-        if (this.originalPoints.length < 15 || otherFootprint.originalPoints.length < 15) {
+        if (points1.length < 15 || points2.length < 15) {
             return {
                 similarity: 0,
                 decision: 'different',
@@ -175,8 +190,8 @@ class HybridFootprint {
         }
 
         // 🔴 ШАГ 0: ПРОВЕРКА РАЗМЕРОВ (ОСЛАБЛЕННАЯ ВЕРСИЯ)
-        const sizeRatio = Math.min(this.originalPoints.length, otherFootprint.originalPoints.length) /
-                         Math.max(this.originalPoints.length, otherFootprint.originalPoints.length);
+        const sizeRatio = Math.min(points1.length, points2.length) /
+                         Math.max(points1.length, points2.length);
 
         // Для совсем разных размеров - быстрый отсев
         if (sizeRatio < 0.4) { // Было 0.7 - ТЕПЕРЬ ТОЛЬКО СОВСЕМ РАЗНЫЕ РАЗМЕРЫ
@@ -184,7 +199,7 @@ class HybridFootprint {
             return {
                 similarity: sizeRatio,
                 decision: 'different',
-                reason: `Слишком разное количество точек: ${this.originalPoints.length} vs ${otherFootprint.originalPoints.length}`,
+                reason: `Слишком разное количество точек: ${points1.length} vs ${points2.length}`,
                 steps,
                 fastReject: true,
                 timeMs: Date.now() - startTime
@@ -316,24 +331,24 @@ class HybridFootprint {
         };
 
         // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ЗНАЧЕНИЙ (ИСПРАВЛЕНИЕ criticalPass ОШИБКИ)
-        const bitmaskSimilarity = bitmaskResult?.similarity || 0;
-        const momentSimilarity = momentResult?.similarity || 0;
-        const matrixSimilarity = matrixResult?.similarity || 0;
-        const vectorSimilarity = vectorResult?.similarity || 0;
-        const graphSimilarity = graphResult?.similarity || 0;
+        const bitmaskSimilarity = Math.max(0, Math.min(1, bitmaskResult?.similarity || 0));
+        const momentSimilarity = Math.max(0, Math.min(1, momentResult?.similarity || 0));
+        const matrixSimilarity = Math.max(0, Math.min(1, matrixResult?.similarity || 0));
+        const vectorSimilarity = Math.max(0, Math.min(1, vectorResult?.similarity || 0));
+        const graphSimilarity = Math.max(0, Math.min(1, graphResult?.similarity || 0));
 
-        const totalSimilarity = (
+        const totalSimilarity = Math.max(0, Math.min(1,
             bitmaskSimilarity * weights.bitmask +
             momentSimilarity * weights.moments +
             matrixSimilarity * weights.matrix +
             vectorSimilarity * weights.vector +
             graphSimilarity * weights.graph
-        );
+        ));
 
         // 🔴 КОМБИНИРОВАННЫЕ КРИТЕРИИ ДЛЯ РЕШЕНИЯ
         let decision, reason;
 
-        // Критически важны матрица и векторы (ИСПРАВЛЕНО: определяем ДО использования)
+        // Критически важны матрица и векторы
         const criticalPass = matrixSimilarity > 0.7 && vectorSimilarity > 0.75;
 
         // 🔴 СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ПОХОЖИХ ФОРМ РАЗНОГО РАЗМЕРА
@@ -390,32 +405,20 @@ class HybridFootprint {
             { name: 'nodeCount', score: Math.min(invariants1.nodeCount, invariants2.nodeCount) / Math.max(invariants1.nodeCount, invariants2.nodeCount) },
             { name: 'edgeCount', score: Math.min(invariants1.edgeCount, invariants2.edgeCount) / Math.max(invariants1.edgeCount, invariants2.edgeCount) },
             { name: 'avgDegree', score: 1 - Math.min(1, Math.abs(invariants1.avgDegree - invariants2.avgDegree) / 3) },
-            { name: 'clustering', score: 1 - Math.min(1, Math.abs(invariants1.clusteringCoefficient - invariants2.clusteringCoefficient) / 0.3) }
+            { name: 'clustering', score: 1 - Math.min(1, Math.abs((invariants1.clusteringCoefficient || 0) - (invariants2.clusteringCoefficient || 0)) / 0.3) }
         ];
 
         const similarity = comparisons.reduce((sum, c) => sum + c.score, 0) / comparisons.length;
 
         return {
-            similarity,
+            similarity: Math.max(0, Math.min(1, similarity)),
             comparisons,
             invariants1,
             invariants2
         };
     }
 
-    // 5. БЫСТРЫЙ ОТСЕВ
-    quickReject(stage, result, steps, startTime) {
-        return {
-            similarity: result.similarity || 0,
-            decision: 'different',
-            reason: `Быстрый отсев на этапе ${stage}`,
-            steps,
-            fastReject: true,
-            timeMs: Date.now() - startTime
-        };
-    }
-
-    // 6. ОБЪЕДИНЕНИЕ С ДРУГИМ ОТПЕЧАТКОМ
+    // 5. ОБЪЕДИНЕНИЕ С ДРУГИМ ОТПЕЧАТКОМ
     merge(otherFootprint, transformation = null) {
         console.log(`🔄 Объединяю с "${otherFootprint.name}"...`);
 
@@ -440,20 +443,18 @@ class HybridFootprint {
         // Объединить точки графа (простое объединение)
         const previousNodeCount = this.graph.nodes.size;
 
-        // Добавить точки из другого отпечатка
-        if (otherFootprint.originalPoints && otherFootprint.originalPoints.length > 0) {
-            const combinedPoints = [
-                ...this.originalPoints,
-                ...otherFootprint.originalPoints
-            ];
+        // 🔴 ВАЛИДИРОВАТЬ И ОБЪЕДИНИТЬ ТОЧКИ
+        const combinedPoints = ConfidenceValidator.validatePointsArray([
+            ...this.originalPoints,
+            ...(otherFootprint.originalPoints || [])
+        ]);
 
-            // Перестроить граф из всех точек
-            this.graph.buildFromPoints(combinedPoints);
-            this.originalPoints = combinedPoints;
-        }
+        // Перестроить граф из всех точек
+        this.graph.buildFromPoints(combinedPoints);
+        this.originalPoints = combinedPoints;
 
         // Обновить метаданные
-        this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos;
+        this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos || 1;
         this.metadata.lastUpdated = new Date();
 
         if (transformation) {
@@ -502,134 +503,163 @@ class HybridFootprint {
         };
     }
 
-    // 7. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ (НОВЫЙ ИНТЕЛЛЕКТУАЛЬНЫЙ МЕТОД)
-mergeWithTransformation(otherFootprint) {
-    console.log(`🔄 Интеллектуальное объединение с "${otherFootprint.name}"...`);
-   
-    // 🔴 ДОБАВИТЬ ПРОВЕРКУ МИНИМАЛЬНОГО СХОДСТВА
-    const vectorComparison = this.vectorGraph.compare(otherFootprint.vectorGraph);
-   
-    if (vectorComparison.similarity < 0.3) { // Более строгий порог
-        console.log(`❌ Отпечатки слишком разные: similarity=${vectorComparison.similarity.toFixed(3)}`);
+    // 6. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ (НОВЫЙ ИНТЕЛЛЕКТУАЛЬНЫЙ МЕТОД)
+    mergeWithTransformation(otherFootprint) {
+        console.log(`🔄 Интеллектуальное объединение с "${otherFootprint.name}"...`);
+
+        // 🔴 ШАГ 1: ПРОВЕРИТЬ ТОЧКИ ПЕРЕД СЛИЯНИЕМ
+        const points1Issues = ConfidenceValidator.checkForConfidenceIssues(this.originalPoints);
+        const points2Issues = ConfidenceValidator.checkForConfidenceIssues(otherFootprint.originalPoints);
+
+        if (points1Issues.length > 0 || points2Issues.length > 0) {
+            console.log('⚠️  Обнаружены проблемы с точками перед слиянием:');
+            [...points1Issues, ...points2Issues].forEach(issue => {
+                console.log(`   ${issue.type}: ${issue.message}`);
+            });
+
+            // Автоматически исправить
+            this.originalPoints = ConfidenceValidator.validatePointsArray(this.originalPoints);
+            otherFootprint.originalPoints = ConfidenceValidator.validatePointsArray(otherFootprint.originalPoints);
+        }
+
+        // 🔴 ШАГ 2: ПРОВЕРКА МИНИМАЛЬНОГО СХОДСТВА
+        const vectorComparison = this.vectorGraph.compare(otherFootprint.vectorGraph);
+
+        if (vectorComparison.similarity < 0.3) { // Более строгий порог
+            console.log(`❌ Отпечатки слишком разные: similarity=${vectorComparison.similarity.toFixed(3)}`);
+            return {
+                success: false,
+                reason: `Отпечатки слишком разные (similarity: ${vectorComparison.similarity.toFixed(3)})`,
+                similarity: vectorComparison.similarity
+            };
+        }
+
+        // 3. Извлечь точки из обоих отпечатков
+        const points1 = this.originalPoints;
+        const points2 = otherFootprint.originalPoints;
+
+        console.log(`📊 Точки для слияния: ${points1.length} + ${points2.length}`);
+
+        // 4. СОЗДАТЬ POINT MERGER И ВЫПОЛНИТЬ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
+        const PointMerger = require('./point-merger');
+        const pointMerger = new PointMerger({
+            mergeDistance: 40,
+            confidenceBoost: 1.5,
+            minConfidenceForMerge: 0.2
+        });
+
+        const mergeResult = pointMerger.mergePoints(
+            points1,
+            points2,
+            vectorComparison.transformation
+        );
+
+        // 🔴 ПРОВЕРИТЬ РЕЗУЛЬТАТ ПОСЛЕ СЛИЯНИЯ
+        const mergedIssues = ConfidenceValidator.checkForConfidenceIssues(mergeResult.points);
+        if (mergedIssues.length > 0) {
+            console.log('❌ Обнаружены проблемы после слияния:');
+            mergedIssues.forEach(issue => {
+                console.log(`   ${issue.type}: ${issue.message}`);
+            });
+
+            // Автоматически исправить
+            mergeResult.points = ConfidenceValidator.validatePointsArray(mergeResult.points);
+        }
+
+        // 5. Обработать результат слияния через трекер
+        const trackerResult = this.pointTracker.processNewPoints(
+            mergeResult.points.filter(p => p.source === 'footprint2' || p.source === 'merged'),
+            {
+                source: 'intelligent_merge',
+                fromFootprint: otherFootprint.id,
+                transformation: vectorComparison.transformation,
+                mergeStats: mergeResult.stats
+            }
+        );
+
+        // 6. Получить ВСЕ точки (высокодостоверные + новые)
+        const allPoints = this.pointTracker.getAllPoints({
+            minRating: 0.3, // Более низкий порог для получения всех точек
+            minConfirmations: 0
+        });
+
+        // 🔴 ВАЛИДИРОВАТЬ ВСЕ ТОЧКИ
+        const validatedAllPoints = ConfidenceValidator.validatePointsArray(allPoints);
+        console.log(`📈 После слияния: ${validatedAllPoints.length} точек (было ${points1.length})`);
+
+        // 7. Обновить все представления из ОБЪЕДИНЁННЫХ точек
+        this.originalPoints = validatedAllPoints;
+
+        // Пересчитать все представления
+        this.bitmask.createFromPoints(validatedAllPoints);
+        this.moments.calculateFromPoints(validatedAllPoints);
+        this.distanceMatrix.createFromPoints(validatedAllPoints);
+        this.vectorGraph.createFromPoints(validatedAllPoints);
+
+        // Обновить граф
+        const graphPoints = validatedAllPoints.map(pt => ({
+            x: pt.x,
+            y: pt.y,
+            confidence: pt.confidence || pt.rating || 0.5,
+            source: pt.source
+        }));
+        this.graph.buildFromPoints(graphPoints);
+
+        // 8. Обновить метаданные
+        this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos || 1;
+        this.metadata.lastUpdated = new Date();
+        this.metadata.transformations.push({
+            timestamp: new Date(),
+            with: otherFootprint.id,
+            transformation: vectorComparison.transformation || {},
+            mergeStats: mergeResult.stats,
+            trackerResult: trackerResult
+        });
+
+        // 9. Обновить статистику
+        this.updateConfidence();
+
+        // ✅ ДОБАВЛЕН РАСЧЕТ МЕТРИК
+        const avgConfidenceBefore = (points1.reduce((s, p) => s + (p.confidence || 0.5), 0) / points1.length +
+                                   points2.reduce((s, p) => s + (p.confidence || 0.5), 0) / points2.length) / 2;
+
+        const avgConfidenceAfter = mergeResult.points.reduce((s, p) => s + (p.confidence || 0.5), 0) / mergeResult.points.length;
+        const confidenceImprovement = ((avgConfidenceAfter - avgConfidenceBefore) / Math.max(0.001, avgConfidenceBefore) * 100).toFixed(1);
+
+        console.log(`✅ Интеллектуальное объединение успешно!`);
+        console.log(`   📍 Уникальных точек: ${mergeResult.stats.uniqueFrom1 + mergeResult.stats.uniqueFrom2}`);
+        console.log(`   🔗 Слитых точек: ${mergeResult.stats.mergedPoints}`);
+        console.log(`   📊 Всего точек: ${validatedAllPoints.length}`);
+        console.log(`   💎 Новая уверенность: ${Math.round(this.stats.confidence * 100)}%`);
+        console.log(`   📈 Улучшение confidence: ${confidenceImprovement}%`);
+        console.log(`   🎯 Эффективность: ${((points1.length + points2.length - mergeResult.points.length) / (points1.length + points2.length) * 100).toFixed(1)}% сокращение`);
+
         return {
-            success: false,
-            reason: `Отпечатки слишком разные (similarity: ${vectorComparison.similarity.toFixed(3)})`,
-            similarity: vectorComparison.similarity
+            success: true,
+            transformation: vectorComparison.transformation || {},
+            mergeResult: mergeResult,
+            trackerResult: trackerResult,
+            allPoints: validatedAllPoints.length,
+            mergedPoints: mergeResult.stats.mergedPoints,
+            confidence: this.stats.confidence,
+            // ✅ ДОБАВЛЕНЫ МЕТРИКИ В ВОЗВРАЩАЕМЫЙ ОБЪЕКТ
+            metrics: {
+                confidenceImprovement: confidenceImprovement + '%',
+                efficiency: ((points1.length + points2.length - mergeResult.points.length) /
+                           (points1.length + points2.length) * 100).toFixed(1) + '% сокращение',
+                avgConfidenceBefore: avgConfidenceBefore.toFixed(3),
+                avgConfidenceAfter: avgConfidenceAfter.toFixed(3),
+                pointReduction: mergeResult.points.length - (points1.length + points2.length)
+            },
+            stats: {
+                before: { points1: points1.length, points2: points2.length },
+                after: { total: validatedAllPoints.length, merged: mergeResult.stats.mergedPoints },
+                efficiency: `${((points1.length + points2.length - mergeResult.points.length) / (points1.length + points2.length) * 100).toFixed(1)}% сокращение дубликатов`
+            }
         };
     }
 
-    // 2. Извлечь точки из обоих отпечатков
-    const points1 = this.originalPoints;
-    const points2 = otherFootprint.originalPoints;
-
-    console.log(`📊 Точки для слияния: ${points1.length} + ${points2.length}`);
-
-    // 3. СОЗДАТЬ POINT MERGER И ВЫПОЛНИТЬ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
-    const PointMerger = require('./point-merger');
-    const pointMerger = new PointMerger({
-        mergeDistance: 40, // БЫЛО 15! ИЗМЕНИТЬ!
-        confidenceBoost: 1.5,
-        minConfidenceForMerge: 0.2
-    });
-
-    const mergeResult = pointMerger.mergePoints(
-        points1,
-        points2,
-        vectorComparison.transformation
-    );
-
-    // ✅ ДОБАВЛЕН РАСЧЕТ МЕТРИК
-    // Расчет метрик:
-    const avgConfidenceBefore = (points1.reduce((s, p) => s + (p.confidence || 0.5), 0) / points1.length +
-                               points2.reduce((s, p) => s + (p.confidence || 0.5), 0) / points2.length) / 2;
-
-    const avgConfidenceAfter = mergeResult.points.reduce((s, p) => s + (p.confidence || 0.5), 0) / mergeResult.points.length;
-
-    const confidenceImprovement = ((avgConfidenceAfter - avgConfidenceBefore) / avgConfidenceBefore * 100).toFixed(1);
-
-    // 4. Обработать результат слияния через трекер
-    const trackerResult = this.pointTracker.processNewPoints(
-        mergeResult.points.filter(p => p.source === 'footprint2' || p.source === 'merged'),
-        {
-            source: 'intelligent_merge',
-            fromFootprint: otherFootprint.id,
-            transformation: vectorComparison.transformation,
-            mergeStats: mergeResult.stats
-        }
-    );
-
-    // 5. Получить ВСЕ точки (высокодостоверные + новые)
-    const allPoints = this.pointTracker.getAllPoints({
-        minRating: 0.3, // Более низкий порог для получения всех точек
-        minConfirmations: 0
-    });
-
-    console.log(`📈 После слияния: ${allPoints.length} точек (было ${points1.length})`);
-
-    // 6. Обновить все представления из ОБЪЕДИНЁННЫХ точек
-    this.originalPoints = allPoints;
-
-    // Пересчитать все представления
-    this.bitmask.createFromPoints(allPoints);
-    this.moments.calculateFromPoints(allPoints);
-    this.distanceMatrix.createFromPoints(allPoints);
-    this.vectorGraph.createFromPoints(allPoints);
-
-    // Обновить граф
-    const graphPoints = allPoints.map(pt => ({
-        x: pt.x,
-        y: pt.y,
-        confidence: pt.confidence || pt.rating || 0.5
-    }));
-    this.graph.buildFromPoints(graphPoints);
-
-    // 7. Обновить метаданные
-    this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos;
-    this.metadata.lastUpdated = new Date();
-    this.metadata.transformations.push({
-        timestamp: new Date(),
-        with: otherFootprint.id,
-        transformation: vectorComparison.transformation || {},
-        mergeStats: mergeResult.stats,
-        trackerResult: trackerResult
-    });
-
-    // 8. Обновить статистику
-    this.updateConfidence();
-
-    console.log(`✅ Интеллектуальное объединение успешно!`);
-    console.log(`   📍 Уникальных точек: ${mergeResult.stats.uniqueFrom1 + mergeResult.stats.uniqueFrom2}`);
-    console.log(`   🔗 Слитых точек: ${mergeResult.stats.mergedPoints}`);
-    console.log(`   📊 Всего точек: ${allPoints.length}`);
-    console.log(`   💎 Новая уверенность: ${Math.round(this.stats.confidence * 100)}%`);
-    console.log(`   📈 Улучшение confidence: ${confidenceImprovement}%`);
-    console.log(`   🎯 Эффективность: ${((points1.length + points2.length - mergeResult.points.length) / (points1.length + points2.length) * 100).toFixed(1)}% сокращение`);
-
-    return {
-        success: true,
-        transformation: vectorComparison.transformation || {},
-        mergeResult: mergeResult,
-        trackerResult: trackerResult,
-        allPoints: allPoints.length,
-        mergedPoints: mergeResult.stats.mergedPoints,
-        confidence: this.stats.confidence,
-        // ✅ ДОБАВЛЕНЫ МЕТРИКИ В ВОЗВРАЩАЕМЫЙ ОБЪЕКТ
-        metrics: {
-            confidenceImprovement: confidenceImprovement + '%',
-            efficiency: ((points1.length + points2.length - mergeResult.points.length) /
-                       (points1.length + points2.length) * 100).toFixed(1) + '% сокращение',
-            avgConfidenceBefore: avgConfidenceBefore.toFixed(3),
-            avgConfidenceAfter: avgConfidenceAfter.toFixed(3),
-            pointReduction: mergeResult.points.length - (points1.length + points2.length)
-        },
-        stats: {
-            before: { points1: points1.length, points2: points2.length },
-            after: { total: allPoints.length, merged: mergeResult.stats.mergedPoints },
-            efficiency: `${mergeResult.stats.reductionPercentage}% сокращение дубликатов`
-        }
-    };
-}
-    // 8. БЫСТРЫЙ ПОИСК ПО БИТОВОЙ МАСКЕ (для базы данных)
+    // 7. БЫСТРЫЙ ПОИСК ПО БИТОВОЙ МАСКЕ (для базы данных)
     static fastSearch(queryBitmask, database, maxDistance = 20) {
         const startTime = Date.now();
         const results = [];
@@ -646,7 +676,7 @@ mergeWithTransformation(otherFootprint) {
                         item,
                         index,
                         bitmaskDistance: distance,
-                        bitmaskSimilarity: 1 - (distance / 64)
+                        bitmaskSimilarity: Math.max(0, Math.min(1, 1 - (distance / 64)))
                     });
                 }
             }
@@ -660,7 +690,7 @@ mergeWithTransformation(otherFootprint) {
         return results;
     }
 
-    // 9. ПОЛУЧИТЬ ИНФОРМАЦИЮ
+    // 8. ПОЛУЧИТЬ ИНФОРМАЦИЮ
     getInfo() {
         const trackerStats = this.pointTracker.getStats();
 
@@ -670,6 +700,7 @@ mergeWithTransformation(otherFootprint) {
             userId: this.userId,
             stats: {
                 ...this.stats,
+                confidence: Math.round(this.stats.confidence * 1000) / 1000,
                 qualityScore: Math.round(this.stats.qualityScore * 100)
             },
             metadata: {
@@ -690,7 +721,7 @@ mergeWithTransformation(otherFootprint) {
         };
     }
 
-    // 10. ВИЗУАЛИЗИРОВАТЬ ВСЕ ПРЕДСТАВЛЕНИЯ
+    // 9. ВИЗУАЛИЗИРОВАТЬ ВСЕ ПРЕДСТАВЛЕНИЯ
     visualize() {
         console.log(`\n🎭 ГИБРИДНЫЙ ОТПЕЧАТОК "${this.name}":`);
         console.log(`├─ ID: ${this.id}`);
@@ -719,7 +750,7 @@ mergeWithTransformation(otherFootprint) {
         this.graph.visualize();
     }
 
-    // 11. СОХРАНИТЬ В JSON
+    // 10. СОХРАНИТЬ В JSON
     toJSON() {
         return {
             id: this.id,
@@ -738,12 +769,12 @@ mergeWithTransformation(otherFootprint) {
                 lastUpdated: this.metadata.lastUpdated.toISOString()
             },
             stats: this.stats,
-            _version: '2.0', // Обновлена версия
+            _version: '2.0',
             _savedAt: new Date().toISOString()
         };
     }
 
-    // 12. ЗАГРУЗИТЬ ИЗ JSON
+    // 11. ЗАГРУЗИТЬ ИЗ JSON
     static fromJSON(data) {
         console.log(`📂 Загружаю гибридный отпечаток "${data.name}"...`);
 
@@ -763,7 +794,8 @@ mergeWithTransformation(otherFootprint) {
         });
 
         if (data.stats) {
-            footprint.stats = { ...footprint.stats, ...data.stats };
+            // 🔴 ОГРАНИЧИТЬ CONFIDENCE ПРИ ЗАГРУЗКЕ
+            footprint.stats.confidence = Math.max(0.0, Math.min(1.0, data.stats.confidence || 0.5));
         }
 
         console.log(`✅ Загружен гибридный отпечаток "${footprint.name}" версии ${data._version || '1.0'}`);
@@ -771,7 +803,7 @@ mergeWithTransformation(otherFootprint) {
         return footprint;
     }
 
-    // 13. ТЕСТ: СОЗДАТЬ И СРАВНИТЬ ДВА ОТПЕЧАТКА
+    // 12. ТЕСТ: СОЗДАТЬ И СРАВНИТЬ ДВА ОТПЕЧАТКА
     static testComparison() {
         console.log('\n🧪 ТЕСТ ГИБРИДНОЙ СИСТЕМЫ:');
 
@@ -783,14 +815,16 @@ mergeWithTransformation(otherFootprint) {
             points1.push({
                 x: 100 + Math.random() * 200,
                 y: 100 + Math.random() * 100,
-                confidence: 0.8
+                confidence: 0.8,
+                source: 'test1'
             });
 
             // points2 - немного смещённая версия points1
             points2.push({
                 x: points1[i].x + Math.random() * 20 - 10,
                 y: points1[i].y + Math.random() * 20 - 10,
-                confidence: 0.8
+                confidence: 0.8,
+                source: 'test2'
             });
         }
 
@@ -835,12 +869,14 @@ mergeWithTransformation(otherFootprint) {
         try {
             // Попробовать метод getVectorCount, если он существует
             if (this.vectorGraph && typeof this.vectorGraph.getVectorCount === 'function') {
-                return this.vectorGraph.getVectorCount();
+                const count = this.vectorGraph.getVectorCount();
+                return Math.max(0, count || 0);
             }
             // Если метод отсутствует, попробовать получить данные из starVectors
             if (this.vectorGraph && this.vectorGraph.starVectors && Array.isArray(this.vectorGraph.starVectors)) {
-                return this.vectorGraph.starVectors.reduce((sum, sv) =>
+                const count = this.vectorGraph.starVectors.reduce((sum, sv) =>
                     sum + (sv.vectors ? sv.vectors.length : 0), 0);
+                return Math.max(0, count);
             }
             return 0;
         } catch (error) {
