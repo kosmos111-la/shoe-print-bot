@@ -526,9 +526,9 @@ class HybridFootprint {
         // 3. СОЗДАТЬ POINT MERGER И ВЫПОЛНИТЬ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
         const PointMerger = require('./point-merger');
         const pointMerger = new PointMerger({
-            mergeDistance: 15,
-            confidenceBoost: 1.3,
-            minConfidenceForMerge: 0.4
+            mergeDistance: 40, // БЫЛО 15! ИЗМЕНИТЬ!
+    confidenceBoost: 1.5,
+    minConfidenceForMerge: 0.2
         });
 
         const mergeResult = pointMerger.mergePoints(
