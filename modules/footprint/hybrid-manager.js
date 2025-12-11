@@ -1,584 +1,864 @@
-// modules/footprint/hybrid-manager.js
-const HybridFootprint = require('./hybrid-footprint');
+// modules/footprint/hybrid-footprint.js
+// ГИБРИДНЫЙ ОТПЕЧАТОК: битовые маски + моменты + графы + матрица расстояний + векторная схема + трекер точек
+
 const BitmaskFootprint = require('./bitmask-footprint');
-const fs = require('fs').promises;
-const fsSync = require('fs');
-const path = require('path');
+const MomentFootprint = require('./moment-footprint');
+const SimpleGraph = require('./simple-graph');
+const DistanceMatrix = require('./distance-matrix');
+const VectorGraph = require('./vector-graph');
+const PointTracker = require('./point-tracker');
+const PointMerger = require('./point-merger'); // ДОБАВЛЕНО: импорт PointMerger
 
-class HybridManager {
+class HybridFootprint {
     constructor(options = {}) {
-        this.config = {
-            dbPath: options.dbPath || './data/hybrid-footprints',
-            autoSave: options.autoSave !== false,
-            minSimilarityForSame: options.minSimilarityForSame || 0.85,
-            minSimilarityForSimilar: options.minSimilarityForSimilar || 0.7,
-            fastRejectBitmaskDistance: options.fastRejectBitmaskDistance || 15, // НЕ ИСПОЛЬЗУЕТСЯ
-            ...options
-        };
+        // Идентификаторы
+        this.id = options.id || `hybrid_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        this.name = options.name || `Гибридный отпечаток`;
+        this.userId = options.userId || null;
 
-        // Кэширование
-        this.userFootprints = new Map(); // userId -> HybridFootprint[]
-        this.searchCache = new Map(); // queryHash -> results
+        // Различные представления отпечатка
+        this.bitmask = new BitmaskFootprint(options.bitmaskData);
+        this.moments = new MomentFootprint(options.momentData);
+        this.graph = options.graph || new SimpleGraph(this.name);
+
+        // Новые представления (добавлены)
+        this.distanceMatrix = new DistanceMatrix(options.distanceMatrixData);
+        this.vectorGraph = new VectorGraph(options.vectorGraphData);
+        this.pointTracker = new PointTracker(options.pointTrackerData);
+
+        // ДОБАВЛЕНО ЭТО:
+        this.pointMerger = new PointMerger({
+            mergeDistance: 40,
+            confidenceBoost: 1.5,
+            minConfidenceForMerge: 0.2
+        });
+
+        // Оригинальные точки (для пересчёта)
+        this.originalPoints = options.originalPoints || [];
+
+        // Метаданные
+        this.metadata = {
+            created: new Date(),
+            lastUpdated: new Date(),
+            totalPhotos: 0,
+            transformations: [], // История трансформаций при объединении
+            ...(options.metadata || {})
+        };
 
         // Статистика
         this.stats = {
-            totalComparisons: 0,
-            fastRejects: 0,
-            sameDecisions: 0,
-            similarDecisions: 0,
-            differentDecisions: 0,
-            avgComparisonTime: 0
+            confidence: options.confidence || 0.5,
+            bitmaskConfidence: 0,
+            momentConfidence: 0,
+            graphConfidence: 0,
+            matrixConfidence: 0,
+            vectorConfidence: 0,
+            trackerConfidence: 0,
+            qualityScore: 0
         };
 
-        this.ensureDatabaseDirectory();
-        console.log('🎭 Гибридный менеджер инициализирован');
-        console.log(`   ⚡ БИТОВЫЙ ОТСЕВ ОТКЛЮЧЕН - все отпечатки проверяются`);
-        console.log(`   Порог схожести (same): ${this.config.minSimilarityForSame}`);
+        console.log(`🎭 Создан гибридный отпечаток "${this.name}"`);
     }
 
-    ensureDatabaseDirectory() {
-        const dirs = [
-            this.config.dbPath,
-            path.join(this.config.dbPath, 'users'),
-            path.join(this.config.dbPath, 'cache')
+    // ДОБАВЛЕНО: Метод calculateConfidence
+    calculateConfidence() {
+        return this.stats.confidence || 0.5;
+    }
+
+    // ДОБАВЛЕНО: Метод getConfidence для совместимости
+    getConfidence() {
+        return this.stats.confidence || 0.5;
+    }
+
+    // 1. СОЗДАТЬ ВСЕ ПРЕДСТАВЛЕНИЯ ИЗ ТОЧЕК
+    createFromPoints(points, sourceInfo = {}) {
+        console.log(`🎯 Создаю гибридный отпечаток из ${points.length} точек...`);
+
+        if (!points || points.length < 3) {
+            console.log('⚠️ Слишком мало точек');
+            return false;
+        }
+
+        this.originalPoints = points;
+
+        // 1. БИТОВАЯ МАСКА (самое быстрое)
+        this.bitmask.createFromPoints(points);
+
+        // 2. ГЕОМЕТРИЧЕСКИЕ МОМЕНТЫ (быстрое)
+        this.moments.calculateFromPoints(points);
+
+        // 3. ГРАФ (медленное, но точное)
+        const graphInvariants = this.graph.buildFromPoints(points);
+
+        // 4. МАТРИЦА РАССТОЯНИЙ
+        this.distanceMatrix.createFromPoints(points);
+
+        // 5. ВЕКТОРНАЯ СХЕМА
+        this.vectorGraph.createFromPoints(points);
+
+        // 6. ТРЕКЕР ТОЧЕК
+        this.pointTracker.processNewPoints(points, sourceInfo);
+
+        // Обновить метаданные
+        this.metadata.totalPhotos++;
+        this.metadata.lastUpdated = new Date();
+
+        // Рассчитать уверенности
+        this.updateConfidence();
+
+        console.log(`✅ Гибридный отпечаток создан:`);
+        console.log(`   🎭 Битовая маска: ${this.bitmask.bitmask.toString(16).slice(0, 8)}...`);
+        console.log(`   📐 Моменты: ${this.moments.get7Moments().length} инвариантов`);
+        console.log(`   🕸️ Граф: ${this.graph.nodes.size} узлов, ${this.graph.edges.size} рёбер`);
+        console.log(`   📊 Матрица: ${this.getMatrixSizeString()}`);
+        console.log(`   🧭 Векторы: ${this.getVectorCount()} векторов`);
+        console.log(`   📍 Трекер: ${this.pointTracker.getStats().totalPoints} точек`);
+
+        return true;
+    }
+
+    // 2. ОБНОВИТЬ УВЕРЕННОСТИ
+    updateConfidence() {
+        // Уверенность на основе битовой маски (сколько заполнено)
+        const bitmaskOnes = BitmaskFootprint.countBits(this.bitmask.bitmask);
+        this.stats.bitmaskConfidence = bitmaskOnes / 64;
+
+        // Уверенность на основе моментов (сложность формы)
+        const moments = this.moments.get7Moments();
+        const momentSum = moments.reduce((sum, m) => sum + Math.abs(m), 0);
+        this.stats.momentConfidence = Math.min(1, momentSum * 10);
+
+        // Уверенность на основе графа
+        const nodeCount = this.graph.nodes.size;
+        const edgeCount = this.graph.edges.size;
+        const graphConfidence = Math.min(1,
+            (nodeCount / 30) * 0.4 + // Хотя бы 30 узлов
+            (edgeCount / Math.max(1, nodeCount * 2)) * 0.3 + // Связность
+            this.graph.getBasicInvariants().clusteringCoefficient * 0.3
+        );
+        this.stats.graphConfidence = graphConfidence;
+
+        // Уверенность на основе матрицы расстояний
+        this.stats.matrixConfidence = this.distanceMatrix.confidence || 0.8;
+
+        // Уверенность на основе векторной схемы
+        this.stats.vectorConfidence = this.vectorGraph.confidence || 0.8;
+
+        // Уверенность на основе трекера точек
+        const trackerStats = this.pointTracker.getStats();
+        this.stats.trackerConfidence = trackerStats.confidence || 0.8;
+
+        // Общая уверенность (взвешенная)
+        this.stats.confidence = (
+            this.stats.bitmaskConfidence * 0.1 +
+            this.stats.momentConfidence * 0.15 +
+            this.stats.graphConfidence * 0.2 +
+            this.stats.matrixConfidence * 0.2 +
+            this.stats.vectorConfidence * 0.2 +
+            this.stats.trackerConfidence * 0.15
+        );
+
+        // Качество (уверенность × количество фото)
+        this.stats.qualityScore = this.stats.confidence *
+            Math.min(1, this.metadata.totalPhotos / 3);
+    }
+
+    // 3. КАСКАДНОЕ СРАВНЕНИЕ С ДРУГИМ ОТПЕЧАТКОМ (ОБНОВЛЁННАЯ ВЕРСИЯ)
+    compare(otherFootprint) {
+        console.log(`🔍 Каскадное сравнение с "${otherFootprint.name}"...`);
+
+        const steps = [];
+        const startTime = Date.now();
+
+        // ПРОВЕРКА КАЧЕСТВА ДАННЫХ
+        if (this.originalPoints.length < 15 || otherFootprint.originalPoints.length < 15) {
+            return {
+                similarity: 0,
+                decision: 'different',
+                reason: 'Слишком мало точек для сравнения',
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
+        }
+
+        // 🔴 ШАГ 0: ПРОВЕРКА РАЗМЕРОВ (ОСЛАБЛЕННАЯ ВЕРСИЯ)
+        const sizeRatio = Math.min(this.originalPoints.length, otherFootprint.originalPoints.length) /
+                         Math.max(this.originalPoints.length, otherFootprint.originalPoints.length);
+
+        // Для совсем разных размеров - быстрый отсев
+        if (sizeRatio < 0.4) { // Было 0.7 - ТЕПЕРЬ ТОЛЬКО СОВСЕМ РАЗНЫЕ РАЗМЕРЫ
+            console.log(`🚫 Отсев по размеру (ratio: ${sizeRatio.toFixed(2)})`);
+            return {
+                similarity: sizeRatio,
+                decision: 'different',
+                reason: `Слишком разное количество точек: ${this.originalPoints.length} vs ${otherFootprint.originalPoints.length}`,
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
+        }
+
+        // Для умеренно разных размеров - предупреждение, но продолжаем сравнение
+        if (sizeRatio < 0.7) {
+            console.log(`⚠️ Разные размеры точек (ratio: ${sizeRatio.toFixed(2)}), продолжаю сравнение...`);
+        }
+
+        // ШАГ 1: БЫСТРАЯ ПРОВЕРКА - БИТОВАЯ МАСКА (ТОЛЬКО ИНФОРМАЦИЯ, НЕ ОТСЕВ)
+        const bitmaskResult = this.bitmask.compare(otherFootprint.bitmask);
+        steps.push({
+            step: 'bitmask',
+            time: Date.now() - startTime,
+            result: bitmaskResult,
+            details: {
+                distance: bitmaskResult.distance,
+                similarity: bitmaskResult.similarity
+            }
+        });
+
+        // 🔴 ИСПРАВЛЕНИЕ: БИТОВАЯ МАСКА - ТОЛЬКО ИНФОРМАЦИЯ, НЕ ОТСЕВ
+        console.log(`📊 Битовые маски: расстояние=${bitmaskResult.distance}/64, similarity=${bitmaskResult.similarity.toFixed(3)}`);
+
+        // ⚠️ ПРЕДУПРЕЖДЕНИЕ, НО ПРОДОЛЖАЕМ (НЕ ОТСЕИВАЕМ!)
+        if (bitmaskResult.distance > 25) {
+            console.log(`⚠️ Битовые маски различаются (${bitmaskResult.distance}/64), но продолжаю сравнение...`);
+            // НЕ ВЫХОДИМ - продолжаем каскад!
+        }
+
+        // ШАГ 2: ПРОВЕРКА МОМЕНТОВ
+        const momentResult = this.moments.compare(otherFootprint.moments);
+        steps.push({
+            step: 'moments',
+            time: Date.now() - startTime,
+            result: momentResult,
+            details: {
+                distance: momentResult.distance,
+                similarity: momentResult.similarity
+            }
+        });
+
+        // 🔴 БОЛЕЕ ЖЁСТКИЙ ПОРОГ ДЛЯ МОМЕНТОВ
+        if (momentResult.distance > 0.3) { // Было 0.5
+            console.log(`🚫 Отсев по моментам (расстояние: ${momentResult.distance.toFixed(4)})`);
+            return {
+                similarity: momentResult.similarity,
+                decision: 'different',
+                reason: `Геометрические моменты различаются`,
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
+        }
+
+        // ШАГ 3: МАТРИЦА РАССТОЯНИЙ
+        const matrixResult = this.distanceMatrix.compare(otherFootprint.distanceMatrix);
+        steps.push({
+            step: 'distance_matrix',
+            time: Date.now() - startTime,
+            result: matrixResult,
+            details: {
+                similarity: matrixResult.similarity,
+                isMirrored: matrixResult.isMirrored
+            }
+        });
+
+        // 🔴 МАТРИЦА - САМЫЙ ВАЖНЫЙ КРИТЕРИЙ
+        if (matrixResult.similarity < 0.6) { // Было 0.5
+            console.log(`🚫 Отсев по матрице расстояний (similarity: ${matrixResult.similarity.toFixed(3)})`);
+            return {
+                similarity: matrixResult.similarity,
+                decision: 'different',
+                reason: `Матрицы расстояний различаются`,
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
+        }
+
+        // ШАГ 4: ВЕКТОРНАЯ СХЕМА (только если матрицы похожи)
+        const vectorResult = this.vectorGraph.compare(otherFootprint.vectorGraph);
+        steps.push({
+            step: 'vector_graph',
+            time: Date.now() - startTime,
+            result: vectorResult,
+            details: {
+                similarity: vectorResult.similarity,
+                totalMatches: vectorResult.totalMatches
+            }
+        });
+
+        // 🔴 ВЕКТОРЫ ДОЛЖНЫ ИМЕТЬ МИНИМАЛЬНОЕ КОЛИЧЕСТВО СОВПАДЕНИЙ
+        if (vectorResult.similarity < 0.7 || vectorResult.totalMatches < 5) { // Было 0.6
+            console.log(`🚫 Отсев по векторной схеме (similarity: ${vectorResult.similarity.toFixed(3)}, matches: ${vectorResult.totalMatches})`);
+            return {
+                similarity: vectorResult.similarity,
+                decision: 'different',
+                reason: `Векторные схемы различаются`,
+                steps,
+                fastReject: true,
+                timeMs: Date.now() - startTime
+            };
+        }
+
+        // ШАГ 5: ГРАФ - только для финального подтверждения
+        let graphResult = { similarity: 0 };
+        if (vectorResult.similarity > 0.8) { // Было 0.7
+            graphResult = this.compareGraphsSimple(otherFootprint.graph);
+            steps.push({
+                step: 'graph',
+                time: Date.now() - startTime,
+                result: graphResult,
+                details: {
+                    similarity: graphResult.similarity
+                }
+            });
+        }
+
+        // 🔴 НОВАЯ ФОРМУЛА ВЕСОВ - больше веса матрице и векторам
+        const weights = {
+            bitmask: 0.10,   // 10% - быстро, но неточно (теперь только информация)
+            moments: 0.15,   // 15% - форма
+            matrix: 0.45,    // 45% - САМЫЙ ВАЖНЫЙ! структура (увеличено с 40%)
+            vector: 0.30,    // 30% - локальные связи
+            graph: 0.00      // 0% - только подтверждение (уменьшено с 5%)
+        };
+
+        // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ЗНАЧЕНИЙ (ИСПРАВЛЕНИЕ criticalPass ОШИБКИ)
+        const bitmaskSimilarity = bitmaskResult?.similarity || 0;
+        const momentSimilarity = momentResult?.similarity || 0;
+        const matrixSimilarity = matrixResult?.similarity || 0;
+        const vectorSimilarity = vectorResult?.similarity || 0;
+        const graphSimilarity = graphResult?.similarity || 0;
+
+        const totalSimilarity = (
+            bitmaskSimilarity * weights.bitmask +
+            momentSimilarity * weights.moments +
+            matrixSimilarity * weights.matrix +
+            vectorSimilarity * weights.vector +
+            graphSimilarity * weights.graph
+        );
+
+        // 🔴 КОМБИНИРОВАННЫЕ КРИТЕРИИ ДЛЯ РЕШЕНИЯ
+        let decision, reason;
+
+        // Критически важны матрица и векторы (ИСПРАВЛЕНО: определяем ДО использования)
+        const criticalPass = matrixSimilarity > 0.7 && vectorSimilarity > 0.75;
+
+        // 🔴 СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ПОХОЖИХ ФОРМ РАЗНОГО РАЗМЕРА
+        const isSimilarShapeDifferentSize =
+            momentSimilarity > 0.9 && // Очень похожие моменты (форма)
+            matrixSimilarity > 0.7 && // Похожие матрицы (структура)
+            sizeRatio < 0.7 && sizeRatio > 0.4; // Разные, но не экстремальные размеры
+
+        if (isSimilarShapeDifferentSize && totalSimilarity > 0.7) {
+            decision = 'similar';
+            reason = `Похожие формы разного размера (${totalSimilarity.toFixed(3)})`;
+        }
+        else if (criticalPass && totalSimilarity > 0.85) {
+            decision = 'same';
+            reason = `Очень высокая схожесть структуры (${totalSimilarity.toFixed(3)})`;
+        } else if (totalSimilarity > 0.75 && matrixSimilarity > 0.6) {
+            decision = 'similar';
+            reason = `Похожая структура (${totalSimilarity.toFixed(3)})`;
+        } else {
+            decision = 'different';
+            reason = `Разные структуры (${totalSimilarity.toFixed(3)})`;
+        }
+
+        console.log(`📊 Каскадное сравнение завершено: ${totalSimilarity.toFixed(3)} (${decision})`);
+        console.log(`   🎭 Матрица: ${matrixSimilarity.toFixed(3)}, Векторы: ${vectorSimilarity.toFixed(3)}`);
+        console.log(`   📏 Соотношение размеров: ${sizeRatio.toFixed(2)}`);
+
+        return {
+            similarity: totalSimilarity,
+            decision,
+            reason,
+            steps,
+            criticalPass,
+            isSimilarShapeDifferentSize,
+            details: {
+                bitmask: bitmaskResult,
+                moments: momentResult,
+                matrix: matrixResult,
+                vector: vectorResult,
+                graph: graphResult,
+                weights,
+                sizeRatio
+            },
+            timeMs: Date.now() - startTime
+        };
+    }
+
+    // 4. ПРОСТОЕ СРАВНЕНИЕ ГРАФОВ (если нет matcher)
+    compareGraphsSimple(otherGraph) {
+        const invariants1 = this.graph.getBasicInvariants();
+        const invariants2 = otherGraph.getBasicInvariants();
+
+        const comparisons = [
+            { name: 'nodeCount', score: Math.min(invariants1.nodeCount, invariants2.nodeCount) / Math.max(invariants1.nodeCount, invariants2.nodeCount) },
+            { name: 'edgeCount', score: Math.min(invariants1.edgeCount, invariants2.edgeCount) / Math.max(invariants1.edgeCount, invariants2.edgeCount) },
+            { name: 'avgDegree', score: 1 - Math.min(1, Math.abs(invariants1.avgDegree - invariants2.avgDegree) / 3) },
+            { name: 'clustering', score: 1 - Math.min(1, Math.abs(invariants1.clusteringCoefficient - invariants2.clusteringCoefficient) / 0.3) }
         ];
 
-        dirs.forEach(dir => {
-            if (!fsSync.existsSync(dir)) {
-                fsSync.mkdirSync(dir, { recursive: true });
-            }
-        });
+        const similarity = comparisons.reduce((sum, c) => sum + c.score, 0) / comparisons.length;
+
+        return {
+            similarity,
+            comparisons,
+            invariants1,
+            invariants2
+        };
     }
 
-    // ОБНОВИТЬ СТАТИСТИКУ
-    updateStats(comparisonResult) {
-        this.stats.totalComparisons++;
-
-        if (comparisonResult && comparisonResult.fastReject) {
-            this.stats.fastRejects++;
-        }
-
-        if (comparisonResult && comparisonResult.decision) {
-            if (comparisonResult.decision === 'same') {
-                this.stats.sameDecisions++;
-            } else if (comparisonResult.decision === 'similar') {
-                this.stats.similarDecisions++;
-            } else {
-                this.stats.differentDecisions++;
-            }
-        }
-
-        // Рассчитать среднее время
-        if (comparisonResult && comparisonResult.timeMs) {
-            const totalTime = this.stats.avgComparisonTime * (this.stats.totalComparisons - 1);
-            this.stats.avgComparisonTime = (totalTime + comparisonResult.timeMs) / this.stats.totalComparisons;
-        }
-
-        // Сохранить статистику
-        this.saveStats();
+    // 5. БЫСТРЫЙ ОТСЕВ
+    quickReject(stage, result, steps, startTime) {
+        return {
+            similarity: result.similarity || 0,
+            decision: 'different',
+            reason: `Быстрый отсев на этапе ${stage}`,
+            steps,
+            fastReject: true,
+            timeMs: Date.now() - startTime
+        };
     }
 
-    // СОХРАНИТЬ СТАТИСТИКУ
-    saveStats() {
-        if (!this.config.autoSave) return;
+    // 6. ОБЪЕДИНЕНИЕ С ДРУГИМ ОТПЕЧАТКОМ
+    merge(otherFootprint, transformation = null) {
+        console.log(`🔄 Объединяю с "${otherFootprint.name}"...`);
 
-        try {
-            const statsPath = path.join(this.config.dbPath, 'stats.json');
-            const statsData = {
-                ...this.stats,
-                updatedAt: new Date().toISOString(),
-                config: this.config
-            };
+        // Проверить, можно ли объединять
+        const comparison = this.compare(otherFootprint);
 
-            fsSync.writeFileSync(statsPath, JSON.stringify(statsData, null, 2));
-        } catch (error) {
-            console.log('⚠️ Не удалось сохранить статистику:', error.message);
-        }
-    }
-
-    // 1. ОБРАБОТКА НОВОГО ФОТО
-    async processPhoto(userId, analysis, photoInfo) {
-        console.log(`\n📸 Обрабатываю фото через гибридную систему (user: ${userId})...`);
-
-        try {
-            // Извлечь точки из анализа
-            const points = this.extractPointsFromAnalysis(analysis);
-
-            console.log(`   📍 Извлечено точек: ${points.length}`);
-
-            if (points.length < 10) {
-                console.log(`   ❌ Недостаточно точек для анализа (нужно минимум 10, есть ${points.length})`);
-                return {
-                    success: false,
-                    reason: 'Недостаточно точек для анализа',
-                    pointsCount: points.length,
-                    required: 10
-                };
-            }
-
-            // Создать временный отпечаток для поиска
-            const tempFootprint = new HybridFootprint({
-                name: `Запрос_${Date.now()}`,
-                userId: userId
-            });
-
-            tempFootprint.createFromPoints(points, {
-                photoId: photoInfo.photoId,
-                chatId: photoInfo.chatId,
-                timestamp: new Date(),
-                ...photoInfo
-            });
-
-            console.log(`   🔧 Создан временный отпечаток:`);
-            console.log(`      - ID: ${tempFootprint.id}`);
-            console.log(`      - Точек в матрице: ${tempFootprint.matrix ? tempFootprint.matrix.points.length : 'нет'}`);
-
-            // Загрузить отпечатки пользователя
-            const userFootprints = await this.loadUserFootprints(userId);
-            console.log(`   📂 Загружено отпечатков пользователя: ${userFootprints.length}`);
-
-            // Поиск похожих (БЕЗ БИТОВОГО ОТСЕВА)
-            console.log(`\n🔍 НАЧИНАЮ ПОИСК ПОХОЖИХ ОТПЕЧАТКОВ...`);
-            const searchResult = this.findSimilar(tempFootprint, userFootprints);
-
-            // ДИАГНОСТИКА РЕЗУЛЬТАТОВ ПОИСКА
-            console.log('\n📊 РЕЗУЛЬТАТЫ ПОИСКА:');
-            console.log(`   Найдено совпадений: ${searchResult.found ? '✅ ДА' : '❌ НЕТ'}`);
-            console.log(`   Кандидатов: ${searchResult.candidates}`);
-            console.log(`   Всего проверено: ${searchResult.totalCompared || 0}`);
-            console.log(`   Время поиска: ${searchResult.timeMs}ms`);
-
-            if (searchResult.bestMatch) {
-                console.log(`\n🎯 ЛУЧШЕЕ СОВПАДЕНИЕ:`);
-                console.log(`   Схожесть: ${searchResult.bestMatch.similarity.toFixed(3)}`);
-                console.log(`   Решение: ${searchResult.bestMatch.decision}`);
-                console.log(`   Отпечаток: ${searchResult.bestMatch.footprint.name}`);
-                console.log(`   ID: ${searchResult.bestMatch.footprint.id}`);
-              
-                if (searchResult.bestMatch.details) {
-                    console.log(`   Детали: матрица=${searchResult.bestMatch.details.matrixSimilarity?.toFixed(3) || 'нет'}, векторы=${searchResult.bestMatch.details.vectorSimilarity?.toFixed(3) || 'нет'}`);
-                }
-              
-                // Проверяем, проходит ли порог
-                const meetsThreshold = searchResult.bestMatch.similarity >= this.config.minSimilarityForSame;
-                console.log(`   Порог (${this.config.minSimilarityForSame}): ${meetsThreshold ? '✅ ПРОЙДЕН' : '❌ НЕ ПРОЙДЕН'}`);
-            } else if (userFootprints.length > 0) {
-                console.log(`\n🔧 ДИАГНОСТИКА (почему не нашлось совпадений):`);
-              
-                // Проверить все отпечатки вручную для диагностики
-                for (let i = 0; i < Math.min(userFootprints.length, 3); i++) {
-                    const fp = userFootprints[i];
-                    const compareResult = tempFootprint.compare(fp);
-                    console.log(`   [${i}] "${fp.name || 'Без названия'}":`);
-                    console.log(`       схожесть=${compareResult.similarity.toFixed(3)}`);
-                    console.log(`       решение=${compareResult.decision}`);
-                    console.log(`       время=${compareResult.timeMs}ms`);
-                  
-                    if (compareResult.details) {
-                        console.log(`       матрица=${compareResult.details.matrixSimilarity?.toFixed(3) || 'нет'}`);
-                        console.log(`       векторы=${compareResult.details.vectorSimilarity?.toFixed(3) || 'нет'}`);
-                    }
-                  
-                    // Порог
-                    const meetsThreshold = compareResult.similarity >= this.config.minSimilarityForSame;
-                    console.log(`       порог (${this.config.minSimilarityForSame}): ${meetsThreshold ? '✅' : '❌'}`);
-                }
-            }
-
-            let result = {
-                success: true,
-                pointsCount: points.length,
-                searchResult: searchResult
-            };
-
-            // Если найден похожий след
-            if (searchResult.found && searchResult.bestMatch &&
-                searchResult.bestMatch.similarity >= this.config.minSimilarityForSame) {
-                console.log(`\n🔄 ОБНАРУЖЕН ПОХОЖИЙ СЛЕД! Объединяю...`);
-
-                // Объединить с найденным следом
-                const mergeResult = searchResult.bestMatch.footprint.mergeWithTransformation(tempFootprint);
-
-                if (mergeResult.success) {
-                    console.log(`   ✅ Успешно объединено!`);
-                    console.log(`   📈 Улучшение: ${mergeResult.improvement ? mergeResult.improvement.toFixed(3) : 'нет'}`);
-                  
-                    result.merged = true;
-                    result.footprintId = searchResult.bestMatch.footprint.id;
-                    result.similarity = searchResult.bestMatch.similarity;
-                    result.mergeResult = mergeResult;
-
-                    // Обновить статистику
-                    if (searchResult.bestMatch.decision === 'same') {
-                        this.stats.sameDecisions++;
-                    } else if (searchResult.bestMatch.decision === 'similar') {
-                        this.stats.similarDecisions++;
-                    } else {
-                        this.stats.differentDecisions++;
-                    }
-
-                    // Сохранить обновлённый отпечаток
-                    await this.saveFootprint(searchResult.bestMatch.footprint);
-                } else {
-                    console.log(`   ❌ Ошибка объединения: ${mergeResult.error || 'неизвестная ошибка'}`);
-                    result.mergeError = mergeResult.error;
-                }
-            } else {
-                // Создать новый отпечаток
-                console.log(`\n🆕 СОЗДАЮ НОВЫЙ ОТПЕЧАТОК...`);
-                const newFootprint = new HybridFootprint({
-                    name: photoInfo.name || `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
-                    userId: userId
-                });
-
-                newFootprint.createFromPoints(points, photoInfo);
-
-                console.log(`   ✅ Создан новый отпечаток:`);
-                console.log(`      - ID: ${newFootprint.id}`);
-                console.log(`      - Название: ${newFootprint.name}`);
-                console.log(`      - Уверенность: ${newFootprint.stats.confidence?.toFixed(3) || 'нет'}`);
-                console.log(`      - Количество фото: ${newFootprint.metadata.photos?.length || 1}`);
-
-                result.newFootprint = true;
-                result.footprintId = newFootprint.id;
-                result.confidence = newFootprint.stats.confidence;
-
-                // Сохранить новый отпечаток
-                await this.saveFootprint(newFootprint);
-
-                // Добавить в кэш
-                userFootprints.push(newFootprint);
-                this.userFootprints.set(userId, userFootprints);
-
-                // Обновить статистику
-                this.stats.differentDecisions++;
-            }
-
-            // Сохранить статистику
-            this.saveStats();
-
-            console.log(`\n✅ ОБРАБОТКА ЗАВЕРШЕНА`);
-            console.log(`   Результат: ${result.merged ? 'ОБЪЕДИНЕНО' : 'НОВЫЙ ОТПЕЧАТОК'}`);
-
-            return result;
-
-        } catch (error) {
-            console.log('❌ ОШИБКА ОБРАБОТКИ ФОТО:', error);
-            console.log(error.stack);
+        if (comparison.decision !== 'same' && comparison.similarity < 0.6) {
+            console.log(`❌ Не могу объединить: ${comparison.reason}`);
             return {
                 success: false,
-                error: error.message,
-                stack: error.stack
+                reason: comparison.reason,
+                similarity: comparison.similarity
             };
         }
+
+        // Объединить битовые маски
+        this.bitmask.bitmask = BitmaskFootprint.mergeMasks(
+            this.bitmask.bitmask,
+            otherFootprint.bitmask.bitmask
+        );
+
+        // Объединить точки графа (простое объединение)
+        const previousNodeCount = this.graph.nodes.size;
+
+        // Добавить точки из другого отпечатка
+        if (otherFootprint.originalPoints && otherFootprint.originalPoints.length > 0) {
+            const combinedPoints = [
+                ...this.originalPoints,
+                ...otherFootprint.originalPoints
+            ];
+
+            // Перестроить граф из всех точек
+            this.graph.buildFromPoints(combinedPoints);
+            this.originalPoints = combinedPoints;
+        }
+
+        // Обновить метаданные
+        this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos;
+        this.metadata.lastUpdated = new Date();
+
+        if (transformation) {
+            this.metadata.transformations.push({
+                timestamp: new Date(),
+                with: otherFootprint.id,
+                transformation: transformation
+            });
+        }
+
+        // Пересчитать моменты из объединённых точек
+        this.moments.calculateFromPoints(this.originalPoints);
+
+        // Пересчитать матрицу расстояний
+        this.distanceMatrix.createFromPoints(this.originalPoints);
+
+        // Пересчитать векторную схему
+        this.vectorGraph.createFromPoints(this.originalPoints);
+
+        // Добавить точки в трекер
+        if (otherFootprint.originalPoints) {
+            this.pointTracker.processNewPoints(otherFootprint.originalPoints, {
+                source: 'merge',
+                fromFootprint: otherFootprint.id,
+                transformation: transformation
+            });
+        }
+
+        // Обновить статистику
+        this.updateConfidence();
+
+        const addedNodes = this.graph.nodes.size - previousNodeCount;
+
+        console.log(`✅ Объединено успешно!`);
+        console.log(`   📊 +${addedNodes} узлов, всего ${this.graph.nodes.size}`);
+        console.log(`   📸 Всего фото: ${this.metadata.totalPhotos}`);
+        console.log(`   💎 Уверенность: ${Math.round(this.stats.confidence * 100)}%`);
+
+        return {
+            success: true,
+            addedNodes,
+            totalNodes: this.graph.nodes.size,
+            totalPhotos: this.metadata.totalPhotos,
+            similarity: comparison.similarity,
+            confidence: this.stats.confidence
+        };
     }
 
-    // 2. ПОИСК ПОХОЖИХ ОТПЕЧАТКОВ (БЕЗ БИТОВОГО ОТСЕВА)
-    findSimilar(queryFootprint, footprintList, options = {}) {
+    // 7. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ (НОВЫЙ ИНТЕЛЛЕКТУАЛЬНЫЙ МЕТОД) - ИСПРАВЛЕННЫЙ
+    mergeWithTransformation(otherFootprint) {
+        console.log(`🔄 Интеллектуальное объединение с "${otherFootprint.name}"...`);
+
+        // 1. Сравнить векторные схемы для нахождения трансформации
+        const vectorComparison = this.vectorGraph.compare(otherFootprint.vectorGraph);
+
+        if (vectorComparison.similarity < 0.6) {
+            console.log(`❌ Векторные схемы слишком разные: ${vectorComparison.similarity.toFixed(3)}`);
+            return {
+                success: false,
+                reason: `Векторные схемы слишком разные: ${vectorComparison.similarity.toFixed(3)}`
+            };
+        }
+
+        // 2. Извлечь точки из обоих отпечатков
+        const points1 = this.originalPoints;
+        const points2 = otherFootprint.originalPoints;
+
+        console.log(`📊 Точки для слияния: ${points1.length} + ${points2.length}`);
+
+        // 3. ВЫПОЛНИТЬ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ С ПОМОЩЬЮ POINT MERGER
+        const mergeResult = this.pointMerger.mergePoints(
+            points1,
+            points2,
+            vectorComparison.transformation  // ПЕРЕДАЕМ ТРАНСФОРМАЦИЮ!
+        );
+
+        console.log(`🔍 Результат слияния: ${mergeResult.points.length} точек, совпадений: ${mergeResult.matches.length}`);
+
+        // 4. Обработать результат слияния через трекер
+        const trackerResult = this.pointTracker.processNewPoints(
+            mergeResult.points.filter(p => p.source === 'footprint2' || p.source === 'merged'),
+            {
+                source: 'intelligent_merge',
+                fromFootprint: otherFootprint.id,
+                transformation: vectorComparison.transformation,
+                mergeStats: mergeResult.stats
+            }
+        );
+
+        // 5. Обновить оригинальные точки на ОБЪЕДИНЁННЫЕ
+        this.originalPoints = mergeResult.points;
+
+        console.log(`📈 Отпечаток обновлён: ${this.originalPoints.length} точек (было ${points1.length})`);
+
+        // 6. Пересчитать ВСЕ представления из ОБЪЕДИНЁННЫХ точек
+        this.bitmask.createFromPoints(this.originalPoints);
+        this.moments.calculateFromPoints(this.originalPoints);
+        this.distanceMatrix.createFromPoints(this.originalPoints);
+        this.vectorGraph.createFromPoints(this.originalPoints);
+
+        // Обновить граф
+        const graphPoints = this.originalPoints.map(pt => ({
+            x: pt.x,
+            y: pt.y,
+            confidence: pt.confidence || pt.rating || 0.5
+        }));
+        this.graph.buildFromPoints(graphPoints);
+
+        // 7. Обновить метаданные
+        this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos;
+        this.metadata.lastUpdated = new Date();
+        this.metadata.transformations.push({
+            timestamp: new Date(),
+            with: otherFootprint.id,
+            transformation: vectorComparison.transformation || {},
+            mergeStats: mergeResult.stats,
+            trackerResult: trackerResult
+        });
+
+        // 8. Обновить статистику и confidence
+        this.updateConfidence();
+
+        // РАССЧИТАТЬ УЛУЧШЕНИЕ CONFIDENCE
+        const avgConfidenceBefore = points1.reduce((s, p) => s + (p.confidence || 0.5), 0) / points1.length;
+        const avgConfidenceAfter = this.originalPoints.reduce((s, p) => s + (p.confidence || 0.5), 0) / this.originalPoints.length;
+
+        console.log(`✅ Интеллектуальное объединение успешно!`);
+        console.log(`   📍 Уникальных точек: ${mergeResult.stats.uniqueFrom1 + mergeResult.stats.uniqueFrom2}`);
+        console.log(`   🔗 Слитых точек: ${mergeResult.stats.mergedPoints}`);
+        console.log(`   📊 Всего точек: ${this.originalPoints.length}`);
+        console.log(`   💎 Уверенность: ${Math.round(this.stats.confidence * 100)}%`);
+        console.log(`   📈 Улучшение confidence: ${((avgConfidenceAfter - avgConfidenceBefore) * 100).toFixed(1)}%`);
+
+        return {
+            success: true,
+            transformation: vectorComparison.transformation || {},
+            mergeResult: mergeResult,
+            trackerResult: trackerResult,
+            allPoints: this.originalPoints.length,
+            mergedPoints: mergeResult.stats.mergedPoints,
+            confidence: this.stats.confidence,
+            confidenceImprovement: ((avgConfidenceAfter - avgConfidenceBefore) * 100).toFixed(1) + '%',
+            stats: {
+                before: {
+                    points1: points1.length,
+                    points2: points2.length,
+                    confidence: avgConfidenceBefore.toFixed(3)
+                },
+                after: {
+                    total: this.originalPoints.length,
+                    merged: mergeResult.stats.mergedPoints,
+                    confidence: avgConfidenceAfter.toFixed(3)
+                },
+                efficiency: `${mergeResult.stats.reductionPercentage ||
+                    ((points1.length + points2.length - this.originalPoints.length) /
+                     (points1.length + points2.length) * 100).toFixed(1)}% сокращение дубликатов`
+            }
+        };
+    }
+
+    // 8. БЫСТРЫЙ ПОИСК ПО БИТОВОЙ МАСКЕ (для базы данных)
+    static fastSearch(queryBitmask, database, maxDistance = 20) {
         const startTime = Date.now();
-        const maxResults = options.maxResults || 5;
-        const minSimilarity = options.minSimilarity || this.config.minSimilarityForSimilar;
-
-        console.log(`\n🔍 ПОИСК ПОХОЖИХ СРЕДИ ${footprintList.length} ОТПЕЧАТКОВ...`);
-        console.log(`   ⚡ БИТОВЫЙ ОТСЕВ ОТКЛЮЧЕН - проверяю ВСЕ отпечатки`);
-
         const results = [];
 
-        // ПРЯМОЕ СРАВНЕНИЕ ВСЕХ ОТПЕЧАТКОВ (НИКАКОГО ФИЛЬТРА!)
-        console.log(`\n   📊 ДЕТАЛЬНОЕ СРАВНЕНИЕ ${footprintList.length} отпечатков...`);
-      
-        for (let i = 0; i < footprintList.length; i++) {
-            const footprint = footprintList[i];
-          
-            if (results.length >= maxResults * 2) {
-                console.log(`   ⏹️  Достигнут лимит сравнений (${maxResults * 2})`);
-                break;
-            }
+        database.forEach((item, index) => {
+            if (item.bitmask && item.bitmask.bitmask) {
+                const distance = BitmaskFootprint.hammingDistance(
+                    queryBitmask,
+                    item.bitmask.bitmask
+                );
 
-            console.log(`\n   🔍 Сравнение ${i + 1}/${footprintList.length}: "${footprint.name || 'Без названия'}"`);
-          
-            // ЗАПУСКАЕМ ПОЛНОЕ СРАВНЕНИЕ (включая каскадное и повороты)
-            const comparison = queryFootprint.compare(footprint);
-            this.updateStats(comparison);
-
-            console.log(`      Результат: схожесть=${comparison.similarity.toFixed(3)}, решение=${comparison.decision}`);
-          
-            if (comparison.details) {
-                console.log(`      Детали: матрица=${comparison.details.matrixSimilarity?.toFixed(3) || 'нет'}, векторы=${comparison.details.vectorSimilarity?.toFixed(3) || 'нет'}`);
-              
-                // Показать, если было вращение
-                if (comparison.details.bestRotation !== undefined) {
-                    console.log(`      Лучший поворот: ${comparison.details.bestRotation}°`);
+                if (distance <= maxDistance) {
+                    results.push({
+                        item,
+                        index,
+                        bitmaskDistance: distance,
+                        bitmaskSimilarity: 1 - (distance / 64)
+                    });
                 }
             }
+        });
 
-            if (comparison.similarity >= minSimilarity) {
-                console.log(`      ✅ Добавляю в кандидаты (>= ${minSimilarity})`);
-                results.push({
-                    footprint: footprint,
-                    similarity: comparison.similarity,
-                    decision: comparison.decision,
-                    details: comparison.details,
-                    comparisonTime: comparison.timeMs
-                });
-            } else {
-                console.log(`      ❌ Слишком низкая схожесть (< ${minSimilarity})`);
-            }
-        }
+        // Сортировать по расстоянию
+        results.sort((a, b) => a.bitmaskDistance - b.bitmaskDistance);
 
-        // Сортировка по схожести
-        results.sort((a, b) => b.similarity - a.similarity);
-        const topResults = results.slice(0, maxResults);
+        console.log(`🔍 Быстрый поиск: ${results.length} кандидатов за ${Date.now() - startTime}мс`);
 
-        const totalTime = Date.now() - startTime;
+        return results;
+    }
 
-        console.log(`\n   📊 ИТОГ ПОИСКА:`);
-        console.log(`      Проверено отпечатков: ${footprintList.length}`);
-        console.log(`      Найдено кандидатов: ${results.length}`);
-        console.log(`      Лучших результатов: ${topResults.length}`);
-        console.log(`      Общее время: ${totalTime}ms`);
+    // 9. ПОЛУЧИТЬ ИНФОРМАЦИЮ
+    getInfo() {
+        const trackerStats = this.pointTracker.getStats();
 
         return {
-            found: topResults.length > 0,
-            candidates: topResults.length,
-            bestMatch: topResults[0],
-            allMatches: topResults,
-            totalCompared: footprintList.length, // ВСЕ были проверены!
-            timeMs: totalTime,
+            id: this.id,
+            name: this.name,
+            userId: this.userId,
             stats: {
-                totalComparisons: footprintList.length,
-                detailedComparisons: results.length
+                ...this.stats,
+                qualityScore: Math.round(this.stats.qualityScore * 100)
+            },
+            metadata: {
+                ...this.metadata,
+                created: this.metadata.created.toLocaleString('ru-RU'),
+                lastUpdated: this.metadata.lastUpdated.toLocaleString('ru-RU')
+            },
+            representations: {
+                bitmask: `0x${this.bitmask.bitmask.toString(16).slice(0, 8)}...`,
+                moments: this.moments.get7Moments().length,
+                graphNodes: this.graph.nodes.size,
+                graphEdges: this.graph.edges.size,
+                matrixSize: this.getMatrixSizeString(),
+                vectorCount: this.getVectorCount(),
+                trackerPoints: trackerStats.totalPoints,
+                trackerConfidence: trackerStats.confidence
             }
         };
     }
 
-    // 3. ЗАГРУЗКА ОТПЕЧАТКОВ ПОЛЬЗОВАТЕЛЯ
-    async loadUserFootprints(userId) {
-        // Проверить кэш
-        if (this.userFootprints.has(userId)) {
-            const cached = this.userFootprints.get(userId);
-            console.log(`   📂 Загружено из кэша: ${cached.length} отпечатков`);
-            return cached;
-        }
+    // 10. ВИЗУАЛИЗИРОВАТЬ ВСЕ ПРЕДСТАВЛЕНИЯ
+    visualize() {
+        console.log(`\n🎭 ГИБРИДНЫЙ ОТПЕЧАТОК "${this.name}":`);
+        console.log(`├─ ID: ${this.id}`);
+        console.log(`├─ Уверенность: ${Math.round(this.stats.confidence * 100)}%`);
+        console.log(`├─ Качество: ${Math.round(this.stats.qualityScore * 100)}%`);
+        console.log(`├─ Фото: ${this.metadata.totalPhotos}`);
+        console.log(`└─ Создан: ${this.metadata.created.toLocaleString('ru-RU')}`);
 
-        try {
-            const userDir = path.join(this.config.dbPath, 'users', userId.toString());
+        console.log(`\n🎭 ПРЕДСТАВЛЕНИЯ:`);
+        console.log(`├─ Битовая маска:`);
+        this.bitmask.visualize();
 
-            if (!fsSync.existsSync(userDir)) {
-                console.log(`   📂 Папка пользователя не существует: ${userDir}`);
-                return [];
-            }
+        console.log(`\n├─ Геометрические моменты:`);
+        this.moments.visualize();
 
-            const files = await fs.readdir(userDir);
-            const footprints = [];
+        console.log(`\n├─ Матрица расстояний:`);
+        this.distanceMatrix.visualize(8);
 
-            console.log(`   📂 Найдено файлов в папке: ${files.length}`);
+        console.log(`\n├─ Векторная схема:`);
+        this.vectorGraph.visualize();
 
-            for (const file of files) {
-                if (file.endsWith('.json')) {
-                    try {
-                        const filePath = path.join(userDir, file);
-                        const data = JSON.parse(await fs.readFile(filePath, 'utf8'));
+        console.log(`\n├─ Трекер точек:`);
+        this.pointTracker.visualize();
 
-                        const footprint = HybridFootprint.fromJSON(data);
-                        footprints.push(footprint);
-                        console.log(`      ✅ Загружен: ${footprint.name || file} (${footprint.metadata.photos?.length || 1} фото)`);
-                    } catch (error) {
-                        console.log(`⚠️ Ошибка загрузки файла ${file}:`, error.message);
-                    }
-                }
-            }
-
-            console.log(`📂 Загружено ${footprints.length} отпечатков для пользователя ${userId}`);
-
-            // Сохранить в кэш
-            this.userFootprints.set(userId, footprints);
-
-            return footprints;
-        } catch (error) {
-            console.log('❌ Ошибка загрузки отпечатков:', error);
-            return [];
-        }
+        console.log(`\n└─ Граф:`);
+        this.graph.visualize();
     }
 
-    // 4. СОХРАНЕНИЕ ОТПЕЧАТКА
-    async saveFootprint(footprint) {
-        try {
-            const userDir = path.join(this.config.dbPath, 'users', footprint.userId.toString());
-            await fs.mkdir(userDir, { recursive: true });
-
-            const filePath = path.join(userDir, `${footprint.id}.json`);
-            const data = JSON.stringify(footprint.toJSON(), null, 2);
-
-            await fs.writeFile(filePath, data);
-
-            console.log(`💾 Отпечаток сохранен: ${filePath}`);
-            console.log(`   📊 Статистика: ${footprint.metadata.photos?.length || 1} фото, уверенность: ${footprint.stats.confidence?.toFixed(3) || 'нет'}`);
-
-            return { success: true, path: filePath };
-        } catch (error) {
-            console.log('❌ Ошибка сохранения отпечатка:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    // 5. ИЗВЛЕЧЕНИЕ ТОЧЕК ИЗ АНАЛИЗА
-    extractPointsFromAnalysis(analysis) {
-        if (!analysis || !analysis.predictions) {
-            console.log('   ⚠️  Нет данных анализа или predictions');
-            return [];
-        }
-
-        const points = [];
-        console.log(`   📊 Всего predictions: ${analysis.predictions.length}`);
-
-        analysis.predictions.forEach((prediction, index) => {
-            const confidence = prediction.confidence || 0;
-            const isShoeProtector = prediction.class === 'shoe-protector';
-          
-            if (isShoeProtector || confidence > 0.3) {
-                if (prediction.points && prediction.points.length > 0) {
-                    // Взять центр точек
-                    const xs = prediction.points.map(p => p.x);
-                    const ys = prediction.points.map(p => p.y);
-
-                    const centerPoint = {
-                        x: (Math.min(...xs) + Math.max(...xs)) / 2,
-                        y: (Math.min(...ys) + Math.max(...ys)) / 2,
-                        confidence: confidence,
-                        class: prediction.class
-                    };
-                  
-                    points.push(centerPoint);
-                }
-            }
-        });
-
-        console.log(`   📍 ИТОГО извлечено точек: ${points.length}`);
-        return points;
-    }
-
-    // 6. ПОЛУЧИТЬ СТАТИСТИКУ
-    getStats() {
-        const totalUsers = this.userFootprints.size;
-        let totalFootprints = 0;
-        this.userFootprints.forEach(footprints => {
-            totalFootprints += footprints.length;
-        });
-
+    // 11. СОХРАНИТЬ В JSON
+    toJSON() {
         return {
-            ...this.stats,
-            totalUsers,
-            totalFootprints,
-            config: this.config,
-            cache: {
-                userFootprints: this.userFootprints.size,
-                searchCache: this.searchCache.size
-            }
+            id: this.id,
+            name: this.name,
+            userId: this.userId,
+            bitmask: this.bitmask.toJSON(),
+            moments: this.moments.toJSON(),
+            graph: this.graph.toJSON(),
+            distanceMatrix: this.distanceMatrix.toJSON(),
+            vectorGraph: this.vectorGraph.toJSON(),
+            pointTracker: this.pointTracker.toJSON(),
+            originalPoints: this.originalPoints,
+            metadata: {
+                ...this.metadata,
+                created: this.metadata.created.toISOString(),
+                lastUpdated: this.metadata.lastUpdated.toISOString()
+            },
+            stats: this.stats,
+            _version: '2.0', // Обновлена версия
+            _savedAt: new Date().toISOString()
         };
     }
 
-    // 7. ОЧИСТКА КЭША
-    clearCache() {
-        this.userFootprints.clear();
-        this.searchCache.clear();
-        console.log('🧹 Кэш очищен');
-    }
+    // 12. ЗАГРУЗИТЬ ИЗ JSON
+    static fromJSON(data) {
+        console.log(`📂 Загружаю гибридный отпечаток "${data.name}"...`);
 
-    // 8. ТЕСТИРОВАНИЕ МЕНЕДЖЕРА
-    static async test() {
-        console.log('🧪 ТЕСТ ГИБРИДНОГО МЕНЕДЖЕРА\n');
-
-        const manager = new HybridManager({
-            dbPath: './test-data/hybrid',
-            minSimilarityForSame: 0.8 // Понижаем для тестов
+        const footprint = new HybridFootprint({
+            id: data.id,
+            name: data.name,
+            userId: data.userId,
+            bitmaskData: data.bitmask,
+            momentData: data.moments,
+            graph: SimpleGraph.fromJSON(data.graph),
+            distanceMatrixData: data.distanceMatrix,
+            vectorGraphData: data.vectorGraph,
+            pointTrackerData: data.pointTracker,
+            originalPoints: data.originalPoints || [],
+            metadata: data.metadata,
+            confidence: data.stats?.confidence
         });
 
-        // Создаем тестовые данные
-        const testPoints = Array.from({length: 25}, (_, i) => ({
-            x: 100 + (i % 5) * 40,
-            y: 100 + Math.floor(i / 5) * 40,
-            confidence: 0.9
-        }));
+        if (data.stats) {
+            footprint.stats = { ...footprint.stats, ...data.stats };
+        }
 
-        const testAnalysis = {
-            predictions: testPoints.map((point, i) => ({
-                class: 'shoe-protector',
-                confidence: 0.9,
-                points: [
-                    { x: point.x - 5, y: point.y - 5 },
-                    { x: point.x + 5, y: point.y - 5 },
-                    { x: point.x + 5, y: point.y + 5 },
-                    { x: point.x - 5, y: point.y + 5 }
-                ]
-            }))
-        };
+        console.log(`✅ Загружен гибридный отпечаток "${footprint.name}" версии ${data._version || '1.0'}`);
 
-        const photoInfo = {
-            photoId: 'test_photo_1',
-            chatId: 12345,
-            name: 'Тестовый след',
-            timestamp: new Date()
-        };
+        return footprint;
+    }
 
-        let results = [];
+    // 13. ТЕСТ: СОЗДАТЬ И СРАВНИТЬ ДВА ОТПЕЧАТКА
+    static testComparison() {
+        console.log('\n🧪 ТЕСТ ГИБРИДНОЙ СИСТЕМЫ:');
 
+        // Создать два похожих отпечатка
+        const points1 = [];
+        const points2 = [];
+
+        for (let i = 0; i < 30; i++) {
+            points1.push({
+                x: 100 + Math.random() * 200,
+                y: 100 + Math.random() * 100,
+                confidence: 0.8
+            });
+
+            // points2 - немного смещённая версия points1
+            points2.push({
+                x: points1[i].x + Math.random() * 20 - 10,
+                y: points1[i].y + Math.random() * 20 - 10,
+                confidence: 0.8
+            });
+        }
+
+        const footprint1 = new HybridFootprint({ name: 'Тест 1' });
+        const footprint2 = new HybridFootprint({ name: 'Тест 2' });
+
+        footprint1.createFromPoints(points1);
+        footprint2.createFromPoints(points2);
+
+        console.log('\n🔍 СРАВНЕНИЕ:');
+        const result = footprint1.compare(footprint2);
+
+        console.log(`📊 Similarity: ${result.similarity.toFixed(3)}`);
+        console.log(`🤔 Decision: ${result.decision}`);
+        console.log(`💡 Reason: ${result.reason}`);
+        console.log(`⏱️ Time: ${result.timeMs}ms`);
+
+        if (result.steps) {
+            console.log('\n📈 ШАГИ КАСКАДА:');
+            result.steps.forEach((step, i) => {
+                console.log(`${i+1}. ${step.step}: ${step.result?.similarity?.toFixed(3) || 'N/A'} (${step.time}ms)`);
+            });
+        }
+
+        // Тест объединения с трансформацией
+        console.log('\n🔄 ТЕСТ ОБЪЕДИНЕНИЯ С ТРАНСФОРМАЦИЕЙ:');
+        const mergeResult = footprint1.mergeWithTransformation(footprint2);
+        console.log(`✅ Успех: ${mergeResult.success}`);
+        if (mergeResult.success) {
+            console.log(`   📍 Всего точек: ${mergeResult.allPoints}`);
+            console.log(`   🔗 Слито точек: ${mergeResult.mergedPoints}`);
+            console.log(`   💎 Уверенность: ${Math.round(mergeResult.confidence * 100)}%`);
+        }
+
+        return result;
+    }
+
+    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ для исправления ошибок
+
+    // Получить количество векторов (безопасно)
+    getVectorCount() {
         try {
-            // Тест 1: Первое фото (должен создать новый отпечаток)
-            console.log('📸 Тест 1: Первое фото...');
-            const result1 = await manager.processPhoto('test_user', testAnalysis, photoInfo);
-            results.push({ test: 1, success: result1.success, new: result1.newFootprint });
-            console.log(`   Результат: ${result1.success ? '✅' : '❌'} ${result1.newFootprint ? 'Новый отпечаток' : 'Объединён'}`);
-
-            // Тест 2: То же самое фото (должен объединиться)
-            console.log('\n📸 Тест 2: То же самое фото...');
-            const result2 = await manager.processPhoto('test_user', testAnalysis, photoInfo);
-            results.push({ test: 2, success: result2.success, merged: result2.merged });
-            console.log(`   Результат: ${result2.success ? '✅' : '❌'} ${result2.merged ? 'Объединён' : 'Новый отпечаток'}`);
-
-        } catch (error) {
-            console.log('❌ Ошибка в тесте:', error.message);
-            console.log(error.stack);
-        }
-
-        // Статистика
-        console.log('\n📊 СТАТИСТИКА МЕНЕДЖЕРА:');
-        const stats = manager.getStats();
-        console.log(`   Всего сравнений: ${stats.totalComparisons}`);
-        console.log(`   Решений "same": ${stats.sameDecisions}`);
-        console.log(`   Решений "different": ${stats.differentDecisions}`);
-        console.log(`   Среднее время: ${stats.avgComparisonTime.toFixed(1)}ms`);
-        console.log(`   Отпечатков: ${stats.totalFootprints}`);
-
-        // Очистка тестовых данных (ИСПРАВЛЕНО: используем rmdirSync вместо rmSync)
-        if (fsSync.existsSync('./test-data/hybrid')) {
-            try {
-                // Для Node.js < 14.14.0
-                if (typeof fsSync.rmSync === 'function') {
-                    fsSync.rmSync('./test-data/hybrid', { recursive: true, force: true });
-                } else {
-                    // Для старых версий Node.js
-                    fsSync.rmdirSync('./test-data/hybrid', { recursive: true });
-                }
-                console.log('🧹 Тестовые данные очищены');
-            } catch (cleanError) {
-                console.log('⚠️ Ошибка очистки тестовых данных:', cleanError.message);
+            // Попробовать метод getVectorCount, если он существует
+            if (this.vectorGraph && typeof this.vectorGraph.getVectorCount === 'function') {
+                return this.vectorGraph.getVectorCount();
             }
+            // Если метод отсутствует, попробовать получить данные из starVectors
+            if (this.vectorGraph && this.vectorGraph.starVectors && Array.isArray(this.vectorGraph.starVectors)) {
+                return this.vectorGraph.starVectors.reduce((sum, sv) =>
+                    sum + (sv.vectors ? sv.vectors.length : 0), 0);
+            }
+            return 0;
+        } catch (error) {
+            console.log('⚠️ Ошибка при получении количества векторов:', error.message);
+            return 0;
         }
+    }
 
-        // Итог теста
-        const passed = results.filter(r => r.success).length;
-        const total = results.length;
-
-        console.log('\n🎯 ТЕСТ ЗАВЕРШЕН');
-        console.log(`📈 Результат: ${passed}/${total} тестов пройдено (${total > 0 ? Math.round(passed/total*100) : 0}%)`);
-
-        return {
-            success: passed === total,
-            stats: stats,
-            results: results
-        };
+    // Получить размер матрицы (безопасно)
+    getMatrixSizeString() {
+        try {
+            if (this.distanceMatrix && typeof this.distanceMatrix.getSizeString === 'function') {
+                return this.distanceMatrix.getSizeString();
+            }
+            if (this.distanceMatrix && this.distanceMatrix.matrix && Array.isArray(this.distanceMatrix.matrix)) {
+                const rows = this.distanceMatrix.matrix.length;
+                const cols = rows > 0 && this.distanceMatrix.matrix[0] ? this.distanceMatrix.matrix[0].length : 0;
+                return `${rows}x${cols}`;
+            }
+            return '0x0';
+        } catch (error) {
+            console.log('⚠️ Ошибка при получении размера матрицы:', error.message);
+            return '0x0';
+        }
     }
 }
 
-module.exports = HybridManager;
+module.exports = HybridFootprint;
