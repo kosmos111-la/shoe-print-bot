@@ -1,5 +1,4 @@
-// test-super-model.js
-// Тест создания супер-модели из нескольких отпечатков
+// test-super-model.js (исправленная версия)
 
 const HybridFootprint = require('./modules/footprint/hybrid-footprint');
 
@@ -110,12 +109,18 @@ console.log(`├─ Матрица: ${superFootprint.getMatrixSizeString()}`);
 console.log(`├─ Трекера: ${trackerStats.totalPoints}`);
 console.log(`└─ Confidence: ${superFootprint.stats.confidence.toFixed(3)}`);
 
-// Проверить качество
-console.log('\n🧪 ПРОВЕРКА КАЧЕСТВА:');
-const qualityCheck = superFootprint.pointTracker.qualityCheck();
-console.log(`├─ Высокодостоверные точки: ${qualityCheck.highConfidencePoints.length}`);
-console.log(`├─ Средний рейтинг: ${qualityCheck.averageRating.toFixed(2)}`);
-console.log(`└─ Консистентность: ${qualityCheck.consistency.toFixed(2)}%`);
+// УДАЛЕНО: Блок проверки качества с ошибкой
+// const qualityCheck = superFootprint.pointTracker.qualityCheck();
+// console.log(`├─ Высокодостоверные точки: ${qualityCheck.highConfidencePoints.length}`);
+// console.log(`├─ Средний рейтинг: ${qualityCheck.averageRating.toFixed(2)}`);
+// console.log(`└─ Консистентность: ${qualityCheck.consistency.toFixed(2)}%`);
+
+// Вместо этого добавим проверку через существующие методы:
+console.log('\n🔍 ПРОВЕРКА ТОЧЕК:');
+const allPoints = superFootprint.pointTracker.getAllPoints({ minRating: 0.3 });
+console.log(`├─ Всего точек в трекере: ${allPoints.length}`);
+console.log(`├─ Высокодостоверные (rating > 0.7): ${allPoints.filter(p => p.rating > 0.7).length}`);
+console.log(`└─ Средний rating: ${(allPoints.reduce((sum, p) => sum + (p.rating || 0), 0) / allPoints.length).toFixed(2)}`);
 
 // Создать сводку
 console.log('\n============================================================');
@@ -142,7 +147,14 @@ const exportData = {
     confidenceImprovement: mergeResult.metrics.confidenceImprovement,
     efficiency: mergeResult.metrics.efficiency,
     transformation: mergeResult.transformation,
-    matchPairs: mergeResult.mergeResult.stats.mergedPoints
+    matchPairs: mergeResult.mergeResult.stats.mergedPoints,
+    // Добавим статистику по точкам
+    pointStats: {
+        highConfidence: allPoints.filter(p => p.rating > 0.7).length,
+        mediumConfidence: allPoints.filter(p => p.rating > 0.4 && p.rating <= 0.7).length,
+        lowConfidence: allPoints.filter(p => p.rating <= 0.4).length,
+        averageRating: (allPoints.reduce((sum, p) => sum + (p.rating || 0), 0) / allPoints.length).toFixed(3)
+    }
 };
 
 fs.writeFileSync(
