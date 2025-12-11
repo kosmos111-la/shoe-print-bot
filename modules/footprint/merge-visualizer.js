@@ -24,6 +24,23 @@ class MergeVisualizer {
         );
     }
 
+    // 🔴 ДОБАВЛЕНО: МЕТОД ДЛЯ СОВМЕСТИМОСТИ С simple-manager.js
+    visualizeMergeEnhanced(footprint1, footprint2, comparisonResult, options = {}) {
+        console.log('⚡ Использую совместимую версию visualizeMergeEnhanced');
+        return this.visualizeMergedResult(
+            footprint1,
+            footprint2,
+            comparisonResult,
+            {
+                outputPath: options.outputPath,
+                showStats: options.showStats !== false,
+                showConfidence: true,
+                showLegend: true,
+                title: options.title || 'ОБЪЕДИНЕНИЕ СЛЕДОВ РОБОФЛО'
+            }
+        );
+    }
+
     // 2. ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕННОГО РЕЗУЛЬТАТА (ГЛАВНЫЙ МЕТОД)
     async visualizeMergedResult(footprint1, footprint2, comparisonResult = null, options = {}) {
         console.log('🎯 Создаю визуализацию ОБЪЕДИНЕННОГО РЕЗУЛЬТАТА...');
