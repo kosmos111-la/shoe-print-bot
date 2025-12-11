@@ -58,6 +58,7 @@ const { SessionManager } = require('./modules/session/session-manager');
 const { SessionAnalyzer } = require('./modules/session/session-analyzer');
 const { FeedbackDatabase } = require('./modules/feedback/feedback-db');
 const { FeedbackManager } = require('./modules/feedback/feedback-manager');
+const SystemDiagnostic = require('./modules/utils/system-diagnostic');
 
 // =============================================================================
 // 🚀 ГИБРИДНАЯ СИСТЕМА ЦИФРОВЫХ ОТПЕЧАТКОВ
