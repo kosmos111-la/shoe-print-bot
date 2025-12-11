@@ -59,6 +59,15 @@ class MergeVisualizer {
                 const vectorComparison = this.compareWithVectorGraphs(points1, points2);
                 transformationResult = vectorComparison.transformation;
                 matchesResult = vectorComparison.pointMatches;
+               
+                // 🔴 ДОБАВЛЕНО: ЛОГИРОВАНИЕ ФОРМАТА СОВПАДЕНИЙ
+                console.log(`📊 Формат совпадений: ${matchesResult.length > 0 ?
+                    (matchesResult[0].point1 ? 'точки' : 'индексы') : 'нет'}`);
+               
+                // Проверить первые 3 совпадения
+                if (matchesResult.length > 0) {
+                    console.log('🔍 Пример совпадения:', JSON.stringify(matchesResult[0]).slice(0, 100));
+                }
             }
 
             // 🔴 ШАГ 2: ПРИМЕНИТЬ ТРАНСФОРМАЦИЮ К ТОЧКАМ ВТОРОГО СЛЕДА
@@ -171,7 +180,7 @@ class MergeVisualizer {
         }
     }
 
-    // 🔴 3. ВЕКТОРНОЕ СРАВНЕНИЕ ДЛЯ ТРАНСФОРМАЦИИ
+    // 🔴 3. ВЕКТОРНОЕ СРАВНЕНИЕ ДЛЯ ТРАНСФОРМАЦИИ (ИСПРАВЛЕННЫЙ)
     compareWithVectorGraphs(points1, points2) {
         if (points1.length < 4 || points2.length < 4) {
             return {
@@ -192,9 +201,29 @@ class MergeVisualizer {
             // Сравнить векторные схемы
             const vectorComparison = vectorGraph1.compare(vectorGraph2);
 
+            // 🔴 ИСПРАВЛЕНИЕ: ПРЕОБРАЗОВАТЬ ИНДЕКСЫ В ТОЧКИ
+            const pointMatches = (vectorComparison.pointMatches || []).map(match => {
+                const point1 = points1[match.pointA];
+                const point2 = points2[match.pointB];
+               
+                if (!point1 || !point2) {
+                    return null;
+                }
+               
+                return {
+                    point1: point1,
+                    point2: point2,
+                    distance: match.distance || 0,
+                    score: match.score || 0,
+                    originalMatch: match // сохраняем оригинальные данные
+                };
+            }).filter(match => match !== null); // убираем null
+
+            console.log(`🔗 Преобразовано ${pointMatches.length} векторных соответствий в точки`);
+
             return {
                 transformation: vectorComparison.transformation,
-                pointMatches: vectorComparison.pointMatches || [],
+                pointMatches: pointMatches, // 🔴 ТЕПЕРЬ ЭТО ТОЧКИ, А НЕ ИНДЕКСЫ
                 similarity: vectorComparison.similarity,
                 vectorComparison: vectorComparison
             };
@@ -416,33 +445,61 @@ class MergeVisualizer {
         return { scale, offsetX, offsetY };
     }
 
+    // 🔴 ИСПРАВЛЕННЫЙ: drawConnections с защитой от разных форматов данных
     drawConnections(ctx, points1, points2, matches, scale, offsetX, offsetY) {
-        ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([5, 3]);
+        if (!matches || matches.length === 0) {
+            console.log('⚠️ Нет совпадений для рисования связей');
+            return;
+        }
 
-        matches.forEach(match => {
-            const p1 = match.point1;
-            const p2 = match.point2;
+        ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 3]);
+       
+        let validConnections = 0;
+       
+        matches.forEach((match, index) => {
+            // 🔴 ПРОВЕРКА ВСЕХ ВОЗМОЖНЫХ ФОРМАТОВ:
+            let p1, p2;
+           
+            if (match.point1 && match.point2) {
+                p1 = match.point1;
+                p2 = match.point2;
+            } else if (match.pointA !== undefined && match.pointB !== undefined) {
+                // Если переданы индексы вместо точек
+                p1 = points1[match.pointA];
+                p2 = points2[match.pointB];
+            } else {
+                console.log(`⚠️ Пропускаю невалидное совпадение ${index}:`, match);
+                return;
+            }
+           
+            // Проверка координат
+            if (!p1 || !p2 ||
+                typeof p1.x === 'undefined' || typeof p1.y === 'undefined' ||
+                typeof p2.x === 'undefined' || typeof p2.y === 'undefined') {
+                console.log(`⚠️ Пропускаю совпадение ${index} без координат`);
+                return;
+            }
            
             const x1 = offsetX + p1.x * scale;
             const y1 = offsetY + p1.y * scale;
             const x2 = offsetX + p2.x * scale;
             const y2 = offsetY + p2.y * scale;
-
+           
             ctx.beginPath();
             ctx.moveTo(x1, y1);
             ctx.lineTo(x2, y2);
             ctx.stroke();
-
-            // Точка в середине связи
-            ctx.fillStyle = 'rgba(255, 215, 0, 0.8)';
-            ctx.beginPath();
-            ctx.arc((x1 + x2) / 2, (y1 + y2) / 2, 3, 0, Math.PI * 2);
-            ctx.fill();
+           
+            validConnections++;
         });
-
+       
         ctx.setLineDash([]);
+       
+        if (validConnections > 0) {
+            console.log(`✅ Нарисовано ${validConnections} связей между точками`);
+        }
     }
 
     drawPoint(ctx, x, y, color, size, label = '') {
