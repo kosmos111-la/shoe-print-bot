@@ -1,4 +1,4 @@
-// test-super-model.js (улучшенная версия)
+// test-super-model.js (полный исправленный код)
 
 const HybridFootprint = require('./modules/footprint/hybrid-footprint');
 
@@ -133,8 +133,9 @@ const trackerStats = superFootprint.pointTracker.getStats();
 console.log(`├─ Точек в модели: ${superFootprint.originalPoints.length}`);
 console.log(`├─ Векторов: ${superFootprint.getVectorCount()}`);
 console.log(`├─ Матрица: ${superFootprint.getMatrixSizeString()}`);
-console.log(`├─ Трекера: ${trackerStats.totalPoints} точек, ${trackerStats.confidence.toFixed(3)} confidence`);
-console.log(`└─ Общий confidence: ${superFootprint.stats.confidence.toFixed(3)}`);
+console.log(`├─ Трекера: ${trackerStats.totalPoints || 0} точек`);
+console.log(`├─ Общий confidence: ${superFootprint.stats.confidence.toFixed(3)}`);
+console.log(`└─ Качество: ${Math.round(superFootprint.stats.qualityScore * 100)}%`);
 
 // Анализ точек после слияния
 console.log('\n🔍 АНАЛИЗ ТОЧЕК ПОСЛЕ СЛИЯНИЯ:');
