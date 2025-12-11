@@ -4,13 +4,13 @@
 class PointMerger {
     constructor(options = {}) {
         this.config = {
-            mergeDistance: options.mergeDistance || 15, // Макс расстояние для слияния
-            confidenceBoost: options.confidenceBoost || 1.3, // Повышение confidence при слиянии
-            minConfidenceForMerge: options.minConfidenceForMerge || 0.4,
+            mergeDistance: options.mergeDistance || 40, // БЫЛО 15! УВЕЛИЧИВАЕМ!
+            confidenceBoost: options.confidenceBoost || 1.5,
+            minConfidenceForMerge: options.minConfidenceForMerge || 0.2, // БЫЛО 0.4! СНИЖАЕМ!
             ...options
         };
+        console.log(`🔧 PointMerger создан: mergeDistance=${this.config.mergeDistance}px`);
     }
-
     // 1. ОСНОВНОЙ МЕТОД СЛИЯНИЯ
     mergePoints(points1, points2, transformation = null) {
         console.log(`🔄 Интеллектуальное слияние: ${points1.length} + ${points2.length} точек`);
