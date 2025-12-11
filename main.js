@@ -58,7 +58,6 @@ const { SessionManager } = require('./modules/session/session-manager');
 const { SessionAnalyzer } = require('./modules/session/session-analyzer');
 const { FeedbackDatabase } = require('./modules/feedback/feedback-db');
 const { FeedbackManager } = require('./modules/feedback/feedback-manager');
-const SystemDiagnostic = require('./modules/utils/system-diagnostic');
 
 // =============================================================================
 // 🚀 ГИБРИДНАЯ СИСТЕМА ЦИФРОВЫХ ОТПЕЧАТКОВ
@@ -70,6 +69,9 @@ const SimpleFootprintManager = require('./modules/footprint/simple-manager');
 
 // 🆕 ГИБРИДНАЯ СИСТЕМА
 const HybridManager = require('./modules/footprint/hybrid-manager');
+
+const SystemDiagnostic = require('./modules/utils/system-diagnostic');
+const systemDiagnostic = new SystemDiagnostic();
 
 // Глобальный менеджер новой системы
 let footprintManager = null;
@@ -3748,6 +3750,70 @@ app.get('/webhook-test', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
+});
+
+// =============================================================================
+// 🔧 КОМАНДЫ ДЛЯ СИСТЕМНОЙ ДИАГНОСТИКИ
+// =============================================================================
+
+// Команда /diagnostic - полная диагностика системы
+bot.onText(/\/diagnostic/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    try {
+        await bot.sendMessage(chatId, '🔍 Запускаю полную диагностику системы...');
+       
+        // Используем глобальную переменную systemDiagnostic
+        if (systemDiagnostic) {
+            await systemDiagnostic.sendDiagnosticReport(bot, chatId);
+            await bot.sendMessage(chatId, '✅ Диагностика завершена!');
+        } else {
+            await bot.sendMessage(chatId, '❌ Модуль диагностики не инициализирован');
+        }
+    } catch (error) {
+        console.log('❌ Ошибка диагностики:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка диагностики: ${error.message}`);
+    }
+});
+
+// Команда /system_info - краткая информация о системе
+bot.onText(/\/system_info/, async (msg) => {
+    const chatId = msg.chat.id;
+   
+    const info = `
+🔧 **СИСТЕМНАЯ ИНФОРМАЦИЯ**
+
+📦 **МОДУЛИ:**
+├─ 🦶 Footprint: гибридные отпечатки
+├─ 🔍 Analysis: анализ следов
+├─ 🎨 Visualization: визуализации
+├─ 🤖 Bot: телеграм бот
+├─ 🧮 Calculators: расчеты
+├─ 📱 Apps: полезные приложения
+
+⚙️ **НАСТРОЙКИ:**
+├─ Гибридный режим: ${config.hybridMode ? '✅ ВКЛ' : '❌ ВЫКЛ'}
+├─ Автосовмещение: ✅ ВКЛ
+├─ Визуализация объединений: ✅ ВКЛ
+├─ Debug: ${config.debug ? '✅ ВКЛ' : '❌ ВЫКЛ'}
+
+📊 **КОМАНДЫ:**
+├─ /start - начать
+├─ /footprint_start - создать сессию отпечатков
+├─ /diagnostic - диагностика системы
+├─ /system_info - эта информация
+├─ /visualize_merge - визуализация объединения
+└─ /help - помощь
+
+📈 **СТАТИСТИКА:**
+├─ Пользователей: ${globalStats.totalUsers}
+├─ Фото обработано: ${globalStats.totalPhotos}
+├─ Анализов: ${globalStats.totalAnalyses}
+└─ Активных сессий: ${sessionManager ? Array.from(sessionManager.activeSessions.keys()).length : 0}
+`;
+
+    await bot.sendMessage(chatId, info);
 });
 
 // Запуск сервера
