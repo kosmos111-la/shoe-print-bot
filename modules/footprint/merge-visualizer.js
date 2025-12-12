@@ -1,567 +1,1156 @@
 // modules/footprint/merge-visualizer.js
+// ВИЗУАЛИЗАТОР СЛИЯНИЙ С ПОДДЕРЖКОЙ ТОПОЛОГИЧЕСКОЙ ВИЗУАЛИЗАЦИИ
+
 const { createCanvas } = require('canvas');
 const fs = require('fs');
 const path = require('path');
-const VectorGraph = require('./vector-graph');
-const TopologyVisualizer = require('./topology-visualizer'); // 🔴 ДОБАВЛЕНО
 
 class MergeVisualizer {
-    constructor() {
-        console.log('🎨 Создан ВЕКТОРНЫЙ визуализатор объединений');
-        this.topologyVisualizer = new TopologyVisualizer(); // 🔴 ДОБАВЛЕНО
-    }
-
-    // 🔴 НОВЫЙ МЕТОД ДЛЯ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ:
-    async visualizeTopologyMerge(footprint1, footprint2, comparisonResult, options = {}) {
-        console.log('🏗️ Использую топологический визуализатор...');
-        return this.topologyVisualizer.visualizeTopologyMerge(
-            footprint1,
-            footprint2,
-            comparisonResult,
-            options
-        );
-    }
-
-    // 🔴 ОБНОВЛЕННЫЙ МЕТОД visualizeIntelligentMerge:
-    async visualizeIntelligentMerge(footprint1, footprint2, comparisonResult, options = {}) {
-        // Проверить, нужно ли использовать топологическую визуализацию
-        if (options.showTopology &&
-            footprint1.hybridFootprint &&
-            footprint2.hybridFootprint &&
-            comparisonResult.details?.topology) {
-
-            console.log('🏗️ Использую топологическую визуализацию для интеллектуального слияния');
-            return this.visualizeTopologyMerge(footprint1, footprint2, comparisonResult, {
-                ...options,
-                title: 'ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ ОТПЕЧАТКОВ'
-            });
+    constructor(options = {}) {
+        this.config = {
+            outputDir: options.outputDir || './temp/merge_visualizations',
+            width: options.width || 1200,
+            height: options.height || 800,
+            backgroundColor: options.backgroundColor || '#0d1b2a',
+            showStats: options.showStats !== false,
+            showTopology: options.showTopology !== false,
+            showForces: options.showForces || false,
+            showTransformation: options.showTransformation !== false,
+            debug: options.debug || false,
+            ...options
+        };
+       
+        // Создать директорию для визуализаций
+        if (!fs.existsSync(this.config.outputDir)) {
+            fs.mkdirSync(this.config.outputDir, { recursive: true });
         }
-
-        // Сохранить ссылку на оригинальный метод для вызова
-        if (!this.originalVisualizeIntelligentMerge) {
-            this.originalVisualizeIntelligentMerge = this._originalVisualizeIntelligentMerge.bind(this);
-        }
-
-        // Иначе использовать старую интеллектуальную визуализацию
-        return this._originalVisualizeIntelligentMerge(footprint1, footprint2, comparisonResult, options);
-    }
-
-    // 1. СОВМЕСТИМЫЙ МЕТОД
-    visualizeMerge(footprint1, footprint2, comparisonResult, outputPath = null) {
-        return this.visualizeMergeEnhanced(
-            footprint1,
-            footprint2,
-            comparisonResult,
-            {
-                outputPath: outputPath,
-                showTransformation: true,
-                showWeights: true,
-                showConnections: true,
-                showStats: true
-            }
-        );
-    }
-
-    // 2. УЛУЧШЕННАЯ ВЕКТОРНАЯ ВИЗУАЛИЗАЦИЯ
-    async visualizeMergeEnhanced(footprint1, footprint2, comparisonResult = null, options = {}) {
-        console.log('🎨 Создаю ВЕКТОРНУЮ визуализацию объединения...');
-
-        try {
-            const {
-                showTransformation = true,
-                showWeights = true,
-                showConnections = true,
-                showStats = true,
-                outputPath = null,
-                title = 'ВЕКТОРНАЯ ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ',
-                transformation = null,
-                vectorMatches = null
-            } = options;
-
-            // Извлечь точки
-            const points1 = this.extractPoints(footprint1);
-            const points2 = this.extractPoints(footprint2);
-
-            console.log(`📊 Точки: ${points1.length} из ${footprint1.name}, ${points2.length} из ${footprint2.name}`);
-
-            // 🔴 ШАГ 1: ВЕКТОРНОЕ СРАВНЕНИЕ
-            let transformationResult = transformation;
-            let matchesResult = vectorMatches;
-
-            if (!transformationResult && points1.length > 3 && points2.length > 3) {
-                console.log('🔍 Выполняю векторное сравнение для трансформации...');
-                const vectorComparison = this.compareWithVectorGraphs(points1, points2);
-                transformationResult = vectorComparison.transformation;
-                matchesResult = vectorComparison.pointMatches;
-                console.log(`🔗 Найдено ${matchesResult.length} векторных соответствий`);
-            }
-
-            // 🔴 ШАГ 2: ПРИМЕНИТЬ ТРАНСФОРМАЦИЮ
-            const transformedPoints2 = transformationResult
-                ? this.applyTransformation(points2, transformationResult)
-                : points2;
-
-            // 🔴 ШАГ 3: НАЙТИ СОВПАДЕНИЯ
-            const finalMatches = matchesResult || this.findPointMatches(points1, transformedPoints2, 10);
-
-            console.log(`📈 Итоговые совпадения: ${finalMatches.length}`);
-            if (finalMatches.length > 0) {
-                console.log('🔍 Пример совпадения:', {
-                    hasPoint1: !!finalMatches[0].point1,
-                    hasPoint2: !!finalMatches[0].point2,
-                    point1Type: finalMatches[0].point1 ? 'object' : 'undefined',
-                    point2Type: finalMatches[0].point2 ? 'object' : 'undefined'
-                });
-            }
-
-            // 🔴 ШАГ 4: СОЗДАТЬ ВИЗУАЛИЗАЦИЮ
-            const canvas = createCanvas(1200, 800);
-            const ctx = canvas.getContext('2d');
-
-            // Фон
-            this.drawBackground(ctx, canvas.width, canvas.height);
-
-            // Заголовок
-            this.drawTitle(ctx, title, footprint1.name, footprint2.name);
-
-            // Область визуализации
-            const vizArea = { x: 50, y: 180, width: 900, height: 500 };
-            this.drawVisualizationArea(ctx, vizArea);
-
-            // Нормализация
-            const { scale, offsetX, offsetY } = this.normalizePoints([...points1, ...transformedPoints2], vizArea);
-
-            // Связи
-            if (showConnections && finalMatches.length > 0) {
-                this.drawConnections(ctx, points1, transformedPoints2, finalMatches, scale, offsetX, offsetY);
-            }
-
-            // Точки первого следа
-            points1.forEach((point, index) => {
-                const x = offsetX + point.x * scale;
-                const y = offsetY + point.y * scale;
-                const weight = this.calculatePointWeight(point, finalMatches, index, 'first');
-                const color = this.getPointColor(weight, false);
-                const size = 4 + Math.min(weight, 6);
-
-                this.drawPoint(ctx, x, y, color, size, showWeights && weight > 1 ? weight.toString() : '');
-            });
-
-            // Точки второго следа
-            transformedPoints2.forEach((point, index) => {
-                const x = offsetX + point.x * scale;
-                const y = offsetY + point.y * scale;
-                const weight = this.calculatePointWeight(point, finalMatches, index, 'second');
-                const color = this.getPointColor(weight, true);
-                const size = 4 + Math.min(weight, 6);
-
-                this.drawPoint(ctx, x, y, color, size, showWeights && weight > 1 ? weight.toString() : '');
-            });
-
-            // Статистика
-            if (showStats) {
-                const stats = this.calculateStats(points1, points2, finalMatches, comparisonResult, transformationResult);
-                this.drawStatistics(ctx, stats, vizArea.x + vizArea.width + 20, vizArea.y);
-            }
-
-            // Легенда
-            this.drawLegend(ctx, points1.length, points2.length, finalMatches.length);
-
-            // Трансформация
-            if (showTransformation && transformationResult && transformationResult.confidence > 0.3) {
-                this.drawTransformationInfo(ctx, transformationResult, 50, 720);
-            }
-
-            // Сохранение
-            if (outputPath) {
-                const dir = path.dirname(outputPath);
-                if (!fs.existsSync(dir)) {
-                    fs.mkdirSync(dir, { recursive: true });
-                }
-
-                const buffer = canvas.toBuffer('image/png');
-                fs.writeFileSync(outputPath, buffer);
-                console.log(`✅ Векторная визуализация сохранена: ${outputPath}`);
-            }
-
-            return {
-                canvas,
-                buffer: canvas.toBuffer('image/png'),
-                stats: {
-                    points1: points1.length,
-                    points2: points2.length,
-                    matches: finalMatches.length,
-                    matchRate: finalMatches.length / Math.min(points1.length, points2.length),
-                    transformation: transformationResult,
-                    similarity: comparisonResult?.similarity,
-                    decision: comparisonResult?.decision
-                },
-                matches: finalMatches,
-                transformation: transformationResult
-            };
-
-        } catch (error) {
-            console.log(`❌ Ошибка векторной визуализации: ${error.message}`);
-            console.error(error.stack);
-            throw error;
-        }
-    }
-
-    // 3. ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ - ОРИГИНАЛЬНЫЙ МЕТОД (переименован)
-    async _originalVisualizeIntelligentMerge(footprint1, footprint2, comparisonResult, options = {}) {
-        console.log('🎨 Создаю визуализацию ИНТЕЛЛЕКТУАЛЬНОГО слияния...');
-
-        try {
-            const {
-                showTransformation = true,
-                showWeights = true,
-                showConnections = true,
-                showStats = true,
-                outputPath = null,
-                title = 'ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ ОТПЕЧАТКОВ'
-            } = options;
-
-            // Извлечь точки
-            const points1 = this.extractPoints(footprint1);
-            const points2 = this.extractPoints(footprint2);
-
-            console.log(`📊 Точки до слияния: ${points1.length} + ${points2.length}`);
-
-            // Создать PointMerger для демонстрации
-            const PointMerger = require('./point-merger');
-            const pointMerger = new PointMerger({ mergeDistance: 15 });
-
-            // Получить трансформацию из сравнения
-            let transformation = null;
-            if (comparisonResult.details?.vector?.transformation) {
-                transformation = comparisonResult.details.vector.transformation;
-            } else if (comparisonResult.transformation) {
-                transformation = comparisonResult.transformation;
-            }
-
-            // Выполнить слияние для визуализации
-            const mergeResult = pointMerger.mergePoints(points1, points2, transformation);
-
-            console.log(`📈 После слияния: ${mergeResult.points.length} точек`);
-            console.log(`🔗 Совпадений найдено: ${mergeResult.matches.length}`);
-
-            // Создать холст
-            const canvas = createCanvas(1400, 1000);
-            const ctx = canvas.getContext('2d');
-
-            // Фон
-            this.drawBackground(ctx, canvas.width, canvas.height);
-
-            // Заголовок
-            this.drawIntelligentMergeTitle(ctx, title, footprint1.name, footprint2.name);
-
-            // ОБЛАСТЬ 1: ДО СЛИЯНИЯ
-            const area1 = { x: 50, y: 150, width: 400, height: 350 };
-            this.drawComparisonArea(ctx, points1, points2, transformation,
-                                   'ДО СЛИЯНИЯ', area1, false);
-
-            // ОБЛАСТЬ 2: ПРОЦЕСС СЛИЯНИЯ
-            const area2 = { x: 500, y: 150, width: 400, height: 350 };
-            this.drawMergeProcessArea(ctx, points1, points2, mergeResult.matches,
-                                      transformation, 'ПРОЦЕСС СЛИЯНИЯ', area2);
-
-            // ОБЛАСТЬ 3: РЕЗУЛЬТАТ СЛИЯНИЯ
-            const area3 = { x: 950, y: 150, width: 400, height: 350 };
-            this.drawMergedResultArea(ctx, mergeResult.points,
-                                      'РЕЗУЛЬТАТ СЛИЯНИЯ', area3);
-
-            // СТАТИСТИКА
-            if (showStats) {
-                const stats = this.calculateIntelligentMergeStats(
-                    points1, points2, mergeResult, comparisonResult
-                );
-                this.drawIntelligentMergeStats(ctx, stats, 50, 550);
-            }
-
-            // ЛЕГЕНДА
-            this.drawIntelligentMergeLegend(ctx, 50, 650);
-
-            // ТРАНСФОРМАЦИЯ
-            if (showTransformation && transformation && transformation.confidence > 0.3) {
-                this.drawTransformationInfo(ctx, transformation, 50, 750);
-            }
-
-            // МЕТРИКИ КАЧЕСТВА
-            this.drawQualityMetrics(ctx, mergeResult.stats, 500, 550);
-
-            // Сохранение
-            if (outputPath) {
-                const dir = path.dirname(outputPath);
-                if (!fs.existsSync(dir)) {
-                    fs.mkdirSync(dir, { recursive: true });
-                }
-
-                const buffer = canvas.toBuffer('image/png');
-                fs.writeFileSync(outputPath, buffer);
-                console.log(`✅ Визуализация интеллектуального слияния сохранена: ${outputPath}`);
-            }
-
-            return {
-                canvas,
-                buffer: canvas.toBuffer('image/png'),
-                stats: mergeResult.stats,
-                mergeResult: mergeResult,
-                transformation: transformation,
-                beforeAfter: {
-                    before: { points1: points1.length, points2: points2.length },
-                    after: mergeResult.points.length,
-                    reduction: points1.length + points2.length - mergeResult.points.length
-                }
-            };
-
-        } catch (error) {
-            console.log(`❌ Ошибка визуализации интеллектуального слияния: ${error.message}`);
-            console.error(error.stack);
-            throw error;
-        }
-    }
-
-    // 🔴 НОВЫЙ МЕТОД: ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ
-    async visualizeSuperModel(superModel, originalFootprints = [], outputPath = null) {
-        console.log('🎨 Создаю визуализацию СУПЕР-МОДЕЛИ...');
-
-        try {
-            const canvas = createCanvas(1200, 800);
-            const ctx = canvas.getContext('2d');
-
-            // Фон
-            this.drawBackground(ctx, canvas.width, canvas.height);
-
-            // Заголовок
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 36px Arial';
-            ctx.fillText('🌟 СУПЕР-МОДЕЛЬ СОЗДАНА!', 50, 60);
-
-            // Извлечь точки
-            const superPoints = this.extractPoints(superModel);
-            const originalPoints = originalFootprints.map(fp => this.extractPoints(fp));
-
-            // Статистика
-            const totalBefore = originalPoints.reduce((sum, pts) => sum + pts.length, 0);
-            const reduction = totalBefore - superPoints.length;
-            const efficiency = (reduction / totalBefore * 100).toFixed(1);
-
-            // Информация о супер-модели
-            ctx.font = '18px Arial';
-            ctx.fillStyle = '#4caf50';
-            ctx.fillText(`📊 ДО: ${totalBefore} точек`, 50, 100);
-            ctx.fillText(`🎯 ПОСЛЕ: ${superPoints.length} точек (${efficiency}% эффективность)`, 50, 130);
-            ctx.fillText(`🔗 Слито совпадений: ${superPoints.filter(p => p.source === 'merged').length}`, 50, 160);
-
-            // Область визуализации
-            const vizArea = { x: 50, y: 200, width: 1100, height: 550 };
-            this.drawVisualizationArea(ctx, vizArea);
-
-            // Нормализация
-            const { scale, offsetX, offsetY } = this.normalizePoints(superPoints, vizArea);
-
-            // Нарисовать супер-модель
-            superPoints.forEach(point => {
-                const x = offsetX + point.x * scale;
-                const y = offsetY + point.y * scale;
-
-                let color, size;
-
-                switch (point.source) {
-                    case 'merged':
-                        color = 'rgba(156, 39, 176, 0.9)'; // Фиолетовый - слитые
-                        size = 8;
-                        break;
-                    case 'footprint1':
-                        color = 'rgba(50, 100, 255, 0.7)'; // Синий - из 1
-                        size = 6;
-                        break;
-                    case 'footprint2':
-                        color = 'rgba(255, 50, 50, 0.7)'; // Красный - из 2
-                        size = 6;
-                        break;
-                    default:
-                        color = 'rgba(200, 200, 200, 0.7)';
-                        size = 6;
-                }
-
-                // Точка
-                this.drawPoint(ctx, x, y, color, size);
-
-                // Если точка слитая с высоким confidence
-                if (point.source === 'merged' && point.confidence > 0.7) {
-                    ctx.fillStyle = '#ffeb3b';
-                    ctx.font = 'bold 12px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.fillText('★', x, y - 15);
-                }
-            });
-
-            // Легенда
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 20px Arial';
-            ctx.fillText('📋 ЛЕГЕНДА СУПЕР-МОДЕЛИ:', 50, 780);
-
-            const legendItems = [
-                { color: 'rgba(156, 39, 176, 0.9)', text: '🟣 Слитые точки' },
-                { color: 'rgba(50, 100, 255, 0.7)', text: '🔵 Уникальные из 1' },
-                { color: 'rgba(255, 50, 50, 0.7)', text: '🔴 Уникальные из 2' },
-                { color: '#ffeb3b', text: '⭐ Высокая уверенность (★)' }
-            ];
-
-            legendItems.forEach((item, i) => {
-                ctx.fillStyle = item.color;
-                ctx.fillRect(250 + i * 250, 760, 20, 20);
-
-                ctx.fillStyle = '#cccccc';
-                ctx.font = '16px Arial';
-                ctx.fillText(item.text, 275 + i * 250, 775);
-            });
-
-            // Сохранение
-            if (outputPath) {
-                const dir = path.dirname(outputPath);
-                if (!fs.existsSync(dir)) {
-                    fs.mkdirSync(dir, { recursive: true });
-                }
-
-                const buffer = canvas.toBuffer('image/png');
-                fs.writeFileSync(outputPath, buffer);
-                console.log(`✅ Визуализация супер-модели сохранена: ${outputPath}`);
-            }
-
-            return {
-                canvas,
-                buffer: canvas.toBuffer('image/png'),
-                stats: {
-                    before: totalBefore,
-                    after: superPoints.length,
-                    efficiency: efficiency + '%',
-                    mergedPoints: superPoints.filter(p => p.source === 'merged').length,
-                    uniquePoints1: superPoints.filter(p => p.source === 'footprint1').length,
-                    uniquePoints2: superPoints.filter(p => p.source === 'footprint2').length,
-                    avgConfidence: (superPoints.reduce((s, p) => s + (p.confidence || 0.5), 0) / superPoints.length).toFixed(3)
-                }
-            };
-
-        } catch (error) {
-            console.log(`❌ Ошибка визуализации супер-модели: ${error.message}`);
-            throw error;
-        }
-    }
-
-    // 4. ВЕКТОРНОЕ СРАВНЕНИЕ С КОНВЕРТАЦИЕЙ ИНДЕКСОВ В ТОЧКИ
-    compareWithVectorGraphs(points1, points2) {
-        if (points1.length < 4 || points2.length < 4) {
-            return { transformation: null, pointMatches: [], similarity: 0 };
-        }
-
-        try {
-            const vectorGraph1 = new VectorGraph({ points: points1 });
-            const vectorGraph2 = new VectorGraph({ points: points2 });
-
-            vectorGraph1.createFromPoints(points1);
-            vectorGraph2.createFromPoints(points2);
-
-            const vectorComparison = vectorGraph1.compare(vectorGraph2);
-            console.log(`📊 Векторное сравнение: схожесть=${vectorComparison.similarity?.toFixed(3)}, совпадений=${vectorComparison.pointMatches?.length || 0}`);
-
-            // 🔴 КОНВЕРТАЦИЯ ИНДЕКСОВ В ТОЧКИ
-            const pointMatches = (vectorComparison.pointMatches || []).map(match => {
-                try {
-                    const point1 = points1[match.pointA];
-                    const point2 = points2[match.pointB];
-
-                    if (!point1 || !point2) {
-                        console.log(`⚠️ Пропускаю совпадение: point1=${match.pointA}, point2=${match.pointB} - точки не найдены`);
-                        return null;
-                    }
-
-                    return {
-                        point1: { x: point1.x, y: point1.y, ...point1 },
-                        point2: { x: point2.x, y: point2.y, ...point2 },
-                        distance: match.distance || 0,
-                        score: match.score || 0,
-                        originalIndexes: { pointA: match.pointA, pointB: match.pointB }
-                    };
-                } catch (error) {
-                    console.log(`⚠️ Ошибка конвертации совпадения:`, error.message);
-                    return null;
-                }
-            }).filter(match => match !== null);
-
-            console.log(`🔗 Преобразовано ${pointMatches.length} векторных соответствий в точки`);
-
-            return {
-                transformation: vectorComparison.transformation,
-                pointMatches: pointMatches, // 🔴 ТЕПЕРЬ ЭТО ТОЧКИ!
-                similarity: vectorComparison.similarity,
-                vectorComparison: vectorComparison
-            };
-
-        } catch (error) {
-            console.log('⚠️ Ошибка векторного сравнения:', error.message);
-            return { transformation: null, pointMatches: [], similarity: 0 };
-        }
-    }
-
-    // 5. ВЕС ТОЧКИ
-    calculatePointWeight(point, matches, pointIndex, footprintType) {
-        let weight = 1;
-
-        const match = matches.find(m => {
-            if (footprintType === 'first') {
-                return m.point1 && Math.abs(m.point1.x - point.x) < 0.001 && Math.abs(m.point1.y - point.y) < 0.001;
-            } else {
-                return m.point2 && Math.abs(m.point2.x - point.x) < 0.001 && Math.abs(m.point2.y - point.y) < 0.001;
+       
+        // Поддиректории для разных типов визуализаций
+        this.subdirs = {
+            topology: path.join(this.config.outputDir, 'topology'),
+            forces: path.join(this.config.outputDir, 'forces'),
+            classic: path.join(this.config.outputDir, 'classic'),
+            supermodels: path.join(this.config.outputDir, 'supermodels')
+        };
+       
+        // Создать все поддиректории
+        Object.values(this.subdirs).forEach(dir => {
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
             }
         });
-
-        if (match) {
-            weight = match.distance < 5 ? 3 : 2;
-        }
-
-        return weight;
+       
+        console.log(`🎨 MergeVisualizer создан: ${this.config.width}x${this.config.height}`);
+        console.log(`   📁 Выходная директория: ${this.config.outputDir}`);
     }
 
-    // 6. ИЗВЛЕЧЬ ТОЧКИ
-    extractPoints(footprint) {
-        if (footprint.hybridFootprint?.pointTracker) {
-            const trackerPoints = footprint.hybridFootprint.pointTracker.getAllPoints();
-            if (trackerPoints.length > 0) {
-                return trackerPoints.map(pt => ({
-                    x: pt.x,
-                    y: pt.y,
-                    confidence: pt.rating || pt.confidence || 0.5,
-                    confirmedCount: pt.confirmedCount || 0
-                }));
-            }
+    // 1. ОСНОВНОЙ МЕТОД: ВИЗУАЛИЗАЦИЯ СЛИЯНИЯ С ВЫБОРОМ ТИПА
+    async visualizeMerge(footprint1, footprint2, comparisonResult, options = {}) {
+        const mergeOptions = {
+            ...this.config,
+            ...options
+        };
+       
+        // Определить тип визуализации на основе метода слияния
+        const mergeMethod = comparisonResult.method ||
+                          comparisonResult.details?.method ||
+                          options.method ||
+                          'classic';
+       
+        let result;
+       
+        switch (mergeMethod) {
+            case 'topology':
+            case 'topology_merge':
+                result = await this.visualizeTopologyMerge(
+                    footprint1, footprint2, comparisonResult, mergeOptions
+                );
+                break;
+               
+            case 'intelligent':
+            case 'intelligent_merge':
+                result = await this.visualizeIntelligentMerge(
+                    footprint1, footprint2, comparisonResult, mergeOptions
+                );
+                break;
+               
+            case 'geometric':
+            case 'geometric_fallback':
+                result = await this.visualizeGeometricMerge(
+                    footprint1, footprint2, comparisonResult, mergeOptions
+                );
+                break;
+               
+            default:
+                result = await this.visualizeClassicMerge(
+                    footprint1, footprint2, comparisonResult, mergeOptions
+                );
         }
-
-        return footprint.originalPoints ||
-               (footprint.graph ?
-                Array.from(footprint.graph.nodes.values()).map(n => ({
-                    x: n.x,
-                    y: n.y,
-                    confidence: n.confidence || 0.5
-                })) : []);
+       
+        return result;
     }
 
-    // 7. ПРИМЕНИТЬ ТРАНСФОРМАЦИЮ
-    applyTransformation(points, transformation) {
-        if (!transformation || transformation.type === 'insufficient_points') {
-            return points;
+    // 2. ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ - ОСНОВНАЯ ВИЗУАЛИЗАЦИЯ
+    async visualizeTopologyMerge(footprint1, footprint2, comparisonResult, options) {
+        const timestamp = Date.now();
+        const outputPath = options.outputPath ||
+                          path.join(this.subdirs.topology, `topology_merge_${timestamp}.png`);
+       
+        console.log(`🎨 Создаю визуализацию топологического слияния...`);
+       
+        const canvas = createCanvas(options.width, options.height);
+        const ctx = canvas.getContext('2d');
+       
+        // Фон
+        ctx.fillStyle = options.backgroundColor;
+        ctx.fillRect(0, 0, options.width, options.height);
+       
+        // Получить графы
+        const graph1 = footprint1.graph || footprint1;
+        const graph2 = footprint2.graph || footprint2;
+       
+        // Найти общие масштабы и смещения
+        const bounds = this.calculateCombinedBounds(graph1, graph2);
+        const transform = this.calculateCanvasTransform(bounds, options);
+       
+        // 2.1 НАРИСОВАТЬ ОБЪЕДИНЁННЫЙ РЕЗУЛЬТАТ
+        if (comparisonResult.topologyMergeResult?.mergedGraph) {
+            this.drawTopologyMergeResult(
+                ctx,
+                comparisonResult.topologyMergeResult,
+                transform,
+                options
+            );
+        } else {
+            // Если нет результата слияния, нарисовать оба графа
+            this.drawDualGraphs(ctx, graph1, graph2, transform, options);
         }
+       
+        // 2.2 НАРИСОВАТЬ СТАТИСТИКУ ТОПОЛОГИИ
+        if (options.showStats) {
+            this.drawTopologyStats(
+                ctx,
+                comparisonResult,
+                options
+            );
+        }
+       
+        // 2.3 НАРИСОВАТЬ СТРУКТУРНЫЕ СООТВЕТСТВИЯ
+        if (comparisonResult.topologyMergeResult?.structuralMatches) {
+            this.drawStructuralMatches(
+                ctx,
+                graph1,
+                graph2,
+                comparisonResult.topologyMergeResult.structuralMatches,
+                transform,
+                options
+            );
+        }
+       
+        // 2.4 ЗАГОЛОВОК И ЛЕГЕНДА
+        this.drawTopologyHeader(ctx, comparisonResult, options);
+       
+        // Сохранить
+        await this.saveCanvas(canvas, outputPath);
+       
+        return {
+            success: true,
+            path: outputPath,
+            type: 'topology',
+            stats: this.extractTopologyStats(comparisonResult),
+            canvas: canvas
+        };
+    }
 
-        return points.map(p => {
-            let x = p.x;
-            let y = p.y;
+    // 3. ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
+    async visualizeIntelligentMerge(footprint1, footprint2, comparisonResult, options) {
+        const timestamp = Date.now();
+        const outputPath = options.outputPath ||
+                          path.join(this.subdirs.classic, `intelligent_merge_${timestamp}.png`);
+       
+        console.log(`🎨 Создаю визуализацию интеллектуального слияния...`);
+       
+        const canvas = createCanvas(options.width, options.height);
+        const ctx = canvas.getContext('2d');
+       
+        // Фон
+        ctx.fillStyle = options.backgroundColor;
+        ctx.fillRect(0, 0, options.width, options.height);
+       
+        // Получить графы
+        const graph1 = footprint1.graph || footprint1;
+        const graph2 = footprint2.graph || footprint2;
+       
+        // Найти общие масштабы и смещения
+        const bounds = this.calculateCombinedBounds(graph1, graph2);
+        const transform = this.calculateCanvasTransform(bounds, options);
+       
+        // Нарисовать оба графа
+        this.drawDualGraphs(ctx, graph1, graph2, transform, {
+            ...options,
+            graph1Color: '#3498db', // Синий
+            graph2Color: '#e74c3c', // Красный
+            showNodes: true,
+            showEdges: true
+        });
+       
+        // Нарисовать трансформации (если есть)
+        if (comparisonResult.transformation) {
+            this.drawTransformationVectors(
+                ctx,
+                graph1,
+                graph2,
+                comparisonResult.transformation,
+                transform,
+                options
+            );
+        }
+       
+        // Нарисовать статистику
+        if (options.showStats) {
+            this.drawIntelligentStats(ctx, comparisonResult, options);
+        }
+       
+        // Заголовок
+        this.drawHeader(ctx, 'ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ', comparisonResult.similarity, options);
+       
+        // Сохранить
+        await this.saveCanvas(canvas, outputPath);
+       
+        return {
+            success: true,
+            path: outputPath,
+            type: 'intelligent',
+            canvas: canvas
+        };
+    }
 
-            if (transformation.translation) {
-                x += transformation.translation.dx || 0;
-                y += transformation.translation.dy || 0;
+    // 4. КЛАССИЧЕСКОЕ СЛИЯНИЕ
+    async visualizeClassicMerge(footprint1, footprint2, comparisonResult, options) {
+        const timestamp = Date.now();
+        const outputPath = options.outputPath ||
+                          path.join(this.subdirs.classic, `classic_merge_${timestamp}.png`);
+       
+        console.log(`🎨 Создаю визуализацию классического слияния...`);
+       
+        const canvas = createCanvas(options.width, options.height);
+        const ctx = canvas.getContext('2d');
+       
+        // Фон
+        ctx.fillStyle = options.backgroundColor;
+        ctx.fillRect(0, 0, options.width, options.height);
+       
+        // Получить графы
+        const graph1 = footprint1.graph || footprint1;
+        const graph2 = footprint2.graph || footprint2;
+       
+        // Найти общие масштабы и смещения
+        const bounds = this.calculateCombinedBounds(graph1, graph2);
+        const transform = this.calculateCanvasTransform(bounds, options);
+       
+        // Нарисовать оба графа
+        this.drawDualGraphs(ctx, graph1, graph2, transform, {
+            ...options,
+            graph1Color: '#2ecc71', // Зелёный
+            graph2Color: '#e67e22', // Оранжевый
+            showNodes: true,
+            showEdges: true
+        });
+       
+        // Нарисовать статистику
+        if (options.showStats) {
+            this.drawClassicStats(ctx, comparisonResult, options);
+        }
+       
+        // Заголовок
+        this.drawHeader(ctx, 'КЛАССИЧЕСКОЕ СЛИЯНИЕ', comparisonResult.similarity, options);
+       
+        // Сохранить
+        await this.saveCanvas(canvas, outputPath);
+       
+        return {
+            success: true,
+            path: outputPath,
+            type: 'classic',
+            canvas: canvas
+        };
+    }
+
+    // 5. ГЕОМЕТРИЧЕСКОЕ СЛИЯНИЕ (запасной вариант)
+    async visualizeGeometricMerge(footprint1, footprint2, comparisonResult, options) {
+        const timestamp = Date.now();
+        const outputPath = options.outputPath ||
+                          path.join(this.subdirs.classic, `geometric_merge_${timestamp}.png`);
+       
+        console.log(`🎨 Создаю визуализацию геометрического слияния...`);
+       
+        const canvas = createCanvas(options.width, options.height);
+        const ctx = canvas.getContext('2d');
+       
+        // Фон
+        ctx.fillStyle = options.backgroundColor;
+        ctx.fillRect(0, 0, options.width, options.height);
+       
+        // Нарисовать слияние точек
+        if (comparisonResult.mergeResult?.points) {
+            this.drawPointCloud(
+                ctx,
+                comparisonResult.mergeResult.points,
+                options
+            );
+        } else {
+            // Простой вариант
+            const graph1 = footprint1.graph || footprint1;
+            const graph2 = footprint2.graph || footprint2;
+           
+            const bounds = this.calculateCombinedBounds(graph1, graph2);
+            const transform = this.calculateCanvasTransform(bounds, options);
+           
+            this.drawDualGraphs(ctx, graph1, graph2, transform, {
+                ...options,
+                graph1Color: '#9b59b6', // Фиолетовый
+                graph2Color: '#1abc9c', // Бирюзовый
+                opacity: 0.6
+            });
+        }
+       
+        // Заголовок
+        this.drawHeader(ctx, 'ГЕОМЕТРИЧЕСКОЕ СЛИЯНИЕ (запасной вариант)',
+                       comparisonResult.similarity, options);
+       
+        // Сохранить
+        await this.saveCanvas(canvas, outputPath);
+       
+        return {
+            success: true,
+            path: outputPath,
+            type: 'geometric',
+            canvas: canvas
+        };
+    }
+
+    // 6. ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ
+    async visualizeSuperModel(superModel, mergedModels = [], outputPath = null, options = {}) {
+        const timestamp = Date.now();
+        const finalPath = outputPath ||
+                         path.join(this.subdirs.supermodels, `super_model_${timestamp}.png`);
+       
+        console.log(`🎨 Создаю визуализацию супер-модели...`);
+       
+        const canvas = createCanvas(options.width || 1400, options.height || 1000);
+        const ctx = canvas.getContext('2d');
+       
+        // Фон
+        ctx.fillStyle = options.backgroundColor || '#0d1b2a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+       
+        // Получить граф супер-модели
+        const superGraph = superModel.graph || superModel;
+       
+        // Найти масштабы
+        const bounds = this.calculateGraphBounds(superGraph);
+        const transform = this.calculateCanvasTransform(bounds, {
+            width: canvas.width - 300, // Оставить место для статистики
+            height: canvas.height - 150,
+            padding: 100
+        });
+       
+        // Нарисовать супер-модель
+        this.drawSuperModelGraph(ctx, superGraph, transform, options);
+       
+        // Нарисовать статистику супер-модели
+        this.drawSuperModelStats(ctx, superModel, mergedModels, canvas.width, options);
+       
+        // Нарисовать историю слияний (если есть)
+        if (mergedModels.length > 0) {
+            this.drawMergeHistory(ctx, mergedModels, canvas.width, canvas.height, options);
+        }
+       
+        // Заголовок
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 32px Arial';
+        ctx.fillText('🌟 СТРУКТУРНАЯ СУПЕР-МОДЕЛЬ', 50, 50);
+       
+        if (superModel.name) {
+            ctx.font = 'italic 24px Arial';
+            ctx.fillStyle = '#cccccc';
+            ctx.fillText(superModel.name, 50, 90);
+        }
+       
+        // Сохранить
+        await this.saveCanvas(canvas, finalPath);
+       
+        return {
+            success: true,
+            path: finalPath,
+            type: 'super_model',
+            stats: {
+                nodes: superGraph.nodes.size,
+                edges: superGraph.edges.size,
+                mergedModels: mergedModels.length,
+                timestamp: new Date().toISOString()
             }
+        };
+    }
 
+    // 7. ВИЗУАЛИЗАЦИЯ ПРУЖИННЫХ СИЛ (для TopologyRefiner)
+    async visualizeSpringForces(points, graph, forces, outputPath = null, options = {}) {
+        const timestamp = Date.now();
+        const finalPath = outputPath ||
+                         path.join(this.subdirs.forces, `spring_forces_${timestamp}.png`);
+       
+        console.log(`🎨 Создаю визуализацию пружинных сил...`);
+       
+        const canvas = createCanvas(options.width || 1200, options.height || 800);
+        const ctx = canvas.getContext('2d');
+       
+        // Фон
+        ctx.fillStyle = options.backgroundColor || '#0d1b2a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+       
+        // Найти границы точек
+        const bounds = this.calculatePointsBounds(points);
+        const transform = this.calculateCanvasTransform(bounds, {
+            width: canvas.width,
+            height: canvas.height,
+            padding: 100
+        });
+       
+        // Нарисовать рёбра графа (пружины)
+        this.drawSpringEdges(ctx, points, graph, transform, options);
+       
+        // Нарисовать точки с силами
+        this.drawPointsWithForces(ctx, points, forces, transform, options);
+       
+        // Нарисовать информацию о силах
+        this.drawForcesInfo(ctx, forces, canvas.width, canvas.height, options);
+       
+        // Заголовок
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 28px Arial';
+        ctx.fillText('🏗️ ПРУЖИННЫЕ СИЛЫ ТОПОЛОГИЧЕСКОЙ КОРРЕКЦИИ', 50, 40);
+       
+        // Легенда
+        this.drawForcesLegend(ctx, canvas.width, canvas.height, options);
+       
+        // Сохранить
+        await this.saveCanvas(canvas, finalPath);
+       
+        return {
+            success: true,
+            path: finalPath,
+            type: 'spring_forces',
+            stats: {
+                points: points.length,
+                forces: forces.length,
+                maxForce: this.calculateMaxForce(forces)
+            }
+        };
+    }
+
+    // 8. МЕТОДЫ ОТРИСОВКИ
+
+    drawTopologyMergeResult(ctx, mergeResult, transform, options) {
+        const mergedGraph = mergeResult.mergedGraph;
+        if (!mergedGraph) return;
+       
+        // Нарисовать рёбра объединённого графа
+        ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+        ctx.lineWidth = 1.5;
+       
+        for (const [edgeId, edge] of mergedGraph.edges) {
+            const fromNode = mergedGraph.nodes.get(edge.from);
+            const toNode = mergedGraph.nodes.get(edge.to);
+           
+            if (fromNode && toNode) {
+                const from = transform(fromNode.x, fromNode.y);
+                const to = transform(toNode.x, toNode.y);
+               
+                ctx.beginPath();
+                ctx.moveTo(from.x, from.y);
+                ctx.lineTo(to.x, to.y);
+                ctx.stroke();
+            }
+        }
+       
+        // Нарисовать узлы объединённого графа
+        for (const [nodeId, node] of mergedGraph.nodes) {
+            const pos = transform(node.x, node.y);
+           
+            // Цвет в зависимости от источника узла
+            let color;
+            if (node.source === 'merged') {
+                color = '#ffdd59'; // Жёлтый - слитые узлы
+            } else if (node.source === 'graph1') {
+                color = '#3498db'; // Синий - из первого графа
+            } else if (node.source === 'graph2') {
+                color = '#e74c3c'; // Красный - из второго графа
+            } else {
+                color = '#2ecc71'; // Зелёный - неизвестный источник
+            }
+           
+            // Узел
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+            ctx.fill();
+           
+            // Обводка
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+
+    drawDualGraphs(ctx, graph1, graph2, transform, options) {
+        // Нарисовать рёбра первого графа
+        ctx.strokeStyle = options.graph1Color ? options.graph1Color + '80' : 'rgba(52, 152, 219, 0.3)';
+        ctx.lineWidth = 1;
+       
+        for (const [edgeId, edge] of graph1.edges) {
+            const fromNode = graph1.nodes.get(edge.from);
+            const toNode = graph1.nodes.get(edge.to);
+           
+            if (fromNode && toNode) {
+                const from = transform(fromNode.x, fromNode.y);
+                const to = transform(toNode.x, toNode.y);
+               
+                ctx.beginPath();
+                ctx.moveTo(from.x, from.y);
+                ctx.lineTo(to.x, to.y);
+                ctx.stroke();
+            }
+        }
+       
+        // Нарисовать рёбра второго графа
+        ctx.strokeStyle = options.graph2Color ? options.graph2Color + '80' : 'rgba(231, 76, 60, 0.3)';
+       
+        for (const [edgeId, edge] of graph2.edges) {
+            const fromNode = graph2.nodes.get(edge.from);
+            const toNode = graph2.nodes.get(edge.to);
+           
+            if (fromNode && toNode) {
+                const from = transform(fromNode.x, fromNode.y);
+                const to = transform(toNode.x, toNode.y);
+               
+                ctx.beginPath();
+                ctx.moveTo(from.x, from.y);
+                ctx.lineTo(to.x, to.y);
+                ctx.stroke();
+            }
+        }
+       
+        // Нарисовать узлы первого графа
+        const nodeSize = options.nodeSize || 5;
+       
+        ctx.fillStyle = options.graph1Color || '#3498db';
+        for (const [nodeId, node] of graph1.nodes) {
+            const pos = transform(node.x, node.y);
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, nodeSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+       
+        // Нарисовать узлы второго графа
+        ctx.fillStyle = options.graph2Color || '#e74c3c';
+        for (const [nodeId, node] of graph2.nodes) {
+            const pos = transform(node.x, node.y);
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, nodeSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    drawStructuralMatches(ctx, graph1, graph2, matches, transform, options) {
+        if (!matches || matches.length === 0) return;
+       
+        ctx.strokeStyle = '#ffdd59'; // Жёлтый для соответствий
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
+       
+        const nodes1 = Array.from(graph1.nodes.values());
+        const nodes2 = Array.from(graph2.nodes.values());
+       
+        for (const match of matches) {
+            if (match.node1 < nodes1.length && match.node2 < nodes2.length) {
+                const node1 = nodes1[match.node1];
+                const node2 = nodes2[match.node2];
+               
+                const pos1 = transform(node1.x, node1.y);
+                const pos2 = transform(node2.x, node2.y);
+               
+                // Линия между соответствующими узлами
+                ctx.beginPath();
+                ctx.moveTo(pos1.x, pos1.y);
+                ctx.lineTo(pos2.x, pos2.y);
+                ctx.stroke();
+               
+                // Точки на концах
+                ctx.fillStyle = '#ffdd59';
+                ctx.beginPath();
+                ctx.arc(pos1.x, pos1.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+               
+                ctx.beginPath();
+                ctx.arc(pos2.x, pos2.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+       
+        ctx.setLineDash([]); // Сбросить пунктир
+    }
+
+    drawTopologyStats(ctx, comparisonResult, options) {
+        const stats = this.extractTopologyStats(comparisonResult);
+       
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Arial';
+       
+        let y = 120;
+        const lineHeight = 25;
+       
+        // Основные метрики
+        ctx.fillText('📊 ТОПОЛОГИЧЕСКИЕ МЕТРИКИ:', 30, y);
+        y += lineHeight;
+       
+        ctx.font = '14px Arial';
+       
+        if (stats.structuralSimilarity !== undefined) {
+            ctx.fillText(`🏗️ Структурная схожесть: ${(stats.structuralSimilarity * 100).toFixed(1)}%`, 40, y);
+            y += lineHeight;
+        }
+       
+        if (stats.structuralMatches !== undefined) {
+            ctx.fillText(`🔗 Структурных соответствий: ${stats.structuralMatches}`, 40, y);
+            y += lineHeight;
+        }
+       
+        if (stats.preservedStructures !== undefined) {
+            ctx.fillText(`💎 Сохранено структур: ${stats.preservedStructures}%`, 40, y);
+            y += lineHeight;
+        }
+       
+        if (stats.topologyImprovement !== undefined) {
+            ctx.fillText(`📈 Улучшение топологии: ${stats.topologyImprovement}%`, 40, y);
+            y += lineHeight;
+        }
+       
+        // Метод слияния
+        if (stats.method) {
+            ctx.fillStyle = stats.method === 'topology_merge' ? '#2ecc71' : '#f39c12';
+            ctx.fillText(`🔄 Метод: ${stats.method}`, 40, y);
+        }
+    }
+
+    drawTopologyHeader(ctx, comparisonResult, options) {
+        // Заголовок
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 32px Arial';
+        ctx.fillText('🏗️ ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ', 50, 50);
+       
+        // Подзаголовок с similarity
+        ctx.font = '20px Arial';
+        ctx.fillStyle = comparisonResult.similarity > 0.7 ? '#2ecc71' :
+                       comparisonResult.similarity > 0.5 ? '#f39c12' : '#e74c3c';
+       
+        const similarityText = `Схожесть: ${(comparisonResult.similarity * 100).toFixed(1)}%`;
+        ctx.fillText(similarityText, 50, 85);
+       
+        // Решение
+        ctx.font = '18px Arial';
+        ctx.fillStyle = comparisonResult.decision === 'same' ? '#2ecc71' : '#f39c12';
+        ctx.fillText(`Решение: ${comparisonResult.decision.toUpperCase()}`, 50, 110);
+    }
+
+    drawIntelligentStats(ctx, comparisonResult, options) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Arial';
+       
+        let y = 120;
+        const lineHeight = 25;
+       
+        ctx.fillText('🧠 ИНТЕЛЛЕКТУАЛЬНЫЕ МЕТРИКИ:', 30, y);
+        y += lineHeight;
+       
+        ctx.font = '14px Arial';
+       
+        if (comparisonResult.mergedNodes !== undefined) {
+            ctx.fillText(`🔗 Слито узлов: ${comparisonResult.mergedNodes}`, 40, y);
+            y += lineHeight;
+        }
+       
+        if (comparisonResult.confidence !== undefined) {
+            ctx.fillText(`💎 Уверенность: ${(comparisonResult.confidence * 100).toFixed(1)}%`, 40, y);
+            y += lineHeight;
+        }
+       
+        if (comparisonResult.transformation) {
+            const trans = comparisonResult.transformation;
+            ctx.fillText(`🔄 Трансформация: ${trans.type || 'unknown'}`, 40, y);
+            y += lineHeight;
+           
+            if (trans.confidence !== undefined) {
+                ctx.fillText(`   Уверенность трансформации: ${(trans.confidence * 100).toFixed(1)}%`, 50, y);
+                y += lineHeight;
+            }
+        }
+    }
+
+    drawClassicStats(ctx, comparisonResult, options) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Arial';
+       
+        let y = 120;
+        const lineHeight = 25;
+       
+        ctx.fillText('📊 КЛАССИЧЕСКИЕ МЕТРИКИ:', 30, y);
+        y += lineHeight;
+       
+        ctx.font = '14px Arial';
+       
+        if (comparisonResult.mergedNodes !== undefined) {
+            ctx.fillText(`🔗 Слито узлов: ${comparisonResult.mergedNodes}`, 40, y);
+            y += lineHeight;
+        }
+       
+        if (comparisonResult.totalNodes !== undefined) {
+            ctx.fillText(`📈 Всего узлов: ${comparisonResult.totalNodes}`, 40, y);
+            y += lineHeight;
+        }
+       
+        if (comparisonResult.method) {
+            ctx.fillText(`🔄 Метод сравнения: ${comparisonResult.method}`, 40, y);
+            y += lineHeight;
+        }
+    }
+
+    drawHeader(ctx, title, similarity, options) {
+        // Заголовок
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 28px Arial';
+        ctx.fillText(title, 50, 50);
+       
+        // Similarity
+        ctx.font = '18px Arial';
+        ctx.fillStyle = similarity > 0.7 ? '#2ecc71' :
+                       similarity > 0.5 ? '#f39c12' : '#e74c3c';
+        ctx.fillText(`Схожесть: ${(similarity * 100).toFixed(1)}%`, 50, 85);
+    }
+
+    drawSuperModelGraph(ctx, graph, transform, options) {
+        // Нарисовать рёбра
+        ctx.strokeStyle = 'rgba(155, 89, 182, 0.4)'; // Фиолетовый
+        ctx.lineWidth = 2;
+       
+        for (const [edgeId, edge] of graph.edges) {
+            const fromNode = graph.nodes.get(edge.from);
+            const toNode = graph.nodes.get(edge.to);
+           
+            if (fromNode && toNode) {
+                const from = transform(fromNode.x, fromNode.y);
+                const to = transform(toNode.x, toNode.y);
+               
+                ctx.beginPath();
+                ctx.moveTo(from.x, from.y);
+                ctx.lineTo(to.x, to.y);
+                ctx.stroke();
+            }
+        }
+       
+        // Нарисовать узлы с градиентом по confidence
+        for (const [nodeId, node] of graph.nodes) {
+            const pos = transform(node.x, node.y);
+            const confidence = node.confidence || 0.5;
+           
+            // Цвет в зависимости от confidence
+            const hue = 120 * confidence; // 0 = красный, 120 = зелёный
+            const color = `hsl(${hue}, 70%, 50%)`;
+           
+            // Внешний круг (размер зависит от confidence)
+            const radius = 4 + confidence * 4;
+           
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+            ctx.fill();
+           
+            // Внутренний белый круг
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, radius * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    drawSuperModelStats(ctx, superModel, mergedModels, canvasWidth, options) {
+        const statsX = canvasWidth - 350;
+        let y = 150;
+        const lineHeight = 25;
+       
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 20px Arial';
+        ctx.fillText('📊 СТАТИСТИКА СУПЕР-МОДЕЛИ', statsX, y);
+        y += lineHeight + 10;
+       
+        ctx.font = '16px Arial';
+       
+        // Основные метрики
+        const graph = superModel.graph || superModel;
+        ctx.fillText(`🎯 Узлов: ${graph.nodes.size}`, statsX, y);
+        y += lineHeight;
+       
+        ctx.fillText(`🔗 Рёбер: ${graph.edges.size}`, statsX, y);
+        y += lineHeight;
+       
+        if (superModel.stats?.confidence) {
+            ctx.fillText(`💎 Уверенность: ${(superModel.stats.confidence * 100).toFixed(1)}%`, statsX, y);
+            y += lineHeight;
+        }
+       
+        if (superModel.stats?.topologyScore) {
+            ctx.fillText(`🏗️ Топологический score: ${(superModel.stats.topologyScore * 100).toFixed(1)}%`, statsX, y);
+            y += lineHeight;
+        }
+       
+        // История слияний
+        if (mergedModels.length > 0) {
+            y += 10;
+            ctx.fillStyle = '#cccccc';
+            ctx.font = 'bold 16px Arial';
+            ctx.fillText('📈 ИСТОРИЯ СЛИЯНИЙ:', statsX, y);
+            y += lineHeight;
+           
+            ctx.font = '14px Arial';
+            mergedModels.forEach((model, i) => {
+                const modelGraph = model.graph || model;
+                ctx.fillText(`${i + 1}. ${model.name || `Модель ${i + 1}`}: ${modelGraph.nodes.size} узлов`,
+                           statsX + 20, y);
+                y += lineHeight - 5;
+            });
+        }
+       
+        // Эффективность слияния
+        if (mergedModels.length > 1) {
+            const totalNodesBefore = mergedModels.reduce((sum, model) => {
+                const modelGraph = model.graph || model;
+                return sum + modelGraph.nodes.size;
+            }, 0);
+           
+            const efficiency = totalNodesBefore > 0 ?
+                (1 - graph.nodes.size / totalNodesBefore) * 100 : 0;
+           
+            y += 10;
+            ctx.fillStyle = efficiency > 30 ? '#2ecc71' : '#f39c12';
+            ctx.font = 'bold 16px Arial';
+            ctx.fillText(`📉 Эффективность сжатия: ${efficiency.toFixed(1)}%`, statsX, y);
+        }
+    }
+
+    drawSpringEdges(ctx, points, graph, transform, options) {
+        if (!graph || !graph.edges) return;
+       
+        ctx.strokeStyle = 'rgba(52, 152, 219, 0.2)'; // Полупрозрачный синий
+        ctx.lineWidth = 1;
+       
+        const nodeIds = Array.from(graph.nodes.keys());
+       
+        for (const [edgeId, edge] of graph.edges) {
+            const fromIdx = this.findPointIndex(edge.from, points, nodeIds);
+            const toIdx = this.findPointIndex(edge.to, points, nodeIds);
+           
+            if (fromIdx !== -1 && toIdx !== -1 && points[fromIdx] && points[toIdx]) {
+                const from = transform(points[fromIdx].x, points[fromIdx].y);
+                const to = transform(points[toIdx].x, points[toIdx].y);
+               
+                ctx.beginPath();
+                ctx.moveTo(from.x, from.y);
+                ctx.lineTo(to.x, to.y);
+                ctx.stroke();
+            }
+        }
+    }
+
+    drawPointsWithForces(ctx, points, forces, transform, options) {
+        points.forEach((point, idx) => {
+            const pos = transform(point.x, point.y);
+            const force = forces[idx] || { x: 0, y: 0 };
+            const forceMagnitude = Math.sqrt(force.x * force.x + force.y * force.y);
+           
+            // Цвет точки в зависимости от величины силы
+            const intensity = Math.min(1, forceMagnitude * 5);
+            const r = Math.floor(100 + 155 * intensity);
+            const g = Math.floor(200 - 150 * intensity);
+            const b = Math.floor(255 - 100 * intensity);
+           
+            // Точка
+            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+            ctx.fill();
+           
+            // Обводка
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+            ctx.stroke();
+           
+            // Вектор силы (если достаточно большой)
+            if (forceMagnitude > 0.1) {
+                const arrowLength = Math.min(30, forceMagnitude * 20);
+                const angle = Math.atan2(force.y, force.x);
+               
+                ctx.strokeStyle = `rgb(${r}, ${g}, ${b})`;
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+               
+                // Линия силы
+                ctx.beginPath();
+                ctx.moveTo(pos.x, pos.y);
+                ctx.lineTo(
+                    pos.x + Math.cos(angle) * arrowLength,
+                    pos.y + Math.sin(angle) * arrowLength
+                );
+                ctx.stroke();
+               
+                // Наконечник стрелки
+                ctx.beginPath();
+                ctx.moveTo(
+                    pos.x + Math.cos(angle) * arrowLength,
+                    pos.y + Math.sin(angle) * arrowLength
+                );
+                ctx.lineTo(
+                    pos.x + Math.cos(angle + 2.4) * (arrowLength - 6),
+                    pos.y + Math.sin(angle + 2.4) * (arrowLength - 6)
+                );
+                ctx.lineTo(
+                    pos.x + Math.cos(angle - 2.4) * (arrowLength - 6),
+                    pos.y + Math.sin(angle - 2.4) * (arrowLength - 6)
+                );
+                ctx.closePath();
+                ctx.fillStyle = ctx.strokeStyle;
+                ctx.fill();
+            }
+        });
+    }
+
+    drawForcesInfo(ctx, forces, width, height, options) {
+        const infoX = 50;
+        const infoY = height - 150;
+       
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText('⚡ ИНФОРМАЦИЯ О СИЛАХ:', infoX, infoY);
+       
+        ctx.font = '14px Arial';
+       
+        const stats = this.calculateForceStats(forces);
+        let y = infoY + 30;
+       
+        ctx.fillText(`📊 Средняя сила: ${stats.mean.toFixed(3)}`, infoX, y);
+        y += 20;
+       
+        ctx.fillText(`📈 Максимальная сила: ${stats.max.toFixed(3)}`, infoX, y);
+        y += 20;
+       
+        ctx.fillText(`🎯 Точек с силой > 0.1: ${stats.significantForces} из ${stats.total}`, infoX, y);
+    }
+
+    drawForcesLegend(ctx, width, height, options) {
+        const legendX = width - 250;
+        const legendY = height - 150;
+       
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText('🎨 ЛЕГЕНДА:', legendX, legendY);
+       
+        ctx.font = '14px Arial';
+        let y = legendY + 30;
+       
+        // Синяя точка (малая сила)
+        ctx.fillStyle = 'rgb(100, 200, 255)';
+        ctx.beginPath();
+        ctx.arc(legendX, y - 5, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#cccccc';
+        ctx.fillText('Малая сила коррекции', legendX + 20, y);
+        y += 25;
+       
+        // Красная точка (большая сила)
+        ctx.fillStyle = 'rgb(255, 100, 100)';
+        ctx.beginPath();
+        ctx.arc(legendX, y - 5, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#cccccc';
+        ctx.fillText('Большая сила коррекции', legendX + 20, y);
+        y += 25;
+       
+        // Пружины
+        ctx.strokeStyle = 'rgba(52, 152, 219, 0.3)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(legendX, y - 5);
+        ctx.lineTo(legendX + 30, y - 5);
+        ctx.stroke();
+        ctx.fillStyle = '#cccccc';
+        ctx.fillText('Пружинные связи', legendX + 40, y);
+    }
+
+    // 9. ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+
+    calculateCombinedBounds(graph1, graph2) {
+        const nodes1 = Array.from(graph1.nodes.values());
+        const nodes2 = Array.from(graph2.nodes.values());
+        const allNodes = [...nodes1, ...nodes2];
+       
+        return this.calculatePointsBounds(allNodes.map(node => ({ x: node.x, y: node.y })));
+    }
+
+    calculateGraphBounds(graph) {
+        const nodes = Array.from(graph.nodes.values());
+        return this.calculatePointsBounds(nodes.map(node => ({ x: node.x, y: node.y })));
+    }
+
+    calculatePointsBounds(points) {
+        if (points.length === 0) {
+            return { minX: 0, maxX: 100, minY: 0, maxY: 100 };
+        }
+       
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+       
+        points.forEach(point => {
+            minX = Math.min(minX, point.x);
+            maxX = Math.max(maxX, point.x);
+            minY = Math.min(minY, point.y);
+            maxY = Math.max(maxY, point.y);
+        });
+       
+        // Добавить немного padding
+        const paddingX = (maxX - minX) * 0.1 || 10;
+        const paddingY = (maxY - minY) * 0.1 || 10;
+       
+        return {
+            minX: minX - paddingX,
+            maxX: maxX + paddingX,
+            minY: minY - paddingY,
+            maxY: maxY + paddingY
+        };
+    }
+
+    calculateCanvasTransform(bounds, options) {
+        const width = options.width || this.config.width;
+        const height = options.height || this.config.height;
+        const padding = options.padding || 80;
+       
+        const contentWidth = width - 2 * padding;
+        const contentHeight = height - 2 * padding;
+       
+        const graphWidth = bounds.maxX - bounds.minX;
+        const graphHeight = bounds.maxY - bounds.minY;
+       
+        const scaleX = graphWidth > 0 ? contentWidth / graphWidth : 1;
+        const scaleY = graphHeight > 0 ? contentHeight / graphHeight : 1;
+        const scale = Math.min(scaleX, scaleY) * 0.9; // Небольшой margin
+       
+        const offsetX = padding - bounds.minX * scale;
+        const offsetY = padding - bounds.minY * scale;
+       
+        return (x, y) => ({
+            x: offsetX + x * scale,
+            y: offsetY + y * scale
+        });
+    }
+
+    extractTopologyStats(comparisonResult) {
+        return {
+            structuralSimilarity: comparisonResult.topologyMergeResult?.structuralSimilarity,
+            structuralMatches: comparisonResult.topologyMergeResult?.structuralMatches?.length,
+            preservedStructures: comparisonResult.metrics?.preservedStructures,
+            topologyImprovement: comparisonResult.metrics?.topologyImprovement,
+            method: comparisonResult.method || comparisonResult.topologyMergeResult?.method
+        };
+    }
+
+    findPointIndex(nodeId, points, nodeIds) {
+        if (!nodeIds || !points) return -1;
+       
+        const indexInGraph = nodeIds.indexOf(nodeId);
+        if (indexInGraph === -1) return -1;
+       
+        // Найти точку с таким же nodeId
+        for (let i = 0; i < points.length; i++) {
+            if (points[i].nodeId === nodeId) {
+                return i;
+            }
+        }
+       
+        return indexInGraph < points.length ? indexInGraph : -1;
+    }
+
+    calculateMaxForce(forces) {
+        let max = 0;
+        forces.forEach(force => {
+            const magnitude = Math.sqrt(force.x * force.x + force.y * force.y);
+            if (magnitude > max) max = magnitude;
+        });
+        return max;
+    }
+
+    calculateForceStats(forces) {
+        let sum = 0;
+        let max = 0;
+        let significant = 0;
+       
+        forces.forEach(force => {
+            const magnitude = Math.sqrt(force.x * force.x + force.y * force.y);
+            sum += magnitude;
+            if (magnitude > max) max = magnitude;
+            if (magnitude > 0.1) significant++;
+        });
+       
+        return {
+            mean: forces.length > 0 ? sum / forces.length : 0,
+            max: max,
+            significantForces: significant,
+            total: forces.length
+        };
+    }
+
+    drawTransformationVectors(ctx, graph1, graph2, transformation, transform, options) {
+        if (!transformation || !transformation.translation) return;
+       
+        const nodes1 = Array.from(graph1.nodes.values());
+        const nodes2 = Array.from(graph2.nodes.values());
+       
+        if (nodes1.length === 0 || nodes2.length === 0) return;
+       
+        ctx.strokeStyle = 'rgba(255, 221, 89, 0.6)'; // Жёлтый
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+       
+        // Нарисовать несколько векторов трансформации
+        const sampleCount = Math.min(10, Math.min(nodes1.length, nodes2.length));
+        const step = Math.max(1, Math.floor(nodes1.length / sampleCount));
+       
+        for (let i = 0; i < sampleCount; i++) {
+            const idx = i * step;
+            if (idx >= nodes1.length) break;
+           
+            const node1 = nodes1[idx];
+            const pos1 = transform(node1.x, node1.y);
+           
+            // Применить трансформацию
+            let x = node1.x + (transformation.translation.dx || 0);
+            let y = node1.y + (transformation.translation.dy || 0);
+           
+            if (transformation.scale && transformation.scale !== 1) {
+                x *= transformation.scale;
+                y *= transformation.scale;
+            }
+           
             if (transformation.rotation && transformation.rotation !== 0) {
                 const rad = transformation.rotation * Math.PI / 180;
                 const cos = Math.cos(rad);
@@ -571,750 +1160,223 @@ class MergeVisualizer {
                 x = newX;
                 y = newY;
             }
-
-            if (transformation.scale && transformation.scale !== 1) {
-                x *= transformation.scale;
-                y *= transformation.scale;
-            }
-
-            return { ...p, x, y };
-        });
-    }
-
-    // 8. ПОИСК СОВПАДЕНИЙ (геометрический)
-    findPointMatches(points1, points2, maxDistance = 10) {
-        const matches = [];
-        const usedIndices = new Set();
-
-        for (let i = 0; i < points1.length; i++) {
-            const p1 = points1[i];
-            let bestMatch = null;
-            let bestDistance = Infinity;
-            let bestIndex = -1;
-
-            for (let j = 0; j < points2.length; j++) {
-                if (usedIndices.has(j)) continue;
-
-                const p2 = points2[j];
-                const dx = p2.x - p1.x;
-                const dy = p2.y - p1.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < maxDistance && distance < bestDistance) {
-                    bestDistance = distance;
-                    bestMatch = p2;
-                    bestIndex = j;
-                }
-            }
-
-            if (bestMatch && bestDistance < maxDistance) {
-                matches.push({
-                    point1: p1,
-                    point2: bestMatch,
-                    distance: bestDistance,
-                    index1: i,
-                    index2: bestIndex,
-                    score: 1 - (bestDistance / maxDistance)
-                });
-                usedIndices.add(bestIndex);
-            }
-        }
-
-        return matches;
-    }
-
-    // 🔴 9. DRAWCONNECTIONS С ЗАЩИТОЙ
-    drawConnections(ctx, points1, points2, matches, scale, offsetX, offsetY) {
-        if (!matches || matches.length === 0) {
-            console.log('⚠️ Нет совпадений для рисования связей');
-            return;
-        }
-
-        ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 3]);
-
-        let validConnections = 0;
-
-        matches.forEach((match, index) => {
-            // 🔴 ПРОВЕРКА ФОРМАТА ДАННЫХ
-            if (!match || (!match.point1 && !match.point2 && match.pointA === undefined)) {
-                console.log(`⚠️ Совпадение ${index}: пустое`);
-                return;
-            }
-
-            let p1, p2;
-
-            if (match.point1 && match.point2) {
-                // Формат с точками
-                p1 = match.point1;
-                p2 = match.point2;
-            } else if (match.pointA !== undefined && match.pointB !== undefined) {
-                // Формат с индексами
-                p1 = points1[match.pointA];
-                p2 = points2[match.pointB];
-            } else {
-                console.log(`⚠️ Совпадение ${index}: неизвестный формат`, match);
-                return;
-            }
-
-            // Проверка существования точек
-            if (!p1 || !p2) {
-                console.log(`⚠️ Совпадение ${index}: точки не найдены`);
-                return;
-            }
-
-            // Проверка координат
-            if (typeof p1.x === 'undefined' || typeof p1.y === 'undefined' ||
-                typeof p2.x === 'undefined' || typeof p2.y === 'undefined') {
-                console.log(`⚠️ Совпадение ${index}: нет координат`, { p1, p2 });
-                return;
-            }
-
-            const x1 = offsetX + p1.x * scale;
-            const y1 = offsetY + p1.y * scale;
-            const x2 = offsetX + p2.x * scale;
-            const y2 = offsetY + p2.y * scale;
-
+           
+            const pos2 = transform(x, y);
+           
+            // Вектор трансформации
             ctx.beginPath();
-            ctx.moveTo(x1, y1);
-            ctx.lineTo(x2, y2);
+            ctx.moveTo(pos1.x, pos1.y);
+            ctx.lineTo(pos2.x, pos2.y);
             ctx.stroke();
-
-            validConnections++;
-        });
-
+        }
+       
         ctx.setLineDash([]);
-
-        if (validConnections > 0) {
-            console.log(`✅ Нарисовано ${validConnections}/${matches.length} связей`);
-        }
     }
 
-    // 10. ФОН
-    drawBackground(ctx, width, height) {
-        const gradient = ctx.createLinearGradient(0, 0, width, height);
-        gradient.addColorStop(0, '#1a1a2e');
-        gradient.addColorStop(1, '#16213e');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, width, height);
-    }
-
-    // 11. ЗАГОЛОВОК
-    drawTitle(ctx, title, name1, name2) {
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 4;
-        ctx.font = 'bold 32px Arial';
-
-        ctx.strokeText(title, 50, 60);
-        ctx.fillText(title, 50, 60);
-
-        ctx.font = 'bold 24px Arial';
-        ctx.fillStyle = '#4fc3f7';
-        ctx.fillText(`📸 ${name1}`, 50, 100);
-
-        ctx.fillStyle = '#ef5350';
-        ctx.fillText(`📸 ${name2}`, 250, 100);
-
-        ctx.fillStyle = '#ba68c8';
-        ctx.fillText(`🔄 ВЕКТОРНОЕ ОБЪЕДИНЕНИЕ`, 450, 100);
-    }
-
-    // 12. ЗАГОЛОВОК ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ
-    drawIntelligentMergeTitle(ctx, title, name1, name2) {
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 4;
-        ctx.font = 'bold 36px Arial';
-
-        ctx.strokeText(title, 50, 60);
-        ctx.fillText(title, 50, 60);
-
-        ctx.font = 'bold 24px Arial';
-        ctx.fillStyle = '#4fc3f7';
-        ctx.fillText(`📸 ${name1}`, 50, 100);
-
-        ctx.fillStyle = '#ef5350';
-        ctx.fillText(`📸 ${name2}`, 250, 100);
-
-        ctx.fillStyle = '#4caf50';
-        ctx.fillText(`🧠 ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ`, 450, 100);
-    }
-
-    // 13. ОБЛАСТЬ ВИЗУАЛИЗАЦИИ
-    drawVisualizationArea(ctx, area) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(area.x, area.y, area.width, area.height);
-
-        ctx.fillStyle = 'rgba(30, 30, 46, 0.8)';
-        ctx.fillRect(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
-    }
-
-    // 14. ОБЛАСТЬ СРАВНЕНИЯ ДЛЯ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ
-    drawComparisonArea(ctx, points1, points2, transformation, label, area, applyTransformation = true) {
-        // Рамка области
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(area.x, area.y, area.width, area.height);
-
-        ctx.fillStyle = 'rgba(40, 40, 60, 0.8)';
-        ctx.fillRect(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
-
-        // Заголовок области
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText(label, area.x + 10, area.y - 10);
-
-        // Трансформировать точки2 если нужно
-        const transformedPoints2 = applyTransformation && transformation
-            ? this.applyTransformation(points2, transformation)
-            : points2;
-
-        // Нормализация
-        const allPoints = [...points1, ...transformedPoints2];
-        const { scale, offsetX, offsetY } = this.normalizePoints(allPoints, {
-            ...area,
-            width: area.width - 40,
-            height: area.height - 40,
-            x: area.x + 20,
-            y: area.y + 20
+    drawPointCloud(ctx, points, options) {
+        if (!points || points.length === 0) return;
+       
+        const bounds = this.calculatePointsBounds(points);
+        const transform = this.calculateCanvasTransform(bounds, options);
+       
+        // Нарисовать точки
+        ctx.fillStyle = options.pointColor || '#3498db';
+        points.forEach(point => {
+            const pos = transform(point.x, point.y);
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 3, 0, Math.PI * 2);
+            ctx.fill();
         });
+    }
 
-        // Точки первого отпечатка (синие)
-        points1.forEach(point => {
-            const x = offsetX + point.x * scale;
-            const y = offsetY + point.y * scale;
-            this.drawPoint(ctx, x, y, 'rgba(50, 100, 255, 0.8)', 4);
-        });
-
-        // Точки второго отпечатка (красные)
-        transformedPoints2.forEach(point => {
-            const x = offsetX + point.x * scale;
-            const y = offsetY + point.y * scale;
-            this.drawPoint(ctx, x, y, 'rgba(255, 50, 50, 0.8)', 4);
-        });
-
-        // Подпись количества точек
+    drawMergeHistory(ctx, mergedModels, width, height, options) {
+        const historyX = width - 350;
+        const historyY = 350;
+       
         ctx.fillStyle = '#cccccc';
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText('📈 ИСТОРИЯ СЛИЯНИЙ:', historyX, historyY);
+       
         ctx.font = '14px Arial';
-        ctx.fillText(`${points1.length} точек`, area.x + 20, area.y + area.height - 10);
-        ctx.fillText(`${points2.length} точек`, area.x + area.width - 100, area.y + area.height - 10);
-    }
-
-    // 15. ОБЛАСТЬ ПРОЦЕССА СЛИЯНИЯ
-    drawMergeProcessArea(ctx, points1, points2, matches, transformation, label, area) {
-        // Рамка области
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        let y = historyY + 30;
+       
+        // Нарисовать мини-график
+        const maxModels = Math.min(5, mergedModels.length);
+        const graphWidth = 200;
+        const graphHeight = 100;
+        const graphX = historyX;
+        const graphY = y;
+       
+        // Фон графика
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.fillRect(graphX, graphY, graphWidth, graphHeight);
+       
+        // Линия графика
+        ctx.strokeStyle = '#3498db';
         ctx.lineWidth = 2;
-        ctx.strokeRect(area.x, area.y, area.width, area.height);
-
-        ctx.fillStyle = 'rgba(40, 40, 60, 0.8)';
-        ctx.fillRect(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
-
-        // Заголовок
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText(label, area.x + 10, area.y - 10);
-
-        // Трансформировать точки2
-        const transformedPoints2 = transformation
-            ? this.applyTransformation(points2, transformation)
-            : points2;
-
-        // Нормализация
-        const allPoints = [...points1, ...transformedPoints2];
-        const { scale, offsetX, offsetY } = this.normalizePoints(allPoints, {
-            ...area,
-            width: area.width - 40,
-            height: area.height - 40,
-            x: area.x + 20,
-            y: area.y + 20
-        });
-
-        // Нарисовать линии между совпадающими точками
-        ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 2]);
-
-        matches.forEach(match => {
-            const p1 = points1[match.index1];
-            const p2 = transformedPoints2[match.index2];
-
-            if (p1 && p2) {
-                const x1 = offsetX + p1.x * scale;
-                const y1 = offsetY + p1.y * scale;
-                const x2 = offsetX + p2.x * scale;
-                const y2 = offsetY + p2.y * scale;
-
-                ctx.beginPath();
-                ctx.moveTo(x1, y1);
-                ctx.lineTo(x2, y2);
-                ctx.stroke();
-
-                // Центр слияния (усредненная точка)
-                const centerX = (x1 + x2) / 2;
-                const centerY = (y1 + y2) / 2;
-
-                // Нарисовать точку слияния
-                ctx.fillStyle = 'rgba(156, 39, 176, 0.9)';
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        });
-
-        ctx.setLineDash([]);
-
-        // Подпись
-        ctx.fillStyle = '#cccccc';
-        ctx.font = '14px Arial';
-        ctx.fillText(`${matches.length} совпадений`, area.x + 20, area.y + area.height - 10);
-    }
-
-    // 16. ОБЛАСТЬ РЕЗУЛЬТАТА СЛИЯНИЯ
-    drawMergedResultArea(ctx, mergedPoints, label, area) {
-        // Рамка области
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(area.x, area.y, area.width, area.height);
-
-        ctx.fillStyle = 'rgba(40, 40, 60, 0.8)';
-        ctx.fillRect(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
-
-        // Заголовок
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText(label, area.x + 10, area.y - 10);
-
-        // Нормализация
-        const { scale, offsetX, offsetY } = this.normalizePoints(mergedPoints, {
-            ...area,
-            width: area.width - 40,
-            height: area.height - 40,
-            x: area.x + 20,
-            y: area.y + 20
-        });
-
-        // Нарисовать точки по типу
-        mergedPoints.forEach(point => {
-            const x = offsetX + point.x * scale;
-            const y = offsetY + point.y * scale;
-
-            let color, size;
-
-            switch (point.source) {
-                case 'merged':
-                    color = 'rgba(156, 39, 176, 0.9)'; // Фиолетовый - слитые
-                    size = 6;
-                    break;
-                case 'footprint1':
-                    color = 'rgba(50, 100, 255, 0.6)'; // Синий - только из 1
-                    size = 4;
-                    break;
-                case 'footprint2':
-                    color = 'rgba(255, 50, 50, 0.6)'; // Красный - только из 2
-                    size = 4;
-                    break;
-                default:
-                    color = 'rgba(200, 200, 200, 0.6)';
-                    size = 4;
-            }
-
-            this.drawPoint(ctx, x, y, color, size);
-
-            // Если точка слитая, показать confidence
-            if (point.source === 'merged' && point.confidence > 0.7) {
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 10px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('★', x, y - 10);
-            }
-        });
-
-        // Статистика по типам точек
-        const stats = {
-            merged: mergedPoints.filter(p => p.source === 'merged').length,
-            from1: mergedPoints.filter(p => p.source === 'footprint1').length,
-            from2: mergedPoints.filter(p => p.source === 'footprint2').length
-        };
-
-        ctx.fillStyle = '#cccccc';
-        ctx.font = '14px Arial';
-        ctx.fillText(
-            `${stats.merged} слитых + ${stats.from1 + stats.from2} уникальных`,
-            area.x + 20,
-            area.y + area.height - 10
-        );
-    }
-
-    // 17. ТОЧКА
-    drawPoint(ctx, x, y, color, size, label = '') {
         ctx.beginPath();
-        ctx.arc(x, y, size + 2, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
-
-        if (label) {
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 12px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(label, x, y);
-        }
-    }
-
-    // 18. НОРМАЛИЗАЦИЯ
-    normalizePoints(points, vizArea) {
-        if (points.length === 0) {
-            return { scale: 1, offsetX: vizArea.x + vizArea.width / 2, offsetY: vizArea.y + vizArea.height / 2 };
-        }
-
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-
-        const width = maxX - minX || 1;
-        const height = maxY - minY || 1;
-
-        const scaleX = (vizArea.width * 0.8) / width;
-        const scaleY = (vizArea.height * 0.8) / height;
-        const scale = Math.min(scaleX, scaleY);
-
-        const offsetX = vizArea.x + (vizArea.width - width * scale) / 2;
-        const offsetY = vizArea.y + (vizArea.height - height * scale) / 2;
-
-        return { scale, offsetX, offsetY, minX, minY };
-    }
-
-    // 19. СТАТИСТИКА
-    calculateStats(points1, points2, matches, comparisonResult, transformation) {
-        const matchRate = Math.min(points1.length, points2.length) > 0
-            ? (matches.length / Math.min(points1.length, points2.length)) * 100
-            : 0;
-
-        let avgDistance = 0;
-        if (matches.length > 0) {
-            const totalDistance = matches.reduce((sum, m) => sum + (m.distance || 0), 0);
-            avgDistance = totalDistance / matches.length;
-        }
-
-        return {
-            totalPoints: points1.length + points2.length,
-            uniquePoints1: points1.length,
-            uniquePoints2: points2.length,
-            matchedPoints: matches.length,
-            matchRate: Math.round(matchRate),
-            avgDistance: avgDistance.toFixed(1),
-            transformationConfidence: transformation?.confidence ? Math.round(transformation.confidence * 100) : 0,
-            similarity: comparisonResult?.similarity,
-            decision: comparisonResult?.decision
-        };
-    }
-
-    // 20. РАСЧЕТ СТАТИСТИКИ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ
-    calculateIntelligentMergeStats(points1, points2, mergeResult, comparisonResult) {
-        const totalBefore = points1.length + points2.length;
-        const totalAfter = mergeResult.points.length;
-        const reduction = totalBefore - totalAfter;
-
-        // Рассчитать средний confidence
-        const avgConfidenceBefore = (
-            points1.reduce((s, p) => s + (p.confidence || 0.5), 0) / points1.length +
-            points2.reduce((s, p) => s + (p.confidence || 0.5), 0) / points2.length
-        ) / 2;
-
-        const avgConfidenceAfter = mergeResult.points.reduce(
-            (s, p) => s + (p.confidence || 0.5), 0
-        ) / mergeResult.points.length;
-
-        // Рассчитать метрики
-        const mergedPoints = mergeResult.points.filter(p => p.source === 'merged').length;
-        const coverage = (mergeResult.matches.length / Math.min(points1.length, points2.length)) * 100;
-
-        // Рассчитать среднее расстояние совпадений
-        let avgMatchDistance = 0;
-        if (mergeResult.matches.length > 0) {
-            avgMatchDistance = mergeResult.matches.reduce((s, m) => s + m.distance, 0) /
-                             mergeResult.matches.length;
-        }
-
-        return {
-            pointsBefore: totalBefore,
-            pointsAfter: totalAfter,
-            points1: points1.length,
-            points2: points2.length,
-            matchesCount: mergeResult.matches.length,
-            mergedPoints: mergedPoints,
-            reductionPercent: ((reduction / totalBefore) * 100).toFixed(1),
-            confidenceBefore: avgConfidenceBefore.toFixed(3),
-            confidenceAfter: avgConfidenceAfter.toFixed(3),
-            confidenceImprovement: ((avgConfidenceAfter - avgConfidenceBefore) * 100).toFixed(1) + '%',
-            coverage: coverage.toFixed(1),
-            avgMatchDistance: avgMatchDistance.toFixed(1),
-            efficiencyScore: ((mergedPoints / totalBefore) * 100).toFixed(1),
-            similarity: comparisonResult?.similarity?.toFixed(3) || 'N/A',
-            decision: comparisonResult?.decision || 'N/A'
-        };
-    }
-
-    // 21. ОТРИСОВКА СТАТИСТИКИ
-    drawStatistics(ctx, stats, x, y) {
-        const boxWidth = 200;
-        const boxHeight = 460;
-
-        ctx.fillStyle = 'rgba(25, 25, 35, 0.9)';
-        ctx.strokeStyle = 'rgba(100, 100, 200, 0.5)';
-        ctx.lineWidth = 2;
-
-        this.drawRoundedRect(ctx, x, y, boxWidth, boxHeight, 10);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText('📊 СТАТИСТИКА', x + 10, y + 30);
-
-        ctx.font = '14px Arial';
-        let lineY = y + 60;
-
-        const statItems = [
-            `📸 Всего точек: ${stats.totalPoints}`,
-            `🔵 ${stats.uniquePoints1} точек`,
-            `🔴 ${stats.uniquePoints2} точек`,
-            `🔗 Совпадений: ${stats.matchedPoints}`,
-            `📈 % совпадения: ${stats.matchRate}%`,
-            `📏 Ср. расстояние: ${stats.avgDistance}px`,
-            `🎯 Уверенность: ${stats.transformationConfidence}%`
-        ];
-
-        statItems.forEach(item => {
-            ctx.fillStyle = '#cccccc';
-            ctx.fillText(item, x + 15, lineY);
-            lineY += 25;
+       
+        const modelsToShow = mergedModels.slice(-maxModels);
+        const nodeCounts = modelsToShow.map(model => {
+            const graph = model.graph || model;
+            return graph.nodes.size;
         });
-
-        if (stats.decision) {
-            lineY += 10;
-            ctx.font = 'bold 16px Arial';
-            if (stats.decision === 'same') {
-                ctx.fillStyle = '#4caf50';
-                ctx.fillText('✅ ОДИН СЛЕД', x + 15, lineY);
-            } else if (stats.decision === 'similar') {
-                ctx.fillStyle = '#ff9800';
-                ctx.fillText('⚠️ ПОХОЖИЕ', x + 15, lineY);
+       
+        const maxNodes = Math.max(...nodeCounts, 1);
+       
+        modelsToShow.forEach((model, i) => {
+            const graph = model.graph || model;
+            const x = graphX + (i / (modelsToShow.length - 1 || 1)) * graphWidth;
+            const y = graphY + graphHeight - (graph.nodes.size / maxNodes) * graphHeight;
+           
+            if (i === 0) {
+                ctx.moveTo(x, y);
             } else {
-                ctx.fillStyle = '#f44336';
-                ctx.fillText('❌ РАЗНЫЕ', x + 15, lineY);
+                ctx.lineTo(x, y);
             }
-        }
-    }
-
-    // 22. СТАТИСТИКА ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ
-    drawIntelligentMergeStats(ctx, stats, x, y) {
-        const boxWidth = 400;
-        const boxHeight = 180;
-
-        ctx.fillStyle = 'rgba(25, 25, 35, 0.9)';
-        ctx.strokeStyle = 'rgba(100, 100, 200, 0.5)';
-        ctx.lineWidth = 2;
-
-        this.drawRoundedRect(ctx, x, y, boxWidth, boxHeight, 10);
-        ctx.fill();
+           
+            // Точка на графике
+            ctx.fillStyle = '#3498db';
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.fill();
+        });
+       
         ctx.stroke();
-
+       
+        // Подписи
+        y += graphHeight + 20;
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 20px Arial';
-        ctx.fillText('📊 СТАТИСТИКА СЛИЯНИЯ', x + 10, y + 30);
+        ctx.font = '12px Arial';
+        ctx.fillText(`От ${nodeCounts[0]} до ${nodeCounts[nodeCounts.length - 1]} узлов`,
+                    historyX, y);
+    }
 
-        ctx.font = '14px Arial';
-        let lineY = y + 60;
-
-        const statItems = [
-            `📸 Точки до: ${stats.pointsBefore} (${stats.points1} + ${stats.points2})`,
-            `🎯 Точки после: ${stats.pointsAfter}`,
-            `🔗 Найдено совпадений: ${stats.matchesCount}`,
-            `🔄 Слито точек: ${stats.mergedPoints}`,
-            `📉 Сокращение дубликатов: ${stats.reductionPercent}%`,
-            `📈 Улучшение confidence: ${stats.confidenceImprovement}`,
-            `🏆 Эффективность слияния: ${stats.efficiencyScore}%`
-        ];
-
-        statItems.forEach(item => {
-            ctx.fillStyle = '#cccccc';
-            ctx.fillText(item, x + 15, lineY);
-            lineY += 20;
+    async saveCanvas(canvas, filePath) {
+        return new Promise((resolve, reject) => {
+            const out = fs.createWriteStream(filePath);
+            const stream = canvas.createPNGStream();
+            stream.pipe(out);
+           
+            out.on('finish', () => {
+                console.log(`💾 Визуализация сохранена: ${filePath}`);
+                resolve(filePath);
+            });
+           
+            out.on('error', (error) => {
+                console.log(`❌ Ошибка сохранения: ${error.message}`);
+                reject(error);
+            });
         });
     }
 
-    // 23. ЗАКРУГЛЕННЫЙ ПРЯМОУГОЛЬНИК
-    drawRoundedRect(ctx, x, y, width, height, radius) {
-        if (width < 2 * radius) radius = width / 2;
-        if (height < 2 * radius) radius = height / 2;
+    // 10. УТИЛИТНЫЕ МЕТОДЫ
 
-        ctx.beginPath();
-        ctx.moveTo(x + radius, y);
-        ctx.lineTo(x + width - radius, y);
-        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-        ctx.lineTo(x + width, y + height - radius);
-        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-        ctx.lineTo(x + radius, y + height);
-        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-        ctx.lineTo(x, y + radius);
-        ctx.quadraticCurveTo(x, y, x + radius, y);
-        ctx.closePath();
+    // Создать подпись для изображения
+    createTopologyMergeCaption(footprint1, footprint2, stats) {
+        return `<b>🏗️ ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ</b>\n\n` +
+               `<b>📸 ${footprint1.name}:</b> ${stats.points1 || 0} узлов\n` +
+               `<b>📸 ${footprint2.name}:</b> ${stats.points2 || 0} узлов\n` +
+               `<b>🔗 Структурных соответствий:</b> ${stats.structuralMatches || 0}\n` +
+               `<b>🏗️ Топологическая схожесть:</b> ${(stats.structuralSimilarity || 0).toFixed(3)}\n` +
+               `<b>📊 Сохранено топологии:</b> ${stats.preservedStructures || 0}%\n\n` +
+               `<i>🟣 Топологические соответствия | 🔵 Узлы графа | 🔴 Рёбра графа</i>`;
     }
 
-    // 🔴 24. ЛЕГЕНДА (ИСПРАВЛЕННАЯ)
-    drawLegend(ctx, count1, count2, matchesCount) {
-        let startY = 700;
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText('📋 ЛЕГЕНДА:', 50, startY);
-
-        const legendItems = [
-            { color: 'rgba(50, 100, 255, 0.7)', text: `🔵 ${count1} точек` },
-            { color: 'rgba(255, 50, 50, 0.7)', text: `🔴 ${count2} точек` },
-            { color: 'rgba(156, 39, 176, 0.8)', text: `🟣 Совпадения (${matchesCount})` },
-            { color: 'rgba(0, 200, 83, 0.9)', text: '🟢 Ядро (вес 3+)' },
-            { color: 'rgba(255, 215, 0, 0.6)', text: '🟡 Связи совпадений' }
-        ];
-
-        let x = 200;
-        legendItems.forEach((item, index) => {
-            ctx.fillStyle = item.color;
-            ctx.fillRect(x, startY - 15, 20, 20);
-
-            ctx.fillStyle = '#cccccc';
-            ctx.font = '14px Arial';
-            ctx.fillText(item.text, x + 25, startY);
-
-            x += 180;
-            if (index === 2) {
-                x = 200;
-                startY += 25;
-            }
-        });
-    }
-
-    // 25. ЛЕГЕНДА ДЛЯ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ
-    drawIntelligentMergeLegend(ctx, x, y) {
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText('📋 ЛЕГЕНДА СЛИЯНИЯ:', x, y);
-
-        const legendItems = [
-            { color: 'rgba(50, 100, 255, 0.8)', text: '🔵 Только из отпечатка 1' },
-            { color: 'rgba(255, 50, 50, 0.8)', text: '🔴 Только из отпечатка 2' },
-            { color: 'rgba(156, 39, 176, 0.9)', text: '🟣 Слитая точка (усреднённая)' },
-            { color: 'rgba(255, 215, 0, 0.6)', text: '🟡 Связи совпадений' },
-            { color: 'rgba(0, 200, 83, 0.9)', text: '🟢 Высокая уверенность (★)' }
-        ];
-
-        let startY = y + 30;
-        legendItems.forEach((item, index) => {
-            ctx.fillStyle = item.color;
-            ctx.fillRect(x, startY - 12, 20, 20);
-
-            ctx.fillStyle = '#cccccc';
-            ctx.font = '14px Arial';
-            ctx.fillText(item.text, x + 25, startY);
-
-            startY += 25;
-        });
-    }
-
-    // 26. ИНФО О ТРАНСФОРМАЦИИ
-    drawTransformationInfo(ctx, transformation, x, y) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.font = '14px Arial';
-
-        ctx.fillText(`🔄 ТРАНСФОРМАЦИЯ:`, x, y);
-        if (transformation.translation) {
-            ctx.fillText(`├─ Смещение: (${transformation.translation.dx?.toFixed(1) || 0}, ${transformation.translation.dy?.toFixed(1) || 0})`, x + 10, y + 20);
-        }
-        ctx.fillText(`├─ Поворот: ${transformation.rotation?.toFixed(1) || 0}°`, x + 10, y + 40);
-        ctx.fillText(`├─ Масштаб: ${transformation.scale?.toFixed(3) || 1}`, x + 10, y + 60);
-        ctx.fillText(`└─ Уверенность: ${Math.round((transformation.confidence || 0) * 100)}%`, x + 10, y + 80);
-    }
-
-    // 27. МЕТРИКИ КАЧЕСТВА
-    drawQualityMetrics(ctx, stats, x, y) {
-        const boxWidth = 400;
-        const boxHeight = 180;
-
-        ctx.fillStyle = 'rgba(35, 25, 25, 0.9)';
-        ctx.strokeStyle = 'rgba(200, 100, 100, 0.5)';
-        ctx.lineWidth = 2;
-
-        this.drawRoundedRect(ctx, x, y, boxWidth, boxHeight, 10);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 20px Arial';
-        ctx.fillText('📈 МЕТРИКИ КАЧЕСТВА', x + 10, y + 30);
-
-        ctx.font = '14px Arial';
-        let lineY = y + 60;
-
-        const metrics = [
-            `🎯 Покрытие: ${stats.coverage || 0}%`,
-            `📏 Среднее расстояние: ${stats.avgMatchDistance || 0}px`,
-            `⭐ Средний score: ${stats.avgMergeScore || 0}`,
-            `📊 Уникальность: ${stats.uniqueness || 0}%`,
-            `⚡ Эффективность: ${stats.efficiency || 0}%`
-        ];
-
-        metrics.forEach(item => {
-            ctx.fillStyle = '#ffcccb';
-            ctx.fillText(item, x + 15, lineY);
-            lineY += 20;
-        });
-    }
-
-    // 28. ЦВЕТ ТОЧКИ
-    getPointColor(weight, isSecondFootprint = false) {
-        if (weight >= 3) return 'rgba(0, 200, 83, 0.9)';
-        if (weight == 2) return 'rgba(156, 39, 176, 0.8)';
-
-        return isSecondFootprint
-            ? 'rgba(255, 50, 50, 0.7)'
-            : 'rgba(50, 100, 255, 0.7)';
-    }
-
-    // 29. ПОДПИСЬ ДЛЯ TELEGRAM
-    createMergeCaption(footprint1, footprint2, stats) {
-        return `<b>🎭 ВЕКТОРНАЯ ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ</b>\n\n` +
-               `<b>📸 ${footprint1.name}:</b> ${stats.points1} точек\n` +
-               `<b>📸 ${footprint2.name}:</b> ${stats.points2} точек\n` +
-               `<b>🔗 Топологических соответствий:</b> ${stats.matches} (${stats.matchRate}%)\n` +
-               `<b>💎 Схожесть:</b> ${stats.similarity?.toFixed(3) || 'N/A'}\n` +
-               `<b>🤔 Решение:</b> ${stats.decision || 'N/A'}\n\n` +
-               `<i>🔵 ${footprint1.name} | 🔴 ${footprint2.name} | 🟣 Совпадения</i>`;
-    }
-
-    // 30. ПОДПИСЬ ДЛЯ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ
     createIntelligentMergeCaption(footprint1, footprint2, stats) {
         return `<b>🧠 ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ</b>\n\n` +
-               `<b>📸 ${footprint1.name}:</b> ${stats.points1} точек\n` +
-               `<b>📸 ${footprint2.name}:</b> ${stats.points2} точек\n` +
-               `<b>🔗 Найдено совпадений:</b> ${stats.matchesCount}\n` +
-               `<b>🔄 Слито точек:</b> ${stats.mergedPoints}\n` +
-               `<b>📉 Сокращение дубликатов:</b> ${stats.reductionPercent}%\n` +
-               `<b>📈 Улучшение confidence:</b> ${stats.confidenceImprovement}\n\n` +
-               `<i>🔵 Из ${footprint1.name} | 🔴 Из ${footprint2.name} | 🟣 Слитые точки</i>`;
+               `<b>📸 ${footprint1.name}:</b> ${stats.points1 || 0} узлов\n` +
+               `<b>📸 ${footprint2.name}:</b> ${stats.points2 || 0} узлов\n` +
+               `<b>🔗 Слито узлов:</b> ${stats.mergedNodes || 0}\n` +
+               `<b>💎 Уверенность:</b> ${((stats.confidence || 0) * 100).toFixed(1)}%\n` +
+               `<b>🔄 Трансформация:</b> ${stats.transformationType || 'смещение'}\n\n` +
+               `<i>🟡 Векторы трансформации | 🔵 Исходные точки | 🔴 Трансформированные точки</i>`;
+    }
+
+    createClassicMergeCaption(footprint1, footprint2, stats) {
+        return `<b>📊 КЛАССИЧЕСКОЕ СЛИЯНИЕ</b>\n\n` +
+               `<b>📸 ${footprint1.name}:</b> ${stats.points1 || 0} узлов\n` +
+               `<b>📸 ${footprint2.name}:</b> ${stats.points2 || 0} узлов\n` +
+               `<b>🎯 Схожесть:</b> ${((stats.similarity || 0) * 100).toFixed(1)}%\n` +
+               `<b>🤔 Решение:</b> ${stats.decision || 'unknown'}\n` +
+               `<b>🔄 Метод:</b> ${stats.method || 'graph_comparison'}\n\n` +
+               `<i>🔵 Граф 1 | 🔴 Граф 2 | ⚫ Общие узлы</i>`;
+    }
+
+    createSuperModelCaption(superModel, mergedModels) {
+        const mergedCount = mergedModels.length;
+        const nodeReduction = mergedModels.reduce((sum, m) => {
+            const graph = m.graph || m;
+            return sum + graph.nodes.size;
+        }, 0) - (superModel.graph?.nodes.size || 0);
+       
+        const efficiency = mergedModels.reduce((sum, m) => {
+            const graph = m.graph || m;
+            return sum + graph.nodes.size;
+        }, 0) > 0 ?
+            (nodeReduction / mergedModels.reduce((sum, m) => {
+                const graph = m.graph || m;
+                return sum + graph.nodes.size;
+            }, 0) * 100).toFixed(1) : '0.0';
+       
+        return `<b>🌟 СТРУКТУРНАЯ СУПЕР-МОДЕЛЬ СОЗДАНА!</b>\n\n` +
+               `<b>🎯 Объединено моделей:</b> ${mergedCount}\n` +
+               `<b>📊 Узлов до:</b> ${mergedModels.reduce((sum, m) => {
+                   const graph = m.graph || m;
+                   return sum + graph.nodes.size;
+               }, 0)}\n` +
+               `<b>🎯 Узлов после:</b> ${superModel.graph?.nodes.size || 0} (${efficiency}% эффективность)\n` +
+               `<b>🏗️ Топологический score:</b> ${Math.round((superModel.stats?.topologyScore || 0) * 100)}%\n` +
+               `<b>💎 Общая уверенность:</b> ${Math.round((superModel.stats?.confidence || 0) * 100)}%\n\n` +
+               `<i>🟣 Топологические соответствия | 🔵 Структурные узлы | 🔴 Сохранённые рёбра</i>`;
+    }
+
+    // Очистить старые визуализации
+    cleanupOldVisualizations(maxAgeHours = 24) {
+        const cutoffTime = Date.now() - (maxAgeHours * 60 * 60 * 1000);
+       
+        Object.values(this.subdirs).forEach(dir => {
+            if (fs.existsSync(dir)) {
+                const files = fs.readdirSync(dir);
+                let deleted = 0;
+               
+                files.forEach(file => {
+                    const filePath = path.join(dir, file);
+                    const stats = fs.statSync(filePath);
+                   
+                    if (stats.mtimeMs < cutoffTime && file.endsWith('.png')) {
+                        fs.unlinkSync(filePath);
+                        deleted++;
+                    }
+                });
+               
+                if (deleted > 0) {
+                    console.log(`🗑️ Удалено ${deleted} старых визуализаций из ${dir}`);
+                }
+            }
+        });
+       
+        return { success: true, message: `Очистка завершена (старше ${maxAgeHours} часов)` };
+    }
+
+    // Получить статистику визуализаций
+    getVisualizationStats() {
+        const stats = {
+            total: 0,
+            byType: {},
+            byDir: {}
+        };
+       
+        Object.entries(this.subdirs).forEach(([type, dir]) => {
+            if (fs.existsSync(dir)) {
+                const files = fs.readdirSync(dir).filter(f => f.endsWith('.png'));
+                stats.byType[type] = files.length;
+                stats.byDir[dir] = files.length;
+                stats.total += files.length;
+            }
+        });
+       
+        return stats;
     }
 }
 
