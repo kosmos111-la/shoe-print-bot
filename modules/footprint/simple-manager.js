@@ -1,5 +1,5 @@
 // modules/footprint/simple-manager.js
-// МЕНЕДЖЕР СИСТЕМЫ ЦИФРОВЫХ ОТПЕЧАТКОВ - УПРАВЛЕНИЕ ВСЕМ (С ИНТЕЛЛЕКТУАЛЬНЫМ СЛИЯНИЕМ)
+// МЕНЕДЖЕР СИСТЕМЫ ЦИФРОВЫХ ОТПЕЧАТКОВ - УПРАВЛЕНИЕ ВСЕМ (С ИНТЕЛЛЕКТУАЛЬНЫМ СЛИЯНИЕМ И СУПЕР-МОДЕЛЯМИ)
 
 const fs = require('fs');
 const path = require('path');
@@ -20,7 +20,9 @@ class SimpleFootprintManager {
             useHybridMode: options.useHybridMode !== false,
             hybridSearchThreshold: options.hybridSearchThreshold || 0.6,
             enableMergeVisualization: options.enableMergeVisualization !== false,
-            enableIntelligentMerge: options.enableIntelligentMerge !== false, // 🔴 НОВАЯ ОПЦИЯ
+            enableIntelligentMerge: options.enableIntelligentMerge !== false,
+            enableSuperModel: options.enableSuperModel !== false, // 🔴 НОВАЯ ОПЦИЯ
+            superModelConfidenceThreshold: options.superModelConfidenceThreshold || 0.8, // 🔴 НОВАЯ ОПЦИЯ
             ...options
         };
 
@@ -48,7 +50,8 @@ class SimpleFootprintManager {
             hybridComparisons: 0,
             hybridSearches: 0,
             mergeVisualizations: 0,
-            intelligentMerges: 0, // 🔴 ДОБАВЛЕНО
+            intelligentMerges: 0,
+            superModelsCreated: 0, // 🔴 ДОБАВЛЕНО
             startedAt: new Date()
         };
 
@@ -65,7 +68,8 @@ class SimpleFootprintManager {
         console.log(`🎯 Автосовмещение: ${this.config.autoAlignment ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`);
         console.log(`🎯 Гибридный режим: ${this.config.useHybridMode ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
         console.log(`🎨 Визуализация объединений: ${this.config.enableMergeVisualization ? 'ВКЛЮЧЕНА' : 'ВЫКЛЮЧЕНА'}`);
-        console.log(`🧠 Интеллектуальное слияние: ${this.config.enableIntelligentMerge ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`); // 🔴 ДОБАВЛЕНО
+        console.log(`🧠 Интеллектуальное слияние: ${this.config.enableIntelligentMerge ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`);
+        console.log(`🌟 Супер-модели: ${this.config.enableSuperModel ? 'ВКЛЮЧЕНЫ' : 'ВЫКЛЮЧЕНЫ'}`); // 🔴 ДОБАВЛЕНО
     }
 
     // 1. ОБЕСПЕЧИТЬ СУЩЕСТВОВАНИЕ БАЗЫ ДАННЫХ
@@ -185,7 +189,7 @@ class SimpleFootprintManager {
             currentFootprint: null,
             status: 'active',
             useHybrid: this.config.useHybridMode,
-            useIntelligentMerge: this.config.enableIntelligentMerge, // 🔴 ДОБАВЛЕНО
+            useIntelligentMerge: this.config.enableIntelligentMerge,
             stats: {
                 photoCount: 0,
                 analysisCount: 0,
@@ -193,7 +197,7 @@ class SimpleFootprintManager {
                 mergedCount: 0,
                 hybridComparisons: 0,
                 mergeVisualizations: 0,
-                intelligentMerges: 0 // 🔴 ДОБАВЛЕНО
+                intelligentMerges: 0
             }
         };
 
@@ -217,7 +221,7 @@ class SimpleFootprintManager {
         return this.userSessions.get(userId);
     }
 
-    // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ (ОБНОВЛЕННЫЙ С ИНТЕЛЛЕКТУАЛЬНЫМ СЛИЯНИЕМ)
+    // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ (ОБНОВЛЕННЫЙ С СУПЕР-МОДЕЛЬЮ)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         const session = this.getActiveSession(userId);
 
@@ -315,7 +319,7 @@ class SimpleFootprintManager {
                 if (session.useIntelligentMerge && session.currentFootprint.hybridFootprint && tempFootprint.hybridFootprint) {
                     // ИСПОЛЬЗУЕМ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
                     console.log('🧠 Использую интеллектуальное слияние...');
-                   
+
                     // Находим трансформацию
                     const hybridComparison = session.currentFootprint.hybridFootprint.compare(
                         tempFootprint.hybridFootprint
@@ -329,6 +333,16 @@ class SimpleFootprintManager {
                     if (mergeResult.success) {
                         session.stats.intelligentMerges++;
                         this.stats.intelligentMerges++;
+
+                        // 🔴 ПРОВЕРКА ВОЗМОЖНОСТИ СОЗДАНИЯ СУПЕР-МОДЕЛИ
+                        if (mergeResult.success && mergeResult.confidence > this.config.superModelConfidenceThreshold) {
+                            console.log('🌟 Проверяю возможность создания супер-модели...');
+
+                            // Проверяем достаточно ли точек
+                            if (session.currentFootprint.graph.nodes.size > 30) {
+                                await this.tryCreateSuperModel(session, userId, bot, chatId);
+                            }
+                        }
                     }
                 } else {
                     // Классическое слияние
@@ -356,7 +370,7 @@ class SimpleFootprintManager {
                         try {
                             const timestamp = Date.now();
                             let vizFilename, vizTitle;
-                           
+
                             if (mergeResult.transformation) {
                                 vizFilename = `intelligent_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
                                 vizTitle = 'ИНТЕЛЛЕКТУАЛЬНОЕ АВТООБЪЕДИНЕНИЕ';
@@ -364,7 +378,7 @@ class SimpleFootprintManager {
                                 vizFilename = `classic_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
                                 vizTitle = 'КЛАССИЧЕСКОЕ ОБЪЕДИНЕНИЕ';
                             }
-                           
+
                             const vizPath = path.join(this.config.dbPath, 'merge_visualizations', vizFilename);
 
                             // Выбираем метод визуализации
@@ -485,7 +499,7 @@ class SimpleFootprintManager {
             alignment: alignmentResult,
             footprintId: session.currentFootprint?.id,
             mergeVisualization: mergeVisualizationPath,
-            mergeMethod: mergeResult?.transformation ? 'intelligent' : 'classic' // 🔴 ДОБАВЛЕНО
+            mergeMethod: mergeResult?.transformation ? 'intelligent' : 'classic'
         });
 
         session.stats.analysisCount++;
@@ -499,7 +513,7 @@ class SimpleFootprintManager {
             hasHybrid: tempFootprint.hybridFootprint !== null,
             mergeVisualization: mergeVisualizationPath,
             mergeStats: mergeVisualizationStats,
-            mergeMethod: mergeResult?.transformation ? 'intelligent' : 'classic' // 🔴 ДОБАВЛЕНО
+            mergeMethod: mergeResult?.transformation ? 'intelligent' : 'classic'
         };
 
         // Автосохранение
@@ -510,7 +524,148 @@ class SimpleFootprintManager {
         return result;
     }
 
-    // 6. АВТОСОХРАНЕНИЕ СЕССИИ
+    // 🔴 6. НОВЫЙ МЕТОД: СОЗДАТЬ СУПЕР-МОДЕЛЬ
+    async tryCreateSuperModel(session, userId, bot = null, chatId = null) {
+        try {
+            console.log('🌟 Создаю СУПЕР-МОДЕЛЬ...');
+
+            // Получить все модели пользователя
+            const userModels = this.getUserModels(userId);
+            if (userModels.length < 2) {
+                console.log('⚠️ Недостаточно моделей для супер-модели');
+                return null;
+            }
+
+            // Найти лучшие модели для объединения
+            const bestModels = this.findBestModelsForSuperModel(userModels);
+
+            if (bestModels.length < 2) {
+                console.log('⚠️ Не найдено достаточно похожих моделей');
+                return null;
+            }
+
+            console.log(`🎯 Объединяю ${bestModels.length} моделей в супер-модель...`);
+
+            // Начать с первой модели
+            let superModel = bestModels[0];
+            const mergedModels = [superModel];
+
+            // Последовательно объединять с другими моделями
+            for (let i = 1; i < bestModels.length; i++) {
+                const currentModel = bestModels[i];
+
+                console.log(`🔄 Объединяю с "${currentModel.name}"...`);
+
+                // Интеллектуальное слияние
+                const mergeResult = superModel.hybridFootprint?.mergeWithTransformation(
+                    currentModel.hybridFootprint
+                );
+
+                if (mergeResult?.success) {
+                    mergedModels.push(currentModel);
+                    console.log(`✅ Добавлено к супер-модели: ${mergeResult.allPoints} точек`);
+                }
+            }
+
+            // Сохранить супер-модель
+            const superModelName = `Супер-модель_${new Date().toLocaleDateString('ru-RU')}`;
+            superModel.name = superModelName;
+
+            const saveResult = this.saveModel(superModel);
+
+            if (!saveResult.success) {
+                console.log(`❌ Ошибка сохранения супер-модели: ${saveResult.error}`);
+                return null;
+            }
+
+            // Создать визуализацию
+            const vizPath = path.join(this.config.dbPath, 'merge_visualizations',
+                `super_model_${Date.now()}.png`);
+
+            await this.mergeVisualizer.visualizeSuperModel(
+                superModel,
+                mergedModels,
+                vizPath
+            );
+
+            // Обновить статистику
+            this.stats.superModelsCreated = (this.stats.superModelsCreated || 0) + 1;
+
+            console.log(`🌟 СУПЕР-МОДЕЛЬ СОЗДАНА!`);
+            console.log(`   📊 ${mergedModels.length} моделей объединены`);
+            console.log(`   📍 ${superModel.graph.nodes.size} точек`);
+            console.log(`   💎 ${Math.round(superModel.stats.confidence * 100)}% уверенность`);
+            console.log(`   🎨 Визуализация: ${vizPath}`);
+
+            // Отправить в Telegram
+            if (bot && chatId && fs.existsSync(vizPath)) {
+                setTimeout(async () => {
+                    try {
+                        const caption = this.createSuperModelCaption(superModel, mergedModels);
+
+                        await bot.sendPhoto(chatId, vizPath, {
+                            caption: caption,
+                            parse_mode: 'HTML'
+                        });
+
+                        console.log(`✅ Визуализация супер-модели отправлена в чат ${chatId}`);
+
+                    } catch (sendError) {
+                        console.log('⚠️ Не удалось отправить визуализацию:', sendError.message);
+                    }
+                }, 500);
+            }
+
+            return {
+                success: true,
+                superModelId: superModel.id,
+                superModelName: superModelName,
+                mergedModels: mergedModels.length,
+                totalPoints: superModel.graph.nodes.size,
+                confidence: superModel.stats.confidence,
+                visualizationPath: vizPath
+            };
+
+        } catch (error) {
+            console.log(`❌ Ошибка создания супер-модели: ${error.message}`);
+            return null;
+        }
+    }
+
+    // 🔴 7. ВСПОМОГАТЕЛЬНЫЙ МЕТОД: НАЙТИ ЛУЧШИЕ МОДЕЛИ ДЛЯ СУПЕР-МОДЕЛИ
+    findBestModelsForSuperModel(models) {
+        if (models.length <= 2) return models;
+
+        // Сортировать по confidence и количеству точек
+        return models
+            .filter(m => m.hybridFootprint && m.graph.nodes.size > 20)
+            .sort((a, b) => {
+                const scoreA = (a.stats.confidence || 0) * 0.7 + (a.graph.nodes.size / 100) * 0.3;
+                const scoreB = (b.stats.confidence || 0) * 0.7 + (b.graph.nodes.size / 100) * 0.3;
+                return scoreB - scoreA;
+            })
+            .slice(0, 5); // Взять до 5 лучших моделей
+    }
+
+    // 🔴 8. МЕТОД ДЛЯ СОЗДАНИЯ ПОДПИСИ СУПЕР-МОДЕЛИ
+    createSuperModelCaption(superModel, mergedModels) {
+        const mergedCount = mergedModels.length;
+        const pointReduction = mergedModels.reduce((sum, m) => sum + m.graph.nodes.size, 0) -
+                              superModel.graph.nodes.size;
+        const efficiency = (pointReduction / mergedModels.reduce((sum, m) => sum + m.graph.nodes.size, 0) * 100).toFixed(1);
+
+        return `<b>🌟 СУПЕР-МОДЕЛЬ СОЗДАНА!</b>\n\n` +
+               `<b>🎯 Объединено моделей:</b> ${mergedCount}\n` +
+               `<b>📊 До слияния:</b> ${mergedModels.reduce((sum, m) => sum + m.graph.nodes.size, 0)} точек\n` +
+               `<b>🎯 После:</b> ${superModel.graph.nodes.size} точек\n` +
+               `<b>📉 Эффективность:</b> ${efficiency}%\n` +
+               `<b>💎 Уверенность супер-модели:</b> ${Math.round(superModel.stats.confidence * 100)}%\n` +
+               `<b>📈 Улучшение confidence:</b> ${((superModel.stats.confidence -
+                   mergedModels.reduce((sum, m) => sum + (m.stats.confidence || 0.5), 0) / mergedCount) * 100).toFixed(1)}%\n\n` +
+               `<i>🟣 Слитые точки | 🔵 Из моделей | 🔴 Уникальные</i>`;
+    }
+
+    // 9. АВТОСОХРАНЕНИЕ СЕССИИ
     autoSaveSession(session) {
         if (!session.currentFootprint) return;
 
@@ -532,7 +687,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 7. СОХРАНИТЬ СЕССИЮ КАК МОДЕЛЬ
+    // 10. СОХРАНИТЬ СЕССИЮ КАК МОДЕЛЬ
     saveSessionAsModel(userId, modelName = null) {
         const session = this.getActiveSession(userId);
 
@@ -582,12 +737,12 @@ class SimpleFootprintManager {
                 autoAlignments: session.stats.autoAlignments,
                 hybridComparisons: session.stats.hybridComparisons,
                 mergeVisualizations: session.stats.mergeVisualizations,
-                intelligentMerges: session.stats.intelligentMerges // 🔴 ДОБАВЛЕНО
+                intelligentMerges: session.stats.intelligentMerges
             }
         };
     }
 
-    // 8. СОХРАНИТЬ МОДЕЛЬ В БАЗУ
+    // 11. СОХРАНИТЬ МОДЕЛЬ В БАЗУ
     saveModel(footprint) {
         try {
             if (!footprint.id || !footprint.userId) {
@@ -660,19 +815,20 @@ class SimpleFootprintManager {
         }
     }
 
-    // 9. ОБНОВИТЬ ИНДЕКСНЫЙ ФАЙЛ
+    // 12. ОБНОВИТЬ ИНДЕКСНЫЙ ФАЙЛ
     updateIndexFile() {
         try {
             const indexPath = path.join(this.config.dbPath, '_index.json');
 
             const index = {
-                version: '1.1',
+                version: '1.2', // 🔴 ОБНОВЛЕНА ВЕРСИЯ
                 updated: new Date().toISOString(),
                 totalModels: this.modelCache.size,
                 hybridModels: this.stats.hybridModels,
                 totalUsers: this.userModels.size,
                 mergeVisualizations: this.stats.mergeVisualizations,
-                intelligentMerges: this.stats.intelligentMerges, // 🔴 ДОБАВЛЕНО
+                intelligentMerges: this.stats.intelligentMerges,
+                superModelsCreated: this.stats.superModelsCreated || 0, // 🔴 ДОБАВЛЕНО
                 users: {},
                 stats: this.stats
             };
@@ -683,6 +839,7 @@ class SimpleFootprintManager {
                 index.users[userId] = {
                     modelCount: models.length,
                     hybridModels: hybridModels,
+                    superModels: models.filter(m => m.name && m.name.startsWith('Супер-модель')).length, // 🔴 ДОБАВЛЕНО
                     lastModel: models[models.length - 1]?.metadata?.lastUpdated || null
                 };
             });
@@ -694,7 +851,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 10. ЗАВЕРШИТЬ СЕССИЮ
+    // 13. ЗАВЕРШИТЬ СЕССИЮ
     endSession(userId, reason = 'user_request') {
         const session = this.getActiveSession(userId);
 
@@ -725,7 +882,7 @@ class SimpleFootprintManager {
         console.log(`   Анализов: ${session.analyses.length}`);
         console.log(`   Гибридных сравнений: ${session.stats.hybridComparisons}`);
         console.log(`   Визуализаций объединения: ${session.stats.mergeVisualizations}`);
-        console.log(`   Интеллектуальных слияний: ${session.stats.intelligentMerges}`); // 🔴 ДОБАВЛЕНО
+        console.log(`   Интеллектуальных слияний: ${session.stats.intelligentMerges}`);
 
         return {
             success: true,
@@ -742,12 +899,12 @@ class SimpleFootprintManager {
         };
     }
 
-    // 11. ПОЛУЧИТЬ МОДЕЛИ ПОЛЬЗОВАТЕЛЯ
+    // 14. ПОЛУЧИТЬ МОДЕЛИ ПОЛЬЗОВАТЕЛЯ
     getUserModels(userId) {
         return this.userModels.get(userId) || [];
     }
 
-    // 12. НАЙТИ ПОХОЖИЕ МОДЕЛИ
+    // 15. НАЙТИ ПОХОЖИЕ МОДЕЛИ
     findSimilarModels(targetFootprint, userId = null, options = {}) {
         console.log(`🔎 Ищу похожие модели для "${targetFootprint.name}"...`);
 
@@ -764,7 +921,7 @@ class SimpleFootprintManager {
         return this.findSimilarGraphBased(targetFootprint, userId, options);
     }
 
-    // 12a. ГИБРИДНЫЙ ПОИСК - КАСКАДНЫЙ
+    // 16. ГИБРИДНЫЙ ПОИСК - КАСКАДНЫЙ
     async findSimilarHybrid(targetFootprint, userId = null, options = {}) {
         console.log('🎯 Запускаю каскадный гибридный поиск...');
         this.stats.hybridSearches++;
@@ -894,7 +1051,7 @@ class SimpleFootprintManager {
         };
     }
 
-    // 12b. КЛАССИЧЕСКИЙ ПОИСК ПО ГРАФАМ
+    // 17. КЛАССИЧЕСКИЙ ПОИСК ПО ГРАФАМ
     findSimilarGraphBased(targetFootprint, userId = null, options = {}) {
         // Определить какие модели сравнивать
         let modelsToCompare = [];
@@ -963,12 +1120,12 @@ class SimpleFootprintManager {
         };
     }
 
-    // 13. СРАВНИТЬ ДВА ОТПЕЧАТКА
+    // 18. СРАВНИТЬ ДВА ОТПЕЧАТКА
     compareFootprints(fp1, fp2) {
         return fp1.compare(fp2);
     }
 
-    // 14. ПОЛУЧИТЬ СТАТИСТИКУ СИСТЕМЫ - ОБНОВЛЕННЫЙ
+    // 19. ПОЛУЧИТЬ СТАТИСТИКУ СИСТЕМЫ - ОБНОВЛЕННЫЙ
     getSystemStats() {
         const now = new Date();
         const uptime = now - this.stats.startedAt;
@@ -977,7 +1134,7 @@ class SimpleFootprintManager {
             system: {
                 started: this.stats.startedAt.toLocaleString('ru-RU'),
                 uptime: Math.round(uptime / 1000),
-                version: '1.1'
+                version: '1.2'
             },
             storage: {
                 totalModels: this.stats.totalModels,
@@ -986,7 +1143,8 @@ class SimpleFootprintManager {
                 activeSessions: this.activeSessions.size,
                 modelCache: this.modelCache.size,
                 mergeVisualizations: this.stats.mergeVisualizations,
-                intelligentMerges: this.stats.intelligentMerges // 🔴 ДОБАВЛЕНО
+                intelligentMerges: this.stats.intelligentMerges,
+                superModelsCreated: this.stats.superModelsCreated || 0 // 🔴 ДОБАВЛЕНО
             },
             performance: {
                 totalSessions: this.stats.totalSessions,
@@ -995,7 +1153,8 @@ class SimpleFootprintManager {
                 hybridComparisons: this.stats.hybridComparisons,
                 hybridSearches: this.stats.hybridSearches,
                 mergeVisualizations: this.stats.mergeVisualizations,
-                intelligentMerges: this.stats.intelligentMerges, // 🔴 ДОБАВЛЕНО
+                intelligentMerges: this.stats.intelligentMerges,
+                superModelsCreated: this.stats.superModelsCreated || 0, // 🔴 ДОБАВЛЕНО
                 matcherStats: this.matcher.getStats()
             },
             config: {
@@ -1005,18 +1164,20 @@ class SimpleFootprintManager {
                 useHybridMode: this.config.useHybridMode,
                 hybridSearchThreshold: this.config.hybridSearchThreshold,
                 enableMergeVisualization: this.config.enableMergeVisualization,
-                enableIntelligentMerge: this.config.enableIntelligentMerge, // 🔴 ДОБАВЛЕНО
+                enableIntelligentMerge: this.config.enableIntelligentMerge,
+                enableSuperModel: this.config.enableSuperModel, // 🔴 ДОБАВЛЕНО
+                superModelConfidenceThreshold: this.config.superModelConfidenceThreshold, // 🔴 ДОБАВЛЕНО
                 debug: this.config.debug
             }
         };
     }
 
-    // 15. ПОЛУЧИТЬ МОДЕЛЬ ПО ID
+    // 20. ПОЛУЧИТЬ МОДЕЛЬ ПО ID
     getModelById(modelId) {
         return this.modelCache.get(modelId) || null;
     }
 
-    // 16. УДАЛИТЬ МОДЕЛЬ
+    // 21. УДАЛИТЬ МОДЕЛЬ
     deleteModel(modelId, userId = null) {
         try {
             const model = this.getModelById(modelId);
@@ -1081,7 +1242,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 17. ЭКСПОРТ МОДЕЛИ ДЛЯ ОБМЕНА
+    // 22. ЭКСПОРТ МОДЕЛИ ДЛЯ ОБМЕНА
     exportModel(modelId, format = 'json') {
         const model = this.getModelById(modelId);
 
@@ -1107,7 +1268,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 18. ОЧИСТКА СТАРЫХ АВТОСОХРАНЕНИЙ
+    // 23. ОЧИСТКА СТАРЫХ АВТОСОХРАНЕНИЙ
     cleanupOldAutosaves(maxAgeHours = 24) {
         try {
             if (!fs.existsSync(this.config.dbPath)) return;
@@ -1151,7 +1312,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 19. ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАТОРА
+    // 24. ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАТОРА
     initializeVisualizer() {
         try {
             const GraphVisualizer = require('./graph-visualizer');
@@ -1165,7 +1326,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 20. ВИЗУАЛИЗАЦИЯ СРАВНЕНИЯ МОДЕЛЕЙ
+    // 25. ВИЗУАЛИЗАЦИЯ СРАВНЕНИЯ МОДЕЛЕЙ
     async visualizeComparison(modelId1, modelId2) {
         try {
             if (!this.graphVisualizer) {
@@ -1194,7 +1355,7 @@ class SimpleFootprintManager {
 
                 return {
                     success: true,
-                    visualization: vizPath,
+                    visualisation: vizPath,
                     comparison: comparison
                 };
 
@@ -1204,7 +1365,7 @@ class SimpleFootprintManager {
             }
         }
 
-        // 21. ВИЗУАЛИЗАЦИЯ СЕССИИ
+        // 26. ВИЗУАЛИЗАЦИЯ СЕССИИ
         async visualizeSession(userId) {
             try {
                 if (!this.graphVisualizer) {
@@ -1222,7 +1383,7 @@ class SimpleFootprintManager {
 
                 return {
                     success: true,
-                    visualization: vizPath,
+                    visualisation: vizPath,
                     sessionId: session.id
                 };
 
@@ -1232,7 +1393,7 @@ class SimpleFootprintManager {
             }
         }
 
-        // 22. ВИЗУАЛИЗАЦИЯ МОДЕЛИ
+        // 27. ВИЗУАЛИЗАЦИЯ МОДЕЛИ
         async visualizeModel(modelId) {
             try {
                 const model = this.getModelById(modelId);
@@ -1244,7 +1405,7 @@ class SimpleFootprintManager {
 
                 return {
                     success: true,
-                    visualization: vizPath,
+                    visualisation: vizPath,
                     model: {
                         id: model.id,
                         name: model.name,
@@ -1258,7 +1419,7 @@ class SimpleFootprintManager {
             }
         }
 
-        // 23. РАССЧИТАТЬ КОМБИНИРОВАННЫЙ SCORE ДЛЯ ГИБРИДНОГО ПОИСКА
+        // 28. РАССЧИТАТЬ КОМБИНИРОВАННЫЙ SCORE ДЛЯ ГИБРИДНОГО ПОИСКА
         calculateCombinedScore(bitmaskDistance, momentDistance, graphSimilarity) {
             // Нормализовать расстояния в схожести (1 = идеально, 0 = плохо)
             const bitmaskSimilarity = 1 - (bitmaskDistance / 100); // bitmaskDistance от 0 до ~100
@@ -1268,7 +1429,7 @@ class SimpleFootprintManager {
             return (bitmaskSimilarity * 0.3 + momentSimilarity * 0.3 + graphSimilarity * 0.4);
         }
 
-        // 24. ПОИСК С ИСПОЛЬЗОВАНИЕМ ТОЛЬКО ГИБРИДНЫХ ПРИЗНАКОВ
+        // 29. ПОИСК С ИСПОЛЬЗОВАНИЕМ ТОЛЬКО ГИБРИДНЫХ ПРИЗНАКОВ
         async findSimilarHybridOnly(hybridFootprint, userId = null, options = {}) {
             if (!hybridFootprint || !hybridFootprint.bitmask || !hybridFootprint.moments) {
                 return { success: false, error: 'Недостаточно гибридных признаков' };
@@ -1346,7 +1507,7 @@ class SimpleFootprintManager {
             };
         }
 
-        // 🔴 25. НОВЫЙ МЕТОД: СОЗДАТЬ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕНИЯ ДЛЯ СУЩЕСТВУЮЩИХ МОДЕЛЕЙ
+        // 30. СОЗДАТЬ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕНИЯ ДЛЯ СУЩЕСТВУЮЩИХ МОДЕЛЕЙ
         async createMergeVisualization(modelId1, modelId2, outputPath = null) {
             try {
                 const model1 = this.getModelById(modelId1);
@@ -1386,7 +1547,7 @@ class SimpleFootprintManager {
             }
         }
 
-        // 🔴 26. НОВЫЙ МЕТОД: СОЗДАТЬ ИНТЕЛЛЕКТУАЛЬНУЮ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕНИЯ
+        // 31. СОЗДАТЬ ИНТЕЛЛЕКТУАЛЬНУЮ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕНИЯ
         async createIntelligentMergeVisualization(modelId1, modelId2, outputPath = null) {
             try {
                 const model1 = this.getModelById(modelId1);
@@ -1441,7 +1602,7 @@ class SimpleFootprintManager {
             }
         }
 
-        // 🔴 27. НОВЫЙ МЕТОД: ВЫПОЛНИТЬ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ МОДЕЛЕЙ
+        // 32. ВЫПОЛНИТЬ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ МОДЕЛЕЙ
         async performIntelligentMerge(modelId1, modelId2, options = {}) {
             try {
                 const model1 = this.getModelById(modelId1);
@@ -1532,7 +1693,7 @@ class SimpleFootprintManager {
             }
         }
 
-        // 🔴 28. НОВЫЙ МЕТОД: ПОЛУЧИТЬ ВСЕ ВИЗУАЛИЗАЦИИ ОБЪЕДИНЕНИЯ
+        // 33. ПОЛУЧИТЬ ВСЕ ВИЗУАЛИЗАЦИИ ОБЪЕДИНЕНИЯ
         getAllMergeVisualizations(userId = null) {
             try {
                 const vizDir = path.join(this.config.dbPath, 'merge_visualizations');
@@ -1565,7 +1726,7 @@ class SimpleFootprintManager {
             }
         }
 
-        // 🔴 29. НОВЫЙ МЕТОД: ПОЛУЧИТЬ СТАТИСТИКУ ИНТЕЛЛЕКТУАЛЬНЫХ СЛИЯНИЙ
+        // 34. ПОЛУЧИТЬ СТАТИСТИКУ ИНТЕЛЛЕКТУАЛЬНЫХ СЛИЯНИЙ
         getIntelligentMergeStats(userId = null) {
             const sessions = userId
                 ? [this.getActiveSession(userId)].filter(s => s)
@@ -1594,7 +1755,7 @@ class SimpleFootprintManager {
             };
         }
 
-        // 🔴 30. НОВЫЙ МЕТОД: ТЕСТ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ
+        // 35. ТЕСТ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ
         async testIntelligentMerge(testPointsCount = 30) {
             console.log('🧪 Запускаю тест интеллектуального слияния...');
 
@@ -1668,7 +1829,7 @@ class SimpleFootprintManager {
 
                 // Создаем визуализацию
                 const vizPath = path.join(this.config.dbPath, 'merge_visualizations', `test_intelligent_merge_${Date.now()}.png`);
-               
+
                 await this.mergeVisualizer.visualizeIntelligentMerge(
                     { name: 'Тест 1', hybridFootprint: footprint1 },
                     { name: 'Тест 2', hybridFootprint: footprint2 },
