@@ -731,19 +731,18 @@ class HybridFootprint {
             };
         }
 
-        // ВМЕСТО: const topologyMerger = new TopologyMerger({...})
-        // ИСПОЛЬЗОВАТЬ:
-        const topologyIntegration = new (require('./topology-integration'))({
-            enableTopologyRefinement: true,
-            enableValidation: false, // для скорости
-            debug: false
+        // 🔴 ШАГ 3: ИСПОЛЬЗОВАТЬ ТОПОЛОГИЧЕСКИЙ МЕРЖЕР
+        const topologyMerger = new TopologyMerger({
+            structuralSimilarityThreshold: 0.6,
+            preserveTopology: true,
+            confidenceBoost: 1.4,
+            maxMergeDistance: 35
         });
 
-        const topologyMergeResult = await topologyIntegration.fullTopologyMerge(
+        const topologyMergeResult = topologyMerger.mergeGraphs(
             this.graph,
             otherFootprint.graph,
-            vectorComparison.transformation,
-            { enableValidation: false }
+            vectorComparison.transformation
         );
 
         if (!topologyMergeResult.success) {
@@ -753,7 +752,7 @@ class HybridFootprint {
         }
 
         // 🔴 ШАГ 4: ОБНОВИТЬ ГРАФ ТОПОЛОГИЧЕСКИМ РЕЗУЛЬТАТОМ
-        this.graph = topologyMergeResult.graph;
+        this.graph = topologyMergeResult.mergedGraph;
 
         // Обновить оригинальные точки из объединённого графа
         this.originalPoints = Array.from(this.graph.nodes.values()).map(node => ({
@@ -794,7 +793,7 @@ class HybridFootprint {
             with: otherFootprint.id,
             transformation: vectorComparison.transformation,
             topologySimilarity: topologyMergeResult.structuralSimilarity,
-            structuralMatches: topologyMergeResult.structuralMatches,
+            structuralMatches: topologyMergeResult.structuralMatches.length,
             method: 'topology_merge'
         });
 
@@ -809,8 +808,8 @@ class HybridFootprint {
         );
 
         console.log(`✅ Топологическое объединение успешно!`);
-        console.log(`   🏗️ Структурных соответствий: ${topologyMergeResult.structuralMatches}`);
-        console.log(`   📊 Топологическая схожесть: ${topologyMergeResult.structuralSimilarity.toFixed(3)}`);
+        console.log(`   🏗️ Структурных соответствий: ${topologyMergeResult.structuralMatches?.length || 0}`);
+        console.log(`   📊 Топологическая схожесть: ${topologyMergeResult.structuralSimilarity?.toFixed(3) || 0}`);
         console.log(`   🔗 Сохранено топологии: ${metrics.preservedStructures}%`);
         console.log(`   📉 Сокращение дубликатов: ${metrics.efficiency}%`);
         console.log(`   💎 Новая уверенность: ${Math.round(this.stats.confidence * 100)}%`);
@@ -822,7 +821,7 @@ class HybridFootprint {
             transformation: vectorComparison.transformation,
             topologyMergeResult: topologyMergeResult,
             allPoints: this.originalPoints.length,
-            mergedNodes: topologyMergeResult.mergedNodes,
+            mergedNodes: topologyMergeResult.mergedNodes || 0,
             confidence: this.stats.confidence,
             metrics: metrics,
             stats: {
@@ -835,8 +834,8 @@ class HybridFootprint {
                     edges: this.graph.edges.size
                 },
                 topology: {
-                    structuralMatches: topologyMergeResult.structuralMatches,
-                    similarity: topologyMergeResult.structuralSimilarity,
+                    structuralMatches: topologyMergeResult.structuralMatches?.length || 0,
+                    similarity: topologyMergeResult.structuralSimilarity || 0,
                     preservation: metrics.preservedStructures
                 }
             },
@@ -844,15 +843,15 @@ class HybridFootprint {
         };
     }
 
-    // 🔴 НОВЫЙ МЕТОД: МЕТРИКИ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ
+    // 🔴 НОВЫЙ МЕТОД: МЕТРИКИ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ (ИСПРАВЛЕННЫЙ)
     calculateTopologyMergeMetrics(topologyResult, vectorComparison, otherFootprint) {
         const beforeNodes1 = this.graph.nodes.size;
         const beforeNodes2 = otherFootprint.graph.nodes.size;
-        const afterNodes = topologyResult.graph.nodes.size;
+        const afterNodes = topologyResult.mergedGraph?.nodes?.size || 0;
 
         const beforeEdges1 = this.graph.edges.size;
         const beforeEdges2 = otherFootprint.graph.edges.size;
-        const afterEdges = topologyResult.graph.edges.size;
+        const afterEdges = topologyResult.mergedGraph?.edges?.size || 0;
 
         const nodeReduction = (beforeNodes1 + beforeNodes2) - afterNodes;
         const efficiency = beforeNodes1 + beforeNodes2 > 0
@@ -860,8 +859,8 @@ class HybridFootprint {
             : 0;
 
         const edgePreservation = beforeEdges1 + beforeEdges2 > 0
-        ? (afterEdges / (beforeEdges1 + beforeEdges2)) * 100
-        : 0; // 🔴 ИЗМЕНИЛ 100 на 0
+            ? (afterEdges / (beforeEdges1 + beforeEdges2)) * 100
+            : 0; // 🔴 ИЗМЕНИЛ 100 на 0
 
         // Confidence improvement
         const confidenceBefore = this.stats.confidence;
@@ -869,19 +868,21 @@ class HybridFootprint {
         const confidenceImprovement = confidenceBefore > 0
             ? ((confidenceAfter - confidenceBefore) / confidenceBefore) * 100
             : 0;
-      // 🔴 ДОБАВИТЬ ПРОВЕРКУ (после этих строк):
-    const transformationConfidence = topologyResult?.transformation?.confidence ||
-                                     vectorComparison?.transformation?.confidence ||
-                                     0.5;
 
+        // 🔴 ДОБАВИТЬ ПРОВЕРКУ:
+        const transformationConfidence = topologyResult?.transformation?.confidence ||
+                                         vectorComparison?.transformation?.confidence ||
+                                         0.5;
+
+        // 🔴 ЗАЩИТА ОТ undefined:
         return {
-            preservedStructures: Math.round(edgePreservation),
-            efficiency: efficiency.toFixed(1),
-            nodeReduction: nodeReduction,
-            edgePreservation: edgePreservation.toFixed(1),
-            confidenceImprovement: confidenceImprovement.toFixed(1),
-            structuralSimilarity: topologyResult.structuralSimilarity.toFixed(3),
-            transformationConfidence: vectorComparison.transformation?.confidence?.toFixed(3) || 'N/A'
+            preservedStructures: Math.round(edgePreservation || 0),
+            efficiency: (efficiency || 0).toFixed(1),
+            nodeReduction: nodeReduction || 0,
+            edgePreservation: (edgePreservation || 0).toFixed(1),
+            confidenceImprovement: (confidenceImprovement || 0).toFixed(1),
+            structuralSimilarity: (topologyResult?.structuralSimilarity || 0).toFixed(3),
+            transformationConfidence: transformationConfidence.toFixed(3)
         };
     }
 
