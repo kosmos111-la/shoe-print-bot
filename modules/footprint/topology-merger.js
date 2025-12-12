@@ -532,115 +532,166 @@ performTopologicalMerge(graph1, graph2, matches, transformation) {
     this.reconstructEdgesFromMergedNodes(mergedNodesList, mergedEdges, matches, graph1, graph2);
 
     // 5. СОЗДАТЬ ОБЪЕДИНЁННЫЙ ГРАФ
-    const SimpleGraph = require('./simple-graph');
-    const mergedGraph = new SimpleGraph("Топологически объединённый граф");
+const SimpleGraph = require('./simple-graph');
+const mergedGraph = new SimpleGraph("Топологически объединённый граф");
 
-    // 🔴 ДОБАВИТЬ ЛОГИРОВАНИЕ
-    console.log(`🔗 Создаю объединённый граф...`);
-    console.log(`   Узлов для добавления: ${mergedNodes.size}`);
-    console.log(`   Рёбер для добавления: ${mergedEdges.size}`);
+// 🔴 ДОБАВИТЬ ЛОГИРОВАНИЕ
+console.log(`🔗 Создаю объединённый граф...`);
+console.log(`   Узлов для добавления: ${mergedNodes.size}`);
+console.log(`   Рёбер для добавления: ${mergedEdges.size}`);
 
-    // Карта соответствия: node_index -> actual_node_id
-    const nodeIndexToId = new Map();
+// Карта соответствия: node_index -> actual_node_id
+const nodeIndexToId = new Map();
 
-    // 5.1 ДОБАВИТЬ УЗЛЫ С ПРАВИЛЬНЫМИ ID
-    let nodeIndex = 0;
-    mergedNodes.forEach((node, oldId) => {
-        // Создать новый ID в формате "node_X" для совместимости с рёбрами
-        const newNodeId = `node_${nodeIndex}`;
-        nodeIndexToId.set(nodeIndex, newNodeId);
-        nodeIndex++;
+// 5.1 ДОБАВИТЬ УЗЛЫ С ПРАВИЛЬНЫМИ ID
+let nodeIndex = 0;
+mergedNodes.forEach((node, oldId) => {
+    // Создать новый ID в формате "node_X" для совместимости с рёбрами
+    const newNodeId = `node_${nodeIndex}`;
+    nodeIndexToId.set(nodeIndex, newNodeId);
+    nodeIndex++;
 
-        mergedGraph.addNode({
-            id: newNodeId, // 🔴 ВАЖНО: "node_X" вместо "merged_X"
-            x: node.x,
-            y: node.y,
-            confidence: node.confidence,
-            source: node.source,
-            originalId: oldId // Сохранить оригинальный ID для отладки
-        });
+    mergedGraph.addNode({
+        id: newNodeId, // 🔴 ВАЖНО: "node_X" вместо "merged_X"
+        x: node.x,
+        y: node.y,
+        confidence: node.confidence,
+        source: node.source,
+        originalId: oldId // Сохранить оригинальный ID для отладки
     });
+});
 
-    console.log(`✅ Добавлено узлов: ${mergedGraph.nodes.size}`);
+// 🔴 КРИТИЧЕСКИЙ ОТЛАДОЧНЫЙ ВЫВОД - какие ID создались
+console.log(`🔍 ПЕРВЫЕ 5 ID УЗЛОВ В ГРАФЕ: ${Array.from(mergedGraph.nodes.keys()).slice(0, 5).join(', ')}`);
+console.log(`🔍 ПОСЛЕДНИЕ 5 ID УЗЛОВ В ГРАФЕ: ${Array.from(mergedGraph.nodes.keys()).slice(-5).join(', ')}`);
+console.log(`🔍 ВСЕГО ID УЗЛОВ В ГРАФЕ: ${mergedGraph.nodes.size}`);
 
-    // 5.2 ДОБАВИТЬ РЁБРА С ПРАВИЛЬНЫМИ ССЫЛКАМИ
-    let edgesAdded = 0;
-    let edgesFailed = 0;
+// 🔴 Показать первые несколько узлов из nodeIndexToId
+console.log(`🔍 ПЕРВЫЕ 5 ЗАПИСЕЙ В nodeIndexToId:`);
+for (let i = 0; i < Math.min(5, nodeIndexToId.size); i++) {
+    console.log(`   Индекс ${i} -> ID: ${nodeIndexToId.get(i)}`);
+}
 
-    mergedEdges.forEach((edge, edgeId) => {
-        // Извлечь индексы из строк "node_X"
-        const fromMatch = edge.from.match(/node_(\d+)/);
-        const toMatch = edge.to.match(/node_(\d+)/);
+console.log(`✅ Добавлено узлов: ${mergedGraph.nodes.size}`);
 
-        if (fromMatch && toMatch) {
-            const fromIndex = parseInt(fromMatch[1]);
-            const toIndex = parseInt(toMatch[1]);
+// 5.2 ДОБАВИТЬ РЁБРА С ПРАВИЛЬНЫМИ ССЫЛКАМИ
+let edgesAdded = 0;
+let edgesFailed = 0;
 
-            const fromId = nodeIndexToId.get(fromIndex);
-            const toId = nodeIndexToId.get(toIndex);
+// 🔴 Показать первые несколько рёбер из mergedEdges
+console.log(`🔍 ПЕРВЫЕ 5 РЁБЕР ИЗ mergedEdges:`);
+const firstEdgesPreview = Array.from(mergedEdges.values()).slice(0, 5);
+firstEdgesPreview.forEach((edge, idx) => {
+    console.log(`   ${idx + 1}. ${edge.from} -> ${edge.to}`);
+});
 
-            if (fromId && toId && fromId !== toId) {
-                // Проверить, нет ли уже такого ребра
-                const edgeExists = Array.from(mergedGraph.edges.values()).some(e =>
-                    (e.from === fromId && e.to === toId) ||
-                    (e.from === toId && e.to === fromId)
-                );
+mergedEdges.forEach((edge, edgeId) => {
+    // Извлечь индексы из строк "node_X"
+    const fromMatch = edge.from.match(/node_(\d+)/);
+    const toMatch = edge.to.match(/node_(\d+)/);
 
-                if (!edgeExists) {
-                    mergedGraph.addEdge({
-                        id: `edge_${edgesAdded}`,
-                        from: fromId,
-                        to: toId,
-                        weight: edge.weight || 1,
-                        source: edge.source || 'reconstructed'
-                    });
-                    edgesAdded++;
-                } else {
-                    // console.log(`⚠️ Ребро уже существует: ${fromId} -> ${toId}`);
-                }
+    if (fromMatch && toMatch) {
+        const fromIndex = parseInt(fromMatch[1]);
+        const toIndex = parseInt(toMatch[1]);
+
+        const fromId = nodeIndexToId.get(fromIndex);
+        const toId = nodeIndexToId.get(toIndex);
+
+        if (fromId && toId && fromId !== toId) {
+            // Проверить, нет ли уже такого ребра
+            const edgeExists = Array.from(mergedGraph.edges.values()).some(e =>
+                (e.from === fromId && e.to === toId) ||
+                (e.from === toId && e.to === fromId)
+            );
+
+            if (!edgeExists) {
+                mergedGraph.addEdge({
+                    id: `edge_${edgesAdded}`,
+                    from: fromId,
+                    to: toId,
+                    weight: edge.weight || 1,
+                    source: edge.source || 'reconstructed'
+                });
+                edgesAdded++;
             } else {
-                console.log(`⚠️ Неверные ID для ребра: ${edge.from}(${fromId}) -> ${edge.to}(${toId})`);
-                edgesFailed++;
+                // console.log(`⚠️ Ребро уже существует: ${fromId} -> ${toId}`);
             }
         } else {
-            console.log(`⚠️ Неправильный формат ребра: ${edge.from} -> ${edge.to}`);
+            console.log(`⚠️ Неверные ID для ребра: ${edge.from}(${fromId}) -> ${edge.to}(${toId})`);
             edgesFailed++;
         }
-    });
-
-    console.log(`🔗 Добавлено рёбер: ${edgesAdded} (ошибок: ${edgesFailed})`);
-    console.log(`📊 Итог графа: ${mergedGraph.nodes.size} узлов, ${mergedGraph.edges.size} рёбер`);
-
-    // 🔴 ПРОВЕРКА
-    if (mergedGraph.edges.size === 0 && mergedEdges.size > 0) {
-        console.log(`🚨 КРИТИЧЕСКАЯ ОШИБКА: Рёбра не добавлены в граф!`);
-        console.log(`   В edgesMap: ${mergedEdges.size} рёбер`);
-        console.log(`   В графе: ${mergedGraph.edges.size} рёбер`);
-
-        // Показать примеры
-        const sampleEdge = Array.from(mergedEdges.values())[0];
-        console.log(`   Пример ребра из edgesMap: ${sampleEdge?.from} -> ${sampleEdge?.to}`);
-
-        // Показать ID узлов в графе
-        const firstNodes = Array.from(mergedGraph.nodes.keys()).slice(0, 3);
-        console.log(`   Первые ID узлов в графе: ${firstNodes.join(', ')}`);
+    } else {
+        console.log(`⚠️ Неправильный формат ребра: ${edge.from} -> ${edge.to}`);
+        edgesFailed++;
     }
+});
 
-    return {
-        mergedGraph: mergedGraph,
-        mergedNodes: matches.length,
-        totalNodes: mergedNodes.size,
-        stats: {
-            mergedNodes: matches.length,
-            uniqueFrom1: nodes1.length - mergedIndices1.size,
-            uniqueFrom2: nodes2.length - mergedIndices2.size,
-            totalEdges: mergedEdges.size,
-            edgesAddedToGraph: edgesAdded,
-            edgesFailed: edgesFailed,
-            topologyPreserved: this.calculateTopologyPreservationScore(graph1, graph2, matches)
+console.log(`🔗 Добавлено рёбер: ${edgesAdded} (ошибок: ${edgesFailed})`);
+console.log(`📊 Итог графа: ${mergedGraph.nodes.size} узлов, ${mergedGraph.edges.size} рёбер`);
+
+// 🔴 ПРОВЕРКА С ДЕТАЛЬНОЙ ИНФОРМАЦИЕЙ
+if (mergedGraph.edges.size === 0 && mergedEdges.size > 0) {
+    console.log(`🚨 КРИТИЧЕСКАЯ ОШИБКА: Рёбра не добавлены в граф!`);
+    console.log(`   В edgesMap: ${mergedEdges.size} рёбер`);
+    console.log(`   В графе: ${mergedGraph.edges.size} рёбер`);
+   
+    // 🔴 ПОКАЗАТЬ ПРИМЕРЫ РЁБЕР ИЗ MAP
+    const sampleEdges = Array.from(mergedEdges.values()).slice(0, 3);
+    console.log(`   ПЕРВЫЕ 3 РЁБРА ИЗ edgesMap:`);
+    sampleEdges.forEach((edge, idx) => {
+        console.log(`     ${idx + 1}. ${edge.from} -> ${edge.to}`);
+       
+        // Попробовать найти соответствующий узел в графе
+        const fromExists = Array.from(mergedGraph.nodes.keys()).some(id =>
+            id === edge.from || id.includes(edge.from.replace('node_', ''))
+        );
+        const toExists = Array.from(mergedGraph.nodes.keys()).some(id =>
+            id === edge.to || id.includes(edge.to.replace('node_', ''))
+        );
+        console.log(`       ${edge.from} в графе? ${fromExists}`);
+        console.log(`       ${edge.to} в графе? ${toExists}`);
+    });
+   
+    // 🔴 ПОКАЗАТЬ ID УЗЛОВ В ГРАФЕ
+    const allNodeIds = Array.from(mergedGraph.nodes.keys());
+    console.log(`   ID УЗЛОВ В ГРАФЕ (первые 20): ${allNodeIds.slice(0, 20).join(', ')}`);
+    if (allNodeIds.length > 20) {
+        console.log(`   ... и еще ${allNodeIds.length - 20} узлов`);
+    }
+   
+    // 🔴 ПРОВЕРИТЬ ФОРМАТ ID В ГРАФЕ
+    console.log(`   ФОРМАТ ID УЗЛОВ (анализ):`);
+    const sampleNodeId = allNodeIds[0];
+    if (sampleNodeId) {
+        console.log(`     Пример ID: "${sampleNodeId}"`);
+        console.log(`     Начинается с "node_"? ${sampleNodeId.startsWith('node_')}`);
+        console.log(`     Начинается с "n"? ${sampleNodeId.startsWith('n')}`);
+        console.log(`     Содержит цифры? ${/\d/.test(sampleNodeId)}`);
+    }
+   
+    // 🔴 ПРОВЕРИТЬ КЛАСС SimpleGraph
+    console.log(`   ПРОВЕРКА КЛАССА SimpleGraph:`);
+    console.log(`     Конструктор вызван для: "Топологически объединённый граф"`);
+   
+    // 🔴 ПОПЫТАТЬСЯ ДОБАВИТЬ ТЕСТОВОЕ РЕБРО
+    console.log(`   ТЕСТ: Пробую добавить тестовое ребро...`);
+    const testNodeIds = allNodeIds.slice(0, 2);
+    if (testNodeIds.length >= 2) {
+        console.log(`     Узлы для теста: ${testNodeIds[0]}, ${testNodeIds[1]}`);
+        try {
+            mergedGraph.addEdge({
+                id: 'test_edge_1',
+                from: testNodeIds[0],
+                to: testNodeIds[1],
+                weight: 1
+            });
+            console.log(`     ✅ Тестовое ребро добавлено успешно!`);
+            console.log(`     Теперь рёбер в графе: ${mergedGraph.edges.size}`);
+        } catch (error) {
+            console.log(`     ❌ Ошибка при добавлении тестового ребра: ${error.message}`);
         }
-    };
-} 
+    }
+}
 
     // 15. СЛИЯНИЕ ДВУХ УЗЛОВ
     mergeTwoNodes(node1, node2, similarityScore) {
