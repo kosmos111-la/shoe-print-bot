@@ -860,8 +860,8 @@ class HybridFootprint {
             : 0;
 
         const edgePreservation = beforeEdges1 + beforeEdges2 > 0
-            ? (afterEdges / (beforeEdges1 + beforeEdges2)) * 100
-            : 100;
+        ? (afterEdges / (beforeEdges1 + beforeEdges2)) * 100
+        : 0; // 🔴 ИЗМЕНИЛ 100 на 0
 
         // Confidence improvement
         const confidenceBefore = this.stats.confidence;
@@ -869,6 +869,10 @@ class HybridFootprint {
         const confidenceImprovement = confidenceBefore > 0
             ? ((confidenceAfter - confidenceBefore) / confidenceBefore) * 100
             : 0;
+      // 🔴 ДОБАВИТЬ ПРОВЕРКУ (после этих строк):
+    const transformationConfidence = topologyResult?.transformation?.confidence ||
+                                     vectorComparison?.transformation?.confidence ||
+                                     0.5;
 
         return {
             preservedStructures: Math.round(edgePreservation),
