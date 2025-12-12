@@ -491,8 +491,26 @@ class SimpleFootprintManager {
                     mergeResult = session.currentFootprint.hybridFootprint.mergeWithTransformation(
                         tempFootprint.hybridFootprint
                     );
-
-                    if (mergeResult.success) {
+// 🔴 ДЕТАЛЬНАЯ ДИАГНОСТИКА РЕЗУЛЬТАТА СЛИЯНИЯ
+console.log('\n🔍 ДЕТАЛЬНАЯ ДИАГНОСТИКА РЕЗУЛЬТАТА mergeWithTransformation:');
+console.log(`1. mergeResult: ${mergeResult ? JSON.stringify(mergeResult, null, 2) : 'null'}`);
+console.log(`2. mergeResult.success: ${mergeResult?.success}`);
+console.log(`3. mergeResult.method: ${mergeResult?.method}`);
+console.log(`4. mergeResult.error: ${mergeResult?.error}`);
+console.log(`5. mergeResult.reason: ${mergeResult?.reason}`);
+console.log(`6. mergeResult.metrics: ${mergeResult?.metrics ? JSON.stringify(mergeResult.metrics) : 'нет'}`);
+console.log(`7. mergeResult.transformation: ${mergeResult?.transformation ? 'есть' : 'нет'}`);
+                    
+           // 🔴 ПРОВЕРКА ВАЛИДНОСТИ mergeResult
+if (!mergeResult) {
+    console.log('❌ mergeResult равен null или undefined!');
+    mergeResult = { success: false, error: 'mergeResult is null' };
+} else if (typeof mergeResult !== 'object') {
+    console.log(`❌ mergeResult не объект: ${typeof mergeResult}`);
+    mergeResult = { success: false, error: 'mergeResult is not an object' };
+}       
+                  
+                  if (mergeResult.success) {
                         mergeMethod = mergeResult.method || 'topology';
                         session.stats.topologicalMerges++;
                         this.stats.topologicalMerges++;
@@ -513,7 +531,10 @@ class SimpleFootprintManager {
                             }
                         }
                     } else {
-                        console.log(`❌ Топологическое слияние не удалось: ${mergeResult.error || 'неизвестная ошибка'}`);
+                        console.log('❌ Слияние не удалось, проверяем причину:');
+    console.log(`- error: ${mergeResult.error}`);
+    console.log(`- reason: ${mergeResult.reason}`);
+    console.log(`- result object:`, mergeResult);
                     }
                 }
                 else if (session.useIntelligentMerge &&
