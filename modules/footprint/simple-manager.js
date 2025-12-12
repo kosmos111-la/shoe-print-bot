@@ -170,7 +170,7 @@ class SimpleFootprintManager {
             // Добавить модели
             modelsToUse.forEach(model => superModel.addModel(model));
 
-            // Создать супер-модель
+            // 🔴 ДОБАВИТЬ await!
             const result = await superModel.createSuperModel();
 
             if (!result || !result.success) {
@@ -192,6 +192,7 @@ class SimpleFootprintManager {
             const vizPath = path.join(this.config.dbPath, 'topology_supermodels',
                 `structural_super_model_${Date.now()}.png`);
 
+            // 🔴 ДОБАВИТЬ await!
             await superModel.visualizeSuperModel(vizPath);
 
             // Сохранить в мапе
@@ -367,6 +368,33 @@ class SimpleFootprintManager {
         return this.userSessions.get(userId);
     }
 
+    // 🔴 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: БЕЗОПАСНАЯ ОБРАБОТКА PROMISE
+    async safeMergeResult(mergePromise) {
+        try {
+            let result = mergePromise;
+           
+            // Проверяем, является ли результат Promise
+            if (result && typeof result.then === 'function') {
+                console.log('⚡ Обнаружен Promise, ожидаю результат...');
+                result = await result;
+            }
+           
+            // Дополнительная проверка для вложенных Promise
+            if (result && typeof result.then === 'function') {
+                console.log('⚡ Вложенный Promise, ожидаю еще раз...');
+                result = await result;
+            }
+           
+            return result;
+        } catch (error) {
+            console.log('❌ Ошибка в safeMergeResult:', error.message);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
     // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ (ОБНОВЛЕННЫЙ С ТОПОЛОГИЕЙ)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         // 🔴 ДИАГНОСТИКА - ДОБАВЬТЕ В НАЧАЛО МЕТОДА
@@ -461,8 +489,10 @@ class SimpleFootprintManager {
         if (this.config.autoAlignment && session.currentFootprint) {
             console.log(`🎯 Запускаю автосовмещение...`);
 
-            // Сравнить с текущим отпечатком в сессии
-            const comparison = session.currentFootprint.compare(tempFootprint);
+            // 🔴 ДОБАВИТЬ await к методу compare
+            console.log('🔍 Сравниваю отпечатки (await)...');
+            const comparison = await session.currentFootprint.compare(tempFootprint);
+            console.log(`📊 Результат сравнения: ${comparison.decision}, similarity: ${comparison.similarity}`);
 
             if (tempFootprint.hybridFootprint && session.currentFootprint.hybridFootprint) {
                 session.stats.hybridComparisons++;
@@ -487,54 +517,51 @@ class SimpleFootprintManager {
                     // 🏗️ ИСПОЛЬЗУЕМ ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ
                     console.log('🏗️ Использую топологическое слияние...');
 
-                    // Выполняем топологическое слияние
-                    mergeResult = session.currentFootprint.hybridFootprint.mergeWithTransformation(
-                        tempFootprint.hybridFootprint
-                    );
-// 🔴 ДЕТАЛЬНАЯ ДИАГНОСТИКА РЕЗУЛЬТАТА СЛИЯНИЯ
-console.log('\n🔍 ДЕТАЛЬНАЯ ДИАГНОСТИКА РЕЗУЛЬТАТА mergeWithTransformation:');
-console.log(`1. mergeResult: ${mergeResult ? JSON.stringify(mergeResult, null, 2) : 'null'}`);
-console.log(`2. mergeResult.success: ${mergeResult?.success}`);
-console.log(`3. mergeResult.method: ${mergeResult?.method}`);
-console.log(`4. mergeResult.error: ${mergeResult?.error}`);
-console.log(`5. mergeResult.reason: ${mergeResult?.reason}`);
-console.log(`6. mergeResult.metrics: ${mergeResult?.metrics ? JSON.stringify(mergeResult.metrics) : 'нет'}`);
-console.log(`7. mergeResult.transformation: ${mergeResult?.transformation ? 'есть' : 'нет'}`);
-                    
-           // 🔴 ПРОВЕРКА ВАЛИДНОСТИ mergeResult
-if (!mergeResult) {
-    console.log('❌ mergeResult равен null или undefined!');
-    mergeResult = { success: false, error: 'mergeResult is null' };
-} else if (typeof mergeResult !== 'object') {
-    console.log(`❌ mergeResult не объект: ${typeof mergeResult}`);
-    mergeResult = { success: false, error: 'mergeResult is not an object' };
-}       
-                  
-                  if (mergeResult.success) {
-                        mergeMethod = mergeResult.method || 'topology';
-                        session.stats.topologicalMerges++;
-                        this.stats.topologicalMerges++;
-                        this.stats.intelligentMerges++;
+                    try {
+                        // 🔴 ДОБАВИТЬ await через safeMergeResult!
+                        console.log('🏗️ Выполняем топологическое слияние (await)...');
+                        mergeResult = await this.safeMergeResult(
+                            session.currentFootprint.hybridFootprint.mergeWithTransformation(
+                                tempFootprint.hybridFootprint
+                            )
+                        );
 
-                        console.log(`✅ Топологическое слияние успешно! Метод: ${mergeMethod}`);
+                        // 🔴 ДЕТАЛЬНАЯ ДИАГНОСТИКА РЕЗУЛЬТАТА СЛИЯНИЯ
+                        console.log('\n🔍 ДЕТАЛЬНАЯ ДИАГНОСТИКА РЕЗУЛЬТАТА mergeWithTransformation:');
+                        console.log(`1. Тип mergeResult: ${typeof mergeResult}`);
+                        console.log(`2. mergeResult:`, mergeResult);
+                        console.log(`3. mergeResult.success: ${mergeResult?.success}`);
+                       
+                        if (mergeResult?.success) {
+                            mergeMethod = mergeResult.method || 'topology';
+                            session.stats.topologicalMerges++;
+                            this.stats.topologicalMerges++;
+                            this.stats.intelligentMerges++;
 
-                        // 🔴 ПРОВЕРКА ВОЗМОЖНОСТИ СОЗДАНИЯ ТОПОЛОГИЧЕСКОЙ СУПЕР-МОДЕЛИ
-                        if (mergeResult.success &&
-                            mergeResult.metrics?.structuralSimilarity > 0.8 &&
-                            session.currentFootprint.graph.nodes.size > 40) {
+                            console.log(`✅ Топологическое слияние успешно! Метод: ${mergeMethod}`);
+                           
+                            // 🔴 ПРОВЕРКА ВОЗМОЖНОСТИ СОЗДАНИЯ ТОПОЛОГИЧЕСКОЙ СУПЕР-МОДЕЛИ
+                            if (mergeResult.success &&
+                                mergeResult.metrics?.structuralSimilarity > 0.8 &&
+                                session.currentFootprint.graph.nodes.size > 40) {
 
-                            console.log('🏗️ Проверяю возможность создания топологической супер-модели...');
+                                console.log('🏗️ Проверяю возможность создания топологической супер-модели...');
 
-                            // Проверяем достаточно ли топологического качества
-                            if (session.currentFootprint.hybridFootprint.stats.topologyScore > 0.7) {
-                                await this.tryCreateTopologySuperModel(session, userId, bot, chatId);
+                                // Проверяем достаточно ли топологического качества
+                                if (session.currentFootprint.hybridFootprint.stats.topologyScore > 0.7) {
+                                    await this.tryCreateTopologySuperModel(session, userId, bot, chatId);
+                                }
                             }
+                        } else {
+                            console.log('❌ Топологическое слияние не удалось, проверяем причину:');
+                            console.log(`- mergeResult:`, mergeResult);
+                            console.log(`- error: ${mergeResult?.error}`);
+                            console.log(`- reason: ${mergeResult?.reason}`);
                         }
-                    } else {
-                        console.log('❌ Слияние не удалось, проверяем причину:');
-    console.log(`- error: ${mergeResult.error}`);
-    console.log(`- reason: ${mergeResult.reason}`);
-    console.log(`- result object:`, mergeResult);
+                    } catch (mergeError) {
+                        console.log('❌ Ошибка при выполнении топологического слияния:', mergeError.message);
+                        console.error(mergeError.stack);
+                        mergeResult = { success: false, error: mergeError.message };
                     }
                 }
                 else if (session.useIntelligentMerge &&
@@ -544,37 +571,44 @@ if (!mergeResult) {
                     // 🧠 ИСПОЛЬЗУЕМ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
                     console.log('🧠 Использую интеллектуальное слияние...');
 
-                    // Выполняем интеллектуальное слияние
-                    mergeResult = session.currentFootprint.hybridFootprint.mergeWithTransformation(
-                        tempFootprint.hybridFootprint
-                    );
+                    try {
+                        // 🔴 ДОБАВИТЬ await через safeMergeResult!
+                        mergeResult = await this.safeMergeResult(
+                            session.currentFootprint.hybridFootprint.mergeWithTransformation(
+                                tempFootprint.hybridFootprint
+                            )
+                        );
 
-                    if (mergeResult.success) {
-                        mergeMethod = mergeResult.method || 'intelligent';
-                        session.stats.intelligentMerges++;
-                        this.stats.intelligentMerges++;
+                        if (mergeResult?.success) {
+                            mergeMethod = mergeResult.method || 'intelligent';
+                            session.stats.intelligentMerges++;
+                            this.stats.intelligentMerges++;
 
-                        console.log(`✅ Интеллектуальное слияние успешно! Метод: ${mergeMethod}`);
+                            console.log(`✅ Интеллектуальное слияние успешно! Метод: ${mergeMethod}`);
 
-                        // Проверка возможности создания супер-модели
-                        if (mergeResult.success &&
-                            mergeResult.confidence > this.config.superModelConfidenceThreshold) {
+                            // Проверка возможности создания супер-модели
+                            if (mergeResult.success &&
+                                mergeResult.confidence > this.config.superModelConfidenceThreshold) {
 
-                            console.log('🌟 Проверяю возможность создания супер-модели...');
+                                console.log('🌟 Проверяю возможность создания супер-модели...');
 
-                            if (session.currentFootprint.graph.nodes.size > 30) {
-                                await this.tryCreateSuperModel(session, userId, bot, chatId);
+                                if (session.currentFootprint.graph.nodes.size > 30) {
+                                    await this.tryCreateSuperModel(session, userId, bot, chatId);
+                                }
                             }
+                        } else {
+                            console.log(`❌ Интеллектуальное слияние не удалось: ${mergeResult?.error || 'неизвестная ошибка'}`);
                         }
-                    } else {
-                        console.log(`❌ Интеллектуальное слияние не удалось: ${mergeResult.error || 'неизвестная ошибка'}`);
+                    } catch (mergeError) {
+                        console.log('❌ Ошибка при выполнении интеллектуального слияния:', mergeError.message);
+                        mergeResult = { success: false, error: mergeError.message };
                     }
                 } else {
                     // 📊 Классическое слияние
                     console.log('📊 Использую классическое слияние...');
                     mergeResult = session.currentFootprint.merge(tempFootprint);
                     mergeMethod = 'classic';
-                   
+
                     if (mergeResult?.success) {
                         console.log(`✅ Классическое слияние успешно!`);
                     } else {
@@ -730,7 +764,7 @@ if (!mergeResult) {
                     // 🔴 ОТПРАВКА ВИЗУАЛИЗАЦИИ В TELEGRAM
                     if (bot && chatId && mergeVisualizationPath && fs.existsSync(mergeVisualizationPath)) {
                         console.log(`✅ ВСЕ УСЛОВИЯ ДЛЯ ОТПРАВКИ ВЫПОЛНЕНЫ! Отправляю в Telegram...`);
-                       
+
                         setTimeout(async () => {
                             try {
                                 let caption;
@@ -847,10 +881,10 @@ if (!mergeResult) {
         try {
             console.log('🏗️ Создаю ТОПОЛОГИЧЕСКУЮ СУПЕР-МОДЕЛЬ...');
 
-            // Получить все модел
+            // Получить все модели
             const userModels = this.getUserModels(userId);
             if (userModels.length < 3) {
-                console.log('⚠️ Недостаточно моделей для топологической супер-модели (минимум 3)');
+                console.log('⚠️ Недостаточно моделей для топологической супер.модели (минимум 3)');
                 return null;
             }
 
@@ -878,13 +912,17 @@ if (!mergeResult) {
 
                 console.log(`🏗️ Топологическое слияние с "${currentModel.name}"...`);
 
-                // Сравнить топологию
-                const topologyComparison = superModel.hybridFootprint.compareTopology(currentModel.hybridFootprint?.graph || currentModel.graph);
+                // 🔴 ДОБАВИТЬ await!
+                const topologyComparison = await superModel.hybridFootprint.compareTopology(
+                    currentModel.hybridFootprint?.graph || currentModel.graph
+                );
 
                 if (topologyComparison.similarity > this.config.topologySimilarityThreshold) {
-                    // Выполнить топологическое слияние
-                    const mergeResult = superModel.hybridFootprint.mergeWithTransformation(
-                        currentModel.hybridFootprint
+                    // 🔴 ДОБАВИТЬ await через safeMergeResult!
+                    const mergeResult = await this.safeMergeResult(
+                        superModel.hybridFootprint.mergeWithTransformation(
+                            currentModel.hybridFootprint
+                        )
                     );
 
                     if (mergeResult?.success && mergeResult.method === 'topology_merge') {
