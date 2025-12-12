@@ -467,7 +467,7 @@ class TopologyMerger {
         };
     }
 
-    / 14. ВЫПОЛНЕНИЕ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ
+    // 14. ВЫПОЛНЕНИЕ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ
 performTopologicalMerge(graph1, graph2, matches, transformation) {
     const mergedNodes = new Map();
     const mergedEdges = new Map();
