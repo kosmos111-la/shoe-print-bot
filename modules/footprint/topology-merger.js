@@ -692,6 +692,7 @@ if (mergedGraph.edges.size === 0 && mergedEdges.size > 0) {
         }
     }
 }
+}
 
     // 15. СЛИЯНИЕ ДВУХ УЗЛОВ
     mergeTwoNodes(node1, node2, similarityScore) {
