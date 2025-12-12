@@ -1,5 +1,5 @@
 // modules/footprint/hybrid-footprint.js
-// ГИБРИДНЫЙ ОТПЕЧАТОК: битовые маски + моменты + графы + матрица расстояний + векторная схема + трекер точек
+// ГИБРИДНЫЙ ОТПЕЧАТОК: битовые маски + моменты + графы + матрица расстояний + векторная схема + трекер точек + ТОПОЛОГИЧЕСКИЙ МЕРЖЕР
 
 const BitmaskFootprint = require('./bitmask-footprint');
 const MomentFootprint = require('./moment-footprint');
@@ -7,7 +7,7 @@ const SimpleGraph = require('./simple-graph');
 const DistanceMatrix = require('./distance-matrix');
 const VectorGraph = require('./vector-graph');
 const PointTracker = require('./point-tracker');
-// 🔴 ДОБАВЛЕН ВАЛИДАТОР CONFIDENCE
+const TopologyMerger = require('./topology-merger'); // 🔴 ЗАМЕНА PointMerger!
 const ConfidenceValidator = require('../utils/confidence-validator');
 
 class HybridFootprint {
@@ -36,6 +36,7 @@ class HybridFootprint {
             lastUpdated: new Date(),
             totalPhotos: 0,
             transformations: [], // История трансформаций при объединении
+            topologyMerges: 0, // 🔴 НОВАЯ СТАТИСТИКА
             ...(options.metadata || {})
         };
 
@@ -48,7 +49,8 @@ class HybridFootprint {
             matrixConfidence: 0,
             vectorConfidence: 0,
             trackerConfidence: 0,
-            qualityScore: 0
+            qualityScore: 0,
+            topologyScore: 0 // 🔴 НОВАЯ МЕТРИКА
         };
 
         console.log(`🎭 Создан гибридный отпечаток "${this.name}"`);
@@ -143,14 +145,19 @@ class HybridFootprint {
         const trackerStats = this.pointTracker.getStats();
         this.stats.trackerConfidence = Math.min(1.0, trackerStats.confidence || 0.8);
 
-        // Общая уверенность (взвешенная)
+        // 🔴 НОВАЯ МЕТРИКА: Топологическая оценка
+        const topologyScore = this.calculateTopologyScore();
+        this.stats.topologyScore = topologyScore;
+
+        // Общая уверенность (взвешенная) - ДОБАВЛЕН ТОПОЛОГИЧЕСКИЙ ВЕС
         const calculatedConfidence = (
-            this.stats.bitmaskConfidence * 0.1 +
-            this.stats.momentConfidence * 0.15 +
-            this.stats.graphConfidence * 0.2 +
-            this.stats.matrixConfidence * 0.2 +
-            this.stats.vectorConfidence * 0.2 +
-            this.stats.trackerConfidence * 0.15
+            this.stats.bitmaskConfidence * 0.08 +      // 8%
+            this.stats.momentConfidence * 0.12 +       // 12%
+            this.stats.graphConfidence * 0.25 +        // 25% - увеличен вес графа
+            this.stats.matrixConfidence * 0.20 +       // 20%
+            this.stats.vectorConfidence * 0.15 +       // 15%
+            this.stats.trackerConfidence * 0.10 +      // 10%
+            this.stats.topologyScore * 0.10           // 10% - новый топологический фактор
         );
 
         // 🔴 ОГРАНИЧИТЬ В ДИАПАЗОНЕ [0.0, 1.0]
@@ -160,6 +167,89 @@ class HybridFootprint {
         this.stats.qualityScore = Math.max(0.0, Math.min(1.0,
             this.stats.confidence * Math.min(1, this.metadata.totalPhotos / 3)
         ));
+    }
+
+    // 🔴 НОВЫЙ МЕТОД: РАСЧЁТ ТОПОЛОГИЧЕСКОЙ ОЦЕНКИ
+    calculateTopologyScore() {
+        const invariants = this.graph.getBasicInvariants();
+       
+        // Факторы топологического качества:
+        // 1. Связность графа
+        const connectivity = Math.min(1.0, (invariants.edgeCount || 0) / Math.max(1, invariants.nodeCount * 2));
+       
+        // 2. Коэффициент кластеризации
+        const clustering = Math.min(1.0, invariants.clusteringCoefficient || 0);
+       
+        // 3. Равномерность распределения узлов
+        const uniformity = this.calculateNodeUniformity();
+       
+        // 4. Сохранение структуры после слияний
+        const structurePreservation = this.metadata.topologyMerges > 0
+            ? Math.min(1.0, 0.7 + (this.metadata.topologyMerges * 0.1))
+            : 0.8;
+       
+        // Комбинированный score
+        return (connectivity * 0.3 + clustering * 0.3 + uniformity * 0.2 + structurePreservation * 0.2);
+    }
+
+    // 🔴 НОВЫЙ МЕТОД: РАСЧЁТ РАВНОМЕРНОСТИ РАСПРЕДЕЛЕНИЯ УЗЛОВ
+    calculateNodeUniformity() {
+        const nodes = Array.from(this.graph.nodes.values());
+        if (nodes.length < 4) return 0.5;
+       
+        // Разбить на квадранты и посчитать распределение
+        const bounds = this.calculateNodeBounds();
+        const width = bounds.maxX - bounds.minX;
+        const height = bounds.maxY - bounds.minY;
+       
+        if (width === 0 || height === 0) return 0.5;
+       
+        // Разделить на 4 квадранта
+        const midX = bounds.minX + width / 2;
+        const midY = bounds.minY + height / 2;
+       
+        const quadrants = [0, 0, 0, 0];
+       
+        nodes.forEach(node => {
+            if (node.x < midX && node.y < midY) quadrants[0]++;
+            else if (node.x >= midX && node.y < midY) quadrants[1]++;
+            else if (node.x < midX && node.y >= midY) quadrants[2]++;
+            else quadrants[3]++;
+        });
+       
+        // Рассчитать равномерность
+        const avg = nodes.length / 4;
+        let variance = 0;
+        quadrants.forEach(count => {
+            variance += Math.pow(count - avg, 2);
+        });
+        variance /= 4;
+       
+        // Нормализовать к [0, 1], где 1 - идеально равномерно
+        const maxVariance = Math.pow(nodes.length, 2) / 4;
+        const uniformity = 1 - (variance / maxVariance);
+       
+        return Math.max(0, Math.min(1, uniformity));
+    }
+
+    // 🔴 НОВЫЙ МЕТОД: ГРАНИЦЫ УЗЛОВ
+    calculateNodeBounds() {
+        const nodes = Array.from(this.graph.nodes.values());
+        if (nodes.length === 0) {
+            return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+        }
+       
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+       
+        nodes.forEach(node => {
+            minX = Math.min(minX, node.x);
+            maxX = Math.max(maxX, node.x);
+            minY = Math.min(minY, node.y);
+            maxY = Math.max(maxY, node.y);
+        });
+       
+        return { minX, maxX, minY, maxY };
     }
 
     // 3. КАСКАДНОЕ СРАВНЕНИЕ С ДРУГИМ ОТПЕЧАТКОМ (ОБНОВЛЁННАЯ ВЕРСИЯ)
@@ -172,7 +262,7 @@ class HybridFootprint {
         // 🔴 ВАЛИДИРОВАТЬ ТОЧКИ ПЕРЕД СРАВНЕНИЕМ
         const validatedPoints1 = ConfidenceValidator.validatePointsArray(this.originalPoints);
         const validatedPoints2 = ConfidenceValidator.validatePointsArray(otherFootprint.originalPoints);
-       
+      
         // Использовать валидированные точки
         const points1 = validatedPoints1;
         const points2 = validatedPoints2;
@@ -307,73 +397,82 @@ class HybridFootprint {
             };
         }
 
-        // ШАГ 5: ГРАФ - только для финального подтверждения
-        let graphResult = { similarity: 0 };
-        if (vectorResult.similarity > 0.8) { // Было 0.7
-            graphResult = this.compareGraphsSimple(otherFootprint.graph);
+        // 🔴 ШАГ 5: ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ ГРАФОВ (НОВЫЙ!)
+        let topologyResult = { similarity: 0 };
+        if (vectorResult.similarity > 0.75) {
+            topologyResult = this.compareTopology(otherFootprint.graph);
             steps.push({
-                step: 'graph',
+                step: 'topology',
                 time: Date.now() - startTime,
-                result: graphResult,
+                result: topologyResult,
                 details: {
-                    similarity: graphResult.similarity
+                    similarity: topologyResult.similarity,
+                    structuralMatches: topologyResult.structuralMatches,
+                    topologyScore: topologyResult.topologyScore
                 }
             });
         }
 
-        // 🔴 НОВАЯ ФОРМУЛА ВЕСОВ - больше веса матрице и векторам
+        // 🔴 НОВАЯ ФОРМУЛА ВЕСОВ - больше веса топологии
         const weights = {
-            bitmask: 0.10,   // 10% - быстро, но неточно (теперь только информация)
-            moments: 0.15,   // 15% - форма
-            matrix: 0.45,    // 45% - САМЫЙ ВАЖНЫЙ! структура (увеличено с 40%)
-            vector: 0.30,    // 30% - локальные связи
-            graph: 0.00      // 0% - только подтверждение (уменьшено с 5%)
+            bitmask: 0.08,   // 8% - быстро, но неточно
+            moments: 0.12,   // 12% - форма
+            matrix: 0.30,    // 30% - структура (уменьшено с 45%)
+            vector: 0.25,    // 25% - локальные связи (уменьшено с 30%)
+            topology: 0.25   // 25% - НОВЫЙ! топологическое сравнение
         };
 
-        // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ЗНАЧЕНИЙ (ИСПРАВЛЕНИЕ criticalPass ОШИБКИ)
+        // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ЗНАЧЕНИЙ
         const bitmaskSimilarity = Math.max(0, Math.min(1, bitmaskResult?.similarity || 0));
         const momentSimilarity = Math.max(0, Math.min(1, momentResult?.similarity || 0));
         const matrixSimilarity = Math.max(0, Math.min(1, matrixResult?.similarity || 0));
         const vectorSimilarity = Math.max(0, Math.min(1, vectorResult?.similarity || 0));
-        const graphSimilarity = Math.max(0, Math.min(1, graphResult?.similarity || 0));
+        const topologySimilarity = Math.max(0, Math.min(1, topologyResult?.similarity || 0));
 
         const totalSimilarity = Math.max(0, Math.min(1,
             bitmaskSimilarity * weights.bitmask +
             momentSimilarity * weights.moments +
             matrixSimilarity * weights.matrix +
             vectorSimilarity * weights.vector +
-            graphSimilarity * weights.graph
+            topologySimilarity * weights.topology
         ));
 
         // 🔴 КОМБИНИРОВАННЫЕ КРИТЕРИИ ДЛЯ РЕШЕНИЯ
         let decision, reason;
 
-        // Критически важны матрица и векторы
-        const criticalPass = matrixSimilarity > 0.7 && vectorSimilarity > 0.75;
+        // Критически важны матрица и топология
+        const criticalPass = matrixSimilarity > 0.7 && topologySimilarity > 0.65;
 
         // 🔴 СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ПОХОЖИХ ФОРМ РАЗНОГО РАЗМЕРА
         const isSimilarShapeDifferentSize =
             momentSimilarity > 0.9 && // Очень похожие моменты (форма)
             matrixSimilarity > 0.7 && // Похожие матрицы (структура)
+            topologySimilarity > 0.6 && // Приемлемая топология
             sizeRatio < 0.7 && sizeRatio > 0.4; // Разные, но не экстремальные размеры
 
-        if (isSimilarShapeDifferentSize && totalSimilarity > 0.7) {
-            decision = 'similar';
-            reason = `Похожие формы разного размера (${totalSimilarity.toFixed(3)})`;
-        }
-        else if (criticalPass && totalSimilarity > 0.85) {
+        // 🔴 НОВАЯ ЛОГИКА: УЧЁТ ТОПОЛОГИЧЕСКОЙ СХОЖЕСТИ
+        if (topologySimilarity > 0.8 && totalSimilarity > 0.85) {
             decision = 'same';
-            reason = `Очень высокая схожесть структуры (${totalSimilarity.toFixed(3)})`;
-        } else if (totalSimilarity > 0.75 && matrixSimilarity > 0.6) {
+            reason = `Высокая топологическая схожесть (${totalSimilarity.toFixed(3)})`;
+        }
+        else if (isSimilarShapeDifferentSize && totalSimilarity > 0.7) {
             decision = 'similar';
-            reason = `Похожая структура (${totalSimilarity.toFixed(3)})`;
+            reason = `Похожие топологии разного размера (${totalSimilarity.toFixed(3)})`;
+        }
+        else if (criticalPass && totalSimilarity > 0.8) {
+            decision = 'same';
+            reason = `Схожие структуры и топология (${totalSimilarity.toFixed(3)})`;
+        } else if (totalSimilarity > 0.7 && topologySimilarity > 0.6) {
+            decision = 'similar';
+            reason = `Похожая топология (${totalSimilarity.toFixed(3)})`;
         } else {
             decision = 'different';
-            reason = `Разные структуры (${totalSimilarity.toFixed(3)})`;
+            reason = `Разные топологии (${totalSimilarity.toFixed(3)})`;
         }
 
         console.log(`📊 Каскадное сравнение завершено: ${totalSimilarity.toFixed(3)} (${decision})`);
         console.log(`   🎭 Матрица: ${matrixSimilarity.toFixed(3)}, Векторы: ${vectorSimilarity.toFixed(3)}`);
+        console.log(`   🏗️ Топология: ${topologySimilarity.toFixed(3)}`);
         console.log(`   📏 Соотношение размеров: ${sizeRatio.toFixed(2)}`);
 
         return {
@@ -388,12 +487,108 @@ class HybridFootprint {
                 moments: momentResult,
                 matrix: matrixResult,
                 vector: vectorResult,
-                graph: graphResult,
+                topology: topologyResult,
                 weights,
                 sizeRatio
             },
             timeMs: Date.now() - startTime
         };
+    }
+
+    // 🔴 НОВЫЙ МЕТОД: ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ ГРАФОВ
+    compareTopology(otherGraph) {
+        console.log('🏗️ Выполняю топологическое сравнение графов...');
+       
+        try {
+            // Создать TopologyMerger для сравнения
+            const topologyMerger = new TopologyMerger({
+                structuralSimilarityThreshold: 0.6,
+                preserveTopology: true
+            });
+           
+            // Получить структурные соответствия
+            const structuralMatches = topologyMerger.findStructuralMatches(
+                this.graphToVectorGraph(this.graph),
+                this.graphToVectorGraph(otherGraph)
+            );
+           
+            // Рассчитать схожесть на основе структурных соответствий
+            const vectorGraph1 = this.graphToVectorGraph(this.graph);
+            const vectorGraph2 = this.graphToVectorGraph(otherGraph);
+           
+            const structuralSimilarity = topologyMerger.calculateStructuralSimilarity(
+                vectorGraph1, vectorGraph2, structuralMatches
+            );
+           
+            // Рассчитать топологическую сохранность
+            const topologyPreservation = topologyMerger.calculateTopologyPreservation(
+                vectorGraph1, vectorGraph2, structuralMatches
+            );
+           
+            // Комбинированный score
+            const topologyScore = (structuralSimilarity * 0.7 + topologyPreservation * 0.3);
+           
+            console.log(`   🏗️ Структурных соответствий: ${structuralMatches.length}`);
+            console.log(`   📊 Структурная схожесть: ${structuralSimilarity.toFixed(3)}`);
+            console.log(`   🔗 Сохранение топологии: ${(topologyPreservation * 100).toFixed(1)}%`);
+           
+            return {
+                similarity: Math.max(0, Math.min(1, topologyScore)),
+                structuralMatches: structuralMatches.length,
+                structuralSimilarity: structuralSimilarity,
+                topologyPreservation: topologyPreservation,
+                topologyScore: topologyScore,
+                method: 'topology_comparison'
+            };
+           
+        } catch (error) {
+            console.log(`⚠️ Ошибка топологического сравнения: ${error.message}`);
+            return {
+                similarity: 0,
+                error: error.message,
+                method: 'topology_failed'
+            };
+        }
+    }
+
+    // 🔴 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: ГРАФ -> ВЕКТОРНЫЙ ГРАФ
+    graphToVectorGraph(graph) {
+        const points = [];
+        const nodeMap = new Map();
+       
+        // Преобразовать узлы графа в точки
+        let index = 0;
+        for (const [nodeId, node] of graph.nodes) {
+            points.push({
+                x: node.x,
+                y: node.y,
+                confidence: node.confidence || 0.5,
+                nodeId: nodeId,
+                edges: []
+            });
+            nodeMap.set(nodeId, index);
+            index++;
+        }
+       
+        // Добавить информацию о рёбрах
+        for (const [edgeId, edge] of graph.edges) {
+            const fromIdx = nodeMap.get(edge.from);
+            const toIdx = nodeMap.get(edge.to);
+           
+            if (fromIdx !== undefined && toIdx !== undefined) {
+                if (!points[fromIdx].edges) points[fromIdx].edges = [];
+                if (!points[toIdx].edges) points[toIdx].edges = [];
+               
+                points[fromIdx].edges.push(toIdx);
+                points[toIdx].edges.push(fromIdx);
+            }
+        }
+       
+        // Создать векторную схему
+        const vectorGraph = new VectorGraph({ points: points });
+        vectorGraph.createFromPoints(points);
+       
+        return vectorGraph;
     }
 
     // 4. ПРОСТОЕ СРАВНЕНИЕ ГРАФОВ (если нет matcher)
@@ -503,16 +698,16 @@ class HybridFootprint {
         };
     }
 
-    // 6. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ (НОВЫЙ ИНТЕЛЛЕКТУАЛЬНЫЙ МЕТОД)
+    // 6. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ - ТЕПЕРЬ ТОПОЛОГИЧЕСКОЕ!
     mergeWithTransformation(otherFootprint) {
-        console.log(`🔄 Интеллектуальное объединение с "${otherFootprint.name}"...`);
+        console.log(`🏗️ Топологическое объединение с "${otherFootprint.name}"...`);
 
         // 🔴 ШАГ 1: ПРОВЕРИТЬ ТОЧКИ ПЕРЕД СЛИЯНИЕМ
         const points1Issues = ConfidenceValidator.checkForConfidenceIssues(this.originalPoints);
         const points2Issues = ConfidenceValidator.checkForConfidenceIssues(otherFootprint.originalPoints);
 
         if (points1Issues.length > 0 || points2Issues.length > 0) {
-            console.log('⚠️  Обнаружены проблемы с точками перед слиянием:');
+            console.log('⚠️ Обнаружены проблемы с точками перед слиянием:');
             [...points1Issues, ...points2Issues].forEach(issue => {
                 console.log(`   ${issue.type}: ${issue.message}`);
             });
@@ -522,140 +717,232 @@ class HybridFootprint {
             otherFootprint.originalPoints = ConfidenceValidator.validatePointsArray(otherFootprint.originalPoints);
         }
 
-        // 🔴 ШАГ 2: ПРОВЕРКА МИНИМАЛЬНОГО СХОДСТВА
+        // 🔴 ШАГ 2: ПРОВЕРКА СТРУКТУРНОЙ СХОЖЕСТИ
         const vectorComparison = this.vectorGraph.compare(otherFootprint.vectorGraph);
+        const topologyComparison = this.compareTopology(otherFootprint.graph);
 
-        if (vectorComparison.similarity < 0.3) { // Более строгий порог
-            console.log(`❌ Отпечатки слишком разные: similarity=${vectorComparison.similarity.toFixed(3)}`);
+        if (vectorComparison.similarity < 0.3 || topologyComparison.similarity < 0.5) {
+            console.log(`❌ Отпечатки слишком разные структурно: `);
+            console.log(`   Векторы: ${vectorComparison.similarity.toFixed(3)}, Топология: ${topologyComparison.similarity.toFixed(3)}`);
             return {
                 success: false,
-                reason: `Отпечатки слишком разные (similarity: ${vectorComparison.similarity.toFixed(3)})`,
-                similarity: vectorComparison.similarity
+                reason: `Отпечатки слишком разные структурно`,
+                details: { vector: vectorComparison.similarity, topology: topologyComparison.similarity }
             };
         }
 
-        // 3. Извлечь точки из обоих отпечатков
+        // 🔴 ШАГ 3: ИСПОЛЬЗОВАТЬ ТОПОЛОГИЧЕСКИЙ МЕРЖЕР
+        const topologyMerger = new TopologyMerger({
+            structuralSimilarityThreshold: 0.6,
+            preserveTopology: true,
+            confidenceBoost: 1.4,
+            maxMergeDistance: 35
+        });
+
+        const topologyMergeResult = topologyMerger.mergeGraphs(
+            this.graph,
+            otherFootprint.graph,
+            vectorComparison.transformation
+        );
+
+        if (!topologyMergeResult.success) {
+            console.log(`❌ Топологическое слияние не удалось: ${topologyMergeResult.reason}`);
+            // Попробовать старый метод как запасной вариант
+            return this.fallbackToPointMerge(otherFootprint, vectorComparison);
+        }
+
+        // 🔴 ШАГ 4: ОБНОВИТЬ ГРАФ ТОПОЛОГИЧЕСКИМ РЕЗУЛЬТАТОМ
+        this.graph = topologyMergeResult.mergedGraph;
+       
+        // Обновить оригинальные точки из объединённого графа
+        this.originalPoints = Array.from(this.graph.nodes.values()).map(node => ({
+            x: node.x,
+            y: node.y,
+            confidence: node.confidence || 0.5,
+            source: node.source || 'topology_merge'
+        }));
+
+        // 🔴 ШАГ 5: ОБНОВИТЬ ВСЕ ПРЕДСТАВЛЕНИЯ
+        this.bitmask.createFromPoints(this.originalPoints);
+        this.moments.calculateFromPoints(this.originalPoints);
+        this.distanceMatrix.createFromPoints(this.originalPoints);
+        this.vectorGraph.createFromPoints(this.originalPoints);
+
+        // 🔴 ШАГ 6: ОБНОВИТЬ ТРЕКЕР ТОЧЕК
+        this.pointTracker.processNewPoints(
+            Array.from(otherFootprint.graph.nodes.values()).map(node => ({
+                x: node.x,
+                y: node.y,
+                confidence: node.confidence || 0.5,
+                source: 'topology_merge_input'
+            })),
+            {
+                source: 'topology_merge',
+                fromFootprint: otherFootprint.id,
+                transformation: vectorComparison.transformation,
+                mergeStats: topologyMergeResult.stats
+            }
+        );
+
+        // 🔴 ШАГ 7: ОБНОВИТЬ МЕТАДАННЫЕ
+        this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos || 1;
+        this.metadata.lastUpdated = new Date();
+        this.metadata.topologyMerges = (this.metadata.topologyMerges || 0) + 1;
+        this.metadata.transformations.push({
+            timestamp: new Date(),
+            with: otherFootprint.id,
+            transformation: vectorComparison.transformation,
+            topologySimilarity: topologyMergeResult.structuralSimilarity,
+            structuralMatches: topologyMergeResult.structuralMatches.length,
+            method: 'topology_merge'
+        });
+
+        // 🔴 ШАГ 8: ОБНОВИТЬ СТАТИСТИКУ
+        this.updateConfidence();
+
+        // 🔴 ШАГ 9: РАССЧИТАТЬ МЕТРИКИ
+        const metrics = this.calculateTopologyMergeMetrics(
+            topologyMergeResult,
+            vectorComparison,
+            otherFootprint
+        );
+
+        console.log(`✅ Топологическое объединение успешно!`);
+        console.log(`   🏗️ Структурных соответствий: ${topologyMergeResult.structuralMatches.length}`);
+        console.log(`   📊 Топологическая схожесть: ${topologyMergeResult.structuralSimilarity.toFixed(3)}`);
+        console.log(`   🔗 Сохранено топологии: ${metrics.preservedStructures}%`);
+        console.log(`   📉 Сокращение дубликатов: ${metrics.efficiency}%`);
+        console.log(`   💎 Новая уверенность: ${Math.round(this.stats.confidence * 100)}%`);
+        console.log(`   📈 Улучшение confidence: ${metrics.confidenceImprovement}%`);
+        console.log(`   🎯 Топологический score: ${this.stats.topologyScore.toFixed(3)}`);
+
+        return {
+            success: true,
+            transformation: vectorComparison.transformation,
+            topologyMergeResult: topologyMergeResult,
+            allPoints: this.originalPoints.length,
+            mergedNodes: topologyMergeResult.mergedNodes,
+            confidence: this.stats.confidence,
+            metrics: metrics,
+            stats: {
+                before: {
+                    nodes1: this.graph.nodes.size,
+                    nodes2: otherFootprint.graph.nodes.size
+                },
+                after: {
+                    total: this.graph.nodes.size,
+                    edges: this.graph.edges.size
+                },
+                topology: {
+                    structuralMatches: topologyMergeResult.structuralMatches.length,
+                    similarity: topologyMergeResult.structuralSimilarity,
+                    preservation: metrics.preservedStructures
+                }
+            },
+            method: 'topology_merge'
+        };
+    }
+
+    // 🔴 НОВЫЙ МЕТОД: МЕТРИКИ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ
+    calculateTopologyMergeMetrics(topologyResult, vectorComparison, otherFootprint) {
+        const beforeNodes1 = this.graph.nodes.size;
+        const beforeNodes2 = otherFootprint.graph.nodes.size;
+        const afterNodes = topologyResult.mergedGraph.nodes.size;
+       
+        const beforeEdges1 = this.graph.edges.size;
+        const beforeEdges2 = otherFootprint.graph.edges.size;
+        const afterEdges = topologyResult.mergedGraph.edges.size;
+       
+        const nodeReduction = (beforeNodes1 + beforeNodes2) - afterNodes;
+        const efficiency = beforeNodes1 + beforeNodes2 > 0
+            ? (nodeReduction / (beforeNodes1 + beforeNodes2)) * 100
+            : 0;
+       
+        const edgePreservation = beforeEdges1 + beforeEdges2 > 0
+            ? (afterEdges / (beforeEdges1 + beforeEdges2)) * 100
+            : 100;
+       
+        // Confidence improvement
+        const confidenceBefore = this.stats.confidence;
+        const confidenceAfter = this.stats.confidence; // Уже обновлён
+        const confidenceImprovement = confidenceBefore > 0
+            ? ((confidenceAfter - confidenceBefore) / confidenceBefore) * 100
+            : 0;
+       
+        return {
+            preservedStructures: Math.round(edgePreservation),
+            efficiency: efficiency.toFixed(1),
+            nodeReduction: nodeReduction,
+            edgePreservation: edgePreservation.toFixed(1),
+            confidenceImprovement: confidenceImprovement.toFixed(1),
+            structuralSimilarity: topologyResult.structuralSimilarity.toFixed(3),
+            transformationConfidence: vectorComparison.transformation?.confidence?.toFixed(3) || 'N/A'
+        };
+    }
+
+    // 🔴 НОВЫЙ МЕТОД: ЗАПАСНОЙ ВАРИАНТ С ГЕОМЕТРИЧЕСКИМ СЛИЯНИЕМ
+    fallbackToPointMerge(otherFootprint, vectorComparison) {
+        console.log(`🔄 Использую геометрическое слияние как запасной вариант...`);
+       
+        // Извлечь точки
         const points1 = this.originalPoints;
         const points2 = otherFootprint.originalPoints;
-
-        console.log(`📊 Точки для слияния: ${points1.length} + ${points2.length}`);
-
-        // 4. СОЗДАТЬ POINT MERGER И ВЫПОЛНИТЬ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
+       
+        // Использовать старый PointMerger
         const PointMerger = require('./point-merger');
         const pointMerger = new PointMerger({
             mergeDistance: 40,
-            confidenceBoost: 1.5,
-            minConfidenceForMerge: 0.2
+            confidenceBoost: 1.3
         });
-
+       
         const mergeResult = pointMerger.mergePoints(
             points1,
             points2,
             vectorComparison.transformation
         );
-
-        // 🔴 ПРОВЕРИТЬ РЕЗУЛЬТАТ ПОСЛЕ СЛИЯНИЯ
-        const mergedIssues = ConfidenceValidator.checkForConfidenceIssues(mergeResult.points);
-        if (mergedIssues.length > 0) {
-            console.log('❌ Обнаружены проблемы после слияния:');
-            mergedIssues.forEach(issue => {
-                console.log(`   ${issue.type}: ${issue.message}`);
-            });
-
-            // Автоматически исправить
-            mergeResult.points = ConfidenceValidator.validatePointsArray(mergeResult.points);
-        }
-
-        // 5. Обработать результат слияния через трекер
-        const trackerResult = this.pointTracker.processNewPoints(
-            mergeResult.points.filter(p => p.source === 'footprint2' || p.source === 'merged'),
-            {
-                source: 'intelligent_merge',
-                fromFootprint: otherFootprint.id,
-                transformation: vectorComparison.transformation,
-                mergeStats: mergeResult.stats
-            }
-        );
-
-        // 6. Получить ВСЕ точки (высокодостоверные + новые)
-        const allPoints = this.pointTracker.getAllPoints({
-            minRating: 0.3, // Более низкий порог для получения всех точек
-            minConfirmations: 0
-        });
-
-        // 🔴 ВАЛИДИРОВАТЬ ВСЕ ТОЧКИ
-        const validatedAllPoints = ConfidenceValidator.validatePointsArray(allPoints);
-        console.log(`📈 После слияния: ${validatedAllPoints.length} точек (было ${points1.length})`);
-
-        // 7. Обновить все представления из ОБЪЕДИНЁННЫХ точек
-        this.originalPoints = validatedAllPoints;
-
+       
+        // Обновить оригинальные точки
+        this.originalPoints = ConfidenceValidator.validatePointsArray(mergeResult.points);
+       
         // Пересчитать все представления
-        this.bitmask.createFromPoints(validatedAllPoints);
-        this.moments.calculateFromPoints(validatedAllPoints);
-        this.distanceMatrix.createFromPoints(validatedAllPoints);
-        this.vectorGraph.createFromPoints(validatedAllPoints);
-
-        // Обновить граф
-        const graphPoints = validatedAllPoints.map(pt => ({
-            x: pt.x,
-            y: pt.y,
-            confidence: pt.confidence || pt.rating || 0.5,
-            source: pt.source
-        }));
-        this.graph.buildFromPoints(graphPoints);
-
-        // 8. Обновить метаданные
+        this.bitmask.createFromPoints(this.originalPoints);
+        this.moments.calculateFromPoints(this.originalPoints);
+        this.distanceMatrix.createFromPoints(this.originalPoints);
+        this.vectorGraph.createFromPoints(this.originalPoints);
+       
+        // Перестроить граф
+        this.graph.buildFromPoints(this.originalPoints);
+       
+        // Обновить метаданные
         this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos || 1;
         this.metadata.lastUpdated = new Date();
         this.metadata.transformations.push({
             timestamp: new Date(),
             with: otherFootprint.id,
-            transformation: vectorComparison.transformation || {},
-            mergeStats: mergeResult.stats,
-            trackerResult: trackerResult
+            transformation: vectorComparison.transformation,
+            method: 'geometric_fallback',
+            mergeStats: mergeResult.stats
         });
-
-        // 9. Обновить статистику
+       
+        // Обновить статистику
         this.updateConfidence();
-
-        // ✅ ДОБАВЛЕН РАСЧЕТ МЕТРИК
-        const avgConfidenceBefore = (points1.reduce((s, p) => s + (p.confidence || 0.5), 0) / points1.length +
-                                   points2.reduce((s, p) => s + (p.confidence || 0.5), 0) / points2.length) / 2;
-
-        const avgConfidenceAfter = mergeResult.points.reduce((s, p) => s + (p.confidence || 0.5), 0) / mergeResult.points.length;
-        const confidenceImprovement = ((avgConfidenceAfter - avgConfidenceBefore) / Math.max(0.001, avgConfidenceBefore) * 100).toFixed(1);
-
-        console.log(`✅ Интеллектуальное объединение успешно!`);
-        console.log(`   📍 Уникальных точек: ${mergeResult.stats.uniqueFrom1 + mergeResult.stats.uniqueFrom2}`);
-        console.log(`   🔗 Слитых точек: ${mergeResult.stats.mergedPoints}`);
-        console.log(`   📊 Всего точек: ${validatedAllPoints.length}`);
-        console.log(`   💎 Новая уверенность: ${Math.round(this.stats.confidence * 100)}%`);
-        console.log(`   📈 Улучшение confidence: ${confidenceImprovement}%`);
-        console.log(`   🎯 Эффективность: ${((points1.length + points2.length - mergeResult.points.length) / (points1.length + points2.length) * 100).toFixed(1)}% сокращение`);
-
+       
+        console.log(`✅ Геометрическое слияние успешно (запасной вариант)`);
+        console.log(`   📊 Точки до: ${points1.length + points2.length}, после: ${mergeResult.points.length}`);
+       
         return {
             success: true,
-            transformation: vectorComparison.transformation || {},
+            transformation: vectorComparison.transformation,
             mergeResult: mergeResult,
-            trackerResult: trackerResult,
-            allPoints: validatedAllPoints.length,
+            allPoints: mergeResult.points.length,
             mergedPoints: mergeResult.stats.mergedPoints,
             confidence: this.stats.confidence,
-            // ✅ ДОБАВЛЕНЫ МЕТРИКИ В ВОЗВРАЩАЕМЫЙ ОБЪЕКТ
             metrics: {
-                confidenceImprovement: confidenceImprovement + '%',
-                efficiency: ((points1.length + points2.length - mergeResult.points.length) /
-                           (points1.length + points2.length) * 100).toFixed(1) + '% сокращение',
-                avgConfidenceBefore: avgConfidenceBefore.toFixed(3),
-                avgConfidenceAfter: avgConfidenceAfter.toFixed(3),
-                pointReduction: mergeResult.points.length - (points1.length + points2.length)
+                efficiency: mergeResult.stats.efficiency,
+                confidenceImprovement: 'N/A',
+                method: 'geometric_fallback'
             },
-            stats: {
-                before: { points1: points1.length, points2: points2.length },
-                after: { total: validatedAllPoints.length, merged: mergeResult.stats.mergedPoints },
-                efficiency: `${((points1.length + points2.length - mergeResult.points.length) / (points1.length + points2.length) * 100).toFixed(1)}% сокращение дубликатов`
-            }
+            method: 'geometric_fallback'
         };
     }
 
@@ -701,12 +988,14 @@ class HybridFootprint {
             stats: {
                 ...this.stats,
                 confidence: Math.round(this.stats.confidence * 1000) / 1000,
-                qualityScore: Math.round(this.stats.qualityScore * 100)
+                qualityScore: Math.round(this.stats.qualityScore * 100),
+                topologyScore: Math.round(this.stats.topologyScore * 1000) / 1000
             },
             metadata: {
                 ...this.metadata,
                 created: this.metadata.created.toLocaleString('ru-RU'),
-                lastUpdated: this.metadata.lastUpdated.toLocaleString('ru-RU')
+                lastUpdated: this.metadata.lastUpdated.toLocaleString('ru-RU'),
+                topologyMerges: this.metadata.topologyMerges || 0
             },
             representations: {
                 bitmask: `0x${this.bitmask.bitmask.toString(16).slice(0, 8)}...`,
@@ -716,7 +1005,8 @@ class HybridFootprint {
                 matrixSize: this.getMatrixSizeString(),
                 vectorCount: this.getVectorCount(),
                 trackerPoints: trackerStats.totalPoints,
-                trackerConfidence: trackerStats.confidence
+                trackerConfidence: trackerStats.confidence,
+                topologyScore: Math.round(this.stats.topologyScore * 100) + '%'
             }
         };
     }
@@ -726,8 +1016,10 @@ class HybridFootprint {
         console.log(`\n🎭 ГИБРИДНЫЙ ОТПЕЧАТОК "${this.name}":`);
         console.log(`├─ ID: ${this.id}`);
         console.log(`├─ Уверенность: ${Math.round(this.stats.confidence * 100)}%`);
+        console.log(`├─ Топологический score: ${Math.round(this.stats.topologyScore * 100)}%`);
         console.log(`├─ Качество: ${Math.round(this.stats.qualityScore * 100)}%`);
         console.log(`├─ Фото: ${this.metadata.totalPhotos}`);
+        console.log(`├─ Топологических слияний: ${this.metadata.topologyMerges || 0}`);
         console.log(`└─ Создан: ${this.metadata.created.toLocaleString('ru-RU')}`);
 
         console.log(`\n🎭 ПРЕДСТАВЛЕНИЯ:`);
@@ -746,8 +1038,24 @@ class HybridFootprint {
         console.log(`\n├─ Трекер точек:`);
         this.pointTracker.visualize();
 
-        console.log(`\n└─ Граф:`);
+        console.log(`\n├─ Граф:`);
         this.graph.visualize();
+       
+        console.log(`\n└─ Топология:`);
+        this.visualizeTopology();
+    }
+
+    // 🔴 НОВЫЙ МЕТОД: ВИЗУАЛИЗАЦИЯ ТОПОЛОГИИ
+    visualizeTopology() {
+        const invariants = this.graph.getBasicInvariants();
+        const uniformity = this.calculateNodeUniformity();
+       
+        console.log(`   ├─ Узлов: ${invariants.nodeCount}`);
+        console.log(`   ├─ Рёбер: ${invariants.edgeCount}`);
+        console.log(`   ├─ Средняя степень: ${invariants.avgDegree?.toFixed(2) || 'N/A'}`);
+        console.log(`   ├─ Коэффициент кластеризации: ${invariants.clusteringCoefficient?.toFixed(3) || 'N/A'}`);
+        console.log(`   ├─ Равномерность распределения: ${Math.round(uniformity * 100)}%`);
+        console.log(`   └─ Топологический score: ${Math.round(this.stats.topologyScore * 100)}%`);
     }
 
     // 10. СОХРАНИТЬ В JSON
@@ -769,7 +1077,8 @@ class HybridFootprint {
                 lastUpdated: this.metadata.lastUpdated.toISOString()
             },
             stats: this.stats,
-            _version: '2.0',
+            _version: '2.1', // 🔴 ОБНОВЛЕНА ВЕРСИЯ
+            _topologyEnabled: true, // 🔴 НОВЫЙ ФЛАГ
             _savedAt: new Date().toISOString()
         };
     }
@@ -796,16 +1105,21 @@ class HybridFootprint {
         if (data.stats) {
             // 🔴 ОГРАНИЧИТЬ CONFIDENCE ПРИ ЗАГРУЗКЕ
             footprint.stats.confidence = Math.max(0.0, Math.min(1.0, data.stats.confidence || 0.5));
+            // 🔴 ВОССТАНОВИТЬ ТОПОЛОГИЧЕСКИЙ SCORE
+            footprint.stats.topologyScore = data.stats.topologyScore || footprint.calculateTopologyScore();
         }
 
         console.log(`✅ Загружен гибридный отпечаток "${footprint.name}" версии ${data._version || '1.0'}`);
+        if (data._topologyEnabled) {
+            console.log(`   🏗️ Топологический режим: ВКЛЮЧЕН`);
+        }
 
         return footprint;
     }
 
     // 12. ТЕСТ: СОЗДАТЬ И СРАВНИТЬ ДВА ОТПЕЧАТКА
     static testComparison() {
-        console.log('\n🧪 ТЕСТ ГИБРИДНОЙ СИСТЕМЫ:');
+        console.log('\n🧪 ТЕСТ ГИБРИДНОЙ СИСТЕМЫ С ТОПОЛОГИЕЙ:');
 
         // Создать два похожих отпечатка
         const points1 = [];
@@ -849,14 +1163,16 @@ class HybridFootprint {
             });
         }
 
-        // Тест объединения с трансформацией
-        console.log('\n🔄 ТЕСТ ОБЪЕДИНЕНИЯ С ТРАНСФОРМАЦИЕЙ:');
+        // Тест топологического объединения
+        console.log('\n🏗️ ТЕСТ ТОПОЛОГИЧЕСКОГО ОБЪЕДИНЕНИЯ:');
         const mergeResult = footprint1.mergeWithTransformation(footprint2);
         console.log(`✅ Успех: ${mergeResult.success}`);
         if (mergeResult.success) {
-            console.log(`   📍 Всего точек: ${mergeResult.allPoints}`);
-            console.log(`   🔗 Слито точек: ${mergeResult.mergedPoints}`);
+            console.log(`   🏗️ Метод: ${mergeResult.method}`);
+            console.log(`   📊 Всего точек: ${mergeResult.allPoints}`);
+            console.log(`   🔗 Слито узлов: ${mergeResult.mergedNodes}`);
             console.log(`   💎 Уверенность: ${Math.round(mergeResult.confidence * 100)}%`);
+            console.log(`   🎯 Топологический score: ${footprint1.stats.topologyScore.toFixed(3)}`);
         }
 
         return result;
