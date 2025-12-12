@@ -635,36 +635,41 @@ class TopologyMerger {
         // Простая эвристика: если узлы были слиты, сохранить связи
         // В реальной реализации нужен более сложный алгоритм
 
-        let edgeId = 0;
+        console.log(`🔗 Реконструкция рёбер для ${nodes.length} узлов...`);
+    console.log(`   Оригинальные рёбра: graph1=${originalGraph1.edges.size}, graph2=${originalGraph2.edges.size}`);
+   
+    let edgeId = 0;
+    let edgesCreated = 0;
 
-        // Для каждой пары узлов проверить, нужно ли создать ребро
-        for (let i = 0; i < nodes.length; i++) {
-            for (let j = i + 1; j < nodes.length; j++) {
-                const node1 = nodes[i];
-                const node2 = nodes[j];
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+            const node1 = nodes[i];
+            const node2 = nodes[j];
 
-                // Проверить расстояние
-                const dx = node2.x - node1.x;
-                const dy = node2.y - node1.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+            const dx = node2.x - node1.x;
+            const dy = node2.y - node1.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
 
-                // Если узлы близко и у них разный источник, возможно, стоит соединить
-                if (distance < this.config.maxMergeDistance * 1.5) {
-                    const edgeWeight = this.calculateEdgeWeight(node1, node2, distance);
+            if (distance < this.config.maxMergeDistance * 1.5) {
+                const edgeWeight = this.calculateEdgeWeight(node1, node2, distance);
 
-                    if (edgeWeight > 0.3) {
-                        const edgeIdStr = `edge_${edgeId++}`;
-                        edgesMap.set(edgeIdStr, {
-                            from: `node_${i}`,
-                            to: `node_${j}`,
-                            weight: edgeWeight,
-                            distance: distance
-                        });
-                    }
+                if (edgeWeight > 0.3) {
+                    const edgeIdStr = `edge_${edgeId++}`;
+                    edgesMap.set(edgeIdStr, {
+                        from: `node_${i}`,
+                        to: `node_${j}`,
+                        weight: edgeWeight,
+                        distance: distance
+                    });
+                    edgesCreated++;
                 }
             }
         }
     }
+   
+    console.log(`   Создано новых рёбер: ${edgesCreated}`);
+    console.log(`   В edgesMap: ${edgesMap.size} рёбер`);
+}
 
     // 18. РАСЧЁТ ВЕСА РЁБРА
     calculateEdgeWeight(node1, node2, distance) {
