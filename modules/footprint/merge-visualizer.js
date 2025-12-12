@@ -284,7 +284,136 @@ class MergeVisualizer {
         }
     }
 
-    // 🔴 4. ВЕКТОРНОЕ СРАВНЕНИЕ С КОНВЕРТАЦИЕЙ ИНДЕКСОВ В ТОЧКИ
+    // 🔴 НОВЫЙ МЕТОД: ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ
+    async visualizeSuperModel(superModel, originalFootprints = [], outputPath = null) {
+        console.log('🎨 Создаю визуализацию СУПЕР-МОДЕЛИ...');
+
+        try {
+            const canvas = createCanvas(1200, 800);
+            const ctx = canvas.getContext('2d');
+
+            // Фон
+            this.drawBackground(ctx, canvas.width, canvas.height);
+
+            // Заголовок
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 36px Arial';
+            ctx.fillText('🌟 СУПЕР-МОДЕЛЬ СОЗДАНА!', 50, 60);
+
+            // Извлечь точки
+            const superPoints = this.extractPoints(superModel);
+            const originalPoints = originalFootprints.map(fp => this.extractPoints(fp));
+
+            // Статистика
+            const totalBefore = originalPoints.reduce((sum, pts) => sum + pts.length, 0);
+            const reduction = totalBefore - superPoints.length;
+            const efficiency = (reduction / totalBefore * 100).toFixed(1);
+
+            // Информация о супер-модели
+            ctx.font = '18px Arial';
+            ctx.fillStyle = '#4caf50';
+            ctx.fillText(`📊 ДО: ${totalBefore} точек`, 50, 100);
+            ctx.fillText(`🎯 ПОСЛЕ: ${superPoints.length} точек (${efficiency}% эффективность)`, 50, 130);
+            ctx.fillText(`🔗 Слито совпадений: ${superPoints.filter(p => p.source === 'merged').length}`, 50, 160);
+
+            // Область визуализации
+            const vizArea = { x: 50, y: 200, width: 1100, height: 550 };
+            this.drawVisualizationArea(ctx, vizArea);
+
+            // Нормализация
+            const { scale, offsetX, offsetY } = this.normalizePoints(superPoints, vizArea);
+
+            // Нарисовать супер-модель
+            superPoints.forEach(point => {
+                const x = offsetX + point.x * scale;
+                const y = offsetY + point.y * scale;
+
+                let color, size;
+
+                switch (point.source) {
+                    case 'merged':
+                        color = 'rgba(156, 39, 176, 0.9)'; // Фиолетовый - слитые
+                        size = 8;
+                        break;
+                    case 'footprint1':
+                        color = 'rgba(50, 100, 255, 0.7)'; // Синий - из 1
+                        size = 6;
+                        break;
+                    case 'footprint2':
+                        color = 'rgba(255, 50, 50, 0.7)'; // Красный - из 2
+                        size = 6;
+                        break;
+                    default:
+                        color = 'rgba(200, 200, 200, 0.7)';
+                        size = 6;
+                }
+
+                // Точка
+                this.drawPoint(ctx, x, y, color, size);
+
+                // Если точка слитая с высоким confidence
+                if (point.source === 'merged' && point.confidence > 0.7) {
+                    ctx.fillStyle = '#ffeb3b';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('★', x, y - 15);
+                }
+            });
+
+            // Легенда
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText('📋 ЛЕГЕНДА СУПЕР-МОДЕЛИ:', 50, 780);
+
+            const legendItems = [
+                { color: 'rgba(156, 39, 176, 0.9)', text: '🟣 Слитые точки' },
+                { color: 'rgba(50, 100, 255, 0.7)', text: '🔵 Уникальные из 1' },
+                { color: 'rgba(255, 50, 50, 0.7)', text: '🔴 Уникальные из 2' },
+                { color: '#ffeb3b', text: '⭐ Высокая уверенность (★)' }
+            ];
+
+            legendItems.forEach((item, i) => {
+                ctx.fillStyle = item.color;
+                ctx.fillRect(250 + i * 250, 760, 20, 20);
+
+                ctx.fillStyle = '#cccccc';
+                ctx.font = '16px Arial';
+                ctx.fillText(item.text, 275 + i * 250, 775);
+            });
+
+            // Сохранение
+            if (outputPath) {
+                const dir = path.dirname(outputPath);
+                if (!fs.existsSync(dir)) {
+                    fs.mkdirSync(dir, { recursive: true });
+                }
+
+                const buffer = canvas.toBuffer('image/png');
+                fs.writeFileSync(outputPath, buffer);
+                console.log(`✅ Визуализация супер-модели сохранена: ${outputPath}`);
+            }
+
+            return {
+                canvas,
+                buffer: canvas.toBuffer('image/png'),
+                stats: {
+                    before: totalBefore,
+                    after: superPoints.length,
+                    efficiency: efficiency + '%',
+                    mergedPoints: superPoints.filter(p => p.source === 'merged').length,
+                    uniquePoints1: superPoints.filter(p => p.source === 'footprint1').length,
+                    uniquePoints2: superPoints.filter(p => p.source === 'footprint2').length,
+                    avgConfidence: (superPoints.reduce((s, p) => s + (p.confidence || 0.5), 0) / superPoints.length).toFixed(3)
+                }
+            };
+
+        } catch (error) {
+            console.log(`❌ Ошибка визуализации супер-модели: ${error.message}`);
+            throw error;
+        }
+    }
+
+    // 4. ВЕКТОРНОЕ СРАВНЕНИЕ С КОНВЕРТАЦИЕЙ ИНДЕКСОВ В ТОЧКИ
     compareWithVectorGraphs(points1, points2) {
         if (points1.length < 4 || points2.length < 4) {
             return { transformation: null, pointMatches: [], similarity: 0 };
