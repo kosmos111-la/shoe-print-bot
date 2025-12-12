@@ -561,7 +561,6 @@ mergedNodes.forEach((node, oldId) => {
 });
 
 console.log(`✅ Добавлено узлов: ${mergedGraph.nodes.size}`);
-console.log(`🔍 Первые 5 ID узлов: ${Array.from(mergedGraph.nodes.keys()).slice(0, 5).join(', ')}`);
 
 // 5.2 ДОБАВИТЬ РЁБРА С ПРАВИЛЬНЫМИ ССЫЛКАМИ
 let edgesAdded = 0;
@@ -604,28 +603,6 @@ mergedEdges.forEach((edge, edgeId) => {
 
 console.log(`🔗 Добавлено рёбер: ${edgesAdded} (ошибок: ${edgesFailed})`);
 console.log(`📊 Итог графа: ${mergedGraph.nodes.size} узлов, ${mergedGraph.edges.size} рёбер`);
-
-// 🔴 ПРОВЕРКА И ОТЛАДКА
-if (mergedGraph.edges.size === 0 && edgesAdded > 0) {
-    console.log(`🚨 ПРОБЛЕМА: Рёбра не отображаются в графе!`);
-    console.log(`   Вызовов addEdge успешных: ${edgesAdded}`);
-    console.log(`   Но в графе: ${mergedGraph.edges.size} рёбер`);
-   
-    // Проверить метод addEdge напрямую
-    console.log(`   🔍 ТЕСТ: проверяю метод addEdge...`);
-    const nodeIds = Array.from(mergedGraph.nodes.keys());
-    if (nodeIds.length >= 2) {
-        console.log(`   Тестовые узлы: ${nodeIds[0]}, ${nodeIds[1]}`);
-       
-        // Попробовать добавить тестовое ребро
-        const testSuccess = mergedGraph.addEdge(nodeIds[0], nodeIds[1]);
-        console.log(`   Результат testSuccess: ${testSuccess}`);
-        console.log(`   Рёбер после теста: ${mergedGraph.edges.size}`);
-       
-        // Проверить содержимое edges
-        console.log(`   Ключи в edges: ${Array.from(mergedGraph.edges.keys()).slice(0, 3).join(', ')}`);
-    }
-}
 
 return {
     mergedGraph: mergedGraph,
