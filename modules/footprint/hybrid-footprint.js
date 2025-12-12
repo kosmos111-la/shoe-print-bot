@@ -860,7 +860,7 @@ class HybridFootprint {
 
         const edgePreservation = beforeEdges1 + beforeEdges2 > 0
             ? (afterEdges / (beforeEdges1 + beforeEdges2)) * 100
-            : 0; // 🔴 ИЗМЕНИЛ 100 на 0
+            : 100; 
 
         // Confidence improvement
         const confidenceBefore = this.stats.confidence;
