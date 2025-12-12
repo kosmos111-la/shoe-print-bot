@@ -9,6 +9,7 @@ const HybridFootprint = require('./hybrid-footprint');
 const MergeVisualizer = require('./merge-visualizer');
 const TopologyMerger = require('./topology-merger'); // 🔴 НОВЫЙ ИМПОРТ
 const StructuralSuperModel = require('./structural-super-model'); // 🔴 ДОБАВЛЕНО
+const TopologyIntegration = require('./topology-integration'); // 🔴 ДОБАВИТЬ
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -44,6 +45,13 @@ class SimpleFootprintManager {
 
         // 🔴 ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАТОРА ОБЪЕДИНЕНИЙ
         this.mergeVisualizer = new MergeVisualizer();
+
+        // После инициализации matcher:
+        this.topologyIntegration = new TopologyIntegration({
+            enableValidation: true,
+            enableVisualization: true,
+            debug: this.config.debug
+        });
 
         // Хранилища
         this.userSessions = new Map();      // userId -> session
@@ -728,7 +736,7 @@ class SimpleFootprintManager {
         try {
             console.log('🏗️ Создаю ТОПОЛОГИЧЕСКУЮ СУПЕР-МОДЕЛЬ...');
 
-            // Получить все модели пользователя
+            // Получить все модел
             const userModels = this.getUserModels(userId);
             if (userModels.length < 3) {
                 console.log('⚠️ Недостаточно моделей для топологической супер-модели (минимум 3)');
