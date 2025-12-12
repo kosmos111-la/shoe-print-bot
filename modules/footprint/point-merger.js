@@ -1,6 +1,10 @@
 // modules/footprint/point-merger.js
 // АЛГОРИТМ ИНТЕЛЛЕКТУАЛЬНОГО СЛИЯНИЯ ТОЧЕК
 
+const path = require('path');
+const fs = require('fs');
+const { createCanvas } = require('canvas');
+
 class PointMerger {
     constructor(options = {}) {
         this.config = {
@@ -19,7 +23,7 @@ class PointMerger {
         const y1 = point1.y || 0;
         const x2 = point2.x || 0;
         const y2 = point2.y || 0;
-       
+
         // Рассчитать расстояние
         const dx = x2 - x1;
         const dy = y2 - y1;
@@ -32,7 +36,7 @@ class PointMerger {
 
         // 🔴 РАСЧЕТ SIMILARITY SCORE (0.0-1.0)
         const similarityScore = Math.max(0, 1 - (distance / this.config.mergeDistance));
-       
+
         // 🔴 ИСПРАВЛЕНИЕ: Проверка минимального сходства
         if (similarityScore === 0.000 || similarityScore < 0.1) {
             // Слишком разные точки, не сливаем
@@ -97,37 +101,31 @@ class PointMerger {
         const matches = this.findPointMatches(normalizedPoints1, transformedPoints2);
 
         // Выполнить слияние (ИСПРАВЛЕННЫЙ МЕТОД)
-        const mergedPoints = this.performMergeWithSources(normalizedPoints1, transformedPoints2, matches);
+        const mergeResult = this.performMergeWithSources(normalizedPoints1, transformedPoints2, matches, transformation);
+       
+        const allPoints = mergeResult.points;
+        const stats = mergeResult.stats;
 
-        console.log(`✅ Результат слияния: ${mergedPoints.length} точек`);
+        console.log(`✅ Результат слияния: ${allPoints.length} точек`);
         console.log(`   📊 Совпадений: ${matches.length}`);
-        console.log(`   📈 Эффективность: ${((points1.length + points2.length - mergedPoints.length) / (points1.length + points2.length) * 100).toFixed(1)}% сокращение`);
+        console.log(`   📈 Эффективность: ${stats.efficiency}`);
 
         // 🔴 ПРОВЕРИТЬ CONFIDENCE В РЕЗУЛЬТАТЕ
-        const confidenceIssues = this.checkConfidenceIssues(mergedPoints);
+        const confidenceIssues = this.checkConfidenceIssues(allPoints);
         if (confidenceIssues.length > 0) {
             console.log(`⚠️  Обнаружены проблемы с confidence:`, confidenceIssues);
             // Исправить автоматически
-            mergedPoints.forEach((point, i) => {
+            allPoints.forEach((point, i) => {
                 if (point.confidence > 1.0 || point.confidence < 0) {
-                    mergedPoints[i].confidence = Math.max(0.0, Math.min(1.0, point.confidence));
+                    allPoints[i].confidence = Math.max(0.0, Math.min(1.0, point.confidence));
                 }
             });
         }
 
         return {
-            points: mergedPoints,
+            points: allPoints,
             matches: matches,
-            stats: {
-                originalCount1: points1.length,
-                originalCount2: points2.length,
-                mergedCount: mergedPoints.length,
-                matchesCount: matches.length,
-                uniqueFrom1: mergedPoints.filter(p => p.source === 'footprint1').length,
-                uniqueFrom2: mergedPoints.filter(p => p.source === 'footprint2').length,
-                mergedPoints: mergedPoints.filter(p => p.source === 'merged').length,
-                transformationApplied: !!transformation
-            }
+            stats: stats
         };
     }
 
@@ -136,11 +134,11 @@ class PointMerger {
         return points.map((point, index) => {
             // Убедиться, что есть source
             const source = point.source || defaultSource || 'unknown';
-           
+
             // Нормализовать confidence
             let confidence = point.confidence || 0.5;
             confidence = Math.max(0.0, Math.min(1.0, confidence));
-           
+
             // Создать уникальный ID если нет
             const id = point.id || `${defaultSource}_${index}_${Date.now()}`;
 
@@ -224,7 +222,7 @@ class PointMerger {
                 // 🔴 ИСПРАВЛЕНИЕ: Только если confidence достаточно высок
                 const conf1 = p1.confidence || 0.5;
                 const conf2 = p2.confidence || 0.5;
-               
+
                 if (distance < this.config.mergeDistance &&
                     distance < bestDistance &&
                     conf1 >= this.config.minConfidenceForMerge &&
@@ -239,7 +237,7 @@ class PointMerger {
             if (bestMatch && bestDistance < this.config.mergeDistance) {
                 // 🔴 РАСЧЕТ SCORE С УЧЕТОТОМ СХОДСТВА
                 const similarityScore = Math.max(0, 1 - (bestDistance / this.config.mergeDistance));
-               
+
                 matches.push({
                     index1: i,
                     index2: bestIndex,
@@ -256,8 +254,8 @@ class PointMerger {
         return matches;
     }
 
-    // 6. ВЫПОЛНИТЬ СЛИЯНИЕ С СОХРАНЕНИЕМ SOURCE
-    performMergeWithSources(points1, points2, matches) {
+    // 6. ВЫПОЛНИТЬ СЛИЯНИЕ С СОХРАНЕНИЕМ SOURCE И УНИКАЛЬНЫХ ТОЧЕК
+    performMergeWithSources(points1, points2, matches, transformation = null) {
         const mergedPoints = [];
         const usedIndices1 = new Set();
         const usedIndices2 = new Set();
@@ -269,7 +267,7 @@ class PointMerger {
 
             // Использовать исправленный метод mergeTwoPoints
             const mergedPoint = this.mergeTwoPoints(p1, p2);
-           
+
             if (mergedPoint) {
                 mergedPoints.push(mergedPoint);
                 usedIndices1.add(match.index1);
@@ -290,7 +288,7 @@ class PointMerger {
                     });
                     usedIndices1.add(match.index1);
                 }
-               
+
                 if (!usedIndices2.has(match.index2)) {
                     mergedPoints.push({
                         ...p2,
@@ -308,42 +306,71 @@ class PointMerger {
             }
         });
 
-        // 2. ДОБАВИТЬ УНИКАЛЬНЫЕ ТОЧКИ ИЗ ПЕРВОГО НАБОРА
-        points1.forEach((p, i) => {
-            if (!usedIndices1.has(i)) {
-                mergedPoints.push({
-                    ...p,
-                    source: p.source || 'footprint1',
-                    confidence: Math.max(0.0, Math.min(1.0, p.confidence || 0.5)),
+        // 🔴 ДОБАВЛЕНО: Добавление уникальных точек
+        const uniqueFrom1 = [];
+        const uniqueFrom2 = [];
+
+        // 1. Найти уникальные точки из первого набора
+        points1.forEach((point, index) => {
+            if (!usedIndices1.has(index)) {
+                uniqueFrom1.push({
+                    ...point,
+                    source: 'footprint1',
+                    confidence: Math.max(0.0, Math.min(1.0, point.confidence || 0.5)),
                     metadata: {
-                        ...p.metadata,
+                        ...point.metadata,
                         fromFootprint1: true,
                         fromFootprint2: false,
-                        mergeAttempted: false
+                        uniquePoint: true
                     }
                 });
             }
         });
 
-        // 3. ДОБАВИТЬ УНИКАЛЬНЫЕ ТОЧКИ ИЗ ВТОРОГО НАБОРА
-        points2.forEach((p, i) => {
-            if (!usedIndices2.has(i)) {
-                mergedPoints.push({
-                    ...p,
-                    source: p.source || 'footprint2',
-                    confidence: Math.max(0.0, Math.min(1.0, p.confidence || 0.5)),
+        // 2. Найти уникальные точки из второго набора
+        points2.forEach((point, index) => {
+            if (!usedIndices2.has(index)) {
+                uniqueFrom2.push({
+                    ...point,
+                    source: 'footprint2',
+                    confidence: Math.max(0.0, Math.min(1.0, point.confidence || 0.5)),
                     metadata: {
-                        ...p.metadata,
+                        ...point.metadata,
                         fromFootprint1: false,
                         fromFootprint2: true,
-                        mergeAttempted: false
+                        uniquePoint: true
                     }
                 });
             }
         });
 
-        // 4. УДАЛИТЬ ДУБЛИКАТЫ
-        return this.removeDuplicates(mergedPoints);
+        // 3. Объединить все точки: слитые + уникальные
+        const allPoints = [
+            ...mergedPoints,
+            ...uniqueFrom1,
+            ...uniqueFrom2
+        ];
+
+        // 4. Обновить статистику
+        const stats = {
+            originalCount1: points1.length,
+            originalCount2: points2.length,
+            mergedCount: mergedPoints.length,
+            matchesCount: matches.length,
+            uniqueFrom1: uniqueFrom1.length,
+            uniqueFrom2: uniqueFrom2.length,
+            mergedPoints: mergedPoints.filter(p => p.source === 'merged').length,
+            totalPointsAfter: allPoints.length,
+            transformationApplied: !!transformation,
+            efficiency: ((points1.length + points2.length - allPoints.length) /
+                        (points1.length + points2.length) * 100).toFixed(1) + '%'
+        };
+
+        return {
+            points: allPoints,
+            matches: matches,
+            stats: stats
+        };
     }
 
     // 7. РАССЧИТАТЬ SCORE СЛИЯНИЯ
@@ -382,10 +409,10 @@ class PointMerger {
     // 9. ПРОВЕРИТЬ ПРОБЛЕМЫ С CONFIDENCE
     checkConfidenceIssues(points) {
         const issues = [];
-       
+
         points.forEach((point, index) => {
             const confidence = point.confidence || 0.5;
-           
+
             if (confidence < 0.0) {
                 issues.push({
                     index,
@@ -394,7 +421,7 @@ class PointMerger {
                     message: `Confidence меньше 0.0: ${confidence}`
                 });
             }
-           
+
             if (confidence > 1.0) {
                 issues.push({
                     index,
@@ -403,7 +430,7 @@ class PointMerger {
                     message: `Confidence больше 1.0: ${confidence}`
                 });
             }
-           
+
             if (!point.source) {
                 issues.push({
                     index,
@@ -412,7 +439,7 @@ class PointMerger {
                 });
             }
         });
-       
+
         return issues;
     }
 
@@ -422,11 +449,11 @@ class PointMerger {
         const avgConfidence1 = original1.length > 0
             ? original1.reduce((sum, p) => sum + Math.max(0.0, Math.min(1.0, p.confidence || 0.5)), 0) / original1.length
             : 0.5;
-           
+
         const avgConfidence2 = original2.length > 0
             ? original2.reduce((sum, p) => sum + Math.max(0.0, Math.min(1.0, p.confidence || 0.5)), 0) / original2.length
             : 0.5;
-           
+
         const avgConfidenceAfter = merged.length > 0
             ? merged.reduce((sum, p) => sum + Math.max(0.0, Math.min(1.0, p.confidence || 0.5)), 0) / merged.length
             : 0.5;
