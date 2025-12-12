@@ -1,12 +1,49 @@
-// modules/footprint/merge-visualizer.js - ПОЛНОСТЬЮ ИСПРАВЛЕННЫЙ С ИНТЕЛЛЕКТУАЛЬНЫМ СЛИЯНИЕМ
+// modules/footprint/merge-visualizer.js
 const { createCanvas } = require('canvas');
 const fs = require('fs');
 const path = require('path');
 const VectorGraph = require('./vector-graph');
+const TopologyVisualizer = require('./topology-visualizer'); // 🔴 ДОБАВЛЕНО
 
 class MergeVisualizer {
     constructor() {
         console.log('🎨 Создан ВЕКТОРНЫЙ визуализатор объединений');
+        this.topologyVisualizer = new TopologyVisualizer(); // 🔴 ДОБАВЛЕНО
+    }
+
+    // 🔴 НОВЫЙ МЕТОД ДЛЯ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ:
+    async visualizeTopologyMerge(footprint1, footprint2, comparisonResult, options = {}) {
+        console.log('🏗️ Использую топологический визуализатор...');
+        return this.topologyVisualizer.visualizeTopologyMerge(
+            footprint1,
+            footprint2,
+            comparisonResult,
+            options
+        );
+    }
+
+    // 🔴 ОБНОВЛЕННЫЙ МЕТОД visualizeIntelligentMerge:
+    async visualizeIntelligentMerge(footprint1, footprint2, comparisonResult, options = {}) {
+        // Проверить, нужно ли использовать топологическую визуализацию
+        if (options.showTopology &&
+            footprint1.hybridFootprint &&
+            footprint2.hybridFootprint &&
+            comparisonResult.details?.topology) {
+
+            console.log('🏗️ Использую топологическую визуализацию для интеллектуального слияния');
+            return this.visualizeTopologyMerge(footprint1, footprint2, comparisonResult, {
+                ...options,
+                title: 'ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ ОТПЕЧАТКОВ'
+            });
+        }
+
+        // Сохранить ссылку на оригинальный метод для вызова
+        if (!this.originalVisualizeIntelligentMerge) {
+            this.originalVisualizeIntelligentMerge = this._originalVisualizeIntelligentMerge.bind(this);
+        }
+
+        // Иначе использовать старую интеллектуальную визуализацию
+        return this._originalVisualizeIntelligentMerge(footprint1, footprint2, comparisonResult, options);
     }
 
     // 1. СОВМЕСТИМЫЙ МЕТОД
@@ -170,8 +207,8 @@ class MergeVisualizer {
         }
     }
 
-    // 3. ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ - НОВЫЙ МЕТОД
-    async visualizeIntelligentMerge(footprint1, footprint2, comparisonResult, options = {}) {
+    // 3. ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ - ОРИГИНАЛЬНЫЙ МЕТОД (переименован)
+    async _originalVisualizeIntelligentMerge(footprint1, footprint2, comparisonResult, options = {}) {
         console.log('🎨 Создаю визуализацию ИНТЕЛЛЕКТУАЛЬНОГО слияния...');
 
         try {
@@ -1140,7 +1177,7 @@ class MergeVisualizer {
 
     // 🔴 24. ЛЕГЕНДА (ИСПРАВЛЕННАЯ)
     drawLegend(ctx, count1, count2, matchesCount) {
-        let startY = 700; // let вместо const!
+        let startY = 700;
 
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 18px Arial';
@@ -1166,7 +1203,7 @@ class MergeVisualizer {
             x += 180;
             if (index === 2) {
                 x = 200;
-                startY += 25; // 🔴 ТЕПЕРЬ МОЖНО ИЗМЕНЯТЬ
+                startY += 25;
             }
         });
     }
