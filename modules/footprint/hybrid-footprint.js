@@ -172,22 +172,22 @@ class HybridFootprint {
     // 🔴 НОВЫЙ МЕТОД: РАСЧЁТ ТОПОЛОГИЧЕСКОЙ ОЦЕНКИ
     calculateTopologyScore() {
         const invariants = this.graph.getBasicInvariants();
-       
+
         // Факторы топологического качества:
         // 1. Связность графа
         const connectivity = Math.min(1.0, (invariants.edgeCount || 0) / Math.max(1, invariants.nodeCount * 2));
-       
+
         // 2. Коэффициент кластеризации
         const clustering = Math.min(1.0, invariants.clusteringCoefficient || 0);
-       
+
         // 3. Равномерность распределения узлов
         const uniformity = this.calculateNodeUniformity();
-       
+
         // 4. Сохранение структуры после слияний
         const structurePreservation = this.metadata.topologyMerges > 0
             ? Math.min(1.0, 0.7 + (this.metadata.topologyMerges * 0.1))
             : 0.8;
-       
+
         // Комбинированный score
         return (connectivity * 0.3 + clustering * 0.3 + uniformity * 0.2 + structurePreservation * 0.2);
     }
@@ -196,27 +196,27 @@ class HybridFootprint {
     calculateNodeUniformity() {
         const nodes = Array.from(this.graph.nodes.values());
         if (nodes.length < 4) return 0.5;
-       
+
         // Разбить на квадранты и посчитать распределение
         const bounds = this.calculateNodeBounds();
         const width = bounds.maxX - bounds.minX;
         const height = bounds.maxY - bounds.minY;
-       
+
         if (width === 0 || height === 0) return 0.5;
-       
+
         // Разделить на 4 квадранта
         const midX = bounds.minX + width / 2;
         const midY = bounds.minY + height / 2;
-       
+
         const quadrants = [0, 0, 0, 0];
-       
+
         nodes.forEach(node => {
             if (node.x < midX && node.y < midY) quadrants[0]++;
             else if (node.x >= midX && node.y < midY) quadrants[1]++;
             else if (node.x < midX && node.y >= midY) quadrants[2]++;
             else quadrants[3]++;
         });
-       
+
         // Рассчитать равномерность
         const avg = nodes.length / 4;
         let variance = 0;
@@ -224,11 +224,11 @@ class HybridFootprint {
             variance += Math.pow(count - avg, 2);
         });
         variance /= 4;
-       
+
         // Нормализовать к [0, 1], где 1 - идеально равномерно
         const maxVariance = Math.pow(nodes.length, 2) / 4;
         const uniformity = 1 - (variance / maxVariance);
-       
+
         return Math.max(0, Math.min(1, uniformity));
     }
 
@@ -238,17 +238,17 @@ class HybridFootprint {
         if (nodes.length === 0) {
             return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
         }
-       
+
         let minX = Infinity, maxX = -Infinity;
         let minY = Infinity, maxY = -Infinity;
-       
+
         nodes.forEach(node => {
             minX = Math.min(minX, node.x);
             maxX = Math.max(maxX, node.x);
             minY = Math.min(minY, node.y);
             maxY = Math.max(maxY, node.y);
         });
-       
+
         return { minX, maxX, minY, maxY };
     }
 
@@ -262,7 +262,7 @@ class HybridFootprint {
         // 🔴 ВАЛИДИРОВАТЬ ТОЧКИ ПЕРЕД СРАВНЕНИЕМ
         const validatedPoints1 = ConfidenceValidator.validatePointsArray(this.originalPoints);
         const validatedPoints2 = ConfidenceValidator.validatePointsArray(otherFootprint.originalPoints);
-      
+
         // Использовать валидированные точки
         const points1 = validatedPoints1;
         const points2 = validatedPoints2;
@@ -498,40 +498,40 @@ class HybridFootprint {
     // 🔴 НОВЫЙ МЕТОД: ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ ГРАФОВ
     compareTopology(otherGraph) {
         console.log('🏗️ Выполняю топологическое сравнение графов...');
-       
+
         try {
             // Создать TopologyMerger для сравнения
             const topologyMerger = new TopologyMerger({
                 structuralSimilarityThreshold: 0.6,
                 preserveTopology: true
             });
-           
+
             // Получить структурные соответствия
             const structuralMatches = topologyMerger.findStructuralMatches(
                 this.graphToVectorGraph(this.graph),
                 this.graphToVectorGraph(otherGraph)
             );
-           
+
             // Рассчитать схожесть на основе структурных соответствий
             const vectorGraph1 = this.graphToVectorGraph(this.graph);
             const vectorGraph2 = this.graphToVectorGraph(otherGraph);
-           
+
             const structuralSimilarity = topologyMerger.calculateStructuralSimilarity(
                 vectorGraph1, vectorGraph2, structuralMatches
             );
-           
+
             // Рассчитать топологическую сохранность
             const topologyPreservation = topologyMerger.calculateTopologyPreservation(
                 vectorGraph1, vectorGraph2, structuralMatches
             );
-           
+
             // Комбинированный score
             const topologyScore = (structuralSimilarity * 0.7 + topologyPreservation * 0.3);
-           
+
             console.log(`   🏗️ Структурных соответствий: ${structuralMatches.length}`);
             console.log(`   📊 Структурная схожесть: ${structuralSimilarity.toFixed(3)}`);
             console.log(`   🔗 Сохранение топологии: ${(topologyPreservation * 100).toFixed(1)}%`);
-           
+
             return {
                 similarity: Math.max(0, Math.min(1, topologyScore)),
                 structuralMatches: structuralMatches.length,
@@ -540,7 +540,7 @@ class HybridFootprint {
                 topologyScore: topologyScore,
                 method: 'topology_comparison'
             };
-           
+
         } catch (error) {
             console.log(`⚠️ Ошибка топологического сравнения: ${error.message}`);
             return {
@@ -555,7 +555,7 @@ class HybridFootprint {
     graphToVectorGraph(graph) {
         const points = [];
         const nodeMap = new Map();
-       
+
         // Преобразовать узлы графа в точки
         let index = 0;
         for (const [nodeId, node] of graph.nodes) {
@@ -569,25 +569,25 @@ class HybridFootprint {
             nodeMap.set(nodeId, index);
             index++;
         }
-       
+
         // Добавить информацию о рёбрах
         for (const [edgeId, edge] of graph.edges) {
             const fromIdx = nodeMap.get(edge.from);
             const toIdx = nodeMap.get(edge.to);
-           
+
             if (fromIdx !== undefined && toIdx !== undefined) {
                 if (!points[fromIdx].edges) points[fromIdx].edges = [];
                 if (!points[toIdx].edges) points[toIdx].edges = [];
-               
+
                 points[fromIdx].edges.push(toIdx);
                 points[toIdx].edges.push(fromIdx);
             }
         }
-       
+
         // Создать векторную схему
         const vectorGraph = new VectorGraph({ points: points });
         vectorGraph.createFromPoints(points);
-       
+
         return vectorGraph;
     }
 
@@ -699,7 +699,7 @@ class HybridFootprint {
     }
 
     // 6. ОБЪЕДИНЕНИЕ С ПРЕОБРАЗОВАНИЕМ - ТЕПЕРЬ ТОПОЛОГИЧЕСКОЕ!
-    mergeWithTransformation(otherFootprint) {
+    async mergeWithTransformation(otherFootprint) {
         console.log(`🏗️ Топологическое объединение с "${otherFootprint.name}"...`);
 
         // 🔴 ШАГ 1: ПРОВЕРИТЬ ТОЧКИ ПЕРЕД СЛИЯНИЕМ
@@ -731,18 +731,19 @@ class HybridFootprint {
             };
         }
 
-        // 🔴 ШАГ 3: ИСПОЛЬЗОВАТЬ ТОПОЛОГИЧЕСКИЙ МЕРЖЕР
-        const topologyMerger = new TopologyMerger({
-            structuralSimilarityThreshold: 0.6,
-            preserveTopology: true,
-            confidenceBoost: 1.4,
-            maxMergeDistance: 35
+        // ВМЕСТО: const topologyMerger = new TopologyMerger({...})
+        // ИСПОЛЬЗОВАТЬ:
+        const topologyIntegration = new (require('./topology-integration'))({
+            enableTopologyRefinement: true,
+            enableValidation: false, // для скорости
+            debug: false
         });
 
-        const topologyMergeResult = topologyMerger.mergeGraphs(
+        const topologyMergeResult = await topologyIntegration.fullTopologyMerge(
             this.graph,
             otherFootprint.graph,
-            vectorComparison.transformation
+            vectorComparison.transformation,
+            { enableValidation: false }
         );
 
         if (!topologyMergeResult.success) {
@@ -752,8 +753,8 @@ class HybridFootprint {
         }
 
         // 🔴 ШАГ 4: ОБНОВИТЬ ГРАФ ТОПОЛОГИЧЕСКИМ РЕЗУЛЬТАТОМ
-        this.graph = topologyMergeResult.mergedGraph;
-       
+        this.graph = topologyMergeResult.graph;
+
         // Обновить оригинальные точки из объединённого графа
         this.originalPoints = Array.from(this.graph.nodes.values()).map(node => ({
             x: node.x,
@@ -793,7 +794,7 @@ class HybridFootprint {
             with: otherFootprint.id,
             transformation: vectorComparison.transformation,
             topologySimilarity: topologyMergeResult.structuralSimilarity,
-            structuralMatches: topologyMergeResult.structuralMatches.length,
+            structuralMatches: topologyMergeResult.structuralMatches,
             method: 'topology_merge'
         });
 
@@ -808,7 +809,7 @@ class HybridFootprint {
         );
 
         console.log(`✅ Топологическое объединение успешно!`);
-        console.log(`   🏗️ Структурных соответствий: ${topologyMergeResult.structuralMatches.length}`);
+        console.log(`   🏗️ Структурных соответствий: ${topologyMergeResult.structuralMatches}`);
         console.log(`   📊 Топологическая схожесть: ${topologyMergeResult.structuralSimilarity.toFixed(3)}`);
         console.log(`   🔗 Сохранено топологии: ${metrics.preservedStructures}%`);
         console.log(`   📉 Сокращение дубликатов: ${metrics.efficiency}%`);
@@ -834,7 +835,7 @@ class HybridFootprint {
                     edges: this.graph.edges.size
                 },
                 topology: {
-                    structuralMatches: topologyMergeResult.structuralMatches.length,
+                    structuralMatches: topologyMergeResult.structuralMatches,
                     similarity: topologyMergeResult.structuralSimilarity,
                     preservation: metrics.preservedStructures
                 }
@@ -847,28 +848,28 @@ class HybridFootprint {
     calculateTopologyMergeMetrics(topologyResult, vectorComparison, otherFootprint) {
         const beforeNodes1 = this.graph.nodes.size;
         const beforeNodes2 = otherFootprint.graph.nodes.size;
-        const afterNodes = topologyResult.mergedGraph.nodes.size;
-       
+        const afterNodes = topologyResult.graph.nodes.size;
+
         const beforeEdges1 = this.graph.edges.size;
         const beforeEdges2 = otherFootprint.graph.edges.size;
-        const afterEdges = topologyResult.mergedGraph.edges.size;
-       
+        const afterEdges = topologyResult.graph.edges.size;
+
         const nodeReduction = (beforeNodes1 + beforeNodes2) - afterNodes;
         const efficiency = beforeNodes1 + beforeNodes2 > 0
             ? (nodeReduction / (beforeNodes1 + beforeNodes2)) * 100
             : 0;
-       
+
         const edgePreservation = beforeEdges1 + beforeEdges2 > 0
             ? (afterEdges / (beforeEdges1 + beforeEdges2)) * 100
             : 100;
-       
+
         // Confidence improvement
         const confidenceBefore = this.stats.confidence;
         const confidenceAfter = this.stats.confidence; // Уже обновлён
         const confidenceImprovement = confidenceBefore > 0
             ? ((confidenceAfter - confidenceBefore) / confidenceBefore) * 100
             : 0;
-       
+
         return {
             preservedStructures: Math.round(edgePreservation),
             efficiency: efficiency.toFixed(1),
@@ -883,36 +884,36 @@ class HybridFootprint {
     // 🔴 НОВЫЙ МЕТОД: ЗАПАСНОЙ ВАРИАНТ С ГЕОМЕТРИЧЕСКИМ СЛИЯНИЕМ
     fallbackToPointMerge(otherFootprint, vectorComparison) {
         console.log(`🔄 Использую геометрическое слияние как запасной вариант...`);
-       
+
         // Извлечь точки
         const points1 = this.originalPoints;
         const points2 = otherFootprint.originalPoints;
-       
+
         // Использовать старый PointMerger
         const PointMerger = require('./point-merger');
         const pointMerger = new PointMerger({
             mergeDistance: 40,
             confidenceBoost: 1.3
         });
-       
+
         const mergeResult = pointMerger.mergePoints(
             points1,
             points2,
             vectorComparison.transformation
         );
-       
+
         // Обновить оригинальные точки
         this.originalPoints = ConfidenceValidator.validatePointsArray(mergeResult.points);
-       
+
         // Пересчитать все представления
         this.bitmask.createFromPoints(this.originalPoints);
         this.moments.calculateFromPoints(this.originalPoints);
         this.distanceMatrix.createFromPoints(this.originalPoints);
         this.vectorGraph.createFromPoints(this.originalPoints);
-       
+
         // Перестроить граф
         this.graph.buildFromPoints(this.originalPoints);
-       
+
         // Обновить метаданные
         this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos || 1;
         this.metadata.lastUpdated = new Date();
@@ -923,13 +924,13 @@ class HybridFootprint {
             method: 'geometric_fallback',
             mergeStats: mergeResult.stats
         });
-       
+
         // Обновить статистику
         this.updateConfidence();
-       
+
         console.log(`✅ Геометрическое слияние успешно (запасной вариант)`);
         console.log(`   📊 Точки до: ${points1.length + points2.length}, после: ${mergeResult.points.length}`);
-       
+
         return {
             success: true,
             transformation: vectorComparison.transformation,
@@ -1040,7 +1041,7 @@ class HybridFootprint {
 
         console.log(`\n├─ Граф:`);
         this.graph.visualize();
-       
+
         console.log(`\n└─ Топология:`);
         this.visualizeTopology();
     }
@@ -1049,7 +1050,7 @@ class HybridFootprint {
     visualizeTopology() {
         const invariants = this.graph.getBasicInvariants();
         const uniformity = this.calculateNodeUniformity();
-       
+
         console.log(`   ├─ Узлов: ${invariants.nodeCount}`);
         console.log(`   ├─ Рёбер: ${invariants.edgeCount}`);
         console.log(`   ├─ Средняя степень: ${invariants.avgDegree?.toFixed(2) || 'N/A'}`);
