@@ -631,44 +631,62 @@ class TopologyMerger {
     }
 
     // 17. ВОССТАНОВЛЕНИЕ РЁБЕР
-    reconstructEdgesFromMergedNodes(nodes, edgesMap, matches, originalGraph1, originalGraph2) {
-        // Простая эвристика: если узлы были слиты, сохранить связи
-        // В реальной реализации нужен более сложный алгоритм
 
-        console.log(`🔗 Реконструкция рёбер для ${nodes.length} узлов...`);
+  reconstructEdgesFromMergedNodes(nodes, edgesMap, matches, originalGraph1, originalGraph2) {
+    console.log(`🔗 Реконструкция рёбер для ${nodes.length} узлов...`);
     console.log(`   Оригинальные рёбра: graph1=${originalGraph1.edges.size}, graph2=${originalGraph2.edges.size}`);
    
+    // 🔴 ПРОСТОЙ ТЕСТ: создать рёбра между всеми узлами, которые близко
     let edgeId = 0;
     let edgesCreated = 0;
-
+   
+    // Простая логика: соединить каждый узел с ближайшими 3 соседями
     for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-            const node1 = nodes[i];
-            const node2 = nodes[j];
-
-            const dx = node2.x - node1.x;
-            const dy = node2.y - node1.y;
+        const distances = [];
+       
+        for (let j = 0; j < nodes.length; j++) {
+            if (i === j) continue;
+           
+            const dx = nodes[j].x - nodes[i].x;
+            const dy = nodes[j].y - nodes[i].y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance < this.config.maxMergeDistance * 1.5) {
-                const edgeWeight = this.calculateEdgeWeight(node1, node2, distance);
-
-                if (edgeWeight > 0.3) {
-                    const edgeIdStr = `edge_${edgeId++}`;
-                    edgesMap.set(edgeIdStr, {
-                        from: `node_${i}`,
-                        to: `node_${j}`,
-                        weight: edgeWeight,
-                        distance: distance
-                    });
-                    edgesCreated++;
-                }
+           
+            distances.push({ index: j, distance });
+        }
+       
+        // Отсортировать по расстоянию
+        distances.sort((a, b) => a.distance - b.distance);
+       
+        // Соединить с ближайшими 3
+        for (let k = 0; k < Math.min(3, distances.length); k++) {
+            const j = distances[k].index;
+           
+            // Проверить, нет ли уже такого ребра
+            const edgeExists = Array.from(edgesMap.values()).some(e =>
+                (e.from === `node_${i}` && e.to === `node_${j}`) ||
+                (e.from === `node_${j}` && e.to === `node_${i}`)
+            );
+           
+            if (!edgeExists) {
+                const edgeIdStr = `edge_${edgeId++}`;
+                edgesMap.set(edgeIdStr, {
+                    from: `node_${i}`,
+                    to: `node_${j}`,
+                    weight: 1.0,
+                    distance: distances[k].distance,
+                    source: 'auto_generated'
+                });
+                edgesCreated++;
             }
         }
     }
    
-    console.log(`   Создано новых рёбер: ${edgesCreated}`);
+    console.log(`   Создано рёбер: ${edgesCreated}`);
     console.log(`   В edgesMap: ${edgesMap.size} рёбер`);
+   
+    // 🔴 ДОБАВИТЬ: показать первые несколько рёбер
+    const firstEdges = Array.from(edgesMap.values()).slice(0, 5);
+    console.log(`   Примеры рёбер: ${JSON.stringify(firstEdges)}`);
 }
 
     // 18. РАСЧЁТ ВЕСА РЁБРА
