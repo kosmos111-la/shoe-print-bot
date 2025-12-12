@@ -72,14 +72,21 @@ class TopologyMerger {
         console.log(`   🔗 Слито узлов: ${mergeResult.mergedNodes}`);
 
         return {
-            success: true,
-            mergedGraph: mergeResult.mergedGraph,
-            structuralMatches: structuralMatches,
-            structuralSimilarity: structuralSimilarity,
-            transformation: structuralTransformation,
-            metrics: metrics,
-            stats: mergeResult.stats
-        };
+        success: true,
+        mergedGraph: mergeResult.mergedGraph,
+        structuralMatches: structuralMatches,
+        structuralSimilarity: structuralSimilarity,
+        transformation: structuralTransformation,
+        metrics: {  // 🔴 ДОБАВИТЬ ЭТО
+            preservedStructures: metrics.preservedStructures || 0,
+            topologyImprovement: metrics.topologyImprovement || 0,
+            method: 'topology_merge',
+            edgePreservation: metrics.edgePreservation || 0,
+            efficiency: metrics.efficiency || 0,
+            nodeReduction: metrics.nodeReduction || 0
+        },
+        stats: mergeResult.stats
+    };
     }
 
     // 2. ПРЕОБРАЗОВАНИЕ ГРАФА В ВЕКТОРНУЮ СХЕМУ
