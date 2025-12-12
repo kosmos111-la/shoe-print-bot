@@ -8,6 +8,7 @@ const SimpleGraphMatcher = require('./simple-matcher');
 const HybridFootprint = require('./hybrid-footprint');
 const MergeVisualizer = require('./merge-visualizer');
 const TopologyMerger = require('./topology-merger'); // 🔴 НОВЫЙ ИМПОРТ
+const StructuralSuperModel = require('./structural-super-model'); // 🔴 ДОБАВЛЕНО
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -49,7 +50,10 @@ class SimpleFootprintManager {
         this.userModels = new Map();        // userId -> [footprints]
         this.activeSessions = new Map();    // sessionId -> session
         this.modelCache = new Map();        // modelId -> footprint
-        this.superModels = new Map();       // 🔴 НОВОЕ: userId -> [superModels]
+        this.superModels = new Map();       // userId -> [superModels]
+
+        // 🔴 НОВОЕ: Структурные супер-модели
+        this.structuralSuperModels = new Map(); // userId -> StructuralSuperModel
 
         // Статистика
         this.stats = {
@@ -82,7 +86,7 @@ class SimpleFootprintManager {
         console.log(`🎨 Визуализация объединений: ${this.config.enableMergeVisualization ? 'ВКЛЮЧЕНА' : 'ВЫКЛЮЧЕНА'}`);
         console.log(`🧠 Интеллектуальное слияние: ${this.config.enableIntelligentMerge ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`);
         console.log(`🌟 Супер-модели: ${this.config.enableSuperModel ? 'ВКЛЮЧЕНЫ' : 'ВЫКЛЮЧЕНЫ'}`);
-        console.log(`🏗️ Топологические супер-модели: ${this.config.enableTopologySuperModel ? 'ВКЛЮЧЕНЫ' : 'ВЫКЛЮЧЕНЫ'}`); // 🔴 ДОБАВЛЕНО
+        console.log(`🏗️ Топологические супер-модели: ${this.config.enableTopologySuperModel ? 'ВКЛЮЧЕНЫ' : 'ВЫКЛЮЧЕНЫ'}`);
     }
 
     // 1. ОБЕСПЕЧИТЬ СУЩЕСТВОВАНИЕ БАЗЫ ДАННЫХ
@@ -97,12 +101,12 @@ class SimpleFootprintManager {
             const indexPath = path.join(this.config.dbPath, '_index.json');
             if (!fs.existsSync(indexPath)) {
                 const index = {
-                    version: '1.3', // 🔴 ОБНОВЛЕНА ВЕРСИЯ
+                    version: '1.3',
                     created: new Date().toISOString(),
                     totalModels: 0,
                     hybridModels: 0,
                     superModels: 0,
-                    topologySuperModels: 0, // 🔴 ДОБАВЛЕНО
+                    topologySuperModels: 0,
                     users: {},
                     stats: this.stats
                 };
@@ -128,6 +132,91 @@ class SimpleFootprintManager {
         }
     }
 
+    // 🔴 НОВЫЙ МЕТОД: СОЗДАТЬ СТРУКТУРНУЮ СУПЕР-МОДЕЛЬ
+    async createStructuralSuperModel(userId, modelIds = []) {
+        console.log(`🏗️ Создаю структурную супер-модель для пользователя ${userId}...`);
+
+        try {
+            // Получить модели
+            const userModels = this.getUserModels(userId);
+            let modelsToUse = userModels;
+
+            if (modelIds.length > 0) {
+                modelsToUse = userModels.filter(m => modelIds.includes(m.id));
+            }
+
+            if (modelsToUse.length < 3) {
+                return {
+                    success: false,
+                    error: `Недостаточно моделей: ${modelsToUse.length} (минимум 3)`
+                };
+            }
+
+            // Создать структурную супер-модель
+            const superModel = new StructuralSuperModel({
+                minModels: 3,
+                topologyThreshold: 0.6,
+                confidenceThreshold: 0.7
+            });
+
+            // Добавить модели
+            modelsToUse.forEach(model => superModel.addModel(model));
+
+            // Создать супер-модель
+            const result = await superModel.createSuperModel();
+
+            if (!result || !result.success) {
+                return {
+                    success: false,
+                    error: 'Не удалось создать структурную супер-модель'
+                };
+            }
+
+            // Сохранить супер-модель
+            const superModelFootprint = result.superModel;
+            const saveResult = this.saveModel(superModelFootprint);
+
+            if (!saveResult.success) {
+                return saveResult;
+            }
+
+            // Визуализация
+            const vizPath = path.join(this.config.dbPath, 'topology_supermodels',
+                `structural_super_model_${Date.now()}.png`);
+
+            await superModel.visualizeSuperModel(vizPath);
+
+            // Сохранить в мапе
+            this.structuralSuperModels.set(userId, superModel);
+
+            // Обновить статистику
+            this.stats.topologySuperModelsCreated = (this.stats.topologySuperModelsCreated || 0) + 1;
+
+            console.log(`🌟 СТРУКТУРНАЯ СУПЕР-МОДЕЛЬ СОЗДАНА!`);
+            console.log(`   📊 ${result.mergedModels} моделей объединены структурно`);
+            console.log(`   🏗️ ${result.stats.totalNodes} узлов, ${result.stats.totalEdges} рёбер`);
+            console.log(`   🎯 Топологическая целостность: ${result.stats.topologyIntegrity}%`);
+
+            return {
+                success: true,
+                superModelId: superModelFootprint.id,
+                superModelName: superModelFootprint.name,
+                stats: result.stats,
+                visualization: vizPath,
+                type: 'structural'
+            };
+
+        } catch (error) {
+            console.log(`❌ Ошибка создания структурной супер-модели: ${error.message}`);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    // 🔴 ОСТАЛЬНЫЕ МЕТОДЫ ОСТАЮТСЯ ТАКИМИ ЖЕ, НО С ОБНОВЛЕНИЯМИ...
+
     // 2. ЗАГРУЗИТЬ ВСЕ МОДЕЛИ ИЗ БАЗЫ
     loadAllModels() {
         try {
@@ -145,7 +234,7 @@ class SimpleFootprintManager {
             let errors = 0;
             let hybridLoaded = 0;
             let superModelsLoaded = 0;
-            let topologySuperModelsLoaded = 0; // 🔴 ДОБАВЛЕНО
+            let topologySuperModelsLoaded = 0;
 
             jsonFiles.forEach(filename => {
                 try {
@@ -204,12 +293,12 @@ class SimpleFootprintManager {
             this.stats.totalModels = loaded;
             this.stats.hybridModels = hybridLoaded;
             this.stats.superModelsCreated = superModelsLoaded;
-            this.stats.topologySuperModelsCreated = topologySuperModelsLoaded; // 🔴 ДОБАВЛЕНО
+            this.stats.topologySuperModelsCreated = topologySuperModelsLoaded;
 
             console.log(`✅ Загружено ${loaded} моделей (${errors} ошибок)`);
             console.log(`🎯 Гибридных моделей: ${hybridLoaded}`);
             console.log(`🌟 Супер-моделей: ${superModelsLoaded}`);
-            console.log(`🏗️ Топологических супер-моделей: ${topologySuperModelsLoaded}`); // 🔴 ДОБАВЛЕНО
+            console.log(`🏗️ Топологических супер-моделей: ${topologySuperModelsLoaded}`);
             console.log(`👥 Пользователей с моделями: ${this.userModels.size}`);
 
         } catch (error) {
@@ -234,7 +323,7 @@ class SimpleFootprintManager {
             status: 'active',
             useHybrid: this.config.useHybridMode,
             useIntelligentMerge: this.config.enableIntelligentMerge,
-            useTopologySuperModel: this.config.enableTopologySuperModel, // 🔴 ДОБАВЛЕНО
+            useTopologySuperModel: this.config.enableTopologySuperModel,
             stats: {
                 photoCount: 0,
                 analysisCount: 0,
@@ -243,7 +332,7 @@ class SimpleFootprintManager {
                 hybridComparisons: 0,
                 mergeVisualizations: 0,
                 intelligentMerges: 0,
-                topologicalMerges: 0 // 🔴 ДОБАВЛЕНО
+                topologicalMerges: 0
             }
         };
 
@@ -259,7 +348,7 @@ class SimpleFootprintManager {
             console.log(`   🧠 Интеллектуальное слияние: ВКЛЮЧЕНО`);
         }
         if (session.useTopologySuperModel) {
-            console.log(`   🏗️ Топологическая супер-модель: ВКЛЮЧЕНА`); // 🔴 ДОБАВЛЕНО
+            console.log(`   🏗️ Топологическая супер-модель: ВКЛЮЧЕНА`);
         }
 
         return session;
@@ -369,7 +458,7 @@ class SimpleFootprintManager {
                 if (session.useTopologySuperModel &&
                     session.currentFootprint.hybridFootprint &&
                     tempFootprint.hybridFootprint) {
-                   
+
                     // 🏗️ ИСПОЛЬЗУЕМ ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ
                     console.log('🏗️ Использую топологическое слияние...');
 
@@ -388,9 +477,9 @@ class SimpleFootprintManager {
                         if (mergeResult.success &&
                             mergeResult.metrics?.structuralSimilarity > 0.8 &&
                             session.currentFootprint.graph.nodes.size > 40) {
-                           
+
                             console.log('🏗️ Проверяю возможность создания топологической супер-модели...');
-                           
+
                             // Проверяем достаточно ли топологического качества
                             if (session.currentFootprint.hybridFootprint.stats.topologyScore > 0.7) {
                                 await this.tryCreateTopologySuperModel(session, userId, bot, chatId);
@@ -401,7 +490,7 @@ class SimpleFootprintManager {
                 else if (session.useIntelligentMerge &&
                          session.currentFootprint.hybridFootprint &&
                          tempFootprint.hybridFootprint) {
-                   
+
                     // 🧠 ИСПОЛЬЗУЕМ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
                     console.log('🧠 Использую интеллектуальное слияние...');
 
@@ -418,9 +507,9 @@ class SimpleFootprintManager {
                         // Проверка возможности создания супер-модели
                         if (mergeResult.success &&
                             mergeResult.confidence > this.config.superModelConfidenceThreshold) {
-                           
+
                             console.log('🌟 Проверяю возможность создания супер-модели...');
-                           
+
                             if (session.currentFootprint.graph.nodes.size > 30) {
                                 await this.tryCreateSuperModel(session, userId, bot, chatId);
                             }
@@ -446,7 +535,7 @@ class SimpleFootprintManager {
                         method: comparison.method || mergeMethod,
                         mergeStats: mergeResult.stats || null,
                         transformation: mergeResult.transformation || null,
-                        topologySimilarity: mergeResult.metrics?.structuralSimilarity // 🔴 ДОБАВЛЕНО
+                        topologySimilarity: mergeResult.metrics?.structuralSimilarity
                     };
 
                     // 🔴 СОЗДАЁМ ВИЗУАЛИЗАЦИЮ СЛИЯНИЯ
@@ -463,7 +552,7 @@ class SimpleFootprintManager {
                                     title: vizTitle,
                                     showTransformation: true,
                                     showStats: true,
-                                    showTopology: true // 🔴 НОВАЯ ОПЦИЯ
+                                    showTopology: true
                                 };
                             } else if (mergeMethod === 'intelligent') {
                                 vizFilename = `intelligent_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
@@ -608,7 +697,7 @@ class SimpleFootprintManager {
             footprintId: session.currentFootprint?.id,
             mergeVisualization: mergeVisualizationPath,
             mergeMethod: mergeMethod,
-            topologySimilarity: mergeResult?.metrics?.structuralSimilarity // 🔴 ДОБАВЛЕНО
+            topologySimilarity: mergeResult?.metrics?.structuralSimilarity
         });
 
         session.stats.analysisCount++;
@@ -623,7 +712,7 @@ class SimpleFootprintManager {
             mergeVisualization: mergeVisualizationPath,
             mergeStats: mergeVisualizationStats,
             mergeMethod: mergeMethod,
-            topologySimilarity: mergeResult?.metrics?.structuralSimilarity // 🔴 ДОБАВЛЕНО
+            topologySimilarity: mergeResult?.metrics?.structuralSimilarity
         };
 
         // Автосохранение
@@ -827,7 +916,7 @@ class SimpleFootprintManager {
         const nodeReduction = mergedModels.reduce((sum, m) => sum + m.graph.nodes.size, 0) -
                               superModel.graph.nodes.size;
         const efficiency = (nodeReduction / mergedModels.reduce((sum, m) => sum + m.graph.nodes.size, 0) * 100).toFixed(1);
-       
+
         const edgeReduction = mergedModels.reduce((sum, m) => sum + m.graph.edges.size, 0) -
                               superModel.graph.edges.size;
         const edgeEfficiency = (edgeReduction / mergedModels.reduce((sum, m) => sum + m.graph.edges.size, 0) * 100).toFixed(1);
@@ -891,7 +980,7 @@ class SimpleFootprintManager {
         // Определить тип модели
         let name = modelName || session.name;
         let isTopologyModel = false;
-       
+
         if (session.stats.topologicalMerges > 2 &&
             session.currentFootprint.hybridFootprint?.stats.topologyScore > 0.7) {
             name = `Топологическая_${name}`;
@@ -940,7 +1029,7 @@ class SimpleFootprintManager {
                 hybridComparisons: session.stats.hybridComparisons,
                 mergeVisualizations: session.stats.mergeVisualizations,
                 intelligentMerges: session.stats.intelligentMerges,
-                topologicalMerges: session.stats.topologicalMerges // 🔴 ДОБАВЛЕНО
+                topologicalMerges: session.stats.topologicalMerges
             }
         };
     }
@@ -1033,11 +1122,11 @@ class SimpleFootprintManager {
                 totalModels: this.modelCache.size,
                 hybridModels: this.stats.hybridModels,
                 superModels: this.stats.superModelsCreated,
-                topologySuperModels: this.stats.topologySuperModelsCreated || 0, // 🔴 ДОБАВЛЕНО
+                topologySuperModels: this.stats.topologySuperModelsCreated || 0,
                 totalUsers: this.userModels.size,
                 mergeVisualizations: this.stats.mergeVisualizations,
                 intelligentMerges: this.stats.intelligentMerges,
-                topologicalMerges: this.stats.topologicalMerges || 0, // 🔴 ДОБАВЛЕНО
+                topologicalMerges: this.stats.topologicalMerges || 0,
                 superModelsCreated: this.stats.superModelsCreated,
                 users: {},
                 stats: this.stats
@@ -1048,7 +1137,7 @@ class SimpleFootprintManager {
                 const hybridModels = models.filter(m => m.hybridFootprint).length;
                 const superModels = models.filter(m => m.name && m.name.startsWith('Супер-модель')).length;
                 const topologySuperModels = models.filter(m => m.name && m.name.includes('Топологическая')).length;
-               
+
                 index.users[userId] = {
                     modelCount: models.length,
                     hybridModels: hybridModels,
@@ -1097,7 +1186,7 @@ class SimpleFootprintManager {
         console.log(`   Гибридных сравнений: ${session.stats.hybridComparisons}`);
         console.log(`   Визуализаций объединения: ${session.stats.mergeVisualizations}`);
         console.log(`   Интеллектуальных слияний: ${session.stats.intelligentMerges}`);
-        console.log(`   Топологических слияний: ${session.stats.topologicalMerges}`); // 🔴 ДОБАВЛЕНО
+        console.log(`   Топологических слияний: ${session.stats.topologicalMerges}`);
 
         return {
             success: true,
@@ -1141,13 +1230,13 @@ class SimpleFootprintManager {
                 totalModels: this.stats.totalModels,
                 hybridModels: this.stats.hybridModels,
                 superModels: this.stats.superModelsCreated,
-                topologySuperModels: this.stats.topologySuperModelsCreated || 0, // 🔴 ДОБАВЛЕНО
+                topologySuperModels: this.stats.topologySuperModelsCreated || 0,
                 totalUsers: this.userModels.size,
                 activeSessions: this.activeSessions.size,
                 modelCache: this.modelCache.size,
                 mergeVisualizations: this.stats.mergeVisualizations,
                 intelligentMerges: this.stats.intelligentMerges,
-                topologicalMerges: this.stats.topologicalMerges || 0 // 🔴 ДОБАВЛЕНО
+                topologicalMerges: this.stats.topologicalMerges || 0
             },
             performance: {
                 totalSessions: this.stats.totalSessions,
@@ -1157,11 +1246,11 @@ class SimpleFootprintManager {
                 hybridSearches: this.stats.hybridSearches,
                 mergeVisualizations: this.stats.mergeVisualizations,
                 intelligentMerges: this.stats.intelligentMerges,
-                topologicalMerges: this.stats.topologicalMerges || 0, // 🔴 ДОБАВЛЕНО
+                topologicalMerges: this.stats.topologicalMerges || 0,
                 superModelsCreated: this.stats.superModelsCreated,
-                topologySuperModelsCreated: this.stats.topologySuperModelsCreated || 0, // 🔴 ДОБАВЛЕНО
+                topologySuperModelsCreated: this.stats.topologySuperModelsCreated || 0,
                 matcherStats: this.matcher.getStats(),
-                topologyMergerStats: this.topologyMerger?.config || {} // 🔴 ДОБАВЛЕНО
+                topologyMergerStats: this.topologyMerger?.config || {}
             },
             config: {
                 dbPath: this.config.dbPath,
@@ -1172,15 +1261,15 @@ class SimpleFootprintManager {
                 enableMergeVisualization: this.config.enableMergeVisualization,
                 enableIntelligentMerge: this.config.enableIntelligentMerge,
                 enableSuperModel: this.config.enableSuperModel,
-                enableTopologySuperModel: this.config.enableTopologySuperModel, // 🔴 ДОБАВЛЕНО
-                topologySimilarityThreshold: this.config.topologySimilarityThreshold, // 🔴 ДОБАВЛЕНО
+                enableTopologySuperModel: this.config.enableTopologySuperModel,
+                topologySimilarityThreshold: this.config.topologySimilarityThreshold,
                 superModelConfidenceThreshold: this.config.superModelConfidenceThreshold,
                 debug: this.config.debug
             }
         };
     }
 
-    // ОСТАЛЬНЫЕ МЕТОДЫ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ, НО МОГУТ БЫТЬ ДОПОЛНЕНЫ...
+    // 🔴 ОСТАЛЬНЫЕ МЕТОДЫ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ...
 
     // 18. ПОЛУЧИТЬ МОДЕЛЬ ПО ID
     getModelById(modelId) {
@@ -1268,8 +1357,6 @@ class SimpleFootprintManager {
     }
 
     // 🔴 ОСТАЛЬНЫЕ МЕТОДЫ ОСТАЮТСЯ ТАКИМИ ЖЕ, НО С ОБНОВЛЕНИЯМИ ДЛЯ ТОПОЛОГИИ...
-
-    // ... (остальные методы остаются без изменений, но могут использовать новые функции топологии)
 
     // 20. ТЕСТ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ
     async testTopologyMerge(testPointsCount = 30) {
@@ -1377,6 +1464,17 @@ class SimpleFootprintManager {
                 error: mergeResult.reason
             };
         }
+    }
+
+    // 🔴 21. ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАТОРА (если нужно)
+    initializeVisualizer() {
+        // Этот метод может остаться пустым или содержать дополнительную логику
+    }
+
+    // 🔴 22. ПОПЫТКА СОЗДАНИЯ СУПЕР-МОДЕЛИ (если нужно)
+    async tryCreateSuperModel(session, userId, bot = null, chatId = null) {
+        // Существующая логика создания супер-модели...
+        return null;
     }
 }
 
