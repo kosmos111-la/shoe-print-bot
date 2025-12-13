@@ -95,7 +95,17 @@ class SimpleFootprintManager {
         console.log(`🧠 Интеллектуальное слияние: ${this.config.enableIntelligentMerge ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`);
         console.log(`🌟 Супер-модели: ${this.config.enableSuperModel ? 'ВКЛЮЧЕНЫ' : 'ВЫКЛЮЧЕНЫ'}`);
         console.log(`🏗️ Топологические супер-модели: ${this.config.enableTopologySuperModel ? 'ВКЛЮЧЕНЫ' : 'ВЫКЛЮЧЕНЫ'}`);
-    }
+    // Инициализировать структуру папок
+const DataStructureInitializer = require('./utils/init-data-structure');
+const dataInitializer = new DataStructureInitializer(this.config.dbPath);
+dataInitializer.initAllFolders();
+
+// Проверить существующую структуру
+const structureCheck = dataInitializer.checkExistingStructure();
+if (structureCheck.missing.length > 0) {
+    console.log('⚠️ ВНИМАНИЕ: Неполная структура папок!');
+}
+    }
 
     // 1. ОБЕСПЕЧИТЬ СУЩЕСТВОВАНИЕ БАЗЫ ДАННЫХ
     ensureDatabase() {
