@@ -1,5 +1,5 @@
-const MergeVisualizer = require('./merge-visualizer');
-const SimpleFootprint = require('./simple-footprint');
+const MergeVisualizer = require('./modules/footprint/merge-visualizer');
+const SimpleFootprint = require('./modules/footprint/simple-footprint');
 const fs = require('fs');
 const path = require('path');
 
