@@ -1,5 +1,5 @@
 // modules/footprint/simple-manager.js
-// МЕНЕДЖЕР СИСТЕМЫ ЦИФРОВЫХ ОТПЕЧАТКОВ - С ТОПОЛОГИЧЕСКОЙ СУПЕР-МОДЕЛЬЮ
+// МЕНЕДЖЕР СИСТЕМЫ ЦИФРОВЫХ ОТПЕЧАТКОВ - С ТОПОЛОГИЧЕСКОЙ СУПЕР-МОДЕЛЬЮ (ПОЛНОСТЬЮ ИСПРАВЛЕННЫЙ)
 
 const fs = require('fs');
 const path = require('path');
@@ -7,9 +7,9 @@ const SimpleFootprint = require('./simple-footprint');
 const SimpleGraphMatcher = require('./simple-matcher');
 const HybridFootprint = require('./hybrid-footprint');
 const MergeVisualizer = require('./merge-visualizer');
-const TopologyMerger = require('./topology-merger'); // 🔴 НОВЫЙ ИМПОРТ
-const StructuralSuperModel = require('./structural-super-model'); // 🔴 ДОБАВЛЕНО
-const TopologyIntegration = require('./topology-integration'); // 🔴 ДОБАВИТЬ
+const TopologyMerger = require('./topology-merger');
+const StructuralSuperModel = require('./structural-super-model');
+const TopologyIntegration = require('./topology-integration');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -26,8 +26,8 @@ class SimpleFootprintManager {
             enableIntelligentMerge: options.enableIntelligentMerge !== false,
             enableSuperModel: options.enableSuperModel !== false,
             superModelConfidenceThreshold: options.superModelConfidenceThreshold || 0.8,
-            enableTopologySuperModel: options.enableTopologySuperModel !== false, // 🔴 НОВАЯ ОПЦИЯ
-            topologySimilarityThreshold: options.topologySimilarityThreshold || 0.7, // 🔴 НОВАЯ ОПЦИЯ
+            enableTopologySuperModel: options.enableTopologySuperModel !== false,
+            topologySimilarityThreshold: options.topologySimilarityThreshold || 0.7,
             ...options
         };
 
@@ -37,16 +37,16 @@ class SimpleFootprintManager {
             enableDetailedMatch: true
         });
 
-        // 🔴 ИНИЦИАЛИЗАЦИЯ TOPOLOGY MERGER
+        // ИНИЦИАЛИЗАЦИЯ TOPOLOGY MERGER
         this.topologyMerger = new TopologyMerger({
             structuralSimilarityThreshold: this.config.topologySimilarityThreshold,
             preserveTopology: true
         });
 
-        // 🔴 ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАТОРА ОБЪЕДИНЕНИЙ
+        // ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАТОРА ОБЪЕДИНЕНИЙ
         this.mergeVisualizer = new MergeVisualizer();
 
-        // После инициализации matcher:
+        // ИНИЦИАЛИЗАЦИЯ ИНТЕГРАЦИИ ТОПОЛОГИИ
         this.topologyIntegration = new TopologyIntegration({
             enableValidation: true,
             enableVisualization: true,
@@ -60,7 +60,7 @@ class SimpleFootprintManager {
         this.modelCache = new Map();        // modelId -> footprint
         this.superModels = new Map();       // userId -> [superModels]
 
-        // 🔴 НОВОЕ: Структурные супер-модели
+        // НОВОЕ: Структурные супер-модели
         this.structuralSuperModels = new Map(); // userId -> StructuralSuperModel
 
         // Статистика
@@ -74,8 +74,8 @@ class SimpleFootprintManager {
             mergeVisualizations: 0,
             intelligentMerges: 0,
             superModelsCreated: 0,
-            topologySuperModelsCreated: 0, // 🔴 ДОБАВЛЕНО
-            topologicalMerges: 0, // 🔴 ДОБАВЛЕНО
+            topologySuperModelsCreated: 0,
+            topologicalMerges: 0,
             startedAt: new Date()
         };
 
@@ -121,14 +121,14 @@ class SimpleFootprintManager {
                 fs.writeFileSync(indexPath, JSON.stringify(index, null, 2));
             }
 
-            // 🔴 СОЗДАТЬ ПАПКУ ДЛЯ ВИЗУАЛИЗАЦИЙ ОБЪЕДИНЕНИЯ
+            // СОЗДАТЬ ПАПКУ ДЛЯ ВИЗУАЛИЗАЦИЙ ОБЪЕДИНЕНИЯ
             const mergeVizDir = path.join(this.config.dbPath, 'merge_visualizations');
             if (!fs.existsSync(mergeVizDir)) {
                 fs.mkdirSync(mergeVizDir, { recursive: true });
                 console.log(`📁 Создана папка для визуализаций объединений: ${mergeVizDir}`);
             }
 
-            // 🔴 СОЗДАТЬ ПАПКУ ДЛЯ ТОПОЛОГИЧЕСКИХ СУПЕР-МОДЕЛЕЙ
+            // СОЗДАТЬ ПАПКУ ДЛЯ ТОПОЛОГИЧЕСКИХ СУПЕР-МОДЕЛЕЙ
             const topologyDir = path.join(this.config.dbPath, 'topology_supermodels');
             if (!fs.existsSync(topologyDir)) {
                 fs.mkdirSync(topologyDir, { recursive: true });
@@ -139,92 +139,6 @@ class SimpleFootprintManager {
             console.log(`❌ Ошибка создания базы данных: ${error.message}`);
         }
     }
-
-    // 🔴 НОВЫЙ МЕТОД: СОЗДАТЬ СТРУКТУРНУЮ СУПЕР-МОДЕЛЬ
-    async createStructuralSuperModel(userId, modelIds = []) {
-        console.log(`🏗️ Создаю структурную супер-модель для пользователя ${userId}...`);
-
-        try {
-            // Получить модели
-            const userModels = this.getUserModels(userId);
-            let modelsToUse = userModels;
-
-            if (modelIds.length > 0) {
-                modelsToUse = userModels.filter(m => modelIds.includes(m.id));
-            }
-
-            if (modelsToUse.length < 3) {
-                return {
-                    success: false,
-                    error: `Недостаточно моделей: ${modelsToUse.length} (минимум 3)`
-                };
-            }
-
-            // Создать структурную супер-модель
-            const superModel = new StructuralSuperModel({
-                minModels: 3,
-                topologyThreshold: 0.6,
-                confidenceThreshold: 0.7
-            });
-
-            // Добавить модели
-            modelsToUse.forEach(model => superModel.addModel(model));
-
-            // 🔴 ДОБАВИТЬ await!
-            const result = await superModel.createSuperModel();
-
-            if (!result || !result.success) {
-                return {
-                    success: false,
-                    error: 'Не удалось создать структурную супер-модель'
-                };
-            }
-
-            // Сохранить супер-модель
-            const superModelFootprint = result.superModel;
-            const saveResult = this.saveModel(superModelFootprint);
-
-            if (!saveResult.success) {
-                return saveResult;
-            }
-
-            // Визуализация
-            const vizPath = path.join(this.config.dbPath, 'topology_supermodels',
-                `structural_super_model_${Date.now()}.png`);
-
-            // 🔴 ДОБАВИТЬ await!
-            await superModel.visualizeSuperModel(vizPath);
-
-            // Сохранить в мапе
-            this.structuralSuperModels.set(userId, superModel);
-
-            // Обновить статистику
-            this.stats.topologySuperModelsCreated = (this.stats.topologySuperModelsCreated || 0) + 1;
-
-            console.log(`🌟 СТРУКТУРНАЯ СУПЕР-МОДЕЛЬ СОЗДАНА!`);
-            console.log(`   📊 ${result.mergedModels} моделей объединены структурно`);
-            console.log(`   🏗️ ${result.stats.totalNodes} узлов, ${result.stats.totalEdges} рёбер`);
-            console.log(`   🎯 Топологическая целостность: ${result.stats.topologyIntegrity}%`);
-
-            return {
-                success: true,
-                superModelId: superModelFootprint.id,
-                superModelName: superModelFootprint.name,
-                stats: result.stats,
-                visualization: vizPath,
-                type: 'structural'
-            };
-
-        } catch (error) {
-            console.log(`❌ Ошибка создания структурной супер-модели: ${error.message}`);
-            return {
-                success: false,
-                error: error.message
-            };
-        }
-    }
-
-    // 🔴 ОСТАЛЬНЫЕ МЕТОДЫ ОСТАЮТСЯ ТАКИМИ ЖЕ, НО С ОБНОВЛЕНИЯМИ...
 
     // 2. ЗАГРУЗИТЬ ВСЕ МОДЕЛИ ИЗ БАЗЫ
     loadAllModels() {
@@ -262,7 +176,7 @@ class SimpleFootprintManager {
                         }
                         this.userModels.get(footprint.userId).push(footprint);
 
-                        // 🔴 ОПРЕДЕЛИТЬ ТИП МОДЕЛИ
+                        // ОПРЕДЕЛИТЬ ТИП МОДЕЛИ
                         if (footprint.name && footprint.name.includes('Топологическая супер-модель')) {
                             topologySuperModelsLoaded++;
                             if (!this.superModels.has(footprint.userId)) {
@@ -368,43 +282,14 @@ class SimpleFootprintManager {
         return this.userSessions.get(userId);
     }
 
-    // 🔴 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: БЕЗОПАСНАЯ ОБРАБОТКА PROMISE
-    async safeMergeResult(mergePromise) {
-        try {
-            let result = mergePromise;
-           
-            // Проверяем, является ли результат Promise
-            if (result && typeof result.then === 'function') {
-                console.log('⚡ Обнаружен Promise, ожидаю результат...');
-                result = await result;
-            }
-           
-            // Дополнительная проверка для вложенных Promise
-            if (result && typeof result.then === 'function') {
-                console.log('⚡ Вложенный Promise, ожидаю еще раз...');
-                result = await result;
-            }
-           
-            return result;
-        } catch (error) {
-            console.log('❌ Ошибка в safeMergeResult:', error.message);
-            return {
-                success: false,
-                error: error.message
-            };
-        }
-    }
-
-    // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ (ОБНОВЛЕННЫЙ С ТОПОЛОГИЕЙ)
+    // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ (ОСНОВНОЙ МЕТОД)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        // 🔴 ДИАГНОСТИКА - ДОБАВЬТЕ В НАЧАЛО МЕТОДА
         console.log('\n=== ДИАГНОСТИКА addPhotoToSession ===');
         console.log(`📞 Вызван addPhotoToSession с параметрами:`);
         console.log(`   userId: ${userId}`);
         console.log(`   analysis.predictions: ${analysis.predictions?.length || 0}`);
         console.log(`   bot: ${!!bot} (${bot ? 'передан' : 'НЕ передан!'})`);
         console.log(`   chatId: ${chatId} (${chatId ? 'передан' : 'НЕ передан!'})`);
-        console.log(`   photoInfo:`, JSON.stringify(photoInfo));
 
         const session = this.getActiveSession(userId);
 
@@ -489,7 +374,7 @@ class SimpleFootprintManager {
         if (this.config.autoAlignment && session.currentFootprint) {
             console.log(`🎯 Запускаю автосовмещение...`);
 
-            // 🔴 ДОБАВИТЬ await к методу compare
+            // Сравнить отпечатки
             console.log('🔍 Сравниваю отпечатки (await)...');
             const comparison = await session.currentFootprint.compare(tempFootprint);
             console.log(`📊 Результат сравнения: ${comparison.decision}, similarity: ${comparison.similarity}`);
@@ -501,7 +386,7 @@ class SimpleFootprintManager {
             if (comparison.decision === 'same') {
                 console.log(`✅ Автосовмещение: тот же след (similarity: ${comparison.similarity})`);
 
-                // 🔴 РАСШИРЕННАЯ ДИАГНОСТИКА ПЕРЕД СЛИЯНИЕМ
+                // РАСШИРЕННАЯ ДИАГНОСТИКА ПЕРЕД СЛИЯНИЕМ
                 console.log('\n🔍 ДИАГНОСТИКА ПЕРЕД СЛИЯНИЕМ:');
                 console.log(`1. session.useTopologySuperModel: ${session.useTopologySuperModel}`);
                 console.log(`2. session.useIntelligentMerge: ${session.useIntelligentMerge}`);
@@ -509,7 +394,7 @@ class SimpleFootprintManager {
                 console.log(`4. tempFootprint.hybridFootprint: ${!!tempFootprint.hybridFootprint}`);
                 console.log(`5. this.config.enableMergeVisualization: ${this.config.enableMergeVisualization}`);
 
-                // 🔴 ВЫБОР МЕТОДА СЛИЯНИЯ
+                // ВЫБОР МЕТОДА СЛИЯНИЯ
                 if (session.useTopologySuperModel &&
                     session.currentFootprint.hybridFootprint &&
                     tempFootprint.hybridFootprint) {
@@ -518,7 +403,6 @@ class SimpleFootprintManager {
                     console.log('🏗️ Использую топологическое слияние...');
 
                     try {
-                        // 🔴 ДОБАВИТЬ await через safeMergeResult!
                         console.log('🏗️ Выполняем топологическое слияние (await)...');
                         mergeResult = await this.safeMergeResult(
                             session.currentFootprint.hybridFootprint.mergeWithTransformation(
@@ -526,11 +410,10 @@ class SimpleFootprintManager {
                             )
                         );
 
-                        // 🔴 ДЕТАЛЬНАЯ ДИАГНОСТИКА РЕЗУЛЬТАТА СЛИЯНИЯ
+                        // ДЕТАЛЬНАЯ ДИАГНОСТИКА РЕЗУЛЬТАТА СЛИЯНИЯ
                         console.log('\n🔍 ДЕТАЛЬНАЯ ДИАГНОСТИКА РЕЗУЛЬТАТА mergeWithTransformation:');
                         console.log(`1. Тип mergeResult: ${typeof mergeResult}`);
-                        console.log(`2. mergeResult:`, mergeResult);
-                        console.log(`3. mergeResult.success: ${mergeResult?.success}`);
+                        console.log(`2. mergeResult.success: ${mergeResult?.success}`);
                        
                         if (mergeResult?.success) {
                             mergeMethod = mergeResult.method || 'topology';
@@ -540,9 +423,8 @@ class SimpleFootprintManager {
 
                             console.log(`✅ Топологическое слияние успешно! Метод: ${mergeMethod}`);
                            
-                            // 🔴 ПРОВЕРКА ВОЗМОЖНОСТИ СОЗДАНИЯ ТОПОЛОГИЧЕСКОЙ СУПЕР-МОДЕЛИ
-                            if (mergeResult.success &&
-                                mergeResult.metrics?.structuralSimilarity > 0.8 &&
+                            // ПРОВЕРКА ВОЗМОЖНОСТИ СОЗДАНИЯ ТОПОЛОГИЧЕСКОЙ СУПЕР-МОДЕЛИ
+                            if (mergeResult.metrics?.structuralSimilarity > 0.8 &&
                                 session.currentFootprint.graph.nodes.size > 40) {
 
                                 console.log('🏗️ Проверяю возможность создания топологической супер-модели...');
@@ -554,7 +436,6 @@ class SimpleFootprintManager {
                             }
                         } else {
                             console.log('❌ Топологическое слияние не удалось, проверяем причину:');
-                            console.log(`- mergeResult:`, mergeResult);
                             console.log(`- error: ${mergeResult?.error}`);
                             console.log(`- reason: ${mergeResult?.reason}`);
                         }
@@ -572,7 +453,6 @@ class SimpleFootprintManager {
                     console.log('🧠 Использую интеллектуальное слияние...');
 
                     try {
-                        // 🔴 ДОБАВИТЬ await через safeMergeResult!
                         mergeResult = await this.safeMergeResult(
                             session.currentFootprint.hybridFootprint.mergeWithTransformation(
                                 tempFootprint.hybridFootprint
@@ -587,8 +467,7 @@ class SimpleFootprintManager {
                             console.log(`✅ Интеллектуальное слияние успешно! Метод: ${mergeMethod}`);
 
                             // Проверка возможности создания супер-модели
-                            if (mergeResult.success &&
-                                mergeResult.confidence > this.config.superModelConfidenceThreshold) {
+                            if (mergeResult.confidence > this.config.superModelConfidenceThreshold) {
 
                                 console.log('🌟 Проверяю возможность создания супер-модели...');
 
@@ -616,7 +495,7 @@ class SimpleFootprintManager {
                     }
                 }
 
-                // 🔴 РАСШИРЕННАЯ ДИАГНОСТИКА ПОСЛЕ СЛИЯНИЯ
+                // РАСШИРЕННАЯ ДИАГНОСТИКА ПОСЛЕ СЛИЯНИЯ
                 console.log('\n🔍 ДИАГНОСТИКА ПОСЛЕ СЛИЯНИЯ:');
                 console.log(`1. mergeResult: ${mergeResult ? 'есть' : 'нет'}`);
                 console.log(`2. mergeResult?.success: ${mergeResult?.success || false}`);
@@ -639,19 +518,19 @@ class SimpleFootprintManager {
                         topologySimilarity: mergeResult.metrics?.structuralSimilarity
                     };
 
-                    // 🔴 ДИАГНОСТИКА ПЕРЕД СОЗДАНИЕМ ВИЗУАЛИЗАЦИИ
+                    // ДИАГНОСТИКА ПЕРЕД СОЗДАНИЕМ ВИЗУАЛИЗАЦИИ
                     console.log('\n🎯 ПРОВЕРКА ВИЗУАЛИЗАЦИИ:');
                     console.log(`- config.enableMergeVisualization: ${this.config.enableMergeVisualization}`);
                     console.log(`- mergeResult.success: ${mergeResult.success}`);
 
-                    // 🔴 СОЗДАЁМ ВИЗУАЛИЗАЦИЮ СЛИЯНИЯ
-                    if (this.config.enableMergeVisualization) {
+                    // СОЗДАЁМ ВИЗУАЛИЗАЦИЮ СЛИЯНИЯ
+                    if (this.config.enableMergeVisualization && mergeResult.success) {
                         console.log('✅ ВКЛЮЧЕНО создание визуализации');
                         try {
                             const timestamp = Date.now();
                             let vizFilename, vizTitle, vizOptions;
 
-                            if (mergeMethod === 'topology') {
+                            if (mergeMethod === 'topology' || mergeMethod === 'topology_merge') {
                                 vizFilename = `topology_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
                                 vizTitle = 'ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ';
                                 vizOptions = {
@@ -661,6 +540,22 @@ class SimpleFootprintManager {
                                     showStats: true,
                                     showTopology: true
                                 };
+                               
+                                // ИСПРАВЛЕНИЕ: используем правильный метод визуализации
+                                vizResult = await this.mergeVisualizer.visualizeTopologyMerge?.(
+                                    session.currentFootprint,
+                                    tempFootprint,
+                                    {
+                                        ...comparison,
+                                        mergeResult: mergeResult
+                                    },
+                                    vizOptions
+                                ) || await this.mergeVisualizer.visualizeIntelligentMerge(
+                                    session.currentFootprint,
+                                    tempFootprint,
+                                    comparison,
+                                    vizOptions
+                                );
                             } else if (mergeMethod === 'intelligent') {
                                 vizFilename = `intelligent_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
                                 vizTitle = 'ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ';
@@ -670,6 +565,13 @@ class SimpleFootprintManager {
                                     showTransformation: true,
                                     showStats: true
                                 };
+                               
+                                vizResult = await this.mergeVisualizer.visualizeIntelligentMerge(
+                                    session.currentFootprint,
+                                    tempFootprint,
+                                    comparison,
+                                    vizOptions
+                                );
                             } else {
                                 vizFilename = `classic_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
                                 vizTitle = 'КЛАССИЧЕСКОЕ ОБЪЕДИНЕНИЕ';
@@ -679,34 +581,9 @@ class SimpleFootprintManager {
                                     showTransformation: false,
                                     showStats: true
                                 };
-                            }
-
-                            // Выбираем метод визуализации
-                            let vizResult;
-                            if (mergeMethod === 'topology') {
-                                // 🏗️ Топологическая визуализация
-                                vizResult = await this.mergeVisualizer.visualizeTopologyMerge?.(
-                                    session.currentFootprint,
-                                    tempFootprint,
-                                    comparison,
-                                    vizOptions
-                                ) || await this.mergeVisualizer.visualizeIntelligentMerge(
-                                    session.currentFootprint,
-                                    tempFootprint,
-                                    comparison,
-                                    vizOptions
-                                );
-                            } else if (mergeMethod === 'intelligent') {
-                                // 🧠 Интеллектуальная визуализация
-                                vizResult = await this.mergeVisualizer.visualizeIntelligentMerge(
-                                    session.currentFootprint,
-                                    tempFootprint,
-                                    comparison,
-                                    vizOptions
-                                );
-                            } else {
-                                // 📊 Классическая визуализация
-                                vizResult = await this.mergeVisualizer.visualizeMergeEnhanced(
+                               
+                                // ИСПРАВЛЕНИЕ: используем visualizeClassicMerge вместо visualizeMergeEnhanced
+                                vizResult = await this.mergeVisualizer.visualizeClassicMerge(
                                     session.currentFootprint,
                                     tempFootprint,
                                     comparison,
@@ -732,10 +609,10 @@ class SimpleFootprintManager {
                             console.error(vizError.stack);
                         }
                     } else {
-                        console.log('❌ ВЫКЛЮЧЕНО создание визуализации (enableMergeVisualization: false)');
+                        console.log('❌ ВЫКЛЮЧЕНО создание визуализации или слияние не удалось');
                     }
 
-                    // 🔴 ДИАГНОСТИКА ОТПРАВКИ В TELEGRAM
+                    // ДИАГНОСТИКА ОТПРАВКИ В TELEGRAM
                     console.log('\n🎯 ДИАГНОСТИКА ОТПРАВКИ ВИЗУАЛИЗАЦИИ:');
                     console.log(`1. bot доступен: ${!!bot} (${bot ? 'YES' : 'NO'})`);
                     console.log(`2. chatId: ${chatId} (${chatId ? 'YES' : 'NO'})`);
@@ -761,14 +638,14 @@ class SimpleFootprintManager {
                         }
                     }
 
-                    // 🔴 ОТПРАВКА ВИЗУАЛИЗАЦИИ В TELEGRAM
+                    // ОТПРАВКА ВИЗУАЛИЗАЦИИ В TELEGRAM
                     if (bot && chatId && mergeVisualizationPath && fs.existsSync(mergeVisualizationPath)) {
                         console.log(`✅ ВСЕ УСЛОВИЯ ДЛЯ ОТПРАВКИ ВЫПОЛНЕНЫ! Отправляю в Telegram...`);
 
                         setTimeout(async () => {
                             try {
                                 let caption;
-                                if (mergeMethod === 'topology') {
+                                if (mergeMethod === 'topology' || mergeMethod === 'topology_merge') {
                                     caption = this.createTopologyMergeCaption(
                                         session.currentFootprint,
                                         tempFootprint,
@@ -867,7 +744,7 @@ class SimpleFootprintManager {
             this.autoSaveSession(session);
         }
 
-        // 🔴 ИТОГОВАЯ ДИАГНОСТИКА
+        // ИТОГОВАЯ ДИАГНОСТИКА
         console.log('\n📊 ИТОГОВАЯ ДИАГНОСТИКА СЕССИИ:');
         console.log(`- mergeVisualizationPath: ${mergeVisualizationPath}`);
         console.log(`- mergeMethod: ${mergeMethod}`);
@@ -876,7 +753,34 @@ class SimpleFootprintManager {
         return result;
     }
 
-    // 🔴 6. НОВЫЙ МЕТОД: СОЗДАТЬ ТОПОЛОГИЧЕСКУЮ СУПЕР-МОДЕЛЬ
+    // 6. ВСПОМОГАТЕЛЬНЫЙ МЕТОД: БЕЗОПАСНАЯ ОБРАБОТКА PROMISE
+    async safeMergeResult(mergePromise) {
+        try {
+            let result = mergePromise;
+          
+            // Проверяем, является ли результат Promise
+            if (result && typeof result.then === 'function') {
+                console.log('⚡ Обнаружен Promise, ожидаю результат...');
+                result = await result;
+            }
+          
+            // Дополнительная проверка для вложенных Promise
+            if (result && typeof result.then === 'function') {
+                console.log('⚡ Вложенный Promise, ожидаю еще раз...');
+                result = await result;
+            }
+          
+            return result;
+        } catch (error) {
+            console.log('❌ Ошибка в safeMergeResult:', error.message);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    // 7. СОЗДАТЬ ТОПОЛОГИЧЕСКУЮ СУПЕР-МОДЕЛЬ
     async tryCreateTopologySuperModel(session, userId, bot = null, chatId = null) {
         try {
             console.log('🏗️ Создаю ТОПОЛОГИЧЕСКУЮ СУПЕР-МОДЕЛЬ...');
@@ -906,19 +810,17 @@ class SimpleFootprintManager {
             let superModel = topologyModels[0];
             const mergedModels = [superModel];
 
-            // 🔴 ИСПОЛЬЗУЕМ TOPOLOGY MERGER ДЛЯ ПОСЛЕДОВАТЕЛЬНОГО СЛИЯНИЯ
+            // ИСПОЛЬЗУЕМ TOPOLOGY MERGER ДЛЯ ПОСЛЕДОВАТЕЛЬНОГО СЛИЯНИЯ
             for (let i = 1; i < Math.min(topologyModels.length, 5); i++) {
                 const currentModel = topologyModels[i];
 
                 console.log(`🏗️ Топологическое слияние с "${currentModel.name}"...`);
 
-                // 🔴 ДОБАВИТЬ await!
                 const topologyComparison = await superModel.hybridFootprint.compareTopology(
                     currentModel.hybridFootprint?.graph || currentModel.graph
                 );
 
                 if (topologyComparison.similarity > this.config.topologySimilarityThreshold) {
-                    // 🔴 ДОБАВИТЬ await через safeMergeResult!
                     const mergeResult = await this.safeMergeResult(
                         superModel.hybridFootprint.mergeWithTransformation(
                             currentModel.hybridFootprint
@@ -1007,7 +909,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔴 7. НОВЫЙ МЕТОД: СОХРАНИТЬ ТОПОЛОГИЧЕСКУЮ СУПЕР-МОДЕЛЬ
+    // 8. СОХРАНИТЬ ТОПОЛОГИЧЕСКУЮ СУПЕР-МОДЕЛЬ
     saveTopologySuperModel(footprint, userId) {
         try {
             const filename = `topology_supermodel_${footprint.id}.json`;
@@ -1056,7 +958,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔴 8. НОВЫЙ МЕТОД: ПОДПИСЬ ДЛЯ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ
+    // 9. ПОДПИСЬ ДЛЯ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ
     createTopologyMergeCaption(footprint1, footprint2, stats) {
         return `<b>🏗️ ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ</b>\n\n` +
                `<b>📸 ${footprint1.name}:</b> ${stats.points1} узлов\n` +
@@ -1067,7 +969,7 @@ class SimpleFootprintManager {
                `<i>🟣 Топологические соответствия | 🔵 Узлы графа | 🔴 Рёбра графа</i>`;
     }
 
-    // 🔴 9. НОВЫЙ МЕТОД: ПОДПИСЬ ДЛЯ ТОПОЛОГИЧЕСКОЙ СУПЕР-МОДЕЛИ
+    // 10. ПОДПИСЬ ДЛЯ ТОПОЛОГИЧЕСКОЙ СУПЕР-МОДЕЛИ
     createTopologySuperModelCaption(superModel, mergedModels) {
         const mergedCount = mergedModels.length;
         const nodeReduction = mergedModels.reduce((sum, m) => sum + m.graph.nodes.size, 0) -
@@ -1089,9 +991,7 @@ class SimpleFootprintManager {
                `<i>🟣 Топологические соответствия | 🔵 Структурные узлы | 🔴 Сохранённые рёбра</i>`;
     }
 
-    // 🔴 ОСТАЛЬНЫЕ МЕТОДЫ ОСТАЮТСЯ ТАКИМИ ЖЕ, НО ДОБАВЛЕНЫ ОБНОВЛЕНИЯ ДЛЯ ТОПОЛОГИИ
-
-    // 10. АВТОСОХРАНЕНИЕ СЕССИИ
+    // 11. АВТОСОХРАНЕНИЕ СЕССИИ
     autoSaveSession(session) {
         if (!session.currentFootprint) return;
 
@@ -1116,7 +1016,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 11. СОХРАНИТЬ СЕССИЮ КАК МОДЕЛЬ
+    // 12. СОХРАНИТЬ СЕССИЮ КАК МОДЕЛЬ
     saveSessionAsModel(userId, modelName = null) {
         const session = this.getActiveSession(userId);
 
@@ -1191,7 +1091,7 @@ class SimpleFootprintManager {
         };
     }
 
-    // 12. СОХРАНИТЬ МОДЕЛЬ В БАЗУ
+    // 13. СОХРАНИТЬ МОДЕЛЬ В БАЗУ
     saveModel(footprint) {
         try {
             if (!footprint.id || !footprint.userId) {
@@ -1268,7 +1168,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 13. ОБНОВИТЬ ИНДЕКСНЫЙ ФАЙЛ
+    // 14. ОБНОВИТЬ ИНДЕКСНЫЙ ФАЙЛ
     updateIndexFile() {
         try {
             const indexPath = path.join(this.config.dbPath, '_index.json');
@@ -1311,7 +1211,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 14. ЗАВЕРШИТЬ СЕССИЮ
+    // 15. ЗАВЕРШИТЬ СЕССИЮ
     endSession(userId, reason = 'user_request') {
         const session = this.getActiveSession(userId);
 
@@ -1362,17 +1262,17 @@ class SimpleFootprintManager {
         };
     }
 
-    // 15. ПОЛУЧИТЬ МОДЕЛИ ПОЛЬЗОВАТЕЛЯ
+    // 16. ПОЛУЧИТЬ МОДЕЛИ ПОЛЬЗОВАТЕЛЯ
     getUserModels(userId) {
         return this.userModels.get(userId) || [];
     }
 
-    // 🔴 16. НОВЫЙ МЕТОД: ПОЛУЧИТЬ ТОПОЛОГИЧЕСКИЕ СУПЕР-МОДЕЛИ ПОЛЬЗОВАТЕЛЯ
+    // 17. ПОЛУЧИТЬ ТОПОЛОГИЧЕСКИЕ СУПЕР-МОДЕЛИ ПОЛЬЗОВАТЕЛЯ
     getUserTopologySuperModels(userId) {
         return this.superModels.get(userId) || [];
     }
 
-    // 17. ПОЛУЧИТЬ СТАТИСТИКУ СИСТЕМЫ - ОБНОВЛЕННЫЙ
+    // 18. ПОЛУЧИТЬ СТАТИСТИКУ СИСТЕМЫ
     getSystemStats() {
         const now = new Date();
         const uptime = now - this.stats.startedAt;
@@ -1426,14 +1326,12 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔴 ОСТАЛЬНЫЕ МЕТОДЫ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ...
-
-    // 18. ПОЛУЧИТЬ МОДЕЛЬ ПО ID
+    // 19. ПОЛУЧИТЬ МОДЕЛЬ ПО ID
     getModelById(modelId) {
         return this.modelCache.get(modelId) || null;
     }
 
-    // 19. УДАЛИТЬ МОДЕЛЬ
+    // 20. УДАЛИТЬ МОДЕЛЬ
     deleteModel(modelId, userId = null) {
         try {
             const model = this.getModelById(modelId);
@@ -1513,9 +1411,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔴 ОСТАЛЬНЫЕ МЕТОДЫ ОСТАЮТСЯ ТАКИМИ ЖЕ, НО С ОБНОВЛЕНИЯМИ ДЛЯ ТОПОЛОГИИ...
-
-    // 20. ТЕСТ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ
+    // 21. ТЕСТ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ
     async testTopologyMerge(testPointsCount = 30) {
         console.log('🧪 Запускаю тест топологического слияния...');
 
@@ -1623,15 +1519,196 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔴 21. ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАТОРА (если нужно)
+    // 22. ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАТОРА
     initializeVisualizer() {
         // Этот метод может остаться пустым или содержать дополнительную логику
     }
 
-    // 🔴 22. ПОПЫТКА СОЗДАНИЯ СУПЕР-МОДЕЛИ (если нужно)
+    // 23. ПОПЫТКА СОЗДАНИЯ СУПЕР-МОДЕЛИ
     async tryCreateSuperModel(session, userId, bot = null, chatId = null) {
-        // Существующая логика создания супер-модели...
-        return null;
+        try {
+            console.log('🌟 Проверяю возможность создания супер-модели...');
+           
+            const userModels = this.getUserModels(userId);
+            if (userModels.length < 3) {
+                return null;
+            }
+
+            // Найти модели с высокой уверенностью
+            const highConfidenceModels = userModels
+                .filter(m => m.stats.confidence > this.config.superModelConfidenceThreshold)
+                .sort((a, b) => b.stats.confidence - a.stats.confidence);
+
+            if (highConfidenceModels.length < 2) {
+                return null;
+            }
+
+            console.log(`🎯 Найдено ${highConfidenceModels.length} моделей с высокой уверенностью`);
+
+            // Начать с модели с наивысшей уверенностью
+            let superModel = highConfidenceModels[0];
+            const mergedModels = [superModel];
+
+            for (let i = 1; i < Math.min(highConfidenceModels.length, 4); i++) {
+                const currentModel = highConfidenceModels[i];
+
+                console.log(`🧩 Объединяю с "${currentModel.name}"...`);
+
+                const comparison = await superModel.compare(currentModel);
+
+                if (comparison.decision === 'same' && comparison.similarity > 0.7) {
+                    const mergeResult = superModel.merge(currentModel);
+
+                    if (mergeResult.success) {
+                        mergedModels.push(currentModel);
+                        console.log(`✅ Добавлено к супер-модели`);
+                    }
+                }
+            }
+
+            // Сохранить супер-модель
+            const superModelName = `Супер-модель_${new Date().toLocaleDateString('ru-RU')}`;
+            superModel.name = superModelName;
+
+            const saveResult = this.saveModel(superModel);
+
+            if (!saveResult.success) {
+                return null;
+            }
+
+            // Создать визуализацию
+            const vizPath = path.join(this.config.dbPath, 'merge_visualizations',
+                `super_model_${Date.now()}.png`);
+
+            await this.mergeVisualizer.visualizeSuperModel(
+                superModel,
+                mergedModels,
+                vizPath
+            );
+
+            // Обновить статистику
+            this.stats.superModelsCreated++;
+
+            console.log(`🌟 СУПЕР-МОДЕЛЬ СОЗДАНА!`);
+            console.log(`   📊 ${mergedModels.length} моделей объединены`);
+            console.log(`   🎯 ${superModel.graph.nodes.size} узлов, ${superModel.graph.edges.size} рёбер`);
+            console.log(`   💎 Уверенность: ${Math.round(superModel.stats.confidence * 100)}%`);
+
+            // Отправить в Telegram
+            if (bot && chatId && fs.existsSync(vizPath)) {
+                setTimeout(async () => {
+                    try {
+                        const caption = this.mergeVisualizer.createSuperModelCaption?.(
+                            superModel, mergedModels
+                        ) || `🌟 Супер-модель создана!\n\nОбъединено ${mergedModels.length} моделей`;
+
+                        await bot.sendPhoto(chatId, vizPath, {
+                            caption: caption,
+                            parse_mode: 'HTML'
+                        });
+
+                        console.log(`✅ Визуализация супер-модели отправлена в чат ${chatId}`);
+
+                    } catch (sendError) {
+                        console.log('⚠️ Не удалось отправить визуализацию:', sendError.message);
+                    }
+                }, 500);
+            }
+
+            return {
+                success: true,
+                superModelId: superModel.id,
+                superModelName: superModelName,
+                mergedModels: mergedModels.length,
+                stats: saveResult.stats
+            };
+
+        } catch (error) {
+            console.log(`❌ Ошибка создания супер-модели: ${error.message}`);
+            return null;
+        }
+    }
+
+    // 24. СОЗДАТЬ СТРУКТУРНУЮ СУПЕР-МОДЕЛЬ
+    async createStructuralSuperModel(userId, modelIds = []) {
+        console.log(`🏗️ Создаю структурную супер-модель для пользователя ${userId}...`);
+
+        try {
+            // Получить модели
+            const userModels = this.getUserModels(userId);
+            let modelsToUse = userModels;
+
+            if (modelIds.length > 0) {
+                modelsToUse = userModels.filter(m => modelIds.includes(m.id));
+            }
+
+            if (modelsToUse.length < 3) {
+                return {
+                    success: false,
+                    error: `Недостаточно моделей: ${modelsToUse.length} (минимум 3)`
+                };
+            }
+
+            // Создать структурную супер-модель
+            const superModel = new StructuralSuperModel({
+                minModels: 3,
+                topologyThreshold: 0.6,
+                confidenceThreshold: 0.7
+            });
+
+            // Добавить модели
+            modelsToUse.forEach(model => superModel.addModel(model));
+
+            const result = await superModel.createSuperModel();
+
+            if (!result || !result.success) {
+                return {
+                    success: false,
+                    error: 'Не удалось создать структурную супер-модель'
+                };
+            }
+
+            // Сохранить супер-модель
+            const superModelFootprint = result.superModel;
+            const saveResult = this.saveModel(superModelFootprint);
+
+            if (!saveResult.success) {
+                return saveResult;
+            }
+
+            // Визуализация
+            const vizPath = path.join(this.config.dbPath, 'topology_supermodels',
+                `structural_super_model_${Date.now()}.png`);
+
+            await superModel.visualizeSuperModel(vizPath);
+
+            // Сохранить в мапе
+            this.structuralSuperModels.set(userId, superModel);
+
+            // Обновить статистику
+            this.stats.topologySuperModelsCreated = (this.stats.topologySuperModelsCreated || 0) + 1;
+
+            console.log(`🌟 СТРУКТУРНАЯ СУПЕР-МОДЕЛЬ СОЗДАНА!`);
+            console.log(`   📊 ${result.mergedModels} моделей объединены структурно`);
+            console.log(`   🏗️ ${result.stats.totalNodes} узлов, ${result.stats.totalEdges} рёбер`);
+            console.log(`   🎯 Топологическая целостность: ${result.stats.topologyIntegrity}%`);
+
+            return {
+                success: true,
+                superModelId: superModelFootprint.id,
+                superModelName: superModelFootprint.name,
+                stats: result.stats,
+                visualization: vizPath,
+                type: 'structural'
+            };
+
+        } catch (error) {
+            console.log(`❌ Ошибка создания структурной супер-модели: ${error.message}`);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
     }
 }
 
