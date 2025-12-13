@@ -504,29 +504,39 @@ performTopologicalMerge(graph1, graph2, matches, transformation) {
     });
 
     // 2. ДОБАВИТЬ УНИКАЛЬНЫЕ УЗЛЫ ИЗ ПЕРВОГО ГРАФА
-    nodes1.forEach((node, idx) => {
-        if (mergedIndices1.has(idx)) return;
+nodes1.forEach((node, idx) => {
+    if (mergedIndices1.has(idx)) return;
 
-        const nodeId = `unique1_${nextNodeId++}`;
-        const uniqueNode = { ...node, source: 'graph1', confidence: node.confidence || 0.5 };
-        mergedNodes.set(nodeId, uniqueNode);
-        mergedNodesList.push(uniqueNode);
-    });
+    const nodeId = `unique1_${nextNodeId++}`;
+    const uniqueNode = {
+        ...node,
+        source: 'graph1',
+        sources: node.sources || (node.source ? [node.source] : ['graph1']),
+        confirmationCount: node.confirmationCount ||
+                         (node.sources ? node.sources.length : 1),
+        confidence: node.confidence || 0.5
+    };
+    mergedNodes.set(nodeId, uniqueNode);
+    mergedNodesList.push(uniqueNode);
+});
 
-    // 3. ДОБАВИТЬ УНИКАЛЬНЫЕ УЗЛЫ ИЗ ВТОРОГО ГРАФА
-    nodes2.forEach((node, idx) => {
-        if (mergedIndices2.has(idx)) return;
+// 3. ДОБАВИТЬ УНИКАЛЬНЫЕ УЗЛЫ ИЗ ВТОРОГО ГРАФА
+nodes2.forEach((node, idx) => {
+    if (mergedIndices2.has(idx)) return;
 
-        const transformedNode = this.applyTransformationToNode(node, transformation);
-        const nodeId = `unique2_${nextNodeId++}`;
-        const uniqueNode = {
-            ...transformedNode,
-            source: 'graph2',
-            confidence: node.confidence || 0.5
-        };
-        mergedNodes.set(nodeId, uniqueNode);
-        mergedNodesList.push(uniqueNode);
-    });
+    const transformedNode = this.applyTransformationToNode(node, transformation);
+    const nodeId = `unique2_${nextNodeId++}`;
+    const uniqueNode = {
+        ...transformedNode,
+        source: 'graph2',
+        sources: node.sources || (node.source ? [node.source] : ['graph2']),
+        confirmationCount: node.confirmationCount ||
+                         (node.sources ? node.sources.length : 1),
+        confidence: node.confidence || 0.5
+    };
+    mergedNodes.set(nodeId, uniqueNode);
+    mergedNodesList.push(uniqueNode);
+});
 
     // 4. ПОСТРОИТЬ РЁБРА
     this.reconstructEdgesFromMergedNodes(mergedNodesList, mergedEdges, matches, graph1, graph2);
@@ -622,28 +632,37 @@ return {
 
     // 15. СЛИЯНИЕ ДВУХ УЗЛОВ
     mergeTwoNodes(node1, node2, similarityScore) {
-        // Взвешенное среднее с учётом confidence и similarity
-        const conf1 = node1.confidence || 0.5;
-        const conf2 = node2.confidence || 0.5;
+    // Взвешенное среднее с учётом confidence и similarity
+    const conf1 = node1.confidence || 0.5;
+    const conf2 = node2.confidence || 0.5;
 
-        const weight1 = conf1 * similarityScore;
-        const weight2 = conf2 * similarityScore;
-        const totalWeight = weight1 + weight2 || 1;
+    const weight1 = conf1 * similarityScore;
+    const weight2 = conf2 * similarityScore;
+    const totalWeight = weight1 + weight2 || 1;
 
-        const mergedConfidence = Math.min(1.0,
-            ((conf1 * weight1 + conf2 * weight2) / totalWeight) * this.config.confidenceBoost
-        );
+    const mergedConfidence = Math.min(1.0,
+        ((conf1 * weight1 + conf2 * weight2) / totalWeight) * this.config.confidenceBoost
+    );
 
-        return {
-            x: (node1.x * weight1 + node2.x * weight2) / totalWeight,
-            y: (node1.y * weight1 + node2.y * weight2) / totalWeight,
-            confidence: Math.max(0.0, Math.min(1.0, mergedConfidence)),
-            source: 'merged',
-            mergedFrom: [node1.id || 'node1', node2.id || 'node2'],
-            similarityScore: similarityScore,
-            originalConfidences: [conf1, conf2]
-        };
-    }
+    // СОБИРАЕМ ИСТОРИЮ ПОДТВЕРЖДЕНИЙ
+    const sources1 = node1.sources || (node1.source ? [node1.source] : ['graph1']);
+    const sources2 = node2.sources || (node2.source ? [node2.source] : ['graph2']);
+   
+    const confirmationCount1 = node1.confirmationCount || sources1.length;
+    const confirmationCount2 = node2.confirmationCount || sources2.length;
+
+    return {
+        x: (node1.x * weight1 + node2.x * weight2) / totalWeight,
+        y: (node1.y * weight1 + node2.y * weight2) / totalWeight,
+        confidence: Math.max(0.0, Math.min(1.0, mergedConfidence)),
+        source: 'merged',
+        sources: [...sources1, ...sources2],
+        confirmationCount: confirmationCount1 + confirmationCount2,
+        mergedFrom: [node1.id || 'node1', node2.id || 'node2'],
+        similarityScore: similarityScore,
+        originalConfidences: [conf1, conf2]
+    };
+}
 
     // 16. ПРИМЕНЕНИЕ ТРАНСФОРМАЦИИ К УЗЛУ
     applyTransformationToNode(node, transformation) {
