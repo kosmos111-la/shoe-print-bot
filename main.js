@@ -165,9 +165,9 @@ function validateConfig(config) {
     // Проверка Telegram токена
     if (!config.TELEGRAM_TOKEN) {
         errors.push('❌ TELEGRAM_TOKEN: отсутствует');
-    } else if (config.TEGRAM_TOKEN.length < 10) {
+    } else if (config.TELEGRAM_TOKEN.length < 10) {
         errors.push('❌ TELEGRAM_TOKEN: слишком короткий (минимум 10 символов)');
-    } else if (!config.TELEGRAM_TOKEN.startsWith('')) {
+    } else if (!config.TELEGRAM_TOKEN.includes(':')) {
         errors.push('❌ TELEGRAM_TOKEN: должен начинаться с цифр и содержать двоеточие');
     }
 
