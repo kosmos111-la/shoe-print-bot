@@ -528,87 +528,54 @@ if (this.config.enableMergeVisualization && mergeResult.success) {
     console.log('✅ ВКЛЮЧЕНО создание визуализации');
     try {
         const timestamp = Date.now();
-        let vizFilename, vizTitle, vizOptions;
-        let vizResult; // <-- ДОБАВИТЬ ЭТУ СТРОЧКУ
+       
+        // ВСЕГДА используем визуализацию супер-модели для топологического слияния
+        console.log('🏗️ Использую визуализацию супер-модели...');
+       
+        const vizFilename = `super_model_${session.id.slice(0, 8)}_${timestamp}.png`;
+        const vizOptions = {
+            outputPath: path.join(this.config.dbPath, 'merge_visualizations', vizFilename),
+            title: 'СУПЕР-МОДЕЛЬ'
+        };
 
-        if (mergeMethod === 'topology' || mergeMethod === 'topology_merge') {
-            vizFilename = `topology_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
-            vizTitle = 'ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ';
-            vizOptions = {
-                outputPath: path.join(this.config.dbPath, 'merge_visualizations', vizFilename),
-                title: vizTitle,
-                showTransformation: true,
-                showStats: true,
-                showTopology: true
-            };
-
-            // ИСПРАВЛЕНИЕ: используем правильный метод визуализации
-            vizResult = await this.mergeVisualizer.visualizeTopologyMerge?.(
-                session.currentFootprint,
-                tempFootprint,
-                {
-                    ...comparison,
-                    mergeResult: mergeResult
-                },
-                vizOptions
-            ) || await this.mergeVisualizer.visualizeIntelligentMerge(
-                session.currentFootprint,
-                tempFootprint,
-                comparison,
-                vizOptions
-            );
-        } else if (mergeMethod === 'intelligent') {
-            vizFilename = `intelligent_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
-            vizTitle = 'ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ';
-            vizOptions = {
-                outputPath: path.join(this.config.dbPath, 'merge_visualizations', vizFilename),
-                title: vizTitle,
-                showTransformation: true,
-                showStats: true
-            };
-
-            vizResult = await this.mergeVisualizer.visualizeIntelligentMerge(
-                session.currentFootprint,
-                tempFootprint,
-                comparison,
-                vizOptions
-            );
-        } else {
-            vizFilename = `classic_merge_${session.id.slice(0, 8)}_${timestamp}.png`;
-            vizTitle = 'КЛАССИЧЕСКОЕ ОБЪЕДИНЕНИЕ';
-            vizOptions = {
-                outputPath: path.join(this.config.dbPath, 'merge_visualizations', vizFilename),
-                title: vizTitle,
-                showTransformation: false,
-                showStats: true
-            };
-
-            // ИСПРАВЛЕНИЕ: используем visualizeClassicMerge вместо visualizeMergeEnhanced
-            vizResult = await this.mergeVisualizer.visualizeClassicMerge(
-                session.currentFootprint,
-                tempFootprint,
-                comparison,
-                vizOptions
-            );
-        }
-
+        // ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ
+        const vizResult = await this.mergeVisualizer.visualizeSuperModel(
+            session.currentFootprint,  // Супер-модель
+            tempFootprint,             // Последняя модель (для обводки)
+            vizOptions
+        );
+       
         // ПРОВЕРЯЕМ РЕЗУЛЬТАТ
         if (vizResult && vizResult.success) {
-            mergeVisualizationPath = vizOptions.outputPath;
-            mergeVisualizationStats = vizResult.stats || vizResult;
+            mergeVisualizationPath = vizResult.path || vizOptions.outputPath;
+            mergeVisualizationStats = vizResult.stats || {};
             session.stats.mergeVisualizations++;
             this.stats.mergeVisualizations++;
 
-            console.log(`🎨 Визуализация создана: ${vizFilename}`);
+            console.log(`🎨 Визуализация супер-модели создана: ${vizFilename}`);
             console.log(`   📊 Метод: ${mergeMethod}`);
             console.log(`   📁 Путь: ${mergeVisualizationPath}`);
-            console.log(`   📊 Статистика: ${mergeVisualizationStats ? 'есть' : 'нет'}`);
-            if (mergeResult.metrics?.structuralSimilarity) {
-                console.log(`   🏗️ Топологическая схожесть: ${mergeResult.metrics.structuralSimilarity}`);
-            }
+            console.log(`   📊 Статистика:`, mergeVisualizationStats);
+           
+            // ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ
+            console.log(`   🏗️ Супер-модель: ${session.currentFootprint.graph.nodes.size} узлов`);
+            console.log(`   🎯 Подтвержденных узлов: ${mergeVisualizationStats.confirmedNodes || 0}`);
         } else {
-            console.log('⚠️ Визуализация не создана или произошла ошибка');
-            console.log(`   Результат визуализации:`, vizResult);
+            console.log('⚠️ Визуализация супер-модели не создана');
+            console.log(`   Результат:`, vizResult);
+           
+            // Попробуем старую визуализацию как запасной вариант
+            console.log('🔄 Пробую старую визуализацию...');
+            const oldViz = await this.mergeVisualizer.visualizeTopologyMerge(
+                session.currentFootprint,
+                tempFootprint,
+                comparison,
+                vizOptions
+            );
+            if (oldViz.success) {
+                mergeVisualizationPath = oldViz.path;
+                console.log(`✅ Старая визуализация создана: ${mergeVisualizationPath}`);
+            }
         }
 
     } catch (vizError) {
