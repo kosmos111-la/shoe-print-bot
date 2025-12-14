@@ -272,352 +272,343 @@ class SimpleFootprintManager {
     }
 
     // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ (ОСНОВНОЙ МЕТОД)
-    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log('\n=== ДИАГНОСТИКА addPhotoToSession ===');
-        console.log(`📞 Вызван addPhotoToSession с параметрами:`);
-        console.log(`   userId: ${userId}`);
-        console.log(`   analysis.predictions: ${analysis.predictions?.length || 0}`);
-        console.log(`   bot: ${!!bot} (${bot ? 'передан' : 'НЕ передан!'})`);
-        console.log(`   chatId: ${chatId} (${chatId ? 'передан' : 'НЕ передан!'})`);
+async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
+    console.log('\n=== ДИАГНОСТИКА addPhotoToSession ===');
+    console.log(`📞 Вызван addPhotoToSession с параметрами:`);
+    console.log(`   userId: ${userId}`);
+    console.log(`   analysis.predictions: ${analysis.predictions?.length || 0}`);
+    console.log(`   bot: ${!!bot} (${bot ? 'передан' : 'НЕ передан!'})`);
+    console.log(`   chatId: ${chatId} (${chatId ? 'передан' : 'НЕ передан!'})`);
 
-        const session = this.getActiveSession(userId);
+    const session = this.getActiveSession(userId);
 
-        if (!session) {
-            console.log(`⚠️ У пользователя ${userId} нет активной сессии`);
-            return {
-                success: false,
-                error: 'No active session',
-                action: 'created_new_footprint'
-            };
-        }
+    if (!session) {
+        console.log(`⚠️ У пользователя ${userId} нет активной сессии`);
+        return {
+            success: false,
+            error: 'No active session',
+            action: 'created_new_footprint'
+        };
+    }
 
-        session.lastActivity = new Date();
-        session.stats.photoCount++;
+    session.lastActivity = new Date();
+    session.stats.photoCount++;
 
-        console.log(`📸 Добавляю фото в сессию "${session.name}"...`);
-        console.log(`   Предсказаний: ${analysis.predictions?.length || 0}`);
+    console.log(`📸 Добавляю фото в сессию "${session.name}"...`);
+    console.log(`   Предсказаний: ${analysis.predictions?.length || 0}`);
 
-        // Обновить информацию о фото
-        const photoRecord = {
-            id: `photo_${Date.now()}`,
-            timestamp: new Date(),
-            predictionsCount: analysis.predictions?.length || 0,
-            ...photoInfo
-        };
+    // Обновить информацию о фото
+    const photoRecord = {
+        id: `photo_${Date.now()}`,
+        timestamp: new Date(),
+        predictionsCount: analysis.predictions?.length || 0,
+        ...photoInfo
+    };
 
-        session.photos.push(photoRecord);
+    session.photos.push(photoRecord);
 
-        // Создать временный отпечаток из этого фото
-        const tempFootprint = new SimpleFootprint({
-            name: `Фото_${session.photos.length}`,
-            userId: userId
-        });
-
-        // Если в сессии включен гибридный режим, добавить гибридный отпечаток
-        if (session.useHybrid) {
-            try {
-                const hybrid = new HybridFootprint({
-                    id: tempFootprint.id,
-                    name: tempFootprint.name,
-                    userId: userId
-                });
-                tempFootprint.setHybridFootprint(hybrid);
-            } catch (error) {
-                console.log('⚠️ Не удалось создать гибридный отпечаток:', error.message);
-            }
-        }
-
-        const addResult = tempFootprint.addAnalysis(analysis, {
-            ...photoInfo,
-            sessionId: session.id,
-            photoIndex: session.photos.length
-        });
-
-        if (!addResult.success || tempFootprint.graph.nodes.size < 3) {
-            console.log(`⚠️ Не удалось создать отпечаток из фото: ${addResult.error}`);
-            session.analyses.push({
-                ...photoRecord,
-                success: false,
-                error: addResult.error
-            });
-
-            return {
-                success: false,
-                error: addResult.error,
-                nodesAdded: 0
-            };
-        }
-
-        console.log(`✅ Создан временный отпечаток: ${tempFootprint.graph.nodes.size} узлов`);
-        if (tempFootprint.hybridFootprint) {
-            console.log(`   🎯 Создан гибридный отпечаток`);
-        }
-
-        // АВТОСОВМЕЩЕНИЕ С ТОПОЛОГИЧЕСКИМ СЛИЯНИЕМ
-        let alignmentResult = null;
-        let mergeResult = null;
-        let mergeVisualizationPath = null;
-        let mergeVisualizationStats = null;
-        let mergeMethod = 'classic';
-
-        if (this.config.autoAlignment && session.currentFootprint) {
-            console.log(`🎯 Запускаю автосовмещение...`);
-
-            // Сравнить отпечатки
-            console.log('🔍 Сравниваю отпечатки (await)...');
-            const comparison = await session.currentFootprint.compare(tempFootprint);
-            console.log(`📊 Результат сравнения: ${comparison.decision}, similarity: ${comparison.similarity}`);
-
-            if (tempFootprint.hybridFootprint && session.currentFootprint.hybridFootprint) {
-                session.stats.hybridComparisons++;
-            }
-
-            if (comparison.decision === 'same') {
-                console.log(`✅ Автосовмещение: тот же след (similarity: ${comparison.similarity})`);
-
-                // ВЫБОР МЕТОДА СЛИЯНИЯ
-                if (session.useTopologySuperModel &&
-                    session.currentFootprint.hybridFootprint &&
-                    tempFootprint.hybridFootprint) {
-
-                    // 🏗️ ИСПОЛЬЗУЕМ ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ
-                    console.log('🏗️ Использую топологическое слияние...');
-
-                    try {
-                        console.log('🏗️ Выполняем топологическое слияние (await)...');
-                        mergeResult = await this.safeMergeResult(
-                            session.currentFootprint.hybridFootprint.mergeWithTransformation(
-                                tempFootprint.hybridFootprint
-                            )
-                        );
-
-                        if (mergeResult?.success) {
-                            mergeMethod = mergeResult.method || 'topology';
-                            session.stats.topologicalMerges++;
-                            this.stats.topologicalMerges++;
-                            this.stats.intelligentMerges++;
-
-                            console.log(`✅ Топологическое слияние успешно! Метод: ${mergeMethod}`);
-                        } else {
-                            console.log('❌ Топологическое слияние не удалось');
-                        }
-                    } catch (mergeError) {
-                        console.log('❌ Ошибка при выполнении топологического слияния:', mergeError.message);
-                        mergeResult = { success: false, error: mergeError.message };
-                    }
-                }
-                else if (session.useIntelligentMerge &&
-                         session.currentFootprint.hybridFootprint &&
-                         tempFootprint.hybridFootprint) {
-
-                    // 🧠 ИСПОЛЬЗУЕМ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
-                    console.log('🧠 Использую интеллектуальное слияние...');
-
-                    try {
-                        mergeResult = await this.safeMergeResult(
-                            session.currentFootprint.hybridFootprint.mergeWithTransformation(
-                                tempFootprint.hybridFootprint
-                            )
-                        );
-
-                        if (mergeResult?.success) {
-                            mergeMethod = mergeResult.method || 'intelligent';
-                            session.stats.intelligentMerges++;
-                            this.stats.intelligentMerges++;
-
-                            console.log(`✅ Интеллектуальное слияние успешно! Метод: ${mergeMethod}`);
-                        }
-                    } catch (mergeError) {
-                        console.log('❌ Ошибка при выполнении интеллектуального слияния:', mergeError.message);
-                        mergeResult = { success: false, error: mergeError.message };
-                    }
-                } else {
-                    // 📊 Классическое слияние
-                    console.log('📊 Использую классическое слияние...');
-                    mergeResult = session.currentFootprint.merge(tempFootprint);
-                    mergeMethod = 'classic';
-                }
-
-                if (mergeResult?.success) {
-                    session.stats.autoAlignments++;
-                    session.stats.mergedCount += mergeResult.mergedPhotos || mergeResult.mergedNodes || 0;
-
-                    alignmentResult = {
-                        success: true,
-                        similarity: comparison.similarity,
-                        decision: mergeResult.transformation ? 'merged_intelligently' : 'merged',
-                        mergedNodes: mergeResult.mergedPoints || mergeResult.mergedPhotos || mergeResult.mergedNodes,
-                        totalNodes: session.currentFootprint.graph.nodes.size,
-                        method: comparison.method || mergeMethod,
-                        mergeStats: mergeResult.stats || null,
-                        transformation: mergeResult.transformation || null,
-                        topologySimilarity: mergeResult.metrics?.structuralSimilarity
-                    };
-
-                    // СОЗДАЁМ ВИЗУАЛИЗАЦИЮ СЛИЯНИЯ
-                    if (this.config.enableMergeVisualization && mergeResult.success) {
-                        console.log('✅ ВКЛЮЧЕНО создание визуализации');
-                        try {
-                            const timestamp = Date.now();
-                            const vizFilename = `merge_${session.id.slice(0, 8)}_${timestamp}.png`;
-                            const vizOptions = {
-                                outputPath: path.join(this.config.dbPath, 'merge_visualizations', vizFilename),
-                                title: 'СЛИЯНИЕ СЛЕДОВ'
-                            };
-
-                            // ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ
-                            // Используем уже существующий объединенный граф
-if (mergeResult?.success && mergeResult.topologyMergeResult?.mergedGraph) {
-    // Используем уже существующий объединенный граф
-    const resultFootprint = new SimpleFootprint({
-        name: `Результат слияния (${session.currentFootprint.graph.nodes.size} → ${mergeResult.topologyMergeResult.mergedGraph.nodes.size} узлов)`,
+    // Создать временный отпечаток из этого фото
+    const tempFootprint = new SimpleFootprint({
+        name: `Фото_${session.photos.length}`,
         userId: userId
     });
-   
-    resultFootprint.graph = mergeResult.topologyMergeResult.mergedGraph;
-   
-    // ВИЗУАЛИЗАЦИЯ РЕЗУЛЬТАТА СЛИЯНИЯ
-    const vizResult = await this.mergeVisualizer.visualizeSuperModel(
-        resultFootprint,      // Результат слияния
-        tempFootprint,        // Что добавили
-        {
-            ...vizOptions,
-            title: 'РЕЗУЛЬТАТ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ'
+
+    // Если в сессии включен гибридный режим, добавить гибридный отпечаток
+    if (session.useHybrid) {
+        try {
+            const hybrid = new HybridFootprint({
+                id: tempFootprint.id,
+                name: tempFootprint.name,
+                userId: userId
+            });
+            tempFootprint.setHybridFootprint(hybrid);
+        } catch (error) {
+            console.log('⚠️ Не удалось создать гибридный отпечаток:', error.message);
         }
-    );
-   
-    if (vizResult && vizResult.success) {
-        mergeVisualizationPath = vizResult.path || vizOptions.outputPath;
-        mergeVisualizationStats = vizResult.stats || {};
-        session.stats.mergeVisualizations++;
-        this.stats.mergeVisualizations++;
-       
-        console.log(`🎨 Визуализация результата слияния создана: ${vizFilename}`);
     }
-} else {
-    // Старая логика как запасной вариант
-    const vizResult = await this.mergeVisualizer.visualizeSuperModel(
-        session.currentFootprint,
-        tempFootprint,
-        vizOptions
-    );
-    // ...
+
+    const addResult = tempFootprint.addAnalysis(analysis, {
+        ...photoInfo,
+        sessionId: session.id,
+        photoIndex: session.photos.length
+    });
+
+    if (!addResult.success || tempFootprint.graph.nodes.size < 3) {
+        console.log(`⚠️ Не удалось создать отпечаток из фото: ${addResult.error}`);
+        session.analyses.push({
+            ...photoRecord,
+            success: false,
+            error: addResult.error
+        });
+
+        return {
+            success: false,
+            error: addResult.error,
+            nodesAdded: 0
+        };
+    }
+
+    console.log(`✅ Создан временный отпечаток: ${tempFootprint.graph.nodes.size} узлов`);
+    if (tempFootprint.hybridFootprint) {
+        console.log(`   🎯 Создан гибридный отпечаток`);
+    }
+
+    // АВТОСОВМЕЩЕНИЕ С ТОПОЛОГИЧЕСКИМ СЛИЯНИЕМ
+    let alignmentResult = null;
+    let mergeResult = null;
+    let mergeVisualizationPath = null;
+    let mergeVisualizationStats = null;
+    let mergeMethod = 'classic';
+
+    if (this.config.autoAlignment && session.currentFootprint) {
+        console.log(`🎯 Запускаю автосовмещение...`);
+
+        // Сравнить отпечатки
+        console.log('🔍 Сравниваю отпечатки (await)...');
+        const comparison = await session.currentFootprint.compare(tempFootprint);
+        console.log(`📊 Результат сравнения: ${comparison.decision}, similarity: ${comparison.similarity}`);
+
+        if (tempFootprint.hybridFootprint && session.currentFootprint.hybridFootprint) {
+            session.stats.hybridComparisons++;
+        }
+
+        if (comparison.decision === 'same') {
+            console.log(`✅ Автосовмещение: тот же след (similarity: ${comparison.similarity})`);
+
+            // ВЫБОР МЕТОДА СЛИЯНИЯ
+            if (session.useTopologySuperModel &&
+                session.currentFootprint.hybridFootprint &&
+                tempFootprint.hybridFootprint) {
+
+                // 🏗️ ИСПОЛЬЗУЕМ ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ
+                console.log('🏗️ Использую топологическое слияние...');
+
+                try {
+                    console.log('🏗️ Выполняем топологическое слияние (await)...');
+                    mergeResult = await this.safeMergeResult(
+                        session.currentFootprint.hybridFootprint.mergeWithTransformation(
+                            tempFootprint.hybridFootprint
+                        )
+                    );
+
+                    if (mergeResult?.success) {
+                        mergeMethod = mergeResult.method || 'topology';
+                        session.stats.topologicalMerges++;
+                        this.stats.topologicalMerges++;
+                        this.stats.intelligentMerges++;
+
+                        console.log(`✅ Топологическое слияние успешно! Метод: ${mergeMethod}`);
+                    } else {
+                        console.log('❌ Топологическое слияние не удалось');
+                    }
+                } catch (mergeError) {
+                    console.log('❌ Ошибка при выполнении топологического слияния:', mergeError.message);
+                    mergeResult = { success: false, error: mergeError.message };
+                }
+            }
+            else if (session.useIntelligentMerge &&
+                     session.currentFootprint.hybridFootprint &&
+                     tempFootprint.hybridFootprint) {
+
+                // 🧠 ИСПОЛЬЗУЕМ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
+                console.log('🧠 Использую интеллектуальное слияние...');
+
+                try {
+                    mergeResult = await this.safeMergeResult(
+                        session.currentFootprint.hybridFootprint.mergeWithTransformation(
+                            tempFootprint.hybridFootprint
+                        )
+                    );
+
+                    if (mergeResult?.success) {
+                        mergeMethod = mergeResult.method || 'intelligent';
+                        session.stats.intelligentMerges++;
+                        this.stats.intelligentMerges++;
+
+                        console.log(`✅ Интеллектуальное слияние успешно! Метод: ${mergeMethod}`);
+                    }
+                } catch (mergeError) {
+                    console.log('❌ Ошибка при выполнении интеллектуального слияния:', mergeError.message);
+                    mergeResult = { success: false, error: mergeError.message };
+                }
+            } else {
+                // 📊 Классическое слияние
+                console.log('📊 Использую классическое слияние...');
+                mergeResult = session.currentFootprint.merge(tempFootprint);
+                mergeMethod = 'classic';
+            }
+
+            if (mergeResult?.success) {
+                session.stats.autoAlignments++;
+                session.stats.mergedCount += mergeResult.mergedPhotos || mergeResult.mergedNodes || 0;
+
+                alignmentResult = {
+                    success: true,
+                    similarity: comparison.similarity,
+                    decision: mergeResult.transformation ? 'merged_intelligently' : 'merged',
+                    mergedNodes: mergeResult.mergedPoints || mergeResult.mergedPhotos || mergeResult.mergedNodes,
+                    totalNodes: session.currentFootprint.graph.nodes.size,
+                    method: comparison.method || mergeMethod,
+                    mergeStats: mergeResult.stats || null,
+                    transformation: mergeResult.transformation || null,
+                    topologySimilarity: mergeResult.metrics?.structuralSimilarity
+                };
+
+                // СОЗДАЁМ ВИЗУАЛИЗАЦИЮ СЛИЯНИЯ
+                if (this.config.enableMergeVisualization && mergeResult.success) {
+                    console.log('✅ ВКЛЮЧЕНО создание визуализации');
+                    try {
+                        const timestamp = Date.now();
+                        const vizFilename = `merge_${session.id.slice(0, 8)}_${timestamp}.png`;
+                        const vizOptions = {
+                            outputPath: path.join(this.config.dbPath, 'merge_visualizations', vizFilename),
+                            title: 'СЛИЯНИЕ СЛЕДОВ'
+                        };
+
+                        // ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ
+                        // Используем уже существующий объединенный граф
+                        let vizResult = null; // 🔴 ИСПРАВЛЕНО: объявляем переменную
+
+                        if (mergeResult?.success && mergeResult.topologyMergeResult?.mergedGraph) {
+                            // Используем уже существующий объединенный граф
+                            const resultFootprint = new SimpleFootprint({
+                                name: `Результат слияния (${session.currentFootprint.graph.nodes.size} → ${mergeResult.topologyMergeResult.mergedGraph.nodes.size} узлов)`,
+                                userId: userId
+                            });
+
+                            resultFootprint.graph = mergeResult.topologyMergeResult.mergedGraph;
+
+                            // ВИЗУАЛИЗАЦИЯ РЕЗУЛЬТАТА СЛИЯНИЯ
+                            vizResult = await this.mergeVisualizer.visualizeSuperModel(
+                                resultFootprint,      // Результат слияния
+                                tempFootprint,        // Что добавили
+                                {
+                                    ...vizOptions,
+                                    title: 'РЕЗУЛЬТАТ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ'
+                                }
+                            );
+                        } else {
+                            // Старая логика как запасной вариант
+                            vizResult = await this.mergeVisualizer.visualizeSuperModel(
+                                session.currentFootprint,
+                                tempFootprint,
+                                vizOptions
+                            );
+                        }
+
+                        // 🔴 ИСПРАВЛЕННАЯ ПРОВЕРКА:
+                        if (vizResult && vizResult.success) {
+                            mergeVisualizationPath = vizResult.path || vizOptions.outputPath;
+                            mergeVisualizationStats = vizResult.stats || {};
+                            session.stats.mergeVisualizations++;
+                            this.stats.mergeVisualizations++;
+
+                            console.log(`🎨 Визуализация объединения создана: ${vizFilename}`);
+                            console.log(`   📊 Метод: ${mergeMethod}`);
+                            console.log(`   📁 Путь: ${mergeVisualizationPath}`);
+
+                            // ОТПРАВКА ВИЗУАЛИЗАЦИИ В TELEGRAM
+                            if (bot && chatId && mergeVisualizationPath && fs.existsSync(mergeVisualizationPath)) {
+                                console.log(`✅ ВСЕ УСЛОВИЯ ДЛЯ ОТПРАВКИ ВЫПОЛНЕНЫ! Отправляю в Telegram...`);
+
+                                setTimeout(async () => {
+                                    try {
+                                        let caption;
+                                        if (mergeMethod === 'topology') {
+                                            caption = this.createTopologyMergeCaption(
+                                                session.currentFootprint,
+                                                tempFootprint,
+                                                mergeVisualizationStats
+                                            );
+                                        } else {
+                                            caption = `📊 **СЛИЯНИЕ СЛЕДОВ**\n\n` +
+                                                     `📸 ${session.currentFootprint.name}: ${session.currentFootprint.graph.nodes.size} узлов\n` +
+                                                     `📸 ${tempFootprint.name}: ${tempFootprint.graph.nodes.size} узлов\n` +
+                                                     `🔗 Схожесть: ${comparison.similarity?.toFixed(3) || 0}\n` +
+                                                     `🔄 Метод: ${mergeMethod}\n\n` +
+                                                     `🎨 **ЦВЕТА:**\n` +
+                                                     `🔴 Красный - первый след\n` +
+                                                     `🔵 Синий - второй след\n` +
+                                                     `🟢 Зеленый - совпавшие точки`;
+                                        }
+
+                                        await bot.sendPhoto(chatId, mergeVisualizationPath, {
+                                            caption: caption,
+                                            parse_mode: 'HTML'
+                                        });
+
+                                        console.log(`✅ Визуализация отправлена в чат ${chatId}`);
+
+                                    } catch (sendError) {
+                                        console.log('⚠️ Не удалось отправить визуализацию:', sendError.message);
+                                    }
+                                }, 500);
+                            }
+                        }
+                    } catch (vizError) {
+                        console.log('⚠️ Не удалось создать визуализацию:', vizError.message);
+                    }
+                }
+            }
+        } else {
+            console.log(`⚠️ Автосовмещение: другой след (similarity: ${comparison.similarity})`);
+
+            alignmentResult = {
+                success: false,
+                similarity: comparison.similarity,
+                decision: comparison.decision,
+                reason: comparison.reason,
+                method: comparison.method || 'graph'
+            };
+
+            // Создать новый отпечаток в сессии
+            session.currentFootprint = tempFootprint;
+        }
+    } else {
+        // Первое фото в сессии или автосовмещение выключено
+        session.currentFootprint = tempFootprint;
+        console.log(`📌 Установлен текущий отпечаток сессии`);
+    }
+
+    // Сохранить анализ
+    session.analyses.push({
+        ...photoRecord,
+        success: true,
+        nodesAdded: addResult.added,
+        totalNodes: tempFootprint.graph.nodes.size,
+        alignment: alignmentResult,
+        footprintId: session.currentFootprint?.id,
+        mergeVisualization: mergeVisualizationPath,
+        mergeMethod: mergeMethod,
+        topologySimilarity: mergeResult?.metrics?.structuralSimilarity
+    });
+
+    session.stats.analysisCount++;
+
+    const result = {
+        success: true,
+        nodesAdded: addResult.added,
+        totalNodes: session.currentFootprint?.graph?.nodes?.size || 0,
+        alignment: alignmentResult,
+        sessionStats: session.stats,
+        hasHybrid: tempFootprint.hybridFootprint !== null,
+        mergeVisualization: mergeVisualizationPath,
+        mergeStats: mergeVisualizationStats,
+        mergeMethod: mergeMethod,
+        topologySimilarity: mergeResult?.metrics?.structuralSimilarity
+    };
+
+    // Автосохранение
+    if (this.config.autoSave && session.currentFootprint) {
+        this.autoSaveSession(session);
+    }
+
+    console.log('\n📊 ИТОГОВАЯ ДИАГНОСТИКА СЕССИИ:');
+    console.log(`- mergeVisualizationPath: ${mergeVisualizationPath}`);
+    console.log(`- mergeMethod: ${mergeMethod}`);
+
+    return result;
 }
-
-
-                            // ПРОВЕРЯЕМ РЕЗУЛЬТАТ
-                            if (vizResult && vizResult.success) {
-                                mergeVisualizationPath = vizResult.path || vizOptions.outputPath;
-                                mergeVisualizationStats = vizResult.stats || {};
-                                session.stats.mergeVisualizations++;
-                                this.stats.mergeVisualizations++;
-
-                                console.log(`🎨 Визуализация объединения создана: ${vizFilename}`);
-                                console.log(`   📊 Метод: ${mergeMethod}`);
-                                console.log(`   📁 Путь: ${mergeVisualizationPath}`);
-
-                                // ОТПРАВКА ВИЗУАЛИЗАЦИИ В TELEGRAM
-                                if (bot && chatId && mergeVisualizationPath && fs.existsSync(mergeVisualizationPath)) {
-                                    console.log(`✅ ВСЕ УСЛОВИЯ ДЛЯ ОТПРАВКИ ВЫПОЛНЕНЫ! Отправляю в Telegram...`);
-
-                                    setTimeout(async () => {
-                                        try {
-                                            let caption;
-                                            if (mergeMethod === 'topology') {
-                                                caption = this.createTopologyMergeCaption(
-                                                    session.currentFootprint,
-                                                    tempFootprint,
-                                                    mergeVisualizationStats
-                                                );
-                                            } else {
-                                                caption = `📊 **СЛИЯНИЕ СЛЕДОВ**\n\n` +
-                                                         `📸 ${session.currentFootprint.name}: ${session.currentFootprint.graph.nodes.size} узлов\n` +
-                                                         `📸 ${tempFootprint.name}: ${tempFootprint.graph.nodes.size} узлов\n` +
-                                                         `🔗 Схожесть: ${comparison.similarity?.toFixed(3) || 0}\n` +
-                                                         `🔄 Метод: ${mergeMethod}\n\n` +
-                                                         `🎨 **ЦВЕТА:**\n` +
-                                                         `🔴 Красный - первый след\n` +
-                                                         `🔵 Синий - второй след\n` +
-                                                         `🟢 Зеленый - совпавшие точки`;
-                                            }
-
-                                            await bot.sendPhoto(chatId, mergeVisualizationPath, {
-                                                caption: caption,
-                                                parse_mode: 'HTML'
-                                            });
-
-                                            console.log(`✅ Визуализация отправлена в чат ${chatId}`);
-
-                                        } catch (sendError) {
-                                            console.log('⚠️ Не удалось отправить визуализацию:', sendError.message);
-                                        }
-                                    }, 500);
-                                }
-                            }
-                        } catch (vizError) {
-                            console.log('⚠️ Не удалось создать визуализацию:', vizError.message);
-                        }
-                    }
-                }
-            } else {
-                console.log(`⚠️ Автосовмещение: другой след (similarity: ${comparison.similarity})`);
-
-                alignmentResult = {
-                    success: false,
-                    similarity: comparison.similarity,
-                    decision: comparison.decision,
-                    reason: comparison.reason,
-                    method: comparison.method || 'graph'
-                };
-
-                // Создать новый отпечаток в сессии
-                session.currentFootprint = tempFootprint;
-            }
-        } else {
-            // Первое фото в сессии или автосовмещение выключено
-            session.currentFootprint = tempFootprint;
-            console.log(`📌 Установлен текущий отпечаток сессии`);
-        }
-
-        // Сохранить анализ
-        session.analyses.push({
-            ...photoRecord,
-            success: true,
-            nodesAdded: addResult.added,
-            totalNodes: tempFootprint.graph.nodes.size,
-            alignment: alignmentResult,
-            footprintId: session.currentFootprint?.id,
-            mergeVisualization: mergeVisualizationPath,
-            mergeMethod: mergeMethod,
-            topologySimilarity: mergeResult?.metrics?.structuralSimilarity
-        });
-
-        session.stats.analysisCount++;
-
-        const result = {
-            success: true,
-            nodesAdded: addResult.added,
-            totalNodes: session.currentFootprint?.graph?.nodes?.size || 0,
-            alignment: alignmentResult,
-            sessionStats: session.stats,
-            hasHybrid: tempFootprint.hybridFootprint !== null,
-            mergeVisualization: mergeVisualizationPath,
-            mergeStats: mergeVisualizationStats,
-            mergeMethod: mergeMethod,
-            topologySimilarity: mergeResult?.metrics?.structuralSimilarity
-        };
-
-        // Автосохранение
-        if (this.config.autoSave && session.currentFootprint) {
-            this.autoSaveSession(session);
-        }
-
-        console.log('\n📊 ИТОГОВАЯ ДИАГНОСТИКА СЕССИИ:');
-        console.log(`- mergeVisualizationPath: ${mergeVisualizationPath}`);
-        console.log(`- mergeMethod: ${mergeMethod}`);
-
-        return result;
-    }
 
     // 6. ВСПОМОГАТЕЛЬНЫЙ МЕТОД: БЕЗОПАСНАЯ ОБРАБОТКА PROMISE
     async safeMergeResult(mergePromise) {
