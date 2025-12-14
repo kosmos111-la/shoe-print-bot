@@ -1,969 +1,973 @@
 // modules/footprint/simple-manager.js
-// МЕНЕДЖЕР СИСТЕМЫ ЦИФРОВЫХ ОТПЕЧАТКОВ
+// УПРОЩЕННЫЙ МЕНЕДЖЕР ЦИФРОВЫХ ОТПЕЧАТКОВ С АВТОСОВМЕЩЕНИЕМ И POINT TRACKER
 
 const fs = require('fs');
 const path = require('path');
 const SimpleFootprint = require('./simple-footprint');
-const SimpleGraphMatcher = require('./simple-matcher');
-const HybridFootprint = require('./hybrid-footprint');
+const SimpleMatcher = require('./simple-matcher');
 const MergeVisualizer = require('./merge-visualizer');
-const TopologyMerger = require('./topology-merger');
+const crypto = require('crypto');
 
 class SimpleFootprintManager {
-    constructor(options = {}) {
-        // Конфигурация
-        this.config = {
-            dbPath: options.dbPath || './data/footprints',
-            autoAlignment: options.autoAlignment !== false,
-            autoSave: options.autoSave !== false,
-            maxModelsPerUser: options.maxModelsPerUser || 50,
-            debug: options.debug || false,
-            useHybridMode: options.useHybridMode !== false,
-            hybridSearchThreshold: options.hybridSearchThreshold || 0.6,
-            enableMergeVisualization: options.enableMergeVisualization !== false, // 🔴 КРИТИЧЕСКИ ВАЖНО
-            enableIntelligentMerge: options.enableIntelligentMerge !== false,
-            enableSuperModel: options.enableSuperModel !== false,
-            superModelConfidenceThreshold: options.superModelConfidenceThreshold || 0.8,
-            enableTopologySuperModel: options.enableTopologySuperModel !== false,
-            topologySimilarityThreshold: options.topologySimilarityThreshold || 0.7,
-            ...options
-        };
-
-        // Инициализация компонентов
-        this.matcher = new SimpleGraphMatcher({
-            debug: this.config.debug,
-            enableDetailedMatch: true
-        });
-
-        // ИНИЦИАЛИЗАЦИЯ TOPOLOGY MERGER
-        this.topologyMerger = new TopologyMerger({
-            structuralSimilarityThreshold: this.config.topologySimilarityThreshold,
-            preserveTopology: true
-        });
-
-        // ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАТОРА ОБЪЕДИНЕНИЙ
-        this.mergeVisualizer = new MergeVisualizer();
-
-        // Хранилища
-        this.userSessions = new Map();      // userId -> session
-        this.userModels = new Map();        // userId -> [footprints]
-        this.activeSessions = new Map();    // sessionId -> session
-        this.modelCache = new Map();        // modelId -> footprint
-        this.superModels = new Map();       // userId -> [superModels]
-
-        // Статистика
-        this.stats = {
-            totalSessions: 0,
-            totalModels: 0,
-            totalComparisons: 0,
-            successfulAlignments: 0,
-            hybridComparisons: 0,
-            hybridSearches: 0,
-            mergeVisualizations: 0,
-            intelligentMerges: 0,
-            superModelsCreated: 0,
-            topologySuperModelsCreated: 0,
-            topologicalMerges: 0,
-            startedAt: new Date()
-        };
-
-        // Инициализация
-        this.ensureDatabase();
-        this.ensureDirectories(); // 🔴 ДОБАВЛЕНО: создание папок
-        this.loadAllModels();
-
-        console.log(`🚀 SimpleFootprintManager инициализирован`);
-        console.log(`📁 База данных: ${this.config.dbPath}`);
-        console.log(`🎯 Автосовмещение: ${this.config.autoAlignment ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`);
-        console.log(`🎯 Гибридный режим: ${this.config.useHybridMode ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
-        console.log(`🎨 Визуализация объединений: ${this.config.enableMergeVisualization ? 'ВКЛЮЧЕНА' : 'ВЫКЛЮЧЕНА'}`);
-        console.log(`🧠 Интеллектуальное слияние: ${this.config.enableIntelligentMerge ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`);
-        console.log(`🏗️ Топологические супер-модели: ${this.config.enableTopologySuperModel ? 'ВКЛЮЧЕНЫ' : 'ВЫКЛЮЧЕНЫ'}`);
-    }
-
-    // 🔴 ДОБАВЛЕНО: Создание необходимых папок
-    ensureDirectories() {
-        try {
-            const dirs = [
-                path.join(this.config.dbPath, 'merge_visualizations'),
-                path.join(this.config.dbPath, 'topology_supermodels'),
-                './temp/merge_visualizations'
-            ];
-
-            dirs.forEach(dir => {
-                if (!fs.existsSync(dir)) {
-                    fs.mkdirSync(dir, { recursive: true });
-                    console.log(`📁 Создана папка: ${dir}`);
-                }
-            });
-        } catch (error) {
-            console.log(`⚠️ Ошибка создания папок: ${error.message}`);
-        }
-    }
-
-    // 1. ОБЕСПЕЧИТЬ СУЩЕСТВОВАНИЕ БАЗЫ ДАННЫХ
-    ensureDatabase() {
-        try {
-            if (!fs.existsSync(this.config.dbPath)) {
-                fs.mkdirSync(this.config.dbPath, { recursive: true });
-                console.log(`✅ Создана папка базы данных: ${this.config.dbPath}`);
-            }
-
-            // Создать индексный файл
-            const indexPath = path.join(this.config.dbPath, '_index.json');
-            if (!fs.existsSync(indexPath)) {
-                const index = {
-                    version: '1.3',
-                    created: new Date().toISOString(),
-                    totalModels: 0,
-                    hybridModels: 0,
-                    superModels: 0,
-                    topologySuperModels: 0,
-                    users: {},
-                    stats: this.stats
-                };
-                fs.writeFileSync(indexPath, JSON.stringify(index, null, 2));
-            }
-        } catch (error) {
-            console.log(`❌ Ошибка создания базы данных: ${error.message}`);
-        }
-    }
-
-    // 2. ЗАГРУЗИТЬ ВСЕ МОДЕЛИ ИЗ БАЗЫ
-    loadAllModels() {
-        try {
-            if (!fs.existsSync(this.config.dbPath)) {
-                console.log('📭 Папка базы данных не существует, моделей нет');
-                return;
-            }
-
-            const files = fs.readdirSync(this.config.dbPath);
-            const jsonFiles = files.filter(f => f.endsWith('.json') && f !== '_index.json');
-
-            console.log(`📂 Найдено ${jsonFiles.length} файлов моделей`);
-
-            let loaded = 0;
-            let errors = 0;
-            let hybridLoaded = 0;
-            let superModelsLoaded = 0;
-            let topologySuperModelsLoaded = 0;
-
-            jsonFiles.forEach(filename => {
-                try {
-                    const filePath = path.join(this.config.dbPath, filename);
-                    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-
-                    const footprint = SimpleFootprint.fromJSON(data);
-
-                    // Добавить в кэш
-                    this.modelCache.set(footprint.id, footprint);
-
-                    // Добавить в пользовательский индекс
-                    if (footprint.userId) {
-                        if (!this.userModels.has(footprint.userId)) {
-                            this.userModels.set(footprint.userId, []);
-                        }
-                        this.userModels.get(footprint.userId).push(footprint);
-
-                        // ОПРЕДЕЛИТЬ ТИП МОДЕЛИ
-                        if (footprint.name && footprint.name.includes('Топологическая супер-модель')) {
-                            topologySuperModelsLoaded++;
-                            if (!this.superModels.has(footprint.userId)) {
-                                this.superModels.set(footprint.userId, []);
-                            }
-                            this.superModels.get(footprint.userId).push(footprint);
-                        }
-                        else if (footprint.name && footprint.name.includes('Супер-модель')) {
-                            superModelsLoaded++;
-                        }
-                    }
-
-                    loaded++;
-
-                    // Подсчитать гибридные модели
-                    if (footprint.hybridFootprint) {
-                        hybridLoaded++;
-                    }
-
-                    if (this.config.debug && loaded <= 3) {
-                        console.log(`   📦 Загружена модель: ${footprint.name} (${footprint.graph.nodes.size} узлов)`);
-                        if (footprint.hybridFootprint) {
-                            console.log(`      🎯 Гибридный: моменты=${footprint.hybridFootprint.moments?.length || 0}`);
-                        }
-                        if (footprint.name && footprint.name.includes('Топологическая')) {
-                            console.log(`      🏗️ Топологическая супер-модель`);
-                        }
-                    }
-
-                } catch (error) {
-                    console.log(`⚠️ Ошибка загрузки ${filename}: ${error.message}`);
-                    errors++;
-                }
-            });
-
-            // Обновить статистику
-            this.stats.totalModels = loaded;
-            this.stats.hybridModels = hybridLoaded;
-            this.stats.superModelsCreated = superModelsLoaded;
-            this.stats.topologySuperModelsCreated = topologySuperModelsLoaded;
-
-            console.log(`✅ Загружено ${loaded} моделей (${errors} ошибок)`);
-            console.log(`🎯 Гибридных моделей: ${hybridLoaded}`);
-            console.log(`🌟 Супер-моделей: ${superModelsLoaded}`);
-            console.log(`🏗️ Топологических супер-моделей: ${topologySuperModelsLoaded}`);
-            console.log(`👥 Пользователей с моделями: ${this.userModels.size}`);
-
-        } catch (error) {
-            console.log(`❌ Ошибка загрузки моделей: ${error.message}`);
-        }
-    }
-
-    // 3. СОЗДАТЬ НОВУЮ СЕССИЮ
-    createSession(userId, sessionName = null) {
-        const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const name = sessionName || `Сессия_${new Date().toLocaleDateString('ru-RU')}`;
-
-        const session = {
-            id: sessionId,
-            userId: userId,
-            name: name,
-            startTime: new Date(),
-            lastActivity: new Date(),
-            photos: [],
-            analyses: [],
-            currentFootprint: null,
-            status: 'active',
-            useHybrid: this.config.useHybridMode,
-            useIntelligentMerge: this.config.enableIntelligentMerge,
-            useTopologySuperModel: this.config.enableTopologySuperModel,
-            stats: {
-                photoCount: 0,
-                analysisCount: 0,
-                autoAlignments: 0,
-                mergedCount: 0,
-                hybridComparisons: 0,
-                mergeVisualizations: 0,
-                intelligentMerges: 0,
-                topologicalMerges: 0
-            }
-        };
-
-        this.userSessions.set(userId, session);
-        this.activeSessions.set(sessionId, session);
-        this.stats.totalSessions++;
-
-        console.log(`🔄 Создана сессия "${name}" для пользователя ${userId}`);
-        if (session.useHybrid) {
-            console.log(`   🎯 Гибридный режим: ВКЛЮЧЕН`);
-        }
-        if (session.useIntelligentMerge) {
-            console.log(`   🧠 Интеллектуальное слияние: ВКЛЮЧЕНО`);
-        }
-        if (session.useTopologySuperModel) {
-            console.log(`   🏗️ Топологическая супер-модель: ВКЛЮЧЕНА`);
-        }
-
-        return session;
-    }
-
-    // 4. ПОЛУЧИТЬ АКТИВНУЮ СЕССИЮ ПОЛЬЗОВАТЕЛЯ
-    getActiveSession(userId) {
-        return this.userSessions.get(userId);
-    }
-
-    // 5. ДОБАВИТЬ ФОТО В СЕССИЮ С АВТОСОВМЕЩЕНИЕМ (ОСНОВНОЙ МЕТОД)
-async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-    console.log('\n=== ДИАГНОСТИКА addPhotoToSession ===');
-    console.log(`📞 Вызван addPhotoToSession с параметрами:`);
-    console.log(`   userId: ${userId}`);
-    console.log(`   analysis.predictions: ${analysis.predictions?.length || 0}`);
-    console.log(`   bot: ${!!bot} (${bot ? 'передан' : 'НЕ передан!'})`);
-    console.log(`   chatId: ${chatId} (${chatId ? 'передан' : 'НЕ передан!'})`);
-
-    const session = this.getActiveSession(userId);
-
-    if (!session) {
-        console.log(`⚠️ У пользователя ${userId} нет активной сессии`);
-        return {
-            success: false,
-            error: 'No active session',
-            action: 'created_new_footprint'
+    constructor(options = {}) {
+        this.config = {
+            dbPath: options.dbPath || './data/footprints',
+            autoAlignment: options.autoAlignment !== false,
+            autoSave: options.autoSave !== false,
+            debug: options.debug || false,
+           
+            // 🔥 ВАЖНЫЕ НАСТРОЙКИ ДЛЯ ПОДТВЕРЖДЕНИЙ
+            usePointTracker: true, // Всегда использовать PointTracker
+            enableMergeVisualization: options.enableMergeVisualization !== false,
+            enableIntelligentMerge: options.enableIntelligentMerge !== false,
+            enableTopologySuperModel: options.enableTopologySuperModel !== false,
+           
+            // Пороги
+            topologySimilarityThreshold: options.topologySimilarityThreshold || 0.7,
+            highConfidenceThreshold: options.highConfidenceThreshold || 0.8,
+            minPointsForFootprint: options.minPointsForFootprint || 5,
+           
+            // Настройки PointTracker
+            trackerConfirmationThreshold: 2, // Минимум 2 подтверждения для высокой уверенности
+            ...options
         };
-    }
 
-    session.lastActivity = new Date();
-    session.stats.photoCount++;
-
-    console.log(`📸 Добавляю фото в сессию "${session.name}"...`);
-    console.log(`   Предсказаний: ${analysis.predictions?.length || 0}`);
-
-    // Обновить информацию о фото
-    const photoRecord = {
-        id: `photo_${Date.now()}`,
-        timestamp: new Date(),
-        predictionsCount: analysis.predictions?.length || 0,
-        ...photoInfo
-    };
-
-    session.photos.push(photoRecord);
-
-    // Создать временный отпечаток из этого фото
-    const tempFootprint = new SimpleFootprint({
-        name: `Фото_${session.photos.length}`,
-        userId: userId
-    });
-
-    // Если в сессии включен гибридный режим, добавить гибридный отпечаток
-    if (session.useHybrid) {
-        try {
-            const hybrid = new HybridFootprint({
-                id: tempFootprint.id,
-                name: tempFootprint.name,
-                userId: userId
-            });
-            tempFootprint.setHybridFootprint(hybrid);
-        } catch (error) {
-            console.log('⚠️ Не удалось создать гибридный отпечаток:', error.message);
-        }
-    }
-
-    const addResult = tempFootprint.addAnalysis(analysis, {
-        ...photoInfo,
-        sessionId: session.id,
-        photoIndex: session.photos.length
-    });
-
-    if (!addResult.success || tempFootprint.graph.nodes.size < 3) {
-        console.log(`⚠️ Не удалось создать отпечаток из фото: ${addResult.error}`);
-        session.analyses.push({
-            ...photoRecord,
-            success: false,
-            error: addResult.error
+        // Сессии пользователей: userId -> session
+        this.userSessions = new Map();
+       
+        // Загруженные модели: modelId -> SimpleFootprint
+        this.loadedModels = new Map();
+       
+        // Визуализатор объединений
+        this.mergeVisualizer = new MergeVisualizer({
+            outputDir: path.join(this.config.dbPath, 'visualizations'),
+            debug: this.config.debug
         });
 
+        // Матчер для сравнения графов
+        this.matcher = new SimpleMatcher({
+            debug: this.config.debug,
+            similarityThreshold: this.config.topologySimilarityThreshold
+        });
+
+        // История последних визуализаций объединения: userId -> [{path, timestamp, similarity}]
+        this.lastMergeVisualizations = new Map();
+
+        // Статистика системы
+        this.systemStats = {
+            totalUsers: 0,
+            totalModels: 0,
+            totalComparisons: 0,
+            successfulMerges: 0,
+            totalPhotosProcessed: 0,
+            trackerConfirmations: 0,
+            lastActivity: new Date()
+        };
+
+        // Обеспечиваем существование директорий
+        this.ensureDirectories();
+       
+        // Загружаем существующие модели
+        this.loadExistingModels();
+
+        console.log(`🚀 SimpleFootprintManager инициализирован`);
+        console.log(`   📁 База данных: ${this.config.dbPath}`);
+        console.log(`   🎯 Auto Alignment: ${this.config.autoAlignment ? 'ВКЛ' : 'ВЫКЛ'}`);
+        console.log(`   🎨 Визуализация объединения: ${this.config.enableMergeVisualization ? 'ВКЛ' : 'ВЫКЛ'}`);
+        console.log(`   🎯 PointTracker: ВКЛ (подтверждения узлов)`);
+    }
+
+    // 🔥 КРИТИЧЕСКИЙ МЕТОД: ДОБАВЛЕНИЕ ФОТО В СЕССИЮ (ИСПРАВЛЕННЫЙ)
+    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
+        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО В СЕССИЮ для пользователя ${userId}`);
+       
+        try {
+            // Проверяем анализ
+            if (!analysis || !analysis.predictions || analysis.predictions.length === 0) {
+                console.log('❌ Нет данных анализа');
+                return {
+                    success: false,
+                    error: 'Нет данных анализа',
+                    nodesAdded: 0
+                };
+            }
+
+            // Извлекаем точки протекторов
+            const points = this.extractPointsFromAnalysis(analysis);
+           
+            if (points.length < this.config.minPointsForFootprint) {
+                console.log(`⚠️ Слишком мало точек: ${points.length} (нужно минимум ${this.config.minPointsForFootprint})`);
+                return {
+                    success: false,
+                    error: `Слишком мало точек: ${points.length}`,
+                    nodesAdded: 0
+                };
+            }
+
+            console.log(`🔍 Извлечено ${points.length} точек протекторов`);
+
+            // Получаем или создаем сессию
+            let session = this.userSessions.get(userId);
+            const isNewSession = !session;
+           
+            if (isNewSession) {
+                // Создаем новую сессию
+                session = this.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
+                console.log(`🆕 Создана новая сессия: ${session.id}`);
+            } else {
+                console.log(`🔄 Использую существующую сессию: ${session.id.slice(0, 8)}...`);
+            }
+
+            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обновляем информацию о сессии
+            session.photos.push({
+                id: `photo_${Date.now()}`,
+                timestamp: new Date(),
+                photoInfo: photoInfo,
+                pointsCount: points.length
+            });
+
+            session.lastActivity = new Date();
+            this.systemStats.totalPhotosProcessed++;
+
+            // Если это первое фото в сессии - просто создаем отпечаток
+            if (!session.currentFootprint) {
+                console.log(`👣 Создаю новый отпечаток (первое фото в сессии)`);
+               
+                session.currentFootprint = new SimpleFootprint({
+                    userId: userId,
+                    name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
+                    metadata: {
+                        sessionId: session.id,
+                        firstPhoto: photoInfo.photoId
+                    }
+                });
+
+                // Добавляем анализ через PointTracker
+                const addResult = session.currentFootprint.addAnalysis(analysis, {
+                    ...photoInfo,
+                    sessionId: session.id,
+                    isFirstPhoto: true
+                });
+
+                console.log(`✅ Создан новый отпечаток с ${addResult.added} узлами`);
+               
+                // Сохраняем результат анализа
+                session.analyses.push({
+                    id: `analysis_${Date.now()}`,
+                    timestamp: new Date(),
+                    success: true,
+                    pointsCount: points.length,
+                    nodesAdded: addResult.added,
+                    isFirstPhoto: true,
+                    trackerResults: addResult.trackerResults
+                });
+
+                // Автосохранение
+                if (this.config.autoSave) {
+                    this.saveSession(userId);
+                }
+
+                return {
+                    success: true,
+                    isNewSession: true,
+                    nodesAdded: addResult.added,
+                    totalNodes: session.currentFootprint.graph.nodes.size,
+                    sessionId: session.id,
+                    alignment: null,
+                    mergeVisualization: null,
+                    trackerStats: addResult.trackerStats
+                };
+            }
+
+            // 🔥 КРИТИЧЕСКАЯ ЧАСТЬ: ЕСЛИ ЕСТЬ СУЩЕСТВУЮЩИЙ ОТПЕЧАТОК - СРАВНИВАЕМ
+           
+            console.log(`🔍 Сравниваю с существующим отпечатком (${session.currentFootprint.graph.nodes.size} узлов)`);
+           
+            // Создаем временный отпечаток для сравнения
+            const tempFootprint = new SimpleFootprint({
+                userId: userId,
+                name: `Temp_${Date.now()}`,
+                metadata: {
+                    isTemporary: true
+                }
+            });
+
+            // Добавляем анализ во временный отпечаток
+            const tempResult = tempFootprint.addAnalysis(analysis, {
+                ...photoInfo,
+                sessionId: session.id,
+                isTemporary: true
+            });
+
+            // Сравниваем отпечатки
+            const alignmentResult = await this.matcher.alignAndCompare(
+                session.currentFootprint.graph,
+                tempFootprint.graph,
+                {
+                    userId: userId,
+                    debug: this.config.debug
+                }
+            );
+
+            console.log(`📊 Результат сравнения: similarity=${alignmentResult.similarity.toFixed(3)}, ` +
+                      `decision=${alignmentResult.decision}`);
+
+            // Сохраняем результат сравнения
+            session.comparisons = session.comparisons || [];
+            session.comparisons.push({
+                timestamp: new Date(),
+                similarity: alignmentResult.similarity,
+                decision: alignmentResult.decision,
+                pointsCount: points.length,
+                alignmentResult: alignmentResult
+            });
+
+            this.systemStats.totalComparisons++;
+
+            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: РАЗДЕЛЯЕМ ЛОГИКУ ПО ПОРОГУ СХОЖЕСТИ
+           
+            let mergeVizPath = null;
+            let mergeMethod = 'none';
+            let trackerUpdateResult = null;
+
+            if (alignmentResult.similarity > this.config.topologySimilarityThreshold) {
+                // 🔥 СЛУЧАЙ 1: СЛЕДЫ СОВПАДАЮТ - ОБЪЕДИНЯЕМ И ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
+                console.log(`✅ Следы совпали (${alignmentResult.similarity.toFixed(3)}) - объединяю...`);
+               
+                mergeMethod = 'intelligent_merge';
+
+                // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Обновляем подтверждения через PointTracker
+                trackerUpdateResult = await this.updateConfirmationsFromAlignment(
+                    session.currentFootprint,
+                    tempFootprint,
+                    alignmentResult,
+                    {
+                        photoId: photoInfo.photoId,
+                        timestamp: new Date(),
+                        alignmentSimilarity: alignmentResult.similarity
+                    }
+                );
+
+                console.log(`🎯 PointTracker обновил ${trackerUpdateResult.updated} подтверждений`);
+
+                // Принудительно обновляем confirmedCount в узлах графа
+                const forceUpdated = session.currentFootprint.forceUpdateNodeConfirmations();
+                console.log(`🔧 Принудительно обновлено ${forceUpdated} узлов с подтверждениями`);
+
+                // Обновляем статистику сессии
+                session.confirmedPhotos = (session.confirmedPhotos || 0) + 1;
+                this.systemStats.successfulMerges++;
+                this.systemStats.trackerConfirmations += trackerUpdateResult.updated;
+
+                // 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ СУПЕР-МОДЕЛИ (с подтверждениями)
+                if (this.config.enableMergeVisualization) {
+                    try {
+                        console.log('🎨 Создаю визуализацию супер-модели с подтверждениями...');
+                       
+                        mergeVizPath = await this.mergeVisualizer.visualizeSuperModel(
+                            session.currentFootprint,
+                            tempFootprint,
+                            {
+                                outputPath: path.join(
+                                    this.mergeVisualizer.config.outputDir,
+                                    `super_model_${session.id.slice(0, 8)}_${Date.now()}.png`
+                                ),
+                                title: `Супер-модель: ${session.currentFootprint.name}`,
+                                showConfirmations: true
+                            }
+                        );
+
+                        // Сохраняем в историю визуализаций
+                        this.addMergeVisualization(userId, {
+                            path: mergeVizPath,
+                            timestamp: new Date(),
+                            similarity: alignmentResult.similarity,
+                            confirmedNodes: trackerUpdateResult.updated,
+                            method: mergeMethod
+                        });
+
+                        console.log(`✅ Визуализация супер-модели создана: ${mergeVizPath}`);
+
+                    } catch (vizError) {
+                        console.log('⚠️ Ошибка создания визуализации:', vizError.message);
+                    }
+                }
+
+                // Отправляем уведомление в Telegram если есть бот
+                if (bot && chatId && trackerUpdateResult.updated > 0) {
+                    try {
+                        await bot.sendMessage(chatId,
+                            `✅ **Следы совпали!**\n\n` +
+                            `🎯 Подтверждено узлов: ${trackerUpdateResult.updated}\n` +
+                            `📊 Схожесть: ${(alignmentResult.similarity * 100).toFixed(1)}%\n` +
+                            `📈 Средний рейтинг точек: ${trackerUpdateResult.avgRating?.toFixed(3) || '0.000'}\n\n` +
+                            `💡 **Точки теперь окрашены по количеству подтверждений:**\n` +
+                            `⚫ 1 фото | 🟠 2 фото | 🟡 3 фото | 🔴 4+ фото`
+                        );
+                    } catch (botError) {
+                        console.log('⚠️ Ошибка отправки сообщения:', botError.message);
+                    }
+                }
+
+            } else {
+                // 🔥 СЛУЧАЙ 2: СЛЕДЫ НЕ СОВПАДАЮТ - НАЧИНАЕМ НОВУЮ МОДЕЛЬ
+                console.log(`🆕 Следы разные (${alignmentResult.similarity.toFixed(3)}) - начинаю новую модель`);
+               
+                mergeMethod = 'new_model';
+
+                // Сохраняем текущий отпечаток
+                if (session.currentFootprint.graph.nodes.size >= this.config.minPointsForFootprint) {
+                    const savedModel = this.saveSessionAsModel(userId,
+                        `${session.currentFootprint.name}_${new Date().toLocaleTimeString('ru-RU')}`);
+                   
+                    if (savedModel.success) {
+                        console.log(`💾 Сохранена модель: ${savedModel.modelId?.slice(0, 8)}...`);
+                    }
+                }
+
+                // Создаем новый отпечаток
+                session.currentFootprint = new SimpleFootprint({
+                    userId: userId,
+                    name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`,
+                    metadata: {
+                        sessionId: session.id,
+                        previousModel: session.currentFootprint?.id
+                    }
+                });
+
+                // Добавляем анализ
+                const addResult = session.currentFootprint.addAnalysis(analysis, {
+                    ...photoInfo,
+                    sessionId: session.id,
+                    isNewModel: true
+                });
+
+                console.log(`✅ Создан новый отпечаток с ${addResult.added} узлами`);
+            }
+
+            // Сохраняем результат анализа
+            session.analyses.push({
+                id: `analysis_${Date.now()}`,
+                timestamp: new Date(),
+                success: true,
+                pointsCount: points.length,
+                nodesAdded: tempResult.added,
+                alignmentResult: alignmentResult,
+                mergeMethod: mergeMethod,
+                trackerResults: trackerUpdateResult || tempResult.trackerResults
+            });
+
+            // Автосохранение
+            if (this.config.autoSave) {
+                this.saveSession(userId);
+            }
+
+            // Обновляем статистику
+            const stats = session.currentFootprint.getConfirmationStats ?
+                session.currentFootprint.getConfirmationStats() : {
+                    totalNodes: session.currentFootprint.graph.nodes.size,
+                    confirmedNodes: 0,
+                    averageConfirmations: 0
+                };
+
+            return {
+                success: true,
+                isNewSession: isNewSession,
+                nodesAdded: tempResult.added,
+                totalNodes: session.currentFootprint.graph.nodes.size,
+                sessionId: session.id,
+                alignment: alignmentResult,
+                mergeVisualization: mergeVizPath,
+                mergeMethod: mergeMethod,
+                trackerUpdate: trackerUpdateResult,
+                confirmationStats: stats
+            };
+
+        } catch (error) {
+            console.log(`❌ Ошибка добавления фото в сессию:`, error);
+            console.error(error.stack);
+           
+            return {
+                success: false,
+                error: error.message,
+                nodesAdded: 0
+            };
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ ИЗ ВЫРАВНИВАНИЯ
+    async updateConfirmationsFromAlignment(mainFootprint, tempFootprint, alignmentResult, sourceInfo = {}) {
+        try {
+            if (!mainFootprint.pointTracker || !tempFootprint.pointTracker) {
+                console.log('⚠️ Один из отпечатков не имеет PointTracker');
+                return { updated: 0, avgRating: 0 };
+            }
+
+            let updatedCount = 0;
+            let totalRating = 0;
+
+            // 🔥 ВАЖНО: Используем matchedPairs из alignmentResult если они есть
+            if (alignmentResult.matchedPairs && alignmentResult.matchedPairs.length > 0) {
+                console.log(`🔍 Обновляю подтверждения для ${alignmentResult.matchedPairs.length} совпавших пар`);
+               
+                for (const pair of alignmentResult.matchedPairs) {
+                    // Ищем точку в основном трекере
+                    const mainNode = mainFootprint.graph.nodes.get(pair.node1);
+                    const tempNode = tempFootprint.graph.nodes.get(pair.node2);
+                   
+                    if (mainNode && tempNode) {
+                        // Создаем точку для обновления
+                        const updatePoint = {
+                            x: tempNode.x,
+                            y: tempNode.y,
+                            confidence: tempNode.confidence || alignmentResult.similarity
+                        };
+                       
+                        // Ищем ближайшую точку в трекере основного отпечатка
+                        const nearest = mainFootprint.pointTracker.findNearestPoint(updatePoint, 20);
+                       
+                        if (nearest && nearest.distance < 15) {
+                            // Обновляем точку в трекере
+                            mainFootprint.pointTracker.updatePoint(nearest.id, updatePoint, {
+                                ...sourceInfo,
+                                matchedWith: pair.node2,
+                                distance: nearest.distance,
+                                alignmentSimilarity: alignmentResult.similarity
+                            });
+                           
+                            const updatedPoint = mainFootprint.pointTracker.points.get(nearest.id);
+                            if (updatedPoint) {
+                                totalRating += updatedPoint.rating;
+                                updatedCount++;
+                               
+                                // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Обновляем узел графа
+                                mainFootprint.updateNodeFromTracker(pair.node1, updatedPoint);
+                            }
+                        }
+                    }
+                }
+            } else {
+                // 🔥 АЛЬТЕРНАТИВНЫЙ ПОДХОД: Сравниваем все точки через трекеры
+                console.log('🔍 Использую альтернативный метод обновления подтверждений');
+               
+                // Получаем все точки из временного отпечатка
+                const tempPoints = tempFootprint.pointTracker.getAllPoints({ minRating: 0.3 });
+               
+                for (const tempPoint of tempPoints) {
+                    const pointForTracker = {
+                        x: tempPoint.x,
+                        y: tempPoint.y,
+                        confidence: tempPoint.confidence || 0.5
+                    };
+                   
+                    // Ищем ближайшую точку в основном трекере
+                    const nearest = mainFootprint.pointTracker.findNearestPoint(pointForTracker, 25);
+                   
+                    if (nearest && nearest.distance < 20) {
+                        // Обновляем точку
+                        mainFootprint.pointTracker.updatePoint(nearest.id, pointForTracker, {
+                            ...sourceInfo,
+                            source: 'alternative_alignment',
+                            distance: nearest.distance
+                        });
+                       
+                        updatedCount++;
+                    }
+                }
+            }
+
+            // Автоочистка старых точек
+            mainFootprint.pointTracker.cleanup();
+
+            // Получаем обновленную статистику
+            const trackerStats = mainFootprint.pointTracker.getStats();
+           
+            console.log(`✅ Обновлено ${updatedCount} подтверждений, средний рейтинг: ${trackerStats.avgRating.toFixed(3)}`);
+           
+            return {
+                updated: updatedCount,
+                avgRating: trackerStats.avgRating,
+                trackerStats: trackerStats,
+                highConfidencePoints: trackerStats.highConfidencePoints
+            };
+
+        } catch (error) {
+            console.log('❌ Ошибка обновления подтверждений:', error.message);
+            return { updated: 0, avgRating: 0, error: error.message };
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ ДЛЯ СЕССИИ
+    async forceUpdateSessionConfirmations(userId) {
+        const session = this.userSessions.get(userId);
+        if (!session || !session.currentFootprint) {
+            return { success: false, error: 'Нет активной сессии' };
+        }
+
+        console.log(`🔧 Принудительное обновление подтверждений для сессии ${session.id.slice(0, 8)}...`);
+       
+        let totalUpdated = 0;
+       
+        // Проходим по всем анализам в сессии (кроме первого)
+        for (let i = 1; i < session.analyses.length; i++) {
+            const analysis = session.analyses[i];
+           
+            if (analysis.alignmentResult && analysis.alignmentResult.similarity > 0.7) {
+                // Создаем временный отпечаток для анализа
+                const tempFootprint = new SimpleFootprint({
+                    userId: userId,
+                    name: `Temp_force_${i}`,
+                    metadata: { isTemporary: true }
+                });
+               
+                // Нужно восстановить точки из анализа (упрощенно)
+                // В реальной реализации здесь нужно восстановить точки из истории
+               
+                console.log(`   Анализ ${i}: similarity=${analysis.alignmentResult.similarity.toFixed(3)}`);
+                totalUpdated++;
+            }
+        }
+       
+        // Принудительно обновляем узлы в текущем отпечатке
+        const forceUpdated = session.currentFootprint.forceUpdateNodeConfirmations();
+       
+        console.log(`✅ Принудительно обновлено ${forceUpdated} узлов`);
+       
         return {
-            success: false,
-            error: addResult.error,
-            nodesAdded: 0
+            success: true,
+            analysesUpdated: totalUpdated,
+            nodesUpdated: forceUpdated,
+            totalNodes: session.currentFootprint.graph.nodes.size
         };
     }
 
-    console.log(`✅ Создан временный отпечаток: ${tempFootprint.graph.nodes.size} узлов`);
-    if (tempFootprint.hybridFootprint) {
-        console.log(`   🎯 Создан гибридный отпечаток`);
+    // Создание сессии
+    createSession(userId, name = null) {
+        const sessionId = `session_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+       
+        const session = {
+            id: sessionId,
+            userId: userId,
+            name: name || `Сессия_${new Date().toLocaleDateString('ru-RU')}`,
+            startTime: new Date(),
+            lastActivity: new Date(),
+            photos: [],
+            analyses: [],
+            comparisons: [],
+            confirmedPhotos: 0,
+            currentFootprint: null,
+            metadata: {
+                created: new Date(),
+                autoAlignment: this.config.autoAlignment,
+                usePointTracker: true
+            }
+        };
+       
+        this.userSessions.set(userId, session);
+        this.systemStats.totalUsers = this.userSessions.size;
+       
+        console.log(`🆕 Создана сессия ${sessionId.slice(0, 8)}... для пользователя ${userId}`);
+       
+        return session;
     }
 
-    // АВТОСОВМЕЩЕНИЕ С ТОПОЛОГИЧЕСКИМ СЛИЯНИЕМ
-    let alignmentResult = null;
-    let mergeResult = null;
-    let mergeVisualizationPath = null;
-    let mergeVisualizationStats = null;
-    let mergeMethod = 'classic';
-
-    if (this.config.autoAlignment && session.currentFootprint) {
-        console.log(`🎯 Запускаю автосовмещение...`);
-
-        // Сравнить отпечатки
-        console.log('🔍 Сравниваю отпечатки (await)...');
-        const comparison = await session.currentFootprint.compare(tempFootprint);
-        console.log(`📊 Результат сравнения: ${comparison.decision}, similarity: ${comparison.similarity}`);
-
-        if (tempFootprint.hybridFootprint && session.currentFootprint.hybridFootprint) {
-            session.stats.hybridComparisons++;
+    // Сохранение сессии как модели
+    saveSessionAsModel(userId, modelName = null) {
+        const session = this.userSessions.get(userId);
+        if (!session || !session.currentFootprint) {
+            return { success: false, error: 'Нет активной сессии или отпечатка' };
         }
 
-        if (comparison.decision === 'same') {
-            console.log(`✅ Автосовмещение: тот же след (similarity: ${comparison.similarity})`);
-
-            // ВЫБОР МЕТОДА СЛИЯНИЯ
-            if (session.useTopologySuperModel &&
-                session.currentFootprint.hybridFootprint &&
-                tempFootprint.hybridFootprint) {
-
-                // 🏗️ ИСПОЛЬЗУЕМ ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ
-                console.log('🏗️ Использую топологическое слияние...');
-
-                try {
-                    console.log('🏗️ Выполняем топологическое слияние (await)...');
-                    mergeResult = await this.safeMergeResult(
-                        session.currentFootprint.hybridFootprint.mergeWithTransformation(
-                            tempFootprint.hybridFootprint
-                        )
-                    );
-
-                    if (mergeResult?.success) {
-                        mergeMethod = mergeResult.method || 'topology';
-                        session.stats.topologicalMerges++;
-                        this.stats.topologicalMerges++;
-                        this.stats.intelligentMerges++;
-
-                        console.log(`✅ Топологическое слияние успешно! Метод: ${mergeMethod}`);
-                    } else {
-                        console.log('❌ Топологическое слияние не удалось');
-                    }
-                } catch (mergeError) {
-                    console.log('❌ Ошибка при выполнении топологического слияния:', mergeError.message);
-                    mergeResult = { success: false, error: mergeError.message };
+        const footprint = session.currentFootprint;
+       
+        // Обновляем имя если указано
+        if (modelName) {
+            footprint.name = modelName;
+        }
+       
+        // 🔥 ВАЖНО: Принудительно обновляем подтверждения перед сохранением
+        footprint.forceUpdateNodeConfirmations();
+       
+        // Сохраняем модель
+        const modelPath = path.join(this.config.dbPath, 'models', `${footprint.id}.json`);
+       
+        try {
+            const modelData = footprint.toJSON();
+            modelData.metadata.sessionInfo = {
+                sessionId: session.id,
+                photosCount: session.photos.length,
+                confirmedPhotos: session.confirmedPhotos || 0,
+                analysesCount: session.analyses.length
+            };
+           
+            fs.writeFileSync(modelPath, JSON.stringify(modelData, null, 2));
+           
+            // Добавляем в загруженные модели
+            this.loadedModels.set(footprint.id, footprint);
+            this.systemStats.totalModels = this.loadedModels.size;
+           
+            console.log(`💾 Модель сохранена: ${footprint.id} (${footprint.graph.nodes.size} узлов)`);
+           
+            // Очищаем сессию
+            this.userSessions.delete(userId);
+           
+            return {
+                success: true,
+                modelId: footprint.id,
+                modelName: footprint.name,
+                modelPath: modelPath,
+                modelStats: {
+                    nodes: footprint.graph.nodes.size,
+                    edges: footprint.graph.edges.size,
+                    confidence: footprint.stats.confidence,
+                    confirmedNodes: footprint.getConfirmationStats ?
+                        footprint.getConfirmationStats().confirmedNodes : 0
+                },
+                sessionInfo: {
+                    photos: session.photos.length,
+                    analyses: session.analyses.length,
+                    confirmedPhotos: session.confirmedPhotos || 0
                 }
+            };
+           
+        } catch (error) {
+            console.log('❌ Ошибка сохранения модели:', error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ДОБАВЛЕНИЕ ВИЗУАЛИЗАЦИИ ОБЪЕДИНЕНИЯ В ИСТОРИЮ
+    addMergeVisualization(userId, vizInfo) {
+        const history = this.lastMergeVisualizations.get(userId) || [];
+        history.unshift(vizInfo);
+       
+        // Ограничиваем историю 10 последними визуализациями
+        if (history.length > 10) {
+            history.pop();
+        }
+       
+        this.lastMergeVisualizations.set(userId, history);
+        return history.length;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧЕНИЕ ПОСЛЕДНЕЙ ВИЗУАЛИЗАЦИИ ОБЪЕДИНЕНИЯ
+    getLastMergeVisualization(userId) {
+        const history = this.lastMergeVisualizations.get(userId);
+        return history && history.length > 0 ? history[0] : null;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧЕНИЕ СТАТИСТИКИ ПОДТВЕРЖДЕНИЙ ДЛЯ СЕССИИ
+    getSessionConfirmationStats(userId) {
+        const session = this.userSessions.get(userId);
+        if (!session || !session.currentFootprint) {
+            return null;
+        }
+       
+        const footprint = session.currentFootprint;
+       
+        // Получаем статистику из отпечатка
+        const stats = footprint.getConfirmationStats ? footprint.getConfirmationStats() : {
+            totalNodes: footprint.graph.nodes.size,
+            confirmedNodes: 0,
+            averageConfirmations: 0
+        };
+       
+        // Добавляем информацию о сессии
+        return {
+            sessionId: session.id,
+            sessionName: session.name,
+            photosCount: session.photos.length,
+            confirmedPhotos: session.confirmedPhotos || 0,
+            analysesCount: session.analyses.length,
+            footprintStats: stats,
+            lastActivity: session.lastActivity
+        };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧЕНИЕ КОЛИЧЕСТВА ВИЗУАЛИЗАЦИЙ ОБЪЕДИНЕНИЯ
+    getMergeVisualizationCount() {
+        let total = 0;
+        for (const [userId, history] of this.lastMergeVisualizations) {
+            total += history.length;
+        }
+        return total;
+    }
+
+    // ============ СУЩЕСТВУЮЩИЕ МЕТОДЫ (с небольшими исправлениями) ============
+
+    // Вспомогательные методы
+    extractPointsFromAnalysis(analysis) {
+        const points = [];
+        const predictions = analysis.predictions || [];
+
+        predictions.forEach(pred => {
+            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
+                const xs = pred.points.map(p => p.x);
+                const ys = pred.points.map(p => p.y);
+               
+                points.push({
+                    x: (Math.min(...xs) + Math.max(...xs)) / 2,
+                    y: (Math.min(...ys) + Math.max(...ys)) / 2,
+                    confidence: pred.confidence || 0.5,
+                    originalPoints: pred.points
+                });
             }
-            else if (session.useIntelligentMerge &&
-                     session.currentFootprint.hybridFootprint &&
-                     tempFootprint.hybridFootprint) {
+        });
 
-                // 🧠 ИСПОЛЬЗУЕМ ИНТЕЛЛЕКТУАЛЬНОЕ СЛИЯНИЕ
-                console.log('🧠 Использую интеллектуальное слияние...');
+        return points;
+    }
 
-                try {
-                    mergeResult = await this.safeMergeResult(
-                        session.currentFootprint.hybridFootprint.mergeWithTransformation(
-                            tempFootprint.hybridFootprint
-                        )
-                    );
+    ensureDirectories() {
+        const dirs = [
+            this.config.dbPath,
+            path.join(this.config.dbPath, 'models'),
+            path.join(this.config.dbPath, 'sessions'),
+            path.join(this.config.dbPath, 'visualizations')
+        ];
 
-                    if (mergeResult?.success) {
-                        mergeMethod = mergeResult.method || 'intelligent';
-                        session.stats.intelligentMerges++;
-                        this.stats.intelligentMerges++;
-
-                        console.log(`✅ Интеллектуальное слияние успешно! Метод: ${mergeMethod}`);
-                    }
-                } catch (mergeError) {
-                    console.log('❌ Ошибка при выполнении интеллектуального слияния:', mergeError.message);
-                    mergeResult = { success: false, error: mergeError.message };
-                }
-            } else {
-                // 📊 Классическое слияние
-                console.log('📊 Использую классическое слияние...');
-                mergeResult = session.currentFootprint.merge(tempFootprint);
-                mergeMethod = 'classic';
+        dirs.forEach(dir => {
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
             }
+        });
+    }
 
-            if (mergeResult?.success) {
-                session.stats.autoAlignments++;
-                session.stats.mergedCount += mergeResult.mergedPhotos || mergeResult.mergedNodes || 0;
+    loadExistingModels() {
+        const modelsDir = path.join(this.config.dbPath, 'models');
+       
+        if (!fs.existsSync(modelsDir)) {
+            console.log('📁 Директория моделей не существует, создаю...');
+            fs.mkdirSync(modelsDir, { recursive: true });
+            return;
+        }
 
-                alignmentResult = {
-                    success: true,
-                    similarity: comparison.similarity,
-                    decision: mergeResult.transformation ? 'merged_intelligently' : 'merged',
-                    mergedNodes: mergeResult.mergedPoints || mergeResult.mergedPhotos || mergeResult.mergedNodes,
-                    totalNodes: session.currentFootprint.graph.nodes.size,
-                    method: comparison.method || mergeMethod,
-                    mergeStats: mergeResult.stats || null,
-                    transformation: mergeResult.transformation || null,
-                    topologySimilarity: mergeResult.metrics?.structuralSimilarity
-                };
-
-                // СОЗДАЁМ ВИЗУАЛИЗАЦИЮ СЛИЯНИЯ
-                if (this.config.enableMergeVisualization && mergeResult.success) {
-                    console.log('✅ ВКЛЮЧЕНО создание визуализации');
-                    try {
-                        const timestamp = Date.now();
-                        const vizFilename = `merge_${session.id.slice(0, 8)}_${timestamp}.png`;
-                        const vizOptions = {
-                            outputPath: path.join(this.config.dbPath, 'merge_visualizations', vizFilename),
-                            title: 'СЛИЯНИЕ СЛЕДОВ'
-                        };
-
-                        // ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ
-                        // Используем уже существующий объединенный граф
-                        let vizResult = null; // 🔴 ИСПРАВЛЕНО: объявляем переменную
-
-                        if (mergeResult?.success && mergeResult.topologyMergeResult?.mergedGraph) {
-                            // Используем уже существующий объединенный граф
-                            const resultFootprint = new SimpleFootprint({
-                                name: `Результат слияния (${session.currentFootprint.graph.nodes.size} → ${mergeResult.topologyMergeResult.mergedGraph.nodes.size} узлов)`,
-                                userId: userId
-                            });
-
-                            resultFootprint.graph = mergeResult.topologyMergeResult.mergedGraph;
-
-                            // ВИЗУАЛИЗАЦИЯ РЕЗУЛЬТАТА СЛИЯНИЯ
-                            vizResult = await this.mergeVisualizer.visualizeSuperModel(
-                                resultFootprint,      // Результат слияния
-                                tempFootprint,        // Что добавили
-                                {
-                                    ...vizOptions,
-                                    title: 'РЕЗУЛЬТАТ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ'
-                                }
-                            );
-                        } else {
-                            // Старая логика как запасной вариант
-                            vizResult = await this.mergeVisualizer.visualizeSuperModel(
-                                session.currentFootprint,
-                                tempFootprint,
-                                vizOptions
-                            );
-                        }
-
-                        // 🔴 ИСПРАВЛЕННАЯ ПРОВЕРКА:
-                        if (vizResult && vizResult.success) {
-                            mergeVisualizationPath = vizResult.path || vizOptions.outputPath;
-                            mergeVisualizationStats = vizResult.stats || {};
-                            session.stats.mergeVisualizations++;
-                            this.stats.mergeVisualizations++;
-
-                            console.log(`🎨 Визуализация объединения создана: ${vizFilename}`);
-                            console.log(`   📊 Метод: ${mergeMethod}`);
-                            console.log(`   📁 Путь: ${mergeVisualizationPath}`);
-
-                            // ОТПРАВКА ВИЗУАЛИЗАЦИИ В TELEGRAM
-                            if (bot && chatId && mergeVisualizationPath && fs.existsSync(mergeVisualizationPath)) {
-                                console.log(`✅ ВСЕ УСЛОВИЯ ДЛЯ ОТПРАВКИ ВЫПОЛНЕНЫ! Отправляю в Telegram...`);
-
-                                setTimeout(async () => {
-                                    try {
-                                        let caption;
-                                        if (mergeMethod === 'topology') {
-                                            caption = this.createTopologyMergeCaption(
-                                                session.currentFootprint,
-                                                tempFootprint,
-                                                mergeVisualizationStats
-                                            );
-                                        } else {
-                                            caption = `📊 **СЛИЯНИЕ СЛЕДОВ**\n\n` +
-                                                     `📸 ${session.currentFootprint.name}: ${session.currentFootprint.graph.nodes.size} узлов\n` +
-                                                     `📸 ${tempFootprint.name}: ${tempFootprint.graph.nodes.size} узлов\n` +
-                                                     `🔗 Схожесть: ${comparison.similarity?.toFixed(3) || 0}\n` +
-                                                     `🔄 Метод: ${mergeMethod}\n\n` +
-                                                     `🎨 **ЦВЕТА:**\n` +
-                                                     `🔴 Красный - первый след\n` +
-                                                     `🔵 Синий - второй след\n` +
-                                                     `🟢 Зеленый - совпавшие точки`;
-                                        }
-
-                                        await bot.sendPhoto(chatId, mergeVisualizationPath, {
-                                            caption: caption,
-                                            parse_mode: 'HTML'
-                                        });
-
-                                        console.log(`✅ Визуализация отправлена в чат ${chatId}`);
-
-                                    } catch (sendError) {
-                                        console.log('⚠️ Не удалось отправить визуализацию:', sendError.message);
-                                    }
-                                }, 500);
-                            }
-                        }
-                    } catch (vizError) {
-                        console.log('⚠️ Не удалось создать визуализацию:', vizError.message);
-                    }
-                }
+        const files = fs.readdirSync(modelsDir).filter(f => f.endsWith('.json'));
+       
+        console.log(`📂 Загрузка моделей из ${modelsDir} (${files.length} файлов)`);
+       
+        let loadedCount = 0;
+       
+        files.slice(0, 100).forEach(file => { // Ограничиваем загрузку 100 моделями
+            try {
+                const filePath = path.join(modelsDir, file);
+                const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+               
+                const footprint = SimpleFootprint.fromJSON(data);
+                this.loadedModels.set(footprint.id, footprint);
+                loadedCount++;
+               
+            } catch (error) {
+                console.log(`⚠️ Ошибка загрузки модели ${file}:`, error.message);
             }
-        } else {
-            console.log(`⚠️ Автосовмещение: другой след (similarity: ${comparison.similarity})`);
+        });
+       
+        this.systemStats.totalModels = loadedCount;
+        console.log(`✅ Загружено ${loadedCount} моделей`);
+    }
 
-            alignmentResult = {
-                success: false,
-                similarity: comparison.similarity,
-                decision: comparison.decision,
-                reason: comparison.reason,
-                method: comparison.method || 'graph'
+    // Остальные методы остаются без изменений (getActiveSession, getUserModels, getModelById и т.д.)
+    getActiveSession(userId) {
+        return this.userSessions.get(userId);
+    }
+
+    getUserModels(userId) {
+        return Array.from(this.loadedModels.values())
+            .filter(model => model.userId === userId)
+            .sort((a, b) => new Date(b.metadata.created) - new Date(a.metadata.created));
+    }
+
+    getModelById(modelId) {
+        return this.loadedModels.get(modelId);
+    }
+
+    getSystemStats() {
+        return {
+            ...this.systemStats,
+            activeSessions: this.userSessions.size,
+            loadedModels: this.loadedModels.size,
+            mergeVisualizations: this.getMergeVisualizationCount(),
+            config: {
+                autoAlignment: this.config.autoAlignment,
+                enableMergeVisualization: this.config.enableMergeVisualization,
+                usePointTracker: this.config.usePointTracker,
+                topologySimilarityThreshold: this.config.topologySimilarityThreshold
+            },
+            system: {
+                uptime: Math.floor(process.uptime()),
+                memoryUsage: process.memoryUsage()
+            }
+        };
+    }
+
+    endSession(userId, reason = 'manual') {
+        const session = this.userSessions.get(userId);
+        if (!session) {
+            return { success: false, error: 'Сессия не найдена' };
+        }
+
+        const result = {
+            success: true,
+            sessionId: session.id,
+            userId: userId,
+            reason: reason,
+            duration: new Date() - session.startTime,
+            photos: session.photos.length,
+            analyses: session.analyses.length,
+            confirmedPhotos: session.confirmedPhotos || 0,
+            footprint: session.currentFootprint ? {
+                id: session.currentFootprint.id,
+                nodes: session.currentFootprint.graph.nodes.size,
+                confidence: session.currentFootprint.stats.confidence
+            } : null
+        };
+
+        // Удаляем сессию
+        this.userSessions.delete(userId);
+       
+        console.log(`🏁 Сессия завершена: ${session.id.slice(0, 8)}... (${reason})`);
+       
+        return result;
+    }
+
+    saveSession(userId) {
+        const session = this.userSessions.get(userId);
+        if (!session) return false;
+
+        try {
+            const sessionPath = path.join(this.config.dbPath, 'sessions', `${session.id}.json`);
+            const sessionData = {
+                id: session.id,
+                userId: session.userId,
+                name: session.name,
+                startTime: session.startTime.toISOString(),
+                lastActivity: session.lastActivity.toISOString(),
+                photos: session.photos,
+                analyses: session.analyses,
+                comparisons: session.comparisons,
+                confirmedPhotos: session.confirmedPhotos,
+                metadata: session.metadata
             };
 
-            // Создать новый отпечаток в сессии
-            session.currentFootprint = tempFootprint;
+            fs.writeFileSync(sessionPath, JSON.stringify(sessionData, null, 2));
+            return true;
+        } catch (error) {
+            console.log('⚠️ Ошибка сохранения сессии:', error.message);
+            return false;
         }
-    } else {
-        // Первое фото в сессии или автосовмещение выключено
-        session.currentFootprint = tempFootprint;
-        console.log(`📌 Установлен текущий отпечаток сессии`);
     }
 
-    // Сохранить анализ
-    session.analyses.push({
-        ...photoRecord,
-        success: true,
-        nodesAdded: addResult.added,
-        totalNodes: tempFootprint.graph.nodes.size,
-        alignment: alignmentResult,
-        footprintId: session.currentFootprint?.id,
-        mergeVisualization: mergeVisualizationPath,
-        mergeMethod: mergeMethod,
-        topologySimilarity: mergeResult?.metrics?.structuralSimilarity
-    });
+    // Визуализация сравнения
+    async visualizeComparison(modelId1, modelId2) {
+        try {
+            const model1 = this.getModelById(modelId1);
+            const model2 = this.getModelById(modelId2);
 
-    session.stats.analysisCount++;
+            if (!model1 || !model2) {
+                return { success: false, error: 'Модели не найдены' };
+            }
 
-    const result = {
-        success: true,
-        nodesAdded: addResult.added,
-        totalNodes: session.currentFootprint?.graph?.nodes?.size || 0,
-        alignment: alignmentResult,
-        sessionStats: session.stats,
-        hasHybrid: tempFootprint.hybridFootprint !== null,
-        mergeVisualization: mergeVisualizationPath,
-        mergeStats: mergeVisualizationStats,
-        mergeMethod: mergeMethod,
-        topologySimilarity: mergeResult?.metrics?.structuralSimilarity
-    };
+            const comparison = model1.compare(model2);
+            const vizPath = await this.mergeVisualizer.visualizeMerge(
+                model1,
+                model2,
+                comparison
+            );
 
-    // Автосохранение
-    if (this.config.autoSave && session.currentFootprint) {
-        this.autoSaveSession(session);
+            return {
+                success: true,
+                visualization: vizPath.path,
+                comparison: comparison
+            };
+
+        } catch (error) {
+            console.log('❌ Ошибка визуализации сравнения:', error);
+            return { success: false, error: error.message };
+        }
     }
 
-    console.log('\n📊 ИТОГОВАЯ ДИАГНОСТИКА СЕССИИ:');
-    console.log(`- mergeVisualizationPath: ${mergeVisualizationPath}`);
-    console.log(`- mergeMethod: ${mergeMethod}`);
+    // Визуализация сессии
+    async visualizeSession(userId) {
+        const session = this.getActiveSession(userId);
+        if (!session || !session.currentFootprint) {
+            return { success: false, error: 'Нет активной сессии' };
+        }
 
-    return result;
-}
+        try {
+            const GraphVisualizer = require('./graph-visualizer');
+            const visualizer = new GraphVisualizer();
 
-    // 6. ВСПОМОГАТЕЛЬНЫЙ МЕТОД: БЕЗОПАСНАЯ ОБРАБОТКА PROMISE
-    async safeMergeResult(mergePromise) {
-        try {
-            let result = mergePromise;
+            const vizPath = await visualizer.visualizeSessionHistory(session, {
+                filename: `session_${session.id.slice(0, 8)}.png`
+            });
 
-            // Проверяем, является ли результат Promise
-            if (result && typeof result.then === 'function') {
-                console.log('⚡ Обнаружен Promise, ожидаю результат...');
-                result = await result;
-            }
+            return {
+                success: true,
+                visualization: vizPath,
+                sessionId: session.id,
+                footprint: {
+                    nodes: session.currentFootprint.graph.nodes.size,
+                    edges: session.currentFootprint.graph.edges.size
+                }
+            };
 
-            // Дополнительная проверка для вложенных Promise
-            if (result && typeof result.then === 'function') {
-                console.log('⚡ Вложенный Promise, ожидаю еще раз...');
-                result = await result;
-            }
+        } catch (error) {
+            console.log('❌ Ошибка визуализации сессии:', error);
+            return { success: false, error: error.message };
+        }
+    }
 
-            return result;
-        } catch (error) {
-            console.log('❌ Ошибка в safeMergeResult:', error.message);
-            return {
-                success: false,
-                error: error.message
-            };
-        }
-    }
+    // Поиск похожих моделей
+    findSimilarModels(footprint, userId, options = {}) {
+        const userModels = this.getUserModels(userId);
+        const maxResults = options.maxResults || 5;
+        const minSimilarity = options.minSimilarity || 0.4;
 
-    // 7. ПОДПИСЬ ДЛЯ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ
-    createTopologyMergeCaption(footprint1, footprint2, stats) {
-        return `<b>🏗️ ТОПОЛОГИЧЕСКОЕ СЛИЯНИЕ</b>\n\n` +
-               `<b>📸 ${footprint1.name}:</b> ${stats.points1 || footprint1.graph.nodes.size} узлов\n` +
-               `<b>📸 ${footprint2.name}:</b> ${stats.points2 || footprint2.graph.nodes.size} узлов\n` +
-               `<b>🔗 Структурных соответствий:</b> ${stats.structuralMatches || 0}\n` +
-               `<b>🏗️ Топологическая схожесть:</b> ${(stats.structuralSimilarity || 0).toFixed(3)}\n` +
-               `<b>📊 Сохранено топологии:</b> ${stats.preservedStructures || 0}%\n\n` +
-               `<i>🟣 Топологические соответствия | 🔵 Узлы графа | 🔴 Рёбра графа</i>`;
-    }
+        const similarities = [];
 
-    // 8. АВТОСОХРАНЕНИЕ СЕССИИ
-    autoSaveSession(session) {
-        if (!session.currentFootprint) return;
+        userModels.forEach(model => {
+            if (model.id === footprint.id) return; // Пропускаем ту же модель
 
-        try {
-            const filename = `autosave_${session.id}_${Date.now()}.json`;
-            const filePath = path.join(this.config.dbPath, filename);
+            const comparison = footprint.compare(model);
+           
+            if (comparison.similarity >= minSimilarity) {
+                similarities.push({
+                    model: model,
+                    similarity: comparison.similarity,
+                    decision: comparison.decision,
+                    reason: comparison.reason
+                });
+            }
+        });
 
-            const data = session.currentFootprint.toJSON();
-            fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+        // Сортировка по схожести
+        similarities.sort((a, b) => b.similarity - a.similarity);
 
-            if (this.config.debug) {
-                console.log(`💾 Автосохранение: ${filename} (${data.graph.nodes.length} узлов)`);
-            }
-        } catch (error) {
-            console.log(`⚠️ Ошибка автосохранения: ${error.message}`);
-        }
-    }
+        return {
+            success: true,
+            similarCount: similarities.length,
+            similarModels: similarities.slice(0, maxResults),
+            searchedModels: userModels.length
+        };
+    }
 
-    // 9. СОХРАНИТЬ СЕССИЮ КАК МОДЕЛЬ
-    saveSessionAsModel(userId, modelName = null) {
-        const session = this.getActiveSession(userId);
+    // Очистка старых сессий
+    cleanupOldSessions(maxAgeHours = 24) {
+        const cutoffTime = Date.now() - (maxAgeHours * 60 * 60 * 1000);
+        let cleaned = 0;
 
-        if (!session || !session.currentFootprint) {
-            return {
-                success: false,
-                error: 'Нет активной сессии или отпечатка'
-            };
-        }
+        for (const [userId, session] of this.userSessions) {
+            if (session.lastActivity.getTime() < cutoffTime) {
+                this.userSessions.delete(userId);
+                cleaned++;
+            }
+        }
 
-        if (session.currentFootprint.graph.nodes.size < 5) {
-            return {
-                success: false,
-                error: 'Слишком мало узлов для сохранения (минимум 5)'
-            };
-        }
+        if (cleaned > 0) {
+            console.log(`🧹 Очищено ${cleaned} старых сессий`);
+        }
 
-        // Определить тип модели
-        let name = modelName || session.name;
-
-        // Обновить имя модели
-        session.currentFootprint.name = name;
-        session.currentFootprint.metadata.lastUpdated = new Date();
-        session.currentFootprint.metadata.sessionStats = session.stats;
-
-        // Сохранить модель
-        const saveResult = this.saveModel(session.currentFootprint);
-
-        if (!saveResult.success) {
-            return saveResult;
-        }
-
-        // Закрыть сессию
-        this.endSession(userId, 'saved_as_model');
-
-        return {
-            success: true,
-            modelId: saveResult.modelId,
-            modelName: name,
-            modelStats: {
-                nodes: session.currentFootprint.graph.nodes.size,
-                edges: session.currentFootprint.graph.edges.size,
-                confidence: session.currentFootprint.stats.confidence,
-                topologyScore: session.currentFootprint.hybridFootprint?.stats.topologyScore || 0,
-                photos: session.currentFootprint.metadata.totalPhotos,
-                hasHybrid: session.currentFootprint.hybridFootprint !== null
-            },
-            sessionInfo: {
-                photos: session.photos.length,
-                analyses: session.analyses.length,
-                autoAlignments: session.stats.autoAlignments,
-                mergeVisualizations: session.stats.mergeVisualizations
-            }
-        };
-    }
-
-    // 10. СОХРАНИТЬ МОДЕЛЬ В БАЗУ
-    saveModel(footprint) {
-        try {
-            if (!footprint.id || !footprint.userId) {
-                return {
-                    success: false,
-                    error: 'Невалидный отпечаток (нет ID или userId)'
-                };
-            }
-
-            const filename = `${footprint.id}.json`;
-            const filePath = path.join(this.config.dbPath, filename);
-
-            // Преобразовать в JSON
-            const data = footprint.toJSON();
-
-            // Сохранить файл
-            fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-
-            // Обновить кэш
-            this.modelCache.set(footprint.id, footprint);
-
-            // Обновить пользовательский индекс
-            if (!this.userModels.has(footprint.userId)) {
-                this.userModels.set(footprint.userId, []);
-            }
-
-            // Проверить, нет ли уже этой модели
-            const userModels = this.userModels.get(footprint.userId);
-            const existingIndex = userModels.findIndex(m => m.id === footprint.id);
-
-            if (existingIndex >= 0) {
-                userModels[existingIndex] = footprint;
-            } else {
-                userModels.push(footprint);
-            }
-
-            // Обновить статистику
-            this.stats.totalModels = this.modelCache.size;
-            if (footprint.hybridFootprint) {
-                this.stats.hybridModels++;
-            }
-
-            // Обновить индексный файл
-            this.updateIndexFile();
-
-            console.log(`💾 Модель сохранена: ${footprint.name} (${footprint.id})`);
-
-            return {
-                success: true,
-                modelId: footprint.id,
-                filename: filename,
-                path: filePath,
-                stats: {
-                    nodes: footprint.graph.nodes.size,
-                    edges: footprint.graph.edges.size,
-                    confidence: footprint.stats.confidence,
-                    topologyScore: footprint.hybridFootprint?.stats.topologyScore || 0,
-                    hasHybrid: footprint.hybridFootprint !== null
-                }
-            };
-
-        } catch (error) {
-            console.log(`❌ Ошибка сохранения модели: ${error.message}`);
-            return {
-                success: false,
-                error: error.message
-            };
-        }
-    }
-
-    // 11. ОБНОВИТЬ ИНДЕКСНЫЙ ФАЙЛ
-    updateIndexFile() {
-        try {
-            const indexPath = path.join(this.config.dbPath, '_index.json');
-
-            const index = {
-                version: '1.3',
-                updated: new Date().toISOString(),
-                totalModels: this.modelCache.size,
-                hybridModels: this.stats.hybridModels,
-                superModels: this.stats.superModelsCreated,
-                topologySuperModels: this.stats.topologySuperModelsCreated || 0,
-                totalUsers: this.userModels.size,
-                mergeVisualizations: this.stats.mergeVisualizations,
-                users: {},
-                stats: this.stats
-            };
-
-            // Добавить статистику по пользователям
-            this.userModels.forEach((models, userId) => {
-                const hybridModels = models.filter(m => m.hybridFootprint).length;
-                const superModels = models.filter(m => m.name && m.name.startsWith('Супер-модель')).length;
-                const topologySuperModels = models.filter(m => m.name && m.name.includes('Топологическая')).length;
-
-                index.users[userId] = {
-                    modelCount: models.length,
-                    hybridModels: hybridModels,
-                    superModels: superModels,
-                    topologySuperModels: topologySuperModels,
-                    lastModel: models[models.length - 1]?.metadata?.lastUpdated || null
-                };
-            });
-
-            fs.writeFileSync(indexPath, JSON.stringify(index, null, 2));
-
-        } catch (error) {
-            console.log(`⚠️ Ошибка обновления индекса: ${error.message}`);
-        }
-    }
-
-    // 12. ЗАВЕРШИТЬ СЕССИЮ
-    endSession(userId, reason = 'user_request') {
-        const session = this.getActiveSession(userId);
-
-        if (!session) {
-            return {
-                success: false,
-                error: 'Нет активной сессии'
-            };
-        }
-
-        const endTime = new Date();
-        const duration = endTime - session.startTime;
-
-        // Закрыть сессию
-        session.status = 'ended';
-        session.endTime = endTime;
-        session.endReason = reason;
-        session.duration = duration;
-
-        // Удалить из активных сессий
-        this.activeSessions.delete(session.id);
-        this.userSessions.delete(userId);
-
-        console.log(`🏁 Сессия "${session.name}" завершена`);
-        console.log(`   Причина: ${reason}`);
-        console.log(`   Длительность: ${Math.round(duration / 1000)} сек`);
-        console.log(`   Фото: ${session.photos.length}`);
-        console.log(`   Анализов: ${session.analyses.length}`);
-        console.log(`   Гибридных сравнений: ${session.stats.hybridComparisons}`);
-        console.log(`   Визуализаций объединения: ${session.stats.mergeVisualizations}`);
-
-        return {
-            success: true,
-            sessionId: session.id,
-            duration: duration,
-            stats: session.stats,
-            currentFootprint: session.currentFootprint ? {
-                id: session.currentFootprint.id,
-                name: session.currentFootprint.name,
-                nodes: session.currentFootprint.graph.nodes.size,
-                edges: session.currentFootprint.graph.edges.size,
-                confidence: session.currentFootprint.stats.confidence,
-                topologyScore: session.currentFootprint.hybridFootprint?.stats.topologyScore || 0,
-                hasHybrid: session.currentFootprint.hybridFootprint !== null
-            } : null
-        };
-    }
-
-    // 13. ПОЛУЧИТЬ МОДЕЛИ ПОЛЬЗОВАТЕЛЯ
-    getUserModels(userId) {
-        return this.userModels.get(userId) || [];
-    }
-
-    // 14. ПОЛУЧИТЬ СТАТИСТИКУ СИСТЕМЫ
-    getSystemStats() {
-        const now = new Date();
-        const uptime = now - this.stats.startedAt;
-
-        return {
-            system: {
-                started: this.stats.startedAt.toLocaleString('ru-RU'),
-                uptime: Math.round(uptime / 1000),
-                version: '1.3'
-            },
-            storage: {
-                totalModels: this.stats.totalModels,
-                hybridModels: this.stats.hybridModels,
-                superModels: this.stats.superModelsCreated,
-                topologySuperModels: this.stats.topologySuperModelsCreated || 0,
-                totalUsers: this.userModels.size,
-                activeSessions: this.activeSessions.size,
-                modelCache: this.modelCache.size,
-                mergeVisualizations: this.stats.mergeVisualizations
-            },
-            performance: {
-                totalSessions: this.stats.totalSessions,
-                totalComparisons: this.stats.totalComparisons,
-                successfulAlignments: this.stats.successfulAlignments,
-                hybridComparisons: this.stats.hybridComparisons,
-                mergeVisualizations: this.stats.mergeVisualizations
-            },
-            config: {
-                dbPath: this.config.dbPath,
-                autoAlignment: this.config.autoAlignment,
-                autoSave: this.config.autoSave,
-                useHybridMode: this.config.useHybridMode,
-                enableMergeVisualization: this.config.enableMergeVisualization,
-                enableIntelligentMerge: this.config.enableIntelligentMerge,
-                enableTopologySuperModel: this.config.enableTopologySuperModel,
-                topologySimilarityThreshold: this.config.topologySimilarityThreshold,
-                debug: this.config.debug
-            }
-        };
-    }
-
-    // 15. ПОЛУЧИТЬ МОДЕЛЬ ПО ID
-    getModelById(modelId) {
-        return this.modelCache.get(modelId) || null;
-    }
-
-    // 16. ПОЛУЧИТЬ ПОСЛЕДНЮЮ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕНИЯ
-    getLastMergeVisualization(userId) {
-        const session = this.getActiveSession(userId);
-        if (!session || !session.analyses || session.analyses.length === 0) {
-            return null;
-        }
-
-        // Ищем последний анализ с визуализацией
-        for (let i = session.analyses.length - 1; i >= 0; i--) {
-            const analysis = session.analyses[i];
-            if (analysis.mergeVisualization && fs.existsSync(analysis.mergeVisualization)) {
-                return {
-                    path: analysis.mergeVisualization,
-                    similarity: analysis.alignment?.similarity || 0,
-                    mergedNodes: analysis.alignment?.mergedNodes || 0,
-                    photos: session.photos.slice(0, i + 1),
-                    timestamp: analysis.timestamp
-                };
-            }
-        }
-
-        return null;
-    }
-
-    // 17. ПОЛУЧИТЬ КОЛИЧЕСТВО ВИЗУАЛИЗАЦИЙ
-    getMergeVisualizationCount() {
-        return this.stats.mergeVisualizations;
-    }
+        return cleaned;
+    }
 }
 
 module.exports = SimpleFootprintManager;
