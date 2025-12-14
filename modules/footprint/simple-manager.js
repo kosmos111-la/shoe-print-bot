@@ -466,22 +466,10 @@ class SimpleFootprintManager {
                             };
 
                             // ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ
-                            const mergedFootprint = new SimpleFootprint({
-    name: `Супер-модель после слияния`,
-    userId: userId
-});
-
-// Копируем результат слияния из topologyMergeResult
-mergedFootprint.graph = topologyMergeResult.mergedGraph;
-
-// ВИЗУАЛИЗАЦИЯ РЕЗУЛЬТАТА СЛИЯНИЯ
-const vizResult = await this.mergeVisualizer.visualizeSuperModel(
-    mergedFootprint,           // ← РЕЗУЛЬТАТ слияния!
-    tempFootprint,             // Последняя модель (для обводки)
-    {
-        ...vizOptions,
-        title: 'РЕЗУЛЬТАТ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ'
-    }
+                            const vizResult = await this.mergeVisualizer.visualizeSuperModel(
+    session.currentFootprint,  // ← ЭТО ДО слияния! ПРОБЛЕМА!
+    tempFootprint,             // Последняя модель
+    vizOptions
 );
 
                             // ПРОВЕРЯЕМ РЕЗУЛЬТАТ
