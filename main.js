@@ -1363,22 +1363,30 @@ bot.onText(/\/help/, (msg) => {
         `/statistics - Статистика системы`
     );
 });
-
 bot.onText(/\/reset/, (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
    
-    // Завершить все сессии пользователя
-    const sessionManager = require('./modules/session-manager');
-    sessionManager.endAllUserSessions(userId);
+    console.log(`🔄 Пользователь ${userId} запросил сброс сессии`);
    
-    // Очистить сессию в SimpleFootprintManager
-    const simpleManager = require('./modules/footprint/simple-manager');
-    const manager = new simpleManager(); // или получить существующий экземпляр
-   
-    manager.endSession(userId, 'manual_reset');
-   
-    bot.sendMessage(chatId, '🔄 Все сессии сброшены. Следующее фото начнёт новую сессию.');
+    try {
+        // Получить экземпляр SimpleFootprintManager (или создать новый)
+        const SimpleFootprintManager = require('./modules/footprint/simple-manager');
+       
+        // Нужно получить существующий менеджер или создать глобальный
+        // Если у вас глобальный экземпляр, используйте его:
+        if (global.footprintManager && typeof global.footprintManager.endSession === 'function') {
+            const result = global.footprintManager.endSession(userId, 'manual_reset');
+            bot.sendMessage(chatId, '✅ Сессия сброшена. Следующее фото начнёт новую сессию.');
+        } else {
+            // Альтернатива: просто сообщить пользователю
+            bot.sendMessage(chatId, '🔄 Для сброса сессии просто отправьте новое фото - оно начнёт новую сессию.');
+        }
+       
+    } catch (error) {
+        console.log('⚠️ Ошибка при сбросе сессии:', error.message);
+        bot.sendMessage(chatId, '⚠️ Не удалось сбросить сессию. Просто отправьте новое фото.');
+    }
 });
 
 // =============================================================================
