@@ -2038,98 +2038,226 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
         // =============================================================================
         // 🎯 ПЕРВЫЙ ПРИОРИТЕТ: НОВАЯ СИСТЕМА С ТОПОЛОГИЧЕСКИМ СЛИЯНИЕМ
         // =============================================================================
-        if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length > 0) {
-            try {
-                console.log('👣 ВЫЗЫВАЮ SimpleFootprintManager.addPhotoToSession...');
+        let usedSimpleFootprint = false;
 
-                const shoeProtectors = predictionsForAnalysis.filter(p =>
-                    p.class === 'shoe-protector' ||
-                    (p.confidence || 0) > 0.3
-                );
+if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length > 0) {
+    try {
+        console.log('👣 ВЫЗЫВАЮ SimpleFootprintManager.addPhotoToSession...');
+       
+        const shoeProtectors = predictionsForAnalysis.filter(p =>
+            p.class === 'shoe-protector' ||
+            (p.confidence || 0) > 0.3
+        );
+       
+        if (shoeProtectors.length < 3) {
+            console.log(`⚠️ Слишком мало протекторов: ${shoeProtectors.length}, нужны минимум 3`);
+            // Пропускаем, но продолжаем обычную обработку
+        } else {
+            console.log(`👣 Достаточно протекторов: ${shoeProtectors.length}`);
+           
+            // Проверяем, есть ли активная сессия
+            let session = footprintManager.getActiveSession(userId);
+            if (!session) {
+                console.log('🔄 Создаю новую сессию...');
+                session = footprintManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
+                console.log(`✅ Создана сессия: ${session.id}`);
+            }
+           
+            // ВСЕГДА вызываем addPhotoToSession
+            const addResult = await footprintManager.addPhotoToSession(
+                userId,
+                { predictions: shoeProtectors },
+                {
+                    photoId: photo.file_id,
+                    chatId: chatId,
+                    localPath: tempImagePath,
+                    photoQuality: avgConfidence,
+                    timestamp: new Date(),
+                    username: msg.from.username || msg.from.first_name,
+                    predictionsCount: processedPredictions.length,
+                    protectorsCount: shoeProtectors.length
+                },
+                bot,
+                chatId
+            );
+           
+            console.log('📊 Результат addPhotoToSession:', {
+                success: addResult.success,
+                nodesAdded: addResult.nodesAdded,
+                hasMergeVisualization: !!addResult.mergeVisualization,
+                mergeMethod: addResult.mergeMethod,
+                similarity: addResult.alignment?.similarity
+            });
+           
+            usedSimpleFootprint = true;
+           
+            // Сохраняем результат для будущего использования
+            saveUserLastAnalysis(userId, {
+                predictions: predictionsForAnalysis,
+                practicalAnalysis: practicalAnalysis,
+                intelligentAnalysis: intelligentAnalysis,
+                analysis: analysis,
+                timestamp: new Date(),
+                confidence: avgConfidence,
+                visualizationPaths: { analysis: vizPath, topology: topologyVizPath },
+                localPhotoPath: tempImagePath,
+                hasSimpleFootprintData: true,
+                sessionId: session.id,
+                nodesCount: addResult.totalNodes || 0,
+                hasMergeVisualization: !!addResult.mergeVisualization,
+                mergeVisualizationPath: addResult.mergeVisualization,
+                alignmentResult: addResult.alignment
+            });
+           
+            console.log('✅ SimpleFootprintManager успешно обработал фото');
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка SimpleFootprintManager:', error.message);
+        console.error(error.stack);
+        usedSimpleFootprint = false;
+    }
+}
 
-                if (shoeProtectors.length < 3) {
-                    console.log(`⚠️ Слишком мало протекторов: ${shoeProtectors.length}, нужны минимум 3`);
-                    // Пропускаем, но продолжаем обычную обработку
-                } else {
-                    console.log(`👣 Достаточно протекторов: ${shoeProtectors.length}`);
+// =============================================================================
+// 🎨 ВАЖНОЕ ИСПРАВЛЕНИЕ: НЕ ВЫХОДИТЬ СРАЗУ ПРИ ОДИНОЧНОМ ФОТО
+// =============================================================================
 
-                    // Проверяем, есть ли активная сессия
-                    let session = footprintManager.getActiveSession(userId);
-                    if (!session) {
-                        console.log('🔄 Создаю новую сессию...');
-                        session = footprintManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-                        console.log(`✅ Создана сессия: ${session.id}`);
-                    }
-
-                    // ВСЕГДА вызываем addPhotoToSession - это ОСНОВНОЙ метод!
-                    const addResult = await footprintManager.addPhotoToSession(
-                        userId,
-                        { predictions: shoeProtectors }, // Передаём predictions
-                        {
-                            photoId: photo.file_id,
-                            chatId: chatId,
-                            localPath: tempImagePath,
-                            photoQuality: avgConfidence,
-                            timestamp: new Date(),
-                            username: msg.from.username || msg.from.first_name,
-                            // Добавляем информацию о предсказаниях
-                            predictionsCount: processedPredictions.length,
-                            protectorsCount: shoeProtectors.length
-                        },
-                        bot,    // Передаём бота для отправки визуализации
-                        chatId  // Передаём chatId для отправки визуализации
-                    );
-
-                    console.log('📊 Результат addPhotoToSession:', {
-                        success: addResult.success,
-                        nodesAdded: addResult.nodesAdded,
-                        hasMergeVisualization: !!addResult.mergeVisualization,
-                        mergeMethod: addResult.mergeMethod,
-                        similarity: addResult.alignment?.similarity
-                    });
-
-                    // Сохраняем результат для будущего использования
-                    saveUserLastAnalysis(userId, {
-                        predictions: predictionsForAnalysis,
-                        practicalAnalysis: practicalAnalysis,
-                        intelligentAnalysis: intelligentAnalysis,
-                        analysis: analysis,
-                        timestamp: new Date(),
-                        confidence: avgConfidence,
-                        visualizationPaths: { analysis: vizPath, topology: topologyVizPath },
-                        localPhotoPath: tempImagePath,
-                        hasSimpleFootprintData: true,
-                        sessionId: session.id,
-                        nodesCount: addResult.totalNodes || 0,
-                        hasMergeVisualization: !!addResult.mergeVisualization,
-                        mergeVisualizationPath: addResult.mergeVisualization,
-                        alignmentResult: addResult.alignment
-                    });
-
-                    // Выходим - новая система обработала фото!
-                    console.log('✅ SimpleFootprintManager успешно обработал фото');
-                    
-                    // Очистка временных файлов
-                    tempFileManager.removeFile(tempImagePath);
-                    if (vizPath) tempFileManager.removeFile(vizPath);
-                    if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
-                    
-                    // Удаляем сообщение о статусе если есть
-                    if (statusMessage) {
-                        try {
-                            await bot.deleteMessage(chatId, statusMessage.message_id);
-                        } catch (e) {}
-                    }
-                    
-                    return;
-                }
-
-            } catch (error) {
-                console.log('❌ Ошибка SimpleFootprintManager:', error.message);
-                console.error(error.stack);
-                // НЕ выходим! Пробуем обычную обработку как запасной вариант
-            }
-        }
+// Для одиночного фото (без сессии) - ВСЕГДА показываем обычную топологию
+if (!hasSession && totalCount === 1) {
+    // Отправляем результаты анализа ОДИНОЧНОГО фото
+    if (analysis.total === 0) {
+        await bot.sendMessage(chatId, '❌ Не удалось обнаружить детали на фото');
+        tempFileManager.removeFile(tempImagePath);
+        return;
+    }
+   
+    // Отправляем результаты
+    let resultMessage = `✅ АНАЛИЗ ЗАВЕРШЕН\n\n`;
+    resultMessage += `📊 Обнаружено: ${analysis.total} объектов\n\n`;
+   
+    // Классификация
+    resultMessage += `📋 КЛАССИФИКАЦИЯ:\n`;
+    Object.entries(analysis.classes).forEach(([className, count]) => {
+        resultMessage += `• ${className}: ${count}\n`;
+    });
+   
+    await bot.sendMessage(chatId, resultMessage);
+   
+    // Визуализация
+    if (vizPath && fs.existsSync(vizPath)) {
+        await bot.sendPhoto(chatId, vizPath, {
+            caption: '🎨 Визуализация анализа'
+        });
+        tempFileManager.removeFile(vizPath);
+    }
+   
+    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Всегда показывать топологию для одиночного фото
+    if (topologyVizPath && fs.existsSync(topologyVizPath)) {
+        await bot.sendPhoto(chatId, topologyVizPath, {
+            caption: '🕸️ Топологический анализ протектора\n' +
+                     ' 🟢 Зеленые точки - центры протекторов\n' +
+                     ' 🟠 Оранжевые линии - связи\n' +
+                     ' 🔵 Синий пунктир - контур следа'
+        });
+        tempFileManager.removeFile(topologyVizPath);
+    } else {
+        // Если не создалась - создаем новую
+        const protectors = predictionsForAnalysis.filter(p => p.class === 'shoe-protector');
+        if (protectors.length > 3 && topologyVisualizer) {
+            const newTopologyPath = tempFileManager.createTempFile('topology_fallback', 'png');
+            await topologyVisualizer.createTopologyVisualization(
+                fileUrl,
+                predictionsForAnalysis,
+                newTopologyPath
+            );
+           
+            if (fs.existsSync(newTopologyPath)) {
+                await bot.sendPhoto(chatId, newTopologyPath, {
+                    caption: '🕸️ Топологический анализ протектора\n' +
+                             ' 🟢 Зеленые точки - центры протекторов\n' +
+                             ' 🟠 Оранжевые линии - связи\n' +
+                             ' 🔵 Синий пунктир - контур следа'
+                });
+                tempFileManager.removeFile(newTopologyPath);
+            }
+        }
+    }
+   
+    // Практический анализ
+    if (practicalAnalysis && practicalAnalysis.recommendations) {
+        let practicalMessage = `🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ:**\n\n`;
+        practicalAnalysis.recommendations.slice(0, 3).forEach(rec => {
+            practicalMessage += `• ${rec}\n`;
+        });
+        await bot.sendMessage(chatId, practicalMessage);
+    }
+   
+    // Интеллектуальный анализ
+    if (intelligentAnalysis && intelligentAnalysis.summary) {
+        const intelMessage = `🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:\n\n` +
+            `🧭 Ориентация: ${intelligentAnalysis.summary.orientation}\n` +
+            `👟 Тип обуви: ${intelligentAnalysis.summary.footprintType}\n` +
+            `🔷 Морфология: ${intelligentAnalysis.summary.morphology}\n` +
+            `🕸️ Топология: ${intelligentAnalysis.summary.topology}`;
+       
+        await bot.sendMessage(chatId, intelMessage);
+    }
+   
+    // 🔥 ОБРАТНАЯ СВЯЗЬ
+    if (!hasSession && totalCount === 1 && predictionsForAnalysis.length > 0) {
+        const bestPrediction = predictionsForAnalysis.reduce((best, current) =>
+            (current.confidence || 0) > (best.confidence || 0) ? current : best
+        );
+       
+        if (bestPrediction && bestPrediction.confidence > 0.6) {
+            if (Math.random() < 0.3) {
+                setTimeout(async () => {
+                    const feedbackRequest = feedbackManager.requestFeedback(
+                        userId,
+                        chatId,
+                        bestPrediction,
+                        {
+                            imageId: tempImagePath,
+                            analysisType: 'single_photo',
+                            timestamp: new Date()
+                        }
+                    );
+                   
+                    await bot.sendMessage(chatId,
+                        `💬 **ПОМОГИТЕ УЛУЧШИТЬ ТОЧНОСТЬ**\n\n` +
+                        `Насколько правильно определен этот элемент?\n` +
+                        `**Класс:** ${bestPrediction.class}\n` +
+                        `**Уверенность:** ${(bestPrediction.confidence * 100).toFixed(1)}%`,
+                        {
+                            reply_markup: feedbackManager.createFeedbackKeyboard()
+                        }
+                    );
+                }, 1000);
+            }
+        }
+    }
+   
+    // Если использовали SimpleFootprintManager, показываем дополнительную информацию
+    if (usedSimpleFootprint) {
+        await bot.sendMessage(chatId,
+            `👣 **След сохранен в цифровой отпечаток**\n\n` +
+            `💾 Данные добавлены в сессию графовой системы\n` +
+            `🎯 Для объединения с другими фото:\n` +
+            `• Отправьте еще фото того же следа\n` +
+            `• Система автоматически их объединит\n\n` +
+            `📋 Команды:\n` +
+            `/visualize_merge - показать объединение\n` +
+            `/my_footprints - мои модели`
+        );
+    }
+   
+    // Очистка
+    tempFileManager.removeFile(tempImagePath);
+    if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
+   
+    return; // Выходим здесь после обработки одиночного фото
+}
 
         // 🆕 СЕССИОННЫЙ РЕЖИМ: КОРОТКОЕ ПОДТВЕРЖДЕНИЕ
         if (hasSession) {
