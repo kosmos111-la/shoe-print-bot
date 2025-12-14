@@ -467,19 +467,41 @@ class SimpleFootprintManager {
 
                             // ВИЗУАЛИЗАЦИЯ ОБЪЕДИНЕНИЯ
                             // Используем уже существующий объединенный граф
-if (topologyMergeResult?.mergedGraph) {
-    // Создаем временный отпечаток с результатом слияния
+if (mergeResult?.success && mergeResult.topologyMergeResult?.mergedGraph) {
+    // Используем уже существующий объединенный граф
     const resultFootprint = new SimpleFootprint({
-        name: `Результат слияния (${session.currentFootprint.graph.nodes.size} → ${topologyMergeResult.mergedGraph.nodes.size} узлов)`,
+        name: `Результат слияния (${session.currentFootprint.graph.nodes.size} → ${mergeResult.topologyMergeResult.mergedGraph.nodes.size} узлов)`,
         userId: userId
     });
-    resultFootprint.graph = topologyMergeResult.mergedGraph;
    
+    resultFootprint.graph = mergeResult.topologyMergeResult.mergedGraph;
+   
+    // ВИЗУАЛИЗАЦИЯ РЕЗУЛЬТАТА СЛИЯНИЯ
     const vizResult = await this.mergeVisualizer.visualizeSuperModel(
-        resultFootprint,      // Результат
+        resultFootprint,      // Результат слияния
         tempFootprint,        // Что добавили
+        {
+            ...vizOptions,
+            title: 'РЕЗУЛЬТАТ ТОПОЛОГИЧЕСКОГО СЛИЯНИЯ'
+        }
+    );
+   
+    if (vizResult && vizResult.success) {
+        mergeVisualizationPath = vizResult.path || vizOptions.outputPath;
+        mergeVisualizationStats = vizResult.stats || {};
+        session.stats.mergeVisualizations++;
+        this.stats.mergeVisualizations++;
+       
+        console.log(`🎨 Визуализация результата слияния создана: ${vizFilename}`);
+    }
+} else {
+    // Старая логика как запасной вариант
+    const vizResult = await this.mergeVisualizer.visualizeSuperModel(
+        session.currentFootprint,
+        tempFootprint,
         vizOptions
     );
+    // ...
 }
 
 
