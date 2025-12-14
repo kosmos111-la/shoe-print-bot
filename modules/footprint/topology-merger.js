@@ -529,20 +529,36 @@ class TopologyMerger {
         return neighbors.slice(0, Math.min(k, neighbors.length));
     }
 
-    // Сравнение распределения углов
+    // 🔴 ДОБАВЛЕННЫЕ МЕТОДЫ ДЛЯ СРАВНЕНИЯ СИГНАТУР
+
+    // 1. СРАВНЕНИЕ ГИСТОГРАММ (ДОБАВЛЕН ПО ИНСТРУКЦИИ)
+    compareHistograms(hist1, hist2) {
+        if (!hist1 || !hist2 || hist1.length !== hist2.length) {
+            return 0;
+        }
+
+        let similarity = 0;
+        for (let i = 0; i < hist1.length; i++) {
+            similarity += 1 - Math.abs(hist1[i] - hist2[i]);
+        }
+
+        return similarity / hist1.length;
+    }
+
+    // 2. СРАВНЕНИЕ РАСПРЕДЕЛЕНИЯ УГЛОВ
     compareAngleDistributions(angles1, angles2) {
         if (!angles1 || !angles2 || angles1.length === 0 || angles2.length === 0) {
             return 0.5;
         }
 
         // Создать гистограммы углов
-        const hist1 = this.createAngleHistogram(angles1, 8); // 8 бинов
+        const hist1 = this.createAngleHistogram(angles1, 8);
         const hist2 = this.createAngleHistogram(angles2, 8);
 
         return this.compareHistograms(hist1, hist2);
     }
 
-    // Сравнение степеней соседей
+    // 3. СРАВНЕНИЕ СТЕПЕНЕЙ СОСЕДЕЙ
     compareNeighborDegrees(degrees1, degrees2) {
         if (!degrees1 || !degrees2 || degrees1.length === 0 || degrees2.length === 0) {
             return 0.5;
@@ -569,7 +585,7 @@ class TopologyMerger {
         return minLength > 0 ? matchScore / minLength : 0.5;
     }
 
-    // Сравнение распределений по секторам
+    // 4. СРАВНЕНИЕ РАСПРЕДЕЛЕНИЙ ПО СЕКТОРАМ
     compareSectorDistributions(sectors1, sectors2) {
         if (!sectors1 || !sectors2 || sectors1.length !== sectors2.length) {
             return 0.5;
@@ -583,7 +599,7 @@ class TopologyMerger {
         return similarity / sectors1.length;
     }
 
-    // Сравнение углов 2-го порядка
+    // 5. СРАВНЕНИЕ УГЛОВ 2-ГО ПОРЯДКА
     compareSecondOrderAngles(angles1, angles2) {
         if (!angles1 || !angles2 || angles1.length === 0 || angles2.length === 0) {
             return 0.5;
@@ -597,13 +613,13 @@ class TopologyMerger {
 
         for (let i = 0; i < minLength; i++) {
             const angleDiff = Math.abs(sorted1[i] - sorted2[i]);
-            matchScore += 1 - Math.min(1, angleDiff / (Math.PI / 4)); // Допуск 45 градусов
+            matchScore += 1 - Math.min(1, angleDiff / (Math.PI / 4));
         }
 
         return minLength > 0 ? matchScore / minLength : 0.5;
     }
 
-    // Создание гистограммы углов
+    // 6. СОЗДАНИЕ ГИСТОГРАММЫ УГЛОВ
     createAngleHistogram(angles, bins) {
         const histogram = new Array(bins).fill(0);
 
