@@ -481,7 +481,7 @@ if (topologyMergeResult?.mergedGraph) {
         vizOptions
     );
 }
-);
+
 
                             // ПРОВЕРЯЕМ РЕЗУЛЬТАТ
                             if (vizResult && vizResult.success) {
