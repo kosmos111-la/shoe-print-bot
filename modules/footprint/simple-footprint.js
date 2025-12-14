@@ -1,10 +1,11 @@
 // modules/footprint/simple-footprint.js
-// ЦИФРОВОЙ ОТПЕЧАТОК - ОБЁРТКА НАД ГРАФОМ + МЕТАДАННЫХ + ГИБРИДНЫЕ ОТПЕЧАТКИ
+// ЦИФРОВОЙ ОТПЕЧАТОК - ОБЁРТКА НАД ГРАФОМ + МЕТАДАННЫХ + ГИБРИДНЫЕ ОТПЕЧАТКИ + POINTTRACKER
 
 const crypto = require('crypto');
 const fs = require('fs');
 const SimpleGraph = require('./simple-graph');
 const HybridFootprint = require('./hybrid-footprint');
+const PointTracker = require('./point-tracker');
 
 class SimpleFootprint {
     constructor(options = {}) {
@@ -30,6 +31,14 @@ class SimpleFootprint {
             }
         }
 
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем PointTracker
+        this.pointTracker = options.pointTracker || new PointTracker({
+            ratingDecay: 0.97,
+            minRating: 0.1,
+            maxRating: 1.0,
+            confirmationThreshold: 0.7
+        });
+
         // Метаданные
         this.metadata = {
             created: new Date(),
@@ -41,6 +50,7 @@ class SimpleFootprint {
             features: {
                 hasGraph: true,
                 hasHybrid: this.hybridFootprint !== null,
+                hasPointTracker: true, // 🔥 НОВОЕ: указываем что есть трекер
                 hasMoments: this.hybridFootprint?.moments ? true : false,
                 hasBitmask: this.hybridFootprint?.bitmask ? true : false
             },
@@ -55,7 +65,8 @@ class SimpleFootprint {
             graphDiameter: 0,
             clusteringCoefficient: 0,
             qualityScore: 0,
-            hybridScore: 0
+            hybridScore: 0,
+            trackerScore: 0 // 🔥 НОВОЕ: рейтинг от трекера
         };
 
         // История фото/анализов
@@ -68,15 +79,12 @@ class SimpleFootprint {
         // Визуализация
         this.visualizationCache = null;
 
-        console.log(`👣 Создан цифровой отпечаток "${this.name}" (ID: ${this.id})`);
-        if (this.hybridFootprint) {
-            console.log(`   🎯 Включен гибридный режим (моменты + битмаска)`);
-        }
+        console.log(`👣 Создан цифровой отпечаток "${this.name}" (ID: ${this.id}) с PointTracker`);
     }
 
-    // 1. ДОБАВИТЬ АНАЛИЗ (основной метод) - ОБНОВЛЕННЫЙ
+    // 1. ДОБАВИТЬ АНАЛИЗ (обновленный с PointTracker)
     addAnalysis(analysis, sourceInfo = {}) {
-        console.log(`📥 Добавляю анализ в отпечаток "${this.name}"...`);
+        console.log(`📥 Добавляю анализ в отпечаток "${this.name}" через PointTracker...`);
 
         const { predictions } = analysis;
 
@@ -96,61 +104,96 @@ class SimpleFootprint {
 
         console.log(`🔍 Найдено ${protectorPoints.length} протекторов`);
 
-        // Обновить граф И/ИЛИ гибридный отпечаток
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обрабатываем точки через PointTracker
+        const trackerResults = this.pointTracker.processNewPoints(protectorPoints, {
+            ...sourceInfo,
+            footprintId: this.id,
+            analysisType: 'shoe_protector',
+            timestamp: new Date()
+        });
+
+        console.log(`🎯 PointTracker: ${trackerResults.added} новых, ${trackerResults.updated} обновлено`);
+
+        // Получаем точки с высоким рейтингом для графа
+        const highConfidencePoints = this.pointTracker.getHighConfidencePoints(0.5);
+
+        // Обновляем граф на основе трекера
         const previousNodeCount = this.graph.nodes.size;
-        let graphInvariants = null;
-        let hybridResult = null;
 
-        if (this.hybridFootprint) {
-            // Использовать гибридный отпечаток если доступен
-            console.log('🎯 Использую гибридный отпечаток...');
-            hybridResult = this.hybridFootprint.createFromPoints(protectorPoints, sourceInfo);
+        // Создаем узлы графа из подтвержденных точек
+        const graphNodes = [];
+        highConfidencePoints.forEach((trackedPoint, index) => {
+            const nodeId = `n_${trackedPoint.id}`;
+           
+            graphNodes.push({
+                id: nodeId,
+                x: trackedPoint.x,
+                y: trackedPoint.y,
+                confidence: trackedPoint.rating,
+                confirmedCount: trackedPoint.confirmedCount,
+                pointTrackerId: trackedPoint.id,
+                sources: [{
+                    timestamp: new Date(),
+                    source: sourceInfo,
+                    trackerData: trackedPoint
+                }]
+            });
+        });
 
-            // Также обновляем граф для обратной совместимости
-            graphInvariants = this.graph.buildFromPoints(protectorPoints);
-        } else {
-            // Старый код с графом
-            console.log('📊 Использую классический графовый подход...');
-            graphInvariants = this.graph.buildFromPoints(protectorPoints);
-        }
+        // Построить граф из подтвержденных точек
+        const graphInvariants = this.graph.buildFromPoints(graphNodes.map(p => ({
+            x: p.x,
+            y: p.y,
+            confidence: p.confidence,
+            id: p.id
+        })));
+
+        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Связываем узлы графа с точками трекера
+        this.linkNodesWithTracker(graphNodes);
 
         // Сохранить в историю
         const analysisRecord = {
             id: `analysis_${Date.now()}`,
             timestamp: new Date(),
             pointsCount: protectorPoints.length,
+            trackerResults: trackerResults,
+            highConfidencePoints: highConfidencePoints.length,
             sourceInfo: sourceInfo,
             graphSnapshot: {
                 nodeCount: this.graph.nodes.size,
                 edgeCount: this.graph.edges.size
-            },
-            hybridResult: hybridResult
+            }
         };
 
         this.analysisHistory.push(analysisRecord);
         this.photoHistory.push({
             timestamp: new Date(),
             points: protectorPoints.length,
-            source: sourceInfo
+            source: sourceInfo,
+            trackerResults: trackerResults
         });
 
         // Обновить метаданные
         this.metadata.totalPhotos++;
         this.metadata.lastUpdated = new Date();
-        this.metadata.features.hasHybrid = this.hybridFootprint !== null;
 
         // Обновить статистику
-        this.updateStats(graphInvariants, hybridResult);
+        this.updateStats(graphInvariants, null);
+
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обновляем статистику из трекера
+        const trackerStats = this.pointTracker.getStats();
+        this.stats.trackerStats = trackerStats;
+        this.stats.trackerScore = trackerStats.avgRating;
+
+        // Комбинировать уверенность
+        const graphConfidence = this.stats.confidence;
+        const trackerConfidence = trackerStats.avgRating;
+        this.stats.confidence = (graphConfidence * 0.4 + trackerConfidence * 0.6);
 
         const addedNodes = this.graph.nodes.size - previousNodeCount;
 
-        console.log(`✅ Анализ добавлен: +${addedNodes} новых узлов, ` +
-                  `всего ${this.graph.nodes.size} узлов`);
-
-        if (hybridResult) {
-            console.log(`   🎯 Гибридные признаки: моменты=${this.hybridFootprint?.moments?.length || 0}, ` +
-                      `битмаска=${this.hybridFootprint?.bitmask ? 'да' : 'нет'}`);
-        }
+        console.log(`✅ Анализ добавлен: +${addedNodes} узлов, ` +
+                  `трекер: ${trackerResults.updated} подтверждений`);
 
         return {
             success: true,
@@ -158,8 +201,29 @@ class SimpleFootprint {
             totalNodes: this.graph.nodes.size,
             confidence: this.stats.confidence,
             graphInvariants: graphInvariants,
-            hybridResult: hybridResult
+            trackerResults: trackerResults,
+            trackerStats: trackerStats
         };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Связывание узлов графа с точками трекера
+    linkNodesWithTracker(graphNodes) {
+        let linkedCount = 0;
+       
+        graphNodes.forEach(graphNode => {
+            const node = this.graph.nodes.get(graphNode.id);
+            if (node) {
+                // Сохраняем связь с трекером
+                node.pointTrackerId = graphNode.pointTrackerId;
+                node.confirmedCount = graphNode.confirmedCount;
+                node.confidence = graphNode.confidence;
+                node.sources = graphNode.sources;
+                linkedCount++;
+            }
+        });
+       
+        console.log(`🔗 Связано ${linkedCount} узлов графа с PointTracker`);
+        return linkedCount;
     }
 
     // 2. ИЗВЛЕЧЬ ТОЧКИ ПРОТЕКТОРОВ ИЗ АНАЛИЗА
@@ -236,35 +300,149 @@ class SimpleFootprint {
 
         const graphConfidence = (nodeScore * 0.4 + edgeScore * 0.3 + clusteringScore * 0.3);
 
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Используем данные трекера если есть
+        let trackerScore = 0;
+        if (this.pointTracker) {
+            const trackerStats = this.pointTracker.getStats();
+            trackerScore = trackerStats.avgRating;
+            this.stats.trackerScore = trackerScore;
+            this.stats.trackerStats = trackerStats;
+        }
+
         // Добавить гибридный score если есть
         let hybridScore = 0;
         if (this.hybridFootprint) {
-            // ПРОВЕРЯЕМ, ЕСТЬ ЛИ МЕТОД calculateConfidence
             if (typeof this.hybridFootprint.calculateConfidence === 'function') {
                 hybridScore = this.hybridFootprint.calculateConfidence();
             } else if (this.hybridFootprint.stats?.confidence) {
-                // Или берем напрямую из stats
                 hybridScore = this.hybridFootprint.stats.confidence;
             } else if (this.hybridFootprint.getConfidence && typeof this.hybridFootprint.getConfidence === 'function') {
-                // Или используем getConfidence
                 hybridScore = this.hybridFootprint.getConfidence();
             }
         }
 
         // Комбинированный confidence
-        if (hybridScore > 0) {
-            this.stats.confidence = (graphConfidence * 0.4 + hybridScore * 0.6);
-            this.stats.hybridScore = hybridScore;
-        } else {
-            this.stats.confidence = graphConfidence;
+        let combinedConfidence = graphConfidence;
+        let weights = 1;
+       
+        if (trackerScore > 0) {
+            combinedConfidence += trackerScore;
+            weights++;
         }
-
+       
+        if (hybridScore > 0) {
+            combinedConfidence += hybridScore;
+            weights++;
+            this.stats.hybridScore = hybridScore;
+        }
+       
+        this.stats.confidence = combinedConfidence / weights;
         this.stats.qualityScore = this.stats.confidence * Math.min(1, this.metadata.totalPhotos / 3);
 
         // Обновить метаданные
         if (graphInvariants.nodeCount > 30 && !this.metadata.estimatedSize) {
             this.metadata.estimatedSize = Math.round(35 + (graphInvariants.nodeCount - 30) / 3);
         }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ОБНОВИТЬ ПОДТВЕРЖДЕНИЯ ИЗ POINTTRACKER
+    updateNodeFromTracker(nodeId, trackerPoint) {
+        const node = this.graph.nodes.get(nodeId);
+        if (!node) return false;
+       
+        // Обновляем узел данными из трекера
+        node.confirmedCount = trackerPoint.confirmedCount;
+        node.confidence = trackerPoint.rating;
+        node.lastConfirmed = new Date();
+       
+        // Сохраняем ID трекера для связи
+        if (!node.pointTrackerId) {
+            node.pointTrackerId = trackerPoint.id;
+        }
+       
+        // Сохраняем источник подтверждения
+        if (!node.sources) node.sources = [];
+        node.sources.push({
+            timestamp: new Date(),
+            source: 'point_tracker',
+            trackerId: trackerPoint.id,
+            confidence: trackerPoint.rating
+        });
+       
+        return true;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧИТЬ СТАТИСТИКУ ПОДТВЕРЖДЕНИЙ ИЗ POINTRACKER
+    getConfirmationStats() {
+        // Получаем статистику из трекера
+        const trackerStats = this.pointTracker ? this.pointTracker.getStats() : {
+            totalPoints: 0,
+            highConfidencePoints: 0,
+            avgRating: 0,
+            avgConfirmations: 0,
+            ratingDistribution: { low: 0, medium: 0, high: 0 }
+        };
+       
+        // Также считаем статистику по узлам графа для совместимости
+        let totalNodes = 0;
+        let confirmedNodes = 0;
+        let totalConfirmations = 0;
+       
+        if (this.graph && this.graph.nodes) {
+            this.graph.nodes.forEach((node, nodeId) => {
+                totalNodes++;
+                const confirmCount = node.confirmedCount || 1;
+               
+                if (confirmCount > 1) {
+                    confirmedNodes++;
+                    totalConfirmations += confirmCount;
+                }
+            });
+        }
+       
+        const stats = {
+            totalNodes,
+            confirmedNodes,
+            unconfirmedNodes: totalNodes - confirmedNodes,
+            averageConfirmations: confirmedNodes > 0 ? totalConfirmations / confirmedNodes : 0,
+           
+            // Статистика из PointTracker
+            trackerStats: {
+                totalPoints: trackerStats.totalPoints,
+                highConfidencePoints: trackerStats.highConfidencePoints,
+                avgRating: trackerStats.avgRating,
+                avgConfirmations: trackerStats.avgConfirmations,
+                ratingDistribution: trackerStats.ratingDistribution
+            },
+           
+            // Совмещенные данные
+            combinedConfidence: trackerStats.avgRating > 0 ?
+                (trackerStats.avgRating + (confirmedNodes / Math.max(1, totalNodes))) / 2 :
+                (confirmedNodes / Math.max(1, totalNodes))
+        };
+       
+        return stats;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Вспомогательный метод для поиска узла по координатам
+    findNodeByCoordinates(point, threshold = 15) {
+        let closestNode = null;
+        let minDistance = Infinity;
+       
+        if (!this.graph || !this.graph.nodes) return null;
+       
+        this.graph.nodes.forEach((node, nodeId) => {
+            const dx = node.x - point.x;
+            const dy = node.y - point.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+           
+            if (distance < minDistance && distance < threshold) {
+                minDistance = distance;
+                closestNode = { id: nodeId, node: node, distance: distance };
+            }
+        });
+       
+        return closestNode;
     }
 
     // 5. СРАВНИТЬ С ДРУГИМ ОТПЕЧАТКОМ - ОБНОВЛЕННЫЙ
@@ -287,48 +465,46 @@ class SimpleFootprint {
 
     // 5a. ГИБРИДНОЕ СРАВНЕНИЕ
     compareHybrid(otherFootprint) {
-    const hybridComparison = this.hybridFootprint.compare(otherFootprint.hybridFootprint);
-   
-    // Также получить сравнение графов для полного результата
-    const graphComparison = this.compareGraphBased(otherFootprint);
-   
-    // Комбинировать результаты
-    const hybridWeight = 0.7;  // Вес гибридного сравнения
-    const graphWeight = 0.3;   // Вес графового сравнения
-   
-    const combinedSimilarity = hybridComparison.similarity * hybridWeight +
-                              graphComparison.similarity * graphWeight;
-   
-    // 🔴 ИСПРАВЛЕННЫЙ КОД:
-    // Используем данные из hybridComparison
-    let decision, reason;
-   
-    if (combinedSimilarity > 0.75) {
-        decision = 'same';
-        reason = `Высокая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
-                `граф: ${graphComparison.similarity.toFixed(3)})`;
-    } else if (combinedSimilarity > 0.5) {
-        decision = 'similar';
-        reason = `Умеренная схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
-                `граф: ${graphComparison.similarity.toFixed(3)})`;
-    } else {
-        decision = 'different';
-        reason = `Низкая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
-                `граф: ${graphComparison.similarity.toFixed(3)})`;
+        const hybridComparison = this.hybridFootprint.compare(otherFootprint.hybridFootprint);
+       
+        // Также получить сравнение графов для полного результата
+        const graphComparison = this.compareGraphBased(otherFootprint);
+       
+        // Комбинировать результаты
+        const hybridWeight = 0.7;  // Вес гибридного сравнения
+        const graphWeight = 0.3;   // Вес графового сравнения
+       
+        const combinedSimilarity = hybridComparison.similarity * hybridWeight +
+                                  graphComparison.similarity * graphWeight;
+       
+        let decision, reason;
+       
+        if (combinedSimilarity > 0.75) {
+            decision = 'same';
+            reason = `Высокая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
+                    `граф: ${graphComparison.similarity.toFixed(3)})`;
+        } else if (combinedSimilarity > 0.5) {
+            decision = 'similar';
+            reason = `Умеренная схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
+                    `граф: ${graphComparison.similarity.toFixed(3)})`;
+        } else {
+            decision = 'different';
+            reason = `Низкая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
+                    `граф: ${graphComparison.similarity.toFixed(3)})`;
+        }
+       
+        return {
+            similarity: Math.round(combinedSimilarity * 100) / 100,
+            decision: decision,
+            reason: reason,
+            method: 'hybrid',
+            comparisons: {
+                hybrid: hybridComparison,
+                graph: graphComparison
+            },
+            confidence: hybridComparison.confidence || 0.5
+        };
     }
-   
-    return {
-        similarity: Math.round(combinedSimilarity * 100) / 100,
-        decision: decision,
-        reason: reason,
-        method: 'hybrid',
-        comparisons: {
-            hybrid: hybridComparison,
-            graph: graphComparison
-        },
-        confidence: hybridComparison.confidence || 0.5
-    };
-}
 
     // 5b. КЛАССИЧЕСКОЕ СРАВНЕНИЕ ПО ГРАФАМ
     compareGraphBased(otherFootprint) {
@@ -433,6 +609,31 @@ class SimpleFootprint {
         this.metadata.totalPhotos += otherFootprint.metadata.totalPhotos;
         this.metadata.lastUpdated = new Date();
 
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Объединить PointTracker если есть
+        if (this.pointTracker && otherFootprint.pointTracker) {
+            // Перемещаем все точки из другого трекера
+            for (const [pointId, point] of otherFootprint.pointTracker.points) {
+                // Ищем ближайшую точку в текущем трекере
+                const nearest = this.pointTracker.findNearestPoint(point, 15);
+               
+                if (nearest && nearest.distance < 10) {
+                    // Обновляем существующую точку
+                    this.pointTracker.updatePoint(nearest.id, point, {
+                        source: 'merge',
+                        mergedFrom: otherFootprint.id,
+                        timestamp: new Date()
+                    });
+                } else {
+                    // Добавляем новую точку
+                    this.pointTracker.addPoint(point, {
+                        source: 'merge',
+                        mergedFrom: otherFootprint.id,
+                        timestamp: new Date()
+                    });
+                }
+            }
+        }
+
         // Объединить гибридные отпечатки если есть
         if (this.hybridFootprint && otherFootprint.hybridFootprint) {
             this.hybridFootprint.merge(otherFootprint.hybridFootprint);
@@ -454,17 +655,25 @@ class SimpleFootprint {
             this.stats.hybridScore = this.hybridFootprint.calculateConfidence();
         }
 
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обновляем статистику трекера
+        if (this.pointTracker) {
+            const trackerStats = this.pointTracker.getStats();
+            this.stats.trackerScore = trackerStats.avgRating;
+            this.stats.trackerStats = trackerStats;
+        }
+
         console.log(`✅ Объединено успешно! Теперь ${this.metadata.totalPhotos} фото в отпечатке`);
 
         return {
             success: true,
             mergedPhotos: otherFootprint.metadata.totalPhotos,
             newTotalPhotos: this.metadata.totalPhotos,
-            similarity: comparison.similarity
+            similarity: comparison.similarity,
+            trackerStats: this.pointTracker ? this.pointTracker.getStats() : null
         };
     }
 
-    // 7. ПОЛУЧИТЬ ИНФОРМАЦИЮ ОБ ОТПЕЧАТКЕ
+    // 7. ПОЛУЧИТЬ ИНФОРМАЦИЮ ОБ ОТПЕЧАТКЕ (обновленная)
     getInfo() {
         const info = {
             id: this.id,
@@ -496,6 +705,18 @@ class SimpleFootprint {
             info.hybrid = this.hybridFootprint.getInfo();
         }
 
+        // 🔥 НОВОЕ: Добавить информацию о PointTracker
+        if (this.pointTracker) {
+            const trackerStats = this.pointTracker.getStats();
+            info.pointTracker = {
+                totalPoints: trackerStats.totalPoints,
+                highConfidencePoints: trackerStats.highConfidencePoints,
+                avgRating: trackerStats.avgRating,
+                avgConfirmations: trackerStats.avgConfirmations,
+                hasTracker: true
+            };
+        }
+
         return info;
     }
 
@@ -515,13 +736,18 @@ class SimpleFootprint {
             analysisHistory: this.analysisHistory,
             photoHistory: this.photoHistory,
             linkedFootprints: this.linkedFootprints,
-            _version: '1.1', // Обновили версию для поддержки гибридных отпечатков
+            _version: '1.2', // Обновили версию для поддержки PointTracker
             _savedAt: new Date().toISOString()
         };
 
         // Сохранить гибридный отпечаток если есть
         if (this.hybridFootprint) {
             data.hybridFootprint = this.hybridFootprint.toJSON();
+        }
+
+        // 🔥 ВАЖНО: Сохранить PointTracker
+        if (this.pointTracker) {
+            data.pointTracker = this.pointTracker.toJSON();
         }
 
         return data;
@@ -545,6 +771,21 @@ class SimpleFootprint {
             }
         }
 
+        // 🔥 ВАЖНО: Создать PointTracker если есть данные
+        let pointTracker = null;
+        if (data.pointTracker && PointTracker) {
+            try {
+                pointTracker = PointTracker.fromJSON(data.pointTracker);
+                console.log('   🎯 Загружен PointTracker');
+            } catch (error) {
+                console.log('⚠️ Ошибка загрузки PointTracker:', error.message);
+                pointTracker = new PointTracker();
+            }
+        } else {
+            // Создать новый трекер если данных нет
+            pointTracker = new PointTracker();
+        }
+
         // Создать отпечаток
         const footprint = new SimpleFootprint({
             id: data.id,
@@ -552,6 +793,7 @@ class SimpleFootprint {
             userId: data.userId,
             graph: graph,
             hybridFootprint: hybridFootprint,
+            pointTracker: pointTracker,
             metadata: data.metadata,
             confidence: data.stats?.confidence
         });
@@ -574,12 +816,13 @@ class SimpleFootprint {
             footprint.stats = { ...footprint.stats, ...data.stats };
         }
 
-        console.log(`✅ Загружен отпечаток "${footprint.name}" с ${footprint.graph.nodes.size} узлами`);
+        console.log(`✅ Загружен отпечаток "${footprint.name}" с ` +
+                   `${footprint.graph.nodes.size} узлами и PointTracker`);
 
         return footprint;
     }
 
-    // 10. ВИЗУАЛИЗАЦИЯ ДЛЯ ОТЛАДКИ
+    // 10. ВИЗУАЛИЗАЦИЯ ДЛЯ ОТЛАДКИ (обновленная)
     visualize() {
         console.log(`\n👣 ЦИФРОВОЙ ОТПЕЧАТОК "${this.name}":`);
         console.log(`├─ ID: ${this.id}`);
@@ -589,12 +832,16 @@ class SimpleFootprint {
         console.log(`├─ Уверенность: ${Math.round(this.stats.confidence * 100)}%`);
         console.log(`├─ Качество: ${Math.round(this.stats.qualityScore * 100)}%`);
 
+        if (this.pointTracker) {
+            const trackerStats = this.pointTracker.getStats();
+            console.log(`├─ PointTracker: ${trackerStats.totalPoints} точек`);
+            console.log(`├─ Высоконадёжных: ${trackerStats.highConfidencePoints}`);
+            console.log(`├─ Средний рейтинг: ${trackerStats.avgRating.toFixed(3)}`);
+        }
+
         if (this.hybridFootprint) {
             console.log(`├─ Гибридный режим: ВКЛЮЧЕН`);
             console.log(`├─ Гибридный score: ${Math.round(this.stats.hybridScore * 100)}%`);
-            const hybridInfo = this.hybridFootprint.getInfo();
-            console.log(`├─ Моменты: ${hybridInfo.momentsCount || 0}`);
-            console.log(`├─ Битмаска: ${hybridInfo.hasBitmask ? 'да' : 'нет'}`);
         }
 
         console.log(`└─ Создан: ${this.metadata.created.toLocaleString('ru-RU')}`);
@@ -608,13 +855,14 @@ class SimpleFootprint {
         console.log(`└─ Плотность: ${invariants.density.toFixed(4)}`);
     }
 
-    // 11. ВИЗУАЛИЗАЦИЯ ГРАФА ОТПЕЧАТКА
+    // 11. ВИЗУАЛИЗАЦИЯ ГРАФА ОТПЕЧАТКА (обновленная)
     async visualizeGraph(options = {}) {
         try {
             const GraphVisualizer = require('./graph-visualizer');
             const visualizer = new GraphVisualizer();
 
-            const vizPath = await visualizer.visualizeGraph(this.graph, {
+            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Используем метод с подтверждениями
+            const vizPath = await visualizer.visualizeWithConfirmations(this, {
                 title: `Отпечаток: ${this.name}`,
                 filename: `footprint_${this.id}.png`,
                 ...options
@@ -643,8 +891,6 @@ class SimpleFootprint {
             // Найти лучшее фото для контура (с максимальным количеством протекторов)
             let bestPhotoPath = contourImagePath;
             if (!bestPhotoPath && this.photoHistory.length > 0) {
-                // Здесь можно добавить логику поиска лучшего фото
-                // Пока используем первое фото с контуром
                 const contourPhoto = this.photoHistory.find(photo =>
                     photo.source?.localPath && fs.existsSync(photo.source.localPath)
                 );
@@ -665,6 +911,57 @@ class SimpleFootprint {
         }
     }
 
+    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧИТЬ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ ИЗ ТРЕКЕРА
+    getTrackerVisualizationData() {
+        if (this.pointTracker && this.pointTracker.exportForVisualization) {
+            return this.pointTracker.exportForVisualization();
+        }
+        return null;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ВИЗУАЛИЗИРОВАТЬ ТРЕКЕР
+    visualizeTracker() {
+        console.log(`\n🎯 POINT TRACKER ДЛЯ ОТПЕЧАТКА "${this.name}":`);
+        if (this.pointTracker) {
+            this.pointTracker.visualize();
+           
+            // Показать связь с узлами графа
+            console.log(`\n🔗 СВЯЗЬ С ГРАФОМ:`);
+            let linkedNodes = 0;
+            this.graph.nodes.forEach((node, nodeId) => {
+                if (node.pointTrackerId) {
+                    linkedNodes++;
+                }
+            });
+            console.log(`Узлов графа связанных с трекером: ${linkedNodes}/${this.graph.nodes.size}`);
+        } else {
+            console.log(`❌ PointTracker не инициализирован`);
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ПРИНУДИТЕЛЬНО ОБНОВИТЬ ПОДТВЕРЖДЕНИЯ УЗЛОВ
+    forceUpdateNodeConfirmations() {
+        let updatedCount = 0;
+       
+        if (this.pointTracker && this.graph) {
+            // Проходим по всем точкам трекера
+            for (const [trackerId, trackerPoint] of this.pointTracker.points) {
+                if (trackerPoint.confirmedCount > 1) {
+                    // Находим ближайший узел графа
+                    const node = this.findNodeByCoordinates(trackerPoint, 15);
+                    if (node) {
+                        // Обновляем узел
+                        this.updateNodeFromTracker(node.id, trackerPoint);
+                        updatedCount++;
+                    }
+                }
+            }
+        }
+       
+        console.log(`🔧 Принудительно обновлено ${updatedCount} узлов с подтверждениями`);
+        return updatedCount;
+    }
+
     // 13. ПОЛУЧИТЬ ГИБРИДНЫЙ ОТПЕЧАТОК
     getHybridFootprint() {
         return this.hybridFootprint;
@@ -682,6 +979,27 @@ class SimpleFootprint {
         }
 
         return this;
+    }
+
+    // 15. ПОЛУЧИТЬ POINT TRACKER
+    getPointTracker() {
+        return this.pointTracker;
+    }
+
+    // 16. ОБНОВИТЬ POINT TRACKER
+    updatePointTracker(newPoints, sourceInfo = {}) {
+        if (!this.pointTracker) {
+            this.pointTracker = new PointTracker();
+        }
+       
+        const results = this.pointTracker.processNewPoints(newPoints, sourceInfo);
+       
+        // После обработки обновляем связанные узлы
+        if (results.updated > 0) {
+            this.forceUpdateNodeConfirmations();
+        }
+       
+        return results;
     }
 }
 
