@@ -1364,6 +1364,23 @@ bot.onText(/\/help/, (msg) => {
     );
 });
 
+bot.onText(/\/reset/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    // Завершить все сессии пользователя
+    const sessionManager = require('./modules/session-manager');
+    sessionManager.endAllUserSessions(userId);
+   
+    // Очистить сессию в SimpleFootprintManager
+    const simpleManager = require('./modules/footprint/simple-manager');
+    const manager = new simpleManager(); // или получить существующий экземпляр
+   
+    manager.endSession(userId, 'manual_reset');
+   
+    bot.sendMessage(chatId, '🔄 Все сессии сброшены. Следующее фото начнёт новую сессию.');
+});
+
 // =============================================================================
 // 🆕 СЕССИОННЫЕ КОМАНДЫ
 // =============================================================================
