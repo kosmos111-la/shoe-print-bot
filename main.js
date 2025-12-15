@@ -2068,61 +2068,61 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                   
                     // 🔥 ИСПРАВЛЕНИЕ: После объединения следов показываем правильную статистику
                     if (addResult.success && addResult.alignment?.similarity > 0.7) {
-                        console.log('🎯 Следы совпали, обновляю статистику подтверждений...');
-                       
-                        // Получить сессию
-                        const session = footprintManager.getActiveSession(userId);
-                        if (session && session.currentFootprint) {
-                            // Получить статистику подтверждений
-                            const stats = session.currentFootprint.getConfirmationStats ?
-                                session.currentFootprint.getConfirmationStats() :
-                                { confirmedNodes: 0, totalNodes: 0, averageConfirmations: 0 };
-                           
-                            // Если есть визуализация объединения, добавить в caption
-                            if (addResult.mergeVisualization && fs.existsSync(addResult.mergeVisualization)) {
-                                setTimeout(async () => {
-                                    // 🔥 ИСПРАВЛЕННАЯ ПОДПИСЬ с подтверждениями
-                                    const caption = `🎭 **ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ С ПОДТВЕРЖДЕНИЯМИ**\n\n` +
-                                                  `📊 Всего узлов: ${stats.totalNodes || 0}\n` +
-                                                  `✅ Подтвержденных узлов: ${stats.confirmedNodes || 0}\n` +
-                                                  `📈 Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n\n` +
-                                                  `🎨 **ЦВЕТА УЗЛОВ:**\n` +
-                                                  `⚫ Чёрный - 1 подтверждение\n` +
-                                                  `🟠 Оранжевый - 2 подтверждения\n` +
-                                                  `🟡 Жёлтый - 3 подтверждения\n` +
-                                                  `🔴 Красный - 4+ подтверждений\n\n` +
-                                                  `⭕ **Круги:** узлы из последнего следа\n` +
-                                                  `🔢 **Цифры:** количество подтверждений\n\n` +
-                                                  `💪 **Чем больше красных точек - тем надёжнее модель!**`;
-                                   
-                                    await bot.sendPhoto(chatId, addResult.mergeVisualization, { caption });
-                                   
-                                    // 🔥 ДОПОЛНИТЕЛЬНОЕ СООБЩЕНИЕ С ДЕТАЛЬНОЙ СТАТИСТИКОЙ
-                                    setTimeout(async () => {
-                                        let statsMessage = `✅ **СЛЕДЫ УСПЕШНО ОБЪЕДИНЕНЫ!**\n\n`;
-                                        statsMessage += `📊 **СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:**\n`;
-                                        statsMessage += `• Всего узлов: ${stats.totalNodes}\n`;
-                                        statsMessage += `• Подтвержденных узлов: ${stats.confirmedNodes}\n`;
-                                        statsMessage += `• Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n`;
-                                       
-                                        // Добавляем статистику из трекера если есть
-                                        if (stats.trackerStats) {
-                                            statsMessage += `\n🎯 **POINT TRACKER:**\n`;
-                                            statsMessage += `• Точек в трекере: ${stats.trackerStats.totalPoints}\n`;
-                                            statsMessage += `• Высоконадёжных: ${stats.trackerStats.highConfidencePoints}\n`;
-                                            statsMessage += `• Средний рейтинг: ${stats.trackerStats.avgRating?.toFixed(3) || '0.000'}\n`;
-                                        }
-                                       
-                                        statsMessage += `\n💡 **Точки теперь окрашены по количеству подтверждений!**`;
-                                       
-                                        await bot.sendMessage(chatId, statsMessage);
-                                       
-                                    }, 1000);
-                                   
-                                }, 1000);
-                            }
-                        }
+    console.log('🎯 Следы совпали, обновляю статистику подтверждений...');
+   
+    // Получить сессию
+    const session = footprintManager.getActiveSession(userId);
+    if (session && session.currentFootprint) {
+        // Получить статистику подтверждений ✅ ИСПРАВЛЕНО: объявляем переменную stats
+        const stats = session.currentFootprint.getConfirmationStats ?
+            session.currentFootprint.getConfirmationStats() :
+            { confirmedNodes: 0, totalNodes: 0, averageConfirmations: 0 };
+       
+        // Если есть визуализация объединения, добавить в caption
+        if (addResult.mergeVisualization && fs.existsSync(addResult.mergeVisualization)) {
+            setTimeout(async () => {
+                // 🔥 ИСПРАВЛЕННАЯ ПОДПИСЬ с подтверждениями
+                const caption = `🎭 **ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ С ПОДТВЕРЖДЕНИЯМИ**\n\n` +
+                              `📊 Всего узлов: ${stats.totalNodes || 0}\n` +
+                              `✅ Подтвержденных узлов: ${stats.confirmedNodes || 0}\n` +
+                              `📈 Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n\n` +
+                              `🎨 **ЦВЕТА УЗЛОВ:**\n` +
+                              `⚫ Чёрный - 1 подтверждение\n` +
+                              `🟠 Оранжевый - 2 подтверждения\n` +
+                              `🟡 Жёлтый - 3 подтверждения\n` +
+                              `🔴 Красный - 4+ подтверждений\n\n` +
+                              `⭕ **Круги:** узлы из последнего следа\n` +
+                              `🔢 **Цифры:** количество подтверждений\n\n` +
+                              `💪 **Чем больше красных точек - тем надёжнее модель!**`;
+               
+                await bot.sendPhoto(chatId, addResult.mergeVisualization, { caption });
+               
+                // 🔥 ДОПОЛНИТЕЛЬНОЕ СООБЩЕНИЕ С ДЕТАЛЬНОЙ СТАТИСТИКОЙ
+                setTimeout(async () => {
+                    let statsMessage = `✅ **СЛЕДЫ УСПЕШНО ОБЪЕДИНЕНЫ!**\n\n`;
+                    statsMessage += `📊 **СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:**\n`;
+                    statsMessage += `• Всего узлов: ${stats.totalNodes || 0}\n`;
+                    statsMessage += `• Подтвержденных узлов: ${stats.confirmedNodes || 0}\n`;
+                    statsMessage += `• Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n`;
+                   
+                    // Добавляем статистику из трекера если есть
+                    if (stats.trackerStats) {
+                        statsMessage += `\n🎯 **POINT TRACKER:**\n`;
+                        statsMessage += `• Точек в трекере: ${stats.trackerStats.totalPoints || 0}\n`;
+                        statsMessage += `• Высоконадёжных: ${stats.trackerStats.highConfidencePoints || 0}\n`;
+                        statsMessage += `• Средний рейтинг: ${stats.trackerStats.avgRating?.toFixed(3) || '0.000'}\n`;
                     }
+                   
+                    statsMessage += `\n💡 **Точки теперь окрашены по количеству подтверждений!**`;
+                   
+                    await bot.sendMessage(chatId, statsMessage);
+                   
+                }, 1000);
+               
+            }, 1000);
+        }
+    }
+}
                   
                     // Сохраняем результат для будущего использования
                     saveUserLastAnalysis(userId, {
