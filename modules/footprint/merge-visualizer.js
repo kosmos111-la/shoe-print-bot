@@ -208,73 +208,119 @@ class MergeVisualizer {
 
     // 3. ПОЛУЧЕНИЕ ИНФОРМАЦИИ О ПОДТВЕРЖДЕНИЯХ УЗЛОВ (ИСПРАВЛЕННЫЙ)
     getNodeConfirmations(footprint) {
-        console.log('🔍 Получаю подтверждения для супер-модели...');
-       
-        // ПРОВЕРЯЕМ: Есть ли у отпечатка PointTracker?
-        let useTracker = false;
-        let trackerStats = null;
-       
-        if (footprint.pointTracker && typeof footprint.pointTracker.getStats === 'function') {
-            console.log('🎯 Использую PointTracker для подтверждений');
-            useTracker = true;
-            trackerStats = footprint.pointTracker.getStats();
+    console.log('🔍 Получаю подтверждения для супер-модели...');
+
+    // ПРОВЕРЯЕМ: Есть ли у отпечатка PointTracker?
+    let useTracker = false;
+    let trackerStats = null;
+    let trackerPointsMap = new Map();
+
+    if (footprint.pointTracker && typeof footprint.pointTracker.getStats === 'function') {
+        console.log('🎯 Использую PointTracker для подтверждений');
+        useTracker = true;
+        trackerStats = footprint.pointTracker.getStats();
+
+        // 🔥 Собираем все точки трекера в карту для быстрого доступа
+        for (const [trackerId, trackerPoint] of footprint.pointTracker.points) {
+            trackerPointsMap.set(trackerId, trackerPoint);
         }
-       
-        const confirmations = new Map();
-        let confirmedCount = 0;
-        let unconfirmedCount = 0;
-        let totalConfirmations = 0;
-       
-        // Проходим по всем узлам графа
-        if (footprint.graph && footprint.graph.nodes) {
-            for (const [nodeId, node] of footprint.graph.nodes) {
-                let confirmationCount = 1; // По умолчанию 1 (сама точка)
-               
-                // 🔥 ИСПРАВЛЕНИЕ 1: Используем PointTracker если он есть
-                if (useTracker && node.pointTrackerId) {
-                    const trackedPoint = footprint.pointTracker.points.get(node.pointTrackerId);
-                    if (trackedPoint) {
-                        confirmationCount = trackedPoint.confirmedCount || 1;
-                    }
-                }
-                // 🔥 ИСПРАВЛЕНИЕ 2: Используем confirmedCount из узла
-                else if (node.confirmedCount && node.confirmedCount > 0) {
-                    confirmationCount = node.confirmedCount;
-                }
-                // 🔥 ИСПРАВЛЕНИЕ 3: Используем sources если есть
-                else if (node.sources && Array.isArray(node.sources)) {
-                    confirmationCount = Math.max(1, node.sources.length);
-                }
-               
-                // Сохраняем информацию
-                confirmations.set(nodeId, confirmationCount);
-               
-                // Считаем статистику
-                if (confirmationCount > 1) {
-                    confirmedCount++;
-                    totalConfirmations += confirmationCount;
-                } else {
-                    unconfirmedCount++;
+        console.log(`📊 Трекер содержит ${trackerPointsMap.size} точек`);
+    }
+
+    const confirmations = new Map();
+    let confirmedCount = 0;
+    let unconfirmedCount = 0;
+    let totalConfirmations = 0;
+
+    // Статистика по количеству подтверждений
+    const confirmationStats = {
+        nodesWith1: 0,     // Синие
+        nodesWith2: 0,     // Оранжевые
+        nodesWith3: 0,     // Желтые
+        nodesWith4Plus: 0, // Красные
+        nodesWith0: 0      // Черные
+    };
+
+    // Проходим по всем узлам графа
+    if (footprint.graph && footprint.graph.nodes) {
+        for (const [nodeId, node] of footprint.graph.nodes) {
+            let confirmationCount = 0; // Начинаем с 0
+
+            // 🔥 ПРИОРИТЕТ 1: Используем PointTracker если есть связь
+            if (useTracker && node.pointTrackerId) {
+                const trackedPoint = trackerPointsMap.get(node.pointTrackerId);
+                if (trackedPoint) {
+                    confirmationCount = trackedPoint.confirmedCount || 0;
                 }
             }
+            // 🔥 ПРИОРИТЕТ 2: Используем confirmedCount из узла
+            else if (node.confirmedCount !== undefined) {
+                confirmationCount = node.confirmedCount;
+            }
+            // 🔥 ПРИОРИТЕТ 3: Используем sources если есть
+            else if (node.sources && Array.isArray(node.sources)) {
+                confirmationCount = node.sources.length;
+            }
+
+            // Если всё равно 0, ставим 0 (узел без подтверждений)
+            if (confirmationCount === 0) {
+                confirmationCount = 0;
+            }
+
+            // Сохраняем информацию
+            confirmations.set(nodeId, confirmationCount);
+
+            // Считаем статистику
+            if (confirmationCount >= 4) {
+                confirmedCount++;
+                confirmationStats.nodesWith4Plus++;
+                totalConfirmations += confirmationCount;
+            } else if (confirmationCount === 3) {
+                confirmedCount++;
+                confirmationStats.nodesWith3++;
+                totalConfirmations += confirmationCount;
+            } else if (confirmationCount === 2) {
+                confirmedCount++;
+                confirmationStats.nodesWith2++;
+                totalConfirmations += confirmationCount;
+            } else if (confirmationCount === 1) {
+                confirmedCount++;
+                confirmationStats.nodesWith1++;
+                totalConfirmations += confirmationCount;
+            } else {
+                unconfirmedCount++;
+                confirmationStats.nodesWith0++;
+            }
         }
-       
-        const result = {
-            map: confirmations,
-            confirmedCount,
-            unconfirmedCount,
-            averageConfirmations: confirmedCount > 0 ? totalConfirmations / confirmedCount : 0
-        };
-       
-        // 🔥 ИСПРАВЛЕНИЕ 4: Добавляем статистику из трекера если есть
-        if (trackerStats) {
-            result.trackerStats = trackerStats;
-            console.log(`📊 PointTracker: ${trackerStats.highConfidencePoints} высоконадёжных точек`);
-        }
-       
-        console.log(`📊 Подтверждения: ${confirmedCount} подтвержденных, ${unconfirmedCount} неподтвержденных`);
-        return result;
     }
+
+    const result = {
+        map: confirmations,
+        confirmedCount,
+        unconfirmedCount,
+        averageConfirmations: confirmedCount > 0 ? totalConfirmations / confirmedCount : 0,
+        confirmationStats: confirmationStats,
+        nodesWith4Plus: confirmationStats.nodesWith4Plus,
+        nodesWith3: confirmationStats.nodesWith3,
+        nodesWith2: confirmationStats.nodesWith2,
+        nodesWith1: confirmationStats.nodesWith1,
+        unconfirmedNodes: confirmationStats.nodesWith0,
+        totalNodes: (footprint.graph && footprint.graph.nodes) ? footprint.graph.nodes.size : 0
+    };
+
+    // 🔥 Добавляем статистику из трекера если есть
+    if (trackerStats) {
+        result.trackerStats = trackerStats;
+        console.log(`📊 PointTracker: ${trackerStats.highConfidencePoints} высоконадёжных точек`);
+    }
+
+    console.log(`📊 Подтверждения: ${confirmedCount} подтвержденных, ${unconfirmedCount} неподтвержденных`);
+    console.log(`📈 Распределение: 4+=${confirmationStats.nodesWith4Plus}, ` +
+                `3=${confirmationStats.nodesWith3}, 2=${confirmationStats.nodesWith2}, ` +
+                `1=${confirmationStats.nodesWith1}, 0=${confirmationStats.nodesWith0}`);
+
+    return result;
+}
 
     // 4. НОРМАЛИЗАЦИЯ УЗЛОВ ДЛЯ ОТОБРАЖЕНИЯ
     normalizeNodesForDisplay(nodes) {
@@ -572,65 +618,65 @@ class MergeVisualizer {
 
     // 8. РИСОВАНИЕ СТАТИСТИКИ (ОБНОВЛЕННАЯ)
     drawStats(ctx, superModel, nodeConfirmations) {
-        const statsX = 20;
-        const statsY = 50;
-       
-        // Фон статистики (увеличиваем высоту)
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(statsX - 10, statsY - 10, 320, 160); // Было 300x140
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(statsX - 10, statsY - 10, 320, 160);
-       
-        // Заголовок
+    const statsX = 20;
+    const statsY = 50;
+   
+    // Фон статистики (увеличиваем высоту)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillRect(statsX - 10, statsY - 10, 320, 180); // Было 300x140
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(statsX - 10, statsY - 10, 320, 180);
+   
+    // Заголовок
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 16px Arial';
+    ctx.fillText('📊 СТАТИСТИКА СУПЕР-МОДЕЛИ', statsX, statsY);
+   
+    let y = statsY + 30;
+    const lineHeight = 20;
+   
+    // 🔥 ИСПРАВЛЕНИЕ: Статистические данные с подтверждениями
+    const statsItems = [
+        `🏗️ Всего узлов: ${nodeConfirmations.totalNodes || 0}`,
+        `🔴 4+ фото: ${nodeConfirmations.nodesWith4Plus || 0}`,
+        `🟡 3 фото: ${nodeConfirmations.nodesWith3 || 0}`,
+        `🟠 2 фото: ${nodeConfirmations.nodesWith2 || 0}`,
+        `🔵 1 фото: ${nodeConfirmations.nodesWith1 || 0}`,
+        `⚫ Без подтверждений: ${nodeConfirmations.unconfirmedNodes || 0}`
+    ];
+   
+    // Рисуем основную статистику
+    statsItems.forEach(item => {
         ctx.fillStyle = '#000000';
-        ctx.font = 'bold 16px Arial';
-        ctx.fillText('📊 СТАТИСТИКА СУПЕР-МОДЕЛИ', statsX, statsY);
+        ctx.font = '12px Arial';
+        ctx.fillText(item, statsX, y);
+        y += lineHeight;
+    });
+   
+    // 🔥 ИСПРАВЛЕНИЕ: Добавляем статистику из PointTracker если есть
+    if (nodeConfirmations.trackerStats) {
+        const tracker = nodeConfirmations.trackerStats;
        
-        let y = statsY + 30;
-        const lineHeight = 20;
+        // Вторая колонка статистики
+        const statsX2 = 180;
+        y = statsY + 30;
        
-        // 🔥 ИСПРАВЛЕНИЕ: Статистические данные с подтверждениями
-        const statsItems = [
-            `🏗️ Всего узлов: ${superModel.graph.nodes.size}`,
-            `✅ Подтверждённых (>1 фото): ${nodeConfirmations.confirmedCount}`,
-            `❌ Неподтверждённых: ${nodeConfirmations.unconfirmedCount}`,
-            `📈 Среднее подтверждений: ${nodeConfirmations.averageConfirmations.toFixed(1)}`,
-            `🔗 Всего связей: ${superModel.graph.edges.size}`,
-            `⭐ Уверенность: ${Math.round((superModel.stats?.confidence || 0) * 100)}%`
+        const trackerItems = [
+            `🎯 Точек в трекере: ${tracker.totalPoints}`,
+            `🟢 Высоконадёжных: ${tracker.highConfidencePoints}`,
+            `📊 Средний рейтинг: ${tracker.avgRating?.toFixed(3) || '0.000'}`,
+            `🔢 Сред. подтверждений: ${tracker.avgConfirmations?.toFixed(1) || '0.0'}`
         ];
        
-        // Рисуем основную статистику
-        statsItems.forEach(item => {
-            ctx.fillStyle = '#000000';
+        trackerItems.forEach(item => {
+            ctx.fillStyle = '#0066CC';
             ctx.font = '12px Arial';
-            ctx.fillText(item, statsX, y);
+            ctx.fillText(item, statsX2, y);
             y += lineHeight;
         });
-       
-        // 🔥 ИСПРАВЛЕНИЕ: Добавляем статистику из PointTracker если есть
-        if (nodeConfirmations.trackerStats) {
-            const tracker = nodeConfirmations.trackerStats;
-           
-            // Вторая колонка статистики
-            const statsX2 = 180;
-            y = statsY + 30;
-           
-            const trackerItems = [
-                `🎯 Точек в трекере: ${tracker.totalPoints}`,
-                `🟢 Высоконадёжных: ${tracker.highConfidencePoints}`,
-                `📊 Средний рейтинг: ${tracker.avgRating.toFixed(3)}`,
-                `🔢 Сред. подтверждений: ${tracker.avgConfirmations.toFixed(1)}`
-            ];
-           
-            trackerItems.forEach(item => {
-                ctx.fillStyle = '#0066CC';
-                ctx.font = '12px Arial';
-                ctx.fillText(item, statsX2, y);
-                y += lineHeight;
-            });
-        }
     }
+}
 
     // 9. ПРОСТАЯ ДИАГРАММА (старый метод)
     drawSimpleDiagram(ctx, nodes1, nodes2, similarity) {
@@ -773,22 +819,26 @@ class MergeVisualizer {
     }
 
     // НОВАЯ ПОДПИСЬ ДЛЯ СУПЕР-МОДЕЛИ (ОБНОВЛЕННАЯ)
-    createSuperModelCaption(superModel, lastModel, stats) {
-        let caption = `<b>🏗️ СУПЕР-МОДЕЛЬ С ПОДТВЕРЖДЕНИЯМИ</b>\n\n`;
-        caption += `<b>🎯 Всего узлов:</b> ${stats.totalNodes || 0}\n`;
-        caption += `<b>✅ Подтверждённых узлов:</b> ${stats.confirmedNodes || 0}\n`;
-        caption += `<b>❌ Неподтверждённых:</b> ${stats.unconfirmedNodes || 0}\n`;
-        caption += `<b>📈 Среднее подтверждений:</b> ${stats.averageConfirmations?.toFixed(1) || 0}\n\n`;
-       
-        if (stats.trackerStats) {
-            caption += `<b>🎯 PointTracker:</b> ${stats.trackerStats.totalPoints} точек\n`;
-            caption += `<b>🟢 Высоконадёжных:</b> ${stats.trackerStats.highConfidencePoints}\n\n`;
-        }
-       
-        caption += `<i>⚫ 1 фото | 🟠 2 фото | 🟡 3 фото | 🔴 4+ фото | ⭕ Узлы последнего следа</i>`;
-       
-        return caption;
+   createSuperModelCaption(superModel, lastModel, stats) {
+    let caption = `<b>🏗️ СУПЕР-МОДЕЛЬ С ПОДТВЕРЖДЕНИЯМИ</b>\n\n`;
+    caption += `<b>🎯 Всего узлов:</b> ${stats.totalNodes || 0}\n`;
+    caption += `<b>🔴 4+ фото:</b> ${stats.nodesWith4Plus || 0}\n`;
+    caption += `<b>🟡 3 фото:</b> ${stats.nodesWith3 || 0}\n`;
+    caption += `<b>🟠 2 фото:</b> ${stats.nodesWith2 || 0}\n`;
+    caption += `<b>🔵 1 фото:</b> ${stats.nodesWith1 || 0}\n`;
+    caption += `<b>⚫ Без подтверждений:</b> ${stats.unconfirmedNodes || 0}\n\n`;
+
+    if (stats.trackerStats) {
+        caption += `<b>🎯 PointTracker:</b> ${stats.trackerStats.totalPoints} точек\n`;
+        caption += `<b>🟢 Высоконадёжных:</b> ${stats.trackerStats.highConfidencePoints}\n`;
+        caption += `<b>📊 Средний рейтинг:</b> ${stats.trackerStats.avgRating?.toFixed(3) || '0.000'}\n\n`;
     }
+
+    caption += `<i>⚫ Нет подтверждений | 🔵 1 фото | 🟠 2 фото | 🟡 3 фото | 🔴 4+ фото</i>\n`;
+    caption += `<i>Цифры на узлах - количество подтверждений</i>`;
+
+    return caption;
+}
 
     // Сохранение канваса
     async saveCanvas(canvas, filePath) {
