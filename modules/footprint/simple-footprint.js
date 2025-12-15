@@ -114,8 +114,10 @@ class SimpleFootprint {
 
         console.log(`🎯 PointTracker: ${trackerResults.added} новых, ${trackerResults.updated} обновлено`);
 
-        // Получаем точки с высоким рейтингом для графа
-        const highConfidencePoints = this.pointTracker.getHighConfidencePoints(0.5);
+        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Снижаем порог для первого фото
+        // Получаем точки с высоким рейтингом для графа (на первом фото берём все)
+        const minConfidence = this.metadata.totalPhotos === 0 ? 0.1 : 0.5;
+        const highConfidencePoints = this.pointTracker.getHighConfidencePoints(minConfidence);
 
         // Обновляем граф на основе трекера
         const previousNodeCount = this.graph.nodes.size;
@@ -124,7 +126,7 @@ class SimpleFootprint {
         const graphNodes = [];
         highConfidencePoints.forEach((trackedPoint, index) => {
             const nodeId = `n_${trackedPoint.id}`;
-           
+
             graphNodes.push({
                 id: nodeId,
                 x: trackedPoint.x,
@@ -209,7 +211,7 @@ class SimpleFootprint {
     // 🔥 НОВЫЙ МЕТОД: Связывание узлов графа с точками трекера
     linkNodesWithTracker(graphNodes) {
         let linkedCount = 0;
-       
+
         graphNodes.forEach(graphNode => {
             const node = this.graph.nodes.get(graphNode.id);
             if (node) {
@@ -221,7 +223,7 @@ class SimpleFootprint {
                 linkedCount++;
             }
         });
-       
+
         console.log(`🔗 Связано ${linkedCount} узлов графа с PointTracker`);
         return linkedCount;
     }
@@ -324,18 +326,18 @@ class SimpleFootprint {
         // Комбинированный confidence
         let combinedConfidence = graphConfidence;
         let weights = 1;
-       
+
         if (trackerScore > 0) {
             combinedConfidence += trackerScore;
             weights++;
         }
-       
+
         if (hybridScore > 0) {
             combinedConfidence += hybridScore;
             weights++;
             this.stats.hybridScore = hybridScore;
         }
-       
+
         this.stats.confidence = combinedConfidence / weights;
         this.stats.qualityScore = this.stats.confidence * Math.min(1, this.metadata.totalPhotos / 3);
 
@@ -349,17 +351,17 @@ class SimpleFootprint {
     updateNodeFromTracker(nodeId, trackerPoint) {
         const node = this.graph.nodes.get(nodeId);
         if (!node) return false;
-       
+
         // Обновляем узел данными из трекера
         node.confirmedCount = trackerPoint.confirmedCount;
         node.confidence = trackerPoint.rating;
         node.lastConfirmed = new Date();
-       
+
         // Сохраняем ID трекера для связи
         if (!node.pointTrackerId) {
             node.pointTrackerId = trackerPoint.id;
         }
-       
+
         // Сохраняем источник подтверждения
         if (!node.sources) node.sources = [];
         node.sources.push({
@@ -368,11 +370,11 @@ class SimpleFootprint {
             trackerId: trackerPoint.id,
             confidence: trackerPoint.rating
         });
-       
+
         return true;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧИТЬ СТАТИСТИКУ ПОДТВЕРЖДЕНИЙ ИЗ POINTRACKER
+    // 🔥 ДОБАВЛЕННЫЙ МЕТОД: ПОЛУЧИТЬ СТАТИСТИКУ ПОДТВЕРЖДЕНИЙ
     getConfirmationStats() {
         // Получаем статистику из трекера
         const trackerStats = this.pointTracker ? this.pointTracker.getStats() : {
@@ -382,30 +384,30 @@ class SimpleFootprint {
             avgConfirmations: 0,
             ratingDistribution: { low: 0, medium: 0, high: 0 }
         };
-       
+
         // Также считаем статистику по узлам графа для совместимости
         let totalNodes = 0;
         let confirmedNodes = 0;
         let totalConfirmations = 0;
-       
+
         if (this.graph && this.graph.nodes) {
             this.graph.nodes.forEach((node, nodeId) => {
                 totalNodes++;
                 const confirmCount = node.confirmedCount || 1;
-               
+
                 if (confirmCount > 1) {
                     confirmedNodes++;
                     totalConfirmations += confirmCount;
                 }
             });
         }
-       
+
         const stats = {
             totalNodes,
             confirmedNodes,
             unconfirmedNodes: totalNodes - confirmedNodes,
             averageConfirmations: confirmedNodes > 0 ? totalConfirmations / confirmedNodes : 0,
-           
+
             // Статистика из PointTracker
             trackerStats: {
                 totalPoints: trackerStats.totalPoints,
@@ -414,13 +416,13 @@ class SimpleFootprint {
                 avgConfirmations: trackerStats.avgConfirmations,
                 ratingDistribution: trackerStats.ratingDistribution
             },
-           
+
             // Совмещенные данные
             combinedConfidence: trackerStats.avgRating > 0 ?
                 (trackerStats.avgRating + (confirmedNodes / Math.max(1, totalNodes))) / 2 :
                 (confirmedNodes / Math.max(1, totalNodes))
         };
-       
+
         return stats;
     }
 
@@ -428,20 +430,20 @@ class SimpleFootprint {
     findNodeByCoordinates(point, threshold = 15) {
         let closestNode = null;
         let minDistance = Infinity;
-       
+
         if (!this.graph || !this.graph.nodes) return null;
-       
+
         this.graph.nodes.forEach((node, nodeId) => {
             const dx = node.x - point.x;
             const dy = node.y - point.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-           
+
             if (distance < minDistance && distance < threshold) {
                 minDistance = distance;
                 closestNode = { id: nodeId, node: node, distance: distance };
             }
         });
-       
+
         return closestNode;
     }
 
@@ -466,19 +468,19 @@ class SimpleFootprint {
     // 5a. ГИБРИДНОЕ СРАВНЕНИЕ
     compareHybrid(otherFootprint) {
         const hybridComparison = this.hybridFootprint.compare(otherFootprint.hybridFootprint);
-       
+
         // Также получить сравнение графов для полного результата
         const graphComparison = this.compareGraphBased(otherFootprint);
-       
+
         // Комбинировать результаты
         const hybridWeight = 0.7;  // Вес гибридного сравнения
         const graphWeight = 0.3;   // Вес графового сравнения
-       
+
         const combinedSimilarity = hybridComparison.similarity * hybridWeight +
                                   graphComparison.similarity * graphWeight;
-       
+
         let decision, reason;
-       
+
         if (combinedSimilarity > 0.75) {
             decision = 'same';
             reason = `Высокая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
@@ -492,7 +494,7 @@ class SimpleFootprint {
             reason = `Низкая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
                     `граф: ${graphComparison.similarity.toFixed(3)})`;
         }
-       
+
         return {
             similarity: Math.round(combinedSimilarity * 100) / 100,
             decision: decision,
@@ -615,7 +617,7 @@ class SimpleFootprint {
             for (const [pointId, point] of otherFootprint.pointTracker.points) {
                 // Ищем ближайшую точку в текущем трекере
                 const nearest = this.pointTracker.findNearestPoint(point, 15);
-               
+
                 if (nearest && nearest.distance < 10) {
                     // Обновляем существующую точку
                     this.pointTracker.updatePoint(nearest.id, point, {
@@ -924,7 +926,7 @@ class SimpleFootprint {
         console.log(`\n🎯 POINT TRACKER ДЛЯ ОТПЕЧАТКА "${this.name}":`);
         if (this.pointTracker) {
             this.pointTracker.visualize();
-           
+
             // Показать связь с узлами графа
             console.log(`\n🔗 СВЯЗЬ С ГРАФОМ:`);
             let linkedNodes = 0;
@@ -942,7 +944,7 @@ class SimpleFootprint {
     // 🔥 НОВЫЙ МЕТОД: ПРИНУДИТЕЛЬНО ОБНОВИТЬ ПОДТВЕРЖДЕНИЯ УЗЛОВ
     forceUpdateNodeConfirmations() {
         let updatedCount = 0;
-       
+
         if (this.pointTracker && this.graph) {
             // Проходим по всем точкам трекера
             for (const [trackerId, trackerPoint] of this.pointTracker.points) {
@@ -957,7 +959,7 @@ class SimpleFootprint {
                 }
             }
         }
-       
+
         console.log(`🔧 Принудительно обновлено ${updatedCount} узлов с подтверждениями`);
         return updatedCount;
     }
@@ -991,14 +993,14 @@ class SimpleFootprint {
         if (!this.pointTracker) {
             this.pointTracker = new PointTracker();
         }
-       
+
         const results = this.pointTracker.processNewPoints(newPoints, sourceInfo);
-       
+
         // После обработки обновляем связанные узлы
         if (results.updated > 0) {
             this.forceUpdateNodeConfirmations();
         }
-       
+
         return results;
     }
 }
