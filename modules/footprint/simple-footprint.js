@@ -84,183 +84,228 @@ class SimpleFootprint {
 
     // 1. ДОБАВИТЬ АНАЛИЗ (обновленный с PointTracker)
     addAnalysis(analysis, sourceInfo = {}) {
-        console.log(`📥 Добавляю анализ в отпечаток "${this.name}" через PointTracker...`);
+    console.log(`📥 Добавляю анализ в отпечаток "${this.name}" через PointTracker...`);
 
-        const { predictions } = analysis;
+    const { predictions } = analysis;
 
-        // Проверка входных данных
-        if (!predictions || !Array.isArray(predictions)) {
-            console.log('⚠️ Нет предсказаний в анализе');
-            return { error: 'No predictions', added: 0 };
-        }
+    // Проверка входных данных
+    if (!predictions || !Array.isArray(predictions)) {
+        console.log('⚠️ Нет предсказаний в анализе');
+        return { error: 'No predictions', added: 0 };
+    }
 
-        // Извлечь точки протекторов
-        const protectorPoints = this.extractProtectorPoints(predictions);
+    // Извлечь точки протекторов
+    const protectorPoints = this.extractProtectorPoints(predictions);
 
-        if (protectorPoints.length < 3) {
-            console.log(`⚠️ Слишком мало протекторов: ${protectorPoints.length}`);
-            return { error: 'Not enough protectors', added: 0 };
-        }
+    if (protectorPoints.length < 3) {
+        console.log(`⚠️ Слишком мало протекторов: ${protectorPoints.length}`);
+        return { error: 'Not enough protectors', added: 0 };
+    }
 
-        console.log(`🔍 Найдено ${protectorPoints.length} протекторов`);
+    console.log(`🔍 Найдено ${protectorPoints.length} протекторов`);
 
-        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обрабатываем точки через PointTracker
-        const trackerResults = this.pointTracker.processNewPoints(protectorPoints, {
-            ...sourceInfo,
-            footprintId: this.id,
-            analysisType: 'shoe_protector',
-            timestamp: new Date()
-        });
+    // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обрабатываем точки через PointTracker
+    const trackerResults = this.pointTracker.processNewPoints(protectorPoints, {
+        ...sourceInfo,
+        footprintId: this.id,
+        analysisType: 'shoe_protector',
+        timestamp: new Date()
+    });
 
-        console.log(`🎯 PointTracker: ${trackerResults.added} новых, ${trackerResults.updated} обновлено`);
+    console.log(`🎯 PointTracker: ${trackerResults.added} новых, ${trackerResults.updated} обновлено`);
+    console.log(`📊 Подробности трекера:`, trackerResults.points);
 
-        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ:
-// Получаем точки с высоким рейтингом для графа (на первом фото берём все)
-let highConfidencePoints;
-
-if (this.metadata.totalPhotos === 0) {
-    // ⚠️ ПЕРВОЕ ФОТО: Используем ВСЕ точки трекера напрямую
-    console.log('📸 Первое фото: создаю начальный граф из всех точек');
+    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Получаем ВСЕ точки трекера (не только высоконадежные)
+    let trackedPoints = [];
    
-    // Собираем точки напрямую из трекера, игнорируя confirmedCount
-    highConfidencePoints = [];
-    for (const [id, pt] of this.pointTracker.points) {
-        highConfidencePoints.push({
-            id,
-            x: pt.x,
-            y: pt.y,
-            rating: pt.rating,
-            confirmedCount: pt.confirmedCount || 1, // Насильно ставим хотя бы 1
-            lastSeen: pt.lastSeen
-        });
-    }
-    console.log(`📊 Собрано ${highConfidencePoints.length} точек из трекера`);
-} else {
-    // Последующие фото: стандартная логика
-    const minConfidence = 0.5;
-    highConfidencePoints = this.pointTracker.getHighConfidencePoints(minConfidence);
-}
-
-// 🔥 ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: если все равно пусто
-if (highConfidencePoints.length === 0) {
-    console.log('⚠️ ВНИМАНИЕ: highConfidencePoints пуст! Экстренное восстановление...');
-    // Создаем хотя бы одну точку из центра
-    highConfidencePoints = [{
-        id: 'emergency_node',
-        x: 500,
-        y: 500,
-        rating: 0.5,
-        confirmedCount: 1,
-        lastSeen: new Date()
-    }];
-}
-
-        // Обновляем граф на основе трекера
-        const previousNodeCount = this.graph.nodes.size;
-
-        // Создаем узлы графа из подтвержденных точек
-        const graphNodes = [];
-        highConfidencePoints.forEach((trackedPoint, index) => {
-            const nodeId = `n_${trackedPoint.id}`;
-
-            graphNodes.push({
-                id: nodeId,
-                x: trackedPoint.x,
-                y: trackedPoint.y,
-                confidence: trackedPoint.rating,
-                confirmedCount: trackedPoint.confirmedCount,
-                pointTrackerId: trackedPoint.id,
-                sources: [{
-                    timestamp: new Date(),
-                    source: sourceInfo,
-                    trackerData: trackedPoint
-                }]
+    if (this.metadata.totalPhotos === 0) {
+        // Первое фото: берем все точки из трекера
+        console.log('📸 Первое фото: создаю начальный граф из ВСЕХ точек трекера');
+        for (const [id, pt] of this.pointTracker.points) {
+            trackedPoints.push({
+                id,
+                x: pt.x,
+                y: pt.y,
+                rating: pt.rating,
+                confirmedCount: pt.confirmedCount || 1,
+                lastSeen: pt.lastSeen
             });
-        });
-
-        // Построить граф из подтвержденных точек
-        const graphInvariants = this.graph.buildFromPoints(graphNodes.map(p => ({
-            x: p.x,
-            y: p.y,
-            confidence: p.confidence,
-            id: p.id
-        })));
-
-        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Связываем узлы графа с точками трекера
-        this.linkNodesWithTracker(graphNodes);
-
-        // Сохранить в историю
-        const analysisRecord = {
-            id: `analysis_${Date.now()}`,
-            timestamp: new Date(),
-            pointsCount: protectorPoints.length,
-            trackerResults: trackerResults,
-            highConfidencePoints: highConfidencePoints.length,
-            sourceInfo: sourceInfo,
-            graphSnapshot: {
-                nodeCount: this.graph.nodes.size,
-                edgeCount: this.graph.edges.size
+        }
+    } else {
+        // Последующие фото: берем точки с любым рейтингом > 0.1
+        console.log(`📸 Последующее фото: беру точки с рейтингом > 0.1`);
+        for (const [id, pt] of this.pointTracker.points) {
+            if (pt.rating > 0.1) {
+                trackedPoints.push({
+                    id,
+                    x: pt.x,
+                    y: pt.y,
+                    rating: pt.rating,
+                    confirmedCount: pt.confirmedCount || 1,
+                    lastSeen: pt.lastSeen
+                });
             }
-        };
-
-        this.analysisHistory.push(analysisRecord);
-        this.photoHistory.push({
-            timestamp: new Date(),
-            points: protectorPoints.length,
-            source: sourceInfo,
-            trackerResults: trackerResults
-        });
-
-        // Обновить метаданные
-        this.metadata.totalPhotos++;
-        this.metadata.lastUpdated = new Date();
-
-        // Обновить статистику
-        this.updateStats(graphInvariants, null);
-
-        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обновляем статистику из трекера
-        const trackerStats = this.pointTracker.getStats();
-        this.stats.trackerStats = trackerStats;
-        this.stats.trackerScore = trackerStats.avgRating;
-
-        // Комбинировать уверенность
-        const graphConfidence = this.stats.confidence;
-        const trackerConfidence = trackerStats.avgRating;
-        this.stats.confidence = (graphConfidence * 0.4 + trackerConfidence * 0.6);
-
-        const addedNodes = this.graph.nodes.size - previousNodeCount;
-
-        console.log(`✅ Анализ добавлен: +${addedNodes} узлов, ` +
-                  `трекер: ${trackerResults.updated} подтверждений`);
-
-        return {
-            success: true,
-            added: addedNodes,
-            totalNodes: this.graph.nodes.size,
-            confidence: this.stats.confidence,
-            graphInvariants: graphInvariants,
-            trackerResults: trackerResults,
-            trackerStats: trackerStats
-        };
+        }
     }
+
+    console.log(`📊 Собрано ${trackedPoints.length} точек из трекера`);
+
+    // 🔥 ЭКСТРЕННАЯ ЗАЩИТА: если все равно пусто
+    if (trackedPoints.length === 0) {
+        console.log('⚠️ ВНИМАНИЕ: trackedPoints пуст! Использую протекторы напрямую...');
+        trackedPoints = protectorPoints.map((point, index) => ({
+            id: `emergency_pt_${index}`,
+            x: point.x,
+            y: point.y,
+            rating: point.confidence || 0.5,
+            confirmedCount: 1,
+            lastSeen: new Date()
+        }));
+    }
+
+    // Обновляем граф на основе трекера
+    const previousNodeCount = this.graph.nodes.size;
+
+    // Создаем узлы графа из точек трекера
+    const graphNodes = [];
+    trackedPoints.forEach((trackedPoint, index) => {
+        const nodeId = `n_${trackedPoint.id}`;
+
+        graphNodes.push({
+            id: nodeId,
+            x: trackedPoint.x,
+            y: trackedPoint.y,
+            confidence: trackedPoint.rating,
+            confirmedCount: trackedPoint.confirmedCount,
+            pointTrackerId: trackedPoint.id, // 🔥 ВАЖНО: сохраняем ID точки трекера!
+            sources: [{
+                timestamp: new Date(),
+                source: sourceInfo,
+                trackerData: trackedPoint
+            }]
+        });
+    });
+
+    // Построить граф из точек
+    const graphInvariants = this.graph.buildFromPoints(graphNodes.map(p => ({
+        x: p.x,
+        y: p.y,
+        confidence: p.confidence,
+        id: p.id
+    })));
+
+    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Связываем узлы графа с точками трекера ПЕРЕД обновлением статистики
+    const linkedCount = this.linkNodesWithTracker(graphNodes);
+   
+    if (linkedCount === 0) {
+        console.log('⚠️ ПРЕДУПРЕЖДЕНИЕ: Узлы графа не связаны с трекером!');
+       
+        // Экстренное связывание: принудительно устанавливаем confirmedCount
+        this.graph.nodes.forEach((node, nodeId) => {
+            // Ищем соответствующую точку в graphNodes
+            const graphNode = graphNodes.find(gn => gn.id === nodeId);
+            if (graphNode) {
+                node.confirmedCount = graphNode.confirmedCount || 1;
+                node.confidence = graphNode.confidence;
+               
+                // Пытаемся найти точку трекера по координатам
+                const nearest = this.pointTracker.findNearestPoint({x: node.x, y: node.y}, 20);
+                if (nearest) {
+                    node.pointTrackerId = nearest.id;
+                    node.confirmedCount = nearest.point.confirmedCount || 1;
+                    console.log(`🔗 Экстренная связь: ${nodeId} -> ${nearest.id}, confirmations: ${node.confirmedCount}`);
+                }
+            }
+        });
+    }
+
+    // Сохранить в историю
+    const analysisRecord = {
+        id: `analysis_${Date.now()}`,
+        timestamp: new Date(),
+        pointsCount: protectorPoints.length,
+        trackerResults: trackerResults,
+        trackedPoints: trackedPoints.length,
+        linkedCount: linkedCount,
+        sourceInfo: sourceInfo,
+        graphSnapshot: {
+            nodeCount: this.graph.nodes.size,
+            edgeCount: this.graph.edges.size
+        }
+    };
+
+    this.analysisHistory.push(analysisRecord);
+    this.photoHistory.push({
+        timestamp: new Date(),
+        points: protectorPoints.length,
+        source: sourceInfo,
+        trackerResults: trackerResults
+    });
+
+    // Обновить метаданные
+    this.metadata.totalPhotos++;
+    this.metadata.lastUpdated = new Date();
+
+    // Обновить статистику
+    this.updateStats(graphInvariants, null);
+
+    // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обновляем статистику из трекера
+    const trackerStats = this.pointTracker.getStats();
+    this.stats.trackerStats = trackerStats;
+    this.stats.trackerScore = trackerStats.avgRating;
+
+    // Комбинировать уверенность
+    const graphConfidence = this.stats.confidence;
+    const trackerConfidence = trackerStats.avgRating;
+    this.stats.confidence = (graphConfidence * 0.4 + trackerConfidence * 0.6);
+
+    const addedNodes = this.graph.nodes.size - previousNodeCount;
+
+    console.log(`✅ Анализ добавлен: +${addedNodes} узлов, ` +
+              `трекер: ${trackerResults.updated} подтверждений, ` +
+              `связано узлов: ${linkedCount}`);
+
+    return {
+        success: true,
+        added: addedNodes,
+        totalNodes: this.graph.nodes.size,
+        confidence: this.stats.confidence,
+        graphInvariants: graphInvariants,
+        trackerResults: trackerResults,
+        trackerStats: trackerStats,
+        linkedCount: linkedCount
+    };
+}
 
     // 🔥 НОВЫЙ МЕТОД: Связывание узлов графа с точками трекера
     linkNodesWithTracker(graphNodes) {
     let linkedCount = 0;
     let trackerPointsUsed = new Set();
+    let failedLinks = [];
 
-    graphNodes.forEach(graphNode => {
-        const node = this.graph.nodes.get(graphNode.id);
-        if (node && graphNode.pointTrackerId) {
-            // 🔥 ИСПРАВЛЕНИЕ: Проверяем существование точки в трекере
-            const trackerPoint = this.pointTracker.points.get(graphNode.pointTrackerId);
+    console.log(`🔗 Начинаю связывание: ${graphNodes.length} graphNodes, ${this.pointTracker.points.size} точек в трекере`);
+
+    // Создаем карту точек трекера для быстрого поиска
+    const trackerMap = new Map();
+    for (const [trackerId, trackerPoint] of this.pointTracker.points) {
+        trackerMap.set(trackerId, trackerPoint);
+    }
+
+    // Проходим по всем узлам графа
+    this.graph.nodes.forEach((node, nodeId) => {
+        // Ищем соответствующий graphNode
+        const graphNode = graphNodes.find(gn => gn.id === nodeId);
+       
+        if (graphNode && graphNode.pointTrackerId) {
+            const trackerId = graphNode.pointTrackerId;
+            const trackerPoint = trackerMap.get(trackerId);
            
             if (trackerPoint) {
-                // Сохраняем связь с трекером
-                node.pointTrackerId = graphNode.pointTrackerId;
+                // 🔥 ИСПРАВЛЕНИЕ: Правильно связываем данные
+                node.pointTrackerId = trackerId;
                 node.confirmedCount = trackerPoint.confirmedCount || 1;
                 node.confidence = trackerPoint.rating;
-                node.rating = trackerPoint.rating; // Сохраняем рейтинг
+                node.rating = trackerPoint.rating;
                
                 // Сохраняем источники
                 if (!node.sources) node.sources = [];
@@ -273,27 +318,46 @@ if (highConfidencePoints.length === 0) {
                     }));
                 }
                
-                trackerPointsUsed.add(graphNode.pointTrackerId);
+                trackerPointsUsed.add(trackerId);
                 linkedCount++;
                
-                // 🔥 ДЕБАГ: Логируем успешную связь
                 if (trackerPoint.confirmedCount > 1) {
-                    console.log(`🔗 Узел ${node.id} связан с трекером ${graphNode.pointTrackerId}, ` +
-                              `подтверждений: ${trackerPoint.confirmedCount}`);
+                    console.log(`🔗 Успешно: ${nodeId} -> ${trackerId}, подтверждений: ${trackerPoint.confirmedCount}`);
                 }
+            } else {
+                failedLinks.push({ nodeId, trackerId: 'not_found' });
+                console.log(`❌ Ошибка связи: точка трекера ${trackerId} не найдена для узла ${nodeId}`);
+            }
+        } else {
+            // 🔥 Попытка связать по координатам
+            const nearest = this.pointTracker.findNearestPoint({x: node.x, y: node.y}, 15);
+            if (nearest) {
+                const trackerPoint = trackerMap.get(nearest.id);
+                if (trackerPoint) {
+                    node.pointTrackerId = nearest.id;
+                    node.confirmedCount = trackerPoint.confirmedCount || 1;
+                    node.confidence = trackerPoint.rating;
+                    linkedCount++;
+                    console.log(`🔗 Связано по координатам: ${nodeId} -> ${nearest.id}, подтверждений: ${node.confirmedCount}`);
+                }
+            } else {
+                failedLinks.push({ nodeId, reason: 'no_graphNode_or_tracker' });
+                // Устанавливаем минимальные значения
+                node.confirmedCount = 1;
+                node.confidence = node.confidence || 0.5;
             }
         }
     });
 
-    // 🔥 ВАЖНО: Отмечаем узлы без связи с трекером
-    this.graph.nodes.forEach((node, nodeId) => {
-        if (!node.pointTrackerId) {
-            node.confirmedCount = 1; // По умолчанию одно подтверждение (сама точка)
-            node.confidence = node.confidence || 0.5;
-        }
-    });
-
     console.log(`🔗 Связано ${linkedCount} узлов графа с PointTracker, использовано ${trackerPointsUsed.size} точек трекера`);
+   
+    if (failedLinks.length > 0) {
+        console.log(`⚠️ Не удалось связать ${failedLinks.length} узлов`);
+        if (failedLinks.length < 10) {
+            failedLinks.forEach(f => console.log(`   - ${f.nodeId}: ${f.trackerId || f.reason}`));
+        }
+    }
+
     return linkedCount;
 }
 
