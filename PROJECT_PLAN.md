@@ -190,3 +190,127 @@ main.js (400-500 строк вместо 3000+)
 Текущий main.js: ~3000 строк → После рефакторинга: ~400 строк
 
 Хочешь, чтобы я начал создавать эти модули по одному?
+
+
+@kosmos111-la ➜ /workspaces/shoe-print-bot (modular-refactor) $ tree -I 'venv|pycache|.git' -L 3
+.
+├── PROJECT_PLAN.md
+├── config.js:
+├── credentials.json
+├── hybrid-manager.js
+├── main.js
+├── modules
+│   ├── analysis
+│   │   ├── detail-enhancer.js
+│   │   ├── index.js
+│   │   ├── practical-analyzer.js
+│   │   ├── quality-visualizer.js
+│   │   ├── roboflow-client.js
+│   │   └── topography-analyzer.js
+│   ├── apps
+│   │   ├── apps-data.js
+│   │   └── index.js
+│   ├── calculators
+│   │   ├── height-estimate.js
+│   │   ├── index.js
+│   │   ├── probabilistic-snow-calculator.js
+│   │   ├── shoe-size.js
+│   │   ├── snow-calculator.js
+│   │   ├── snow-depth-calculator.js
+│   │   ├── snow-depth.js
+│   │   ├── weather-service.js
+│   │   └── weather.js
+│   ├── commands
+│   │   ├── basic-commands.js
+│   │   ├── index.js
+│   │   └── photo-handler.js
+│   ├── core
+│   │   ├── bot-manager.js
+│   │   ├── data-persistence.js
+│   │   └── index.js
+│   ├── correction
+│   │   └── animal-filter.js
+│   ├── feedback
+│   │   ├── feedback-db.js
+│   │   └── feedback-manager.js
+│   ├── footprint
+│   │   ├── bitmask-footprint.js
+│   │   ├── distance-matrix.js
+│   │   ├── enhanced-model-visualizer.js
+│   │   ├── graph-visualizer.js
+│   │   ├── hybrid-footprint.js
+│   │   ├── hybrid-manager.js
+│   │   ├── merge-visualizer.js
+│   │   ├── model-visualizer.js
+│   │   ├── moment-footprint.js
+│   │   ├── point-merger.js
+│   │   ├── point-tracker.js
+│   │   ├── simple-footprint.js
+│   │   ├── simple-graph.js
+│   │   ├── simple-manager.js
+│   │   ├── simple-matcher.js
+│   │   ├── structural-super-model.js
+│   │   ├── topology-integration.js
+│   │   ├── topology-merger.js
+│   │   ├── topology-refiner.js
+│   │   ├── topology-validator.js
+│   │   ├── topology-visualizer.js
+│   │   └── vector-graph.js
+│   ├── session
+│   │   ├── data
+│   │   ├── session-analyzer.js
+│   │   └── session-manager.js
+│   ├── stats
+│   │   └── index.js
+│   ├── temp-manager
+│   │   ├── index.js
+│   │   └── manager.js
+│   ├── utils
+│   │   ├── confidence-validator.js
+│   │   ├── init-data-structure.js
+│   │   └── system-diagnostic.js
+│   ├── visualization
+│   │   ├── analysis-viz.js
+│   │   ├── index.js
+│   │   ├── mask-viz.js
+│   │   ├── topology-visualizer.js
+│   │   └── topology-viz.js
+│   └── yandex-disk
+│       ├── index.js
+│       └── yandex-service.js
+├── package-lock.json
+├── package.json
+├── render.yaml
+├── simple-test-manager.js
+├── test
+├── test-cascade.js
+├── test-debug-comparison.js
+├── test-final-validation.js
+├── test-footprint-system.js
+├── test-graph-system.js
+├── test-hybrid.js
+├── test-integration-simple.js
+├── test-integration.js
+├── test-intelligent-merge.js
+├── test-manager-system.js
+├── test-matcher-system.js
+├── test-mirror-detection.js
+├── test-orientation.js
+├── test-real-patterns.js
+├── test-realistic-footprint.js
+├── test-realistic-super-model.js
+├── test-simple-verification.js
+├── test-simple.js
+├── test-simple2.js
+├── test-strict-scoring.js
+├── test-super-model-integration.js
+├── test-super-model.js
+├── test-supermodel.js
+├── test-topology-system.js
+├── test-ultra-strict.js
+├── test-visualize-matches.js
+├── test-webhook.js
+├── test_simple_graph.js
+└── verify-system.js
+
+17 directories, 102 files
