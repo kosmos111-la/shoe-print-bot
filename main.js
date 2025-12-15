@@ -2146,7 +2146,7 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                         mergeVisualizationPath: addResult.mergeVisualization,
                         alignmentResult: addResult.alignment,
                         // 🔥 НОВОЕ: Добавляем статистику подтверждений
-                        confirmationStats: stats,
+                        confirmationStats: stats || { confirmedNodes: 0, totalNodes: 0, averageConfirmations: 0 },
                         trackerUpdate: addResult.trackerUpdate
                     });
                   
