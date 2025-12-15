@@ -363,193 +363,212 @@ class MergeVisualizer {
 
     // 6. РИСОВАНИЕ УЗЛОВ (ИСПРАВЛЕННЫЙ - с цветами по подтверждениям)
     drawNodes(ctx, normalizedNodes, nodeConfirmations, lastModel = null) {
-        console.log(`🎨 Рисую ${normalizedNodes.length} узлов с подтверждениями...`);
+    console.log(`🎨 Рисую ${normalizedNodes.length} узлов с подтверждениями...`);
+   
+    // Собираем ID узлов последней модели (если есть)
+    const lastModelNodeIds = new Set();
+    if (lastModel && lastModel.graph && lastModel.graph.nodes) {
+        for (const [nodeId] of lastModel.graph.nodes) {
+            lastModelNodeIds.add(nodeId);
+        }
+    }
+   
+    // 🔥 ИСПРАВЛЕНИЕ: Сортируем узлы - сначала с подтверждениями, потом без
+    const sortedNodes = [...normalizedNodes].sort((a, b) => {
+        const confA = nodeConfirmations.map.get(a.id) || 0;
+        const confB = nodeConfirmations.map.get(b.id) || 0;
+        return confB - confA; // Сначала узлы с большим количеством подтверждений
+    });
+   
+    // Рисуем каждый узел
+    sortedNodes.forEach(node => {
+        const confirmationCount = nodeConfirmations.map.get(node.id) || 0;
        
-        // Собираем ID узлов последней модели (если есть)
-        const lastModelNodeIds = new Set();
-        if (lastModel && lastModel.graph && lastModel.graph.nodes) {
-            for (const [nodeId] of lastModel.graph.nodes) {
-                lastModelNodeIds.add(nodeId);
-            }
+        // 🔥 ИСПРАВЛЕНИЕ: ЦВЕТ УЗЛА на основе количества подтверждений
+        let nodeColor;
+        let nodeRadius = this.config.nodeRadius;
+        let drawNumber = false; // Рисовать ли цифру подтверждения
+       
+        if (confirmationCount >= 4) {
+            // 🔴 Красный - 4+ подтверждений (многократно подтвержденный)
+            nodeColor = '#FF0000';
+            nodeRadius = this.config.nodeRadius + 3;
+            drawNumber = true;
+        } else if (confirmationCount === 3) {
+            // 🟡 Жёлтый - 3 подтверждения
+            nodeColor = '#FFFF00';
+            nodeRadius = this.config.nodeRadius + 2;
+            drawNumber = true;
+        } else if (confirmationCount === 2) {
+            // 🟠 Оранжевый - 2 подтверждения
+            nodeColor = '#FFA500';
+            nodeRadius = this.config.nodeRadius + 1;
+            drawNumber = true;
+        } else if (confirmationCount === 1) {
+            // 🔵 СИНИЙ - 1 подтверждение (однократно подтвержденный)
+            nodeColor = '#0066CC';
+            nodeRadius = this.config.nodeRadius;
+            drawNumber = false; // Не показываем цифру "1"
+        } else {
+            // ⚫ Чёрный - 0 подтверждений (есть только на одной фото)
+            nodeColor = '#000000';
+            nodeRadius = this.config.nodeRadius;
+            drawNumber = false;
         }
        
-        // 🔥 ИСПРАВЛЕНИЕ: Сортируем узлы - сначала подтвержденные, потом неподтвержденные
-        const sortedNodes = [...normalizedNodes].sort((a, b) => {
-            const confA = nodeConfirmations.map.get(a.id) || 0;
-            const confB = nodeConfirmations.map.get(b.id) || 0;
-            return confB - confA; // Сначала узлы с большим количеством подтверждений
-        });
+        // Рисуем узел
+        ctx.fillStyle = nodeColor;
+        ctx.beginPath();
+        ctx.arc(node.displayX, node.displayY, nodeRadius, 0, Math.PI * 2);
+        ctx.fill();
        
-        // Рисуем каждый узел
-        sortedNodes.forEach(node => {
-            const confirmationCount = nodeConfirmations.map.get(node.id) || 1;
-           
-            // 🔥 ИСПРАВЛЕНИЕ: ЦВЕТ УЗЛА на основе количества подтверждений
-            let nodeColor;
-            let nodeRadius = this.config.nodeRadius;
-           
-            if (confirmationCount === 1) {
-                // Чёрный - только одно подтверждение (неподтвержденный)
-                nodeColor = this.config.unconfirmedNodeColor;
-            } else if (confirmationCount === 2) {
-                // Оранжевый - 2 подтверждения
-                nodeColor = '#FFA500';
-                nodeRadius = this.config.nodeRadius + 1;
-            } else if (confirmationCount === 3) {
-                // Жёлтый - 3 подтверждения
-                nodeColor = '#FFFF00';
-                nodeRadius = this.config.nodeRadius + 2;
-            } else if (confirmationCount >= 4) {
-                // Красный - 4+ подтверждений (подтверждённый)
-                nodeColor = this.config.confirmedNodeColor;
-                nodeRadius = this.config.nodeRadius + 3;
-            } else {
-                // По умолчанию чёрный
-                nodeColor = this.config.unconfirmedNodeColor;
-            }
-           
-            // Рисуем узел
-            ctx.fillStyle = nodeColor;
+        // Обводка для узлов последней модели (если узел из последней модели)
+        if (lastModelNodeIds.has(node.id)) {
+            ctx.strokeStyle = this.config.lastModelOutlineColor;
+            ctx.lineWidth = this.config.lastModelOutlineWidth;
             ctx.beginPath();
-            ctx.arc(node.displayX, node.displayY, nodeRadius, 0, Math.PI * 2);
-            ctx.fill();
-           
-            // 🔥 ИСПРАВЛЕНИЕ: ОБВОДКА ДЛЯ УЗЛОВ ПОСЛЕДНЕЙ МОДЕЛИ (если узел из последней модели)
-            if (lastModelNodeIds.has(node.id)) {
-                ctx.strokeStyle = this.config.lastModelOutlineColor;
-                ctx.lineWidth = this.config.lastModelOutlineWidth;
-                ctx.beginPath();
-                ctx.arc(node.displayX, node.displayY, nodeRadius + 3, 0, Math.PI * 2);
-                ctx.stroke();
-            }
-           
-            // 🔥 ИСПРАВЛЕНИЕ: ЦИФРА ПОДТВЕРЖДЕНИЙ (только для узлов с 2+ подтверждениями)
-            if (confirmationCount > 1) {
-                ctx.fillStyle = '#000000';
-                ctx.font = 'bold 10px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(confirmationCount.toString(), node.displayX, node.displayY);
-                ctx.textAlign = 'left';
-            }
-        });
+            ctx.arc(node.displayX, node.displayY, nodeRadius + 2, 0, Math.PI * 2);
+            ctx.stroke();
+        }
        
-        console.log(`✅ Узлы нарисованы: ${sortedNodes.length} точек`);
-    }
+        // 🔥 ЦИФРА ПОДТВЕРЖДЕНИЙ (для узлов с 2+ подтверждениями)
+        if (drawNumber) {
+            ctx.fillStyle = confirmationCount >= 4 ? '#FFFFFF' : '#000000';
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(confirmationCount.toString(), node.displayX, node.displayY);
+            ctx.textAlign = 'left';
+        }
+    });
+   
+    console.log(`✅ Узлы нарисованы: ${sortedNodes.length} точек`);
+}
 
     // 7. РИСОВАНИЕ ЛЕГЕНДЫ (ОБНОВЛЕННАЯ)
     drawLegend(ctx) {
-        const legendX = this.config.width - 250;
-        const legendY = 50;
-      
-        // Фон легенды
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        ctx.fillRect(legendX - 10, legendY - 10, 240, 200); // Увеличили высоту
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(legendX - 10, legendY - 10, 240, 200);
-      
-        // Заголовок
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 16px Arial';
-        ctx.fillText('📖 ЛЕГЕНДА ПОДТВЕРЖДЕНИЙ', legendX, legendY);
-      
-        let y = legendY + 30;
-        const lineHeight = 25;
-      
-        // Элементы легенды
-        const legendItems = [
-            {
-                color: '#FF0000',
-                text: '🔴 Узел с 4+ подтверждениями',
-                drawSample: (x, y) => {
-                    ctx.fillStyle = '#FF0000';
-                    ctx.beginPath();
-                    ctx.arc(x, y, this.config.nodeRadius + 3, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            },
-            {
-                color: '#FFFF00',
-                text: '🟡 Узел с 3 подтверждениями',
-                drawSample: (x, y) => {
-                    ctx.fillStyle = '#FFFF00';
-                    ctx.beginPath();
-                    ctx.arc(x, y, this.config.nodeRadius + 2, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            },
-            {
-                color: '#FFA500',
-                text: '🟠 Узел с 2 подтверждениями',
-                drawSample: (x, y) => {
-                    ctx.fillStyle = '#FFA500';
-                    ctx.beginPath();
-                    ctx.arc(x, y, this.config.nodeRadius + 1, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            },
-            {
-                color: '#000000',
-                text: '⚫ Узел с 1 подтверждением',
-                drawSample: (x, y) => {
-                    ctx.fillStyle = '#000000';
-                    ctx.beginPath();
-                    ctx.arc(x, y, this.config.nodeRadius, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            },
-            {
-                color: '#FF0000',
-                text: '🔴 Подтверждённая связь',
-                drawSample: (x, y) => {
-                    ctx.strokeStyle = '#FF0000';
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    ctx.moveTo(x - 10, y);
-                    ctx.lineTo(x + 10, y);
-                    ctx.stroke();
-                }
-            },
-            {
-                color: '#CCCCCC',
-                text: '⚫ Неподтверждённая связь',
-                drawSample: (x, y) => {
-                    ctx.strokeStyle = '#CCCCCC';
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    ctx.moveTo(x - 10, y);
-                    ctx.lineTo(x + 10, y);
-                    ctx.stroke();
-                }
-            },
-            {
-                color: '#000000',
-                text: '⭕ Узел из последнего следа',
-                drawSample: (x, y) => {
-                    ctx.strokeStyle = '#000000';
-                    ctx.lineWidth = this.config.lastModelOutlineWidth;
-                    ctx.beginPath();
-                    ctx.arc(x, y, this.config.nodeRadius + 3, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
+    const legendX = this.config.width - 250;
+    const legendY = 50;
+ 
+    // Фон легенды (увеличили высоту для новых элементов)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillRect(legendX - 10, legendY - 10, 240, 230);
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(legendX - 10, legendY - 10, 240, 230);
+ 
+    // Заголовок
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 16px Arial';
+    ctx.fillText('📖 ЛЕГЕНДА ПОДТВЕРЖДЕНИЙ', legendX, legendY);
+ 
+    let y = legendY + 30;
+    const lineHeight = 25;
+ 
+    // Элементы легенды с новыми цветами
+    const legendItems = [
+        {
+            color: '#FF0000',
+            text: '🔴 Узел с 4+ подтверждениями',
+            drawSample: (x, y) => {
+                ctx.fillStyle = '#FF0000';
+                ctx.beginPath();
+                ctx.arc(x, y, this.config.nodeRadius + 3, 0, Math.PI * 2);
+                ctx.fill();
+                // Цифра
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 8px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('4+', x, y);
+                ctx.textAlign = 'left';
             }
-        ];
-      
-        // Рисуем элементы легенды
-        legendItems.forEach(item => {
-            const sampleX = legendX;
-            const sampleY = y - 8;
-          
-            item.drawSample(sampleX + 10, sampleY);
-          
-            ctx.fillStyle = '#000000';
-            ctx.font = '12px Arial';
-            ctx.fillText(item.text, sampleX + 30, y);
-          
-            y += lineHeight;
-        });
-    }
+        },
+        {
+            color: '#FFFF00',
+            text: '🟡 Узел с 3 подтверждениями',
+            drawSample: (x, y) => {
+                ctx.fillStyle = '#FFFF00';
+                ctx.beginPath();
+                ctx.arc(x, y, this.config.nodeRadius + 2, 0, Math.PI * 2);
+                ctx.fill();
+                // Цифра
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 8px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('3', x, y);
+                ctx.textAlign = 'left';
+            }
+        },
+        {
+            color: '#FFA500',
+            text: '🟠 Узел с 2 подтверждениями',
+            drawSample: (x, y) => {
+                ctx.fillStyle = '#FFA500';
+                ctx.beginPath();
+                ctx.arc(x, y, this.config.nodeRadius + 1, 0, Math.PI * 2);
+                ctx.fill();
+                // Цифра
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 8px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('2', x, y);
+                ctx.textAlign = 'left';
+            }
+        },
+        {
+            color: '#0066CC',
+            text: '🔵 Узел с 1 подтверждением',
+            drawSample: (x, y) => {
+                ctx.fillStyle = '#0066CC';
+                ctx.beginPath();
+                ctx.arc(x, y, this.config.nodeRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        },
+        {
+            color: '#000000',
+            text: '⚫ Узел без подтверждений',
+            drawSample: (x, y) => {
+                ctx.fillStyle = '#000000';
+                ctx.beginPath();
+                ctx.arc(x, y, this.config.nodeRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        },
+        {
+            color: '#000000',
+            text: '⭕ Узел из последнего следа',
+            drawSample: (x, y) => {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.beginPath();
+                ctx.arc(x, y, this.config.nodeRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = this.config.lastModelOutlineWidth;
+                ctx.beginPath();
+                ctx.arc(x, y, this.config.nodeRadius + 2, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+    ];
+ 
+    // Рисуем элементы легенды
+    legendItems.forEach(item => {
+        const sampleX = legendX;
+        const sampleY = y - 8;
+   
+        item.drawSample(sampleX + 10, sampleY);
+   
+        ctx.fillStyle = '#000000';
+        ctx.font = '12px Arial';
+        ctx.fillText(item.text, sampleX + 30, y);
+   
+        y += lineHeight;
+    });
+}
 
     // 8. РИСОВАНИЕ СТАТИСТИКИ (ОБНОВЛЕННАЯ)
     drawStats(ctx, superModel, nodeConfirmations) {
