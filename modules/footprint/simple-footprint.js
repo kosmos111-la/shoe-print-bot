@@ -246,23 +246,56 @@ if (highConfidencePoints.length === 0) {
 
     // 🔥 НОВЫЙ МЕТОД: Связывание узлов графа с точками трекера
     linkNodesWithTracker(graphNodes) {
-        let linkedCount = 0;
+    let linkedCount = 0;
+    let trackerPointsUsed = new Set();
 
-        graphNodes.forEach(graphNode => {
-            const node = this.graph.nodes.get(graphNode.id);
-            if (node) {
+    graphNodes.forEach(graphNode => {
+        const node = this.graph.nodes.get(graphNode.id);
+        if (node && graphNode.pointTrackerId) {
+            // 🔥 ИСПРАВЛЕНИЕ: Проверяем существование точки в трекере
+            const trackerPoint = this.pointTracker.points.get(graphNode.pointTrackerId);
+           
+            if (trackerPoint) {
                 // Сохраняем связь с трекером
                 node.pointTrackerId = graphNode.pointTrackerId;
-                node.confirmedCount = graphNode.confirmedCount;
-                node.confidence = graphNode.confidence;
-                node.sources = graphNode.sources;
+                node.confirmedCount = trackerPoint.confirmedCount || 1;
+                node.confidence = trackerPoint.rating;
+                node.rating = trackerPoint.rating; // Сохраняем рейтинг
+               
+                // Сохраняем источники
+                if (!node.sources) node.sources = [];
+                if (trackerPoint.history) {
+                    node.sources = trackerPoint.history.map(record => ({
+                        timestamp: record.timestamp,
+                        source: record.source,
+                        confidence: record.confidence,
+                        action: record.action
+                    }));
+                }
+               
+                trackerPointsUsed.add(graphNode.pointTrackerId);
                 linkedCount++;
+               
+                // 🔥 ДЕБАГ: Логируем успешную связь
+                if (trackerPoint.confirmedCount > 1) {
+                    console.log(`🔗 Узел ${node.id} связан с трекером ${graphNode.pointTrackerId}, ` +
+                              `подтверждений: ${trackerPoint.confirmedCount}`);
+                }
             }
-        });
+        }
+    });
 
-        console.log(`🔗 Связано ${linkedCount} узлов графа с PointTracker`);
-        return linkedCount;
-    }
+    // 🔥 ВАЖНО: Отмечаем узлы без связи с трекером
+    this.graph.nodes.forEach((node, nodeId) => {
+        if (!node.pointTrackerId) {
+            node.confirmedCount = 1; // По умолчанию одно подтверждение (сама точка)
+            node.confidence = node.confidence || 0.5;
+        }
+    });
+
+    console.log(`🔗 Связано ${linkedCount} узлов графа с PointTracker, использовано ${trackerPointsUsed.size} точек трекера`);
+    return linkedCount;
+}
 
     // 2. ИЗВЛЕЧЬ ТОЧКИ ПРОТЕКТОРОВ ИЗ АНАЛИЗА
     extractProtectorPoints(predictions) {
