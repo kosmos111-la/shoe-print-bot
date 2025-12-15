@@ -114,10 +114,46 @@ class SimpleFootprint {
 
         console.log(`🎯 PointTracker: ${trackerResults.added} новых, ${trackerResults.updated} обновлено`);
 
-        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Снижаем порог для первого фото
-        // Получаем точки с высоким рейтингом для графа (на первом фото берём все)
-        const minConfidence = this.metadata.totalPhotos === 0 ? 0.1 : 0.5;
-        const highConfidencePoints = this.pointTracker.getHighConfidencePoints(minConfidence);
+        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ:
+// Получаем точки с высоким рейтингом для графа (на первом фото берём все)
+let highConfidencePoints;
+
+if (this.metadata.totalPhotos === 0) {
+    // ⚠️ ПЕРВОЕ ФОТО: Используем ВСЕ точки трекера напрямую
+    console.log('📸 Первое фото: создаю начальный граф из всех точек');
+   
+    // Собираем точки напрямую из трекера, игнорируя confirmedCount
+    highConfidencePoints = [];
+    for (const [id, pt] of this.pointTracker.points) {
+        highConfidencePoints.push({
+            id,
+            x: pt.x,
+            y: pt.y,
+            rating: pt.rating,
+            confirmedCount: pt.confirmedCount || 1, // Насильно ставим хотя бы 1
+            lastSeen: pt.lastSeen
+        });
+    }
+    console.log(`📊 Собрано ${highConfidencePoints.length} точек из трекера`);
+} else {
+    // Последующие фото: стандартная логика
+    const minConfidence = 0.5;
+    highConfidencePoints = this.pointTracker.getHighConfidencePoints(minConfidence);
+}
+
+// 🔥 ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: если все равно пусто
+if (highConfidencePoints.length === 0) {
+    console.log('⚠️ ВНИМАНИЕ: highConfidencePoints пуст! Экстренное восстановление...');
+    // Создаем хотя бы одну точку из центра
+    highConfidencePoints = [{
+        id: 'emergency_node',
+        x: 500,
+        y: 500,
+        rating: 0.5,
+        confirmedCount: 1,
+        lastSeen: new Date()
+    }];
+}
 
         // Обновляем граф на основе трекера
         const previousNodeCount = this.graph.nodes.size;
