@@ -2070,57 +2070,62 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
                     if (addResult.success && addResult.alignment?.similarity > 0.7) {
     console.log('🎯 Следы совпали, обновляю статистику подтверждений...');
    
-    // Получить сессию
+    // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Объявить переменную stats ДО использования
     const session = footprintManager.getActiveSession(userId);
+    let stats = null;
+   
     if (session && session.currentFootprint) {
-        // Получить статистику подтверждений ✅ ИСПРАВЛЕНО: объявляем переменную stats
-        const stats = session.currentFootprint.getConfirmationStats ?
+        // Получить статистику подтверждений
+        stats = session.currentFootprint.getConfirmationStats ?
             session.currentFootprint.getConfirmationStats() :
             { confirmedNodes: 0, totalNodes: 0, averageConfirmations: 0 };
-       
-        // Если есть визуализация объединения, добавить в caption
-        if (addResult.mergeVisualization && fs.existsSync(addResult.mergeVisualization)) {
+    } else {
+        // Если нет сессии, создаем пустую статистику
+        stats = { confirmedNodes: 0, totalNodes: 0, averageConfirmations: 0 };
+    }
+   
+    // Если есть визуализация объединения, добавить в caption
+    if (addResult.mergeVisualization && fs.existsSync(addResult.mergeVisualization)) {
+        setTimeout(async () => {
+            // 🔥 ТЕПЕРЬ stats определен
+            const caption = `🎭 **ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ С ПОДТВЕРЖДЕНИЯМИ**\n\n` +
+                          `📊 Всего узлов: ${stats.totalNodes || 0}\n` +
+                          `✅ Подтвержденных узлов: ${stats.confirmedNodes || 0}\n` +
+                          `📈 Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n\n` +
+                          `🎨 **ЦВЕТА УЗЛОВ:**\n` +
+                          `⚫ Чёрный - 1 подтверждение\n` +
+                          `🟠 Оранжевый - 2 подтверждения\n` +
+                          `🟡 Жёлтый - 3 подтверждения\n` +
+                          `🔴 Красный - 4+ подтверждений\n\n` +
+                          `⭕ **Круги:** узлы из последнего следа\n` +
+                          `🔢 **Цифры:** количество подтверждений\n\n` +
+                          `💪 **Чем больше красных точек - тем надёжнее модель!**`;
+           
+            await bot.sendPhoto(chatId, addResult.mergeVisualization, { caption });
+           
+            // 🔥 ДОПОЛНИТЕЛЬНОЕ СООБЩЕНИЕ С ДЕТАЛЬНОЙ СТАТИСТИКОЙ
             setTimeout(async () => {
-                // 🔥 ИСПРАВЛЕННАЯ ПОДПИСЬ с подтверждениями
-                const caption = `🎭 **ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ С ПОДТВЕРЖДЕНИЯМИ**\n\n` +
-                              `📊 Всего узлов: ${stats.totalNodes || 0}\n` +
-                              `✅ Подтвержденных узлов: ${stats.confirmedNodes || 0}\n` +
-                              `📈 Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n\n` +
-                              `🎨 **ЦВЕТА УЗЛОВ:**\n` +
-                              `⚫ Чёрный - 1 подтверждение\n` +
-                              `🟠 Оранжевый - 2 подтверждения\n` +
-                              `🟡 Жёлтый - 3 подтверждения\n` +
-                              `🔴 Красный - 4+ подтверждений\n\n` +
-                              `⭕ **Круги:** узлы из последнего следа\n` +
-                              `🔢 **Цифры:** количество подтверждений\n\n` +
-                              `💪 **Чем больше красных точек - тем надёжнее модель!**`;
+                let statsMessage = `✅ **СЛЕДЫ УСПЕШНО ОБЪЕДИНЕНЫ!**\n\n`;
+                statsMessage += `📊 **СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:**\n`;
+                statsMessage += `• Всего узлов: ${stats.totalNodes || 0}\n`;
+                statsMessage += `• Подтвержденных узлов: ${stats.confirmedNodes || 0}\n`;
+                statsMessage += `• Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n`;
                
-                await bot.sendPhoto(chatId, addResult.mergeVisualization, { caption });
+                // Добавляем статистику из трекера если есть
+                if (stats.trackerStats) {
+                    statsMessage += `\n🎯 **POINT TRACKER:**\n`;
+                    statsMessage += `• Точек в трекере: ${stats.trackerStats.totalPoints || 0}\n`;
+                    statsMessage += `• Высоконадёжных: ${stats.trackerStats.highConfidencePoints || 0}\n`;
+                    statsMessage += `• Средний рейтинг: ${stats.trackerStats.avgRating?.toFixed(3) || '0.000'}\n`;
+                }
                
-                // 🔥 ДОПОЛНИТЕЛЬНОЕ СООБЩЕНИЕ С ДЕТАЛЬНОЙ СТАТИСТИКОЙ
-                setTimeout(async () => {
-                    let statsMessage = `✅ **СЛЕДЫ УСПЕШНО ОБЪЕДИНЕНЫ!**\n\n`;
-                    statsMessage += `📊 **СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:**\n`;
-                    statsMessage += `• Всего узлов: ${stats.totalNodes || 0}\n`;
-                    statsMessage += `• Подтвержденных узлов: ${stats.confirmedNodes || 0}\n`;
-                    statsMessage += `• Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n`;
-                   
-                    // Добавляем статистику из трекера если есть
-                    if (stats.trackerStats) {
-                        statsMessage += `\n🎯 **POINT TRACKER:**\n`;
-                        statsMessage += `• Точек в трекере: ${stats.trackerStats.totalPoints || 0}\n`;
-                        statsMessage += `• Высоконадёжных: ${stats.trackerStats.highConfidencePoints || 0}\n`;
-                        statsMessage += `• Средний рейтинг: ${stats.trackerStats.avgRating?.toFixed(3) || '0.000'}\n`;
-                    }
-                   
-                    statsMessage += `\n💡 **Точки теперь окрашены по количеству подтверждений!**`;
-                   
-                    await bot.sendMessage(chatId, statsMessage);
-                   
-                }, 1000);
+                statsMessage += `\n💡 **Точки теперь окрашены по количеству подтверждений!**`;
+               
+                await bot.sendMessage(chatId, statsMessage);
                
             }, 1000);
-        }
+           
+        }, 1000);
     }
 }
                   
