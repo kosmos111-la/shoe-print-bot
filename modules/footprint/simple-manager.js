@@ -397,105 +397,91 @@ class SimpleFootprintManager {
 
     // 🔥 НОВЫЙ МЕТОД: ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ ИЗ ВЫРАВНИВАНИЯ
     async updateConfirmationsFromAlignment(mainFootprint, tempFootprint, alignmentResult, sourceInfo = {}) {
-        try {
-            if (!mainFootprint.pointTracker || !tempFootprint.pointTracker) {
-                console.log('⚠️ Один из отпечатков не имеет PointTracker');
-                return { updated: 0, avgRating: 0 };
-            }
-
-            let updatedCount = 0;
-            let totalRating = 0;
-
-            // 🔥 ВАЖНО: Используем matchedPairs из alignmentResult если они есть
-            if (alignmentResult.matchedPairs && alignmentResult.matchedPairs.length > 0) {
-                console.log(`🔍 Обновляю подтверждения для ${alignmentResult.matchedPairs.length} совпавших пар`);
-               
-                for (const pair of alignmentResult.matchedPairs) {
-                    // Ищем точку в основном трекере
-                    const mainNode = mainFootprint.graph.nodes.get(pair.node1);
-                    const tempNode = tempFootprint.graph.nodes.get(pair.node2);
-                   
-                    if (mainNode && tempNode) {
-                        // Создаем точку для обновления
-                        const updatePoint = {
-                            x: tempNode.x,
-                            y: tempNode.y,
-                            confidence: tempNode.confidence || alignmentResult.similarity
-                        };
-                       
-                        // Ищем ближайшую точку в трекере основного отпечатка
-                        const nearest = mainFootprint.pointTracker.findNearestPoint(updatePoint, 20);
-                       
-                        if (nearest && nearest.distance < 15) {
-                            // Обновляем точку в трекере
-                            mainFootprint.pointTracker.updatePoint(nearest.id, updatePoint, {
-                                ...sourceInfo,
-                                matchedWith: pair.node2,
-                                distance: nearest.distance,
-                                alignmentSimilarity: alignmentResult.similarity
-                            });
-                           
-                            const updatedPoint = mainFootprint.pointTracker.points.get(nearest.id);
-                            if (updatedPoint) {
-                                totalRating += updatedPoint.rating;
-                                updatedCount++;
-                               
-                                // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Обновляем узел графа
-                                mainFootprint.updateNodeFromTracker(pair.node1, updatedPoint);
-                            }
-                        }
-                    }
-                }
-            } else {
-                // 🔥 АЛЬТЕРНАТИВНЫЙ ПОДХОД: Сравниваем все точки через трекеры
-                console.log('🔍 Использую альтернативный метод обновления подтверждений');
-               
-                // Получаем все точки из временного отпечатка
-                const tempPoints = tempFootprint.pointTracker.getAllPoints({ minRating: 0.3 });
-               
-                for (const tempPoint of tempPoints) {
-                    const pointForTracker = {
-                        x: tempPoint.x,
-                        y: tempPoint.y,
-                        confidence: tempPoint.confidence || 0.5
-                    };
-                   
-                    // Ищем ближайшую точку в основном трекере
-                    const nearest = mainFootprint.pointTracker.findNearestPoint(pointForTracker, 25);
-                   
-                    if (nearest && nearest.distance < 20) {
-                        // Обновляем точку
-                        mainFootprint.pointTracker.updatePoint(nearest.id, pointForTracker, {
-                            ...sourceInfo,
-                            source: 'alternative_alignment',
-                            distance: nearest.distance
-                        });
-                       
-                        updatedCount++;
-                    }
-                }
-            }
-
-            // Автоочистка старых точек
-            mainFootprint.pointTracker.cleanup();
-
-            // Получаем обновленную статистику
-            const trackerStats = mainFootprint.pointTracker.getStats();
-           
-            console.log(`✅ Обновлено ${updatedCount} подтверждений, средний рейтинг: ${trackerStats.avgRating.toFixed(3)}`);
-           
-            return {
-                updated: updatedCount,
-                avgRating: trackerStats.avgRating,
-                trackerStats: trackerStats,
-                highConfidencePoints: trackerStats.highConfidencePoints
-            };
-
-        } catch (error) {
-            console.log('❌ Ошибка обновления подтверждений:', error.message);
-            return { updated: 0, avgRating: 0, error: error.message };
+    try {
+        if (!mainFootprint.pointTracker || !tempFootprint.pointTracker) {
+            console.log('⚠️ Один из отпечатков не имеет PointTracker');
+            return { updated: 0, avgRating: 0 };
         }
+
+        let updatedCount = 0;
+        let totalRating = 0;
+
+        console.log(`🔍 Обновляю подтверждения из выравнивания...`);
+        console.log(`   Основной трекер: ${mainFootprint.pointTracker.points.size} точек`);
+        console.log(`   Временный трекер: ${tempFootprint.pointTracker.points.size} точек`);
+       
+        // 🔥 СПОСОБ 1: Проходим по всем точкам временного трекера
+        const tempPoints = Array.from(tempFootprint.pointTracker.points.values());
+        console.log(`📊 Временный трекер содержит ${tempPoints.length} точек`);
+       
+        for (const tempPoint of tempPoints) {
+            const pointForUpdate = {
+                x: tempPoint.x,
+                y: tempPoint.y,
+                confidence: tempPoint.rating || alignmentResult.similarity
+            };
+           
+            // Ищем ближайшую точку в основном трекере
+            const nearest = mainFootprint.pointTracker.findNearestPoint(pointForUpdate, 25);
+           
+            if (nearest && nearest.distance < 20) {
+                // Обновляем точку
+                const updateSuccess = mainFootprint.pointTracker.updatePoint(nearest.id, pointForUpdate, {
+                    ...sourceInfo,
+                    source: 'alignment_match',
+                    distance: nearest.distance,
+                    alignmentSimilarity: alignmentResult.similarity,
+                    tempPointId: tempPoint.id
+                });
+               
+                if (updateSuccess) {
+                    const updatedPoint = mainFootprint.pointTracker.points.get(nearest.id);
+                    if (updatedPoint) {
+                        totalRating += updatedPoint.rating;
+                        updatedCount++;
+                       
+                        // 🔥 Обновляем узел графа связанный с этой точкой
+                        mainFootprint.graph.nodes.forEach((node, nodeId) => {
+                            if (node.pointTrackerId === nearest.id) {
+                                node.confirmedCount = updatedPoint.confirmedCount;
+                                node.confidence = updatedPoint.rating;
+                                console.log(`✅ Обновлен узел ${nodeId}: ${updatedPoint.confirmedCount} подтверждений`);
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        // Автоочистка старых точек
+        const cleaned = mainFootprint.pointTracker.cleanup();
+        if (cleaned > 0) {
+            console.log(`🧹 Очищено ${cleaned} старых точек из трекера`);
+        }
+
+        // Получаем обновленную статистику
+        const trackerStats = mainFootprint.pointTracker.getStats();
+       
+        // 🔥 ВАЖНО: Принудительно обновляем все узлы
+        const forceUpdated = mainFootprint.forceUpdateNodeConfirmations();
+        console.log(`🔧 Принудительно обновлено ${forceUpdated} узлов`);
+       
+        console.log(`✅ Обновлено ${updatedCount} подтверждений, средний рейтинг: ${trackerStats.avgRating.toFixed(3)}`);
+       
+        return {
+            updated: updatedCount,
+            forceUpdated: forceUpdated,
+            avgRating: trackerStats.avgRating,
+            trackerStats: trackerStats,
+            highConfidencePoints: trackerStats.highConfidencePoints
+        };
+
+    } catch (error) {
+        console.log('❌ Ошибка обновления подтверждений:', error.message);
+        console.error(error.stack);
+        return { updated: 0, avgRating: 0, error: error.message };
     }
+}
 
     // 🔥 НОВЫЙ МЕТОД: ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ ДЛЯ СЕССИИ
     async forceUpdateSessionConfirmations(userId) {
