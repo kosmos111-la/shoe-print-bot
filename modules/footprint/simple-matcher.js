@@ -106,10 +106,8 @@ class SimpleGraphMatcher {
         // Используем основной метод сравнения
         const result = this.compareGraphs(graph1, graph2, options);
 
-        // Добавляем matchedPairs для обратной совместимости
-        if (!result.matchedPairs && result.decision === 'same') {
-            result.matchedPairs = this.findMatchedPairs(graph1, graph2);
-        }
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: ВСЕГДА добавляем matchedPairs
+        result.matchedPairs = this.findMatchedPairs(graph1, graph2);
 
         return result;
     }
@@ -117,39 +115,83 @@ class SimpleGraphMatcher {
     // 🔥 ДОБАВЛЕННЫЙ МЕТОД: найти совпадающие пары узлов
     findMatchedPairs(graph1, graph2) {
         const pairs = [];
-       
+      
         if (!graph1 || !graph2 || !graph1.nodes || !graph2.nodes) {
             return pairs;
         }
+
+        console.log(`🔍 Ищу совпадающие пары: ${graph1.nodes.size} vs ${graph2.nodes.size} узлов`);
 
         // Простая эвристика: находим ближайшие узлы по расстоянию
         const nodes1 = Array.from(graph1.nodes.values());
         const nodes2 = Array.from(graph2.nodes.values());
 
-        nodes1.forEach((node1, i) => {
-            let bestMatch = null;
-            let minDistance = Infinity;
+        // Матрица расстояний
+        const distanceMatrix = [];
 
-            nodes2.forEach((node2, j) => {
+        // Рассчитываем расстояния между всеми узлами
+        for (let i = 0; i < nodes1.length; i++) {
+            const node1 = nodes1[i];
+            const distances = [];
+           
+            for (let j = 0; j < nodes2.length; j++) {
+                const node2 = nodes2[j];
                 const dx = node1.x - node2.x;
                 const dy = node1.y - node2.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < minDistance && distance < 30) { // Порог 30 пикселей
-                    minDistance = distance;
-                    bestMatch = {
-                        node1: { id: node1.id || `node1_${i}`, x: node1.x, y: node1.y },
-                        node2: { id: node2.id || `node2_${j}`, x: node2.x, y: node2.y },
-                        distance: distance
-                    };
-                }
-            });
-
-            if (bestMatch) {
-                pairs.push(bestMatch);
+                distances.push({
+                    index: j,
+                    distance: distance,
+                    node2: node2
+                });
             }
+           
+            // Сортируем по расстоянию
+            distances.sort((a, b) => a.distance - b.distance);
+            distanceMatrix.push({
+                node1: node1,
+                node1Index: i,
+                distances: distances
+            });
+        }
+
+        // Ищем лучшие соответствия
+        const usedNodes2 = new Set();
+       
+        distanceMatrix.sort((a, b) => {
+            const bestDistA = a.distances[0]?.distance || Infinity;
+            const bestDistB = b.distances[0]?.distance || Infinity;
+            return bestDistA - bestDistB;
         });
 
+        // Сопоставляем узлы
+        for (const item of distanceMatrix) {
+            const node1 = item.node1;
+           
+            for (const dist of item.distances) {
+                if (dist.distance < 30 && !usedNodes2.has(dist.index)) {
+                    // Нашли соответствие
+                    pairs.push({
+                        node1: node1.id,
+                        node2: dist.node2.id,
+                        distance: dist.distance,
+                        node1Data: {
+                            x: node1.x,
+                            y: node1.y
+                        },
+                        node2Data: {
+                            x: dist.node2.x,
+                            y: dist.node2.y
+                        }
+                    });
+                    usedNodes2.add(dist.index);
+                    break;
+                }
+            }
+        }
+
+        console.log(`✅ Найдено ${pairs.length} совпадающих пар узлов`);
+       
         return pairs;
     }
 
