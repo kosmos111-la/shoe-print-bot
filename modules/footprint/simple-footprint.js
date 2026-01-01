@@ -128,6 +128,7 @@ class SimpleFootprint {
                         orphanNodes++;
                     }
                 } else {
+                    // 🔥 ИСПРАВЛЕНИЕ: Гарантируем минимум 1 подтверждение
                     node.confirmedCount = 1;
                     orphanNodes++;
                 }
@@ -171,39 +172,21 @@ class SimpleFootprint {
         });
 
         console.log(`🎯 PointTracker: ${trackerResults.added} новых, ${trackerResults.updated} обновлено`);
-        console.log(`📊 Подробности трекера:`, trackerResults.points);
 
-        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Получаем ВСЕ точки трекера (не только высоконадежные)
+        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Получаем ВСЕ точки трекера
         let trackedPoints = [];
 
-        if (this.metadata.totalPhotos === 0) {
-            // Первое фото: берем все точки из трекера
-            console.log('📸 Первое фото: создаю начальный граф из ВСЕХ точек трекера');
-            for (const [id, pt] of this.pointTracker.points) {
-                trackedPoints.push({
-                    id,
-                    x: pt.x,
-                    y: pt.y,
-                    rating: pt.rating,
-                    confirmedCount: pt.confirmedCount || 1,
-                    lastSeen: pt.lastSeen
-                });
-            }
-        } else {
-            // Последующие фото: берем точки с любым рейтингом > 0.1
-            console.log(`📸 Последующее фото: беру точки с рейтингом > 0.1`);
-            for (const [id, pt] of this.pointTracker.points) {
-                if (pt.rating > 0.1) {
-                    trackedPoints.push({
-                        id,
-                        x: pt.x,
-                        y: pt.y,
-                        rating: pt.rating,
-                        confirmedCount: pt.confirmedCount || 1,
-                        lastSeen: pt.lastSeen
-                    });
-                }
-            }
+        // Получаем ВСЕ точки из трекера (независимо от рейтинга)
+        console.log(`📸 Получаю ВСЕ точки из трекера (${this.pointTracker.points.size} точек)`);
+        for (const [id, pt] of this.pointTracker.points) {
+            trackedPoints.push({
+                id,
+                x: pt.x,
+                y: pt.y,
+                rating: pt.rating,
+                confirmedCount: pt.confirmedCount || 1,
+                lastSeen: pt.lastSeen
+            });
         }
 
         console.log(`📊 Собрано ${trackedPoints.length} точек из трекера`);
@@ -252,7 +235,7 @@ class SimpleFootprint {
             id: p.id
         })));
 
-        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Связываем узлы графа с точками трекера ПЕРЕД обновлением статистики
+        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Связываем узлы графа с точками трекера
         const linkedCount = this.linkNodesWithTracker(graphNodes);
 
         if (linkedCount === 0) {
@@ -266,11 +249,17 @@ class SimpleFootprint {
                     node.confirmedCount = graphNode.confirmedCount || 1;
                     node.confidence = graphNode.confidence;
 
+                    // 🔥 ГАРАНТИРУЕМ: минимум 1 подтверждение
+                    if (!node.confirmedCount || node.confirmedCount < 1) {
+                        node.confirmedCount = 1;
+                    }
+
                     // Пытаемся найти точку трекера по координатам
                     const nearest = this.pointTracker.findNearestPoint({x: node.x, y: node.y}, 20);
                     if (nearest) {
                         node.pointTrackerId = nearest.id;
-                        node.confirmedCount = nearest.point.confirmedCount || 1;
+                        const trackerPoint = this.pointTracker.points.get(nearest.id);
+                        node.confirmedCount = trackerPoint?.confirmedCount || 1;
                         console.log(`🔗 Экстренная связь: ${nodeId} -> ${nearest.id}, confirmations: ${node.confirmedCount}`);
                     }
                 }
@@ -335,7 +324,7 @@ class SimpleFootprint {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Связывание узлов графа с точками трекера
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Связывание узлов графа с точками трекера
     linkNodesWithTracker(graphNodes) {
         let linkedCount = 0;
         let trackerPointsUsed = new Set();
@@ -364,6 +353,11 @@ class SimpleFootprint {
                     node.confirmedCount = trackerPoint.confirmedCount || 1;
                     node.confidence = trackerPoint.rating;
                     node.rating = trackerPoint.rating;
+
+                    // 🔥 ГАРАНТИРУЕМ: минимум 1 подтверждение
+                    if (!node.confirmedCount || node.confirmedCount < 1) {
+                        node.confirmedCount = 1;
+                    }
 
                     // Сохраняем источники
                     if (!node.sources) node.sources = [];
@@ -395,12 +389,18 @@ class SimpleFootprint {
                         node.pointTrackerId = nearest.id;
                         node.confirmedCount = trackerPoint.confirmedCount || 1;
                         node.confidence = trackerPoint.rating;
+                       
+                        // 🔥 ГАРАНТИРУЕМ: минимум 1 подтверждение
+                        if (!node.confirmedCount || node.confirmedCount < 1) {
+                            node.confirmedCount = 1;
+                        }
+                       
                         linkedCount++;
                         console.log(`🔗 Связано по координатам: ${nodeId} -> ${nearest.id}, подтверждений: ${node.confirmedCount}`);
                     }
                 } else {
                     failedLinks.push({ nodeId, reason: 'no_graphNode_or_tracker' });
-                    // Устанавливаем минимальные значения
+                    // 🔥 Устанавливаем МИНИМУМ 1 подтверждение
                     node.confirmedCount = 1;
                     node.confidence = node.confidence || 0.5;
                 }
@@ -548,6 +548,11 @@ class SimpleFootprint {
         node.confidence = trackerPoint.rating;
         node.lastConfirmed = new Date();
 
+        // 🔥 ГАРАНТИРУЕМ: минимум 1 подтверждение
+        if (!node.confirmedCount || node.confirmedCount < 1) {
+            node.confirmedCount = 1;
+        }
+
         // Сохраняем ID трекера для связи
         if (!node.pointTrackerId) {
             node.pointTrackerId = trackerPoint.id;
@@ -586,7 +591,8 @@ class SimpleFootprint {
                 totalNodes++;
                 const confirmCount = node.confirmedCount || 1;
 
-                if (confirmCount > 1) {
+                // 🔥 ИСПРАВЛЕНИЕ: Узлы с 1 подтверждением считаются подтвержденными
+                if (confirmCount >= 1) {
                     confirmedNodes++;
                     totalConfirmations += confirmCount;
                 }
@@ -596,8 +602,10 @@ class SimpleFootprint {
         const stats = {
             totalNodes,
             confirmedNodes,
-            unconfirmedNodes: totalNodes - confirmedNodes,
-            averageConfirmations: confirmedNodes > 0 ? totalConfirmations / confirmedNodes : 0,
+            // 🔥 ИСПРАВЛЕНИЕ: Убираем понятие "неподтвержденных" узлов
+            // Все узлы имеют минимум 1 подтверждение
+            unconfirmedNodes: 0,
+            averageConfirmations: totalNodes > 0 ? totalConfirmations / totalNodes : 1,
 
             // Статистика из PointTracker
             trackerStats: {
@@ -1009,6 +1017,9 @@ class SimpleFootprint {
             footprint.stats = { ...footprint.stats, ...data.stats };
         }
 
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Гарантировать минимум 1 подтверждение для всех узлов
+        footprint.forceUpdateNodeConfirmations();
+
         console.log(`✅ Загружен отпечаток "${footprint.name}" с ` +
                    `${footprint.graph.nodes.size} узлами и PointTracker`);
 
@@ -1139,17 +1150,23 @@ class SimpleFootprint {
         if (this.pointTracker && this.graph) {
             // Проходим по всем точкам трекера
             for (const [trackerId, trackerPoint] of this.pointTracker.points) {
-                if (trackerPoint.confirmedCount > 1) {
-                    // Находим ближайший узел графа
-                    const node = this.findNodeByCoordinates(trackerPoint, 15);
-                    if (node) {
-                        // Обновляем узел
-                        this.updateNodeFromTracker(node.id, trackerPoint);
-                        updatedCount++;
-                    }
+                // Находим ближайший узел графа
+                const node = this.findNodeByCoordinates(trackerPoint, 15);
+                if (node) {
+                    // Обновляем узел
+                    this.updateNodeFromTracker(node.id, trackerPoint);
+                    updatedCount++;
                 }
             }
         }
+
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Гарантируем минимум 1 подтверждение для всех узлов
+        this.graph.nodes.forEach((node, nodeId) => {
+            if (!node.confirmedCount || node.confirmedCount < 1) {
+                node.confirmedCount = 1;
+                updatedCount++;
+            }
+        });
 
         console.log(`🔧 Принудительно обновлено ${updatedCount} узлов с подтверждениями`);
         return updatedCount;
