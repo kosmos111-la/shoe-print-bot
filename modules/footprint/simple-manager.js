@@ -199,8 +199,9 @@ class SimpleFootprintManager {
                 isTemporary: true
             });
 
+            // 🔥 ИСПРАВЛЕНИЕ: Заменяем стандартное сравнение на адаптивное
             // Сравниваем отпечатки
-            const alignmentResult = await this.matcher.alignAndCompare(
+            const alignmentResult = await this.matcher.adaptiveCompare(
                 session.currentFootprint.graph,
                 tempFootprint.graph,
                 {
@@ -210,7 +211,7 @@ class SimpleFootprintManager {
             );
 
             console.log(`📊 Результат сравнения: similarity=${alignmentResult.similarity.toFixed(3)}, ` +
-                      `decision=${alignmentResult.decision}`);
+                      `decision=${alignmentResult.decision}, sizeRatio=${alignmentResult.sizeRatio?.toFixed(2) || 'N/A'}`);
 
             // Сохраняем результат сравнения
             session.comparisons = session.comparisons || [];
@@ -229,9 +230,16 @@ class SimpleFootprintManager {
             let mergeMethod = 'none';
             let trackerUpdateResult = null;
 
-            if (alignmentResult.similarity > this.config.topologySimilarityThreshold) {
+            // 🔥 АДАПТИВНЫЙ ПОРОГ: учитываем размеры
+            const similarityThreshold = alignmentResult.sizeRatio < 0.7 ?
+                this.config.topologySimilarityThreshold * 0.9 : // Снижаем порог для разных размеров
+                this.config.topologySimilarityThreshold;
+
+            if (alignmentResult.similarity > similarityThreshold ||
+                (alignmentResult.sizeRatio > 0.5 && alignmentResult.similarity > 0.5)) {
                 // 🔥 СЛУЧАЙ 1: СЛЕДЫ СОВПАДАЮТ - ОБЪЕДИНЯЕМ ОБЕ МОДЕЛИ!
-                console.log(`✅ Следы совпали (${alignmentResult.similarity.toFixed(3)}) - ОБЪЕДИНЯЕМ обе модели!`);
+                console.log(`✅ Следы совпали (${alignmentResult.similarity.toFixed(3)}) - ОБЪЕДИНЯЕМ обе модели! ` +
+                           `sizeRatio=${alignmentResult.sizeRatio?.toFixed(2)}`);
 
                 mergeMethod = 'intelligent_merge';
 
@@ -318,39 +326,46 @@ class SimpleFootprintManager {
                 }
 
             } else {
-                // 🔥 СЛУЧАЙ 2: СЛЕДЫ НЕ СОВПАДАЮТ - НАЧИНАЕМ НОВУЮ МОДЕЛЬ
-                console.log(`🆕 Следы разные (${alignmentResult.similarity.toFixed(3)}) - начинаю новую модель`);
+                // 🔥 СЛУЧАЙ 2: СЛЕДЫ НЕ СОВПАДАЮТ
+                console.log(`🆕 Следы разные (${alignmentResult.similarity.toFixed(3)}) ` +
+                           `sizeRatio=${alignmentResult.sizeRatio?.toFixed(2)} - проверяем возможность объединения...`);
 
-                mergeMethod = 'new_model';
+                // 🔥 ПРОБУЕМ ОБЪЕДИНИТЬ ДАЖЕ ПРИ НИЗКОЙ СХОЖЕСТИ, ЕСЛИ ЕСТЬ ОБЩИЕ ТОЧКИ
+                const matchedPairs = this.matcher.findMatchedPairs(
+                    session.currentFootprint.graph,
+                    tempFootprint.graph
+                );
 
-                // Сохраняем текущий отпечаток
-                if (session.currentFootprint.graph.nodes.size >= this.config.minPointsForFootprint) {
-                    const savedModel = this.saveSessionAsModel(userId,
-                        `${session.currentFootprint.name}_${new Date().toLocaleTimeString('ru-RU')}`);
+                if (matchedPairs.length > 10) { // Есть хоть 10 совпавших пар
+                    console.log(`🤝 Найдено ${matchedPairs.length} совпавших пар - пробую объединить!`);
 
-                    if (savedModel.success) {
-                        console.log(`💾 Сохранена модель: ${savedModel.modelId?.slice(0, 8)}...`);
+                    // Используем принудительное объединение
+                    const forceMergeResult = await this.forceMergeFootprints(
+                        session.currentFootprint,
+                        tempFootprint,
+                        matchedPairs,
+                        alignmentResult
+                    );
+
+                    if (forceMergeResult.success) {
+                        console.log(`✅ Принудительное объединение успешно! Добавлено ${forceMergeResult.addedNodes} узлов`);
+                        mergeMethod = 'force_merge';
+                        trackerUpdateResult = forceMergeResult.trackerResult;
+                       
+                        // Обновляем статистику сессии
+                        session.confirmedPhotos = (session.confirmedPhotos || 0) + 1;
+                        this.systemStats.successfulMerges++;
+                        this.systemStats.trackerConfirmations += trackerUpdateResult?.updated || 0;
+                    } else {
+                        console.log(`❌ Не удалось объединить, создаю новую модель`);
+                        mergeMethod = 'new_model';
+                        this.createNewModel(session, userId, analysis, photoInfo);
                     }
+                } else {
+                    console.log(`❌ Слишком мало совпадений (${matchedPairs.length}), создаю новую модель`);
+                    mergeMethod = 'new_model';
+                    this.createNewModel(session, userId, analysis, photoInfo);
                 }
-
-                // Создаем новый отпечаток
-                session.currentFootprint = new SimpleFootprint({
-                    userId: userId,
-                    name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`,
-                    metadata: {
-                        sessionId: session.id,
-                        previousModel: session.currentFootprint?.id
-                    }
-                });
-
-                // Добавляем анализ
-                const addResult = session.currentFootprint.addAnalysis(analysis, {
-                    ...photoInfo,
-                    sessionId: session.id,
-                    isNewModel: true
-                });
-
-                console.log(`✅ Создан новый отпечаток с ${addResult.added} узлами`);
             }
 
             // Сохраняем результат анализа
@@ -400,6 +415,75 @@ class SimpleFootprintManager {
                 error: error.message,
                 nodesAdded: 0
             };
+        }
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: СОЗДАНИЕ НОВОЙ МОДЕЛИ
+    createNewModel(session, userId, analysis, photoInfo) {
+        // Сохраняем текущий отпечаток
+        if (session.currentFootprint.graph.nodes.size >= this.config.minPointsForFootprint) {
+            const savedModel = this.saveSessionAsModel(userId,
+                `${session.currentFootprint.name}_${new Date().toLocaleTimeString('ru-RU')}`);
+
+            if (savedModel.success) {
+                console.log(`💾 Сохранена модель: ${savedModel.modelId?.slice(0, 8)}...`);
+            }
+        }
+
+        // Создаем новый отпечаток
+        session.currentFootprint = new SimpleFootprint({
+            userId: userId,
+            name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`,
+            metadata: {
+                sessionId: session.id,
+                previousModel: session.currentFootprint?.id
+            }
+        });
+
+        // Добавляем анализ
+        const addResult = session.currentFootprint.addAnalysis(analysis, {
+            ...photoInfo,
+            sessionId: session.id,
+            isNewModel: true
+        });
+
+        console.log(`✅ Создан новый отпечаток с ${addResult.added} узлами`);
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Принудительное объединение
+    async forceMergeFootprints(mainFootprint, tempFootprint, matchedPairs, alignmentResult) {
+        console.log(`🤝 Принудительное объединение по ${matchedPairs.length} совпавшим парам...`);
+
+        try {
+            // Объединяем трекеры
+            const trackerResult = await this.mergeTrackersFromAlignment(
+                mainFootprint,
+                tempFootprint,
+                alignmentResult,
+                {
+                    source: 'force_merge',
+                    matchedPairs: matchedPairs.length
+                }
+            );
+
+            // Объединяем графы
+            const graphResult = this.mergeGraphsIntelligently(
+                mainFootprint.graph,
+                tempFootprint.graph,
+                alignmentResult
+            );
+
+            return {
+                success: true,
+                trackerResult: trackerResult,
+                graphResult: graphResult,
+                addedNodes: graphResult.added,
+                updatedNodes: graphResult.matched
+            };
+
+        } catch (error) {
+            console.log(`❌ Ошибка принудительного объединения:`, error.message);
+            return { success: false, error: error.message };
         }
     }
 
