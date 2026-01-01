@@ -112,87 +112,199 @@ class SimpleGraphMatcher {
         return result;
     }
 
-    // 🔥 ДОБАВЛЕННЫЙ МЕТОД: найти совпадающие пары узлов
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: найти совпадающие пары узлов
     findMatchedPairs(graph1, graph2) {
         const pairs = [];
-      
+
         if (!graph1 || !graph2 || !graph1.nodes || !graph2.nodes) {
             return pairs;
         }
 
         console.log(`🔍 Ищу совпадающие пары: ${graph1.nodes.size} vs ${graph2.nodes.size} узлов`);
 
-        // Простая эвристика: находим ближайшие узлы по расстоянию
         const nodes1 = Array.from(graph1.nodes.values());
         const nodes2 = Array.from(graph2.nodes.values());
 
-        // Матрица расстояний
-        const distanceMatrix = [];
+        // 🔥 УЧИТЫВАЕМ РАЗНЫЕ РАЗМЕРЫ СЛЕДОВ
+        const sizeRatio = Math.min(nodes1.length, nodes2.length) / Math.max(nodes1.length, nodes2.length);
+        let distanceThreshold = 30;
 
-        // Рассчитываем расстояния между всеми узлами
-        for (let i = 0; i < nodes1.length; i++) {
-            const node1 = nodes1[i];
-            const distances = [];
-           
-            for (let j = 0; j < nodes2.length; j++) {
-                const node2 = nodes2[j];
+        // 🔥 АДАПТИВНЫЙ ПОРОГ: для разных размеров увеличиваем порог
+        if (sizeRatio < 0.7) {
+            distanceThreshold = 50; // Увеличиваем порог для разных размеров
+            console.log(`📏 Разные размеры (ratio: ${sizeRatio.toFixed(2)}), увеличиваю порог до ${distanceThreshold}px`);
+        }
+
+        // 🔥 ИСПОЛЬЗУЕМ ПРИНЦИП "КАЖДОЙ ТОЧКЕ - БЛИЖАЙШАЯ"
+        const usedNodes2 = new Set();
+
+        // Для каждого узла первого графа находим ближайший узел второго графа
+        nodes1.forEach((node1, i) => {
+            let bestMatch = null;
+            let minDistance = Infinity;
+
+            nodes2.forEach((node2, j) => {
+                if (usedNodes2.has(j)) return;
+
                 const dx = node1.x - node2.x;
                 const dy = node1.y - node2.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-                distances.push({
-                    index: j,
-                    distance: distance,
-                    node2: node2
-                });
-            }
-           
-            // Сортируем по расстоянию
-            distances.sort((a, b) => a.distance - b.distance);
-            distanceMatrix.push({
-                node1: node1,
-                node1Index: i,
-                distances: distances
-            });
-        }
 
-        // Ищем лучшие соответствия
-        const usedNodes2 = new Set();
-       
-        distanceMatrix.sort((a, b) => {
-            const bestDistA = a.distances[0]?.distance || Infinity;
-            const bestDistB = b.distances[0]?.distance || Infinity;
-            return bestDistA - bestDistB;
-        });
-
-        // Сопоставляем узлы
-        for (const item of distanceMatrix) {
-            const node1 = item.node1;
-           
-            for (const dist of item.distances) {
-                if (dist.distance < 30 && !usedNodes2.has(dist.index)) {
-                    // Нашли соответствие
-                    pairs.push({
+                if (distance < minDistance && distance < distanceThreshold) {
+                    minDistance = distance;
+                    bestMatch = {
                         node1: node1.id,
-                        node2: dist.node2.id,
-                        distance: dist.distance,
-                        node1Data: {
-                            x: node1.x,
-                            y: node1.y
-                        },
-                        node2Data: {
-                            x: dist.node2.x,
-                            y: dist.node2.y
-                        }
-                    });
-                    usedNodes2.add(dist.index);
-                    break;
+                        node2: node2.id,
+                        distance: distance,
+                        node1Data: { x: node1.x, y: node1.y },
+                        node2Data: { x: node2.x, y: node2.y }
+                    };
+                }
+            });
+
+            if (bestMatch) {
+                // Находим индекс узла во втором графе
+                const node2Index = nodes2.findIndex(n => n.id === bestMatch.node2);
+                if (node2Index !== -1) {
+                    usedNodes2.add(node2Index);
+                    pairs.push(bestMatch);
                 }
             }
+        });
+
+        console.log(`✅ Найдено ${pairs.length} совпадающих пар узлов (порог: ${distanceThreshold}px)`);
+
+        return pairs;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Адаптивное сравнение для разных размеров
+    adaptiveCompare(graph1, graph2, options = {}) {
+        const startTime = Date.now();
+
+        const invariants1 = graph1.getBasicInvariants();
+        const invariants2 = graph2.getBasicInvariants();
+
+        // 🔥 АДАПТИВНЫЙ ПОРОГ: учитываем размеры
+        const sizeRatio = Math.min(invariants1.nodeCount, invariants2.nodeCount) /
+                         Math.max(invariants1.nodeCount, invariants2.nodeCount);
+
+        console.log(`📏 Адаптивное сравнение: ${invariants1.nodeCount} vs ${invariants2.nodeCount} узлов (ratio: ${sizeRatio.toFixed(2)})`);
+
+        // Адаптивные пороги для разных размеров
+        let similarityThreshold = this.config.sameThreshold;
+        let similarThreshold = this.config.similarThreshold;
+
+        if (sizeRatio < 0.7) {
+            // Для разных размеров снижаем пороги
+            similarityThreshold *= 0.9; // 0.63 вместо 0.7
+            similarThreshold *= 0.8;    // 0.32 вместо 0.4
+            console.log(`🎯 Адаптивные пороги: same=${similarityThreshold.toFixed(2)}, similar=${similarThreshold.toFixed(2)}`);
         }
 
-        console.log(`✅ Найдено ${pairs.length} совпадающих пар узлов`);
-       
-        return pairs;
+        // Сравниваем основные инварианты
+        const comparisons = [];
+
+        // 1. Сравнение количества узлов (нормализованное)
+        const nodeScore = sizeRatio;
+        comparisons.push({ name: 'nodeCount', score: nodeScore });
+
+        // 2. Сравнение средних координат (центров масс)
+        const center1 = this.calculateCenterOfMass(Array.from(graph1.nodes.values()));
+        const center2 = this.calculateCenterOfMass(Array.from(graph2.nodes.values()));
+        const centerDistance = Math.sqrt(
+            Math.pow(center2.x - center1.x, 2) +
+            Math.pow(center2.y - center1.y, 2)
+        );
+        const centerScore = Math.max(0, 1 - centerDistance / 100);
+        comparisons.push({ name: 'centerDistance', score: centerScore });
+
+        // 3. Сравнение распределения узлов
+        const distributionScore = this.compareDistributions(graph1, graph2);
+        comparisons.push({ name: 'distribution', score: distributionScore });
+
+        // Общая схожесть
+        const totalScore = comparisons.reduce((sum, comp) => sum + comp.score, 0) / comparisons.length;
+
+        // Принимаем решение
+        let decision, reason;
+        if (totalScore > similarityThreshold) {
+            decision = 'same';
+            reason = `Следы похожи (${totalScore.toFixed(3)}) несмотря на разный размер (ratio: ${sizeRatio.toFixed(2)})`;
+        } else if (totalScore > similarThreshold) {
+            decision = 'similar';
+            reason = `Умеренная схожесть (${totalScore.toFixed(3)})`;
+        } else {
+            decision = 'different';
+            reason = `Слишком разные (${totalScore.toFixed(3)})`;
+        }
+
+        return {
+            similarity: totalScore,
+            decision: decision,
+            reason: reason,
+            sizeRatio: sizeRatio,
+            comparisons: comparisons,
+            timeMs: Date.now() - startTime
+        };
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Сравнение распределений
+    compareDistributions(graph1, graph2) {
+        const nodes1 = Array.from(graph1.nodes.values());
+        const nodes2 = Array.from(graph2.nodes.values());
+
+        // Нормализуем координаты
+        const normalized1 = this.normalizeCoordinates(nodes1);
+        const normalized2 = this.normalizeCoordinates(nodes2);
+
+        // Разбиваем на квадранты и сравниваем распределение
+        const quadrants1 = this.getQuadrantDistribution(normalized1);
+        const quadrants2 = this.getQuadrantDistribution(normalized2);
+
+        // Сравниваем распределение по квадрантам
+        let diffSum = 0;
+        for (let i = 0; i < 4; i++) {
+            diffSum += Math.abs(quadrants1[i] - quadrants2[i]);
+        }
+
+        return Math.max(0, 1 - diffSum / 2);
+    }
+
+    // 🔥 Нормализация координат
+    normalizeCoordinates(nodes) {
+        if (nodes.length === 0) return [];
+
+        const xs = nodes.map(n => n.x);
+        const ys = nodes.map(n => n.y);
+
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+
+        const width = Math.max(1, maxX - minX);
+        const height = Math.max(1, maxY - minY);
+
+        return nodes.map(node => ({
+            nx: (node.x - minX) / width,
+            ny: (node.y - minY) / height
+        }));
+    }
+
+    // 🔥 Распределение по квадрантам
+    getQuadrantDistribution(nodes) {
+        const quadrants = [0, 0, 0, 0];
+
+        nodes.forEach(node => {
+            if (node.nx < 0.5 && node.ny < 0.5) quadrants[0]++; // Левый верхний
+            else if (node.nx >= 0.5 && node.ny < 0.5) quadrants[1]++; // Правый верхний
+            else if (node.nx < 0.5 && node.ny >= 0.5) quadrants[2]++; // Левый нижний
+            else quadrants[3]++; // Правый нижний
+        });
+
+        // Нормализуем к проценту
+        const total = nodes.length || 1;
+        return quadrants.map(q => q / total);
     }
 
     // 2. БЫСТРАЯ ПРОВЕРКА (отсев явно разных)
