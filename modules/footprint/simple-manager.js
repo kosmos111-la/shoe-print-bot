@@ -15,18 +15,18 @@ class SimpleFootprintManager {
             autoAlignment: options.autoAlignment !== false,
             autoSave: options.autoSave !== false,
             debug: options.debug || false,
-           
+
             // 🔥 ВАЖНЫЕ НАСТРОЙКИ ДЛЯ ПОДТВЕРЖДЕНИЙ
             usePointTracker: true, // Всегда использовать PointTracker
             enableMergeVisualization: options.enableMergeVisualization !== false,
             enableIntelligentMerge: options.enableIntelligentMerge !== false,
             enableTopologySuperModel: options.enableTopologySuperModel !== false,
-           
+
             // Пороги
             topologySimilarityThreshold: options.topologySimilarityThreshold || 0.7,
             highConfidenceThreshold: options.highConfidenceThreshold || 0.8,
             minPointsForFootprint: options.minPointsForFootprint || 5,
-           
+
             // Настройки PointTracker
             trackerConfirmationThreshold: 2, // Минимум 2 подтверждения для высокой уверенности
             ...options
@@ -34,10 +34,10 @@ class SimpleFootprintManager {
 
         // Сессии пользователей: userId -> session
         this.userSessions = new Map();
-       
+
         // Загруженные модели: modelId -> SimpleFootprint
         this.loadedModels = new Map();
-       
+
         // Визуализатор объединений
         this.mergeVisualizer = new MergeVisualizer({
             outputDir: path.join(this.config.dbPath, 'visualizations'),
@@ -66,7 +66,7 @@ class SimpleFootprintManager {
 
         // Обеспечиваем существование директорий
         this.ensureDirectories();
-       
+
         // Загружаем существующие модели
         this.loadExistingModels();
 
@@ -80,7 +80,7 @@ class SimpleFootprintManager {
     // 🔥 КРИТИЧЕСКИЙ МЕТОД: ДОБАВЛЕНИЕ ФОТО В СЕССИЮ (ИСПРАВЛЕННЫЙ)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО В СЕССИЮ для пользователя ${userId}`);
-       
+
         try {
             // Проверяем анализ
             if (!analysis || !analysis.predictions || analysis.predictions.length === 0) {
@@ -94,7 +94,7 @@ class SimpleFootprintManager {
 
             // Извлекаем точки протекторов
             const points = this.extractPointsFromAnalysis(analysis);
-           
+
             if (points.length < this.config.minPointsForFootprint) {
                 console.log(`⚠️ Слишком мало точек: ${points.length} (нужно минимум ${this.config.minPointsForFootprint})`);
                 return {
@@ -109,7 +109,7 @@ class SimpleFootprintManager {
             // Получаем или создаем сессию
             let session = this.userSessions.get(userId);
             const isNewSession = !session;
-           
+
             if (isNewSession) {
                 // Создаем новую сессию
                 session = this.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
@@ -132,7 +132,7 @@ class SimpleFootprintManager {
             // Если это первое фото в сессии - просто создаем отпечаток
             if (!session.currentFootprint) {
                 console.log(`👣 Создаю новый отпечаток (первое фото в сессии)`);
-               
+
                 session.currentFootprint = new SimpleFootprint({
                     userId: userId,
                     name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
@@ -150,7 +150,7 @@ class SimpleFootprintManager {
                 });
 
                 console.log(`✅ Создан новый отпечаток с ${addResult.added} узлами`);
-               
+
                 // Сохраняем результат анализа
                 session.analyses.push({
                     id: `analysis_${Date.now()}`,
@@ -179,10 +179,10 @@ class SimpleFootprintManager {
                 };
             }
 
-            // 🔥 КРИТИЧЕСКАЯ ЧАСТЬ: ЕСЛИ ЕСТЬ СУЩЕСТВУЮЩИЙ ОТПЕЧАТОК - СРАВНИВАЕМ
-           
+            // 🔥 КРИТИЧЕСКАЯ ЧАСТЬ: ЕСЛИ ЕСТЬ СУЩЕСТВУЮЩИЙ ОТПЕЧАТОК - СРАВНИВАЕМ И ОБЪЕДИНЯЕМ
+
             console.log(`🔍 Сравниваю с существующим отпечатком (${session.currentFootprint.graph.nodes.size} узлов)`);
-           
+
             // Создаем временный отпечаток для сравнения
             const tempFootprint = new SimpleFootprint({
                 userId: userId,
@@ -224,20 +224,19 @@ class SimpleFootprintManager {
 
             this.systemStats.totalComparisons++;
 
-            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: РАЗДЕЛЯЕМ ЛОГИКУ ПО ПОРОГУ СХОЖЕСТИ
-           
+            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: НОВАЯ ЛОГИКА ОБЪЕДИНЕНИЯ
             let mergeVizPath = null;
             let mergeMethod = 'none';
             let trackerUpdateResult = null;
 
             if (alignmentResult.similarity > this.config.topologySimilarityThreshold) {
-                // 🔥 СЛУЧАЙ 1: СЛЕДЫ СОВПАДАЮТ - ОБЪЕДИНЯЕМ И ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
-                console.log(`✅ Следы совпали (${alignmentResult.similarity.toFixed(3)}) - объединяю...`);
-               
+                // 🔥 СЛУЧАЙ 1: СЛЕДЫ СОВПАДАЮТ - ОБЪЕДИНЯЕМ ОБЕ МОДЕЛИ!
+                console.log(`✅ Следы совпали (${alignmentResult.similarity.toFixed(3)}) - ОБЪЕДИНЯЕМ обе модели!`);
+
                 mergeMethod = 'intelligent_merge';
 
-                // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Обновляем подтверждения через PointTracker
-                trackerUpdateResult = await this.updateConfirmationsFromAlignment(
+                // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Объединяем PointTracker'ы (а не только подтверждаем)
+                trackerUpdateResult = await this.mergeTrackersFromAlignment(
                     session.currentFootprint,
                     tempFootprint,
                     alignmentResult,
@@ -248,7 +247,16 @@ class SimpleFootprintManager {
                     }
                 );
 
-                console.log(`🎯 PointTracker обновил ${trackerUpdateResult.updated} подтверждений`);
+                console.log(`🎯 PointTracker объединен: ${trackerUpdateResult.merged} точек добавлено, ${trackerUpdateResult.updated} обновлено`);
+
+                // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ОБЪЕДИНЯЕМ ГРАФЫ
+                const mergeResult = this.mergeGraphsIntelligently(
+                    session.currentFootprint.graph,
+                    tempFootprint.graph,
+                    alignmentResult
+                );
+
+                console.log(`🔄 Графы объединены: ${mergeResult.added} новых узлов добавлено`);
 
                 // Принудительно обновляем confirmedCount в узлах графа
                 const forceUpdated = session.currentFootprint.forceUpdateNodeConfirmations();
@@ -259,11 +267,11 @@ class SimpleFootprintManager {
                 this.systemStats.successfulMerges++;
                 this.systemStats.trackerConfirmations += trackerUpdateResult.updated;
 
-                // 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ СУПЕР-МОДЕЛИ (с подтверждениями)
+                // 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ ОБЪЕДИНЕННОЙ СУПЕР-МОДЕЛИ
                 if (this.config.enableMergeVisualization) {
                     try {
-                        console.log('🎨 Создаю визуализацию супер-модели с подтверждениями...');
-                       
+                        console.log('🎨 Создаю визуализацию объединенной супер-модели...');
+
                         mergeVizPath = await this.mergeVisualizer.visualizeSuperModel(
                             session.currentFootprint,
                             tempFootprint,
@@ -272,8 +280,9 @@ class SimpleFootprintManager {
                                     this.mergeVisualizer.config.outputDir,
                                     `super_model_${session.id.slice(0, 8)}_${Date.now()}.png`
                                 ),
-                                title: `Супер-модель: ${session.currentFootprint.name}`,
-                                showConfirmations: true
+                                title: `Супер-модель: ${session.currentFootprint.name} (объединение)`,
+                                showConfirmations: true,
+                                highlightNewNodes: true
                             }
                         );
 
@@ -283,10 +292,11 @@ class SimpleFootprintManager {
                             timestamp: new Date(),
                             similarity: alignmentResult.similarity,
                             confirmedNodes: trackerUpdateResult.updated,
+                            addedNodes: trackerUpdateResult.merged,
                             method: mergeMethod
                         });
 
-                        console.log(`✅ Визуализация супер-модели создана: ${mergeVizPath}`);
+                        console.log(`✅ Визуализация объединенной модели создана: ${mergeVizPath}`);
 
                     } catch (vizError) {
                         console.log('⚠️ Ошибка создания визуализации:', vizError.message);
@@ -294,15 +304,17 @@ class SimpleFootprintManager {
                 }
 
                 // Отправляем уведомление в Telegram если есть бот
-                if (bot && chatId && trackerUpdateResult.updated > 0) {
+                if (bot && chatId) {
                     try {
+                        const totalAdded = (trackerUpdateResult.merged || 0) + (trackerUpdateResult.updated || 0);
                         await bot.sendMessage(chatId,
-                            `✅ **Следы совпали!**\n\n` +
-                            `🎯 Подтверждено узлов: ${trackerUpdateResult.updated}\n` +
+                            `✅ **Следы совпали - модели объединены!**\n\n` +
+                            `🎯 Новых точек добавлено: ${trackerUpdateResult.merged || 0}\n` +
+                            `🔄 Существующих обновлено: ${trackerUpdateResult.updated || 0}\n` +
                             `📊 Схожесть: ${(alignmentResult.similarity * 100).toFixed(1)}%\n` +
-                            `📈 Средний рейтинг точек: ${trackerUpdateResult.avgRating?.toFixed(3) || '0.000'}\n\n` +
-                            `💡 **Точки теперь окрашены по количеству подтверждений:**\n` +
-                            `⚫ 1 фото | 🟠 2 фото | 🟡 3 фото | 🔴 4+ фото`
+                            `📈 Всего узлов в супер-модели: ${session.currentFootprint.graph.nodes.size}\n\n` +
+                            `💡 **Объединение завершено успешно!**\n` +
+                            `Теперь модель содержит данные с ВСЕХ фотографий.`
                         );
                     } catch (botError) {
                         console.log('⚠️ Ошибка отправки сообщения:', botError.message);
@@ -312,14 +324,14 @@ class SimpleFootprintManager {
             } else {
                 // 🔥 СЛУЧАЙ 2: СЛЕДЫ НЕ СОВПАДАЮТ - НАЧИНАЕМ НОВУЮ МОДЕЛЬ
                 console.log(`🆕 Следы разные (${alignmentResult.similarity.toFixed(3)}) - начинаю новую модель`);
-               
+
                 mergeMethod = 'new_model';
 
                 // Сохраняем текущий отпечаток
                 if (session.currentFootprint.graph.nodes.size >= this.config.minPointsForFootprint) {
                     const savedModel = this.saveSessionAsModel(userId,
                         `${session.currentFootprint.name}_${new Date().toLocaleTimeString('ru-RU')}`);
-                   
+
                     if (savedModel.success) {
                         console.log(`💾 Сохранена модель: ${savedModel.modelId?.slice(0, 8)}...`);
                     }
@@ -386,7 +398,7 @@ class SimpleFootprintManager {
         } catch (error) {
             console.log(`❌ Ошибка добавления фото в сессию:`, error);
             console.error(error.stack);
-           
+
             return {
                 success: false,
                 error: error.message,
@@ -395,93 +407,226 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ ИЗ ВЫРАВНИВАНИЯ
-    async updateConfirmationsFromAlignment(mainFootprint, tempFootprint, alignmentResult, sourceInfo = {}) {
-    try {
-        if (!mainFootprint.pointTracker || !tempFootprint.pointTracker) {
-            console.log('⚠️ Один из отпечатков не имеет PointTracker');
-            return { updated: 0, avgRating: 0 };
-        }
+    // 🔥 НОВЫЙ МЕТОД: ОБЪЕДИНЕНИЕ ТРЕКЕРОВ (а не только подтверждение)
+    async mergeTrackersFromAlignment(mainFootprint, tempFootprint, alignmentResult, sourceInfo = {}) {
+        try {
+            if (!mainFootprint.pointTracker || !tempFootprint.pointTracker) {
+                console.log('⚠️ Один из отпечатков не имеет PointTracker');
+                return { merged: 0, updated: 0 };
+            }
 
-        let updatedCount = 0;
-        let totalRating = 0;
+            console.log(`🔄 Объединяю трекеры: основной ${mainFootprint.pointTracker.points.size} точек, временный ${tempFootprint.pointTracker.points.size} точек`);
 
-        console.log(`🔍 Обновляю подтверждения из выравнивания...`);
-        console.log(`   Основной трекер: ${mainFootprint.pointTracker.points.size} точек`);
-        console.log(`   Временный трекер: ${tempFootprint.pointTracker.points.size} точек`);
-       
-        // 🔥 СПОСОБ 1: Проходим по всем точкам временного трекера
-        const tempPoints = Array.from(tempFootprint.pointTracker.points.values());
-        console.log(`📊 Временный трекер содержит ${tempPoints.length} точек`);
-       
-        for (const tempPoint of tempPoints) {
-            const pointForUpdate = {
-                x: tempPoint.x,
-                y: tempPoint.y,
-                confidence: tempPoint.rating || alignmentResult.similarity
-            };
-           
-            // Ищем ближайшую точку в основном трекере
-            const nearest = mainFootprint.pointTracker.findNearestPoint(pointForUpdate, 25);
-           
-            if (nearest && nearest.distance < 20) {
-                // Обновляем точку
-                const updateSuccess = mainFootprint.pointTracker.updatePoint(nearest.id, pointForUpdate, {
-                    ...sourceInfo,
-                    source: 'alignment_match',
-                    distance: nearest.distance,
-                    alignmentSimilarity: alignmentResult.similarity,
-                    tempPointId: tempPoint.id
-                });
-               
-                if (updateSuccess) {
-                    const updatedPoint = mainFootprint.pointTracker.points.get(nearest.id);
-                    if (updatedPoint) {
-                        totalRating += updatedPoint.rating;
-                        updatedCount++;
-                       
-                        // 🔥 Обновляем узел графа связанный с этой точкой
-                        mainFootprint.graph.nodes.forEach((node, nodeId) => {
-                            if (node.pointTrackerId === nearest.id) {
-                                node.confirmedCount = updatedPoint.confirmedCount;
-                                node.confidence = updatedPoint.rating;
-                                console.log(`✅ Обновлен узел ${nodeId}: ${updatedPoint.confirmedCount} подтверждений`);
-                            }
-                        });
-                    }
+            let mergedCount = 0;
+            let updatedCount = 0;
+
+            // 🔥 ШАГ 1: Переносим ВСЕ точки из временного трекера в основной
+            for (const [tempTrackerId, tempPoint] of tempFootprint.pointTracker.points) {
+                const pointForMain = {
+                    x: tempPoint.x,
+                    y: tempPoint.y,
+                    confidence: tempPoint.rating || alignmentResult.similarity
+                };
+
+                // Ищем ближайшую точку в основном трекере
+                const nearest = mainFootprint.pointTracker.findNearestPoint(pointForMain, 25);
+
+                if (nearest && nearest.distance < 20) {
+                    // Точка уже есть - обновляем
+                    mainFootprint.pointTracker.updatePoint(nearest.id, pointForMain, {
+                        ...sourceInfo,
+                        source: 'alignment_merge',
+                        distance: nearest.distance,
+                        mergedFrom: tempTrackerId
+                    });
+                    updatedCount++;
+                } else {
+                    // НОВАЯ ТОЧКА - добавляем!
+                    const newPointId = mainFootprint.pointTracker.addPoint(pointForMain, {
+                        ...sourceInfo,
+                        source: 'new_from_alignment',
+                        mergedFrom: tempTrackerId
+                    });
+                    mergedCount++;
+                    console.log(`➕ Добавлена новая точка ${newPointId} из временного трекера`);
                 }
             }
+
+            // 🔥 ШАГ 2: Обновляем граф с новыми точками
+            // Получаем ВСЕ точки из обновленного трекера
+            const allPoints = [];
+            for (const [trackerId, trackerPoint] of mainFootprint.pointTracker.points) {
+                allPoints.push({
+                    x: trackerPoint.x,
+                    y: trackerPoint.y,
+                    confidence: trackerPoint.rating,
+                    pointTrackerId: trackerId,
+                    confirmedCount: trackerPoint.confirmedCount
+                });
+            }
+
+            // Перестраиваем граф с ВСЕМИ точками
+            const previousNodeCount = mainFootprint.graph.nodes.size;
+
+            // Очищаем старый граф
+            mainFootprint.graph.nodes.clear();
+            mainFootprint.graph.edges.clear();
+
+            // Строим новый граф из всех точек
+            const graphNodes = allPoints.map((point, index) => ({
+                id: `n_${point.pointTrackerId}`,
+                x: point.x,
+                y: point.y,
+                confidence: point.confidence,
+                confirmedCount: point.confirmedCount,
+                pointTrackerId: point.pointTrackerId
+            }));
+
+            const graphInvariants = mainFootprint.graph.buildFromPoints(graphNodes.map(p => ({
+                x: p.x,
+                y: p.y,
+                confidence: p.confidence,
+                id: p.id
+            })));
+
+            // Связываем узлы с трекером
+            const linkedCount = mainFootprint.linkNodesWithTracker(graphNodes);
+
+            const addedNodes = mainFootprint.graph.nodes.size - previousNodeCount;
+
+            console.log(`✅ Трекеры объединены: +${mergedCount} новых точек, ${updatedCount} обновлено`);
+            console.log(`📊 Граф перестроен: было ${previousNodeCount} узлов, стало ${mainFootprint.graph.nodes.size} (+${addedNodes})`);
+
+            // Получаем статистику
+            const trackerStats = mainFootprint.pointTracker.getStats();
+
+            return {
+                merged: mergedCount,
+                updated: updatedCount,
+                addedNodes: addedNodes,
+                avgRating: trackerStats.avgRating,
+                trackerStats: trackerStats,
+                highConfidencePoints: trackerStats.highConfidencePoints
+            };
+
+        } catch (error) {
+            console.log('❌ Ошибка объединения трекеров:', error.message);
+            console.error(error.stack);
+            return { merged: 0, updated: 0, error: error.message };
         }
-
-        // Автоочистка старых точек
-        const cleaned = mainFootprint.pointTracker.cleanup();
-        if (cleaned > 0) {
-            console.log(`🧹 Очищено ${cleaned} старых точек из трекера`);
-        }
-
-        // Получаем обновленную статистику
-        const trackerStats = mainFootprint.pointTracker.getStats();
-       
-        // 🔥 ВАЖНО: Принудительно обновляем все узлы
-        const forceUpdated = mainFootprint.forceUpdateNodeConfirmations();
-        console.log(`🔧 Принудительно обновлено ${forceUpdated} узлов`);
-       
-        console.log(`✅ Обновлено ${updatedCount} подтверждений, средний рейтинг: ${trackerStats.avgRating.toFixed(3)}`);
-       
-        return {
-            updated: updatedCount,
-            forceUpdated: forceUpdated,
-            avgRating: trackerStats.avgRating,
-            trackerStats: trackerStats,
-            highConfidencePoints: trackerStats.highConfidencePoints
-        };
-
-    } catch (error) {
-        console.log('❌ Ошибка обновления подтверждений:', error.message);
-        console.error(error.stack);
-        return { updated: 0, avgRating: 0, error: error.message };
     }
-}
+
+    // 🔥 НОВЫЙ МЕТОД: ИНТЕЛЛЕКТУАЛЬНОЕ ОБЪЕДИНЕНИЕ ГРАФОВ
+    mergeGraphsIntelligently(mainGraph, tempGraph, alignmentResult) {
+        console.log(`🔄 Интеллектуальное объединение графов: ${mainGraph.nodes.size} + ${tempGraph.nodes.size} узлов`);
+
+        let addedNodes = 0;
+        let matchedNodes = 0;
+
+        // 🔥 ИСПОЛЬЗУЕМ matchedPairs из alignmentResult если есть
+        if (alignmentResult.matchedPairs && alignmentResult.matchedPairs.length > 0) {
+            console.log(`🔍 Использую ${alignmentResult.matchedPairs.length} совпавших пар для объединения`);
+
+            // Проходим по всем узлам временного графа
+            for (const [tempNodeId, tempNode] of tempGraph.nodes) {
+                let isMatched = false;
+
+                // Проверяем, есть ли этот узел в совпавших парах
+                for (const pair of alignmentResult.matchedPairs) {
+                    if (pair.node2 === tempNodeId) {
+                        // Узел уже совпал с существующим - обновляем подтверждения
+                        const mainNode = mainGraph.nodes.get(pair.node1);
+                        if (mainNode) {
+                            mainNode.confirmedCount = (mainNode.confirmedCount || 1) + 1;
+                            mainNode.lastConfirmed = new Date();
+                            matchedNodes++;
+                        }
+                        isMatched = true;
+                        break;
+                    }
+                }
+
+                // Если узел НЕ совпал ни с одним существующим - добавляем как новый
+                if (!isMatched) {
+                    const newNodeId = `n_merged_${Date.now()}_${tempNodeId}`;
+                    mainGraph.nodes.set(newNodeId, {
+                        ...tempNode,
+                        id: newNodeId,
+                        confirmedCount: 1,
+                        isNewFromMerge: true,
+                        mergedFrom: tempNodeId,
+                        mergedAt: new Date()
+                    });
+                    addedNodes++;
+                    console.log(`➕ Добавлен новый узел ${newNodeId} из временного графа`);
+                }
+            }
+        } else {
+            // 🔥 АЛЬТЕРНАТИВНЫЙ ПОДХОД: добавление уникальных узлов
+            console.log('🔍 Использую альтернативный метод объединения');
+
+            // Находим уникальные узлы из временного графа
+            const uniqueTempNodes = [];
+            for (const [tempNodeId, tempNode] of tempGraph.nodes) {
+                let isUnique = true;
+
+                // Проверяем, есть ли похожий узел в основном графе
+                for (const [mainNodeId, mainNode] of mainGraph.nodes) {
+                    const dx = mainNode.x - tempNode.x;
+                    const dy = mainNode.y - tempNode.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < 20) { // Порог 20 пикселей
+                        isUnique = false;
+                        // Обновляем подтверждения
+                        mainNode.confirmedCount = (mainNode.confirmedCount || 1) + 1;
+                        matchedNodes++;
+                        break;
+                    }
+                }
+
+                if (isUnique) {
+                    uniqueTempNodes.push({ id: tempNodeId, node: tempNode });
+                }
+            }
+
+            // Добавляем уникальные узлы
+            uniqueTempNodes.forEach(({ id, node }) => {
+                const newNodeId = `n_merged_${Date.now()}_${id}`;
+                mainGraph.nodes.set(newNodeId, {
+                    ...node,
+                    id: newNodeId,
+                    confirmedCount: 1,
+                    isNewFromMerge: true,
+                    mergedFrom: id,
+                    mergedAt: new Date()
+                });
+                addedNodes++;
+            });
+
+            console.log(`📊 Найдено ${uniqueTempNodes.length} уникальных узлов из временного графа`);
+        }
+
+        // 🔥 ПЕРЕСТРАИВАЕМ РЕБРА ГРАФА с учетом новых узлов
+        console.log('🔗 Перестраиваю рёбра графа...');
+        mainGraph.buildFromPoints(Array.from(mainGraph.nodes.values()).map(node => ({
+            x: node.x,
+            y: node.y,
+            confidence: node.confidence || 0.5,
+            id: node.id
+        })));
+
+        console.log(`✅ Графы объединены: +${addedNodes} новых узлов, ${matchedNodes} узлов обновлено`);
+
+        return {
+            added: addedNodes,
+            matched: matchedNodes,
+            totalNodes: mainGraph.nodes.size,
+            totalEdges: mainGraph.edges.size
+        };
+    }
+
+    // 🔥 УДАЛЕН СТАРЫЙ МЕТОД updateConfirmationsFromAlignment - он больше не нужен!
 
     // 🔥 НОВЫЙ МЕТОД: ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ ДЛЯ СЕССИИ
     async forceUpdateSessionConfirmations(userId) {
@@ -491,13 +636,13 @@ class SimpleFootprintManager {
         }
 
         console.log(`🔧 Принудительное обновление подтверждений для сессии ${session.id.slice(0, 8)}...`);
-       
+
         let totalUpdated = 0;
-       
+
         // Проходим по всем анализам в сессии (кроме первого)
         for (let i = 1; i < session.analyses.length; i++) {
             const analysis = session.analyses[i];
-           
+
             if (analysis.alignmentResult && analysis.alignmentResult.similarity > 0.7) {
                 // Создаем временный отпечаток для анализа
                 const tempFootprint = new SimpleFootprint({
@@ -505,20 +650,20 @@ class SimpleFootprintManager {
                     name: `Temp_force_${i}`,
                     metadata: { isTemporary: true }
                 });
-               
+
                 // Нужно восстановить точки из анализа (упрощенно)
                 // В реальной реализации здесь нужно восстановить точки из истории
-               
+
                 console.log(`   Анализ ${i}: similarity=${analysis.alignmentResult.similarity.toFixed(3)}`);
                 totalUpdated++;
             }
         }
-       
+
         // Принудительно обновляем узлы в текущем отпечатке
         const forceUpdated = session.currentFootprint.forceUpdateNodeConfirmations();
-       
+
         console.log(`✅ Принудительно обновлено ${forceUpdated} узлов`);
-       
+
         return {
             success: true,
             analysesUpdated: totalUpdated,
@@ -530,7 +675,7 @@ class SimpleFootprintManager {
     // Создание сессии
     createSession(userId, name = null) {
         const sessionId = `session_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-       
+
         const session = {
             id: sessionId,
             userId: userId,
@@ -548,12 +693,12 @@ class SimpleFootprintManager {
                 usePointTracker: true
             }
         };
-       
+
         this.userSessions.set(userId, session);
         this.systemStats.totalUsers = this.userSessions.size;
-       
+
         console.log(`🆕 Создана сессия ${sessionId.slice(0, 8)}... для пользователя ${userId}`);
-       
+
         return session;
     }
 
@@ -565,18 +710,18 @@ class SimpleFootprintManager {
         }
 
         const footprint = session.currentFootprint;
-       
+
         // Обновляем имя если указано
         if (modelName) {
             footprint.name = modelName;
         }
-       
+
         // 🔥 ВАЖНО: Принудительно обновляем подтверждения перед сохранением
         footprint.forceUpdateNodeConfirmations();
-       
+
         // Сохраняем модель
         const modelPath = path.join(this.config.dbPath, 'models', `${footprint.id}.json`);
-       
+
         try {
             const modelData = footprint.toJSON();
             modelData.metadata.sessionInfo = {
@@ -585,18 +730,18 @@ class SimpleFootprintManager {
                 confirmedPhotos: session.confirmedPhotos || 0,
                 analysesCount: session.analyses.length
             };
-           
+
             fs.writeFileSync(modelPath, JSON.stringify(modelData, null, 2));
-           
+
             // Добавляем в загруженные модели
             this.loadedModels.set(footprint.id, footprint);
             this.systemStats.totalModels = this.loadedModels.size;
-           
+
             console.log(`💾 Модель сохранена: ${footprint.id} (${footprint.graph.nodes.size} узлов)`);
-           
+
             // Очищаем сессию
             this.userSessions.delete(userId);
-           
+
             return {
                 success: true,
                 modelId: footprint.id,
@@ -615,7 +760,7 @@ class SimpleFootprintManager {
                     confirmedPhotos: session.confirmedPhotos || 0
                 }
             };
-           
+
         } catch (error) {
             console.log('❌ Ошибка сохранения модели:', error.message);
             return { success: false, error: error.message };
@@ -626,12 +771,12 @@ class SimpleFootprintManager {
     addMergeVisualization(userId, vizInfo) {
         const history = this.lastMergeVisualizations.get(userId) || [];
         history.unshift(vizInfo);
-       
+
         // Ограничиваем историю 10 последними визуализациями
         if (history.length > 10) {
             history.pop();
         }
-       
+
         this.lastMergeVisualizations.set(userId, history);
         return history.length;
     }
@@ -648,16 +793,16 @@ class SimpleFootprintManager {
         if (!session || !session.currentFootprint) {
             return null;
         }
-       
+
         const footprint = session.currentFootprint;
-       
+
         // Получаем статистику из отпечатка
         const stats = footprint.getConfirmationStats ? footprint.getConfirmationStats() : {
             totalNodes: footprint.graph.nodes.size,
             confirmedNodes: 0,
             averageConfirmations: 0
         };
-       
+
         // Добавляем информацию о сессии
         return {
             sessionId: session.id,
@@ -679,7 +824,7 @@ class SimpleFootprintManager {
         return total;
     }
 
-    // ============ СУЩЕСТВУЮЩИЕ МЕТОДЫ (с небольшими исправлениями) ============
+    // ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
 
     // Вспомогательные методы
     extractPointsFromAnalysis(analysis) {
@@ -690,7 +835,7 @@ class SimpleFootprintManager {
             if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
                 const xs = pred.points.map(p => p.x);
                 const ys = pred.points.map(p => p.y);
-               
+
                 points.push({
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
                     y: (Math.min(...ys) + Math.max(...ys)) / 2,
@@ -720,7 +865,7 @@ class SimpleFootprintManager {
 
     loadExistingModels() {
         const modelsDir = path.join(this.config.dbPath, 'models');
-       
+
         if (!fs.existsSync(modelsDir)) {
             console.log('📁 Директория моделей не существует, создаю...');
             fs.mkdirSync(modelsDir, { recursive: true });
@@ -728,30 +873,30 @@ class SimpleFootprintManager {
         }
 
         const files = fs.readdirSync(modelsDir).filter(f => f.endsWith('.json'));
-       
+
         console.log(`📂 Загрузка моделей из ${modelsDir} (${files.length} файлов)`);
-       
+
         let loadedCount = 0;
-       
+
         files.slice(0, 100).forEach(file => { // Ограничиваем загрузку 100 моделями
             try {
                 const filePath = path.join(modelsDir, file);
                 const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-               
+
                 const footprint = SimpleFootprint.fromJSON(data);
                 this.loadedModels.set(footprint.id, footprint);
                 loadedCount++;
-               
+
             } catch (error) {
                 console.log(`⚠️ Ошибка загрузки модели ${file}:`, error.message);
             }
         });
-       
+
         this.systemStats.totalModels = loadedCount;
         console.log(`✅ Загружено ${loadedCount} моделей`);
     }
 
-    // Остальные методы остаются без изменений (getActiveSession, getUserModels, getModelById и т.д.)
+    // Остальные методы остаются без изменений
     getActiveSession(userId) {
         return this.userSessions.get(userId);
     }
@@ -809,9 +954,9 @@ class SimpleFootprintManager {
 
         // Удаляем сессию
         this.userSessions.delete(userId);
-       
+
         console.log(`🏁 Сессия завершена: ${session.id.slice(0, 8)}... (${reason})`);
-       
+
         return result;
     }
 
@@ -914,7 +1059,7 @@ class SimpleFootprintManager {
             if (model.id === footprint.id) return; // Пропускаем ту же модель
 
             const comparison = footprint.compare(model);
-           
+
             if (comparison.similarity >= minSimilarity) {
                 similarities.push({
                     model: model,
