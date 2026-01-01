@@ -235,7 +235,7 @@ class SimpleFootprintManager {
 
                 mergeMethod = 'intelligent_merge';
 
-                // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Объединяем PointTracker'ы (а не только подтверждаем)
+                // 🔥 ИСПРАВЛЕНИЕ: Объединяем трекеры И графы
                 trackerUpdateResult = await this.mergeTrackersFromAlignment(
                     session.currentFootprint,
                     tempFootprint,
@@ -249,7 +249,7 @@ class SimpleFootprintManager {
 
                 console.log(`🎯 PointTracker объединен: ${trackerUpdateResult.merged} точек добавлено, ${trackerUpdateResult.updated} обновлено`);
 
-                // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ОБЪЕДИНЯЕМ ГРАФЫ
+                // 🔥 ИСПРАВЛЕНИЕ: Объединяем графы с добавлением новых узлов
                 const mergeResult = this.mergeGraphsIntelligently(
                     session.currentFootprint.graph,
                     tempFootprint.graph,
@@ -257,10 +257,6 @@ class SimpleFootprintManager {
                 );
 
                 console.log(`🔄 Графы объединены: ${mergeResult.added} новых узлов добавлено`);
-
-                // Принудительно обновляем confirmedCount в узлах графа
-                const forceUpdated = session.currentFootprint.forceUpdateNodeConfirmations();
-                console.log(`🔧 Принудительно обновлено ${forceUpdated} узлов с подтверждениями`);
 
                 // Обновляем статистику сессии
                 session.confirmedPhotos = (session.confirmedPhotos || 0) + 1;
@@ -407,7 +403,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ОБЪЕДИНЕНИЕ ТРЕКЕРОВ (а не только подтверждение)
+    // 🔥 НОВЫЙ МЕТОД: ОБЪЕДИНЕНИЕ ТРЕКЕРОВ И ГРАФОВ (а не только подтверждение)
     async mergeTrackersFromAlignment(mainFootprint, tempFootprint, alignmentResult, sourceInfo = {}) {
         try {
             if (!mainFootprint.pointTracker || !tempFootprint.pointTracker) {
