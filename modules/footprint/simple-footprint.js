@@ -326,81 +326,63 @@ class SimpleFootprint {
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Связывание узлов графа с точками трекера
     linkNodesWithTracker(graphNodes) {
-        let linkedCount = 0;
-        let trackerPointsUsed = new Set();
-        let failedLinks = [];
-
         console.log(`🔗 Начинаю связывание: ${graphNodes.length} graphNodes, ${this.pointTracker.points.size} точек в трекере`);
 
-        // Создаем карту точек трекера для быстрого поиска
+        // 🔥 ИСПРАВЛЕНИЕ: Используем правильные ID узлов
+        // 🔥 ИСПРАВЛЕНИЕ: Создаем карту точек трекера по ID
         const trackerMap = new Map();
         for (const [trackerId, trackerPoint] of this.pointTracker.points) {
             trackerMap.set(trackerId, trackerPoint);
         }
 
-        // Проходим по всем узлам графа
-        this.graph.nodes.forEach((node, nodeId) => {
-            // Ищем соответствующий graphNode
-            const graphNode = graphNodes.find(gn => gn.id === nodeId);
+        let linkedCount = 0;
+        let trackerPointsUsed = new Set();
 
-            if (graphNode && graphNode.pointTrackerId) {
-                const trackerId = graphNode.pointTrackerId;
+        // 🔥 ИСПРАВЛЕНИЕ: Проходим по всем узлам графа
+        this.graph.nodes.forEach((node, nodeId) => {
+            // Извлекаем ID трекера из ID узла (n_pt_1 -> pt_1)
+            const trackerIdMatch = nodeId.match(/n_(pt_\d+|emergency_pt_\d+)/);
+            const trackerId = trackerIdMatch ? trackerIdMatch[1] : null;
+
+            if (trackerId && trackerMap.has(trackerId)) {
+                // 🔥 ПРЯМАЯ СВЯЗЬ по ID
                 const trackerPoint = trackerMap.get(trackerId);
 
-                if (trackerPoint) {
-                    // 🔥 ИСПРАВЛЕНИЕ: Правильно связываем данные
-                    node.pointTrackerId = trackerId;
-                    node.confirmedCount = trackerPoint.confirmedCount || 1;
-                    node.confidence = trackerPoint.rating;
-                    node.rating = trackerPoint.rating;
+                node.pointTrackerId = trackerId;
+                node.confirmedCount = trackerPoint.confirmedCount || 1;
+                node.confidence = trackerPoint.rating;
+                node.rating = trackerPoint.rating;
 
-                    // 🔥 ГАРАНТИРУЕМ: минимум 1 подтверждение
-                    if (!node.confirmedCount || node.confirmedCount < 1) {
-                        node.confirmedCount = 1;
-                    }
+                // Гарантируем минимум 1 подтверждение
+                if (!node.confirmedCount || node.confirmedCount < 1) {
+                    node.confirmedCount = 1;
+                }
 
-                    // Сохраняем источники
-                    if (!node.sources) node.sources = [];
-                    if (trackerPoint.history) {
-                        node.sources = trackerPoint.history.map(record => ({
-                            timestamp: record.timestamp,
-                            source: record.source,
-                            confidence: record.confidence,
-                            action: record.action
-                        }));
-                    }
+                trackerPointsUsed.add(trackerId);
+                linkedCount++;
 
-                    trackerPointsUsed.add(trackerId);
-                    linkedCount++;
-
-                    if (trackerPoint.confirmedCount > 1) {
-                        console.log(`🔗 Успешно: ${nodeId} -> ${trackerId}, подтверждений: ${trackerPoint.confirmedCount}`);
-                    }
-                } else {
-                    failedLinks.push({ nodeId, trackerId: 'not_found' });
-                    console.log(`❌ Ошибка связи: точка трекера ${trackerId} не найдена для узла ${nodeId}`);
+                if (trackerPoint.confirmedCount > 1) {
+                    console.log(`🔗 Прямая связь: ${nodeId} -> ${trackerId}, подтверждений: ${trackerPoint.confirmedCount}`);
                 }
             } else {
-                // 🔥 Попытка связать по координатам
+                // 🔥 РЕЗЕРВНЫЙ ВАРИАНТ: связываем по координатам
                 const nearest = this.pointTracker.findNearestPoint({x: node.x, y: node.y}, 15);
                 if (nearest) {
-                    const trackerPoint = trackerMap.get(nearest.id);
+                    const trackerPoint = this.pointTracker.points.get(nearest.id);
                     if (trackerPoint) {
                         node.pointTrackerId = nearest.id;
                         node.confirmedCount = trackerPoint.confirmedCount || 1;
                         node.confidence = trackerPoint.rating;
-                       
-                        // 🔥 ГАРАНТИРУЕМ: минимум 1 подтверждение
+
                         if (!node.confirmedCount || node.confirmedCount < 1) {
                             node.confirmedCount = 1;
                         }
-                       
+
                         linkedCount++;
-                        console.log(`🔗 Связано по координатам: ${nodeId} -> ${nearest.id}, подтверждений: ${node.confirmedCount}`);
+                        console.log(`🔗 Связь по координатам: ${nodeId} -> ${nearest.id}, подтверждений: ${node.confirmedCount}`);
                     }
                 } else {
-                    failedLinks.push({ nodeId, reason: 'no_graphNode_or_tracker' });
-                    // 🔥 Устанавливаем МИНИМУМ 1 подтверждение
+                    // 🔥 НА ХУДШИЙ СЛУЧАЙ: гарантируем минимум 1 подтверждение
                     node.confirmedCount = 1;
                     node.confidence = node.confidence || 0.5;
                 }
@@ -408,13 +390,6 @@ class SimpleFootprint {
         });
 
         console.log(`🔗 Связано ${linkedCount} узлов графа с PointTracker, использовано ${trackerPointsUsed.size} точек трекера`);
-
-        if (failedLinks.length > 0) {
-            console.log(`⚠️ Не удалось связать ${failedLinks.length} узлов`);
-            if (failedLinks.length < 10) {
-                failedLinks.forEach(f => console.log(`   - ${f.nodeId}: ${f.trackerId || f.reason}`));
-            }
-        }
 
         return linkedCount;
     }
