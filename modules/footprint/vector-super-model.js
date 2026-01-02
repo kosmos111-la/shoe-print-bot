@@ -178,35 +178,36 @@ class VectorSuperModel {
     }
    
     // 5. ПОЛУЧИТЬ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ
-    getVisualizationData() {
-        const confirmedNodes = this.nodes.filter(n => n.confirmedCount > 1);
-        const highConfidenceNodes = this.nodes.filter(n => n.confirmedCount >= 3);
-        const newNodes = this.nodes.filter(n => n.confirmedCount === 1);
-       
-        return {
-            nodes: this.nodes.map(node => ({
-                id: node.id,
-                nx: node.nx,
-                ny: node.ny,
-                confirmedCount: node.confirmedCount,
-                confidence: node.confidence,
-                isHighConfidence: node.confirmedCount >= 3,
-                isNew: node.confirmedCount === 1
-            })),
-            stats: {
-                total: this.nodes.length,
-                confirmed: confirmedNodes.length,
-                highConfidence: highConfidenceNodes.length,
-                new: newNodes.length,
-                confidence: this.stats.confidence
-            },
-            metadata: {
-                id: this.id,
-                name: this.name,
-                merges: this.stats.totalMerges
-            }
-        };
-    }
+   getVisualizationData() {
+    const confirmedNodes = this.nodes.filter(n => n.confirmedCount > 1);
+    const highConfidenceNodes = this.nodes.filter(n => n.confirmedCount >= 3);
+    const newNodes = this.nodes.filter(n => n.confirmedCount === 1);
+   
+    return {
+        nodes: this.nodes.map(node => ({
+            id: node.id,
+            nx: node.nx,
+            ny: node.ny,
+            confirmedCount: node.confirmedCount,
+            confidence: node.confidence,
+            isHighConfidence: node.confirmedCount >= 3,
+            isNew: node.confirmedCount === 1 || node.isNew
+        })),
+        stats: {
+            total: this.nodes.length,
+            confirmed: confirmedNodes.length,
+            highConfidence: highConfidenceNodes.length,
+            new: newNodes.length,
+            confidence: this.stats.confidence
+        },
+        metadata: {
+            id: this.id,
+            name: this.name,
+            merges: this.stats.totalMerges,
+            createdAt: this.stats.createdAt
+        }
+    };
+}
    
     // 6. СОХРАНИТЬ В JSON
     toJSON() {
