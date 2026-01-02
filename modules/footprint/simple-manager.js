@@ -342,8 +342,8 @@ class SimpleFootprintManager {
     }
 
     // 🔥 ИСПРАВЛЕННАЯ ВИЗУАЛИЗАЦИЯ ВЕКТОРНОЙ СУПЕР-МОДЕЛИ
-    async visualizeVectorSuperModel(userId, vectorModel) {
-    console.log(`🎨 Создаю визуализацию супер-модели с нормальными пропорциями...`);
+   async visualizeVectorSuperModel(userId, vectorModel) {
+    console.log(`🎨 Создаю визуализацию на основе лучшего следа...`);
    
     try {
         if (!vectorModel) {
@@ -351,89 +351,120 @@ class SimpleFootprintManager {
             return null;
         }
        
+        // Получаем информацию о лучшем графе
+        const bestGraphInfo = vectorModel.getBestGraphInfo();
         const vizData = vectorModel.getVisualizationData();
         const stats = vectorModel.getInfo();
        
-        console.log(`📊 Визуализирую: ${vizData.nodes.length} узлов, уверенность: ${(stats.stats.confidence * 100).toFixed(1)}%`);
+        console.log(`📊 Метод визуализации: ${vizData.metadata?.visualizationMethod || 'unknown'}`);
        
-        // Сохраняем хорошее разрешение
-        const canvasWidth = 1600;
-        const canvasHeight = 1200;
+        // Определяем, используем ли мы лучший граф
+        const usingBestGraph = bestGraphInfo && vizData.metadata?.visualizationMethod === 'best_graph_based';
+       
+        if (usingBestGraph) {
+            console.log(`🏆 Использую лучший след: ${bestGraphInfo.graphId}`);
+            console.log(`   Узлов в лучшем следе: ${bestGraphInfo.nodeCount}`);
+            console.log(`   Оценка: ${bestGraphInfo.score.toFixed(3)}`);
+        } else {
+            console.log(`⚠️ Использую классическую визуализацию (лучший след не найден)`);
+        }
+       
+        // Создаем канвас
+        const canvasWidth = 1400;
+        const canvasHeight = 1000;
         const canvas = createCanvas(canvasWidth, canvasHeight);
         const ctx = canvas.getContext('2d');
        
         // 1. ФОН
-        ctx.fillStyle = '#F8F9FA';
+        ctx.fillStyle = usingBestGraph ? '#F0F9FF' : '#F8F9FA'; // Голубой если лучший граф
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
        
         // 2. ЗАГОЛОВОК
         ctx.fillStyle = '#212529';
-        ctx.font = 'bold 36px Arial';
+        ctx.font = 'bold 32px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('🏗️ ВЕКТОРНАЯ СУПЕР-МОДЕЛЬ', canvasWidth / 2, 60);
-        ctx.font = 'bold 20px Arial';
-        ctx.fillText(`Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}% | Узлов: ${stats.nodes} | Слияний: ${stats.stats.totalMerges}`,
-                    canvasWidth / 2, 95);
        
-        // 3. ВЫСЧИТЫВАЕМ РЕАЛЬНЫЕ ГРАНИЦЫ ТОПОЛОГИИ
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-       
-        if (vizData.nodes && vizData.nodes.length > 0) {
-            vizData.nodes.forEach(node => {
-                if (node.nx < minX) minX = node.nx;
-                if (node.nx > maxX) maxX = node.nx;
-                if (node.ny < minY) minY = node.ny;
-                if (node.ny > maxY) maxY = node.ny;
-            });
+        if (usingBestGraph) {
+            ctx.fillText('🏗️ СУПЕР-МОДЕЛЬ НА ОСНОВЕ ЛУЧШЕГО СЛЕДА', canvasWidth / 2, 50);
         } else {
-            minX = maxX = minY = maxY = 0.5;
+            ctx.fillText('🏗️ ВЕКТОРНАЯ СУПЕР-МОДЕЛЬ', canvasWidth / 2, 50);
         }
        
-        // Добавляем небольшие отступы
-        const padding = 0.05;
-        minX = Math.max(0, minX - padding);
-        maxX = Math.min(1, maxX + padding);
-        minY = Math.max(0, minY - padding);
-        maxY = Math.min(1, maxY + padding);
+        ctx.font = 'bold 20px Arial';
+        ctx.fillText(`Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}% | Узлов: ${stats.nodes}`,
+                    canvasWidth / 2, 85);
        
-        const topologyWidth = maxX - minX;
-        const topologyHeight = maxY - minY;
+        if (usingBestGraph && bestGraphInfo) {
+            ctx.font = '16px Arial';
+            ctx.fillStyle = '#0D6EFD';
+            ctx.fillText(`Лучший след: ${bestGraphInfo.graphId?.slice(0, 12)}... (${bestGraphInfo.nodeCount} узлов)`,
+                        canvasWidth / 2, 115);
+        }
        
-        console.log(`📐 Границы топологии: X[${minX.toFixed(3)}-${maxX.toFixed(3)}], Y[${minY.toFixed(3)}-${maxY.toFixed(3)}]`);
-        console.log(`📏 Размеры: ${topologyWidth.toFixed(3)}x${topologyHeight.toFixed(3)}`);
+        // 3. РАЗДЕЛЕНИЕ НА ОБЛАСТИ
+        const topologyWidth = 800;
+        const topologyHeight = 700;
+        const statsWidth = 500;
+        const margin = 50;
        
-        // 4. ОПРЕДЕЛЯЕМ МАСШТАБ ДЛЯ СОХРАНЕНИЯ ПРОПОРЦИЙ
-        const diagramWidth = 700;  // Уменьшаем размер диаграммы
-        const diagramHeight = 700;
+        // 4. ТОПОЛОГИЧЕСКАЯ ДИАГРАММА
+        const topologyX = margin;
+        const topologyY = 150;
        
-        // Масштаб с сохранением пропорций
-        const scaleX = diagramWidth / (topologyWidth > 0 ? topologyWidth : 1);
-        const scaleY = diagramHeight / (topologyHeight > 0 ? topologyHeight : 1);
-        const scale = Math.min(scaleX, scaleY) * 0.9; // Сохраняем пропорции
-       
-        // 5. ТОПОЛОГИЧЕСКАЯ ДИАГРАММА (в центре, меньше)
-        const diagramX = (canvasWidth - diagramWidth) / 2 - 200; // Сдвигаем левее
-        const diagramY = 150;
-       
-        // Рамка диаграммы
-        ctx.strokeStyle = '#495057';
+        // Рамка
+        ctx.strokeStyle = usingBestGraph ? '#0D6EFD' : '#495057';
         ctx.lineWidth = 2;
-        ctx.strokeRect(diagramX - 5, diagramY - 5, diagramWidth + 10, diagramHeight + 10);
+        ctx.strokeRect(topologyX - 5, topologyY - 5, topologyWidth + 10, topologyHeight + 10);
        
-        // Заголовок диаграммы
-        ctx.fillStyle = '#495057';
+        // Заголовок области
+        ctx.fillStyle = usingBestGraph ? '#0D6EFD' : '#495057';
         ctx.font = 'bold 18px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('ТОПОЛОГИЯ ПРОТЕКТОРА', diagramX + diagramWidth / 2, diagramY - 15);
+        ctx.fillText('ТОПОЛОГИЯ ПРОТЕКТОРА', topologyX + topologyWidth / 2, topologyY - 15);
        
-        // 6. РИСУЕМ ТОПОЛОГИЮ С ПРАВИЛЬНЫМИ ПРОПОРЦИЯМИ
+        if (usingBestGraph) {
+            ctx.font = '14px Arial';
+            ctx.fillStyle = '#6C757D';
+            ctx.fillText('(на основе лучшего следа с наложением статистики подтверждений)',
+                        topologyX + topologyWidth / 2, topologyY + 5);
+        }
+       
+        // 5. РИСУЕМ ТОПОЛОГИЮ
         if (vizData.nodes && vizData.nodes.length > 0) {
-            // Сортируем узлы по подтверждениям
-            const sortedNodes = [...vizData.nodes].sort((a, b) => a.confirmedCount - b.confirmedCount);
+            // Находим границы для масштабирования
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
            
-            // Рисуем связи между близкими узлами
-            ctx.strokeStyle = 'rgba(108, 117, 125, 0.15)';
+            vizData.nodes.forEach(node => {
+                // Используем реальные координаты если есть, иначе нормализованные
+                const x = node.x !== undefined ? node.x : node.nx * 1000;
+                const y = node.y !== undefined ? node.y : node.ny * 1000;
+               
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            });
+           
+            // Добавляем отступы
+            const padding = 50;
+            const width = Math.max(1, maxX - minX) + padding * 2;
+            const height = Math.max(1, maxY - minY) + padding * 2;
+           
+            // Масштабируем чтобы вместить в область
+            const scaleX = topologyWidth / width;
+            const scaleY = topologyHeight / height;
+            const scale = Math.min(scaleX, scaleY) * 0.85;
+           
+            // Смещение
+            const offsetX = topologyX + (topologyWidth - width * scale) / 2;
+            const offsetY = topologyY + (topologyHeight - height * scale) / 2;
+           
+            // Сортируем узлы - сначала с высокими подтверждениями
+            const sortedNodes = [...vizData.nodes].sort((a, b) => b.confirmedCount - a.confirmedCount);
+           
+            // Рисуем связи (только для узлов с подтверждениями)
+            ctx.strokeStyle = 'rgba(108, 117, 125, 0.2)';
             ctx.lineWidth = 1;
            
             for (let i = 0; i < sortedNodes.length; i++) {
@@ -441,42 +472,54 @@ class SimpleFootprintManager {
                     const node1 = sortedNodes[i];
                     const node2 = sortedNodes[j];
                    
-                    // Расстояние в нормализованном пространстве
-                    const dx = node1.nx - node2.nx;
-                    const dy = node1.ny - node2.ny;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                   
-                    // Рисуем связь только для очень близких узлов
-                    if (distance < 0.1) {
-                        const x1 = diagramX + (node1.nx - minX) * scale;
-                        const y1 = diagramY + (node1.ny - minY) * scale;
-                        const x2 = diagramX + (node2.nx - minX) * scale;
-                        const y2 = diagramY + (node2.ny - minY) * scale;
+                    // Только если оба узла имеют подтверждения
+                    if (node1.confirmedCount > 1 && node2.confirmedCount > 1) {
+                        const x1 = offsetX + (node1.x - minX + padding) * scale;
+                        const y1 = offsetY + (node1.y - minY + padding) * scale;
+                        const x2 = offsetX + (node2.x - minX + padding) * scale;
+                        const y2 = offsetY + (node2.y - minY + padding) * scale;
                        
-                        ctx.beginPath();
-                        ctx.moveTo(x1, y1);
-                        ctx.lineTo(x2, y2);
-                        ctx.stroke();
+                        // Расстояние
+                        const dx = x2 - x1;
+                        const dy = y2 - y1;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                       
+                        // Рисуем только близкие связи
+                        if (distance < 100) {
+                            // Цвет связи в зависимости от подтверждений
+                            const minConf = Math.min(node1.confirmedCount, node2.confirmedCount);
+                            if (minConf >= 3) {
+                                ctx.strokeStyle = 'rgba(220, 53, 69, 0.3)';
+                            } else if (minConf === 2) {
+                                ctx.strokeStyle = 'rgba(255, 193, 7, 0.3)';
+                            } else {
+                                ctx.strokeStyle = 'rgba(13, 110, 253, 0.2)';
+                            }
+                           
+                            ctx.beginPath();
+                            ctx.moveTo(x1, y1);
+                            ctx.lineTo(x2, y2);
+                            ctx.stroke();
+                        }
                     }
                 }
             }
            
             // Рисуем узлы
             sortedNodes.forEach(node => {
-                // Координаты с сохранением пропорций
-                const x = diagramX + (node.nx - minX) * scale;
-                const y = diagramY + (node.ny - minY) * scale;
+                const x = offsetX + (node.x - minX + padding) * scale;
+                const y = offsetY + (node.y - minY + padding) * scale;
                
-                // Цвет и размер
+                // Цвет и размер по подтверждениям
                 let color, radius;
                 if (node.confirmedCount >= 3) {
-                    color = '#DC3545';
+                    color = '#DC3545'; // Красный - высокие
                     radius = 10;
                 } else if (node.confirmedCount === 2) {
-                    color = '#FFC107';
+                    color = '#FFC107'; // Желтый - средние
                     radius = 8;
                 } else {
-                    color = '#0D6EFD';
+                    color = '#0D6EFD'; // Синий - низкие
                     radius = 6;
                 }
                
@@ -486,127 +529,103 @@ class SimpleFootprintManager {
                 ctx.arc(x, y, radius, 0, Math.PI * 2);
                 ctx.fill();
                
-                // Число подтверждений для 2+
-                if (node.confirmedCount > 1) {
-                    ctx.fillStyle = node.confirmedCount >= 3 ? '#FFFFFF' : '#000000';
-                    ctx.font = 'bold 10px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(node.confirmedCount.toString(), x, y);
-                }
-               
-                // Обводка для новых узлов
-                if (node.isNew) {
+                // Обводка для узлов из лучшего графа
+                if (node.isBestGraphNode) {
                     ctx.strokeStyle = '#28A745';
                     ctx.lineWidth = 2;
                     ctx.beginPath();
-                    ctx.arc(x, y, radius + 2, 0, Math.PI * 2);
+                    ctx.arc(x, y, radius + 3, 0, Math.PI * 2);
                     ctx.stroke();
                 }
+               
+                // Цифра подтверждений для 2+
+                if (node.confirmedCount > 1) {
+                    ctx.fillStyle = node.confirmedCount >= 3 ? '#FFFFFF' : '#000000';
+                    ctx.font = `bold ${Math.max(10, radius / 1.2)}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(node.confirmedCount.toString(), x, y);
+                    ctx.textAlign = 'left';
+                }
             });
+           
+            // Если у нас лучший граф, добавляем пояснение
+            if (usingBestGraph) {
+                ctx.fillStyle = '#28A745';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText('🟢 Обводка - узлы из лучшего следа', topologyX + 10, topologyY + topologyHeight + 25);
+            }
         }
        
-        // 7. ПРАВАЯ КОЛОНКА - СТАТИСТИКА (увеличиваем, чтобы текст помещался)
-        const statsX = diagramX + diagramWidth + 50;
-        const statsY = diagramY;
-        const statsWidth = 450; // Шире для текста
-        const statsHeight = 500;
+        // 6. ПРАВАЯ КОЛОНКА - СТАТИСТИКА
+        const statsX = topologyX + topologyWidth + margin;
+        const statsY = topologyY;
+        const statsPanelWidth = statsWidth - margin * 2;
        
         // Фон статистики
         ctx.fillStyle = 'rgba(248, 249, 250, 0.95)';
-        ctx.fillRect(statsX - 15, statsY - 15, statsWidth, statsHeight);
+        ctx.fillRect(statsX - 15, statsY - 15, statsPanelWidth, topologyHeight);
         ctx.strokeStyle = '#6C757D';
         ctx.lineWidth = 2;
-        ctx.strokeRect(statsX - 15, statsY - 15, statsWidth, statsHeight);
+        ctx.strokeRect(statsX - 15, statsY - 15, statsPanelWidth, topologyHeight);
        
         // Заголовок статистики
         ctx.fillStyle = '#495057';
         ctx.font = 'bold 22px Arial';
         ctx.textAlign = 'left';
-        const statsTitle = '📊 СТАТИСТИКА';
-        ctx.fillText(statsTitle, statsX, statsY + 20);
-       
-        // Проверяем ширину текста
-        const titleWidth = ctx.measureText(statsTitle).width;
-        if (titleWidth > statsWidth - 30) {
-            console.log(`⚠️ Заголовок статистики выходит за границы: ${titleWidth}px > ${statsWidth - 30}px`);
-        }
+        ctx.fillText('📊 СТАТИСТИКА ПОДТВЕРЖДЕНИЙ', statsX, statsY + 20);
        
         let currentY = statsY + 60;
         const lineHeight = 28;
        
-        // Элементы статистики (с проверкой)
+        // Основная статистика
         const statItems = [
             { label: 'Всего узлов:', value: stats.nodes, color: '#212529' },
             { label: 'Высоконадёжных (3+ фото):', value: stats.highConfidenceNodes || 0, color: '#DC3545' },
-            { label: 'Подтверждённых (2+ фото):', value: stats.confirmedNodes, color: '#FFC107' },
+            { label: 'Подтверждённых (2 фото):', value: stats.confirmedNodes, color: '#FFC107' },
             { label: 'Новых (1 фото):', value: stats.nodes - stats.confirmedNodes, color: '#0D6EFD' },
             { label: 'Сред. подтверждений:', value: stats.stats.avgConfirmations?.toFixed(2) || '0.00', color: '#6C757D' },
             { label: 'Слияний моделей:', value: stats.stats.totalMerges, color: '#6C757D' }
         ];
        
+        if (usingBestGraph && bestGraphInfo) {
+            statItems.push(
+                { label: 'Узлов в лучшем следе:', value: bestGraphInfo.nodeCount, color: '#28A745' },
+                { label: 'Оценка лучшего следа:', value: bestGraphInfo.score.toFixed(3), color: '#28A745' }
+            );
+        }
+       
         statItems.forEach(item => {
             ctx.fillStyle = '#6C757D';
             ctx.font = '16px Arial';
-           
-            // Обрезаем текст если не помещается
-            let label = item.label;
-            const maxLabelWidth = 250;
-            let labelWidth = ctx.measureText(label).width;
-           
-            if (labelWidth > maxLabelWidth) {
-                // Пробуем укоротить
-                while (label.length > 10 && labelWidth > maxLabelWidth) {
-                    label = label.substring(0, label.length - 1);
-                    labelWidth = ctx.measureText(label + '...').width;
-                }
-                if (labelWidth > maxLabelWidth) {
-                    label = label.substring(0, label.length - 3) + '...';
-                }
-            }
-           
-            ctx.fillText(label, statsX, currentY);
+            ctx.fillText(item.label, statsX, currentY);
            
             ctx.fillStyle = item.color;
             ctx.font = 'bold 16px Arial';
             ctx.textAlign = 'right';
-           
-            // Значение
-            const valueText = item.value.toString();
-            const valueWidth = ctx.measureText(valueText).width;
-            const maxValueX = statsX + statsWidth - 30;
-           
-            if (valueWidth > 100) {
-                // Если значение слишком длинное
-                ctx.font = 'bold 14px Arial';
-            }
-           
-            ctx.fillText(valueText, maxValueX, currentY);
+            ctx.fillText(item.value.toString(), statsX + statsPanelWidth - 30, currentY);
             ctx.textAlign = 'left';
            
             currentY += lineHeight;
         });
        
-        // 8. КРУГОВАЯ ДИАГРАММА (ниже статистики)
-        const pieChartX = statsX + statsWidth / 2;
+        // 7. КРУГОВАЯ ДИАГРАММА
+        const pieChartX = statsX + statsPanelWidth / 2;
         const pieChartY = currentY + 100;
-        const pieRadius = 70;
+        const pieRadius = 80;
        
         const totalNodes = stats.nodes;
-        const highConfidencePercent = totalNodes > 0 ?
-            Math.round((stats.highConfidenceNodes || 0) / totalNodes * 100) : 0;
-        const confirmedPercent = totalNodes > 0 ?
-            Math.round(stats.confirmedNodes / totalNodes * 100) : 0;
-        const newPercent = totalNodes > 0 ?
-            100 - confirmedPercent : 0;
+        const highPercent = totalNodes > 0 ? Math.round((stats.highConfidenceNodes || 0) / totalNodes * 100) : 0;
+        const confirmedPercent = totalNodes > 0 ? Math.round(stats.confirmedNodes / totalNodes * 100) : 0;
+        const newPercent = totalNodes > 0 ? 100 - confirmedPercent : 0;
        
         // Рисуем диаграмму
         if (totalNodes > 0) {
             let startAngle = 0;
            
-            // Высоконадёжные
-            if (highConfidencePercent > 0) {
-                const angle = (highConfidencePercent / 100) * Math.PI * 2;
+            if (highPercent > 0) {
+                const angle = (highPercent / 100) * Math.PI * 2;
                 ctx.fillStyle = '#DC3545';
                 ctx.beginPath();
                 ctx.moveTo(pieChartX, pieChartY);
@@ -616,9 +635,8 @@ class SimpleFootprintManager {
                 startAngle += angle;
             }
            
-            // Подтверждённые
-            if (confirmedPercent - highConfidencePercent > 0) {
-                const angle = ((confirmedPercent - highConfidencePercent) / 100) * Math.PI * 2;
+            if (confirmedPercent - highPercent > 0) {
+                const angle = ((confirmedPercent - highPercent) / 100) * Math.PI * 2;
                 ctx.fillStyle = '#FFC107';
                 ctx.beginPath();
                 ctx.moveTo(pieChartX, pieChartY);
@@ -628,7 +646,6 @@ class SimpleFootprintManager {
                 startAngle += angle;
             }
            
-            // Новые
             if (newPercent > 0) {
                 const angle = (newPercent / 100) * Math.PI * 2;
                 ctx.fillStyle = '#0D6EFD';
@@ -653,86 +670,74 @@ class SimpleFootprintManager {
         ctx.textAlign = 'center';
         ctx.fillText('РАСПРЕДЕЛЕНИЕ УЗЛОВ', pieChartX, pieChartY + pieRadius + 25);
        
-        // 9. ЛЕГЕНДА (под диаграммой)
+        // 8. ЛЕГЕНДА
         const legendY = pieChartY + pieRadius + 60;
-        const legendHeight = 120;
-       
-        ctx.fillStyle = 'rgba(248, 249, 250, 0.9)';
-        ctx.fillRect(statsX - 15, legendY - 10, statsWidth, legendHeight);
-        ctx.strokeStyle = '#6C757D';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(statsX - 15, legendY - 10, statsWidth, legendHeight);
        
         ctx.fillStyle = '#495057';
         ctx.font = 'bold 18px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText('📖 ОБОЗНАЧЕНИЯ', statsX, legendY + 20);
+        ctx.fillText('📖 ЛЕГЕНДА', statsX, legendY);
        
-        // Легенда в 2 колонки
         const legendItems = [
-            { color: '#DC3545', label: '3+ фото (выс.)', size: 10 },
-            { color: '#FFC107', label: '2 фото (ср.)', size: 8 },
-            { color: '#0D6EFD', label: '1 фото (низ.)', size: 6 },
-            { color: '#28A745', label: 'Новый узел', size: 0 }
+            { color: '#DC3545', label: '🔴 3+ фото (выс. надёжность)', example: '● 3' },
+            { color: '#FFC107', label: '🟡 2 фото (ср. надёжность)', example: '● 2' },
+            { color: '#0D6EFD', label: '🔵 1 фото (низ. надёжность)', example: '●' }
         ];
        
-        let legendRowY = legendY + 50;
+        if (usingBestGraph) {
+            legendItems.push({ color: '#28A745', label: '🟢 Узел из лучшего следа', example: '🟢' });
+        }
+       
+        let legendRowY = legendY + 35;
        
         legendItems.forEach((item, index) => {
-            const colX = statsX + (index % 2) * 180;
-            const colY = legendRowY + Math.floor(index / 2) * 35;
+            const y = legendRowY + index * 30;
            
             // Пример
-            if (item.size > 0) {
-                ctx.fillStyle = item.color;
-                ctx.beginPath();
-                ctx.arc(colX + 15, colY - 8, item.size, 0, Math.PI * 2);
-                ctx.fill();
-               
-                // Цифра для 2+
-                if (item.color !== '#0D6EFD') {
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.font = 'bold 9px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    const label = item.color === '#DC3545' ? '3+' : '2';
-                    ctx.fillText(label, colX + 15, colY - 8);
-                    ctx.textAlign = 'left';
-                }
-            } else {
-                // Новый узел
+            if (item.color === '#28A745') {
+                // Для обводки
                 ctx.fillStyle = '#FFFFFF';
                 ctx.beginPath();
-                ctx.arc(colX + 15, colY - 8, 6, 0, Math.PI * 2);
+                ctx.arc(statsX + 15, y - 8, 6, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.strokeStyle = '#28A745';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
-                ctx.arc(colX + 15, colY - 8, 8, 0, Math.PI * 2);
+                ctx.arc(statsX + 15, y - 8, 8, 0, Math.PI * 2);
                 ctx.stroke();
+            } else {
+                ctx.fillStyle = item.color;
+                ctx.beginPath();
+                ctx.arc(statsX + 15, y - 8, 8, 0, Math.PI * 2);
+                ctx.fill();
+               
+                // Цифра если есть
+                if (item.example && item.example.includes('3')) {
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('3+', statsX + 15, y - 8);
+                } else if (item.example && item.example.includes('2')) {
+                    ctx.fillStyle = '#000000';
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('2', statsX + 15, y - 8);
+                }
+                ctx.textAlign = 'left';
             }
            
             // Текст
             ctx.fillStyle = '#495057';
             ctx.font = '14px Arial';
-            ctx.textAlign = 'left';
-           
-            // Проверяем помещается ли текст
-            const text = item.label;
-            const textWidth = ctx.measureText(text).width;
-            const maxTextWidth = 150;
-           
-            if (textWidth > maxTextWidth) {
-                ctx.font = '12px Arial';
-            }
-           
-            ctx.fillText(text, colX + 35, colY);
+            ctx.fillText(item.label, statsX + 35, y);
         });
        
-        // 10. ПРОГРЕСС-БАР УВЕРЕННОСТИ (внизу, под диаграммой)
-        const progressX = diagramX;
-        const progressY = diagramY + diagramHeight + 50;
-        const progressWidth = diagramWidth;
+        // 9. ПРОГРЕСС-БАР УВЕРЕННОСТИ
+        const progressX = topologyX;
+        const progressY = topologyY + topologyHeight + 60;
+        const progressWidth = topologyWidth;
         const progressHeight = 25;
         const confidence = stats.stats.confidence;
        
@@ -743,7 +748,8 @@ class SimpleFootprintManager {
         // Заполнение
         const fillWidth = progressWidth * confidence;
         let fillColor;
-        if (confidence > 0.7) fillColor = '#198754';
+        if (confidence > 0.8) fillColor = '#198754';
+        else if (confidence > 0.6) fillColor = '#20C997';
         else if (confidence > 0.4) fillColor = '#FFC107';
         else fillColor = '#DC3545';
        
@@ -752,26 +758,19 @@ class SimpleFootprintManager {
        
         // Текст
         ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 16px Arial';
+        ctx.font = 'bold 18px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const progressText = `УВЕРЕННОСТЬ: ${(confidence * 100).toFixed(1)}%`;
-       
-        // Проверяем помещается ли текст
-        const progressTextWidth = ctx.measureText(progressText).width;
-        if (progressTextWidth > fillWidth - 20) {
-            ctx.font = 'bold 14px Arial';
-        }
-       
-        ctx.fillText(progressText, progressX + fillWidth / 2, progressY + progressHeight / 2);
+        ctx.fillText(`УВЕРЕННОСТЬ СУПЕР-МОДЕЛИ: ${(confidence * 100).toFixed(1)}%`,
+                    progressX + progressWidth / 2, progressY + progressHeight / 2);
        
         // Обводка
         ctx.strokeStyle = '#495057';
         ctx.lineWidth = 1;
         ctx.strokeRect(progressX, progressY, progressWidth, progressHeight);
        
-        // 11. ИНФОРМАЦИЯ О КАЧЕСТВЕ
-        const qualityY = progressY + progressHeight + 30;
+        // 10. ОЦЕНКА КАЧЕСТВА
+        const qualityY = progressY + progressHeight + 40;
        
         let qualityText, qualityColor;
         if (confidence > 0.8) {
@@ -789,34 +788,20 @@ class SimpleFootprintManager {
         }
        
         ctx.fillStyle = qualityColor;
-        ctx.font = 'bold 20px Arial';
+        ctx.font = 'bold 22px Arial';
         ctx.textAlign = 'center';
-       
-        // Проверяем помещается ли
-        const qualityWidth = ctx.measureText(qualityText).width;
-        if (qualityWidth > progressWidth) {
-            ctx.font = 'bold 18px Arial';
-        }
-       
         ctx.fillText(qualityText, progressX + progressWidth / 2, qualityY);
        
-        // 12. ФУТЕР
+        // 11. ФУТЕР
         const footerY = canvasHeight - 30;
        
         ctx.fillStyle = '#6C757D';
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
+        ctx.fillText(`ID: ${stats.id.slice(0, 10)} | ${new Date().toLocaleString('ru-RU')} | Метод: ${usingBestGraph ? 'лучший след' : 'классический'}`,
+                    canvasWidth / 2, footerY);
        
-        const footerText = `ID: ${stats.id.slice(0, 10)} | ${new Date().toLocaleString('ru-RU')}`;
-        const footerWidth = ctx.measureText(footerText).width;
-       
-        if (footerWidth > canvasWidth - 40) {
-            ctx.font = '11px Arial';
-        }
-       
-        ctx.fillText(footerText, canvasWidth / 2, footerY);
-       
-        // 13. СОХРАНЕНИЕ
+        // 12. СОХРАНЕНИЕ
         const outputDir = path.join(this.config.dbPath, 'visualizations');
         if (!fs.existsSync(outputDir)) {
             fs.mkdirSync(outputDir, { recursive: true });
@@ -824,7 +809,7 @@ class SimpleFootprintManager {
        
         const outputPath = path.join(
             outputDir,
-            `super_model_${userId}_${Date.now()}.png`
+            `super_model_best_${userId}_${Date.now()}.png`
         );
        
         await new Promise((resolve, reject) => {
@@ -833,7 +818,10 @@ class SimpleFootprintManager {
             stream.pipe(out);
            
             out.on('finish', () => {
+                const fileSize = fs.statSync(outputPath).size;
                 console.log(`✅ Визуализация создана: ${outputPath}`);
+                console.log(`   Метод: ${usingBestGraph ? 'на основе лучшего следа' : 'классический'}`);
+                console.log(`   Размер: ${canvasWidth}x${canvasHeight}px, Файл: ${(fileSize / 1024).toFixed(1)}KB`);
                 resolve(outputPath);
             });
            
