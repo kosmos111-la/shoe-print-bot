@@ -343,7 +343,7 @@ class SimpleFootprintManager {
 
     // 🔥 ИСПРАВЛЕННАЯ ВИЗУАЛИЗАЦИЯ ВЕКТОРНОЙ СУПЕР-МОДЕЛИ
     async visualizeVectorSuperModel(userId, vectorModel) {
-    console.log(`🎨 Создаю НАГЛЯДНУЮ визуализацию супер-модели...`);
+    console.log(`🎨 Создаю ДЕТАЛЬНУЮ визуализацию супер-модели (высокое разрешение)...`);
    
     try {
         if (!vectorModel) {
@@ -356,90 +356,148 @@ class SimpleFootprintManager {
        
         console.log(`📊 Визуализирую: ${vizData.nodes.length} узлов, уверенность: ${(stats.stats.confidence * 100).toFixed(1)}%`);
        
-        // Создаем большой канвас для детализации
-        const canvas = createCanvas(1000, 800);
+        // ✅ УВЕЛИЧИВАЕМ РАЗРЕШЕНИЕ
+        const canvasWidth = 1600;  // Было 1000
+        const canvasHeight = 1200; // Было 800
+        const canvas = createCanvas(canvasWidth, canvasHeight);
         const ctx = canvas.getContext('2d');
        
         // 1. ФОН С СЕТКОЙ
         ctx.fillStyle = '#F8F9FA';
-        ctx.fillRect(0, 0, 1000, 800);
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
        
-        // Сетка для ориентира
+        // Сетка для ориентира (меньший шаг для высокого разрешения)
         ctx.strokeStyle = '#E9ECEF';
         ctx.lineWidth = 1;
-        const gridSize = 50;
-        for (let x = 0; x < 1000; x += gridSize) {
+        const gridSize = 40; // Было 50
+        for (let x = 0; x < canvasWidth; x += gridSize) {
             ctx.beginPath();
             ctx.moveTo(x, 0);
-            ctx.lineTo(x, 800);
+            ctx.lineTo(x, canvasHeight);
             ctx.stroke();
         }
-        for (let y = 0; y < 800; y += gridSize) {
+        for (let y = 0; y < canvasHeight; y += gridSize) {
             ctx.beginPath();
             ctx.moveTo(0, y);
-            ctx.lineTo(1000, y);
+            ctx.lineTo(canvasWidth, y);
             ctx.stroke();
         }
        
-        // 2. ЗАГОЛОВОК
+        // 2. ЗАГОЛОВОК (увеличиваем шрифт для высокого разрешения)
         ctx.fillStyle = '#212529';
-        ctx.font = 'bold 32px Arial';
+        ctx.font = 'bold 42px Arial'; // Было 32px
         ctx.textAlign = 'center';
-        ctx.fillText('🏗️ ВЕКТОРНАЯ СУПЕР-МОДЕЛЬ', 500, 50);
-        ctx.font = '20px Arial';
-        ctx.fillText(`Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}% | Слияний: ${stats.stats.totalMerges}`, 500, 85);
+        ctx.fillText('🏗️ ВЕКТОРНАЯ СУПЕР-МОДЕЛЬ ОТПЕЧАТКА', canvasWidth / 2, 70);
+        ctx.font = 'bold 24px Arial'; // Было 20px
+        ctx.fillText(`Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}% | Слияний: ${stats.stats.totalMerges} | Узлов: ${stats.nodes}`,
+                    canvasWidth / 2, 110);
        
-        // 3. ГЛАВНАЯ ДИАГРАММА - СУПЕР-МОДЕЛЬ
-        const diagramX = 100;
-        const diagramY = 150;
-        const diagramSize = 600;
-        const diagramTitle = 'СУПЕР-МОДЕЛЬ (нормализованное пространство)';
+        // 3. РАЗДЕЛЕНИЕ НА КОЛОНКИ
+        const leftColumnWidth = 1000;  // Основная диаграмма
+        const rightColumnWidth = 550;  // Статистика и легенда
+        const margin = 50;
+       
+        // 4. ГЛАВНАЯ ДИАГРАММА - СУПЕР-МОДЕЛЬ (БОЛЬШЕ МЕСТА)
+        const diagramX = margin;
+        const diagramY = 180; // Опускаем ниже для заголовка
+        const diagramSize = 900; // Было 600 - УВЕЛИЧИЛИ!
+        const diagramTitle = 'СУПЕР-МОДЕЛЬ В НОРМАЛИЗОВАННОМ ПРОСТРАНСТВЕ';
        
         // Рамка диаграммы
         ctx.strokeStyle = '#495057';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(diagramX - 10, diagramY - 30, diagramSize + 20, diagramSize + 60);
+        ctx.lineWidth = 3; // Толще для высокого разрешения
+        ctx.strokeRect(diagramX - 15, diagramY - 40, diagramSize + 30, diagramSize + 80);
        
         // Заголовок диаграммы
         ctx.fillStyle = '#495057';
-        ctx.font = 'bold 18px Arial';
+        ctx.font = 'bold 22px Arial'; // Было 18px
         ctx.textAlign = 'left';
-        ctx.fillText(diagramTitle, diagramX, diagramY - 10);
+        ctx.fillText(diagramTitle, diagramX, diagramY - 15);
        
-        // 4. РИСУЕМ УЗЛЫ СУПЕР-МОДЕЛИ
+        // Подзаголовок
+        ctx.fillStyle = '#6C757D';
+        ctx.font = '16px Arial';
+        ctx.fillText(`Масштаб: нормализованный [0,1] | Показано: ${vizData.nodes.length} узлов`,
+                    diagramX, diagramY);
+       
+        // 5. РИСУЕМ УЗЛЫ СУПЕР-МОДЕЛИ (увеличиваем размеры)
         if (vizData.nodes && vizData.nodes.length > 0) {
-            // Сортируем узлы по подтверждениям (самые подтвержденные рисуем последними)
+            // Сортируем узлы по подтверждениям
             const sortedNodes = [...vizData.nodes].sort((a, b) => a.confirmedCount - b.confirmedCount);
            
+            // Сначала рисуем связи (чтобы они были под узлами)
+            ctx.strokeStyle = 'rgba(108, 117, 125, 0.1)';
+            ctx.lineWidth = 1.5;
+           
+            // Рисуем связи между близкими узлами
+            for (let i = 0; i < sortedNodes.length; i++) {
+                for (let j = i + 1; j < sortedNodes.length; j++) {
+                    const node1 = sortedNodes[i];
+                    const node2 = sortedNodes[j];
+                   
+                    // Расстояние в нормализованном пространстве
+                    const dx = node1.nx - node2.nx;
+                    const dy = node1.ny - node2.ny;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                   
+                    // Рисуем связь если узлы близки
+                    if (distance < 0.15) { // Уменьшаем порог для более аккуратных связей
+                        const x1 = diagramX + node1.nx * diagramSize;
+                        const y1 = diagramY + node1.ny * diagramSize;
+                        const x2 = diagramX + node2.nx * diagramSize;
+                        const y2 = diagramY + node2.ny * diagramSize;
+                       
+                        // Цвет связи в зависимости от подтверждений
+                        const avgConfirmations = (node1.confirmedCount + node2.confirmedCount) / 2;
+                        if (avgConfirmations >= 3) {
+                            ctx.strokeStyle = 'rgba(220, 53, 69, 0.3)'; // Красный для высоких
+                        } else if (avgConfirmations >= 2) {
+                            ctx.strokeStyle = 'rgba(255, 193, 7, 0.3)'; // Желтый для средних
+                        } else {
+                            ctx.strokeStyle = 'rgba(13, 110, 253, 0.2)'; // Синий для низких
+                        }
+                       
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x2, y2);
+                        ctx.stroke();
+                    }
+                }
+            }
+           
+            // Теперь рисуем узлы поверх связей
             sortedNodes.forEach(node => {
-                // Преобразуем нормализованные координаты [0,1] в координаты канваса
+                // Преобразуем нормализованные координаты
                 const x = diagramX + node.nx * diagramSize;
                 const y = diagramY + node.ny * diagramSize;
                
-                // Цвет и размер в зависимости от подтверждений
-                let color, radius, labelColor;
+                // Цвет и размер в зависимости от подтверждений (УВЕЛИЧИВАЕМ!)
+                let color, radius, labelColor, shadowSize;
                 if (node.confirmedCount >= 3) {
                     // 🔴 Высоконадёжные (3+ фото)
                     color = '#DC3545';
-                    radius = 12;
+                    radius = 18; // Было 12
                     labelColor = '#FFFFFF';
+                    shadowSize = 8;
                 } else if (node.confirmedCount === 2) {
                     // 🟡 Средняя надёжность (2 фото)
                     color = '#FFC107';
-                    radius = 9;
+                    radius = 14; // Было 9
                     labelColor = '#000000';
+                    shadowSize = 6;
                 } else {
                     // 🔵 Ненадёжные (1 фото)
                     color = '#0D6EFD';
-                    radius = 6;
+                    radius = 10; // Было 6
                     labelColor = '#FFFFFF';
+                    shadowSize = 4;
                 }
                
-                // Тень для объемности
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-                ctx.shadowBlur = 5;
-                ctx.shadowOffsetX = 2;
-                ctx.shadowOffsetY = 2;
+                // Тень для объемности (увеличиваем)
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+                ctx.shadowBlur = shadowSize;
+                ctx.shadowOffsetX = 3;
+                ctx.shadowOffsetY = 3;
                
                 // Рисуем узел
                 ctx.fillStyle = color;
@@ -456,7 +514,7 @@ class SimpleFootprintManager {
                 // Число подтверждений (только для 2+)
                 if (node.confirmedCount > 1) {
                     ctx.fillStyle = labelColor;
-                    ctx.font = 'bold 10px Arial';
+                    ctx.font = `bold ${Math.max(12, radius / 1.5)}px Arial`; // Адаптивный размер шрифта
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
                     ctx.fillText(node.confirmedCount.toString(), x, y);
@@ -465,191 +523,336 @@ class SimpleFootprintManager {
                 // Обводка для новых узлов
                 if (node.isNew) {
                     ctx.strokeStyle = '#28A745';
-                    ctx.lineWidth = 2;
+                    ctx.lineWidth = 3; // Толще
                     ctx.beginPath();
-                    ctx.arc(x, y, radius + 3, 0, Math.PI * 2);
+                    ctx.arc(x, y, radius + 4, 0, Math.PI * 2);
                     ctx.stroke();
                 }
             });
-           
-            // 5. СОЕДИНЕНИЯ МЕЖДУ БЛИЗКИМИ УЗЛАМИ (для визуализации структуры)
-            ctx.strokeStyle = 'rgba(108, 117, 125, 0.15)';
-            ctx.lineWidth = 1;
-           
-            // Рисуем связи между близкими узлами
-            for (let i = 0; i < sortedNodes.length; i++) {
-                for (let j = i + 1; j < sortedNodes.length; j++) {
-                    const node1 = sortedNodes[i];
-                    const node2 = sortedNodes[j];
-                   
-                    // Расстояние в нормализованном пространстве
-                    const dx = node1.nx - node2.nx;
-                    const dy = node1.ny - node2.ny;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                   
-                    // Рисуем связь если узлы близки
-                    if (distance < 0.2) { // Порог 0.2 в нормализованном пространстве
-                        const x1 = diagramX + node1.nx * diagramSize;
-                        const y1 = diagramY + node1.ny * diagramSize;
-                        const x2 = diagramX + node2.nx * diagramSize;
-                        const y2 = diagramY + node2.ny * diagramSize;
-                       
-                        // Более толстая линия для узлов с подтверждениями
-                        const lineWidth = Math.min(3,
-                            (node1.confirmedCount + node2.confirmedCount) / 2
-                        );
-                        ctx.lineWidth = lineWidth;
-                       
-                        ctx.beginPath();
-                        ctx.moveTo(x1, y1);
-                        ctx.lineTo(x2, y2);
-                        ctx.stroke();
-                    }
-                }
-            }
         }
        
-        // 6. БОКОВАЯ ПАНЕЛЬ С СТАТИСТИКОЙ
-        const statsX = 750;
-        const statsY = 150;
+        // 6. ПРАВАЯ КОЛОНКА - СТАТИСТИКА И ИНФОРМАЦИЯ
+        const statsX = leftColumnWidth + margin;
+        const statsY = 180;
+        const statsWidth = rightColumnWidth - margin * 2;
        
-        // Фон статистики
-        ctx.fillStyle = 'rgba(248, 249, 250, 0.9)';
-        ctx.fillRect(statsX - 10, statsY - 10, 240, 350);
+        // 6.1. ОБЩАЯ СТАТИСТИКА
+        ctx.fillStyle = 'rgba(248, 249, 250, 0.95)';
+        ctx.fillRect(statsX - 15, statsY - 15, statsWidth, 400);
         ctx.strokeStyle = '#6C757D';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(statsX - 10, statsY - 10, 240, 350);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(statsX - 15, statsY - 15, statsWidth, 400);
        
         // Заголовок статистики
         ctx.fillStyle = '#495057';
-        ctx.font = 'bold 20px Arial';
+        ctx.font = 'bold 26px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText('📊 СТАТИСТИКА', statsX, statsY + 20);
+        ctx.fillText('📊 СТАТИСТИКА СУПЕР-МОДЕЛИ', statsX, statsY + 20);
        
-        let currentY = statsY + 50;
-        const lineHeight = 28;
+        let currentY = statsY + 60;
+        const lineHeight = 32; // Увеличиваем межстрочный интервал
        
-        // Элементы статистики
+        // Рассчитываем проценты для круговой диаграммы
+        const totalNodes = stats.nodes;
+        const highConfidencePercent = totalNodes > 0 ?
+            Math.round((stats.highConfidenceNodes || 0) / totalNodes * 100) : 0;
+        const confirmedPercent = totalNodes > 0 ?
+            Math.round(stats.confirmedNodes / totalNodes * 100) : 0;
+        const newPercent = totalNodes > 0 ?
+            100 - confirmedPercent : 0;
+       
+        // Элементы статистики с процентами
         const statItems = [
-            { label: 'Всего узлов:', value: stats.nodes, color: '#212529' },
-            { label: 'Подтверждённых (2+):', value: stats.confirmedNodes, color: '#DC3545' },
-            { label: 'Высоконадёжных (3+):', value: stats.highlyConfirmed || 0, color: '#DC3545' },
-            { label: 'Новых (1 фото):', value: stats.nodes - stats.confirmedNodes, color: '#0D6EFD' },
-            { label: 'Сред. подтверждений:', value: stats.stats.avgConfirmations?.toFixed(2) || '0.00', color: '#6C757D' },
-            { label: 'Слияний:', value: stats.stats.totalMerges, color: '#6C757D' },
-            { label: 'Уверенность:', value: `${(stats.stats.confidence * 100).toFixed(1)}%`, color: '#198754' }
+            { label: 'Всего узлов:', value: stats.nodes, color: '#212529', percent: '100%' },
+            { label: 'Высоконадёжных (3+ фото):', value: stats.highConfidenceNodes || 0, color: '#DC3545', percent: `${highConfidencePercent}%` },
+            { label: 'Подтверждённых (2+ фото):', value: stats.confirmedNodes, color: '#FFC107', percent: `${confirmedPercent}%` },
+            { label: 'Новых (1 фото):', value: stats.nodes - stats.confirmedNodes, color: '#0D6EFD', percent: `${newPercent}%` },
+            { label: 'Сред. подтверждений:', value: stats.stats.avgConfirmations?.toFixed(2) || '0.00', color: '#6C757D', percent: '' },
+            { label: 'Слияний моделей:', value: stats.stats.totalMerges, color: '#6C757D', percent: '' },
+            { label: 'Дата создания:', value: stats.stats.createdAt ? new Date(stats.stats.createdAt).toLocaleDateString('ru-RU') : 'н/д', color: '#6C757D', percent: '' }
         ];
        
         statItems.forEach(item => {
             ctx.fillStyle = '#6C757D';
-            ctx.font = '16px Arial';
+            ctx.font = '18px Arial';
             ctx.fillText(item.label, statsX, currentY);
            
             ctx.fillStyle = item.color;
-            ctx.font = 'bold 16px Arial';
+            ctx.font = 'bold 18px Arial';
             ctx.textAlign = 'right';
-            ctx.fillText(item.value.toString(), statsX + 200, currentY);
+           
+            // Отображаем значение и процент
+            const displayText = item.percent ?
+                `${item.value} (${item.percent})` :
+                item.value.toString();
+            ctx.fillText(displayText, statsX + statsWidth - 30, currentY);
            
             currentY += lineHeight;
         });
        
-        // 7. ЛЕГЕНДА
-        const legendX = 750;
-        const legendY = 520;
+        // 6.2. КРУГОВАЯ ДИАГРАММА РАСПРЕДЕЛЕНИЯ
+        const pieChartX = statsX + statsWidth / 2;
+        const pieChartY = currentY + 120;
+        const pieRadius = 80;
        
-        ctx.fillStyle = 'rgba(248, 249, 250, 0.9)';
-        ctx.fillRect(legendX - 10, legendY - 10, 240, 150);
-        ctx.strokeStyle = '#6C757D';
-        ctx.strokeRect(legendX - 10, legendY - 10, 240, 150);
+        // Фон круговой диаграммы
+        ctx.strokeStyle = '#E9ECEF';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(pieChartX, pieChartY, pieRadius, 0, Math.PI * 2);
+        ctx.stroke();
        
-        ctx.fillStyle = '#495057';
-        ctx.font = 'bold 18px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText('📖 ЛЕГЕНДА', legendX, legendY + 20);
-       
-        // Элементы легенды
-        const legendItems = [
-            { color: '#DC3545', label: '🔴 3+ фото (высокая надёжность)', size: 12 },
-            { color: '#FFC107', label: '🟡 2 фото (средняя надёжность)', size: 9 },
-            { color: '#0D6EFD', label: '🔵 1 фото (низкая надёжность)', size: 6 },
-            { color: '#28A745', label: '🟢 Обводка - новый узел', size: 0 }
-        ];
-       
-        currentY = legendY + 50;
-        legendItems.forEach(item => {
-            if (item.size > 0) {
-                ctx.fillStyle = item.color;
+        // Рисуем сегменты если есть узлы
+        if (totalNodes > 0) {
+            let startAngle = 0;
+           
+            // Сегмент высоконадёжных (3+ фото)
+            if (highConfidencePercent > 0) {
+                const angle = (highConfidencePercent / 100) * Math.PI * 2;
+                ctx.fillStyle = '#DC3545';
                 ctx.beginPath();
-                ctx.arc(legendX + 10, currentY - 5, item.size, 0, Math.PI * 2);
+                ctx.moveTo(pieChartX, pieChartY);
+                ctx.arc(pieChartX, pieChartY, pieRadius, startAngle, startAngle + angle);
+                ctx.closePath();
                 ctx.fill();
+                startAngle += angle;
             }
            
+            // Сегмент подтверждённых (2 фото)
+            if (confirmedPercent - highConfidencePercent > 0) {
+                const angle = ((confirmedPercent - highConfidencePercent) / 100) * Math.PI * 2;
+                ctx.fillStyle = '#FFC107';
+                ctx.beginPath();
+                ctx.moveTo(pieChartX, pieChartY);
+                ctx.arc(pieChartX, pieChartY, pieRadius, startAngle, startAngle + angle);
+                ctx.closePath();
+                ctx.fill();
+                startAngle += angle;
+            }
+           
+            // Сегмент новых (1 фото)
+            if (newPercent > 0) {
+                const angle = (newPercent / 100) * Math.PI * 2;
+                ctx.fillStyle = '#0D6EFD';
+                ctx.beginPath();
+                ctx.moveTo(pieChartX, pieChartY);
+                ctx.arc(pieChartX, pieChartY, pieRadius, startAngle, startAngle + angle);
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+       
+        // Подпись круговой диаграммы
+        ctx.fillStyle = '#495057';
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Распределение узлов по надёжности', pieChartX, pieChartY + pieRadius + 40);
+       
+        // 7. ЛЕГЕНДА (ниже круговой диаграммы)
+        const legendX = statsX;
+        const legendY = pieChartY + pieRadius + 80;
+       
+        ctx.fillStyle = 'rgba(248, 249, 250, 0.95)';
+        ctx.fillRect(legendX - 15, legendY - 15, statsWidth, 180);
+        ctx.strokeStyle = '#6C757D';
+        ctx.strokeRect(legendX - 15, legendY - 15, statsWidth, 180);
+       
+        ctx.fillStyle = '#495057';
+        ctx.font = 'bold 22px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('📖 ЛЕГЕНДА И ОБОЗНАЧЕНИЯ', legendX, legendY + 20);
+       
+        // Элементы легенды в 2 колонки
+        const legendItems = [
+            { color: '#DC3545', label: '🔴 3+ фото (высокая надёжность)', example: '● 3' },
+            { color: '#FFC107', label: '🟡 2 фото (средняя надёжность)', example: '● 2' },
+            { color: '#0D6EFD', label: '🔵 1 фото (низкая надёжность)', example: '●' },
+            { color: '#28A745', label: '🟢 Обводка - новый узел', example: '🟢' },
+            { color: 'rgba(220, 53, 69, 0.3)', label: 'Красные линии - связи между высоконадёжными узлами', example: '━━' },
+            { color: 'rgba(13, 110, 253, 0.2)', label: 'Синие линии - связи между новыми узлами', example: '━━' }
+        ];
+       
+        let legendRowY = legendY + 50;
+        const legendCol1X = legendX;
+        const legendCol2X = legendX + statsWidth / 2 + 30;
+        const legendRowHeight = 30;
+       
+        legendItems.forEach((item, index) => {
+            const colX = index < 3 ? legendCol1X : legendCol2X;
+            const colY = legendRowY + (index % 3) * legendRowHeight;
+           
+            // Пример элемента
+            ctx.fillStyle = item.color;
+            if (item.color.includes('rgba')) {
+                // Для линий
+                ctx.strokeStyle = item.color;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(colX, colY - 5);
+                ctx.lineTo(colX + 30, colY - 5);
+                ctx.stroke();
+            } else {
+                // Для точек
+                ctx.beginPath();
+                ctx.arc(colX + 15, colY - 8, 8, 0, Math.PI * 2);
+                ctx.fill();
+               
+                // Текст примера если есть
+                if (item.example) {
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(item.example.charAt(item.example.length - 1), colX + 15, colY - 8);
+                }
+            }
+           
+            // Описание
             ctx.fillStyle = '#495057';
-            ctx.font = '14px Arial';
-            ctx.fillText(item.label, legendX + 30, currentY);
-            currentY += 25;
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(item.label, colX + 40, colY);
         });
        
-        // 8. ПРОГРЕСС БАР УВЕРЕННОСТИ
-        const progressX = 100;
-        const progressY = 750;
-        const progressWidth = 600;
-        const progressHeight = 25;
+        // 8. ПРОГРЕСС БАР УВЕРЕННОСТИ (широкий, внизу)
+        const progressX = margin;
+        const progressY = diagramY + diagramSize + 100;
+        const progressWidth = diagramSize;
+        const progressHeight = 35; // Выше
         const confidence = stats.stats.confidence;
        
-        // Фон прогресс-бара
+        // Фон прогресс-бара с тенями
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 3;
+       
         ctx.fillStyle = '#E9ECEF';
         ctx.fillRect(progressX, progressY, progressWidth, progressHeight);
        
-        // Заполнение прогресс-бара
-        const fillWidth = progressWidth * confidence;
-        let progressColor;
-        if (confidence > 0.7) progressColor = '#198754';
-        else if (confidence > 0.4) progressColor = '#FFC107';
-        else progressColor = '#DC3545';
+        ctx.shadowColor = 'transparent';
        
-        ctx.fillStyle = progressColor;
+        // Заполнение прогресс-бара с градиентом
+        const fillWidth = progressWidth * confidence;
+       
+        // Создаем градиент
+        const gradient = ctx.createLinearGradient(progressX, progressY, progressX + fillWidth, progressY);
+        if (confidence > 0.7) {
+            gradient.addColorStop(0, '#198754');
+            gradient.addColorStop(1, '#20C997');
+        } else if (confidence > 0.4) {
+            gradient.addColorStop(0, '#FFC107');
+            gradient.addColorStop(1, '#FFD85C');
+        } else {
+            gradient.addColorStop(0, '#DC3545');
+            gradient.addColorStop(1, '#FD7E14');
+        }
+       
+        ctx.fillStyle = gradient;
         ctx.fillRect(progressX, progressY, fillWidth, progressHeight);
        
-        // Текст прогресс-бара
+        // Текст прогресс-бара (большой и жирный)
         ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 14px Arial';
+        ctx.font = 'bold 20px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(`Уверенность супер-модели: ${(confidence * 100).toFixed(1)}%`,
+        ctx.fillText(`УВЕРЕННОСТЬ СУПЕР-МОДЕЛИ: ${(confidence * 100).toFixed(1)}%`,
                      progressX + progressWidth / 2, progressY + progressHeight / 2);
        
         // Обводка прогресс-бара
-        ctx.strokeStyle = '#6C757D';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#495057';
+        ctx.lineWidth = 2;
         ctx.strokeRect(progressX, progressY, progressWidth, progressHeight);
        
-        // 9. ПОДВАЛ
+        // Маркеры на прогресс-баре
         ctx.fillStyle = '#6C757D';
-        ctx.font = '12px Arial';
+        ctx.font = '14px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`Супер-модель создана: ${new Date().toLocaleString('ru-RU')} | ID: ${stats.id.slice(0, 8)}`,
-                     500, 790);
+        ctx.fillText('0%', progressX, progressY + progressHeight + 20);
+        ctx.fillText('50%', progressX + progressWidth / 2, progressY + progressHeight + 20);
+        ctx.fillText('100%', progressX + progressWidth, progressY + progressHeight + 20);
        
-        // 10. СОХРАНЕНИЕ
-        const outputPath = path.join(
-            this.mergeVisualizer.config.outputDir,
-            `super_model_detailed_${Date.now()}.png`
-        );
+        // 9. ИНФОРМАЦИЯ О СИСТЕМЕ (в самом низу)
+        const infoY = canvasHeight - 40;
        
-        // Создаем директорию если нет
-        const dir = path.dirname(outputPath);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
+        ctx.fillStyle = '#6C757D';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Система анализа следов | Супер-модель ID: ${stats.id.slice(0, 12)} | ` +
+                    `Создано: ${new Date().toLocaleString('ru-RU')}`,
+                    canvasWidth / 2, infoY);
+       
+        // 10. ИНФОРМАЦИОННАЯ ПАНЕЛЬ КАЧЕСТВА
+        const qualityX = statsX;
+        const qualityY = legendY + 180;
+        const qualityWidth = statsWidth;
+        const qualityHeight = 120;
+       
+        ctx.fillStyle = 'rgba(248, 249, 250, 0.95)';
+        ctx.fillRect(qualityX - 15, qualityY - 15, qualityWidth, qualityHeight);
+        ctx.strokeStyle = confidence > 0.7 ? '#198754' : confidence > 0.4 ? '#FFC107' : '#DC3545';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(qualityX - 15, qualityY - 15, qualityWidth, qualityHeight);
+       
+        // Оценка качества
+        let qualityLevel, qualityColor, qualityDescription;
+        if (confidence > 0.8) {
+            qualityLevel = 'ВЫСОКОЕ КАЧЕСТВО';
+            qualityColor = '#198754';
+            qualityDescription = 'Модель готова для идентификации';
+        } else if (confidence > 0.6) {
+            qualityLevel = 'ХОРОШЕЕ КАЧЕСТВО';
+            qualityColor = '#20C997';
+            qualityDescription = 'Модель можно использовать';
+        } else if (confidence > 0.4) {
+            qualityLevel = 'СРЕДНЕЕ КАЧЕСТВО';
+            qualityColor = '#FFC107';
+            qualityDescription = 'Нужны дополнительные фото';
+        } else {
+            qualityLevel = 'НИЗКОЕ КАЧЕСТВО';
+            qualityColor = '#DC3545';
+            qualityDescription = 'Требуются подтверждения';
         }
        
+        ctx.fillStyle = qualityColor;
+        ctx.font = 'bold 22px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('🏆 ОЦЕНКА КАЧЕСТВА', qualityX + qualityWidth / 2, qualityY + 30);
+       
+        ctx.fillStyle = '#495057';
+        ctx.font = 'bold 26px Arial';
+        ctx.fillText(qualityLevel, qualityX + qualityWidth / 2, qualityY + 65);
+       
+        ctx.fillStyle = '#6C757D';
+        ctx.font = '16px Arial';
+        ctx.fillText(qualityDescription, qualityX + qualityWidth / 2, qualityY + 95);
+       
+        // 11. СОХРАНЕНИЕ В ФАЙЛ ВЫСОКОГО КАЧЕСТВА
+        const outputDir = path.join(this.config.dbPath, 'visualizations', 'high_quality');
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+       
+        const outputPath = path.join(
+            outputDir,
+            `super_model_hq_${userId}_${Date.now()}.png`
+        );
+       
+        // Увеличиваем качество PNG
         await new Promise((resolve, reject) => {
             const out = fs.createWriteStream(outputPath);
-            const stream = canvas.createPNGStream();
+            const stream = canvas.createPNGStream({
+                compressionLevel: 0, // Максимальное качество
+                filters: canvas.PNG_ALL_FILTERS,
+                palette: undefined
+            });
+           
             stream.pipe(out);
            
             out.on('finish', () => {
+                const fileSize = fs.statSync(outputPath).size;
                 console.log(`✅ Детальная визуализация создана: ${outputPath}`);
+                console.log(`   📏 Размер: ${canvasWidth}x${canvasHeight}px, Размер файла: ${(fileSize / 1024).toFixed(1)}KB`);
                 resolve(outputPath);
             });
            
