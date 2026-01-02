@@ -343,111 +343,330 @@ class SimpleFootprintManager {
 
     // 🔥 ИСПРАВЛЕННАЯ ВИЗУАЛИЗАЦИЯ ВЕКТОРНОЙ СУПЕР-МОДЕЛИ
     async visualizeVectorSuperModel(userId, vectorModel) {
-        console.log(`🎨 Начинаю визуализацию векторной модели для пользователя ${userId}...`);
-
-        try {
-            if (!vectorModel) {
-                console.log('⚠️ Нет векторной модели для визуализации');
-                return null;
-            }
-
-            const vizData = vectorModel.getVisualizationData();
-            console.log(`📊 Данные для визуализации: ${vizData.nodes.length} узлов`);
-
-            const stats = vectorModel.getInfo();
-
-            const outputPath = path.join(
-                this.config.dbPath,
-                'visualizations',
-                `vector_super_${userId}_${Date.now()}.png`
-            );
-
-            // Создаем директорию если нужно
-            const dir = path.dirname(outputPath);
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
-            }
-
-            // Создаем простую визуализацию
-            const canvas = createCanvas(800, 600);
-            const ctx = canvas.getContext('2d');
-
-            // Фон
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, 800, 600);
-
-            // Заголовок
-            ctx.fillStyle = '#000000';
-            ctx.font = 'bold 24px Arial';
-            ctx.fillText('🏗️ ВЕКТОРНАЯ СУПЕР-МОДЕЛЬ', 50, 50);
-
-            // Статистика
-            ctx.font = '16px Arial';
-            ctx.fillText(`Всего узлов: ${vizData.nodes.length}`, 50, 100);
-            ctx.fillText(`Подтверждённых: ${vizData.stats.confirmed}`, 50, 130);
-            ctx.fillText(`Высоконадёжных: ${vizData.stats.highConfidence}`, 50, 160);
-            ctx.fillText(`Уверенность: ${(vizData.stats.confidence * 100).toFixed(1)}%`, 50, 190);
-            ctx.fillText(`Слияний: ${stats.stats.totalMerges}`, 50, 220);
-
-            // Диаграмма узлов
-            const padding = 100;
-            const diagramSize = 400;
-            const centerX = 400;
-            const centerY = 400;
-
-            vizData.nodes.forEach(node => {
-                const x = centerX + (node.nx - 0.5) * diagramSize;
-                const y = centerY + (node.ny - 0.5) * diagramSize;
-
-                let color, size;
-                if (node.confirmedCount >= 3) {
-                    color = '#FF0000';
-                    size = 8;
-                } else if (node.confirmedCount === 2) {
-                    color = '#FFA500';
-                    size = 6;
-                } else {
-                    color = '#0066CC';
-                    size = 4;
-                }
-
-                ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.arc(x, y, size, 0, Math.PI * 2);
-                ctx.fill();
-
-                // Номер подтверждений
-                if (node.confirmedCount > 1) {
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.font = 'bold 10px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(node.confirmedCount.toString(), x, y);
-                }
-            });
-
-            // Легенда
-            ctx.fillStyle = '#000000';
-            ctx.font = '14px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('🔴 3+ фото  🟠 2 фото  🔵 1 фото', 400, 550);
-
-            // Сохранить
-            return new Promise((resolve, reject) => {
-                const out = fs.createWriteStream(outputPath);
-                const stream = canvas.createPNGStream();
-                stream.pipe(out);
-                out.on('finish', () => {
-                    console.log(`✅ Векторная визуализация создана: ${outputPath}`);
-                    resolve(outputPath);
-                });
-                out.on('error', reject);
-            });
-
-        } catch (error) {
-            console.log(`❌ Ошибка визуализации: ${error.message}`);
+    console.log(`🎨 Создаю НАГЛЯДНУЮ визуализацию супер-модели...`);
+   
+    try {
+        if (!vectorModel) {
+            console.log('⚠️ Нет векторной модели');
             return null;
         }
+       
+        const vizData = vectorModel.getVisualizationData();
+        const stats = vectorModel.getInfo();
+       
+        console.log(`📊 Визуализирую: ${vizData.nodes.length} узлов, уверенность: ${(stats.stats.confidence * 100).toFixed(1)}%`);
+       
+        // Создаем большой канвас для детализации
+        const canvas = createCanvas(1000, 800);
+        const ctx = canvas.getContext('2d');
+       
+        // 1. ФОН С СЕТКОЙ
+        ctx.fillStyle = '#F8F9FA';
+        ctx.fillRect(0, 0, 1000, 800);
+       
+        // Сетка для ориентира
+        ctx.strokeStyle = '#E9ECEF';
+        ctx.lineWidth = 1;
+        const gridSize = 50;
+        for (let x = 0; x < 1000; x += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, 800);
+            ctx.stroke();
+        }
+        for (let y = 0; y < 800; y += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(1000, y);
+            ctx.stroke();
+        }
+       
+        // 2. ЗАГОЛОВОК
+        ctx.fillStyle = '#212529';
+        ctx.font = 'bold 32px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('🏗️ ВЕКТОРНАЯ СУПЕР-МОДЕЛЬ', 500, 50);
+        ctx.font = '20px Arial';
+        ctx.fillText(`Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}% | Слияний: ${stats.stats.totalMerges}`, 500, 85);
+       
+        // 3. ГЛАВНАЯ ДИАГРАММА - СУПЕР-МОДЕЛЬ
+        const diagramX = 100;
+        const diagramY = 150;
+        const diagramSize = 600;
+        const diagramTitle = 'СУПЕР-МОДЕЛЬ (нормализованное пространство)';
+       
+        // Рамка диаграммы
+        ctx.strokeStyle = '#495057';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(diagramX - 10, diagramY - 30, diagramSize + 20, diagramSize + 60);
+       
+        // Заголовок диаграммы
+        ctx.fillStyle = '#495057';
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(diagramTitle, diagramX, diagramY - 10);
+       
+        // 4. РИСУЕМ УЗЛЫ СУПЕР-МОДЕЛИ
+        if (vizData.nodes && vizData.nodes.length > 0) {
+            // Сортируем узлы по подтверждениям (самые подтвержденные рисуем последними)
+            const sortedNodes = [...vizData.nodes].sort((a, b) => a.confirmedCount - b.confirmedCount);
+           
+            sortedNodes.forEach(node => {
+                // Преобразуем нормализованные координаты [0,1] в координаты канваса
+                const x = diagramX + node.nx * diagramSize;
+                const y = diagramY + node.ny * diagramSize;
+               
+                // Цвет и размер в зависимости от подтверждений
+                let color, radius, labelColor;
+                if (node.confirmedCount >= 3) {
+                    // 🔴 Высоконадёжные (3+ фото)
+                    color = '#DC3545';
+                    radius = 12;
+                    labelColor = '#FFFFFF';
+                } else if (node.confirmedCount === 2) {
+                    // 🟡 Средняя надёжность (2 фото)
+                    color = '#FFC107';
+                    radius = 9;
+                    labelColor = '#000000';
+                } else {
+                    // 🔵 Ненадёжные (1 фото)
+                    color = '#0D6EFD';
+                    radius = 6;
+                    labelColor = '#FFFFFF';
+                }
+               
+                // Тень для объемности
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+                ctx.shadowBlur = 5;
+                ctx.shadowOffsetX = 2;
+                ctx.shadowOffsetY = 2;
+               
+                // Рисуем узел
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fill();
+               
+                // Убираем тень для текста
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+               
+                // Число подтверждений (только для 2+)
+                if (node.confirmedCount > 1) {
+                    ctx.fillStyle = labelColor;
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(node.confirmedCount.toString(), x, y);
+                }
+               
+                // Обводка для новых узлов
+                if (node.isNew) {
+                    ctx.strokeStyle = '#28A745';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius + 3, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            });
+           
+            // 5. СОЕДИНЕНИЯ МЕЖДУ БЛИЗКИМИ УЗЛАМИ (для визуализации структуры)
+            ctx.strokeStyle = 'rgba(108, 117, 125, 0.15)';
+            ctx.lineWidth = 1;
+           
+            // Рисуем связи между близкими узлами
+            for (let i = 0; i < sortedNodes.length; i++) {
+                for (let j = i + 1; j < sortedNodes.length; j++) {
+                    const node1 = sortedNodes[i];
+                    const node2 = sortedNodes[j];
+                   
+                    // Расстояние в нормализованном пространстве
+                    const dx = node1.nx - node2.nx;
+                    const dy = node1.ny - node2.ny;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                   
+                    // Рисуем связь если узлы близки
+                    if (distance < 0.2) { // Порог 0.2 в нормализованном пространстве
+                        const x1 = diagramX + node1.nx * diagramSize;
+                        const y1 = diagramY + node1.ny * diagramSize;
+                        const x2 = diagramX + node2.nx * diagramSize;
+                        const y2 = diagramY + node2.ny * diagramSize;
+                       
+                        // Более толстая линия для узлов с подтверждениями
+                        const lineWidth = Math.min(3,
+                            (node1.confirmedCount + node2.confirmedCount) / 2
+                        );
+                        ctx.lineWidth = lineWidth;
+                       
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x2, y2);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+       
+        // 6. БОКОВАЯ ПАНЕЛЬ С СТАТИСТИКОЙ
+        const statsX = 750;
+        const statsY = 150;
+       
+        // Фон статистики
+        ctx.fillStyle = 'rgba(248, 249, 250, 0.9)';
+        ctx.fillRect(statsX - 10, statsY - 10, 240, 350);
+        ctx.strokeStyle = '#6C757D';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(statsX - 10, statsY - 10, 240, 350);
+       
+        // Заголовок статистики
+        ctx.fillStyle = '#495057';
+        ctx.font = 'bold 20px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('📊 СТАТИСТИКА', statsX, statsY + 20);
+       
+        let currentY = statsY + 50;
+        const lineHeight = 28;
+       
+        // Элементы статистики
+        const statItems = [
+            { label: 'Всего узлов:', value: stats.nodes, color: '#212529' },
+            { label: 'Подтверждённых (2+):', value: stats.confirmedNodes, color: '#DC3545' },
+            { label: 'Высоконадёжных (3+):', value: stats.highlyConfirmed || 0, color: '#DC3545' },
+            { label: 'Новых (1 фото):', value: stats.nodes - stats.confirmedNodes, color: '#0D6EFD' },
+            { label: 'Сред. подтверждений:', value: stats.stats.avgConfirmations?.toFixed(2) || '0.00', color: '#6C757D' },
+            { label: 'Слияний:', value: stats.stats.totalMerges, color: '#6C757D' },
+            { label: 'Уверенность:', value: `${(stats.stats.confidence * 100).toFixed(1)}%`, color: '#198754' }
+        ];
+       
+        statItems.forEach(item => {
+            ctx.fillStyle = '#6C757D';
+            ctx.font = '16px Arial';
+            ctx.fillText(item.label, statsX, currentY);
+           
+            ctx.fillStyle = item.color;
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'right';
+            ctx.fillText(item.value.toString(), statsX + 200, currentY);
+           
+            currentY += lineHeight;
+        });
+       
+        // 7. ЛЕГЕНДА
+        const legendX = 750;
+        const legendY = 520;
+       
+        ctx.fillStyle = 'rgba(248, 249, 250, 0.9)';
+        ctx.fillRect(legendX - 10, legendY - 10, 240, 150);
+        ctx.strokeStyle = '#6C757D';
+        ctx.strokeRect(legendX - 10, legendY - 10, 240, 150);
+       
+        ctx.fillStyle = '#495057';
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('📖 ЛЕГЕНДА', legendX, legendY + 20);
+       
+        // Элементы легенды
+        const legendItems = [
+            { color: '#DC3545', label: '🔴 3+ фото (высокая надёжность)', size: 12 },
+            { color: '#FFC107', label: '🟡 2 фото (средняя надёжность)', size: 9 },
+            { color: '#0D6EFD', label: '🔵 1 фото (низкая надёжность)', size: 6 },
+            { color: '#28A745', label: '🟢 Обводка - новый узел', size: 0 }
+        ];
+       
+        currentY = legendY + 50;
+        legendItems.forEach(item => {
+            if (item.size > 0) {
+                ctx.fillStyle = item.color;
+                ctx.beginPath();
+                ctx.arc(legendX + 10, currentY - 5, item.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+           
+            ctx.fillStyle = '#495057';
+            ctx.font = '14px Arial';
+            ctx.fillText(item.label, legendX + 30, currentY);
+            currentY += 25;
+        });
+       
+        // 8. ПРОГРЕСС БАР УВЕРЕННОСТИ
+        const progressX = 100;
+        const progressY = 750;
+        const progressWidth = 600;
+        const progressHeight = 25;
+        const confidence = stats.stats.confidence;
+       
+        // Фон прогресс-бара
+        ctx.fillStyle = '#E9ECEF';
+        ctx.fillRect(progressX, progressY, progressWidth, progressHeight);
+       
+        // Заполнение прогресс-бара
+        const fillWidth = progressWidth * confidence;
+        let progressColor;
+        if (confidence > 0.7) progressColor = '#198754';
+        else if (confidence > 0.4) progressColor = '#FFC107';
+        else progressColor = '#DC3545';
+       
+        ctx.fillStyle = progressColor;
+        ctx.fillRect(progressX, progressY, fillWidth, progressHeight);
+       
+        // Текст прогресс-бара
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`Уверенность супер-модели: ${(confidence * 100).toFixed(1)}%`,
+                     progressX + progressWidth / 2, progressY + progressHeight / 2);
+       
+        // Обводка прогресс-бара
+        ctx.strokeStyle = '#6C757D';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(progressX, progressY, progressWidth, progressHeight);
+       
+        // 9. ПОДВАЛ
+        ctx.fillStyle = '#6C757D';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Супер-модель создана: ${new Date().toLocaleString('ru-RU')} | ID: ${stats.id.slice(0, 8)}`,
+                     500, 790);
+       
+        // 10. СОХРАНЕНИЕ
+        const outputPath = path.join(
+            this.mergeVisualizer.config.outputDir,
+            `super_model_detailed_${Date.now()}.png`
+        );
+       
+        // Создаем директорию если нет
+        const dir = path.dirname(outputPath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+       
+        await new Promise((resolve, reject) => {
+            const out = fs.createWriteStream(outputPath);
+            const stream = canvas.createPNGStream();
+            stream.pipe(out);
+           
+            out.on('finish', () => {
+                console.log(`✅ Детальная визуализация создана: ${outputPath}`);
+                resolve(outputPath);
+            });
+           
+            out.on('error', (error) => {
+                console.log(`❌ Ошибка сохранения: ${error.message}`);
+                reject(error);
+            });
+        });
+       
+        return outputPath;
+       
+    } catch (error) {
+        console.log(`❌ Ошибка создания детальной визуализации: ${error.message}`);
+        console.error(error.stack);
+        return null;
     }
+}
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД СОЗДАНИЯ СЕССИИ
     createSession(userId, name = null) {
