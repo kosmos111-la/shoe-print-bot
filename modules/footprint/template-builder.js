@@ -195,33 +195,100 @@ class TemplateBuilder {
         return true;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ПРОСТАЯ ТРАНСФОРМАЦИЯ
     calculateSimpleTransformationFromMatches(matchedPairs) {
-        if (matchedPairs.length === 0) {
-            return { translation: { x: 0, y: 0 }, scale: 1, rotation: 0 };
-        }
-
-        // Используем среднее смещение из совпавших пар
-        let totalDX = 0;
-        let totalDY = 0;
-
-        matchedPairs.forEach(pair => {
-            if (pair.node1Data && pair.node2Data) {
-                totalDX += (pair.node1Data.x - pair.node2Data.x);
-                totalDY += (pair.node1Data.y - pair.node2Data.y);
-            }
-        });
-
-        return {
-            translation: {
-                x: -totalDX / matchedPairs.length, // Инвертируем направление
-                y: -totalDY / matchedPairs.length
-            },
-            scale: 1,
-            rotation: 0,
-            error: 0
-        };
+    if (matchedPairs.length === 0) {
+        return { translation: { x: 0, y: 0 }, scale: 1, rotation: 0 };
     }
+   
+    // 🔥 ПРАВИЛЬНО ВЫЧИСЛЯЕМ СМЕЩЕНИЕ:
+    let totalDX = 0;
+    let totalDY = 0;
+    let count = 0;
+   
+    matchedPairs.forEach(pair => {
+        if (pair.node1Data && pair.node2Data) {
+            // node1Data - точка из эталона (уже центрирована!)
+            // node2Data - точка из нового графа (не центрирована)
+           
+            // 🔥 ИСПРАВЛЕНИЕ: эталонные точки уже центрированы,
+            // поэтому нужно компенсировать смещение
+            totalDX += (pair.node1Data.x - pair.node2Data.x);
+            totalDY += (pair.node1Data.y - pair.node2Data.y);
+            count++;
+        }
+    });
+   
+    if (count === 0) {
+        return { translation: { x: 0, y: 0 }, scale: 1, rotation: 0 };
+    }
+   
+    console.log(`📐 Среднее смещение: (${(totalDX/count).toFixed(1)}, ${(totalDY/count).toFixed(1)})`);
+   
+    return {
+        translation: {
+            x: totalDX / count,
+            y: totalDY / count
+        },
+        scale: 1,
+        rotation: 0,
+        error: 0
+    };
+}
+
+// 🔥 ДОБАВЛЯЕМ ДЕБАГ-ВЫВОД В assignToCells:
+assignToCells(alignedPoints, graphId) {
+    console.log(`📍 Сопоставляю ${alignedPoints.length} точек с ${this.templateCells.size} ячейками...`);
+   
+    // 🔥 ДЕБАГ: показываем координаты первых ячеек
+    let cellIndex = 0;
+    for (const [cellId, cell] of this.templateCells) {
+        if (cellIndex < 3) {
+            console.log(`   Ячейка ${cellId}: (${cell.center.x.toFixed(1)}, ${cell.center.y.toFixed(1)})`);
+            cellIndex++;
+        }
+    }
+   
+    // 🔥 ДЕБАГ: показываем координаты первых точек
+    alignedPoints.slice(0, 3).forEach((point, i) => {
+        console.log(`   Точка ${i}: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+    });
+   
+    const assignments = new Map();
+    const searchRadius = this.config.cellSize * 2;
+    let matchedCount = 0;
+   
+    alignedPoints.forEach(point => {
+        let bestCell = null;
+        let minDistance = Infinity;
+       
+        for (const [cellId, cell] of this.templateCells) {
+            const dx = point.x - cell.center.x;
+            const dy = point.y - cell.center.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+           
+            if (distance < minDistance && distance < searchRadius) {
+                minDistance = distance;
+                bestCell = cellId;
+            }
+        }
+       
+        if (bestCell) {
+            assignments.set(point.id, bestCell);
+            matchedCount++;
+           
+            if (minDistance < 20 && matchedCount < 5) {
+                const cell = this.templateCells.get(bestCell);
+                console.log(`   ✅ ${point.id} -> ${bestCell}: ${minDistance.toFixed(1)}px ` +
+                          `(точка: ${point.x.toFixed(1)},${point.y.toFixed(1)} → ячейка: ${cell.center.x.toFixed(1)},${cell.center.y.toFixed(1)})`);
+            }
+        } else if (this.config.debug && matchedCount < 5) {
+            console.log(`   ⚠️ ${point.id} не сопоставлена (ближайшая: ${minDistance.toFixed(1)}px)`);
+        }
+    });
+   
+    console.log(`✅ Сопоставлено ${matchedCount}/${alignedPoints.length} точек`);
+    return assignments;
+}
 
     // 🔥 НОВЫЙ МЕТОД: ПРОСТОЕ ПРИМЕНЕНИЕ ТРАНСФОРМАЦИИ
     applySimpleTransformation(points, transformation) {
