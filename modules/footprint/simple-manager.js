@@ -93,7 +93,7 @@ class SimpleFootprintManager {
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД addPhotoToSession
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО В СЕССИЮ (упрощенная версия)`);
+        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО В СЕССИЮ (исправленная версия)`);
 
         try {
             // Проверяем анализ
@@ -137,11 +137,15 @@ class SimpleFootprintManager {
                 // Добавляем анализ
                 const addResult = session.currentFootprint.addAnalysis(analysis, photoInfo);
 
-                // Создаем векторную супер-модель
+                // Создаем векторную супер-модель с исправленными настройками
                 const vectorModel = new VectorSuperModel({
-                    name: `Супер-модель_${String(userId).slice(0, 6)}`
+                    name: `Супер-модель_${String(userId).slice(0, 6)}`,
+                    enablePCA: false, // 🔥 ОТКЛЮЧАЕМ PCA
+                    cellSize: 25,     // 🔥 УВЕЛИЧИВАЕМ РАЗМЕР ЯЧЕЙКИ
+                    debug: this.config.debug
                 });
-                vectorModel.addGraph(session.currentFootprint.graph, session.currentFootprint.id);
+               
+                vectorModel.addGraph(session.currentFootprint.graph, session.currentFootprint.id, { isFirst: true });
                 this.vectorSuperModels.set(userId, vectorModel);
 
                 console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
@@ -174,18 +178,22 @@ class SimpleFootprintManager {
 
             console.log(`📊 Результат сравнения: similarity=${alignmentResult.similarity.toFixed(3)}, decision=${alignmentResult.decision}`);
 
-            // 🔥 ИСПРАВЛЕНИЕ: Получаем векторную модель
-            let vectorModel = this.vectorSuperModels.get(userId);
-            let vectorVizPath = null;
-
+            // 🔥 УПРОЩЕННАЯ ЛОГИКА:
             if (alignmentResult.similarity > 0.6 && alignmentResult.decision === 'same') {
                 // СЛЕДЫ СОВПАДАЮТ
                 console.log(`✅ Следы совпали (${alignmentResult.similarity.toFixed(3)})`);
 
-                // Создаем или получаем векторную модель
+                // Получаем векторную модель
+                let vectorModel = this.vectorSuperModels.get(userId);
+                let vectorVizPath = null;
+
                 if (!vectorModel) {
+                    // Создаем модель с исправленными настройками
                     vectorModel = new VectorSuperModel({
-                        name: `Супер-модель_${String(userId).slice(0, 6)}`
+                        name: `Супер-модель_${String(userId).slice(0, 6)}`,
+                        enablePCA: false, // 🔥 ОТКЛЮЧАЕМ PCA
+                        cellSize: 25,     // 🔥 УВЕЛИЧИВАЕМ РАЗМЕР ЯЧЕЙКИ
+                        debug: this.config.debug
                     });
                     this.vectorSuperModels.set(userId, vectorModel);
 
@@ -197,46 +205,49 @@ class SimpleFootprintManager {
                     );
                 }
 
-                // Добавляем временный граф
-                vectorModel.addGraph(
+                // Добавляем новый граф
+                const addResult = vectorModel.addGraph(
                     tempFootprint.graph,
                     tempFootprint.id,
-                    { similarity: alignmentResult.similarity, timestamp: new Date() }
-                );
-
-                // 🔥 ПРОСТОЕ ОБЪЕДИНЕНИЕ (не копирование всех узлов!)
-                const mergeResult = this.simpleMergeGraphs(
-                    session.currentFootprint.graph,
-                    tempFootprint.graph,
-                    alignmentResult
-                );
-
-                // Визуализация
-                if (this.config.enableMergeVisualization && vectorModel) {
-                    vectorVizPath = await this.visualizeVectorSuperModel(userId, vectorModel);
-
-                    // Отправляем в Telegram
-                    if (bot && chatId && vectorVizPath) {
-                        const stats = vectorModel.getInfo();
-                        await bot.sendPhoto(chatId, vectorVizPath, {
-                            caption: `✅ **Следы совпали - супер-модель обновлена!**\n\n` +
-                                    `🎯 Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}%\n` +
-                                    `📊 Узлов: ${stats.nodes}\n` +
-                                    `🔄 Подтверждённых: ${stats.confirmedNodes}\n` +
-                                    `📈 Слияний: ${stats.stats.totalMerges}`
-                        });
+                    {
+                        similarity: alignmentResult.similarity,
+                        timestamp: new Date(),
+                        ...photoInfo
                     }
-                }
+                );
 
-                return {
-                    success: true,
-                    similarity: alignmentResult.similarity,
-                    decision: alignmentResult.decision,
-                    mergeMethod: 'vector_super_model',
-                    vectorModelStats: vectorModel ? vectorModel.getInfo() : null,
-                    visualization: vectorVizPath,
-                    nodesAdded: mergeResult.added || tempResult.added
-                };
+                if (addResult) {
+                    // 🔥 ПРОСТОЕ ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ В ТЕКУЩЕМ ОТПЕЧАТКЕ
+                    this.updateConfirmationsFromVectorModel(session.currentFootprint, vectorModel);
+
+                    // Визуализация
+                    if (this.config.enableMergeVisualization && vectorModel) {
+                        vectorVizPath = await this.visualizeVectorSuperModel(userId, vectorModel);
+
+                        // Отправляем в Telegram
+                        if (bot && chatId && vectorVizPath) {
+                            const stats = vectorModel.getInfo();
+                            await bot.sendPhoto(chatId, vectorVizPath.template, {
+                                caption: `✅ **Следы совпали - супер-модель обновлена!**\n\n` +
+                                        `🎯 Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}%\n` +
+                                        `📊 Ячеек шаблона: ${stats.template?.cells?.total || 0}\n` +
+                                        `🔄 Подтверждённых: ${stats.template?.cells?.confirmed || 0}\n` +
+                                        `📈 Слияний: ${stats.stats.totalMerges}`
+                            });
+                        }
+                    }
+
+                    return {
+                        success: true,
+                        similarity: alignmentResult.similarity,
+                        decision: alignmentResult.decision,
+                        mergeMethod: 'template_based',
+                        templateStats: vectorModel.getTemplateStats(),
+                        visualization: vectorVizPath,
+                        nodesAdded: tempResult.added,
+                        message: `✅ След добавлен к шаблону!`
+                    };
+                }
 
             } else {
                 // СЛЕДЫ РАЗНЫЕ
@@ -271,82 +282,32 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ПРОСТОЕ ОБЪЕДИНЕНИЕ ГРАФОВ (не копировать все узлы!)
-    simpleMergeGraphs(mainGraph, tempGraph, alignmentResult) {
-        console.log(`🔄 Простое объединение графов: ${mainGraph.nodes.size} + ${tempGraph.nodes.size} узлов`);
-
-        const previousSize = mainGraph.nodes.size;
-        let addedCount = 0;
-        let matchedCount = 0;
-
-        // 🔥 ИСПРАВЛЕНИЕ: Используем matchedPairs из alignmentResult если есть
-        if (alignmentResult.matchedPairs && alignmentResult.matchedPairs.length > 0) {
-            console.log(`🔍 Использую ${alignmentResult.matchedPairs.length} совпавших пар`);
-
-            // Просто добавляем узлы, которые не совпали
-            tempGraph.nodes.forEach((tempNode, tempId) => {
-                const isMatched = alignmentResult.matchedPairs.some(pair =>
-                    pair.node2 === tempId || pair.node2Id === tempId
-                );
-
-                if (!isMatched) {
-                    // Уникальный узел - добавляем
-                    const newNodeId = `merged_${Date.now()}_${tempId}`;
-                    mainGraph.nodes.set(newNodeId, {
-                        ...tempNode,
-                        id: newNodeId,
-                        confirmedCount: 1,
-                        isNew: true
-                    });
-                    addedCount++;
-                } else {
-                    matchedCount++;
-                }
-            });
-        } else {
-            // Простая проверка расстояния
-            tempGraph.nodes.forEach((tempNode, tempId) => {
-                let isUnique = true;
-
-                mainGraph.nodes.forEach((mainNode, mainId) => {
-                    const dx = mainNode.x - tempNode.x;
-                    const dy = mainNode.y - tempNode.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-
-                    if (distance < 40) { // 🔥 Увеличить порог до 40px
-                        isUnique = false;
-                    }
-                });
-
-                if (isUnique) {
-                    const newNodeId = `merged_${Date.now()}_${tempId}`;
-                    mainGraph.nodes.set(newNodeId, {
-                        ...tempNode,
-                        id: newNodeId,
-                        confirmedCount: 1,
-                        isNew: true
-                    });
-                    addedCount++;
-                } else {
-                    matchedCount++;
-                }
-            });
+    // 🔥 НОВЫЙ МЕТОД: обновить подтверждения из векторной модели
+    updateConfirmationsFromVectorModel(footprint, vectorModel) {
+        if (!footprint || !footprint.graph || !vectorModel || !vectorModel.templateBuilder) {
+            return;
         }
 
-        // Перестраиваем граф только если добавили узлы
-        if (addedCount > 0) {
-            const points = Array.from(mainGraph.nodes.values()).map(node => ({
-                x: node.x,
-                y: node.y,
-                confidence: node.confidence || 0.5,
-                id: node.id
-            }));
+        const templateInfo = vectorModel.templateBuilder.getInfo();
+        console.log(`🔧 Обновляю подтверждения в отпечатке из шаблона (${templateInfo.confirmedCells} ячеек)`);
 
-            mainGraph.buildFromPoints(points);
-        }
-
-        console.log(`✅ Объединение: +${addedCount} новых, ${matchedCount} совпало`);
-        return { added: addedCount, matched: matchedCount, total: mainGraph.nodes.size };
+        // Просто обновляем счетчик подтверждений в узлах графа
+        footprint.graph.nodes.forEach((node, nodeId) => {
+            // Найти, в какой ячейке находится этот узел
+            for (const [cellId, cell] of vectorModel.templateBuilder.templateCells) {
+                const dx = node.x - cell.center.x;
+                const dy = node.y - cell.center.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+               
+                if (distance < (cell.radius || vectorModel.templateBuilder.config.cellSize / 2)) {
+                    // Узел находится в этой ячейке
+                    if (!node.confirmedCount) node.confirmedCount = 0;
+                    node.confirmedCount = Math.max(node.confirmedCount, cell.confirmations || 1);
+                    node.confidence = cell.confidence || 0.7;
+                    break;
+                }
+            }
+        });
     }
 
     // 🔥 ОБНОВЛЕННАЯ ВИЗУАЛИЗАЦИЯ ВЕКТОРНОЙ СУПЕР-МОДЕЛИ
