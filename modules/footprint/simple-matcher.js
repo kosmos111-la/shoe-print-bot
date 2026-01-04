@@ -75,40 +75,46 @@ class SimpleGraphMatcher {
         }
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Проверка на радикальные различия (добавлена строгая проверка распределения)
+    // 🔥 СРОЧНОЕ ИСПРАВЛЕНИЕ: ЗАМЕНИТЬ ВЕСЬ МЕТОД areRadicallyDifferent
     areRadicallyDifferent(graph1, graph2) {
         const invariants1 = this.calculateBasicInvariants(graph1);
         const invariants2 = this.calculateBasicInvariants(graph2);
+       
+        console.log(`🔍 РАДИКАЛЬНАЯ ПРОВЕРКА:`);
+        console.log(`   Граф 1: ${invariants1.nodeCount} узлов, кластеризация=${invariants1.clusteringCoefficient?.toFixed(3)}`);
+        console.log(`   Граф 2: ${invariants2.nodeCount} узлов, кластеризация=${invariants2.clusteringCoefficient?.toFixed(3)}`);
 
-        // 1. Разное количество узлов (>50% разницы)
+        // 1. Разное количество узлов (>50% разницы) - УЖЕ СТРОГО
         const nodeRatio = Math.min(invariants1.nodeCount, invariants2.nodeCount) /
                          Math.max(invariants1.nodeCount, invariants2.nodeCount);
-        if (nodeRatio < 0.5) {
-            if (this.config.debug) console.log(`⚠️ Радикальное различие: разные количество узлов (ratio=${nodeRatio.toFixed(3)})`);
+        if (nodeRatio < 0.7) { // БЫЛО 0.5, СТАЛО 0.7 (строже!)
+            console.log(`🚫 Радикальное различие: разные количество узлов (ratio=${nodeRatio.toFixed(3)})`);
             return true;
         }
 
-        // 2. Радикально разная кластеризация
+        // 2. Радикально разная кластеризация - УЖЕ СТРОГО
         const clusteringDiff = Math.abs(invariants1.clusteringCoefficient - invariants2.clusteringCoefficient);
-        if (clusteringDiff > 0.5) {
-            if (this.config.debug) console.log(`⚠️ Радикальное различие: разная кластеризация (diff=${clusteringDiff.toFixed(3)})`);
+        if (clusteringDiff > 0.4) { // БЫЛО 0.5, СТАЛО 0.4 (строже!)
+            console.log(`🚫 Радикальное различие: разная кластеризация (diff=${clusteringDiff.toFixed(3)})`);
             return true;
         }
 
-        // 3. Радикально разная плотность
+        // 3. Радикально разная плотность - УЖЕ СТРОГО
         const densityDiff = Math.abs(invariants1.density - invariants2.density);
-        if (densityDiff > 0.3) {
-            if (this.config.debug) console.log(`⚠️ Радикальное различие: разная плотность (diff=${densityDiff.toFixed(3)})`);
+        if (densityDiff > 0.2) { // БЫЛО 0.3, СТАЛО 0.2 (строже!)
+            console.log(`🚫 Радикальное различие: разная плотность (diff=${densityDiff.toFixed(3)})`);
             return true;
         }
 
-        // 🔥 ДОБАВЛЕНА СТРОГАЯ ПРОВЕРКА РАСПРЕДЕЛЕНИЯ:
+        // 🔥 4. НОВАЯ ПРОВЕРКА: разное распределение по квадрантам
         const quadrantDiff = this.calculateQuadrantDifference(graph1, graph2);
-        if (quadrantDiff > 0.6) {
-            if (this.config.debug) console.log(`⚠️ Радикальное различие: сильно разное распределение (diff=${quadrantDiff.toFixed(3)})`);
-            return true;  // Сильно разное распределение
+        console.log(`   Разница распределения по квадрантам: ${quadrantDiff.toFixed(3)}`);
+        if (quadrantDiff > 0.3) { // Если распределение сильно отличается
+            console.log(`🚫 Радикальное различие: разное распределение точек (diff=${quadrantDiff.toFixed(3)})`);
+            return true;
         }
 
+        console.log(`✅ Формы НЕ радикально разные`);
         return false;
     }
 
@@ -116,16 +122,37 @@ class SimpleGraphMatcher {
     calculateQuadrantDifference(graph1, graph2) {
         const norm1 = this.normalizeGraphCoordinates(graph1);
         const norm2 = this.normalizeGraphCoordinates(graph2);
-
-        const grid1 = this.createNormalizedGrid(norm1.nodes, 3);
-        const grid2 = this.createNormalizedGrid(norm2.nodes, 3);
-
+       
+        // Используем сетку 2x2 для быстрого сравнения
+        const grid1 = this.createNormalizedGrid(norm1.nodes, 2);
+        const grid2 = this.createNormalizedGrid(norm2.nodes, 2);
+       
         let totalDiff = 0;
         for (let i = 0; i < grid1.length; i++) {
             totalDiff += Math.abs(grid1[i] - grid2[i]);
         }
+       
+        return totalDiff / grid1.length; // Средняя разница
+    }
 
-        return totalDiff / grid1.length;
+    // 🔥 ДОБАВЛЕН МЕТОД createNormalizedGrid (если нет)
+    createNormalizedGrid(nodes, gridSize = 2) {
+        const grid = Array(gridSize * gridSize).fill(0);
+       
+        nodes.forEach(node => {
+            const nx = node.nx || 0;
+            const ny = node.ny || 0;
+           
+            const gridX = Math.min(gridSize - 1, Math.floor(nx * gridSize));
+            const gridY = Math.min(gridSize - 1, Math.floor(ny * gridSize));
+            const cellIndex = gridY * gridSize + gridX;
+           
+            grid[cellIndex]++;
+        });
+       
+        // Нормализуем
+        const total = nodes.length || 1;
+        return grid.map(count => count / total);
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Расчет базовых инвариантов (для радикальной проверки)
@@ -158,24 +185,21 @@ class SimpleGraphMatcher {
         };
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД compareGraphs (с радикальной проверкой как в инструкции)
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД compareGraphs с ВЫЗОВОМ РАДИКАЛЬНОЙ ПРОВЕРКИ ПЕРВЫМ ДЕЛОМ
     compareGraphs(graph1, graph2, context = {}) {
         const startTime = Date.now();
+       
+        console.log(`🔍 Сравниваю графы: "${graph1.name}" vs "${graph2.name}"`);
 
-        if (this.config.debug) {
-            console.log(`🔍 Сравниваю графы с НОРМАЛИЗАЦИЕЙ: "${graph1.name}" vs "${graph2.name}"`);
-        }
-
-        // 🔥 ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если формы радикально разные (как в инструкции)
+        // 🔥 ВЫЗОВ РАДИКАЛЬНОЙ ПРОВЕРКИ ПЕРВЫМ ДЕЛОМ
         if (this.areRadicallyDifferent(graph1, graph2)) {
+            console.log(`🚫 Графы радикально разные - быстрый отсев`);
             return {
                 similarity: 0.2, // Низкая схожесть
                 decision: 'different',
                 reason: 'Радикально разные формы',
                 method: 'radical_difference_check',
-                details: {
-                    quickCheck: { pass: false, score: 0.2 }
-                },
+                details: { quickCheck: { pass: false, score: 0.2 } },
                 confidence: 0.8,
                 timeMs: Date.now() - startTime,
                 context: context
@@ -387,40 +411,6 @@ class SimpleGraphMatcher {
         const varY = nys.reduce((sum, y) => sum + Math.pow(y - meanY, 2), 0) / nys.length;
 
         return Math.sqrt(varX + varY);
-    }
-
-    compareQuadrants(nodes1, nodes2, gridSize = 2) {
-        const grid1 = this.createNormalizedGrid(nodes1, gridSize);
-        const grid2 = this.createNormalizedGrid(nodes2, gridSize);
-
-        const totalCells = gridSize * gridSize;
-        let matchScore = 0;
-
-        for (let i = 0; i < totalCells; i++) {
-            const ratio = Math.min(grid1[i], grid2[i]) / Math.max(grid1[i], 1);
-            matchScore += ratio;
-        }
-
-        return matchScore / totalCells;
-    }
-
-    createNormalizedGrid(nodes, gridSize = 2) {
-        const grid = Array(gridSize * gridSize).fill(0);
-
-        nodes.forEach(node => {
-            const nx = node.nx || 0;
-            const ny = node.ny || 0;
-
-            const gridX = Math.min(gridSize - 1, Math.floor(nx * gridSize));
-            const gridY = Math.min(gridSize - 1, Math.floor(ny * gridSize));
-            const cellIndex = gridY * gridSize + gridX;
-
-            grid[cellIndex]++;
-        });
-
-        // Нормализуем
-        const total = nodes.length || 1;
-        return grid.map(count => count / total);
     }
 
     // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
