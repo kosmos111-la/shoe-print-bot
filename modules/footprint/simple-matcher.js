@@ -75,7 +75,7 @@ class SimpleGraphMatcher {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Проверка на радикальные различия (как в инструкции)
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Проверка на радикальные различия (добавлена строгая проверка распределения)
     areRadicallyDifferent(graph1, graph2) {
         const invariants1 = this.calculateBasicInvariants(graph1);
         const invariants2 = this.calculateBasicInvariants(graph2);
@@ -102,7 +102,30 @@ class SimpleGraphMatcher {
             return true;
         }
 
+        // 🔥 ДОБАВЛЕНА СТРОГАЯ ПРОВЕРКА РАСПРЕДЕЛЕНИЯ:
+        const quadrantDiff = this.calculateQuadrantDifference(graph1, graph2);
+        if (quadrantDiff > 0.6) {
+            if (this.config.debug) console.log(`⚠️ Радикальное различие: сильно разное распределение (diff=${quadrantDiff.toFixed(3)})`);
+            return true;  // Сильно разное распределение
+        }
+
         return false;
+    }
+
+    // 🔥 ДОБАВЛЕН НОВЫЙ МЕТОД: Расчет разницы распределения по квадрантам
+    calculateQuadrantDifference(graph1, graph2) {
+        const norm1 = this.normalizeGraphCoordinates(graph1);
+        const norm2 = this.normalizeGraphCoordinates(graph2);
+
+        const grid1 = this.createNormalizedGrid(norm1.nodes, 3);
+        const grid2 = this.createNormalizedGrid(norm2.nodes, 3);
+
+        let totalDiff = 0;
+        for (let i = 0; i < grid1.length; i++) {
+            totalDiff += Math.abs(grid1[i] - grid2[i]);
+        }
+
+        return totalDiff / grid1.length;
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Расчет базовых инвариантов (для радикальной проверки)
