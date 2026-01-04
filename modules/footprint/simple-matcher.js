@@ -4,14 +4,15 @@
 class SimpleGraphMatcher {
     constructor(options = {}) {
         this.config = {
-            // Пороги для принятия решений
+            // 🔥 ИЗМЕНЕНО: ФИКСИРОВАННЫЕ ПОРОГИ согласно инструкции
             sameThreshold: options.sameThreshold || 0.7,      // >0.7 = одна обувь
-            similarThreshold: options.similarThreshold || 0.4, // 0.4-0.7 = похожая
+            similarThreshold: options.similarThreshold || 0.5, // 0.5-0.7 = похожая (БЫЛО: 0.4)
+            differentThreshold: options.differentThreshold || 0.3, // НОВЫЙ ПОРОГ
             minNodeRatio: options.minNodeRatio || 0.7,        // Минимальное соотношение узлов
             maxNodeDiff: options.maxNodeDiff || 0.3,          // Максимальная разница узлов
 
-            // 🔥 НОВЫЕ НАСТРОЙКИ: Адаптивные пороги
-            enableAdaptiveThresholds: options.enableAdaptiveThresholds !== false,
+            // 🔥 ОТКЛЮЧЕНО: Адаптивные пороги (используем фиксированные согласно инструкции)
+            enableAdaptiveThresholds: false, // Отключаем адаптивные пороги
             smallNodeThreshold: options.smallNodeThreshold || 5,
 
             // Веса для разных типов сравнений
@@ -30,51 +31,45 @@ class SimpleGraphMatcher {
         };
 
         this.matchHistory = [];
-        console.log('🎯 Инициализирован SimpleGraphMatcher с инвариантностью и адаптивными порогами');
+        console.log('🎯 Инициализирован SimpleGraphMatcher с фиксированными порогами: same=0.7, similar=0.5, different=0.3');
     }
 
-    // 🔥 ДОБАВЛЕН МЕТОД: Адаптивные пороги для малого количества точек (как в инструкции)
+    // 🔥 ИЗМЕНЕНО: Метод getAdaptiveThresholds теперь возвращает фиксированные пороги
     getAdaptiveThresholds(comparisonData) {
-        let sameThreshold = this.config.sameThreshold; // 0.7
-        let similarThreshold = this.config.similarThreshold; // 0.4
+        // Всегда возвращаем фиксированные пороги согласно инструкции
+        const sameThreshold = this.config.sameThreshold; // 0.7
+        const similarThreshold = this.config.similarThreshold; // 0.5
 
-        // Если мало точек - увеличиваем пороги
-        if (this.config.enableAdaptiveThresholds &&
-            comparisonData.nodeCount &&
-            comparisonData.nodeCount < this.config.smallNodeThreshold) {
-            sameThreshold = 0.8;     // Требуем 80% для малого количества точек
-            similarThreshold = 0.55; // 55% вместо 40%
-           
-            if (this.config.debug) {
-                console.log(`📊 Адаптивные пороги для ${comparisonData.nodeCount} точек: ` +
-                           `same=${sameThreshold}, similar=${similarThreshold}`);
-            }
+        if (this.config.debug) {
+            console.log(`📊 ФИКСИРОВАННЫЕ пороги: same=${sameThreshold}, similar=${similarThreshold}`);
         }
 
         return { sameThreshold, similarThreshold };
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Принятие решения с адаптивными порогами (как в инструкции)
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Принятие решения с ФИКСИРОВАННЫМИ порогами (как в инструкции)
     makeDecision(score, comparisonData) {
-        // Получаем адаптивные пороги
-        const { sameThreshold, similarThreshold } = this.getAdaptiveThresholds(comparisonData);
+        // 🔥 ИЗМЕНИТЬ ПОРОГИ:
+        const sameThreshold = 0.7;
+        const similarThreshold = 0.5;    // БЫЛО: 0.4, СТАЛО: 0.5
+        const differentThreshold = 0.3;  // НОВЫЙ ПОРОГ
 
         if (score >= sameThreshold) {
             return {
                 type: 'same',
-                reason: `Высокая схожесть (${score.toFixed(3)}) - вероятно, та же обувь`,
+                reason: `Высокая схожесть`,
                 confidence: score
             };
         } else if (score >= similarThreshold) {
             return {
                 type: 'similar',
-                reason: `Умеренная схожесть (${score.toFixed(3)}) - похожий тип протектора`,
+                reason: `Умеренная схожесть`,
                 confidence: score
             };
         } else {
             return {
                 type: 'different',
-                reason: `Низкая схожесть (${score.toFixed(3)}) - разные следы`,
+                reason: `Низкая схожесть`,
                 confidence: 1 - score
             };
         }
@@ -114,24 +109,24 @@ class SimpleGraphMatcher {
     calculateBasicInvariants(graph) {
         const nodes = Array.from(graph.nodes?.values() || []);
         const edges = Array.from(graph.edges?.values() || []);
-       
+
         // Количество узлов
         const nodeCount = nodes.length;
-       
+
         // Плотность графа
         const possibleEdges = nodeCount * (nodeCount - 1) / 2;
         const density = possibleEdges > 0 ? edges.length / possibleEdges : 0;
-       
+
         // Рассчитываем степени узлов
         const degrees = {};
         edges.forEach(edge => {
             degrees[edge.from] = (degrees[edge.from] || 0) + 1;
             degrees[edge.to] = (degrees[edge.to] || 0) + 1;
         });
-       
+
         // Упрощенный коэффициент кластеризации (для следов обуви)
         let clusteringCoefficient = 0.3 + Math.random() * 0.2; // Эмпирическая оценка
-       
+
         return {
             nodeCount,
             density,
@@ -178,13 +173,13 @@ class SimpleGraphMatcher {
         // 🔥 СРАВНИВАЕМ НОРМАЛИЗОВАННЫЕ ИНВАРИАНТЫ (существующий код)
         const basicComparison = this.compareNormalizedInvariants(norm1, norm2);
 
-        // 🔥 ИСПОЛЬЗУЕМ АДАПТИВНЫЕ ПОРОГИ ДЛЯ ПРИНЯТИЯ РЕШЕНИЯ
+        // 🔥 ИСПОЛЬЗУЕМ ФИКСИРОВАННЫЕ ПОРОГИ ДЛЯ ПРИНЯТИЯ РЕШЕНИЯ
         const comparisonData = {
             nodeCount: Math.min(norm1.nodes.length, norm2.nodes.length),
             graph1Nodes: norm1.nodes.length,
             graph2Nodes: norm2.nodes.length
         };
-       
+
         const decision = this.makeDecision(basicComparison.score, comparisonData);
 
         const result = {
