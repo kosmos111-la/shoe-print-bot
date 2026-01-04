@@ -79,7 +79,7 @@ class SimpleGraphMatcher {
     areRadicallyDifferent(graph1, graph2) {
         const invariants1 = this.calculateBasicInvariants(graph1);
         const invariants2 = this.calculateBasicInvariants(graph2);
-       
+
         console.log(`🔍 РАДИКАЛЬНАЯ ПРОВЕРКА:`);
         console.log(`   Граф 1: ${invariants1.nodeCount} узлов, кластеризация=${invariants1.clusteringCoefficient?.toFixed(3)}`);
         console.log(`   Граф 2: ${invariants2.nodeCount} узлов, кластеризация=${invariants2.clusteringCoefficient?.toFixed(3)}`);
@@ -122,40 +122,40 @@ class SimpleGraphMatcher {
     calculateQuadrantDifference(graph1, graph2) {
         const norm1 = this.normalizeGraphCoordinates(graph1);
         const norm2 = this.normalizeGraphCoordinates(graph2);
-       
+
         // Используем сетку 2x2 для быстрого сравнения
         const grid1 = this.createNormalizedGrid(norm1.nodes, 2);
         const grid2 = this.createNormalizedGrid(norm2.nodes, 2);
-       
+
         let totalDiff = 0;
         for (let i = 0; i < grid1.length; i++) {
             totalDiff += Math.abs(grid1[i] - grid2[i]);
         }
-       
+
         return totalDiff / grid1.length; // Средняя разница
     }
 
     // 🔥 ДОБАВЛЕН МЕТОД createNormalizedGrid (если нет)
     createNormalizedGrid(nodes, gridSize = 2) {
         const grid = Array(gridSize * gridSize).fill(0);
-       
+
         nodes.forEach(node => {
             const nx = node.nx || 0;
             const ny = node.ny || 0;
-           
+
             const gridX = Math.min(gridSize - 1, Math.floor(nx * gridSize));
             const gridY = Math.min(gridSize - 1, Math.floor(ny * gridSize));
             const cellIndex = gridY * gridSize + gridX;
-           
+
             grid[cellIndex]++;
         });
-       
+
         // Нормализуем
         const total = nodes.length || 1;
         return grid.map(count => count / total);
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Расчет базовых инвариантов (для радикальной проверки)
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Расчет базовых инвариантов с реальным расчетом кластеризации
     calculateBasicInvariants(graph) {
         const nodes = Array.from(graph.nodes?.values() || []);
         const edges = Array.from(graph.edges?.values() || []);
@@ -167,28 +167,75 @@ class SimpleGraphMatcher {
         const possibleEdges = nodeCount * (nodeCount - 1) / 2;
         const density = possibleEdges > 0 ? edges.length / possibleEdges : 0;
 
-        // Рассчитываем степени узлов
-        const degrees = {};
+        // Рассчитываем реальные степени узлов
+        const degrees = new Map();
         edges.forEach(edge => {
-            degrees[edge.from] = (degrees[edge.from] || 0) + 1;
-            degrees[edge.to] = (degrees[edge.to] || 0) + 1;
+            degrees.set(edge.from, (degrees.get(edge.from) || 0) + 1);
+            degrees.set(edge.to, (degrees.get(edge.to) || 0) + 1);
         });
 
-        // Упрощенный коэффициент кластеризации (для следов обуви)
-        let clusteringCoefficient = 0.3 + Math.random() * 0.2; // Эмпирическая оценка
+        // 🔥 РЕАЛЬНЫЙ расчет коэффициента кластеризации
+        let clusteringCoefficient = 0;
+        if (nodeCount > 0 && edges.length > 0) {
+            let totalClustering = 0;
+            let nodesWithNeighbors = 0;
+
+            // Для каждого узла считаем локальный коэффициент кластеризации
+            for (const [nodeId, node] of graph.nodes) {
+                const neighborIds = [];
+
+                // Находим соседей через ребра
+                for (const [edgeId, edge] of graph.edges) {
+                    if (edge.from === nodeId) neighborIds.push(edge.to);
+                    if (edge.to === nodeId) neighborIds.push(edge.from);
+                }
+
+                if (neighborIds.length >= 2) {
+                    let possibleTriangles = 0;
+                    let actualTriangles = 0;
+
+                    // Проверяем связи между соседями
+                    for (let i = 0; i < neighborIds.length; i++) {
+                        for (let j = i + 1; j < neighborIds.length; j++) {
+                            possibleTriangles++;
+
+                            // Проверяем есть ли ребро между neighborIds[i] и neighborIds[j]
+                            let hasEdge = false;
+                            for (const [edgeId, edge] of graph.edges) {
+                                if ((edge.from === neighborIds[i] && edge.to === neighborIds[j]) ||
+                                    (edge.from === neighborIds[j] && edge.to === neighborIds[i])) {
+                                    hasEdge = true;
+                                    break;
+                                }
+                            }
+                            if (hasEdge) actualTriangles++;
+                        }
+                    }
+
+                    if (possibleTriangles > 0) {
+                        totalClustering += actualTriangles / possibleTriangles;
+                        nodesWithNeighbors++;
+                    }
+                }
+            }
+
+            clusteringCoefficient = nodesWithNeighbors > 0 ? totalClustering / nodesWithNeighbors : 0;
+        }
+
+        const avgDegree = edges.length * 2 / Math.max(1, nodeCount);
 
         return {
             nodeCount,
             density,
-            clusteringCoefficient,
-            avgDegree: Object.values(degrees).reduce((a, b) => a + b, 0) / nodeCount || 0
+            clusteringCoefficient: Math.max(0, Math.min(1, clusteringCoefficient)),
+            avgDegree
         };
     }
 
     // 🔥 ОБНОВЛЕННЫЙ МЕТОД compareGraphs с ВЫЗОВОМ РАДИКАЛЬНОЙ ПРОВЕРКИ ПЕРВЫМ ДЕЛОМ
     compareGraphs(graph1, graph2, context = {}) {
         const startTime = Date.now();
-       
+
         console.log(`🔍 Сравниваю графы: "${graph1.name}" vs "${graph2.name}"`);
 
         // 🔥 ВЫЗОВ РАДИКАЛЬНОЙ ПРОВЕРКИ ПЕРВЫМ ДЕЛОМ
@@ -326,8 +373,8 @@ class SimpleGraphMatcher {
         comparisons.push({ name: 'normalizedSpread', score: spreadScore, weight: 0.2 });
 
         // 4. Сравнение по квадрантам
-       // const quadrantScore = this.compareQuadrants(norm1.nodes, norm2.nodes);
-      const quadrantScore = 0.5; // временное значение
+       // const quadrantScore = this.compareQuadrants(norm1.nodes, norm2.nodes);
+      const quadrantScore = 0.5; // временное значение
         comparisons.push({ name: 'quadrants', score: quadrantScore, weight: 0.3 });
 
         const totalScore = comparisons.reduce((sum, comp) => sum + comp.score * comp.weight, 0);
