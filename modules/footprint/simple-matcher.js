@@ -326,7 +326,8 @@ class SimpleGraphMatcher {
         comparisons.push({ name: 'normalizedSpread', score: spreadScore, weight: 0.2 });
 
         // 4. Сравнение по квадрантам
-        const quadrantScore = this.compareQuadrants(norm1.nodes, norm2.nodes);
+       // const quadrantScore = this.compareQuadrants(norm1.nodes, norm2.nodes);
+      const quadrantScore = 0.5; // временное значение
         comparisons.push({ name: 'quadrants', score: quadrantScore, weight: 0.3 });
 
         const totalScore = comparisons.reduce((sum, comp) => sum + comp.score * comp.weight, 0);
