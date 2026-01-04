@@ -23,7 +23,7 @@ class TemplateBuilder {
         // 🔥 ИНВАРИАНТНЫЕ ЯЧЕЙКИ (на основе относительных позиций)
         this.templateCells = new Map();
         this.cellAssignments = new Map();
-        this.invariantCells = new Map(); // 🔥 НОВОЕ: инвариантные ячейки
+        this.invariantCells = new Map();
 
         // 🔥 ТРАНСФОРМАЦИИ
         this.graphTransformations = new Map();
@@ -50,14 +50,53 @@ class TemplateBuilder {
             confirmationThreshold: options.confirmationThreshold || 2,
             highConfidenceThreshold: options.highConfidenceThreshold || 3,
             maxAlignmentError: options.maxAlignmentError || 100,
-            enablePCA: false, // 🔥 ОТКЛЮЧАЕМ
-            enableInvariantGrid: true, // 🔥 ВКЛЮЧАЕМ ИНВАРИАНТНОСТЬ
-            useRelativeCoordinates: true, // 🔥 ИСПОЛЬЗУЕМ ОТНОСИТЕЛЬНЫЕ КООРДИНАТЫ
+            enablePCA: false,
+            enableInvariantGrid: true,
+            useRelativeCoordinates: true,
             debug: options.debug || false,
             ...options
         };
 
         console.log(`🏗️ Создан TemplateBuilder "${this.name}" с инвариантностью`);
+    }
+
+    // 🔥 ОБЕСПЕЧИВАЕМ СОВМЕСТИМУЮ НОРМАЛИЗАЦИЮ (как в инструкции)
+    normalizeReferencePoints() {
+        if (this.referencePoints.length === 0) return;
+
+        const bounds = this.calculateBounds(this.referencePoints);
+
+        // Используем ТУ ЖЕ логику, что и в SimpleMatcher
+        this.normalizationTransform = {
+            minX: bounds.minX,
+            minY: bounds.minY,
+            width: Math.max(1, bounds.width),
+            height: Math.max(1, bounds.height)
+        };
+
+        this.normalizedReferencePoints = this.referencePoints.map(point => ({
+            ...point,
+            nx: (point.x - bounds.minX) / Math.max(1, bounds.width),
+            ny: (point.y - bounds.minY) / Math.max(1, bounds.height),
+            normalized: true
+        }));
+
+        console.log(`📐 Нормализация совместима с SimpleMatcher: ` +
+                   `ширина=${bounds.width.toFixed(1)}, высота=${bounds.height.toFixed(1)}`);
+    }
+
+    calculateBounds(points) {
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+
+        return {
+            minX: Math.min(...xs),
+            maxX: Math.max(...xs),
+            minY: Math.min(...ys),
+            maxY: Math.max(...ys),
+            width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
+            height: Math.max(1, Math.max(...ys) - Math.min(...ys))
+        };
     }
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: УСТАНОВИТЬ ЭТАЛОННЫЙ ГРАФ С ИНВАРИАНТНОСТЬЮ
@@ -87,33 +126,6 @@ class TemplateBuilder {
 
         console.log(`✅ Эталон установлен с инвариантностью: ${this.invariantCells.size} ячеек`);
         return true;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: НОРМАЛИЗАЦИЯ БЕЗ ПОВРЕЖДЕНИЯ
-    normalizeReferencePoints() {
-        if (this.referencePoints.length === 0) return;
-
-        const bounds = this.calculateBounds(this.referencePoints);
-
-        // Сохраняем трансформацию нормализации
-        this.normalizationTransform = {
-            minX: bounds.minX,
-            minY: bounds.minY,
-            width: bounds.width,
-            height: bounds.height,
-            scale: Math.max(bounds.width, bounds.height) > 0 ?
-                   1000 / Math.max(bounds.width, bounds.height) : 1
-        };
-
-        // Нормализуем к относительным координатам [0, 1]
-        this.normalizedReferencePoints = this.referencePoints.map(point => ({
-            ...point,
-            nx: (point.x - bounds.minX) / Math.max(1, bounds.width),  // [0, 1]
-            ny: (point.y - bounds.minY) / Math.max(1, bounds.height), // [0, 1]
-            normalized: true
-        }));
-
-        console.log(`📐 Нормализовано: (${bounds.minX},${bounds.minY}) → ширина=${bounds.width}, высота=${bounds.height}`);
     }
 
     // 🔥 НОВЫЙ МЕТОД: ИНВАРИАНТНАЯ СЕТКА
@@ -341,20 +353,6 @@ class TemplateBuilder {
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ИНВАРИАНТНОСТИ
-    calculateBounds(points) {
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-
-        return {
-            minX: Math.min(...xs),
-            maxX: Math.max(...xs),
-            minY: Math.min(...ys),
-            maxY: Math.max(...ys),
-            width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
-            height: Math.max(1, Math.max(...ys) - Math.min(...ys))
-        };
-    }
-
     normalizePoints(points, transform) {
         if (!transform) return points;
 
@@ -510,7 +508,7 @@ class TemplateBuilder {
                 y: cell.originalCenter.y,
                 nx: cell.normalizedCenter.nx,
                 ny: cell.normalizedCenter.ny,
-                radius: cell.radius * 100, // Масштабируем для визуализации
+                radius: cell.radius * 100,
                 confirmations: cell.confirmations || 0,
                 confidence: cell.confidence || 0,
                 sources: cell.sources ? Array.from(cell.sources) : [],
