@@ -11,21 +11,26 @@ class TemplateBuilder {
             debug: options.debug || false
         });
 
-        // 🔥 ОСНОВНОЙ КОНЦЕПТ: ШАБЛОН НА ОСНОВЕ ЭТАЛОНА
-        this.referenceGraph = null;      // Граф-эталон (самый детализированный)
-        this.referenceGraphId = null;    // ID эталонного графа
-        this.referencePoints = [];       // Точки эталона (центрированные, нормализованные)
+        // 🔥 ИНВАРИАНТНАЯ АРХИТЕКТУРА
+        this.referenceGraph = null;
+        this.referenceGraphId = null;
+        this.referencePoints = [];
 
-        // 🔥 АДАПТИВНАЯ СЕТКА ШАБЛОНА
-        this.templateCells = new Map();  // Ячейки шаблона: cellId -> {center, points[], confirmations, confidence}
-        this.cellAssignments = new Map(); // Привязка точек к ячейкам: pointId -> cellId
+        // 🔥 НОРМАЛИЗОВАННЫЕ ДАННЫЕ
+        this.normalizedReferencePoints = [];
+        this.normalizationTransform = null;
 
-        // 🔥 ТРАНСФОРМАЦИИ ДЛЯ КАЖДОГО СЛЕДА
-        this.graphTransformations = new Map(); // graphId -> {scale, rotation, translation, error}
-        this.alignedPoints = new Map();        // graphId -> [{x, y, originalId, cellId}]
+        // 🔥 ИНВАРИАНТНЫЕ ЯЧЕЙКИ (на основе относительных позиций)
+        this.templateCells = new Map();
+        this.cellAssignments = new Map();
+        this.invariantCells = new Map(); // 🔥 НОВОЕ: инвариантные ячейки
 
-        // 🔥 ТОПОЛОГИЯ ШАБЛОНА (связи между ячейками)
-        this.cellConnections = new Map(); // cellId -> [neighborCellIds]
+        // 🔥 ТРАНСФОРМАЦИИ
+        this.graphTransformations = new Map();
+        this.alignedPoints = new Map();
+
+        // 🔥 ТОПОЛОГИЯ ШАБЛОНА
+        this.cellConnections = new Map();
 
         // 🔥 СТАТИСТИКА
         this.stats = {
@@ -38,85 +43,106 @@ class TemplateBuilder {
             lastUpdated: new Date()
         };
 
-        // 🔥 НАСТРОЙКИ (ИСПРАВЛЕННЫЕ!)
+        // 🔥 НАСТРОЙКИ С ИНВАРИАНТНОСТЬЮ
         this.config = {
-            minPointsForReference: options.minPointsForReference || 3, // Уменьшили
-            cellSize: options.cellSize || 25, // Увеличили
+            minPointsForReference: options.minPointsForReference || 3,
+            cellSize: options.cellSize || 25,
             confirmationThreshold: options.confirmationThreshold || 2,
             highConfidenceThreshold: options.highConfidenceThreshold || 3,
-            maxAlignmentError: options.maxAlignmentError || 100, // Увеличили
-            enablePCA: false, // 🔥 ОТКЛЮЧАЕМ PCA
-            enableAdaptiveGrid: options.enableAdaptiveGrid !== false,
+            maxAlignmentError: options.maxAlignmentError || 100,
+            enablePCA: false, // 🔥 ОТКЛЮЧАЕМ
+            enableInvariantGrid: true, // 🔥 ВКЛЮЧАЕМ ИНВАРИАНТНОСТЬ
+            useRelativeCoordinates: true, // 🔥 ИСПОЛЬЗУЕМ ОТНОСИТЕЛЬНЫЕ КООРДИНАТЫ
             debug: options.debug || false,
             ...options
         };
 
-        console.log(`🏗️ Создан TemplateBuilder "${this.name}"`);
+        console.log(`🏗️ Создан TemplateBuilder "${this.name}" с инвариантностью`);
     }
 
-    // 🔥 ОСНОВНОЙ МЕТОД 1: УСТАНОВИТЬ ЭТАЛОННЫЙ ГРАФ (ИСПРАВЛЕННЫЙ!)
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: УСТАНОВИТЬ ЭТАЛОННЫЙ ГРАФ С ИНВАРИАНТНОСТЬЮ
     setReferenceGraph(graph, graphId, metadata = {}) {
-        console.log(`🎯 Устанавливаю эталонный граф: ${graphId} (${graph?.nodes?.size || 0} узлов)`);
+        console.log(`🎯 Устанавливаю эталонный граф с ИНВАРИАНТНОСТЬЮ: ${graphId}`);
 
         if (!graph || !graph.nodes) {
             console.log(`❌ Граф не существует`);
             return false;
         }
 
-        const nodeCount = graph.nodes.size;
-
-        if (nodeCount < this.config.minPointsForReference) {
-            console.log(`⚠️ Граф мал для эталона (${nodeCount} < ${this.config.minPointsForReference}), ` +
-                       `но все равно использую как эталон`);
-            // ПРОДОЛЖАЕМ, а не возвращаем false!
-        }
-
         this.referenceGraph = graph;
         this.referenceGraphId = graphId;
 
-        // Извлекаем точки из графа
+        // 1. Извлекаем точки
         this.referencePoints = this.extractPointsFromGraph(graph);
         console.log(`📊 Извлечено ${this.referencePoints.length} точек эталона`);
 
-        // 🔥 ВМЕСТО PCA - ПРОСТОЕ ЦЕНТРИРОВАНИЕ
-        this.centerReferencePoints();
+        // 2. 🔥 НОРМАЛИЗУЕМ БЕЗ ПОВРЕЖДЕНИЯ КООРДИНАТ
+        this.normalizeReferencePoints();
 
-        // 2. 🔥 ПРОСТАЯ СЕТКА ВМЕСТО АДАПТИВНОЙ
-        this.buildSimpleGridFromPoints();
+        // 3. 🔥 СОЗДАЕМ ИНВАРИАНТНУЮ СЕТКУ
+        this.buildInvariantGrid();
 
-        // 3. СОХРАНЯЕМ ТОПОЛОГИЮ (связи между ячейками)
+        // 4. Сохраняем топологию
         this.extractTopologyFromGraph(graph);
 
-        console.log(`✅ Эталон установлен: ${this.templateCells.size} ячеек шаблона`);
+        console.log(`✅ Эталон установлен с инвариантностью: ${this.invariantCells.size} ячеек`);
         return true;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ПРОСТОЕ ЦЕНТРИРОВАНИЕ
-    centerReferencePoints() {
+    // 🔥 НОВЫЙ МЕТОД: НОРМАЛИЗАЦИЯ БЕЗ ПОВРЕЖДЕНИЯ
+    normalizeReferencePoints() {
         if (this.referencePoints.length === 0) return;
 
-        const center = this.calculateCenter(this.referencePoints);
+        const bounds = this.calculateBounds(this.referencePoints);
 
-        // Сдвигаем все точки так, чтобы центр был в (0,0)
-        this.referencePoints = this.referencePoints.map(p => ({
-            ...p,
-            x: p.x - center.x,
-            y: p.y - center.y
+        // Сохраняем трансформацию нормализации
+        this.normalizationTransform = {
+            minX: bounds.minX,
+            minY: bounds.minY,
+            width: bounds.width,
+            height: bounds.height,
+            scale: Math.max(bounds.width, bounds.height) > 0 ?
+                   1000 / Math.max(bounds.width, bounds.height) : 1
+        };
+
+        // Нормализуем к относительным координатам [0, 1]
+        this.normalizedReferencePoints = this.referencePoints.map(point => ({
+            ...point,
+            nx: (point.x - bounds.minX) / Math.max(1, bounds.width),  // [0, 1]
+            ny: (point.y - bounds.minY) / Math.max(1, bounds.height), // [0, 1]
+            normalized: true
         }));
 
-        console.log(`🎯 Центрировал точки вокруг (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+        console.log(`📐 Нормализовано: (${bounds.minX},${bounds.minY}) → ширина=${bounds.width}, высота=${bounds.height}`);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ПРОСТАЯ СЕТКА ИЗ ТОЧЕК
-    buildSimpleGridFromPoints() {
-        console.log(`🔲 Создаю простую сетку из ${this.referencePoints.length} точек...`);
+    // 🔥 НОВЫЙ МЕТОД: ИНВАРИАНТНАЯ СЕТКА
+    buildInvariantGrid() {
+        console.log(`🔲 Создаю ИНВАРИАНТНУЮ сетку из ${this.normalizedReferencePoints.length} точек...`);
 
+        this.invariantCells.clear();
         this.templateCells.clear();
         this.cellAssignments.clear();
 
-        this.referencePoints.forEach((point, index) => {
+        // Создаем ячейки на основе ОТНОСИТЕЛЬНЫХ позиций
+        this.normalizedReferencePoints.forEach((point, index) => {
             const cellId = `cell_${index}`;
 
+            // 🔥 ИНВАРИАНТНАЯ ЯЧЕЙКА хранит ОТНОСИТЕЛЬНЫЕ координаты
+            const invariantCell = {
+                normalizedCenter: { nx: point.nx, ny: point.ny },
+                originalCenter: { x: point.x, y: point.y },
+                radius: 0.05, // 5% от размера (относительно!)
+                points: [point.id],
+                confirmations: 1,
+                confidence: 0.8,
+                sources: new Set([this.referenceGraphId]),
+                invariants: this.calculatePointInvariants(point, this.normalizedReferencePoints)
+            };
+
+            this.invariantCells.set(cellId, invariantCell);
+
+            // Также сохраняем в templateCells для совместимости
             this.templateCells.set(cellId, {
                 center: { x: point.x, y: point.y },
                 radius: this.config.cellSize / 2,
@@ -130,228 +156,280 @@ class TemplateBuilder {
             this.cellAssignments.set(point.id, cellId);
         });
 
-        console.log(`✅ Создано ${this.templateCells.size} ячеек (простая сетка)`);
+        console.log(`✅ Создано ${this.invariantCells.size} инвариантных ячеек`);
     }
 
-    // 🔥 ОСНОВНОЙ МЕТОД 2: ДОБАВИТЬ ГРАФ К ШАБЛОНУ (ИСПРАВЛЕННЫЙ!)
+    // 🔥 НОВЫЙ МЕТОД: ИНВАРИАНТЫ ТОЧКИ
+    calculatePointInvariants(point, allPoints) {
+        const invariants = {
+            nearestNeighbors: [],
+            distanceDistribution: [],
+            angularDistribution: []
+        };
+
+        if (allPoints.length < 2) return invariants;
+
+        // Находим 5 ближайших соседей
+        const distances = allPoints
+            .filter(p => p.id !== point.id)
+            .map(p => ({
+                id: p.id,
+                distance: Math.sqrt(Math.pow(p.nx - point.nx, 2) + Math.pow(p.ny - point.ny, 2)),
+                angle: Math.atan2(p.ny - point.ny, p.nx - point.nx)
+            }))
+            .sort((a, b) => a.distance - b.distance)
+            .slice(0, 5);
+
+        invariants.nearestNeighbors = distances.map(d => ({
+            id: d.id,
+            normalizedDistance: d.distance,
+            angle: d.angle
+        }));
+
+        // Распределение расстояний
+        const allDistances = allPoints
+            .filter(p => p.id !== point.id)
+            .map(p => Math.sqrt(Math.pow(p.nx - point.nx, 2) + Math.pow(p.ny - point.ny, 2)));
+
+        invariants.distanceDistribution = this.createDistanceHistogram(allDistances, 5);
+
+        return invariants;
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ДОБАВИТЬ ГРАФ С ИНВАРИАНТНОСТЬЮ
     addGraph(graph, graphId, metadata = {}) {
-        console.log(`🔄 Добавляю граф ${graphId} к шаблону...`);
+        console.log(`🔄 Добавляю граф ${graphId} с ИНВАРИАНТНОСТЬЮ...`);
 
         if (!this.referenceGraph) {
-            console.log(`⚠️ Нет эталона! Устанавливаю этот граф как эталон`);
             return this.setReferenceGraph(graph, graphId, metadata);
         }
 
-        // Извлекаем точки из графа
+        // 1. Извлекаем и нормализуем точки нового графа
         const points = this.extractPointsFromGraph(graph);
-        console.log(`📊 Точки для совмещения: ${points.length}`);
+        const normalizedPoints = this.normalizePoints(points, this.normalizationTransform);
 
-        // 🔥 ИСПОЛЬЗУЕМ МАТЧЕР ВМЕСТО СЛОЖНОЙ ТРАНСФОРМАЦИИ
-        const matchResult = this.matcher.alignAndCompare(this.referenceGraph, graph, {
-            templateMatch: true,
-            graphId: graphId
-        });
+        console.log(`📊 Нормализовано ${normalizedPoints.length} точек`);
 
-        if (!matchResult.matchedPairs || matchResult.matchedPairs.length === 0) {
-            console.log(`❌ Не найдено совпадающих пар точек`);
+        // 2. 🔥 ИНВАРИАНТНОЕ СОПОСТАВЛЕНИЕ
+        const invariantMatches = this.findInvariantMatches(normalizedPoints);
+
+        if (invariantMatches.length < this.referencePoints.length * 0.3) {
+            console.log(`❌ Недостаточно инвариантных совпадений: ${invariantMatches.length}`);
             return false;
         }
 
-        console.log(`✅ Найдено ${matchResult.matchedPairs.length} совпадающих пар, схожесть: ${matchResult.similarity.toFixed(3)}`);
+        console.log(`✅ Найдено ${invariantMatches.length} инвариантных совпадений`);
 
-        // 🔥 ПРОСТАЯ ТРАНСФОРМАЦИЯ НА ОСНОВЕ matchedPairs
-        const transformation = this.calculateSimpleTransformationFromMatches(matchResult.matchedPairs);
+        // 3. Обновить подтверждения
+        const updatedCells = this.updateInvariantCells(invariantMatches, graphId);
 
-        // Применяем трансформацию
-        const alignedPoints = this.applySimpleTransformation(points, transformation);
-
-        // Сопоставляем с ячейками
-        const assignments = this.assignToCells(alignedPoints, graphId);
-
-        // Обновляем подтверждения
-        const updatedCells = this.updateCellConfirmations(assignments, graphId);
-
-        // Сохранить трансформацию
+        // 4. Сохранить трансформацию
         this.graphTransformations.set(graphId, {
-            ...transformation,
             metadata: metadata,
             timestamp: new Date(),
             pointsCount: points.length,
-            alignedPointsCount: alignedPoints.length,
-            assignedCells: assignments.size,
-            matchedPairs: matchResult.matchedPairs.length,
-            similarity: matchResult.similarity
+            invariantMatches: invariantMatches.length,
+            matchedRatio: invariantMatches.length / Math.max(1, this.referencePoints.length)
         });
 
-        // Сохранить выровненные точки
-        this.alignedPoints.set(graphId, alignedPoints);
-
-        // Обновить статистику
+        // 5. Обновить статистику
         this.stats.totalGraphs++;
         this.stats.lastUpdated = new Date();
         this.updateStats();
 
-        console.log(`✅ Граф добавлен к шаблону: ${updatedCells} ячеек обновлено`);
+        console.log(`✅ Граф добавлен с инвариантностью: ${updatedCells} ячеек обновлено`);
         return true;
     }
 
-    calculateSimpleTransformationFromMatches(matchedPairs) {
-    if (matchedPairs.length === 0) {
-        return { translation: { x: 0, y: 0 }, scale: 1, rotation: 0 };
-    }
-   
-    // 🔥 ПРАВИЛЬНО ВЫЧИСЛЯЕМ СМЕЩЕНИЕ:
-    let totalDX = 0;
-    let totalDY = 0;
-    let count = 0;
-   
-    matchedPairs.forEach(pair => {
-        if (pair.node1Data && pair.node2Data) {
-            // node1Data - точка из эталона (уже центрирована!)
-            // node2Data - точка из нового графа (не центрирована)
-           
-            // 🔥 ИСПРАВЛЕНИЕ: эталонные точки уже центрированы,
-            // поэтому нужно компенсировать смещение
-            totalDX += (pair.node1Data.x - pair.node2Data.x);
-            totalDY += (pair.node1Data.y - pair.node2Data.y);
-            count++;
-        }
-    });
-   
-    if (count === 0) {
-        return { translation: { x: 0, y: 0 }, scale: 1, rotation: 0 };
-    }
-   
-    console.log(`📐 Среднее смещение: (${(totalDX/count).toFixed(1)}, ${(totalDY/count).toFixed(1)})`);
-   
-    return {
-        translation: {
-            x: totalDX / count,
-            y: totalDY / count
-        },
-        scale: 1,
-        rotation: 0,
-        error: 0
-    };
-}
+    // 🔥 НОВЫЙ МЕТОД: ИНВАРИАНТНОЕ СОПОСТАВЛЕНИЕ
+    findInvariantMatches(normalizedPoints) {
+        const matches = [];
 
-// 🔥 ДОБАВЛЯЕМ ДЕБАГ-ВЫВОД В assignToCells:
-assignToCells(alignedPoints, graphId) {
-    console.log(`📍 Сопоставляю ${alignedPoints.length} точек с ${this.templateCells.size} ячейками...`);
-   
-    // 🔥 ДЕБАГ: показываем координаты первых ячеек
-    let cellIndex = 0;
-    for (const [cellId, cell] of this.templateCells) {
-        if (cellIndex < 3) {
-            console.log(`   Ячейка ${cellId}: (${cell.center.x.toFixed(1)}, ${cell.center.y.toFixed(1)})`);
-            cellIndex++;
-        }
-    }
-   
-    // 🔥 ДЕБАГ: показываем координаты первых точек
-    alignedPoints.slice(0, 3).forEach((point, i) => {
-        console.log(`   Точка ${i}: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-    });
-   
-    const assignments = new Map();
-    const searchRadius = this.config.cellSize * 2;
-    let matchedCount = 0;
-   
-    alignedPoints.forEach(point => {
-        let bestCell = null;
-        let minDistance = Infinity;
-       
-        for (const [cellId, cell] of this.templateCells) {
-            const dx = point.x - cell.center.x;
-            const dy = point.y - cell.center.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-           
-            if (distance < minDistance && distance < searchRadius) {
-                minDistance = distance;
-                bestCell = cellId;
-            }
-        }
-       
-        if (bestCell) {
-            assignments.set(point.id, bestCell);
-            matchedCount++;
-           
-            if (minDistance < 20 && matchedCount < 5) {
-                const cell = this.templateCells.get(bestCell);
-                console.log(`   ✅ ${point.id} -> ${bestCell}: ${minDistance.toFixed(1)}px ` +
-                          `(точка: ${point.x.toFixed(1)},${point.y.toFixed(1)} → ячейка: ${cell.center.x.toFixed(1)},${cell.center.y.toFixed(1)})`);
-            }
-        } else if (this.config.debug && matchedCount < 5) {
-            console.log(`   ⚠️ ${point.id} не сопоставлена (ближайшая: ${minDistance.toFixed(1)}px)`);
-        }
-    });
-   
-    console.log(`✅ Сопоставлено ${matchedCount}/${alignedPoints.length} точек`);
-    return assignments;
-}
+        // Для каждой точки нового графа ищем инвариантно-похожую точку эталона
+        normalizedPoints.forEach(newPoint => {
+            let bestMatch = null;
+            let bestScore = 0;
 
-    // 🔥 НОВЫЙ МЕТОД: ПРОСТОЕ ПРИМЕНЕНИЕ ТРАНСФОРМАЦИИ
-    applySimpleTransformation(points, transformation) {
-        return points.map(point => ({
-            ...point,
-            x: point.x + transformation.translation.x,
-            y: point.y + transformation.translation.y,
-            originalX: point.x,
-            originalY: point.y
-        }));
-    }
+            for (const [cellId, cell] of this.invariantCells) {
+                // 🔥 СРАВНИВАЕМ ИНВАРИАНТЫ, А НЕ КООРДИНАТЫ!
+                const score = this.compareInvariants(newPoint, cell);
 
-    // 🔥 МЕТОД: СОПОСТАВИТЬ С ЯЧЕЙКАМИ ШАБЛОНА (ИСПРАВЛЕННЫЙ!)
-    assignToCells(alignedPoints, graphId) {
-        console.log(`📍 Сопоставляю ${alignedPoints.length} точек с ячейками...`);
-
-        const assignments = new Map();
-
-        // 🔥 УВЕЛИЧИВАЕМ РАДИУС ПОИСКА
-        const searchRadius = this.config.cellSize * 2; // В 2 раза больше
-
-        alignedPoints.forEach(point => {
-            let bestCell = null;
-            let minDistance = Infinity;
-
-            // Ищем ближайшую ячейку
-            for (const [cellId, cell] of this.templateCells) {
-                const dx = point.x - cell.center.x;
-                const dy = point.y - cell.center.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < minDistance && distance < searchRadius) {
-                    minDistance = distance;
-                    bestCell = cellId;
+                if (score > bestScore && score > 0.6) {
+                    bestScore = score;
+                    bestMatch = {
+                        newPoint: newPoint,
+                        cellId: cellId,
+                        cell: cell,
+                        score: score
+                    };
                 }
             }
 
-            if (bestCell) {
-                assignments.set(point.id, bestCell);
-
-                // Сохраняем информацию о сопоставлении
-                const cell = this.templateCells.get(bestCell);
-                if (!cell.matchedPoints) cell.matchedPoints = [];
-                cell.matchedPoints.push({
-                    pointId: point.id,
-                    distance: minDistance,
-                    confidence: point.confidence,
-                    graphId: graphId
-                });
-
-                if (minDistance < 10) { // Очень точное сопоставление
-                    console.log(`   ✅ Точное сопоставление: ${point.id} -> ${bestCell} (${minDistance.toFixed(1)}px)`);
-                }
-            } else if (this.config.debug) {
-                console.log(`   ⚠️ Точка ${point.id} не сопоставлена (minDistance: ${minDistance.toFixed(1)}px)`);
+            if (bestMatch) {
+                matches.push(bestMatch);
             }
         });
 
-        console.log(`✅ Сопоставлено ${assignments.size}/${alignedPoints.length} точек`);
-        return assignments;
+        return matches;
     }
 
-    // 🔥 МЕТОД: ИЗВЛЕЧЬ ТОЧКИ ИЗ ГРАФА
+    // 🔥 НОВЫЙ МЕТОД: СРАВНЕНИЕ ИНВАРИАНТОВ
+    compareInvariants(point, cell) {
+        if (!cell.invariants) return 0;
+
+        let totalScore = 0;
+        let weightSum = 0;
+
+        // 1. Сравнение позиции (относительной)
+        const posScore = 1 - Math.sqrt(
+            Math.pow(point.nx - cell.normalizedCenter.nx, 2) +
+            Math.pow(point.ny - cell.normalizedCenter.ny, 2)
+        );
+        totalScore += posScore * 0.3;
+        weightSum += 0.3;
+
+        // 2. Сравнение распределения расстояний до соседей
+        if (point.invariants && point.invariants.distanceDistribution) {
+            const distScore = this.compareHistograms(
+                point.invariants.distanceDistribution,
+                cell.invariants.distanceDistribution
+            );
+            totalScore += distScore * 0.4;
+            weightSum += 0.4;
+        }
+
+        // 3. Сравнение углового распределения
+        if (point.invariants && point.invariants.nearestNeighbors) {
+            const angleScore = this.compareAngularDistributions(
+                point.invariants.nearestNeighbors,
+                cell.invariants.nearestNeighbors
+            );
+            totalScore += angleScore * 0.3;
+            weightSum += 0.3;
+        }
+
+        return weightSum > 0 ? totalScore / weightSum : 0;
+    }
+
+    // 🔥 МЕТОД: ОБНОВИТЬ ИНВАРИАНТНЫЕ ЯЧЕЙКИ
+    updateInvariantCells(matches, graphId) {
+        let updatedCells = 0;
+
+        matches.forEach(match => {
+            const cell = this.invariantCells.get(match.cellId);
+            if (cell) {
+                cell.confirmations += 1;
+                cell.confidence = Math.min(1.0, cell.confidence + 0.15);
+                if (cell.sources) {
+                    cell.sources.add(graphId);
+                }
+                updatedCells++;
+            }
+
+            // Также обновляем templateCells для совместимости
+            const templateCell = this.templateCells.get(match.cellId);
+            if (templateCell) {
+                templateCell.confirmations += 1;
+                templateCell.confidence = Math.min(1.0, templateCell.confidence + 0.15);
+                if (templateCell.sources) {
+                    templateCell.sources.add(graphId);
+                }
+            }
+        });
+
+        return updatedCells;
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ИНВАРИАНТНОСТИ
+    calculateBounds(points) {
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+
+        return {
+            minX: Math.min(...xs),
+            maxX: Math.max(...xs),
+            minY: Math.min(...ys),
+            maxY: Math.max(...ys),
+            width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
+            height: Math.max(1, Math.max(...ys) - Math.min(...ys))
+        };
+    }
+
+    normalizePoints(points, transform) {
+        if (!transform) return points;
+
+        return points.map(point => {
+            const normalizedPoint = {
+                ...point,
+                nx: (point.x - transform.minX) / Math.max(1, transform.width),
+                ny: (point.y - transform.minY) / Math.max(1, transform.height),
+                normalized: true
+            };
+
+            // Вычисляем инварианты для этой точки
+            normalizedPoint.invariants = this.calculatePointInvariants(
+                normalizedPoint,
+                [...this.normalizedReferencePoints, normalizedPoint]
+            );
+
+            return normalizedPoint;
+        });
+    }
+
+    createDistanceHistogram(distances, bins = 5) {
+        if (distances.length === 0) return Array(bins).fill(0);
+
+        const min = Math.min(...distances);
+        const max = Math.max(...distances);
+        const range = max - min;
+
+        if (range === 0) return Array(bins).fill(distances.length / bins);
+
+        const histogram = Array(bins).fill(0);
+        const binSize = range / bins;
+
+        distances.forEach(distance => {
+            const binIndex = Math.min(bins - 1, Math.floor((distance - min) / binSize));
+            histogram[binIndex]++;
+        });
+
+        // Нормализуем
+        const total = distances.length;
+        return histogram.map(count => count / total);
+    }
+
+    compareHistograms(hist1, hist2) {
+        if (!hist1 || !hist2 || hist1.length !== hist2.length) return 0;
+
+        let sum = 0;
+        for (let i = 0; i < hist1.length; i++) {
+            sum += 1 - Math.abs(hist1[i] - hist2[i]);
+        }
+
+        return sum / hist1.length;
+    }
+
+    compareAngularDistributions(neighbors1, neighbors2) {
+        if (!neighbors1 || !neighbors2) return 0;
+
+        // Сравниваем углы до ближайших соседей
+        const angles1 = neighbors1.map(n => n.angle).sort((a, b) => a - b);
+        const angles2 = neighbors2.map(n => n.angle).sort((a, b) => a - b);
+
+        const minLength = Math.min(angles1.length, angles2.length);
+        if (minLength === 0) return 0;
+
+        let score = 0;
+        for (let i = 0; i < minLength; i++) {
+            const diff = Math.abs(angles1[i] - angles2[i]);
+            score += 1 - Math.min(1, diff / Math.PI); // Нормализуем к [0, π]
+        }
+
+        return score / minLength;
+    }
+
+    // ============ СУЩЕСТВУЮЩИЕ МЕТОДЫ С КОРРЕКТИРОВКАМИ ============
+
     extractPointsFromGraph(graph) {
         const points = [];
 
@@ -370,19 +448,16 @@ assignToCells(alignedPoints, graphId) {
         return points;
     }
 
-    // 🔥 МЕТОД: ИЗВЛЕЧЬ ТОПОЛОГИЮ ИЗ ГРАФА
     extractTopologyFromGraph(graph) {
         if (!graph || !graph.edges) return;
 
         console.log(`🔗 Извлекаю топологию из графа...`);
 
-        // Проходим по всем ребрам графа
         graph.edges.forEach((edge, edgeId) => {
             const fromCell = this.cellAssignments.get(edge.from);
             const toCell = this.cellAssignments.get(edge.to);
 
             if (fromCell && toCell && fromCell !== toCell) {
-                // Добавить связь между ячейками
                 if (!this.cellConnections.has(fromCell)) {
                     this.cellConnections.set(fromCell, []);
                 }
@@ -402,61 +477,98 @@ assignToCells(alignedPoints, graphId) {
         console.log(`✅ Топология: ${this.cellConnections.size} ячеек со связями`);
     }
 
-    // 🔥 МЕТОД: ОБНОВИТЬ ПОДТВЕРЖДЕНИЯ В ЯЧЕЙКАХ
-    updateCellConfirmations(assignments, graphId) {
-        let updatedCells = 0;
+    updateStats() {
+        let totalConfirmations = 0;
+        let confirmedCells = 0;
+        let highConfidenceCells = 0;
 
-        // Подсчитать сколько точек попало в каждую ячейку
-        const cellCounts = new Map();
-        assignments.forEach(cellId => {
-            cellCounts.set(cellId, (cellCounts.get(cellId) || 0) + 1);
-        });
+        for (const [cellId, cell] of this.invariantCells) {
+            totalConfirmations += cell.confirmations || 0;
 
-        // Обновить ячейки
-        cellCounts.forEach((count, cellId) => {
-            const cell = this.templateCells.get(cellId);
-            if (cell) {
-                cell.confirmations += 1;
-                cell.confidence = Math.min(1.0, cell.confidence + 0.15);
-                if (cell.sources) {
-                    cell.sources.add(graphId);
-                }
-                updatedCells++;
+            if (cell.confirmations > 0) {
+                confirmedCells++;
             }
-        });
 
-        return updatedCells;
+            if (cell.confirmations >= this.config.highConfidenceThreshold) {
+                highConfidenceCells++;
+            }
+        }
+
+        this.stats.confirmedCells = confirmedCells;
+        this.stats.highConfidenceCells = highConfidenceCells;
+        this.stats.avgConfirmations = this.invariantCells.size > 0 ?
+            totalConfirmations / this.invariantCells.size : 0;
     }
 
-    // 🔥 МЕТОД: РАССЧИТАТЬ ЗОНЫ ПРОТЕКТОРА
-    calculateZones() {
-        if (this.referencePoints.length === 0) return {};
+    getVisualizationData() {
+        const cellsArray = [];
 
-        // Найти min/max по X (после выравнивания ось X = направление стопы)
-        const xs = this.referencePoints.map(p => p.x);
+        for (const [cellId, cell] of this.invariantCells) {
+            cellsArray.push({
+                id: cellId,
+                x: cell.originalCenter.x,
+                y: cell.originalCenter.y,
+                nx: cell.normalizedCenter.nx,
+                ny: cell.normalizedCenter.ny,
+                radius: cell.radius * 100, // Масштабируем для визуализации
+                confirmations: cell.confirmations || 0,
+                confidence: cell.confidence || 0,
+                sources: cell.sources ? Array.from(cell.sources) : [],
+                pointCount: cell.points ? cell.points.length : 0,
+                isHighConfidence: cell.confirmations >= this.config.highConfidenceThreshold,
+                invariants: cell.invariants ? 'present' : 'none'
+            });
+        }
+
+        // Рассчитать статистику по зонам
+        const zones = this.calculateZones();
+
+        return {
+            templateId: this.id,
+            name: this.name,
+            referenceGraphId: this.referenceGraphId,
+            cells: cellsArray,
+            stats: {
+                ...this.stats,
+                zones: zones,
+                cellCount: this.invariantCells.size,
+                highConfidenceCells: cellsArray.filter(c => c.isHighConfidence).length,
+                avgConfirmations: this.stats.avgConfirmations,
+                invariantCells: this.invariantCells.size
+            },
+            referencePoints: this.normalizedReferencePoints,
+            transformationsCount: this.graphTransformations.size,
+            normalizationTransform: this.normalizationTransform
+        };
+    }
+
+    calculateZones() {
+        if (this.normalizedReferencePoints.length === 0) return {};
+
+        // Используем нормализованные координаты для зон
+        const xs = this.normalizedReferencePoints.map(p => p.nx);
         const minX = Math.min(...xs);
         const maxX = Math.max(...xs);
         const rangeX = maxX - minX;
 
-        // Разделить на 3 зоны
         const zoneWidth = rangeX / 3;
 
         const zones = {
-            heel: { // Пятка (самая левая часть по X)
+            heel: {
                 minX: minX,
                 maxX: minX + zoneWidth,
                 cells: 0,
                 confirmations: 0,
                 confidence: 0
             },
-            midfoot: { // Центр
+            midfoot: {
                 minX: minX + zoneWidth,
                 maxX: minX + zoneWidth * 2,
                 cells: 0,
                 confirmations: 0,
                 confidence: 0
             },
-            forefoot: { // Носок
+            forefoot: {
                 minX: minX + zoneWidth * 2,
                 maxX: maxX,
                 cells: 0,
@@ -466,12 +578,12 @@ assignToCells(alignedPoints, graphId) {
         };
 
         // Посчитать статистику по зонам
-        for (const [cellId, cell] of this.templateCells) {
-            if (cell.center.x < zones.heel.maxX) {
+        for (const [cellId, cell] of this.invariantCells) {
+            if (cell.normalizedCenter.nx < zones.heel.maxX) {
                 zones.heel.cells++;
                 zones.heel.confirmations += cell.confirmations || 0;
                 zones.heel.confidence += cell.confidence || 0;
-            } else if (cell.center.x < zones.midfoot.maxX) {
+            } else if (cell.normalizedCenter.nx < zones.midfoot.maxX) {
                 zones.midfoot.cells++;
                 zones.midfoot.confirmations += cell.confirmations || 0;
                 zones.midfoot.confidence += cell.confidence || 0;
@@ -493,70 +605,6 @@ assignToCells(alignedPoints, graphId) {
         return zones;
     }
 
-    // 🔥 МЕТОД: ОБНОВИТЬ СТАТИСТИКУ
-    updateStats() {
-        let totalConfirmations = 0;
-        let confirmedCells = 0;
-        let highConfidenceCells = 0;
-
-        for (const [cellId, cell] of this.templateCells) {
-            totalConfirmations += cell.confirmations || 0;
-
-            if (cell.confirmations > 0) {
-                confirmedCells++;
-            }
-
-            if (cell.confirmations >= this.config.highConfidenceThreshold) {
-                highConfidenceCells++;
-            }
-        }
-
-        this.stats.confirmedCells = confirmedCells;
-        this.stats.highConfidenceCells = highConfidenceCells;
-        this.stats.avgConfirmations = this.templateCells.size > 0 ?
-            totalConfirmations / this.templateCells.size : 0;
-    }
-
-    // 🔥 МЕТОД: ПОЛУЧИТЬ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ
-    getVisualizationData() {
-        const cellsArray = [];
-
-        for (const [cellId, cell] of this.templateCells) {
-            cellsArray.push({
-                id: cellId,
-                x: cell.center.x,
-                y: cell.center.y,
-                radius: cell.radius || this.config.cellSize / 2,
-                confirmations: cell.confirmations || 0,
-                confidence: cell.confidence || 0,
-                sources: cell.sources ? Array.from(cell.sources) : [],
-                pointCount: cell.points ? cell.points.length : 0,
-                isHighConfidence: cell.confirmations >= this.config.highConfidenceThreshold,
-                matchedPoints: cell.matchedPoints || []
-            });
-        }
-
-        // Рассчитать статистику по зонам (нос/центр/пятка)
-        const zones = this.calculateZones();
-
-        return {
-            templateId: this.id,
-            name: this.name,
-            referenceGraphId: this.referenceGraphId,
-            cells: cellsArray,
-            stats: {
-                ...this.stats,
-                zones: zones,
-                cellCount: this.templateCells.size,
-                highConfidenceCells: cellsArray.filter(c => c.isHighConfidence).length,
-                avgConfirmations: this.stats.avgConfirmations
-            },
-            referencePoints: this.referencePoints,
-            transformationsCount: this.graphTransformations.size
-        };
-    }
-
-    // 🔥 МЕТОД: ПОЛУЧИТЬ ИНФОРМАЦИЮ
     getInfo() {
         return {
             id: this.id,
@@ -564,10 +612,12 @@ assignToCells(alignedPoints, graphId) {
             stats: {
                 ...this.stats,
                 createdAt: this.stats.createdAt.toLocaleString('ru-RU'),
-                lastUpdated: this.stats.lastUpdated.toLocaleString('ru-RU')
+                lastUpdated: this.stats.lastUpdated.toLocaleString('ru-RU'),
+                invariantCells: this.invariantCells.size
             },
             referenceGraphId: this.referenceGraphId,
             templateCells: this.templateCells.size,
+            invariantCells: this.invariantCells.size,
             cellConnections: this.cellConnections.size,
             totalGraphs: this.stats.totalGraphs,
             config: {
@@ -577,17 +627,28 @@ assignToCells(alignedPoints, graphId) {
         };
     }
 
-    // 🔥 МЕТОД: СОХРАНИТЬ В JSON
     toJSON() {
-        const cellsData = {};
-        for (const [cellId, cell] of this.templateCells) {
-            cellsData[cellId] = {
-                center: cell.center,
+        const invariantCellsData = {};
+        for (const [cellId, cell] of this.invariantCells) {
+            invariantCellsData[cellId] = {
+                normalizedCenter: cell.normalizedCenter,
+                originalCenter: cell.originalCenter,
                 radius: cell.radius,
                 confirmations: cell.confirmations,
                 confidence: cell.confidence,
                 sources: cell.sources ? Array.from(cell.sources) : [],
-                clusterSize: cell.clusterSize
+                invariants: cell.invariants
+            };
+        }
+
+        const templateCellsData = {};
+        for (const [cellId, cell] of this.templateCells) {
+            templateCellsData[cellId] = {
+                center: cell.center,
+                radius: cell.radius,
+                confirmations: cell.confirmations,
+                confidence: cell.confidence,
+                sources: cell.sources ? Array.from(cell.sources) : []
             };
         }
 
@@ -600,19 +661,20 @@ assignToCells(alignedPoints, graphId) {
             id: this.id,
             name: this.name,
             referenceGraphId: this.referenceGraphId,
-            templateCells: cellsData,
+            invariantCells: invariantCellsData,
+            templateCells: templateCellsData,
             cellConnections: Object.fromEntries(this.cellConnections),
             cellAssignments: Object.fromEntries(this.cellAssignments),
             graphTransformations: transformationsData,
             stats: this.stats,
             config: this.config,
-            referencePoints: this.referencePoints,
-            _version: '1.0',
+            referencePoints: this.normalizedReferencePoints,
+            normalizationTransform: this.normalizationTransform,
+            _version: '2.0-invariant',
             _savedAt: new Date().toISOString()
         };
     }
 
-    // 🔥 МЕТОД: ЗАГРУЗИТЬ ИЗ JSON
     static fromJSON(data) {
         const builder = new TemplateBuilder({
             name: data.name,
@@ -621,8 +683,19 @@ assignToCells(alignedPoints, graphId) {
 
         builder.id = data.id || builder.id;
         builder.referenceGraphId = data.referenceGraphId;
+        builder.normalizationTransform = data.normalizationTransform || null;
 
-        // Восстановить ячейки
+        // Восстановить инвариантные ячейки
+        if (data.invariantCells) {
+            for (const [cellId, cellData] of Object.entries(data.invariantCells)) {
+                builder.invariantCells.set(cellId, {
+                    ...cellData,
+                    sources: new Set(cellData.sources || [])
+                });
+            }
+        }
+
+        // Восстановить templateCells для совместимости
         if (data.templateCells) {
             for (const [cellId, cellData] of Object.entries(data.templateCells)) {
                 builder.templateCells.set(cellId, {
@@ -664,51 +737,16 @@ assignToCells(alignedPoints, graphId) {
             }
         }
 
-        // Восстановить опорные точки
-        builder.referencePoints = data.referencePoints || [];
+        // Восстановить нормализованные точки
+        builder.normalizedReferencePoints = data.referencePoints || [];
+        builder.referencePoints = builder.normalizedReferencePoints.map(p => ({
+            ...p,
+            x: p.x || (p.normalizedCenter ? p.normalizedCenter.x * 100 : 0),
+            y: p.y || (p.normalizedCenter ? p.normalizedCenter.y * 100 : 0)
+        }));
 
-        console.log(`📂 Загружен TemplateBuilder "${builder.name}" с ${builder.templateCells.size} ячейками`);
+        console.log(`📂 Загружен TemplateBuilder "${builder.name}" с ${builder.invariantCells.size} инвариантными ячейками`);
         return builder;
-    }
-
-    // ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
-
-    calculateCenter(points) {
-        if (points.length === 0) return { x: 0, y: 0 };
-
-        const sumX = points.reduce((sum, p) => sum + p.x, 0);
-        const sumY = points.reduce((sum, p) => sum + p.y, 0);
-
-        return {
-            x: sumX / points.length,
-            y: sumY / points.length
-        };
-    }
-
-    findPointMatches(points1, points2, threshold = this.config.cellSize * 2) {
-        const matches = [];
-
-        points1.forEach(p1 => {
-            let bestMatch = null;
-            let minDistance = Infinity;
-
-            points2.forEach(p2 => {
-                const dx = p1.x - p2.x;
-                const dy = p1.y - p2.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < minDistance && distance < threshold) {
-                    minDistance = distance;
-                    bestMatch = { p1, p2, distance };
-                }
-            });
-
-            if (bestMatch) {
-                matches.push(bestMatch);
-            }
-        });
-
-        return matches;
     }
 }
 
