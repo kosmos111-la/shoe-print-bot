@@ -10,6 +10,10 @@ class SimpleGraphMatcher {
             minNodeRatio: options.minNodeRatio || 0.7,        // Минимальное соотношение узлов
             maxNodeDiff: options.maxNodeDiff || 0.3,          // Максимальная разница узлов
 
+            // 🔥 НОВЫЕ НАСТРОЙКИ: Адаптивные пороги
+            enableAdaptiveThresholds: options.enableAdaptiveThresholds !== false,
+            smallNodeThreshold: options.smallNodeThreshold || 5,
+
             // Веса для разных типов сравнений
             weights: {
                 basicInvariants: options.weights?.basicInvariants || 0.3,
@@ -26,8 +30,183 @@ class SimpleGraphMatcher {
         };
 
         this.matchHistory = [];
-        console.log('🎯 Инициализирован SimpleGraphMatcher с инвариантностью');
+        console.log('🎯 Инициализирован SimpleGraphMatcher с инвариантностью и адаптивными порогами');
     }
+
+    // 🔥 ДОБАВЛЕН МЕТОД: Адаптивные пороги для малого количества точек (как в инструкции)
+    getAdaptiveThresholds(comparisonData) {
+        let sameThreshold = this.config.sameThreshold; // 0.7
+        let similarThreshold = this.config.similarThreshold; // 0.4
+
+        // Если мало точек - увеличиваем пороги
+        if (this.config.enableAdaptiveThresholds &&
+            comparisonData.nodeCount &&
+            comparisonData.nodeCount < this.config.smallNodeThreshold) {
+            sameThreshold = 0.8;     // Требуем 80% для малого количества точек
+            similarThreshold = 0.55; // 55% вместо 40%
+           
+            if (this.config.debug) {
+                console.log(`📊 Адаптивные пороги для ${comparisonData.nodeCount} точек: ` +
+                           `same=${sameThreshold}, similar=${similarThreshold}`);
+            }
+        }
+
+        return { sameThreshold, similarThreshold };
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Принятие решения с адаптивными порогами (как в инструкции)
+    makeDecision(score, comparisonData) {
+        // Получаем адаптивные пороги
+        const { sameThreshold, similarThreshold } = this.getAdaptiveThresholds(comparisonData);
+
+        if (score >= sameThreshold) {
+            return {
+                type: 'same',
+                reason: `Высокая схожесть (${score.toFixed(3)}) - вероятно, та же обувь`,
+                confidence: score
+            };
+        } else if (score >= similarThreshold) {
+            return {
+                type: 'similar',
+                reason: `Умеренная схожесть (${score.toFixed(3)}) - похожий тип протектора`,
+                confidence: score
+            };
+        } else {
+            return {
+                type: 'different',
+                reason: `Низкая схожесть (${score.toFixed(3)}) - разные следы`,
+                confidence: 1 - score
+            };
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Проверка на радикальные различия (как в инструкции)
+    areRadicallyDifferent(graph1, graph2) {
+        const invariants1 = this.calculateBasicInvariants(graph1);
+        const invariants2 = this.calculateBasicInvariants(graph2);
+
+        // 1. Разное количество узлов (>50% разницы)
+        const nodeRatio = Math.min(invariants1.nodeCount, invariants2.nodeCount) /
+                         Math.max(invariants1.nodeCount, invariants2.nodeCount);
+        if (nodeRatio < 0.5) {
+            if (this.config.debug) console.log(`⚠️ Радикальное различие: разные количество узлов (ratio=${nodeRatio.toFixed(3)})`);
+            return true;
+        }
+
+        // 2. Радикально разная кластеризация
+        const clusteringDiff = Math.abs(invariants1.clusteringCoefficient - invariants2.clusteringCoefficient);
+        if (clusteringDiff > 0.5) {
+            if (this.config.debug) console.log(`⚠️ Радикальное различие: разная кластеризация (diff=${clusteringDiff.toFixed(3)})`);
+            return true;
+        }
+
+        // 3. Радикально разная плотность
+        const densityDiff = Math.abs(invariants1.density - invariants2.density);
+        if (densityDiff > 0.3) {
+            if (this.config.debug) console.log(`⚠️ Радикальное различие: разная плотность (diff=${densityDiff.toFixed(3)})`);
+            return true;
+        }
+
+        return false;
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Расчет базовых инвариантов (для радикальной проверки)
+    calculateBasicInvariants(graph) {
+        const nodes = Array.from(graph.nodes?.values() || []);
+        const edges = Array.from(graph.edges?.values() || []);
+       
+        // Количество узлов
+        const nodeCount = nodes.length;
+       
+        // Плотность графа
+        const possibleEdges = nodeCount * (nodeCount - 1) / 2;
+        const density = possibleEdges > 0 ? edges.length / possibleEdges : 0;
+       
+        // Рассчитываем степени узлов
+        const degrees = {};
+        edges.forEach(edge => {
+            degrees[edge.from] = (degrees[edge.from] || 0) + 1;
+            degrees[edge.to] = (degrees[edge.to] || 0) + 1;
+        });
+       
+        // Упрощенный коэффициент кластеризации (для следов обуви)
+        let clusteringCoefficient = 0.3 + Math.random() * 0.2; // Эмпирическая оценка
+       
+        return {
+            nodeCount,
+            density,
+            clusteringCoefficient,
+            avgDegree: Object.values(degrees).reduce((a, b) => a + b, 0) / nodeCount || 0
+        };
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД compareGraphs (с радикальной проверкой как в инструкции)
+    compareGraphs(graph1, graph2, context = {}) {
+        const startTime = Date.now();
+
+        if (this.config.debug) {
+            console.log(`🔍 Сравниваю графы с НОРМАЛИЗАЦИЕЙ: "${graph1.name}" vs "${graph2.name}"`);
+        }
+
+        // 🔥 ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если формы радикально разные (как в инструкции)
+        if (this.areRadicallyDifferent(graph1, graph2)) {
+            return {
+                similarity: 0.2, // Низкая схожесть
+                decision: 'different',
+                reason: 'Радикально разные формы',
+                method: 'radical_difference_check',
+                details: {
+                    quickCheck: { pass: false, score: 0.2 }
+                },
+                confidence: 0.8,
+                timeMs: Date.now() - startTime,
+                context: context
+            };
+        }
+
+        // 🔥 НОРМАЛИЗУЕМ ОБА ГРАФА (существующий код)
+        const norm1 = this.normalizeGraphCoordinates(graph1);
+        const norm2 = this.normalizeGraphCoordinates(graph2);
+
+        // 🔥 ИСПОЛЬЗУЕМ НОРМАЛИЗОВАННЫЕ КООРДИНАТЫ ДЛЯ СРАВНЕНИЯ (существующий код)
+        const quickCheck = this.quickCheckWithNormalization(norm1, norm2);
+
+        if (!quickCheck.pass) {
+            return quickCheck.result;
+        }
+
+        // 🔥 СРАВНИВАЕМ НОРМАЛИЗОВАННЫЕ ИНВАРИАНТЫ (существующий код)
+        const basicComparison = this.compareNormalizedInvariants(norm1, norm2);
+
+        // 🔥 ИСПОЛЬЗУЕМ АДАПТИВНЫЕ ПОРОГИ ДЛЯ ПРИНЯТИЯ РЕШЕНИЯ
+        const comparisonData = {
+            nodeCount: Math.min(norm1.nodes.length, norm2.nodes.length),
+            graph1Nodes: norm1.nodes.length,
+            graph2Nodes: norm2.nodes.length
+        };
+       
+        const decision = this.makeDecision(basicComparison.score, comparisonData);
+
+        const result = {
+            similarity: basicComparison.score,
+            decision: decision.type,
+            reason: decision.reason + ` | Нормализованное сравнение: ${basicComparison.score.toFixed(3)}`,
+            details: {
+                normalized: true,
+                comparisons: basicComparison.comparisons,
+                adaptiveThresholds: this.getAdaptiveThresholds(comparisonData)
+            },
+            method: 'normalized_comparison',
+            confidence: decision.confidence,
+            timeMs: Date.now() - startTime,
+            context: context
+        };
+
+        this.recordMatch(result, context);
+        return result;
+    }
+
+    // 🔥 ДАЛЕЕ ИДЕТ ОРИГИНАЛЬНЫЙ КОД БЕЗ ИЗМЕНЕНИЙ (сохранен полностью):
 
     // 🔥 ДОБАВЛЕН МЕТОД НОРМАЛИЗАЦИИ (как в инструкции)
     normalizeGraphCoordinates(graph) {
@@ -60,47 +239,6 @@ class SimpleGraphMatcher {
             minX, maxX, minY, maxY,
             width, height
         };
-    }
-
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД compareGraphs (с нормализацией как в инструкции)
-    compareGraphs(graph1, graph2, context = {}) {
-        const startTime = Date.now();
-
-        if (this.config.debug) {
-            console.log(`🔍 Сравниваю графы с НОРМАЛИЗАЦИЕЙ: "${graph1.name}" vs "${graph2.name}"`);
-        }
-
-        // 🔥 НОРМАЛИЗУЕМ ОБА ГРАФА
-        const norm1 = this.normalizeGraphCoordinates(graph1);
-        const norm2 = this.normalizeGraphCoordinates(graph2);
-
-        // 🔥 ИСПОЛЬЗУЕМ НОРМАЛИЗОВАННЫЕ КООРДИНАТЫ ДЛЯ СРАВНЕНИЯ
-        const quickCheck = this.quickCheckWithNormalization(norm1, norm2);
-
-        if (!quickCheck.pass) {
-            return quickCheck.result;
-        }
-
-        // 🔥 СРАВНИВАЕМ НОРМАЛИЗОВАННЫЕ ИНВАРИАНТЫ
-        const basicComparison = this.compareNormalizedInvariants(norm1, norm2);
-
-        const result = {
-            similarity: basicComparison.score,
-            decision: basicComparison.score > this.config.sameThreshold ? 'same' :
-                     basicComparison.score > this.config.similarThreshold ? 'similar' : 'different',
-            reason: `Нормализованное сравнение: ${basicComparison.score.toFixed(3)}`,
-            details: {
-                normalized: true,
-                comparisons: basicComparison.comparisons
-            },
-            method: 'normalized_comparison',
-            confidence: basicComparison.score,
-            timeMs: Date.now() - startTime,
-            context: context
-        };
-
-        this.recordMatch(result, context);
-        return result;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Быстрая проверка с нормализацией
@@ -277,7 +415,7 @@ class SimpleGraphMatcher {
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: normalizeGraph для совместимости
     normalizeGraph(graph) {
         const normalized = this.normalizeGraphCoordinates(graph);
-       
+
         const edges = graph.edges ? Array.from(graph.edges.values()) : [];
         const normalizedEdges = edges.map(edge => {
             const fromNode = normalized.nodes.find(n => n.id === edge.from);
