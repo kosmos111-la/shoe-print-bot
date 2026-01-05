@@ -10,6 +10,9 @@ const VectorSuperModel = require('./vector-super-model');
 const TemplateVisualizer = require('./template-visualizer'); // Добавлено
 const crypto = require('crypto');
 
+// 🔥 ДОБАВЛЕНО: Импорт SimpleGraph который отсутствовал
+const SimpleGraph = require('./simple-graph');
+
 class SimpleFootprintManager {
     constructor(options = {}) {
         this.config = {
@@ -34,17 +37,15 @@ class SimpleFootprintManager {
             ...options
         };
 
-        // 🔥 ДОБАВЛЕНО: Процессоры поворотной инвариантности
-        const RotationInvariance = require('./rotation-invariance');
-        const MirrorDetection = require('./mirror-detection');
-
-        this.rotationProcessor = new RotationInvariance({
-            debug: this.config.debug
-        });
-
-        this.mirrorDetector = new MirrorDetection({
-            debug: this.config.debug
-        });
+        // 🔥 ВРЕМЕННО ЗАКОММЕНТИРОВАНО: Процессоры поворотной инвариантности
+        // const RotationInvariance = require('./rotation-invariance');
+        // const MirrorDetection = require('./mirror-detection');
+        // this.rotationProcessor = new RotationInvariance({
+        //     debug: this.config.debug
+        // });
+        // this.mirrorDetector = new MirrorDetection({
+        //     debug: this.config.debug
+        // });
 
         // Сессии пользователей: userId -> session
         this.userSessions = new Map();
@@ -100,11 +101,12 @@ class SimpleFootprintManager {
         console.log(`   🎯 PointTracker: ВКЛ (подтверждения узлов)`);
         console.log(`   🏗️  VectorSuperModel: ВКЛ`);
         console.log(`   📐 TemplateVisualizer: ВКЛ`);
+        console.log(`   ⚠️  Поворотная инвариантность: ВРЕМЕННО ОТКЛЮЧЕНА для стабильности`);
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД addPhotoToSession с поворотной инвариантностью
+    // 🔥 УПРОЩЕННЫЙ МЕТОД addPhotoToSession (временная версия)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО С ПОВОРОТНОЙ ИНВАРИАНТНОСТЬЮ`);
+        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО В СЕССИЮ (горячий фикс)`);
 
         try {
             // Проверяем анализ
@@ -120,39 +122,10 @@ class SimpleFootprintManager {
 
             console.log(`🔍 Извлечено ${points.length} точек протекторов`);
 
-            // 🔥 ДОБАВЛЕНО: Создание графа с автоповоротом
-            const graph = new SimpleGraph(`Временный_${Date.now()}`);
-            graph.buildFromPoints(points);
-
-            // 🔥 ДОБАВЛЕНО: Автоматическая нормализация ориентации
-            const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
-                userId: userId,
-                photoInfo: photoInfo,
-                autoRotate: true
-            });
-
-            console.log(`📐 Автоповорот: ${normalized.rotationAngle.toFixed(1)}° → 0°`);
-            console.log(`🪞 Зеркало: ${normalized.isMirrored ? 'да' : 'нет'}`);
-            console.log(`🦶 Тип: ${normalized.footType || 'неизвестно'}`);
-
-            // 🔥 ДОБАВЛЕНО: Автокоррекция типа следа (все к правому)
-            const corrected = this.mirrorDetector.autoCorrectMirroring(
-                normalized.graph,
-                'right'
-            );
-
-            if (corrected.correctionApplied) {
-                console.log(`🔄 Автокоррекция применена: ${corrected.correctionType}`);
-            }
-
-            // Используем корректированный граф для дальнейшей обработки
-            const finalGraph = corrected.graph;
-
             // Получаем или создаем сессию
             let session = this.userSessions.get(userId);
             if (!session) {
                 session = this.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-                // 🔥 ИСПРАВЛЕНИЕ: проверка на существование id
                 console.log(`🆕 Создана новая сессия: ${session.id ? session.id.slice(0, 8) : 'unknown'}...`);
             }
 
@@ -173,23 +146,9 @@ class SimpleFootprintManager {
                     name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`
                 });
 
-                // Добавляем анализ с нормализованным графом
-                const addResult = session.currentFootprint.addAnalysis(analysis, {
-                    ...photoInfo,
-                    normalizedGraph: finalGraph
-                });
-
-                // Создаем векторную супер-модель с исправленными настройками
-                const vectorModel = new VectorSuperModel({
-                    name: `Супер-модель_${String(userId).slice(0, 6)}`,
-                    enablePCA: false, // 🔥 ОТКЛЮЧАЕМ PCA
-                    cellSize: 25,     // 🔥 УВЕЛИЧИВАЕМ РАЗМЕР ЯЧЕЙКИ
-                    debug: this.config.debug
-                });
-
-                vectorModel.addGraph(finalGraph, session.currentFootprint.id, { isFirst: true });
-                this.vectorSuperModels.set(userId, vectorModel);
-
+                // Добавляем анализ
+                const addResult = session.currentFootprint.addAnalysis(analysis, photoInfo);
+               
                 console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
 
                 return {
@@ -197,12 +156,7 @@ class SimpleFootprintManager {
                     isNewSession: true,
                     nodesAdded: addResult.added,
                     totalNodes: session.currentFootprint.graph.nodes.size,
-                    sessionId: session.id,
-                    rotationInfo: {
-                        angle: normalized.rotationAngle,
-                        isMirrored: normalized.isMirrored,
-                        corrected: corrected.correctionApplied
-                    }
+                    sessionId: session.id
                 };
             }
 
@@ -214,12 +168,9 @@ class SimpleFootprintManager {
                 userId: userId,
                 name: `Temp_${Date.now()}`
             });
-            const tempResult = tempFootprint.addAnalysis(analysis, {
-                ...photoInfo,
-                normalizedGraph: finalGraph
-            });
+            const tempResult = tempFootprint.addAnalysis(analysis, photoInfo);
 
-            // 🔥 ИСПРАВЛЕНИЕ: Правильный вызов matcher с поворотной инвариантностью
+            // Сравниваем
             const alignmentResult = this.matcher.compareGraphs(
                 session.currentFootprint.graph,
                 tempFootprint.graph,
@@ -232,78 +183,33 @@ class SimpleFootprintManager {
             if (alignmentResult.similarity > 0.6 && alignmentResult.decision === 'same') {
                 // СЛЕДЫ СОВПАДАЮТ
                 console.log(`✅ Следы совпали (${alignmentResult.similarity.toFixed(3)})`);
-
-                // Получаем векторную модель
-                let vectorModel = this.vectorSuperModels.get(userId);
-                let vectorVizPath = null;
-
-                if (!vectorModel) {
-                    // Создаем модель с исправленными настройками
-                    vectorModel = new VectorSuperModel({
-                        name: `Супер-модель_${String(userId).slice(0, 6)}`,
-                        enablePCA: false, // 🔥 ОТКЛЮЧАЕМ PCA
-                        cellSize: 25,     // 🔥 УВЕЛИЧИВАЕМ РАЗМЕР ЯЧЕЙКИ
-                        debug: this.config.debug
-                    });
-                    this.vectorSuperModels.set(userId, vectorModel);
-
-                    // Добавляем текущий граф
-                    vectorModel.addGraph(
-                        session.currentFootprint.graph,
-                        session.currentFootprint.id,
-                        { isFirst: true }
-                    );
-                }
-
-                // Добавляем новый граф
-                const addResult = vectorModel.addGraph(
-                    finalGraph,
-                    tempFootprint.id,
-                    {
-                        similarity: alignmentResult.similarity,
-                        timestamp: new Date(),
-                        ...photoInfo
-                    }
-                );
-
-                if (addResult) {
-                    // 🔥 ПРОСТОЕ ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ В ТЕКУЩЕМ ОТПЕЧАТКЕ
-                    this.updateConfirmationsFromVectorModel(session.currentFootprint, vectorModel);
-
+               
+                // Простое объединение
+                const mergeResult = session.currentFootprint.merge(tempFootprint);
+               
+                if (mergeResult.success) {
                     // Визуализация
-                    if (this.config.enableMergeVisualization && vectorModel) {
-                        vectorVizPath = await this.visualizeVectorSuperModel(userId, vectorModel);
-
-                        // Отправляем в Telegram
-                        if (bot && chatId && vectorVizPath) {
-                            const stats = vectorModel.getInfo();
-                            await bot.sendPhoto(chatId, vectorVizPath.template, {
-                                caption: `✅ **Следы совпали - супер-модель обновлена!**\n\n` +
-                                        `🎯 Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}%\n` +
-                                        `📊 Ячеек шаблона: ${stats.template?.cells?.total || 0}\n` +
-                                        `🔄 Подтверждённых: ${stats.template?.cells?.confirmed || 0}\n` +
-                                        `📈 Слияний: ${stats.stats.totalMerges}`
-                            });
-                        }
+                    let visualization = null;
+                    if (this.config.enableMergeVisualization) {
+                        visualization = await this.mergeVisualizer.visualizeMerge(
+                            session.currentFootprint,
+                            tempFootprint,
+                            alignmentResult
+                        );
                     }
-
+                   
                     return {
                         success: true,
                         similarity: alignmentResult.similarity,
                         decision: alignmentResult.decision,
-                        mergeMethod: 'template_based',
-                        templateStats: vectorModel.getTemplateStats(),
-                        visualization: vectorVizPath,
+                        mergeMethod: 'simple_merge',
                         nodesAdded: tempResult.added,
-                        message: `✅ След добавлен к шаблону!`,
-                        rotationInfo: alignmentResult.rotationInfo || {
-                            graph1Angle: 0,
-                            graph2Angle: normalized.rotationAngle,
-                            normalized: true
-                        }
+                        totalNodes: session.currentFootprint.graph.nodes.size,
+                        visualization: visualization,
+                        message: `✅ След добавлен к модели!`
                     };
                 }
-
+               
             } else {
                 // СЛЕДЫ РАЗНЫЕ
                 console.log(`🆕 Следы разные (${alignmentResult.similarity.toFixed(3)}) - начинаю новую модель`);
@@ -319,24 +225,22 @@ class SimpleFootprintManager {
                     name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`
                 });
 
-                const addResult = session.currentFootprint.addAnalysis(analysis, {
-                    ...photoInfo,
-                    normalizedGraph: finalGraph
-                });
+                const addResult = session.currentFootprint.addAnalysis(analysis, photoInfo);
 
                 return {
                     success: true,
                     similarity: alignmentResult.similarity,
                     decision: 'different',
                     isNewModel: true,
-                    nodesAdded: addResult.added,
-                    rotationInfo: {
-                        graph1Angle: 0,
-                        graph2Angle: normalized.rotationAngle,
-                        normalized: true
-                    }
+                    nodesAdded: addResult.added
                 };
             }
+
+            return {
+                success: true,
+                nodesAdded: 0,
+                message: 'Обработка завершена'
+            };
 
         } catch (error) {
             console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
