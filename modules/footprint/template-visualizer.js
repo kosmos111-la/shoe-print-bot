@@ -37,13 +37,18 @@ class TemplateVisualizer {
             ...options
         };
 
-        // Создаем директорию если не существует
-        if (!fs.existsSync(this.config.outputDir)) {
-            fs.mkdirSync(this.config.outputDir, { recursive: true });
-        }
-
-        console.log(`🎨 TemplateVisualizer инициализирован (режим: ${this.config.useCanvas ? 'canvas' : 'text'})`);
+        // 🔥 ИСПРАВЛЕНИЕ: Абсолютный путь
+    this.config.outputDir = path.resolve(this.config.outputDir);
+   
+    // Создаем директорию если не существует
+    if (!fs.existsSync(this.config.outputDir)) {
+        fs.mkdirSync(this.config.outputDir, { recursive: true });
+        console.log(`📁 Создана директория: ${this.config.outputDir}`);
     }
+
+    console.log(`🎨 TemplateVisualizer инициализирован (режим: ${this.config.useCanvas ? 'canvas' : 'text'})`);
+    console.log(`   📁 Выходная директория: ${this.config.outputDir}`);
+}
 
     // 🔥 ОСНОВНОЙ МЕТОД С АВТОВЫБОРОМ РЕЖИМА
     async visualizeTemplate(templateData, options = {}) {
