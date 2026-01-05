@@ -52,12 +52,43 @@ class TemplateVisualizer {
 
     // 🔥 ОСНОВНОЙ МЕТОД С АВТОВЫБОРОМ РЕЖИМА
     async visualizeTemplate(templateData, options = {}) {
-        if (this.config.useCanvas) {
-            return this.visualizeWithCanvas(templateData, options);
-        } else {
-            return this.visualizeAsText(templateData, options);
-        }
+    if (this.config.useCanvas && canvas) {
+        return this.visualizeWithCanvas(templateData, options);
+    } else {
+        console.log('⚠️ Canvas недоступен, создаю текстовый отчет');
+       
+        // Создать простой текстовый отчет
+        const reportPath = path.join(this.config.outputDir, `template_report_${Date.now()}.txt`);
+       
+        const reportContent = `
+ШАБЛОН ПРОТЕКТОРА
+==================
+
+Название: ${templateData.name}
+ID: ${templateData.templateId}
+Дата: ${new Date().toLocaleString('ru-RU')}
+
+СТАТИСТИКА:
+- Ячеек шаблона: ${templateData.cells?.length || 0}
+- Эталонный граф: ${templateData.referenceGraphId || 'не установлен'}
+
+${templateData.cells?.map((cell, i) =>
+`Ячейка ${i+1}: x=${cell.x.toFixed(1)}, y=${cell.y.toFixed(1)}, подтверждений=${cell.confirmations}`
+).join('\n')}
+
+Создайте PNG файл с помощью внешнего инструмента.
+`;
+       
+        fs.writeFileSync(reportPath, reportContent);
+        console.log(`📝 Текстовый отчет создан: ${reportPath}`);
+       
+        return {
+            path: reportPath,
+            templateId: templateData.templateId,
+            method: 'text_report'
+        };
     }
+}
 
     // 🔥 ВИЗУАЛИЗАЦИЯ С CANVAS (если доступен)
     async visualizeWithCanvas(templateData, options = {}) {
