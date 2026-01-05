@@ -1,20 +1,18 @@
 // modules/footprint/simple-matcher.js
-// УМНЫЙ СРАВНИТЕЛЬ ГРАФОВ С ИНВАРИАНТНОСТЬЮ
-
-const RotationInvariance = require('./rotation-invariance');
+// УМНЫЙ СРАВНИТЕЛЬ ГРАФОВ С ИНВАРИАНТНОСТЬЮ (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 
 class SimpleGraphMatcher {
     constructor(options = {}) {
         this.config = {
-            // 🔥 ИЗМЕНЕНО: ФИКСИРОВАННЫЕ ПОРОГИ согласно инструкции
+            // 🔥 ФИКСИРОВАННЫЕ ПОРОГИ согласно инструкции
             sameThreshold: options.sameThreshold || 0.7,      // >0.7 = одна обувь
-            similarThreshold: options.similarThreshold || 0.5, // 0.5-0.7 = похожая (БЫЛО: 0.4)
+            similarThreshold: options.similarThreshold || 0.5, // 0.5-0.7 = похожая
             differentThreshold: options.differentThreshold || 0.3, // НОВЫЙ ПОРОГ
             minNodeRatio: options.minNodeRatio || 0.7,        // Минимальное соотношение узлов
             maxNodeDiff: options.maxNodeDiff || 0.3,          // Максимальная разница узлов
 
-            // 🔥 ОТКЛЮЧЕНО: Адаптивные пороги (используем фиксированные согласно инструкции)
-            enableAdaptiveThresholds: false, // Отключаем адаптивные пороги
+            // 🔥 ОТКЛЮЧЕНО: Адаптивные пороги
+            enableAdaptiveThresholds: false,
             smallNodeThreshold: options.smallNodeThreshold || 5,
 
             // Веса для разных типов сравнений
@@ -32,74 +30,92 @@ class SimpleGraphMatcher {
             debug: options.debug || false
         };
 
-        // 🔥 ДОБАВЛЕНО: Процессор поворотной инвариантности
-        this.rotationProcessor = new RotationInvariance({
-            debug: options.debug || false
-        });
+        // 🔥 ВРЕМЕННО ОТКЛЮЧЕНО: RotationInvariance (чтобы избежать рекурсии)
+        // this.rotationProcessor = new RotationInvariance({
+        //     debug: options.debug || false
+        // });
 
         this.matchHistory = [];
         console.log('🎯 Инициализирован SimpleGraphMatcher с фиксированными порогами: same=0.7, similar=0.5, different=0.3');
     }
 
-    // 🔥 ЗАМЕНЕНО: Метод compareGraphs с поворотной инвариантностью
+    // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: БЕЗ РЕКУРСИИ
     compareGraphs(graph1, graph2, context = {}) {
         const startTime = Date.now();
 
-        console.log(`🔍 Сравниваю графы с поворотной инвариантностью: "${graph1.name}" vs "${graph2.name}"`);
+        console.log(`🔍 Сравниваю графы: "${graph1.name}" vs "${graph2.name}"`);
 
-        // 🔥 ДОБАВЛЕНО: Автоматическая нормализация ориентации
-        const normalized1 = this.rotationProcessor.normalizeToCanonical(graph1, {
-            ...context,
-            source: 'graph1'
-        });
+        // 🔥 ВРЕМЕННО: ПРОСТОЕ СРАВНЕНИЕ БЕЗ ПОВОРОТНОЙ ИНВАРИАНТНОСТИ
+        console.log('⚠️ ВРЕМЕННО: простое сравнение без поворотной инвариантности (избегаем рекурсии)');
 
-        const normalized2 = this.rotationProcessor.normalizeToCanonical(graph2, {
-            ...context,
-            source: 'graph2'
-        });
+        // 1. Нормализовать координаты
+        const norm1 = this.normalizeGraphCoordinates(graph1);
+        const norm2 = this.normalizeGraphCoordinates(graph2);
 
-        // Используем нормализованные графы для сравнения
-        const norm1 = this.normalizeGraphCoordinates(normalized1.graph);
-        const norm2 = this.normalizeGraphCoordinates(normalized2.graph);
+        // 2. Быстрая проверка
+        const nodeRatio = Math.min(norm1.nodes.length, norm2.nodes.length) /
+                         Math.max(norm1.nodes.length, norm2.nodes.length);
 
-        // 🔥 ДОБАВЛЕНО: Быстрая проверка с учётом нормализации
-        const quickCheck = this.quickCheckWithNormalization(norm1, norm2);
-
-        if (!quickCheck.pass) {
+        if (nodeRatio < this.config.minNodeRatio) {
             return {
-                ...quickCheck.result,
-                rotationInfo: {
-                    graph1Angle: normalized1.rotationAngle,
-                    graph2Angle: normalized2.rotationAngle,
-                    graph1Mirrored: normalized1.isMirrored,
-                    graph2Mirrored: normalized2.isMirrored
-                }
+                similarity: nodeRatio,
+                decision: 'different',
+                reason: `Разное количество узлов: ${norm1.nodes.length} vs ${norm2.nodes.length}`,
+                method: 'quick_check',
+                timeMs: Date.now() - startTime,
+                context: context
             };
         }
 
-        // 🔥 ДОБАВЛЕНО: Инвариантное сравнение
-        const invariantComparison = this.rotationProcessor.compareWithAllMethods(
-            normalized1.graph,
-            normalized2.graph,
-            { ...context, normalized: true }
+        // 3. Простое сравнение центров
+        const center1 = this.calculateNormalizedCenter(norm1.nodes);
+        const center2 = this.calculateNormalizedCenter(norm2.nodes);
+        const centerDistance = Math.sqrt(
+            Math.pow(center2.x - center1.x, 2) +
+            Math.pow(center2.y - center1.y, 2)
         );
 
-        // 🔥 ДОБАВЛЕНО: Учитываем информацию о повороте в результате
+        // 4. Рассчитать схожесть
+        let similarity = 0;
+
+        // Схожесть по размеру
+        similarity += nodeRatio * 0.3;
+
+        // Схожесть по положению центра
+        const centerSimilarity = Math.max(0, 1 - centerDistance / 0.3);
+        similarity += centerSimilarity * 0.3;
+
+        // Схожесть по распределению
+        const distributionScore = this.compareNormalizedDistribution(norm1.nodes, norm2.nodes);
+        similarity += distributionScore * 0.4;
+
+        similarity = Math.max(0, Math.min(1, similarity));
+
+        // 5. Принять решение с ФИКСИРОВАННЫМИ порогами
+        let decision, reason;
+        if (similarity >= 0.7) {
+            decision = 'same';
+            reason = `Высокая схожесть (${similarity.toFixed(3)})`;
+        } else if (similarity >= 0.5) {
+            decision = 'similar';
+            reason = `Умеренная схожесть (${similarity.toFixed(3)})`;
+        } else {
+            decision = 'different';
+            reason = `Низкая схожесть (${similarity.toFixed(3)})`;
+        }
+
         const result = {
-            ...invariantComparison,
-            rotationInfo: {
-                graph1: {
-                    originalAngle: normalized1.rotationAngle,
-                    isMirrored: normalized1.isMirrored,
-                    footType: normalized1.footType
-                },
-                graph2: {
-                    originalAngle: normalized2.rotationAngle,
-                    isMirrored: normalized2.isMirrored,
-                    footType: normalized2.footType
-                },
-                normalized: true
+            similarity: similarity,
+            decision: decision,
+            reason: reason,
+            details: {
+                nodeRatio: nodeRatio,
+                centerDistance: centerDistance,
+                centerSimilarity: centerSimilarity,
+                distributionScore: distributionScore
             },
+            method: 'simple_comparison_no_recursion',
+            confidence: similarity,
             timeMs: Date.now() - startTime,
             context: context
         };
@@ -108,24 +124,17 @@ class SimpleGraphMatcher {
         return result;
     }
 
-    // 🔥 ДОБАВЛЕН НОВЫЙ МЕТОД: Быстрая проверка с нормализацией
-    quickCheckWithNormalization(norm1, norm2) {
-        const nodeRatio = Math.min(norm1.nodes.length, norm2.nodes.length) /
-                         Math.max(norm1.nodes.length, norm2.nodes.length);
+    // 🔥 Вспомогательный метод
+    calculateNormalizedCenter(nodes) {
+        if (nodes.length === 0) return { x: 0, y: 0 };
 
-        if (nodeRatio < this.config.minNodeRatio) {
-            return {
-                pass: false,
-                result: {
-                    similarity: nodeRatio,
-                    decision: 'different',
-                    reason: `Разное количество узлов после нормализации: ${norm1.nodes.length} vs ${norm2.nodes.length}`,
-                    method: 'normalized_quick_check'
-                }
-            };
-        }
+        const sumNX = nodes.reduce((sum, node) => sum + (node.nx || 0), 0);
+        const sumNY = nodes.reduce((sum, node) => sum + (node.ny || 0), 0);
 
-        return { pass: true };
+        return {
+            x: sumNX / nodes.length,
+            y: sumNY / nodes.length
+        };
     }
 
     // 🔥 ИЗМЕНЕНО: Метод getAdaptiveThresholds теперь возвращает фиксированные пороги
@@ -143,10 +152,9 @@ class SimpleGraphMatcher {
 
     // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Принятие решения с ФИКСИРОВАННЫМИ порогами (как в инструкции)
     makeDecision(score, comparisonData) {
-        // 🔥 ИЗМЕНИТЬ ПОРОГИ:
         const sameThreshold = 0.7;
-        const similarThreshold = 0.5;    // БЫЛО: 0.4, СТАЛО: 0.5
-        const differentThreshold = 0.3;  // НОВЫЙ ПОРОГ
+        const similarThreshold = 0.5;
+        const differentThreshold = 0.3;
 
         if (score >= sameThreshold) {
             return {
@@ -178,24 +186,24 @@ class SimpleGraphMatcher {
         console.log(`   Граф 1: ${invariants1.nodeCount} узлов, кластеризация=${invariants1.clusteringCoefficient?.toFixed(3)}`);
         console.log(`   Граф 2: ${invariants2.nodeCount} узлов, кластеризация=${invariants2.clusteringCoefficient?.toFixed(3)}`);
 
-        // 1. Разное количество узлов (>50% разницы) - УЖЕ СТРОГО
+        // 1. Разное количество узлов (>50% разницы)
         const nodeRatio = Math.min(invariants1.nodeCount, invariants2.nodeCount) /
                          Math.max(invariants1.nodeCount, invariants2.nodeCount);
-        if (nodeRatio < 0.7) { // БЫЛО 0.5, СТАЛО 0.7 (строже!)
+        if (nodeRatio < 0.7) {
             console.log(`🚫 Радикальное различие: разные количество узлов (ratio=${nodeRatio.toFixed(3)})`);
             return true;
         }
 
-        // 2. Радикально разная кластеризация - УЖЕ СТРОГО
+        // 2. Радикально разная кластеризация
         const clusteringDiff = Math.abs(invariants1.clusteringCoefficient - invariants2.clusteringCoefficient);
-        if (clusteringDiff > 0.4) { // БЫЛО 0.5, СТАЛО 0.4 (строже!)
+        if (clusteringDiff > 0.4) {
             console.log(`🚫 Радикальное различие: разная кластеризация (diff=${clusteringDiff.toFixed(3)})`);
             return true;
         }
 
-        // 3. Радикально разная плотность - УЖЕ СТРОГО
+        // 3. Радикально разная плотность
         const densityDiff = Math.abs(invariants1.density - invariants2.density);
-        if (densityDiff > 0.2) { // БЫЛО 0.3, СТАЛО 0.2 (строже!)
+        if (densityDiff > 0.2) {
             console.log(`🚫 Радикальное различие: разная плотность (diff=${densityDiff.toFixed(3)})`);
             return true;
         }
@@ -203,7 +211,7 @@ class SimpleGraphMatcher {
         // 🔥 4. НОВАЯ ПРОВЕРКА: разное распределение по квадрантам
         const quadrantDiff = this.calculateQuadrantDifference(graph1, graph2);
         console.log(`   Разница распределения по квадрантам: ${quadrantDiff.toFixed(3)}`);
-        if (quadrantDiff > 0.3) { // Если распределение сильно отличается
+        if (quadrantDiff > 0.3) {
             console.log(`🚫 Радикальное различие: разное распределение точек (diff=${quadrantDiff.toFixed(3)})`);
             return true;
         }
@@ -226,10 +234,10 @@ class SimpleGraphMatcher {
             totalDiff += Math.abs(grid1[i] - grid2[i]);
         }
 
-        return totalDiff / grid1.length; // Средняя разница
+        return totalDiff / grid1.length;
     }
 
-    // 🔥 ДОБАВЛЕН МЕТОД createNormalizedGrid (если нет)
+    // 🔥 ДОБАВЛЕН МЕТОД createNormalizedGrid
     createNormalizedGrid(nodes, gridSize = 2) {
         const grid = Array(gridSize * gridSize).fill(0);
 
@@ -249,7 +257,7 @@ class SimpleGraphMatcher {
         return grid.map(count => count / total);
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Расчет базовых инвариантов с реальным расчетом кластеризации
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Расчет базовых инвариантов
     calculateBasicInvariants(graph) {
         const nodes = Array.from(graph.nodes?.values() || []);
         const edges = Array.from(graph.edges?.values() || []);
@@ -268,7 +276,7 @@ class SimpleGraphMatcher {
             degrees.set(edge.to, (degrees.get(edge.to) || 0) + 1);
         });
 
-        // 🔥 РЕАЛЬНЫЙ расчет коэффициента кластеризации
+        // РЕАЛЬНЫЙ расчет коэффициента кластеризации
         let clusteringCoefficient = 0;
         if (nodeCount > 0 && edges.length > 0) {
             let totalClustering = 0;
@@ -326,7 +334,7 @@ class SimpleGraphMatcher {
         };
     }
 
-    // 🔥 ДОБАВЛЕН МЕТОД НОРМАЛИЗАЦИИ (как в инструкции)
+    // 🔥 МЕТОД НОРМАЛИЗАЦИИ
     normalizeGraphCoordinates(graph) {
         const nodes = Array.from(graph.nodes.values());
 
@@ -363,11 +371,11 @@ class SimpleGraphMatcher {
     compareNormalizedInvariants(norm1, norm2) {
         const comparisons = [];
 
-        // 1. Сравнение распределения узлов в нормализованном пространстве
+        // 1. Сравнение распределения узлов
         const distributionScore = this.compareNormalizedDistribution(norm1.nodes, norm2.nodes);
         comparisons.push({ name: 'normalizedDistribution', score: distributionScore, weight: 0.3 });
 
-        // 2. Сравнение средних координат (после нормализации они должны быть близки)
+        // 2. Сравнение средних координат
         const center1 = this.calculateNormalizedCenter(norm1.nodes);
         const center2 = this.calculateNormalizedCenter(norm2.nodes);
         const centerDistance = Math.sqrt(
@@ -377,12 +385,12 @@ class SimpleGraphMatcher {
         const centerScore = Math.max(0, 1 - centerDistance / 0.3);
         comparisons.push({ name: 'normalizedCenter', score: centerScore, weight: 0.2 });
 
-        // 3. Сравнение разброса (std dev) в нормализованном пространстве
+        // 3. Сравнение разброса
         const spreadScore = this.compareNormalizedSpread(norm1.nodes, norm2.nodes);
         comparisons.push({ name: 'normalizedSpread', score: spreadScore, weight: 0.2 });
 
         // 4. Сравнение по квадрантам
-        const quadrantScore = 0.5; // временное значение
+        const quadrantScore = 0.5;
         comparisons.push({ name: 'quadrants', score: quadrantScore, weight: 0.3 });
 
         const totalScore = comparisons.reduce((sum, comp) => sum + comp.score * comp.weight, 0);
@@ -395,22 +403,10 @@ class SimpleGraphMatcher {
         };
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ НОРМАЛИЗОВАННОГО СРАВНЕНИЯ:
-    calculateNormalizedCenter(nodes) {
-        if (nodes.length === 0) return { x: 0, y: 0 };
-
-        const sumNX = nodes.reduce((sum, node) => sum + (node.nx || 0), 0);
-        const sumNY = nodes.reduce((sum, node) => sum + (node.ny || 0), 0);
-
-        return {
-            x: sumNX / nodes.length,
-            y: sumNY / nodes.length
-        };
-    }
-
+    // 🔥 МЕТОДЫ ДЛЯ НОРМАЛИЗОВАННОГО СРАВНЕНИЯ:
     compareNormalizedDistribution(nodes1, nodes2) {
         // Разбиваем на 4 квадранта и сравниваем распределение
-        const quadrants1 = [0, 0, 0, 0]; // Q1, Q2, Q3, Q4
+        const quadrants1 = [0, 0, 0, 0];
         const quadrants2 = [0, 0, 0, 0];
 
         nodes1.forEach(node => {
@@ -436,14 +432,14 @@ class SimpleGraphMatcher {
             totalDiff += Math.abs(prob1[i] - prob2[i]);
         }
 
-        return 1 - totalDiff / 2; // Максимальная разница = 2
+        return 1 - totalDiff / 2;
     }
 
     getNormalizedQuadrant(nx, ny) {
-        if (nx < 0.5 && ny < 0.5) return 0; // Q1: левый нижний
-        if (nx >= 0.5 && ny < 0.5) return 1; // Q2: правый нижний
-        if (nx < 0.5 && ny >= 0.5) return 2; // Q3: левый верхний
-        return 3; // Q4: правый верхний
+        if (nx < 0.5 && ny < 0.5) return 0;
+        if (nx >= 0.5 && ny < 0.5) return 1;
+        if (nx < 0.5 && ny >= 0.5) return 2;
+        return 3;
     }
 
     compareNormalizedSpread(nodes1, nodes2) {
@@ -451,7 +447,7 @@ class SimpleGraphMatcher {
         const spread2 = this.calculateNormalizedSpread(nodes2);
 
         const diff = Math.abs(spread1 - spread2);
-        return Math.max(0, 1 - diff / 0.2); // Допуск 0.2
+        return Math.max(0, 1 - diff / 0.2);
     }
 
     calculateNormalizedSpread(nodes) {
@@ -469,14 +465,7 @@ class SimpleGraphMatcher {
         return Math.sqrt(varX + varY);
     }
 
-    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
-
-    // 🔥 НОВЫЙ МЕТОД: ИНВАРИАНТНОЕ СРАВНЕНИЕ
-    compareGraphsWithInvariance(graph1, graph2, context = {}) {
-        return this.compareGraphs(graph1, graph2, { ...context, invariant: true });
-    }
-
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: normalizeGraph для совместимости
+    // 🔥 МЕТОД ДЛЯ СОВМЕСТИМОСТИ С СТАРЫМ КОДОМ
     normalizeGraph(graph) {
         const normalized = this.normalizeGraphCoordinates(graph);
 
@@ -516,36 +505,33 @@ class SimpleGraphMatcher {
         };
     }
 
-    // 🔥 МЕТОД ДЛЯ СОВМЕСТИМОСТИ С СТАРЫМ КОДОМ
     alignAndCompare(graph1, graph2, options = {}) {
         return this.compareGraphs(graph1, graph2, options);
     }
 
-    // 🔥 АДАПТИВНОЕ СРАВНЕНИЕ ДЛЯ РАЗНЫХ РАЗМЕРОВ
     adaptiveCompare(graph1, graph2, options = {}) {
         return this.compareGraphs(graph1, graph2, { ...options, adaptive: true });
     }
 
-    // 9. ПРОВЕРИТЬ, ОДНА ЛИ ЭТО ОБУВЬ? (простой интерфейс)
+    // ПРОВЕРИТЬ, ОДНА ЛИ ЭТО ОБУВЬ?
     isSameShoe(graph1, graph2) {
         const result = this.compareGraphs(graph1, graph2, { checkType: 'isSameShoe' });
         return {
             isSame: result.decision === 'same',
             similarity: result.similarity,
             confidence: result.confidence,
-            reason: result.reason,
-            matchedPairs: result.matchedPairs
+            reason: result.reason
         };
     }
 
-    // 10. НАЙТИ САМЫЙ ПОХОЖИЙ ГРАФ ИЗ СПИСКА
+    // НАЙТИ САМЫЙ ПОХОЖИЙ ГРАФ ИЗ СПИСКА
     findMostSimilar(targetGraph, graphList, maxResults = 5) {
         console.log(`🔎 Ищу похожие графы для "${targetGraph.name}" среди ${graphList.length} кандидатов...`);
 
         const comparisons = [];
 
         graphList.forEach((graph, index) => {
-            if (graph.id === targetGraph.id) return; // Пропустить сам себя
+            if (graph.id === targetGraph.id) return;
 
             const result = this.compareGraphs(targetGraph, graph, {
                 searchIndex: index,
@@ -558,7 +544,6 @@ class SimpleGraphMatcher {
                 decision: result.decision,
                 confidence: result.confidence,
                 reason: result.reason,
-                matchedPairs: result.matchedPairs,
                 index: index
             });
         });
@@ -583,18 +568,16 @@ class SimpleGraphMatcher {
         };
     }
 
-    // 8. ЗАПИСАТЬ РЕЗУЛЬТАТ СРАВНЕНИЯ
+    // ЗАПИСАТЬ РЕЗУЛЬТАТ СРАВНЕНИЯ
     recordMatch(result, context) {
         const record = {
             timestamp: new Date(),
             similarity: result.similarity,
             decision: result.decision,
             confidence: result.confidence,
-            matchedPairs: result.matchedPairs?.length || 0,
             timeMs: result.timeMs,
             context: context,
             details: {
-                steps: result.steps,
                 method: result.method
             }
         };
@@ -607,7 +590,7 @@ class SimpleGraphMatcher {
         }
     }
 
-    // 11. ПОЛУЧИТЬ СТАТИСТИКУ МАТЧЕРА
+    // ПОЛУЧИТЬ СТАТИСТИКУ МАТЧЕРА
     getStats() {
         const totalMatches = this.matchHistory.length;
 
@@ -623,20 +606,17 @@ class SimpleGraphMatcher {
 
         let totalSimilarity = 0;
         let totalTime = 0;
-        let totalMatchedPairs = 0;
 
         this.matchHistory.forEach(match => {
             decisions[match.decision] = (decisions[match.decision] || 0) + 1;
             totalSimilarity += match.similarity;
             totalTime += match.timeMs;
-            totalMatchedPairs += match.matchedPairs || 0;
         });
 
         return {
             totalMatches: totalMatches,
             decisions: decisions,
             avgSimilarity: totalSimilarity / totalMatches,
-            avgMatchedPairs: totalMatchedPairs / totalMatches,
             avgTimeMs: totalTime / totalMatches,
             lastMatch: this.matchHistory[this.matchHistory.length - 1]?.timestamp,
             config: this.config
