@@ -589,20 +589,22 @@ class SimpleFootprintManager {
     }
 
     ensureDirectories() {
-        const dirs = [
-            this.config.dbPath,
-            path.join(this.config.dbPath, 'models'),
-            path.join(this.config.dbPath, 'sessions'),
-            path.join(this.config.dbPath, 'visualizations'),
-            path.join(this.config.dbPath, 'visualizations/templates')
-        ];
+    const dirs = [
+        this.config.dbPath,
+        path.join(this.config.dbPath, 'models'),
+        path.join(this.config.dbPath, 'sessions'),
+        path.join(this.config.dbPath, 'visualizations'),
+        // 🔥 ИСПРАВИТЬ этот путь тоже:
+        path.join(this.config.dbPath, 'visualizations/templates')
+    ];
 
-        dirs.forEach(dir => {
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
-            }
-        });
-    }
+    dirs.forEach(dir => {
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+            console.log(`📁 Создана директория: ${dir}`);
+        }
+    });
+}
 
     loadExistingModels() {
         const modelsDir = path.join(this.config.dbPath, 'models');
