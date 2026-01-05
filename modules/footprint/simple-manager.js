@@ -3,11 +3,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const SimpleFootprint = require('./simple-footprint');
-const SimpleMatcher = require('./simple-matcher');
-const MergeVisualizer = require('./merge-visualizer');
-const VectorSuperModel = require('./vector-super-model');
-const TemplateVisualizer = require('./template-visualizer'); // Добавлено
 const crypto = require('crypto');
 
 // 🔥 ДОБАВЛЕНО: Импорт SimpleGraph который отсутствовал
@@ -37,15 +32,25 @@ class SimpleFootprintManager {
             ...options
         };
 
-        // 🔥 ВРЕМЕННО ЗАКОММЕНТИРОВАНО: Процессоры поворотной инвариантности
-        // const RotationInvariance = require('./rotation-invariance');
-        // const MirrorDetection = require('./mirror-detection');
-        // this.rotationProcessor = new RotationInvariance({
-        //     debug: this.config.debug
-        // });
-        // this.mirrorDetector = new MirrorDetection({
-        //     debug: this.config.debug
-        // });
+        // 🔥 ДОБАВЛЕНО: Импорт модулей внутри конструктора (строго по инструкции)
+        const SimpleFootprint = require('./simple-footprint');
+        const SimpleMatcher = require('./simple-matcher');
+        const MergeVisualizer = require('./merge-visualizer');
+        const VectorSuperModel = require('./vector-super-model');
+        const TemplateVisualizer = require('./template-visualizer');
+       
+        // 🔥 ДОБАВЛЕНО: НОВЫЕ ИМПОРТЫ согласно инструкции
+        const RotationInvariance = require('./rotation-invariance');
+        const MirrorDetection = require('./mirror-detection');
+
+        // 🔥 ДОБАВЛЕНО: Процессоры поворотной инвариантности согласно инструкции
+        this.rotationProcessor = new RotationInvariance({
+            debug: this.config.debug
+        });
+
+        this.mirrorDetector = new MirrorDetection({
+            debug: this.config.debug
+        });
 
         // Сессии пользователей: userId -> session
         this.userSessions = new Map();
@@ -94,19 +99,19 @@ class SimpleFootprintManager {
         // Загружаем существующие модели
         this.loadExistingModels();
 
-        console.log(`🚀 SimpleFootprintManager инициализирован`);
+        console.log(`🚀 SimpleFootprintManager инициализирован с поворотной инвариантностью`);
         console.log(`   📁 База данных: ${this.config.dbPath}`);
         console.log(`   🎯 Auto Alignment: ${this.config.autoAlignment ? 'ВКЛ' : 'ВЫКЛ'}`);
         console.log(`   🎨 Визуализация объединения: ${this.config.enableMergeVisualization ? 'ВКЛ' : 'ВЫКЛ'}`);
         console.log(`   🎯 PointTracker: ВКЛ (подтверждения узлов)`);
         console.log(`   🏗️  VectorSuperModel: ВКЛ`);
         console.log(`   📐 TemplateVisualizer: ВКЛ`);
-        console.log(`   ⚠️  Поворотная инвариантность: ВРЕМЕННО ОТКЛЮЧЕНА для стабильности`);
+        console.log(`   🔄 Поворотная инвариантность: ВКЛ`);
     }
 
-    // 🔥 УПРОЩЕННЫЙ МЕТОД addPhotoToSession (временная версия)
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД addPhotoToSession с поворотной инвариантностью (строго по инструкции)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО В СЕССИЮ (горячий фикс)`);
+        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО С ПОВОРОТНОЙ ИНВАРИАНТНОСТЬЮ`);
 
         try {
             // Проверяем анализ
@@ -121,6 +126,34 @@ class SimpleFootprintManager {
             }
 
             console.log(`🔍 Извлечено ${points.length} точек протекторов`);
+
+            // 🔥 ИСПРАВЛЕНИЕ: Создание графа с использованием импортированного SimpleGraph
+            const graph = new SimpleGraph(`Временный_${Date.now()}`);
+            graph.buildFromPoints(points);
+
+            // 🔥 ДОБАВЛЕНО: Автоматическая нормализация ориентации согласно инструкции
+            const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
+                userId: userId,
+                photoInfo: photoInfo,
+                autoRotate: true
+            });
+
+            console.log(`📐 Автоповорот: ${normalized.rotationAngle.toFixed(1)}° → 0°`);
+            console.log(`🪞 Зеркало: ${normalized.isMirrored ? 'да' : 'нет'}`);
+            console.log(`🦶 Тип: ${normalized.footType || 'неизвестно'}`);
+
+            // 🔥 ДОБАВЛЕНО: Автокоррекция типа следа (все к правому)
+            const corrected = this.mirrorDetector.autoCorrectMirroring(
+                normalized.graph,
+                'right'
+            );
+
+            if (corrected.correctionApplied) {
+                console.log(`🔄 Автокоррекция применена: ${corrected.correctionType}`);
+            }
+
+            // Используем корректированный граф для дальнейшей обработки
+            const finalGraph = corrected.graph;
 
             // Получаем или создаем сессию
             let session = this.userSessions.get(userId);
@@ -137,6 +170,9 @@ class SimpleFootprintManager {
             });
             session.lastActivity = new Date();
 
+            // 🔥 ИСПРАВЛЕНИЕ: Используем импортированные модули
+            const SimpleFootprint = require('./simple-footprint');
+
             // Если нет текущего отпечатка - создаем
             if (!session.currentFootprint) {
                 console.log(`👣 Создаю новый отпечаток (первое фото)`);
@@ -146,9 +182,24 @@ class SimpleFootprintManager {
                     name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`
                 });
 
-                // Добавляем анализ
-                const addResult = session.currentFootprint.addAnalysis(analysis, photoInfo);
-               
+                // Добавляем анализ с нормализованным графом
+                const addResult = session.currentFootprint.addAnalysis(analysis, {
+                    ...photoInfo,
+                    normalizedGraph: finalGraph
+                });
+
+                // Создаем векторную супер-модель
+                const VectorSuperModel = require('./vector-super-model');
+                const vectorModel = new VectorSuperModel({
+                    name: `Супер-модель_${String(userId).slice(0, 6)}`,
+                    enablePCA: false,
+                    cellSize: 25,
+                    debug: this.config.debug
+                });
+
+                vectorModel.addGraph(finalGraph, session.currentFootprint.id, { isFirst: true });
+                this.vectorSuperModels.set(userId, vectorModel);
+
                 console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
 
                 return {
@@ -156,7 +207,12 @@ class SimpleFootprintManager {
                     isNewSession: true,
                     nodesAdded: addResult.added,
                     totalNodes: session.currentFootprint.graph.nodes.size,
-                    sessionId: session.id
+                    sessionId: session.id,
+                    rotationInfo: {
+                        angle: normalized.rotationAngle,
+                        isMirrored: normalized.isMirrored,
+                        corrected: corrected.correctionApplied
+                    }
                 };
             }
 
@@ -168,9 +224,12 @@ class SimpleFootprintManager {
                 userId: userId,
                 name: `Temp_${Date.now()}`
             });
-            const tempResult = tempFootprint.addAnalysis(analysis, photoInfo);
+            const tempResult = tempFootprint.addAnalysis(analysis, {
+                ...photoInfo,
+                normalizedGraph: finalGraph
+            });
 
-            // Сравниваем
+            // Сравниваем с использованием поворотной инвариантности
             const alignmentResult = this.matcher.compareGraphs(
                 session.currentFootprint.graph,
                 tempFootprint.graph,
@@ -183,33 +242,63 @@ class SimpleFootprintManager {
             if (alignmentResult.similarity > 0.6 && alignmentResult.decision === 'same') {
                 // СЛЕДЫ СОВПАДАЮТ
                 console.log(`✅ Следы совпали (${alignmentResult.similarity.toFixed(3)})`);
-               
-                // Простое объединение
-                const mergeResult = session.currentFootprint.merge(tempFootprint);
-               
-                if (mergeResult.success) {
-                    // Визуализация
-                    let visualization = null;
-                    if (this.config.enableMergeVisualization) {
-                        visualization = await this.mergeVisualizer.visualizeMerge(
-                            session.currentFootprint,
-                            tempFootprint,
-                            alignmentResult
-                        );
+
+                // Получаем векторную модель
+                let vectorModel = this.vectorSuperModels.get(userId);
+                let vectorVizPath = null;
+
+                if (!vectorModel) {
+                    // Создаем модель
+                    const VectorSuperModel = require('./vector-super-model');
+                    vectorModel = new VectorSuperModel({
+                        name: `Супер-модель_${String(userId).slice(0, 6)}`,
+                        enablePCA: false,
+                        cellSize: 25,
+                        debug: this.config.debug
+                    });
+                    this.vectorSuperModels.set(userId, vectorModel);
+
+                    // Добавляем текущий граф
+                    vectorModel.addGraph(
+                        session.currentFootprint.graph,
+                        session.currentFootprint.id,
+                        { isFirst: true }
+                    );
+                }
+
+                // Добавляем новый граф
+                const addResult = vectorModel.addGraph(
+                    finalGraph,
+                    tempFootprint.id,
+                    {
+                        similarity: alignmentResult.similarity,
+                        timestamp: new Date(),
+                        ...photoInfo
                     }
-                   
+                );
+
+                if (addResult) {
+                    // Обновляем подтверждения
+                    this.updateConfirmationsFromVectorModel(session.currentFootprint, vectorModel);
+
+                    // Визуализация
+                    if (this.config.enableMergeVisualization && vectorModel) {
+                        vectorVizPath = await this.visualizeVectorSuperModel(userId, vectorModel);
+                    }
+
                     return {
                         success: true,
                         similarity: alignmentResult.similarity,
                         decision: alignmentResult.decision,
-                        mergeMethod: 'simple_merge',
+                        mergeMethod: 'template_based',
+                        templateStats: vectorModel.getTemplateStats(),
+                        visualization: vectorVizPath,
                         nodesAdded: tempResult.added,
-                        totalNodes: session.currentFootprint.graph.nodes.size,
-                        visualization: visualization,
-                        message: `✅ След добавлен к модели!`
+                        message: `✅ След добавлен к шаблону!`,
+                        rotationInfo: alignmentResult.rotationInfo
                     };
                 }
-               
+
             } else {
                 // СЛЕДЫ РАЗНЫЕ
                 console.log(`🆕 Следы разные (${alignmentResult.similarity.toFixed(3)}) - начинаю новую модель`);
@@ -225,22 +314,20 @@ class SimpleFootprintManager {
                     name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`
                 });
 
-                const addResult = session.currentFootprint.addAnalysis(analysis, photoInfo);
+                const addResult = session.currentFootprint.addAnalysis(analysis, {
+                    ...photoInfo,
+                    normalizedGraph: finalGraph
+                });
 
                 return {
                     success: true,
                     similarity: alignmentResult.similarity,
                     decision: 'different',
                     isNewModel: true,
-                    nodesAdded: addResult.added
+                    nodesAdded: addResult.added,
+                    rotationInfo: alignmentResult.rotationInfo
                 };
             }
-
-            return {
-                success: true,
-                nodesAdded: 0,
-                message: 'Обработка завершена'
-            };
 
         } catch (error) {
             console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
@@ -507,7 +594,7 @@ class SimpleFootprintManager {
             path.join(this.config.dbPath, 'models'),
             path.join(this.config.dbPath, 'sessions'),
             path.join(this.config.dbPath, 'visualizations'),
-            path.join(this.config.dbPath, 'visualizations/templates') // Добавлено для TemplateVisualizer
+            path.join(this.config.dbPath, 'visualizations/templates')
         ];
 
         dirs.forEach(dir => {
@@ -532,11 +619,12 @@ class SimpleFootprintManager {
 
         let loadedCount = 0;
 
-        files.slice(0, 100).forEach(file => { // Ограничиваем загрузку 100 моделями
+        files.slice(0, 100).forEach(file => {
             try {
                 const filePath = path.join(modelsDir, file);
                 const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
+                const SimpleFootprint = require('./simple-footprint');
                 const footprint = SimpleFootprint.fromJSON(data);
                 this.loadedModels.set(footprint.id, footprint);
                 loadedCount++;
@@ -550,7 +638,7 @@ class SimpleFootprintManager {
         console.log(`✅ Загружено ${loadedCount} моделей`);
     }
 
-    // Остальные методы остаются без изменений
+    // Остальные методы без изменений...
     getActiveSession(userId) {
         return this.userSessions.get(userId);
     }
