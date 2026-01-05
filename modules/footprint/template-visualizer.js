@@ -16,7 +16,7 @@ const path = require('path');
 class TemplateVisualizer {
     constructor(options = {}) {
         this.config = {
-            outputDir: options.outputDir || './data/visualizations/templates',
+             outputDir: options.outputDir || './data/footprints/visualizations/templates',
             debug: options.debug || false,
             useCanvas: canvas !== null, // Автоматическое определение
             canvasWidth: options.canvasWidth || 1200,
