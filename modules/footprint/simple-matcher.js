@@ -1,6 +1,8 @@
 // modules/footprint/simple-matcher.js
 // УМНЫЙ СРАВНИТЕЛЬ ГРАФОВ С ИНВАРИАНТНОСТЬЮ
 
+const RotationInvariance = require('./rotation-invariance');
+
 class SimpleGraphMatcher {
     constructor(options = {}) {
         this.config = {
@@ -30,8 +32,100 @@ class SimpleGraphMatcher {
             debug: options.debug || false
         };
 
+        // 🔥 ДОБАВЛЕНО: Процессор поворотной инвариантности
+        this.rotationProcessor = new RotationInvariance({
+            debug: options.debug || false
+        });
+
         this.matchHistory = [];
         console.log('🎯 Инициализирован SimpleGraphMatcher с фиксированными порогами: same=0.7, similar=0.5, different=0.3');
+    }
+
+    // 🔥 ЗАМЕНЕНО: Метод compareGraphs с поворотной инвариантностью
+    compareGraphs(graph1, graph2, context = {}) {
+        const startTime = Date.now();
+
+        console.log(`🔍 Сравниваю графы с поворотной инвариантностью: "${graph1.name}" vs "${graph2.name}"`);
+
+        // 🔥 ДОБАВЛЕНО: Автоматическая нормализация ориентации
+        const normalized1 = this.rotationProcessor.normalizeToCanonical(graph1, {
+            ...context,
+            source: 'graph1'
+        });
+
+        const normalized2 = this.rotationProcessor.normalizeToCanonical(graph2, {
+            ...context,
+            source: 'graph2'
+        });
+
+        // Используем нормализованные графы для сравнения
+        const norm1 = this.normalizeGraphCoordinates(normalized1.graph);
+        const norm2 = this.normalizeGraphCoordinates(normalized2.graph);
+
+        // 🔥 ДОБАВЛЕНО: Быстрая проверка с учётом нормализации
+        const quickCheck = this.quickCheckWithNormalization(norm1, norm2);
+
+        if (!quickCheck.pass) {
+            return {
+                ...quickCheck.result,
+                rotationInfo: {
+                    graph1Angle: normalized1.rotationAngle,
+                    graph2Angle: normalized2.rotationAngle,
+                    graph1Mirrored: normalized1.isMirrored,
+                    graph2Mirrored: normalized2.isMirrored
+                }
+            };
+        }
+
+        // 🔥 ДОБАВЛЕНО: Инвариантное сравнение
+        const invariantComparison = this.rotationProcessor.compareWithAllMethods(
+            normalized1.graph,
+            normalized2.graph,
+            { ...context, normalized: true }
+        );
+
+        // 🔥 ДОБАВЛЕНО: Учитываем информацию о повороте в результате
+        const result = {
+            ...invariantComparison,
+            rotationInfo: {
+                graph1: {
+                    originalAngle: normalized1.rotationAngle,
+                    isMirrored: normalized1.isMirrored,
+                    footType: normalized1.footType
+                },
+                graph2: {
+                    originalAngle: normalized2.rotationAngle,
+                    isMirrored: normalized2.isMirrored,
+                    footType: normalized2.footType
+                },
+                normalized: true
+            },
+            timeMs: Date.now() - startTime,
+            context: context
+        };
+
+        this.recordMatch(result, context);
+        return result;
+    }
+
+    // 🔥 ДОБАВЛЕН НОВЫЙ МЕТОД: Быстрая проверка с нормализацией
+    quickCheckWithNormalization(norm1, norm2) {
+        const nodeRatio = Math.min(norm1.nodes.length, norm2.nodes.length) /
+                         Math.max(norm1.nodes.length, norm2.nodes.length);
+
+        if (nodeRatio < this.config.minNodeRatio) {
+            return {
+                pass: false,
+                result: {
+                    similarity: nodeRatio,
+                    decision: 'different',
+                    reason: `Разное количество узлов после нормализации: ${norm1.nodes.length} vs ${norm2.nodes.length}`,
+                    method: 'normalized_quick_check'
+                }
+            };
+        }
+
+        return { pass: true };
     }
 
     // 🔥 ИЗМЕНЕНО: Метод getAdaptiveThresholds теперь возвращает фиксированные пороги
@@ -232,71 +326,6 @@ class SimpleGraphMatcher {
         };
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД compareGraphs с ВЫЗОВОМ РАДИКАЛЬНОЙ ПРОВЕРКИ ПЕРВЫМ ДЕЛОМ
-    compareGraphs(graph1, graph2, context = {}) {
-        const startTime = Date.now();
-
-        console.log(`🔍 Сравниваю графы: "${graph1.name}" vs "${graph2.name}"`);
-
-        // 🔥 ВЫЗОВ РАДИКАЛЬНОЙ ПРОВЕРКИ ПЕРВЫМ ДЕЛОМ
-        if (this.areRadicallyDifferent(graph1, graph2)) {
-            console.log(`🚫 Графы радикально разные - быстрый отсев`);
-            return {
-                similarity: 0.2, // Низкая схожесть
-                decision: 'different',
-                reason: 'Радикально разные формы',
-                method: 'radical_difference_check',
-                details: { quickCheck: { pass: false, score: 0.2 } },
-                confidence: 0.8,
-                timeMs: Date.now() - startTime,
-                context: context
-            };
-        }
-
-        // 🔥 НОРМАЛИЗУЕМ ОБА ГРАФА (существующий код)
-        const norm1 = this.normalizeGraphCoordinates(graph1);
-        const norm2 = this.normalizeGraphCoordinates(graph2);
-
-        // 🔥 ИСПОЛЬЗУЕМ НОРМАЛИЗОВАННЫЕ КООРДИНАТЫ ДЛЯ СРАВНЕНИЯ (существующий код)
-        const quickCheck = this.quickCheckWithNormalization(norm1, norm2);
-
-        if (!quickCheck.pass) {
-            return quickCheck.result;
-        }
-
-        // 🔥 СРАВНИВАЕМ НОРМАЛИЗОВАННЫЕ ИНВАРИАНТЫ (существующий код)
-        const basicComparison = this.compareNormalizedInvariants(norm1, norm2);
-
-        // 🔥 ИСПОЛЬЗУЕМ ФИКСИРОВАННЫЕ ПОРОГИ ДЛЯ ПРИНЯТИЯ РЕШЕНИЯ
-        const comparisonData = {
-            nodeCount: Math.min(norm1.nodes.length, norm2.nodes.length),
-            graph1Nodes: norm1.nodes.length,
-            graph2Nodes: norm2.nodes.length
-        };
-
-        const decision = this.makeDecision(basicComparison.score, comparisonData);
-
-        const result = {
-            similarity: basicComparison.score,
-            decision: decision.type,
-            reason: decision.reason + ` | Нормализованное сравнение: ${basicComparison.score.toFixed(3)}`,
-            details: {
-                normalized: true,
-                comparisons: basicComparison.comparisons,
-                adaptiveThresholds: this.getAdaptiveThresholds(comparisonData)
-            },
-            method: 'normalized_comparison',
-            confidence: decision.confidence,
-            timeMs: Date.now() - startTime,
-            context: context
-        };
-
-        this.recordMatch(result, context);
-        return result;
-    }
-
-    // 🔥 ДАЛЕЕ ИДЕТ ОРИГИНАЛЬНЫЙ КОД БЕЗ ИЗМЕНЕНИЙ (сохранен полностью):
-
     // 🔥 ДОБАВЛЕН МЕТОД НОРМАЛИЗАЦИИ (как в инструкции)
     normalizeGraphCoordinates(graph) {
         const nodes = Array.from(graph.nodes.values());
@@ -330,26 +359,6 @@ class SimpleGraphMatcher {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Быстрая проверка с нормализацией
-    quickCheckWithNormalization(norm1, norm2) {
-        const nodeRatio = Math.min(norm1.nodes.length, norm2.nodes.length) /
-                         Math.max(norm1.nodes.length, norm2.nodes.length);
-
-        if (nodeRatio < this.config.minNodeRatio) {
-            return {
-                pass: false,
-                result: {
-                    similarity: nodeRatio,
-                    decision: 'different',
-                    reason: `Разное количество узлов после нормализации: ${norm1.nodes.length} vs ${norm2.nodes.length}`,
-                    method: 'normalized_quick_check'
-                }
-            };
-        }
-
-        return { pass: true };
-    }
-
     // 🔥 НОВЫЙ МЕТОД: Сравнение нормализованных инвариантов
     compareNormalizedInvariants(norm1, norm2) {
         const comparisons = [];
@@ -373,8 +382,7 @@ class SimpleGraphMatcher {
         comparisons.push({ name: 'normalizedSpread', score: spreadScore, weight: 0.2 });
 
         // 4. Сравнение по квадрантам
-       // const quadrantScore = this.compareQuadrants(norm1.nodes, norm2.nodes);
-      const quadrantScore = 0.5; // временное значение
+        const quadrantScore = 0.5; // временное значение
         comparisons.push({ name: 'quadrants', score: quadrantScore, weight: 0.3 });
 
         const totalScore = comparisons.reduce((sum, comp) => sum + comp.score * comp.weight, 0);
