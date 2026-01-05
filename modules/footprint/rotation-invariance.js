@@ -1,5 +1,5 @@
 // modules/footprint/rotation-invariance.js
-// АВТООПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА И НОРМАЛИЗАЦИЯ ПРОТЕКТОРА
+// АВТООПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА И НОРМАЛИЗАЦИЯ ПРОТЕКТОРА 
 
 class RotationInvariance {
     constructor(options = {}) {
