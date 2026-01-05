@@ -38,7 +38,7 @@ class SimpleFootprintManager {
         const MergeVisualizer = require('./merge-visualizer');
         const VectorSuperModel = require('./vector-super-model');
         const TemplateVisualizer = require('./template-visualizer');
-       
+
         // 🔥 ДОБАВЛЕНО: НОВЫЕ ИМПОРТЫ согласно инструкции
         const RotationInvariance = require('./rotation-invariance');
         const MirrorDetection = require('./mirror-detection');
@@ -284,6 +284,31 @@ class SimpleFootprintManager {
                     // Визуализация
                     if (this.config.enableMergeVisualization && vectorModel) {
                         vectorVizPath = await this.visualizeVectorSuperModel(userId, vectorModel);
+
+                        // 🔥 ВОТ ЭТОТ КОД НУЖНО ВЕРНУТЬ:
+                        // Отправляем в Telegram прямо здесь
+                        if (bot && chatId && vectorVizPath && vectorVizPath.template) {
+                            try {
+                                const stats = vectorModel.getInfo();
+
+                                // Проверяем что файл существует
+                                if (fs.existsSync(vectorVizPath.template)) {
+                                    await bot.sendPhoto(chatId, vectorVizPath.template, {
+                                        caption: `✅ **Следы совпали - супер-модель обновлена!**\n\n` +
+                                                `🎯 Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}%\n` +
+                                                `📊 Ячеек шаблона: ${stats.template?.cells?.total || 0}\n` +
+                                                `🔄 Подтверждённых: ${stats.template?.cells?.confirmed || 0}\n` +
+                                                `📈 Слияний: ${stats.stats.totalMerges}\n\n` +
+                                                `🎨 Шаблон протектора с подтверждениями`
+                                    });
+                                    console.log(`✅ Визуализация отправлена в Telegram`);
+                                } else {
+                                    console.log(`❌ Файл не существует: ${vectorVizPath.template}`);
+                                }
+                            } catch (sendError) {
+                                console.log(`❌ Ошибка отправки визуализации: ${sendError.message}`);
+                            }
+                        }
                     }
 
                     return {
@@ -555,7 +580,7 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧЕНИЕ КОЛИЧЕСТВА ВИЗУАЛИЗАЦИЙ ОБЪЕДИНЕНИЯ
+    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧИЕНИЕ КОЛИЧЕСТВА ВИЗУАЛИЗАЦИЙ ОБЪЕДИНЕНИЯ
     getMergeVisualizationCount() {
         let total = 0;
         for (const [userId, history] of this.lastMergeVisualizations) {
@@ -589,22 +614,22 @@ class SimpleFootprintManager {
     }
 
     ensureDirectories() {
-    const dirs = [
-        this.config.dbPath,
-        path.join(this.config.dbPath, 'models'),
-        path.join(this.config.dbPath, 'sessions'),
-        path.join(this.config.dbPath, 'visualizations'),
-        // 🔥 ИСПРАВИТЬ этот путь тоже:
-        path.join(this.config.dbPath, 'visualizations/templates')
-    ];
+        const dirs = [
+            this.config.dbPath,
+            path.join(this.config.dbPath, 'models'),
+            path.join(this.config.dbPath, 'sessions'),
+            path.join(this.config.dbPath, 'visualizations'),
+            // 🔥 ИСПРАВИТЬ этот путь тоже:
+            path.join(this.config.dbPath, 'visualizations/templates')
+        ];
 
-    dirs.forEach(dir => {
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-            console.log(`📁 Создана директория: ${dir}`);
-        }
-    });
-}
+        dirs.forEach(dir => {
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+                console.log(`📁 Создана директория: ${dir}`);
+            }
+        });
+    }
 
     loadExistingModels() {
         const modelsDir = path.join(this.config.dbPath, 'models');
