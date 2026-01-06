@@ -113,12 +113,7 @@ class SimpleFootprintManager {
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО С ПОВОРОТНОЙ ИНВАРИАНТНОСТЬЮ`);
 
-if (alignmentResult) {
-    console.log('alignmentResult keys:', Object.keys(alignmentResult));
-    console.log('alignmentResult:', JSON.stringify(alignmentResult, null, 2).substring(0, 500));
-} else {
-    console.log('alignmentResult is undefined!');
-}
+
       
         try {
             // Проверяем анализ
