@@ -1364,6 +1364,274 @@ bot.onText(/\/reset/, (msg) => {
     }
 });
 
+// Команда /clearmodel - очистить супер-модель
+bot.onText(/\/clearmodel/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    try {
+        // Проверяем права (если нужно)
+        const allowedUsers = [699140291]; // Твой ID для тестов
+        if (!allowedUsers.includes(userId)) {
+            await bot.sendMessage(chatId, '⛔ Эта команда только для тестирования');
+            return;
+        }
+       
+        await bot.sendMessage(chatId, '🔄 Очищаю супер-модель...');
+       
+        // Получаем информацию перед удалением
+        const info = footprintManager.getVectorSuperModelInfo(userId);
+       
+        if (!info.exists) {
+            await bot.sendMessage(chatId, '⚠️ У вас нет активной супер-модели');
+            return;
+        }
+       
+        // Показываем что будет удалено
+        await bot.sendMessage(chatId,
+            `🗑️ УДАЛЕНИЕ СУПЕР-МОДЕЛИ:\n` +
+            `Название: ${info.name}\n` +
+            `Ячеек: ${info.stats.totalCells}\n` +
+            `Слияний: ${info.stats.totalMerges}\n` +
+            `Уверенность: ${(info.stats.confidence * 100).toFixed(1)}%\n\n` +
+            `Подтвердите удаление командой: /confirmclear`
+        );
+       
+        // Сохраняем запрос на удаление
+        userClearRequests.set(userId, {
+            timestamp: Date.now(),
+            modelInfo: info
+        });
+       
+    } catch (error) {
+        console.log('❌ Ошибка в /clearmodel:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+// Команда /confirmclear - подтверждение удаления
+bot.onText(/\/confirmclear/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    try {
+        const clearRequest = userClearRequests.get(userId);
+        if (!clearRequest) {
+            await bot.sendMessage(chatId, '⚠️ Нет запроса на удаление. Сначала используйте /clearmodel');
+            return;
+        }
+       
+        // Проверяем что запрос не старше 2 минут
+        if (Date.now() - clearRequest.timestamp > 120000) {
+            userClearRequests.delete(userId);
+            await bot.sendMessage(chatId, '⏱️ Время подтверждения истекло. Используйте /clearmodel снова');
+            return;
+        }
+       
+        await bot.sendMessage(chatId, '🗑️ Удаляю супер-модель...');
+       
+        // Очищаем все данные
+        const result = footprintManager.clearUserSessionData(userId);
+       
+        if (result.success) {
+            const info = clearRequest.modelInfo;
+           
+            await bot.sendMessage(chatId,
+                `✅ СУПЕР-МОДЕЛЬ УДАЛЕНА!\n\n` +
+                `🗑️ Удалено:\n` +
+                `• Супер-модель: ${info.name}\n` +
+                `• ${info.stats.totalCells} ячеек шаблона\n` +
+                `• ${info.stats.totalMerges} слияний\n` +
+                `• Текущий отпечаток\n\n` +
+                `🆕 Теперь можно начать с чистого листа!\n` +
+                `Отправьте фото для создания новой модели.`
+            );
+           
+            // Очищаем запрос
+            userClearRequests.delete(userId);
+           
+        } else {
+            await bot.sendMessage(chatId, '⚠️ Не удалось удалить данные. Возможно, их уже нет.');
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка в /confirmclear:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+// Команда /clearsession - быстрая очистка (без подтверждения)
+bot.onText(/\/clearsession/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    try {
+        // Только для тестовых пользователей
+        const allowedUsers = [699140291];
+        if (!allowedUsers.includes(userId)) {
+            await bot.sendMessage(chatId, '⛔ Эта команда только для тестирования');
+            return;
+        }
+       
+        await bot.sendMessage(chatId, '🧹 Быстрая очистка сессии...');
+       
+        const result = footprintManager.clearUserSessionData(userId);
+       
+        if (result.success) {
+            await bot.sendMessage(chatId,
+                `✅ СЕССИЯ ОЧИЩЕНА!\n\n` +
+                `🆕 Теперь можно начать с чистого листа.\n` +
+                `Отправьте фото для создания новой модели.`
+            );
+        } else {
+            await bot.sendMessage(chatId, 'ℹ️ Нечего очищать - сессия уже пуста');
+        }
+       
+    } catch (error) {
+        console.log('❌ Ошибка в /clearsession:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+// Команда /modelinfo - информация о текущей модели
+bot.onText(/\/modelinfo/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    try {
+        const info = footprintManager.getVectorSuperModelInfo(userId);
+       
+        if (!info.exists) {
+            await bot.sendMessage(chatId, '📭 У вас нет активной супер-модели');
+            return;
+        }
+       
+        let message = `📊 ИНФОРМАЦИЯ О СУПЕР-МОДЕЛИ:\n\n`;
+        message += `🏷️ Название: ${info.name}\n`;
+        message += `🆔 ID: ${info.templateId?.slice(0, 12)}...\n\n`;
+       
+        message += `📈 СТАТИСТИКА:\n`;
+        message += `• Ячеек шаблона: ${info.stats.totalCells}\n`;
+        message += `• Подтвержденных: ${info.stats.confirmedCells}\n`;
+        message += `• Слияний: ${info.stats.totalMerges}\n`;
+        message += `• Уверенность: ${(info.stats.confidence * 100).toFixed(1)}%\n`;
+        message += `• Создана: ${info.stats.createdAt}\n`;
+        message += `• Обновлена: ${info.stats.lastUpdated}\n\n`;
+       
+        if (info.templateStats) {
+            message += `📊 ШАБЛОН:\n`;
+            message += `• Высоконадёжных ячеек: ${info.templateStats.highConfidenceCells || 0}\n`;
+            message += `• Среднее подтверждений: ${(info.templateStats.avgConfirmations || 0).toFixed(2)}\n`;
+        }
+       
+        message += `\n⚡ Команды:\n`;
+        message += `/clearmodel - удалить эту модель\n`;
+        message += `/clearsession - быстрая очистка\n`;
+        message += `/debug - подробная отладка`;
+       
+        await bot.sendMessage(chatId, message);
+       
+    } catch (error) {
+        console.log('❌ Ошибка в /modelinfo:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+// Добавить в начало файла (после импортов):
+const userClearRequests = new Map(); // Для хранения запросов на удаление
+
+// Команда /debug - полная отладка системы
+bot.onText(/\/debug/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    try {
+        // Только для тестовых пользователей
+        const allowedUsers = [699140291];
+        if (!allowedUsers.includes(userId)) {
+            await bot.sendMessage(chatId, '⛔ Эта команда только для тестирования');
+            return;
+        }
+       
+        await bot.sendMessage(chatId, '🔧 Запуск отладки системы...');
+       
+        // 1. Информация о системе
+        const systemStats = footprintManager.getSystemStats();
+       
+        // 2. Информация о пользователе
+        const modelInfo = footprintManager.getVectorSuperModelInfo(userId);
+        const session = footprintManager.getActiveSession(userId);
+       
+        let debugMessage = `⚡ ОТЛАДКА СИСТЕМЫ\n\n`;
+       
+        debugMessage += `📊 СИСТЕМА:\n`;
+        debugMessage += `• Активных сессий: ${systemStats.activeSessions}\n`;
+        debugMessage += `• Загруженных моделей: ${systemStats.loadedModels}\n`;
+        debugMessage += `• Векторных моделей: ${systemStats.vectorModels}\n`;
+        debugMessage += `• Всего фото: ${systemStats.totalPhotosProcessed}\n\n`;
+       
+        debugMessage += `👤 ПОЛЬЗОВАТЕЛЬ ${userId}:\n`;
+        debugMessage += `• Сессия: ${session ? session.id.slice(0, 12) + '...' : 'нет'}\n`;
+        debugMessage += `• Супер-модель: ${modelInfo.exists ? 'есть' : 'нет'}\n`;
+       
+        if (modelInfo.exists) {
+            debugMessage += `• Ячеек: ${modelInfo.stats.totalCells}\n`;
+            debugMessage += `• Слияний: ${modelInfo.stats.totalMerges}\n`;
+        }
+       
+        debugMessage += `\n🎯 POINT TRACKER:\n`;
+        if (session && session.currentFootprint && session.currentFootprint.pointTracker) {
+            const trackerStats = session.currentFootprint.pointTracker.getStats();
+            debugMessage += `• Всего точек: ${trackerStats.totalPoints}\n`;
+            debugMessage += `• Высоконадёжных: ${trackerStats.highConfidencePoints}\n`;
+            debugMessage += `• Средний рейтинг: ${trackerStats.avgRating.toFixed(3)}\n`;
+            debugMessage += `• Среднее подтверждений: ${trackerStats.avgConfirmations.toFixed(2)}\n`;
+        } else {
+            debugMessage += `• Нет данных\n`;
+        }
+       
+        debugMessage += `\n⚡ КОМАНДЫ ОЧИСТКИ:\n`;
+        debugMessage += `/clearmodel - удалить супер-модель\n`;
+        debugMessage += `/clearsession - очистить сессию\n`;
+        debugMessage += `/modelinfo - информация о модели\n`;
+        debugMessage += `/test - запустить тест системы`;
+       
+        await bot.sendMessage(chatId, debugMessage);
+       
+    } catch (error) {
+        console.log('❌ Ошибка в /debug:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
+// Команда /test - тест системы
+bot.onText(/\/test/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    try {
+        await bot.sendMessage(chatId, '🧪 Запуск теста системы...');
+       
+        // Очищаем старые данные для чистого теста
+        footprintManager.clearUserSessionData(userId);
+       
+        await bot.sendMessage(chatId,
+            `✅ СИСТЕМА ГОТОВА К ТЕСТУ!\n\n` +
+            `Теперь отправьте:\n` +
+            `1. Первое фото подошвы\n` +
+            `2. Второе фото подошвы (с другого угла)\n\n` +
+            `Система должна:\n` +
+            `• Нормализовать углы\n` +
+            `• Объединить следы в супер-модель\n` +
+            `• Отправить визуализацию`
+        );
+       
+    } catch (error) {
+        console.log('❌ Ошибка в /test:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 // =============================================================================
 // 🆕 СЕССИОННЫЕ КОМАНДЫ
 // =============================================================================
@@ -1597,6 +1865,8 @@ bot.onText(/\/cancel/, async (msg) => {
         `Готов к новым командам`
     );
 });
+
+
 
 // =============================================================================
 // 🆕 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ СЕССИЙ
