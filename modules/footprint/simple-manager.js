@@ -355,8 +355,7 @@ class SimpleFootprintManager {
                     if (this.config.enableMergeVisualization && vectorModel) {
                         vectorVizPath = await this.visualizeVectorSuperModel(userId, vectorModel);
 
-                        // 🔥 ВОТ ЭТОТ КОД НУЖНО ВЕРНУТЬ:
-                        // Отправляем в Telegram прямо здесь
+                        // 🔥 ИСПРАВЛЕНИЕ: Отправляем в Telegram прямо здесь
                         if (bot && chatId && vectorVizPath && vectorVizPath.template) {
                             try {
                                 const stats = vectorModel.getInfo();
@@ -372,6 +371,17 @@ class SimpleFootprintManager {
                                                 `🎨 Шаблон протектора с подтверждениями`
                                     });
                                     console.log(`✅ Визуализация отправлена в Telegram`);
+                                   
+                                    // 🔥 ИСПРАВЛЕНИЕ: Отправляем тепловую карту, если она есть
+                                    if (vectorVizPath.heatmap && fs.existsSync(vectorVizPath.heatmap)) {
+                                        await bot.sendPhoto(chatId, vectorVizPath.heatmap, {
+                                            caption: `🔥 Тепловая карта подтверждений\n` +
+                                                    `🔴 Высокая теплота (много подтверждений)\n` +
+                                                    `🟡 Средняя теплота\n` +
+                                                    `🔵 Низкая теплота`
+                                        });
+                                        console.log(`🔥 Тепловая карта отправлена в Telegram`);
+                                    }
                                 } else {
                                     console.log(`❌ Файл не существует: ${vectorVizPath.template}`);
                                 }
@@ -390,7 +400,11 @@ class SimpleFootprintManager {
                         visualization: vectorVizPath,
                         nodesAdded: tempResult.added,
                         message: `✅ След добавлен к шаблону!`,
-                        rotationInfo: alignmentResult.rotationInfo || {}
+                        rotationInfo: {
+                            angle: normalized.rotationAngle,
+                            isMirrored: normalized.isMirrored,
+                            corrected: corrected.correctionApplied
+                        }
                     };
                 }
 
@@ -420,7 +434,11 @@ class SimpleFootprintManager {
                     decision: 'different',
                     isNewModel: true,
                     nodesAdded: addResult.added,
-                    rotationInfo: alignmentResult?.rotationInfo || {}
+                    rotationInfo: {
+                        angle: normalized.rotationAngle,
+                        isMirrored: normalized.isMirrored,
+                        corrected: corrected.correctionApplied
+                    }
                 };
             }
 
