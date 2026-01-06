@@ -30,98 +30,155 @@ class SimpleGraphMatcher {
             debug: options.debug || false
         };
 
-        // 🔥 ВРЕМЕННО ОТКЛЮЧЕНО: RotationInvariance (чтобы избежать рекурсии)
-        // this.rotationProcessor = new RotationInvariance({
-        //     debug: options.debug || false
-        // });
+        // 🔥 ИСПРАВЛЕНИЕ: ВКЛЮЧАЕМ RotationInvariance БЕЗ РЕКУРСИИ
+        this.rotationProcessor = null;
+       
+        // Отложенная инициализация, чтобы избежать циклических зависимостей
+        try {
+            // Используем динамический импорт при вызове методов
+            console.log('🎯 RotationInvariance будет загружена динамически');
+        } catch (error) {
+            console.log('⚠️ Временное отключение RotationInvariance:', error.message);
+        }
 
+        // 🔥 БЕЗОПАСНОЕ СРАВНЕНИЕ ДЛЯ СОВМЕСТИМОСТИ
+        this.enableAdvancedFeatures = options.enableAdvancedFeatures !== false;
+       
         this.matchHistory = [];
-        console.log('🎯 Инициализирован SimpleGraphMatcher с фиксированными порогами: same=0.7, similar=0.5, different=0.3');
+        console.log('🎯 SimpleGraphMatcher с безопасной инициализацией');
     }
 
-    // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: БЕЗ РЕКУРСИИ
-    compareGraphs(graph1, graph2, context = {}) {
-        const startTime = Date.now();
+    // 🔥 НОВЫЙ МЕТОД: безопасная загрузка RotationInvariance
+    async ensureRotationProcessor() {
+        if (this.rotationProcessor) return true;
+       
+        try {
+            // Динамический импорт для избежания циклических зависимостей
+            const RotationInvariance = require('./rotation-invariance');
+            this.rotationProcessor = new RotationInvariance({
+                debug: this.config.debug
+            });
+            console.log('✅ RotationInvariance загружена динамически');
+            return true;
+        } catch (error) {
+            console.log('⚠️ Не удалось загрузить RotationInvariance:', error.message);
+            return false;
+        }
+    }
 
+    // 🔥 ПЕРЕПИСАННЫЙ compareGraphs С ВОЗМОЖНОСТЬЮ ПОВОРОТНОЙ ИНВАРИАНТНОСТИ
+    async compareGraphs(graph1, graph2, context = {}) {
+        const startTime = Date.now();
         console.log(`🔍 Сравниваю графы: "${graph1.name}" vs "${graph2.name}"`);
 
-        // 🔥 ВРЕМЕННО: ПРОСТОЕ СРАВНЕНИЕ БЕЗ ПОВОРОТНОЙ ИНВАРИАНТНОСТИ
-        console.log('⚠️ ВРЕМЕННО: простое сравнение без поворотной инвариантности (избегаем рекурсии)');
-
-        // 1. Нормализовать координаты
-        const norm1 = this.normalizeGraphCoordinates(graph1);
-        const norm2 = this.normalizeGraphCoordinates(graph2);
-
-        // 2. Быстрая проверка
-        const nodeRatio = Math.min(norm1.nodes.length, norm2.nodes.length) /
-                         Math.max(norm1.nodes.length, norm2.nodes.length);
+        // 1. Быстрая проверка количества узлов
+        const nodeRatio = Math.min(graph1.nodes.size, graph2.nodes.size) /
+                         Math.max(graph1.nodes.size, graph2.nodes.size);
 
         if (nodeRatio < this.config.minNodeRatio) {
             return {
                 similarity: nodeRatio,
                 decision: 'different',
-                reason: `Разное количество узлов: ${norm1.nodes.length} vs ${norm2.nodes.length}`,
+                reason: `Разное количество узлов: ${graph1.nodes.size} vs ${graph2.nodes.size}`,
                 method: 'quick_check',
                 timeMs: Date.now() - startTime,
                 context: context
             };
         }
 
-        // 3. Простое сравнение центров
-        const center1 = this.calculateNormalizedCenter(norm1.nodes);
-        const center2 = this.calculateNormalizedCenter(norm2.nodes);
-        const centerDistance = Math.sqrt(
-            Math.pow(center2.x - center1.x, 2) +
-            Math.pow(center2.y - center1.y, 2)
-        );
-
-        // 4. Рассчитать схожесть
-        let similarity = 0;
-
-        // Схожесть по размеру
-        similarity += nodeRatio * 0.3;
-
-        // Схожесть по положению центра
-        const centerSimilarity = Math.max(0, 1 - centerDistance / 0.3);
-        similarity += centerSimilarity * 0.3;
-
-        // Схожесть по распределению
-        const distributionScore = this.compareNormalizedDistribution(norm1.nodes, norm2.nodes);
-        similarity += distributionScore * 0.4;
-
-        similarity = Math.max(0, Math.min(1, similarity));
-
-        // 5. Принять решение с ФИКСИРОВАННЫМИ порогами
-        let decision, reason;
-        if (similarity >= 0.7) {
-            decision = 'same';
-            reason = `Высокая схожесть (${similarity.toFixed(3)})`;
-        } else if (similarity >= 0.5) {
-            decision = 'similar';
-            reason = `Умеренная схожесть (${similarity.toFixed(3)})`;
-        } else {
-            decision = 'different';
-            reason = `Низкая схожесть (${similarity.toFixed(3)})`;
+        // 2. Использовать поворотную инвариантность если доступно
+        let bestResult = null;
+       
+        if (this.enableAdvancedFeatures) {
+            try {
+                // Пытаемся использовать RotationInvariance
+                await this.ensureRotationProcessor();
+               
+                if (this.rotationProcessor) {
+                    // 🔥 БЕЗОПАСНОЕ СРАВНЕНИЕ БЕЗ РЕКУРСИИ
+                    const rotationResult = this.rotationProcessor.compareWithAllMethods(
+                        graph1,
+                        graph2,
+                        { simpleMode: true } // Флаг для простого режима без рекурсии
+                    );
+                   
+                    if (rotationResult && rotationResult.similarity > 0) {
+                        bestResult = {
+                            similarity: rotationResult.similarity,
+                            decision: rotationResult.decision,
+                            reason: rotationResult.reason || `Поворотная инвариантность: ${rotationResult.similarity.toFixed(3)}`,
+                            method: 'rotation_invariant_safe',
+                            confidence: rotationResult.similarity,
+                            details: rotationResult.details
+                        };
+                    }
+                }
+            } catch (error) {
+                console.log(`⚠️ Поворотная инвариантность временно недоступна: ${error.message}`);
+            }
         }
 
-        const result = {
-            similarity: similarity,
-            decision: decision,
-            reason: reason,
-            details: {
-                nodeRatio: nodeRatio,
-                centerDistance: centerDistance,
-                centerSimilarity: centerSimilarity,
-                distributionScore: distributionScore
-            },
-            method: 'simple_comparison_no_recursion',
-            confidence: similarity,
+        // 3. Если поворотная инвариантность не сработала - использовать простое сравнение
+        if (!bestResult) {
+            // Простое сравнение координат (как было)
+            const norm1 = this.normalizeGraphCoordinates(graph1);
+            const norm2 = this.normalizeGraphCoordinates(graph2);
+           
+            const center1 = this.calculateNormalizedCenter(norm1.nodes);
+            const center2 = this.calculateNormalizedCenter(norm2.nodes);
+            const centerDistance = Math.sqrt(
+                Math.pow(center2.x - center1.x, 2) +
+                Math.pow(center2.y - center1.y, 2)
+            );
+
+            // Рассчитать схожесть
+            let similarity = 0;
+            similarity += nodeRatio * 0.3;
+           
+            const centerSimilarity = Math.max(0, 1 - centerDistance / 0.3);
+            similarity += centerSimilarity * 0.3;
+           
+            const distributionScore = this.compareNormalizedDistribution(norm1.nodes, norm2.nodes);
+            similarity += distributionScore * 0.4;
+           
+            similarity = Math.max(0, Math.min(1, similarity));
+
+            // Принять решение
+            let decision, reason;
+            if (similarity >= 0.7) {
+                decision = 'same';
+                reason = `Высокая схожесть (${similarity.toFixed(3)})`;
+            } else if (similarity >= 0.5) {
+                decision = 'similar';
+                reason = `Умеренная схожесть (${similarity.toFixed(3)})`;
+            } else {
+                decision = 'different';
+                reason = `Низкая схожесть (${similarity.toFixed(3)})`;
+            }
+
+            bestResult = {
+                similarity,
+                decision,
+                reason,
+                method: 'simple_comparison_fallback',
+                confidence: similarity,
+                details: {
+                    nodeRatio,
+                    centerDistance,
+                    centerSimilarity,
+                    distributionScore
+                }
+            };
+        }
+
+        const finalResult = {
+            ...bestResult,
             timeMs: Date.now() - startTime,
             context: context
         };
 
-        this.recordMatch(result, context);
-        return result;
+        this.recordMatch(finalResult, context);
+        return finalResult;
     }
 
     // 🔥 Вспомогательный метод
