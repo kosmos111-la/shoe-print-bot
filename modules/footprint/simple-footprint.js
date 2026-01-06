@@ -31,20 +31,24 @@ class SimpleFootprint {
             }
         }
 
-        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем PointTracker с улучшенной конфигурацией
+        // 🔥 ИСПРАВЛЕНО: Оптимальные настройки PointTracker для обновления точек
         this.pointTracker = options.pointTracker || new PointTracker({
             ratingDecay: 0.97,
             minRating: 0.1,
             maxRating: 1.0,
             confirmationThreshold: 0.7,
            
-            // 🔥 УЛУЧШЕННЫЕ НАСТРОЙКИ КЛАСТЕРИЗАЦИИ
+            // 🔥 УЛУЧШЕННЫЕ НАСТРОЙКИ ДЛЯ ОБНОВЛЕНИЯ СУЩЕСТВУЮЩИХ ТОЧЕК
             enableClustering: true,
-            clusterRadius: 25,
+            clusterRadius: 30,           // Увеличено для лучшего захвата
             minClusterSize: 2,
             adaptiveDistance: true,
-            baseDistanceThreshold: 20,
-            bonusForClusters: true
+            baseDistanceThreshold: 25,   // Увеличено для обновления точек
+            bonusForClusters: true,
+           
+            // 🔥 НОВЫЕ НАСТРОЙКИ
+            directUpdateThreshold: 15,   // Порог для прямого обновления
+            forceUpdateOnMerge: true     // Принудительное обновление при слиянии
         });
 
         // Метаданные
