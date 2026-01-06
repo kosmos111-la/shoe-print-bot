@@ -113,6 +113,13 @@ class SimpleFootprintManager {
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО С ПОВОРОТНОЙ ИНВАРИАНТНОСТЬЮ`);
 
+if (alignmentResult) {
+    console.log('alignmentResult keys:', Object.keys(alignmentResult));
+    console.log('alignmentResult:', JSON.stringify(alignmentResult, null, 2).substring(0, 500));
+} else {
+    console.log('alignmentResult is undefined!');
+}
+      
         try {
             // Проверяем анализ
             if (!analysis || !analysis.predictions) {
@@ -238,14 +245,43 @@ class SimpleFootprintManager {
 
             console.log(`📊 Результат сравнения: similarity=${alignmentResult?.similarity?.toFixed(3) || 'N/A'}, decision=${alignmentResult?.decision || 'unknown'}`);
 
-            // 🔥 УПРОЩЕННАЯ ЛОГИКА:
-            const similarity = alignmentResult?.similarity || 0;
-const decision = alignmentResult?.decision || 'unknown';
+        // Получаем сходство из правильного места
+let similarity = 0;
+let decision = 'unknown';
 
+// Вариант 1: Из alignmentResult напрямую
+if (alignmentResult && typeof alignmentResult.similarity === 'number') {
+    similarity = alignmentResult.similarity;
+    decision = alignmentResult.decision || 'unknown';
+    console.log(`📊 Использую direct similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
+}
+// Вариант 2: Из details если есть
+else if (alignmentResult && alignmentResult.details) {
+    const huSimilarity = alignmentResult.details.huMoments || 0;
+    const polarSimilarity = alignmentResult.details.polarDescriptors || 0;
+    similarity = (huSimilarity + polarSimilarity) / 2;
+    decision = alignmentResult.decision || 'unknown';
+    console.log(`📊 Использую комбинированную similarity: ${similarity.toFixed(3)} (hu: ${huSimilarity.toFixed(3)}, polar: ${polarSimilarity.toFixed(3)})`);
+}
+// Вариант 3: Из финального результата
+else if (alignmentResult && typeof alignmentResult === 'object') {
+    // Ищем similarity в любом поле
+    for (const key in alignmentResult) {
+        if (key.includes('similarity') && typeof alignmentResult[key] === 'number') {
+            similarity = alignmentResult[key];
+            break;
+        }
+    }
+    decision = alignmentResult.decision || 'unknown';
+    console.log(`📊 Использую найденную similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
+}
+
+console.log(`📊 Финальные значения: similarity=${similarity.toFixed(3)}, decision=${decision}`);
+
+// 🔥 УПРОЩЕННАЯ ЛОГИКА:
 if (similarity > 0.6 && decision === 'same') {
-                // СЛЕДЫ СОВПАДАЮТ
-                console.log(`✅ Следы совпали (${alignmentResult.similarity.toFixed(3)})`);
-
+    // СЛЕДЫ СОВПАДАЮТ
+    console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
                 // Получаем векторную модель
                 let vectorModel = this.vectorSuperModels.get(userId);
                 let vectorVizPath = null;
