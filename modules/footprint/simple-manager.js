@@ -113,8 +113,6 @@ class SimpleFootprintManager {
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО С ПОВОРОТНОЙ ИНВАРИАНТНОСТЬЮ`);
 
-
-      
         try {
             // Проверяем анализ
             if (!analysis || !analysis.predictions) {
@@ -232,51 +230,89 @@ class SimpleFootprintManager {
             });
 
             // Сравниваем с использованием поворотной инвариантности
-            const alignmentResult = this.matcher.compareGraphs(
+            const alignmentResult = await this.matcher.compareGraphs(
                 session.currentFootprint.graph,
                 tempFootprint.graph,
                 { userId: userId, photoId: photoInfo.photoId }
             );
 
-            console.log(`📊 Результат сравнения: similarity=${alignmentResult?.similarity?.toFixed(3) || 'N/A'}, decision=${alignmentResult?.decision || 'unknown'}`);
+            // 🔥 ИСПРАВЛЕННАЯ ОБРАБОТКА РЕЗУЛЬТАТА
+            console.log('=== ОТЛАДКА alignmentResult ===');
+            console.log('Тип:', typeof alignmentResult);
+            console.log('Ключи:', Object.keys(alignmentResult || {}));
+           
+            let similarity = 0;
+            let decision = 'unknown';
 
-        // Получаем сходство из правильного места
-let similarity = 0;
-let decision = 'unknown';
+            // Вариант 1: Из alignmentResult напрямую
+            if (alignmentResult && typeof alignmentResult.similarity === 'number') {
+                similarity = alignmentResult.similarity;
+                decision = alignmentResult.decision || 'unknown';
+                console.log(`📊 Использую direct similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
+            }
+            // Вариант 2: Из details если есть
+            else if (alignmentResult && alignmentResult.details) {
+                const huSimilarity = alignmentResult.details.huMoments || 0;
+                const polarSimilarity = alignmentResult.details.polarDescriptors || 0;
+                similarity = (huSimilarity + polarSimilarity) / 2;
+                decision = alignmentResult.decision || 'unknown';
+                console.log(`📊 Использую комбинированную similarity: ${similarity.toFixed(3)} (hu: ${huSimilarity.toFixed(3)}, polar: ${polarSimilarity.toFixed(3)})`);
+            }
+            // Вариант 3: Из result если есть
+            else if (alignmentResult && alignmentResult.result) {
+                const result = alignmentResult.result;
+                if (typeof result.similarity === 'number') {
+                    similarity = result.similarity;
+                    decision = result.decision || 'unknown';
+                    console.log(`📊 Использую result.similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
+                }
+            }
+            // Вариант 4: Ищем в любом месте объекта
+            else if (alignmentResult && typeof alignmentResult === 'object') {
+                // Ищем similarity в любом поле
+                const findSimilarity = (obj, path = '') => {
+                    for (const key in obj) {
+                        if (key === 'similarity' && typeof obj[key] === 'number') {
+                            return { value: obj[key], path: path ? `${path}.${key}` : key };
+                        }
+                        if (typeof obj[key] === 'object' && obj[key] !== null) {
+                            const found = findSimilarity(obj[key], key);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                };
 
-// Вариант 1: Из alignmentResult напрямую
-if (alignmentResult && typeof alignmentResult.similarity === 'number') {
-    similarity = alignmentResult.similarity;
-    decision = alignmentResult.decision || 'unknown';
-    console.log(`📊 Использую direct similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
-}
-// Вариант 2: Из details если есть
-else if (alignmentResult && alignmentResult.details) {
-    const huSimilarity = alignmentResult.details.huMoments || 0;
-    const polarSimilarity = alignmentResult.details.polarDescriptors || 0;
-    similarity = (huSimilarity + polarSimilarity) / 2;
-    decision = alignmentResult.decision || 'unknown';
-    console.log(`📊 Использую комбинированную similarity: ${similarity.toFixed(3)} (hu: ${huSimilarity.toFixed(3)}, polar: ${polarSimilarity.toFixed(3)})`);
-}
-// Вариант 3: Из финального результата
-else if (alignmentResult && typeof alignmentResult === 'object') {
-    // Ищем similarity в любом поле
-    for (const key in alignmentResult) {
-        if (key.includes('similarity') && typeof alignmentResult[key] === 'number') {
-            similarity = alignmentResult[key];
-            break;
-        }
-    }
-    decision = alignmentResult.decision || 'unknown';
-    console.log(`📊 Использую найденную similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
-}
+                const found = findSimilarity(alignmentResult);
+                if (found) {
+                    similarity = found.value;
+                    console.log(`📊 Нашел similarity=${similarity.toFixed(3)} в ${found.path}`);
 
-console.log(`📊 Финальные значения: similarity=${similarity.toFixed(3)}, decision=${decision}`);
+                    // Ищем decision
+                    const findDecision = (obj) => {
+                        for (const key in obj) {
+                            if (key === 'decision' && typeof obj[key] === 'string') {
+                                return obj[key];
+                            }
+                            if (typeof obj[key] === 'object' && obj[key] !== null) {
+                                const found = findDecision(obj[key]);
+                                if (found) return found;
+                            }
+                        }
+                        return 'unknown';
+                    };
 
-// 🔥 УПРОЩЕННАЯ ЛОГИКА:
-if (similarity > 0.6 && decision === 'same') {
-    // СЛЕДЫ СОВПАДАЮТ
-    console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+                    decision = findDecision(alignmentResult);
+                }
+            }
+
+            console.log(`📊 Финальные значения: similarity=${similarity.toFixed(3)}, decision=${decision}`);
+
+            // 🔥 УПРОЩЕННАЯ ЛОГИКА:
+            if (similarity > 0.6 && decision === 'same') {
+                // СЛЕДЫ СОВПАДАЮТ
+                console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+               
                 // Получаем векторную модель
                 let vectorModel = this.vectorSuperModels.get(userId);
                 let vectorVizPath = null;
@@ -305,7 +341,7 @@ if (similarity > 0.6 && decision === 'same') {
                     finalGraph,
                     tempFootprint.id,
                     {
-                        similarity: alignmentResult.similarity,
+                        similarity: similarity,
                         timestamp: new Date(),
                         ...photoInfo
                     }
@@ -347,20 +383,20 @@ if (similarity > 0.6 && decision === 'same') {
 
                     return {
                         success: true,
-                        similarity: alignmentResult.similarity,
-                        decision: alignmentResult.decision,
+                        similarity: similarity,
+                        decision: decision,
                         mergeMethod: 'template_based',
                         templateStats: vectorModel.getTemplateStats(),
                         visualization: vectorVizPath,
                         nodesAdded: tempResult.added,
                         message: `✅ След добавлен к шаблону!`,
-                        rotationInfo: alignmentResult.rotationInfo
+                        rotationInfo: alignmentResult.rotationInfo || {}
                     };
                 }
 
             } else {
                 // СЛЕДЫ РАЗНЫЕ
-                console.log(`🆕 Следы разные (${alignmentResult.similarity.toFixed(3)}) - начинаю новую модель`);
+                console.log(`🆕 Следы разные (${similarity.toFixed(3)}) - начинаю новую модель`);
 
                 // Сохраняем текущий отпечаток
                 if (session.currentFootprint.graph.nodes.size >= 10) {
@@ -380,11 +416,11 @@ if (similarity > 0.6 && decision === 'same') {
 
                 return {
                     success: true,
-                    similarity: alignmentResult.similarity,
+                    similarity: similarity,
                     decision: 'different',
                     isNewModel: true,
                     nodesAdded: addResult.added,
-                    rotationInfo: alignmentResult.rotationInfo
+                    rotationInfo: alignmentResult?.rotationInfo || {}
                 };
             }
 
@@ -434,18 +470,18 @@ if (similarity > 0.6 && decision === 'same') {
             }
 
             // 🔥 ПОЛУЧАЕМ ДАННЫЕ ШАБЛОНА
-            const templateData = vectorModel.getVisualizationData();
+            let templateData = vectorModel.getVisualizationData();
 
             if (!templateData || !templateData.cells || templateData.cells.length === 0) {
-    console.log('⚠️ ШАБЛОН ПУСТ! Получаем сырые данные...');
-    // Получаем данные напрямую из TemplateBuilder
-    if (vectorModel.templateBuilder) {
-        templateData = vectorModel.templateBuilder.getVisualizationData();
-        console.log(`📊 Прямые данные шаблона: ${templateData?.cells?.length || 0} ячеек`);
-    }
-}
+                console.log('⚠️ ШАБЛОН ПУСТ! Получаем сырые данные...');
+                // Получаем данные напрямую из TemplateBuilder
+                if (vectorModel.templateBuilder) {
+                    templateData = vectorModel.templateBuilder.getVisualizationData();
+                    console.log(`📊 Прямые данные шаблона: ${templateData?.cells?.length || 0} ячеек`);
+                }
+            }
 
-            console.log(`📊 Данные шаблона: ${templateData.cells.length} ячеек`);
+            console.log(`📊 Данные шаблона: ${templateData?.cells?.length || 0} ячеек`);
 
             // 🔥 ИСПОЛЬЗУЕМ TEMPLATE VISUALIZER
             const result = await this.templateVisualizer.visualizeTemplate(templateData, {
@@ -463,8 +499,8 @@ if (similarity > 0.6 && decision === 'same') {
             return {
                 template: result.path,
                 heatmap: heatmapPath,
-                stats: templateData.stats,
-                templateId: templateData.templateId
+                stats: templateData?.stats,
+                templateId: templateData?.templateId
             };
 
         } catch (error) {
@@ -657,7 +693,6 @@ if (similarity > 0.6 && decision === 'same') {
             path.join(this.config.dbPath, 'models'),
             path.join(this.config.dbPath, 'sessions'),
             path.join(this.config.dbPath, 'visualizations'),
-            // 🔥 ИСПРАВИТЬ этот путь тоже:
             path.join(this.config.dbPath, 'visualizations/templates')
         ];
 
