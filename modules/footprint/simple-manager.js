@@ -236,10 +236,13 @@ class SimpleFootprintManager {
                 { userId: userId, photoId: photoInfo.photoId }
             );
 
-            console.log(`📊 Результат сравнения: similarity=${alignmentResult.similarity.toFixed(3)}, decision=${alignmentResult.decision}`);
+            console.log(`📊 Результат сравнения: similarity=${alignmentResult?.similarity?.toFixed(3) || 'N/A'}, decision=${alignmentResult?.decision || 'unknown'}`);
 
             // 🔥 УПРОЩЕННАЯ ЛОГИКА:
-            if (alignmentResult.similarity > 0.6 && alignmentResult.decision === 'same') {
+            const similarity = alignmentResult?.similarity || 0;
+const decision = alignmentResult?.decision || 'unknown';
+
+if (similarity > 0.6 && decision === 'same') {
                 // СЛЕДЫ СОВПАДАЮТ
                 console.log(`✅ Следы совпали (${alignmentResult.similarity.toFixed(3)})`);
 
@@ -403,9 +406,13 @@ class SimpleFootprintManager {
             const templateData = vectorModel.getVisualizationData();
 
             if (!templateData || !templateData.cells || templateData.cells.length === 0) {
-                console.log('⚠️ Нет данных шаблона для визуализации');
-                return null;
-            }
+    console.log('⚠️ ШАБЛОН ПУСТ! Получаем сырые данные...');
+    // Получаем данные напрямую из TemplateBuilder
+    if (vectorModel.templateBuilder) {
+        templateData = vectorModel.templateBuilder.getVisualizationData();
+        console.log(`📊 Прямые данные шаблона: ${templateData?.cells?.length || 0} ячеек`);
+    }
+}
 
             console.log(`📊 Данные шаблона: ${templateData.cells.length} ячеек`);
 
