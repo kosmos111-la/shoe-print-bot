@@ -109,7 +109,7 @@ class SimpleFootprintManager {
         console.log(`   🔄 Поворотная инвариантность: ВКЛ`);
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД addPhotoToSession с поворотной инвариантностью (строго по инструкции)
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД addPhotoToSession с поворотной инвариантностью
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО С ПОВОРОТНОЙ ИНВАРИАНТНОСТЬЮ`);
 
@@ -236,7 +236,7 @@ class SimpleFootprintManager {
                 { userId: userId, photoId: photoInfo.photoId }
             );
 
-            // 🔥 ИСПРАВЛЕННАЯ ОБРАБОТКА РЕЗУЛЬТАТА
+            // 🔥 ИСПРАВЛЕННАЯ ОБРАБОТКА РЕЗУЛЬТАТА с гарантированным возвратом similarity
             console.log('=== ОТЛАДКА alignmentResult ===');
             console.log('Тип:', typeof alignmentResult);
             console.log('Ключи:', Object.keys(alignmentResult || {}));
@@ -244,21 +244,12 @@ class SimpleFootprintManager {
             let similarity = 0;
             let decision = 'unknown';
 
-            // Вариант 1: Из alignmentResult напрямую
+            // 🔥 ИСПРАВЛЕНО: Гарантируем возврат similarity
             if (alignmentResult && typeof alignmentResult.similarity === 'number') {
                 similarity = alignmentResult.similarity;
                 decision = alignmentResult.decision || 'unknown';
                 console.log(`📊 Использую direct similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
             }
-            // Вариант 2: Из details если есть
-            else if (alignmentResult && alignmentResult.details) {
-                const huSimilarity = alignmentResult.details.huMoments || 0;
-                const polarSimilarity = alignmentResult.details.polarDescriptors || 0;
-                similarity = (huSimilarity + polarSimilarity) / 2;
-                decision = alignmentResult.decision || 'unknown';
-                console.log(`📊 Использую комбинированную similarity: ${similarity.toFixed(3)} (hu: ${huSimilarity.toFixed(3)}, polar: ${polarSimilarity.toFixed(3)})`);
-            }
-            // Вариант 3: Из result если есть
             else if (alignmentResult && alignmentResult.result) {
                 const result = alignmentResult.result;
                 if (typeof result.similarity === 'number') {
@@ -267,51 +258,28 @@ class SimpleFootprintManager {
                     console.log(`📊 Использую result.similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
                 }
             }
-            // Вариант 4: Ищем в любом месте объекта
-            else if (alignmentResult && typeof alignmentResult === 'object') {
-                // Ищем similarity в любом поле
-                const findSimilarity = (obj, path = '') => {
-                    for (const key in obj) {
-                        if (key === 'similarity' && typeof obj[key] === 'number') {
-                            return { value: obj[key], path: path ? `${path}.${key}` : key };
-                        }
-                        if (typeof obj[key] === 'object' && obj[key] !== null) {
-                            const found = findSimilarity(obj[key], key);
-                            if (found) return found;
-                        }
-                    }
-                    return null;
-                };
-
-                const found = findSimilarity(alignmentResult);
-                if (found) {
-                    similarity = found.value;
-                    console.log(`📊 Нашел similarity=${similarity.toFixed(3)} в ${found.path}`);
-
-                    // Ищем decision
-                    const findDecision = (obj) => {
-                        for (const key in obj) {
-                            if (key === 'decision' && typeof obj[key] === 'string') {
-                                return obj[key];
-                            }
-                            if (typeof obj[key] === 'object' && obj[key] !== null) {
-                                const found = findDecision(obj[key]);
-                                if (found) return found;
-                            }
-                        }
-                        return 'unknown';
-                    };
-
-                    decision = findDecision(alignmentResult);
+           
+            // 🔥 ДОБАВЛЕНО: Универсальное извлечение similarity
+            if (similarity === 0 && alignmentResult) {
+                const foundSimilarity = this.extractSimilarityFromObject(alignmentResult);
+                if (foundSimilarity) {
+                    similarity = foundSimilarity.value;
+                    decision = foundSimilarity.decision || 'unknown';
+                    console.log(`📊 Извлечено similarity: ${similarity.toFixed(3)} из глубины объекта`);
                 }
             }
-
-            console.log(`📊 Финальные значения: similarity=${similarity.toFixed(3)}, decision=${decision}`);
+           
+            // 🔥 ГАРАНТИРОВАННЫЙ РЕЗУЛЬТАТ
+            const finalSimilarity = Math.max(0, Math.min(1, similarity));
+            const finalDecision = decision !== 'unknown' ? decision :
+                                (finalSimilarity > 0.6 ? 'same' : 'different');
+           
+            console.log(`🎯 Финальное: similarity=${finalSimilarity.toFixed(3)}, decision=${finalDecision}`);
 
             // 🔥 УПРОЩЕННАЯ ЛОГИКА:
-            if (similarity > 0.6 && decision === 'same') {
+            if (finalSimilarity > 0.6 && finalDecision === 'same') {
                 // СЛЕДЫ СОВПАДАЮТ
-                console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+                console.log(`✅ Следы совпали (${finalSimilarity.toFixed(3)})`);
 
                 // Получаем векторную модель
                 let vectorModel = this.vectorSuperModels.get(userId);
@@ -341,7 +309,7 @@ class SimpleFootprintManager {
                     finalGraph,
                     tempFootprint.id,
                     {
-                        similarity: similarity,
+                        similarity: finalSimilarity,
                         timestamp: new Date(),
                         ...photoInfo
                     }
@@ -391,17 +359,17 @@ class SimpleFootprintManager {
                         }
                     }
 
-                    // 🔥 ИСПРАВЛЕНИЕ: Добавлены similarity и decision в результат
+                    // 🔥 ИСПРАВЛЕНО: Добавлены similarity и decision в результат с гарантией
                     return {
                         success: true,
-                        similarity: similarity, // ✅ ДОБАВЛЕНО
-                        decision: decision,     // ✅ ДОБАВЛЕНО
+                        similarity: finalSimilarity,  // ✅ ГАРАНТИРОВАНО
+                        decision: finalDecision,      // ✅ ГАРАНТИРОВАНО
                         nodesAdded: tempResult.added,
                         hasMergeVisualization: true, // ✅ ИЗМЕНЕНО
                         mergeMethod: 'template_based',
                         templateStats: vectorModel ? vectorModel.getTemplateStats() : null,
                         visualization: vectorVizPath,
-                        message: `✅ След добавлен к шаблону! Сходство: ${(similarity * 100).toFixed(1)}%`,
+                        message: `✅ След добавлен к шаблону! Сходство: ${(finalSimilarity * 100).toFixed(1)}%`,
                         rotationInfo: {
                             angle: normalized.rotationAngle,
                             isMirrored: normalized.isMirrored,
@@ -412,7 +380,7 @@ class SimpleFootprintManager {
 
             } else {
                 // СЛЕДЫ РАЗНЫЕ
-                console.log(`🆕 Следы разные (${similarity.toFixed(3)}) - начинаю новую модель`);
+                console.log(`🆕 Следы разные (${finalSimilarity.toFixed(3)}) - начинаю новую модель`);
 
                 // Сохраняем текущий отпечаток
                 if (session.currentFootprint.graph.nodes.size >= 10) {
@@ -432,8 +400,8 @@ class SimpleFootprintManager {
 
                 return {
                     success: true,
-                    similarity: similarity,
-                    decision: 'different',
+                    similarity: finalSimilarity,
+                    decision: finalDecision,
                     isNewModel: true,
                     nodesAdded: addResult.added,
                     rotationInfo: {
@@ -449,6 +417,35 @@ class SimpleFootprintManager {
             console.error(error.stack);
             return { success: false, error: error.message, nodesAdded: 0 };
         }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Извлечение similarity из любого объекта
+    extractSimilarityFromObject(obj, path = '') {
+        if (!obj || typeof obj !== 'object') return null;
+       
+        // Ищем similarity на всех уровнях
+        for (const key in obj) {
+            if (key === 'similarity' && typeof obj[key] === 'number') {
+                // Ищем decision рядом
+                const decision = obj.decision ||
+                               obj.result?.decision ||
+                               obj.details?.decision ||
+                               'unknown';
+               
+                return {
+                    value: obj[key],
+                    decision: decision,
+                    path: path ? `${path}.${key}` : key
+                };
+            }
+           
+            if (typeof obj[key] === 'object' && obj[key] !== null) {
+                const found = this.extractSimilarityFromObject(obj[key], key);
+                if (found) return found;
+            }
+        }
+       
+        return null;
     }
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Визуализация векторной супер-модели
@@ -637,7 +634,7 @@ class SimpleFootprintManager {
         // 3. Очистить PointTracker в сессии
         if (session && session.currentFootprint && session.currentFootprint.pointTracker) {
             const trackerStats = session.currentFootprint.pointTracker.getStats();
-            session.currentFootprint.pointTracker = new PointTracker();
+            session.currentFootprint.pointTracker = new (require('./point-tracker'))();
             console.log(`✅ Очищен PointTracker (было ${trackerStats.totalPoints} точек)`);
         }
 
