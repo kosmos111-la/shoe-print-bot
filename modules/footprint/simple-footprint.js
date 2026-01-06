@@ -31,12 +31,20 @@ class SimpleFootprint {
             }
         }
 
-        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем PointTracker
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем PointTracker с улучшенной конфигурацией
         this.pointTracker = options.pointTracker || new PointTracker({
             ratingDecay: 0.97,
             minRating: 0.1,
             maxRating: 1.0,
-            confirmationThreshold: 0.7
+            confirmationThreshold: 0.7,
+           
+            // 🔥 УЛУЧШЕННЫЕ НАСТРОЙКИ КЛАСТЕРИЗАЦИИ
+            enableClustering: true,
+            clusterRadius: 25,
+            minClusterSize: 2,
+            adaptiveDistance: true,
+            baseDistanceThreshold: 20,
+            bonusForClusters: true
         });
 
         // Метаданные
@@ -79,7 +87,7 @@ class SimpleFootprint {
         // Визуализация
         this.visualizationCache = null;
 
-        console.log(`👣 Создан цифровой отпечаток "${this.name}" (ID: ${this.id}) с PointTracker`);
+        console.log(`👣 Создан цифровой отпечаток "${this.name}" (ID: ${this.id}) с PointTracker (кластеризация ВКЛ)`);
     }
 
     // 🔥 МЕТОД: Принудительное обновление всех узлов из трекера
@@ -163,7 +171,7 @@ class SimpleFootprint {
 
         console.log(`🔍 Найдено ${protectorPoints.length} протекторов`);
 
-        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обрабатываем точки через PointTracker
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обрабатываем точки через PointTracker (новый метод с кластеризацией)
         const trackerResults = this.pointTracker.processNewPoints(protectorPoints, {
             ...sourceInfo,
             footprintId: this.id,
@@ -328,7 +336,6 @@ class SimpleFootprint {
     linkNodesWithTracker(graphNodes) {
         console.log(`🔗 Начинаю связывание: ${graphNodes.length} graphNodes, ${this.pointTracker.points.size} точек в трекере`);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Используем правильные ID узлов
         // 🔥 ИСПРАВЛЕНИЕ: Создаем карту точек трекера по ID
         const trackerMap = new Map();
         for (const [trackerId, trackerPoint] of this.pointTracker.points) {
