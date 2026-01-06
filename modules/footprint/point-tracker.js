@@ -11,20 +11,25 @@ class PointTracker {
             maxRating: options.maxRating || 1.0,
             confirmationThreshold: options.confirmationThreshold || 0.7,
 
-            // 🔥 НОВЫЕ НАСТРОЙКИ КЛАСТЕРИЗАЦИИ
+            // 🔥 ИСПРАВЛЕНО: Оптимальные настройки для обновления существующих точек
             adaptiveDistance: options.adaptiveDistance !== false,
-            baseDistanceThreshold: options.baseDistanceThreshold || 15,
+            baseDistanceThreshold: options.baseDistanceThreshold || 25, // Увеличили с 15
             enableClustering: options.enableClustering !== false,
-            clusterRadius: options.clusterRadius || 20,
+            clusterRadius: options.clusterRadius || 30, // Увеличили с 20
             minClusterSize: options.minClusterSize || 2,
-            bonusForClusters: options.bonusForClusters !== false
+            bonusForClusters: options.bonusForClusters !== false,
+           
+            // 🔥 НОВЫЕ НАСТРОЙКИ
+            directUpdateThreshold: options.directUpdateThreshold || 15,   // Порог для прямого обновления
+            forceUpdateOnMerge: options.forceUpdateOnMerge || true     // Принудительное обновление при слиянии
         };
     }
 
-    // 🔥 УЛУЧШЕННЫЙ МЕТОД: ОБРАБОТКА С КЛАСТЕРИЗАЦИЕЙ
+    // 🔥 УЛУЧШЕННЫЙ МЕТОД: ОБРАБОТКА С КЛАСТЕРИЗАЦИЕЙ И ПРЕДВАРИТЕЛЬНЫМ ОБНОВЛЕНИЕМ
     processNewPoints(newPoints, sourceInfo = {}) {
-        console.log(`🎯 Обрабатываю ${newPoints.length} точек с кластеризацией...`);
+        console.log(`🎯 Обрабатываю ${newPoints.length} точек с оптимизированной кластеризацией...`);
 
+        // 🔥 ДОБАВЛЕНО: Принудительное обновление для существующих точек
         const results = {
             added: 0,
             updated: 0,
@@ -33,6 +38,10 @@ class PointTracker {
             clusters: 0,
             points: []
         };
+
+        // Шаг 0: 🔥 ПРЕДВАРИТЕЛЬНОЕ ОБНОВЛЕНИЕ существующих точек
+        const updateStats = this._preUpdateExistingPoints(newPoints, 25); // Порог 25 пикселей
+        results.updated += updateStats.updated;
 
         // Шаг 1: Кластеризация новых точек
         const clusters = this.clusterPoints(newPoints, this.config.clusterRadius, this.config.minClusterSize);
@@ -157,6 +166,42 @@ class PointTracker {
                    `${results.merged} точек объединено в кластеры`);
 
         return results;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Предварительное обновление существующих точек
+    _preUpdateExistingPoints(newPoints, maxDistance = 25) {
+        let updated = 0;
+       
+        for (const [id, existingPoint] of this.points) {
+            // Находим ближайшую новую точку к существующей
+            let nearestNewPoint = null;
+            let minDistance = Infinity;
+           
+            for (const newPoint of newPoints) {
+                const dx = newPoint.x - existingPoint.x;
+                const dy = newPoint.y - existingPoint.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+               
+                if (distance < minDistance && distance <= maxDistance) {
+                    minDistance = distance;
+                    nearestNewPoint = newPoint;
+                }
+            }
+           
+            if (nearestNewPoint && minDistance < 15) { // Точное совпадение
+                // Обновляем существующую точку
+                this.updatePoint(id, nearestNewPoint, {
+                    source: 'direct_update',
+                    distance: minDistance,
+                    timestamp: new Date()
+                });
+                updated++;
+                console.log(`   🔄 Прямое обновление точки ${id} (расстояние: ${minDistance.toFixed(1)})`);
+            }
+        }
+       
+        console.log(`📊 Предварительно обновлено ${updated} существующих точек`);
+        return { updated };
     }
 
     // 🔥 МЕТОД КЛАСТЕРИЗАЦИИ (DBSCAN упрощенный)
