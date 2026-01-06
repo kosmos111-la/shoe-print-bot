@@ -240,7 +240,7 @@ class SimpleFootprintManager {
             console.log('=== ОТЛАДКА alignmentResult ===');
             console.log('Тип:', typeof alignmentResult);
             console.log('Ключи:', Object.keys(alignmentResult || {}));
-           
+
             let similarity = 0;
             let decision = 'unknown';
 
@@ -312,7 +312,7 @@ class SimpleFootprintManager {
             if (similarity > 0.6 && decision === 'same') {
                 // СЛЕДЫ СОВПАДАЮТ
                 console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
-               
+
                 // Получаем векторную модель
                 let vectorModel = this.vectorSuperModels.get(userId);
                 let vectorVizPath = null;
@@ -371,7 +371,7 @@ class SimpleFootprintManager {
                                                 `🎨 Шаблон протектора с подтверждениями`
                                     });
                                     console.log(`✅ Визуализация отправлена в Telegram`);
-                                   
+
                                     // 🔥 ИСПРАВЛЕНИЕ: Отправляем тепловую карту, если она есть
                                     if (vectorVizPath.heatmap && fs.existsSync(vectorVizPath.heatmap)) {
                                         await bot.sendPhoto(chatId, vectorVizPath.heatmap, {
@@ -563,6 +563,118 @@ class SimpleFootprintManager {
         console.log(`🆕 Создана сессия ${sessionId.slice(0, 8)}... для пользователя ${userId}`);
 
         return session;
+    }
+
+    /**
+     * УДАЛИТЬ ВЕКТОРНУЮ СУПЕР-МОДЕЛЬ пользователя
+     */
+    clearVectorSuperModel(userId) {
+        console.log(`🗑️ Очищаю векторную супер-модель для пользователя ${userId}...`);
+
+        const vectorModel = this.vectorSuperModels.get(userId);
+        if (!vectorModel) {
+            console.log(`⚠️ У пользователя ${userId} нет супер-модели`);
+            return { success: false, reason: 'Нет супер-модели' };
+        }
+
+        // Получаем статистику перед удалением
+        const oldStats = vectorModel.getInfo();
+
+        // Удаляем модель
+        this.vectorSuperModels.delete(userId);
+
+        console.log(`✅ Супер-модель удалена: ${oldStats.name}`);
+        console.log(`   📊 Было: ${oldStats.template?.cells?.total || 0} ячеек, ${oldStats.stats?.totalMerges || 0} слияний`);
+
+        return {
+            success: true,
+            deletedModel: oldStats.name,
+            stats: {
+                cells: oldStats.template?.cells?.total || 0,
+                merges: oldStats.stats?.totalMerges || 0,
+                confidence: oldStats.stats?.confidence || 0
+            },
+            timestamp: new Date()
+        };
+    }
+
+    /**
+     * ОЧИСТИТЬ ВСЕ ДАННЫЕ СЕССИИ (супер-модель + отпечаток)
+     */
+    clearUserSessionData(userId) {
+        console.log(`🧹 Полная очистка данных для пользователя ${userId}...`);
+
+        const results = {
+            vectorModel: false,
+            session: false,
+            currentFootprint: false
+        };
+
+        // 1. Удалить векторную супер-модель
+        const vectorModel = this.vectorSuperModels.get(userId);
+        if (vectorModel) {
+            this.vectorSuperModels.delete(userId);
+            results.vectorModel = true;
+            console.log(`✅ Удалена векторная супер-модель`);
+        }
+
+        // 2. Очистить текущий отпечаток в сессии
+        const session = this.userSessions.get(userId);
+        if (session && session.currentFootprint) {
+            const oldFootprintInfo = {
+                id: session.currentFootprint.id,
+                nodes: session.currentFootprint.graph.nodes.size,
+                edges: session.currentFootprint.graph.edges.size
+            };
+
+            session.currentFootprint = null;
+            results.currentFootprint = true;
+
+            console.log(`✅ Удален текущий отпечаток: ${oldFootprintInfo.id}`);
+            console.log(`   📊 Было: ${oldFootprintInfo.nodes} узлов, ${oldFootprintInfo.edges} рёбер`);
+        }
+
+        // 3. Очистить PointTracker в сессии
+        if (session && session.currentFootprint && session.currentFootprint.pointTracker) {
+            const trackerStats = session.currentFootprint.pointTracker.getStats();
+            session.currentFootprint.pointTracker = new PointTracker();
+            console.log(`✅ Очищен PointTracker (было ${trackerStats.totalPoints} точек)`);
+        }
+
+        return {
+            success: results.vectorModel || results.currentFootprint || results.session,
+            results: results,
+            timestamp: new Date()
+        };
+    }
+
+    /**
+     * ПОЛУЧИТЬ ИНФОРМАЦИЮ О СУПЕР-МОДЕЛИ
+     */
+    getVectorSuperModelInfo(userId) {
+        const vectorModel = this.vectorSuperModels.get(userId);
+        if (!vectorModel) {
+            return { exists: false, message: 'Супер-модель не найдена' };
+        }
+
+        const info = vectorModel.getInfo();
+        const templateStats = vectorModel.getTemplateStats ? vectorModel.getTemplateStats() : {};
+
+        return {
+            exists: true,
+            name: info.name,
+            templateId: info.id,
+            stats: {
+                totalCells: info.template?.cells?.total || 0,
+                confirmedCells: info.template?.cells?.confirmed || 0,
+                totalMerges: info.stats?.totalMerges || 0,
+                confidence: info.stats?.confidence || 0,
+                createdAt: info.stats?.createdAt || 'N/A',
+                lastUpdated: info.stats?.lastUpdated || 'N/A'
+            },
+            templateStats: templateStats,
+            hasTemplateBuilder: !!vectorModel.templateBuilder
+        };
     }
 
     // ПОЛУЧИТЬ ВЕКТОРНУЮ СУПЕР-МОДЕЛЬ
