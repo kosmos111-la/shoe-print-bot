@@ -182,10 +182,12 @@ class SimpleFootprintManager {
                     name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`
                 });
 
-                // Добавляем анализ с нормализованным графом
-                const addResult = session.currentFootprint.addAnalysis(analysis, {
+                // 🔥 ИСПРАВЛЕНИЕ: Используем addAnalysisHonest вместо addAnalysis
+                const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
                     ...photoInfo,
-                    normalizedGraph: finalGraph
+                    normalizedGraph: finalGraph,
+                    photoId: photoInfo.photoId || `photo_${Date.now()}`,
+                    source: photoInfo.source || 'telegram_bot'
                 });
 
                 // Создаем векторную супер-модель
@@ -226,9 +228,13 @@ class SimpleFootprintManager {
                 userId: userId,
                 name: `Temp_${Date.now()}`
             });
-            const tempResult = tempFootprint.addAnalysis(analysis, {
+           
+            // 🔥 ИСПРАВЛЕНИЕ: Используем addAnalysisHonest вместо addAnalysis для временного отпечатка
+            const tempResult = tempFootprint.addAnalysisHonest(analysis, {
                 ...photoInfo,
-                normalizedGraph: finalGraph
+                normalizedGraph: finalGraph,
+                photoId: photoInfo.photoId || `photo_${Date.now()}_temp`,
+                source: photoInfo.source || 'telegram_bot_temp'
             });
 
             // Сравниваем с использованием поворотной инвариантности
@@ -249,7 +255,7 @@ class SimpleFootprintManager {
             let similarity = 0;
             let decision = 'unknown';
 
-            // 🔥 ИСПРАВЛЕНО: Гарантируем возврат similarity
+            // 🔥 ИСПРАВЛЕННО: Гарантируем возврат similarity
             if (alignmentResult && typeof alignmentResult.similarity === 'number') {
                 similarity = alignmentResult.similarity;
                 decision = alignmentResult.decision || 'unknown';
@@ -410,9 +416,12 @@ class SimpleFootprintManager {
                     name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`
                 });
 
-                const addResult = session.currentFootprint.addAnalysis(analysis, {
+                // 🔥 ИСПРАВЛЕНИЕ: Используем addAnalysisHonest вместо addAnalysis
+                const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
                     ...photoInfo,
-                    normalizedGraph: finalGraph
+                    normalizedGraph: finalGraph,
+                    photoId: photoInfo.photoId || `photo_${Date.now()}`,
+                    source: photoInfo.source || 'telegram_bot'
                 });
 
                 const result = {
