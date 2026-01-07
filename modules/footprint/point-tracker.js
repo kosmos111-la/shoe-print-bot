@@ -18,9 +18,9 @@ class PointTracker {
             clusterRadius: options.clusterRadius || 30, // Увеличили с 20
             minClusterSize: options.minClusterSize || 2,
             bonusForClusters: options.bonusForClusters !== false,
-           
+
             // 🔥 НОВЫЕ НАСТРОЙКИ
-            directUpdateThreshold: options.directUpdateThreshold || 15,   // Порог для прямого обновления
+            directUpdateThreshold: options.directUpdateThreshold || 25,   // Порог для прямого обновления увеличен
             forceUpdateOnMerge: options.forceUpdateOnMerge || true     // Принудительное обновление при слиянии
         };
     }
@@ -40,7 +40,7 @@ class PointTracker {
         };
 
         // Шаг 0: 🔥 ПРЕДВАРИТЕЛЬНОЕ ОБНОВЛЕНИЕ существующих точек
-        const updateStats = this._preUpdateExistingPoints(newPoints, 25); // Порог 25 пикселей
+        const updateStats = this._preUpdateExistingPoints(newPoints, this.config.directUpdateThreshold);
         results.updated += updateStats.updated;
 
         // Шаг 1: Кластеризация новых точек
@@ -168,27 +168,30 @@ class PointTracker {
         return results;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Предварительное обновление существующих точек
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Предварительное обновление существующих точек
     _preUpdateExistingPoints(newPoints, maxDistance = 25) {
         let updated = 0;
-       
+
+        // 🔥 ИСПОЛЬЗУЕМ БОЛЕЕ АГРЕССИВНЫЙ ПОДХОД
+        const aggressiveThreshold = 30; // Увеличиваем порог
+
         for (const [id, existingPoint] of this.points) {
-            // Находим ближайшую новую точку к существующей
             let nearestNewPoint = null;
             let minDistance = Infinity;
-           
+
             for (const newPoint of newPoints) {
                 const dx = newPoint.x - existingPoint.x;
                 const dy = newPoint.y - existingPoint.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-               
-                if (distance < minDistance && distance <= maxDistance) {
+
+                if (distance < minDistance && distance <= aggressiveThreshold) {
                     minDistance = distance;
                     nearestNewPoint = newPoint;
                 }
             }
-           
-            if (nearestNewPoint && minDistance < 15) { // Точное совпадение
+
+            // 🔥 УМЕНЬШЕН ПОРОГ ДЛЯ ОБНОВЛЕНИЯ
+            if (nearestNewPoint && minDistance < 25) { // Было 15
                 // Обновляем существующую точку
                 this.updatePoint(id, nearestNewPoint, {
                     source: 'direct_update',
@@ -199,7 +202,7 @@ class PointTracker {
                 console.log(`   🔄 Прямое обновление точки ${id} (расстояние: ${minDistance.toFixed(1)})`);
             }
         }
-       
+
         console.log(`📊 Предварительно обновлено ${updated} существующих точек`);
         return { updated };
     }
