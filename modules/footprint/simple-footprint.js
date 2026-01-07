@@ -115,7 +115,7 @@ class SimpleFootprint {
 
         // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Получаем точки из трекера и СТРОИМ ГРАФ
         const previousNodeCount = this.graph.nodes.size;
-       
+
         // Получаем ВСЕ точки из трекера для построения графа
         const trackedPoints = [];
         for (const [id, pt] of this.pointTracker.points) {
@@ -357,6 +357,73 @@ class SimpleFootprint {
         return data;
     }
 
+    // 🔥 МЕТОД: Получить объединенные данные для визуализации
+    getMergedVisualizationData() {
+        console.log(`🔄 Получаю объединенные данные для визуализации...`);
+
+        const data = {
+            id: this.id,
+            name: this.name,
+            totalPhotos: this.metadata.totalPhotos,
+            points: [],
+            clusters: [],
+            confirmationStats: {
+                fromTracker: { total: 0, confirmed2: 0, confirmed1: 0, confirmed0: 0 },
+                fromSuperModel: { total: 0, avgConfirmations: 0, highConfidence: 0 }
+            },
+            merged: true // Флаг что это объединенные данные
+        };
+
+        // 1. Данные из PointTracker
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [id, point] of this.pointTracker.points) {
+                const confirmations = point.confirmedCount || 0;
+
+                let color, size;
+                if (confirmations >= 2) {
+                    color = '#FF5252'; // 🔴 Красный
+                    size = 8 + (point.confidence || 0.5) * 6;
+                    data.confirmationStats.fromTracker.confirmed2++;
+                } else if (confirmations >= 1) {
+                    color = '#2196F3'; // 🔵 Синий
+                    size = 6 + (point.confidence || 0.5) * 4;
+                    data.confirmationStats.fromTracker.confirmed1++;
+                } else {
+                    color = '#BDBDBD'; // ⚪ Серый
+                    size = 4;
+                    data.confirmationStats.fromTracker.confirmed0++;
+                }
+
+                data.points.push({
+                    id,
+                    x: point.x,
+                    y: point.y,
+                    color: color,
+                    size: size,
+                    confirmations: confirmations,
+                    confidence: point.rating || point.confidence || 0.5,
+                    source: 'tracker',
+                    clusterData: point.clusterData || null
+                });
+
+                data.confirmationStats.fromTracker.total++;
+            }
+        }
+
+        // 2. Данные из супер-модели (если есть)
+        if (this.metadata?.features?.hasSuperModel) {
+            // Можно добавить данные из супер-модели
+            // Например, границы шаблона, зоны и т.д.
+        }
+
+        console.log(`📊 Объединенная статистика:`);
+        console.log(`   🔴 2+ подтверждений: ${data.confirmationStats.fromTracker.confirmed2}`);
+        console.log(`   🔵 1 подтверждение: ${data.confirmationStats.fromTracker.confirmed1}`);
+        console.log(`   ⚪ 0 подтверждений: ${data.confirmationStats.fromTracker.confirmed0}`);
+
+        return data;
+    }
+
     // 🔥 СТАРЫЙ МЕТОД addAnalysis (для совместимости)
     addAnalysis(analysis, sourceInfo = {}) {
         console.log(`📥 Добавляю анализ в отпечаток "${this.name}"...`);
@@ -494,7 +561,7 @@ class SimpleFootprint {
         const graphWeight = 0.3;
 
         const combinedSimilarity = hybridComparison.similarity * hybridWeight +
-                                  graphComparison.similarity * graphWeight;
+                                 graphComparison.similarity * graphWeight;
 
         let decision, reason;
 
@@ -634,7 +701,7 @@ class SimpleFootprint {
 
             return {
                 ...comparisonResult,
-                visualization: visualizationResult,
+                visualizations: visualizationResult,
                 combinedConfidence: (comparisonResult.similarity +
                     (visualizationResult.stats?.similarity || 0)) / 2
             };
