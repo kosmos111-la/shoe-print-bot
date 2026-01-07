@@ -205,6 +205,8 @@ class SimpleFootprintManager {
                 return {
                     success: true,
                     isNewSession: true,
+                    similarity: 0, // ✅ ДОБАВЛЕНО: similarity для первого фото
+                    decision: 'new', // ✅ ДОБАВЛЕНО: decision для первого фото
                     nodesAdded: addResult.added,
                     totalNodes: session.currentFootprint.graph.nodes.size,
                     sessionId: session.id,
@@ -236,10 +238,13 @@ class SimpleFootprintManager {
                 { userId: userId, photoId: photoInfo.photoId }
             );
 
-            // 🔥 ИСПРАВЛЕННАЯ ОБРАБОТКА РЕЗУЛЬТАТА с гарантированным возвратом similarity
-            console.log('=== ОТЛАДКА alignmentResult ===');
-            console.log('Тип:', typeof alignmentResult);
-            console.log('Ключи:', Object.keys(alignmentResult || {}));
+            // 🔥 ДОБАВЛЕНО: Детальное логирование для debug
+            console.log('🔍 DEBUG alignmentResult структура:');
+            console.log('- Тип:', typeof alignmentResult);
+            console.log('- Ключи:', Object.keys(alignmentResult || {}));
+            console.log('- Значение similarity:', alignmentResult?.similarity);
+            console.log('- Значение decision:', alignmentResult?.decision);
+            console.log('- Полный объект:', JSON.stringify(alignmentResult, null, 2).substring(0, 500));
 
             let similarity = 0;
             let decision = 'unknown';
@@ -258,7 +263,7 @@ class SimpleFootprintManager {
                     console.log(`📊 Использую result.similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
                 }
             }
-           
+
             // 🔥 ДОБАВЛЕНО: Универсальное извлечение similarity
             if (similarity === 0 && alignmentResult) {
                 const foundSimilarity = this.extractSimilarityFromObject(alignmentResult);
@@ -268,12 +273,12 @@ class SimpleFootprintManager {
                     console.log(`📊 Извлечено similarity: ${similarity.toFixed(3)} из глубины объекта`);
                 }
             }
-           
+
             // 🔥 ГАРАНТИРОВАННЫЙ РЕЗУЛЬТАТ
             const finalSimilarity = Math.max(0, Math.min(1, similarity));
             const finalDecision = decision !== 'unknown' ? decision :
                                 (finalSimilarity > 0.6 ? 'same' : 'different');
-           
+
             console.log(`🎯 Финальное: similarity=${finalSimilarity.toFixed(3)}, decision=${finalDecision}`);
 
             // 🔥 УПРОЩЕННАЯ ЛОГИКА:
@@ -359,13 +364,13 @@ class SimpleFootprintManager {
                         }
                     }
 
-                    // 🔥 ИСПРАВЛЕНО: Добавлены similarity и decision в результат с гарантией
-                    return {
+                    // 🔥 ИСПРАВЛЕННЫЙ ВОЗВРАЩАЕМЫЙ ОБЪЕКТ с similarity и decision
+                    const result = {
                         success: true,
                         similarity: finalSimilarity,  // ✅ ГАРАНТИРОВАНО
                         decision: finalDecision,      // ✅ ГАРАНТИРОВАНО
                         nodesAdded: tempResult.added,
-                        hasMergeVisualization: true, // ✅ ИЗМЕНЕНО
+                        hasMergeVisualization: true,
                         mergeMethod: 'template_based',
                         templateStats: vectorModel ? vectorModel.getTemplateStats() : null,
                         visualization: vectorVizPath,
@@ -376,6 +381,18 @@ class SimpleFootprintManager {
                             corrected: corrected.correctionApplied
                         }
                     };
+
+                    // 🔥 ИСПРАВЛЕНО: Правильное логирование результата
+                    console.log(`📊 Результат addPhotoToSession: {
+  success: true,
+  similarity: ${finalSimilarity.toFixed(3)},
+  decision: ${finalDecision},
+  nodesAdded: ${tempResult.added},
+  hasMergeVisualization: ${true},
+  mergeMethod: 'template_based'
+}`);
+
+                    return result;
                 }
 
             } else {
@@ -398,7 +415,7 @@ class SimpleFootprintManager {
                     normalizedGraph: finalGraph
                 });
 
-                return {
+                const result = {
                     success: true,
                     similarity: finalSimilarity,
                     decision: finalDecision,
@@ -410,6 +427,16 @@ class SimpleFootprintManager {
                         corrected: corrected.correctionApplied
                     }
                 };
+
+                console.log(`📊 Результат addPhotoToSession (разные следы): {
+  success: true,
+  similarity: ${finalSimilarity.toFixed(3)},
+  decision: ${finalDecision},
+  isNewModel: true,
+  nodesAdded: ${addResult.added}
+}`);
+
+                return result;
             }
 
         } catch (error) {
@@ -422,7 +449,7 @@ class SimpleFootprintManager {
     // 🔥 НОВЫЙ МЕТОД: Извлечение similarity из любого объекта
     extractSimilarityFromObject(obj, path = '') {
         if (!obj || typeof obj !== 'object') return null;
-       
+
         // Ищем similarity на всех уровнях
         for (const key in obj) {
             if (key === 'similarity' && typeof obj[key] === 'number') {
@@ -431,20 +458,20 @@ class SimpleFootprintManager {
                                obj.result?.decision ||
                                obj.details?.decision ||
                                'unknown';
-               
+
                 return {
                     value: obj[key],
                     decision: decision,
                     path: path ? `${path}.${key}` : key
                 };
             }
-           
+
             if (typeof obj[key] === 'object' && obj[key] !== null) {
                 const found = this.extractSimilarityFromObject(obj[key], key);
                 if (found) return found;
             }
         }
-       
+
         return null;
     }
 
