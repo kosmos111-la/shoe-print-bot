@@ -159,7 +159,7 @@ class SimpleFootprintManager {
             let session = this.userSessions.get(userId);
             if (!session) {
                 session = this.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-                console.log(`🆕 Создана новая сессия: ${session.id ? session.id.slice(0, 8) : 'unknown'}...`);
+                console.log(`🆕 Создана новая сессию: ${session.id ? session.id.slice(0, 8) : 'unknown'}...`);
             }
 
             // Обновляем сессию
@@ -255,7 +255,7 @@ class SimpleFootprintManager {
             let similarity = 0;
             let decision = 'unknown';
 
-            // 🔥 ИСПРАВЛЕННО: Гарантируем возврат similarity
+            // 🔥 ИСПРАВЛЕНО: Гарантируем возврат similarity
             if (alignmentResult && typeof alignmentResult.similarity === 'number') {
                 similarity = alignmentResult.similarity;
                 decision = alignmentResult.decision || 'unknown';
@@ -278,6 +278,13 @@ class SimpleFootprintManager {
                     decision = foundSimilarity.decision || 'unknown';
                     console.log(`📊 Извлечено similarity: ${similarity.toFixed(3)} из глубины объекта`);
                 }
+            }
+
+            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Если similarity все еще NaN или не число, исправляем
+            if (isNaN(similarity) || typeof similarity !== 'number') {
+                console.log(`⚠️ similarity не число или NaN: ${similarity}, исправляю на 0`);
+                similarity = 0;
+                decision = 'different';
             }
 
             // 🔥 ГАРАНТИРОВАННЫЙ РЕЗУЛЬТАТ
