@@ -4,6 +4,21 @@
 
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
+
+// 🔥 ИСПРАВЛЕНО: Отключаем предупреждения Telegram API
+process.env.NTBA_FIX_319 = 1;
+process.env.NTBA_FIX_350 = 1;
+
+// 🔥 Отключаем вывод предупреждения в консоль
+const originalEmit = process.emit;
+process.emit = function(name, data, ...args) {
+    if (name === 'warning' && data && data.name === 'DeprecationWarning') {
+        // Пропускаем предупреждения о DeprecationWarning
+        return false;
+    }
+    return originalEmit.apply(process, arguments);
+};
+
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
@@ -323,8 +338,25 @@ practicalAnalyzer = createPracticalAnalyzerStub();
 animalFilter = createAnimalFilterStub();
 
 const app = express();
-const bot = new TelegramBot(config.TELEGRAM_TOKEN);
-// polling не указываем
+
+// 🔥 ИСПРАВЛЕНО: Инициализация бота с правильными опциями
+const bot = new TelegramBot(config.TELEGRAM_TOKEN, {
+    polling: {
+        interval: 300,
+        autoStart: true,
+        params: {
+            timeout: 10
+        }
+    },
+    // 🔥 Отключаем устаревшие функции
+    onlyFirstMatch: true,
+    request: {
+        agentOptions: {
+            keepAlive: true,
+            family: 4
+        }
+    }
+});
 
 // 🔧 НАСТРОЙКА EXPRESS
 app.use(express.json({
