@@ -338,25 +338,8 @@ practicalAnalyzer = createPracticalAnalyzerStub();
 animalFilter = createAnimalFilterStub();
 
 const app = express();
-
-// 🔥 ИСПРАВЛЕНО: Инициализация бота с правильными опциями
-const bot = new TelegramBot(config.TELEGRAM_TOKEN, {
-    polling: {
-        interval: 300,
-        autoStart: true,
-        params: {
-            timeout: 10
-        }
-    },
-    // 🔥 Отключаем устаревшие функции
-    onlyFirstMatch: true,
-    request: {
-        agentOptions: {
-            keepAlive: true,
-            family: 4
-        }
-    }
-});
+const bot = new TelegramBot(config.TELEGRAM_TOKEN);
+// polling не указываем
 
 // 🔧 НАСТРОЙКА EXPRESS
 app.use(express.json({
