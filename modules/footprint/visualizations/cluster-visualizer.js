@@ -40,6 +40,54 @@ class ClusterVisualizer {
         }
     }
 
+    // 🔥 УПРОЩЕННАЯ ВИЗУАЛИЗАЦИЯ ДЛЯ ОТЛАДКИ
+    createSimpleTextComparison(footprint1, footprint2, comparisonResult) {
+        console.log('📝 Создаю текстовое сравнение для отладки...');
+
+        const honestData1 = footprint1.getHonestVisualizationData ?
+            footprint1.getHonestVisualizationData() : { confirmationsInfo: { totalPoints: 0, confirmed2: 0, confirmed1: 0, confirmed0: 0 } };
+
+        const honestData2 = footprint2.getHonestVisualizationData ?
+            footprint2.getHonestVisualizationData() : { confirmationsInfo: { totalPoints: 0, confirmed2: 0, confirmed1: 0, confirmed0: 0 } };
+
+        const text = `
+🎯 СРАВНЕНИЕ ДВУХ СЛЕДОВ
+══════════════════════════════
+
+📊 СВЕДЕНИЯ О СЛЕДАХ:
+След 1: ${footprint1.name} (ID: ${footprint1.id.slice(0, 8)}...)
+• Всего точек: ${honestData1.confirmationsInfo.totalPoints}
+• 2+ подтверждений: ${honestData1.confirmationsInfo.confirmed2} 🔴
+• 1 подтверждение: ${honestData1.confirmationsInfo.confirmed1} 🔵
+• 0 подтверждений: ${honestData1.confirmationsInfo.confirmed0} ⚪
+
+След 2: ${footprint2.name} (ID: ${footprint2.id.slice(0, 8)}...)
+• Всего точек: ${honestData2.confirmationsInfo.totalPoints}
+• 2+ подтверждений: ${honestData2.confirmationsInfo.confirmed2} 🔴
+• 1 подтверждение: ${honestData2.confirmationsInfo.confirmed1} 🔵
+• 0 подтверждений: ${honestData2.confirmationsInfo.confirmed0} ⚪
+
+📈 СРАВНЕНИЕ:
+• Схожесть: ${comparisonResult.similarity ? (comparisonResult.similarity * 100).toFixed(1) : 0}%
+• Решение: ${comparisonResult.decision || 'unknown'}
+• Метод: ${comparisonResult.method || 'unknown'}
+
+🎨 ВИЗУАЛИЗАЦИЯ КЛАСТЕРОВ:
+• 🔴 Красная точка: есть в ОБОИХ фото (2 подтверждения)
+• 🔵 Синяя точка: есть в ОДНОМ фото (1 подтверждение)
+• ⚪ Белая/серая: ожидается (0 подтверждений)
+• Размер точки: уверенность детекции (0.5-1.0)
+
+💡 ДЛЯ ГРАФИЧЕСКОЙ ВИЗУАЛИЗАЦИИ:
+Установите canvas: npm install canvas
+
+══════════════════════════════
+Отчет создан: ${new Date().toLocaleString('ru-RU')}
+    `;
+
+        return text;
+    }
+
     // 🔥 ОСНОВНОЙ МЕТОД: Визуализация сравнения двух следов
     async visualizeTwoFootprintComparison(footprint1, footprint2, options = {}) {
         console.log('🎨 Визуализация сравнения двух следов...');
@@ -75,7 +123,7 @@ class ClusterVisualizer {
     // 🔥 ИЗВЛЕЧЕНИЕ ТОЧЕК С ПОДТВЕРЖДЕНИЯМИ
     extractPointsWithConfirmations(footprint) {
         const points = [];
-       
+
         if (footprint.pointTracker && footprint.pointTracker.points) {
             // Используем данные из PointTracker
             for (const [id, point] of footprint.pointTracker.points) {
@@ -165,15 +213,15 @@ class ClusterVisualizer {
     determineVisualizationMode(footprint1, footprint2, options) {
         const photoCount1 = footprint1.photoHistory?.length || 0;
         const photoCount2 = footprint2.photoHistory?.length || 0;
-       
+
         // Если явно указан режим
         if (options.mode) {
             return options.mode;
         }
-       
+
         // Автоматическое определение
         const totalPhotos = photoCount1 + photoCount2;
-       
+
         if (totalPhotos <= 2) {
             return 'simple';      // Простая схема для 1-2 фото
         } else if (totalPhotos <= 5) {
@@ -197,7 +245,7 @@ class ClusterVisualizer {
         // Создаем canvas
         const canvasWidth = options.width || this.config.canvasWidth;
         const canvasHeight = options.height || this.config.canvasHeight;
-       
+
         const canvasInstance = canvas.createCanvas(canvasWidth, canvasHeight);
         const ctx = canvasInstance.getContext('2d');
 
@@ -262,7 +310,7 @@ class ClusterVisualizer {
         });
     }
 
-    // 🔥 ОТРИСОВКА ТОЧЕК СЛЕДА
+    // 🔥 ОТРИСОВКА ТОЧКИ СЛЕДА
     drawFootprintPoints(ctx, points, side, canvasWidth, canvasHeight, mode) {
         const isLeft = side === 'left';
         const offsetX = isLeft ? canvasWidth * 0.25 : canvasWidth * 0.75;
@@ -354,12 +402,12 @@ class ClusterVisualizer {
             ctx.strokeStyle = lineStyle.color;
             ctx.lineWidth = lineStyle.width;
             ctx.setLineDash(lineStyle.dash);
-           
+
             ctx.beginPath();
             ctx.moveTo(x1, y1);
             ctx.lineTo(x2, y2);
             ctx.stroke();
-           
+
             ctx.setLineDash([]);
         });
     }
@@ -375,7 +423,7 @@ class ClusterVisualizer {
         // Статистика
         ctx.font = '16px Arial';
         ctx.fillStyle = '#495057';
-       
+
         const statsText = [
             `🔍 Общих точек: ${comparison.stats.totalMatches}`,
             `📊 Схожесть: ${(comparison.stats.similarity * 100).toFixed(1)}%`,
@@ -413,10 +461,10 @@ class ClusterVisualizer {
         const columnWidth = (canvasWidth - 140) / 3;
         legendItems.forEach((column, colIndex) => {
             const startX = 70 + colIndex * columnWidth;
-           
+
             column.forEach((item, itemIndex) => {
                 const y = legendY + 20 + itemIndex * 25;
-               
+
                 // Рисуем образец
                 if (item.type === 'point') {
                     ctx.fillStyle = item.color;
@@ -427,12 +475,12 @@ class ClusterVisualizer {
                     ctx.strokeStyle = item.color;
                     ctx.lineWidth = item.width || 2;
                     ctx.setLineDash(item.dash || []);
-                   
+
                     ctx.beginPath();
                     ctx.moveTo(startX, y + 5);
                     ctx.lineTo(startX + 20, y + 5);
                     ctx.stroke();
-                   
+
                     ctx.setLineDash([]);
                 }
 
@@ -465,7 +513,7 @@ class ClusterVisualizer {
                 ]
             ];
         }
-       
+
         // Режимы detailed и advanced будут расширять легенду
         return this.getLegendItems('simple');
     }
@@ -492,10 +540,10 @@ class ClusterVisualizer {
     calculateScale(minX, maxX, minY, maxY, targetWidth, targetHeight) {
         const width = Math.max(1, maxX - minX);
         const height = Math.max(1, maxY - minY);
-       
+
         const scaleX = targetWidth / width;
         const scaleY = targetHeight / height;
-       
+
         return Math.min(scaleX, scaleY, 5); // Ограничиваем масштаб
     }
 
@@ -534,7 +582,7 @@ ${this.getRecommendations(comparison.stats)}
 `;
 
         fs.writeFileSync(outputPath, report, 'utf8');
-       
+
         return {
             path: outputPath,
             stats: comparison.stats,
@@ -570,7 +618,7 @@ ${this.getRecommendations(comparison.stats)}
 
     getRecommendations(stats) {
         const recommendations = [];
-       
+
         if (stats.similarity > 0.8) {
             recommendations.push('✅ Высокая схожесть - вероятно, тот же след');
         } else if (stats.similarity > 0.5) {
@@ -591,7 +639,7 @@ ${this.getRecommendations(comparison.stats)}
     // 🔥 ФАЛЛБЭК ВИЗУАЛИЗАЦИЯ
     createFallbackVisualization(footprint1, footprint2) {
         const outputPath = path.join(this.config.outputDir, `fallback_${Date.now()}.txt`);
-       
+
         const content = `
 БАЗОВАЯ ВИЗУАЛИЗАЦИЯ СРАВНЕНИЯ
 ══════════════════════════════
@@ -611,7 +659,7 @@ npm install canvas
 `;
 
         fs.writeFileSync(outputPath, content, 'utf8');
-       
+
         return {
             path: outputPath,
             note: 'Требуется Canvas для графической визуализации'
