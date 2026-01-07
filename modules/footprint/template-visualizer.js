@@ -618,9 +618,9 @@ ${JSON.stringify(templateData, null, 2).substring(0, 2000)}...
 
         const startTime = Date.now();
 
-        // 🔥 УМЕНЬШАЕМ РАЗМЕР ДЛЯ СКОРОСТИ
-        const canvasWidth = 800;  // Было 1200 - уменьшили в 1.5 раза
-        const canvasHeight = 600; // Было 800 - уменьшили в 1.33 раза
+        // 🔥 ИЗМЕНЕНИЕ: Уменьшить качество для скорости
+        const canvasWidth = 800;  // Было 1200
+        const canvasHeight = 600; // Было 800
 
         // Создаем канвас для тепловой карты
         const canvasInstance = canvas.createCanvas(canvasWidth, canvasHeight);
@@ -631,52 +631,52 @@ ${JSON.stringify(templateData, null, 2).substring(0, 2000)}...
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
         // 2. ПАРАМЕТРЫ ТЕПЛОВОЙ КАРТЫ
-        const heatmapRadius = 20; // 🔥 Уменьшаем радиус (было 40)
+        const heatmapRadius = 20; // 🔥 ИЗМЕНЕНИЕ: Упростить алгоритм размытия (было 40)
         const maxIntensity = 5; // Максимальное количество подтверждений
 
-        // 3. ИСПОЛЬЗУЕМ СУММАРНУЮ КАРТУ ДЛЯ БЫСТРОТЫ
+        // 3. РИСУЕМ ТЕПЛОВУЮ КАРТУ (гауссовы размытия)
         if (templateData.cells && templateData.cells.length > 0) {
             const { offsetX, offsetY, scale } = this.calculateScaling(templateData, canvasWidth, canvasHeight);
 
-            // 🔥 СОЗДАЕМ СУММАРНУЮ КАРТУ (массив чисел вместо рисования)
-            const intensityMap = this.createIntensityMap(
-                templateData.cells,
-                canvasWidth,
-                canvasHeight,
-                offsetX,
-                offsetY,
-                scale,
-                heatmapRadius
-            );
+            // Создаем временный канвас для накопления тепла
+            const heatCanvas = canvas.createCanvas(canvasWidth, canvasHeight);
+            const heatCtx = heatCanvas.getContext('2d');
 
-            // 🔥 РИСУЕМ ПО СУММАРНОЙ КАРТЕ ОДИН РАЗ
-            const imageData = ctx.createImageData(canvasWidth, canvasHeight);
-            const data = imageData.data;
-           
-            let maxVal = 0;
-            for (let i = 0; i < intensityMap.length; i++) {
-                if (intensityMap[i] > maxVal) maxVal = intensityMap[i];
-            }
-           
-            // Нормализуем и рисуем
-            for (let i = 0; i < intensityMap.length; i++) {
-                const intensity = maxVal > 0 ? intensityMap[i] / maxVal : 0;
-                const { r, g, b } = this.intensityToColor(intensity);
-               
-                const idx = i * 4;
-                data[idx] = r;
-                data[idx + 1] = g;
-                data[idx + 2] = b;
-                data[idx + 3] = 255; // Полная непрозрачность
-            }
-           
-            ctx.putImageData(imageData, 0, 0);
+            // Для каждой ячейки добавляем "тепло"
+            templateData.cells.forEach(cell => {
+                const x = offsetX + cell.x * scale;
+                const y = offsetY + cell.y * scale;
+                const intensity = Math.min(cell.confirmations || 0, maxIntensity) / maxIntensity;
 
-            // 🔥 ПРИМЕНЯЕМ БЫСТРОЕ РАЗМЫТИЕ
-            this.applyFastBlur(ctx, canvasWidth, canvasHeight, 3);
+                // Создаем радиальный градиент для точки тепла
+                const gradient = heatCtx.createRadialGradient(
+                    x, y, 0,
+                    x, y, heatmapRadius * scale
+                );
 
-            // 🔥 УПРОЩАЕМ КОНТУР (не рисуем выпуклую оболочку)
-            this.drawSimpleContour(ctx, templateData, offsetX, offsetY, scale);
+                // Цвета тепловой карты (от синего к красному)
+                gradient.addColorStop(0, `rgba(255, 0, 0, ${intensity * 0.8})`);
+                gradient.addColorStop(0.5, `rgba(255, 165, 0, ${intensity * 0.5})`);
+                gradient.addColorStop(1, `rgba(0, 0, 255, ${intensity * 0.2})`);
+
+                heatCtx.fillStyle = gradient;
+                heatCtx.beginPath();
+                heatCtx.arc(x, y, heatmapRadius * scale, 0, Math.PI * 2);
+                heatCtx.fill();
+            });
+
+            // 4. ПРИМЕНЯЕМ РАЗМЫТИЕ ДЛЯ ПЛАВНЫХ ПЕРЕХОДОВ
+            this.applyBlur(heatCtx, heatCanvas, 10);
+
+            // 5. НАКЛАДЫВАЕМ ТЕПЛОВУЮ КАРТУ НА ОСНОВНОЙ КАНВАС
+            ctx.drawImage(heatCanvas, 0, 0);
+
+            // 6. ДОБАВЛЯЕМ КОНТУРНЫЕ ЛИНИИ
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1;
+
+            // Рисуем контур протектора (по границам ячеек)
+            this.drawFootprintContour(ctx, templateData, offsetX, offsetY, scale);
 
             // 7. ЛЕГЕНДА ТЕПЛОВОЙ КАРТЫ
             this.drawHeatmapLegend(ctx, canvasWidth, canvasHeight, maxIntensity);
@@ -717,151 +717,110 @@ ${JSON.stringify(templateData, null, 2).substring(0, 2000)}...
         });
     }
 
-    // 🔥 НОВЫЙ МЕТОД: СОЗДАНИЕ СУММАРНОЙ КАРТЫ
-    createIntensityMap(cells, width, height, offsetX, offsetY, scale, radius) {
-        const intensityMap = new Float32Array(width * height).fill(0);
-       
-        // Ограничиваем количество обрабатываемых ячеек для скорости
-        const maxCells = 5000;
-        const cellsToProcess = cells.length > maxCells ?
-            cells.slice(0, maxCells) : cells;
-           
-        if (cells.length > maxCells) {
-            console.log(`   ⚡ Обрабатываю ${maxCells} из ${cells.length} ячеек для скорости`);
-        }
-       
-        // Быстрое заполнение карты
-        for (const cell of cellsToProcess) {
-            const x = Math.floor(offsetX + cell.x * scale);
-            const y = Math.floor(offsetY + cell.y * scale);
-            const confirmations = cell.confirmations || 0;
-           
-            if (x >= 0 && x < width && y >= 0 && y < height) {
-                // Добавляем интенсивность в центральную точку
-                const centerIdx = y * width + x;
-                intensityMap[centerIdx] += confirmations;
-               
-                // Добавляем в соседние пиксели (упрощенный радиус)
-                const r = Math.floor(radius * scale);
-                for (let dy = -r; dy <= r; dy++) {
-                    for (let dx = -r; dx <= r; dx++) {
-                        const nx = x + dx;
-                        const ny = y + dy;
-                       
-                        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                            const distance = Math.sqrt(dx*dx + dy*dy);
-                            if (distance <= r) {
-                                const idx = ny * width + nx;
-                                // Гауссово распределение интенсивности
-                                const weight = Math.exp(-distance * distance / (r * r));
-                                intensityMap[idx] += confirmations * weight * 0.5;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-       
-        return intensityMap;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: БЫСТРОЕ РАЗМЫТИЕ
-    applyFastBlur(ctx, width, height, radius) {
-        // Используем встроенное размытие если доступно
-        if (typeof ctx.filter !== 'undefined') {
-            ctx.filter = `blur(${radius}px)`;
-            ctx.drawImage(ctx.canvas, 0, 0);
-            ctx.filter = 'none';
-            return;
-        }
-       
-        // Фолбэк: простое размытие
-        const imageData = ctx.getImageData(0, 0, width, height);
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ТЕПЛОВОЙ КАРТЫ
+    applyBlur(ctx, canvas, radius) {
+        // Простое размытие для тепловой карты
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
-        const tempData = new Uint8ClampedArray(data);
-       
-        // Только один проход вместо radius проходов
-        for (let y = 1; y < height - 1; y++) {
-            for (let x = 1; x < width - 1; x++) {
-                const idx = (y * width + x) * 4;
-               
-                // Быстрое усреднение
-                let r = 0, g = 0, b = 0;
-                let count = 0;
-               
-                for (let dy = -1; dy <= 1; dy++) {
-                    for (let dx = -1; dx <= 1; dx++) {
-                        const nIdx = ((y + dy) * width + (x + dx)) * 4;
-                        r += tempData[nIdx];
-                        g += tempData[nIdx + 1];
-                        b += tempData[nIdx + 2];
-                        count++;
-                    }
+
+        // Простой box blur
+        for (let i = 0; i < radius; i++) {
+            for (let y = 1; y < canvas.height - 1; y++) {
+                for (let x = 1; x < canvas.width - 1; x++) {
+                    const idx = (y * canvas.width + x) * 4;
+
+                    // Усреднение с соседними пикселями
+                    const neighbors = [
+                        idx - 4, idx + 4,                     // лево-право
+                        idx - canvas.width * 4,              // верх
+                        idx + canvas.width * 4               // низ
+                    ];
+
+                    let r = data[idx];
+                    let g = data[idx + 1];
+                    let b = data[idx + 2];
+                    let a = data[idx + 3];
+
+                    neighbors.forEach(neighborIdx => {
+                        r += data[neighborIdx];
+                        g += data[neighborIdx + 1];
+                        b += data[neighborIdx + 2];
+                        a += data[neighborIdx + 3];
+                    });
+
+                    data[idx] = r / (neighbors.length + 1);
+                    data[idx + 1] = g / (neighbors.length + 1);
+                    data[idx + 2] = b / (neighbors.length + 1);
+                    data[idx + 3] = a / (neighbors.length + 1);
                 }
-               
-                data[idx] = r / count;
-                data[idx + 1] = g / count;
-                data[idx + 2] = b / count;
             }
         }
-       
+
         ctx.putImageData(imageData, 0, 0);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ПРОСТОЙ КОНТУР
-    drawSimpleContour(ctx, templateData, offsetX, offsetY, scale) {
-        if (!templateData.cells || templateData.cells.length < 10) return;
-       
-        // Находим границы точек
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-       
-        for (const cell of templateData.cells) {
-            const x = offsetX + cell.x * scale;
-            const y = offsetY + cell.y * scale;
-           
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
+    drawFootprintContour(ctx, templateData, offsetX, offsetY, scale) {
+        if (!templateData.cells || templateData.cells.length < 3) return;
+
+        // Находим крайние точки для контура
+        const points = templateData.cells.map(cell => ({
+            x: offsetX + cell.x * scale,
+            y: offsetY + cell.y * scale
+        }));
+
+        // Создаем выпуклую оболочку
+        const hull = this.convexHull(points);
+
+        // Рисуем контур
+        ctx.beginPath();
+        ctx.moveTo(hull[0].x, hull[0].y);
+
+        for (let i = 1; i < hull.length; i++) {
+            ctx.lineTo(hull[i].x, hull[i].y);
         }
-       
-        // Рисуем простой прямоугольник вместо сложного контура
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+
+        ctx.closePath();
+        ctx.stroke();
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ПРЕОБРАЗОВАНИЕ ИНТЕНСИВНОСТИ В ЦВЕТ
-    intensityToColor(intensity) {
-        // intensity от 0 до 1
-        if (intensity < 0.3) {
-            // Синий для низкой интенсивности
-            return {
-                r: 0,
-                g: 0,
-                b: Math.floor(100 + 155 * (intensity * 3.33))
-            };
-        } else if (intensity < 0.7) {
-            // Желтый для средней
-            const val = (intensity - 0.3) * 2.5;
-            return {
-                r: Math.floor(255 * val),
-                g: Math.floor(255 * val),
-                b: 0
-            };
-        } else {
-            // Красный для высокой
-            const val = (intensity - 0.7) * 3.33;
-            return {
-                r: 255,
-                g: Math.floor(255 * (1 - val)),
-                b: 0
-            };
+    convexHull(points) {
+        if (points.length < 3) return points;
+
+        // Алгоритм Джарвиса (заворачивание подарка)
+        const hull = [];
+
+        // Находим самую левую точку
+        let leftmost = 0;
+        for (let i = 1; i < points.length; i++) {
+            if (points[i].x < points[leftmost].x) {
+                leftmost = i;
+            }
         }
+
+        let p = leftmost, q;
+        do {
+            hull.push(points[p]);
+            q = (p + 1) % points.length;
+
+            for (let i = 0; i < points.length; i++) {
+                if (this.orientation(points[p], points[i], points[q]) === 2) {
+                    q = i;
+                }
+            }
+
+            p = q;
+        } while (p !== leftmost);
+
+        return hull;
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ТЕПЛОВОЙ КАРТЫ
+    orientation(p, q, r) {
+        const val = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+
+        if (val === 0) return 0;     // коллинеарны
+        return (val > 0) ? 1 : 2;    // по часовой / против часовой
+    }
+
     drawHeatmapLegend(ctx, canvasWidth, canvasHeight, maxIntensity) {
         const legendWidth = 200;
         const legendHeight = 20;
