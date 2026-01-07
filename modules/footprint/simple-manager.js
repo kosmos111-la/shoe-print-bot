@@ -111,9 +111,23 @@ class SimpleFootprintManager {
 
     // 🔥 НОВЫЙ МЕТОД: Создание кластерной визуализации сравнения
     async createClusterComparisonVisualization(footprint1, footprint2, comparisonResult, userId) {
-        console.log('🎨 Создаю кластерную визуализацию сравнения...');
+        console.log('🎨 Создаю улучшенную кластерную визуализацию сравнения...');
 
         try {
+            // 🔥 ПОЛУЧАЕМ ОБЪЕДИНЕННЫЕ ДАННЫЕ
+            const mergedData1 = footprint1.getMergedVisualizationData ?
+                footprint1.getMergedVisualizationData() :
+                this.getFallbackVisualizationData(footprint1);
+
+            const mergedData2 = footprint2.getMergedVisualizationData ?
+                footprint2.getMergedVisualizationData() :
+                this.getFallbackVisualizationData(footprint2);
+
+            // 🔥 ПРОВЕРЯЕМ РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ
+            console.log(`📊 РЕАЛЬНЫЕ ДАННЫЕ:`);
+            console.log(`   След 1: ${mergedData1.confirmationStats.fromTracker.confirmed2}🔴 ${mergedData1.confirmationStats.fromTracker.confirmed1}🔵`);
+            console.log(`   След 2: ${mergedData2.confirmationStats.fromTracker.confirmed2}🔴 ${mergedData2.confirmationStats.fromTracker.confirmed1}🔵`);
+
             // Проверяем доступность ClusterVisualizer
             let ClusterVisualizer;
             try {
@@ -147,6 +161,97 @@ class SimpleFootprintManager {
             console.log('❌ Ошибка создания кластерной визуализации:', error.message);
             return null;
         }
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Получить фоллбэк данные для визуализации
+    getFallbackVisualizationData(footprint) {
+        return {
+            id: footprint.id,
+            name: footprint.name,
+            totalPhotos: footprint.metadata?.totalPhotos || 0,
+            points: [],
+            clusters: [],
+            confirmationStats: {
+                fromTracker: { total: 0, confirmed2: 0, confirmed1: 0, confirmed0: 0 },
+                fromSuperModel: { total: 0, avgConfirmations: 0, highConfidence: 0 }
+            },
+            merged: false
+        };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Обновить подтверждения PointTracker из супер-модели
+    updatePointTrackerFromSuperModel(userId, footprint, vectorModel) {
+        console.log(`🔄 Обновляю PointTracker из супер-модели...`);
+
+        if (!footprint || !footprint.pointTracker || !vectorModel || !vectorModel.templateBuilder) {
+            console.log('⚠️ Недостаточно данных для обновления');
+            return 0;
+        }
+
+        const tracker = footprint.pointTracker;
+        const templateBuilder = vectorModel.templateBuilder;
+        let updatedCount = 0;
+
+        // Получаем данные шаблона
+        const templateInfo = templateBuilder.getVisualizationData();
+        if (!templateInfo || !templateInfo.cells) {
+            console.log('⚠️ Нет данных шаблона');
+            return 0;
+        }
+
+        console.log(`📊 Данные шаблона: ${templateInfo.cells.length} ячеек`);
+
+        // Для каждой точки в трекере
+        for (const [pointId, point] of tracker.points) {
+            // Находим ближайшую ячейку в шаблоне
+            let bestCell = null;
+            let minDistance = Infinity;
+
+            for (const cell of templateInfo.cells) {
+                const dx = cell.x - point.x;
+                const dy = cell.y - point.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < 20 && distance < minDistance) { // Порог 20px
+                    minDistance = distance;
+                    bestCell = cell;
+                }
+            }
+
+            // Если нашли ячейку и у нее есть подтверждения
+            if (bestCell && bestCell.confirmations > 0) {
+                const templateConfirmations = bestCell.confirmations || 0;
+
+                // 🔥 ВАЖНО: Обновляем только если подтверждений в шаблоне БОЛЬШЕ
+                if (templateConfirmations > (point.confirmedCount || 0)) {
+                    const oldCount = point.confirmedCount || 0;
+                    point.confirmedCount = Math.min(5, templateConfirmations); // Макс 5
+
+                    // Обновляем рейтинг
+                    point.rating = Math.min(1.0, 0.5 + (point.confirmedCount * 0.1));
+
+                    // Добавляем запись в историю
+                    if (!point.history) point.history = [];
+                    point.history.push({
+                        timestamp: new Date(),
+                        source: 'super_model_update',
+                        confidence: point.rating,
+                        action: 'confirmed_from_template',
+                        templateConfirmations: templateConfirmations,
+                        cellId: bestCell.id
+                    });
+
+                    updatedCount++;
+
+                    if (templateConfirmations >= 2) {
+                        console.log(`   ✅ Точка ${pointId.slice(0, 8)}: ${oldCount} → ${point.confirmedCount} подтверждений`);
+                    }
+                }
+            }
+        }
+
+        console.log(`✅ Обновлено ${updatedCount} точек из супер-модели`);
+        return updatedCount;
     }
 
     // 🔥 ОБНОВЛЕННЫЙ МЕТОД addPhotoToSession с поворотной инвариантностью
@@ -387,6 +492,9 @@ class SimpleFootprintManager {
                 if (addResult) {
                     // Обновляем подтверждения
                     this.updateConfirmationsFromVectorModel(session.currentFootprint, vectorModel);
+
+                    // 🔥 ДОБАВЛЕНО: Обновляем PointTracker из супер-модели
+                    this.updatePointTrackerFromSuperModel(userId, session.currentFootprint, vectorModel);
 
                     // Визуализация
                     if (this.config.enableMergeVisualization && vectorModel) {
