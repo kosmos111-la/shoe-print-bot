@@ -1,5 +1,5 @@
 // modules/footprint/simple-footprint.js
-// С МЕТОДАМИ ДЛЯ ВИЗУАЛИЗАЦИИ И ЧЕСТНЫМИ ПОДТВЕРЖДЕНИЯМИ
+// 🔥 ИСПРАВЛЕННАЯ ВЕРСИЯ: addAnalysisHonest теперь правильно строит граф
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -14,6 +14,7 @@ class SimpleFootprint {
         this.name = options.name || `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`;
         this.userId = options.userId || null;
 
+        // 🔥 ВАЖНО: Создаем новый граф при инициализации
         this.graph = options.graph || new SimpleGraph(this.name);
 
         this.hybridFootprint = options.hybridFootprint || null;
@@ -40,11 +41,11 @@ class SimpleFootprint {
             minClusterSize: 2,
             adaptiveDistance: true,
             baseDistanceThreshold: 25,
-            bonusForClusters: false, // 🔥 Отключаем бонусы для честности
+            bonusForClusters: false,
             directUpdateThreshold: 50,
             forceUpdateOnMerge: true,
-            honestConfirmations: true, // 🔥 Включаем честные подтверждения
-            maxConfirmationsPerPhoto: 1 // 🔥 1 фото = 1 подтверждение
+            honestConfirmations: true,
+            maxConfirmationsPerPhoto: 1
         });
 
         this.metadata = {
@@ -58,7 +59,7 @@ class SimpleFootprint {
                 hasGraph: true,
                 hasHybrid: this.hybridFootprint !== null,
                 hasPointTracker: true,
-                hasHonestConfirmations: true, // 🔥 НОВОЕ
+                hasHonestConfirmations: true,
                 hasMoments: this.hybridFootprint?.moments ? true : false,
                 hasBitmask: this.hybridFootprint?.bitmask ? true : false
             },
@@ -74,7 +75,7 @@ class SimpleFootprint {
             qualityScore: 0,
             hybridScore: 0,
             trackerScore: 0,
-            honestScore: 0 // 🔥 НОВОЕ: оценка честности
+            honestScore: 0
         };
 
         this.photoHistory = [];
@@ -86,17 +87,11 @@ class SimpleFootprint {
                    `с честными подтверждениями`);
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавление анализа с честными подтверждениями
-    addAnalysis(analysis, sourceInfo = {}) {
-        console.log(`📥 Добавляю анализ в отпечаток "${this.name}" с честными подтверждениями...`);
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Честное добавление анализа (ТЕПЕРЬ ПРАВИЛЬНО СТРОИТ ГРАФ)
+    addAnalysisHonest(analysis, sourceInfo = {}) {
+        console.log(`📥 Честное добавление анализа (1 фото = 1 подтверждение)`);
 
         const { predictions } = analysis;
-
-        if (!predictions || !Array.isArray(predictions)) {
-            console.log('⚠️ Нет предсказаний в анализе');
-            return { error: 'No predictions', added: 0 };
-        }
-
         const protectorPoints = this.extractProtectorPoints(predictions);
 
         if (protectorPoints.length < 3) {
@@ -106,18 +101,22 @@ class SimpleFootprint {
 
         console.log(`🔍 Найдено ${protectorPoints.length} протекторов`);
 
-        // 🔥 ЧЕСТНАЯ ОБРАБОТКА через PointTracker
+        // 🔥 ВАЖНО: Используем честный метод трекера
         const trackerResults = this.pointTracker.processNewPoints(protectorPoints, {
             ...sourceInfo,
             footprintId: this.id,
             analysisType: 'shoe_protector',
-            timestamp: new Date()
+            timestamp: new Date(),
+            photoId: sourceInfo.photoId || `photo_${Date.now()}`,
+            source: sourceInfo.source || 'direct_photo'
         });
 
-        console.log(`🎯 PointTracker (честно): ${trackerResults.added} новых, ` +
-                   `${trackerResults.updated} обновлено, фото: ${trackerResults.photoId?.substring(0, 8) || 'unknown'}`);
+        console.log(`🎯 PointTracker (честный): ${trackerResults.added} новых, ${trackerResults.updated} обновлено`);
 
-        // 🔥 ПЕРЕПИСАННАЯ ЛОГИКА: Получаем точки с честными подтверждениями
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Получаем точки из трекера и СТРОИМ ГРАФ
+        const previousNodeCount = this.graph.nodes.size;
+       
+        // Получаем ВСЕ точки из трекера для построения графа
         const trackedPoints = [];
         for (const [id, pt] of this.pointTracker.points) {
             trackedPoints.push({
@@ -131,36 +130,46 @@ class SimpleFootprint {
             });
         }
 
-        console.log(`📊 Собрано ${trackedPoints.length} точек из трекера`);
+        console.log(`📊 Собрано ${trackedPoints.length} точек из трекера для построения графа`);
 
-        const previousNodeCount = this.graph.nodes.size;
+        // 🔥 ВАЖНО: Если нет точек - создаем пустой результат
+        if (trackedPoints.length === 0) {
+            console.log(`⚠️ Нет точек для построения графа`);
+            return {
+                success: true,
+                added: 0,
+                updated: trackerResults.updated,
+                totalNodes: 0,
+                confidence: 0.5,
+                honestScore: 0.5
+            };
+        }
 
-        const graphNodes = trackedPoints.map((trackedPoint, index) => ({
+        // 🔥 ВАЖНО: Преобразуем точки трекера в формат для графа
+        const graphPoints = trackedPoints.map((trackedPoint, index) => ({
             id: `n_${trackedPoint.id}`,
             x: trackedPoint.x,
             y: trackedPoint.y,
             confidence: trackedPoint.rating,
             confirmedCount: trackedPoint.confirmedCount,
-            pointTrackerId: trackedPoint.id,
-            sources: [{
-                timestamp: new Date(),
-                source: sourceInfo,
-                trackerData: trackedPoint
-            }]
+            pointTrackerId: trackedPoint.id
         }));
 
-        // Построить граф из точек
-        const graphInvariants = this.graph.buildFromPoints(graphNodes.map(p => ({
+        // 🔥 ВАЖНО: Строим граф из точек
+        console.log(`🏗️  Строю граф из ${graphPoints.length} точек...`);
+        const graphInvariants = this.graph.buildFromPoints(graphPoints.map(p => ({
             x: p.x,
             y: p.y,
             confidence: p.confidence,
             id: p.id
         })));
 
-        // 🔥 ОБНОВЛЕННАЯ СВЯЗЬ С ЧЕСТНЫМИ ПОДТВЕРЖДЕНИЯМИ
-        const linkedCount = this.linkNodesWithTrackerHonest(graphNodes);
+        console.log(`✅ Построен граф: ${this.graph.nodes.size} узлов, ${this.graph.edges.size} рёбер`);
 
-        // Сохранить в историю
+        // Связываем узлы с трекером
+        const linkedCount = this.linkNodesWithTrackerHonest(graphPoints);
+
+        // Сохраняем в историю
         const analysisRecord = {
             id: `analysis_${Date.now()}`,
             timestamp: new Date(),
@@ -187,14 +196,14 @@ class SimpleFootprint {
             photoId: trackerResults.photoId
         });
 
-        // Обновить метаданные
+        // Обновляем метаданные
         this.metadata.totalPhotos++;
         this.metadata.lastUpdated = new Date();
 
-        // Обновить статистику
+        // Обновляем статистику
         this.updateStats(graphInvariants, null);
 
-        // 🔥 ОБНОВЛЕННАЯ СТАТИСТИКА С ЧЕСТНЫМИ ПОДТВЕРЖДЕНИЯМИ
+        // Получаем статистику трекера
         const trackerStats = this.pointTracker.getHonestStats();
         this.stats.trackerStats = trackerStats;
         this.stats.trackerScore = trackerStats.avgRating;
@@ -204,17 +213,16 @@ class SimpleFootprint {
         const trackerConfidence = trackerStats.avgRating;
         const honestConfidence = trackerStats.confirmationIntegrity || 0.5;
 
-        // Комбинированная уверенность с акцентом на честность
+        // Комбинированная уверенность
         this.stats.confidence = (graphConfidence * 0.3 +
                                 trackerConfidence * 0.4 +
                                 honestConfidence * 0.3);
 
         const addedNodes = this.graph.nodes.size - previousNodeCount;
 
-        console.log(`✅ Анализ добавлен (честно): +${addedNodes} узлов, ` +
-                   `подтверждений: ${trackerResults.updated}, ` +
-                   `уникальных фото: ${trackerStats.uniquePhotos || 1}, ` +
-                   `честность: ${honestConfidence.toFixed(3)}`);
+        console.log(`✅ Анализ добавлен (честно): +${addedNodes} узлов в граф, ` +
+                   `всего узлов: ${this.graph.nodes.size}, ` +
+                   `подтверждений: ${trackerResults.updated}`);
 
         return {
             success: true,
@@ -230,45 +238,65 @@ class SimpleFootprint {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Честное добавление анализа (для совместимости с manager)
-    addAnalysisHonest(analysis, sourceInfo = {}) {
-        console.log(`📥 Честное добавление анализа (1 фото = 1 подтверждение)`);
+    // 🔥 НОВЫЙ МЕТОД: Честное связывание узлов с трекером
+    linkNodesWithTrackerHonest(graphNodes) {
+        console.log(`🔗 Честное связывание: ${graphNodes.length} узлов`);
 
-        const { predictions } = analysis;
-        const protectorPoints = this.extractProtectorPoints(predictions);
-
-        if (protectorPoints.length < 3) {
-            console.log(`⚠️ Слишком мало протекторов: ${protectorPoints.length}`);
-            return { error: 'Not enough protectors', added: 0 };
+        const trackerMap = new Map();
+        for (const [trackerId, trackerPoint] of this.pointTracker.points) {
+            trackerMap.set(trackerId, trackerPoint);
         }
 
-        // 🔥 ВАЖНО: Используем честный метод трекера
-        const trackerResults = this.pointTracker.processNewPoints(protectorPoints, {
-            ...sourceInfo,
-            footprintId: this.id,
-            analysisType: 'shoe_protector',
-            timestamp: new Date(),
-            photoId: sourceInfo.photoId || `photo_${Date.now()}`,
-            source: sourceInfo.source || 'direct_photo'
+        let linkedCount = 0;
+        let trackerPointsUsed = new Set();
+
+        this.graph.nodes.forEach((node, nodeId) => {
+            const trackerIdMatch = nodeId.match(/n_(pt_\d+|pt_single_\d+|emergency_pt_\d+)/);
+            const trackerId = trackerIdMatch ? trackerIdMatch[1] : null;
+
+            if (trackerId && trackerMap.has(trackerId)) {
+                const trackerPoint = trackerMap.get(trackerId);
+
+                node.pointTrackerId = trackerId;
+                node.confirmedCount = trackerPoint.confirmedCount || 1;
+                node.confidence = trackerPoint.rating;
+                node.rating = trackerPoint.rating;
+                node.uniquePhotos = trackerPoint.confirmedPhotos ?
+                    trackerPoint.confirmedPhotos.size : 1;
+
+                if (!node.confirmedCount || node.confirmedCount < 1) {
+                    node.confirmedCount = 1;
+                }
+
+                trackerPointsUsed.add(trackerId);
+                linkedCount++;
+            } else {
+                const nearest = this.pointTracker.findNearestPoint({x: node.x, y: node.y}, 15);
+                if (nearest) {
+                    const trackerPoint = this.pointTracker.points.get(nearest.id);
+                    if (trackerPoint) {
+                        node.pointTrackerId = nearest.id;
+                        node.confirmedCount = trackerPoint.confirmedCount || 1;
+                        node.confidence = trackerPoint.rating;
+                        node.uniquePhotos = trackerPoint.confirmedPhotos ?
+                            trackerPoint.confirmedPhotos.size : 1;
+
+                        if (!node.confirmedCount || node.confirmedCount < 1) {
+                            node.confirmedCount = 1;
+                        }
+
+                        linkedCount++;
+                    }
+                } else {
+                    node.confirmedCount = 1;
+                    node.confidence = node.confidence || 0.5;
+                    node.uniquePhotos = 1;
+                }
+            }
         });
 
-        console.log(`🎯 PointTracker (честный): ${trackerResults.added} новых, ${trackerResults.updated} обновлено`);
-
-        // 🔥 УПРОЩЕННАЯ ОБРАБОТКА
-        const result = {
-            success: true,
-            added: trackerResults.added,
-            updated: trackerResults.updated,
-            trackerResults: trackerResults,
-            pointsCount: protectorPoints.length,
-            sourceInfo: sourceInfo
-        };
-
-        // Обновляем метаданные
-        this.metadata.totalPhotos++;
-        this.metadata.lastUpdated = new Date();
-
-        return result;
+        console.log(`🔗 Честно связано ${linkedCount} узлов`);
+        return linkedCount;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Получить честные данные для визуализации
@@ -283,9 +311,9 @@ class SimpleFootprint {
             clusters: [],
             confirmationsInfo: {
                 totalPoints: 0,
-                confirmed2: 0,  // 2+ подтверждения
-                confirmed1: 0,  // 1 подтверждение
-                confirmed0: 0   // 0 подтверждений
+                confirmed2: 0,
+                confirmed1: 0,
+                confirmed0: 0
             }
         };
 
@@ -294,7 +322,6 @@ class SimpleFootprint {
             for (const [id, point] of this.pointTracker.points) {
                 const confirmations = point.confirmedCount || 0;
 
-                // 🔥 ЧЕСТНЫЙ ПОДСЧЕТ
                 let confirmationLevel;
                 if (confirmations >= 2) {
                     confirmationLevel = 'confirmed2';
@@ -330,75 +357,253 @@ class SimpleFootprint {
         return data;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Честное связывание узлов с трекером
-    linkNodesWithTrackerHonest(graphNodes) {
-        console.log(`🔗 Честное связывание: ${graphNodes.length} узлов`);
+    // 🔥 СТАРЫЙ МЕТОД addAnalysis (для совместимости)
+    addAnalysis(analysis, sourceInfo = {}) {
+        console.log(`📥 Добавляю анализ в отпечаток "${this.name}"...`);
+        return this.addAnalysisHonest(analysis, sourceInfo);
+    }
 
-        const trackerMap = new Map();
-        for (const [trackerId, trackerPoint] of this.pointTracker.points) {
-            trackerMap.set(trackerId, trackerPoint);
+    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ (без изменений, но с честными подтверждениями)
+    extractProtectorPoints(predictions) {
+        const points = [];
+
+        const protectors = predictions.filter(p =>
+            p.class === 'shoe-protector' ||
+            (p.class && p.class.toLowerCase().includes('protector'))
+        );
+
+        if (protectors.length === 0 && predictions.length > 0) {
+            console.log('⚠️ Нет класса shoe-protector, использую все точки с confidence > 0.3');
+
+            predictions.forEach((pred, index) => {
+                if ((pred.confidence || 0) > 0.3 && pred.points && pred.points.length > 0) {
+                    const center = this.calculateCenter(pred.points);
+                    points.push({
+                        x: center.x,
+                        y: center.y,
+                        confidence: pred.confidence || 0.5,
+                        originalPoints: pred.points
+                    });
+                }
+            });
+        } else {
+            protectors.forEach(protector => {
+                if (protector.points && protector.points.length > 0) {
+                    const center = this.calculateCenter(protector.points);
+                    points.push({
+                        x: center.x,
+                        y: center.y,
+                        confidence: protector.confidence || 0.5,
+                        originalPoints: protector.points
+                    });
+                }
+            });
         }
 
-        let linkedCount = 0;
-        let trackerPointsUsed = new Set();
+        return points;
+    }
 
-        this.graph.nodes.forEach((node, nodeId) => {
-            const trackerIdMatch = nodeId.match(/n_(pt_\d+|pt_single_\d+|emergency_pt_\d+)/);
-            const trackerId = trackerIdMatch ? trackerIdMatch[1] : null;
+    calculateCenter(points) {
+        if (!points || points.length === 0) {
+            return { x: 0, y: 0 };
+        }
 
-            if (trackerId && trackerMap.has(trackerId)) {
-                const trackerPoint = trackerMap.get(trackerId);
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
 
-                node.pointTrackerId = trackerId;
-                node.confirmedCount = trackerPoint.confirmedCount || 1;
-                node.confidence = trackerPoint.rating;
-                node.rating = trackerPoint.rating;
-                node.uniquePhotos = trackerPoint.confirmedPhotos ?
-                    trackerPoint.confirmedPhotos.size : 1;
+        return {
+            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+            y: (Math.min(...ys) + Math.max(...ys)) / 2
+        };
+    }
 
-                if (!node.confirmedCount || node.confirmedCount < 1) {
-                    node.confirmedCount = 1;
-                }
+    updateStats(graphInvariants, hybridResult = null) {
+        this.stats.nodeCount = graphInvariants.nodeCount;
+        this.stats.edgeCount = graphInvariants.edgeCount;
+        this.stats.graphDiameter = graphInvariants.graphDiameter;
+        this.stats.clusteringCoefficient = graphInvariants.clusteringCoefficient;
 
-                trackerPointsUsed.add(trackerId);
-                linkedCount++;
+        const nodeScore = Math.min(1, graphInvariants.nodeCount / 20);
+        const edgeScore = graphInvariants.edgeCount > 0 ?
+            Math.min(1, graphInvariants.edgeCount / graphInvariants.nodeCount / 2) : 0;
+        const clusteringScore = graphInvariants.clusteringCoefficient;
 
-                if (trackerPoint.confirmedCount > 1) {
-                    console.log(`🔗 Честная связь: ${nodeId} -> ${trackerId}, ` +
-                               `подтверждений: ${trackerPoint.confirmedCount}, ` +
-                               `уникальных фото: ${node.uniquePhotos}`);
-                }
-            } else {
-                const nearest = this.pointTracker.findNearestPoint({x: node.x, y: node.y}, 15);
-                if (nearest) {
-                    const trackerPoint = this.pointTracker.points.get(nearest.id);
-                    if (trackerPoint) {
-                        node.pointTrackerId = nearest.id;
-                        node.confirmedCount = trackerPoint.confirmedCount || 1;
-                        node.confidence = trackerPoint.rating;
-                        node.uniquePhotos = trackerPoint.confirmedPhotos ?
-                            trackerPoint.confirmedPhotos.size : 1;
+        const graphConfidence = (nodeScore * 0.4 + edgeScore * 0.3 + clusteringScore * 0.3);
 
-                        if (!node.confirmedCount || node.confirmedCount < 1) {
-                            node.confirmedCount = 1;
-                        }
+        let trackerScore = 0;
+        if (this.pointTracker) {
+            const trackerStats = this.pointTracker.getHonestStats();
+            trackerScore = trackerStats.avgRating;
+            this.stats.trackerScore = trackerScore;
+            this.stats.trackerStats = trackerStats;
+        }
 
-                        linkedCount++;
-                        console.log(`🔗 Связь по координатам: ${nodeId} -> ${nearest.id}, ` +
-                                   `подтверждений: ${node.confirmedCount}`);
-                    }
-                } else {
-                    node.confirmedCount = 1;
-                    node.confidence = node.confidence || 0.5;
-                    node.uniquePhotos = 1;
-                }
+        let hybridScore = 0;
+        if (this.hybridFootprint) {
+            if (typeof this.hybridFootprint.calculateConfidence === 'function') {
+                hybridScore = this.hybridFootprint.calculateConfidence();
+            } else if (this.hybridFootprint.stats?.confidence) {
+                hybridScore = this.hybridFootprint.stats.confidence;
+            } else if (this.hybridFootprint.getConfidence && typeof this.hybridFootprint.getConfidence === 'function') {
+                hybridScore = this.hybridFootprint.getConfidence();
             }
-        });
+        }
 
-        console.log(`🔗 Честно связано ${linkedCount} узлов, ` +
-                   `использовано ${trackerPointsUsed.size} точек трекера`);
+        let combinedConfidence = graphConfidence;
+        let weights = 1;
 
-        return linkedCount;
+        if (trackerScore > 0) {
+            combinedConfidence += trackerScore;
+            weights++;
+        }
+
+        if (hybridScore > 0) {
+            combinedConfidence += hybridScore;
+            weights++;
+            this.stats.hybridScore = hybridScore;
+        }
+
+        this.stats.confidence = combinedConfidence / weights;
+        this.stats.qualityScore = this.stats.confidence * Math.min(1, this.metadata.totalPhotos / 3);
+
+        if (graphInvariants.nodeCount > 30 && !this.metadata.estimatedSize) {
+            this.metadata.estimatedSize = Math.round(35 + (graphInvariants.nodeCount - 30) / 3);
+        }
+    }
+
+    compare(otherFootprint) {
+        console.log(`🔍 Сравниваю "${this.name}" с "${otherFootprint.name}"...`);
+
+        if (!otherFootprint || !otherFootprint.graph) {
+            return { error: 'Invalid footprint to compare' };
+        }
+
+        if (this.hybridFootprint && otherFootprint.hybridFootprint) {
+            console.log('🎯 Использую гибридное сравнение...');
+            return this.compareHybrid(otherFootprint);
+        }
+
+        return this.compareGraphBased(otherFootprint);
+    }
+
+    compareHybrid(otherFootprint) {
+        const hybridComparison = this.hybridFootprint.compare(otherFootprint.hybridFootprint);
+        const graphComparison = this.compareGraphBased(otherFootprint);
+
+        const hybridWeight = 0.7;
+        const graphWeight = 0.3;
+
+        const combinedSimilarity = hybridComparison.similarity * hybridWeight +
+                                  graphComparison.similarity * graphWeight;
+
+        let decision, reason;
+
+        if (combinedSimilarity > 0.75) {
+            decision = 'same';
+            reason = `Высокая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
+                    `граф: ${graphComparison.similarity.toFixed(3)})`;
+        } else if (combinedSimilarity > 0.5) {
+            decision = 'similar';
+            reason = `Умеренная схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
+                    `граф: ${graphComparison.similarity.toFixed(3)})`;
+        } else {
+            decision = 'different';
+            reason = `Низкая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
+                    `граф: ${graphComparison.similarity.toFixed(3)})`;
+        }
+
+        return {
+            similarity: Math.round(combinedSimilarity * 100) / 100,
+            decision: decision,
+            reason: reason,
+            method: 'hybrid',
+            comparisons: {
+                hybrid: hybridComparison,
+                graph: graphComparison
+            },
+            confidence: hybridComparison.confidence || 0.5
+        };
+    }
+
+    compareGraphBased(otherFootprint) {
+        const invariants1 = this.graph.getBasicInvariants();
+        const invariants2 = otherFootprint.graph.getBasicInvariants();
+
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Проверяем что графы не пустые
+        if (invariants1.nodeCount === 0 || invariants2.nodeCount === 0) {
+            console.log(`⚠️ Один из графов пустой: ${invariants1.nodeCount} vs ${invariants2.nodeCount}`);
+            return {
+                similarity: 0,
+                decision: 'different',
+                reason: `Один из графов пустой: ${invariants1.nodeCount} vs ${invariants2.nodeCount}`
+            };
+        }
+
+        const nodeRatio = Math.min(invariants1.nodeCount, invariants2.nodeCount) /
+                        Math.max(invariants1.nodeCount, invariants2.nodeCount);
+
+        if (nodeRatio < 0.7) {
+            console.log(`⚠️ Слишком разное количество узлов: ${nodeRatio.toFixed(2)}`);
+            return {
+                similarity: nodeRatio,
+                decision: 'different',
+                reason: `Разное количество узлов: ${invariants1.nodeCount} vs ${invariants2.nodeCount}`
+            };
+        }
+
+        const comparisons = [];
+
+        const edgeRatio = Math.min(invariants1.edgeCount, invariants2.edgeCount) /
+                        Math.max(invariants1.edgeCount, invariants2.edgeCount);
+        comparisons.push({ name: 'edgeCount', score: edgeRatio });
+
+        const degreeDiff = Math.abs(invariants1.avgDegree - invariants2.avgDegree);
+        const degreeScore = 1 - Math.min(1, degreeDiff / 3);
+        comparisons.push({ name: 'avgDegree', score: degreeScore });
+
+        const clusteringDiff = Math.abs(invariants1.clusteringCoefficient - invariants2.clusteringCoefficient);
+        const clusteringScore = 1 - Math.min(1, clusteringDiff / 0.3);
+        comparisons.push({ name: 'clustering', score: clusteringScore });
+
+        const densityDiff = Math.abs(invariants1.density - invariants2.density);
+        const densityScore = 1 - Math.min(1, densityDiff / 0.1);
+        comparisons.push({ name: 'density', score: densityScore });
+
+        const totalScore = comparisons.reduce((sum, comp) => sum + comp.score, 0) / comparisons.length;
+        const similarity = Math.round(totalScore * 100) / 100;
+
+        let decision, reason;
+        if (similarity > 0.7) {
+            decision = 'same';
+            reason = `Высокая схожесть (${similarity}) - вероятно, та же обувь`;
+        } else if (similarity > 0.4) {
+            decision = 'similar';
+            reason = `Умеренная схожесть (${similarity}) - похожий тип протектора`;
+        } else {
+            decision = 'different';
+            reason = `Низкая схожесть (${similarity}) - разные следы`;
+        }
+
+        console.log(`📊 Результат сравнения: ${similarity} (${decision})`);
+
+        return {
+            similarity: similarity,
+            decision: decision,
+            reason: reason,
+            comparisons: comparisons,
+            invariants1: {
+                nodeCount: invariants1.nodeCount,
+                edgeCount: invariants1.edgeCount,
+                avgDegree: invariants1.avgDegree.toFixed(2),
+                clustering: invariants1.clusteringCoefficient.toFixed(3)
+            },
+            invariants2: {
+                nodeCount: invariants2.nodeCount,
+                edgeCount: invariants2.edgeCount,
+                avgDegree: invariants2.avgDegree.toFixed(2),
+                clustering: invariants2.clusteringCoefficient.toFixed(3)
+            }
+        };
     }
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение с визуализацией
@@ -959,244 +1164,11 @@ class SimpleFootprint {
                 uniquePhotos: trackerStats.uniquePhotos || 0,
                 confirmationIntegrity: trackerStats.confirmationIntegrity || 0,
                 hasHonestConfirmations: true,
-                validation: this.validateConfirminations().overallValid
+                validation: this.validateConfirmations().overallValid
             };
         }
 
         return info;
-    }
-
-    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ (без изменений, но с честными подтверждениями)
-    extractProtectorPoints(predictions) {
-        const points = [];
-
-        const protectors = predictions.filter(p =>
-            p.class === 'shoe-protector' ||
-            (p.class && p.class.toLowerCase().includes('protector'))
-        );
-
-        if (protectors.length === 0 && predictions.length > 0) {
-            console.log('⚠️ Нет класса shoe-protector, использую все точки с confidence > 0.3');
-
-            predictions.forEach((pred, index) => {
-                if ((pred.confidence || 0) > 0.3 && pred.points && pred.points.length > 0) {
-                    const center = this.calculateCenter(pred.points);
-                    points.push({
-                        x: center.x,
-                        y: center.y,
-                        confidence: pred.confidence || 0.5,
-                        originalPoints: pred.points
-                    });
-                }
-            });
-        } else {
-            protectors.forEach(protector => {
-                if (protector.points && protector.points.length > 0) {
-                    const center = this.calculateCenter(protector.points);
-                    points.push({
-                        x: center.x,
-                        y: center.y,
-                        confidence: protector.confidence || 0.5,
-                        originalPoints: protector.points
-                    });
-                }
-            });
-        }
-
-        return points;
-    }
-
-    calculateCenter(points) {
-        if (!points || points.length === 0) {
-            return { x: 0, y: 0 };
-        }
-
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-
-        return {
-            x: (Math.min(...xs) + Math.max(...xs)) / 2,
-            y: (Math.min(...ys) + Math.max(...ys)) / 2
-        };
-    }
-
-    updateStats(graphInvariants, hybridResult = null) {
-        this.stats.nodeCount = graphInvariants.nodeCount;
-        this.stats.edgeCount = graphInvariants.edgeCount;
-        this.stats.graphDiameter = graphInvariants.graphDiameter;
-        this.stats.clusteringCoefficient = graphInvariants.clusteringCoefficient;
-
-        const nodeScore = Math.min(1, graphInvariants.nodeCount / 20);
-        const edgeScore = graphInvariants.edgeCount > 0 ?
-            Math.min(1, graphInvariants.edgeCount / graphInvariants.nodeCount / 2) : 0;
-        const clusteringScore = graphInvariants.clusteringCoefficient;
-
-        const graphConfidence = (nodeScore * 0.4 + edgeScore * 0.3 + clusteringScore * 0.3);
-
-        let trackerScore = 0;
-        if (this.pointTracker) {
-            const trackerStats = this.pointTracker.getHonestStats();
-            trackerScore = trackerStats.avgRating;
-            this.stats.trackerScore = trackerScore;
-            this.stats.trackerStats = trackerStats;
-        }
-
-        let hybridScore = 0;
-        if (this.hybridFootprint) {
-            if (typeof this.hybridFootprint.calculateConfidence === 'function') {
-                hybridScore = this.hybridFootprint.calculateConfidence();
-            } else if (this.hybridFootprint.stats?.confidence) {
-                hybridScore = this.hybridFootprint.stats.confidence;
-            } else if (this.hybridFootprint.getConfidence && typeof this.hybridFootprint.getConfidence === 'function') {
-                hybridScore = this.hybridFootprint.getConfidence();
-            }
-        }
-
-        let combinedConfidence = graphConfidence;
-        let weights = 1;
-
-        if (trackerScore > 0) {
-            combinedConfidence += trackerScore;
-            weights++;
-        }
-
-        if (hybridScore > 0) {
-            combinedConfidence += hybridScore;
-            weights++;
-            this.stats.hybridScore = hybridScore;
-        }
-
-        this.stats.confidence = combinedConfidence / weights;
-        this.stats.qualityScore = this.stats.confidence * Math.min(1, this.metadata.totalPhotos / 3);
-
-        if (graphInvariants.nodeCount > 30 && !this.metadata.estimatedSize) {
-            this.metadata.estimatedSize = Math.round(35 + (graphInvariants.nodeCount - 30) / 3);
-        }
-    }
-
-    compare(otherFootprint) {
-        console.log(`🔍 Сравниваю "${this.name}" с "${otherFootprint.name}"...`);
-
-        if (!otherFootprint || !otherFootprint.graph) {
-            return { error: 'Invalid footprint to compare' };
-        }
-
-        if (this.hybridFootprint && otherFootprint.hybridFootprint) {
-            console.log('🎯 Использую гибридное сравнение...');
-            return this.compareHybrid(otherFootprint);
-        }
-
-        return this.compareGraphBased(otherFootprint);
-    }
-
-    compareHybrid(otherFootprint) {
-        const hybridComparison = this.hybridFootprint.compare(otherFootprint.hybridFootprint);
-        const graphComparison = this.compareGraphBased(otherFootprint);
-
-        const hybridWeight = 0.7;
-        const graphWeight = 0.3;
-
-        const combinedSimilarity = hybridComparison.similarity * hybridWeight +
-                                  graphComparison.similarity * graphWeight;
-
-        let decision, reason;
-
-        if (combinedSimilarity > 0.75) {
-            decision = 'same';
-            reason = `Высокая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
-                    `граф: ${graphComparison.similarity.toFixed(3)})`;
-        } else if (combinedSimilarity > 0.5) {
-            decision = 'similar';
-            reason = `Умеренная схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
-                    `граф: ${graphComparison.similarity.toFixed(3)})`;
-        } else {
-            decision = 'different';
-            reason = `Низкая схожесть (гибридный: ${hybridComparison.similarity.toFixed(3)}, ` +
-                    `граф: ${graphComparison.similarity.toFixed(3)})`;
-        }
-
-        return {
-            similarity: Math.round(combinedSimilarity * 100) / 100,
-            decision: decision,
-            reason: reason,
-            method: 'hybrid',
-            comparisons: {
-                hybrid: hybridComparison,
-                graph: graphComparison
-            },
-            confidence: hybridComparison.confidence || 0.5
-        };
-    }
-
-    compareGraphBased(otherFootprint) {
-        const invariants1 = this.graph.getBasicInvariants();
-        const invariants2 = otherFootprint.graph.getBasicInvariants();
-
-        const nodeRatio = Math.min(invariants1.nodeCount, invariants2.nodeCount) /
-                        Math.max(invariants1.nodeCount, invariants2.nodeCount);
-
-        if (nodeRatio < 0.7) {
-            console.log(`⚠️ Слишком разное количество узлов: ${nodeRatio.toFixed(2)}`);
-            return {
-                similarity: nodeRatio,
-                decision: 'different',
-                reason: `Разное количество узлов: ${invariants1.nodeCount} vs ${invariants2.nodeCount}`
-            };
-        }
-
-        const comparisons = [];
-
-        const edgeRatio = Math.min(invariants1.edgeCount, invariants2.edgeCount) /
-                        Math.max(invariants1.edgeCount, invariants2.edgeCount);
-        comparisons.push({ name: 'edgeCount', score: edgeRatio });
-
-        const degreeDiff = Math.abs(invariants1.avgDegree - invariants2.avgDegree);
-        const degreeScore = 1 - Math.min(1, degreeDiff / 3);
-        comparisons.push({ name: 'avgDegree', score: degreeScore });
-
-        const clusteringDiff = Math.abs(invariants1.clusteringCoefficient - invariants2.clusteringCoefficient);
-        const clusteringScore = 1 - Math.min(1, clusteringDiff / 0.3);
-        comparisons.push({ name: 'clustering', score: clusteringScore });
-
-        const densityDiff = Math.abs(invariants1.density - invariants2.density);
-        const densityScore = 1 - Math.min(1, densityDiff / 0.1);
-        comparisons.push({ name: 'density', score: densityScore });
-
-        const totalScore = comparisons.reduce((sum, comp) => sum + comp.score, 0) / comparisons.length;
-        const similarity = Math.round(totalScore * 100) / 100;
-
-        let decision, reason;
-        if (similarity > 0.7) {
-            decision = 'same';
-            reason = `Высокая схожесть (${similarity}) - вероятно, та же обувь`;
-        } else if (similarity > 0.4) {
-            decision = 'similar';
-            reason = `Умеренная схожесть (${similarity}) - похожий тип протектора`;
-        } else {
-            decision = 'different';
-            reason = `Низкая схожесть (${similarity}) - разные следы`;
-        }
-
-        console.log(`📊 Результат сравнения: ${similarity} (${decision})`);
-
-        return {
-            similarity: similarity,
-            decision: decision,
-            reason: reason,
-            comparisons: comparisons,
-            invariants1: {
-                nodeCount: invariants1.nodeCount,
-                edgeCount: invariants1.edgeCount,
-                avgDegree: invariants1.avgDegree.toFixed(2),
-                clustering: invariants1.clusteringCoefficient.toFixed(3)
-            },
-            invariants2: {
-                nodeCount: invariants2.nodeCount,
-                edgeCount: invariants2.edgeCount,
-                avgDegree: invariants2.avgDegree.toFixed(2),
-                clustering: invariants2.clusteringCoefficient.toFixed(3)
-            }
-        };
     }
 
     toJSON() {
