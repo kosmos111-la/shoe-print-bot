@@ -2341,7 +2341,7 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
             }
 
             // ВСЕГДА вызываем addPhotoToSession
-            const addResult = await footprintManager.addPhotoToSession(
+            const result = await footprintManager.addPhotoToSession(
                 userId,
                 { predictions: shoeProtectors },
                 {
@@ -2359,12 +2359,19 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
             );
 
             console.log('📊 Результат addPhotoToSession:', {
-                success: addResult.success,
-                nodesAdded: addResult.nodesAdded,
-                hasMergeVisualization: !!addResult.mergeVisualization,
-                mergeMethod: addResult.mergeMethod,
-                similarity: addResult.alignment?.similarity
+                success: result.success,
+                nodesAdded: result.nodesAdded,
+                hasMergeVisualization: !!result.mergeVisualization,
+                mergeMethod: result.mergeMethod,
+                similarity: result.similarity, // ✅ Теперь должно быть
+                decision: result.decision      // ✅ Теперь должно быть
             });
+
+            // 🔥 ГАРАНТИРОВАТЬ similarity для дальнейшей обработки
+            const similarity = result.similarity || 0;
+            const decision = result.decision || 'unknown';
+
+            console.log(`🎯 Результат обработки: similarity=${similarity}, decision=${decision}`);
 
             usedSimpleFootprint = true;
 
@@ -2372,19 +2379,18 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
             let stats = { confirmedNodes: 0, totalNodes: 0, averageConfirmations: 0 };
 
             // 🔥 ИСПРАВЛЕНИЕ: После объединения следов показываем правильную статистику
-            const similarity = addResult.alignment?.similarity || addResult.similarity;
-            if (addResult.success && similarity > 0.7) {
+            if (result.success && similarity > 0.7) {
                 console.log(`🎯 Следы совпали (${similarity}), обновляю статистику подтверждений...`);
 
                 // Получаем актуальную сессию (может обновиться после addPhotoToSession)
                 const currentSession = footprintManager.getActiveSession(userId);
-               
+
                 if (currentSession && currentSession.currentFootprint) {
                     try {
                         const newStats = currentSession.currentFootprint.getConfirmationStats ?
                             currentSession.currentFootprint.getConfirmationStats() :
                             { confirmedNodes: 0, totalNodes: 0, averageConfirmations: 0 };
-                       
+
                         stats = newStats;
                         console.log(`📊 Получена статистика: ${stats.totalNodes} узлов, ${stats.confirmedNodes} подтвержденных`);
                     } catch (statsError) {
@@ -2395,36 +2401,36 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
                 // Если есть визуализация объединения, добавить в caption
                 let visualizationPath = null;
 
-// Проверяем разные форматы mergeVisualization
-if (addResult.mergeVisualization) {
-    if (typeof addResult.mergeVisualization === 'string') {
-        visualizationPath = addResult.mergeVisualization;
-    } else if (addResult.mergeVisualization.path) {
-        visualizationPath = addResult.mergeVisualization.path;
-    } else if (addResult.mergeVisualization.mergeVisualization) {
-        visualizationPath = addResult.mergeVisualization.mergeVisualization;
-    }
-}
+                // Проверяем разные форматы mergeVisualization
+                if (result.mergeVisualization) {
+                    if (typeof result.mergeVisualization === 'string') {
+                        visualizationPath = result.mergeVisualization;
+                    } else if (result.mergeVisualization.path) {
+                        visualizationPath = result.mergeVisualization.path;
+                    } else if (result.mergeVisualization.mergeVisualization) {
+                        visualizationPath = result.mergeVisualization.mergeVisualization;
+                    }
+                }
 
-if (visualizationPath && fs.existsSync(visualizationPath)) {
-    console.log(`📤 Найдена визуализация по пути: ${visualizationPath}`);
-    setTimeout(async () => {
-        try {
-            const caption = `🎭 **ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ С ПОДТВЕРЖДЕНИЯМИ**\n\n` +
-                          `📊 Всего узлов: ${stats.totalNodes || 0}\n` +
-                          `✅ Подтвержденных узлов: ${stats.confirmedNodes || 0}\n` +
-                          `📈 Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n\n` +
-                          `🎨 **ЦВЕТА УЗЛОВ:**\n` +
-                          `⚫ Чёрный - 1 подтверждение\n` +
-                          `🟠 Оранжевый - 2 подтверждения\n` +
-                          `🟡 Жёлтый - 3 подтверждения\n` +
-                          `🔴 Красный - 4+ подтверждений\n\n` +
-                          `⭕ **Круги:** узлы из последнего следа\n` +
-                          `🔢 **Цифры:** количество подтверждений\n\n` +
-                          `💪 **Чем больше красных точек - тем надёжнее модель!**`;
-           
-            console.log(`📤 Отправляю визуализацию: ${visualizationPath}`);
-            await bot.sendPhoto(chatId, visualizationPath, { caption });
+                if (visualizationPath && fs.existsSync(visualizationPath)) {
+                    console.log(`📤 Найдена визуализация по пути: ${visualizationPath}`);
+                    setTimeout(async () => {
+                        try {
+                            const caption = `🎭 **ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ С ПОДТВЕРЖДЕНИЯМИ**\n\n` +
+                                          `📊 Всего узлов: ${stats.totalNodes || 0}\n` +
+                                          `✅ Подтвержденных узлов: ${stats.confirmedNodes || 0}\n` +
+                                          `📈 Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n\n` +
+                                          `🎨 **ЦВЕТА УЗЛОВ:**\n` +
+                                          `⚫ Чёрный - 1 подтверждение\n` +
+                                          `🟠 Оранжевый - 2 подтверждения\n` +
+                                          `🟡 Жёлтый - 3 подтверждения\n` +
+                                          `🔴 Красный - 4+ подтверждений\n\n` +
+                                          `⭕ **Круги:** узлы из последнего следа\n` +
+                                          `🔢 **Цифры:** количество подтверждений\n\n` +
+                                          `💪 **Чем больше красных точек - тем надёжнее модель!**`;
+
+                            console.log(`📤 Отправляю визуализацию: ${visualizationPath}`);
+                            await bot.sendPhoto(chatId, visualizationPath, { caption });
 
                             // 🔥 ДОПОЛНИТЕЛЬНОЕ СООБЩЕНИЕ С ДЕТАЛЬНОЙ СТАТИСТИКОЙ
                             setTimeout(async () => {
@@ -2481,13 +2487,13 @@ if (visualizationPath && fs.existsSync(visualizationPath)) {
                 localPhotoPath: tempImagePath,
                 hasSimpleFootprintData: true,
                 sessionId: session.id,
-                nodesCount: addResult.totalNodes || 0,
-                hasMergeVisualization: !!addResult.mergeVisualization,
-                mergeVisualizationPath: addResult.mergeVisualization,
-                alignmentResult: addResult.alignment,
+                nodesCount: result.totalNodes || 0,
+                hasMergeVisualization: !!result.mergeVisualization,
+                mergeVisualizationPath: result.mergeVisualization,
+                alignmentResult: result.alignment,
                 // ✅ Теперь stats всегда определена
                 confirmationStats: stats,
-                trackerUpdate: addResult.trackerUpdate
+                trackerUpdate: result.trackerUpdate
             });
 
             console.log('✅ SimpleFootprintManager успешно обработал фото');
