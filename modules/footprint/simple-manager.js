@@ -109,6 +109,46 @@ class SimpleFootprintManager {
         console.log(`   🔄 Поворотная инвариантность: ВКЛ`);
     }
 
+    // 🔥 НОВЫЙ МЕТОД: Создание кластерной визуализации сравнения
+    async createClusterComparisonVisualization(footprint1, footprint2, comparisonResult, userId) {
+        console.log('🎨 Создаю кластерную визуализацию сравнения...');
+
+        try {
+            // Проверяем доступность ClusterVisualizer
+            let ClusterVisualizer;
+            try {
+                ClusterVisualizer = require('./visualizations/cluster-visualizer');
+            } catch (error) {
+                console.log('⚠️ ClusterVisualizer не найден:', error.message);
+                return null;
+            }
+
+            // Создаем визуализатор
+            const visualizer = new ClusterVisualizer({
+                outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
+                debug: this.config.debug,
+                forceTextMode: false // Пусть сам определяет наличие canvas
+            });
+
+            // Создаем визуализацию
+            const vizResult = await visualizer.visualizeTwoFootprintComparison(
+                footprint1,
+                footprint2,
+                {
+                    filename: `cluster_comparison_${userId}_${Date.now()}.png`,
+                    mode: 'simple'
+                }
+            );
+
+            console.log('✅ Кластерная визуализация создана:', vizResult?.path);
+            return vizResult;
+
+        } catch (error) {
+            console.log('❌ Ошибка создания кластерной визуализации:', error.message);
+            return null;
+        }
+    }
+
     // 🔥 ОБНОВЛЕННЫЙ МЕТОД addPhotoToSession с поворотной инвариантностью
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО С ПОВОРОТНОЙ ИНВАРИАНТНОСТЬЮ`);
@@ -228,7 +268,7 @@ class SimpleFootprintManager {
                 userId: userId,
                 name: `Temp_${Date.now()}`
             });
-           
+
             // 🔥 ИСПРАВЛЕНИЕ: Используем addAnalysisHonest вместо addAnalysis для временного отпечатка
             const tempResult = tempFootprint.addAnalysisHonest(analysis, {
                 ...photoInfo,
@@ -298,6 +338,17 @@ class SimpleFootprintManager {
             if (finalSimilarity > 0.6 && finalDecision === 'same') {
                 // СЛЕДЫ СОВПАДАЮТ
                 console.log(`✅ Следы совпали (${finalSimilarity.toFixed(3)})`);
+
+                // 🔥 ДОБАВЛЯЕМ: Кластерную визуализацию сравнения
+                let clusterVizResult = null;
+                if (this.config.enableMergeVisualization) {
+                    clusterVizResult = await this.createClusterComparisonVisualization(
+                        session.currentFootprint,
+                        tempFootprint,
+                        alignmentResult,
+                        userId
+                    );
+                }
 
                 // Получаем векторную модель
                 let vectorModel = this.vectorSuperModels.get(userId);
@@ -377,6 +428,44 @@ class SimpleFootprintManager {
                         }
                     }
 
+                    // 🔥 ОТПРАВЛЯЕМ КЛАСТЕРНУЮ ВИЗУАЛИЗАЦИЮ В TELEGRAM
+                    if (bot && chatId && clusterVizResult && clusterVizResult.path) {
+                        try {
+                            // Проверяем что файл существует
+                            if (fs.existsSync(clusterVizResult.path)) {
+                                // Получаем честную статистику
+                                const honestStats1 = session.currentFootprint.getHonestVisualizationData ?
+                                    session.currentFootprint.getHonestVisualizationData() : null;
+                                const honestStats2 = tempFootprint.getHonestVisualizationData ?
+                                    tempFootprint.getHonestVisualizationData() : null;
+
+                                let caption = `🎯 **СРАВНЕНИЕ СЛЕДОВ**\n\n`;
+                                caption += `📊 Схожесть: ${(finalSimilarity * 100).toFixed(1)}%\n`;
+
+                                if (honestStats1 && honestStats2) {
+                                    caption += `\n📈 **ЧЕСТНЫЕ ПОДТВЕРЖДЕНИЯ:**\n`;
+                                    caption += `• След 1: ${honestStats1.confirmationsInfo.confirmed2}🔴 ${honestStats1.confirmationsInfo.confirmed1}🔵\n`;
+                                    caption += `• След 2: ${honestStats2.confirmationsInfo.confirmed2}🔴 ${honestStats2.confirmationsInfo.confirmed1}🔵\n`;
+                                }
+
+                                caption += `\n🎨 **ЛЕГЕНДА:**\n`;
+                                caption += `• 🔴 Красный: есть в обоих фото (2 подтверждения)\n`;
+                                caption += `• 🔵 Синий: есть в одном фото (1 подтверждение)\n`;
+                                caption += `• ⚪ Серый: ожидается (0 подтверждений)\n`;
+                                caption += `• Размер точки = уверенность детекции\n`;
+
+                                await bot.sendPhoto(chatId, clusterVizResult.path, {
+                                    caption: caption,
+                                    parse_mode: 'Markdown'
+                                });
+
+                                console.log('✅ Кластерная визуализация отправлена в Telegram');
+                            }
+                        } catch (sendError) {
+                            console.log('❌ Ошибка отправки кластерной визуализации:', sendError.message);
+                        }
+                    }
+
                     // 🔥 ИСПРАВЛЕННЫЙ ВОЗВРАЩАЕМЫЙ ОБЪЕКТ с similarity и decision
                     const result = {
                         success: true,
@@ -387,6 +476,7 @@ class SimpleFootprintManager {
                         mergeMethod: 'template_based',
                         templateStats: vectorModel ? vectorModel.getTemplateStats() : null,
                         visualization: vectorVizPath,
+                        clusterVisualization: clusterVizResult,
                         message: `✅ След добавлен к шаблону! Сходство: ${(finalSimilarity * 100).toFixed(1)}%`,
                         rotationInfo: {
                             angle: normalized.rotationAngle,
