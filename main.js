@@ -1647,6 +1647,60 @@ bot.onText(/\/test/, async (msg) => {
     }
 });
 
+bot.onText(/\/check_honest/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+   
+    try {
+        const session = footprintManager.getActiveSession(userId);
+        if (session && session.currentFootprint) {
+            const footprint = session.currentFootprint;
+
+            let message = `🎯 **ЧЕСТНЫЕ ДАННЫЕ ОТПЕЧАТКА**\n\n`;
+            message += `• Имя: ${footprint.name}\n`;
+            message += `• Узлов: ${footprint.graph.nodes.size}\n`;
+            message += `• Фото: ${footprint.metadata.totalPhotos}\n\n`;
+
+            if (footprint.pointTracker) {
+                const tracker = footprint.pointTracker;
+
+                // Считаем подтверждения
+                let confirmed2 = 0, confirmed1 = 0, confirmed0 = 0;
+                for (const [id, point] of tracker.points) {
+                    const count = point.confirmedCount || 0;
+                    if (count >= 2) confirmed2++;
+                    else if (count >= 1) confirmed1++;
+                    else confirmed0++;
+                }
+
+                message += `📊 **POINT TRACKER:**\n`;
+                message += `• Всего точек: ${tracker.points.size}\n`;
+                message += `• 🔴 2+ подтверждений: ${confirmed2}\n`;
+                message += `• 🔵 1 подтверждение: ${confirmed1}\n`;
+                message += `• ⚪ 0 подтверждений: ${confirmed0}\n\n`;
+
+                message += `🎨 **ЦВЕТА ВИЗУАЛИЗАЦИИ:**\n`;
+                message += `• 🔴 Красный: точка есть в 2+ фото\n`;
+                message += `• 🔵 Синий: точка есть в 1 фото\n`;
+                message += `• ⚪ Серый: предсказанная точка\n`;
+
+                // Добавляем прогресс
+                if (confirmed2 > 0) {
+                    const progress = Math.min(100, (confirmed2 / tracker.points.size) * 100);
+                    message += `\n📈 **ПРОГРЕСС:** ${progress.toFixed(1)}% точек подтверждены 2+ фото`;
+                }
+            }
+
+            await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        } else {
+            await bot.sendMessage(chatId, '❌ Нет активной сессии или отпечатка');
+        }
+    } catch (error) {
+        console.log('❌ Ошибка /check_honest:', error);
+        await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+    }
+});
+
 // =============================================================================
 // 🆕 СЕССИОННЫЕ КОМАНДЫ
 // =============================================================================
