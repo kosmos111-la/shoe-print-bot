@@ -1,7 +1,7 @@
 // modules/footprint/simple-matcher.js
 // УМНЫЙ СРАВНИТЕЛЬ ГРАФОВ С ИНВАРИАНТНОСТЬЮ (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 
-class SimpleGraphMatcher {
+class SimpleMatcher {
     constructor(options = {}) {
         this.config = {
             // 🔥 ФИКСИРОВАННЫЕ ПОРОГИ согласно инструкции
@@ -32,7 +32,7 @@ class SimpleGraphMatcher {
 
         // 🔥 ИСПРАВЛЕНИЕ: ВКЛЮЧАЕМ RotationInvariance БЕЗ РЕКУРСИИ
         this.rotationProcessor = null;
-       
+
         // Отложенная инициализация, чтобы избежать циклических зависимостей
         try {
             // Используем динамический импорт при вызове методов
@@ -43,15 +43,15 @@ class SimpleGraphMatcher {
 
         // 🔥 БЕЗОПАСНОЕ СРАВНЕНИЕ ДЛЯ СОВМЕСТИМОСТИ
         this.enableAdvancedFeatures = options.enableAdvancedFeatures !== false;
-       
+
         this.matchHistory = [];
-        console.log('🎯 SimpleGraphMatcher с безопасной инициализацией');
+        console.log('🎯 SimpleMatcher с безопасной инициализацией');
     }
 
     // 🔥 НОВЫЙ МЕТОД: безопасная загрузка RotationInvariance
     async ensureRotationProcessor() {
         if (this.rotationProcessor) return true;
-       
+
         try {
             // Динамический импорт для избежания циклических зависимостей
             const RotationInvariance = require('./rotation-invariance');
@@ -71,15 +71,44 @@ class SimpleGraphMatcher {
         const startTime = Date.now();
         console.log(`🔍 Сравниваю графы: "${graph1.name}" vs "${graph2.name}"`);
 
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Проверяем что графы существуют и имеют узлы
+        if (!graph1 || !graph2) {
+            console.log(`❌ Один из графов не существует`);
+            return {
+                similarity: 0,
+                decision: 'different',
+                reason: `Один из графов не существует`,
+                method: 'error_check',
+                confidence: 0,
+                timeMs: Date.now() - startTime,
+                context: context
+            };
+        }
+
         // 1. Быстрая проверка количества узлов
-        const nodeRatio = Math.min(graph1.nodes.size, graph2.nodes.size) /
-                         Math.max(graph1.nodes.size, graph2.nodes.size);
+        const nodeCount1 = graph1.nodes?.size || 0;
+        const nodeCount2 = graph2.nodes?.size || 0;
+
+        if (nodeCount1 === 0 || nodeCount2 === 0) {
+            console.log(`❌ Один из графов пустой: ${nodeCount1} vs ${nodeCount2}`);
+            return {
+                similarity: 0,
+                decision: 'different',
+                reason: `Один из графов пустой: ${nodeCount1} vs ${nodeCount2}`,
+                method: 'empty_check',
+                confidence: 0,
+                timeMs: Date.now() - startTime,
+                context: context
+            };
+        }
+
+        const nodeRatio = Math.min(nodeCount1, nodeCount2) / Math.max(nodeCount1, nodeCount2);
 
         if (nodeRatio < this.config.minNodeRatio) {
             return {
                 similarity: nodeRatio,
                 decision: 'different',
-                reason: `Разное количество узлов: ${graph1.nodes.size} vs ${graph2.nodes.size}`,
+                reason: `Разное количество узлов: ${nodeCount1} vs ${nodeCount2}`,
                 method: 'quick_check',
                 timeMs: Date.now() - startTime,
                 context: context
@@ -88,12 +117,12 @@ class SimpleGraphMatcher {
 
         // 2. Использовать поворотную инвариантность если доступно
         let bestResult = null;
-       
+
         if (this.enableAdvancedFeatures) {
             try {
                 // Пытаемся использовать RotationInvariance
                 await this.ensureRotationProcessor();
-               
+
                 if (this.rotationProcessor) {
                     // 🔥 БЕЗОПАСНОЕ СРАВНЕНИЕ БЕЗ РЕКУРСИИ
                     const rotationResult = this.rotationProcessor.compareWithAllMethods(
@@ -101,7 +130,7 @@ class SimpleGraphMatcher {
                         graph2,
                         { simpleMode: true } // Флаг для простого режима без рекурсии
                     );
-                   
+
                     if (rotationResult && rotationResult.similarity > 0) {
                         bestResult = {
                             similarity: rotationResult.similarity,
@@ -123,7 +152,7 @@ class SimpleGraphMatcher {
             // Простое сравнение координат (как было)
             const norm1 = this.normalizeGraphCoordinates(graph1);
             const norm2 = this.normalizeGraphCoordinates(graph2);
-           
+
             const center1 = this.calculateNormalizedCenter(norm1.nodes);
             const center2 = this.calculateNormalizedCenter(norm2.nodes);
             const centerDistance = Math.sqrt(
@@ -131,17 +160,23 @@ class SimpleGraphMatcher {
                 Math.pow(center2.y - center1.y, 2)
             );
 
-            // Рассчитать схожесть
+            // 🔥 ГАРАНТИРОВАННОЕ ВЫЧИСЛЕНИЕ similarity
             let similarity = 0;
             similarity += nodeRatio * 0.3;
-           
+
             const centerSimilarity = Math.max(0, 1 - centerDistance / 0.3);
             similarity += centerSimilarity * 0.3;
-           
+
             const distributionScore = this.compareNormalizedDistribution(norm1.nodes, norm2.nodes);
             similarity += distributionScore * 0.4;
-           
+
             similarity = Math.max(0, Math.min(1, similarity));
+           
+            // 🔥 ИСПРАВЛЕНИЕ: Гарантируем что similarity не NaN
+            if (isNaN(similarity)) {
+                similarity = 0;
+                console.log(`⚠️ similarity был NaN, исправлено на 0`);
+            }
 
             // Принять решение
             let decision, reason;
@@ -681,4 +716,4 @@ class SimpleGraphMatcher {
     }
 }
 
-module.exports = SimpleGraphMatcher;
+module.exports = SimpleMatcher;
