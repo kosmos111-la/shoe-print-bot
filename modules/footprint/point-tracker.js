@@ -169,7 +169,7 @@ class PointTracker {
     }
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Предварительное обновление существующих точек
-    _preUpdateExistingPoints(newPoints, maxDistance = 25) {
+    _preUpdateExistingPoints(newPoints, maxDistance = 50) {  // Было 25
         let updated = 0;
 
         // 🔥 ИСПОЛЬЗУЕМ БОЛЕЕ АГРЕССИВНЫЙ ПОДХОД
@@ -191,7 +191,7 @@ class PointTracker {
             }
 
             // 🔥 УМЕНЬШЕН ПОРОГ ДЛЯ ОБНОВЛЕНИЯ
-            if (nearestNewPoint && minDistance < 25) { // Было 15
+             if (nearestNewPoint && minDistance < 40) {  // Было 15
                 // Обновляем существующую точку
                 this.updatePoint(id, nearestNewPoint, {
                     source: 'direct_update',
