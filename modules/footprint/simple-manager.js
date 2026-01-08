@@ -1,5 +1,5 @@
 // modules/footprint/simple-manager.js
-// УПРОЩЕННЫЙ МЕНЕДЖЕР ЦИФРОВЫХ ОТПЕЧАТКОВ С АВТОСОВМЕЩЕНИЕМ И POINT TRACKER
+// 🔥 ИСПРАВЛЕННЫЙ МЕНЕДЖЕР С ОБНОВЛЕННЫМИ ВИЗУАЛИЗАЦИЯМИ
 
 const fs = require('fs');
 const path = require('path');
@@ -32,7 +32,7 @@ class SimpleFootprintManager {
             ...options
         };
 
-        // 🔥 ДОБАВЛЕНО: Импорт модулей внутри конструктора (строго по инструкции)
+        // 🔥 ДОБАВЛЕНО: Импорт модулей внутри конструктора
         const SimpleFootprint = require('./simple-footprint');
         const SimpleMatcher = require('./simple-matcher');
         const MergeVisualizer = require('./merge-visualizer');
@@ -109,24 +109,53 @@ class SimpleFootprintManager {
         console.log(`   🔄 Поворотная инвариантность: ВКЛ`);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Создание кластерной визуализации сравнения
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Создание кластерной визуализации сравнения с обновленными данными
     async createClusterComparisonVisualization(footprint1, footprint2, comparisonResult, userId) {
         console.log('🎨 Создаю улучшенную кластерную визуализацию сравнения...');
 
         try {
-            // 🔥 ПОЛУЧАЕМ ОБЪЕДИНЕННЫЕ ДАННЫЕ
+            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Используем новые объединенные данные
+            // 1. Пытаемся получить объединенные данные с подтверждениями из супер-модели
             const mergedData1 = footprint1.getMergedVisualizationData ?
                 footprint1.getMergedVisualizationData() :
-                this.getFallbackVisualizationData(footprint1);
+                footprint1.getHonestVisualizationData ?
+                    footprint1.getHonestVisualizationData() :
+                    this.getFallbackVisualizationData(footprint1);
 
             const mergedData2 = footprint2.getMergedVisualizationData ?
                 footprint2.getMergedVisualizationData() :
-                this.getFallbackVisualizationData(footprint2);
+                footprint2.getHonestVisualizationData ?
+                    footprint2.getHonestVisualizationData() :
+                    this.getFallbackVisualizationData(footprint2);
+
+            // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Обновляем точки с реальными подтверждениями
+            // Если следы совпали, точки должны иметь подтверждения из супер-модели
+            if (comparisonResult?.similarity > 0.7) {
+                console.log(`🔥 СЛЕДЫ СОВПАЛИ - обновляю данные для визуализации...`);
+
+                // 🔥 ВАЖНО: Форсируем обновление данных точек
+                if (footprint1.pointTracker) {
+                    console.log(`📊 Точки следа 1 до: ${mergedData1.points?.length || 0}`);
+                    mergedData1.points = this.getUpdatedPointsForVisualization(footprint1);
+                    console.log(`📊 Точки следа 1 после: ${mergedData1.points?.length || 0}`);
+                }
+
+                if (footprint2.pointTracker) {
+                    console.log(`📊 Точки следа 2 до: ${mergedData2.points?.length || 0}`);
+                    mergedData2.points = this.getUpdatedPointsForVisualization(footprint2);
+                    console.log(`📊 Точки следа 2 после: ${mergedData2.points?.length || 0}`);
+                }
+            }
 
             // 🔥 ПРОВЕРЯЕМ РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ
-            console.log(`📊 РЕАЛЬНЫЕ ДАННЫЕ:`);
-            console.log(`   След 1: ${mergedData1.confirmationStats.fromTracker.confirmed2}🔴 ${mergedData1.confirmationStats.fromTracker.confirmed1}🔵`);
-            console.log(`   След 2: ${mergedData2.confirmationStats.fromTracker.confirmed2}🔴 ${mergedData2.confirmationStats.fromTracker.confirmed1}🔵`);
+            console.log(`📊 РЕАЛЬНЫЕ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ:`);
+
+            const stats1 = this.calculateConfirmationStats(mergedData1.points);
+            const stats2 = this.calculateConfirmationStats(mergedData2.points);
+
+            console.log(`   След 1: ${stats1.confirmed2}🔴 ${stats1.confirmed1}🔵 ${stats1.confirmed0}⚪`);
+            console.log(`   След 2: ${stats2.confirmed2}🔴 ${stats2.confirmed1}🔵 ${stats2.confirmed0}⚪`);
+            console.log(`   Всего точек: след1=${mergedData1.points?.length || 0}, след2=${mergedData2.points?.length || 0}`);
 
             // Проверяем доступность ClusterVisualizer
             let ClusterVisualizer;
@@ -144,22 +173,129 @@ class SimpleFootprintManager {
                 forceTextMode: false // Пусть сам определяет наличие canvas
             });
 
-            // Создаем визуализацию
+            // 🔥 ПЕРЕДАЕМ ОБНОВЛЕННЫЕ ДАННЫЕ в визуализатор
             const vizResult = await visualizer.visualizeTwoFootprintComparison(
                 footprint1,
                 footprint2,
                 {
                     filename: `cluster_comparison_${userId}_${Date.now()}.png`,
-                    mode: 'simple'
+                    mode: 'simple',
+                    // 🔥 ВАЖНО: Передаем обновленные данные
+                    customData: {
+                        footprint1: mergedData1,
+                        footprint2: mergedData2,
+                        comparison: comparisonResult,
+                        useMergedData: true
+                    }
                 }
             );
 
-            console.log('✅ Кластерная визуализация создана:', vizResult?.path);
+            console.log('✅ Кластерная визуализация создана с обновленными данными:', vizResult?.path);
             return vizResult;
 
         } catch (error) {
             console.log('❌ Ошибка создания кластерной визуализации:', error.message);
             return null;
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить обновленные точки для визуализации
+    getUpdatedPointsForVisualization(footprint) {
+        const points = [];
+
+        if (!footprint || !footprint.pointTracker) {
+            return points;
+        }
+
+        // Получаем реальные данные из трекера
+        for (const [id, point] of footprint.pointTracker.points) {
+            const confirmations = point.confirmedCount || 0;
+
+            // 🔥 ВАЖНО: Используем те же цвета, что и в getMergedVisualizationData()
+            let color, size;
+            if (confirmations >= 2) {
+                color = '#FF5252'; // 🔴 Красный
+                size = 8 + (point.confidence || 0.5) * 6;
+            } else if (confirmations >= 1) {
+                color = '#2196F3'; // 🔵 Синий
+                size = 6 + (point.confidence || 0.5) * 4;
+            } else {
+                color = '#BDBDBD'; // ⚪ Серый
+                size = 4;
+            }
+
+            points.push({
+                id,
+                x: point.x,
+                y: point.y,
+                color: color,
+                size: size,
+                confirmations: confirmations,
+                confidence: point.rating || point.confidence || 0.5,
+                source: 'tracker_updated',
+                clusterData: point.clusterData || null
+            });
+        }
+
+        console.log(`🔄 Обновлено ${points.length} точек для визуализации`);
+        return points;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Рассчитать статистику подтверждений
+    calculateConfirmationStats(points) {
+        if (!points || !Array.isArray(points)) {
+            return { confirmed2: 0, confirmed1: 0, confirmed0: 0 };
+        }
+
+        let confirmed2 = 0, confirmed1 = 0, confirmed0 = 0;
+
+        points.forEach(point => {
+            const confirmations = point.confirmations || 0;
+
+            if (confirmations >= 2) {
+                confirmed2++;
+            } else if (confirmations >= 1) {
+                confirmed1++;
+            } else {
+                confirmed0++;
+            }
+        });
+
+        return { confirmed2, confirmed1, confirmed0 };
+    }
+
+    // 🔥 ДОБАВЛЕН В КОНЕЦ КЛАССА: Метод для быстрого исправления визуализации
+    async forceUpdateVisualization(userId) {
+        console.log(`🚀 Принудительное обновление визуализации для пользователя ${userId}...`);
+
+        try {
+            const session = this.getActiveSession(userId);
+            if (!session || !session.currentFootprint) {
+                return { success: false, error: 'Нет активной сессии' };
+            }
+
+            const footprint = session.currentFootprint;
+
+            // Получаем обновленные данные
+            const mergedData = footprint.getMergedVisualizationData ?
+                footprint.getMergedVisualizationData() :
+                { points: [], confirmationStats: { fromTracker: { confirmed2: 0, confirmed1: 0, confirmed0: 0 } } };
+
+            console.log(`📊 Принудительная статистика:`);
+            console.log(`   🔴 2+ подтверждений: ${mergedData.confirmationStats?.fromTracker?.confirmed2 || 0}`);
+            console.log(`   🔵 1 подтверждение: ${mergedData.confirmationStats?.fromTracker?.confirmed1 || 0}`);
+            console.log(`   ⚪ 0 подтверждений: ${mergedData.confirmationStats?.fromTracker?.confirmed0 || 0}`);
+
+            return {
+                success: true,
+                stats: mergedData.confirmationStats?.fromTracker || {},
+                totalPoints: mergedData.points?.length || 0,
+                hasUpdatedData: true
+            };
+
+        } catch (error) {
+            console.log(`❌ Ошибка принудительного обновления:`, error.message);
+            return { success: false, error: error.message };
         }
     }
 
@@ -512,7 +648,7 @@ class SimpleFootprintManager {
                                                 `🎯 Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}%\n` +
                                                 `📊 Ячеек шаблона: ${stats.template?.cells?.total || 0}\n` +
                                                 `🔄 Подтверждённых: ${stats.template?.cells?.confirmed || 0}\n` +
-                                                `📈 Слияний: ${stats.stats.totalMerges}\n\n` +
+                                                `📈 Слияний: ${stats.stats?.totalMerges || 0}\n\n` +
                                                 `🎨 Шаблон протектора с подтверждениями`
                                     });
                                     console.log(`✅ Визуализация отправлена в Telegram`);
