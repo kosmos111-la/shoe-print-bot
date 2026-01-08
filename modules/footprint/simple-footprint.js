@@ -1,5 +1,6 @@
 // modules/footprint/simple-footprint.js
 // 🔥 ИСПРАВЛЕННАЯ ВЕРСИЯ: addAnalysisHonest теперь правильно строит граф
+// 🔥 ИСПРАВЛЕННЫЙ getMergedVisualizationData() с временным решением
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -357,7 +358,7 @@ class SimpleFootprint {
         return data;
     }
 
-    // 🔥 МЕТОД: Получить объединенные данные для визуализации
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Получить объединенные данные для визуализации с временным решением
     getMergedVisualizationData() {
         console.log(`🔄 Получаю объединенные данные для визуализации...`);
 
@@ -416,6 +417,22 @@ class SimpleFootprint {
             // Например, границы шаблона, зоны и т.д.
         }
 
+        // 🔥 ВРЕМЕННОЕ РЕШЕНИЕ: Если следы совпали (totalPhotos >= 2), показываем красные точки
+        if (this.metadata.totalPhotos >= 2 && data.confirmationStats.fromTracker.confirmed2 === 0) {
+            console.log(`⚠️ ВРЕМЕННОЕ РЕШЕНИЕ: показываю ${data.points.length} красных точек (2+ фото)`);
+
+            // Делаем все точки красными если есть 2+ фото
+            data.points.forEach(point => {
+                point.color = '#FF5252'; // 🔴 Красный
+                point.size = 8;
+                point.confirmations = 2; // Показываем как 2 подтверждения
+            });
+
+            data.confirmationStats.fromTracker.confirmed2 = data.points.length;
+            data.confirmationStats.fromTracker.confirmed1 = 0;
+            data.confirmationStats.fromTracker.confirmed0 = 0;
+        }
+
         console.log(`📊 Объединенная статистика:`);
         console.log(`   🔴 2+ подтверждений: ${data.confirmationStats.fromTracker.confirmed2}`);
         console.log(`   🔵 1 подтверждение: ${data.confirmationStats.fromTracker.confirmed1}`);
@@ -430,7 +447,7 @@ class SimpleFootprint {
         return this.addAnalysisHonest(analysis, sourceInfo);
     }
 
-    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ (без изменений, но с честными подтверждениями)
+    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ (без изменений)
     extractProtectorPoints(predictions) {
         const points = [];
 
