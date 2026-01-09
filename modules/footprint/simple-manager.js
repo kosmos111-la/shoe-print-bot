@@ -1,5 +1,5 @@
 // modules/footprint/simple-manager.js
-// 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Правильное преобразование координат
+// 🔥 ИСПРАВЛЕНИЕ: Интеллектуальное сопоставление точек
 
 const fs = require('fs');
 const path = require('path');
@@ -17,7 +17,7 @@ class SimpleFootprintManager {
             debug: options.debug || false,
 
             // 🔥 ВАЖНЫЕ НАСТРОЙКИ ДЛЯ ПОДТВЕРЖДЕНИЙ
-            usePointTracker: true, // Всегда использовать PointTracker
+            usePointTracker: true,
             enableMergeVisualization: options.enableMergeVisualization !== false,
             enableIntelligentMerge: options.enableIntelligentMerge !== false,
             enableTopologySuperModel: options.enableTopologySuperModel !== false,
@@ -28,22 +28,22 @@ class SimpleFootprintManager {
             minPointsForFootprint: options.minPointsForFootprint || 5,
 
             // Настройки PointTracker
-            trackerConfirmationThreshold: 2, // Минимум 2 подтверждения для высокой уверенности
+            trackerConfirmationThreshold: 2,
+            // 🔥 НОВЫЕ НАСТРОЙКИ ДЛЯ СОПОСТАВЛЕНИЯ
+            matchDistanceThreshold: options.matchDistanceThreshold || 60, // Увеличил до 60px
+            minMatchPercentage: options.minMatchPercentage || 0.3,
             ...options
         };
 
-        // 🔥 ДОБАВЛЕНО: Импорт модулей внутри конструктора
+        // Импорт модулей
         const SimpleFootprint = require('./simple-footprint');
         const SimpleMatcher = require('./simple-matcher');
         const MergeVisualizer = require('./merge-visualizer');
         const VectorSuperModel = require('./vector-super-model');
         const TemplateVisualizer = require('./template-visualizer');
-
-        // 🔥 ДОБАВЛЕНО: НОВЫЕ ИМПОРТЫ согласно инструкции
         const RotationInvariance = require('./rotation-invariance');
         const MirrorDetection = require('./mirror-detection');
 
-        // 🔥 ДОБАВЛЕНО: Процессоры поворотной инвариантности согласно инструкции
         this.rotationProcessor = new RotationInvariance({
             debug: this.config.debug
         });
@@ -52,37 +52,26 @@ class SimpleFootprintManager {
             debug: this.config.debug
         });
 
-        // Сессии пользователей: userId -> session
+        // Сессии пользователей
         this.userSessions = new Map();
-
-        // Загруженные модели: modelId -> SimpleFootprint
         this.loadedModels = new Map();
-
-        // Визуализатор объединений
         this.mergeVisualizer = new MergeVisualizer({
             outputDir: path.join(this.config.dbPath, 'visualizations'),
             debug: this.config.debug
         });
 
-        // Матчер для сравнения графов
         this.matcher = new SimpleMatcher({
             debug: this.config.debug,
             similarityThreshold: this.config.topologySimilarityThreshold
         });
 
-        // История последних визуализаций объединения: userId -> [{path, timestamp, similarity}]
         this.lastMergeVisualizations = new Map();
-
-        // Добавить векторные супер-модели
-        this.vectorSuperModels = new Map(); // userId -> VectorSuperModel
-
-        // Добавляем TemplateVisualizer
+        this.vectorSuperModels = new Map();
         this.templateVisualizer = new TemplateVisualizer({
             outputDir: path.join(this.config.dbPath, 'visualizations/templates'),
             debug: this.config.debug
         });
 
-        // Статистика системы
         this.systemStats = {
             totalUsers: 0,
             totalModels: 0,
@@ -93,29 +82,26 @@ class SimpleFootprintManager {
             lastActivity: new Date()
         };
 
-        // Обеспечиваем существование директорий
         this.ensureDirectories();
-
-        // Загружаем существующие модели
         this.loadExistingModels();
 
-        console.log(`🚀 SimpleFootprintManager инициализирован с поворотной инвариантностью`);
+        console.log(`🚀 SimpleFootprintManager инициализирован с интеллектуальным сопоставлением`);
         console.log(`   📁 База данных: ${this.config.dbPath}`);
         console.log(`   🎯 Auto Alignment: ${this.config.autoAlignment ? 'ВКЛ' : 'ВЫКЛ'}`);
         console.log(`   🎨 Визуализация объединения: ${this.config.enableMergeVisualization ? 'ВКЛ' : 'ВЫКЛ'}`);
-        console.log(`   🎯 PointTracker: ВКЛ (подтверждения узлов)`);
+        console.log(`   🎯 PointTracker: ВКЛ (интеллектуальное сопоставление)`);
         console.log(`   🏗️  VectorSuperModel: ВКЛ`);
         console.log(`   📐 TemplateVisualizer: ВКЛ`);
         console.log(`   🔄 Поворотная инвариантность: ВКЛ`);
-        console.log(`   🎯 Единая система координат: ВКЛ`);
+        console.log(`   🤖 Интеллектуальное сопоставление: ВКЛ`);
     }
 
-    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Правильное преобразование координат
+    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Умное преобразование координат
     transformCoordinatesBetweenSystems(originalPoints, transformationInfo, direction = 'to_original') {
         console.log(`📐 Преобразование координат ${originalPoints.length} точек (${direction})...`);
        
-        if (!transformationInfo || (!transformationInfo.rotationAngle && !transformationInfo.scale)) {
-            console.log('⚠️ Нет информации о преобразовании, возвращаю оригинальные точки');
+        if (!transformationInfo) {
+            console.log('⚠️ Нет информации о преобразовании');
             return originalPoints;
         }
 
@@ -125,91 +111,309 @@ class SimpleFootprintManager {
         console.log(`   • Зеркало: ${transformationInfo.isMirrored ? 'да' : 'нет'}`);
         console.log(`   • Коррекция: ${transformationInfo.corrected ? 'да' : 'нет'}`);
 
+        // 🔥 ВАЖНО: Супер-модель уже нормализована к 0°
+        // Для 'to_original' нужно повернуть НАЗАД на +angle
+        // Для 'to_normalized' нужно повернуть ВПЕРЕД на -angle
+       
+        const angleRad = transformationInfo.rotationAngle * (Math.PI / 180);
+       
         const transformedPoints = originalPoints.map(point => {
-            const x = point.x;
-            const y = point.y;
+            let x = point.x;
+            let y = point.y;
 
-            let newX = x;
-            let newY = y;
-
-            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ:
-            // Направление преобразования:
-            // - 'to_original': из нормализованных (0°) в оригинальные
-            // - 'to_normalized': из оригинальных в нормализованные (0°)
-           
             if (direction === 'to_original') {
-                // Из нормализованных в оригинальные
-                // Нормализованная система: повернута на -rotationAngle (чтобы получить 0°)
-                // Оригинальная система: реальное фото
+                // Из нормализованных (0°) в оригинальные
+                // Поворачиваем назад: +angle
+                const cosA = Math.cos(angleRad);
+                const sinA = Math.sin(angleRad);
                
-                // Поворачиваем обратно на +rotationAngle
-                if (transformationInfo.rotationAngle) {
-                    const angle = transformationInfo.rotationAngle * (Math.PI / 180);
-                    const cosA = Math.cos(angle);
-                    const sinA = Math.sin(angle);
-                   
-                    // Поворачиваем точку
-                    const rotatedX = newX * cosA - newY * sinA;
-                    const rotatedY = newX * sinA + newY * cosA;
-                   
-                    newX = rotatedX;
-                    newY = rotatedY;
-                }
+                const rotatedX = x * cosA - y * sinA;
+                const rotatedY = x * sinA + y * cosA;
                
-                // Зеркальное отражение (если было)
+                x = rotatedX;
+                y = rotatedY;
+               
+                // Зеркало (если было)
                 if (transformationInfo.isMirrored) {
-                    newX = -newX;
+                    x = -x;
                 }
-               
-            } else if (direction === 'to_normalized') {
-                // Из оригинальных в нормализованные
-                // Делаем то же, что делал rotationProcessor: поворачиваем к 0°
-               
-                if (transformationInfo.rotationAngle) {
-                    const angle = -transformationInfo.rotationAngle * (Math.PI / 180); // Отрицательный угол!
-                    const cosA = Math.cos(angle);
-                    const sinA = Math.sin(angle);
-                   
-                    const rotatedX = newX * cosA - newY * sinA;
-                    const rotatedY = newX * sinA + newY * cosA;
-                   
-                    newX = rotatedX;
-                    newY = rotatedY;
-                }
-               
-                // Зеркальное отражение (обратное)
+            }
+            else if (direction === 'to_normalized') {
+                // Из оригинальных в нормализованные (0°)
+                // Сначала зеркало (если было)
                 if (transformationInfo.isMirrored) {
-                    newX = -newX;
+                    x = -x;
                 }
+               
+                // Поворачиваем вперед: -angle
+                const cosA = Math.cos(-angleRad);
+                const sinA = Math.sin(-angleRad);
+               
+                const rotatedX = x * cosA - y * sinA;
+                const rotatedY = x * sinA + y * cosA;
+               
+                x = rotatedX;
+                y = rotatedY;
             }
 
             return {
                 ...point,
-                x: newX,
-                y: newY,
-                originalX: x,
-                originalY: y,
+                x,
+                y,
+                originalX: point.x,
+                originalY: point.y,
                 transformed: true,
-                direction: direction
+                direction: direction,
+                angle: transformationInfo.rotationAngle
             };
         });
 
-        console.log(`✅ Преобразовано ${transformedPoints.length} точек (${direction})`);
+        console.log(`✅ Преобразовано ${transformedPoints.length} точек (угол: ${transformationInfo.rotationAngle.toFixed(1)}°, направление: ${direction})`);
        
-        // Дебаг: показываем первую точку для проверки
+        // Отладка
         if (transformedPoints.length > 0 && this.config.debug) {
-            const firstPoint = transformedPoints[0];
             console.log(`🔍 Пример преобразования (${direction}):`);
-            console.log(`   Оригинал: (${firstPoint.originalX.toFixed(1)}, ${firstPoint.originalY.toFixed(1)})`);
-            console.log(`   После: (${firstPoint.x.toFixed(1)}, ${firstPoint.y.toFixed(1)})`);
+            console.log(`   Оригинал: (${transformedPoints[0].originalX.toFixed(1)}, ${transformedPoints[0].originalY.toFixed(1)})`);
+            console.log(`   После: (${transformedPoints[0].x.toFixed(1)}, ${transformedPoints[0].y.toFixed(1)})`);
         }
 
         return transformedPoints;
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Обновить PointTracker из супер-модели с учетом нормализации
+    // 🔥 НОВЫЙ МЕТОД: Интеллектуальное сопоставление точек между двумя следами
+    intelligentPointMatching(tracker1, tracker2, transformationInfo = null) {
+        console.log(`🤖 Интеллектуальное сопоставление точек...`);
+       
+        const points1 = Array.from(tracker1.points.values()).map(p => ({
+            id: p.id,
+            x: p.x,
+            y: p.y,
+            confirmations: p.confirmedCount || 0
+        }));
+       
+        const points2 = Array.from(tracker2.points.values()).map(p => ({
+            id: p.id,
+            x: p.x,
+            y: p.y,
+            confirmations: p.confirmedCount || 0
+        }));
+       
+        console.log(`📊 До сопоставления:`);
+        console.log(`   • След 1: ${points1.length} точек`);
+        console.log(`   • След 2: ${points2.length} точек`);
+       
+        // 🔥 Шаг 1: Преобразуем оба следа в нормализованную систему для сравнения
+        let normalizedPoints1 = points1;
+        let normalizedPoints2 = points2;
+       
+        if (transformationInfo) {
+            console.log(`📐 Преобразую оба следа в нормализованную систему...`);
+            normalizedPoints1 = this.transformCoordinatesBetweenSystems(points1, transformationInfo, 'to_normalized');
+            normalizedPoints2 = this.transformCoordinatesBetweenSystems(points2, transformationInfo, 'to_normalized');
+        }
+       
+        // 🔥 Шаг 2: Находим центры масс для выравнивания
+        const center1 = this.calculateCenter(normalizedPoints1);
+        const center2 = this.calculateCenter(normalizedPoints2);
+       
+        console.log(`🎯 Центры масс:`);
+        console.log(`   • След 1: (${center1.x.toFixed(1)}, ${center1.y.toFixed(1)})`);
+        console.log(`   • След 2: (${center2.x.toFixed(1)}, ${center2.y.toFixed(1)})`);
+       
+        // 🔥 Шаг 3: Ищем совпадения с учетом выравнивания
+        const matches = [];
+        const usedPoints2 = new Set();
+       
+        // Сначала ищем точные совпадения (близкие точки)
+        for (const point1 of normalizedPoints1) {
+            let bestMatch = null;
+            let minDistance = this.config.matchDistanceThreshold;
+           
+            for (const point2 of normalizedPoints2) {
+                if (usedPoints2.has(point2.id)) continue;
+               
+                const dx = point2.x - point1.x;
+                const dy = point2.y - point1.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+               
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    bestMatch = { point: point2, distance };
+                }
+            }
+           
+            if (bestMatch) {
+                matches.push({
+                    point1: point1,
+                    point2: bestMatch.point,
+                    distance: bestMatch.distance,
+                    type: 'exact'
+                });
+                usedPoints2.add(bestMatch.point.id);
+            }
+        }
+       
+        console.log(`📊 Найдено ${matches.length} точных совпадений`);
+       
+        // 🔥 Шаг 4: Если точных совпадений мало, пробуем кластерное сопоставление
+        if (matches.length < Math.min(points1.length, points2.length) * this.config.minMatchPercentage) {
+            console.log(`⚠️ Мало точных совпадений (${matches.length}), пробую кластерное сопоставление...`);
+           
+            // Разбиваем на кластеры
+            const clusters1 = this.createClusters(normalizedPoints1, 30);
+            const clusters2 = this.createClusters(normalizedPoints2, 30);
+           
+            console.log(`📊 Кластеры:`);
+            console.log(`   • След 1: ${clusters1.length} кластеров`);
+            console.log(`   • След 2: ${clusters2.length} кластеров`);
+           
+            // Сопоставляем кластеры
+            for (const cluster1 of clusters1) {
+                let bestCluster = null;
+                let minClusterDistance = 50;
+               
+                for (const cluster2 of clusters2) {
+                    const distance = this.calculateDistance(
+                        cluster1.center,
+                        cluster2.center
+                    );
+                   
+                    if (distance < minClusterDistance) {
+                        minClusterDistance = distance;
+                        bestCluster = cluster2;
+                    }
+                }
+               
+                if (bestCluster) {
+                    // Сопоставляем точки внутри кластеров
+                    for (const point1 of cluster1.points) {
+                        if (matches.find(m => m.point1.id === point1.id)) continue;
+                       
+                        let bestPoint = null;
+                        let minPointDistance = 40;
+                       
+                        for (const point2 of bestCluster.points) {
+                            if (usedPoints2.has(point2.id)) continue;
+                           
+                            const dx = point2.x - point1.x;
+                            const dy = point2.y - point1.y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                           
+                            if (distance < minPointDistance) {
+                                minPointDistance = distance;
+                                bestPoint = point2;
+                            }
+                        }
+                       
+                        if (bestPoint) {
+                            matches.push({
+                                point1: point1,
+                                point2: bestPoint,
+                                distance: minPointDistance,
+                                type: 'cluster'
+                            });
+                            usedPoints2.add(bestPoint.id);
+                        }
+                    }
+                }
+            }
+        }
+       
+        console.log(`📊 Итого совпадений: ${matches.length} из ${points1.length}`);
+        console.log(`📈 Процент совпадений: ${(matches.length / points1.length * 100).toFixed(1)}%`);
+       
+        // 🔥 Шаг 5: Возвращаем результат с оригинальными координатами
+        const result = matches.map(match => {
+            // Находим оригинальные точки по ID
+            const originalPoint1 = points1.find(p => p.id === match.point1.id);
+            const originalPoint2 = points2.find(p => p.id === match.point2.id);
+           
+            return {
+                point1: originalPoint1,
+                point2: originalPoint2,
+                distance: match.distance,
+                type: match.type,
+                shouldBeRed: true
+            };
+        });
+       
+        return {
+            matches: result,
+            totalPoints1: points1.length,
+            totalPoints2: points2.length,
+            matchCount: matches.length,
+            matchPercentage: (matches.length / Math.min(points1.length, points2.length)) * 100,
+            transformationApplied: !!transformationInfo
+        };
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ИНТЕЛЛЕКТУАЛЬНОГО СОПОСТАВЛЕНИЯ
+    calculateCenter(points) {
+        if (points.length === 0) return { x: 0, y: 0 };
+       
+        const sumX = points.reduce((sum, p) => sum + p.x, 0);
+        const sumY = points.reduce((sum, p) => sum + p.y, 0);
+       
+        return {
+            x: sumX / points.length,
+            y: sumY / points.length
+        };
+    }
+
+    calculateDistance(p1, p2) {
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    createClusters(points, maxDistance) {
+        const clusters = [];
+        const visited = new Set();
+       
+        for (const point of points) {
+            if (visited.has(point.id)) continue;
+           
+            const cluster = {
+                points: [point],
+                center: { x: point.x, y: point.y }
+            };
+           
+            visited.add(point.id);
+           
+            // Ищем соседние точки
+            let changed;
+            do {
+                changed = false;
+                for (const otherPoint of points) {
+                    if (visited.has(otherPoint.id)) continue;
+                   
+                    const distance = this.calculateDistance(
+                        { x: otherPoint.x, y: otherPoint.y },
+                        cluster.center
+                    );
+                   
+                    if (distance < maxDistance) {
+                        cluster.points.push(otherPoint);
+                        visited.add(otherPoint.id);
+                       
+                        // Обновляем центр кластера
+                        cluster.center.x = cluster.points.reduce((sum, p) => sum + p.x, 0) / cluster.points.length;
+                        cluster.center.y = cluster.points.reduce((sum, p) => sum + p.y, 0) / cluster.points.length;
+                       
+                        changed = true;
+                    }
+                }
+            } while (changed);
+           
+            clusters.push(cluster);
+        }
+       
+        return clusters;
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Обновить PointTracker на основе интеллектуального сопоставления
     updatePointTrackerFromSuperModel(userId, footprint, vectorModel, transformationInfo = null) {
-        console.log(`🔄 Обновляю PointTracker из супер-модели с учетом нормализации...`);
+        console.log(`🔄 Обновляю PointTracker с интеллектуальным сопоставлением...`);
 
         if (!footprint || !footprint.pointTracker || !vectorModel || !vectorModel.templateBuilder) {
             console.log('⚠️ Недостаточно данных для обновления');
@@ -218,9 +422,7 @@ class SimpleFootprintManager {
 
         const tracker = footprint.pointTracker;
         const templateBuilder = vectorModel.templateBuilder;
-        let updatedCount = 0;
-        let matchedPoints = 0;
-
+       
         // Получаем данные шаблона
         const templateInfo = templateBuilder.getVisualizationData();
         if (!templateInfo || !templateInfo.cells) {
@@ -228,328 +430,108 @@ class SimpleFootprintManager {
             return 0;
         }
 
-        console.log(`📊 Данные шаблона: ${templateInfo.cells.length} ячеек`);
+        console.log(`📊 Данные для сопоставления:`);
+        console.log(`   • PointTracker: ${tracker.points.size} точек`);
+        console.log(`   • Шаблон: ${templateInfo.cells.length} ячеек`);
 
-        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Преобразуем координаты супер-модели В ОРИГИНАЛЬНУЮ СИСТЕМУ
-        let templatePoints = templateInfo.cells;
+        // 🔥 ИСПОЛЬЗУЕМ ИНТЕЛЛЕКТУАЛЬНОЕ СОПОСТАВЛЕНИЕ
+        const pointAnalysis = this.intelligentPointMatching(
+            tracker,
+            this.createTrackerFromTemplate(templateInfo.cells),
+            transformationInfo
+        );
+
+        console.log(`📊 Результат сопоставления:`);
+        console.log(`   • Совпадений: ${pointAnalysis.matchCount}`);
+        console.log(`   • Процент: ${pointAnalysis.matchPercentage.toFixed(1)}%`);
+
+        // Обновляем подтверждения на основе совпадений
+        let updatedCount = 0;
        
-        if (transformationInfo) {
-            console.log(`📐 Преобразую координаты супер-модели в систему PointTracker (to_original)...`);
-            templatePoints = this.transformCoordinatesBetweenSystems(
-                templateInfo.cells.map(cell => ({
-                    x: cell.x,
-                    y: cell.y,
-                    id: cell.id,
-                    confirmations: cell.confirmations,
-                    confidence: cell.confidence || 0.7
-                })),
-                transformationInfo,
-                'to_original' // 🔥 ВАЖНО: В оригинальную систему!
-            );
-        }
-
-        console.log(`🎯 Ищу совпадения между:`);
-        console.log(`   • PointTracker: ${tracker.points.size} точек (оригинальные координаты)`);
-        console.log(`   • Супер-модель: ${templatePoints.length} точек (преобразованы в оригинальные)`);
-
-        // 🔥 Для каждой точки в трекере
-        for (const [pointId, point] of tracker.points) {
-            // Ищем ближайшую точку в преобразованных данных шаблона
-            let bestCell = null;
-            let minDistance = Infinity;
-
-            for (const templatePoint of templatePoints) {
-                const dx = templatePoint.x - point.x;
-                const dy = templatePoint.y - point.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                // 🔥 Увеличиваем порог для учета погрешности нормализации
-                if (distance < 50 && distance < minDistance) { // Увеличил до 50px
-                    minDistance = distance;
-                    bestCell = templatePoint;
-                }
-            }
-
-            // Если нашли ячейку и у нее есть подтверждения
-            if (bestCell && bestCell.confirmations > 0) {
-                matchedPoints++;
-                const templateConfirmations = bestCell.confirmations || 0;
-
-                // 🔥 ВАЖНО: Обновляем только если подтверждений в шаблоне БОЛЬШЕ
-                if (templateConfirmations > (point.confirmedCount || 0)) {
-                    const oldCount = point.confirmedCount || 0;
-                    point.confirmedCount = Math.min(5, templateConfirmations); // Макс 5
-
+        for (const match of pointAnalysis.matches) {
+            const point = tracker.points.get(match.point1.id);
+            if (point) {
+                const oldCount = point.confirmedCount || 0;
+                const newCount = Math.min(5, oldCount + 1); // +1 подтверждение за совпадение
+               
+                if (newCount > oldCount) {
+                    point.confirmedCount = newCount;
+                   
                     // Обновляем рейтинг
                     point.rating = Math.min(1.0, 0.5 + (point.confirmedCount * 0.1));
-
-                    // Добавляем запись в историю
+                   
+                    // Добавляем в историю
                     if (!point.history) point.history = [];
                     point.history.push({
                         timestamp: new Date(),
-                        source: 'super_model_update',
+                        source: 'intelligent_matching',
                         confidence: point.rating,
-                        action: 'confirmed_from_template',
-                        templateConfirmations: templateConfirmations,
-                        distance: minDistance,
-                        transformationApplied: !!transformationInfo
+                        action: 'confirmed_from_match',
+                        matchDistance: match.distance,
+                        matchType: match.type
                     });
-
-                    updatedCount++;
-
-                    console.log(`   ✅ Точка ${pointId.slice(0, 8)}: ${oldCount} → ${point.confirmedCount} подтверждений (расстояние: ${minDistance.toFixed(1)}px)`);
-                }
-            }
-        }
-
-        console.log(`📊 Статистика совпадений:`);
-        console.log(`   • Всего совпадений: ${matchedPoints} из ${tracker.points.size}`);
-        console.log(`   • Обновлено точек: ${updatedCount}`);
-        console.log(`   • Процент совпадений: ${((matchedPoints / tracker.points.size) * 100).toFixed(1)}%`);
-
-        // 🔥 ДОПОЛНИТЕЛЬНО: Если совпадений мало, пробуем альтернативный подход
-        if (matchedPoints < tracker.points.size * 0.3) {
-            console.log(`⚠️ Мало совпадений (${matchedPoints}), пробую альтернативное преобразование...`);
-           
-            // Пробуем преобразовать координаты PointTracker в нормализованную систему
-            const trackerPoints = Array.from(tracker.points.values()).map(p => ({
-                x: p.x,
-                y: p.y,
-                id: p.id,
-                confirmations: p.confirmedCount || 0
-            }));
-           
-            const normalizedTrackerPoints = this.transformCoordinatesBetweenSystems(
-                trackerPoints,
-                transformationInfo,
-                'to_normalized'
-            );
-           
-            // Ищем совпадения в нормализованной системе
-            let altMatches = 0;
-            for (const trackerPoint of normalizedTrackerPoints) {
-                for (const templateCell of templateInfo.cells) {
-                    const dx = templateCell.x - trackerPoint.x;
-                    const dy = templateCell.y - trackerPoint.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
                    
-                    if (distance < 30) {
-                        altMatches++;
-                        break;
+                    updatedCount++;
+                   
+                    if (newCount >= 2) {
+                        console.log(`   🔴 Точка ${match.point1.id.slice(0, 8)}: ${oldCount} → ${newCount} подтверждений (расстояние: ${match.distance.toFixed(1)}px)`);
                     }
                 }
             }
-           
-            console.log(`   Альтернативный метод: ${altMatches} совпадений в нормализованной системе`);
         }
 
+        console.log(`✅ Обновлено ${updatedCount} точек из ${pointAnalysis.matchCount} совпадений`);
         return updatedCount;
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Анализ реальных совпадений точек
-    analyzePointMatches(footprint1, footprint2, transformationInfo = null) {
-        console.log(`🔍 Анализирую реальные совпадения точек...`);
-
-        if (!footprint1.pointTracker || !footprint2.pointTracker) {
-            console.log('⚠️ Нет данных трекеров');
-            return { matches: 0, matchesList: [], analysis: {} };
-        }
-
-        const tracker1 = footprint1.pointTracker;
-        const tracker2 = footprint2.pointTracker;
-
-        const matches = [];
-
-        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Преобразуем точки второго следа в ту же систему координат
-        let points2 = Array.from(tracker2.points.values()).map(p => ({
-            id: p.id || 'unknown',
-            x: p.x,
-            y: p.y,
-            confirmations: p.confirmedCount || 0
-        }));
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Создать временный трекер из шаблона
+    createTrackerFromTemplate(templateCells) {
+        const PointTracker = require('./point-tracker');
+        const tracker = new PointTracker();
        
-        if (transformationInfo) {
-            console.log(`📐 Преобразую точки второго следа для сравнения...`);
-            points2 = this.transformCoordinatesBetweenSystems(points2, transformationInfo, 'to_normalized');
-           
-            // Также преобразуем точки первого следа для отладки
-            const points1 = Array.from(tracker1.points.values()).map(p => ({
-                x: p.x,
-                y: p.y,
-                confirmations: p.confirmedCount || 0
-            }));
-           
-            const normalizedPoints1 = this.transformCoordinatesBetweenSystems(
-                points1,
-                transformationInfo,
-                'to_normalized'
-            );
-           
-            console.log(`📊 Отладка преобразований:`);
-            console.log(`   • След 1 (нормализовано): ${normalizedPoints1.length} точек`);
-            console.log(`   • След 2 (нормализовано): ${points2.length} точек`);
-           
-            // Выводим первые 3 точки для сравнения
-            if (normalizedPoints1.length > 0 && points2.length > 0 && this.config.debug) {
-                console.log(`🔍 Примеры координат после нормализации:`);
-                for (let i = 0; i < Math.min(3, normalizedPoints1.length); i++) {
-                    const p1 = normalizedPoints1[i];
-                    const closest = this.findClosestPoint(p1, points2);
-                    console.log(`   Точка ${i}: (${p1.x.toFixed(1)}, ${p1.y.toFixed(1)}) → ближайшая: (${closest.x.toFixed(1)}, ${closest.y.toFixed(1)}), расстояние: ${closest.distance.toFixed(1)}px`);
-                }
-            }
-        }
-
-        console.log(`📊 Анализ совпадений:`);
-        console.log(`   • След 1: ${tracker1.points.size} точек`);
-        console.log(`   • След 2: ${points2.length} точек (после преобразования)`);
-
-        // Ищем совпадения
-        for (const [id1, point1] of tracker1.points) {
-            let bestMatch = null;
-            let minDistance = 40; // Порог совпадения (увеличен для учета трансформаций)
-
-            for (const point2 of points2) {
-                const dx = point2.x - point1.x;
-                const dy = point2.y - point1.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    bestMatch = { point: point2, distance };
-                }
-            }
-
-            if (bestMatch) {
-                matches.push({
-                    point1: {
-                        id: id1,
-                        x: point1.x,
-                        y: point1.y,
-                        confirmations: point1.confirmedCount || 0
-                    },
-                    point2: {
-                        id: bestMatch.point.id,
-                        x: bestMatch.point.x,
-                        y: bestMatch.point.y,
-                        confirmations: bestMatch.point.confirmations || 0
-                    },
-                    distance: bestMatch.distance,
-                    shouldBeRed: true // Должна быть красной точкой
-                });
-            }
-        }
-
-        console.log(`📊 Найдено ${matches.length} совпадений точек из ${tracker1.points.size}`);
-
-        // Анализ: какие точки должны быть красными
-        const analysis = {
-            totalPoints1: tracker1.points.size,
-            totalPoints2: tracker2.points.size,
-            matches: matches.length,
-            matchPercentage: (matches.length / Math.min(tracker1.points.size, tracker2.points.size)) * 100,
-            matchesList: matches.slice(0, 10), // Первые 10 совпадений
-            transformationApplied: !!transformationInfo
-        };
-
-        return {
-            matches: matches.length,
-            matchesList: matches,
-            analysis: analysis
-        };
-    }
-
-    // 🔥 НОВЫЙ ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Найти ближайшую точку
-    findClosestPoint(sourcePoint, pointsArray) {
-        let closest = { x: 0, y: 0, distance: Infinity };
-       
-        for (const point of pointsArray) {
-            const dx = point.x - sourcePoint.x;
-            const dy = point.y - sourcePoint.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-           
-            if (distance < closest.distance) {
-                closest = { x: point.x, y: point.y, distance };
-            }
+        for (const cell of templateCells) {
+            tracker.addPoint({
+                x: cell.x,
+                y: cell.y,
+                id: cell.id,
+                confirmedCount: cell.confirmations || 0,
+                confidence: cell.confidence || 0.7
+            });
         }
        
-        return closest;
+        return tracker;
     }
 
-    // 🔥 УПРОЩЕННЫЙ МЕТОД: Обновить трекер на основе реальных совпадений
-    updateTrackerBasedOnRealMatches(footprint1, footprint2, pointAnalysis) {
-        if (!pointAnalysis.matches || !footprint1.pointTracker) return 0;
-
-        const tracker1 = footprint1.pointTracker;
-        let updatedCount = 0;
-
-        console.log(`🎯 Обновляю трекер на основе ${pointAnalysis.matches} реальных совпадений...`);
-
-        pointAnalysis.matchesList.forEach((match, index) => {
-            const point1 = tracker1.points.get(match.point1.id);
-            if (point1) {
-                // Увеличиваем подтверждения для совпавших точек
-                const oldCount = point1.confirmedCount || 0;
-                point1.confirmedCount = Math.min(5, oldCount + 2); // +2 подтверждения за совпадение
-
-                if (point1.confirmedCount >= 2) {
-                    console.log(`   🔴 Точка ${match.point1.id.slice(0, 8)}: ${oldCount} → ${point1.confirmedCount} подтверждений (расстояние: ${match.distance.toFixed(1)}px)`);
-                    updatedCount++;
-                }
-            }
-        });
-
-        console.log(`✅ Обновлено ${updatedCount} точек как 🔴 красные (2+ подтверждения)`);
-        return updatedCount;
-    }
-
-    // 🔥 УПРОЩЕННЫЙ МЕТОД: Создание кластерной визуализации сравнения
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Создание кластерной визуализации с интеллектуальным сопоставлением
     async createClusterComparisonVisualization(footprint1, footprint2, comparisonResult, userId, transformationInfo = null) {
-        console.log('🎨 Создаю упрощенную кластерную визуализацию сравнения...');
+        console.log('🎨 Создаю визуализацию с интеллектуальным сопоставлением...');
 
         try {
-            // 🔥 УПРОЩЕНИЕ: Временно используем прямую логику
-            // Если следы совпали, делаем все точки красными
-           
-            if (comparisonResult?.similarity > 0.7 && comparisonResult.decision === 'same') {
-                console.log('🔥 СЛЕДЫ СОВПАЛИ - делаю точки красными...');
+            // 🔥 ИСПОЛЬЗУЕМ ИНТЕЛЛЕКТУАЛЬНОЕ СОПОСТАВЛЕНИЕ
+            const pointAnalysis = this.intelligentPointMatching(
+                footprint1.pointTracker,
+                footprint2.pointTracker,
+                transformationInfo
+            );
 
-                const makePointsRed = (footprint) => {
-                    if (!footprint.pointTracker) return 0;
+            console.log(`🎯 РЕЗУЛЬТАТ СОПОСТАВЛЕНИЯ:`);
+            console.log(`   • След 1: ${pointAnalysis.totalPoints1} точек`);
+            console.log(`   • След 2: ${pointAnalysis.totalPoints2} точек`);
+            console.log(`   • Совпадений: ${pointAnalysis.matchCount}`);
+            console.log(`   • Процент: ${pointAnalysis.matchPercentage.toFixed(1)}%`);
 
-                    let updated = 0;
-                    for (const [id, point] of footprint.pointTracker.points) {
-                        if (point.confirmedCount < 2) {
-                            const oldCount = point.confirmedCount || 0;
-                            point.confirmedCount = 2; // Два подтверждения
-                            point.rating = Math.min(1.0, 0.7 + (point.confidence || 0.5) * 0.3);
-                            updated++;
-                           
-                            if (oldCount < 2) {
-                                console.log(`   🔴 Точка ${id.slice(0, 8)}: ${oldCount} → ${point.confirmedCount} подтверждений`);
-                            }
-                        }
-                    }
-                    return updated;
-                };
+            // 🔥 ОБНОВЛЯЕМ ТОЧКИ НА ОСНОВЕ РЕАЛЬНЫХ СОВПАДЕНИЙ
+            this.updateTrackersBasedOnMatches(footprint1, footprint2, pointAnalysis);
 
-                const updated1 = makePointsRed(footprint1);
-                const updated2 = makePointsRed(footprint2);
-
-                console.log(`✅ Сделано красными: ${updated1} точек в следе 1, ${updated2} в следе 2`);
-            }
-
-            // 🔥 ПРОВЕРЯЕМ РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ
-            console.log(`📊 РЕАЛЬНЫЕ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ:`);
-
+            // Получаем статистику
             const stats1 = this.calculateConfirmationStats(footprint1);
             const stats2 = this.calculateConfirmationStats(footprint2);
 
+            console.log(`📊 ФИНАЛЬНАЯ СТАТИСТИКА:`);
             console.log(`   След 1: ${stats1.confirmed2}🔴 ${stats1.confirmed1}🔵 ${stats1.confirmed0}⚪`);
             console.log(`   След 2: ${stats2.confirmed2}🔴 ${stats2.confirmed1}🔵 ${stats2.confirmed0}⚪`);
-            console.log(`   Всего точек: след1=${stats1.totalPoints}, след2=${stats2.totalPoints}`);
 
-            // Проверяем доступность ClusterVisualizer
+            // Создаем визуализацию
             let ClusterVisualizer;
             try {
                 ClusterVisualizer = require('./visualizations/cluster-visualizer');
@@ -558,38 +540,90 @@ class SimpleFootprintManager {
                 return null;
             }
 
-            // Создаем визуализатор
             const visualizer = new ClusterVisualizer({
                 outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
                 debug: this.config.debug,
-                forceTextMode: false // Пусть сам определяет наличие canvas
+                forceTextMode: false
             });
 
-            // 🔥 Создаем простую визуализацию
+            // 🔥 ПЕРЕДАЕМ ДАННЫЕ О СОПОСТАВЛЕНИИ
             const vizResult = await visualizer.visualizeTwoFootprintComparison(
                 footprint1,
                 footprint2,
                 {
                     filename: `cluster_comparison_${userId}_${Date.now()}.png`,
-                    mode: 'simple',
+                    mode: 'intelligent',
                     customData: {
                         comparison: comparisonResult,
                         transformationInfo: transformationInfo,
+                        pointAnalysis: pointAnalysis,
                         stats: { stats1, stats2 }
                     }
                 }
             );
 
-            console.log('✅ Кластерная визуализация создана:', vizResult?.path);
+            console.log('✅ Визуализация создана с интеллектуальным сопоставлением:', vizResult?.path);
             return vizResult;
 
         } catch (error) {
-            console.log('❌ Ошибка создания кластерной визуализации:', error.message);
+            console.log('❌ Ошибка создания визуализации:', error.message);
             return null;
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Рассчитать статистику подтверждений для отпечатка
+    // 🔥 НОВЫЙ МЕТОД: Обновить трекеры на основе совпадений
+    updateTrackersBasedOnMatches(footprint1, footprint2, pointAnalysis) {
+        let updated1 = 0;
+        let updated2 = 0;
+
+        console.log(`🎯 Обновляю трекеры на основе ${pointAnalysis.matchCount} совпадений...`);
+
+        // Обновляем трекер 1
+        for (const match of pointAnalysis.matches) {
+            const point1 = footprint1.pointTracker.points.get(match.point1.id);
+            if (point1) {
+                const oldCount = point1.confirmedCount || 0;
+                const newCount = Math.min(5, oldCount + 1);
+               
+                if (newCount > oldCount) {
+                    point1.confirmedCount = newCount;
+                    updated1++;
+                   
+                    if (newCount >= 2 && oldCount < 2) {
+                        console.log(`   🔴 Точка 1/${match.point1.id.slice(0, 8)}: ${oldCount} → ${newCount} подтверждений`);
+                    }
+                }
+            }
+           
+            // Также обновляем трекер 2
+            const point2 = footprint2.pointTracker.points.get(match.point2.id);
+            if (point2) {
+                const oldCount = point2.confirmedCount || 0;
+                const newCount = Math.min(5, oldCount + 1);
+               
+                if (newCount > oldCount) {
+                    point2.confirmedCount = newCount;
+                    updated2++;
+                }
+            }
+        }
+
+        // 🔥 ВАЖНО: Точки, которые НЕ совпали, остаются с 1 подтверждением (синие)
+        // Точки, которые совпали, становятся с 2+ подтверждениями (красные)
+       
+        console.log(`✅ Обновлено: ${updated1} точек в следе 1, ${updated2} в следе 2`);
+       
+        // Статистика по цветам
+        const stats1 = this.calculateConfirmationStats(footprint1);
+        const stats2 = this.calculateConfirmationStats(footprint2);
+       
+        console.log(`📊 ИТОГО:`);
+        console.log(`   • 🔴 Красные (2+): ${stats1.confirmed2} в следе 1, ${stats2.confirmed2} в следе 2`);
+        console.log(`   • 🔵 Синие (1): ${stats1.confirmed1} в следе 1, ${stats2.confirmed1} в следе 2`);
+        console.log(`   • ⚪ Серые (0): ${stats1.confirmed0} в следе 1, ${stats2.confirmed0} в следе 2`);
+    }
+
+    // 🔥 МЕТОД: Рассчитать статистику подтверждений
     calculateConfirmationStats(footprint) {
         if (!footprint || !footprint.pointTracker) {
             return { confirmed2: 0, confirmed1: 0, confirmed0: 0, totalPoints: 0 };
@@ -615,79 +649,19 @@ class SimpleFootprintManager {
             confirmed2,
             confirmed1,
             confirmed0,
-            totalPoints,
-            matchPercentage: totalPoints > 0 ? (confirmed2 / totalPoints * 100) : 0
+            totalPoints
         };
     }
 
-    // 🔥 УПРОЩЕННЫЙ МЕТОД: Получить обновленные точки для визуализации
-    getUpdatedPointsForVisualization(footprint) {
-        const points = [];
-
-        if (!footprint || !footprint.pointTracker) {
-            return points;
-        }
-
-        // Получаем реальные данные из трекера
-        for (const [id, point] of footprint.pointTracker.points) {
-            const confirmations = point.confirmedCount || 0;
-
-            // 🔥 ВАЖНО: Используем те же цвета, что и в getMergedVisualizationData()
-            let color, size;
-            if (confirmations >= 2) {
-                color = '#FF5252'; // 🔴 Красный
-                size = 8 + (point.confidence || 0.5) * 6;
-            } else if (confirmations >= 1) {
-                color = '#2196F3'; // 🔵 Синий
-                size = 6 + (point.confidence || 0.5) * 4;
-            } else {
-                color = '#BDBDBD'; // ⚪ Серый
-                size = 4;
-            }
-
-            points.push({
-                id,
-                x: point.x,
-                y: point.y,
-                color: color,
-                size: size,
-                confirmations: confirmations,
-                confidence: point.rating || point.confidence || 0.5,
-                source: 'tracker_updated'
-            });
-        }
-
-        console.log(`🔄 Обновлено ${points.length} точек для визуализации`);
-        return points;
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Получить фоллбэк данные для визуализации
-    getFallbackVisualizationData(footprint) {
-        return {
-            id: footprint.id,
-            name: footprint.name,
-            totalPhotos: footprint.metadata?.totalPhotos || 0,
-            points: [],
-            clusters: [],
-            confirmationStats: {
-                fromTracker: { total: 0, confirmed2: 0, confirmed1: 0, confirmed0: 0 },
-                fromSuperModel: { total: 0, avgConfirmations: 0, highConfidence: 0 }
-            },
-            merged: false
-        };
-    }
-
-    // 🔥 УПРОЩЕННЫЙ МЕТОД addPhotoToSession с фокусом на исправление
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД addPhotoToSession
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО С ФОКУСОМ НА ИСПРАВЛЕНИЕ КООРДИНАТ`);
+        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО С ИНТЕЛЛЕКТУАЛЬНЫМ СОПОСТАВЛЕНИЕМ`);
 
         try {
-            // Проверяем анализ
             if (!analysis || !analysis.predictions) {
                 return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
             }
 
-            // Извлекаем точки
             const points = this.extractPointsFromAnalysis(analysis);
             if (points.length < 5) {
                 return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
@@ -695,11 +669,11 @@ class SimpleFootprintManager {
 
             console.log(`🔍 Извлечено ${points.length} точек протекторов`);
 
-            // 🔥 ИСПРАВЛЕНИЕ: Создание графа с использованием импортированного SimpleGraph
+            // Создаем граф
             const graph = new SimpleGraph(`Временный_${Date.now()}`);
             graph.buildFromPoints(points);
 
-            // 🔥 ДОБАВЛЕНО: Автоматическая нормализация ориентации
+            // Нормализация
             const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
                 userId: userId,
                 photoInfo: photoInfo,
@@ -708,9 +682,7 @@ class SimpleFootprintManager {
 
             console.log(`📐 Автоповорот: ${normalized.rotationAngle.toFixed(1)}° → 0°`);
             console.log(`🪞 Зеркало: ${normalized.isMirrored ? 'да' : 'нет'}`);
-            console.log(`🦶 Тип: ${normalized.footType || 'неизвестно'}`);
 
-            // 🔥 ДОБАВЛЕНО: Автокоррекция типа следа (все к правому)
             const corrected = this.mirrorDetector.autoCorrectMirroring(
                 normalized.graph,
                 'right'
@@ -720,36 +692,32 @@ class SimpleFootprintManager {
                 console.log(`🔄 Автокоррекция применена: ${corrected.correctionType}`);
             }
 
-            // 🔥 СОХРАНЯЕМ ИНФОРМАЦИЮ О НОРМАЛИЗАЦИИ
+            // Сохраняем информацию о трансформации
             const transformationInfo = {
                 rotationAngle: normalized.rotationAngle,
                 isMirrored: normalized.isMirrored,
                 corrected: corrected.correctionApplied,
-                scale: 1.0, // Пока без масштабирования
+                scale: 1.0,
                 timestamp: new Date(),
-                footType: normalized.footType,
-                originalGraphSize: graph.nodes.size,
-                normalizedGraphSize: normalized.graph.nodes.size
+                footType: normalized.footType
             };
 
-            // Используем корректированный граф для дальнейшей обработки
             const finalGraph = corrected.graph;
 
-            // Получаем или создаем сессию
+            // Получаем сессию
             let session = this.userSessions.get(userId);
             if (!session) {
                 session = this.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-                console.log(`🆕 Создана новая сессия: ${session.id ? session.id.slice(0, 8) : 'unknown'}...`);
+                console.log(`🆕 Создана новая сессия`);
             }
 
-            // Сохраняем информацию о трансформации в сессии
+            // Сохраняем трансформацию
             if (!session.metadata.normalizationHistory) {
                 session.metadata.normalizationHistory = [];
             }
             session.metadata.normalizationHistory.push(transformationInfo);
             session.metadata.lastTransformation = transformationInfo;
 
-            // Обновляем сессию
             session.photos.push({
                 id: `photo_${Date.now()}`,
                 timestamp: new Date(),
@@ -758,7 +726,6 @@ class SimpleFootprintManager {
             });
             session.lastActivity = new Date();
 
-            // 🔥 ИСПРАВЛЕНИЕ: Используем импортированные модули
             const SimpleFootprint = require('./simple-footprint');
 
             // Если нет текущего отпечатка - создаем
@@ -770,10 +737,8 @@ class SimpleFootprintManager {
                     name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`
                 });
 
-                // Сохраняем информацию о трансформации в отпечатке
                 session.currentFootprint.metadata.normalizationInfo = transformationInfo;
 
-                // 🔥 ИСПРАВЛЕНИЕ: Используем addAnalysisHonest
                 const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
                     ...photoInfo,
                     normalizedGraph: finalGraph,
@@ -814,16 +779,13 @@ class SimpleFootprintManager {
             // Есть существующий отпечаток - сравниваем
             console.log(`🔍 Сравниваю с существующим отпечатком (${session.currentFootprint.graph.nodes.size} узлов)`);
 
-            // Создаем временный отпечаток для сравнения
             const tempFootprint = new SimpleFootprint({
                 userId: userId,
                 name: `Temp_${Date.now()}`
             });
 
-            // Сохраняем информацию о трансформации во временном отпечатке
             tempFootprint.metadata.normalizationInfo = transformationInfo;
 
-            // 🔥 ИСПРАВЛЕНИЕ: Используем addAnalysisHonest для временного отпечатка
             const tempResult = tempFootprint.addAnalysisHonest(analysis, {
                 ...photoInfo,
                 normalizedGraph: finalGraph,
@@ -832,7 +794,7 @@ class SimpleFootprintManager {
                 transformationInfo: transformationInfo
             });
 
-            // Сравниваем с использованием поворотной инвариантности
+            // Сравниваем
             const alignmentResult = await this.matcher.compareGraphs(
                 session.currentFootprint.graph,
                 tempFootprint.graph,
@@ -846,51 +808,36 @@ class SimpleFootprintManager {
             let similarity = 0;
             let decision = 'unknown';
 
-            // 🔥 ИСПРАВЛЕНО: Гарантируем возврат similarity
             if (alignmentResult && typeof alignmentResult.similarity === 'number') {
                 similarity = alignmentResult.similarity;
                 decision = alignmentResult.decision || 'unknown';
-                console.log(`📊 Использую direct similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
-            }
-            else if (alignmentResult && alignmentResult.result) {
-                const result = alignmentResult.result;
-                if (typeof result.similarity === 'number') {
-                    similarity = result.similarity;
-                    decision = result.decision || 'unknown';
-                    console.log(`📊 Использую result.similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
-                }
+                console.log(`📊 Similarity: ${similarity.toFixed(3)}, decision: ${decision}`);
             }
 
-            // 🔥 ДОБАВЛЕНО: Универсальное извлечение similarity
             if (similarity === 0 && alignmentResult) {
                 const foundSimilarity = this.extractSimilarityFromObject(alignmentResult);
                 if (foundSimilarity) {
                     similarity = foundSimilarity.value;
                     decision = foundSimilarity.decision || 'unknown';
-                    console.log(`📊 Извлечено similarity: ${similarity.toFixed(3)} из глубины объекта`);
                 }
             }
 
-            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Если similarity все еще NaN или не число, исправляем
             if (isNaN(similarity) || typeof similarity !== 'number') {
-                console.log(`⚠️ similarity не число или NaN: ${similarity}, исправляю на 0`);
                 similarity = 0;
                 decision = 'different';
             }
 
-            // 🔥 ГАРАНТИРОВАННЫЙ РЕЗУЛЬТАТ
             const finalSimilarity = Math.max(0, Math.min(1, similarity));
             const finalDecision = decision !== 'unknown' ? decision :
                                 (finalSimilarity > 0.6 ? 'same' : 'different');
 
             console.log(`🎯 Финальное: similarity=${finalSimilarity.toFixed(3)}, decision=${finalDecision}`);
 
-            // 🔥 УПРОЩЕННАЯ ЛОГИКА:
+            // 🔥 ЛОГИКА: Если следы совпали
             if (finalSimilarity > 0.6 && finalDecision === 'same') {
-                // СЛЕДЫ СОВПАДАЮТ
                 console.log(`✅ Следы совпали (${finalSimilarity.toFixed(3)})`);
 
-                // 🔥 ДОБАВЛЯЕМ: Кластерную визуализацию сравнения
+                // 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ С ИНТЕЛЛЕКТУАЛЬНЫМ СОПОСТАВЛЕНИЕМ
                 let clusterVizResult = null;
                 if (this.config.enableMergeVisualization) {
                     clusterVizResult = await this.createClusterComparisonVisualization(
@@ -902,12 +849,11 @@ class SimpleFootprintManager {
                     );
                 }
 
-                // Получаем векторную модель
+                // Работа с векторной моделью
                 let vectorModel = this.vectorSuperModels.get(userId);
                 let vectorVizPath = null;
 
                 if (!vectorModel) {
-                    // Создаем модель
                     const VectorSuperModel = require('./vector-super-model');
                     vectorModel = new VectorSuperModel({
                         name: `Супер-модель_${String(userId).slice(0, 6)}`,
@@ -917,7 +863,6 @@ class SimpleFootprintManager {
                     });
                     this.vectorSuperModels.set(userId, vectorModel);
 
-                    // Добавляем текущий граф
                     vectorModel.addGraph(
                         session.currentFootprint.graph,
                         session.currentFootprint.id,
@@ -929,7 +874,7 @@ class SimpleFootprintManager {
                 }
 
                 // Добавляем новый граф
-                const addResult = vectorModel.addGraph(
+                vectorModel.addGraph(
                     finalGraph,
                     tempFootprint.id,
                     {
@@ -940,155 +885,92 @@ class SimpleFootprintManager {
                     }
                 );
 
-                if (addResult) {
-                    // 🔥 УПРОЩЕННОЕ ОБНОВЛЕНИЕ: Если следы совпали, делаем точки красными
-                    console.log(`🎯 Следы совпали - обновляю подтверждения...`);
-                   
-                    // Обновляем PointTracker
-                    this.updatePointTrackerFromSuperModel(
-                        userId,
-                        session.currentFootprint,
-                        vectorModel,
-                        transformationInfo
-                    );
+                // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ С ИНТЕЛЛЕКТУАЛЬНЫМ СОПОСТАВЛЕНИЕМ
+                this.updatePointTrackerFromSuperModel(
+                    userId,
+                    session.currentFootprint,
+                    vectorModel,
+                    transformationInfo
+                );
 
-                    // 🔥 ДОПОЛНИТЕЛЬНО: Принудительно делаем точки красными
-                    const makePointsRed = (footprint) => {
-                        if (!footprint.pointTracker) return 0;
+                // Визуализация и отправка в Telegram
+                if (this.config.enableMergeVisualization && vectorModel) {
+                    vectorVizPath = await this.visualizeVectorSuperModel(userId, vectorModel);
 
-                        let updated = 0;
-                        for (const [id, point] of footprint.pointTracker.points) {
-                            if (point.confirmedCount < 2) {
-                                const oldCount = point.confirmedCount || 0;
-                                point.confirmedCount = 2;
-                                point.rating = Math.min(1.0, 0.7 + (point.confidence || 0.5) * 0.3);
-                                updated++;
-                               
-                                if (oldCount < 2) {
-                                    console.log(`   🔴 Точка ${id.slice(0, 8)}: ${oldCount} → ${point.confirmedCount} подтверждений`);
-                                }
-                            }
-                        }
-                        return updated;
-                    };
-
-                    const updated1 = makePointsRed(session.currentFootprint);
-                    const updated2 = makePointsRed(tempFootprint);
-                   
-                    console.log(`✅ Сделано красными: ${updated1} точек в основном следе, ${updated2} во временном`);
-
-                    // Визуализация
-                    if (this.config.enableMergeVisualization && vectorModel) {
-                        vectorVizPath = await this.visualizeVectorSuperModel(userId, vectorModel);
-
-                        // 🔥 ИСПРАВЛЕНИЕ: Отправляем в Telegram прямо здесь
-                        if (bot && chatId && vectorVizPath && vectorVizPath.template) {
-                            try {
-                                const stats = vectorModel.getInfo();
-
-                                // Проверяем что файл существует
-                                if (fs.existsSync(vectorVizPath.template)) {
-                                    await bot.sendPhoto(chatId, vectorVizPath.template, {
-                                        caption: `✅ **Следы совпали - супер-модель обновлена!**\n\n` +
-                                                `🎯 Уверенность: ${(stats.stats.confidence * 100).toFixed(1)}%\n` +
-                                                `📊 Ячеек шаблона: ${stats.template?.cells?.total || 0}\n` +
-                                                `🔄 Подтверждённых: ${stats.template?.cells?.confirmed || 0}\n` +
-                                                `📈 Слияний: ${stats.stats?.totalMerges || 0}\n\n` +
-                                                `🎨 Шаблон протектора с подтверждениями`
-                                    });
-                                    console.log(`✅ Визуализация отправлена в Telegram`);
-
-                                    // 🔥 ИСПРАВЛЕНИЕ: Отправляем тепловую карту, если она есть
-                                    if (vectorVizPath.heatmap && fs.existsSync(vectorVizPath.heatmap)) {
-                                        await bot.sendPhoto(chatId, vectorVizPath.heatmap, {
-                                            caption: `🔥 Тепловая карта подтверждений\n` +
-                                                    `🔴 Высокая теплота (много подтверждений)\n` +
-                                                    `🟡 Средняя теплота\n` +
-                                                    `🔵 Низкая теплота`
-                                        });
-                                        console.log(`🔥 Тепловая карта отправлена в Telegram`);
-                                    }
-                                } else {
-                                    console.log(`❌ Файл не существует: ${vectorVizPath.template}`);
-                                }
-                            } catch (sendError) {
-                                console.log(`❌ Ошибка отправки визуализации: ${sendError.message}`);
-                            }
-                        }
-                    }
-
-                    // 🔥 ОТПРАВЛЯЕМ КЛАСТЕРНУЮ ВИЗУАЛИЗАЦИЮ В TELEGRAM
-                    if (bot && chatId && clusterVizResult && clusterVizResult.path) {
+                    if (bot && chatId && vectorVizPath && vectorVizPath.template) {
                         try {
-                            // Проверяем что файл существует
-                            if (fs.existsSync(clusterVizResult.path)) {
-                                // Получаем статистику
-                                const stats1 = this.calculateConfirmationStats(session.currentFootprint);
-                                const stats2 = this.calculateConfirmationStats(tempFootprint);
-
-                                let caption = `🎯 **СРАВНЕНИЕ СЛЕДОВ**\n\n`;
-                                caption += `📊 Схожесть: ${(finalSimilarity * 100).toFixed(1)}%\n`;
-
-                                caption += `\n📈 **ПОДТВЕРЖДЕНИЯ:**\n`;
-                                caption += `• След 1: ${stats1.confirmed2}🔴 ${stats1.confirmed1}🔵 ${stats1.confirmed0}⚪\n`;
-                                caption += `• След 2: ${stats2.confirmed2}🔴 ${stats2.confirmed1}🔵 ${stats2.confirmed0}⚪\n`;
-
-                                caption += `\n🎨 **ЛЕГЕНДА:**\n`;
-                                caption += `• 🔴 Красный: 2+ подтверждений\n`;
-                                caption += `• 🔵 Синий: 1 подтверждение\n`;
-                                caption += `• ⚪ Серый: 0 подтверждений\n`;
-
-                                await bot.sendPhoto(chatId, clusterVizResult.path, {
-                                    caption: caption,
-                                    parse_mode: 'Markdown'
+                            if (fs.existsSync(vectorVizPath.template)) {
+                                await bot.sendPhoto(chatId, vectorVizPath.template, {
+                                    caption: `✅ **Следы совпали!**\n\n` +
+                                            `🎯 Схожесть: ${(finalSimilarity * 100).toFixed(1)}%\n` +
+                                            `📊 Интеллектуальное сопоставление точек`
                                 });
-
-                                console.log('✅ Кластерная визуализация отправлена в Telegram');
+                                console.log(`✅ Визуализация отправлена в Telegram`);
                             }
                         } catch (sendError) {
-                            console.log('❌ Ошибка отправки кластерной визуализации:', sendError.message);
+                            console.log(`❌ Ошибка отправки: ${sendError.message}`);
                         }
                     }
-
-                    // 🔥 ИСПРАВЛЕННЫЙ ВОЗВРАЩАЕМЫЙ ОБЪЕКТ
-                    const result = {
-                        success: true,
-                        similarity: finalSimilarity,
-                        decision: finalDecision,
-                        nodesAdded: tempResult.added,
-                        hasMergeVisualization: true,
-                        mergeMethod: 'template_based',
-                        templateStats: vectorModel ? vectorModel.getTemplateStats() : null,
-                        visualization: vectorVizPath,
-                        clusterVisualization: clusterVizResult,
-                        message: `✅ След добавлен к шаблону! Сходство: ${(finalSimilarity * 100).toFixed(1)}%`,
-                        transformationInfo: transformationInfo
-                    };
-
-                    console.log(`📊 Результат addPhotoToSession: схожесть=${finalSimilarity.toFixed(3)}, решение=${finalDecision}, точек добавлено=${tempResult.added}`);
-
-                    return result;
                 }
+
+                // Отправка кластерной визуализации
+                if (bot && chatId && clusterVizResult && clusterVizResult.path) {
+                    try {
+                        if (fs.existsSync(clusterVizResult.path)) {
+                            const stats1 = this.calculateConfirmationStats(session.currentFootprint);
+                            const stats2 = this.calculateConfirmationStats(tempFootprint);
+
+                            let caption = `🎯 **СРАВНЕНИЕ СЛЕДОВ**\n\n`;
+                            caption += `📊 Схожесть: ${(finalSimilarity * 100).toFixed(1)}%\n\n`;
+                            caption += `📈 **ПОДТВЕРЖДЕНИЯ:**\n`;
+                            caption += `• 🔴 Красные (2+): ${stats1.confirmed2} в следе 1, ${stats2.confirmed2} в следе 2\n`;
+                            caption += `• 🔵 Синие (1): ${stats1.confirmed1} в следе 1, ${stats2.confirmed1} в следе 2\n\n`;
+                            caption += `🎨 **ИНТЕЛЛЕКТУАЛЬНОЕ СОПОСТАВЛЕНИЕ:**\n`;
+                            caption += `• Точки в обоих фото → 🔴 красные\n`;
+                            caption += `• Точки только в одном → 🔵 синие`;
+
+                            await bot.sendPhoto(chatId, clusterVizResult.path, {
+                                caption: caption,
+                                parse_mode: 'Markdown'
+                            });
+
+                            console.log('✅ Кластерная визуализация отправлена');
+                        }
+                    } catch (sendError) {
+                        console.log('❌ Ошибка отправки кластерной визуализации:', sendError.message);
+                    }
+                }
+
+                const result = {
+                    success: true,
+                    similarity: finalSimilarity,
+                    decision: finalDecision,
+                    nodesAdded: tempResult.added,
+                    hasMergeVisualization: true,
+                    mergeMethod: 'intelligent_matching',
+                    message: `✅ След добавлен! Сходство: ${(finalSimilarity * 100).toFixed(1)}%`,
+                    transformationInfo: transformationInfo
+                };
+
+                console.log(`📊 Результат addPhotoToSession: схожесть=${finalSimilarity.toFixed(3)}, решение=${finalDecision}, точек добавлено=${tempResult.added}`);
+
+                return result;
 
             } else {
                 // СЛЕДЫ РАЗНЫЕ
                 console.log(`🆕 Следы разные (${finalSimilarity.toFixed(3)}) - начинаю новую модель`);
 
-                // Сохраняем текущий отпечаток
                 if (session.currentFootprint.graph.nodes.size >= 10) {
                     this.saveSessionAsModel(userId, `Модель_${new Date().toLocaleTimeString('ru-RU')}`);
                 }
 
-                // Создаем новый отпечаток
                 session.currentFootprint = new SimpleFootprint({
                     userId: userId,
                     name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`
                 });
 
-                // Сохраняем информацию о трансформации в новом отпечатке
                 session.currentFootprint.metadata.normalizationInfo = transformationInfo;
 
-                // 🔥 ИСПРАВЛЕНИЕ: Используем addAnalysisHonest
                 const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
                     ...photoInfo,
                     normalizedGraph: finalGraph,
@@ -1097,7 +979,7 @@ class SimpleFootprintManager {
                     transformationInfo: transformationInfo
                 });
 
-                const result = {
+                return {
                     success: true,
                     similarity: finalSimilarity,
                     decision: finalDecision,
@@ -1105,10 +987,6 @@ class SimpleFootprintManager {
                     nodesAdded: addResult.added,
                     transformationInfo: transformationInfo
                 };
-
-                console.log(`📊 Результат addPhotoToSession (разные следы): схожесть=${finalSimilarity.toFixed(3)}, решение=${finalDecision}`);
-
-                return result;
             }
 
         } catch (error) {
@@ -1118,14 +996,12 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Извлечение similarity из любого объекта
+    // 🔥 МЕТОД: Извлечение similarity из объекта
     extractSimilarityFromObject(obj, path = '') {
         if (!obj || typeof obj !== 'object') return null;
 
-        // Ищем similarity на всех уровнях
         for (const key in obj) {
             if (key === 'similarity' && typeof obj[key] === 'number') {
-                // Ищем decision рядом
                 const decision = obj.decision ||
                                obj.result?.decision ||
                                obj.details?.decision ||
@@ -1147,7 +1023,7 @@ class SimpleFootprintManager {
         return null;
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Визуализация векторной супер-модели
+    // 🔥 МЕТОД: Визуализация векторной супер-модели
     async visualizeVectorSuperModel(userId, vectorModel) {
         console.log(`🎨 Создаю визуализацию ШАБЛОНА...`);
 
@@ -1157,7 +1033,6 @@ class SimpleFootprintManager {
                 return null;
             }
 
-            // 🔥 ПОЛУЧАЕМ ДАННЫЕ ШАБЛОНА
             let templateData = vectorModel.getVisualizationData();
 
             if (!templateData || !templateData.cells || templateData.cells.length === 0) {
@@ -1170,17 +1045,14 @@ class SimpleFootprintManager {
 
             console.log(`📊 Данные шаблона: ${templateData?.cells?.length || 0} ячеек`);
 
-            // 🔥 ИСПОЛЬЗУЕМ TEMPLATE VISUALIZER
             const result = await this.templateVisualizer.visualizeTemplate(templateData, {
                 filename: `template_${userId}_${Date.now()}.png`
             });
 
-            // Также создаем тепловую карту
             const heatmapResult = await this.templateVisualizer.createHeatmap(templateData, {
                 filename: `heatmap_${userId}_${Date.now()}.png`
             });
 
-            // 🔥 ИСПРАВЛЕНИЕ: Извлекаем путь из объекта
             let heatmapPath = heatmapResult;
             if (heatmapResult && typeof heatmapResult === 'object' && heatmapResult.path) {
                 heatmapPath = heatmapResult.path;
@@ -1191,7 +1063,7 @@ class SimpleFootprintManager {
 
             return {
                 template: result.path,
-                heatmap: heatmapPath, // ✅ Теперь точно строка
+                heatmap: heatmapPath,
                 stats: templateData?.stats,
                 templateId: templateData?.templateId
             };
@@ -1203,35 +1075,29 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: обновить подтверждения из векторной модели
-    updateConfirmationsFromVectorModel(footprint, vectorModel) {
-        if (!footprint || !footprint.graph || !vectorModel || !vectorModel.templateBuilder) {
-            return;
-        }
+    // 🔥 МЕТОД: Извлечение точек из анализа
+    extractPointsFromAnalysis(analysis) {
+        const points = [];
+        const predictions = analysis.predictions || [];
 
-        const templateInfo = vectorModel.templateBuilder.getInfo();
-        console.log(`🔧 Обновляю подтверждения в отпечатке из шаблона (${templateInfo.confirmedCells} ячеек)`);
+        predictions.forEach(pred => {
+            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
+                const xs = pred.points.map(p => p.x);
+                const ys = pred.points.map(p => p.y);
 
-        // Просто обновляем счетчик подтверждений в узлах графа
-        footprint.graph.nodes.forEach((node, nodeId) => {
-            // Найти, в какой ячейке находится этот узел
-            for (const [cellId, cell] of vectorModel.templateBuilder.templateCells) {
-                const dx = node.x - cell.center.x;
-                const dy = node.y - cell.center.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < (cell.radius || vectorModel.templateBuilder.config.cellSize / 2)) {
-                    // Узел находится в этой ячейке
-                    if (!node.confirmedCount) node.confirmedCount = 0;
-                    node.confirmedCount = Math.max(node.confirmedCount, cell.confirmations || 1);
-                    node.confidence = cell.confidence || 0.7;
-                    break;
-                }
+                points.push({
+                    x: (Math.min(...xs) + Math.max(...xs)) / 2,
+                    y: (Math.min(...ys) + Math.max(...ys)) / 2,
+                    confidence: pred.confidence || 0.5,
+                    originalPoints: pred.points
+                });
             }
         });
+
+        return points;
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД СОЗДАНИЯ СЕССИИ
+    // 🔥 МЕТОД: Создание сессии
     createSession(userId, name = null) {
         const sessionId = `session_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
@@ -1263,266 +1129,7 @@ class SimpleFootprintManager {
         return session;
     }
 
-    /**
-     * УДАЛИТЬ ВЕКТОРНУЮ СУПЕР-МОДЕЛЬ пользователя
-     */
-    clearVectorSuperModel(userId) {
-        console.log(`🗑️ Очищаю векторную супер-модель для пользователя ${userId}...`);
-
-        const vectorModel = this.vectorSuperModels.get(userId);
-        if (!vectorModel) {
-            console.log(`⚠️ У пользователя ${userId} нет супер-модели`);
-            return { success: false, reason: 'Нет супер-модели' };
-        }
-
-        // Получаем статистику перед удалением
-        const oldStats = vectorModel.getInfo();
-
-        // Удаляем модель
-        this.vectorSuperModels.delete(userId);
-
-        console.log(`✅ Супер-модель удалена: ${oldStats.name}`);
-        console.log(`   📊 Было: ${oldStats.template?.cells?.total || 0} ячеек, ${oldStats.stats?.totalMerges || 0} слияний`);
-
-        return {
-            success: true,
-            deletedModel: oldStats.name,
-            stats: {
-                cells: oldStats.template?.cells?.total || 0,
-                merges: oldStats.stats?.totalMerges || 0,
-                confidence: oldStats.stats?.confidence || 0
-            },
-            timestamp: new Date()
-        };
-    }
-
-    /**
-     * ОЧИСТИТЬ ВСЕ ДАННЫЕ СЕССИИ (супер-модель + отпечаток)
-     */
-    clearUserSessionData(userId) {
-        console.log(`🧹 Полная очистка данных для пользователя ${userId}...`);
-
-        const results = {
-            vectorModel: false,
-            session: false,
-            currentFootprint: false
-        };
-
-        // 1. Удалить векторную супер-модель
-        const vectorModel = this.vectorSuperModels.get(userId);
-        if (vectorModel) {
-            this.vectorSuperModels.delete(userId);
-            results.vectorModel = true;
-            console.log(`✅ Удалена векторная супер-модель`);
-        }
-
-        // 2. Очистить текущий отпечаток в сессии
-        const session = this.userSessions.get(userId);
-        if (session && session.currentFootprint) {
-            const oldFootprintInfo = {
-                id: session.currentFootprint.id,
-                nodes: session.currentFootprint.graph.nodes.size,
-                edges: session.currentFootprint.graph.edges.size
-            };
-
-            session.currentFootprint = null;
-            results.currentFootprint = true;
-
-            console.log(`✅ Удален текущий отпечаток: ${oldFootprintInfo.id}`);
-            console.log(`   📊 Было: ${oldFootprintInfo.nodes} узлов, ${oldFootprintInfo.edges} рёбер`);
-        }
-
-        // 3. Очистить PointTracker в сессии
-        if (session && session.currentFootprint && session.currentFootprint.pointTracker) {
-            const trackerStats = session.currentFootprint.pointTracker.getStats();
-            session.currentFootprint.pointTracker = new (require('./point-tracker'))();
-            console.log(`✅ Очищен PointTracker (было ${trackerStats.totalPoints} точек)`);
-        }
-
-        return {
-            success: results.vectorModel || results.currentFootprint || results.session,
-            results: results,
-            timestamp: new Date()
-        };
-    }
-
-    /**
-     * ПОЛУЧИТЬ ИНФОРМАЦИЮ О СУПЕР-МОДЕЛИ
-     */
-    getVectorSuperModelInfo(userId) {
-        const vectorModel = this.vectorSuperModels.get(userId);
-        if (!vectorModel) {
-            return { exists: false, message: 'Супер-модель не найдена' };
-        }
-
-        const info = vectorModel.getInfo();
-        const templateStats = vectorModel.getTemplateStats ? vectorModel.getTemplateStats() : {};
-
-        return {
-            exists: true,
-            name: info.name,
-            templateId: info.id,
-            stats: {
-                totalCells: info.template?.cells?.total || 0,
-                confirmedCells: info.template?.cells?.confirmed || 0,
-                totalMerges: info.stats?.totalMerges || 0,
-                confidence: info.stats?.confidence || 0,
-                createdAt: info.stats?.createdAt || 'N/A',
-                lastUpdated: info.stats?.lastUpdated || 'N/A'
-            },
-            templateStats: templateStats,
-            hasTemplateBuilder: !!vectorModel.templateBuilder
-        };
-    }
-
-    // ПОЛУЧИТЬ ВЕКТОРНУЮ СУПЕР-МОДЕЛЬ
-    getVectorSuperModel(userId) {
-        return this.vectorSuperModels.get(userId);
-    }
-
-    // Сохранение сессии как модели
-    saveSessionAsModel(userId, modelName = null) {
-        const session = this.userSessions.get(userId);
-        if (!session || !session.currentFootprint) {
-            return { success: false, error: 'Нет активной сессии или отпечатка' };
-        }
-
-        const footprint = session.currentFootprint;
-
-        // Обновляем имя если указано
-        if (modelName) {
-            footprint.name = modelName;
-        }
-
-        // Сохраняем модель
-        const modelPath = path.join(this.config.dbPath, 'models', `${footprint.id}.json`);
-
-        try {
-            const modelData = footprint.toJSON();
-            modelData.metadata.sessionInfo = {
-                sessionId: session.id,
-                photosCount: session.photos.length,
-                confirmedPhotos: session.confirmedPhotos || 0,
-                analysesCount: session.analyses.length,
-                normalizationHistory: session.metadata.normalizationHistory || []
-            };
-
-            fs.writeFileSync(modelPath, JSON.stringify(modelData, null, 2));
-
-            // Добавляем в загруженные модели
-            this.loadedModels.set(footprint.id, footprint);
-            this.systemStats.totalModels = this.loadedModels.size;
-
-            console.log(`💾 Модель сохранена: ${footprint.id} (${footprint.graph.nodes.size} узлов)`);
-
-            // Очищаем сессию
-            this.userSessions.delete(userId);
-
-            return {
-                success: true,
-                modelId: footprint.id,
-                modelName: footprint.name,
-                modelPath: modelPath,
-                modelStats: {
-                    nodes: footprint.graph.nodes.size,
-                    edges: footprint.graph.edges.size,
-                    confidence: footprint.stats.confidence,
-                    confirmedNodes: 0
-                },
-                sessionInfo: {
-                    photos: session.photos.length,
-                    analyses: session.analyses.length,
-                    confirmedPhotos: session.confirmedPhotos || 0
-                }
-            };
-
-        } catch (error) {
-            console.log('❌ Ошибка сохранения модели:', error.message);
-            return { success: false, error: error.message };
-        }
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: ДОБАВЛЕНИЕ ВИЗУАЛИЗАЦИИ ОБЪЕДИНЕНИЯ В ИСТОРИЮ
-    addMergeVisualization(userId, vizInfo) {
-        const history = this.lastMergeVisualizations.get(userId) || [];
-        history.unshift(vizInfo);
-
-        // Ограничиваем историю 10 последними визуализациями
-        if (history.length > 10) {
-            history.pop();
-        }
-
-        this.lastMergeVisualizations.set(userId, history);
-        return history.length;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧЕНИЕ ПОСЛЕДНЕЙ ВИЗУАЛИЗАЦИИ ОБЪЕДИНЕНИЯ
-    getLastMergeVisualization(userId) {
-        const history = this.lastMergeVisualizations.get(userId);
-        return history && history.length > 0 ? history[0] : null;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧЕНИЕ СТАТИСТИКИ ПОДТВЕРЖДЕНИЙ ДЛЯ СЕССИИ
-    getSessionConfirmationStats(userId) {
-        const session = this.userSessions.get(userId);
-        if (!session || !session.currentFootprint) {
-            return null;
-        }
-
-        const footprint = session.currentFootprint;
-
-        // Получаем статистику из отпечатка
-        const stats = {
-            totalNodes: footprint.graph.nodes.size,
-            confirmedNodes: 0,
-            averageConfirmations: 0
-        };
-
-        // Добавляем информацию о сессии
-        return {
-            sessionId: session.id,
-            sessionName: session.name,
-            photosCount: session.photos.length,
-            confirmedPhotos: session.confirmedPhotos || 0,
-            analysesCount: session.analyses.length,
-            footprintStats: stats,
-            lastActivity: session.lastActivity
-        };
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧИЕНИЕ КОЛИЧЕСТВА ВИЗУАЛИЗАЦИЙ ОБЪЕДИНЕНИЯ
-    getMergeVisualizationCount() {
-        let total = 0;
-        for (const [userId, history] of this.lastMergeVisualizations) {
-            total += history.length;
-        }
-        return total;
-    }
-
-    // ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
-
-    // Вспомогательные методы
-    extractPointsFromAnalysis(analysis) {
-        const points = [];
-        const predictions = analysis.predictions || [];
-
-        predictions.forEach(pred => {
-            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
-                const xs = pred.points.map(p => p.x);
-                const ys = pred.points.map(p => p.y);
-
-                points.push({
-                    x: (Math.min(...xs) + Math.max(...xs)) / 2,
-                    y: (Math.min(...ys) + Math.max(...ys)) / 2,
-                    confidence: pred.confidence || 0.5,
-                    originalPoints: pred.points
-                });
-            }
-        });
-
-        return points;
-    }
-
+    // 🔥 МЕТОД: Обеспечение существования директорий
     ensureDirectories() {
         const dirs = [
             this.config.dbPath,
@@ -1540,6 +1147,7 @@ class SimpleFootprintManager {
         });
     }
 
+    // 🔥 МЕТОД: Загрузка существующих моделей
     loadExistingModels() {
         const modelsDir = path.join(this.config.dbPath, 'models');
 
@@ -1574,21 +1182,17 @@ class SimpleFootprintManager {
         console.log(`✅ Загружено ${loadedCount} моделей`);
     }
 
-    // Остальные методы без изменений...
+    // 🔥 МЕТОД: Получение активной сессии
     getActiveSession(userId) {
         return this.userSessions.get(userId);
     }
 
-    getUserModels(userId) {
-        return Array.from(this.loadedModels.values())
-            .filter(model => model.userId === userId)
-            .sort((a, b) => new Date(b.metadata.created) - new Date(a.metadata.created));
+    // 🔥 МЕТОД: Получение векторной супер-модели
+    getVectorSuperModel(userId) {
+        return this.vectorSuperModels.get(userId);
     }
 
-    getModelById(modelId) {
-        return this.loadedModels.get(modelId);
-    }
-
+    // 🔥 МЕТОД: Получение статистики системы
     getSystemStats() {
         return {
             ...this.systemStats,
@@ -1609,6 +1213,206 @@ class SimpleFootprintManager {
         };
     }
 
+    // 🔥 МЕТОД: Получение количества визуализаций объединения
+    getMergeVisualizationCount() {
+        let total = 0;
+        for (const [userId, history] of this.lastMergeVisualizations) {
+            total += history.length;
+        }
+        return total;
+    }
+
+    // 🔥 МЕТОД: Добавление визуализации объединения в историю
+    addMergeVisualization(userId, vizInfo) {
+        const history = this.lastMergeVisualizations.get(userId) || [];
+        history.unshift(vizInfo);
+
+        if (history.length > 10) {
+            history.pop();
+        }
+
+        this.lastMergeVisualizations.set(userId, history);
+        return history.length;
+    }
+
+    // 🔥 МЕТОД: Получение последней визуализации объединения
+    getLastMergeVisualization(userId) {
+        const history = this.lastMergeVisualizations.get(userId);
+        return history && history.length > 0 ? history[0] : null;
+    }
+
+    // 🔥 МЕТОД: Сохранение сессии как модели
+    saveSessionAsModel(userId, modelName = null) {
+        const session = this.userSessions.get(userId);
+        if (!session || !session.currentFootprint) {
+            return { success: false, error: 'Нет активной сессии или отпечатка' };
+        }
+
+        const footprint = session.currentFootprint;
+
+        if (modelName) {
+            footprint.name = modelName;
+        }
+
+        const modelPath = path.join(this.config.dbPath, 'models', `${footprint.id}.json`);
+
+        try {
+            const modelData = footprint.toJSON();
+            modelData.metadata.sessionInfo = {
+                sessionId: session.id,
+                photosCount: session.photos.length,
+                confirmedPhotos: session.confirmedPhotos || 0,
+                analysesCount: session.analyses.length,
+                normalizationHistory: session.metadata.normalizationHistory || []
+            };
+
+            fs.writeFileSync(modelPath, JSON.stringify(modelData, null, 2));
+
+            this.loadedModels.set(footprint.id, footprint);
+            this.systemStats.totalModels = this.loadedModels.size;
+
+            console.log(`💾 Модель сохранена: ${footprint.id} (${footprint.graph.nodes.size} узлов)`);
+
+            this.userSessions.delete(userId);
+
+            return {
+                success: true,
+                modelId: footprint.id,
+                modelName: footprint.name,
+                modelPath: modelPath,
+                modelStats: {
+                    nodes: footprint.graph.nodes.size,
+                    edges: footprint.graph.edges.size,
+                    confidence: footprint.stats.confidence,
+                    confirmedNodes: 0
+                },
+                sessionInfo: {
+                    photos: session.photos.length,
+                    analyses: session.analyses.length,
+                    confirmedPhotos: session.confirmedPhotos || 0
+                }
+            };
+
+        } catch (error) {
+            console.log('❌ Ошибка сохранения модели:', error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // 🔥 МЕТОД: Удаление векторной супер-модели
+    clearVectorSuperModel(userId) {
+        console.log(`🗑️ Очищаю векторную супер-модель для пользователя ${userId}...`);
+
+        const vectorModel = this.vectorSuperModels.get(userId);
+        if (!vectorModel) {
+            console.log(`⚠️ У пользователя ${userId} нет супер-модели`);
+            return { success: false, reason: 'Нет супер-модели' };
+        }
+
+        const oldStats = vectorModel.getInfo();
+
+        this.vectorSuperModels.delete(userId);
+
+        console.log(`✅ Супер-модель удалена: ${oldStats.name}`);
+        console.log(`   📊 Было: ${oldStats.template?.cells?.total || 0} ячеек, ${oldStats.stats?.totalMerges || 0} слияний`);
+
+        return {
+            success: true,
+            deletedModel: oldStats.name,
+            stats: {
+                cells: oldStats.template?.cells?.total || 0,
+                merges: oldStats.stats?.totalMerges || 0,
+                confidence: oldStats.stats?.confidence || 0
+            },
+            timestamp: new Date()
+        };
+    }
+
+    // 🔥 МЕТОД: Очистка всех данных сессии
+    clearUserSessionData(userId) {
+        console.log(`🧹 Полная очистка данных для пользователя ${userId}...`);
+
+        const results = {
+            vectorModel: false,
+            session: false,
+            currentFootprint: false
+        };
+
+        const vectorModel = this.vectorSuperModels.get(userId);
+        if (vectorModel) {
+            this.vectorSuperModels.delete(userId);
+            results.vectorModel = true;
+            console.log(`✅ Удалена векторная супер-модель`);
+        }
+
+        const session = this.userSessions.get(userId);
+        if (session && session.currentFootprint) {
+            const oldFootprintInfo = {
+                id: session.currentFootprint.id,
+                nodes: session.currentFootprint.graph.nodes.size,
+                edges: session.currentFootprint.graph.edges.size
+            };
+
+            session.currentFootprint = null;
+            results.currentFootprint = true;
+
+            console.log(`✅ Удален текущий отпечаток: ${oldFootprintInfo.id}`);
+            console.log(`   📊 Было: ${oldFootprintInfo.nodes} узлов, ${oldFootprintInfo.edges} рёбер`);
+        }
+
+        if (session && session.currentFootprint && session.currentFootprint.pointTracker) {
+            const trackerStats = session.currentFootprint.pointTracker.getStats();
+            session.currentFootprint.pointTracker = new (require('./point-tracker'))();
+            console.log(`✅ Очищен PointTracker (было ${trackerStats.totalPoints} точек)`);
+        }
+
+        return {
+            success: results.vectorModel || results.currentFootprint || results.session,
+            results: results,
+            timestamp: new Date()
+        };
+    }
+
+    // 🔥 МЕТОД: Получение информации о супер-модели
+    getVectorSuperModelInfo(userId) {
+        const vectorModel = this.vectorSuperModels.get(userId);
+        if (!vectorModel) {
+            return { exists: false, message: 'Супер-модель не найдена' };
+        }
+
+        const info = vectorModel.getInfo();
+        const templateStats = vectorModel.getTemplateStats ? vectorModel.getTemplateStats() : {};
+
+        return {
+            exists: true,
+            name: info.name,
+            templateId: info.id,
+            stats: {
+                totalCells: info.template?.cells?.total || 0,
+                confirmedCells: info.template?.cells?.confirmed || 0,
+                totalMerges: info.stats?.totalMerges || 0,
+                confidence: info.stats?.confidence || 0,
+                createdAt: info.stats?.createdAt || 'N/A',
+                lastUpdated: info.stats?.lastUpdated || 'N/A'
+            },
+            templateStats: templateStats,
+            hasTemplateBuilder: !!vectorModel.templateBuilder
+        };
+    }
+
+    // 🔥 МЕТОД: Получение моделей пользователя
+    getUserModels(userId) {
+        return Array.from(this.loadedModels.values())
+            .filter(model => model.userId === userId)
+            .sort((a, b) => new Date(b.metadata.created) - new Date(a.metadata.created));
+    }
+
+    // 🔥 МЕТОД: Получение модели по ID
+    getModelById(modelId) {
+        return this.loadedModels.get(modelId);
+    }
+
+    // 🔥 МЕТОД: Завершение сессии
     endSession(userId, reason = 'manual') {
         const session = this.userSessions.get(userId);
         if (!session) {
@@ -1631,7 +1435,6 @@ class SimpleFootprintManager {
             } : null
         };
 
-        // Удаляем сессию
         this.userSessions.delete(userId);
 
         console.log(`🏁 Сессия завершена: ${session.id.slice(0, 8)}... (${reason})`);
@@ -1639,6 +1442,7 @@ class SimpleFootprintManager {
         return result;
     }
 
+    // 🔥 МЕТОД: Сохранение сессии
     saveSession(userId) {
         const session = this.userSessions.get(userId);
         if (!session) return false;
@@ -1666,7 +1470,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // Визуализация сравнения
+    // 🔥 МЕТОД: Визуализация сравнения
     async visualizeComparison(modelId1, modelId2) {
         try {
             const model1 = this.getModelById(modelId1);
@@ -1695,7 +1499,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // Визуализация сессии
+    // 🔥 МЕТОД: Визуализация сессии
     async visualizeSession(userId) {
         const session = this.getActiveSession(userId);
         if (!session || !session.currentFootprint) {
@@ -1726,7 +1530,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // Поиск похожих моделей
+    // 🔥 МЕТОД: Поиск похожих моделей
     findSimilarModels(footprint, userId, options = {}) {
         const userModels = this.getUserModels(userId);
         const maxResults = options.maxResults || 5;
@@ -1735,7 +1539,7 @@ class SimpleFootprintManager {
         const similarities = [];
 
         userModels.forEach(model => {
-            if (model.id === footprint.id) return; // Пропускаем ту же модель
+            if (model.id === footprint.id) return;
 
             const comparison = footprint.compare(model);
 
@@ -1749,7 +1553,6 @@ class SimpleFootprintManager {
             }
         });
 
-        // Сортировка по схожести
         similarities.sort((a, b) => b.similarity - a.similarity);
 
         return {
@@ -1760,7 +1563,7 @@ class SimpleFootprintManager {
         };
     }
 
-    // Очистка старых сессий
+    // 🔥 МЕТОД: Очистка старых сессий
     cleanupOldSessions(maxAgeHours = 24) {
         const cutoffTime = Date.now() - (maxAgeHours * 60 * 60 * 1000);
         let cleaned = 0;
