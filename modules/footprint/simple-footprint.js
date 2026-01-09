@@ -1,6 +1,6 @@
 // modules/footprint/simple-footprint.js
 // 🔥 ИСПРАВЛЕННАЯ ВЕРСИЯ: addAnalysisHonest теперь правильно строит граф
-// 🔥 ИСПРАВЛЕННЫЙ getMergedVisualizationData() с временным решением
+// 🔥 ИСПРАВЛЕННЫЙ getMergedVisualizationData() с реальными данными (без временного решения)
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -358,7 +358,7 @@ class SimpleFootprint {
         return data;
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Получить объединенные данные для визуализации с временным решением
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Получить объединенные данные для визуализации с РЕАЛЬНЫМИ данными (без временного решения)
     getMergedVisualizationData() {
         console.log(`🔄 Получаю объединенные данные для визуализации...`);
 
@@ -417,26 +417,19 @@ class SimpleFootprint {
             // Например, границы шаблона, зоны и т.д.
         }
 
-        // 🔥 ВРЕМЕННОЕ РЕШЕНИЕ: Если следы совпали (totalPhotos >= 2), показываем красные точки
+        // 🔥 ИСПРАВЛЕНИЕ: Убрано временное решение! Теперь показываем только реальные данные
+        console.log(`📊 РЕАЛЬНАЯ статистика подтверждений:`);
+        console.log(`   • Всего точек: ${data.confirmationStats.fromTracker.total}`);
+        console.log(`   • 🔴 2+ подтверждений: ${data.confirmationStats.fromTracker.confirmed2}`);
+        console.log(`   • 🔵 1 подтверждение: ${data.confirmationStats.fromTracker.confirmed1}`);
+        console.log(`   • ⚪ 0 подтверждений: ${data.confirmationStats.fromTracker.confirmed0}`);
+       
+        // 🔥 Добавляем предупреждение если точек с 2+ подтверждениями мало
         if (this.metadata.totalPhotos >= 2 && data.confirmationStats.fromTracker.confirmed2 === 0) {
-            console.log(`⚠️ ВРЕМЕННОЕ РЕШЕНИЕ: показываю ${data.points.length} красных точек (2+ фото)`);
-
-            // Делаем все точки красными если есть 2+ фото
-            data.points.forEach(point => {
-                point.color = '#FF5252'; // 🔴 Красный
-                point.size = 8;
-                point.confirmations = 2; // Показываем как 2 подтверждения
-            });
-
-            data.confirmationStats.fromTracker.confirmed2 = data.points.length;
-            data.confirmationStats.fromTracker.confirmed1 = 0;
-            data.confirmationStats.fromTracker.confirmed0 = 0;
+            console.log(`⚠️ ВНИМАНИЕ: ${this.metadata.totalPhotos} фото, но 0 точек с 2+ подтверждениями!`);
+            console.log(`   Проверьте updatePointTrackerFromSuperModel в SimpleFootprintManager`);
+            data.warning = `Нужно 2+ фото для подтверждений. Текущие фото: ${this.metadata.totalPhotos}`;
         }
-
-        console.log(`📊 Объединенная статистика:`);
-        console.log(`   🔴 2+ подтверждений: ${data.confirmationStats.fromTracker.confirmed2}`);
-        console.log(`   🔵 1 подтверждение: ${data.confirmationStats.fromTracker.confirmed1}`);
-        console.log(`   ⚪ 0 подтверждений: ${data.confirmationStats.fromTracker.confirmed0}`);
 
         return data;
     }
