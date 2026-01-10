@@ -531,16 +531,16 @@ class SimpleFootprintManager {
                     existingTransformationInfo
                 );
 
-                // 🔥 ВИЗУАЛИЗАЦИЯ СРАВНЕНИЯ (если включено)
+                // 🔥 🔴🔴🔴 ИСПРАВЛЕННЫЙ ВЫЗОВ ВИЗУАЛИЗАТОРА 🔴🔴🔴
                 let clusterVizResult = null;
                 if (this.config.enableMergeVisualization) {
-                    console.log(`🎨 Создаю визуализацию сравнения...`);
-                    clusterVizResult = await this.createSimpleComparisonVisualization(
-                        session.currentFootprint,
-                        tempFootprint,
-                        comparisonResult,
+                    console.log(`🎨 Создаю визуализацию подтверждений...`);
+
+                    // 🔥 ИСПРАВЛЕНИЕ: Используем ОБНОВЛЕННЫЙ след, а не временный!
+                    // Вызываем новый метод visualizeSingleFootprintConfirmations
+                    clusterVizResult = await this.visualizeSingleFootprintConfirmations(
+                        session.currentFootprint, // 🔴 ОБНОВЛЕННЫЙ след (53 точки, все красные)
                         userId,
-                        existingTransformationInfo,
                         currentTransformationInfo
                     );
                 }
@@ -553,26 +553,27 @@ class SimpleFootprintManager {
 
                 // 🔥 ОТПРАВКА В TELEGRAM
                 if (bot && chatId) {
-                    // Отправляем визуализацию сравнения
+                    // Отправляем визуализацию подтверждений
                     if (clusterVizResult && clusterVizResult.path) {
                         try {
                             const stats = this.calculateConfirmationStats(session.currentFootprint);
-                            let caption = `🎯 **СРАВНЕНИЕ СЛЕДОВ**\n\n`;
-                            caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
-                            caption += `📐 Углы: ${existingTransformationInfo?.rotationAngle.toFixed(1)}° vs ${currentTransformationInfo.rotationAngle.toFixed(1)}°\n\n`;
-                            caption += `📈 **ПОДТВЕРЖДЕНИЯ:**\n`;
-                            caption += `• 🔴 Красные (2+): ${stats.confirmed2}\n`;
-                            caption += `• 🔵 Синие (1): ${stats.confirmed1}\n`;
-                            caption += `• ⚪ Серые (0): ${stats.confirmed0}\n\n`;
+                            let caption = `🎯 **ПОДТВЕРЖДЕНИЯ СЛЕДА**\n\n`;
+                            caption += `📊 Сходство с шаблоном: ${(similarity * 100).toFixed(1)}%\n`;
+                            caption += `📐 Угол: ${currentTransformationInfo.rotationAngle.toFixed(1)}°\n\n`;
+                            caption += `📈 **СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:**\n`;
+                            caption += `• Всего точек: ${stats.totalPoints}\n`;
+                            caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
+                            caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
+                            caption += `• ⚪ 0 подтверждений: ${stats.confirmed0}\n\n`;
                             caption += `🔄 Обновлено из шаблона: ${updatedFromTemplate} точек`;
 
                             await bot.sendPhoto(chatId, clusterVizResult.path, {
                                 caption: caption,
                                 parse_mode: 'Markdown'
                             });
-                            console.log('✅ Визуализация сравнения отправлена');
+                            console.log('✅ Визуализация подтверждений отправлена');
                         } catch (sendError) {
-                            console.log('❌ Ошибка отправки сравнения:', sendError.message);
+                            console.log('❌ Ошибка отправки подтверждений:', sendError.message);
                         }
                     }
 
@@ -675,7 +676,36 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ПРОСТАЯ ВИЗУАЛИЗАЦИЯ СРАВНЕНИЯ
+    // 🔥 НОВЫЙ МЕТОД: Визуализация подтверждений ОДНОГО следа
+    async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
+        console.log(`🎨 Визуализация подтверждений для "${footprint.name}"...`);
+
+        try {
+            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
+            const visualizer = new ClusterVisualizer({
+                outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
+                debug: this.config.debug
+            });
+
+            // 🔥 ПРОСТАЯ ВИЗУАЛИЗАЦИЯ: один след, показываем подтверждения
+            const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
+                footprint,
+                {
+                    filename: `confirmations_${userId}_${Date.now()}.png`,
+                    transformationInfo: transformationInfo
+                }
+            );
+
+            console.log('✅ Визуализация подтверждений создана');
+            return vizResult;
+
+        } catch (error) {
+            console.log('❌ Ошибка визуализации подтверждений:', error.message);
+            return null;
+        }
+    }
+
+    // 🔥 ПРОСТАЯ ВИЗУАЛИЗАЦИЯ СРАВНЕНИЯ (оставлен для совместимости)
     async createSimpleComparisonVisualization(footprint1, footprint2, comparisonResult, userId, transformationInfo1, transformationInfo2) {
         console.log(`🎨 Создаю простую визуализацию сравнения...`);
 
