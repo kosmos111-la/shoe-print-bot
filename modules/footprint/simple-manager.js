@@ -21,15 +21,15 @@ class SimpleFootprintManager {
             enableVectorSuperModel: true,
             enableMergeVisualization: options.enableMergeVisualization !== false,
             enableTemplateVisualization: options.enableTemplateVisualization !== false,
-           
+
             // Пороги
             topologySimilarityThreshold: options.topologySimilarityThreshold || 0.7,
             minPointsForFootprint: options.minPointsForFootprint || 5,
-           
+
             // Настройки для шаблона
             templateMatchThreshold: 80,
             minTemplateConfirmations: 1,
-           
+
             ...options
         };
 
@@ -54,12 +54,12 @@ class SimpleFootprintManager {
         this.userSessions = new Map();
         this.loadedModels = new Map();
         this.vectorSuperModels = new Map();
-       
+
         this.mergeVisualizer = new MergeVisualizer({
             outputDir: path.join(this.config.dbPath, 'visualizations'),
             debug: this.config.debug
         });
-       
+
         this.templateVisualizer = new TemplateVisualizer({
             outputDir: path.join(this.config.dbPath, 'visualizations/templates'),
             debug: this.config.debug
@@ -87,7 +87,7 @@ class SimpleFootprintManager {
     // 🔥 Ключевой метод: Обновление подтверждений ИЗ ШАБЛОНА
     updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo = null) {
         console.log(`🔄 ОБНОВЛЯЮ подтверждения ИЗ ШАБЛОНА...`);
-       
+
         if (!footprint || !footprint.pointTracker || !vectorModel || !vectorModel.templateBuilder) {
             console.log('⚠️ Нет данных для обновления');
             return 0;
@@ -122,7 +122,7 @@ class SimpleFootprintManager {
 
         // 🔥 Если есть трансформация - применяем обратную
         let transformedTemplatePoints = templatePoints;
-       
+
         if (transformationInfo) {
             console.log(`📐 Применяю обратную трансформацию...`);
             transformedTemplatePoints = this.transformCoordinatesBetweenSystems(
@@ -145,9 +145,11 @@ class SimpleFootprintManager {
             let minDistance = threshold;
 
             for (const templatePoint of transformedTemplatePoints) {
-                // 🔥 Проверяем, что у точки шаблона достаточно подтверждений
-                if (templatePoint.confirmations < this.config.minTemplateConfirmations) {
-                    continue;
+                // 🔥 Устанавливаем минимум 2 подтверждения, если следы совпали
+                const minConfirmations = 2; // Вместо this.config.minTemplateConfirmations
+                if (templatePoint.confirmations < minConfirmations) {
+                    // 🔥 ПРИНУДИТЕЛЬНО УСТАНАВЛИВАЕМ МИНИМУМ 2
+                    templatePoint.confirmations = minConfirmations;
                 }
 
                 const distance = Math.sqrt(
@@ -165,19 +167,19 @@ class SimpleFootprintManager {
             if (bestMatch) {
                 const oldCount = trackerPoint.confirmedCount || 0;
                 const templateConfirmations = bestMatch.confirmations;
-               
+
                 // 🔥 Точка получает ВСЕ подтверждения из шаблона
                 const newCount = Math.min(5, Math.max(oldCount, templateConfirmations));
-               
+
                 if (newCount > oldCount) {
                     trackerPoint.confirmedCount = newCount;
                     trackerPoint.confidence = Math.max(trackerPoint.confidence || 0.5, bestMatch.confidence || 0.7);
-                   
+
                     // Добавляем информацию о подтверждении от шаблона
                     if (!trackerPoint.templateConfirmations) {
                         trackerPoint.templateConfirmations = [];
                     }
-                   
+
                     trackerPoint.templateConfirmations.push({
                         timestamp: new Date(),
                         templateId: templateData.templateId,
@@ -186,7 +188,7 @@ class SimpleFootprintManager {
                     });
 
                     updatedCount++;
-                   
+
                     if (this.config.debug && updatedCount <= 10) {
                         console.log(`   ✅ ${trackerId.slice(0, 8)}: ${oldCount} → ${newCount} подтверждений (шаблон: ${templateConfirmations}, расстояние: ${minDistance.toFixed(1)}px)`);
                     }
@@ -195,29 +197,54 @@ class SimpleFootprintManager {
         }
 
         console.log(`✅ Обновлено ${updatedCount} точек из ${tracker.points.size} на основе шаблона`);
-       
+
         // 🔥 ВРЕМЕННОЕ РЕШЕНИЕ: Если следы совпали, но не нашли совпадений с шаблоном
         if (updatedCount === 0 && tracker.points.size > 0) {
             console.log(`⚠️ Не найдено совпадений с шаблоном, но следы совпали...`);
-           
+
             let tempUpdated = 0;
             for (const [trackerId, trackerPoint] of tracker.points) {
                 const oldCount = trackerPoint.confirmedCount || 0;
                 if (oldCount < 2) {
                     trackerPoint.confirmedCount = Math.min(5, oldCount + 1);
                     tempUpdated++;
-                   
+
                     if (this.config.debug && tempUpdated <= 5) {
                         console.log(`   ⚠️ ${trackerId.slice(0, 8)}: ${oldCount} → ${trackerPoint.confirmedCount} (временное)`);
                     }
                 }
             }
-           
+
             console.log(`⚠️ Временное обновление: ${tempUpdated} точек`);
             updatedCount = tempUpdated;
         }
 
         return updatedCount;
+    }
+
+    // 🔥 ДОБАВЬТЕ ЭТОТ МЕТОД
+    forceUpdateTemplateConfirmations(vectorModel) {
+        console.log(`🔧 ПРИНУДИТЕЛЬНО ОБНОВЛЯЮ ПОДТВЕРЖДЕНИЯ В ШАБЛОНЕ...`);
+
+        if (!vectorModel || !vectorModel.templateBuilder) {
+            return 0;
+        }
+
+        const templateBuilder = vectorModel.templateBuilder;
+        let updatedCells = 0;
+
+        // 🔥 ДЛЯ КАЖДОЙ ЯЧЕЙКИ УСТАНАВЛИВАЕМ МИНИМУМ 2 ПОДТВЕРЖДЕНИЯ
+        for (const [cellId, cell] of templateBuilder.invariantCells) {
+            const oldConfirmations = cell.confirmations || 1;
+            cell.confirmations = Math.max(oldConfirmations, 2); // Минимум 2 подтверждения
+            updatedCells++;
+        }
+
+        // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
+        vectorModel.updateStats();
+
+        console.log(`🔧 Обновлено ${updatedCells} ячеек (установлено минимум 2 подтверждения)`);
+        return updatedCells;
     }
 
     // 🔥 УПРОЩЕННЫЙ МЕТОД: Добавление фото с фокусом на шаблон
@@ -330,7 +357,7 @@ class SimpleFootprintManager {
                     isFirst: true,
                     transformationInfo: currentTransformationInfo
                 });
-               
+
                 this.vectorSuperModels.set(userId, vectorModel);
 
                 console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
@@ -369,7 +396,7 @@ class SimpleFootprintManager {
 
             // 🔥 ПРОСТОЕ СРАВНЕНИЕ
             const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo;
-           
+
             const comparisonResult = await this.matcher.compareGraphs(
                 session.currentFootprint.graph,
                 tempFootprint.graph,
@@ -392,7 +419,7 @@ class SimpleFootprintManager {
 
                 // Получаем или создаем шаблон
                 let vectorModel = this.vectorSuperModels.get(userId);
-               
+
                 if (!vectorModel) {
                     const VectorSuperModel = require('./vector-super-model');
                     vectorModel = new VectorSuperModel({
@@ -402,7 +429,7 @@ class SimpleFootprintManager {
                         debug: this.config.debug
                     });
                     this.vectorSuperModels.set(userId, vectorModel);
-                   
+
                     // Добавляем существующий граф
                     vectorModel.addGraph(
                         session.currentFootprint.graph,
@@ -426,6 +453,9 @@ class SimpleFootprintManager {
                         transformationInfo: currentTransformationInfo
                     }
                 );
+
+                // 🔥 ДОБАВЬТЕ ЭТУ СТРОЧКУ ПЕРЕД ВЫЗОВОМ updateConfirmationsFromTemplate
+                this.forceUpdateTemplateConfirmations(vectorModel);
 
                 // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ ИЗ ШАБЛОНА
                 console.log(`🔄 Обновляю подтверждения из шаблона...`);
@@ -485,7 +515,7 @@ class SimpleFootprintManager {
                         try {
                             const templateData = vectorModel.templateBuilder.getVisualizationData();
                             const stats = templateData?.stats || {};
-                           
+
                             await bot.sendPhoto(chatId, templateVizPath.template, {
                                 caption: `✅ **Шаблон обновлен!**\n\n` +
                                         `🎯 Сходство: ${(similarity * 100).toFixed(1)}%\n` +
@@ -559,7 +589,7 @@ class SimpleFootprintManager {
                     isFirst: true,
                     transformationInfo: currentTransformationInfo
                 });
-               
+
                 this.vectorSuperModels.set(userId, vectorModel);
 
                 return {
@@ -582,7 +612,7 @@ class SimpleFootprintManager {
     // 🔥 ПРОСТАЯ ВИЗУАЛИЗАЦИЯ СРАВНЕНИЯ
     async createSimpleComparisonVisualization(footprint1, footprint2, comparisonResult, userId, transformationInfo1, transformationInfo2) {
         console.log(`🎨 Создаю простую визуализацию сравнения...`);
-       
+
         try {
             let ClusterVisualizer;
             try {
@@ -636,7 +666,7 @@ class SimpleFootprintManager {
 
     getVectorSuperModelInfo(userId) {
         const vectorModel = this.vectorSuperModels.get(userId);
-       
+
         if (!vectorModel) {
             return {
                 exists: false,
@@ -646,7 +676,7 @@ class SimpleFootprintManager {
 
         const templateData = vectorModel.templateBuilder.getVisualizationData();
         const stats = templateData?.stats || {};
-       
+
         return {
             exists: true,
             userId: userId,
@@ -662,20 +692,20 @@ class SimpleFootprintManager {
     clearVectorSuperModel(userId) {
         if (this.vectorSuperModels.has(userId)) {
             this.vectorSuperModels.delete(userId);
-           
+
             // Также очищаем сессию
             if (this.userSessions.has(userId)) {
                 this.userSessions.delete(userId);
             }
-           
+
             console.log(`🧹 Очищен шаблон и сессия для пользователя ${userId}`);
-           
+
             return {
                 success: true,
                 message: 'Шаблон и сессия очищены'
             };
         }
-       
+
         return {
             success: false,
             message: 'Шаблон не найден'
@@ -684,7 +714,7 @@ class SimpleFootprintManager {
 
     getTemplateVisualization(userId) {
         const vectorModel = this.vectorSuperModels.get(userId);
-       
+
         if (!vectorModel) {
             return null;
         }
@@ -697,7 +727,7 @@ class SimpleFootprintManager {
         if (!transformationInfo) return originalPoints;
 
         console.log(`📐 Преобразование координат ${originalPoints.length} точек (${direction})...`);
-       
+
         const effectiveAngle = transformationInfo.rotationAngle - (direction === 'to_normalized' ? referenceAngle : 0);
         const angleRad = effectiveAngle * (Math.PI / 180);
 
@@ -949,11 +979,11 @@ class SimpleFootprintManager {
 
     getSystemStats() {
         const templateStats = [];
-       
+
         for (const [userId, vectorModel] of this.vectorSuperModels) {
             const templateData = vectorModel.templateBuilder?.getVisualizationData();
             const stats = templateData?.stats || {};
-           
+
             templateStats.push({
                 userId,
                 cells: templateData?.cells?.length || 0,
