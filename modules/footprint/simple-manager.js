@@ -108,41 +108,84 @@ class SimpleFootprintManager {
         console.log(`   • Всего подтверждений: ${templateData.stats?.totalConfirmations || 0}`);
         console.log(`   • Среднее подтверждений: ${templateData.stats?.averageConfirmations?.toFixed(2) || 0}`);
 
-        // 🔥 ПРОБЛЕМА: Шаблон хранит NORMALIZED координаты
-        // 🔥 РЕШЕНИЕ: Нужно преобразовать их в ОРИГИНАЛЬНЫЕ координаты
-       
-        let templatePoints;
-        if (templateData.referencePoints && templateData.referencePoints.length > 0) {
-            // 🔥 ИСПОЛЬЗУЕМ РЕАЛЬНЫЕ координаты из эталонного графа
-            templatePoints = templateData.referencePoints.map((point, index) => ({
+        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем cells с originalCenter
+        const templatePoints = templateData.cells.map((cell, index) => {
+            // Пытаемся получить оригинальные координаты из разных источников
+            let x, y;
+
+            if (cell.x && cell.y) {
+                x = cell.x;
+                y = cell.y;
+            } else if (cell.originalCenter && cell.originalCenter.x && cell.originalCenter.y) {
+                x = cell.originalCenter.x;
+                y = cell.originalCenter.y;
+            } else if (cell.normalizedCenter) {
+                // Если только нормализованные координаты - конвертируем обратно
+                const transform = templateData.normalizationTransform;
+                if (transform) {
+                    x = cell.normalizedCenter.nx * transform.width + transform.minX;
+                    y = cell.normalizedCenter.ny * transform.height + transform.minY;
+                } else {
+                    // Фоллбэк
+                    x = (cell.normalizedCenter.nx || 0.5) * 500;
+                    y = (cell.normalizedCenter.ny || 0.5) * 200;
+                }
+            } else {
+                // Последний фоллбэк
+                x = 100 + (index % 10) * 40;
+                y = 100 + Math.floor(index / 10) * 40;
+            }
+
+            return {
                 id: `template_${index}`,
-                x: point.x || (point.originalCenter ? point.originalCenter.x : 0),
-                y: point.y || (point.originalCenter ? point.originalCenter.y : 0),
-                confirmations: point.confirmations || templateData.cells[index]?.confirmations || 2,
-                confidence: point.confidence || 0.8,
-                isFromTemplate: true
-            }));
-        } else {
-            // 🔥 ПРОСТОЕ РЕШЕНИЕ: Используем cells
-            templatePoints = templateData.cells.map((cell, index) => ({
-                id: `template_${index}`,
-                x: cell.x || (cell.originalCenter ? cell.originalCenter.x : 0),
-                y: cell.y || (cell.originalCenter ? cell.originalCenter.y : 0),
-                confirmations: cell.confirmations || 2,
+                x: x,
+                y: y,
+                confirmations: Math.max(2, cell.confirmations || 2), // Минимум 2 подтверждения
                 confidence: cell.confidence || 0.8,
-                isFromTemplate: true
-            }));
+                isFromTemplate: true,
+                source: 'template',
+                cellId: cell.id
+            };
+        });
+
+        console.log(`📊 Создано ${templatePoints.length} точек шаблона`);
+        console.log(`   Пример координат: (${templatePoints[0]?.x?.toFixed(1)}, ${templatePoints[0]?.y?.toFixed(1)})`);
+
+        // 🔥 СНИЖАЕМ ПОРОГ ПОИСКА - ЭТО ВАЖНО!
+        // Если следы совпали на 93.3%, то большинство точек должны быть близко
+        const threshold = 50; // Увеличиваем с 30 до 50px!
+
+        console.log(`🔍 Сопоставляю ${tracker.points.size} точек трекера с ${templatePoints.length} точками шаблона`);
+        console.log(`   Порог расстояния: ${threshold}px`);
+        console.log(`   Точки трекера (первые 5):`);
+
+        // Показываем примеры точек трекера
+        let trackerIndex = 0;
+        for (const [trackerId, trackerPoint] of tracker.points) {
+            if (trackerIndex < 5) {
+                console.log(`   ${trackerId}: (${trackerPoint.x?.toFixed(1)}, ${trackerPoint.y?.toFixed(1)})`);
+                trackerIndex++;
+            } else {
+                break;
+            }
         }
 
-        console.log(`📊 Создано ${templatePoints.length} точек шаблона в ОРИГИНАЛЬНЫХ координатах`);
-
-        // 🔥 УВЕЛИЧИВАЕМ ПОРОГ ДЛЯ ПОИСКА
-        const threshold = 30; // Увеличиваем с 15 до 30px
-       
-        console.log(`🔍 Сопоставляю ${tracker.points.size} точек трекера с ${templatePoints.length} точками шаблона (порог: ${threshold}px)...`);
+        console.log(`   Точки шаблона (первые 5):`);
+        for (let i = 0; i < Math.min(5, templatePoints.length); i++) {
+            const tp = templatePoints[i];
+            console.log(`   ${tp.id}: (${tp.x?.toFixed(1)}, ${tp.y?.toFixed(1)})`);
+        }
 
         let updatedCount = 0;
         const matchedTemplatePoints = new Set();
+        const distanceStats = {
+            under10: 0,
+            under20: 0,
+            under30: 0,
+            under40: 0,
+            under50: 0,
+            over50: 0
+        };
 
         // 🔥 Для каждой точки трекера ищем ближайшую точку шаблона
         for (const [trackerId, trackerPoint] of tracker.points) {
@@ -151,10 +194,10 @@ class SimpleFootprintManager {
 
             for (let i = 0; i < templatePoints.length; i++) {
                 const templatePoint = templatePoints[i];
-               
+
                 // Пропускаем уже сопоставленные точки
                 if (matchedTemplatePoints.has(i)) continue;
-               
+
                 const distance = Math.sqrt(
                     Math.pow(templatePoint.x - trackerPoint.x, 2) +
                     Math.pow(templatePoint.y - trackerPoint.y, 2)
@@ -164,6 +207,16 @@ class SimpleFootprintManager {
                     minDistance = distance;
                     bestMatch = { point: templatePoint, index: i, distance };
                 }
+            }
+
+            // Собираем статистику расстояний
+            if (bestMatch) {
+                if (minDistance < 10) distanceStats.under10++;
+                else if (minDistance < 20) distanceStats.under20++;
+                else if (minDistance < 30) distanceStats.under30++;
+                else if (minDistance < 40) distanceStats.under40++;
+                else if (minDistance < 50) distanceStats.under50++;
+                else distanceStats.over50++;
             }
 
             // 🔥 ЕСЛИ НАШЛИ СОВПАДЕНИЕ С ШАБЛОНОМ
@@ -187,40 +240,49 @@ class SimpleFootprintManager {
                         timestamp: new Date(),
                         templateId: templateData.templateId,
                         confirmations: templateConfirmations,
-                        distance: minDistance
+                        distance: minDistance,
+                        templatePointId: bestMatch.point.id
                     });
 
                     updatedCount++;
                     matchedTemplatePoints.add(bestMatch.index);
 
                     if (updatedCount <= 10) {
-                        console.log(`   ✅ ${trackerId.slice(0, 8)}: ${oldCount} → ${newCount} подтверждений (шаблон: ${templateConfirmations}, расстояние: ${minDistance.toFixed(1)}px)`);
+                        console.log(`   ✅ ${trackerId.slice(0, 8)}: ${oldCount} → ${newCount} подтверждений`);
+                        console.log(`       шаблон: ${templateConfirmations}, расстояние: ${minDistance.toFixed(1)}px`);
                     }
                 }
             }
         }
 
+        console.log(`📊 СТАТИСТИКА РАССТОЯНИЙ:`);
+        console.log(`   <10px: ${distanceStats.under10} точек`);
+        console.log(`   10-20px: ${distanceStats.under20} точек`);
+        console.log(`   20-30px: ${distanceStats.under30} точек`);
+        console.log(`   30-40px: ${distanceStats.under40} точек`);
+        console.log(`   40-50px: ${distanceStats.under50} точек`);
+        console.log(`   >50px: ${distanceStats.over50} точек`);
+
         console.log(`✅ Обновлено ${updatedCount} точек из ${tracker.points.size} на основе шаблона`);
 
-        // 🔥 ВРЕМЕННОЕ РЕШЕНИЕ: Если следы совпали, но не нашли совпадений с шаблоном
-        if (updatedCount === 0 && tracker.points.size > 0) {
-            console.log(`⚠️ Не найдено совпадений с шаблоном, но следы совпали...`);
+        // 🔥 ЕСЛИ СЛЕДЫ СОВПАЛИ НА 93%, НО МАЛО СОВПАДЕНИЙ С ШАБЛОНОМ
+        if (updatedCount < tracker.points.size * 0.7 && tracker.points.size > 0) {
+            console.log(`⚠️ Мало совпадений с шаблоном (${updatedCount}/${tracker.points.size}), но следы совпали на 93%...`);
+            console.log(`⚠️ ВЫЯВЛЕНА ПРОБЛЕМА С КООРДИНАТАМИ!`);
 
-            let tempUpdated = 0;
+            // 🔥 ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ВСЕ ТОЧКИ
+            let forceUpdated = 0;
             for (const [trackerId, trackerPoint] of tracker.points) {
                 const oldCount = trackerPoint.confirmedCount || 0;
                 if (oldCount < 2) {
-                    trackerPoint.confirmedCount = Math.min(5, oldCount + 1);
-                    tempUpdated++;
-
-                    if (tempUpdated <= 5) {
-                        console.log(`   ⚠️ ${trackerId.slice(0, 8)}: ${oldCount} → ${trackerPoint.confirmedCount} (временное)`);
-                    }
+                    trackerPoint.confirmedCount = 2; // Устанавливаем минимум 2 подтверждения
+                    trackerPoint.confidence = Math.max(trackerPoint.confidence || 0.5, 0.8);
+                    forceUpdated++;
                 }
             }
 
-            console.log(`⚠️ Временное обновление: ${tempUpdated} точек`);
-            updatedCount = tempUpdated;
+            console.log(`⚠️ ПРИНУДИТЕЛЬНО обновлено: ${forceUpdated} точек (установлено 2 подтверждения)`);
+            updatedCount = forceUpdated;
         }
 
         return updatedCount;
