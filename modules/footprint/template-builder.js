@@ -60,6 +60,58 @@ class TemplateBuilder {
         console.log(`🏗️ Создан TemplateBuilder "${this.name}" с инвариантностью`);
     }
 
+    // 🔥 ДОБАВЛЕННЫЙ МЕТОД ИЗ ИНСТРУКЦИИ
+    getVisualizationData() {
+        const cellsArray = [];
+
+        let totalConfirmations = 0;  // 🔥 ДОБАВИТЬ
+        let totalCells = 0;          // 🔥 ДОБАВИТЬ
+
+        for (const [cellId, cell] of this.invariantCells) {
+            const confirmations = cell.confirmations || 1;  // 🔥 УБЕДИТЕСЬ, что есть значение
+            totalConfirmations += confirmations;            // 🔥 СУММИРУЕМ
+            totalCells++;                                   // 🔥 СЧИТАЕМ
+
+            cellsArray.push({
+                id: cellId,
+                x: cell.originalCenter.x,
+                y: cell.originalCenter.y,
+                nx: cell.normalizedCenter.nx,
+                ny: cell.normalizedCenter.ny,
+                radius: cell.radius * 100,
+                confirmations: confirmations,               // 🔥 ПЕРЕДАЕМ корректное значение
+                confidence: cell.confidence || 0.7,
+                sources: cell.sources ? Array.from(cell.sources) : [],
+                pointCount: cell.points ? cell.points.length : 0,
+                isHighConfidence: cell.confirmations >= this.config.highConfidenceThreshold,
+                invariants: cell.invariants ? 'present' : 'none'
+            });
+        }
+
+        // 🔥 ДОБАВИТЬ правильную статистику
+        return {
+            templateId: this.id,
+            name: this.name,
+            referenceGraphId: this.referenceGraphId,
+            cells: cellsArray,
+            stats: {
+                totalCells: totalCells,
+                totalConfirmations: totalConfirmations,                // 🔥 ДОБАВИТЬ!
+                averageConfirmations: totalCells > 0 ?
+                    totalConfirmations / totalCells : 0,               // 🔥 ВЫЧИСЛИТЬ!
+                confirmedCells: cellsArray.filter(c => c.confirmations > 1).length,
+                highConfidenceCells: cellsArray.filter(c => c.confidence > 0.8).length,
+                ...this.stats,
+                cellCount: this.invariantCells.size,
+                avgConfirmations: this.stats.avgConfirmations,
+                invariantCells: this.invariantCells.size
+            },
+            referencePoints: this.normalizedReferencePoints,
+            transformationsCount: this.graphTransformations.size,
+            normalizationTransform: this.normalizationTransform
+        };
+    }
+
     // 🔥 ОБЕСПЕЧИВАЕМ СОВМЕСТИМУЮ НОРМАЛИЗАЦИЮ (как в инструкции)
     normalizeReferencePoints() {
         if (this.referencePoints.length === 0) return;
@@ -496,48 +548,6 @@ class TemplateBuilder {
         this.stats.highConfidenceCells = highConfidenceCells;
         this.stats.avgConfirmations = this.invariantCells.size > 0 ?
             totalConfirmations / this.invariantCells.size : 0;
-    }
-
-    getVisualizationData() {
-        const cellsArray = [];
-
-        for (const [cellId, cell] of this.invariantCells) {
-            cellsArray.push({
-                id: cellId,
-                x: cell.originalCenter.x,
-                y: cell.originalCenter.y,
-                nx: cell.normalizedCenter.nx,
-                ny: cell.normalizedCenter.ny,
-                radius: cell.radius * 100,
-                confirmations: cell.confirmations || 0,
-                confidence: cell.confidence || 0,
-                sources: cell.sources ? Array.from(cell.sources) : [],
-                pointCount: cell.points ? cell.points.length : 0,
-                isHighConfidence: cell.confirmations >= this.config.highConfidenceThreshold,
-                invariants: cell.invariants ? 'present' : 'none'
-            });
-        }
-
-        // Рассчитать статистику по зонам
-        const zones = this.calculateZones();
-
-        return {
-            templateId: this.id,
-            name: this.name,
-            referenceGraphId: this.referenceGraphId,
-            cells: cellsArray,
-            stats: {
-                ...this.stats,
-                zones: zones,
-                cellCount: this.invariantCells.size,
-                highConfidenceCells: cellsArray.filter(c => c.isHighConfidence).length,
-                avgConfirmations: this.stats.avgConfirmations,
-                invariantCells: this.invariantCells.size
-            },
-            referencePoints: this.normalizedReferencePoints,
-            transformationsCount: this.graphTransformations.size,
-            normalizationTransform: this.normalizationTransform
-        };
     }
 
     calculateZones() {
