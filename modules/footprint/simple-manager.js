@@ -1,5 +1,5 @@
 // modules/footprint/simple-manager.js
-// 🔥 УПРОЩЕННАЯ ЛОГИКА с сохранением всех необходимых методов
+// 🔥 УПРОЩЕННАЯ ЛОГИКА с ЧЕСТНЫМИ ПОДТВЕРЖДЕНИЯМИ
 
 const fs = require('fs');
 const path = require('path');
@@ -81,10 +81,10 @@ class SimpleFootprintManager {
         this.ensureDirectories();
         this.loadExistingModels();
 
-        console.log(`🚀 SimpleFootprintManager с упрощенной логикой`);
+        console.log(`🚀 SimpleFootprintManager с ЧЕСТНЫМИ подтверждениями`);
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Обновление подтверждений ИЗ ШАБЛОНА
+    // 🔥 ПРАВИЛЬНЫЙ МЕТОД: Обновление подтверждений ИЗ ШАБЛОНА
     updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo = null) {
         console.log(`🔄 ОБНОВЛЯЮ подтверждения ИЗ ШАБЛОНА...`);
 
@@ -103,12 +103,12 @@ class SimpleFootprintManager {
             return 0;
         }
 
-        console.log(`📊 Данные шаблона:`);
+        console.log(`📊 Данные шаблона (ЧЕСТНЫЕ):`);
         console.log(`   • Ячеек: ${templateData.cells.length}`);
         console.log(`   • Всего подтверждений: ${templateData.stats?.totalConfirmations || 0}`);
         console.log(`   • Среднее подтверждений: ${templateData.stats?.averageConfirmations?.toFixed(2) || 0}`);
 
-        // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем cells с originalCenter
+        // 🔥 ЧЕСТНЫЕ ПОДТВЕРЖДЕНИЯ: берем ТОЛЬКО реальные подтверждения из шаблона
         const templatePoints = templateData.cells.map((cell, index) => {
             // Пытаемся получить оригинальные координаты из разных источников
             let x, y;
@@ -136,11 +136,14 @@ class SimpleFootprintManager {
                 y = 100 + Math.floor(index / 10) * 40;
             }
 
+            // 🔥 ЧЕСТНЫЕ ПОДТВЕРЖДЕНИЯ: берем ТОЛЬКО реальные!
+            const realConfirmations = cell.confirmations || 1; // Не накручиваем!
+
             return {
                 id: `template_${index}`,
                 x: x,
                 y: y,
-                confirmations: Math.max(2, cell.confirmations || 2), // Минимум 2 подтверждения
+                confirmations: realConfirmations, // 🔥 РЕАЛЬНЫЕ данные
                 confidence: cell.confidence || 0.8,
                 isFromTemplate: true,
                 source: 'template',
@@ -148,33 +151,14 @@ class SimpleFootprintManager {
             };
         });
 
-        console.log(`📊 Создано ${templatePoints.length} точек шаблона`);
+        console.log(`📊 Создано ${templatePoints.length} точек шаблона (${templatePoints.filter(p => p.confirmations >= 2).length} с 2+ подтверждениями)`);
         console.log(`   Пример координат: (${templatePoints[0]?.x?.toFixed(1)}, ${templatePoints[0]?.y?.toFixed(1)})`);
 
-        // 🔥 СНИЖАЕМ ПОРОГ ПОИСКА - ЭТО ВАЖНО!
-        // Если следы совпали на 93.3%, то большинство точек должны быть близко
-        const threshold = 50; // Увеличиваем с 30 до 50px!
+        // 🔥 РЕАЛИСТИЧНЫЙ ПОРОГ
+        const threshold = 50; // 50px
 
         console.log(`🔍 Сопоставляю ${tracker.points.size} точек трекера с ${templatePoints.length} точками шаблона`);
         console.log(`   Порог расстояния: ${threshold}px`);
-        console.log(`   Точки трекера (первые 5):`);
-
-        // Показываем примеры точек трекера
-        let trackerIndex = 0;
-        for (const [trackerId, trackerPoint] of tracker.points) {
-            if (trackerIndex < 5) {
-                console.log(`   ${trackerId}: (${trackerPoint.x?.toFixed(1)}, ${trackerPoint.y?.toFixed(1)})`);
-                trackerIndex++;
-            } else {
-                break;
-            }
-        }
-
-        console.log(`   Точки шаблона (первые 5):`);
-        for (let i = 0; i < Math.min(5, templatePoints.length); i++) {
-            const tp = templatePoints[i];
-            console.log(`   ${tp.id}: (${tp.x?.toFixed(1)}, ${tp.y?.toFixed(1)})`);
-        }
 
         let updatedCount = 0;
         const matchedTemplatePoints = new Set();
@@ -221,11 +205,11 @@ class SimpleFootprintManager {
 
             // 🔥 ЕСЛИ НАШЛИ СОВПАДЕНИЕ С ШАБЛОНОМ
             if (bestMatch) {
-                const oldCount = trackerPoint.confirmedCount || 0;
+                const oldCount = trackerPoint.confirmedCount || 1; // 🔥 Минимум 1 (свое фото)
                 const templateConfirmations = bestMatch.point.confirmations;
 
-                // 🔥 Точка получает ВСЕ подтверждения из шаблона
-                const newCount = Math.min(5, Math.max(oldCount, templateConfirmations));
+                // 🔥 ЧЕСТНАЯ ЛОГИКА: точка получает МАКСИМУМ из своего и шаблона
+                const newCount = Math.max(oldCount, templateConfirmations);
 
                 if (newCount > oldCount) {
                     trackerPoint.confirmedCount = newCount;
@@ -247,7 +231,7 @@ class SimpleFootprintManager {
                     updatedCount++;
                     matchedTemplatePoints.add(bestMatch.index);
 
-                    if (updatedCount <= 10) {
+                    if (updatedCount <= 5) { // Показываем только первые 5
                         console.log(`   ✅ ${trackerId.slice(0, 8)}: ${oldCount} → ${newCount} подтверждений`);
                         console.log(`       шаблон: ${templateConfirmations}, расстояние: ${minDistance.toFixed(1)}px`);
                     }
@@ -265,57 +249,22 @@ class SimpleFootprintManager {
 
         console.log(`✅ Обновлено ${updatedCount} точек из ${tracker.points.size} на основе шаблона`);
 
-        // 🔥 ЕСЛИ СЛЕДЫ СОВПАЛИ НА 93%, НО МАЛО СОВПАДЕНИЙ С ШАБЛОНОМ
-        if (updatedCount < tracker.points.size * 0.7 && tracker.points.size > 0) {
-            console.log(`⚠️ Мало совпадений с шаблоном (${updatedCount}/${tracker.points.size}), но следы совпали на 93%...`);
-            console.log(`⚠️ ВЫЯВЛЕНА ПРОБЛЕМА С КООРДИНАТАМИ!`);
-
-            // 🔥 ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ВСЕ ТОЧКИ
-            let forceUpdated = 0;
-            for (const [trackerId, trackerPoint] of tracker.points) {
-                const oldCount = trackerPoint.confirmedCount || 0;
-                if (oldCount < 2) {
-                    trackerPoint.confirmedCount = 2; // Устанавливаем минимум 2 подтверждения
-                    trackerPoint.confidence = Math.max(trackerPoint.confidence || 0.5, 0.8);
-                    forceUpdated++;
-                }
-            }
-
-            console.log(`⚠️ ПРИНУДИТЕЛЬНО обновлено: ${forceUpdated} точек (установлено 2 подтверждения)`);
-            updatedCount = forceUpdated;
+        // 🔥 НИКАКОГО ПРИНУДИТЕЛЬНОГО ОБНОВЛЕНИЯ!
+        // Если мало совпадений - значит шаблон не готов или следы разные
+        if (updatedCount < tracker.points.size * 0.3 && tracker.points.size > 0) {
+            console.log(`⚠️ Мало совпадений с шаблоном (${updatedCount}/${tracker.points.size})`);
+            console.log(`ℹ️  Возможно, шаблон еще не готов или следы не совпадают достаточно точно`);
         }
 
         return updatedCount;
     }
 
-    // 🔥 ДОБАВЬТЕ ЭТОТ МЕТОД
-    forceUpdateTemplateConfirmations(vectorModel) {
-        console.log(`🔧 ПРИНУДИТЕЛЬНО ОБНОВЛЯЮ ПОДТВЕРЖДЕНИЯ В ШАБЛОНЕ...`);
-
-        if (!vectorModel || !vectorModel.templateBuilder) {
-            return 0;
-        }
-
-        const templateBuilder = vectorModel.templateBuilder;
-        let updatedCells = 0;
-
-        // 🔥 ДЛЯ КАЖДОЙ ЯЧЕЙКИ УСТАНАВЛИВАЕМ МИНИМУМ 2 ПОДТВЕРЖДЕНИЯ
-        for (const [cellId, cell] of templateBuilder.invariantCells) {
-            const oldConfirmations = cell.confirmations || 1;
-            cell.confirmations = Math.max(oldConfirmations, 2); // Минимум 2 подтверждения
-            updatedCells++;
-        }
-
-        // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
-        vectorModel.updateStats();
-
-        console.log(`🔧 Обновлено ${updatedCells} ячеек (установлено минимум 2 подтверждения)`);
-        return updatedCells;
-    }
+    // 🔥 УБИРАЕМ ФЭЙКОВЫЙ МЕТОД forceUpdateTemplateConfirmations
+    // Он создает нечестные подтверждения!
 
     // 🔥 УПРОЩЕННЫЙ МЕТОД: Добавление фото с фокусом на шаблон
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО (упрощенная логика)`);
+        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО (ЧЕСТНЫЕ подтверждения)`);
 
         try {
             if (!analysis || !analysis.predictions) {
@@ -520,10 +469,10 @@ class SimpleFootprintManager {
                     }
                 );
 
-                // 🔥 ДОБАВЬТЕ ЭТУ СТРОЧКУ ПЕРЕД ВЫЗОВОМ updateConfirmationsFromTemplate
-                this.forceUpdateTemplateConfirmations(vectorModel);
+                // 🔥 УБИРАЕМ ФЭЙКОВОЕ ОБНОВЛЕНИЕ!
+                // this.forceUpdateTemplateConfirmations(vectorModel); // ❌ УДАЛЕНО!
 
-                // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ ИЗ ШАБЛОНА
+                // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ ИЗ ШАБЛОНА (ЧЕСТНЫЕ)
                 console.log(`🔄 Обновляю подтверждения из шаблона...`);
                 const updatedFromTemplate = this.updateConfirmationsFromTemplate(
                     session.currentFootprint,
@@ -531,15 +480,14 @@ class SimpleFootprintManager {
                     existingTransformationInfo
                 );
 
-                // 🔥 🔴🔴🔴 ИСПРАВЛЕННЫЙ ВЫЗОВ ВИЗУАЛИЗАТОРА 🔴🔴🔴
+                // 🔥 ВИЗУАЛИЗАЦИЯ ПОДТВЕРЖДЕНИЙ
                 let clusterVizResult = null;
                 if (this.config.enableMergeVisualization) {
                     console.log(`🎨 Создаю визуализацию подтверждений...`);
 
-                    // 🔥 ИСПРАВЛЕНИЕ: Используем ОБНОВЛЕННЫЙ след, а не временный!
-                    // Вызываем новый метод visualizeSingleFootprintConfirmations
+                    // Используем ОБНОВЛЕННЫЙ след
                     clusterVizResult = await this.visualizeSingleFootprintConfirmations(
-                        session.currentFootprint, // 🔴 ОБНОВЛЕННЫЙ след (53 точки, все красные)
+                        session.currentFootprint, // 🔴 ОБНОВЛЕННЫЙ след
                         userId,
                         currentTransformationInfo
                     );
@@ -560,11 +508,12 @@ class SimpleFootprintManager {
                             let caption = `🎯 **ПОДТВЕРЖДЕНИЯ СЛЕДА**\n\n`;
                             caption += `📊 Сходство с шаблоном: ${(similarity * 100).toFixed(1)}%\n`;
                             caption += `📐 Угол: ${currentTransformationInfo.rotationAngle.toFixed(1)}°\n\n`;
-                            caption += `📈 **СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:**\n`;
+                            caption += `📈 **ЧЕСТНЫЕ ПОДТВЕРЖДЕНИЯ:**\n`;
                             caption += `• Всего точек: ${stats.totalPoints}\n`;
                             caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
                             caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
                             caption += `• ⚪ 0 подтверждений: ${stats.confirmed0}\n\n`;
+                            caption += `📅 Всего фото в сессии: ${session.photos.length}\n`;
                             caption += `🔄 Обновлено из шаблона: ${updatedFromTemplate} точек`;
 
                             await bot.sendPhoto(chatId, clusterVizResult.path, {
@@ -600,11 +549,12 @@ class SimpleFootprintManager {
 
                 // 🔥 Статистика
                 const stats = this.calculateConfirmationStats(session.currentFootprint);
-                console.log(`📊 ФИНАЛЬНАЯ СТАТИСТИКА:`);
+                console.log(`📊 ФИНАЛЬНАЯ СТАТИСТИКА (ЧЕСТНАЯ):`);
                 console.log(`   • Всего точек: ${stats.totalPoints}`);
                 console.log(`   • 🔴 Красные (2+): ${stats.confirmed2}`);
                 console.log(`   • 🔵 Синие (1): ${stats.confirmed1}`);
                 console.log(`   • ⚪ Серые (0): ${stats.confirmed0}`);
+                console.log(`   • Всего фото: ${session.photos.length}`);
 
                 return {
                     success: true,
@@ -890,7 +840,7 @@ class SimpleFootprintManager {
         let confirmed2 = 0, confirmed1 = 0, confirmed0 = 0;
 
         for (const [id, point] of footprint.pointTracker.points) {
-            const confirmations = point.confirmedCount || 0;
+            const confirmations = point.confirmedCount || 1; // 🔥 Минимум 1 подтверждение!
 
             if (confirmations >= 2) {
                 confirmed2++;
