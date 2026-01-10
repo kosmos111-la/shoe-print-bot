@@ -784,6 +784,7 @@ class SimpleFootprintManager {
                     confidence: pred.confidence || 0.5,
                     originalPoints: pred.points
                 });
+            }
         });
 
         return points;
