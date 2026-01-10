@@ -14,7 +14,7 @@ class PointTracker {
             confirmationThreshold: options.confirmationThreshold || 0.7,
            
             // Настройки кластеризации
-            enableClustering: options.enableClustering !== false,
+            enableClustering: false, // 🔥 ОТКЛЮЧАЕМ кластеризацию options.enableClustering !== false,
             clusterRadius: options.clusterRadius || 30,
             minClusterSize: options.minClusterSize || 2,
             adaptiveDistance: options.adaptiveDistance !== false,
