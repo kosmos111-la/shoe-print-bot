@@ -53,6 +53,39 @@ class VectorSuperModel {
         console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}"`);
     }
 
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД ИЗ ИНСТРУКЦИИ
+    updateStats() {
+        // Получаем реальные данные из TemplateBuilder
+        const templateInfo = this.templateBuilder.getInfo();
+        const visualizationData = this.templateBuilder.getVisualizationData();
+
+        if (!visualizationData || visualizationData.cells.length === 0) {
+            this.stats.confidence = 0;
+            return;
+        }
+
+        // 🔥 БЕРЕМ РЕАЛЬНЫЕ ДАННЫЕ ИЗ ВИЗУАЛИЗАЦИИ
+        const cells = visualizationData.cells;
+        const stats = visualizationData.stats;
+
+        // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
+        this.stats.templateCells = cells.length;
+        this.stats.confirmedCells = stats.confirmedCells || 0;
+        this.stats.totalConfirmations = stats.totalConfirmations || 0;  // 🔥 ВАЖНО!
+        this.stats.averageConfirmations = stats.averageConfirmations || 0;
+
+        // 🔥 РАСЧЕТ УВЕРЕННОСТИ
+        const confirmedRatio = this.stats.confirmedCells / Math.max(1, this.stats.templateCells);
+        const avgConfirmations = this.stats.averageConfirmations;
+
+        // 🔥 НОВАЯ ФОРМУЛА УВЕРЕННОСТИ
+        this.stats.confidence = Math.min(1.0,
+            confirmedRatio * 0.5 +                    // 50% за долю подтвержденных
+            Math.min(0.3, avgConfirmations * 0.15) +  // 30% за среднее подтверждений
+            (this.bestGraphScore * 0.2)               // 20% за качество лучшего графа
+        );
+    }
+
     // 🔥 УПРОЩЕННЫЙ МЕТОД: добавить граф в шаблон
     addGraph(graph, graphId, metadata = {}) {
         console.log(`🔄 Добавляю граф ${graphId} в шаблонную модель...`);
@@ -166,38 +199,6 @@ class VectorSuperModel {
         }
 
         return Math.min(1, totalScore);
-    }
-
-    // 🔥 ОБНОВИТЬ СТАТИСТИКУ
-    updateStats() {
-        // Получаем статистику из TemplateBuilder
-        const templateInfo = this.templateBuilder.getInfo();
-
-        if (!templateInfo || templateInfo.templateCells === 0) {
-            this.stats.confidence = 0;
-            return;
-        }
-
-        const confirmedRatio = templateInfo.stats.confirmedCells / templateInfo.templateCells;
-        const avgConfirmations = templateInfo.stats.avgConfirmations || 0;
-
-        // 🔥 ДОБАВЛЯЕМ ФАКТОР ШАБЛОНА
-        const templateQuality = Math.min(1,
-            confirmedRatio * 0.6 + // 60% за долю подтвержденных ячеек
-            Math.min(0.3, avgConfirmations * 0.1) // 30% за среднее подтверждений
-        );
-
-        // 🔥 ДОБАВЛЯЕМ ФАКТОР ЛУЧШЕГО ГРАФА
-        const bestGraphBonus = this.bestGraphScore * 0.1; // 10% бонуса
-
-        this.stats.confidence = Math.min(1.0, templateQuality + bestGraphBonus);
-
-        // Обновляем статистику
-        this.stats.templateCells = templateInfo.templateCells;
-        this.stats.confirmedCells = templateInfo.stats.confirmedCells;
-        this.stats.avgConfirmations = avgConfirmations;
-        this.stats.bestGraphId = this.bestGraphId;
-        this.stats.bestGraphScore = this.bestGraphScore;
     }
 
     // 🔥 ПОЛУЧИТЬ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ (ОСНОВАННЫЕ НА ШАБЛОНЕ)
