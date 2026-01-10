@@ -84,7 +84,7 @@ class SimpleFootprintManager {
         console.log(`🚀 SimpleFootprintManager с упрощенной логикой`);
     }
 
-    // 🔥 Ключевой метод: Обновление подтверждений ИЗ ШАБЛОНА
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Обновление подтверждений ИЗ ШАБЛОНА
     updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo = null) {
         console.log(`🔄 ОБНОВЛЯЮ подтверждения ИЗ ШАБЛОНА...`);
 
@@ -108,50 +108,53 @@ class SimpleFootprintManager {
         console.log(`   • Всего подтверждений: ${templateData.stats?.totalConfirmations || 0}`);
         console.log(`   • Среднее подтверждений: ${templateData.stats?.averageConfirmations?.toFixed(2) || 0}`);
 
-        // 🔥 Преобразуем точки шаблона в систему координат PointTracker
-        const templatePoints = templateData.cells.map(cell => ({
-            id: `template_${cell.id}`,
-            x: cell.x,
-            y: cell.y,
-            confirmations: cell.confirmations || 1,
-            confidence: cell.confidence || 0.7,
-            isFromTemplate: true
-        }));
-
-        console.log(`📊 Преобразовано ${templatePoints.length} точек из шаблона`);
-
-        // 🔥 Если есть трансформация - применяем обратную
-        let transformedTemplatePoints = templatePoints;
-
-        if (transformationInfo) {
-            console.log(`📐 Применяю обратную трансформацию...`);
-            transformedTemplatePoints = this.transformCoordinatesBetweenSystems(
-                templatePoints,
-                transformationInfo,
-                'to_original'
-            );
-            console.log(`✅ Трансформировано ${transformedTemplatePoints.length} точек`);
+        // 🔥 ПРОБЛЕМА: Шаблон хранит NORMALIZED координаты
+        // 🔥 РЕШЕНИЕ: Нужно преобразовать их в ОРИГИНАЛЬНЫЕ координаты
+       
+        let templatePoints;
+        if (templateData.referencePoints && templateData.referencePoints.length > 0) {
+            // 🔥 ИСПОЛЬЗУЕМ РЕАЛЬНЫЕ координаты из эталонного графа
+            templatePoints = templateData.referencePoints.map((point, index) => ({
+                id: `template_${index}`,
+                x: point.x || (point.originalCenter ? point.originalCenter.x : 0),
+                y: point.y || (point.originalCenter ? point.originalCenter.y : 0),
+                confirmations: point.confirmations || templateData.cells[index]?.confirmations || 2,
+                confidence: point.confidence || 0.8,
+                isFromTemplate: true
+            }));
+        } else {
+            // 🔥 ПРОСТОЕ РЕШЕНИЕ: Используем cells
+            templatePoints = templateData.cells.map((cell, index) => ({
+                id: `template_${index}`,
+                x: cell.x || (cell.originalCenter ? cell.originalCenter.x : 0),
+                y: cell.y || (cell.originalCenter ? cell.originalCenter.y : 0),
+                confirmations: cell.confirmations || 2,
+                confidence: cell.confidence || 0.8,
+                isFromTemplate: true
+            }));
         }
 
-        // 🔥 ПРОСТОЕ СОПОСТАВЛЕНИЕ: находим ближайшие точки в шаблоне
-        let updatedCount = 0;
-        const threshold = this.config.templateMatchThreshold;
+        console.log(`📊 Создано ${templatePoints.length} точек шаблона в ОРИГИНАЛЬНЫХ координатах`);
 
-        console.log(`🔍 Сопоставляю ${tracker.points.size} точек трекера с шаблоном (порог: ${threshold}px)...`);
+        // 🔥 УВЕЛИЧИВАЕМ ПОРОГ ДЛЯ ПОИСКА
+        const threshold = 30; // Увеличиваем с 15 до 30px
+       
+        console.log(`🔍 Сопоставляю ${tracker.points.size} точек трекера с ${templatePoints.length} точками шаблона (порог: ${threshold}px)...`);
+
+        let updatedCount = 0;
+        const matchedTemplatePoints = new Set();
 
         // 🔥 Для каждой точки трекера ищем ближайшую точку шаблона
         for (const [trackerId, trackerPoint] of tracker.points) {
             let bestMatch = null;
             let minDistance = threshold;
 
-            for (const templatePoint of transformedTemplatePoints) {
-                // 🔥 Устанавливаем минимум 2 подтверждения, если следы совпали
-                const minConfirmations = 2; // Вместо this.config.minTemplateConfirmations
-                if (templatePoint.confirmations < minConfirmations) {
-                    // 🔥 ПРИНУДИТЕЛЬНО УСТАНАВЛИВАЕМ МИНИМУМ 2
-                    templatePoint.confirmations = minConfirmations;
-                }
-
+            for (let i = 0; i < templatePoints.length; i++) {
+                const templatePoint = templatePoints[i];
+               
+                // Пропускаем уже сопоставленные точки
+                if (matchedTemplatePoints.has(i)) continue;
+               
                 const distance = Math.sqrt(
                     Math.pow(templatePoint.x - trackerPoint.x, 2) +
                     Math.pow(templatePoint.y - trackerPoint.y, 2)
@@ -159,21 +162,21 @@ class SimpleFootprintManager {
 
                 if (distance < minDistance) {
                     minDistance = distance;
-                    bestMatch = templatePoint;
+                    bestMatch = { point: templatePoint, index: i, distance };
                 }
             }
 
             // 🔥 ЕСЛИ НАШЛИ СОВПАДЕНИЕ С ШАБЛОНОМ
             if (bestMatch) {
                 const oldCount = trackerPoint.confirmedCount || 0;
-                const templateConfirmations = bestMatch.confirmations;
+                const templateConfirmations = bestMatch.point.confirmations;
 
                 // 🔥 Точка получает ВСЕ подтверждения из шаблона
                 const newCount = Math.min(5, Math.max(oldCount, templateConfirmations));
 
                 if (newCount > oldCount) {
                     trackerPoint.confirmedCount = newCount;
-                    trackerPoint.confidence = Math.max(trackerPoint.confidence || 0.5, bestMatch.confidence || 0.7);
+                    trackerPoint.confidence = Math.max(trackerPoint.confidence || 0.5, bestMatch.point.confidence || 0.8);
 
                     // Добавляем информацию о подтверждении от шаблона
                     if (!trackerPoint.templateConfirmations) {
@@ -188,8 +191,9 @@ class SimpleFootprintManager {
                     });
 
                     updatedCount++;
+                    matchedTemplatePoints.add(bestMatch.index);
 
-                    if (this.config.debug && updatedCount <= 10) {
+                    if (updatedCount <= 10) {
                         console.log(`   ✅ ${trackerId.slice(0, 8)}: ${oldCount} → ${newCount} подтверждений (шаблон: ${templateConfirmations}, расстояние: ${minDistance.toFixed(1)}px)`);
                     }
                 }
@@ -209,7 +213,7 @@ class SimpleFootprintManager {
                     trackerPoint.confirmedCount = Math.min(5, oldCount + 1);
                     tempUpdated++;
 
-                    if (this.config.debug && tempUpdated <= 5) {
+                    if (tempUpdated <= 5) {
                         console.log(`   ⚠️ ${trackerId.slice(0, 8)}: ${oldCount} → ${trackerPoint.confirmedCount} (временное)`);
                     }
                 }
@@ -780,7 +784,6 @@ class SimpleFootprintManager {
                     confidence: pred.confidence || 0.5,
                     originalPoints: pred.points
                 });
-            }
         });
 
         return points;
