@@ -1,4 +1,4 @@
-// modules/footprint/visualizations/cluster-visualizer.js
+// modules/footprint/visualizations/cluster-visualizer.js 
 // 🔥 ПЕРЕПИСАННЫЙ ВИЗУАЛИЗАТОР - ТОЛЬКО ОТОБРАЖЕНИЕ ПОДТВЕРЖДЕНИЙ
 // НИКАКИХ СРАВНЕНИЙ - ПРОСТО ВИЗУАЛИЗАЦИЯ ТОГО, ЧТО УЖЕ ЕСТЬ
 
