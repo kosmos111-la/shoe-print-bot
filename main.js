@@ -1401,7 +1401,7 @@ bot.onText(/\/reset/, (msg) => {
 bot.onText(/\/clearmodel/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-  
+
     try {
         // Проверяем права (если нужно)
         const allowedUsers = [699140291]; // Твой ID для тестов
@@ -1409,44 +1409,64 @@ bot.onText(/\/clearmodel/, async (msg) => {
             await bot.sendMessage(chatId, '⛔ Эта команда только для тестирования');
             return;
         }
-      
+
         await bot.sendMessage(chatId, '🔄 Очищаю супер-модель...');
-      
+
         // Проверяем, есть ли активная сессия
         const session = footprintManager ? footprintManager.getActiveSession(userId) : null;
-       
+
         if (!session || !session.currentFootprint) {
             await bot.sendMessage(chatId, '⚠️ У вас нет активной супер-модели');
             return;
         }
 
-        // Получаем информацию о модели
-        const modelInfo = session.currentFootprint.getInfo ?
-            session.currentFootprint.getInfo() :
-            { name: 'Текущая модель', stats: {} };
-       
+        // Получаем информацию о модели С БЕЗОПАСНОЙ ПРОВЕРКОЙ
+        let modelInfo;
+        try {
+            modelInfo = session.currentFootprint.getInfo ?
+                session.currentFootprint.getInfo() :
+                { name: 'Текущая модель', stats: {} };
+        } catch (error) {
+            console.log('⚠️ Ошибка получения информации о модели:', error.message);
+            // Используем безопасный способ получения информации
+            modelInfo = {
+                name: session.currentFootprint.name || 'Текущая модель',
+                stats: {
+                    nodes: session.currentFootprint.graph?.nodes?.size || 0,
+                    totalNodes: session.currentFootprint.graph?.nodes?.size || 0,
+                    merges: 0,
+                    totalMerges: 0,
+                    confidence: session.currentFootprint.stats?.confidence || 0,
+                    photoCount: session.currentFootprint.photoHistory?.length || 0
+                }
+            };
+        }
+
         // Показываем что будет удалено
         const stats = modelInfo.stats || {};
         const nodeCount = stats.nodes || stats.totalNodes || 0;
         const mergeCount = stats.merges || stats.totalMerges || 0;
         const confidence = stats.confidence || 0;
-       
+        const photoCount = stats.photoCount || session.currentFootprint.photoHistory?.length || 0;
+
         await bot.sendMessage(chatId,
             `🗑️ УДАЛЕНИЕ СУПЕР-МОДЕЛИ:\n` +
             `Название: ${modelInfo.name || 'Текущая модель'}\n` +
             `Узлов: ${nodeCount}\n` +
+            `Фото: ${photoCount}\n` +
             `Слияний: ${mergeCount}\n` +
             `Уверенность: ${(confidence * 100).toFixed(1)}%\n\n` +
             `Подтвердите удаление командой: /confirmclear`
         );
-      
+
         // Сохраняем запрос на удаление
         userClearRequests.set(userId, {
             timestamp: Date.now(),
             sessionId: session.id,
-            modelInfo: modelInfo
+            modelInfo: modelInfo,
+            footprint: session.currentFootprint // Сохраняем ссылку на объект
         });
-      
+
     } catch (error) {
         console.log('❌ Ошибка в /clearmodel:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
@@ -1457,51 +1477,57 @@ bot.onText(/\/clearmodel/, async (msg) => {
 bot.onText(/\/confirmclear/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-  
+
     try {
         const clearRequest = userClearRequests.get(userId);
         if (!clearRequest) {
             await bot.sendMessage(chatId, '⚠️ Нет запроса на удаление. Сначала используйте /clearmodel');
             return;
         }
-      
+
         // Проверяем что запрос не старше 2 минут
         if (Date.now() - clearRequest.timestamp > 120000) {
             userClearRequests.delete(userId);
             await bot.sendMessage(chatId, '⏱️ Время подтверждения истекло. Используйте /clearmodel снова');
             return;
         }
-      
+
         await bot.sendMessage(chatId, '🗑️ Удаляю супер-модель...');
-      
-        // Завершаем сессию (это очистит данные)
-        let result;
-        if (footprintManager) {
-            result = footprintManager.endSession(userId, 'manual_clear');
-        } else {
-            result = { success: false, error: 'FootprintManager не инициализирован' };
+
+        // Просто удаляем сессию напрямую
+        let result = { success: true };
+       
+        if (footprintManager && footprintManager.userSessions) {
+            footprintManager.userSessions.delete(userId);
+           
+            // Также удаляем векторную модель если есть
+            if (footprintManager.vectorSuperModels) {
+                footprintManager.vectorSuperModels.delete(userId);
+            }
+           
+            console.log(`🧹 Сессия пользователя ${userId} очищена вручную`);
         }
-      
+
         if (result.success) {
             const info = clearRequest.modelInfo;
-          
+
             await bot.sendMessage(chatId,
                 `✅ СУПЕР-МОДЕЛЬ УДАЛЕНА!\n\n` +
                 `🗑️ Удалено:\n` +
                 `• Супер-модель: ${info.name || 'Текущая модель'}\n` +
-                `• ${info.stats?.nodes || info.stats?.totalNodes || 0} узлов\n` +
-                `• ${info.stats?.merges || info.stats?.totalMerges || 0} слияний\n\n` +
+                `• ${nodeCount} узлов\n` +
+                `• ${photoCount} фото\n\n` +
                 `🆕 Теперь можно начать с чистого листа!\n` +
                 `Отправьте фото для создания новой модели.`
             );
-          
+
             // Очищаем запрос
             userClearRequests.delete(userId);
-          
+
         } else {
             await bot.sendMessage(chatId, `⚠️ Не удалось удалить данные: ${result.error || 'неизвестная ошибка'}`);
         }
-      
+
     } catch (error) {
         console.log('❌ Ошибка в /confirmclear:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
