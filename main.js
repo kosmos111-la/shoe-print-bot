@@ -1,5 +1,5 @@
 // =============================================================================
-// 🎯 СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ - ОСНОВНОЙ ФАЙЛ 
+// 🎯 СИСТЕМА АНАЛИЗА СЛЕДОВ ОБУВИ - ОСНОВНОЙ ФАЙЛ
 // =============================================================================
 
 const express = require('express');
@@ -1353,29 +1353,47 @@ bot.onText(/\/help/, (msg) => {
         `/statistics - Статистика системы`
     );
 });
+
+// =============================================================================
+// 🔄 КОМАНДЫ ДЛЯ УПРАВЛЕНИЯ СЕССИЯМИ И МОДЕЛЯМИ
+// =============================================================================
+
+// Хранилище запросов на удаление
+const userClearRequests = new Map();
+
+// Команда /reset - сбросить текущую сессию
 bot.onText(/\/reset/, (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-  
+ 
     console.log(`🔄 Пользователь ${userId} запросил сброс сессии`);
-  
+ 
     try {
-        // Получить экземпляр SimpleFootprintManager (или создать новый)
-        const SimpleFootprintManager = require('./modules/footprint/simple-manager');
-      
-        // Нужно получить существующий менеджер или создать глобальный
-        // Если у вас глобальный экземпляр, используйте его:
-        if (global.footprintManager && typeof global.footprintManager.endSession === 'function') {
-            const result = global.footprintManager.endSession(userId, 'manual_reset');
-            bot.sendMessage(chatId, '✅ Сессия сброшена. Следующее фото начнёт новую сессию.');
+        // Если есть активная сессия - завершаем ее
+        if (footprintManager && footprintManager.getActiveSession(userId)) {
+            const result = footprintManager.endSession(userId, 'manual_reset');
+           
+            if (result.success) {
+                bot.sendMessage(chatId,
+                    '✅ Сессия сброшена\n\n' +
+                    'Теперь следующее фото начнет новую сессию.'
+                );
+            } else {
+                bot.sendMessage(chatId,
+                    '⚠️ Не удалось сбросить сессию\n' +
+                    'Просто отправьте новое фото - оно начнет новую сессию.'
+                );
+            }
         } else {
-            // Альтернатива: просто сообщить пользователю
-            bot.sendMessage(chatId, '🔄 Для сброса сессии просто отправьте новое фото - оно начнёт новую сессию.');
+            bot.sendMessage(chatId,
+                'ℹ️ У вас нет активной сессии\n' +
+                'Просто отправьте фото для начала новой.'
+            );
         }
-      
+     
     } catch (error) {
         console.log('⚠️ Ошибка при сбросе сессии:', error.message);
-        bot.sendMessage(chatId, '⚠️ Не удалось сбросить сессию. Просто отправьте новое фото.');
+        bot.sendMessage(chatId, '⚠️ Произошла ошибка. Просто отправьте новое фото.');
     }
 });
 
@@ -1383,7 +1401,7 @@ bot.onText(/\/reset/, (msg) => {
 bot.onText(/\/clearmodel/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+  
     try {
         // Проверяем права (если нужно)
         const allowedUsers = [699140291]; // Твой ID для тестов
@@ -1391,33 +1409,44 @@ bot.onText(/\/clearmodel/, async (msg) => {
             await bot.sendMessage(chatId, '⛔ Эта команда только для тестирования');
             return;
         }
-       
+      
         await bot.sendMessage(chatId, '🔄 Очищаю супер-модель...');
+      
+        // Проверяем, есть ли активная сессия
+        const session = footprintManager ? footprintManager.getActiveSession(userId) : null;
        
-        // Получаем информацию перед удалением
-        const info = footprintManager.getVectorSuperModelInfo(userId);
-       
-        if (!info.exists) {
+        if (!session || !session.currentFootprint) {
             await bot.sendMessage(chatId, '⚠️ У вас нет активной супер-модели');
             return;
         }
+
+        // Получаем информацию о модели
+        const modelInfo = session.currentFootprint.getInfo ?
+            session.currentFootprint.getInfo() :
+            { name: 'Текущая модель', stats: {} };
        
         // Показываем что будет удалено
+        const stats = modelInfo.stats || {};
+        const nodeCount = stats.nodes || stats.totalNodes || 0;
+        const mergeCount = stats.merges || stats.totalMerges || 0;
+        const confidence = stats.confidence || 0;
+       
         await bot.sendMessage(chatId,
             `🗑️ УДАЛЕНИЕ СУПЕР-МОДЕЛИ:\n` +
-            `Название: ${info.name}\n` +
-            `Ячеек: ${info.stats.totalCells}\n` +
-            `Слияний: ${info.stats.totalMerges}\n` +
-            `Уверенность: ${(info.stats.confidence * 100).toFixed(1)}%\n\n` +
+            `Название: ${modelInfo.name || 'Текущая модель'}\n` +
+            `Узлов: ${nodeCount}\n` +
+            `Слияний: ${mergeCount}\n` +
+            `Уверенность: ${(confidence * 100).toFixed(1)}%\n\n` +
             `Подтвердите удаление командой: /confirmclear`
         );
-       
+      
         // Сохраняем запрос на удаление
         userClearRequests.set(userId, {
             timestamp: Date.now(),
-            modelInfo: info
+            sessionId: session.id,
+            modelInfo: modelInfo
         });
-       
+      
     } catch (error) {
         console.log('❌ Ошибка в /clearmodel:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
@@ -1428,47 +1457,51 @@ bot.onText(/\/clearmodel/, async (msg) => {
 bot.onText(/\/confirmclear/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+  
     try {
         const clearRequest = userClearRequests.get(userId);
         if (!clearRequest) {
             await bot.sendMessage(chatId, '⚠️ Нет запроса на удаление. Сначала используйте /clearmodel');
             return;
         }
-       
+      
         // Проверяем что запрос не старше 2 минут
         if (Date.now() - clearRequest.timestamp > 120000) {
             userClearRequests.delete(userId);
             await bot.sendMessage(chatId, '⏱️ Время подтверждения истекло. Используйте /clearmodel снова');
             return;
         }
-       
+      
         await bot.sendMessage(chatId, '🗑️ Удаляю супер-модель...');
-       
-        // Очищаем все данные
-        const result = footprintManager.clearUserSessionData(userId);
-       
+      
+        // Завершаем сессию (это очистит данные)
+        let result;
+        if (footprintManager) {
+            result = footprintManager.endSession(userId, 'manual_clear');
+        } else {
+            result = { success: false, error: 'FootprintManager не инициализирован' };
+        }
+      
         if (result.success) {
             const info = clearRequest.modelInfo;
-           
+          
             await bot.sendMessage(chatId,
                 `✅ СУПЕР-МОДЕЛЬ УДАЛЕНА!\n\n` +
                 `🗑️ Удалено:\n` +
-                `• Супер-модель: ${info.name}\n` +
-                `• ${info.stats.totalCells} ячеек шаблона\n` +
-                `• ${info.stats.totalMerges} слияний\n` +
-                `• Текущий отпечаток\n\n` +
+                `• Супер-модель: ${info.name || 'Текущая модель'}\n` +
+                `• ${info.stats?.nodes || info.stats?.totalNodes || 0} узлов\n` +
+                `• ${info.stats?.merges || info.stats?.totalMerges || 0} слияний\n\n` +
                 `🆕 Теперь можно начать с чистого листа!\n` +
                 `Отправьте фото для создания новой модели.`
             );
-           
+          
             // Очищаем запрос
             userClearRequests.delete(userId);
-           
+          
         } else {
-            await bot.sendMessage(chatId, '⚠️ Не удалось удалить данные. Возможно, их уже нет.');
+            await bot.sendMessage(chatId, `⚠️ Не удалось удалить данные: ${result.error || 'неизвестная ошибка'}`);
         }
-       
+      
     } catch (error) {
         console.log('❌ Ошибка в /confirmclear:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
@@ -1479,7 +1512,7 @@ bot.onText(/\/confirmclear/, async (msg) => {
 bot.onText(/\/clearsession/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+  
     try {
         // Только для тестовых пользователей
         const allowedUsers = [699140291];
@@ -1487,11 +1520,16 @@ bot.onText(/\/clearsession/, async (msg) => {
             await bot.sendMessage(chatId, '⛔ Эта команда только для тестирования');
             return;
         }
-       
+      
         await bot.sendMessage(chatId, '🧹 Быстрая очистка сессии...');
-       
-        const result = footprintManager.clearUserSessionData(userId);
-       
+      
+        let result;
+        if (footprintManager) {
+            result = footprintManager.endSession(userId, 'fast_clear');
+        } else {
+            result = { success: false, error: 'FootprintManager не инициализирован' };
+        }
+      
         if (result.success) {
             await bot.sendMessage(chatId,
                 `✅ СЕССИЯ ОЧИЩЕНА!\n\n` +
@@ -1499,9 +1537,9 @@ bot.onText(/\/clearsession/, async (msg) => {
                 `Отправьте фото для создания новой модели.`
             );
         } else {
-            await bot.sendMessage(chatId, 'ℹ️ Нечего очищать - сессия уже пуста');
+            await bot.sendMessage(chatId, `ℹ️ Нечего очищать - сессия уже пуста или ${result.error}`);
         }
-       
+      
     } catch (error) {
         console.log('❌ Ошибка в /clearsession:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
@@ -1512,54 +1550,75 @@ bot.onText(/\/clearsession/, async (msg) => {
 bot.onText(/\/modelinfo/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+  
     try {
-        const info = footprintManager.getVectorSuperModelInfo(userId);
+        // Проверяем есть ли активная сессия
+        const session = footprintManager ? footprintManager.getActiveSession(userId) : null;
        
-        if (!info.exists) {
+        if (!session || !session.currentFootprint) {
             await bot.sendMessage(chatId, '📭 У вас нет активной супер-модели');
             return;
         }
+
+        const footprint = session.currentFootprint;
+        const info = footprint.getInfo ? footprint.getInfo() : {
+            name: 'Текущая модель',
+            stats: {}
+        };
+       
+        const stats = info.stats || {};
+        const nodeCount = stats.nodes || stats.totalNodes || 0;
+        const mergeCount = stats.merges || stats.totalMerges || 0;
+        const confidence = stats.confidence || 0;
+        const photoCount = stats.photos || stats.totalPhotos || 0;
        
         let message = `📊 ИНФОРМАЦИЯ О СУПЕР-МОДЕЛИ:\n\n`;
-        message += `🏷️ Название: ${info.name}\n`;
-        message += `🆔 ID: ${info.templateId?.slice(0, 12)}...\n\n`;
-       
+        message += `🏷️ Название: ${info.name || 'Текущая модель'}\n`;
+        message += `🆔 ID сессии: ${session.id?.slice(0, 12)}...\n\n`;
+      
         message += `📈 СТАТИСТИКА:\n`;
-        message += `• Ячеек шаблона: ${info.stats.totalCells}\n`;
-        message += `• Подтвержденных: ${info.stats.confirmedCells}\n`;
-        message += `• Слияний: ${info.stats.totalMerges}\n`;
-        message += `• Уверенность: ${(info.stats.confidence * 100).toFixed(1)}%\n`;
-        message += `• Создана: ${info.stats.createdAt}\n`;
-        message += `• Обновлена: ${info.stats.lastUpdated}\n\n`;
+        message += `• Узлов: ${nodeCount}\n`;
+        message += `• Слияний: ${mergeCount}\n`;
+        message += `• Фото: ${photoCount}\n`;
+        message += `• Уверенность: ${(confidence * 100).toFixed(1)}%\n`;
        
-        if (info.templateStats) {
-            message += `📊 ШАБЛОН:\n`;
-            message += `• Высоконадёжных ячеек: ${info.templateStats.highConfidenceCells || 0}\n`;
-            message += `• Среднее подтверждений: ${(info.templateStats.avgConfirmations || 0).toFixed(2)}\n`;
+        if (stats.createdAt) {
+            message += `• Создана: ${stats.createdAt}\n`;
         }
        
+        if (stats.lastUpdated) {
+            message += `• Обновлена: ${stats.lastUpdated}\n`;
+        }
+      
+        // Добавляем информацию о подтверждениях, если есть
+        if (footprint.getConfirmationStats) {
+            const confirmStats = footprint.getConfirmationStats();
+            if (confirmStats) {
+                message += `\n🎯 ПОДТВЕРЖДЕНИЯ:\n`;
+                message += `• Всего узлов: ${confirmStats.totalNodes || 0}\n`;
+                message += `• Подтвержденных: ${confirmStats.confirmedNodes || 0}\n`;
+                message += `• Среднее подтверждений: ${confirmStats.averageConfirmations?.toFixed(1) || '0.0'}\n`;
+            }
+        }
+      
         message += `\n⚡ Команды:\n`;
         message += `/clearmodel - удалить эту модель\n`;
         message += `/clearsession - быстрая очистка\n`;
         message += `/debug - подробная отладка`;
-       
+      
         await bot.sendMessage(chatId, message);
-       
+      
     } catch (error) {
         console.log('❌ Ошибка в /modelinfo:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
     }
 });
 
-// Добавить в начало файла (после импортов):
-const userClearRequests = new Map(); // Для хранения запросов на удаление
-
 // Команда /debug - полная отладка системы
 bot.onText(/\/debug/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+  
     try {
         // Только для тестовых пользователей
         const allowedUsers = [699140291];
@@ -1567,52 +1626,52 @@ bot.onText(/\/debug/, async (msg) => {
             await bot.sendMessage(chatId, '⛔ Эта команда только для тестирования');
             return;
         }
-       
+      
         await bot.sendMessage(chatId, '🔧 Запуск отладки системы...');
-       
+      
         // 1. Информация о системе
-        const systemStats = footprintManager.getSystemStats();
-       
+        let systemStats = {};
+        if (footprintManager) {
+            systemStats = footprintManager.getSystemStats ?
+                footprintManager.getSystemStats() :
+                { activeSessions: 0, loadedModels: 0 };
+        }
+      
         // 2. Информация о пользователе
-        const modelInfo = footprintManager.getVectorSuperModelInfo(userId);
-        const session = footprintManager.getActiveSession(userId);
-       
+        const session = footprintManager ? footprintManager.getActiveSession(userId) : null;
+        const footprint = session ? session.currentFootprint : null;
+      
         let debugMessage = `⚡ ОТЛАДКА СИСТЕМЫ\n\n`;
-       
+      
         debugMessage += `📊 СИСТЕМА:\n`;
-        debugMessage += `• Активных сессий: ${systemStats.activeSessions}\n`;
-        debugMessage += `• Загруженных моделей: ${systemStats.loadedModels}\n`;
-        debugMessage += `• Векторных моделей: ${systemStats.vectorModels}\n`;
-        debugMessage += `• Всего фото: ${systemStats.totalPhotosProcessed}\n\n`;
-       
+        debugMessage += `• Активных сессий: ${systemStats.activeSessions || 0}\n`;
+        debugMessage += `• Загруженных моделей: ${systemStats.loadedModels || 0}\n`;
+        debugMessage += `• Векторных моделей: ${systemStats.vectorModels || 0}\n`;
+        debugMessage += `• Всего фото: ${systemStats.totalPhotosProcessed || 0}\n\n`;
+      
         debugMessage += `👤 ПОЛЬЗОВАТЕЛЬ ${userId}:\n`;
-        debugMessage += `• Сессия: ${session ? session.id.slice(0, 12) + '...' : 'нет'}\n`;
-        debugMessage += `• Супер-модель: ${modelInfo.exists ? 'есть' : 'нет'}\n`;
-       
-        if (modelInfo.exists) {
-            debugMessage += `• Ячеек: ${modelInfo.stats.totalCells}\n`;
-            debugMessage += `• Слияний: ${modelInfo.stats.totalMerges}\n`;
+        debugMessage += `• Сессия: ${session ? 'есть' : 'нет'}\n`;
+        if (session) {
+            debugMessage += `• ID сессии: ${session.id?.slice(0, 12) || 'unknown'}...\n`;
+            debugMessage += `• Фото в сессии: ${session.photos ? session.photos.length : 0}\n`;
         }
-       
-        debugMessage += `\n🎯 POINT TRACKER:\n`;
-        if (session && session.currentFootprint && session.currentFootprint.pointTracker) {
-            const trackerStats = session.currentFootprint.pointTracker.getStats();
-            debugMessage += `• Всего точек: ${trackerStats.totalPoints}\n`;
-            debugMessage += `• Высоконадёжных: ${trackerStats.highConfidencePoints}\n`;
-            debugMessage += `• Средний рейтинг: ${trackerStats.avgRating.toFixed(3)}\n`;
-            debugMessage += `• Среднее подтверждений: ${trackerStats.avgConfirmations.toFixed(2)}\n`;
-        } else {
-            debugMessage += `• Нет данных\n`;
+        debugMessage += `• Супер-модель: ${footprint ? 'есть' : 'нет'}\n`;
+      
+        if (footprint) {
+            const info = footprint.getInfo ? footprint.getInfo() : {};
+            const stats = info.stats || {};
+            debugMessage += `• Узлов: ${stats.nodes || stats.totalNodes || 0}\n`;
+            debugMessage += `• Слияний: ${stats.merges || stats.totalMerges || 0}\n`;
         }
-       
-        debugMessage += `\n⚡ КОМАНДЫ ОЧИСТКИ:\n`;
+      
+        debugMessage += `\n🎯 КОМАНДЫ ОЧИСТКИ:\n`;
         debugMessage += `/clearmodel - удалить супер-модель\n`;
         debugMessage += `/clearsession - очистить сессию\n`;
         debugMessage += `/modelinfo - информация о модели\n`;
         debugMessage += `/test - запустить тест системы`;
-       
+      
         await bot.sendMessage(chatId, debugMessage);
-       
+      
     } catch (error) {
         console.log('❌ Ошибка в /debug:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
@@ -1623,13 +1682,15 @@ bot.onText(/\/debug/, async (msg) => {
 bot.onText(/\/test/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+  
     try {
         await bot.sendMessage(chatId, '🧪 Запуск теста системы...');
-       
+      
         // Очищаем старые данные для чистого теста
-        footprintManager.clearUserSessionData(userId);
-       
+        if (footprintManager) {
+            footprintManager.endSession(userId, 'test_reset');
+        }
+      
         await bot.sendMessage(chatId,
             `✅ СИСТЕМА ГОТОВА К ТЕСТУ!\n\n` +
             `Теперь отправьте:\n` +
@@ -1640,7 +1701,7 @@ bot.onText(/\/test/, async (msg) => {
             `• Объединить следы в супер-модель\n` +
             `• Отправить визуализацию`
         );
-       
+      
     } catch (error) {
         console.log('❌ Ошибка в /test:', error);
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
@@ -1650,31 +1711,33 @@ bot.onText(/\/test/, async (msg) => {
 bot.onText(/\/check_honest/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-   
+  
     try {
-        const session = footprintManager.getActiveSession(userId);
+        const session = footprintManager ? footprintManager.getActiveSession(userId) : null;
         if (session && session.currentFootprint) {
             const footprint = session.currentFootprint;
 
             let message = `🎯 **ЧЕСТНЫЕ ДАННЫЕ ОТПЕЧАТКА**\n\n`;
             message += `• Имя: ${footprint.name}\n`;
-            message += `• Узлов: ${footprint.graph.nodes.size}\n`;
-            message += `• Фото: ${footprint.metadata.totalPhotos}\n\n`;
+            message += `• Узлов: ${footprint.graph?.nodes?.size || 0}\n`;
+            message += `• Фото: ${footprint.metadata?.totalPhotos || 0}\n\n`;
 
             if (footprint.pointTracker) {
                 const tracker = footprint.pointTracker;
 
                 // Считаем подтверждения
                 let confirmed2 = 0, confirmed1 = 0, confirmed0 = 0;
-                for (const [id, point] of tracker.points) {
-                    const count = point.confirmedCount || 0;
-                    if (count >= 2) confirmed2++;
-                    else if (count >= 1) confirmed1++;
-                    else confirmed0++;
+                if (tracker.points && tracker.points.size) {
+                    for (const [id, point] of tracker.points) {
+                        const count = point.confirmedCount || 0;
+                        if (count >= 2) confirmed2++;
+                        else if (count >= 1) confirmed1++;
+                        else confirmed0++;
+                    }
                 }
 
                 message += `📊 **POINT TRACKER:**\n`;
-                message += `• Всего точек: ${tracker.points.size}\n`;
+                message += `• Всего точек: ${tracker.points?.size || 0}\n`;
                 message += `• 🔴 2+ подтверждений: ${confirmed2}\n`;
                 message += `• 🔵 1 подтверждение: ${confirmed1}\n`;
                 message += `• ⚪ 0 подтверждений: ${confirmed0}\n\n`;
@@ -1686,7 +1749,7 @@ bot.onText(/\/check_honest/, async (msg) => {
 
                 // Добавляем прогресс
                 if (confirmed2 > 0) {
-                    const progress = Math.min(100, (confirmed2 / tracker.points.size) * 100);
+                    const progress = Math.min(100, (confirmed2 / (tracker.points?.size || 1)) * 100);
                     message += `\n📈 **ПРОГРЕСС:** ${progress.toFixed(1)}% точек подтверждены 2+ фото`;
                 }
             }
@@ -1934,8 +1997,6 @@ bot.onText(/\/cancel/, async (msg) => {
         `Готов к новым командам`
     );
 });
-
-
 
 // =============================================================================
 // 🆕 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ СЕССИЙ
@@ -2555,19 +2616,19 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
                 tempFileManager.removeFile(tempImagePath);
                 return;
             }
-          
+         
             // Отправляем результаты
             let resultMessage = `✅ АНАЛИЗ ЗАВЕРШЕН\n\n`;
             resultMessage += `📊 Обнаружено: ${analysis.total} объектов\n\n`;
-          
+         
             // Классификация
             resultMessage += `📋 КЛАССИФИКАЦИЯ:\n`;
             Object.entries(analysis.classes).forEach(([className, count]) => {
                 resultMessage += `• ${className}: ${count}\n`;
             });
-          
+         
             await bot.sendMessage(chatId, resultMessage);
-          
+         
             // Визуализация
             if (vizPath && fs.existsSync(vizPath)) {
                 await bot.sendPhoto(chatId, vizPath, {
@@ -2575,7 +2636,7 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
                 });
                 tempFileManager.removeFile(vizPath);
             }
-          
+         
             // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Всегда показывать топологию для одиночного фото
             if (topologyVizPath && fs.existsSync(topologyVizPath)) {
                 await bot.sendPhoto(chatId, topologyVizPath, {
@@ -2595,7 +2656,7 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
                         predictionsForAnalysis,
                         newTopologyPath
                     );
-                  
+                 
                     if (fs.existsSync(newTopologyPath)) {
                         await bot.sendPhoto(chatId, newTopologyPath, {
                             caption: '🕸️ Топологический анализ протектора\n' +
@@ -2607,7 +2668,7 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
                     }
                 }
             }
-          
+         
             // Практический анализ
             if (practicalAnalysis && practicalAnalysis.recommendations) {
                 let practicalMessage = `🎯 **ПРАКТИЧЕСКИЙ АНАЛИЗ:**\n\n`;
@@ -2616,7 +2677,7 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
                 });
                 await bot.sendMessage(chatId, practicalMessage);
             }
-          
+         
             // Интеллектуальный анализ
             if (intelligentAnalysis && intelligentAnalysis.summary) {
                 const intelMessage = `🧠 ИНТЕЛЛЕКТУАЛЬНЫЙ АНАЛИЗ:\n\n` +
@@ -2624,16 +2685,16 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
                     `👟 Тип обуви: ${intelligentAnalysis.summary.footprintType}\n` +
                     `🔷 Морфология: ${intelligentAnalysis.summary.morphology}\n` +
                     `🕸️ Топология: ${intelligentAnalysis.summary.topology}`;
-              
+             
                 await bot.sendMessage(chatId, intelMessage);
             }
-          
+         
             // 🔥 ОБРАТНАЯ СВЯЗЬ
             if (!hasSession && totalCount === 1 && predictionsForAnalysis.length > 0) {
                 const bestPrediction = predictionsForAnalysis.reduce((best, current) =>
                     (current.confidence || 0) > (best.confidence || 0) ? current : best
                 );
-              
+             
                 if (bestPrediction && bestPrediction.confidence > 0.6) {
                     if (Math.random() < 0.3) {
                         setTimeout(async () => {
@@ -2647,7 +2708,7 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
                                     timestamp: new Date()
                                 }
                             );
-                          
+                         
                             await bot.sendMessage(chatId,
                                 `💬 **ПОМОГИТЕ УЛУЧШИТЬ ТОЧНОСТЬ**\n\n` +
                                 `Насколько правильно определен этот элемент?\n` +
@@ -2661,7 +2722,7 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
                     }
                 }
             }
-          
+         
             // Если использовали SimpleFootprintManager, показываем дополнительную информацию
             if (usedSimpleFootprint) {
                 await bot.sendMessage(chatId,
@@ -2675,11 +2736,11 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
                     `/my_footprints - мои модели`
                 );
             }
-          
+         
             // Очистка
             tempFileManager.removeFile(tempImagePath);
             if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
-          
+         
             return; // Выходим здесь после обработки одиночного фото
         }
 
@@ -3547,7 +3608,7 @@ bot.onText(/\/view_model(?: (.+))?/, async (msg, match) => {
             response += `• Всего узлов: ${stats.totalNodes}\n`;
             response += `• Подтвержденных: ${stats.confirmedNodes}\n`;
             response += `• Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n`;
-           
+          
             if (stats.trackerStats) {
                 response += `\n🎯 **POINT TRACKER:**\n`;
                 response += `• Точек в трекере: ${stats.trackerStats.totalPoints}\n`;
@@ -3649,7 +3710,7 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
                          `✅ Подтвержденных узлов: ${stats.confirmedNodes}\n` +
                          `❌ Неподтвержденных: ${stats.unconfirmedNodes}\n` +
                          `📈 Среднее подтверждений: ${stats.averageConfirmations?.toFixed(1) || '0.0'}\n\n`;
-           
+          
             // Добавляем статистику из трекера если есть
             if (stats.trackerStats) {
                 caption += `🎯 **POINT TRACKER:**\n`;
@@ -3657,7 +3718,7 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
                 caption += `• Высоконадёжных: ${stats.trackerStats.highConfidencePoints}\n`;
                 caption += `• Средний рейтинг: ${stats.trackerStats.avgRating?.toFixed(3) || '0.000'}\n\n`;
             }
-           
+          
             caption += `🎨 **ЦВЕТА УЗЛОВ:**\n` +
                       `⚫ 1 фото - точка с одного фото\n` +
                       `🟠 2 фото - совпала на двух фото\n` +
@@ -3792,7 +3853,7 @@ bot.onText(/\/visualize_merge/, async (msg) => {
         // 🔥 ИСПРАВЛЕНИЕ: Получаем актуальную статистику подтверждений
         const session = footprintManager.getActiveSession(userId);
         let caption;
-       
+      
         if (session && session.currentFootprint) {
             const stats = session.currentFootprint.getConfirmationStats ?
                 session.currentFootprint.getConfirmationStats() : {
@@ -3800,7 +3861,7 @@ bot.onText(/\/visualize_merge/, async (msg) => {
                     confirmedNodes: 0,
                     averageConfirmations: 0
                 };
-           
+          
             // ОБНОВЛЕННАЯ ПОДПИСЬ с подтверждениями
             caption = `🎭 **ВИЗУАЛИЗАЦИЯ СУПЕР-МОДЕЛИ С ПОДТВЕРЖДЕНИЯМИ**\n\n` +
                      `📊 Всего узлов: ${stats.totalNodes || 0}\n` +
@@ -3858,9 +3919,9 @@ bot.onText(/\/force_update_confirmations/, async (msg) => {
             message += `• Обновлено узлов: ${result.nodesUpdated}\n`;
             message += `• Всего узлов: ${result.totalNodes}\n\n`;
             message += `💡 **Теперь точки будут правильно окрашены по количеству подтверждений!**`;
-           
+          
             await bot.sendMessage(chatId, message);
-           
+          
             // Показываем обновленную статистику
             const session = footprintManager.getActiveSession(userId);
             if (session && session.currentFootprint) {
@@ -3869,7 +3930,7 @@ bot.onText(/\/force_update_confirmations/, async (msg) => {
                         totalNodes: 0,
                         confirmedNodes: 0
                     };
-               
+              
                 setTimeout(async () => {
                     await bot.sendMessage(chatId,
                         `📊 **АКТУАЛЬНАЯ СТАТИСТИКА:**\n\n` +
