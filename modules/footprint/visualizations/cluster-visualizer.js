@@ -1,6 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🔥 ПЕРЕПИСАННЫЙ ВИЗУАЛИЗАТОР - ТОЛЬКО ОТОБРАЖЕНИЕ ПОДТВЕРЖДЕНИЙ
-// НИКАКИХ СРАВНЕНИЙ - ПРОСТО ВИЗУАЛИЗАЦИЯ ТОГО, ЧТО УЖЕ ЕСТЬ
+// 🔥 ИСПРАВЛЯЕМ ВИЗУАЛИЗАЦИЮ ДЛЯ ПРАВИЛЬНОГО СРАВНЕНИЯ
 
 const fs = require('fs');
 const path = require('path');
@@ -37,15 +36,16 @@ class ClusterVisualizer {
         console.log('🎨 Упрощенный ClusterVisualizer создан');
     }
 
-    // 🔥 🔴🔴🔴 НОВЫЙ МЕТОД: Визуализация ОДНОГО следа 🔴🔴🔴
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Визуализация подтверждений одного следа
     async visualizeSingleFootprintConfirmations(footprint, options = {}) {
-        console.log('🎨 Визуализация подтверждений одного следа...');
+        console.log('🎨 Визуализация подтверждений одного следа (исправленная)...');
 
         try {
-            // 1. Получаем точки ИЗ POINT TRACKER
+            // 🔥 1. ПОЛУЧАЕМ ТОЧКИ С ТРАНСФОРМАЦИЕЙ
             const points = this.getPointsFromPointTracker(footprint);
+            const transformation = footprint.getTransformation ? footprint.getTransformation() : null;
 
-            // 2. Рассчитываем статистику
+            // 🔥 2. ЕСЛИ ЕСТЬ ТРАНСФОРМАЦИЯ - ПОКАЗЫВАЕМ ЕЕ В ВИЗУАЛИЗАЦИИ
             const stats = this.calculateConfirmationStats(points);
 
             console.log(`📊 Подтверждения "${footprint.name}":`);
@@ -54,11 +54,16 @@ class ClusterVisualizer {
             console.log(`   🔵 1 подтверждение: ${stats.confirmed1}`);
             console.log(`   ⚪ 0 подтверждений: ${stats.confirmed0}`);
 
-            // 3. Создаем визуализацию
+            if (transformation) {
+                console.log(`   📐 Трансформация: поворот ${transformation.rotationAngle?.toFixed(1)}°, зеркало: ${transformation.isMirrored ? 'да' : 'нет'}`);
+            }
+
+            // 🔥 3. СОЗДАЕМ ВИЗУАЛИЗАЦИЮ С ИНФОРМАЦИЕЙ О ТРАНСФОРМАЦИИ
             const result = await this.createSingleFootprintVisualization(
                 points,
                 footprint,
                 stats,
+                transformation, // 🔥 ПЕРЕДАЕМ ТРАНСФОРМАЦИЮ
                 options
             );
 
@@ -66,19 +71,19 @@ class ClusterVisualizer {
 
         } catch (error) {
             console.error('❌ Ошибка визуализации одного следа:', error);
-            return this.createSingleFootprintReport(footprint);
+            return this.createSingleFootprintReport(footprint, stats, transformation);
         }
     }
 
-    // 🔥 СОЗДАНИЕ ВИЗУАЛИЗАЦИИ ОДНОГО СЛЕДА
-    async createSingleFootprintVisualization(points, footprint, stats, options = {}) {
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Создание визуализации одного следа
+    async createSingleFootprintVisualization(points, footprint, stats, transformation = null, options = {}) {
         // Проверяем доступность canvas
         let canvas;
         try {
             canvas = require('canvas');
         } catch (error) {
             console.log('⚠️ Canvas не доступен, создаю текстовый отчет');
-            return this.createSingleFootprintReport(footprint, stats);
+            return this.createSingleFootprintReport(footprint, stats, transformation);
         }
 
         // Создаем canvas
@@ -98,7 +103,24 @@ class ClusterVisualizer {
         ctx.textAlign = 'center';
         ctx.fillText(`👣 ПОДТВЕРЖДЕНИЯ: ${footprint.name}`, canvasWidth / 2, 40);
 
-        // 3. СТАТИСТИКА
+        // 🔥 3. ИНФОРМАЦИЯ О ТРАНСФОРМАЦИИ (если есть)
+        if (transformation) {
+            ctx.font = '14px Arial';
+            ctx.fillStyle = '#6C757D';
+            ctx.textAlign = 'center';
+
+            const transformInfo = [
+                `📐 Трансформация: поворот ${transformation.rotationAngle?.toFixed(1)}°`,
+                `🪞 Зеркало: ${transformation.isMirrored ? 'да' : 'нет'}`,
+                `📍 Центр: (${transformation.center?.x?.toFixed(1)}, ${transformation.center?.y?.toFixed(1)})`
+            ];
+
+            transformInfo.forEach((text, index) => {
+                ctx.fillText(text, canvasWidth / 2, 70 + index * 20);
+            });
+        }
+
+        // 4. СТАТИСТИКА
         ctx.font = '16px Arial';
         ctx.fillStyle = '#495057';
         ctx.textAlign = 'center';
@@ -111,17 +133,25 @@ class ClusterVisualizer {
             `Средняя уверенность: ${stats.avgConfidence.toFixed(3)}`
         ];
 
+        const startY = transformation ? 130 : 80;
         statsText.forEach((text, index) => {
-            ctx.fillText(text, canvasWidth / 2, 80 + index * 25);
+            ctx.fillText(text, canvasWidth / 2, startY + index * 25);
         });
 
-        // 4. РИСУЕМ ТОЧКИ
-        this.drawSingleFootprintPoints(ctx, points, canvasWidth, canvasHeight);
+        // 5. РИСУЕМ ТОЧКИ
+        this.drawSingleFootprintPoints(ctx, points, canvasWidth, canvasHeight, transformation);
 
-        // 5. ЛЕГЕНДА
+        // 6. ЛЕГЕНДА
         this.drawSimpleLegend(ctx, canvasWidth, canvasHeight);
 
-        // 6. СОХРАНЯЕМ
+        // 🔥 7. ИНФОРМАЦИЯ О СИСТЕМЕ КООРДИНАТ
+        ctx.fillStyle = '#ADB5BD';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Система координат: ${transformation ? 'с трансформацией' : 'исходная'}`, canvasWidth / 2, canvasHeight - 25);
+        ctx.fillText(`Визуализация создана: ${new Date().toLocaleString('ru-RU')}`, canvasWidth / 2, canvasHeight - 10);
+
+        // 8. СОХРАНЯЕМ
         const filename = options.filename || `single_${footprint.id}_${Date.now()}.png`;
         const outputPath = path.join(this.config.outputDir, filename);
 
@@ -136,6 +166,7 @@ class ClusterVisualizer {
                 resolve({
                     path: outputPath,
                     stats: stats,
+                    transformation: transformation,
                     success: true
                 });
             });
@@ -144,8 +175,242 @@ class ClusterVisualizer {
         });
     }
 
-    // 🔥 РИСОВАНИЕ ТОЧЕК ОДНОГО СЛЕДА
-    drawSingleFootprintPoints(ctx, points, canvasWidth, canvasHeight) {
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Визуализация подтверждений двух следов
+    async visualizeConfirmations(footprint1, footprint2, options = {}) {
+        console.log('🎨 Визуализация подтверждений с ПРАВИЛЬНЫМ сравнением координат...');
+
+        try {
+            // 🔥 1. ПОЛУЧАЕМ ТОЧКИ С ТРАНСФОРМАЦИЯМИ
+            const points1 = this.getPointsFromPointTracker(footprint1);
+            const points2 = this.getPointsFromPointTracker(footprint2);
+
+            const transformation1 = footprint1.getTransformation ? footprint1.getTransformation() : null;
+            const transformation2 = footprint2.getTransformation ? footprint2.getTransformation() : null;
+
+            // 🔥 2. РАСЧЕТ СТАТИСТИКИ
+            const stats1 = this.calculateConfirmationStats(points1);
+            const stats2 = this.calculateConfirmationStats(points2);
+
+            console.log(`📊 Статистика подтверждений:`);
+            console.log(`   След 1: ${stats1.total} точек, 🔴 ${stats1.confirmed2}, 🔵 ${stats1.confirmed1}`);
+            console.log(`   След 2: ${stats2.total} точек, 🔴 ${stats2.confirmed2}, 🔵 ${stats2.confirmed1}`);
+
+            if (transformation1) {
+                console.log(`   📐 След 1: поворот ${transformation1.rotationAngle?.toFixed(1)}°`);
+            }
+            if (transformation2) {
+                console.log(`   📐 След 2: поворот ${transformation2.rotationAngle?.toFixed(1)}°`);
+            }
+
+            // 🔥 3. СОЗДАЕМ ВИЗУАЛИЗАЦИЮ С УЧЕТОМ ТРАНСФОРМАЦИЙ
+            const result = await this.createConfirmationVisualization(
+                points1, points2,
+                footprint1, footprint2,
+                stats1, stats2,
+                transformation1, transformation2, // 🔥 ПЕРЕДАЕМ ТРАНСФОРМАЦИИ
+                options
+            );
+
+            return result;
+
+        } catch (error) {
+            console.error('❌ Ошибка визуализации:', error);
+            return this.createFallbackReport(footprint1, footprint2);
+        }
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Создание визуализации подтверждений
+    async createConfirmationVisualization(points1, points2, footprint1, footprint2, stats1, stats2, transformation1 = null, transformation2 = null, options = {}) {
+        // Проверяем доступность canvas
+        let canvas;
+        try {
+            canvas = require('canvas');
+        } catch (error) {
+            console.log('⚠️ Canvas не доступен, создаю текстовый отчет');
+            return this.createTextConfirmationReport(
+                points1, points2, footprint1, footprint2, stats1, stats2,
+                transformation1, transformation2, options
+            );
+        }
+
+        // Создаем canvas
+        const canvasWidth = options.width || this.config.canvasWidth;
+        const canvasHeight = options.height || this.config.canvasHeight;
+
+        const canvasInstance = canvas.createCanvas(canvasWidth, canvasHeight);
+        const ctx = canvasInstance.getContext('2d');
+
+        // 1. ФОН
+        ctx.fillStyle = this.config.pointColors.background;
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        // 2. ЗАГОЛОВОК
+        ctx.fillStyle = '#212529';
+        ctx.font = 'bold 28px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('👣 ПОДТВЕРЖДЕНИЯ ТОЧЕК (с трансформацией)', canvasWidth / 2, 50);
+
+        // 3. ИНФОРМАЦИЯ О СЛЕДАХ С ТРАНСФОРМАЦИЯМИ
+        ctx.font = '16px Arial';
+        ctx.fillStyle = '#495057';
+        ctx.textAlign = 'center';
+
+        const name1 = footprint1.name || 'След 1';
+        const name2 = footprint2.name || 'След 2';
+
+        ctx.fillText(`${name1} vs ${name2}`, canvasWidth / 2, 85);
+
+        // 🔥 ИНФОРМАЦИЯ О ТРАНСФОРМАЦИЯХ
+        if (transformation1 || transformation2) {
+            ctx.font = '14px Arial';
+            ctx.fillStyle = '#6C757D';
+
+            if (transformation1) {
+                ctx.fillText(`📐 ${name1}: ${transformation1.rotationAngle?.toFixed(1)}°`, canvasWidth / 4, 110);
+            }
+            if (transformation2) {
+                ctx.fillText(`📐 ${name2}: ${transformation2.rotationAngle?.toFixed(1)}°`, canvasWidth * 3/4, 110);
+            }
+        }
+
+        // 4. СТАТИСТИКА
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#6C757D';
+
+        const statsText = [
+            `Всего точек: ${stats1.total} | ${stats2.total}`,
+            `🔴 2+ подтверждений: ${stats1.confirmed2} | ${stats2.confirmed2}`,
+            `🔵 1 подтверждение: ${stats1.confirmed1} | ${stats2.confirmed1}`,
+            `⚪ 0 подтверждений: ${stats1.confirmed0} | ${stats2.confirmed0}`
+        ];
+
+        const startY = transformation1 || transformation2 ? 130 : 115;
+        statsText.forEach((text, index) => {
+            ctx.fillText(text, canvasWidth / 2, startY + index * 20);
+        });
+
+        // 5. РАЗДЕЛИТЕЛЬНАЯ ЛИНИЯ
+        ctx.strokeStyle = '#E0E0E0';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(canvasWidth / 2, 200);
+        ctx.lineTo(canvasWidth / 2, canvasHeight - 120);
+        ctx.stroke();
+
+        // 6. РИСУЕМ ТОЧКИ С УЧЕТОМ ТРАНСФОРМАЦИЙ
+        // 🔥 ЕСЛИ ЕСТЬ ТРАНСФОРМАЦИИ - ПРИМЕНЯЕМ ИХ ДЛЯ ВИЗУАЛИЗАЦИИ
+        this.drawPointsWithTransformation(ctx, points1, 'left', canvasWidth, canvasHeight, 'След 1', transformation1);
+        this.drawPointsWithTransformation(ctx, points2, 'right', canvasWidth, canvasHeight, 'След 2', transformation2);
+
+        // 7. ЛЕГЕНДА
+        this.drawSimpleLegend(ctx, canvasWidth, canvasHeight);
+
+        // 🔥 8. ИНФОРМАЦИЯ О СИСТЕМЕ КООРДИНАТ
+        ctx.fillStyle = '#ADB5BD';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+
+        const coordSystem = transformation1 || transformation2 ? 'нормализованная' : 'исходная';
+        ctx.fillText(`Система координат: ${coordSystem}`, canvasWidth / 2, canvasHeight - 25);
+        ctx.fillText(`Визуализация создана: ${new Date().toLocaleString('ru-RU')}`, canvasWidth / 2, canvasHeight - 10);
+
+        // 9. СОХРАНЯЕМ ИЗОБРАЖЕНИЕ
+        const filename = options.filename || `confirmations_${Date.now()}.png`;
+        const outputPath = path.join(this.config.outputDir, filename);
+
+        return new Promise((resolve, reject) => {
+            const out = fs.createWriteStream(outputPath);
+            const stream = canvasInstance.createPNGStream();
+
+            stream.pipe(out);
+
+            out.on('finish', () => {
+                console.log(`✅ Визуализация сохранена: ${outputPath}`);
+                resolve({
+                    path: outputPath,
+                    stats: { stats1, stats2 },
+                    transformations: { transformation1, transformation2 },
+                    mode: 'corrected_comparison',
+                    success: true
+                });
+            });
+
+            out.on('error', reject);
+        });
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Рисовать точки с учетом трансформации
+    drawPointsWithTransformation(ctx, points, side, canvasWidth, canvasHeight, label = '', transformation = null) {
+        const isLeft = side === 'left';
+        const offsetX = isLeft ? canvasWidth * 0.25 : canvasWidth * 0.75;
+        const offsetY = canvasHeight * 0.55;
+
+        // Подпись
+        ctx.fillStyle = '#212529';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, offsetX, offsetY - 180);
+
+        // Информация о трансформации
+        if (transformation) {
+            ctx.font = '12px Arial';
+            ctx.fillStyle = '#6C757D';
+            ctx.fillText(`${transformation.rotationAngle?.toFixed(1)}°`, offsetX, offsetY - 160);
+        }
+
+        // Если нет точек - показываем сообщение
+        if (points.length === 0) {
+            ctx.fillStyle = '#6C757D';
+            ctx.font = '14px Arial';
+            ctx.fillText('Нет данных', offsetX, offsetY);
+            return;
+        }
+
+        // 🔥 ЕСЛИ ЕСТЬ ТРАНСФОРМАЦИЯ - ПРИМЕНЯЕМ ЕЕ ДЛЯ ОТОБРАЖЕНИЯ
+        let displayPoints = points;
+        if (transformation && transformation.matrix) {
+            displayPoints = this.applyTransformationToPoints(points, transformation);
+        }
+
+        // Масштабирование точек
+        const { minX, maxX, minY, maxY } = this.calculateBounds(displayPoints);
+        const scale = this.calculateScale(minX, maxX, minY, maxY, canvasWidth * 0.4, canvasHeight * 0.5);
+
+        // Рисуем каждую точку
+        displayPoints.forEach(point => {
+            const x = offsetX + (point.x - (minX + maxX) / 2) * scale;
+            const y = offsetY + (point.y - (minY + maxY) / 2) * scale;
+
+            // Цвет точки в зависимости от подтверждений
+            let color;
+            if (point.confirmedCount >= 2) {
+                color = this.config.pointColors.confirmed2; // 🔴 Красный
+            } else if (point.confirmedCount >= 1) {
+                color = this.config.pointColors.confirmed1; // 🔵 Синий
+            } else {
+                color = this.config.pointColors.confirmed0; // ⚪ Серый
+            }
+
+            // Размер точки в зависимости от уверенности
+            const size = 4 + (point.confidence * 8);
+
+            // Рисуем точку
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Обводка для высоконадежных точек
+            if (point.confidence > 0.8) {
+                ctx.strokeStyle = this.config.pointColors.highConfidence;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+        });
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Рисовать точки одного следа с трансформацией
+    drawSingleFootprintPoints(ctx, points, canvasWidth, canvasHeight, transformation = null) {
         const centerX = canvasWidth / 2;
         const centerY = canvasHeight * 0.6;
 
@@ -156,12 +421,18 @@ class ClusterVisualizer {
             return;
         }
 
+        // 🔥 ЕСЛИ ЕСТЬ ТРАНСФОРМАЦИЯ - ПРИМЕНЯЕМ ЕЕ ДЛЯ ОТОБРАЖЕНИЯ
+        let displayPoints = points;
+        if (transformation && transformation.matrix) {
+            displayPoints = this.applyTransformationToPoints(points, transformation);
+        }
+
         // Масштабирование
-        const { minX, maxX, minY, maxY } = this.calculateBounds(points);
+        const { minX, maxX, minY, maxY } = this.calculateBounds(displayPoints);
         const scale = this.calculateScale(minX, maxX, minY, maxY, canvasWidth * 0.8, canvasHeight * 0.6);
 
         // Рисуем каждую точку
-        points.forEach(point => {
+        displayPoints.forEach(point => {
             const x = centerX + (point.x - (minX + maxX) / 2) * scale;
             const y = centerY + (point.y - (minY + maxY) / 2) * scale;
 
@@ -186,112 +457,29 @@ class ClusterVisualizer {
         });
     }
 
-    // 🔥 ТЕКСТОВЫЙ ОТЧЕТ ОДНОГО СЛЕДА
-    createSingleFootprintReport(footprint, stats = null) {
-        const outputPath = path.join(this.config.outputDir, `single_${footprint.id}_${Date.now()}.txt`);
-
-        if (!stats) {
-            const points = this.getPointsFromPointTracker(footprint);
-            stats = this.calculateConfirmationStats(points);
+    // 🔥 НОВЫЙ МЕТОД: Применить трансформацию к точкам
+    applyTransformationToPoints(points, transformation) {
+        if (!transformation || !transformation.matrix) {
+            return points;
         }
 
-        const report = `
-👣 ПОДТВЕРЖДЕНИЯ ОДНОГО СЛЕДА
-═════════════════════════════
+        const matrix = transformation.matrix;
+        const center = transformation.center || { x: 0, y: 0 };
 
-📋 ИНФОРМАЦИЯ О СЛЕДЕ:
-Название: ${footprint.name || 'Неизвестный'}
-ID: ${footprint.id?.slice(0, 8) || 'N/A'}
-Время создания: ${new Date().toLocaleString('ru-RU')}
+        return points.map(point => {
+            const relX = point.x - center.x;
+            const relY = point.y - center.y;
 
-📊 СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:
-• Всего точек: ${stats.total}
-• 🔴 2+ подтверждений: ${stats.confirmed2}
-• 🔵 1 подтверждение: ${stats.confirmed1}
-• ⚪ 0 подтверждений: ${stats.confirmed0}
-• Средняя уверенность: ${stats.avgConfidence.toFixed(3)}
+            const transformedX = relX * matrix[0] + relY * matrix[1] + center.x + matrix[2];
+            const transformedY = relX * matrix[3] + relY * matrix[4] + center.y + matrix[5];
 
-🎯 СИСТЕМА ПОДТВЕРЖДЕНИЙ:
-• 1 фото = 1 подтверждение точки
-• 🔴 Красные точки: есть на 2+ фото (надежные)
-• 🔵 Синие точки: есть на 1 фото (требуют подтверждения)
-• ⚪ Серые точки: предсказанные (требуют фото)
-
-💡 РЕКОМЕНДАЦИИ:
-${this.getSingleFootprintRecommendations(stats)}
-
-═════════════════════════════
-Отчет создан: ${new Date().toLocaleString('ru-RU')}
-Для графической визуализации установите: npm install canvas
-`;
-
-        fs.writeFileSync(outputPath, report, 'utf8');
-
-        return {
-            path: outputPath,
-            stats: stats,
-            note: 'Текстовый отчет одного следа (установите Canvas для графики)'
-        };
-    }
-
-    // 🔥 РЕКОМЕНДАЦИИ ДЛЯ ОДНОГО СЛЕДА
-    getSingleFootprintRecommendations(stats) {
-        const recommendations = [];
-
-        if (stats.confirmed2 === 0 && stats.total > 0) {
-            recommendations.push('• Нет точек с 2+ подтверждениями');
-            recommendations.push('• Добавьте ещё фото для подтверждения точек');
-        }
-
-        if (stats.confirmed2 > 0) {
-            const percent = (stats.confirmed2 / stats.total * 100).toFixed(1);
-            recommendations.push(`• ${percent}% точек имеют 2+ подтверждений - хороший результат`);
-        }
-
-        if (stats.confirmed0 > stats.total * 0.3) {
-            recommendations.push('• Много неподтвержденных точек (>30%)');
-            recommendations.push('• Проверьте качество фото и детекцию протекторов');
-        }
-
-        if (stats.avgConfidence < 0.6) {
-            recommendations.push('• Низкая средняя уверенность детекции');
-            recommendations.push('• Улучшите качество фото и освещение');
-        }
-
-        return recommendations.length > 0 ? recommendations.join('\n') : 'Продолжайте добавлять фото для улучшения качества';
-    }
-
-    // 🔥 ОСНОВНОЙ МЕТОД: Простая визуализация подтверждений
-    async visualizeConfirmations(footprint1, footprint2, options = {}) {
-        console.log('🎨 Визуализация подтверждений (без сравнения)...');
-
-        try {
-            // 1. Получаем точки ИЗ POINT TRACKER
-            const points1 = this.getPointsFromPointTracker(footprint1);
-            const points2 = this.getPointsFromPointTracker(footprint2);
-
-            // 2. Рассчитываем статистику
-            const stats1 = this.calculateConfirmationStats(points1);
-            const stats2 = this.calculateConfirmationStats(points2);
-
-            console.log(`📊 Статистика подтверждений:`);
-            console.log(`   След 1: ${stats1.total} точек, 🔴 ${stats1.confirmed2}, 🔵 ${stats1.confirmed1}`);
-            console.log(`   След 2: ${stats2.total} точек, 🔴 ${stats2.confirmed2}, 🔵 ${stats2.confirmed1}`);
-
-            // 3. Создаем визуализацию
-            const result = await this.createConfirmationVisualization(
-                points1, points2,
-                footprint1, footprint2,
-                stats1, stats2,
-                options
-            );
-
-            return result;
-
-        } catch (error) {
-            console.error('❌ Ошибка визуализации:', error);
-            return this.createFallbackReport(footprint1, footprint2);
-        }
+            return {
+                ...point,
+                x: transformedX,
+                y: transformedY,
+                transformed: true
+            };
+        });
     }
 
     // 🔥 НОВЫЙ МЕТОД: Получить точки напрямую из PointTracker
@@ -364,109 +552,7 @@ ${this.getSingleFootprintRecommendations(stats)}
         };
     }
 
-    // 🔥 СОЗДАНИЕ ВИЗУАЛИЗАЦИИ ПОДТВЕРЖДЕНИЙ
-    async createConfirmationVisualization(points1, points2, footprint1, footprint2, stats1, stats2, options = {}) {
-        // Проверяем доступность canvas
-        let canvas;
-        try {
-            canvas = require('canvas');
-        } catch (error) {
-            console.log('⚠️ Canvas не доступен, создаю текстовый отчет');
-            return this.createTextConfirmationReport(
-                points1, points2, footprint1, footprint2, stats1, stats2, options
-            );
-        }
-
-        // Создаем canvas
-        const canvasWidth = options.width || this.config.canvasWidth;
-        const canvasHeight = options.height || this.config.canvasHeight;
-
-        const canvasInstance = canvas.createCanvas(canvasWidth, canvasHeight);
-        const ctx = canvasInstance.getContext('2d');
-
-        // 1. ФОН
-        ctx.fillStyle = this.config.pointColors.background;
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-        // 2. ЗАГОЛОВОК
-        ctx.fillStyle = '#212529';
-        ctx.font = 'bold 28px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('👣 ПОДТВЕРЖДЕНИЯ ТОЧЕК', canvasWidth / 2, 50);
-
-        // 3. ИНФОРМАЦИЯ О СЛЕДАХ
-        ctx.font = '16px Arial';
-        ctx.fillStyle = '#495057';
-        ctx.textAlign = 'center';
-
-        const name1 = footprint1.name || 'След 1';
-        const name2 = footprint2.name || 'След 2';
-
-        ctx.fillText(`${name1} vs ${name2}`, canvasWidth / 2, 85);
-
-        // 4. СТАТИСТИКА
-        ctx.font = '14px Arial';
-        ctx.fillStyle = '#6C757D';
-
-        const statsText = [
-            `Всего точек: ${stats1.total} | ${stats2.total}`,
-            `🔴 2+ подтверждений: ${stats1.confirmed2} | ${stats2.confirmed2}`,
-            `🔵 1 подтверждение: ${stats1.confirmed1} | ${stats2.confirmed1}`,
-            `⚪ 0 подтверждений: ${stats1.confirmed0} | ${stats2.confirmed0}`
-        ];
-
-        statsText.forEach((text, index) => {
-            ctx.fillText(text, canvasWidth / 2, 115 + index * 20);
-        });
-
-        // 5. РАЗДЕЛИТЕЛЬНАЯ ЛИНИЯ
-        ctx.strokeStyle = '#E0E0E0';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(canvasWidth / 2, 200);
-        ctx.lineTo(canvasWidth / 2, canvasHeight - 120);
-        ctx.stroke();
-
-        // 6. РИСУЕМ ТОЧКИ СЛЕДА 1 (слева)
-        this.drawSimplePoints(ctx, points1, 'left', canvasWidth, canvasHeight, 'След 1');
-
-        // 7. РИСУЕМ ТОЧКИ СЛЕДА 2 (справа)
-        this.drawSimplePoints(ctx, points2, 'right', canvasWidth, canvasHeight, 'След 2');
-
-        // 8. ЛЕГЕНДА
-        this.drawSimpleLegend(ctx, canvasWidth, canvasHeight);
-
-        // 9. ДАТА И ВРЕМЯ
-        ctx.fillStyle = '#ADB5BD';
-        ctx.font = '12px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(`Визуализация создана: ${new Date().toLocaleString('ru-RU')}`, canvasWidth / 2, canvasHeight - 10);
-
-        // 10. СОХРАНЯЕМ ИЗОБРАЖЕНИЕ
-        const filename = options.filename || `confirmations_${Date.now()}.png`;
-        const outputPath = path.join(this.config.outputDir, filename);
-
-        return new Promise((resolve, reject) => {
-            const out = fs.createWriteStream(outputPath);
-            const stream = canvasInstance.createPNGStream();
-
-            stream.pipe(out);
-
-            out.on('finish', () => {
-                console.log(`✅ Визуализация сохранена: ${outputPath}`);
-                resolve({
-                    path: outputPath,
-                    stats: { stats1, stats2 },
-                    mode: 'simple_confirmation',
-                    success: true
-                });
-            });
-
-            out.on('error', reject);
-        });
-    }
-
-    // 🔥 ПРОСТОЕ РИСОВАНИЕ ТОЧЕК
+    // 🔥 ПРОСТОЕ РИСОВАНИЕ ТОЧЕК (для совместимости)
     drawSimplePoints(ctx, points, side, canvasWidth, canvasHeight, label = '') {
         const isLeft = side === 'left';
         const offsetX = isLeft ? canvasWidth * 0.25 : canvasWidth * 0.75;
@@ -575,10 +661,107 @@ ${this.getSingleFootprintRecommendations(stats)}
         });
     }
 
+    // 🔥 ТЕКСТОВЫЙ ОТЧЕТ ОДНОГО СЛЕДА
+    createSingleFootprintReport(footprint, stats = null, transformation = null) {
+        const outputPath = path.join(this.config.outputDir, `single_${footprint.id}_${Date.now()}.txt`);
+
+        if (!stats) {
+            const points = this.getPointsFromPointTracker(footprint);
+            stats = this.calculateConfirmationStats(points);
+        }
+
+        let transformationInfo = '';
+        if (transformation) {
+            transformationInfo = `📐 ИНФОРМАЦИЯ О ТРАНСФОРМАЦИИ:\n`;
+            transformationInfo += `Поворот: ${transformation.rotationAngle?.toFixed(1)}°\n`;
+            transformationInfo += `Зеркало: ${transformation.isMirrored ? 'да' : 'нет'}\n`;
+            transformationInfo += `Центр: (${transformation.center?.x?.toFixed(1)}, ${transformation.center?.y?.toFixed(1)})\n\n`;
+        }
+
+        const report = `
+👣 ПОДТВЕРЖДЕНИЯ ОДНОГО СЛЕДА
+═════════════════════════════
+
+📋 ИНФОРМАЦИЯ О СЛЕДЕ:
+Название: ${footprint.name || 'Неизвестный'}
+ID: ${footprint.id?.slice(0, 8) || 'N/A'}
+Время создания: ${new Date().toLocaleString('ru-RU')}
+
+${transformationInfo}
+📊 СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:
+• Всего точек: ${stats.total}
+• 🔴 2+ подтверждений: ${stats.confirmed2}
+• 🔵 1 подтверждение: ${stats.confirmed1}
+• ⚪ 0 подтверждений: ${stats.confirmed0}
+• Средняя уверенность: ${stats.avgConfidence.toFixed(3)}
+
+🎯 СИСТЕМА ПОДТВЕРЖДЕНИЙ:
+• 1 фото = 1 подтверждение точки
+• 🔴 Красные точки: есть на 2+ фото (надежные)
+• 🔵 Синие точки: есть на 1 фото (требуют подтверждения)
+• ⚪ Серые точки: предсказанные (требуют фото)
+
+💡 РЕКОМЕНДАЦИИ:
+${this.getSingleFootprintRecommendations(stats)}
+
+═════════════════════════════
+Отчет создан: ${new Date().toLocaleString('ru-RU')}
+Для графической визуализации установите: npm install canvas
+`;
+
+        fs.writeFileSync(outputPath, report, 'utf8');
+
+        return {
+            path: outputPath,
+            stats: stats,
+            transformation: transformation,
+            note: 'Текстовый отчет одного следа (установите Canvas для графики)'
+        };
+    }
+
+    // 🔥 РЕКОМЕНДАЦИИ ДЛЯ ОДНОГО СЛЕДА
+    getSingleFootprintRecommendations(stats) {
+        const recommendations = [];
+
+        if (stats.confirmed2 === 0 && stats.total > 0) {
+            recommendations.push('• Нет точек с 2+ подтверждениями');
+            recommendations.push('• Добавьте ещё фото для подтверждения точек');
+        }
+
+        if (stats.confirmed2 > 0) {
+            const percent = (stats.confirmed2 / stats.total * 100).toFixed(1);
+            recommendations.push(`• ${percent}% точек имеют 2+ подтверждений - хороший результат`);
+        }
+
+        if (stats.confirmed0 > stats.total * 0.3) {
+            recommendations.push('• Много неподтвержденных точек (>30%)');
+            recommendations.push('• Проверьте качество фото и детекцию протекторов');
+        }
+
+        if (stats.avgConfidence < 0.6) {
+            recommendations.push('• Низкая средняя уверенность детекции');
+            recommendations.push('• Улучшите качество фото и освещение');
+        }
+
+        return recommendations.length > 0 ? recommendations.join('\n') : 'Продолжайте добавлять фото для улучшения качества';
+    }
+
     // 🔥 ТЕКСТОВЫЙ ОТЧЕТ (фаллбэк)
-    createTextConfirmationReport(points1, points2, footprint1, footprint2, stats1, stats2, options = {}) {
+    createTextConfirmationReport(points1, points2, footprint1, footprint2, stats1, stats2, transformation1 = null, transformation2 = null, options = {}) {
         const filename = options.filename || `confirmations_report_${Date.now()}.txt`;
         const outputPath = path.join(this.config.outputDir, filename);
+
+        let transformationInfo = '';
+        if (transformation1 || transformation2) {
+            transformationInfo = `📐 ИНФОРМАЦИЯ О ТРАНСФОРМАЦИЯХ:\n`;
+            if (transformation1) {
+                transformationInfo += `След 1: ${transformation1.rotationAngle?.toFixed(1)}°, зеркало: ${transformation1.isMirrored ? 'да' : 'нет'}\n`;
+            }
+            if (transformation2) {
+                transformationInfo += `След 2: ${transformation2.rotationAngle?.toFixed(1)}°, зеркало: ${transformation2.isMirrored ? 'да' : 'нет'}\n`;
+            }
+            transformationInfo += '\n';
+        }
 
         const report = `
 ПОДТВЕРЖДЕНИЯ ТОЧЕК - ТЕКСТОВЫЙ ОТЧЕТ
@@ -599,6 +782,7 @@ ${this.getSingleFootprintRecommendations(stats)}
 • ⚪ 0 подтверждений: ${stats2.confirmed0}
 • Средняя уверенность: ${stats2.avgConfidence.toFixed(3)}
 
+${transformationInfo}
 🎯 ИНФОРМАЦИЯ О ПОДТВЕРЖДЕНИЯХ:
 • 1 фото = 1 подтверждение точки
 • 🔴 Красные точки: есть на 2+ фото
@@ -622,6 +806,7 @@ ${this.getConfirmationRecommendations(stats1, stats2)}
         return {
             path: outputPath,
             stats: { stats1, stats2 },
+            transformations: { transformation1, transformation2 },
             note: 'Текстовый отчет (установите Canvas для графики)'
         };
     }
@@ -753,54 +938,6 @@ npm install canvas
         console.log('🎨 [Совместимость] Визуализация сравнения...');
         // Просто используем новый метод
         return await this.visualizeConfirmations(footprint1, footprint2, options);
-    }
-
-    // 🔥 ПРОСТОЕ ТЕКСТОВОЕ СРАВНЕНИЕ
-    createSimpleTextComparison(footprint1, footprint2, comparisonResult) {
-        console.log('📝 Создаю текстовое сравнение...');
-
-        const points1 = this.getPointsFromPointTracker(footprint1);
-        const points2 = this.getPointsFromPointTracker(footprint2);
-
-        const stats1 = this.calculateConfirmationStats(points1);
-        const stats2 = this.calculateConfirmationStats(points2);
-
-        const text = `
-🎯 СРАВНЕНИЕ ДВУХ СЛЕДОВ
-══════════════════════════════
-
-📊 СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:
-След 1: ${footprint1.name} (ID: ${footprint1.id?.slice(0, 8) || 'N/A'})
-• Всего точек: ${stats1.total}
-• 🔴 2+ подтверждений: ${stats1.confirmed2}
-• 🔵 1 подтверждение: ${stats1.confirmed1}
-• ⚪ 0 подтверждений: ${stats1.confirmed0}
-
-След 2: ${footprint2.name} (ID: ${footprint2.id?.slice(0, 8) || 'N/A'})
-• Всего точек: ${stats2.total}
-• 🔴 2+ подтверждений: ${stats2.confirmed2}
-• 🔵 1 подтверждение: ${stats2.confirmed1}
-• ⚪ 0 подтверждений: ${stats2.confirmed0}
-
-${comparisonResult ? `📈 СРАВНЕНИЕ ГРАФОВ:
-• Схожесть: ${comparisonResult.similarity ? (comparisonResult.similarity * 100).toFixed(1) : 0}%
-• Решение: ${comparisonResult.decision || 'unknown'}
-• Метод: ${comparisonResult.method || 'unknown'}` : ''}
-
-🎨 ВИЗУАЛИЗАЦИЯ:
-• 🔴 Красная точка: есть в ОБОИХ фото (2 подтверждения)
-• 🔵 Синяя точка: есть в ОДНОМ фото (1 подтверждение)
-• ⚪ Белая/серая: ожидается (0 подтверждений)
-• Размер точки: уверенность детекции (0.5-1.0)
-
-💡 ДЛЯ ГРАФИЧЕСКОЙ ВИЗУАЛИЗАЦИИ:
-Установите canvas: npm install canvas
-
-══════════════════════════════
-Отчет создан: ${new Date().toLocaleString('ru-RU')}
-`;
-
-        return text;
     }
 }
 
