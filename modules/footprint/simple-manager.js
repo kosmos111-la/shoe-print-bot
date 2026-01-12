@@ -1,5 +1,5 @@
 // modules/footprint/simple-manager.js
-// 🔥 ОБНОВЛЯЕМ ДЛЯ РАБОТЫ С ТРАНСФОРМАЦИЯМИ
+// 🔥 ОБНОВЛЯЕМ ДЛЯ РАБОТЫ С ПОЛНЫМ НАКОПЛЕНИЕМ
 
 const fs = require('fs');
 const path = require('path');
@@ -81,12 +81,82 @@ class SimpleFootprintManager {
         this.ensureDirectories();
         this.loadExistingModels();
 
-        console.log(`🚀 SimpleFootprintManager с РЕАЛЬНЫМИ подтверждениями и трансформациями`);
+        console.log(`🚀 SimpleFootprintManager с РЕАЛЬНЫМИ подтверждениями и полным накоплением деталей`);
+    }
+
+    // 🔥 ДЕБАГ МЕТОД: Проверить накопление деталей (из инструкции)
+    debugAccumulation(userId) {
+        const vectorModel = this.vectorSuperModels.get(userId);
+        if (!vectorModel || !vectorModel.templateBuilder) {
+            console.log('❌ Нет шаблона для проверки накопления');
+            return;
+        }
+
+        const templateData = vectorModel.templateBuilder.getVisualizationData();
+
+        console.log('\n🔍 ДЕБАГ НАКОПЛЕНИЯ ДЕТАЛЕЙ:');
+        console.log(`Шаблон: ${templateData.name}`);
+        console.log(`Всего ячеек: ${templateData.stats.totalCells}`);
+        console.log(`Всего подтверждений: ${templateData.stats.totalConfirmations}`);
+
+        // 🔥 СТАТИСТИКА ПО ТИПАМ ТОЧЕК
+        const cells = templateData.cells || [];
+        const byStatus = {};
+
+        cells.forEach(cell => {
+            const status = cell.status || 'unknown';
+            byStatus[status] = (byStatus[status] || 0) + 1;
+        });
+
+        console.log('\n📊 РАСПРЕДЕЛЕНИЕ ПО СТАТУСАМ:');
+        Object.entries(byStatus).forEach(([status, count]) => {
+            const percent = ((count / cells.length) * 100).toFixed(1);
+            console.log(`   ${status}: ${count} (${percent}%)`);
+        });
+
+        // 🔥 НОВЫЕ ТОЧКИ
+        const newCells = cells.filter(c => c.isNew);
+        console.log(`\n🆕 НОВЫЕ ТОЧКИ: ${newCells.length}`);
+        newCells.slice(0, 3).forEach((cell, i) => {
+            console.log(`   ${i + 1}. ${cell.id.slice(0, 12)}: ${cell.confirmations} подтверждений`);
+        });
+
+        // 🔥 КАЧЕСТВО ПОДТВЕРЖДЕНИЙ
+        const confirmationDistribution = {};
+        cells.forEach(cell => {
+            const conf = cell.confirmations || 1;
+            if (conf >= 5) confirmationDistribution['5+'] = (confirmationDistribution['5+'] || 0) + 1;
+            else confirmationDistribution[conf] = (confirmationDistribution[conf] || 0) + 1;
+        });
+
+        console.log('\n📈 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ:');
+        Object.entries(confirmationDistribution).sort((a, b) => {
+            const aKey = a[0] === '5+' ? 5 : parseInt(a[0]);
+            const bKey = b[0] === '5+' ? 5 : parseInt(b[0]);
+            return aKey - bKey;
+        }).forEach(([confirmations, count]) => {
+            const percent = ((count / cells.length) * 100).toFixed(1);
+            console.log(`   ${confirmations}: ${count} (${percent}%)`);
+        });
+
+        // 🔥 ИСТОЧНИКИ (графы)
+        const sources = new Set();
+        cells.forEach(cell => {
+            (cell.sources || []).forEach(source => sources.add(source));
+        });
+
+        console.log(`\n📁 ИСТОЧНИКИ: ${sources.size} различных графов`);
+
+        // 🔥 КАЧЕСТВО ЭТАЛОНА
+        console.log(`\n🎯 ЭТАЛОН: ${templateData.referenceGraphId?.slice(0, 8) || 'нет'}`);
+        console.log(`   Качество: ${templateData.referenceGraphQuality?.toFixed(3) || 0}`);
+        console.log(`   Лучший граф: ${templateData.dynamicInfo?.bestGraphId?.slice(0, 8) || 'нет'}`);
+        console.log(`   Качество лучшего: ${templateData.dynamicInfo?.bestGraphQuality?.toFixed(3) || 0}`);
     }
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Добавление фото с сохранением трансформации
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО с сохранением трансформации`);
+        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО с сохранением трансформации и накоплением`);
 
         try {
             if (!analysis || !analysis.predictions) {
@@ -119,7 +189,7 @@ class SimpleFootprintManager {
                 ...normalized.transformation,
                 rotationAngle: normalized.rotationAngle,
                 isMirrored: normalized.isMirrored,
-                corrected: false, // Пока не применяли коррекцию зеркала
+                corrected: false,
                 timestamp: new Date(),
                 footType: normalized.footType,
                 photoId: photoInfo.photoId || `photo_${Date.now()}`
@@ -173,7 +243,7 @@ class SimpleFootprintManager {
                 session.currentFootprint = new SimpleFootprint({
                     userId: userId,
                     name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
-                    transformation: transformationInfo  // 🔥 ПЕРЕДАЕМ ТРАНСФОРМАЦИЮ
+                    transformation: transformationInfo
                 });
 
                 session.currentFootprint.metadata.normalizationInfo = transformationInfo;
@@ -228,14 +298,14 @@ class SimpleFootprintManager {
                 name: `Temp_${Date.now()}`
             });
 
-            tempFootprint.metadata.normalizationInfo = currentTransformationInfo;
+            tempFootprint.metadata.normalizationInfo = transformationInfo;
 
             const tempResult = tempFootprint.addAnalysisHonest(analysis, {
                 ...photoInfo,
                 normalizedGraph: finalGraph,
                 photoId: photoInfo.photoId || `photo_${Date.now()}_temp`,
                 source: photoInfo.source || 'telegram_bot_temp',
-                transformationInfo: currentTransformationInfo
+                transformationInfo: transformationInfo
             });
 
             // 🔥 ПРОСТОЕ СРАВНЕНИЕ
@@ -248,7 +318,7 @@ class SimpleFootprintManager {
                     userId: userId,
                     photoId: photoInfo.photoId,
                     transformationInfo1: existingTransformationInfo,
-                    transformationInfo2: currentTransformationInfo
+                    transformationInfo2: transformationInfo
                 }
             );
 
@@ -257,7 +327,7 @@ class SimpleFootprintManager {
 
             console.log(`🎯 Сходство: ${similarity.toFixed(3)}, решение: ${decision}`);
 
-            // 🔥 СЛЕДЫ СОВПАЛИ - обновляем шаблон
+            // 🔥 СЛЕДЫ СОВПАЛИ - обновляем шаблон с накоплением
             if (decision === 'same') {
                 console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
 
@@ -285,18 +355,22 @@ class SimpleFootprintManager {
                     );
                 }
 
-                // 🔥 ДОБАВЛЯЕМ НОВЫЙ ГРАФ В ШАБЛОН
-                console.log(`🔄 Добавляю новый граф в шаблон...`);
-                vectorModel.addGraph(
+                // 🔥 ДОБАВЛЯЕМ НОВЫЙ ГРАФ В ШАБЛОН С НАКОПЛЕНИЕМ
+                console.log(`🔄 Добавляю новый граф в шаблон с накоплением деталей...`);
+                const addedWithAccumulation = vectorModel.addGraph(
                     finalGraph,
                     tempFootprint.id,
                     {
                         similarity: similarity,
                         timestamp: new Date(),
                         ...photoInfo,
-                        transformationInfo: currentTransformationInfo
+                        transformationInfo: transformationInfo
                     }
                 );
+
+                if (!addedWithAccumulation) {
+                    console.log(`❌ Не удалось добавить граф в шаблон`);
+                }
 
                 // 🔥 ПРЯМОЕ ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ МЕЖДУ СЛЕДАМИ
                 console.log(`🔄 Прямое обновление подтверждений между следами...`);
@@ -319,7 +393,7 @@ class SimpleFootprintManager {
                     clusterVizResult = await this.visualizeSingleFootprintConfirmations(
                         session.currentFootprint,
                         userId,
-                        currentTransformationInfo
+                        transformationInfo
                     );
                 }
 
@@ -331,12 +405,11 @@ class SimpleFootprintManager {
 
                 // 🔥 РЕАЛЬНАЯ СТАТИСТИКА
                 const stats = this.calculateConfirmationStats(session.currentFootprint);
-                console.log(`📊 РЕАЛЬНАЯ СТАТИСТИКА ПОСЛЕ 2 ФОТО:`);
+                console.log(`📊 РЕАЛЬНАЯ СТАТИСТИКА ПОСЛЕ ${session.photos.length} ФОТО:`);
                 console.log(`   • Всего точек: ${stats.totalPoints}`);
                 console.log(`   • 🔴 Красные (2+): ${stats.confirmed2}`);
                 console.log(`   • 🔵 Синие (1): ${stats.confirmed1}`);
                 console.log(`   • ⚪️ Серые (0): ${stats.confirmed0}`);
-                console.log(`   • Всего фото: ${session.photos.length}`);
 
                 // 🔥 ОТПРАВКА В TELEGRAM
                 if (bot && chatId) {
@@ -345,7 +418,7 @@ class SimpleFootprintManager {
                         try {
                             let caption = `🎯 **РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ**\n\n`;
                             caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
-                            caption += `📐 Угол: ${currentTransformationInfo.rotationAngle.toFixed(1)}°\n\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n\n`;
                             caption += `📈 **СТАТИСТИКА (после ${session.photos.length} фото):**\n`;
                             caption += `• Всего точек: ${stats.totalPoints}\n`;
                             caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
@@ -374,7 +447,8 @@ class SimpleFootprintManager {
                     hasVisualization: !!(clusterVizResult || templateVizPath),
                     pointsUpdated: updatedFromTemplate + directUpdates,
                     realStats: stats,
-                    totalPhotos: session.photos.length
+                    totalPhotos: session.photos.length,
+                    accumulationInfo: addedWithAccumulation
                 };
 
             } else {
@@ -390,14 +464,14 @@ class SimpleFootprintManager {
                     name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`
                 });
 
-                session.currentFootprint.metadata.normalizationInfo = currentTransformationInfo;
+                session.currentFootprint.metadata.normalizationInfo = transformationInfo;
 
                 const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
                     ...photoInfo,
                     normalizedGraph: finalGraph,
                     photoId: photoInfo.photoId || `photo_${Date.now()}`,
                     source: photoInfo.source || 'telegram_bot',
-                    transformationInfo: currentTransformationInfo
+                    transformationInfo: transformationInfo
                 });
 
                 // 🔥 Создаем новый шаблон
@@ -411,7 +485,7 @@ class SimpleFootprintManager {
 
                 vectorModel.addGraph(finalGraph, session.currentFootprint.id, {
                     isFirst: true,
-                    transformationInfo: currentTransformationInfo
+                    transformationInfo: transformationInfo
                 });
 
                 this.vectorSuperModels.set(userId, vectorModel);
