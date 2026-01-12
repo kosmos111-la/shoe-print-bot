@@ -1,5 +1,5 @@
 // modules/footprint/template-builder.js
-// 🔥 ПЕРЕРАБОТАННЫЙ С ДИНАМИЧЕСКИМ ЭТАЛОНОМ
+// 🔥 ПЕРЕРАБОТАННЫЙ С ДИНАМИЧЕСКИМ ЭТАЛОНОМ И ПОЛНЫМ НАКОПЛЕНИЕМ
 const SimpleGraphMatcher = require('./simple-matcher');
 
 class TemplateBuilder {
@@ -51,7 +51,8 @@ class TemplateBuilder {
             alignmentError: 0,
             createdAt: new Date(),
             lastUpdated: new Date(),
-            totalConfirmations: 0 // 🔥 ДОБАВЛЯЕМ
+            totalConfirmations: 0,
+            bestGraphUpdates: 0 // 🔥 ДОБАВЛЯЕМ счетчик обновлений эталона
         };
 
         // 🔥 НАСТРОЙКИ С ИНВАРИАНТНОСТЬЮ И ДИНАМИЧЕСКИМ ЭТАЛОНОМ
@@ -65,27 +66,782 @@ class TemplateBuilder {
             enableInvariantGrid: true,
             useRelativeCoordinates: true,
             debug: options.debug || false,
-            enableDynamicReference: true, // 🔥 ВКЛЮЧАЕМ ДИНАМИЧЕСКИЙ ЭТАЛОН
-            referenceUpdateThreshold: 1.15, // На 15% лучше
+            enableDynamicReference: true,
+            referenceUpdateThreshold: 1.15,
             minQualityForReference: 0.4,
             ...options
         };
 
-        console.log(`🏗️ Создан TemplateBuilder "${this.name}" с ДИНАМИЧЕСКИМ эталоном`);
+        console.log(`🏗️ Создан TemplateBuilder "${this.name}" с ДИНАМИЧЕСКИМ эталоном и полным накоплением`);
     }
 
-    // 🔥 ДОБАВЛЕННЫЙ МЕТОД ИЗ ИНСТРУКЦИИ
+    // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: Добавить граф с полным накоплением деталей
+    addGraph(graph, graphId, metadata = {}) {
+        console.log(`🔄 Добавляю граф ${graphId} с НАКОПЛЕНИЕМ деталей...`);
+
+        // 🔥 ЕСЛИ ЭТО ПЕРВЫЙ ГРАФ - УСТАНАВЛИВАЕМ КАК ЭТАЛОН
+        if (!this.referenceGraph) {
+            console.log(`🎯 Первый граф, устанавливаю как эталон`);
+            return this.setReferenceGraph(graph, graphId, metadata);
+        }
+
+        // 1. ОЦЕНИВАЕМ КАЧЕСТВО НОВОГО ГРАФА
+        const newQuality = this.calculateGraphQuality(graph, metadata);
+        console.log(`📈 Качество нового графа ${graphId}: ${newQuality.toFixed(3)}`);
+
+        // 🔥 2. СОХРАНЯЕМ ГРАФ (автоматически обновит эталон если нужно)
+        this.saveGraph(graph, graphId, metadata, newQuality);
+
+        // 3. ИЗВЛЕКАЕМ И НОРМАЛИЗУЕМ ТОЧКИ
+        const points = this.extractPointsFromGraph(graph);
+        const normalizedPoints = this.normalizePoints(points, this.normalizationTransform);
+
+        console.log(`📊 Извлечено ${points.length} точек, нормализовано ${normalizedPoints.length}`);
+
+        // 4. 🔥 ПОЛНОЕ СОПОСТАВЛЕНИЕ С ШАБЛОНОМ
+        const matchResults = this.findCompleteMatches(normalizedPoints, graphId);
+
+        if (matchResults.totalMatches < Math.max(3, this.referencePoints.length * 0.2)) {
+            console.log(`❌ Недостаточно совпадений: ${matchResults.totalMatches}`);
+            console.log(`   Возможно, это другой протектор`);
+            return false;
+        }
+
+        console.log(`✅ Найдено ${matchResults.totalMatches} совпадений:`);
+        console.log(`   • Точные совпадения: ${matchResults.exactMatchesCount}`);
+        console.log(`   • Частичные совпадения: ${matchResults.partialMatchesCount}`);
+        console.log(`   • Новые точки: ${matchResults.newPointsCount}`);
+
+        // 5. 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ СУЩЕСТВУЮЩИХ ТОЧЕК
+        const updatedCells = this.updateTemplateWithMatches(matchResults, graphId);
+
+        // 6. 🔥 ДОБАВЛЯЕМ НОВЫЕ ТОЧКИ В ШАБЛОН
+        const newCellsAdded = this.addNewPointsToTemplate(
+            matchResults.unmatchedPoints,
+            graphId,
+            metadata
+        );
+
+        // 7. 🔥 УТОЧНЯЕМ КООРДИНАТЫ СУЩЕСТВУЮЩИХ ТОЧЕК
+        const refinedCells = this.refineTemplatePoints(
+            matchResults,
+            graphId
+        );
+
+        // 8. 🔥 ОБРАБАТЫВАЕМ НИЗКОКАЧЕСТВЕННЫЕ ТОЧКИ
+        const lowQualityProcessed = this.processLowQualityPoints(
+            matchResults.lowQualityMatches,
+            graphId
+        );
+
+        // 9. Сохранить трансформацию и статистику
+        this.graphTransformations.set(graphId, {
+            metadata: metadata,
+            timestamp: new Date(),
+            pointsCount: points.length,
+            matchResults: {
+                totalMatches: matchResults.totalMatches,
+                exactMatches: matchResults.exactMatchesCount,
+                partialMatches: matchResults.partialMatchesCount,
+                newPoints: matchResults.newPointsCount
+            },
+            quality: newQuality,
+            actions: {
+                updatedCells,
+                newCellsAdded,
+                refinedCells,
+                lowQualityProcessed
+            }
+        });
+
+        // 10. Обновить статистику
+        this.stats.totalGraphs++;
+        this.stats.lastUpdated = new Date();
+        this.updateStats();
+
+        // 🔥 11. ПРОВЕРЯЕМ, НЕ НУЖНО ЛИ ПЕРЕСТРОИТЬ ШАБЛОН
+        if (newCellsAdded > this.invariantCells.size * 0.3) {
+            // Много новых точек - возможно нужна реструктуризация
+            console.log(`⚠️ Много новых точек (${newCellsAdded}), проверяю необходимость реструктуризации...`);
+            this.checkAndRestructureTemplate();
+        }
+
+        console.log(`✅ Граф добавлен с НАКОПЛЕНИЕМ:`);
+        console.log(`   • Обновлено ячеек: ${updatedCells}`);
+        console.log(`   • Добавлено новых: ${newCellsAdded}`);
+        console.log(`   • Уточнено координат: ${refinedCells}`);
+        console.log(`   • Всего ячеек в шаблоне: ${this.invariantCells.size}`);
+
+        return true;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Полное сопоставление точек
+    findCompleteMatches(normalizedPoints, graphId) {
+        const results = {
+            exactMatches: [],      // Точные совпадения (расстояние < 0.02)
+            partialMatches: [],    // Частичные совпадения (расстояние < 0.05)
+            lowQualityMatches: [], // Совпадения низкого качества (расстояние 0.05-0.1)
+            unmatchedPoints: [],   // Совсем новые точки
+            totalMatches: 0,
+            exactMatchesCount: 0,
+            partialMatchesCount: 0,
+            newPointsCount: 0
+        };
+
+        // 🔥 ИСПОЛЬЗУЕМ РАЗНЫЕ ПОРОГИ ДЛЯ РАЗНЫХ ТИПОВ СОВПАДЕНИЙ
+        const EXACT_THRESHOLD = 0.02;    // 2% от размера
+        const PARTIAL_THRESHOLD = 0.05;  // 5% от размера
+        const LOW_QUALITY_THRESHOLD = 0.1; // 10% от размера
+
+        // Для каждой точки нового графа ищем ближайшую в шаблоне
+        normalizedPoints.forEach(newPoint => {
+            let bestMatch = null;
+            let minDistance = Infinity;
+            let bestCellId = null;
+
+            // Ищем ближайшую ячейку в шаблоне
+            for (const [cellId, cell] of this.invariantCells) {
+                const distance = Math.sqrt(
+                    Math.pow(cell.normalizedCenter.nx - newPoint.nx, 2) +
+                    Math.pow(cell.normalizedCenter.ny - newPoint.ny, 2)
+                );
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    bestMatch = cell;
+                    bestCellId = cellId;
+                }
+            }
+
+            // Классифицируем результат
+            if (bestMatch && minDistance < EXACT_THRESHOLD) {
+                // ТОЧНОЕ СОВПАДЕНИЕ
+                results.exactMatches.push({
+                    newPoint,
+                    cellId: bestCellId,
+                    cell: bestMatch,
+                    distance: minDistance,
+                    matchType: 'exact'
+                });
+                results.exactMatchesCount++;
+            } else if (bestMatch && minDistance < PARTIAL_THRESHOLD) {
+                // ЧАСТИЧНОЕ СОВПАДЕНИЕ
+                results.partialMatches.push({
+                    newPoint,
+                    cellId: bestCellId,
+                    cell: bestMatch,
+                    distance: minDistance,
+                    matchType: 'partial'
+                });
+                results.partialMatchesCount++;
+            } else if (bestMatch && minDistance < LOW_QUALITY_THRESHOLD) {
+                // НИЗКОКАЧЕСТВЕННОЕ СОВПАДЕНИЕ
+                results.lowQualityMatches.push({
+                    newPoint,
+                    cellId: bestCellId,
+                    cell: bestMatch,
+                    distance: minDistance,
+                    matchType: 'low_quality'
+                });
+            } else {
+                // НОВАЯ ТОЧКА
+                results.unmatchedPoints.push({
+                    newPoint,
+                    distanceToNearest: minDistance,
+                    matchType: 'new'
+                });
+                results.newPointsCount++;
+            }
+        });
+
+        results.totalMatches = results.exactMatchesCount + results.partialMatchesCount;
+
+        console.log(`🔍 Классификация совпадений для ${normalizedPoints.length} точек:`);
+        console.log(`   • Точные (<2%): ${results.exactMatchesCount}`);
+        console.log(`   • Частичные (2-5%): ${results.partialMatchesCount}`);
+        console.log(`   • Низкокачественные (5-10%): ${results.lowQualityMatches.length}`);
+        console.log(`   • Новые (>10%): ${results.newPointsCount}`);
+
+        return results;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Обновить шаблон совпадениями
+    updateTemplateWithMatches(matches, graphId) {
+        let updatedCount = 0;
+        let refinedCount = 0;
+
+        // 🔥 ОБРАБАТЫВАЕМ ТОЧНЫЕ СОВПАДЕНИЯ
+        matches.exactMatches.forEach(match => {
+            const cell = this.invariantCells.get(match.cellId);
+            if (cell) {
+                // Увеличиваем подтверждения
+                const oldConfirmations = cell.confirmations || 1;
+                cell.confirmations = oldConfirmations + 1;
+
+                // Повышаем уверенность
+                cell.confidence = Math.min(1.0, (cell.confidence || 0.7) + 0.1);
+
+                // Добавляем источник
+                if (!cell.sources) cell.sources = new Set();
+                cell.sources.add(graphId);
+
+                // 🔥 УТОЧНЯЕМ КООРДИНАТЫ (взвешенное среднее)
+                if (cell.confirmations > 1) {
+                    const weight = 1.0 / cell.confirmations;
+                    cell.normalizedCenter.nx = cell.normalizedCenter.nx * (1 - weight) +
+                                              match.newPoint.nx * weight;
+                    cell.normalizedCenter.ny = cell.normalizedCenter.ny * (1 - weight) +
+                                              match.newPoint.ny * weight;
+                    refinedCount++;
+                }
+
+                updatedCount++;
+
+                if (updatedCount <= 3) {
+                    console.log(`   ✅ Точное совпадение: ${match.cellId} → ${cell.confirmations} подтверждений`);
+                }
+            }
+        });
+
+        // 🔥 ОБРАБАТЫВАЕМ ЧАСТИЧНЫЕ СОВПАДЕНИЯ
+        matches.partialMatches.forEach(match => {
+            const cell = this.invariantCells.get(match.cellId);
+            if (cell) {
+                // Частичные совпадения дают меньшее увеличение уверенности
+                const oldConfirmations = cell.confirmations || 1;
+                cell.confirmations = oldConfirmations + 1;
+
+                // Меньшее увеличение confidence для частичных совпадений
+                cell.confidence = Math.min(1.0, (cell.confidence || 0.7) + 0.05);
+
+                if (!cell.sources) cell.sources = new Set();
+                cell.sources.add(graphId);
+
+                // Более слабое уточнение координат
+                if (cell.confirmations > 2) { // Только после нескольких подтверждений
+                    const weight = 0.5 / cell.confirmations; // Половина веса
+                    cell.normalizedCenter.nx = cell.normalizedCenter.nx * (1 - weight) +
+                                              match.newPoint.nx * weight;
+                    cell.normalizedCenter.ny = cell.normalizedCenter.ny * (1 - weight) +
+                                              match.newPoint.ny * weight;
+                    refinedCount++;
+                }
+
+                updatedCount++;
+            }
+        });
+
+        console.log(`📈 Обновлено ${updatedCount} ячеек, уточнено ${refinedCount} координат`);
+        return updatedCount;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Добавить новые точки в шаблон
+    addNewPointsToTemplate(unmatchedPoints, graphId, metadata) {
+        if (unmatchedPoints.length === 0) {
+            console.log(`📊 Нет новых точек для добавления`);
+            return 0;
+        }
+
+        console.log(`🆕 Добавляю ${unmatchedPoints.length} новых точек в шаблон...`);
+
+        let addedCount = 0;
+        const maxNewPoints = Math.min(30, Math.max(5, unmatchedPoints.length / 2));
+
+        // 🔥 ФИЛЬТРУЕМ ТОЧКИ ПО КАЧЕСТВУ
+        const filteredPoints = unmatchedPoints.filter(point => {
+            // Проверяем качество точки
+            const pointQuality = this.evaluatePointQuality(point.newPoint, metadata);
+            return pointQuality > 0.4; // Только точки с достаточным качеством
+        });
+
+        // 🔥 ОГРАНИЧИВАЕМ КОЛИЧЕСТВО
+        const pointsToAdd = filteredPoints.slice(0, maxNewPoints);
+
+        pointsToAdd.forEach((pointData, index) => {
+            const point = pointData.newPoint;
+            const pointQuality = this.evaluatePointQuality(point, metadata);
+
+            // 🔥 СОЗДАЕМ НОВУЮ ЯЧЕЙКУ
+            const cellId = `cell_new_${graphId}_${index}_${Date.now()}`;
+
+            const newCell = {
+                normalizedCenter: {
+                    nx: point.nx || 0,
+                    ny: point.ny || 0
+                },
+                originalCenter: {
+                    x: point.x || 0,
+                    y: point.y || 0
+                },
+                radius: 0.04, // Немного меньше радиуса для новых точек
+                points: [point.id],
+                confirmations: 1, // 🔥 ТОЛЬКО 1 ПОДТВЕРЖДЕНИЕ (этот граф)
+                confidence: pointQuality,
+                sources: new Set([graphId]),
+                invariants: point.invariants || null,
+                isNew: true, // 🔥 ФЛАГ - НОВАЯ ТОЧКА
+                needsConfirmation: true, // 🔥 ТРЕБУЕТ ДОПОЛНИТЕЛЬНЫХ ПОДТВЕРЖДЕНИЙ
+                addedFromGraph: graphId,
+                addedAt: new Date(),
+                metadata: {
+                    distanceToNearest: pointData.distanceToNearest,
+                    originalConfidence: point.confidence || 0.5
+                }
+            };
+
+            // 🔥 ДОБАВЛЯЕМ В ОБЕ КОЛЛЕКЦИИ (для совместимости)
+            this.invariantCells.set(cellId, newCell);
+
+            // Также добавляем в templateCells
+            this.templateCells.set(cellId, {
+                center: { x: point.x || 0, y: point.y || 0 },
+                radius: this.config.cellSize / 2,
+                points: [point.id],
+                confirmations: 1,
+                confidence: pointQuality,
+                sources: new Set([graphId]),
+                matchedPoints: [],
+                isNew: true
+            });
+
+            addedCount++;
+
+            if (addedCount <= 3) {
+                console.log(`   + Новая точка ${cellId.slice(0, 12)}:`);
+                console.log(`     Координаты: (${point.x?.toFixed(1)}, ${point.y?.toFixed(1)})`);
+                console.log(`     Качество: ${pointQuality.toFixed(3)}`);
+                console.log(`     Удалённость: ${pointData.distanceToNearest?.toFixed(3) || '?'}`);
+            }
+        });
+
+        // 🔥 СОЗДАЕМ СВЯЗИ ДЛЯ НОВЫХ ТОЧЕК
+        this.createConnectionsForNewPoints(addedCount);
+
+        console.log(`✅ Добавлено ${addedCount} новых точек (из ${unmatchedPoints.length} кандидатов)`);
+        return addedCount;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Оценить качество точки
+    evaluatePointQuality(point, metadata) {
+        let quality = 0;
+
+        // 1. Confidence из точки
+        quality += (point.confidence || 0.5) * 0.4;
+
+        // 2. Качество графа (из метаданных)
+        if (metadata.quality) {
+            quality += metadata.quality * 0.3;
+        } else if (metadata.photoQuality) {
+            quality += metadata.photoQuality * 0.3;
+        } else {
+            quality += 0.3 * 0.5; // Среднее значение
+        }
+
+        // 3. Проверка изолированности (не должна быть слишком далеко от других точек)
+        // Это проверяется в findCompleteMatches по distanceToNearest
+
+        // 4. Наличие инвариантов
+        if (point.invariants && point.invariants.nearestNeighbors) {
+            quality += 0.1; // Бонус за наличие инвариантов
+        }
+
+        // 5. Расположение (не на самом краю)
+        if (point.nx && point.ny) {
+            const edgeDistance = Math.min(
+                point.nx, 1 - point.nx,
+                point.ny, 1 - point.ny
+            );
+            if (edgeDistance > 0.1) { // Не ближе 10% к краю
+                quality += 0.2;
+            }
+        }
+
+        return Math.min(1, Math.max(0, quality));
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Уточнить координаты существующих точек
+    refineTemplatePoints(matches, graphId) {
+        let refinedCount = 0;
+
+        // 🔥 СОБИРАЕМ ВСЕ СОВПАДЕНИЯ ДЛЯ КАЖДОЙ ЯЧЕЙКИ
+        const cellMatches = new Map();
+
+        matches.exactMatches.concat(matches.partialMatches).forEach(match => {
+            if (!cellMatches.has(match.cellId)) {
+                cellMatches.set(match.cellId, []);
+            }
+            cellMatches.get(match.cellId).push(match);
+        });
+
+        // 🔥 УТОЧНЯЕМ КООРДИНАТЫ ЯЧЕЕК С НЕСКОЛЬКИМИ СОВПАДЕНИЯМИ
+        for (const [cellId, matchList] of cellMatches) {
+            if (matchList.length >= 2) {
+                const cell = this.invariantCells.get(cellId);
+                if (cell && cell.confirmations >= 3) {
+                    // 🔥 ИСПОЛЬЗУЕМ МЕДИАНУ ДЛЯ УСТОЙЧИВОСТИ К ВЫБРОСАМ
+                    const nxValues = matchList.map(m => m.newPoint.nx).sort((a, b) => a - b);
+                    const nyValues = matchList.map(m => m.newPoint.ny).sort((a, b) => a - b);
+
+                    const medianNX = nxValues[Math.floor(nxValues.length / 2)];
+                    const medianNY = nyValues[Math.floor(nyValues.length / 2)];
+
+                    // Плавное обновление (50% от разницы)
+                    const updateWeight = 0.5;
+                    cell.normalizedCenter.nx = cell.normalizedCenter.nx * (1 - updateWeight) +
+                                              medianNX * updateWeight;
+                    cell.normalizedCenter.ny = cell.normalizedCenter.ny * (1 - updateWeight) +
+                                              medianNY * updateWeight;
+
+                    refinedCount++;
+
+                    if (refinedCount <= 2) {
+                        console.log(`   🔧 Уточнена ячейка ${cellId}:`);
+                        console.log(`      Было: (${cell.normalizedCenter.nx.toFixed(4)}, ${cell.normalizedCenter.ny.toFixed(4)})`);
+                        console.log(`      Стало: (${medianNX.toFixed(4)}, ${medianNY.toFixed(4)})`);
+                        console.log(`      На основе ${matchList.length} совпадений`);
+                    }
+                }
+            }
+        }
+
+        return refinedCount;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Обработать низкокачественные совпадения
+    processLowQualityPoints(lowQualityMatches, graphId) {
+        if (lowQualityMatches.length === 0) return 0;
+
+        console.log(`⚠️ Обрабатываю ${lowQualityMatches.length} низкокачественных совпадений...`);
+
+        let processedCount = 0;
+        const TEMPORARY_CONFIRMATIONS_THRESHOLD = 3;
+
+        lowQualityMatches.forEach(match => {
+            const cell = this.invariantCells.get(match.cellId);
+            if (!cell) return;
+
+            // 🔥 ДЛЯ НИЗКОКАЧЕСТВЕННЫХ СОВПАДЕНИЙ:
+            // 1. Увеличиваем счетчик "временных подтверждений"
+            if (!cell.temporaryConfirmations) {
+                cell.temporaryConfirmations = new Map();
+            }
+
+            const currentTemp = cell.temporaryConfirmations.get(graphId) || 0;
+            cell.temporaryConfirmations.set(graphId, currentTemp + 1);
+
+            // 2. Если несколько временных подтверждений от разных графов → повышаем статус
+            const totalTempConfirmations = Array.from(cell.temporaryConfirmations.values())
+                .reduce((sum, val) => sum + val, 0);
+
+            if (totalTempConfirmations >= TEMPORARY_CONFIRMATIONS_THRESHOLD) {
+                // 🔥 ПОВЫШАЕМ ДО РЕГУЛЯРНОГО ПОДТВЕРЖДЕНИЯ
+                cell.confirmations = (cell.confirmations || 1) + 1;
+                cell.confidence = Math.min(1.0, (cell.confidence || 0.7) + 0.05);
+
+                // Очищаем временные подтверждения
+                cell.temporaryConfirmations.clear();
+
+                console.log(`   ⬆️ Низкокачественное совпадение ${match.cellId} стало регулярным`);
+                processedCount++;
+            }
+        });
+
+        return processedCount;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Создать связи для новых точек
+    createConnectionsForNewPoints(newPointsCount) {
+        if (newPointsCount === 0 || this.invariantCells.size < 2) return;
+
+        console.log(`🔗 Создаю связи для новых точек...`);
+
+        const newCellIds = Array.from(this.invariantCells.entries())
+            .filter(([id, cell]) => cell.isNew)
+            .map(([id]) => id);
+
+        if (newCellIds.length === 0) return;
+
+        // Для каждой новой точки находим 2 ближайшие точки в шаблоне
+        newCellIds.forEach(newCellId => {
+            const newCell = this.invariantCells.get(newCellId);
+            if (!newCell) return;
+
+            const distances = [];
+
+            // Ищем все точки, кроме самой себя
+            for (const [otherCellId, otherCell] of this.invariantCells) {
+                if (otherCellId === newCellId) continue;
+
+                const distance = Math.sqrt(
+                    Math.pow(otherCell.normalizedCenter.nx - newCell.normalizedCenter.nx, 2) +
+                    Math.pow(otherCell.normalizedCenter.ny - newCell.normalizedCenter.ny, 2)
+                );
+
+                distances.push({
+                    cellId: otherCellId,
+                    distance: distance,
+                    cell: otherCell
+                });
+            }
+
+            // Сортируем по расстоянию и берем 2 ближайшие
+            distances.sort((a, b) => a.distance - b.distance);
+            const nearest = distances.slice(0, 2);
+
+            // Создаем связи
+            nearest.forEach(neighbor => {
+                if (!this.cellConnections.has(newCellId)) {
+                    this.cellConnections.set(newCellId, []);
+                }
+                if (!this.cellConnections.has(neighbor.cellId)) {
+                    this.cellConnections.set(neighbor.cellId, []);
+                }
+
+                // Добавляем двунаправленную связь
+                if (!this.cellConnections.get(newCellId).includes(neighbor.cellId)) {
+                    this.cellConnections.get(newCellId).push(neighbor.cellId);
+                }
+                if (!this.cellConnections.get(neighbor.cellId).includes(newCellId)) {
+                    this.cellConnections.get(neighbor.cellId).push(newCellId);
+                }
+            });
+        });
+
+        console.log(`✅ Создано связей для ${newCellIds.length} новых точек`);
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Проверить и перестроить шаблон при необходимости
+    checkAndRestructureTemplate() {
+        if (this.invariantCells.size < 10) return false;
+
+        // 🔥 ПРОВЕРЯЕМ ПЛОТНОСТЬ ТОЧЕК
+        const cells = Array.from(this.invariantCells.values());
+        const avgDistance = this.calculateAverageCellDistance(cells);
+
+        console.log(`📏 Среднее расстояние между ячейками: ${avgDistance.toFixed(4)}`);
+
+        if (avgDistance < 0.03) { // Слишком плотно (менее 3% от размера)
+            console.log(`⚠️ Точки слишком плотные, проверяю необходимость кластеризации...`);
+            return this.clusterClosePoints();
+        }
+
+        return false;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Вычислить среднее расстояние между ячейками
+    calculateAverageCellDistance(cells) {
+        if (cells.length < 2) return 0;
+
+        let totalDistance = 0;
+        let pairCount = 0;
+
+        for (let i = 0; i < cells.length; i++) {
+            for (let j = i + 1; j < cells.length; j++) {
+                const dist = Math.sqrt(
+                    Math.pow(cells[i].normalizedCenter.nx - cells[j].normalizedCenter.nx, 2) +
+                    Math.pow(cells[i].normalizedCenter.ny - cells[j].normalizedCenter.ny, 2)
+                );
+                totalDistance += dist;
+                pairCount++;
+            }
+        }
+
+        return pairCount > 0 ? totalDistance / pairCount : 0;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Кластеризовать близкие точки
+    clusterClosePoints() {
+        const CLUSTER_DISTANCE = 0.02; // 2% от размера
+
+        console.log(`🎯 Кластеризую точки ближе ${CLUSTER_DISTANCE}...`);
+
+        const cells = Array.from(this.invariantCells.entries());
+        const visited = new Set();
+        const clusters = [];
+
+        // Простая кластеризация по расстоянию
+        for (let i = 0; i < cells.length; i++) {
+            const [cellId1, cell1] = cells[i];
+            if (visited.has(cellId1)) continue;
+
+            const cluster = [cellId1];
+            visited.add(cellId1);
+
+            // Ищем все близкие точки
+            for (let j = i + 1; j < cells.length; j++) {
+                const [cellId2, cell2] = cells[j];
+                if (visited.has(cellId2)) continue;
+
+                const distance = Math.sqrt(
+                    Math.pow(cell1.normalizedCenter.nx - cell2.normalizedCenter.nx, 2) +
+                    Math.pow(cell1.normalizedCenter.ny - cell2.normalizedCenter.ny, 2)
+                );
+
+                if (distance < CLUSTER_DISTANCE) {
+                    cluster.push(cellId2);
+                    visited.add(cellId2);
+                }
+            }
+
+            if (cluster.length > 1) {
+                clusters.push(cluster);
+            }
+        }
+
+        if (clusters.length === 0) {
+            console.log(`📊 Нет близких точек для кластеризации`);
+            return false;
+        }
+
+        console.log(`📊 Найдено ${clusters.length} кластеров близких точек`);
+
+        // 🔥 ОБЪЕДИНЯЕМ КЛАСТЕРЫ
+        let mergedCount = 0;
+        clusters.forEach((cluster, clusterIndex) => {
+            if (cluster.length < 2) return;
+
+            console.log(`   Кластер ${clusterIndex + 1}: ${cluster.length} точек`);
+
+            // Вычисляем центр кластера (взвешенный по подтверждениям)
+            let totalNX = 0;
+            let totalNY = 0;
+            let totalWeight = 0;
+            let totalConfirmations = 0;
+            const sources = new Set();
+
+            cluster.forEach(cellId => {
+                const cell = this.invariantCells.get(cellId);
+                if (!cell) return;
+
+                const weight = cell.confirmations || 1;
+                totalNX += cell.normalizedCenter.nx * weight;
+                totalNY += cell.normalizedCenter.ny * weight;
+                totalWeight += weight;
+                totalConfirmations += cell.confirmations || 1;
+
+                if (cell.sources) {
+                    cell.sources.forEach(source => sources.add(source));
+                }
+            });
+
+            if (totalWeight === 0) return;
+
+            const centerNX = totalNX / totalWeight;
+            const centerNY = totalNY / totalWeight;
+
+            // 🔥 СОЗДАЕМ НОВУЮ ОБЪЕДИНЕННУЮ ЯЧЕЙКУ
+            const mergedCellId = `cluster_${clusterIndex}_${Date.now()}`;
+            const mergedCell = {
+                normalizedCenter: { nx: centerNX, ny: centerNY },
+                originalCenter: {
+                    x: centerNX * (this.normalizationTransform?.width || 1) + (this.normalizationTransform?.minX || 0),
+                    y: centerNY * (this.normalizationTransform?.height || 1) + (this.normalizationTransform?.minY || 0)
+                },
+                radius: 0.03, // Немного больше радиуса
+                points: cluster.flatMap(cellId => {
+                    const cell = this.invariantCells.get(cellId);
+                    return cell?.points || [];
+                }),
+                confirmations: Math.round(totalConfirmations / cluster.length), // Среднее
+                confidence: 0.8, // Высокая уверенность после кластеризации
+                sources: sources,
+                invariants: null,
+                isMerged: true,
+                mergedFrom: cluster,
+                mergedAt: new Date()
+            };
+
+            // 🔥 УДАЛЯЕМ СТАРЫЕ ЯЧЕЙКИ И ДОБАВЛЯЕМ НОВУЮ
+            cluster.forEach(cellId => {
+                this.invariantCells.delete(cellId);
+                this.templateCells.delete(cellId);
+            });
+
+            this.invariantCells.set(mergedCellId, mergedCell);
+            this.templateCells.set(mergedCellId, {
+                center: mergedCell.originalCenter,
+                radius: this.config.cellSize / 2,
+                points: mergedCell.points,
+                confirmations: mergedCell.confirmations,
+                confidence: mergedCell.confidence,
+                sources: mergedCell.sources,
+                matchedPoints: [],
+                isMerged: true
+            });
+
+            mergedCount += cluster.length;
+
+            console.log(`   → Объединено в ${mergedCellId} (${centerNX.toFixed(4)}, ${centerNY.toFixed(4)})`);
+        });
+
+        console.log(`✅ Кластеризация: удалено ${mergedCount} точек, создано ${clusters.length} объединенных`);
+
+        // 🔥 ПЕРЕСТРАИВАЕМ СВЯЗИ
+        this.rebuildCellConnections();
+
+        return true;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Перестроить связи ячеек
+    rebuildCellConnections() {
+        console.log(`🔗 Перестраиваю связи между ячейками...`);
+
+        this.cellConnections.clear();
+        const cellIds = Array.from(this.invariantCells.keys());
+
+        // Для каждой ячейки находим 3 ближайшие
+        cellIds.forEach((cellId, i) => {
+            const cell = this.invariantCells.get(cellId);
+            if (!cell) return;
+
+            const distances = [];
+
+            cellIds.forEach((otherCellId, j) => {
+                if (i === j) return;
+
+                const otherCell = this.invariantCells.get(otherCellId);
+                if (!otherCell) return;
+
+                const distance = Math.sqrt(
+                    Math.pow(otherCell.normalizedCenter.nx - cell.normalizedCenter.nx, 2) +
+                    Math.pow(otherCell.normalizedCenter.ny - cell.normalizedCenter.ny, 2)
+                );
+
+                distances.push({
+                    cellId: otherCellId,
+                    distance: distance
+                });
+            });
+
+            // Сортируем и берем ближайшие
+            distances.sort((a, b) => a.distance - b.distance);
+            const nearest = distances.slice(0, 3);
+
+            // Создаем связи
+            this.cellConnections.set(cellId, nearest.map(n => n.cellId));
+        });
+
+        console.log(`✅ Перестроено связей для ${cellIds.length} ячеек`);
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить данные для визуализации с новыми точками
     getVisualizationData() {
         const cellsArray = [];
-
-        let totalConfirmations = 0;  // 🔥 ДОБАВИТЬ
-        let totalCells = 0;          // 🔥 ДОБАВИТЬ
+        let totalConfirmations = 0;
+        let totalCells = 0;
+        let newCellsCount = 0;
+        let unconfirmedCells = 0;
 
         for (const [cellId, cell] of this.invariantCells) {
-            const confirmations = cell.confirmations || 1;  // 🔥 УБЕДИТЕСЬ, что есть значение
-            totalConfirmations += confirmations;            // 🔥 СУММИРУЕМ
-            totalCells++;                                   // 🔥 СЧИТАЕМ
+            const confirmations = cell.confirmations || 1;
+            totalConfirmations += confirmations;
+            totalCells++;
 
+            // Считаем статистику
+            if (cell.isNew) newCellsCount++;
+            if (confirmations === 1) unconfirmedCells++;
+
+            // 🔥 ВОЗВРАЩАЕМ ДАННЫЕ С МЕТАИНФОРМАЦИЕЙ
             cellsArray.push({
                 id: cellId,
                 x: cell.originalCenter.x,
@@ -93,42 +849,74 @@ class TemplateBuilder {
                 nx: cell.normalizedCenter.nx,
                 ny: cell.normalizedCenter.ny,
                 radius: cell.radius * 100,
-                confirmations: confirmations,               // 🔥 ПЕРЕДАЕМ корректное значение
+                confirmations: confirmations,
                 confidence: cell.confidence || 0.7,
                 sources: cell.sources ? Array.from(cell.sources) : [],
                 pointCount: cell.points ? cell.points.length : 0,
                 isHighConfidence: cell.confirmations >= this.config.highConfidenceThreshold,
                 invariants: cell.invariants ? 'present' : 'none',
-                isNew: cell.isNew || false, // 🔥 ДОБАВЛЯЕМ
-                needsConfirmation: cell.needsConfirmation || false // 🔥 ДОБАВЛЯЕМ
+                isNew: cell.isNew || false, // 🔥 ФЛАГ НОВИЗНЫ
+                needsConfirmation: cell.needsConfirmation || false,
+                isMerged: cell.isMerged || false,
+                status: this.getCellStatus(cell)
             });
         }
 
-        // 🔥 ДОБАВИТЬ правильную статистику
+        // 🔥 РАСШИРЕННАЯ СТАТИСТИКА
+        const confirmedCells = cellsArray.filter(c => c.confirmations > 1).length;
+        const avgConfirmations = totalCells > 0 ? totalConfirmations / totalCells : 0;
+        const confirmationRate = totalCells > 0 ? confirmedCells / totalCells : 0;
+
         return {
             templateId: this.id,
             name: this.name,
             referenceGraphId: this.referenceGraphId,
+            referenceGraphQuality: this.referenceGraphQuality,
             cells: cellsArray,
             stats: {
                 totalCells: totalCells,
-                totalConfirmations: totalConfirmations,                // 🔥 ДОБАВИТЬ!
-                averageConfirmations: totalCells > 0 ?
-                    totalConfirmations / totalCells : 0,               // 🔥 ВЫЧИСЛИТЬ!
-                confirmedCells: cellsArray.filter(c => c.confirmations > 1).length,
+                totalConfirmations: totalConfirmations,
+                averageConfirmations: avgConfirmations,
+                confirmedCells: confirmedCells,
+                confirmationRate: confirmationRate,
                 highConfidenceCells: cellsArray.filter(c => c.confidence > 0.8).length,
+                newCells: newCellsCount,
+                unconfirmedCells: unconfirmedCells,
+                mergedCells: cellsArray.filter(c => c.isMerged).length,
                 ...this.stats,
                 cellCount: this.invariantCells.size,
-                avgConfirmations: this.stats.avgConfirmations,
-                invariantCells: this.invariantCells.size,
-                referenceGraphQuality: this.referenceGraphQuality, // 🔥 ДОБАВЛЯЕМ
-                bestGraphQuality: this.bestGraphQuality // 🔥 ДОБАВЛЯЕМ
+                avgConfirmations: avgConfirmations
             },
             referencePoints: this.normalizedReferencePoints,
             transformationsCount: this.graphTransformations.size,
-            normalizationTransform: this.normalizationTransform
+            normalizationTransform: this.normalizationTransform,
+            dynamicInfo: {
+                bestGraphId: this.bestGraphId,
+                bestGraphQuality: this.bestGraphQuality,
+                totalGraphs: this.allGraphs.size,
+                referenceUpdateCount: this.stats.bestGraphUpdates || 0
+            }
         };
     }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить статус ячейки
+    getCellStatus(cell) {
+        if (cell.isNew && cell.confirmations === 1) {
+            return 'new_unconfirmed';
+        } else if (cell.isNew && cell.confirmations > 1) {
+            return 'new_confirmed';
+        } else if (cell.confirmations >= 3) {
+            return 'high_confidence';
+        } else if (cell.confirmations >= 2) {
+            return 'confirmed';
+        } else if (cell.temporaryConfirmations && cell.temporaryConfirmations.size > 0) {
+            return 'temporary';
+        } else {
+            return 'single';
+        }
+    }
+
+    // ============ СУЩЕСТВУЮЩИЕ МЕТОДЫ (без изменений) ============
 
     // 🔥 ОБЕСПЕЧИВАЕМ СОВМЕСТИМУЮ НОРМАЛИЗАЦИЮ (как в инструкции)
     normalizeReferencePoints() {
@@ -521,223 +1309,6 @@ class TemplateBuilder {
         return invariants;
     }
 
-    // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: Добавить граф с динамическим эталоном
-    addGraph(graph, graphId, metadata = {}) {
-        console.log(`🔄 Добавляю граф ${graphId} к шаблону с динамическим эталоном...`);
-
-        // 🔥 ЕСЛИ ЭТО ПЕРВЫЙ ГРАФ - УСТАНАВЛИВАЕМ КАК ЭТАЛОН
-        if (!this.referenceGraph) {
-            console.log(`🎯 Первый граф, устанавливаю как эталон`);
-            return this.setReferenceGraph(graph, graphId, metadata);
-        }
-
-        // 1. ОЦЕНИВАЕМ КАЧЕСТВО НОВОГО ГРАФА
-        const newQuality = this.calculateGraphQuality(graph, metadata);
-        console.log(`📈 Качество нового графа ${graphId}: ${newQuality.toFixed(3)}`);
-
-        // 🔥 2. ПРОВЕРЯЕМ, НЕ ЯВЛЯЕТСЯ ЛИ ОН НОВЫМ ЛУЧШИМ
-        this.saveGraph(graph, graphId, metadata, newQuality);
-
-        // 3. СРАВНИВАЕМ С ЭТАЛОНОМ (даже если он не лучший)
-        const points = this.extractPointsFromGraph(graph);
-        const normalizedPoints = this.normalizePoints(points, this.normalizationTransform);
-
-        console.log(`📊 Нормализовано ${normalizedPoints.length} точек`);
-
-        // 4. ИНВАРИАНТНОЕ СОПОСТАВЛЕНИЕ
-        const invariantMatches = this.findInvariantMatches(normalizedPoints);
-
-        if (invariantMatches.length < Math.max(3, this.referencePoints.length * 0.2)) {
-            console.log(`❌ Недостаточно инвариантных совпадений: ${invariantMatches.length}`);
-            console.log(`   Ожидалось: минимум ${Math.max(3, this.referencePoints.length * 0.2)}`);
-            return false;
-        }
-
-        console.log(`✅ Найдено ${invariantMatches.length} инвариантных совпадений`);
-
-        // 5. ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
-        const updatedCells = this.updateInvariantCells(invariantMatches, graphId);
-
-        // 🔥 6. ДОБАВЛЯЕМ НОВЫЕ ТОЧКИ (если есть)
-        const newPointsAdded = this.addNewPointsFromGraph(
-            normalizedPoints,
-            invariantMatches,
-            graphId
-        );
-
-        console.log(`📈 Добавлено ${newPointsAdded} новых точек из графа ${graphId}`);
-
-        // 7. Сохранить трансформацию
-        this.graphTransformations.set(graphId, {
-            metadata: metadata,
-            timestamp: new Date(),
-            pointsCount: points.length,
-            invariantMatches: invariantMatches.length,
-            matchedRatio: invariantMatches.length / Math.max(1, this.referencePoints.length),
-            quality: newQuality,
-            newPointsAdded: newPointsAdded
-        });
-
-        // 8. Обновить статистику
-        this.stats.totalGraphs++;
-        this.stats.lastUpdated = new Date();
-        this.updateStats();
-
-        console.log(`✅ Граф добавлен: ${updatedCells} ячеек обновлено, ${newPointsAdded} новых точек`);
-        return true;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Добавить новые точки из графа
-    addNewPointsFromGraph(normalizedPoints, existingMatches, graphId) {
-        if (normalizedPoints.length === 0) return 0;
-
-        // Находим точки, которые не попали в matches
-        const matchedPointIds = new Set();
-        existingMatches.forEach(match => {
-            if (match.newPoint && match.newPoint.id) {
-                matchedPointIds.add(match.newPoint.id);
-            }
-        });
-
-        const unmatchedPoints = normalizedPoints.filter(point =>
-            point.id && !matchedPointIds.has(point.id)
-        );
-
-        if (unmatchedPoints.length === 0) return 0;
-
-        console.log(`📊 Найдено ${unmatchedPoints.length} новых точек (не совпали с эталоном)`);
-
-        let addedCount = 0;
-        const maxNewPoints = 20; // Ограничиваем количество новых точек за раз
-
-        // Добавляем новые точки как "неподтверждённые"
-        unmatchedPoints.slice(0, maxNewPoints).forEach((point, index) => {
-            const cellId = `new_${graphId}_${index}_${Date.now()}`;
-
-            // 🔥 СОЗДАЕМ НОВУЮ ЯЧЕЙКУ С 1 ПОДТВЕРЖДЕНИЕМ (этот граф)
-            const newCell = {
-                normalizedCenter: { nx: point.nx || 0, ny: point.ny || 0 },
-                originalCenter: { x: point.x || 0, y: point.y || 0 },
-                radius: 0.05,
-                points: [point.id],
-                confirmations: 1, // 🔥 ТОЛЬКО 1 ПОДТВЕРЖДЕНИЕ (пока)
-                confidence: point.confidence || 0.6,
-                sources: new Set([graphId]),
-                invariants: point.invariants || null,
-                isNew: true, // 🔥 ФЛАГ - НОВАЯ ТОЧКА
-                needsConfirmation: true // 🔥 ТРЕБУЕТ ДОПОЛНИТЕЛЬНЫХ ПОДТВЕРЖДЕНИЙ
-            };
-
-            this.invariantCells.set(cellId, newCell);
-            addedCount++;
-
-            if (addedCount <= 3) {
-                console.log(`   + Новая точка ${cellId}: (${point.x?.toFixed(1)}, ${point.y?.toFixed(1)})`);
-            }
-        });
-
-        return addedCount;
-    }
-
-    // 🔥 МЕТОД: ОБНОВИТЬ ИНВАРИАНТНЫЕ ЯЧЕЙКИ
-    updateInvariantCells(matches, graphId) {
-        let updatedCells = 0;
-
-        matches.forEach(match => {
-            const cell = this.invariantCells.get(match.cellId);
-            if (cell) {
-                cell.confirmations += 1;
-                cell.confidence = Math.min(1.0, cell.confidence + 0.15);
-                if (cell.sources) {
-                    cell.sources.add(graphId);
-                }
-                updatedCells++;
-            }
-
-            // Также обновляем templateCells для совместимости
-            const templateCell = this.templateCells.get(match.cellId);
-            if (templateCell) {
-                templateCell.confirmations += 1;
-                templateCell.confidence = Math.min(1.0, templateCell.confidence + 0.15);
-                if (templateCell.sources) {
-                    templateCell.sources.add(graphId);
-                }
-            }
-        });
-
-        return updatedCells;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: ИНВАРИАНТНОЕ СОПОСТАВЛЕНИЕ
-    findInvariantMatches(normalizedPoints) {
-        const matches = [];
-
-        // Для каждой точки нового графа ищем инвариантно-похожую точку эталона
-        normalizedPoints.forEach(newPoint => {
-            let bestMatch = null;
-            let bestScore = 0;
-
-            for (const [cellId, cell] of this.invariantCells) {
-                // 🔥 СРАВНИВАЕМ ИНВАРИАНТЫ, А НЕ КООРДИНАТЫ!
-                const score = this.compareInvariants(newPoint, cell);
-
-                if (score > bestScore && score > 0.6) {
-                    bestScore = score;
-                    bestMatch = {
-                        newPoint: newPoint,
-                        cellId: cellId,
-                        cell: cell,
-                        score: score
-                    };
-                }
-            }
-
-            if (bestMatch) {
-                matches.push(bestMatch);
-            }
-        });
-
-        return matches;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: СРАВНЕНИЕ ИНВАРИАНТОВ
-    compareInvariants(point, cell) {
-        if (!cell.invariants) return 0;
-
-        let totalScore = 0;
-        let weightSum = 0;
-
-        // 1. Сравнение позиции (относительной)
-        const posScore = 1 - Math.sqrt(
-            Math.pow(point.nx - cell.normalizedCenter.nx, 2) +
-            Math.pow(point.ny - cell.normalizedCenter.ny, 2)
-        );
-        totalScore += posScore * 0.3;
-        weightSum += 0.3;
-
-        // 2. Сравнение распределения расстояний до соседей
-        if (point.invariants && point.invariants.distanceDistribution) {
-            const distScore = this.compareHistograms(
-                point.invariants.distanceDistribution,
-                cell.invariants.distanceDistribution
-            );
-            totalScore += distScore * 0.4;
-            weightSum += 0.4;
-        }
-
-        // 3. Сравнение углового распределения
-        if (point.invariants && point.invariants.nearestNeighbors) {
-            const angleScore = this.compareAngularDistributions(
-                point.invariants.nearestNeighbors,
-                cell.invariants.nearestNeighbors
-            );
-            totalScore += angleScore * 0.3;
-            weightSum += 0.3;
-        }
-
-        return weightSum > 0 ? totalScore / weightSum : 0;
-    }
-
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ОЦЕНКИ КАЧЕСТВА
 
     calculateNodeUniformity(nodes) {
@@ -989,7 +1560,7 @@ class TemplateBuilder {
 
         this.stats.confirmedCells = confirmedCells;
         this.stats.highConfidenceCells = highConfidenceCells;
-        this.stats.totalConfirmations = totalConfirmations; // 🔥 ДОБАВЛЯЕМ
+        this.stats.totalConfirmations = totalConfirmations;
         this.stats.avgConfirmations = this.invariantCells.size > 0 ?
             totalConfirmations / this.invariantCells.size : 0;
     }
@@ -1272,7 +1843,7 @@ class TemplateBuilder {
             y: p.y || (p.normalizedCenter ? p.normalizedCenter.y * 100 : 0)
         }));
 
-        console.log(`📂 Загружен TemplateBuilder "${builder.name}" с ДИНАМИЧЕСКИМ эталоном`);
+        console.log(`📂 Загружен TemplateBuilder "${builder.name}" с ДИНАМИЧЕСКИМ эталоном и накоплением`);
         console.log(`   Ячеек: ${builder.invariantCells.size}, Графов: ${builder.allGraphs.size}`);
         console.log(`   Текущий эталон: ${builder.referenceGraphId} (${builder.referenceGraphQuality.toFixed(3)})`);
         console.log(`   Лучший граф: ${builder.bestGraphId} (${builder.bestGraphQuality.toFixed(3)})`);
