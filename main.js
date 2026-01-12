@@ -1420,24 +1420,29 @@ bot.onText(/\/clearmodel/, async (msg) => {
             return;
         }
 
-        // Получаем информацию о модели С БЕЗОПАСНОЙ ПРОВЕРКОЙ
+        const footprint = session.currentFootprint;
+       
+        // Получаем информацию безопасным способом
         let modelInfo;
         try {
-            modelInfo = session.currentFootprint.getInfo ?
-                session.currentFootprint.getInfo() :
-                { name: 'Текущая модель', stats: {} };
+            // Пробуем получить через getInfo если есть
+            if (footprint.getInfo) {
+                modelInfo = footprint.getInfo();
+            } else {
+                throw new Error('getInfo не доступен');
+            }
         } catch (error) {
             console.log('⚠️ Ошибка получения информации о модели:', error.message);
             // Используем безопасный способ получения информации
             modelInfo = {
-                name: session.currentFootprint.name || 'Текущая модель',
+                name: footprint.name || 'Текущая модель',
                 stats: {
-                    nodes: session.currentFootprint.graph?.nodes?.size || 0,
-                    totalNodes: session.currentFootprint.graph?.nodes?.size || 0,
+                    nodes: footprint.graph?.nodes?.size || 0,
+                    totalNodes: footprint.graph?.nodes?.size || 0,
                     merges: 0,
                     totalMerges: 0,
-                    confidence: session.currentFootprint.stats?.confidence || 0,
-                    photoCount: session.currentFootprint.photoHistory?.length || 0
+                    confidence: footprint.stats?.confidence || 0,
+                    photoCount: footprint.photoHistory?.length || session.photos?.length || 0
                 }
             };
         }
@@ -1447,7 +1452,7 @@ bot.onText(/\/clearmodel/, async (msg) => {
         const nodeCount = stats.nodes || stats.totalNodes || 0;
         const mergeCount = stats.merges || stats.totalMerges || 0;
         const confidence = stats.confidence || 0;
-        const photoCount = stats.photoCount || session.currentFootprint.photoHistory?.length || 0;
+        const photoCount = stats.photoCount || footprint.photoHistory?.length || 0;
 
         await bot.sendMessage(chatId,
             `🗑️ УДАЛЕНИЕ СУПЕР-МОДЕЛИ:\n` +
@@ -1464,7 +1469,7 @@ bot.onText(/\/clearmodel/, async (msg) => {
             timestamp: Date.now(),
             sessionId: session.id,
             modelInfo: modelInfo,
-            footprint: session.currentFootprint // Сохраняем ссылку на объект
+            footprint: footprint // Сохраняем ссылку на объект
         });
 
     } catch (error) {
@@ -1494,6 +1499,11 @@ bot.onText(/\/confirmclear/, async (msg) => {
 
         await bot.sendMessage(chatId, '🗑️ Удаляю супер-модель...');
 
+        // Получаем данные из запроса
+        const info = clearRequest.modelInfo;
+        const nodeCount = info.stats?.nodes || info.stats?.totalNodes || 0;
+        const photoCount = info.stats?.photoCount || 0;
+
         // Просто удаляем сессию напрямую
         let result = { success: true };
        
@@ -1509,8 +1519,6 @@ bot.onText(/\/confirmclear/, async (msg) => {
         }
 
         if (result.success) {
-            const info = clearRequest.modelInfo;
-
             await bot.sendMessage(chatId,
                 `✅ СУПЕР-МОДЕЛЬ УДАЛЕНА!\n\n` +
                 `🗑️ Удалено:\n` +
