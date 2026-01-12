@@ -1712,6 +1712,11 @@ bot.onText(/\/debug/, async (msg) => {
     }
 });
 
+bot.onText(/\/debug_accumulation/, async (msg) => {
+    const userId = msg.from.id;
+    manager.debugAccumulation(userId);
+});
+
 // Команда /test - тест системы
 bot.onText(/\/test/, async (msg) => {
     const chatId = msg.chat.id;
