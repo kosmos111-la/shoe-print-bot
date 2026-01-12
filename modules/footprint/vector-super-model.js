@@ -1,5 +1,5 @@
 // modules/footprint/vector-super-model.js
-// ПЕРЕРАБОТАННАЯ ВЕКТОРНАЯ СУПЕР-МОДЕЛЬ С ШАБЛОНАМИ
+// 🔥 ОБНОВЛЯЕМ ДЛЯ ДИНАМИЧЕСКОГО ЭТАЛОНА
 
 const TemplateBuilder = require('./template-builder');
 
@@ -41,16 +41,19 @@ class VectorSuperModel {
             avgConfirmations: 0
         };
 
-        // Минимальные настройки
+        // 🔥 НАСТРОЙКИ ДЛЯ ДИНАМИЧЕСКОГО ЭТАЛОНА
         this.config = {
             matchThreshold: options.matchThreshold || 0.08,
             minConfirmationsForHighConfidence: 2,
             bestGraphMinNodes: options.bestGraphMinNodes || 15,
-            enableTemplateMode: true, // 🔥 ВКЛЮЧАЕМ ШАБЛОННЫЙ РЕЖИМ
+            enableTemplateMode: true,
+            enableDynamicReference: true, // 🔥 ВКЛЮЧАЕМ ДИНАМИЧЕСКИЙ ЭТАЛОН
+            referenceUpdateThreshold: 1.15, // На 15% лучше
+            minQualityForReference: 0.4,
             ...options
         };
 
-        console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}"`);
+        console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}" с ДИНАМИЧЕСКИМ эталоном`);
     }
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД ИЗ ИНСТРУКЦИИ
@@ -86,43 +89,52 @@ class VectorSuperModel {
         );
     }
 
-    // 🔥 УПРОЩЕННЫЙ МЕТОД: добавить граф в шаблон
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавить граф
     addGraph(graph, graphId, metadata = {}) {
-        console.log(`🔄 Добавляю граф ${graphId} в шаблонную модель...`);
+        console.log(`🔄 Добавляю граф ${graphId} к динамической супер-модели...`);
 
         // 1. Сохраняем исходный граф
         this.saveSourceGraph(graph, graphId, metadata);
 
-        // 2. 🔥 УПРОЩАЕМ ЛОГИКУ
+        // 2. 🔥 ДОБАВЛЯЕМ К TEMPLATE BUILDER (он сам решит, обновлять ли эталон)
         let addedToTemplate = false;
 
         if (this.templateBuilder.referenceGraphId === null) {
-            // Первый граф - устанавливаем как эталон
-            console.log(`🎯 Устанавливаю граф ${graphId} как эталон шаблона`);
+            // Первый граф
+            console.log(`🎯 Устанавливаю граф ${graphId} как начальный эталон`);
             addedToTemplate = this.templateBuilder.setReferenceGraph(graph, graphId, metadata);
 
             if (addedToTemplate) {
-                // Это лучший граф по умолчанию
                 this.bestGraphId = graphId;
                 this.bestGraphScore = this.calculateGraphScore(graph);
                 this.bestGraphMetadata = metadata;
-                console.log(`🏆 Эталон установлен как лучший след: ${graphId}`);
+                console.log(`🏆 Начальный эталон установлен: ${graphId}`);
             }
         } else {
-            // Последующие графы - добавляем к шаблону
+            // Последующие графы - TemplateBuilder сам решит, обновлять ли эталон
             addedToTemplate = this.templateBuilder.addGraph(graph, graphId, metadata);
 
             if (addedToTemplate) {
-                // Оцениваем как кандидата на лучший
-                const score = this.calculateGraphScore(graph);
-                console.log(`📈 Оценка графа ${graphId}: ${score.toFixed(3)}`);
+                // 🔥 ПРОВЕРЯЕМ, НЕ ИЗМЕНИЛСЯ ЛИ ЭТАЛОН В TEMPLATE BUILDER
+                const newReferenceId = this.templateBuilder.referenceGraphId;
 
-                if (score > this.bestGraphScore * 1.1) { // На 10% лучше
-                    this.bestGraphId = graphId;
-                    this.bestGraphScore = score;
-                    this.bestGraphMetadata = metadata;
+                if (newReferenceId !== this.bestGraphId) {
+                    // Эталон обновился!
+                    console.log(`🔄 ОБНОВЛЕНИЕ ЭТАЛОНА В СУПЕР-МОДЕЛИ:`);
+                    console.log(`   Старый: ${this.bestGraphId}`);
+                    console.log(`   Новый: ${newReferenceId}`);
+
+                    this.bestGraphId = newReferenceId;
+                    this.bestGraphScore = this.templateBuilder.referenceGraphQuality;
+
+                    // Обновляем метаданные
+                    const sourceGraph = this.sourceGraphs.get(newReferenceId);
+                    if (sourceGraph) {
+                        this.bestGraphMetadata = sourceGraph.metadata;
+                    }
+
                     this.stats.bestGraphUpdates++;
-                    console.log(`🏆 НОВЫЙ ЛУЧШИЙ СЛЕД: ${graphId} (оценка: ${score.toFixed(3)})`);
+                    console.log(`🏆 ЭТАЛОН ОБНОВЛЁН: ${newReferenceId} (оценка: ${this.bestGraphScore.toFixed(3)})`);
                 }
             }
         }
@@ -141,10 +153,11 @@ class VectorSuperModel {
         // 4. Получить информацию о шаблоне
         const templateInfo = this.templateBuilder.getInfo();
 
-        console.log(`✅ Граф добавлен к шаблону. Статистика:`);
+        console.log(`✅ Граф добавлен. Динамическая статистика:`);
         console.log(`   Ячеек шаблона: ${templateInfo.templateCells}`);
         console.log(`   Подтвержденных ячеек: ${templateInfo.stats.confirmedCells}`);
-        console.log(`   Среднее подтверждений: ${templateInfo.stats.avgConfirmations?.toFixed(2) || 0}`);
+        console.log(`   Лучший граф: ${this.bestGraphId} (${this.bestGraphScore.toFixed(3)})`);
+        console.log(`   Всего графов: ${this.stats.sourceGraphsCount}`);
 
         return true;
     }
@@ -166,6 +179,105 @@ class VectorSuperModel {
 
         this.stats.sourceGraphsCount = this.sourceGraphs.size;
         console.log(`💾 Сохранен исходный граф ${graphId} с ${nodeCount} узлами`);
+    }
+
+    // 🔥 ПОЛУЧИТЬ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ (ОСНОВАННЫЕ НА ШАБЛОНЕ)
+    getVisualizationData() {
+        // 🔥 ИСПОЛЬЗУЕМ ДАННЫЕ ИЗ TEMPLATE BUILDER
+        const templateData = this.templateBuilder.getVisualizationData();
+
+        // Добавляем информацию о супер-модели
+        return {
+            ...templateData,
+            metadata: {
+                id: this.id,
+                name: this.name,
+                merges: this.stats.totalMerges,
+                createdAt: this.stats.createdAt,
+                visualizationMethod: 'template_based',
+                bestGraphId: this.bestGraphId,
+                bestGraphScore: this.bestGraphScore,
+                sourceGraphsCount: this.stats.sourceGraphsCount,
+                dynamicReferenceEnabled: this.config.enableDynamicReference,
+                bestGraphUpdates: this.stats.bestGraphUpdates
+            }
+        };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧИТЬ СТАТИСТИКУ ШАБЛОНА
+    getTemplateStats() {
+        if (!this.templateBuilder) return null;
+
+        const templateInfo = this.templateBuilder.getInfo();
+        const zones = this.templateBuilder.calculateZones ?
+            this.templateBuilder.calculateZones() : {};
+
+        return {
+            templateId: this.templateBuilder.id,
+            cells: {
+                total: templateInfo.templateCells,
+                confirmed: templateInfo.stats.confirmedCells,
+                highConfidence: templateInfo.stats.highConfidenceCells,
+                avgConfirmations: templateInfo.stats.avgConfirmations?.toFixed(2) || '0.00'
+            },
+            referenceGraphId: this.templateBuilder.referenceGraphId,
+            referenceGraphQuality: this.templateBuilder.referenceGraphQuality,
+            zones: zones,
+            alignmentStats: {
+                totalGraphs: templateInfo.stats.totalGraphs,
+                transformations: this.templateBuilder.graphTransformations?.size || 0,
+                avgError: templateInfo.stats.alignmentError?.toFixed(3) || '0.000'
+            }
+        };
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить информацию
+    getInfo() {
+        const templateStats = this.getTemplateStats();
+        const bestGraphInfo = this.bestGraphId ? {
+            bestGraphId: this.bestGraphId,
+            bestGraphScore: Math.round(this.bestGraphScore * 1000) / 1000,
+            bestGraphUpdates: this.stats.bestGraphUpdates,
+            bestGraphNodeCount: this.sourceGraphs.get(this.bestGraphId)?.nodeCount || 0
+        } : {};
+
+        // 🔥 ИНФОРМАЦИЯ О ВСЕХ ГРАФАХ
+        const allGraphsInfo = [];
+        for (const [graphId, graphData] of this.sourceGraphs) {
+            allGraphsInfo.push({
+                id: graphId,
+                nodeCount: graphData.nodeCount,
+                edgeCount: graphData.edgeCount,
+                quality: this.templateBuilder.graphQualities.get(graphId) || 0,
+                isBest: graphId === this.bestGraphId,
+                isReference: graphId === this.templateBuilder.referenceGraphId
+            });
+        }
+
+        // Сортируем по качеству
+        allGraphsInfo.sort((a, b) => b.quality - a.quality);
+
+        return {
+            id: this.id,
+            name: this.name,
+            stats: {
+                ...this.stats,
+                confidence: Math.round(this.stats.confidence * 1000) / 1000,
+                createdAt: this.stats.createdAt.toLocaleString('ru-RU'),
+                lastUpdated: this.stats.lastUpdated.toLocaleString('ru-RU'),
+                ...bestGraphInfo
+            },
+            template: templateStats,
+            graphs: {
+                total: allGraphsInfo.length,
+                bestQuality: allGraphsInfo.length > 0 ? allGraphsInfo[0].quality : 0,
+                referenceQuality: this.templateBuilder.referenceGraphQuality || 0,
+                list: allGraphsInfo.slice(0, 5) // Только топ-5
+            },
+            config: this.config,
+            hasTemplate: !!this.templateBuilder.referenceGraphId,
+            dynamicReferenceEnabled: this.config.enableDynamicReference
+        };
     }
 
     // 🔥 РАСЧЁТ ОЦЕНКИ ГРАФА (без изменений)
@@ -201,83 +313,12 @@ class VectorSuperModel {
         return Math.min(1, totalScore);
     }
 
-    // 🔥 ПОЛУЧИТЬ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ (ОСНОВАННЫЕ НА ШАБЛОНЕ)
-    getVisualizationData() {
-        // 🔥 ИСПОЛЬЗУЕМ ДАННЫЕ ИЗ TEMPLATE BUILDER
-        const templateData = this.templateBuilder.getVisualizationData();
-
-        // Добавляем информацию о супер-модели
-        return {
-            ...templateData,
-            metadata: {
-                id: this.id,
-                name: this.name,
-                merges: this.stats.totalMerges,
-                createdAt: this.stats.createdAt,
-                visualizationMethod: 'template_based',
-                bestGraphId: this.bestGraphId,
-                bestGraphScore: this.bestGraphScore,
-                sourceGraphsCount: this.stats.sourceGraphsCount
-            }
-        };
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧИТЬ СТАТИСТИКУ ШАБЛОНА
-    getTemplateStats() {
-        if (!this.templateBuilder) return null;
-
-        const templateInfo = this.templateBuilder.getInfo();
-        const zones = this.templateBuilder.calculateZones ?
-            this.templateBuilder.calculateZones() : {};
-
-        return {
-            templateId: this.templateBuilder.id,
-            cells: {
-                total: templateInfo.templateCells,
-                confirmed: templateInfo.stats.confirmedCells,
-                highConfidence: templateInfo.stats.highConfidenceCells,
-                avgConfirmations: templateInfo.stats.avgConfirmations?.toFixed(2) || '0.00'
-            },
-            referenceGraphId: this.templateBuilder.referenceGraphId,
-            zones: zones,
-            alignmentStats: {
-                totalGraphs: templateInfo.totalGraphs,
-                transformations: this.templateBuilder.graphTransformations?.size || 0,
-                avgError: templateInfo.stats.alignmentError?.toFixed(3) || '0.000'
-            }
-        };
-    }
-
-    // 🔥 МЕТОД: ПОЛУЧИТЬ ИНФОРМАЦИЮ (ОБНОВЛЕННАЯ)
-    getInfo() {
-        const templateStats = this.getTemplateStats();
-        const bestGraphInfo = this.bestGraphId ? {
-            bestGraphId: this.bestGraphId,
-            bestGraphScore: Math.round(this.bestGraphScore * 1000) / 1000,
-            bestGraphUpdates: this.stats.bestGraphUpdates
-        } : {};
-
-        return {
-            id: this.id,
-            name: this.name,
-            stats: {
-                ...this.stats,
-                confidence: Math.round(this.stats.confidence * 1000) / 1000,
-                createdAt: this.stats.createdAt.toLocaleString('ru-RU'),
-                lastUpdated: this.stats.lastUpdated.toLocaleString('ru-RU'),
-                ...bestGraphInfo
-            },
-            template: templateStats,
-            config: this.config,
-            hasTemplate: !!this.templateBuilder.referenceGraphId
-        };
-    }
-
     // 🔥 ЗАГРУЗИТЬ ИЗ JSON (ОБНОВЛЕННЫЙ)
     static fromJSON(data) {
         const model = new VectorSuperModel({
             name: data.name,
-            matchThreshold: data.config?.matchThreshold
+            matchThreshold: data.config?.matchThreshold,
+            enableDynamicReference: data.config?.enableDynamicReference !== false
         });
 
         model.id = data.id || model.id;
@@ -288,10 +329,13 @@ class VectorSuperModel {
         if (data.templateBuilder) {
             try {
                 model.templateBuilder = TemplateBuilder.fromJSON(data.templateBuilder);
-                console.log(`📂 Восстановлен TemplateBuilder с ${model.templateBuilder.templateCells.size} ячейками`);
+                console.log(`📂 Восстановлен TemplateBuilder с ДИНАМИЧЕСКИМ эталоном`);
             } catch (error) {
                 console.log(`⚠️ Ошибка восстановления TemplateBuilder:`, error.message);
-                model.templateBuilder = new TemplateBuilder({ name: model.name });
+                model.templateBuilder = new TemplateBuilder({
+                    name: model.name,
+                    enableDynamicReference: model.config.enableDynamicReference
+                });
             }
         }
 
@@ -320,9 +364,11 @@ class VectorSuperModel {
             model.stats.lastUpdated = new Date(model.stats.lastUpdated);
         }
 
-        console.log(`📂 Загружена ШАБЛОННАЯ супер-модель "${model.name}"`);
+        console.log(`📂 Загружена ШАБЛОННАЯ супер-модель "${model.name}" с ДИНАМИЧЕСКИМ эталоном`);
         console.log(`   Ячеек шаблона: ${model.templateBuilder?.templateCells?.size || 0}`);
         console.log(`   Лучший граф: ${model.bestGraphId || 'нет'}`);
+        console.log(`   Эталонный граф: ${model.templateBuilder?.referenceGraphId || 'нет'}`);
+        console.log(`   Качество эталона: ${model.templateBuilder?.referenceGraphQuality?.toFixed(3) || 0}`);
 
         return model;
     }
@@ -337,7 +383,7 @@ class VectorSuperModel {
             bestGraphId: this.bestGraphId,
             bestGraphScore: this.bestGraphScore,
             bestGraphMetadata: this.bestGraphMetadata,
-            _version: '2.0', // 🔥 ОБНОВИЛИ ВЕРСИЮ ДЛЯ ШАБЛОННОЙ МОДЕЛИ
+            _version: '3.0-dynamic-reference', // 🔥 ОБНОВИЛИ ВЕРСИЮ ДЛЯ ДИНАМИЧЕСКОГО ЭТАЛОНА
             _savedAt: new Date().toISOString()
         };
 
