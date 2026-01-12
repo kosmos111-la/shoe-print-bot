@@ -782,51 +782,99 @@ class SimpleFootprint {
     }
 
     // 🔥 НОВЫЙ МЕТОД: Проверить целостность подтверждений
-    validateConfirmations() {
-        if (!this.pointTracker) {
-            return {
-                valid: false,
-                error: 'PointTracker не инициализирован'
-            };
-        }
+validateConfirmations() {
+    if (!this.pointTracker) {
+        return {
+            valid: false,
+            error: 'PointTracker не инициализирован'
+        };
+    }
 
-        const trackerValidation = this.pointTracker.validateConfirmations();
+    // Получаем статистику вместо вызова несуществующего метода
+    const trackerStats = this.pointTracker.getHonestStats();
+   
+    // Простая проверка
+    const issues = [];
+    let totalPoints = 0;
+    let totalConfirmations = 0;
 
-        // Дополнительная проверка узлов графа
-        const graphIssues = [];
-        let totalConfirmations = 0;
-        let totalNodes = 0;
-
-        this.graph.nodes.forEach((node, nodeId) => {
-            totalNodes++;
-            const nodeConfirmations = node.confirmedCount || 1;
-            totalConfirmations += nodeConfirmations;
-
-            if (node.pointTrackerId) {
-                const trackerPoint = this.pointTracker.points.get(node.pointTrackerId);
-                if (trackerPoint && node.confirmedCount !== trackerPoint.confirmedCount) {
-                    graphIssues.push({
-                        nodeId,
-                        pointTrackerId: node.pointTrackerId,
-                        nodeConfirmations: node.confirmedCount,
-                        trackerConfirmations: trackerPoint.confirmedCount,
-                        difference: Math.abs(node.confirmedCount - trackerPoint.confirmedCount)
+    if (this.pointTracker.points) {
+        for (const [id, point] of this.pointTracker.points) {
+            totalPoints++;
+            const confirmations = point.confirmedCount || 0;
+            totalConfirmations += confirmations;
+           
+            // Проверяем базовые проблемы
+            if (confirmations < 0) {
+                issues.push({
+                    pointId: id,
+                    type: 'negative_confirmations',
+                    actual: confirmations,
+                    expected: '>= 0'
+                });
+            }
+           
+            // Проверяем слишком много подтверждений для уникальных фото
+            if (point.confirmedPhotos) {
+                const photoCount = point.confirmedPhotos.size;
+                if (confirmations > photoCount) {
+                    issues.push({
+                        pointId: id,
+                        type: 'confirmations_exceed_photos',
+                        confirmations: confirmations,
+                        photoCount: photoCount
                     });
                 }
             }
-        });
-
-        return {
-            ...trackerValidation,
-            graphIssues: graphIssues,
-            graphValidation: {
-                totalNodes,
-                averageConfirmationsPerNode: totalNodes > 0 ? totalConfirmations / totalNodes : 0,
-                issuesCount: graphIssues.length
-            },
-            overallValid: trackerValidation.valid && graphIssues.length === 0
-        };
+        }
     }
+
+    // Дополнительная проверка узлов графа
+    const graphIssues = [];
+    let graphConfirmations = 0;
+    let graphNodes = 0;
+
+    if (this.graph && this.graph.nodes) {
+        this.graph.nodes.forEach((node, nodeId) => {
+            graphNodes++;
+            const nodeConfirmations = node.confirmedCount || 1;
+            graphConfirmations += nodeConfirmations;
+
+            if (node.pointTrackerId) {
+                const trackerPoint = this.pointTracker.points.get(node.pointTrackerId);
+                if (trackerPoint) {
+                    const trackerConfirmations = trackerPoint.confirmedCount || 1;
+                    if (nodeConfirmations !== trackerConfirmations) {
+                        graphIssues.push({
+                            nodeId,
+                            pointTrackerId: node.pointTrackerId,
+                            nodeConfirmations,
+                            trackerConfirmations,
+                            difference: Math.abs(nodeConfirmations - trackerConfirmations)
+                        });
+                    }
+                }
+            }
+        });
+    }
+
+    const avgConfirmations = totalPoints > 0 ? totalConfirmations / totalPoints : 0;
+    const confirmationIntegrity = trackerStats.confirmationIntegrity || 0;
+
+    return {
+        valid: issues.length === 0 && graphIssues.length === 0,
+        issues: issues,
+        graphIssues: graphIssues,
+        stats: {
+            totalPoints,
+            avgConfirmations,
+            confirmationIntegrity,
+            graphNodes,
+            graphAvgConfirmations: graphNodes > 0 ? graphConfirmations / graphNodes : 0
+        },
+        overallValid: issues.length === 0 && graphIssues.length === 0
+    };
+}
 
     // 🔥 НОВЫЙ МЕТОД: Визуализация подтверждений
     async visualizeConfirmations(options = {}) {
