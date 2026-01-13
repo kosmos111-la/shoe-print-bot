@@ -263,9 +263,9 @@ class TemplateBuilder {
         };
 
         // 🔥 УВЕЛИЧЕННЫЕ ПОРОГИ ДЛЯ ТЕСТИРОВАНИЯ:
-        const EXACT_THRESHOLD = 0.15;    // было 0.05 → 15% вместо 5%
-        const PARTIAL_THRESHOLD = 0.25;  // было 0.10 → 25% вместо 10%
-        const LOW_QUALITY_THRESHOLD = 0.35; // было 0.15 → 35% вместо 15%
+        const EXACT_THRESHOLD = 1.0;    // 🔥 100% вместо 15%!
+const PARTIAL_THRESHOLD = 1.5;  // 🔥 150% вместо 25%
+const LOW_QUALITY_THRESHOLD = 2.0; // 🔥 200% вместо 35%
 
         // Для каждой точки нового графа ищем ближайшую в шаблоне
         normalizedPoints.forEach(newPoint => {
