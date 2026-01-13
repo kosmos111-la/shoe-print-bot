@@ -331,20 +331,18 @@ class SimpleFootprintManager {
             };
 
             // 🔥 2. СОЗДАЕМ ТРАНСФОРМАЦИЮ ШАБЛОНА (из нормализованной системы в реальную)
-            const templateToRealTransformation = {
-                matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1], // Единичная матрица
-                rotationAngle: 0,
-                isMirrored: false,
-                center: { x: 0, y: 0 },
-                bounds: {
-                    minX: templateTransformation.minX,
-                    maxX: templateTransformation.minX + templateTransformation.width,
-                    minY: templateTransformation.minY,
-                    maxY: templateTransformation.minY + templateTransformation.height
-                },
-                scale: { x: 1, y: 1 },
-                type: 'template_to_real'
-            };
+            // 🔥 ИСПОЛЬЗУЕМ РЕАЛЬНУЮ ТРАНСФОРМАЦИЮ ШАБЛОНА!
+// templateTransformation УЖЕ содержит правильную трансформацию
+const templateToRealTransformation = templateTransformation || {
+    matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    rotationAngle: 0,
+    isMirrored: false,
+    center: { x: 0, y: 0 },
+    type: 'identity'
+};
+
+console.log(`📐 Трансформация шаблона: угол ${templateToRealTransformation.rotationAngle}°`);
+console.log(`📐 Трансформация отпечатка: угол ${footprintTransformation.rotationAngle}°`);
 
             // 3. Преобразуем из системы шаблона в систему отпечатка
             const transformedPoints = processor.transformPointsBetweenSystems(
