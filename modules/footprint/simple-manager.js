@@ -1190,8 +1190,7 @@ class SimpleFootprintManager {
                     existingTransformationInfo
                 );
 
-                // 🔥 ВИЗУАЛИЗАЦИЯ ПОДТВЕРЖДЕНИЙ
-                let clusterVizResult = null;
+                 let clusterVizResult = null;
                 if (this.config.enableMergeVisualization) {
                     console.log(`🎨 Создаю визуализацию подтверждений...`);
 
@@ -1204,6 +1203,13 @@ class SimpleFootprintManager {
                             comparisonResult: comparisonResult
                         }
                     );
+                   
+                    // 🔥 ВАЖНО: Проверяем результат визуализации
+                    if (clusterVizResult && clusterVizResult.path) {
+                        console.log(`✅ Визуализация создана: ${clusterVizResult.path}`);
+                    } else {
+                        console.log(`⚠️ Визуализация не создана или путь отсутствует`);
+                    }
                 }
 
                 // 🔥 ВИЗУАЛИЗАЦИЯ ВЫРАВНИВАНИЯ (если есть результат от алайнера)
@@ -1232,41 +1238,60 @@ class SimpleFootprintManager {
                     // Отправляем визуализацию подтверждений
                     if (clusterVizResult && clusterVizResult.path) {
                         try {
-                            let caption = `🎯 **РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ**\n\n`;
-                            caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
-                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
-                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'alignment_based'}\n`;
+                            let caption = `🎯 **РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ**\\n\\n`;
+                            caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\\n`;
+                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'alignment_based'}\\n`;
                            
                             if (comparisonResult.alignment && comparisonResult.alignment.quality) {
-                                caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\n`;
+                                caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\\n`;
                             }
                            
-                            caption += `\n📈 **СТАТИСТИКА (после ${session.photos.length} фото):**\n`;
-                            caption += `• Всего точек: ${stats.totalPoints}\n`;
-                            caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
-                            caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
-                            caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}\n\n`;
-                            caption += `🔄 Обновлено из шаблона: ${updatedFromTemplate} точек\n`;
+                            caption += `\\n📈 **СТАТИСТИКА (после ${session.photos.length} фото):**\\n`;
+                            caption += `• Всего точек: ${stats.totalPoints}\\n`;
+                            caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\\n`;
+                            caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\\n`;
+                            caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}\\n\\n`;
+                            caption += `🔄 Обновлено из шаблона: ${updatedFromTemplate} точек\\n`;
                             caption += `🎯 Прямо обновлено: ${directUpdates} точек`;
+
+                            console.log(`📤 Отправляю визуализацию в Telegram...`);
+                            console.log(`📷 Путь к изображению: ${clusterVizResult.path}`);
+                            console.log(`📝 Капшн (первые 200 символов): ${caption.substring(0, 200)}...`);
 
                             await bot.sendPhoto(chatId, clusterVizResult.path, {
                                 caption: caption,
-                                parse_mode: 'Markdown'
+                                parse_mode: 'MarkdownV2'  // 🔥 Используем MarkdownV2 для лучшей совместимости
                             });
                             console.log('✅ Визуализация отправлена');
 
                             // 🔥 Дополнительно отправляем визуализацию выравнивания если есть
                             if (alignmentVizPath && fs.existsSync(alignmentVizPath)) {
+                                console.log(`📤 Отправляю визуализацию выравнивания в Telegram...`);
                                 await bot.sendPhoto(chatId, alignmentVizPath, {
-                                    caption: `🔄 **Визуализация выравнивания**\n${comparisonResult.reason || ''}`,
-                                    parse_mode: 'Markdown'
+                                    caption: `🔄 **Визуализация выравнивания**\\n${comparisonResult.reason || ''}`,
+                                    parse_mode: 'MarkdownV2'
                                 });
                                 console.log('✅ Визуализация выравнивания отправлена');
                             }
 
+                            // 🔥 Отправляем визуализацию шаблона если есть
+                            if (templateVizPath && templateVizPath.template && fs.existsSync(templateVizPath.template)) {
+                                console.log(`📤 Отправляю визуализацию шаблона в Telegram...`);
+                                await bot.sendPhoto(chatId, templateVizPath.template, {
+                                    caption: `📊 **Шаблон после ${session.photos.length} фото**\\n• Ячеек: ${templateVizPath.stats?.cells || 0}\\n• Подтверждений: ${templateVizPath.stats?.totalConfirmations || 0}`,
+                                    parse_mode: 'MarkdownV2'
+                                });
+                                console.log('✅ Визуализация шаблона отправлена');
+                            }
+
                         } catch (sendError) {
                             console.log('❌ Ошибка отправки:', sendError.message);
+                            console.log('📋 Детали ошибки:', sendError.stack);
                         }
+                    } else {
+                        console.log('⚠️ Нет визуализации для отправки в Telegram');
+                        console.log('🔍 clusterVizResult:', clusterVizResult);
                     }
                 }
 
