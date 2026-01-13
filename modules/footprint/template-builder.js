@@ -153,10 +153,32 @@ class TemplateBuilder {
         // 4. 🔥 ПОЛНОЕ СОПОСТАВЛЕНИЕ С ШАБЛОНОМ
         const matchResults = this.findCompleteMatches(normalizedPoints, graphId);
 
+        // 🔥 ИСПРАВЛЕНИЕ: Если нет совпадений, но есть точки - добавляем их как новые
         if (matchResults.totalMatches < Math.max(3, this.referencePoints.length * 0.2)) {
             console.log(`❌ Недостаточно совпадений: ${matchResults.totalMatches}`);
-            console.log(`   Возможно, это другой протектор`);
-            return false;
+
+            if (matchResults.totalMatches === 0 && normalizedPoints.length > 0) {
+                // 🔥 ЕСЛИ СОВСЕМ НЕТ СОВПАДЕНИЙ, НО ЕСТЬ ТОЧКИ - ДОБАВЛЯЕМ ИХ КАК НОВЫЕ
+                console.log(`⚠️ Нет прямых совпадений, но есть ${normalizedPoints.length} точек`);
+                console.log(`   Добавляю все точки как новые (синие)...`);
+
+                // Создаем искусственные результаты с новыми точками
+                matchResults.exactMatches = [];
+                matchResults.partialMatches = [];
+                matchResults.lowQualityMatches = [];
+                matchResults.unmatchedPoints = normalizedPoints.map(p => ({
+                    newPoint: p,
+                    distanceToNearest: 1.0,
+                    matchType: 'new'
+                }));
+                matchResults.totalMatches = 0;
+                matchResults.exactMatchesCount = 0;
+                matchResults.partialMatchesCount = 0;
+                matchResults.newPointsCount = normalizedPoints.length;
+            } else {
+                console.log(`   Возможно, это другой протектор`);
+                return false;
+            }
         }
 
         console.log(`✅ Найдено ${matchResults.totalMatches} совпадений:`);
@@ -241,9 +263,9 @@ class TemplateBuilder {
         };
 
         // 🔥 УВЕЛИЧЕННЫЕ ПОРОГИ ДЛЯ ТЕСТИРОВАНИЯ:
-        const EXACT_THRESHOLD = 0.05;    // было 0.02 (5% вместо 2%)
-        const PARTIAL_THRESHOLD = 0.10;  // было 0.05 (10% вместо 5%)
-        const LOW_QUALITY_THRESHOLD = 0.15; // было 0.1 (15% вместо 10%)
+        const EXACT_THRESHOLD = 0.15;    // было 0.05 → 15% вместо 5%
+        const PARTIAL_THRESHOLD = 0.25;  // было 0.10 → 25% вместо 10%
+        const LOW_QUALITY_THRESHOLD = 0.35; // было 0.15 → 35% вместо 15%
 
         // Для каждой точки нового графа ищем ближайшую в шаблоне
         normalizedPoints.forEach(newPoint => {
@@ -309,10 +331,10 @@ class TemplateBuilder {
         results.totalMatches = results.exactMatchesCount + results.partialMatchesCount;
 
         console.log(`🔍 Классификация совпадений для ${normalizedPoints.length} точек:`);
-        console.log(`   • Точные (<5%): ${results.exactMatchesCount}`);
-        console.log(`   • Частичные (5-10%): ${results.partialMatchesCount}`);
-        console.log(`   • Низкокачественные (10-15%): ${results.lowQualityMatches.length}`);
-        console.log(`   • Новые (>15%): ${results.newPointsCount}`);
+        console.log(`   • Точные (<15%): ${results.exactMatchesCount}`);
+        console.log(`   • Частичные (15-25%): ${results.partialMatchesCount}`);
+        console.log(`   • Низкокачественные (25-35%): ${results.lowQualityMatches.length}`);
+        console.log(`   • Новые (>35%): ${results.newPointsCount}`);
 
         return results;
     }
@@ -387,33 +409,22 @@ class TemplateBuilder {
         return updatedCount;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Добавить новые точки в шаблон
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Добавить новые точки в шаблон
     addNewPointsToTemplate(unmatchedPoints, graphId, metadata) {
         if (unmatchedPoints.length === 0) {
             console.log(`📊 Нет новых точек для добавления`);
             return 0;
         }
 
-        console.log(`🆕 Добавляю ${unmatchedPoints.length} новых точек в шаблон...`);
+        console.log(`🆕 Добавляю ${unmatchedPoints.length} новых точек как СИНИЕ (1 подтверждение)...`);
 
         let addedCount = 0;
-        const maxNewPoints = Math.min(30, Math.max(5, unmatchedPoints.length / 2));
 
-        // 🔥 ФИЛЬТРУЕМ ТОЧКИ ПО КАЧЕСТВУ
-        const filteredPoints = unmatchedPoints.filter(point => {
-            // Проверяем качество точки
-            const pointQuality = this.evaluatePointQuality(point.newPoint, metadata);
-            return pointQuality > 0.4; // Только точки с достаточным качеством
-        });
-
-        // 🔥 ОГРАНИЧИВАЕМ КОЛИЧЕСТВО
-        const pointsToAdd = filteredPoints.slice(0, maxNewPoints);
-
-        pointsToAdd.forEach((pointData, index) => {
+        // 🔥 ДОБАВЛЯЕМ ВСЕ НОВЫЕ ТОЧКИ БЕЗ ФИЛЬТРАЦИИ
+        unmatchedPoints.forEach((pointData, index) => {
             const point = pointData.newPoint;
-            const pointQuality = this.evaluatePointQuality(point, metadata);
 
-            // 🔥 СОЗДАЕМ НОВУЮ ЯЧЕЙКУ
+            // 🔥 СОЗДАЕМ НОВУЮ ЯЧЕЙКУ С 1 ПОДТВЕРЖДЕНИЕМ (СИНЯЯ)
             const cellId = `cell_new_${graphId}_${index}_${Date.now()}`;
 
             const newCell = {
@@ -425,32 +436,26 @@ class TemplateBuilder {
                     x: point.x || 0,
                     y: point.y || 0
                 },
-                radius: 0.04, // Немного меньше радиуса для новых точек
+                radius: 0.05,
                 points: [point.id],
-                confirmations: 1, // 🔥 ТОЛЬКО 1 ПОДТВЕРЖДЕНИЕ (этот граф)
-                confidence: pointQuality,
+                confirmations: 1, // 🔥 ВСЕГО 1 ПОДТВЕРЖДЕНИЕ = СИНЯЯ ТОЧКА
+                confidence: point.confidence || 0.5,
                 sources: new Set([graphId]),
                 invariants: point.invariants || null,
-                isNew: true, // 🔥 ФЛАГ - НОВАЯ ТОЧКА
-                needsConfirmation: true, // 🔥 ТРЕБУЕТ ДОПОЛНИТЕЛЬНЫХ ПОДТВЕРЖДЕНИЙ
+                isNew: true,
+                needsConfirmation: true,
                 addedFromGraph: graphId,
-                addedAt: new Date(),
-                metadata: {
-                    distanceToNearest: pointData.distanceToNearest,
-                    originalConfidence: point.confidence || 0.5
-                }
+                addedAt: new Date()
             };
 
-            // 🔥 ДОБАВЛЯЕМ В ОБЕ КОЛЛЕКЦИИ (для совместимости)
+            // Добавляем в шаблон
             this.invariantCells.set(cellId, newCell);
-
-            // Также добавляем в templateCells
             this.templateCells.set(cellId, {
-                center: { x: point.x || 0, y: point.y || 0 },
+                center: newCell.originalCenter,
                 radius: this.config.cellSize / 2,
                 points: [point.id],
-                confirmations: 1,
-                confidence: pointQuality,
+                confirmations: 1, // 🔥 СИНЯЯ ТОЧКА
+                confidence: point.confidence || 0.5,
                 sources: new Set([graphId]),
                 matchedPoints: [],
                 isNew: true
@@ -459,17 +464,11 @@ class TemplateBuilder {
             addedCount++;
 
             if (addedCount <= 3) {
-                console.log(`   + Новая точка ${cellId.slice(0, 12)}:`);
-                console.log(`     Координаты: (${point.x?.toFixed(1)}, ${point.y?.toFixed(1)})`);
-                console.log(`     Качество: ${pointQuality.toFixed(3)}`);
-                console.log(`     Удалённость: ${pointData.distanceToNearest?.toFixed(3) || '?'}`);
+                console.log(`   + СИНЯЯ точка ${cellId.slice(0, 12)}: (${point.x?.toFixed(1)}, ${point.y?.toFixed(1)})`);
             }
         });
 
-        // 🔥 СОЗДАЕМ СВЯЗИ ДЛЯ НОВЫХ ТОЧЕК
-        this.createConnectionsForNewPoints(addedCount);
-
-        console.log(`✅ Добавлено ${addedCount} новых точек (из ${unmatchedPoints.length} кандидатов)`);
+        console.log(`✅ Добавлено ${addedCount} СИНИХ точек (1 подтверждение)`);
         return addedCount;
     }
 
@@ -941,7 +940,7 @@ class TemplateBuilder {
             },
             referencePoints: this.normalizedReferencePoints,
             transformationsCount: this.graphTransformations.size,
-            normalizationTransform: this.normalizationTransform,
+            normalizationTransform: this.normalizationTransform,
             dynamicInfo: {
                 bestGraphId: this.bestGraphId,
                 bestGraphQuality: this.bestGraphQuality,
