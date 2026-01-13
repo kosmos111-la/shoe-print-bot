@@ -75,6 +75,58 @@ class TemplateBuilder {
         console.log(`🏗️ Создан TemplateBuilder "${this.name}" с ДИНАМИЧЕСКИМ эталоном и полным накоплением`);
     }
 
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Простая нормализация
+    normalizeReferencePoints() {
+        if (this.referencePoints.length === 0) return;
+
+        console.log(`📐 Нормализую ${this.referencePoints.length} точек эталона...`);
+
+        // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
+        // Точки УЖЕ нормализованы rotation-invariance!
+        // Не нужно их снова нормализовать!
+
+        // Просто копируем координаты как есть
+        this.normalizedReferencePoints = this.referencePoints.map(point => ({
+            ...point,
+            nx: point.x / 1000,  // Просто делим на 1000 для относительных координат
+            ny: point.y / 1000,
+            normalized: true
+        }));
+
+        // Простая трансформация
+        this.normalizationTransform = {
+            minX: 0,
+            minY: 0,
+            width: 1000,  // Фиксированный размер
+            height: 1000,
+            scale: 1.0
+        };
+
+        console.log(`✅ Точки сохранены как есть (без повторной нормализации)`);
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Извлечение точек с сохранением nx, ny
+    extractPointsFromGraph(graph) {
+        const points = [];
+
+        if (!graph || !graph.nodes) return points;
+
+        graph.nodes.forEach((node, nodeId) => {
+            // 🔥 ДОБАВИТЬ: сохраняем относительные координаты
+            points.push({
+                id: nodeId,
+                x: node.x || 0,
+                y: node.y || 0,
+                nx: node.nx || (node.x / 1000),  // ЕСЛИ есть nx - используем, иначе вычисляем
+                ny: node.ny || (node.y / 1000),
+                confidence: node.confidence || 0.5,
+                originalNode: node
+            });
+        });
+
+        return points;
+    }
+
     // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: Добавить граф с полным накоплением деталей
     addGraph(graph, graphId, metadata = {}) {
         console.log(`🔄 Добавляю граф ${graphId} с НАКОПЛЕНИЕМ деталей...`);
@@ -659,7 +711,7 @@ class TemplateBuilder {
         const visited = new Set();
         const clusters = [];
 
-        // Простая кластеризация по расстоянию
+        // Простая кластеризация по расстояние
         for (let i = 0; i < cells.length; i++) {
             const [cellId1, cell1] = cells[i];
             if (visited.has(cellId1)) continue;
@@ -917,31 +969,6 @@ class TemplateBuilder {
     }
 
     // ============ СУЩЕСТВУЮЩИЕ МЕТОДЫ (без изменений) ============
-
-    // 🔥 ОБЕСПЕЧИВАЕМ СОВМЕСТИМУЮ НОРМАЛИЗАЦИЮ (как в инструкции)
-    normalizeReferencePoints() {
-        if (this.referencePoints.length === 0) return;
-
-        const bounds = this.calculateBounds(this.referencePoints);
-
-        // Используем ТУ ЖЕ логику, что и в SimpleMatcher
-        this.normalizationTransform = {
-            minX: bounds.minX,
-            minY: bounds.minY,
-            width: Math.max(1, bounds.width),
-            height: Math.max(1, bounds.height)
-        };
-
-        this.normalizedReferencePoints = this.referencePoints.map(point => ({
-            ...point,
-            nx: (point.x - bounds.minX) / Math.max(1, bounds.width),
-            ny: (point.y - bounds.minY) / Math.max(1, bounds.height),
-            normalized: true
-        }));
-
-        console.log(`📐 Нормализация совместима с SimpleMatcher: ` +
-                   `ширина=${bounds.width.toFixed(1)}, высота=${bounds.height.toFixed(1)}`);
-    }
 
     calculateBounds(points) {
         const xs = points.map(p => p.x);
@@ -1493,24 +1520,6 @@ class TemplateBuilder {
     }
 
     // ============ СУЩЕСТВУЮЩИЕ МЕТОДЫ С КОРРЕКТИРОВКАМИ ============
-
-    extractPointsFromGraph(graph) {
-        const points = [];
-
-        if (!graph || !graph.nodes) return points;
-
-        graph.nodes.forEach((node, nodeId) => {
-            points.push({
-                id: nodeId,
-                x: node.x || 0,
-                y: node.y || 0,
-                confidence: node.confidence || 0.5,
-                originalNode: node
-            });
-        });
-
-        return points;
-    }
 
     extractTopologyFromGraph(graph) {
         if (!graph || !graph.edges) return;
