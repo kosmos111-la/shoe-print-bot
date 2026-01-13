@@ -495,66 +495,51 @@ class SimpleFootprintManager {
     }
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Применить результаты сравнения к трекеру
-    applyComparisonToTracker(tracker, matches) {
-        console.log(`🔧 Применяю ${matches.length} совпадений к трекеру...`);
+   applyComparisonToTracker(tracker, matches) {
+    console.log(`🔧 Применяю ${matches.length} совпадений к трекеру...`);
 
-        let updatedCount = 0;
+    let updatedCount = 0;
 
-        // 🔥 ДЕБАГ: показать первые 3 точки трекера
-        console.log(`📊 Первые 3 точки трекера:`);
-        let count = 0;
-        for (const [pointId, pointData] of tracker.points) {
-            console.log(`   ${pointId}: (${pointData.x.toFixed(1)}, ${pointData.y.toFixed(1)})`);
-            count++;
-            if (count >= 3) break;
-        }
+    // 🔥 ПРОСТОЙ АЛГОРИТМ: для каждой точки трекера ищем лучшее совпадение
+    for (const [trackerPointId, trackerPointData] of tracker.points) {
+        let bestMatch = null;
+        let minDistance = Infinity;
 
-        // 🔥 ДЕБАГ: показать первые 3 совпадения
-        console.log(`📊 Первые 3 совпадения:`);
-        matches.slice(0, 3).forEach((match, i) => {
-            console.log(`   Совпадение ${i+1}:`);
-            console.log(`     Точка трекера ID: ${match.trackerId || match.trackerPoint?.id || 'нет'}`);
-            console.log(`     Координаты: (${match.trackerPoint.x?.toFixed(1)}, ${match.trackerPoint.y?.toFixed(1)})`);
+        // Ищем лучшее совпадение для этой точки трекера
+        matches.forEach(match => {
+            const distance = Math.sqrt(
+                Math.pow(match.trackerPoint.x - trackerPointData.x, 2) +
+                Math.pow(match.trackerPoint.y - trackerPointData.y, 2)
+            );
+
+            if (distance < minDistance && distance < 30) { // порог 30px
+                minDistance = distance;
+                bestMatch = match;
+            }
         });
 
-        // 🔥 ПРОСТОЙ АЛГОРИТМ: для каждой точки трекера ищем лучшее совпадение
-        for (const [trackerPointId, trackerPointData] of tracker.points) {
-            let bestMatch = null;
-            let minDistance = Infinity;
+        if (bestMatch) {
+            const oldConfirmations = trackerPointData.confirmedCount || 1;
+           
+            // 🔥 ПРОСТОЕ РЕШЕНИЕ: Каждое совпадение = +1 подтверждение
+            // СТРОГО ПО ИНСТРУКЦИИ: (pointData.confirmedCount || 1) + 1
+            const newConfirmations = oldConfirmations + 1;
+           
+            // 🔥 ЗАМЕНА: Удаляем проверку и просто обновляем
+            // СТРОГО ПО ИНСТРУКЦИИ: Удалить if (newConfirmations > oldConfirmations)
+            trackerPointData.confirmedCount = newConfirmations;
+            updatedCount++;
 
-            // Ищем лучшее совпадение для этой точки трекера
-            matches.forEach(match => {
-                const distance = Math.sqrt(
-                    Math.pow(match.trackerPoint.x - trackerPointData.x, 2) +
-                    Math.pow(match.trackerPoint.y - trackerPointData.y, 2)
-                );
-
-                if (distance < minDistance && distance < 30) { // порог 30px
-                    minDistance = distance;
-                    bestMatch = match;
-                }
-            });
-
-            if (bestMatch) {
-                const oldConfirmations = trackerPointData.confirmedCount || 1;
-                const templateConfirmations = bestMatch.templatePoint.confirmations || 1;
-                const newConfirmations = Math.max(oldConfirmations, templateConfirmations);
-
-                if (newConfirmations > oldConfirmations) {
-                    trackerPointData.confirmedCount = newConfirmations;
-                    updatedCount++;
-
-                    if (updatedCount <= 5) {
-                        console.log(`   ✅ ${trackerPointId}: ${oldConfirmations} → ${newConfirmations} подтверждений`);
-                        console.log(`       расстояние: ${minDistance.toFixed(1)}px`);
-                    }
-                }
+            if (updatedCount <= 5) {
+                console.log(`   ✅ ${trackerPointId}: ${oldConfirmations} → ${newConfirmations} подтверждений`);
+                console.log(`       расстояние: ${minDistance.toFixed(1)}px`);
             }
         }
-
-        console.log(`✅ Обновлено ${updatedCount} точек в трекере`);
-        return updatedCount;
     }
+
+    console.log(`✅ Обновлено ${updatedCount} точек в трекере`);
+    return updatedCount;
+}
 
     // 🔥 НОВЫЙ МЕТОД: Найти точку трекера по координатам
     findTrackerPointByCoordinates(tracker, x, y, threshold = 5) {
