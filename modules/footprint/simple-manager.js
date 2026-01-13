@@ -494,27 +494,58 @@ class SimpleFootprintManager {
         return (distanceScore * 0.7 + confidenceScore * 0.3);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Применить результаты сравнения к трекеру
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Применить результаты сравнения к трекеру
     applyComparisonToTracker(tracker, matches) {
         let updatedCount = 0;
 
-        // 🔥 ГРУППИРУЕМ СОВПАДЕНИЯ ПО ТОЧКАМ ТРЕКЕРА
-        const matchesByTrackerPoint = new Map();
+        console.log(`🔧 Применяю ${matches.length} совпадений к трекеру...`);
+
+        // 🔥 ПРОБЛЕМА: matches содержит trackerPoint с объектом, а не ID
+        // Нужно сопоставить по координатам, а не по ID
 
         matches.forEach(match => {
-            const pointId = match.trackerPoint.id;
-            if (!matchesByTrackerPoint.has(pointId)) {
-                matchesByTrackerPoint.set(pointId, []);
+            if (!match.trackerPoint || !match.trackerPoint.id) {
+                // 🔥 ЕСЛИ НЕТ ID - ИЩЕМ ПО КООРДИНАТАМ
+                const trackerPointId = this.findTrackerPointByCoordinates(
+                    tracker,
+                    match.trackerPoint.x,
+                    match.trackerPoint.y
+                );
+
+                if (!trackerPointId) return;
+
+                match.trackerId = trackerPointId;
+            } else {
+                match.trackerId = match.trackerPoint.id;
             }
-            matchesByTrackerPoint.get(pointId).push(match);
         });
 
-        // 🔥 ОБНОВЛЯЕМ КАЖДУЮ ТОЧКУ ТРЕКЕРА
-        for (const [pointId, pointMatches] of matchesByTrackerPoint) {
-            const pointData = tracker.points.get(pointId);
-            if (!pointData) continue;
+        // 🔥 ГРУППИРУЕМ ПО НАЙДЕННЫМ ID
+        const matchesByTrackerId = new Map();
 
-            // 🔥 НАХОДИМ ЛУЧШЕЕ СОВПАДЕНИЕ ДЛЯ ЭТОЙ ТОЧКИ
+        matches.forEach(match => {
+            if (!match.trackerId) return;
+
+            if (!matchesByTrackerId.has(match.trackerId)) {
+                matchesByTrackerId.set(match.trackerId, []);
+            }
+            matchesByTrackerId.get(match.trackerId).push(match);
+        });
+
+        console.log(`📊 Группировка: ${matchesByTrackerId.size} уникальных точек трекера`);
+
+        // 🔥 ОБНОВЛЯЕМ КАЖДУЮ ТОЧКУ
+        for (const [pointId, pointMatches] of matchesByTrackerId) {
+            let pointData = tracker.points.get(pointId);
+            if (!pointData) {
+                // 🔥 ПОПРОБУЕМ НАЙТИ ПО АЛЬТЕРНАТИВНОМУ ID
+                const altPointData = this.findPointByAlternativeId(tracker, pointId);
+                if (!altPointData) continue;
+
+                pointData = altPointData;
+            }
+
+            // Находим лучшее совпадение
             const bestMatch = pointMatches.reduce((best, current) => {
                 if (!best || current.quality > best.quality) {
                     return current;
@@ -530,40 +561,61 @@ class SimpleFootprintManager {
             const oldConfirmations = pointData.confirmedCount || 1;
             const templateConfirmations = bestMatch.templatePoint.confirmations || 1;
 
-            // 🔥 ВАЖНОЕ ПРАВИЛО: точка получает МАКСИМУМ из своего и шаблона
+            // 🔥 ВАЖНО: точка получает МАКСИМУМ из своего и шаблона
             const newConfirmations = Math.max(oldConfirmations, templateConfirmations);
 
             if (newConfirmations > oldConfirmations) {
                 pointData.confirmedCount = newConfirmations;
                 updatedCount++;
 
-                // 🔥 ТОЛЬКО ДЛЯ ДЕБАГА: показываем первые несколько обновлений
-                if (updatedCount <= 5) {
-                    console.log(`   ✅ ${pointId.slice(0, 8)}: ${oldConfirmations} → ${newConfirmations} подтверждений`);
-                    console.log(`       тип: ${bestMatch.matchType}, расстояние: ${bestMatch.distance.toFixed(1)}px`);
-                    console.log(`       уверенность шаблона: ${bestMatch.templatePoint.confidence?.toFixed(3)}`);
-                }
+                console.log(`   ✅ ${pointId.slice(0, 8)}: ${oldConfirmations} → ${newConfirmations} подтверждений`);
+                console.log(`       тип: ${bestMatch.matchType}, расстояние: ${bestMatch.distance.toFixed(1)}px`);
 
                 // 🔥 УВЕЛИЧИВАЕМ УВЕРЕННОСТЬ ТОЧКИ
                 if (pointData.rating) {
                     pointData.rating = Math.min(1.0, pointData.rating + 0.1);
                 }
-
-                // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ПОДТВЕРЖДЕНИИ
-                if (!pointData.confirmationSources) {
-                    pointData.confirmationSources = [];
-                }
-                pointData.confirmationSources.push({
-                    source: 'template',
-                    templateCellId: bestMatch.templatePoint.cellId,
-                    distance: bestMatch.distance,
-                    matchType: bestMatch.matchType,
-                    timestamp: new Date()
-                });
             }
         }
 
+        console.log(`✅ Обновлено ${updatedCount} точек в трекере`);
         return updatedCount;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Найти точку трекера по координатам
+    findTrackerPointByCoordinates(tracker, x, y, threshold = 5) {
+        let bestPointId = null;
+        let minDistance = Infinity;
+
+        for (const [pointId, pointData] of tracker.points) {
+            const distance = Math.sqrt(
+                Math.pow(pointData.x - x, 2) +
+                Math.pow(pointData.y - y, 2)
+            );
+
+            if (distance < minDistance && distance < threshold) {
+                minDistance = distance;
+                bestPointId = pointId;
+            }
+        }
+
+        return bestPointId;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Найти точку по альтернативному ID
+    findPointByAlternativeId(tracker, pointId) {
+        // Попробуем найти без префикса или с другим префиксом
+        const cleanId = pointId.replace(/^pt_/, '').replace(/^n_/, '');
+
+        for (const [id, pointData] of tracker.points) {
+            const cleanTrackerId = id.replace(/^pt_/, '').replace(/^n_/, '');
+
+            if (cleanTrackerId === cleanId) {
+                return pointData;
+            }
+        }
+
+        return null;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Создать трансформацию из трекера
