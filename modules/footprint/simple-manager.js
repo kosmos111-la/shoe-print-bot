@@ -1128,7 +1128,7 @@ class SimpleFootprintManager {
             console.log(`🎯 Сходство (с выравниванием): ${similarity.toFixed(3)}, решение: ${decision}`);
 
             // 🔥 СЛЕДЫ СОВПАЛИ - обновляем шаблон с накоплением
-            iif (decision === 'same') {
+            if (decision === 'same') {
     console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
 
     // Получаем или создаем шаблон
