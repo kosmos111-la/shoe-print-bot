@@ -206,13 +206,43 @@ class SimpleFootprintManager {
         console.log(`📊 Данные шаблона: ${templateData.cells.length} ячеек`);
 
         // 🔥 4. ПРЕОБРАЗУЕМ ТОЧКИ ШАБЛОНА В СИСТЕМУ КООРДИНАТ ОТПЕЧАТКА
-        const templatePointsInFootprintSystem = this.transformTemplatePointsToFootprintSystem(
+        let templatePointsInFootprintSystem = this.transformTemplatePointsToFootprintSystem(
             templateData.cells,
             templateTransformation,
             footprintTransformation
         );
 
         console.log(`📊 Преобразовано ${templatePointsInFootprintSystem.length} точек шаблона в систему отпечатка`);
+
+        // 🔥 ДОБАВЛЕНА ПРОСТАЯ ПРОВЕРКА И ЦЕНТРОВКА:
+        if (templatePointsInFootprintSystem.length > 0) {
+            const firstPoint = templatePointsInFootprintSystem[0];
+            console.log(`🔍 ПЕРВАЯ ТОЧКА ШАБЛОНА: (${firstPoint.x.toFixed(1)}, ${firstPoint.y.toFixed(1)})`);
+
+            // Если координаты огромные (>500) - используем простую центровку
+            if (firstPoint.x > 500) {
+                console.log(`⚠️ Координаты шаблона слишком большие! Использую простую центровку...`);
+
+                // Находим центр точек трекера
+                const trackerPoints = this.getTrackerPointsInFootprintSystem(tracker, footprintTransformation);
+                const trackerCenter = this.calculateCenter(trackerPoints);
+                // Находим центр точек шаблона
+                const templateCenter = this.calculateCenter(templatePointsInFootprintSystem);
+
+                // Рассчитываем сдвиг
+                const offsetX = trackerCenter.x - templateCenter.x;
+                const offsetY = trackerCenter.y - templateCenter.y;
+
+                console.log(`📐 Сдвигаю шаблон: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+
+                // Сдвигаем точки шаблона
+                templatePointsInFootprintSystem = templatePointsInFootprintSystem.map(point => ({
+                    ...point,
+                    x: point.x + offsetX,
+                    y: point.y + offsetY
+                }));
+            }
+        }
 
         // 🔥 5. ПОЛУЧАЕМ ТОЧКИ ТРЕКЕРА В СИСТЕМЕ ОТПЕЧАТКА
         const trackerPoints = this.getTrackerPointsInFootprintSystem(tracker, footprintTransformation);
