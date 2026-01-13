@@ -75,58 +75,6 @@ class TemplateBuilder {
         console.log(`🏗️ Создан TemplateBuilder "${this.name}" с ДИНАМИЧЕСКИМ эталоном и полным накоплением`);
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Простая нормализация
-    normalizeReferencePoints() {
-        if (this.referencePoints.length === 0) return;
-
-        console.log(`📐 Нормализую ${this.referencePoints.length} точек эталона...`);
-
-        // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
-        // Точки УЖЕ нормализованы rotation-invariance!
-        // Не нужно их снова нормализовать!
-
-        // Просто копируем координаты как есть
-        this.normalizedReferencePoints = this.referencePoints.map(point => ({
-            ...point,
-            nx: point.x / 1000,  // Просто делим на 1000 для относительных координат
-            ny: point.y / 1000,
-            normalized: true
-        }));
-
-        // Простая трансформация
-        this.normalizationTransform = {
-            minX: 0,
-            minY: 0,
-            width: 1000,  // Фиксированный размер
-            height: 1000,
-            scale: 1.0
-        };
-
-        console.log(`✅ Точки сохранены как есть (без повторной нормализации)`);
-    }
-
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Извлечение точек с сохранением nx, ny
-    extractPointsFromGraph(graph) {
-        const points = [];
-
-        if (!graph || !graph.nodes) return points;
-
-        graph.nodes.forEach((node, nodeId) => {
-            // 🔥 ДОБАВИТЬ: сохраняем относительные координаты
-            points.push({
-                id: nodeId,
-                x: node.x || 0,
-                y: node.y || 0,
-                nx: node.nx || (node.x / 1000),  // ЕСЛИ есть nx - используем, иначе вычисляем
-                ny: node.ny || (node.y / 1000),
-                confidence: node.confidence || 0.5,
-                originalNode: node
-            });
-        });
-
-        return points;
-    }
-
     // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: Добавить граф с полным накоплением деталей
     addGraph(graph, graphId, metadata = {}) {
         console.log(`🔄 Добавляю граф ${graphId} с НАКОПЛЕНИЕМ деталей...`);
@@ -153,32 +101,10 @@ class TemplateBuilder {
         // 4. 🔥 ПОЛНОЕ СОПОСТАВЛЕНИЕ С ШАБЛОНОМ
         const matchResults = this.findCompleteMatches(normalizedPoints, graphId);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Если нет совпадений, но есть точки - добавляем их как новые
         if (matchResults.totalMatches < Math.max(3, this.referencePoints.length * 0.2)) {
             console.log(`❌ Недостаточно совпадений: ${matchResults.totalMatches}`);
-
-            if (matchResults.totalMatches === 0 && normalizedPoints.length > 0) {
-                // 🔥 ЕСЛИ СОВСЕМ НЕТ СОВПАДЕНИЙ, НО ЕСТЬ ТОЧКИ - ДОБАВЛЯЕМ ИХ КАК НОВЫЕ
-                console.log(`⚠️ Нет прямых совпадений, но есть ${normalizedPoints.length} точек`);
-                console.log(`   Добавляю все точки как новые (синие)...`);
-
-                // Создаем искусственные результаты с новыми точками
-                matchResults.exactMatches = [];
-                matchResults.partialMatches = [];
-                matchResults.lowQualityMatches = [];
-                matchResults.unmatchedPoints = normalizedPoints.map(p => ({
-                    newPoint: p,
-                    distanceToNearest: 1.0,
-                    matchType: 'new'
-                }));
-                matchResults.totalMatches = 0;
-                matchResults.exactMatchesCount = 0;
-                matchResults.partialMatchesCount = 0;
-                matchResults.newPointsCount = normalizedPoints.length;
-            } else {
-                console.log(`   Возможно, это другой протектор`);
-                return false;
-            }
+            console.log(`   Возможно, это другой протектор`);
+            return false;
         }
 
         console.log(`✅ Найдено ${matchResults.totalMatches} совпадений:`);
@@ -249,12 +175,12 @@ class TemplateBuilder {
         return true;
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Полное сопоставление точек с увеличенными порогами
+    // 🔥 НОВЫЙ МЕТОД: Полное сопоставление точек
     findCompleteMatches(normalizedPoints, graphId) {
         const results = {
-            exactMatches: [],      // Точные совпадения (расстояние < 0.05)
-            partialMatches: [],    // Частичные совпадения (расстояние < 0.10)
-            lowQualityMatches: [], // Совпадения низкого качества (расстояние 0.10-0.15)
+            exactMatches: [],      // Точные совпадения (расстояние < 0.02)
+            partialMatches: [],    // Частичные совпадения (расстояние < 0.05)
+            lowQualityMatches: [], // Совпадения низкого качества (расстояние 0.05-0.1)
             unmatchedPoints: [],   // Совсем новые точки
             totalMatches: 0,
             exactMatchesCount: 0,
@@ -262,10 +188,10 @@ class TemplateBuilder {
             newPointsCount: 0
         };
 
-        // 🔥 УВЕЛИЧЕННЫЕ ПОРОГИ ДЛЯ ТЕСТИРОВАНИЯ:
-        const EXACT_THRESHOLD = 1.0;    // 🔥 100% вместо 15%!
-const PARTIAL_THRESHOLD = 1.5;  // 🔥 150% вместо 25%
-const LOW_QUALITY_THRESHOLD = 2.0; // 🔥 200% вместо 35%
+        // 🔥 ИСПОЛЬЗУЕМ РАЗНЫЕ ПОРОГИ ДЛЯ РАЗНЫХ ТИПОВ СОВПАДЕНИЙ
+        const EXACT_THRESHOLD = 0.02;    // 2% от размера
+        const PARTIAL_THRESHOLD = 0.05;  // 5% от размера
+        const LOW_QUALITY_THRESHOLD = 0.1; // 10% от размера
 
         // Для каждой точки нового графа ищем ближайшую в шаблоне
         normalizedPoints.forEach(newPoint => {
@@ -331,10 +257,10 @@ const LOW_QUALITY_THRESHOLD = 2.0; // 🔥 200% вместо 35%
         results.totalMatches = results.exactMatchesCount + results.partialMatchesCount;
 
         console.log(`🔍 Классификация совпадений для ${normalizedPoints.length} точек:`);
-        console.log(`   • Точные (<15%): ${results.exactMatchesCount}`);
-        console.log(`   • Частичные (15-25%): ${results.partialMatchesCount}`);
-        console.log(`   • Низкокачественные (25-35%): ${results.lowQualityMatches.length}`);
-        console.log(`   • Новые (>35%): ${results.newPointsCount}`);
+        console.log(`   • Точные (<2%): ${results.exactMatchesCount}`);
+        console.log(`   • Частичные (2-5%): ${results.partialMatchesCount}`);
+        console.log(`   • Низкокачественные (5-10%): ${results.lowQualityMatches.length}`);
+        console.log(`   • Новые (>10%): ${results.newPointsCount}`);
 
         return results;
     }
@@ -409,22 +335,33 @@ const LOW_QUALITY_THRESHOLD = 2.0; // 🔥 200% вместо 35%
         return updatedCount;
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Добавить новые точки в шаблон
+    // 🔥 НОВЫЙ МЕТОД: Добавить новые точки в шаблон
     addNewPointsToTemplate(unmatchedPoints, graphId, metadata) {
         if (unmatchedPoints.length === 0) {
             console.log(`📊 Нет новых точек для добавления`);
             return 0;
         }
 
-        console.log(`🆕 Добавляю ${unmatchedPoints.length} новых точек как СИНИЕ (1 подтверждение)...`);
+        console.log(`🆕 Добавляю ${unmatchedPoints.length} новых точек в шаблон...`);
 
         let addedCount = 0;
+        const maxNewPoints = Math.min(30, Math.max(5, unmatchedPoints.length / 2));
 
-        // 🔥 ДОБАВЛЯЕМ ВСЕ НОВЫЕ ТОЧКИ БЕЗ ФИЛЬТРАЦИИ
-        unmatchedPoints.forEach((pointData, index) => {
+        // 🔥 ФИЛЬТРУЕМ ТОЧКИ ПО КАЧЕСТВУ
+        const filteredPoints = unmatchedPoints.filter(point => {
+            // Проверяем качество точки
+            const pointQuality = this.evaluatePointQuality(point.newPoint, metadata);
+            return pointQuality > 0.4; // Только точки с достаточным качеством
+        });
+
+        // 🔥 ОГРАНИЧИВАЕМ КОЛИЧЕСТВО
+        const pointsToAdd = filteredPoints.slice(0, maxNewPoints);
+
+        pointsToAdd.forEach((pointData, index) => {
             const point = pointData.newPoint;
+            const pointQuality = this.evaluatePointQuality(point, metadata);
 
-            // 🔥 СОЗДАЕМ НОВУЮ ЯЧЕЙКУ С 1 ПОДТВЕРЖДЕНИЕМ (СИНЯЯ)
+            // 🔥 СОЗДАЕМ НОВУЮ ЯЧЕЙКУ
             const cellId = `cell_new_${graphId}_${index}_${Date.now()}`;
 
             const newCell = {
@@ -436,26 +373,32 @@ const LOW_QUALITY_THRESHOLD = 2.0; // 🔥 200% вместо 35%
                     x: point.x || 0,
                     y: point.y || 0
                 },
-                radius: 0.05,
+                radius: 0.04, // Немного меньше радиуса для новых точек
                 points: [point.id],
-                confirmations: 1, // 🔥 ВСЕГО 1 ПОДТВЕРЖДЕНИЕ = СИНЯЯ ТОЧКА
-                confidence: point.confidence || 0.5,
+                confirmations: 1, // 🔥 ТОЛЬКО 1 ПОДТВЕРЖДЕНИЕ (этот граф)
+                confidence: pointQuality,
                 sources: new Set([graphId]),
                 invariants: point.invariants || null,
-                isNew: true,
-                needsConfirmation: true,
+                isNew: true, // 🔥 ФЛАГ - НОВАЯ ТОЧКА
+                needsConfirmation: true, // 🔥 ТРЕБУЕТ ДОПОЛНИТЕЛЬНЫХ ПОДТВЕРЖДЕНИЙ
                 addedFromGraph: graphId,
-                addedAt: new Date()
+                addedAt: new Date(),
+                metadata: {
+                    distanceToNearest: pointData.distanceToNearest,
+                    originalConfidence: point.confidence || 0.5
+                }
             };
 
-            // Добавляем в шаблон
+            // 🔥 ДОБАВЛЯЕМ В ОБЕ КОЛЛЕКЦИИ (для совместимости)
             this.invariantCells.set(cellId, newCell);
+
+            // Также добавляем в templateCells
             this.templateCells.set(cellId, {
-                center: newCell.originalCenter,
+                center: { x: point.x || 0, y: point.y || 0 },
                 radius: this.config.cellSize / 2,
                 points: [point.id],
-                confirmations: 1, // 🔥 СИНЯЯ ТОЧКА
-                confidence: point.confidence || 0.5,
+                confirmations: 1,
+                confidence: pointQuality,
                 sources: new Set([graphId]),
                 matchedPoints: [],
                 isNew: true
@@ -464,11 +407,17 @@ const LOW_QUALITY_THRESHOLD = 2.0; // 🔥 200% вместо 35%
             addedCount++;
 
             if (addedCount <= 3) {
-                console.log(`   + СИНЯЯ точка ${cellId.slice(0, 12)}: (${point.x?.toFixed(1)}, ${point.y?.toFixed(1)})`);
+                console.log(`   + Новая точка ${cellId.slice(0, 12)}:`);
+                console.log(`     Координаты: (${point.x?.toFixed(1)}, ${point.y?.toFixed(1)})`);
+                console.log(`     Качество: ${pointQuality.toFixed(3)}`);
+                console.log(`     Удалённость: ${pointData.distanceToNearest?.toFixed(3) || '?'}`);
             }
         });
 
-        console.log(`✅ Добавлено ${addedCount} СИНИХ точек (1 подтверждение)`);
+        // 🔥 СОЗДАЕМ СВЯЗИ ДЛЯ НОВЫХ ТОЧЕК
+        this.createConnectionsForNewPoints(addedCount);
+
+        console.log(`✅ Добавлено ${addedCount} новых точек (из ${unmatchedPoints.length} кандидатов)`);
         return addedCount;
     }
 
@@ -710,7 +659,7 @@ const LOW_QUALITY_THRESHOLD = 2.0; // 🔥 200% вместо 35%
         const visited = new Set();
         const clusters = [];
 
-        // Простая кластеризация по расстояние
+        // Простая кластеризация по расстоянию
         for (let i = 0; i < cells.length; i++) {
             const [cellId1, cell1] = cells[i];
             if (visited.has(cellId1)) continue;
@@ -940,7 +889,7 @@ const LOW_QUALITY_THRESHOLD = 2.0; // 🔥 200% вместо 35%
             },
             referencePoints: this.normalizedReferencePoints,
             transformationsCount: this.graphTransformations.size,
-            normalizationTransform: this.normalizationTransform,
+            normalizationTransform: this.normalizationTransform,
             dynamicInfo: {
                 bestGraphId: this.bestGraphId,
                 bestGraphQuality: this.bestGraphQuality,
@@ -968,6 +917,31 @@ const LOW_QUALITY_THRESHOLD = 2.0; // 🔥 200% вместо 35%
     }
 
     // ============ СУЩЕСТВУЮЩИЕ МЕТОДЫ (без изменений) ============
+
+    // 🔥 ОБЕСПЕЧИВАЕМ СОВМЕСТИМУЮ НОРМАЛИЗАЦИЮ (как в инструкции)
+    normalizeReferencePoints() {
+        if (this.referencePoints.length === 0) return;
+
+        const bounds = this.calculateBounds(this.referencePoints);
+
+        // Используем ТУ ЖЕ логику, что и в SimpleMatcher
+        this.normalizationTransform = {
+            minX: bounds.minX,
+            minY: bounds.minY,
+            width: Math.max(1, bounds.width),
+            height: Math.max(1, bounds.height)
+        };
+
+        this.normalizedReferencePoints = this.referencePoints.map(point => ({
+            ...point,
+            nx: (point.x - bounds.minX) / Math.max(1, bounds.width),
+            ny: (point.y - bounds.minY) / Math.max(1, bounds.height),
+            normalized: true
+        }));
+
+        console.log(`📐 Нормализация совместима с SimpleMatcher: ` +
+                   `ширина=${bounds.width.toFixed(1)}, высота=${bounds.height.toFixed(1)}`);
+    }
 
     calculateBounds(points) {
         const xs = points.map(p => p.x);
@@ -1519,6 +1493,24 @@ const LOW_QUALITY_THRESHOLD = 2.0; // 🔥 200% вместо 35%
     }
 
     // ============ СУЩЕСТВУЮЩИЕ МЕТОДЫ С КОРРЕКТИРОВКАМИ ============
+
+    extractPointsFromGraph(graph) {
+        const points = [];
+
+        if (!graph || !graph.nodes) return points;
+
+        graph.nodes.forEach((node, nodeId) => {
+            points.push({
+                id: nodeId,
+                x: node.x || 0,
+                y: node.y || 0,
+                confidence: node.confidence || 0.5,
+                originalNode: node
+            });
+        });
+
+        return points;
+    }
 
     extractTopologyFromGraph(graph) {
         if (!graph || !graph.edges) return;
