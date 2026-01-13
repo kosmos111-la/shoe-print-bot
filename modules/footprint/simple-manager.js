@@ -265,7 +265,7 @@ class SimpleFootprintManager {
         console.log(`   Качество лучшего: ${templateData.dynamicInfo?.bestGraphQuality?.toFixed(3) || 0}`);
     }
 
-    // 🔥 ПОЛНОСТЬЮ ПЕРЕПИСАННЫЙ МЕТОД: Обновление подтверждений с правильным сравнением
+    // 🔥 ПОЛНОСТЬЮ ПЕРЕПИСАННЫЙ МЕТОД: Обновление подтверждений с правильным сравнением координат
     updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo = null) {
         console.log(`🔄 ОБНОВЛЯЮ ПОДТВЕРЖДЕНИЯ с ПРАВИЛЬНЫМ сравнением координат...`);
 
@@ -961,8 +961,7 @@ class SimpleFootprintManager {
         console.log(`  Всего: ${tracker.points.size}`);
     }
 
-    // 🔥 СУЩЕСТВУЮЩИЕ МЕТОДЫ ДЛЯ КОМПАТИБИЛЬНОСТИ
-
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию с ВИЗУАЛИЗАЦИЯМИ
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО с сохранением трансформации и накоплением`);
 
@@ -1085,6 +1084,35 @@ class SimpleFootprintManager {
                 console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
                 console.log(`✅ Создан шаблон с ${vectorModel.templateBuilder.getVisualizationData()?.cells?.length || 0} ячейками`);
 
+                // 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ ДЛЯ ПЕРВОГО ФОТО
+                let firstPhotoViz = null;
+                if (bot && chatId && this.config.enableMergeVisualization) {
+                    console.log(`🎨 Создаю визуализацию для первого фото...`);
+                    firstPhotoViz = await this.visualizeSingleFootprintConfirmations(
+                        session.currentFootprint,
+                        userId,
+                        transformationInfo
+                    );
+
+                    if (firstPhotoViz && firstPhotoViz.path) {
+                        try {
+                            let caption = `👣 **ПЕРВЫЙ СЛЕД СОЗДАН**\n\n`;
+                            caption += `📊 Извлечено: ${addResult.added} точек\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                            caption += `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
+                            caption += `✅ Создан шаблон для накопления деталей`;
+
+                            await bot.sendPhoto(chatId, firstPhotoViz.path, {
+                                caption: caption,
+                                parse_mode: 'Markdown'
+                            });
+                            console.log('✅ Визуализация первого следа отправлена');
+                        } catch (sendError) {
+                            console.log('❌ Ошибка отправки первого фото:', sendError.message);
+                        }
+                    }
+                }
+
                 return {
                     success: true,
                     isNewSession: true,
@@ -1093,14 +1121,15 @@ class SimpleFootprintManager {
                     nodesAdded: addResult.added,
                     totalNodes: session.currentFootprint.graph.nodes.size,
                     sessionId: session.id,
-                    hasTemplate: true
+                    hasTemplate: true,
+                    hasVisualization: !!firstPhotoViz
                 };
             }
 
             // 🔥 ВТОРОЕ И ПОСЛЕДУЮЩИЕ ФОТО
             console.log(`🔍 Проверяю совпадение с существующим отпечатком (${session.currentFootprint.graph.nodes.size} узлов)`);
 
-            // Получаем трансформацию существующего отпечатка (это важно для визуализации)
+            // Получаем трансформацию существующего отпечатка
             const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
                                              session.currentFootprint.getTransformation();
 
@@ -1190,7 +1219,8 @@ class SimpleFootprintManager {
                     existingTransformationInfo
                 );
 
-                 let clusterVizResult = null;
+                // 🔥 ВИЗУАЛИЗАЦИЯ ПОДТВЕРЖДЕНИЙ
+                let clusterVizResult = null;
                 if (this.config.enableMergeVisualization) {
                     console.log(`🎨 Создаю визуализацию подтверждений...`);
 
@@ -1220,9 +1250,9 @@ class SimpleFootprintManager {
                 }
 
                 // 🔥 ВИЗУАЛИЗАЦИЯ ШАБЛОНА
-                let templateVizPath = null;
+                let templateVizResult = null;
                 if (this.config.enableTemplateVisualization && vectorModel) {
-                    templateVizPath = await this.visualizeVectorSuperModel(userId, vectorModel);
+                    templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
                 }
 
                 // 🔥 РЕАЛЬНАЯ СТАТИСТИКА
@@ -1234,64 +1264,72 @@ class SimpleFootprintManager {
                 console.log(`   • ⚪️ Серые (0): ${stats.confirmed0}`);
 
                 // 🔥 ОТПРАВКА В TELEGRAM
+                let telegramSent = false;
                 if (bot && chatId) {
                     // Отправляем визуализацию подтверждений
-                    if (clusterVizResult && clusterVizResult.path) {
+                    if (clusterVizResult && clusterVizResult.path && fs.existsSync(clusterVizResult.path)) {
                         try {
-                            let caption = `🎯 **РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ**\\n\\n`;
-                            caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\\n`;
-                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\\n`;
-                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'alignment_based'}\\n`;
+                            // Простой текст без Markdown для избежания ошибок
+                            let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
+                            caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'alignment_based'}\n`;
                            
                             if (comparisonResult.alignment && comparisonResult.alignment.quality) {
-                                caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\\n`;
+                                caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\n`;
                             }
                            
-                            caption += `\\n📈 **СТАТИСТИКА (после ${session.photos.length} фото):**\\n`;
-                            caption += `• Всего точек: ${stats.totalPoints}\\n`;
-                            caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\\n`;
-                            caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\\n`;
-                            caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}\\n\\n`;
-                            caption += `🔄 Обновлено из шаблона: ${updatedFromTemplate} точек\\n`;
+                            caption += `\n📈 СТАТИСТИКА (после ${session.photos.length} фото):\n`;
+                            caption += `• Всего точек: ${stats.totalPoints}\n`;
+                            caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
+                            caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
+                            caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}\n\n`;
+                            caption += `🔄 Обновлено из шаблона: ${updatedFromTemplate} точек\n`;
                             caption += `🎯 Прямо обновлено: ${directUpdates} точек`;
 
                             console.log(`📤 Отправляю визуализацию в Telegram...`);
                             console.log(`📷 Путь к изображению: ${clusterVizResult.path}`);
-                            console.log(`📝 Капшн (первые 200 символов): ${caption.substring(0, 200)}...`);
+                            console.log(`📝 Размер файла: ${fs.statSync(clusterVizResult.path).size} байт`);
 
                             await bot.sendPhoto(chatId, clusterVizResult.path, {
                                 caption: caption,
-                                parse_mode: 'MarkdownV2'  // 🔥 Используем MarkdownV2 для лучшей совместимости
+                                parse_mode: null  // Простой текст без Markdown
                             });
-                            console.log('✅ Визуализация отправлена');
+                            console.log('✅ Визуализация подтверждений отправлена');
+                            telegramSent = true;
 
                             // 🔥 Дополнительно отправляем визуализацию выравнивания если есть
                             if (alignmentVizPath && fs.existsSync(alignmentVizPath)) {
                                 console.log(`📤 Отправляю визуализацию выравнивания в Telegram...`);
                                 await bot.sendPhoto(chatId, alignmentVizPath, {
-                                    caption: `🔄 **Визуализация выравнивания**\\n${comparisonResult.reason || ''}`,
-                                    parse_mode: 'MarkdownV2'
+                                    caption: `🔄 Визуализация выравнивания\n${comparisonResult.reason || ''}`,
+                                    parse_mode: null
                                 });
                                 console.log('✅ Визуализация выравнивания отправлена');
                             }
 
                             // 🔥 Отправляем визуализацию шаблона если есть
-                            if (templateVizPath && templateVizPath.template && fs.existsSync(templateVizPath.template)) {
+                            if (templateVizResult && templateVizResult.template && fs.existsSync(templateVizResult.template)) {
                                 console.log(`📤 Отправляю визуализацию шаблона в Telegram...`);
-                                await bot.sendPhoto(chatId, templateVizPath.template, {
-                                    caption: `📊 **Шаблон после ${session.photos.length} фото**\\n• Ячеек: ${templateVizPath.stats?.cells || 0}\\n• Подтверждений: ${templateVizPath.stats?.totalConfirmations || 0}`,
-                                    parse_mode: 'MarkdownV2'
+                                await bot.sendPhoto(chatId, templateVizResult.template, {
+                                    caption: `📊 Шаблон после ${session.photos.length} фото\n• Ячеек: ${templateVizResult.stats?.cells || 0}\n• Подтверждений: ${templateVizResult.stats?.totalConfirmations || 0}`,
+                                    parse_mode: null
                                 });
                                 console.log('✅ Визуализация шаблона отправлена');
                             }
 
                         } catch (sendError) {
-                            console.log('❌ Ошибка отправки:', sendError.message);
+                            console.log('❌ Ошибка отправки в Telegram:', sendError.message);
                             console.log('📋 Детали ошибки:', sendError.stack);
                         }
                     } else {
                         console.log('⚠️ Нет визуализации для отправки в Telegram');
-                        console.log('🔍 clusterVizResult:', clusterVizResult);
+                        if (clusterVizResult) {
+                            console.log('🔍 clusterVizResult:', clusterVizResult);
+                            if (clusterVizResult.path) {
+                                console.log('🔍 Файл существует?', fs.existsSync(clusterVizResult.path));
+                            }
+                        }
                     }
                 }
 
@@ -1301,7 +1339,8 @@ class SimpleFootprintManager {
                     decision: decision,
                     nodesAdded: tempResult.added,
                     message: `✅ След добавлен! Сходство: ${(similarity * 100).toFixed(1)}%`,
-                    hasVisualization: !!(clusterVizResult || templateVizPath || alignmentVizPath),
+                    hasVisualization: !!(clusterVizResult || templateVizResult || alignmentVizPath),
+                    telegramSent: telegramSent,
                     pointsUpdated: updatedFromTemplate + directUpdates,
                     realStats: stats,
                     totalPhotos: session.photos.length,
@@ -1348,13 +1387,43 @@ class SimpleFootprintManager {
 
                 this.vectorSuperModels.set(userId, vectorModel);
 
+                // 🔥 Визуализация для нового следа
+                let newFootprintViz = null;
+                if (bot && chatId && this.config.enableMergeVisualization) {
+                    console.log(`🎨 Создаю визуализацию для нового следа...`);
+                    newFootprintViz = await this.visualizeSingleFootprintConfirmations(
+                        session.currentFootprint,
+                        userId,
+                        transformationInfo
+                    );
+
+                    if (newFootprintViz && newFootprintViz.path && fs.existsSync(newFootprintViz.path)) {
+                        try {
+                            let caption = `🆕 СОЗДАН НОВЫЙ СЛЕД\n\n`;
+                            caption += `📊 Сходство с предыдущим: ${(similarity * 100).toFixed(1)}%\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                            caption += `📈 Добавлено точек: ${addResult.added}\n\n`;
+                            caption += `⚠️ След признан другим (низкое сходство)`;
+
+                            await bot.sendPhoto(chatId, newFootprintViz.path, {
+                                caption: caption,
+                                parse_mode: null
+                            });
+                            console.log('✅ Визуализация нового следа отправлена');
+                        } catch (sendError) {
+                            console.log('❌ Ошибка отправки нового следа:', sendError.message);
+                        }
+                    }
+                }
+
                 return {
                     success: true,
                     similarity: similarity,
                     decision: decision,
                     isNewModel: true,
                     nodesAdded: addResult.added,
-                    hasTemplate: true
+                    hasTemplate: true,
+                    hasVisualization: !!newFootprintViz
                 };
             }
 
@@ -1467,7 +1536,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Визуализация подтверждений ОДНОГО следа
+    // 🔥 ВАЖНЫЙ МЕТОД: Визуализация подтверждений ОДНОГО следа
     async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
         console.log(`🎨 Визуализация подтверждений для "${footprint.name}"...`);
 
@@ -1486,11 +1555,25 @@ class SimpleFootprintManager {
                 }
             );
 
-            console.log('✅ Визуализация создана');
+            if (vizResult && vizResult.path) {
+                console.log(`✅ Визуализация создана: ${vizResult.path}`);
+               
+                // Проверяем существование файла
+                if (fs.existsSync(vizResult.path)) {
+                    const stats = fs.statSync(vizResult.path);
+                    console.log(`📊 Размер файла: ${stats.size} байт`);
+                } else {
+                    console.log(`⚠️ Файл не найден: ${vizResult.path}`);
+                }
+            } else {
+                console.log(`⚠️ Визуализация не создана или результат пустой`);
+            }
+
             return vizResult;
 
         } catch (error) {
             console.log('❌ Ошибка визуализации:', error.message);
+            console.error(error.stack);
             return null;
         }
     }
@@ -1686,12 +1769,14 @@ class SimpleFootprintManager {
             path.join(this.config.dbPath, 'sessions'),
             path.join(this.config.dbPath, 'visualizations'),
             path.join(this.config.dbPath, 'visualizations/templates'),
-            path.join(this.config.dbPath, 'visualizations/alignments') // 🔥 Добавляем директорию для визуализаций выравнивания
+            path.join(this.config.dbPath, 'visualizations/alignments'), // 🔥 Добавляем директорию для визуализаций выравнивания
+            path.join(this.config.dbPath, 'visualizations/clusters')    // 🔥 Добавляем директорию для визуализаций подтверждений
         ];
 
         dirs.forEach(dir => {
             if (!fs.existsSync(dir)) {
                 fs.mkdirSync(dir, { recursive: true });
+                console.log(`📁 Создана директория: ${dir}`);
             }
         });
     }
