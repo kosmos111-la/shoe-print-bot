@@ -206,43 +206,13 @@ class SimpleFootprintManager {
         console.log(`📊 Данные шаблона: ${templateData.cells.length} ячеек`);
 
         // 🔥 4. ПРЕОБРАЗУЕМ ТОЧКИ ШАБЛОНА В СИСТЕМУ КООРДИНАТ ОТПЕЧАТКА
-        let templatePointsInFootprintSystem = this.transformTemplatePointsToFootprintSystem(
+        const templatePointsInFootprintSystem = this.transformTemplatePointsToFootprintSystem(
             templateData.cells,
             templateTransformation,
             footprintTransformation
         );
 
         console.log(`📊 Преобразовано ${templatePointsInFootprintSystem.length} точек шаблона в систему отпечатка`);
-
-        // 🔥 ДОБАВЛЕНА ПРОСТАЯ ПРОВЕРКА И ЦЕНТРОВКА:
-        if (templatePointsInFootprintSystem.length > 0) {
-            const firstPoint = templatePointsInFootprintSystem[0];
-            console.log(`🔍 ПЕРВАЯ ТОЧКА ШАБЛОНА: (${firstPoint.x.toFixed(1)}, ${firstPoint.y.toFixed(1)})`);
-
-            // Если координаты огромные (>500) - используем простую центровку
-            if (firstPoint.x > 500) {
-                console.log(`⚠️ Координаты шаблона слишком большие! Использую простую центровку...`);
-
-                // Находим центр точек трекера
-                const trackerPoints = this.getTrackerPointsInFootprintSystem(tracker, footprintTransformation);
-                const trackerCenter = this.calculateCenter(trackerPoints);
-                // Находим центр точек шаблона
-                const templateCenter = this.calculateCenter(templatePointsInFootprintSystem);
-
-                // Рассчитываем сдвиг
-                const offsetX = trackerCenter.x - templateCenter.x;
-                const offsetY = trackerCenter.y - templateCenter.y;
-
-                console.log(`📐 Сдвигаю шаблон: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
-
-                // Сдвигаем точки шаблона
-                templatePointsInFootprintSystem = templatePointsInFootprintSystem.map(point => ({
-                    ...point,
-                    x: point.x + offsetX,
-                    y: point.y + offsetY
-                }));
-            }
-        }
 
         // 🔥 5. ПОЛУЧАЕМ ТОЧКИ ТРЕКЕРА В СИСТЕМЕ ОТПЕЧАТКА
         const trackerPoints = this.getTrackerPointsInFootprintSystem(tracker, footprintTransformation);
@@ -331,18 +301,20 @@ class SimpleFootprintManager {
             };
 
             // 🔥 2. СОЗДАЕМ ТРАНСФОРМАЦИЮ ШАБЛОНА (из нормализованной системы в реальную)
-            // 🔥 ИСПОЛЬЗУЕМ РЕАЛЬНУЮ ТРАНСФОРМАЦИЮ ШАБЛОНА!
-// templateTransformation УЖЕ содержит правильную трансформацию
-const templateToRealTransformation = templateTransformation || {
-    matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-    rotationAngle: 0,
-    isMirrored: false,
-    center: { x: 0, y: 0 },
-    type: 'identity'
-};
-
-console.log(`📐 Трансформация шаблона: угол ${templateToRealTransformation.rotationAngle}°`);
-console.log(`📐 Трансформация отпечатка: угол ${footprintTransformation.rotationAngle}°`);
+            const templateToRealTransformation = {
+                matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1], // Единичная матрица
+                rotationAngle: 0,
+                isMirrored: false,
+                center: { x: 0, y: 0 },
+                bounds: {
+                    minX: templateTransformation.minX,
+                    maxX: templateTransformation.minX + templateTransformation.width,
+                    minY: templateTransformation.minY,
+                    maxY: templateTransformation.minY + templateTransformation.height
+                },
+                scale: { x: 1, y: 1 },
+                type: 'template_to_real'
+            };
 
             // 3. Преобразуем из системы шаблона в систему отпечатка
             const transformedPoints = processor.transformPointsBetweenSystems(
@@ -492,87 +464,76 @@ console.log(`📐 Трансформация отпечатка: угол ${foot
         return (distanceScore * 0.7 + confidenceScore * 0.3);
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Применить результаты сравнения к трекеру
-   applyComparisonToTracker(tracker, matches) {
-    console.log(`🔧 Применяю ${matches.length} совпадений к трекеру...`);
+    // 🔥 НОВЫЙ МЕТОД: Применить результаты сравнения к трекеру
+    applyComparisonToTracker(tracker, matches) {
+        let updatedCount = 0;
 
-    let updatedCount = 0;
+        // 🔥 ГРУППИРУЕМ СОВПАДЕНИЯ ПО ТОЧКАМ ТРЕКЕРА
+        const matchesByTrackerPoint = new Map();
 
-    // 🔥 ПРОСТОЙ АЛГОРИТМ: для каждой точки трекера ищем лучшее совпадение
-    for (const [trackerPointId, trackerPointData] of tracker.points) {
-        let bestMatch = null;
-        let minDistance = Infinity;
-
-        // Ищем лучшее совпадение для этой точки трекера
         matches.forEach(match => {
-            const distance = Math.sqrt(
-                Math.pow(match.trackerPoint.x - trackerPointData.x, 2) +
-                Math.pow(match.trackerPoint.y - trackerPointData.y, 2)
-            );
-
-            if (distance < minDistance && distance < 30) { // порог 30px
-                minDistance = distance;
-                bestMatch = match;
+            const pointId = match.trackerPoint.id;
+            if (!matchesByTrackerPoint.has(pointId)) {
+                matchesByTrackerPoint.set(pointId, []);
             }
+            matchesByTrackerPoint.get(pointId).push(match);
         });
 
-        if (bestMatch) {
-            const oldConfirmations = trackerPointData.confirmedCount || 1;
-           
-            // 🔥 ПРОСТОЕ РЕШЕНИЕ: Каждое совпадение = +1 подтверждение
-            // СТРОГО ПО ИНСТРУКЦИИ: (pointData.confirmedCount || 1) + 1
-            const newConfirmations = oldConfirmations + 1;
-           
-            // 🔥 ЗАМЕНА: Удаляем проверку и просто обновляем
-            // СТРОГО ПО ИНСТРУКЦИИ: Удалить if (newConfirmations > oldConfirmations)
-            trackerPointData.confirmedCount = newConfirmations;
-            updatedCount++;
+        // 🔥 ОБНОВЛЯЕМ КАЖДУЮ ТОЧКУ ТРЕКЕРА
+        for (const [pointId, pointMatches] of matchesByTrackerPoint) {
+            const pointData = tracker.points.get(pointId);
+            if (!pointData) continue;
 
-            if (updatedCount <= 5) {
-                console.log(`   ✅ ${trackerPointId}: ${oldConfirmations} → ${newConfirmations} подтверждений`);
-                console.log(`       расстояние: ${minDistance.toFixed(1)}px`);
+            // 🔥 НАХОДИМ ЛУЧШЕЕ СОВПАДЕНИЕ ДЛЯ ЭТОЙ ТОЧКИ
+            const bestMatch = pointMatches.reduce((best, current) => {
+                if (!best || current.quality > best.quality) {
+                    return current;
+                }
+                return best;
+            }, null);
+
+            if (!bestMatch || bestMatch.matchType === 'poor') {
+                continue;
+            }
+
+            // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
+            const oldConfirmations = pointData.confirmedCount || 1;
+            const templateConfirmations = bestMatch.templatePoint.confirmations || 1;
+
+            // 🔥 ВАЖНОЕ ПРАВИЛО: точка получает МАКСИМУМ из своего и шаблона
+            const newConfirmations = Math.max(oldConfirmations, templateConfirmations);
+
+            if (newConfirmations > oldConfirmations) {
+                pointData.confirmedCount = newConfirmations;
+                updatedCount++;
+
+                // 🔥 ТОЛЬКО ДЛЯ ДЕБАГА: показываем первые несколько обновлений
+                if (updatedCount <= 5) {
+                    console.log(`   ✅ ${pointId.slice(0, 8)}: ${oldConfirmations} → ${newConfirmations} подтверждений`);
+                    console.log(`       тип: ${bestMatch.matchType}, расстояние: ${bestMatch.distance.toFixed(1)}px`);
+                    console.log(`       уверенность шаблона: ${bestMatch.templatePoint.confidence?.toFixed(3)}`);
+                }
+
+                // 🔥 УВЕЛИЧИВАЕМ УВЕРЕННОСТЬ ТОЧКИ
+                if (pointData.rating) {
+                    pointData.rating = Math.min(1.0, pointData.rating + 0.1);
+                }
+
+                // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ПОДТВЕРЖДЕНИИ
+                if (!pointData.confirmationSources) {
+                    pointData.confirmationSources = [];
+                }
+                pointData.confirmationSources.push({
+                    source: 'template',
+                    templateCellId: bestMatch.templatePoint.cellId,
+                    distance: bestMatch.distance,
+                    matchType: bestMatch.matchType,
+                    timestamp: new Date()
+                });
             }
         }
-    }
 
-    console.log(`✅ Обновлено ${updatedCount} точек в трекере`);
-    return updatedCount;
-}
-
-    // 🔥 НОВЫЙ МЕТОД: Найти точку трекера по координатам
-    findTrackerPointByCoordinates(tracker, x, y, threshold = 5) {
-        let bestPointId = null;
-        let minDistance = Infinity;
-
-        for (const [pointId, pointData] of tracker.points) {
-            const distance = Math.sqrt(
-                Math.pow(pointData.x - x, 2) +
-                Math.pow(pointData.y - y, 2)
-            );
-
-            if (distance < minDistance && distance < threshold) {
-                minDistance = distance;
-                bestPointId = pointId;
-            }
-        }
-
-        return bestPointId;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Найти точку по альтернативному ID
-    findPointByAlternativeId(tracker, pointId) {
-        // Попробуем найти без префикса или с другим префиксом
-        const cleanId = pointId.replace(/^pt_/, '').replace(/^n_/, '');
-
-        for (const [id, pointData] of tracker.points) {
-            const cleanTrackerId = id.replace(/^pt_/, '').replace(/^n_/, '');
-
-            if (cleanTrackerId === cleanId) {
-                return pointData;
-            }
-        }
-
-        return null;
+        return updatedCount;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Создать трансформацию из трекера
@@ -1372,7 +1333,7 @@ console.log(`📐 Трансформация отпечатка: угол ${foot
             trans2
         );
 
-        console.log(`📐 Преобразовано ${transformed.length} точек между системами`);
+        console.log(`\n📐 Преобразовано ${transformed.length} точек между системами`);
 
         if (transformed.length > 0) {
             console.log('Пример преобразования:');
