@@ -1100,6 +1100,10 @@ class SimpleFootprintManager {
             // 🔥 ВТОРОЕ И ПОСЛЕДУЮЩИЕ ФОТО
             console.log(`🔍 Проверяю совпадение с существующим отпечатком (${session.currentFootprint.graph.nodes.size} узлов)`);
 
+            // Получаем трансформацию существующего отпечатка (это важно для визуализации)
+            const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
+                                             session.currentFootprint.getTransformation();
+
             // Создаем временный отпечаток для сравнения
             const tempFootprint = new SimpleFootprint({
                 userId: userId,
@@ -1117,6 +1121,7 @@ class SimpleFootprintManager {
             });
 
             // 🔥 ИСПОЛЬЗУЕМ ВЫРАВНИВАНИЕ ДЛЯ СРАВНЕНИЯ
+            console.log(`🎯 Сравнение с выравниванием следов...`);
             const comparisonResult = await this.compareWithAlignment(
                 session.currentFootprint,
                 tempFootprint
@@ -1129,34 +1134,31 @@ class SimpleFootprintManager {
 
             // 🔥 СЛЕДЫ СОВПАЛИ - обновляем шаблон с накоплением
             if (decision === 'same') {
-    console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+                console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
 
-    // Получаем или создаем шаблон
-    let vectorModel = this.vectorSuperModels.get(userId);
+                // Получаем или создаем шаблон
+                let vectorModel = this.vectorSuperModels.get(userId);
 
-    if (!vectorModel) {
-        const VectorSuperModel = require('./vector-super-model');
-        vectorModel = new VectorSuperModel({
-            name: `Шаблон_${String(userId).slice(0, 6)}`,
-            enablePCA: false,
-            cellSize: 25,
-            debug: this.config.debug
-        });
-        this.vectorSuperModels.set(userId, vectorModel);
+                if (!vectorModel) {
+                    const VectorSuperModel = require('./vector-super-model');
+                    vectorModel = new VectorSuperModel({
+                        name: `Шаблон_${String(userId).slice(0, 6)}`,
+                        enablePCA: false,
+                        cellSize: 25,
+                        debug: this.config.debug
+                    });
+                    this.vectorSuperModels.set(userId, vectorModel);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Получаем трансформацию из существующего отпечатка
-        const existingFootprintTransformation = session.currentFootprint.getTransformation();
-       
-        // Добавляем существующий граф
-        vectorModel.addGraph(
-            session.currentFootprint.graph,
-            session.currentFootprint.id,
-            {
-                isFirst: true,
-                transformationInfo: existingFootprintTransformation // ⬅️ ИСПРАВЛЕНО
-            }
-        );
-    }
+                    // Добавляем существующий граф
+                    vectorModel.addGraph(
+                        session.currentFootprint.graph,
+                        session.currentFootprint.id,
+                        {
+                            isFirst: true,
+                            transformationInfo: existingTransformationInfo
+                        }
+                    );
+                }
 
                 // 🔥 ДОБАВЛЯЕМ НОВЫЙ ГРАФ В ШАБЛОН С НАКОПЛЕНИЕМ
                 console.log(`🔄 Добавляю новый граф в шаблон с накоплением деталей...`);
@@ -1196,8 +1198,19 @@ class SimpleFootprintManager {
                     clusterVizResult = await this.visualizeSingleFootprintConfirmations(
                         session.currentFootprint,
                         userId,
-                        transformationInfo
+                        {
+                            currentTransformation: transformationInfo,
+                            previousTransformation: existingTransformationInfo,
+                            comparisonResult: comparisonResult
+                        }
                     );
+                }
+
+                // 🔥 ВИЗУАЛИЗАЦИЯ ВЫРАВНИВАНИЯ (если есть результат от алайнера)
+                let alignmentVizPath = null;
+                if (comparisonResult.alignment && comparisonResult.alignment.visualization) {
+                    alignmentVizPath = comparisonResult.alignment.visualization;
+                    console.log(`🎨 Визуализация выравнивания: ${alignmentVizPath}`);
                 }
 
                 // 🔥 ВИЗУАЛИЗАЦИЯ ШАБЛОНА
@@ -1221,8 +1234,14 @@ class SimpleFootprintManager {
                         try {
                             let caption = `🎯 **РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ**\n\n`;
                             caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
-                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n\n`;
-                            caption += `📈 **СТАТИСТИКА (после ${session.photos.length} фото):**\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'alignment_based'}\n`;
+                           
+                            if (comparisonResult.alignment && comparisonResult.alignment.quality) {
+                                caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\n`;
+                            }
+                           
+                            caption += `\n📈 **СТАТИСТИКА (после ${session.photos.length} фото):**\n`;
                             caption += `• Всего точек: ${stats.totalPoints}\n`;
                             caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
                             caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
@@ -1235,6 +1254,16 @@ class SimpleFootprintManager {
                                 parse_mode: 'Markdown'
                             });
                             console.log('✅ Визуализация отправлена');
+
+                            // 🔥 Дополнительно отправляем визуализацию выравнивания если есть
+                            if (alignmentVizPath && fs.existsSync(alignmentVizPath)) {
+                                await bot.sendPhoto(chatId, alignmentVizPath, {
+                                    caption: `🔄 **Визуализация выравнивания**\n${comparisonResult.reason || ''}`,
+                                    parse_mode: 'Markdown'
+                                });
+                                console.log('✅ Визуализация выравнивания отправлена');
+                            }
+
                         } catch (sendError) {
                             console.log('❌ Ошибка отправки:', sendError.message);
                         }
@@ -1247,11 +1276,12 @@ class SimpleFootprintManager {
                     decision: decision,
                     nodesAdded: tempResult.added,
                     message: `✅ След добавлен! Сходство: ${(similarity * 100).toFixed(1)}%`,
-                    hasVisualization: !!(clusterVizResult || templateVizPath),
+                    hasVisualization: !!(clusterVizResult || templateVizPath || alignmentVizPath),
                     pointsUpdated: updatedFromTemplate + directUpdates,
                     realStats: stats,
                     totalPhotos: session.photos.length,
-                    accumulationInfo: addedWithAccumulation
+                    accumulationInfo: addedWithAccumulation,
+                    alignmentResult: comparisonResult.alignment
                 };
 
             } else {
