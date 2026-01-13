@@ -227,12 +227,12 @@ class TemplateBuilder {
         return true;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Полное сопоставление точек
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Полное сопоставление точек с увеличенными порогами
     findCompleteMatches(normalizedPoints, graphId) {
         const results = {
-            exactMatches: [],      // Точные совпадения (расстояние < 0.02)
-            partialMatches: [],    // Частичные совпадения (расстояние < 0.05)
-            lowQualityMatches: [], // Совпадения низкого качества (расстояние 0.05-0.1)
+            exactMatches: [],      // Точные совпадения (расстояние < 0.05)
+            partialMatches: [],    // Частичные совпадения (расстояние < 0.10)
+            lowQualityMatches: [], // Совпадения низкого качества (расстояние 0.10-0.15)
             unmatchedPoints: [],   // Совсем новые точки
             totalMatches: 0,
             exactMatchesCount: 0,
@@ -240,10 +240,10 @@ class TemplateBuilder {
             newPointsCount: 0
         };
 
-        // 🔥 ИСПОЛЬЗУЕМ РАЗНЫЕ ПОРОГИ ДЛЯ РАЗНЫХ ТИПОВ СОВПАДЕНИЙ
-        const EXACT_THRESHOLD = 0.02;    // 2% от размера
-        const PARTIAL_THRESHOLD = 0.05;  // 5% от размера
-        const LOW_QUALITY_THRESHOLD = 0.1; // 10% от размера
+        // 🔥 УВЕЛИЧЕННЫЕ ПОРОГИ ДЛЯ ТЕСТИРОВАНИЯ:
+        const EXACT_THRESHOLD = 0.05;    // было 0.02 (5% вместо 2%)
+        const PARTIAL_THRESHOLD = 0.10;  // было 0.05 (10% вместо 5%)
+        const LOW_QUALITY_THRESHOLD = 0.15; // было 0.1 (15% вместо 10%)
 
         // Для каждой точки нового графа ищем ближайшую в шаблоне
         normalizedPoints.forEach(newPoint => {
@@ -309,10 +309,10 @@ class TemplateBuilder {
         results.totalMatches = results.exactMatchesCount + results.partialMatchesCount;
 
         console.log(`🔍 Классификация совпадений для ${normalizedPoints.length} точек:`);
-        console.log(`   • Точные (<2%): ${results.exactMatchesCount}`);
-        console.log(`   • Частичные (2-5%): ${results.partialMatchesCount}`);
-        console.log(`   • Низкокачественные (5-10%): ${results.lowQualityMatches.length}`);
-        console.log(`   • Новые (>10%): ${results.newPointsCount}`);
+        console.log(`   • Точные (<5%): ${results.exactMatchesCount}`);
+        console.log(`   • Частичные (5-10%): ${results.partialMatchesCount}`);
+        console.log(`   • Низкокачественные (10-15%): ${results.lowQualityMatches.length}`);
+        console.log(`   • Новые (>15%): ${results.newPointsCount}`);
 
         return results;
     }
