@@ -8,6 +8,9 @@ const crypto = require('crypto');
 // 🔥 Импорт SimpleGraph
 const SimpleGraph = require('./simple-graph');
 
+// 🔥 ШАГ 3: ДОБАВЛЯЕМ ИМПОРТ SIMPLE ALIGNER
+const SimpleAligner = require('./alignment/simple-aligner');
+
 class SimpleFootprintManager {
     constructor(options = {}) {
         this.config = {
@@ -50,6 +53,12 @@ class SimpleFootprintManager {
             debug: this.config.debug
         });
 
+        // 🔥 ШАГ 3: ДОБАВЛЯЕМ SIMPLE ALIGNER В КОНСТРУКТОР
+        this.aligner = new SimpleAligner({
+            debug: this.config.debug,
+            visualizationDir: path.join(this.config.dbPath, 'visualizations/alignments')
+        });
+
         // Сессии пользователей
         this.userSessions = new Map();
         this.loadedModels = new Map();
@@ -82,6 +91,108 @@ class SimpleFootprintManager {
         this.loadExistingModels();
 
         console.log(`🚀 SimpleFootprintManager с РЕАЛЬНЫМИ подтверждениями и полным накоплением деталей`);
+    }
+
+    // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Использовать алайнер для сравнения
+    async compareWithAlignment(footprint1, footprint2) {
+        console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+
+        try {
+            const alignmentResult = await this.aligner.testAlignment(footprint1, footprint2);
+
+            if (alignmentResult.success) {
+                console.log(`✅ Выравнивание успешно! Качество: ${alignmentResult.quality.toFixed(3)}`);
+
+                // Теперь можно сравнить выровненные точки
+                const comparison = this.compareFootprintsWithAlignment(
+                    footprint1,
+                    footprint2,
+                    alignmentResult.alignedPoints
+                );
+
+                return {
+                    ...comparison,
+                    alignment: alignmentResult,
+                    method: 'alignment_based'
+                };
+            } else {
+                console.log(`⚠️ Выравнивание не удалось, использую стандартный метод`);
+                return await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+            }
+
+        } catch (error) {
+            console.log(`❌ Ошибка выравнивания:`, error.message);
+            return await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+        }
+    }
+
+    // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Сравнить с учетом выравнивания
+    compareFootprintsWithAlignment(footprint1, footprint2, alignedPoints2) {
+        // Получаем точки первого следа
+        const points1 = [];
+        for (const [id, point] of footprint1.pointTracker.points) {
+            points1.push({
+                id,
+                x: point.x,
+                y: point.y,
+                confirmedCount: point.confirmedCount || 1
+            });
+        }
+
+        // Сравниваем выровненные точки
+        let matches = 0;
+        const matchThreshold = 25; // 25px
+
+        alignedPoints2.forEach(point2 => {
+            const nearest = this.findNearestPointInArray(point2, points1, matchThreshold);
+            if (nearest) {
+                matches++;
+            }
+        });
+
+        const similarity = matches / Math.max(points1.length, alignedPoints2.length);
+
+        let decision, reason;
+        if (similarity > 0.7) {
+            decision = 'same';
+            reason = `Высокая схожесть после выравнивания (${similarity.toFixed(3)})`;
+        } else if (similarity > 0.4) {
+            decision = 'similar';
+            reason = `Умеренная схожесть после выравнивания (${similarity.toFixed(3)})`;
+        } else {
+            decision = 'different';
+            reason = `Низкая схожесть после выравнивания (${similarity.toFixed(3)})`;
+        }
+
+        return {
+            similarity,
+            decision,
+            reason,
+            matches,
+            totalPoints1: points1.length,
+            totalPoints2: alignedPoints2.length,
+            matchRate: (matches / Math.min(points1.length, alignedPoints2.length)).toFixed(3)
+        };
+    }
+
+    // 🔥 ШАГ 3: ВСПОМОГАТЕЛЬНЫЙ МЕТОД - Найти ближайшую точку в массиве
+    findNearestPointInArray(point, pointsArray, maxDistance = Infinity) {
+        let nearest = null;
+        let minDistance = Infinity;
+
+        for (const p of pointsArray) {
+            const distance = Math.sqrt(
+                Math.pow(p.x - point.x, 2) +
+                Math.pow(p.y - point.y, 2)
+            );
+
+            if (distance < minDistance && distance <= maxDistance) {
+                minDistance = distance;
+                nearest = p;
+            }
+        }
+
+        return nearest;
     }
 
     // 🔥 ДЕБАГ МЕТОД: Проверить накопление деталей
@@ -850,42 +961,6 @@ class SimpleFootprintManager {
         console.log(`  Всего: ${tracker.points.size}`);
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-
-    calculateBounds(points) {
-        if (points.length === 0) {
-            return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
-        }
-
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-
-        return {
-            minX, maxX, minY, maxY,
-            width: maxX - minX,
-            height: maxY - minY
-        };
-    }
-
-    calculateCenter(points) {
-        if (points.length === 0) {
-            return { x: 0, y: 0 };
-        }
-
-        const sumX = points.reduce((sum, p) => sum + p.x, 0);
-        const sumY = points.reduce((sum, p) => sum + p.y, 0);
-
-        return {
-            x: sumX / points.length,
-            y: sumY / points.length
-        };
-    }
-
     // 🔥 СУЩЕСТВУЮЩИЕ МЕТОДЫ ДЛЯ КОМПАТИБИЛЬНОСТИ
 
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
@@ -1041,24 +1116,16 @@ class SimpleFootprintManager {
                 transformationInfo: transformationInfo
             });
 
-            // 🔥 ПРОСТОЕ СРАВНЕНИЕ
-            const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo;
-
-            const comparisonResult = await this.matcher.compareGraphs(
-                session.currentFootprint.graph,
-                tempFootprint.graph,
-                {
-                    userId: userId,
-                    photoId: photoInfo.photoId,
-                    transformationInfo1: existingTransformationInfo,
-                    transformationInfo2: transformationInfo
-                }
+            // 🔥 ИСПОЛЬЗУЕМ ВЫРАВНИВАНИЕ ДЛЯ СРАВНЕНИЯ
+            const comparisonResult = await this.compareWithAlignment(
+                session.currentFootprint,
+                tempFootprint
             );
 
             const similarity = comparisonResult?.similarity || 0;
             const decision = similarity > 0.6 ? 'same' : 'different';
 
-            console.log(`🎯 Сходство: ${similarity.toFixed(3)}, решение: ${decision}`);
+            console.log(`🎯 Сходство (с выравниванием): ${similarity.toFixed(3)}, решение: ${decision}`);
 
             // 🔥 СЛЕДЫ СОВПАЛИ - обновляем шаблон с накоплением
             if (decision === 'same') {
@@ -1560,7 +1627,8 @@ class SimpleFootprintManager {
             path.join(this.config.dbPath, 'models'),
             path.join(this.config.dbPath, 'sessions'),
             path.join(this.config.dbPath, 'visualizations'),
-            path.join(this.config.dbPath, 'visualizations/templates')
+            path.join(this.config.dbPath, 'visualizations/templates'),
+            path.join(this.config.dbPath, 'visualizations/alignments') // 🔥 Добавляем директорию для визуализаций выравнивания
         ];
 
         dirs.forEach(dir => {
@@ -1768,6 +1836,41 @@ class SimpleFootprintManager {
         });
 
         return points;
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ГЕОМЕТРИИ
+    calculateBounds(points) {
+        if (points.length === 0) {
+            return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+        }
+
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+
+        return {
+            minX, maxX, minY, maxY,
+            width: maxX - minX,
+            height: maxY - minY
+        };
+    }
+
+    calculateCenter(points) {
+        if (points.length === 0) {
+            return { x: 0, y: 0 };
+        }
+
+        const sumX = points.reduce((sum, p) => sum + p.x, 0);
+        const sumY = points.reduce((sum, p) => sum + p.y, 0);
+
+        return {
+            x: sumX / points.length,
+            y: sumY / points.length
+        };
     }
 }
 
