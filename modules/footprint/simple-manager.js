@@ -1128,32 +1128,35 @@ class SimpleFootprintManager {
             console.log(`🎯 Сходство (с выравниванием): ${similarity.toFixed(3)}, решение: ${decision}`);
 
             // 🔥 СЛЕДЫ СОВПАЛИ - обновляем шаблон с накоплением
-            if (decision === 'same') {
-                console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+            iif (decision === 'same') {
+    console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
 
-                // Получаем или создаем шаблон
-                let vectorModel = this.vectorSuperModels.get(userId);
+    // Получаем или создаем шаблон
+    let vectorModel = this.vectorSuperModels.get(userId);
 
-                if (!vectorModel) {
-                    const VectorSuperModel = require('./vector-super-model');
-                    vectorModel = new VectorSuperModel({
-                        name: `Шаблон_${String(userId).slice(0, 6)}`,
-                        enablePCA: false,
-                        cellSize: 25,
-                        debug: this.config.debug
-                    });
-                    this.vectorSuperModels.set(userId, vectorModel);
+    if (!vectorModel) {
+        const VectorSuperModel = require('./vector-super-model');
+        vectorModel = new VectorSuperModel({
+            name: `Шаблон_${String(userId).slice(0, 6)}`,
+            enablePCA: false,
+            cellSize: 25,
+            debug: this.config.debug
+        });
+        this.vectorSuperModels.set(userId, vectorModel);
 
-                    // Добавляем существующий граф
-                    vectorModel.addGraph(
-                        session.currentFootprint.graph,
-                        session.currentFootprint.id,
-                        {
-                            isFirst: true,
-                            transformationInfo: existingTransformationInfo
-                        }
-                    );
-                }
+        // 🔥 ИСПРАВЛЕНИЕ: Получаем трансформацию из существующего отпечатка
+        const existingFootprintTransformation = session.currentFootprint.getTransformation();
+       
+        // Добавляем существующий граф
+        vectorModel.addGraph(
+            session.currentFootprint.graph,
+            session.currentFootprint.id,
+            {
+                isFirst: true,
+                transformationInfo: existingFootprintTransformation // ⬅️ ИСПРАВЛЕНО
+            }
+        );
+    }
 
                 // 🔥 ДОБАВЛЯЕМ НОВЫЙ ГРАФ В ШАБЛОН С НАКОПЛЕНИЕМ
                 console.log(`🔄 Добавляю новый граф в шаблон с накоплением деталей...`);
