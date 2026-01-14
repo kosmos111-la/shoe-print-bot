@@ -105,7 +105,7 @@ class SimpleFootprintManager {
         console.log(`📐 Трансформация исходного следа:`);
         console.log(`   Поворот: ${transformation1?.rotationAngle?.toFixed(1) || 0}°`);
         console.log(`   Зеркало: ${transformation1?.isMirrored || false}`);
-       
+
         console.log(`📐 Трансформация эталона:`);
         console.log(`   Поворот: ${transformation2?.rotationAngle?.toFixed(1) || 0}°`);
         console.log(`   Зеркало: ${transformation2?.isMirrored || false}`);
@@ -205,7 +205,7 @@ class SimpleFootprintManager {
         } else {
             console.log(`⚠️ Выравнивание не удалось, использую стандартный метод`);
             const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
-           
+
             return {
                 ...fallbackResult,
                 alignment: { success: false, error: alignmentResult.error },
@@ -216,7 +216,7 @@ class SimpleFootprintManager {
     } catch (error) {
         console.log(`❌ Ошибка выравнивания:`, error.message);
         console.error(error.stack);
-       
+
         // 🔥 Фоллбэк на сравнение графов
         try {
             const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
@@ -227,7 +227,7 @@ class SimpleFootprintManager {
             };
         } catch (fallbackError) {
             console.log(`❌ Ошибка фоллбэка:`, fallbackError.message);
-           
+
             return {
                 similarity: 0,
                 decision: 'different',
@@ -1346,7 +1346,7 @@ class SimpleFootprintManager {
                             comparisonResult: comparisonResult
                         }
                     );
-                   
+
                     // 🔥 ВАЖНО: Проверяем результат визуализации
                     if (clusterVizResult && clusterVizResult.path) {
                         console.log(`✅ Визуализация создана: ${clusterVizResult.path}`);
@@ -1382,41 +1382,41 @@ class SimpleFootprintManager {
                     // Отправляем визуализацию подтверждений
                     if (clusterVizResult && clusterVizResult.path && fs.existsSync(clusterVizResult.path)) {
                         try {
-                            // Простой текст без Markdown для избежания ошибок
-                            let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
-                            caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
-                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
-                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'alignment_based'}\n`;
-                           
+                            // 🔥 СТРОГО ПО ИНСТРУКЦИИ: Используем MarkdownV2
+                            let caption = `🎯 **РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ**\\n\\n`;
+                            caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\\n`;
+                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'alignment_based'}\\n`;
+
                             if (comparisonResult.alignment && comparisonResult.alignment.quality) {
-                                caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\n`;
+                                caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\\n`;
                             }
-                           
-                            caption += `\n📈 СТАТИСТИКА (после ${session.photos.length} фото):\n`;
-                            caption += `• Всего точек: ${stats.totalPoints}\n`;
-                            caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
-                            caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
-                            caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}\n\n`;
-                            caption += `🔄 Обновлено из шаблона: ${updatedFromTemplate} точек\n`;
+
+                            caption += `\\n📈 **СТАТИСТИКА (после ${session.photos.length} фото):**\\n`;
+                            caption += `• Всего точек: ${stats.totalPoints}\\n`;
+                            caption += `• 🔴 2\\+ подтверждений: ${stats.confirmed2}\\n`;
+                            caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\\n`;
+                            caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}\\n\\n`;
+                            caption += `🔄 Обновлено из шаблона: ${updatedFromTemplate} точек\\n`;
                             caption += `🎯 Прямо обновлено: ${directUpdates} точек`;
 
                             console.log(`📤 Отправляю визуализацию в Telegram...`);
                             console.log(`📷 Путь к изображению: ${clusterVizResult.path}`);
-                            console.log(`📝 Размер файла: ${fs.statSync(clusterVizResult.path).size} байт`);
+                            console.log(`📝 Капшн (первые 200 символов): ${caption.substring(0, 200)}...`);
 
                             await bot.sendPhoto(chatId, clusterVizResult.path, {
                                 caption: caption,
-                                parse_mode: null  // Простой текст без Markdown
+                                parse_mode: 'MarkdownV2'  // 🔥 Используем MarkdownV2 как в инструкции
                             });
-                            console.log('✅ Визуализация подтверждений отправлена');
+                            console.log('✅ Визуализация отправлена');
                             telegramSent = true;
 
                             // 🔥 Дополнительно отправляем визуализацию выравнивания если есть
                             if (alignmentVizPath && fs.existsSync(alignmentVizPath)) {
                                 console.log(`📤 Отправляю визуализацию выравнивания в Telegram...`);
                                 await bot.sendPhoto(chatId, alignmentVizPath, {
-                                    caption: `🔄 Визуализация выравнивания\n${comparisonResult.reason || ''}`,
-                                    parse_mode: null
+                                    caption: `🔄 **Визуализация выравнивания**\\n${comparisonResult.reason || ''}`,
+                                    parse_mode: 'MarkdownV2'
                                 });
                                 console.log('✅ Визуализация выравнивания отправлена');
                             }
@@ -1425,24 +1425,19 @@ class SimpleFootprintManager {
                             if (templateVizResult && templateVizResult.template && fs.existsSync(templateVizResult.template)) {
                                 console.log(`📤 Отправляю визуализацию шаблона в Telegram...`);
                                 await bot.sendPhoto(chatId, templateVizResult.template, {
-                                    caption: `📊 Шаблон после ${session.photos.length} фото\n• Ячеек: ${templateVizResult.stats?.cells || 0}\n• Подтверждений: ${templateVizResult.stats?.totalConfirmations || 0}`,
-                                    parse_mode: null
+                                    caption: `📊 **Шаблон после ${session.photos.length} фото**\\n• Ячеек: ${templateVizResult.stats?.cells || 0}\\n• Подтверждений: ${templateVizResult.stats?.totalConfirmations || 0}`,
+                                    parse_mode: 'MarkdownV2'
                                 });
                                 console.log('✅ Визуализация шаблона отправлена');
                             }
 
                         } catch (sendError) {
-                            console.log('❌ Ошибка отправки в Telegram:', sendError.message);
+                            console.log('❌ Ошибка отправки:', sendError.message);
                             console.log('📋 Детали ошибки:', sendError.stack);
                         }
                     } else {
                         console.log('⚠️ Нет визуализации для отправки в Telegram');
-                        if (clusterVizResult) {
-                            console.log('🔍 clusterVizResult:', clusterVizResult);
-                            if (clusterVizResult.path) {
-                                console.log('🔍 Файл существует?', fs.existsSync(clusterVizResult.path));
-                            }
-                        }
+                        console.log('🔍 clusterVizResult:', clusterVizResult);
                     }
                 }
 
@@ -1512,15 +1507,16 @@ class SimpleFootprintManager {
 
                     if (newFootprintViz && newFootprintViz.path && fs.existsSync(newFootprintViz.path)) {
                         try {
-                            let caption = `🆕 СОЗДАН НОВЫЙ СЛЕД\n\n`;
-                            caption += `📊 Сходство с предыдущим: ${(similarity * 100).toFixed(1)}%\n`;
-                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
-                            caption += `📈 Добавлено точек: ${addResult.added}\n\n`;
+                            // 🔥 СТРОГО ПО ИНСТРУКЦИИ: Используем MarkdownV2
+                            let caption = `🆕 **СОЗДАН НОВЫЙ СЛЕД**\\n\\n`;
+                            caption += `📊 Сходство с предыдущим: ${(similarity * 100).toFixed(1)}%\\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\\n`;
+                            caption += `📈 Добавлено точек: ${addResult.added}\\n\\n`;
                             caption += `⚠️ След признан другим (низкое сходство)`;
 
                             await bot.sendPhoto(chatId, newFootprintViz.path, {
                                 caption: caption,
-                                parse_mode: null
+                                parse_mode: 'MarkdownV2'
                             });
                             console.log('✅ Визуализация нового следа отправлена');
                         } catch (sendError) {
@@ -1670,7 +1666,7 @@ class SimpleFootprintManager {
 
             if (vizResult && vizResult.path) {
                 console.log(`✅ Визуализация создана: ${vizResult.path}`);
-               
+
                 // Проверяем существование файла
                 if (fs.existsSync(vizResult.path)) {
                     const stats = fs.statSync(vizResult.path);
