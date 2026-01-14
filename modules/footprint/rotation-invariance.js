@@ -18,6 +18,64 @@ class RotationInvariance {
         console.log(`   Детальный вывод: ${this.config.verbose ? 'ВКЛ' : 'ВЫКЛ'}`);
     }
 
+    // 🔥 НОВЫЙ МЕТОД: Нормализация с сохранением относительных пропорций
+    normalizeWithRelativePreservation(graph, metadata = {}) {
+        console.log(`\n🔄 НОРМАЛИЗАЦИЯ С СОХРАНЕНИЕМ ПРОПОРЦИЙ:`);
+
+        const points = this.extractPointsFromGraph(graph);
+
+        // 1. Определяем текущий угол
+        const rotationAngle = this.detectRotationAngle(points);
+
+        // 2. Находим bounding box ДО поворота
+        const originalBounds = this.calculateBounds(points);
+        const originalCenter = this.calculateCenter(points);
+        const originalRatio = originalBounds.width / Math.max(1, originalBounds.height);
+
+        console.log(`📐 Оригинальные пропорции: ${originalBounds.width.toFixed(1)}x${originalBounds.height.toFixed(1)} (ratio: ${originalRatio.toFixed(2)})`);
+
+        // 3. Нормализуем как обычно
+        const normalized = this.normalizeToCanonical(graph, metadata);
+
+        // 4. Находим bounding box ПОСЛЕ поворота
+        const normalizedPoints = this.extractPointsFromGraph(normalized.graph);
+        const normalizedBounds = this.calculateBounds(normalizedPoints);
+        const normalizedRatio = normalizedBounds.width / Math.max(1, normalizedBounds.height);
+
+        console.log(`📐 Нормализованные пропорции: ${normalizedBounds.width.toFixed(1)}x${normalizedBounds.height.toFixed(1)} (ratio: ${normalizedRatio.toFixed(2)})`);
+
+        // 5. Если пропорции сильно изменились - ПОВОРАЧИВАЕМ НА 90°
+        const ratioChange = Math.abs(originalRatio - normalizedRatio);
+        const shouldRotate90 = ratioChange > 1.5 && Math.abs(rotationAngle - 90) < 45;
+
+        if (shouldRotate90) {
+            console.log(`🔄 Обнаружен поворот на ~90°, применяю дополнительную коррекцию`);
+
+            // Поворачиваем на 90°
+            const rotatedGraph = this.rotateGraph(normalized.graph, 90, false);
+
+            // Обновляем трансформацию
+            rotatedGraph.transformation = {
+                ...normalized.transformation,
+                rotationAngle: rotationAngle - 90,
+                additionalRotation: 90,
+                preservedOriginalRatio: originalRatio
+            };
+
+            return {
+                ...normalized,
+                graph: rotatedGraph,
+                rotationAngle: rotationAngle - 90,
+                correctionApplied: '90_degree_rotation'
+            };
+        }
+
+        return {
+            ...normalized,
+            preservedOriginalRatio: originalRatio
+        };
+    }
+
     // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: Нормализация с сохранением трансформации И ОТЛАДКОЙ
     normalizeToCanonical(graph, metadata = {}) {
         console.log(`\n🔄 ========== НАЧАЛО НОРМАЛИЗАЦИИ ==========`);
@@ -113,7 +171,7 @@ class RotationInvariance {
             console.log(`🔍 ТОЧКИ ПОСЛЕ НОРМАЛИЗАЦИИ (первые 3 из ${normalizedPoints.length}):`);
             normalizedPoints.slice(0, 3).forEach((p, i) => {
                 console.log(`   Точка ${i}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
-               
+
                 // Сравниваем с исходными точками
                 if (i < points.length) {
                     const dx = p.x - points[i].x;
@@ -197,7 +255,7 @@ class RotationInvariance {
     // 🔥 НОВЫЙ МЕТОД: Поворот графа с трансформацией С ОТЛАДКОЙ
     rotateGraphWithTransformation(graph, transformation, mirror = false) {
         console.log(`\n🔄 ВРАЩЕНИЕ ГРАФА С ТРАНСФОРМАЦИЕЙ:`);
-       
+
         const SimpleGraph = require('./simple-graph');
         const rotatedGraph = new SimpleGraph(`${graph.name} (нормализованный)`);
 
@@ -356,7 +414,7 @@ class RotationInvariance {
         if (transformedPoints.length > 0) {
             const firstPoint = transformedPoints[0];
             const lastPoint = transformedPoints[transformedPoints.length - 1];
-           
+
             console.log(`\n📊 СТАТИСТИКА ПРЕОБРАЗОВАНИЯ:`);
             console.log(`   Первая точка:`);
             console.log(`       Было: (${points[0].x.toFixed(1)}, ${points[0].y.toFixed(1)})`);
@@ -394,7 +452,7 @@ class RotationInvariance {
     // 🔥 НОВЫЙ МЕТОД: Создание единичной трансформации
     createIdentityTransformation() {
         console.log(`🔧 СОЗДАНИЕ ЕДИНИЧНОЙ ТРАНСФОРМАЦИИ`);
-       
+
         return {
             matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
             rotationAngle: 0,
@@ -486,7 +544,7 @@ class RotationInvariance {
         }
 
         console.log(`📐 ИТОГОВЫЙ УГОЛ: ${angleDeg.toFixed(1)}°`);
-       
+
         return angleDeg;
     }
 
@@ -548,7 +606,7 @@ class RotationInvariance {
     // 🔥 НОВЫЙ МЕТОД: Получить точки в нормализованной системе
     getNormalizedPoints(graph) {
         console.log(`\n📊 ПОЛУЧЕНИЕ ТОЧЕК В НОРМАЛИЗОВАННОЙ СИСТЕМЕ:`);
-       
+
         if (!graph.transformation) {
             console.log(`   Граф не имеет трансформации, возвращаю исходные точки`);
             return this.extractPointsFromGraph(graph);
@@ -556,18 +614,18 @@ class RotationInvariance {
 
         const originalPoints = this.extractPointsFromGraph(graph.originalGraph || graph);
         const normalizedPoints = this.extractPointsFromGraph(graph);
-       
+
         console.log(`   Оригинальных точек: ${originalPoints.length}`);
         console.log(`   Нормализованных точек: ${normalizedPoints.length}`);
         console.log(`   Угол трансформации: ${graph.transformation.rotationAngle.toFixed(1)}°`);
-       
+
         return normalizedPoints;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Получить исходные точки (до нормализации)
     getOriginalPoints(graph) {
         console.log(`\n📊 ПОЛУЧЕНИЕ ИСХОДНЫХ ТОЧЕК:`);
-       
+
         if (graph.originalGraph) {
             console.log(`   Возвращаю точки из оригинального графа`);
             return this.extractPointsFromGraph(graph.originalGraph);
@@ -580,7 +638,7 @@ class RotationInvariance {
     // 🔥 НОВЫЙ МЕТОД: Проверка трансформации
     validateTransformation(graph) {
         console.log(`\n🔍 ПРОВЕРКА ТРАНСФОРМАЦИИ:`);
-       
+
         if (!graph.transformation) {
             console.log(`   ❌ Граф не имеет трансформации`);
             return false;
@@ -603,7 +661,7 @@ class RotationInvariance {
         // Проверяем определитель (должен быть около 1 для поворотов)
         const det = matrix[0] * matrix[4] - matrix[1] * matrix[3];
         console.log(`   Определитель матрицы: ${det.toFixed(4)}`);
-       
+
         if (Math.abs(det - 1.0) > 0.1 && !trans.isMirrored) {
             console.log(`   ⚠️ Необычный определитель для чистого поворота`);
         }
@@ -1198,6 +1256,37 @@ class RotationInvariance {
             similarity: Math.max(0, Math.min(1, similarity)),
             method: 'hu_moments'
         };
+    }
+
+    compareRadialDistributions(desc1, desc2) {
+        if (desc1.radii.length !== desc2.radii.length) return 0;
+
+        let sumDiff = 0;
+        for (let i = 0; i < desc1.radii.length; i++) {
+            sumDiff += Math.abs(desc1.radii[i] - desc2.radii[i]);
+        }
+
+        return Math.max(0, 1 - sumDiff / desc1.radii.length);
+    }
+
+    compareAngularDistributions(desc1, desc2) {
+        // Сдвигаем второй дескриптор для поиска наилучшего совпадения
+        const len = desc1.angles.length;
+        let bestScore = 0;
+
+        for (let shift = 0; shift < len; shift++) {
+            let score = 0;
+            for (let i = 0; i < len; i++) {
+                const j = (i + shift) % len;
+                const angleDiff = Math.abs(desc1.angles[i] - desc2.angles[j]);
+                const normalizedDiff = Math.min(angleDiff, 2 * Math.PI - angleDiff) / Math.PI;
+                score += 1 - normalizedDiff;
+            }
+            score /= len;
+            bestScore = Math.max(bestScore, score);
+        }
+
+        return bestScore;
     }
 }
 
