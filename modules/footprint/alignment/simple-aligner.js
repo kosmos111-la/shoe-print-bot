@@ -51,46 +51,35 @@ class SimpleAligner {
         return alignedPoints;
     }
 
-    // 🔥 ПРОСТОЕ ЦЕНТРИРОВАНИЕ И МАСШТАБИРОВАНИЕ
-    simpleCenterAndScale(sourcePoints, referencePoints) {
-        console.log('🔄 Простое центрирование и масштабирование...');
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Центрирование с сохранением пропорций
+    simpleCenterAndScale(sourcePoints, referencePoints, sourceTransformation = null) {
+        console.log('🔄 Интеллектуальное центрирование и масштабирование...');
 
-        // 1. Находим центры масс
-        const sourceCenter = this.calculateCenter(sourcePoints);
-        const referenceCenter = this.calculateCenter(referencePoints);
+        // 1. Проверяем, нужно ли корректировать ориентацию
+        const needsOrientationCorrection = this.checkOrientationMismatch(sourcePoints, referencePoints);
 
-        console.log(`📊 Центры масс:`);
-        console.log(`   Исходный след: (${sourceCenter.x.toFixed(1)}, ${sourceCenter.y.toFixed(1)})`);
-        console.log(`   Эталон: (${referenceCenter.x.toFixed(1)}, ${referenceCenter.y.toFixed(1)})`);
+        if (needsOrientationCorrection) {
+            console.log('🔄 Обнаружено несоответствие ориентации, применяю коррекцию...');
+            sourcePoints = this.correctOrientation(sourcePoints, referencePoints);
+        }
 
-        // 2. Находим размеры (bounding boxes)
-        const sourceBounds = this.calculateBounds(sourcePoints);
-        const referenceBounds = this.calculateBounds(referencePoints);
+        // 2. Вычисляем масштаб на основе МЕДИАНЫ расстояний
+        const scale = this.calculateRobustScale(sourcePoints, referencePoints);
+        console.log(`📐 Умный масштаб: ${scale.toFixed(3)}`);
 
-        console.log(`📏 Размеры:`);
-        console.log(`   Исходный: ${sourceBounds.width.toFixed(1)}x${sourceBounds.height.toFixed(1)}`);
-        console.log(`   Эталон: ${referenceBounds.width.toFixed(1)}x${referenceBounds.height.toFixed(1)}`);
+        // 3. Вычисляем сдвиг с помощью RANSAC
+        const translation = this.findBestTranslation(sourcePoints, referencePoints, scale);
+        console.log(`📐 Оптимальный сдвиг: (${translation.x.toFixed(1)}, ${translation.y.toFixed(1)})`);
 
-        // 3. Вычисляем масштаб (относительно эталона)
-        const scaleX = referenceBounds.width / Math.max(1, sourceBounds.width);
-        const scaleY = referenceBounds.height / Math.max(1, sourceBounds.height);
-        const scale = Math.min(scaleX, scaleY); // Берем минимальный, чтобы не искажать
-
-        console.log(`📐 Масштаб: ${scale.toFixed(3)} (X: ${scaleX.toFixed(3)}, Y: ${scaleY.toFixed(3)})`);
-
-        // 4. Применяем трансформацию к каждой точке
+        // 4. Применяем трансформацию
         const alignedPoints = sourcePoints.map(point => {
-            // Сначала центрируем (переносим к центру исходного следа)
-            let x = point.x - sourceCenter.x;
-            let y = point.y - sourceCenter.y;
+            // Масштабируем
+            let x = point.x * scale;
+            let y = point.y * scale;
 
-            // Применяем масштаб
-            x = x * scale;
-            y = y * scale;
-
-            // Переносим к центру эталона
-            x = x + referenceCenter.x;
-            y = y + referenceCenter.y;
+            // Сдвигаем
+            x += translation.x;
+            y += translation.y;
 
             return {
                 ...point,
@@ -99,12 +88,251 @@ class SimpleAligner {
                 aligned: true,
                 originalX: point.x,
                 originalY: point.y,
-                scaleApplied: scale
+                scaleApplied: scale,
+                translationApplied: translation
             };
         });
 
-        console.log(`✅ Преобразовано ${alignedPoints.length} точек (масштаб: ${scale.toFixed(3)})`);
+        // 5. Валидация
+        const alignmentError = this.calculateAlignmentError(alignedPoints, referencePoints);
+        console.log(`🎯 Ошибка выравнивания: ${alignmentError.toFixed(1)}px`);
 
+        if (alignmentError > 50) {
+            console.log('⚠️ Высокая ошибка выравнивания, пытаюсь найти лучшую трансформацию...');
+            return this.fallbackAlignment(sourcePoints, referencePoints);
+        }
+
+        console.log(`✅ Преобразовано ${alignedPoints.length} точек`);
+        return alignedPoints;
+    }
+
+    // 🔥 НОВЫЕ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    checkOrientationMismatch(sourcePoints, referencePoints) {
+        const sourceBounds = this.calculateBounds(sourcePoints);
+        const referenceBounds = this.calculateBounds(referencePoints);
+
+        const sourceRatio = sourceBounds.width / Math.max(1, sourceBounds.height);
+        const referenceRatio = referenceBounds.width / Math.max(1, referenceBounds.height);
+
+        const ratioDiff = Math.abs(sourceRatio - referenceRatio);
+       
+        // Если соотношение сторон сильно отличается (вертикальное vs горизонтальное)
+        const needsCorrection = (sourceRatio > 2.0 && referenceRatio < 0.5) ||
+                               (sourceRatio < 0.5 && referenceRatio > 2.0) ||
+                               ratioDiff > 2.0;
+
+        console.log(`📏 Пропорции: источник ${sourceRatio.toFixed(2)} vs эталон ${referenceRatio.toFixed(2)} -> ${needsCorrection ? 'НУЖНА коррекция' : 'OK'}`);
+
+        return needsCorrection;
+    }
+
+    correctOrientation(sourcePoints, referencePoints) {
+        console.log('🔄 Коррекция ориентации (поворот на 90°)...');
+       
+        const center = this.calculateCenter(sourcePoints);
+       
+        // Поворачиваем точки на 90° вокруг центра
+        const rotatedPoints = sourcePoints.map(point => {
+            // Сдвигаем к центру
+            let x = point.x - center.x;
+            let y = point.y - center.y;
+           
+            // Поворачиваем на 90°
+            const rotatedX = -y;  // x' = -y
+            const rotatedY = x;   // y' = x
+           
+            // Возвращаем обратно
+            return {
+                ...point,
+                x: rotatedX + center.x,
+                y: rotatedY + center.y,
+                orientationCorrected: true
+            };
+        });
+       
+        return rotatedPoints;
+    }
+
+    calculateRobustScale(sourcePoints, referencePoints) {
+        if (sourcePoints.length < 3 || referencePoints.length < 3) {
+            console.log('⚠️ Мало точек для точного масштабирования, использую простой метод');
+            return this.calculateSimpleScale(sourcePoints, referencePoints);
+        }
+
+        // Используем медиану расстояний для устойчивости к выбросам
+        const sourceDistances = this.calculatePairwiseDistances(sourcePoints);
+        const referenceDistances = this.calculatePairwiseDistances(referencePoints);
+
+        if (sourceDistances.length === 0 || referenceDistances.length === 0) {
+            return 1.0;
+        }
+
+        const medianSource = this.median(sourceDistances);
+        const medianReference = this.median(referenceDistances);
+
+        const scale = medianReference / Math.max(1, medianSource);
+       
+        // Ограничиваем масштаб разумными пределами
+        return Math.max(0.1, Math.min(10.0, scale));
+    }
+
+    calculatePairwiseDistances(points) {
+        const distances = [];
+       
+        for (let i = 0; i < Math.min(points.length, 20); i++) {
+            for (let j = i + 1; j < Math.min(points.length, 20); j++) {
+                const distance = Math.sqrt(
+                    Math.pow(points[j].x - points[i].x, 2) +
+                    Math.pow(points[j].y - points[i].y, 2)
+                );
+                if (distance > 0) {
+                    distances.push(distance);
+                }
+            }
+        }
+       
+        return distances;
+    }
+
+    median(values) {
+        if (values.length === 0) return 0;
+       
+        const sorted = [...values].sort((a, b) => a - b);
+        const middle = Math.floor(sorted.length / 2);
+       
+        if (sorted.length % 2 === 0) {
+            return (sorted[middle - 1] + sorted[middle]) / 2;
+        }
+       
+        return sorted[middle];
+    }
+
+    calculateSimpleScale(sourcePoints, referencePoints) {
+        const sourceBounds = this.calculateBounds(sourcePoints);
+        const referenceBounds = this.calculateBounds(referencePoints);
+
+        const scaleX = referenceBounds.width / Math.max(1, sourceBounds.width);
+        const scaleY = referenceBounds.height / Math.max(1, sourceBounds.height);
+       
+        // Используем среднее геометрическое для сохранения пропорций
+        const scale = Math.sqrt(scaleX * scaleY);
+       
+        console.log(`📐 Простой масштаб: ${scale.toFixed(3)} (X: ${scaleX.toFixed(3)}, Y: ${scaleY.toFixed(3)})`);
+       
+        return scale;
+    }
+
+    findBestTranslation(sourcePoints, referencePoints, scale) {
+        if (sourcePoints.length === 0 || referencePoints.length === 0) {
+            return { x: 0, y: 0 };
+        }
+
+        // Простой RANSAC для поиска наилучшего сдвига
+        const bestTranslation = { x: 0, y: 0 };
+        let bestScore = -Infinity;
+
+        // Пробуем несколько возможных сдвигов
+        const numIterations = Math.min(50, sourcePoints.length * referencePoints.length);
+       
+        for (let iter = 0; iter < numIterations; iter++) {
+            // Выбираем случайные точки для оценки
+            const sourceIdx = Math.floor(Math.random() * sourcePoints.length);
+            const referenceIdx = Math.floor(Math.random() * referencePoints.length);
+           
+            const sourcePoint = sourcePoints[sourceIdx];
+            const referencePoint = referencePoints[referenceIdx];
+           
+            // Вычисляем потенциальный сдвиг
+            const tx = referencePoint.x - (sourcePoint.x * scale);
+            const ty = referencePoint.y - (sourcePoint.y * scale);
+           
+            // Оцениваем качество этого сдвига
+            let score = 0;
+            let count = 0;
+           
+            for (let i = 0; i < Math.min(10, sourcePoints.length); i++) {
+                const sp = sourcePoints[i];
+                const targetX = sp.x * scale + tx;
+                const targetY = sp.y * scale + ty;
+               
+                // Ищем ближайшую точку эталона
+                let minDist = Infinity;
+                for (let j = 0; j < Math.min(10, referencePoints.length); j++) {
+                    const rp = referencePoints[j];
+                    const dist = Math.sqrt(
+                        Math.pow(rp.x - targetX, 2) +
+                        Math.pow(rp.y - targetY, 2)
+                    );
+                    minDist = Math.min(minDist, dist);
+                }
+               
+                score += Math.max(0, 100 - minDist);
+                count++;
+            }
+           
+            if (count > 0) {
+                score /= count;
+               
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestTranslation.x = tx;
+                    bestTranslation.y = ty;
+                }
+            }
+        }
+
+        return bestTranslation;
+    }
+
+    calculateAlignmentError(alignedPoints, referencePoints) {
+        if (alignedPoints.length === 0 || referencePoints.length === 0) {
+            return 1000; // Большая ошибка если нет точек
+        }
+
+        let totalError = 0;
+        let count = 0;
+
+        for (const alignedPoint of alignedPoints) {
+            let minDist = Infinity;
+           
+            for (const referencePoint of referencePoints) {
+                const dist = Math.sqrt(
+                    Math.pow(referencePoint.x - alignedPoint.x, 2) +
+                    Math.pow(referencePoint.y - alignedPoint.y, 2)
+                );
+                minDist = Math.min(minDist, dist);
+            }
+           
+            if (minDist < Infinity) {
+                totalError += minDist;
+                count++;
+            }
+        }
+
+        return count > 0 ? totalError / count : 1000;
+    }
+
+    fallbackAlignment(sourcePoints, referencePoints) {
+        console.log('🔄 Использую фоллбэк-выравнивание...');
+       
+        // Простой фоллбэк: центрирование без масштабирования
+        const sourceCenter = this.calculateCenter(sourcePoints);
+        const referenceCenter = this.calculateCenter(referencePoints);
+       
+        const translation = {
+            x: referenceCenter.x - sourceCenter.x,
+            y: referenceCenter.y - sourceCenter.y
+        };
+       
+        const alignedPoints = sourcePoints.map(point => ({
+            ...point,
+            x: point.x + translation.x,
+            y: point.y + translation.y,
+            aligned: true,
+            translationApplied: translation,
+            fallback: true
+        }));
+       
         return alignedPoints;
     }
 
@@ -121,7 +349,7 @@ class SimpleAligner {
             console.log(`   Точка ${i + 1}:`);
             console.log(`     Было: (${orig.x.toFixed(1)}, ${orig.y.toFixed(1)})`);
             console.log(`     Стало: (${aligned.x.toFixed(1)}, ${aligned.y.toFixed(1)})`);
-           
+
             if (nearestRef) {
                 const distance = Math.sqrt(
                     Math.pow(aligned.x - nearestRef.x, 2) +
@@ -192,7 +420,7 @@ class SimpleAligner {
         // 3. Легенда
         ctx.font = '16px Arial';
         ctx.textAlign = 'left';
-       
+
         // Точки эталона (красные)
         ctx.fillStyle = '#FF5252';
         ctx.beginPath();
@@ -220,7 +448,7 @@ class SimpleAligner {
         // 4. Масштабирование точек
         const allPoints = [...referencePoints, ...originalPoints, ...alignedPoints];
         const bounds = this.calculateBounds(allPoints);
-       
+
         const scaleX = (width * 0.8) / Math.max(1, bounds.width);
         const scaleY = (height * 0.6) / Math.max(1, bounds.height);
         const scale = Math.min(scaleX, scaleY, 5);
@@ -368,7 +596,7 @@ class SimpleAligner {
             report += `\nТочка ${i + 1}:\n`;
             report += `  Исходная: (${orig.x.toFixed(1)}, ${orig.y.toFixed(1)})\n`;
             report += `  Выровненная: (${aligned.x.toFixed(1)}, ${aligned.y.toFixed(1)})\n`;
-           
+
             if (nearestRef) {
                 const distance = Math.sqrt(
                     Math.pow(aligned.x - nearestRef.x, 2) +
@@ -525,7 +753,7 @@ class SimpleAligner {
         });
 
         const avgDistance = comparedCount > 0 ? totalDistance / comparedCount : 1000;
-       
+
         // Качество выравнивания (0-1)
         const quality = Math.max(0, Math.min(1,
             (goodMatches / Math.max(1, alignedPoints.length)) * 0.7 +
