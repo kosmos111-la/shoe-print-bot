@@ -95,39 +95,39 @@ class SimpleFootprintManager {
 
     // 🔥 НОВЫЙ МЕТОД: Исправить сравнение с повернутыми следами
     async compareWithFixedAlignment(footprint1, footprint2) {
-        console.log(`🎯 УМНОЕ СРАВНЕНИЕ С ПОВЕРНУТЫМИ СЛЕДАМИ`);
+    console.log(`🎯 УМНОЕ СРАВНЕНИЕ С ПОВЕРНУТЫМИ СЛЕДАМИ`);
 
-        // 1. Дебаг трансформаций
-        const TransformationDebugger = require('./alignment/transformation-debugger');
-        const debugger = new TransformationDebugger({ debug: true });
-        debugger.analyzeTransformation(footprint1, footprint2);
+    // 1. Дебаг трансформаций
+    const TransformationDebugger = require('./alignment/transformation-debugger');
+    const debuggerTool = new TransformationDebugger({ debug: true }); // 🔥 ИЗМЕНЕНО: переименовано
+    debuggerTool.analyzeTransformation(footprint1, footprint2); // 🔥 ИЗМЕНЕНО
 
-        // 2. Получить точки в их системах координат
-        let points1 = this.getTrackerPointsInFootprintSystem(footprint1.pointTracker, footprint1.getTransformation());
-        let points2 = this.getTrackerPointsInFootprintSystem(footprint2.pointTracker, footprint2.getTransformation());
+    // 2. Получить точки в их системах координат
+    let points1 = this.getTrackerPointsInFootprintSystem(footprint1.pointTracker, footprint1.getTransformation());
+    let points2 = this.getTrackerPointsInFootprintSystem(footprint2.pointTracker, footprint2.getTransformation());
 
-        // 3. Проверить ориентацию
-        const needsRotationCorrection = this.checkIfNeeds90DegreeRotation(points1, points2);
+    // 3. Проверить ориентацию
+    const needsRotationCorrection = this.checkIfNeeds90DegreeRotation(points1, points2);
 
-        if (needsRotationCorrection) {
-            console.log('🔄 Применяю коррекцию поворота 90°...');
-            points2 = this.apply90DegreeRotation(points2);
-        }
-
-        // 4. Использовать улучшенный алайнер
-        const ImprovedAligner = require('./alignment/improved-aligner');
-        const aligner = new ImprovedAligner({ debug: true });
-
-        const alignmentResult = await aligner.alignWithIntelligentMatching(
-            points2,
-            points1,
-            footprint2.getTransformation(),
-            footprint1.getTransformation()
-        );
-
-        // 5. Сравнить с улучшенной логикой
-        return this.compareWithEnhancedLogic(points1, alignmentResult.alignedPoints);
+    if (needsRotationCorrection) {
+        console.log('🔄 Применяю коррекцию поворота 90°...');
+        points2 = this.apply90DegreeRotation(points2);
     }
+
+    // 4. Использовать улучшенный алайнер
+    const ImprovedAligner = require('./alignment/improved-aligner');
+    const aligner = new ImprovedAligner({ debug: true });
+
+    const alignmentResult = await aligner.alignWithIntelligentMatching(
+        points2,
+        points1,
+        footprint2.getTransformation(),
+        footprint1.getTransformation()
+    );
+
+    // 5. Сравнить с улучшенной логикой
+    return this.compareWithEnhancedLogic(points1, alignmentResult.alignedPoints);
+}
 
     // 🔥 НОВЫЙ МЕТОД: Проверить нужен ли поворот на 90°
     checkIfNeeds90DegreeRotation(points1, points2) {
