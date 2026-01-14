@@ -1,5 +1,5 @@
 // modules/footprint/simple-manager.js
-const fs = require('fs-extra');
+const fs = require('fs');
 const path = require('path');
 const { DatabaseManager } = require('./database-manager');
 const { Visualizer } = require('./visualizer');
@@ -32,8 +32,18 @@ class SimpleFootprintManager {
         this.sessions = new Map();
        
         // Создаем директории
-        fs.ensureDirSync(this.config.visualizationPath);
+        this.ensureDirectoryExists(this.config.visualizationPath);
         console.log(`✅ SimpleFootprintManager инициализирован`);
+    }
+
+    /**
+     * Создает директорию если она не существует
+     */
+    ensureDirectoryExists(dirPath) {
+        if (!fs.existsSync(dirPath)) {
+            fs.mkdirSync(dirPath, { recursive: true });
+            console.log(`📁 Создана директория: ${dirPath}`);
+        }
     }
 
     /**
@@ -187,9 +197,9 @@ class SimpleFootprintManager {
                 // 🔥 ОТПРАВКА В TELEGRAM
                 if (bot && chatId) {
                     // Отправляем визуализацию подтверждений
-                    if (clusterVizResult && clusterVizResult.path) {
+                    if (clusterVizResult && clusterVizResult.path && this.fileExists(clusterVizResult.path)) {
                         try {
-                            let caption = `🎯 **РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ**\n\n`;
+                            let caption = `🎯 <b>РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ</b>\n\n`;
                             caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
                            
                             if (comparisonResult.transformation && comparisonResult.transformation.rotationAngle) {
@@ -202,7 +212,7 @@ class SimpleFootprintManager {
                                 caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\n`;
                             }
 
-                            caption += `\n📈 **СТАТИСТИКА (после ${session.photos.length} фото):**\n`;
+                            caption += `\n📈 <b>СТАТИСТИКА (после ${session.photos.length} фото):</b>\n`;
                             caption += `• Всего точек: ${stats.totalPoints}\n`;
                             caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
                             caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
@@ -212,7 +222,6 @@ class SimpleFootprintManager {
 
                             console.log(`📤 Отправляю визуализацию в Telegram...`);
                             console.log(`📷 Путь к изображению: ${clusterVizResult.path}`);
-                            console.log(`📝 Капшн (первые 200 символов): ${caption.substring(0, 200)}...`);
 
                             await bot.sendPhoto(chatId, clusterVizResult.path, {
                                 caption: caption,
@@ -221,7 +230,7 @@ class SimpleFootprintManager {
                             console.log('✅ Визуализация отправлена');
 
                             // 🔥 Дополнительно отправляем визуализацию выравнивания если есть
-                            if (alignmentVizPath && fs.existsSync(alignmentVizPath)) {
+                            if (alignmentVizPath && this.fileExists(alignmentVizPath)) {
                                 console.log(`📤 Отправляю визуализацию выравнивания в Telegram...`);
                                 await bot.sendPhoto(chatId, alignmentVizPath, {
                                     caption: `🔄 <b>Визуализация выравнивания</b>\n${comparisonResult.reason || ''}`,
@@ -231,7 +240,7 @@ class SimpleFootprintManager {
                             }
 
                             // 🔥 Отправляем визуализацию шаблона если есть
-                            if (templateVizPath && templateVizPath.template && fs.existsSync(templateVizPath.template)) {
+                            if (templateVizPath && templateVizPath.template && this.fileExists(templateVizPath.template)) {
                                 console.log(`📤 Отправляю визуализацию шаблона в Telegram...`);
                                 await bot.sendPhoto(chatId, templateVizPath.template, {
                                     caption: `📊 <b>Шаблон после ${session.photos.length} фото</b>\n• Ячеек: ${templateVizPath.stats?.cells || 0}\n• Подтверждений: ${templateVizPath.stats?.totalConfirmations || 0}`,
@@ -241,12 +250,10 @@ class SimpleFootprintManager {
                             }
 
                         } catch (sendError) {
-                            console.log('❌ Ошибка отправки:', sendError.message);
-                            console.log('📋 Детали ошибки:', sendError.stack);
+                            console.log('❌ Ошибка отправки в Telegram:', sendError.message);
                         }
                     } else {
-                        console.log('⚠️ Нет визуализации для отправки в Telegram');
-                        console.log('🔍 clusterVizResult:', clusterVizResult);
+                        console.log('⚠️ Нет визуализации для отправки в Telegram или файл не существует');
                     }
                 }
                
@@ -278,6 +285,18 @@ class SimpleFootprintManager {
         } catch (error) {
             console.error('❌ Ошибка при добавлении фото:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Проверяет существование файла
+     */
+    fileExists(filePath) {
+        try {
+            return fs.existsSync(filePath);
+        } catch (error) {
+            console.log(`❌ Ошибка проверки файла ${filePath}:`, error.message);
+            return false;
         }
     }
 
@@ -580,7 +599,7 @@ class SimpleFootprintManager {
     }
 
     /**
-     * Загружает сессию из базы данных
+     * Загружает сессию из базу данных
      */
     async loadFromDatabase(userId) {
         try {
