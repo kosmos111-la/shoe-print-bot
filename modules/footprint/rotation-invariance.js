@@ -1,6 +1,5 @@
 // modules/footprint/rotation-invariance.js
-// АВТООПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА И НОРМАЛИЗАЦИЯ ПРОТЕКТОРА (ИСПРАВЛЕННАЯ ВЕРСИЯ)
-// 🔥 ДОБАВЛЯЕМ СОХРАНЕНИЕ ТРАНСФОРМАЦИИ
+// АВТООПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА И НОРМАЛИЗАЦИЯ ПРОТЕКТОРА (ВЕРСИЯ С ОТЛАДКОЙ)
 
 class RotationInvariance {
     constructor(options = {}) {
@@ -9,16 +8,21 @@ class RotationInvariance {
             rotationStep: 15,
             maxRotationAngle: 180,
             enableAutoRotation: true,
-            debug: options.debug || false,
+            debug: options.debug || true, // ВКЛЮЧАЕМ ОТЛАДКУ ПО УМОЛЧАНИЮ
+            verbose: options.verbose || true,
             ...options
         };
 
-        console.log('🎯 RotationInvariance с сохранением трансформаций');
+        console.log('🎯 RotationInvariance инициализирован (режим отладки ВКЛЮЧЕН)');
+        console.log(`   Режим отладки: ${this.config.debug ? 'ВКЛ' : 'ВЫКЛ'}`);
+        console.log(`   Детальный вывод: ${this.config.verbose ? 'ВКЛ' : 'ВЫКЛ'}`);
     }
 
-    // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: Нормализация с сохранением трансформации
+    // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: Нормализация с сохранением трансформации И ОТЛАДКОЙ
     normalizeToCanonical(graph, metadata = {}) {
-        console.log(`🔄 Нормализую граф "${graph.name}" с сохранением трансформации...`);
+        console.log(`\n🔄 ========== НАЧАЛО НОРМАЛИЗАЦИИ ==========`);
+        console.log(`🔄 Граф: "${graph.name || 'без имени'}"`);
+        console.log(`🔄 Количество узлов: ${graph.nodes ? graph.nodes.size : 0}`);
 
         // Извлечь точки из графа
         const points = this.extractPointsFromGraph(graph);
@@ -34,19 +38,32 @@ class RotationInvariance {
             };
         }
 
+        // 🔥 ОТЛАДКА: Выводим первые 3 точки до нормализации
+        if (this.config.verbose) {
+            console.log(`🔍 ТОЧКИ ДО НОРМАЛИЗАЦИИ (первые 3 из ${points.length}):`);
+            points.slice(0, 3).forEach((p, i) => {
+                console.log(`   Точка ${i}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+            });
+        }
+
         // 1. Определить текущий угол поворота
         const rotationAngle = this.detectRotationAngle(points);
-        console.log(`📐 Определён угол поворота: ${rotationAngle.toFixed(1)}°`);
+        console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.toFixed(1)}°`);
 
         // 2. Определить зеркальность
         const mirrorInfo = this.detectMirroring(points);
-        console.log(`🪞 Зеркальность: ${mirrorInfo.isMirrored ? 'зеркальный' : 'оригинал'}, тип: ${mirrorInfo.footType || 'неизвестно'}`);
+        console.log(`🪞 ЗЕРКАЛЬНОСТЬ: ${mirrorInfo.isMirrored ? 'ЗЕРКАЛЬНЫЙ' : 'ОРИГИНАЛ'}`);
 
         // 3. Рассчитать масштаб и центр
         const bounds = this.calculateBounds(points);
         const center = this.calculateCenter(points);
         const width = Math.max(1, bounds.maxX - bounds.minX);
         const height = Math.max(1, bounds.maxY - bounds.minY);
+
+        console.log(`📊 ПАРАМЕТРЫ ДО НОРМАЛИЗАЦИИ:`);
+        console.log(`   Центр: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+        console.log(`   Границы: X[${bounds.minX.toFixed(1)}-${bounds.maxX.toFixed(1)}], Y[${bounds.minY.toFixed(1)}-${bounds.maxY.toFixed(1)}]`);
+        console.log(`   Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
 
         // 4. 🔥 СОЗДАЕМ ТРАНСФОРМАЦИЮ
         const transformation = this.createTransformation(
@@ -58,7 +75,12 @@ class RotationInvariance {
             height
         );
 
+        console.log(`🔧 СОЗДАНА ТРАНСФОРМАЦИЯ:`);
+        console.log(`   Матрица: [${transformation.matrix.map(v => v.toFixed(3)).join(', ')}]`);
+        console.log(`   Угол в трансформации: ${transformation.rotationAngle.toFixed(1)}°`);
+
         // 5. Повернуть граф к канонической ориентации
+        console.log(`🔄 ВЫПОЛНЯЮ ПОВОРОТ НА ${-rotationAngle.toFixed(1)}°...`);
         const normalizedGraph = this.rotateGraphWithTransformation(
             graph,
             transformation,
@@ -85,11 +107,30 @@ class RotationInvariance {
             ...metadata
         };
 
-        console.log(`✅ Граф нормализован. Трансформация сохранена:`);
-        console.log(`   Поворот: ${rotationAngle.toFixed(1)}°`);
-        console.log(`   Зеркало: ${mirrorInfo.isMirrored}`);
-        console.log(`   Центр: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
-        console.log(`   Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
+        // 🔥 ОТЛАДКА: Выводим точки после нормализации
+        const normalizedPoints = this.extractPointsFromGraph(normalizedGraph);
+        if (this.config.verbose && normalizedPoints.length > 0) {
+            console.log(`🔍 ТОЧКИ ПОСЛЕ НОРМАЛИЗАЦИИ (первые 3 из ${normalizedPoints.length}):`);
+            normalizedPoints.slice(0, 3).forEach((p, i) => {
+                console.log(`   Точка ${i}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+               
+                // Сравниваем с исходными точками
+                if (i < points.length) {
+                    const dx = p.x - points[i].x;
+                    const dy = p.y - points[i].y;
+                    console.log(`        ΔX: ${dx.toFixed(1)}, ΔY: ${dy.toFixed(1)}`);
+                }
+            });
+        }
+
+        // Проверяем угол после нормализации
+        const angleAfterNormalization = this.detectRotationAngle(normalizedPoints);
+        console.log(`📐 УГОЛ ПОСЛЕ НОРМАЛИЗАЦИИ: ${angleAfterNormalization.toFixed(1)}°`);
+
+        console.log(`✅ ========== НОРМАЛИЗАЦИЯ ЗАВЕРШЕНА ==========`);
+        console.log(`   Поворот: ${rotationAngle.toFixed(1)}° → ${angleAfterNormalization.toFixed(1)}°`);
+        console.log(`   Зеркало: ${mirrorInfo.isMirrored ? 'ДА' : 'НЕТ'}`);
+        console.log(`   Центр сохранен: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
 
         return {
             graph: normalizedGraph,
@@ -102,11 +143,19 @@ class RotationInvariance {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Создание трансформации
+    // 🔥 НОВЫЙ МЕТОД: Создание трансформации С ОТЛАДКОЙ
     createTransformation(rotationAngle, isMirrored, center, bounds, width, height) {
+        console.log(`\n🔧 СОЗДАНИЕ ТРАНСФОРМАЦИИ:`);
+        console.log(`   Входной угол: ${rotationAngle.toFixed(1)}°`);
+        console.log(`   Зеркало: ${isMirrored}`);
+        console.log(`   Центр: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+
         const angleRad = rotationAngle * (Math.PI / 180);
         const cosA = Math.cos(-angleRad); // Отрицательный угол для нормализации
         const sinA = Math.sin(-angleRad);
+
+        console.log(`   cos(-${rotationAngle.toFixed(1)}°): ${cosA.toFixed(4)}`);
+        console.log(`   sin(-${rotationAngle.toFixed(1)}°): ${sinA.toFixed(4)}`);
 
         // Аффинная матрица преобразования
         const matrix = [
@@ -117,6 +166,7 @@ class RotationInvariance {
 
         // Если зеркально - добавляем отражение по X
         if (isMirrored) {
+            console.log(`   Применяю зеркальное отражение по X`);
             matrix[0] = -matrix[0];  // Меняем знак у cosA
             matrix[1] = -matrix[1];  // Меняем знак у -sinA
         }
@@ -128,6 +178,9 @@ class RotationInvariance {
         matrix[2] = tx;
         matrix[5] = ty;
 
+        console.log(`   Смещение: tx=${tx.toFixed(2)}, ty=${ty.toFixed(2)}`);
+        console.log(`   Итоговая матрица: [${matrix.map(v => v.toFixed(4)).join(', ')}]`);
+
         return {
             matrix: matrix,                     // 3x3 аффинная матрица
             rotationAngle: rotationAngle,
@@ -135,39 +188,64 @@ class RotationInvariance {
             center: { x: center.x, y: center.y },
             bounds: bounds,
             scale: { x: 1.0, y: 1.0 },         // Пока без масштаба, можно добавить позже
-            translation: { x: 0, y: 0 },
+            translation: { x: tx, y: ty },
             type: 'rigid_with_possible_mirror',
             timestamp: new Date()
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Поворот графа с трансформацией
+    // 🔥 НОВЫЙ МЕТОД: Поворот графа с трансформацией С ОТЛАДКОЙ
     rotateGraphWithTransformation(graph, transformation, mirror = false) {
+        console.log(`\n🔄 ВРАЩЕНИЕ ГРАФА С ТРАНСФОРМАЦИЕЙ:`);
+       
         const SimpleGraph = require('./simple-graph');
         const rotatedGraph = new SimpleGraph(`${graph.name} (нормализованный)`);
 
         const matrix = transformation.matrix;
         const center = transformation.center;
 
+        console.log(`   Центр вращения: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+        console.log(`   Количество узлов: ${graph.nodes.size}`);
+
+        // Собираем статистику
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+
         // Поворачиваем и добавляем узлы
         graph.nodes.forEach((node, nodeId) => {
-            // Применяем трансформацию
-            let x = node.x;
-            let y = node.y;
+            // Исходные координаты
+            const origX = node.x;
+            const origY = node.y;
 
             // Сдвигаем к центру, применяем матрицу, возвращаем
-            const relX = x - center.x;
-            const relY = y - center.y;
+            const relX = origX - center.x;
+            const relY = origY - center.y;
 
             const transformedX = relX * matrix[0] + relY * matrix[1] + center.x + matrix[2];
             const transformedY = relX * matrix[3] + relY * matrix[4] + center.y + matrix[5];
+
+            // Собираем статистику
+            minX = Math.min(minX, transformedX);
+            maxX = Math.max(maxX, transformedX);
+            minY = Math.min(minY, transformedY);
+            maxY = Math.max(maxY, transformedY);
 
             // Добавляем узел
             rotatedGraph.addNode(
                 { x: transformedX, y: transformedY },
                 node.confidence || 0.5
             );
+
+            // Отладочный вывод для первых 3 точек
+            if (this.config.verbose && rotatedGraph.nodes.size <= 3) {
+                console.log(`   Узел ${rotatedGraph.nodes.size}:`);
+                console.log(`       Было: (${origX.toFixed(1)}, ${origY.toFixed(1)})`);
+                console.log(`       Стало: (${transformedX.toFixed(1)}, ${transformedY.toFixed(1)})`);
+                console.log(`       Δ: (${(transformedX - origX).toFixed(1)}, ${(transformedY - origY).toFixed(1)})`);
+            }
         });
+
+        console.log(`   Границы после вращения: X[${minX.toFixed(1)}-${maxX.toFixed(1)}], Y[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
 
         // Копируем метаданные
         rotatedGraph.originalGraphId = graph.id;
@@ -176,17 +254,20 @@ class RotationInvariance {
         return rotatedGraph;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Обратное преобразование
+    // 🔥 НОВЫЙ МЕТОД: Обратное преобразование С ОТЛАДКОЙ
     applyInverseTransformation(point, transformation) {
         if (!transformation || !transformation.matrix) {
+            console.log('⚠️ Нет трансформации для обратного преобразования');
             return point;
         }
+
+        console.log(`\n🔙 ОБРАТНОЕ ПРЕОБРАЗОВАНИЕ:`);
+        console.log(`   Входная точка: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
 
         const matrix = transformation.matrix;
         const center = transformation.center;
 
         // Обратная матрица (для простых поворотов)
-        // Для полной реализации нужна инверсия матрицы 3x3
         const det = matrix[0] * matrix[4] - matrix[1] * matrix[3];
 
         if (Math.abs(det) < 1e-10) {
@@ -211,6 +292,11 @@ class RotationInvariance {
         const originalX = relX * invMatrix[0] + relY * invMatrix[1] + center.x;
         const originalY = relX * invMatrix[3] + relY * invMatrix[4] + center.y;
 
+        console.log(`   Определитель матрицы: ${det.toFixed(6)}`);
+        console.log(`   Обратное смещение: tx=${-tx.toFixed(2)}, ty=${-ty.toFixed(2)}`);
+        console.log(`   Результат: (${originalX.toFixed(1)}, ${originalY.toFixed(1)})`);
+        console.log(`   Смещение: ΔX=${(originalX - point.x).toFixed(1)}, ΔY=${(originalY - point.y).toFixed(1)}`);
+
         return {
             x: originalX,
             y: originalY,
@@ -218,35 +304,72 @@ class RotationInvariance {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Преобразование точек из одной системы в другую
+    // 🔥 НОВЫЙ МЕТОД: Преобразование точек из одной системы в другую С ОТЛАДКОЙ
     transformPointsBetweenSystems(points, fromTransformation, toTransformation) {
         if (!fromTransformation || !toTransformation) {
             console.log('⚠️ Нет трансформаций для преобразования');
             return points;
         }
 
-        console.log(`🔄 Преобразую ${points.length} точек между системами...`);
+        console.log(`\n🔄 ПРЕОБРАЗОВАНИЕ ТОЧЕК МЕЖДУ СИСТЕМАМИ:`);
+        console.log(`   Количество точек: ${points.length}`);
+        console.log(`   Из системы с углом: ${fromTransformation.rotationAngle.toFixed(1)}°`);
+        console.log(`   В систему с углом: ${toTransformation.rotationAngle.toFixed(1)}°`);
 
-        const transformedPoints = points.map(point => {
+        const transformedPoints = [];
+
+        points.forEach((point, index) => {
+            // Отладочный вывод для первых 3 точек
+            const debug = this.config.verbose && index < 3;
+
+            if (debug) {
+                console.log(`\n   Точка ${index + 1}:`);
+                console.log(`       Исходная: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+            }
+
             // 1. Обратное преобразование из исходной системы
             const originalPoint = this.applyInverseTransformation(point, fromTransformation);
+
+            if (debug) {
+                console.log(`       После обратного преобразования: (${originalPoint.x.toFixed(1)}, ${originalPoint.y.toFixed(1)})`);
+            }
 
             // 2. Прямое преобразование в целевую систему
             const targetPoint = this.applyTransformation(originalPoint, toTransformation);
 
-            return {
+            if (debug) {
+                console.log(`       После прямого преобразования: (${targetPoint.x.toFixed(1)}, ${targetPoint.y.toFixed(1)})`);
+                console.log(`       Итоговое смещение от исходной: ΔX=${(targetPoint.x - point.x).toFixed(1)}, ΔY=${(targetPoint.y - point.y).toFixed(1)}`);
+            }
+
+            transformedPoints.push({
                 ...point,
                 x: targetPoint.x,
                 y: targetPoint.y,
                 transformed: true,
-                originalCoordinates: { x: point.x, y: point.y }
-            };
+                originalCoordinates: { x: point.x, y: point.y },
+                transformationIndex: index
+            });
         });
+
+        // Статистика преобразования
+        if (transformedPoints.length > 0) {
+            const firstPoint = transformedPoints[0];
+            const lastPoint = transformedPoints[transformedPoints.length - 1];
+           
+            console.log(`\n📊 СТАТИСТИКА ПРЕОБРАЗОВАНИЯ:`);
+            console.log(`   Первая точка:`);
+            console.log(`       Было: (${points[0].x.toFixed(1)}, ${points[0].y.toFixed(1)})`);
+            console.log(`       Стало: (${firstPoint.x.toFixed(1)}, ${firstPoint.y.toFixed(1)})`);
+            console.log(`   Последняя точка:`);
+            console.log(`       Было: (${points[points.length-1].x.toFixed(1)}, ${points[points.length-1].y.toFixed(1)})`);
+            console.log(`       Стало: (${lastPoint.x.toFixed(1)}, ${lastPoint.y.toFixed(1)})`);
+        }
 
         return transformedPoints;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Прямое преобразование
+    // 🔥 НОВЫЙ МЕТОД: Прямое преобразование С ОТЛАДКОЙ
     applyTransformation(point, transformation) {
         if (!transformation || !transformation.matrix) {
             return point;
@@ -270,6 +393,8 @@ class RotationInvariance {
 
     // 🔥 НОВЫЙ МЕТОД: Создание единичной трансформации
     createIdentityTransformation() {
+        console.log(`🔧 СОЗДАНИЕ ЕДИНИЧНОЙ ТРАНСФОРМАЦИИ`);
+       
         return {
             matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
             rotationAngle: 0,
@@ -283,7 +408,7 @@ class RotationInvariance {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Расчет границ
+    // 🔥 НОВЫЙ МЕТОД: Расчет границ С ОТЛАДКОЙ
     calculateBounds(points) {
         if (points.length === 0) {
             return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
@@ -299,15 +424,28 @@ class RotationInvariance {
             maxY = Math.max(maxY, p.y);
         });
 
+        if (this.config.verbose) {
+            console.log(`📏 РАСЧЕТ ГРАНИЦ:`);
+            console.log(`   X: ${minX.toFixed(1)} → ${maxX.toFixed(1)} (ширина: ${(maxX - minX).toFixed(1)})`);
+            console.log(`   Y: ${minY.toFixed(1)} → ${maxY.toFixed(1)} (высота: ${(maxY - minY).toFixed(1)})`);
+        }
+
         return { minX, maxX, minY, maxY };
     }
 
-    // Метод: Определение угла поворота с помощью PCA
+    // Метод: Определение угла поворота с помощью PCA С ОТЛАДКОЙ
     detectRotationAngle(points) {
-        if (points.length < 3) return 0;
+        if (points.length < 3) {
+            console.log(`⚠️ Мало точек для PCA: ${points.length}`);
+            return 0;
+        }
+
+        console.log(`\n📐 ОПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА (PCA):`);
+        console.log(`   Количество точек: ${points.length}`);
 
         // 1. Вычисляем центр масс
         const center = this.calculateCenter(points);
+        console.log(`   Центр масс: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
 
         // 2. Центрируем точки
         const centeredPoints = points.map(p => ({
@@ -317,9 +455,15 @@ class RotationInvariance {
 
         // 3. Строим ковариационную матрицу
         const covMatrix = this.calculateCovarianceMatrix(centeredPoints);
+        console.log(`   Ковариационная матрица:`);
+        console.log(`       [${covMatrix[0][0].toFixed(1)}, ${covMatrix[0][1].toFixed(1)}]`);
+        console.log(`       [${covMatrix[1][0].toFixed(1)}, ${covMatrix[1][1].toFixed(1)}]`);
 
         // 4. Находим собственные векторы (PCA)
         const eigenvectors = this.calculateEigenvectors(covMatrix);
+        console.log(`   Собственные векторы:`);
+        console.log(`       Главный: [${eigenvectors[0][0].toFixed(3)}, ${eigenvectors[0][1].toFixed(3)}]`);
+        console.log(`       Второй:  [${eigenvectors[1][0].toFixed(3)}, ${eigenvectors[1][1].toFixed(3)}]`);
 
         // 5. Главная ось = собственный вектор с максимальным собственным значением
         const mainAxis = eigenvectors[0];
@@ -328,30 +472,54 @@ class RotationInvariance {
         let angleRad = Math.atan2(mainAxis[1], mainAxis[0]);
         let angleDeg = angleRad * (180 / Math.PI);
 
-        // 7. Нормализуем угол к [-90°, 90°]
-        if (angleDeg > 90) angleDeg -= 180;
-        if (angleDeg < -90) angleDeg += 180;
+        console.log(`   Угол в радианах: ${angleRad.toFixed(3)}`);
+        console.log(`   Угол в градусах: ${angleDeg.toFixed(1)}°`);
 
+        // 7. Нормализуем угол к [-90°, 90°]
+        if (angleDeg > 90) {
+            console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg - 180).toFixed(1)}°`);
+            angleDeg -= 180;
+        }
+        if (angleDeg < -90) {
+            console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg + 180).toFixed(1)}°`);
+            angleDeg += 180;
+        }
+
+        console.log(`📐 ИТОГОВЫЙ УГОЛ: ${angleDeg.toFixed(1)}°`);
+       
         return angleDeg;
     }
 
-    // Метод: Определение зеркальности
+    // Метод: Определение зеркальности С ОТЛАДКОЙ
     detectMirroring(points) {
         if (points.length < 10) {
+            console.log(`⚠️ Мало точек для определения зеркальности: ${points.length}`);
             return { isMirrored: false, footType: 'unknown', confidence: 0 };
         }
 
+        console.log(`\n🪞 ОПРЕДЕЛЕНИЕ ЗЕРКАЛЬНОСТИ:`);
+        console.log(`   Количество точек: ${points.length}`);
+
         const center = this.calculateCenter(points);
+        console.log(`   Центр: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
 
         // Разделяем точки на левую и правую половины
         const leftPoints = points.filter(p => p.x < center.x);
         const rightPoints = points.filter(p => p.x >= center.x);
+
+        console.log(`   Точки слева: ${leftPoints.length}`);
+        console.log(`   Точки справа: ${rightPoints.length}`);
 
         const leftDensity = leftPoints.length / points.length;
         const rightDensity = rightPoints.length / points.length;
 
         const asymmetry = leftDensity - rightDensity;
         const threshold = 0.1;
+
+        console.log(`   Плотность слева: ${leftDensity.toFixed(3)}`);
+        console.log(`   Плотность справа: ${rightDensity.toFixed(3)}`);
+        console.log(`   Асимметрия: ${asymmetry.toFixed(3)}`);
+        console.log(`   Порог: ${threshold}`);
 
         let isMirrored = false;
         let footType = 'unknown';
@@ -361,28 +529,123 @@ class RotationInvariance {
             if (asymmetry > 0) {
                 footType = 'right';
                 isMirrored = false;
+                console.log(`   Определение: ПРАВАЯ НОГА (оригинал)`);
             } else {
                 footType = 'left';
                 isMirrored = true;
+                console.log(`   Определение: ЛЕВАЯ НОГА (зеркальная)`);
             }
+        } else {
+            console.log(`   Определение: НЕИЗВЕСТНО (асимметрия ниже порога)`);
         }
 
-        console.log(`🦶 Асимметрия: ${asymmetry.toFixed(3)}, тип: ${footType}, уверенность: ${confidence.toFixed(2)}`);
+        console.log(`   Уверенность: ${confidence.toFixed(2)}`);
+        console.log(`   Зеркальность: ${isMirrored ? 'ДА' : 'НЕТ'}`);
 
         return { isMirrored, footType, confidence, asymmetry };
     }
 
+    // 🔥 НОВЫЙ МЕТОД: Получить точки в нормализованной системе
+    getNormalizedPoints(graph) {
+        console.log(`\n📊 ПОЛУЧЕНИЕ ТОЧЕК В НОРМАЛИЗОВАННОЙ СИСТЕМЕ:`);
+       
+        if (!graph.transformation) {
+            console.log(`   Граф не имеет трансформации, возвращаю исходные точки`);
+            return this.extractPointsFromGraph(graph);
+        }
+
+        const originalPoints = this.extractPointsFromGraph(graph.originalGraph || graph);
+        const normalizedPoints = this.extractPointsFromGraph(graph);
+       
+        console.log(`   Оригинальных точек: ${originalPoints.length}`);
+        console.log(`   Нормализованных точек: ${normalizedPoints.length}`);
+        console.log(`   Угол трансформации: ${graph.transformation.rotationAngle.toFixed(1)}°`);
+       
+        return normalizedPoints;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить исходные точки (до нормализации)
+    getOriginalPoints(graph) {
+        console.log(`\n📊 ПОЛУЧЕНИЕ ИСХОДНЫХ ТОЧЕК:`);
+       
+        if (graph.originalGraph) {
+            console.log(`   Возвращаю точки из оригинального графа`);
+            return this.extractPointsFromGraph(graph.originalGraph);
+        } else {
+            console.log(`   Граф не имеет оригинала, возвращаю его текущие точки`);
+            return this.extractPointsFromGraph(graph);
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Проверка трансформации
+    validateTransformation(graph) {
+        console.log(`\n🔍 ПРОВЕРКА ТРАНСФОРМАЦИИ:`);
+       
+        if (!graph.transformation) {
+            console.log(`   ❌ Граф не имеет трансформации`);
+            return false;
+        }
+
+        const trans = graph.transformation;
+        console.log(`   Угол: ${trans.rotationAngle.toFixed(1)}°`);
+        console.log(`   Зеркало: ${trans.isMirrored ? 'ДА' : 'НЕТ'}`);
+        console.log(`   Центр: (${trans.center.x.toFixed(1)}, ${trans.center.y.toFixed(1)})`);
+        console.log(`   Тип: ${trans.type}`);
+        console.log(`   Время: ${trans.timestamp}`);
+
+        // Проверяем матрицу
+        const matrix = trans.matrix;
+        if (matrix.length !== 9) {
+            console.log(`   ❌ Неверный размер матрицы: ${matrix.length}`);
+            return false;
+        }
+
+        // Проверяем определитель (должен быть около 1 для поворотов)
+        const det = matrix[0] * matrix[4] - matrix[1] * matrix[3];
+        console.log(`   Определитель матрицы: ${det.toFixed(4)}`);
+       
+        if (Math.abs(det - 1.0) > 0.1 && !trans.isMirrored) {
+            console.log(`   ⚠️ Необычный определитель для чистого поворота`);
+        }
+
+        return true;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Тестовый поворот точки
+    testRotation(point, angle) {
+        console.log(`\n🧪 ТЕСТ ПОВОРОТА ТОЧКИ:`);
+        console.log(`   Точка: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+        console.log(`   Угол: ${angle}°`);
+
+        const angleRad = angle * (Math.PI / 180);
+        const cosA = Math.cos(angleRad);
+        const sinA = Math.sin(angleRad);
+
+        const rotatedX = point.x * cosA - point.y * sinA;
+        const rotatedY = point.x * sinA + point.y * cosA;
+
+        console.log(`   Результат: (${rotatedX.toFixed(1)}, ${rotatedY.toFixed(1)})`);
+        console.log(`   Смещение: ΔX=${(rotatedX - point.x).toFixed(1)}, ΔY=${(rotatedY - point.y).toFixed(1)}`);
+
+        return { x: rotatedX, y: rotatedY };
+    }
+
     // Метод: Поворот графа на заданный угол (старая версия для совместимости)
     rotateGraph(graph, angleDeg, mirror = false) {
+        console.log(`\n🔄 ПОВОРОТ ГРАФА (старая версия):`);
+        console.log(`   Угол: ${angleDeg}°`);
+        console.log(`   Зеркало: ${mirror ? 'ДА' : 'НЕТ'}`);
+
         const angleRad = angleDeg * (Math.PI / 180);
         const cosA = Math.cos(angleRad);
         const sinA = Math.sin(angleRad);
 
         const center = this.calculateCenter(Array.from(graph.nodes.values()));
+        console.log(`   Центр вращения: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
 
         // Создаем копию графа
         const SimpleGraph = require('./simple-graph');
-        const rotatedGraph = new SimpleGraph(`${graph.name} (нормализованный)`);
+        const rotatedGraph = new SimpleGraph(`${graph.name} (повёрнутый)`);
 
         // Поворачиваем и добавляем узлы
         graph.nodes.forEach((node, nodeId) => {
@@ -413,6 +676,8 @@ class RotationInvariance {
         // Копируем метаданные
         rotatedGraph.originalGraphId = graph.id;
         rotatedGraph.originalName = graph.name;
+
+        console.log(`   Повёрнуто узлов: ${rotatedGraph.nodes.size}`);
 
         return rotatedGraph;
     }
@@ -455,13 +720,28 @@ class RotationInvariance {
 
     // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: БЕЗ РЕКУРСИИ
     compareWithRotationInvariance(graph1, graph2, options = {}) {
-        console.log(`🔄 Сравнение с поворотной инвариантностью (безопасная версия)...`);
+        console.log(`\n🔄 СРАВНЕНИЕ С ПОВОРОТНОЙ ИНВАРИАНТНОСТЬЮ:`);
+        console.log(`   Граф 1: ${graph1.name || 'без имени'}`);
+        console.log(`   Граф 2: ${graph2.name || 'без имени'}`);
 
         const startTime = Date.now();
+
+        // Проверяем трансформации
+        const hasTrans1 = this.validateTransformation(graph1);
+        const hasTrans2 = this.validateTransformation(graph2);
+
+        if (hasTrans1 && hasTrans2) {
+            console.log(`   Оба графа имеют трансформации`);
+            console.log(`   Угол 1: ${graph1.transformation.rotationAngle.toFixed(1)}°`);
+            console.log(`   Угол 2: ${graph2.transformation.rotationAngle.toFixed(1)}°`);
+        }
 
         // 🔥 ПРОСТОЕ СРАВНЕНИЕ БЕЗ СОЗДАНИЯ SimpleGraphMatcher
         const points1 = this.extractPointsFromGraph(graph1);
         const points2 = this.extractPointsFromGraph(graph2);
+
+        console.log(`   Точек в графе 1: ${points1.length}`);
+        console.log(`   Точек в графе 2: ${points2.length}`);
 
         // 1. Простое сравнение по количеству точек
         const nodeRatio = Math.min(points1.length, points2.length) /
@@ -475,22 +755,38 @@ class RotationInvariance {
             Math.pow(center2.y - center1.y, 2)
         );
 
+        console.log(`   Центр 1: (${center1.x.toFixed(1)}, ${center1.y.toFixed(1)})`);
+        console.log(`   Центр 2: (${center2.x.toFixed(1)}, ${center2.y.toFixed(1)})`);
+        console.log(`   Расстояние между центрами: ${centerDistance.toFixed(1)}px`);
+
         // 3. Простая оценка схожести
         const sizeSimilarity = Math.max(0, Math.min(1, nodeRatio));
         const centerSimilarity = Math.max(0, Math.min(1, 1 - centerDistance / 300));
 
         const totalSimilarity = (sizeSimilarity * 0.6 + centerSimilarity * 0.4);
 
+        console.log(`   Схожесть по размеру: ${sizeSimilarity.toFixed(3)}`);
+        console.log(`   Схожесть по центру: ${centerSimilarity.toFixed(3)}`);
+        console.log(`   Общая схожесть: ${totalSimilarity.toFixed(3)}`);
+
         const result = {
             similarity: totalSimilarity,
             decision: totalSimilarity > 0.7 ? 'same' :
                     totalSimilarity > 0.5 ? 'similar' : 'different',
             reason: `Простое сравнение: ${totalSimilarity.toFixed(3)}`,
+            details: {
+                nodeCount1: points1.length,
+                nodeCount2: points2.length,
+                nodeRatio: nodeRatio,
+                centerDistance: centerDistance,
+                sizeSimilarity: sizeSimilarity,
+                centerSimilarity: centerSimilarity
+            },
             method: 'simple_rotation_invariant',
             timeMs: Date.now() - startTime
         };
 
-        console.log(`✅ Простое сравнение: ${totalSimilarity.toFixed(3)}`);
+        console.log(`✅ Результат: ${result.decision} (${totalSimilarity.toFixed(3)})`);
 
         return result;
     }
@@ -532,6 +828,7 @@ class RotationInvariance {
     // Метод: Сравнение по полярным дескрипторам
     comparePolarDescriptors(desc1, desc2) {
         if (desc1.nodeCount < 5 || desc2.nodeCount < 5) {
+            console.log(`⚠️ Мало точек для полярного сравнения: ${desc1.nodeCount}, ${desc2.nodeCount}`);
             return { similarity: 0, method: 'polar_invalid' };
         }
 
@@ -634,7 +931,9 @@ class RotationInvariance {
 
     // 🔥 ПЕРЕПИСАННЫЙ МЕТОД: БЕЗ РЕКУРСИИ
     compareWithAllMethods(graph1, graph2, options = {}) {
-        console.log(`🔍 Комбинированное инвариантное сравнение (безопасная версия)...`);
+        console.log(`\n🔍 КОМБИНИРОВАННОЕ ИНВАРИАНТНОЕ СРАВНЕНИЕ:`);
+        console.log(`   Граф 1: ${graph1.name || 'без имени'} (${graph1.nodes.size} узлов)`);
+        console.log(`   Граф 2: ${graph2.name || 'без имени'} (${graph2.nodes.size} узлов)`);
 
         const startTime = Date.now();
 
@@ -642,11 +941,13 @@ class RotationInvariance {
 
         // 1. Сравнение с Hu моментами
         const huResult = this.compareWithHuMoments(graph1, graph2);
+        console.log(`   Hu моменты: ${huResult.similarity.toFixed(3)}`);
 
         // 2. Сравнение по полярным дескрипторам
         const polarDesc1 = this.createPolarDescriptors(graph1);
         const polarDesc2 = this.createPolarDescriptors(graph2);
         const polarResult = this.comparePolarDescriptors(polarDesc1, polarDesc2);
+        console.log(`   Полярные дескрипторы: ${polarResult.similarity.toFixed(3)}`);
 
         // 3. Простая проверка размеров
         const points1 = this.extractPointsFromGraph(graph1);
@@ -654,12 +955,15 @@ class RotationInvariance {
         const sizeRatio = Math.min(points1.length, points2.length) /
                         Math.max(points1.length, points2.length);
         const sizeScore = Math.max(0, Math.min(1, sizeRatio * 1.5 - 0.5));
+        console.log(`   Схожесть размеров: ${sizeScore.toFixed(3)} (ratio: ${sizeRatio.toFixed(3)})`);
 
         // 4. Простая оценка
         const totalSimilarity =
             huResult.similarity * 0.4 +
             polarResult.similarity * 0.4 +
             sizeScore * 0.2;
+
+        console.log(`   Общая схожесть: ${totalSimilarity.toFixed(3)}`);
 
         // 5. Определение решения
         let decision, reason;
@@ -687,7 +991,7 @@ class RotationInvariance {
             method: 'safe_invariant_comparison'
         };
 
-        console.log(`✅ Безопасное сравнение: ${totalSimilarity.toFixed(3)} (${decision})`);
+        console.log(`✅ Результат: ${decision} (${totalSimilarity.toFixed(3)})`);
 
         return finalResult;
     }
