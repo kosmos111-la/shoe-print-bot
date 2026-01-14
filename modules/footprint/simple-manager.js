@@ -90,46 +90,230 @@ class SimpleFootprintManager {
         this.ensureDirectories();
         this.loadExistingModels();
 
-        console.log(`🚀 SimpleFootprintManager с ИСПРАВЛЕННЫМИ ТРАНСФОРМАЦИЯМИ`);
+        console.log(`🚀 SimpleFootprintManager с ИСПРАВЛЕННЫМИ ТРАНСФОРМАЦИЯМИ И ВАЛИДАЦИЕЙ`);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Исправить сравнение с повернутыми следами
+    // 🔥 НОВЫЙ МЕТОД: Валидация перед сравнением
+    async validateAndCompare(footprint1, footprint2) {
+        console.log('\n🔍 ВАЛИДАЦИЯ ПЕРЕД СРАВНЕНИЕМ:');
+
+        // 1. Проверить системы координат
+        const CoordinateValidator = require('./alignment/coordinate-validator');
+        const validator = new CoordinateValidator({ debug: true });
+        validator.validateCoordinateSystems(footprint1, footprint2);
+
+        // 2. Получить точки в правильной системе
+        const points1 = this.getPointsInConsistentSystem(footprint1);
+        const points2 = this.getPointsInConsistentSystem(footprint2);
+
+        console.log(`📊 Точки для сравнения:`);
+        console.log(`   След 1: ${points1.length} точек`);
+        console.log(`   След 2: ${points2.length} точек`);
+
+        // 3. Проверить, нужна ли коррекция ориентации
+        let needsCorrection = this.needsOrientationCorrection(points1, points2);
+
+        let correctedPoints2 = [...points2];
+        if (needsCorrection) {
+            console.log('🔄 Применяю автоматическую коррекцию ориентации...');
+            correctedPoints2 = this.applyAutomaticOrientationCorrection(correctedPoints2, points1);
+        }
+
+        // 4. Выполнить выравнивание
+        const aligner = new SimpleAligner({ debug: true });
+        const alignedPoints = await aligner.alignWithIntelligentMatching(
+            correctedPoints2, points1,
+            footprint2.getTransformation(),
+            footprint1.getTransformation()
+        );
+
+        // 5. Сравнить
+        return this.compareAlignedFootprints(points1, alignedPoints, footprint1, footprint2);
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить точки в согласованной системе
+    getPointsInConsistentSystem(footprint) {
+        const points = [];
+
+        // 🔥 КЛЮЧЕВОЙ МОМЕНТ: Используем оригинальные координаты
+        for (const [id, point] of footprint.pointTracker.points) {
+            // Если есть оригинальные координаты - используем их
+            if (point.originalCoordinates) {
+                points.push({
+                    x: point.originalCoordinates.x,
+                    y: point.originalCoordinates.y,
+                    id: id,
+                    confidence: point.rating || 0.5
+                });
+            } else {
+                // Иначе используем текущие
+                points.push({
+                    x: point.x,
+                    y: point.y,
+                    id: id,
+                    confidence: point.rating || 0.5
+                });
+            }
+        }
+
+        console.log(`📊 Точки в согласованной системе: ${points.length} (пример: ${points[0]?.x?.toFixed(1)}, ${points[0]?.y?.toFixed(1)})`);
+        return points;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Проверить нужна ли коррекция ориентации
+    needsOrientationCorrection(points1, points2) {
+        const bounds1 = this.calculateBounds(points1);
+        const bounds2 = this.calculateBounds(points2);
+
+        const ratio1 = bounds1.width / Math.max(1, bounds1.height);
+        const ratio2 = bounds2.width / Math.max(1, bounds2.height);
+
+        // Если пропорции сильно отличаются (вертикальный vs горизонтальный)
+        const needsCorrection = (ratio1 > 2.0 && ratio2 < 0.5) || (ratio1 < 0.5 && ratio2 > 2.0);
+
+        console.log(`📏 Пропорции: ${ratio1.toFixed(2)} vs ${ratio2.toFixed(2)} -> ${needsCorrection ? 'НУЖНА коррекция' : 'OK'}`);
+
+        return needsCorrection;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Применить автоматическую коррекцию ориентации
+    applyAutomaticOrientationCorrection(points, referencePoints) {
+        const center = this.calculateCenter(points);
+
+        const rotatedPoints = points.map(point => {
+            // Сдвигаем к центру
+            let x = point.x - center.x;
+            let y = point.y - center.y;
+
+            // Поворачиваем на 90°
+            const rotatedX = -y;  // x' = -y
+            const rotatedY = x;   // y' = x
+
+            // Возвращаем обратно
+            return {
+                ...point,
+                x: rotatedX + center.x,
+                y: rotatedY + center.y,
+                rotated90: true
+            };
+        });
+
+        console.log('✅ Автоматическая коррекция ориентации применена (90°)');
+        return rotatedPoints;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Сравнить выровненные отпечатки
+    compareAlignedFootprints(points1, alignedPoints2, footprint1, footprint2) {
+        let perfectMatches = 0;
+        let goodMatches = 0;
+        let acceptableMatches = 0;
+        const matches = [];
+
+        const PERFECT_THRESHOLD = 15;    // 15px - точное совпадение
+        const GOOD_THRESHOLD = 30;       // 30px - хорошее совпадение
+        const ACCEPTABLE_THRESHOLD = 50; // 50px - допустимое совпадение
+
+        alignedPoints2.forEach(alignedPoint => {
+            let bestMatch = null;
+            let minDistance = Infinity;
+
+            for (const point1 of points1) {
+                const distance = Math.sqrt(
+                    Math.pow(point1.x - alignedPoint.x, 2) +
+                    Math.pow(point1.y - alignedPoint.y, 2)
+                );
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    bestMatch = {
+                        point1,
+                        alignedPoint,
+                        distance,
+                        quality: this.calculateMatchQuality(distance, alignedPoint.confidence || 0.5)
+                    };
+                }
+            }
+
+            if (bestMatch) {
+                matches.push(bestMatch);
+
+                if (minDistance < PERFECT_THRESHOLD) {
+                    perfectMatches++;
+                } else if (minDistance < GOOD_THRESHOLD) {
+                    goodMatches++;
+                } else if (minDistance < ACCEPTABLE_THRESHOLD) {
+                    acceptableMatches++;
+                }
+            }
+        });
+
+        const totalMatches = perfectMatches + goodMatches + acceptableMatches;
+        const similarity = totalMatches / Math.max(points1.length, alignedPoints2.length);
+
+        let decision, reason;
+        if (similarity > 0.7) {
+            decision = 'same';
+            reason = `Высокое совпадение после выравнивания: ${perfectMatches}/${points1.length} точных, ${goodMatches}/${points1.length} хороших`;
+        } else if (similarity > 0.4) {
+            decision = 'similar';
+            reason = `Умеренное совпадение после выравнивания: ${perfectMatches}/${points1.length} точных, ${goodMatches}/${points1.length} хороших`;
+        } else {
+            decision = 'different';
+            reason = `Низкое совпадение после выравнивания: ${perfectMatches}/${points1.length} точных, ${goodMatches}/${points1.length} хороших`;
+        }
+
+        return {
+            similarity,
+            decision,
+            reason,
+            matches,
+            perfectMatches,
+            goodMatches,
+            acceptableMatches,
+            totalMatches,
+            points1Count: points1.length,
+            points2Count: alignedPoints2.length,
+            method: 'enhanced_alignment_logic'
+        };
+    }
+
+    // 🔥 СУЩЕСТВУЮЩИЙ МЕТОД: Исправить сравнение с повернутыми следами (исправленный)
     async compareWithFixedAlignment(footprint1, footprint2) {
-    console.log(`🎯 УМНОЕ СРАВНЕНИЕ С ПОВЕРНУТЫМИ СЛЕДАМИ`);
+        console.log(`🎯 УМНОЕ СРАВНЕНИЕ С ПОВЕРНУТЫМИ СЛЕДАМИ`);
 
-    // 1. Дебаг трансформаций
-    const TransformationDebugger = require('./alignment/transformation-debugger');
-    const debuggerTool = new TransformationDebugger({ debug: true }); // 🔥 ИЗМЕНЕНО: переименовано
-    debuggerTool.analyzeTransformation(footprint1, footprint2); // 🔥 ИЗМЕНЕНО
+        // 1. Дебаг трансформаций
+        const TransformationDebugger = require('./alignment/transformation-debugger');
+        const debuggerTool = new TransformationDebugger({ debug: true });
+        debuggerTool.analyzeTransformation(footprint1, footprint2);
 
-    // 2. Получить точки в их системах координат
-    let points1 = this.getTrackerPointsInFootprintSystem(footprint1.pointTracker, footprint1.getTransformation());
-    let points2 = this.getTrackerPointsInFootprintSystem(footprint2.pointTracker, footprint2.getTransformation());
+        // 2. Получить точки в их системах координат
+        let points1 = this.getTrackerPointsInFootprintSystem(footprint1.pointTracker, footprint1.getTransformation());
+        let points2 = this.getTrackerPointsInFootprintSystem(footprint2.pointTracker, footprint2.getTransformation());
 
-    // 3. Проверить ориентацию
-    const needsRotationCorrection = this.checkIfNeeds90DegreeRotation(points1, points2);
+        // 3. Проверить ориентацию
+        const needsRotationCorrection = this.checkIfNeeds90DegreeRotation(points1, points2);
 
-    if (needsRotationCorrection) {
-        console.log('🔄 Применяю коррекцию поворота 90°...');
-        points2 = this.apply90DegreeRotation(points2);
+        if (needsRotationCorrection) {
+            console.log('🔄 Применяю коррекцию поворота 90°...');
+            points2 = this.apply90DegreeRotation(points2);
+        }
+
+        // 4. Использовать улучшенный алайнер
+        const ImprovedAligner = require('./alignment/improved-aligner');
+        const aligner = new ImprovedAligner({ debug: true });
+
+        const alignmentResult = await aligner.alignWithIntelligentMatching(
+            points2,
+            points1,
+            footprint2.getTransformation(),
+            footprint1.getTransformation()
+        );
+
+        // 5. Сравнить с улучшенной логикой
+        return this.compareWithEnhancedLogic(points1, alignmentResult.alignedPoints);
     }
 
-    // 4. Использовать улучшенный алайнер
-    const ImprovedAligner = require('./alignment/improved-aligner');
-    const aligner = new ImprovedAligner({ debug: true });
-
-    const alignmentResult = await aligner.alignWithIntelligentMatching(
-        points2,
-        points1,
-        footprint2.getTransformation(),
-        footprint1.getTransformation()
-    );
-
-    // 5. Сравнить с улучшенной логикой
-    return this.compareWithEnhancedLogic(points1, alignmentResult.alignedPoints);
-}
-
-    // 🔥 НОВЫЙ МЕТОД: Проверить нужен ли поворот на 90°
+    // 🔥 СУЩЕСТВУЮЩИЕ МЕТОДЫ (без изменений)
     checkIfNeeds90DegreeRotation(points1, points2) {
         const bounds1 = this.calculateBounds(points1);
         const bounds2 = this.calculateBounds(points2);
@@ -145,19 +329,18 @@ class SimpleFootprintManager {
         return needsCorrection;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Применить поворот на 90°
     apply90DegreeRotation(points) {
         const center = this.calculateCenter(points);
-       
+
         const rotatedPoints = points.map(point => {
             // Сдвигаем к центру
             let x = point.x - center.x;
             let y = point.y - center.y;
-           
+
             // Поворачиваем на 90°
             const rotatedX = -y;  // x' = -y
             const rotatedY = x;   // y' = x
-           
+
             // Возвращаем обратно
             return {
                 ...point,
@@ -166,11 +349,10 @@ class SimpleFootprintManager {
                 rotated90: true
             };
         });
-       
+
         return rotatedPoints;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Сравнить с улучшенной логикой
     compareWithEnhancedLogic(points1, alignedPoints2) {
         let perfectMatches = 0;
         let goodMatches = 0;
@@ -1915,8 +2097,8 @@ class SimpleFootprintManager {
             path.join(this.config.dbPath, 'sessions'),
             path.join(this.config.dbPath, 'visualizations'),
             path.join(this.config.dbPath, 'visualizations/templates'),
-            path.join(this.config.dbPath, 'visualizations/alignments'), // 🔥 Добавляем директорию для визуализаций выравнивания
-            path.join(this.config.dbPath, 'visualizations/clusters')    // 🔥 Добавляем директорию для визуализаций подтверждений
+            path.join(this.config.dbPath, 'visualizations/alignments'),
+            path.join(this.config.dbPath, 'visualizations/clusters')
         ];
 
         dirs.forEach(dir => {
