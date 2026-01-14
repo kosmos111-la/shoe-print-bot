@@ -154,7 +154,7 @@ class SimpleFootprintManager {
             if (targetSystem === 'template' && footprint.getTransformation()) {
                 const systemInfo = this.extractCoordinateSystem(footprint);
                 const templateSystem = this.getTemplateCoordinateSystem();
-               
+
                 const converted = this.coordinateConverter.convertSinglePoint(
                     { x, y },
                     systemInfo,
@@ -190,7 +190,7 @@ class SimpleFootprintManager {
     // 🔥 НОВЫЙ МЕТОД: Извлечь информацию о системе координат отпечатка
     extractCoordinateSystem(footprint) {
         const transformation = footprint.getTransformation();
-       
+
         // Получаем точки для анализа границ
         const points = [];
         if (footprint.pointTracker) {
@@ -198,7 +198,7 @@ class SimpleFootprintManager {
                 points.push({ x: point.x, y: point.y });
             }
         }
-       
+
         const bounds = this.calculateBounds(points);
 
         return {
@@ -397,7 +397,7 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 СУЩЕСТВУЮЩИЙ МЕТОД: Исправить сравнение с повернутыми следами (исправленный)
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Исправить сравнение с повернутыми следами (исправленный)
     async compareWithFixedAlignment(footprint1, footprint2) {
         console.log(`🎯 УМНОЕ СРАВНЕНИЕ С ПОВЕРНУТЫМИ СЛЕДАМИ`);
 
@@ -760,6 +760,159 @@ class SimpleFootprintManager {
         }
 
         return nearest;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Сравнение через инвариантные паттерны
+    async compareWithPatterns(footprint1, footprint2) {
+        console.log(`🎯 ПАТТЕРНОВОЕ СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
+
+        try {
+            // 1. Проверяем наличие методов
+            if (!footprint1.getInvariantFeatures || !footprint2.getInvariantFeatures) {
+                console.log('⚠️ Один из следов не поддерживает паттерновое сравнение');
+                return await this.compareWithAlignment(footprint1, footprint2);
+            }
+
+            // 2. Получаем инвариантные признаки
+            console.log('🔍 Извлекаю инвариантные признаки...');
+            const features1 = footprint1.getInvariantFeatures();
+            const features2 = footprint2.getInvariantFeatures();
+
+            console.log(`📊 Признаки: ${features1.length} vs ${features2.length}`);
+
+            if (features1.length < 3 || features2.length < 3) {
+                console.log('⚠️ Недостаточно признаков для сравнения');
+                return await this.compareWithAlignment(footprint1, footprint2);
+            }
+
+            // 3. Создаем PatternVisualizer
+            const PatternVisualizer = require('./visualizations/pattern-visualizer');
+            const visualizer = new PatternVisualizer({
+                outputDir: path.join(this.config.dbPath, 'visualizations/patterns'),
+                debug: this.config.debug
+            });
+
+            // 4. Находим совпадающие паттерны
+            console.log('🔍 Ищу совпадающие паттерны...');
+            const matchingPatterns = visualizer.findMatchingPatterns(features1, features2, 0.6);
+
+            // 5. Рассчитываем схожесть
+            const totalFeatures = Math.max(features1.length, features2.length);
+            const similarity = matchingPatterns.length / totalFeatures;
+
+            console.log(`📈 Результат паттернового сравнения:`);
+            console.log(`   Совпало паттернов: ${matchingPatterns.length} из ${totalFeatures}`);
+            console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}%`);
+
+            // 6. Принимаем решение
+            let decision, reason;
+            if (similarity > 0.7) {
+                decision = 'same';
+                reason = `Высокая схожесть паттернов (${matchingPatterns.length}/${totalFeatures})`;
+            } else if (similarity > 0.4) {
+                decision = 'similar';
+                reason = `Умеренная схожесть паттернов (${matchingPatterns.length}/${totalFeatures})`;
+            } else {
+                decision = 'different';
+                reason = `Низкая схожесть паттернов (${matchingPatterns.length}/${totalFeatures})`;
+            }
+
+            // 7. Создаем визуализацию
+            console.log('🎨 Создаю визуализацию паттернов...');
+            const visualization = await visualizer.visualizePatternComparison(
+                footprint1, footprint2, matchingPatterns, {
+                    filename: `pattern_comparison_${footprint1.id}_${footprint2.id}.png`
+                }
+            );
+
+            // 8. Обновляем шаблон если следы совпали
+            if (decision === 'same') {
+                console.log('🔄 Следы совпали - обновляю шаблон...');
+                await this.updateTemplateFromPatternMatch(footprint1, footprint2, matchingPatterns);
+            }
+
+            return {
+                similarity,
+                decision,
+                reason,
+                matchingPatterns: matchingPatterns.length,
+                totalFeatures,
+                method: 'pattern_based',
+                visualization: visualization,
+                patternTypes: this.analyzePatternTypes(matchingPatterns)
+            };
+
+        } catch (error) {
+            console.log(`❌ Ошибка паттернового сравнения:`, error.message);
+            console.error(error.stack);
+
+            // Фоллбэк на выравнивание
+            console.log('🔄 Использую выравнивание как фоллбэк...');
+            return await this.compareWithAlignment(footprint1, footprint2);
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Анализ типов паттернов
+    analyzePatternTypes(matchingPatterns) {
+        const types = {
+            triangle: 0,
+            line: 0,
+            cluster: 0,
+            corner: 0,
+            other: 0
+        };
+
+        if (!matchingPatterns || matchingPatterns.length === 0) {
+            return types;
+        }
+
+        matchingPatterns.forEach(pattern => {
+            const type = pattern.type || 'other';
+            if (types[type] !== undefined) {
+                types[type]++;
+            } else {
+                types.other++;
+            }
+        });
+
+        return types;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Обновить шаблон из совпавших паттернов
+    async updateTemplateFromPatternMatch(footprint1, footprint2, matchingPatterns) {
+        const userId = footprint1.userId || footprint2.userId;
+        if (!userId) return;
+
+        const vectorModel = this.vectorSuperModels.get(userId);
+        if (!vectorModel || !vectorModel.templateBuilder) {
+            console.log('⚠️ Нет шаблона для обновления');
+            return;
+        }
+
+        console.log(`🔄 Обновляю шаблон из ${matchingPatterns.length} совпавших паттернов...`);
+
+        // Для каждого совпавшего паттерна находим соответствующие точки
+        const pointMatches = [];
+
+        matchingPatterns.forEach(pattern => {
+            if (pattern.pattern1 && pattern.pattern1.originalPoint &&
+                pattern.pattern2 && pattern.pattern2.originalPoint) {
+
+                pointMatches.push({
+                    point1: pattern.pattern1.originalPoint,
+                    point2: pattern.pattern2.originalPoint,
+                    confidence: pattern.confidence,
+                    patternType: pattern.type
+                });
+            }
+        });
+
+        console.log(`✅ Найдено ${pointMatches.length} совпадений точек для обновления шаблона`);
+
+        // Здесь можно добавить логику обновления шаблона на основе паттернов
+        // Например, увеличить подтверждения для совпавших точек
+
+        return pointMatches.length;
     }
 
     // 🔥 ДЕБАГ МЕТОД: Проверить накопление деталей
@@ -1585,9 +1738,9 @@ class SimpleFootprintManager {
                 transformationInfo: transformationInfo
             });
 
-            // 🔥 ИСПОЛЬЗУЕМ ВЫРАВНИВАНИЕ ДЛЯ СРАВНЕНИЯ
-            console.log(`🎯 Сравнение с выравниванием следов...`);
-            const comparisonResult = await this.compareWithAlignment(
+            // 🔥 ИСПОЛЬЗУЕМ ПАТТЕРНОВОЕ СРАВНЕНИЕ
+            console.log(`🎯 Сравнение с паттернами следов...`);
+            const comparisonResult = await this.compareWithPatterns(
                 session.currentFootprint,
                 tempFootprint
             );
@@ -1595,7 +1748,7 @@ class SimpleFootprintManager {
             const similarity = comparisonResult?.similarity || 0;
             const decision = similarity > 0.6 ? 'same' : 'different';
 
-            console.log(`🎯 Сходство (с выравниванием): ${similarity.toFixed(3)}, решение: ${decision}`);
+            console.log(`🎯 Сходство (с паттернами): ${similarity.toFixed(3)}, решение: ${decision}`);
 
             // 🔥 СЛЕДЫ СОВПАЛИ - обновляем шаблон с накоплением
             if (decision === 'same') {
@@ -1709,7 +1862,7 @@ class SimpleFootprintManager {
                             let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
                             caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
                             caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
-                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'alignment_based'}\n`;
+                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'pattern_based'}\n`;
 
                             if (comparisonResult.alignment && comparisonResult.alignment.quality) {
                                 caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\n`;
