@@ -95,36 +95,149 @@ class SimpleFootprintManager {
 
     // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Использовать алайнер для сравнения
     async compareWithAlignment(footprint1, footprint2) {
-        console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+    console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
 
-        try {
-            const alignmentResult = await this.aligner.testAlignment(footprint1, footprint2);
+    try {
+        // 🔥 ИСПРАВЛЕНИЕ: Получаем оригинальные трансформации
+        let transformation1 = footprint1.getTransformation();
+        let transformation2 = footprint2.getTransformation();
 
-            if (alignmentResult.success) {
-                console.log(`✅ Выравнивание успешно! Качество: ${alignmentResult.quality.toFixed(3)}`);
+        console.log(`📐 Трансформация исходного следа:`);
+        console.log(`   Поворот: ${transformation1?.rotationAngle?.toFixed(1) || 0}°`);
+        console.log(`   Зеркало: ${transformation1?.isMirrored || false}`);
+       
+        console.log(`📐 Трансформация эталона:`);
+        console.log(`   Поворот: ${transformation2?.rotationAngle?.toFixed(1) || 0}°`);
+        console.log(`   Зеркало: ${transformation2?.isMirrored || false}`);
 
-                // Теперь можно сравнить выровненные точки
-                const comparison = this.compareFootprintsWithAlignment(
-                    footprint1,
-                    footprint2,
-                    alignmentResult.alignedPoints
-                );
+        // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Создаем нормализованные трансформации с углом 0°
+        const normalizedTransformation1 = transformation1 ? {
+            ...transformation1,
+            rotationAngle: 0, // 🔥 НОРМАЛИЗУЕМ К 0°
+            isMirrored: false, // 🔥 Сбрасываем зеркальность
+            normalized: true,
+            originalRotation: transformation1.rotationAngle // Сохраняем оригинальный угол для отладки
+        } : null;
 
-                return {
-                    ...comparison,
-                    alignment: alignmentResult,
-                    method: 'alignment_based'
-                };
-            } else {
-                console.log(`⚠️ Выравнивание не удалось, использую стандартный метод`);
-                return await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+        const normalizedTransformation2 = transformation2 ? {
+            ...transformation2,
+            rotationAngle: 0, // 🔥 НОРМАЛИЗУЕМ К 0°
+            isMirrored: false, // 🔥 Сбрасываем зеркальность
+            normalized: true,
+            originalRotation: transformation2.rotationAngle // Сохраняем оригинальный угол для отладки
+        } : null;
+
+        console.log(`📐 Нормализованные трансформации (для выравнивания):`);
+        console.log(`   ${footprint1.name}: ${normalizedTransformation1?.rotationAngle || 0}° (было ${transformation1?.rotationAngle || 0}°)`);
+        console.log(`   ${footprint2.name}: ${normalizedTransformation2?.rotationAngle || 0}° (было ${transformation2?.rotationAngle || 0}°)`);
+
+        // 🔥 ПРОВЕРКА КООРДИНАТ: Получаем точки в их системах координат
+        console.log(`🔍 ПРОВЕРКА КООРДИНАТ:`);
+
+        // Получаем точки из трекеров (уже нормализованные к 0°)
+        const points1 = this.getTrackerPointsInFootprintSystem(footprint1.pointTracker, transformation1 || this.createIdentityTransformation());
+        const points2 = this.getTrackerPointsInFootprintSystem(footprint2.pointTracker, transformation2 || this.createIdentityTransformation());
+
+        console.log(`   След 1: ${points1.length} точек, пример: (${points1[0]?.x?.toFixed(1) || 0}, ${points1[0]?.y?.toFixed(1) || 0})`);
+        console.log(`   След 2: ${points2.length} точек, пример: (${points2[0]?.x?.toFixed(1) || 0}, ${points2[0]?.y?.toFixed(1) || 0})`);
+
+        // Проверяем, нормализованы ли уже координаты
+        const checkNormalization = (points) => {
+            if (points.length === 0) {
+                return { width: 0, height: 0, ratio: 0 };
             }
+            const xs = points.map(p => p.x);
+            const ys = points.map(p => p.y);
+            const width = Math.max(...xs) - Math.min(...xs);
+            const height = Math.max(...ys) - Math.min(...ys);
 
-        } catch (error) {
-            console.log(`❌ Ошибка выравнивания:`, error.message);
-            return await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+            return {
+                width,
+                height,
+                ratio: width / (height || 1)
+            };
+        };
+
+        const norm1 = checkNormalization(points1);
+        const norm2 = checkNormalization(points2);
+
+        console.log(`📏 РАЗМЕРЫ ТОЧЕК:`);
+        console.log(`   След 1: ${norm1.width.toFixed(1)}x${norm1.height.toFixed(1)} (ratio: ${norm1.ratio.toFixed(2)})`);
+        console.log(`   След 2: ${norm2.width.toFixed(1)}x${norm2.height.toFixed(1)} (ratio: ${norm2.ratio.toFixed(2)})`);
+
+        // 🔥 Передаем ВЫРАВНИВАТЕЛЮ нормализованные трансформации
+        const alignmentResult = await this.aligner.testAlignment(
+            footprint1,
+            footprint2,
+            normalizedTransformation2 || this.createIdentityTransformation(), // 🔥 Передаем нормализованные
+            normalizedTransformation1 || this.createIdentityTransformation()  // 🔥 а не оригинальные
+        );
+
+        if (alignmentResult.success) {
+            console.log(`✅ Выравнивание успешно! Качество: ${alignmentResult.quality?.toFixed(3) || 0}`);
+
+            // Теперь можно сравнить выровненные точки
+            const comparison = this.compareFootprintsWithAlignment(
+                footprint1,
+                footprint2,
+                alignmentResult.alignedPoints || []
+            );
+
+            return {
+                ...comparison,
+                alignment: alignmentResult,
+                method: 'alignment_based',
+                debug: {
+                    originalRotations: {
+                        footprint1: transformation1?.rotationAngle || 0,
+                        footprint2: transformation2?.rotationAngle || 0
+                    },
+                    normalizedRotations: {
+                        footprint1: normalizedTransformation1?.rotationAngle || 0,
+                        footprint2: normalizedTransformation2?.rotationAngle || 0
+                    },
+                    pointsCount: {
+                        footprint1: points1.length,
+                        footprint2: points2.length
+                    }
+                }
+            };
+        } else {
+            console.log(`⚠️ Выравнивание не удалось, использую стандартный метод`);
+            const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+           
+            return {
+                ...fallbackResult,
+                alignment: { success: false, error: alignmentResult.error },
+                method: 'graph_based_fallback'
+            };
+        }
+
+    } catch (error) {
+        console.log(`❌ Ошибка выравнивания:`, error.message);
+        console.error(error.stack);
+       
+        // 🔥 Фоллбэк на сравнение графов
+        try {
+            const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+            return {
+                ...fallbackResult,
+                alignment: { success: false, error: error.message },
+                method: 'graph_based_error_fallback'
+            };
+        } catch (fallbackError) {
+            console.log(`❌ Ошибка фоллбэка:`, fallbackError.message);
+           
+            return {
+                similarity: 0,
+                decision: 'different',
+                reason: `Ошибка сравнения: ${error.message}`,
+                alignment: { success: false, error: error.message },
+                method: 'error'
+            };
         }
     }
+}
 
     // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Сравнить с учетом выравнивания
     compareFootprintsWithAlignment(footprint1, footprint2, alignedPoints2) {
