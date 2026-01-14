@@ -105,7 +105,7 @@ class SimpleFootprintManager {
         console.log(`📐 Трансформация исходного следа:`);
         console.log(`   Поворот: ${transformation1?.rotationAngle?.toFixed(1) || 0}°`);
         console.log(`   Зеркало: ${transformation1?.isMirrored || false}`);
-
+      
         console.log(`📐 Трансформация эталона:`);
         console.log(`   Поворот: ${transformation2?.rotationAngle?.toFixed(1) || 0}°`);
         console.log(`   Зеркало: ${transformation2?.isMirrored || false}`);
@@ -205,7 +205,7 @@ class SimpleFootprintManager {
         } else {
             console.log(`⚠️ Выравнивание не удалось, использую стандартный метод`);
             const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
-
+          
             return {
                 ...fallbackResult,
                 alignment: { success: false, error: alignmentResult.error },
@@ -216,7 +216,7 @@ class SimpleFootprintManager {
     } catch (error) {
         console.log(`❌ Ошибка выравнивания:`, error.message);
         console.error(error.stack);
-
+      
         // 🔥 Фоллбэк на сравнение графов
         try {
             const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
@@ -227,7 +227,7 @@ class SimpleFootprintManager {
             };
         } catch (fallbackError) {
             console.log(`❌ Ошибка фоллбэка:`, fallbackError.message);
-
+          
             return {
                 similarity: 0,
                 decision: 'different',
@@ -378,9 +378,9 @@ class SimpleFootprintManager {
         console.log(`   Качество лучшего: ${templateData.dynamicInfo?.bestGraphQuality?.toFixed(3) || 0}`);
     }
 
-    // 🔥 ПОЛНОСТЬЮ ПЕРЕПИСАННЫЙ МЕТОД: Обновление подтверждений с правильным сравнением координат
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Обновление подтверждений с правильным сравнением координат
     updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo = null) {
-        console.log(`🔄 ОБНОВЛЯЮ ПОДТВЕРЖДЕНИЯ с ПРАВИЛЬНЫМ сравнением координат...`);
+        console.log(`🔄 ОБНОВЛЯЮ ПОДТВЕРЖДЕНИЯ с ИСПРАВЛЕННЫМИ ТРАНСФОРМАЦИЯМИ...`);
 
         if (!footprint || !footprint.pointTracker) {
             console.log('⚠️ Нет отпечатка или PointTracker');
@@ -398,18 +398,41 @@ class SimpleFootprintManager {
         // 🔥 1. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ОТПЕЧАТКА
         let footprintTransformation = footprint.getTransformation();
 
-        if (!footprintTransformation) {
-            console.log('⚠️ У отпечатка нет трансформации! Создаю по умолчанию...');
+        if (!footprintTransformation || !footprintTransformation.matrix) {
+            console.log('⚠️ У отпечатка нет корректной трансформации! Создаю...');
             // Создаем трансформацию на основе точек трекера
-            footprintTransformation = this.createTransformationFromTracker(tracker);
+            const points = [];
+            for (const [, point] of tracker.points) {
+                points.push({ x: point.x, y: point.y });
+            }
+           
+            if (points.length > 0) {
+                footprintTransformation = this.rotationProcessor.createTransformationFromPoints(points);
+            } else {
+                footprintTransformation = this.rotationProcessor.createIdentityTransformation();
+            }
+           
+            // Сохраняем трансформацию в отпечатке
+            if (footprint.setTransformation) {
+                footprint.setTransformation(footprintTransformation);
+            }
         }
 
         console.log(`📐 Трансформация отпечатка:`);
-        console.log(`   Поворот: ${footprintTransformation.rotationAngle?.toFixed(1)}°`);
+        console.log(`   Угол: ${footprintTransformation.rotationAngle?.toFixed(1) || 0}°`);
         console.log(`   Зеркало: ${footprintTransformation.isMirrored ? 'да' : 'нет'}`);
         console.log(`   Центр: (${footprintTransformation.center?.x?.toFixed(1)}, ${footprintTransformation.center?.y?.toFixed(1)})`);
 
-        // 🔥 2. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ШАБЛОНА
+        // 🔥 2. ПОЛУЧАЕМ ДАННЫЕ ШАБЛОНА
+        const templateData = templateBuilder.getVisualizationData();
+        if (!templateData || !templateData.cells || templateData.cells.length === 0) {
+            console.log('⚠️ Нет данных ячеек в шаблоне');
+            return 0;
+        }
+
+        console.log(`📊 Данные шаблона: ${templateData.cells.length} ячеек`);
+
+        // 🔥 3. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ШАБЛОНА
         const templateTransformation = templateBuilder.getNormalizationTransform();
         if (!templateTransformation) {
             console.log('⚠️ У шаблона нет трансформации!');
@@ -420,26 +443,95 @@ class SimpleFootprintManager {
         console.log(`   Границы: ${templateTransformation.width?.toFixed(1)}x${templateTransformation.height?.toFixed(1)}`);
         console.log(`   Смещение: (${templateTransformation.minX?.toFixed(1)}, ${templateTransformation.minY?.toFixed(1)})`);
 
-        // 🔥 3. ПОЛУЧАЕМ ТОЧКИ ШАБЛОНА В ЕГО НОРМАЛИЗОВАННЫХ КООРДИНАТАХ
-        const templateData = templateBuilder.getVisualizationData();
-        if (!templateData || !templateData.cells || templateData.cells.length === 0) {
-            console.log('⚠️ Нет данных ячеек в шаблоне');
-            return 0;
-        }
+        // 🔥 4. КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ПРАВИЛЬНОЕ ПРЕОБРАЗОВАНИЕ КООРДИНАТ
+        const templatePointsInFootprintSystem = [];
 
-        console.log(`📊 Данные шаблона: ${templateData.cells.length} ячеек`);
+        // Для каждой ячейки шаблона
+        templateData.cells.forEach((cell, index) => {
+            // Координаты в нормализованной системе шаблона (0-1)
+            const normalizedX = cell.nx || 0;
+            const normalizedY = cell.ny || 0;
+           
+            // Преобразуем нормализованные координаты в реальные координаты шаблона
+            const realTemplatePoint = {
+                x: normalizedX * templateTransformation.width + templateTransformation.minX,
+                y: normalizedY * templateTransformation.height + templateTransformation.minY,
+                nx: normalizedX,
+                ny: normalizedY,
+                confirmations: cell.confirmations || 1,
+                confidence: cell.confidence || 0.7,
+                cellId: cell.id,
+                isNew: cell.isNew || false,
+                status: cell.status || 'unknown'
+            };
+           
+            // 🔥 СОЗДАЕМ ТРАНСФОРМАЦИЮ ДЛЯ ШАБЛОНА
+            const templateToRealTransformation = {
+                matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+                rotationAngle: 0,
+                isMirrored: false,
+                center: {
+                    x: templateTransformation.minX + templateTransformation.width / 2,
+                    y: templateTransformation.minY + templateTransformation.height / 2
+                },
+                bounds: {
+                    minX: templateTransformation.minX,
+                    maxX: templateTransformation.minX + templateTransformation.width,
+                    minY: templateTransformation.minY,
+                    maxY: templateTransformation.minY + templateTransformation.height
+                },
+                scale: { x: 1, y: 1 },
+                translation: { x: 0, y: 0 },
+                type: 'template_normalized_to_real'
+            };
 
-        // 🔥 4. ПРЕОБРАЗУЕМ ТОЧКИ ШАБЛОНА В СИСТЕМУ КООРДИНАТ ОТПЕЧАТКА
-        const templatePointsInFootprintSystem = this.transformTemplatePointsToFootprintSystem(
-            templateData.cells,
-            templateTransformation,
-            footprintTransformation
-        );
+            // 🔥 ПРЕОБРАЗУЕМ ИЗ СИСТЕМЫ ШАБЛОНА В СИСТЕМУ ОТПЕЧАТКА
+            const transformedToFootprintSystem = this.rotationProcessor.transformPointsBetweenSystems(
+                [realTemplatePoint],
+                templateToRealTransformation,  // Из системы реальных координат шаблона
+                footprintTransformation        // В систему отпечатка
+            );
+           
+            if (transformedToFootprintSystem && transformedToFootprintSystem[0]) {
+                const transformedPoint = transformedToFootprintSystem[0];
+               
+                templatePointsInFootprintSystem.push({
+                    ...transformedPoint,
+                    originalTemplatePoint: realTemplatePoint,
+                    originalCell: cell,
+                    cellIndex: index
+                });
+            } else {
+                // 🔥 ФОЛЛБЭК: используем координаты как есть
+                console.log(`⚠️ Преобразование не сработало для ячейки ${cell.id}`);
+                templatePointsInFootprintSystem.push({
+                    x: realTemplatePoint.x,
+                    y: realTemplatePoint.y,
+                    confirmations: cell.confirmations || 1,
+                    confidence: cell.confidence || 0.7,
+                    cellId: cell.id,
+                    isNew: cell.isNew || false,
+                    status: cell.status || 'unknown',
+                    transformationFailed: true,
+                    originalCell: cell
+                });
+            }
+        });
 
         console.log(`📊 Преобразовано ${templatePointsInFootprintSystem.length} точек шаблона в систему отпечатка`);
 
         // 🔥 5. ПОЛУЧАЕМ ТОЧКИ ТРЕКЕРА В СИСТЕМЕ ОТПЕЧАТКА
-        const trackerPoints = this.getTrackerPointsInFootprintSystem(tracker, footprintTransformation);
+        const trackerPoints = [];
+        for (const [id, point] of tracker.points) {
+            trackerPoints.push({
+                id,
+                x: point.x,
+                y: point.y,
+                confidence: point.rating || 0.5,
+                confirmedCount: point.confirmedCount || 1,
+                pointData: point
+            });
+        }
 
         console.log(`📊 Точки трекера: ${trackerPoints.length}`);
 
@@ -463,7 +555,7 @@ class SimpleFootprintManager {
             comparisonResult.matches
         );
 
-        // 🔥 9. ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ В ОТПЕЧАТКЕ (если нужно)
+        // 🔥 9. ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ В ОТПЕЧАТКЕ
         this.updateFootprintConfirmations(footprint, comparisonResult.matches);
 
         console.log(`\n🎯 РЕЗУЛЬТАТ СРАВНЕНИЯ:`);
@@ -475,21 +567,34 @@ class SimpleFootprintManager {
         console.log(`   • Обновлено точек: ${updatedCount}`);
         console.log(`   • Процент совпадений: ${comparisonResult.matchRate.toFixed(1)}%`);
 
-        // 🔥 10. ПРЕДУПРЕЖДЕНИЯ ЕСЛИ МАЛО СОВПАДЕНИЙ
+        // 🔥 10. СОХРАНЯЕМ ОТЛАДОЧНУЮ ИНФОРМАЦИЮ ЕСЛИ МАЛО СОВПАДЕНИЙ
         if (comparisonResult.matchRate < 30 && trackerPoints.length > 5) {
             console.log(`\n⚠️ ВНИМАНИЕ: Мало совпадений (${comparisonResult.matchRate.toFixed(1)}%)`);
-            console.log(`   Возможные причины:`);
-            console.log(`   1. Разные системы координат (трансформация не работает)`);
-            console.log(`   2. Разные следы (не тот же протектор)`);
-            console.log(`   3. Ошибка в трансформациях`);
-
-            // 🔥 ДЕБАГ ИНФОРМАЦИЯ
-            this.debugTransformationIssues(
-                footprintTransformation,
-                templateTransformation,
-                trackerPoints,
-                templatePointsInFootprintSystem
-            );
+           
+            // Сохраняем отладочную информацию
+            try {
+                const debugDir = path.join(this.config.dbPath, 'debug/transformations');
+                if (!fs.existsSync(debugDir)) {
+                    fs.mkdirSync(debugDir, { recursive: true });
+                }
+               
+                const debugFile = path.join(debugDir, `debug_${Date.now()}.json`);
+                const debugData = {
+                    timestamp: new Date().toISOString(),
+                    footprintTransformation: footprintTransformation,
+                    templateTransformation: templateTransformation,
+                    pointsCount: {
+                        tracker: trackerPoints.length,
+                        template: templatePointsInFootprintSystem.length
+                    },
+                    comparisonResult: comparisonResult
+                };
+               
+                fs.writeFileSync(debugFile, JSON.stringify(debugData, null, 2));
+                console.log(`   📁 Отладочная информация сохранена: ${debugFile}`);
+            } catch (error) {
+                console.log(`   ⚠️ Не удалось сохранить отладочную информацию: ${error.message}`);
+            }
         }
 
         return updatedCount;
@@ -499,24 +604,17 @@ class SimpleFootprintManager {
     transformTemplatePointsToFootprintSystem(templateCells, templateTransformation, footprintTransformation) {
         const points = [];
 
-        // Создаем процессор для преобразований
-        const RotationInvariance = require('./rotation-invariance');
-        const processor = new RotationInvariance();
-
         templateCells.forEach((cell, index) => {
-            // 🔥 ВАЖНО: Шаблон хранит точки в НОРМАЛИЗОВАННЫХ координатах (nx, ny)
-            // Нам нужно преобразовать их в реальные координаты шаблона,
-            // а затем в систему отпечатка
-
-            // 1. Нормализованные координаты → реальные координаты шаблона
-            const templateX = (cell.nx || 0) * templateTransformation.width + templateTransformation.minX;
-            const templateY = (cell.ny || 0) * templateTransformation.height + templateTransformation.minY;
-
-            const templatePoint = {
-                x: templateX,
-                y: templateY,
-                nx: cell.nx,
-                ny: cell.ny,
+            // Координаты в нормализованной системе шаблона (0-1)
+            const normalizedX = cell.nx || 0;
+            const normalizedY = cell.ny || 0;
+           
+            // Преобразуем нормализованные координаты в реальные координаты шаблона
+            const realTemplatePoint = {
+                x: normalizedX * templateTransformation.width + templateTransformation.minX,
+                y: normalizedY * templateTransformation.height + templateTransformation.minY,
+                nx: normalizedX,
+                ny: normalizedY,
                 confirmations: cell.confirmations || 1,
                 confidence: cell.confidence || 0.7,
                 cellId: cell.id,
@@ -524,12 +622,15 @@ class SimpleFootprintManager {
                 status: cell.status || 'unknown'
             };
 
-            // 🔥 2. СОЗДАЕМ ТРАНСФОРМАЦИЮ ШАБЛОНА (из нормализованной системы в реальную)
+            // Создаем трансформацию для шаблона
             const templateToRealTransformation = {
-                matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1], // Единичная матрица
+                matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
                 rotationAngle: 0,
                 isMirrored: false,
-                center: { x: 0, y: 0 },
+                center: {
+                    x: templateTransformation.minX + templateTransformation.width / 2,
+                    y: templateTransformation.minY + templateTransformation.height / 2
+                },
                 bounds: {
                     minX: templateTransformation.minX,
                     maxX: templateTransformation.minX + templateTransformation.width,
@@ -540,11 +641,11 @@ class SimpleFootprintManager {
                 type: 'template_to_real'
             };
 
-            // 3. Преобразуем из системы шаблона в систему отпечатка
-            const transformedPoints = processor.transformPointsBetweenSystems(
-                [templatePoint],
-                templateToRealTransformation,  // Из системы шаблона
-                footprintTransformation        // В систему отпечатка
+            // Преобразуем из системы шаблона в систему отпечатка
+            const transformedPoints = this.rotationProcessor.transformPointsBetweenSystems(
+                [realTemplatePoint],
+                templateToRealTransformation,
+                footprintTransformation
             );
 
             if (transformedPoints && transformedPoints[0]) {
@@ -552,16 +653,16 @@ class SimpleFootprintManager {
 
                 points.push({
                     ...transformedPoint,
-                    originalTemplatePoint: templatePoint,
+                    originalTemplatePoint: realTemplatePoint,
                     originalCell: cell,
                     cellIndex: index
                 });
             } else {
-                // 🔥 ФОЛЛБЭК: используем координаты как есть (если преобразование не сработало)
-                console.log(`⚠️ Преобразование не сработало для ячейки ${cell.id}, использую исходные координаты`);
+                // 🔥 ФОЛЛБЭК: используем координаты как есть
+                console.log(`⚠️ Преобразование не сработало для ячейки ${cell.id}`);
                 points.push({
-                    x: templateX,
-                    y: templateY,
+                    x: realTemplatePoint.x,
+                    y: realTemplatePoint.y,
                     confirmations: cell.confirmations || 1,
                     confidence: cell.confidence || 0.7,
                     cellId: cell.id,
@@ -580,9 +681,7 @@ class SimpleFootprintManager {
         const points = [];
 
         for (const [pointId, pointData] of tracker.points) {
-            // Точки трекера УЖЕ в системе отпечатка (они не нормализованы)
-            // Но нам может понадобиться убедиться, что они в правильной системе
-
+            // Точки трекера УЖЕ в системе отпечатка
             const point = {
                 id: pointId,
                 x: pointData.x || 0,
@@ -650,15 +749,6 @@ class SimpleFootprintManager {
                 }
 
                 matches.push(bestMatch);
-
-                // 🔥 ДЕБАГ: показываем первые несколько совпадений
-                if (matches.length <= 3) {
-                    console.log(`   Совпадение ${matches.length}:`);
-                    console.log(`     Точка трекера: (${trackerPoint.x.toFixed(1)}, ${trackerPoint.y.toFixed(1)})`);
-                    console.log(`     Точка шаблона: (${bestTemplatePoint.x.toFixed(1)}, ${bestTemplatePoint.y.toFixed(1)})`);
-                    console.log(`     Расстояние: ${minDistance.toFixed(1)}px (${bestMatch.matchType})`);
-                    console.log(`     Подтверждения шаблона: ${bestTemplatePoint.confirmations}`);
-                }
             }
         });
 
@@ -730,30 +820,6 @@ class SimpleFootprintManager {
             if (newConfirmations > oldConfirmations) {
                 pointData.confirmedCount = newConfirmations;
                 updatedCount++;
-
-                // 🔥 ТОЛЬКО ДЛЯ ДЕБАГА: показываем первые несколько обновлений
-                if (updatedCount <= 5) {
-                    console.log(`   ✅ ${pointId.slice(0, 8)}: ${oldConfirmations} → ${newConfirmations} подтверждений`);
-                    console.log(`       тип: ${bestMatch.matchType}, расстояние: ${bestMatch.distance.toFixed(1)}px`);
-                    console.log(`       уверенность шаблона: ${bestMatch.templatePoint.confidence?.toFixed(3)}`);
-                }
-
-                // 🔥 УВЕЛИЧИВАЕМ УВЕРЕННОСТЬ ТОЧКИ
-                if (pointData.rating) {
-                    pointData.rating = Math.min(1.0, pointData.rating + 0.1);
-                }
-
-                // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ПОДТВЕРЖДЕНИИ
-                if (!pointData.confirmationSources) {
-                    pointData.confirmationSources = [];
-                }
-                pointData.confirmationSources.push({
-                    source: 'template',
-                    templateCellId: bestMatch.templatePoint.cellId,
-                    distance: bestMatch.distance,
-                    matchType: bestMatch.matchType,
-                    timestamp: new Date()
-                });
             }
         }
 
@@ -1346,7 +1412,7 @@ class SimpleFootprintManager {
                             comparisonResult: comparisonResult
                         }
                     );
-
+                  
                     // 🔥 ВАЖНО: Проверяем результат визуализации
                     if (clusterVizResult && clusterVizResult.path) {
                         console.log(`✅ Визуализация создана: ${clusterVizResult.path}`);
@@ -1382,41 +1448,41 @@ class SimpleFootprintManager {
                     // Отправляем визуализацию подтверждений
                     if (clusterVizResult && clusterVizResult.path && fs.existsSync(clusterVizResult.path)) {
                         try {
-                            // 🔥 СТРОГО ПО ИНСТРУКЦИИ: Используем MarkdownV2
-                            let caption = `🎯 **РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ**\\n\\n`;
-                            caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\\n`;
-                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\\n`;
-                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'alignment_based'}\\n`;
-
+                            // Простой текст без Markdown для избежания ошибок
+                            let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
+                            caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                            caption += `🔄 Метод сравнения: ${comparisonResult.method || 'alignment_based'}\n`;
+                          
                             if (comparisonResult.alignment && comparisonResult.alignment.quality) {
-                                caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\\n`;
+                                caption += `🎯 Качество выравнивания: ${(comparisonResult.alignment.quality * 100).toFixed(1)}%\n`;
                             }
-
-                            caption += `\\n📈 **СТАТИСТИКА (после ${session.photos.length} фото):**\\n`;
-                            caption += `• Всего точек: ${stats.totalPoints}\\n`;
-                            caption += `• 🔴 2\\+ подтверждений: ${stats.confirmed2}\\n`;
-                            caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\\n`;
-                            caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}\\n\\n`;
-                            caption += `🔄 Обновлено из шаблона: ${updatedFromTemplate} точек\\n`;
+                          
+                            caption += `\n📈 СТАТИСТИКА (после ${session.photos.length} фото):\n`;
+                            caption += `• Всего точек: ${stats.totalPoints}\n`;
+                            caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
+                            caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
+                            caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}\n\n`;
+                            caption += `🔄 Обновлено из шаблона: ${updatedFromTemplate} точек\n`;
                             caption += `🎯 Прямо обновлено: ${directUpdates} точек`;
 
                             console.log(`📤 Отправляю визуализацию в Telegram...`);
                             console.log(`📷 Путь к изображению: ${clusterVizResult.path}`);
-                            console.log(`📝 Капшн (первые 200 символов): ${caption.substring(0, 200)}...`);
+                            console.log(`📝 Размер файла: ${fs.statSync(clusterVizResult.path).size} байт`);
 
                             await bot.sendPhoto(chatId, clusterVizResult.path, {
                                 caption: caption,
-                                parse_mode: 'MarkdownV2'  // 🔥 Используем MarkdownV2 как в инструкции
+                                parse_mode: null  // Простой текст без Markdown
                             });
-                            console.log('✅ Визуализация отправлена');
+                            console.log('✅ Визуализация подтверждений отправлена');
                             telegramSent = true;
 
                             // 🔥 Дополнительно отправляем визуализацию выравнивания если есть
                             if (alignmentVizPath && fs.existsSync(alignmentVizPath)) {
                                 console.log(`📤 Отправляю визуализацию выравнивания в Telegram...`);
                                 await bot.sendPhoto(chatId, alignmentVizPath, {
-                                    caption: `🔄 **Визуализация выравнивания**\\n${comparisonResult.reason || ''}`,
-                                    parse_mode: 'MarkdownV2'
+                                    caption: `🔄 Визуализация выравнивания\n${comparisonResult.reason || ''}`,
+                                    parse_mode: null
                                 });
                                 console.log('✅ Визуализация выравнивания отправлена');
                             }
@@ -1425,19 +1491,24 @@ class SimpleFootprintManager {
                             if (templateVizResult && templateVizResult.template && fs.existsSync(templateVizResult.template)) {
                                 console.log(`📤 Отправляю визуализацию шаблона в Telegram...`);
                                 await bot.sendPhoto(chatId, templateVizResult.template, {
-                                    caption: `📊 **Шаблон после ${session.photos.length} фото**\\n• Ячеек: ${templateVizResult.stats?.cells || 0}\\n• Подтверждений: ${templateVizResult.stats?.totalConfirmations || 0}`,
-                                    parse_mode: 'MarkdownV2'
+                                    caption: `📊 Шаблон после ${session.photos.length} фото\n• Ячеек: ${templateVizResult.stats?.cells || 0}\n• Подтверждений: ${templateVizResult.stats?.totalConfirmations || 0}`,
+                                    parse_mode: null
                                 });
                                 console.log('✅ Визуализация шаблона отправлена');
                             }
 
                         } catch (sendError) {
-                            console.log('❌ Ошибка отправки:', sendError.message);
+                            console.log('❌ Ошибка отправки в Telegram:', sendError.message);
                             console.log('📋 Детали ошибки:', sendError.stack);
                         }
                     } else {
                         console.log('⚠️ Нет визуализации для отправки в Telegram');
-                        console.log('🔍 clusterVizResult:', clusterVizResult);
+                        if (clusterVizResult) {
+                            console.log('🔍 clusterVizResult:', clusterVizResult);
+                            if (clusterVizResult.path) {
+                                console.log('🔍 Файл существует?', fs.existsSync(clusterVizResult.path));
+                            }
+                        }
                     }
                 }
 
@@ -1507,16 +1578,15 @@ class SimpleFootprintManager {
 
                     if (newFootprintViz && newFootprintViz.path && fs.existsSync(newFootprintViz.path)) {
                         try {
-                            // 🔥 СТРОГО ПО ИНСТРУКЦИИ: Используем MarkdownV2
-                            let caption = `🆕 **СОЗДАН НОВЫЙ СЛЕД**\\n\\n`;
-                            caption += `📊 Сходство с предыдущим: ${(similarity * 100).toFixed(1)}%\\n`;
-                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\\n`;
-                            caption += `📈 Добавлено точек: ${addResult.added}\\n\\n`;
+                            let caption = `🆕 СОЗДАН НОВЫЙ СЛЕД\n\n`;
+                            caption += `📊 Сходство с предыдущим: ${(similarity * 100).toFixed(1)}%\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                            caption += `📈 Добавлено точек: ${addResult.added}\n\n`;
                             caption += `⚠️ След признан другим (низкое сходство)`;
 
                             await bot.sendPhoto(chatId, newFootprintViz.path, {
                                 caption: caption,
-                                parse_mode: 'MarkdownV2'
+                                parse_mode: null
                             });
                             console.log('✅ Визуализация нового следа отправлена');
                         } catch (sendError) {
@@ -1585,11 +1655,6 @@ class SimpleFootprintManager {
                 if (newCount > oldCount) {
                     point1.confirmedCount = newCount;
                     updatedCount++;
-
-                    if (updatedCount <= 5) {
-                        console.log(`   ✅ ${id1.slice(0, 8)}: ${oldCount} → ${newCount} подтверждений`);
-                        console.log(`       расстояние: ${minDistance.toFixed(1)}px`);
-                    }
                 }
             }
         }
@@ -1666,7 +1731,7 @@ class SimpleFootprintManager {
 
             if (vizResult && vizResult.path) {
                 console.log(`✅ Визуализация создана: ${vizResult.path}`);
-
+              
                 // Проверяем существование файла
                 if (fs.existsSync(vizResult.path)) {
                     const stats = fs.statSync(vizResult.path);
