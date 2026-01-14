@@ -1563,6 +1563,295 @@ class SimpleFootprint {
         console.log(`├─ Средняя степень: ${invariants.avgDegree.toFixed(2)}`);
         console.log(`└─ Плотность: ${invariants.density.toFixed(4)}`);
     }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить инвариантные признаки (добавлен в конец класса)
+    getInvariantFeatures() {
+        console.log(`🎯 Извлекаю инвариантные признаки для "${this.name}"...`);
+
+        const features = [];
+
+        if (!this.pointTracker || !this.pointTracker.points || this.pointTracker.points.size === 0) {
+            console.log('⚠️ Нет точек в PointTracker для извлечения признаков');
+            return features;
+        }
+
+        // 🔥 ИСПОЛЬЗУЕМ УЖЕ СУЩЕСТВУЮЩУЮ ЛОГИКУ ИЗ template-builder.js
+        try {
+            const TemplateBuilder = require('./template-builder');
+            const builder = new TemplateBuilder({ debug: false });
+
+            // Создаем временный граф из точек трекера
+            const graph = new SimpleGraph(`temp_for_invariants_${Date.now()}`);
+
+            const pointsArray = [];
+            for (const [id, point] of this.pointTracker.points) {
+                pointsArray.push({
+                    id: id,
+                    x: point.x,
+                    y: point.y,
+                    confidence: point.rating || 0.5,
+                    confirmedCount: point.confirmedCount || 1
+                });
+            }
+
+            if (pointsArray.length < 3) {
+                console.log('⚠️ Слишком мало точек для извлечения признаков');
+                return features;
+            }
+
+            graph.buildFromPoints(pointsArray);
+
+            // Извлекаем точки из графа
+            const graphPoints = this.extractPointsFromGraph(graph);
+
+            // Нормализуем точки
+            const bounds = builder.calculateBounds(graphPoints);
+            const normalizedPoints = graphPoints.map(point => ({
+                ...point,
+                nx: (point.x - bounds.minX) / Math.max(1, bounds.width),
+                ny: (point.y - bounds.minY) / Math.max(1, bounds.height),
+                normalized: true
+            }));
+
+            // Создаем признаки для каждой точки
+            normalizedPoints.forEach((point, index) => {
+                const invariants = builder.calculatePointInvariants(point, normalizedPoints);
+
+                if (invariants.nearestNeighbors && invariants.nearestNeighbors.length > 0) {
+                    const feature = {
+                        id: point.id || `feature_${index}`,
+                        type: this.classifyPointFeature(invariants),
+                        angles: invariants.nearestNeighbors.map(n => n.angle),
+                        distances: invariants.nearestNeighbors.map(n => n.normalizedDistance),
+                        density: invariants.distanceDistribution?.[0] || 0,
+                        neighborCount: invariants.nearestNeighbors.length,
+                        topology: {
+                            neighborCount: invariants.nearestNeighbors.length,
+                            connectivity: Math.min(1, invariants.nearestNeighbors.length / 5),
+                            edgeTypes: this.detectEdgeTypes(invariants)
+                        },
+                        confidence: point.confidence || 0.5,
+                        source: 'point_tracker',
+                        originalPoint: {
+                            x: point.x,
+                            y: point.y,
+                            nx: point.nx,
+                            ny: point.ny
+                        }
+                    };
+
+                    features.push(feature);
+                }
+            });
+
+            console.log(`✅ Извлечено ${features.length} инвариантных признаков`);
+            return features;
+
+        } catch (error) {
+            console.log('⚠️ Ошибка извлечения инвариантов:', error.message);
+
+            // 🔥 ПРОСТОЙ ФАЛЛБЭК: создаем базовые признаки
+            return this.createBasicInvariantFeatures();
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Классифицировать признак точки
+    classifyPointFeature(invariants) {
+        if (!invariants.nearestNeighbors || invariants.nearestNeighbors.length < 2) {
+            return 'isolated';
+        }
+
+        const neighborCount = invariants.nearestNeighbors.length;
+
+        // Определяем тип по углам между соседями
+        if (neighborCount >= 3) {
+            const angles = invariants.nearestNeighbors.map(n => n.angle).sort((a, b) => a - b);
+            let maxAngleDiff = 0;
+
+            for (let i = 0; i < angles.length; i++) {
+                const nextIdx = (i + 1) % angles.length;
+                const diff = (angles[nextIdx] - angles[i] + 2 * Math.PI) % (2 * Math.PI);
+                maxAngleDiff = Math.max(maxAngleDiff, diff);
+            }
+
+            if (maxAngleDiff > Math.PI * 0.8) {
+                return 'corner'; // Есть большой угол (>144°) - вероятно угол
+            }
+        }
+
+        // По плотности расстояний
+        if (invariants.distanceDistribution && invariants.distanceDistribution[0] > 0.5) {
+            return 'cluster'; // Много близких соседей - кластер
+        }
+
+        // По равномерности углов
+        if (neighborCount >= 3) {
+            const angles = invariants.nearestNeighbors.map(n => n.angle).sort((a, b) => a - b);
+            let totalDiff = 0;
+
+            for (let i = 0; i < angles.length - 1; i++) {
+                totalDiff += Math.abs(angles[i + 1] - angles[i]);
+            }
+            const avgDiff = totalDiff / (angles.length - 1);
+
+            if (Math.abs(avgDiff - Math.PI / 3) < Math.PI / 6) {
+                return 'triangle'; // Углы примерно 60° - треугольник
+            }
+        }
+
+        return 'general';
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Определить типы связей
+    detectEdgeTypes(invariants) {
+        const types = [];
+
+        if (!invariants.nearestNeighbors || invariants.nearestNeighbors.length === 0) {
+            return types;
+        }
+
+        // Анализируем расстояния до соседей
+        const distances = invariants.nearestNeighbors.map(n => n.normalizedDistance);
+        const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
+
+        invariants.nearestNeighbors.forEach((neighbor, i) => {
+            const distRatio = neighbor.normalizedDistance / avgDistance;
+
+            if (distRatio < 0.7) {
+                types.push('strong'); // Близкий сосед
+            } else if (distRatio < 1.3) {
+                types.push('medium'); // Среднее расстояние
+            } else {
+                types.push('weak'); // Далекий сосед
+            }
+        });
+
+        return types;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Создать базовые признаки (фаллбэк)
+    createBasicInvariantFeatures() {
+        console.log('🔄 Создаю базовые инвариантные признаки (фаллбэк)...');
+
+        const features = [];
+
+        if (!this.pointTracker || !this.pointTracker.points) {
+            return features;
+        }
+
+        const pointsArray = Array.from(this.pointTracker.points.entries()).map(([id, point]) => ({
+            id,
+            x: point.x,
+            y: point.y,
+            confidence: point.rating || 0.5
+        }));
+
+        if (pointsArray.length < 3) {
+            return features;
+        }
+
+        // Простой расчет признаков
+        pointsArray.forEach((point, index) => {
+            // Находим 3 ближайших соседа
+            const neighbors = [];
+
+            pointsArray.forEach((otherPoint, otherIndex) => {
+                if (index === otherIndex) return;
+
+                const distance = Math.sqrt(
+                    Math.pow(otherPoint.x - point.x, 2) +
+                    Math.pow(otherPoint.y - point.y, 2)
+                );
+
+                const angle = Math.atan2(otherPoint.y - point.y, otherPoint.x - point.x);
+
+                neighbors.push({
+                    id: otherPoint.id,
+                    distance: distance,
+                    angle: angle
+                });
+            });
+
+            // Сортируем по расстоянию и берем ближайших
+            neighbors.sort((a, b) => a.distance - b.distance);
+            const closestNeighbors = neighbors.slice(0, 3);
+
+            if (closestNeighbors.length > 0) {
+                // Нормализуем расстояния
+                const maxDist = Math.max(...closestNeighbors.map(n => n.distance));
+                const normalizedDistances = closestNeighbors.map(n => n.distance / (maxDist || 1));
+                const angles = closestNeighbors.map(n => n.angle);
+
+                const feature = {
+                    id: point.id,
+                    type: this.simpleClassifyFeature(angles, normalizedDistances),
+                    angles: angles,
+                    distances: normalizedDistances,
+                    neighborCount: closestNeighbors.length,
+                    confidence: point.confidence,
+                    source: 'basic_fallback'
+                };
+
+                features.push(feature);
+            }
+        });
+
+        console.log(`✅ Создано ${features.length} базовых признаков`);
+        return features;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Простая классификация
+    simpleClassifyFeature(angles, distances) {
+        if (angles.length < 2) return 'isolated';
+
+        if (angles.length >= 3) {
+            // Проверяем равномерность углов
+            const sortedAngles = [...angles].sort((a, b) => a - b);
+            let totalDiff = 0;
+
+            for (let i = 0; i < sortedAngles.length - 1; i++) {
+                totalDiff += Math.abs(sortedAngles[i + 1] - sortedAngles[i]);
+            }
+            const avgDiff = totalDiff / (sortedAngles.length - 1);
+
+            if (Math.abs(avgDiff - 2 * Math.PI / 3) < Math.PI / 6) {
+                return 'triangle';
+            }
+        }
+
+        // Проверяем расстояния
+        const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
+        const variance = distances.reduce((sum, d) => sum + Math.pow(d - avgDistance, 2), 0) / distances.length;
+
+        if (variance < 0.1) {
+            return 'regular';
+        }
+
+        if (distances[0] < avgDistance * 0.5) {
+            return 'cluster';
+        }
+
+        return 'general';
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Извлечь точки из графа
+    extractPointsFromGraph(graph) {
+        const points = [];
+
+        if (!graph || !graph.nodes) return points;
+
+        graph.nodes.forEach((node, nodeId) => {
+            points.push({
+                id: nodeId,
+                x: node.x || 0,
+                y: node.y || 0,
+                confidence: node.confidence || 0.5,
+                originalNode: node
+            });
+        });
+
+        return points;
+    }
 }
 
 module.exports = SimpleFootprint;
