@@ -1529,7 +1529,52 @@ class SimpleFootprintManager {
         console.log(`✅ Прямое сравнение: обновлено ${updatedCount} точек`);
         return updatedCount;
     }
+// 🔥 МЕТОД: Получить уже повернутые точки
+    getTransformedPointsFromFootprint(footprint) {
+        const points = [];
 
+        // 🔥 ВАЖНО: Проверяем, есть ли трансформация
+        const transformation = footprint.getTransformation ? footprint.getTransformation() : null;
+
+        console.log(`📐 Получение точек для визуализации:`);
+        console.log(`   Угол трансформации: ${transformation?.rotationAngle?.toFixed(1) || 0}°`);
+
+        if (!footprint.pointTracker) {
+            console.log('⚠️ Нет PointTracker');
+            return points;
+        }
+
+        // 🔥 ЕСЛИ ЕСТЬ ТРАНСФОРМАЦИЯ - ПРИМЕНЯЕМ ЕЕ К ТОЧКАМ ЗДЕСЬ!
+        for (const [id, point] of footprint.pointTracker.points) {
+            let x = point.x;
+            let y = point.y;
+
+            // 🔥 ПРИМЕНЯЕМ ТРАНСФОРМАЦИЮ rotation-invariance.js ЗДЕСЬ!
+            if (transformation && transformation.matrix) {
+                const matrix = transformation.matrix;
+                const center = transformation.center || { x: 0, y: 0 };
+
+                const relX = x - center.x;
+                const relY = y - center.y;
+
+                x = relX * matrix[0] + relY * matrix[1] + center.x + matrix[2];
+                y = relX * matrix[3] + relY * matrix[4] + center.y + matrix[5];
+            }
+
+            points.push({
+                id,
+                x,
+                y,
+                confirmedCount: point.confirmedCount || 1,
+                confidence: point.rating || 0.5,
+                transformed: !!transformation
+            });
+        }
+
+        console.log(`✅ Получено ${points.length} точек (${transformation ? 'с трансформацией' : 'без трансформации'})`);
+
+        return points;
+    }
     // 🔥 ТЕСТ МЕТОД: Протестировать сравнение координат
     testCoordinateComparison(userId) {
         const session = this.userSessions.get(userId);
@@ -2199,46 +2244,41 @@ class SimpleFootprintManager {
     }
 
     // 🔥 ВАЖНЫЙ МЕТОД: Визуализация подтверждений ОДНОГО следа
-    async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
-        console.log(`🎨 Визуализация подтверждений для "${footprint.name}"...`);
+    async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {// 🔥 ПЕРЕДАЕМ ТОЧКИ УЖЕ ПОВЕРНУТЫМИ!
+async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
+    console.log(`🎨 Визуализация БЕЗ собственной трансформации...`);
 
-        try {
-            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
-            const visualizer = new ClusterVisualizer({
-                outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
-                debug: this.config.debug
-            });
+    try {
+        const ClusterVisualizer = require('./visualizations/cluster-visualizer');
+        const visualizer = new ClusterVisualizer({
+            outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
+            debug: this.config.debug
+        });
 
-            const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
-                footprint,
-                {
-                    filename: `real_confirmations_${userId}_${Date.now()}.png`,
-                    transformationInfo: transformationInfo
-                }
-            );
+        // 🔥 ПОЛУЧАЕМ ТОЧКИ УЖЕ ПОВЕРНУТЫМИ!
+        const points = this.getTransformedPointsFromFootprint(footprint);
 
-            if (vizResult && vizResult.path) {
-                console.log(`✅ Визуализация создана: ${vizResult.path}`);
+        console.log(`📊 Передаю ${points.length} уже повернутых точек в визуализацию`);
 
-                // Проверяем существование файла
-                if (fs.existsSync(vizResult.path)) {
-                    const stats = fs.statSync(vizResult.path);
-                    console.log(`📊 Размер файла: ${stats.size} байт`);
-                } else {
-                    console.log(`⚠️ Файл не найден: ${vizResult.path}`);
-                }
-            } else {
-                console.log(`⚠️ Визуализация не создана или результат пустой`);
+        // 🔥 ПЕРЕДАЕМ transformationInfo ТОЛЬКО ДЛЯ ИНФОРМАЦИИ В ТЕКСТЕ!
+        const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
+            {
+                ...footprint,
+                transformedPoints: points // 🔥 УЖЕ ПОВЕРНУТЫЕ!
+            },
+            {
+                filename: `real_confirmations_${userId}_${Date.now()}.png`,
+                transformationInfo: transformationInfo // ТОЛЬКО ДЛЯ ТЕКСТА!
             }
+        );
 
-            return vizResult;
+        return vizResult;
 
-        } catch (error) {
-            console.log('❌ Ошибка визуализации:', error.message);
-            console.error(error.stack);
-            return null;
-        }
+    } catch (error) {
+        console.log('❌ Ошибка визуализации:', error.message);
+        return null;
     }
+}
 
     // 🔥 ВОССТАНОВЛЕННЫЕ МЕТОДЫ ДЛЯ КОМАНД
     getActiveSession(userId) {
@@ -2602,7 +2642,58 @@ class SimpleFootprintManager {
 
         return originalPoints;
     }
+// 🔥 ОБНОВИТЬ СРАВНЕНИЕ:
+    async compareFootprintsWithSamePoints(footprint1, footprint2) {
+        console.log(`\n🎯 СРАВНЕНИЕ С ИДЕНТИЧНОЙ ТРАНСФОРМАЦИЕЙ`);
 
+        // 🔥 ИСПОЛЬЗУЕМ ТЕ ЖЕ ТОЧКИ, ЧТО И В ВИЗУАЛИЗАЦИИ!
+        const points1 = this.getTransformedPointsFromFootprint(footprint1);
+        const points2 = this.getTransformedPointsFromFootprint(footprint2);
+
+        console.log(`📊 Точки для сравнения:`);
+        console.log(`   След 1: ${points1.length} уже повернутых точек`);
+        console.log(`   След 2: ${points2.length} уже повернутых точек`);
+
+        if (points1.length > 0 && points2.length > 0) {
+            console.log(`   Пример точки 1: (${points1[0].x.toFixed(1)}, ${points1[0].y.toFixed(1)})`);
+            console.log(`   Пример точки 2: (${points2[0].x.toFixed(1)}, ${points2[0].y.toFixed(1)})`);
+        }
+
+        // 🔥 СРАВНЕНИЕ ТЕПЕРЬ КОРРЕКТНОЕ!
+        let matches = 0;
+        const THRESHOLD = 30;
+
+        for (const p1 of points1) {
+            let minDistance = Infinity;
+
+            for (const p2 of points2) {
+                const distance = Math.sqrt(
+                    Math.pow(p1.x - p2.x, 2) +
+                    Math.pow(p1.y - p2.y, 2)
+                );
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                }
+            }
+
+            if (minDistance < THRESHOLD) {
+                matches++;
+            }
+        }
+
+        const similarity = matches / Math.max(points1.length, points2.length);
+
+        console.log(`🎯 Результат:`);
+        console.log(`   Совпадений: ${matches}/${points1.length}`);
+        console.log(`   Сходство: ${(similarity * 100).toFixed(1)}%`);
+
+        return {
+            similarity,
+            decision: similarity > 0.6 ? 'same' : 'different',
+            matches
+        };
+    }
     prepareTemplatePointsForComparison(templateCells, templateBuilder, targetTransformation) {
         const points = [];
 
