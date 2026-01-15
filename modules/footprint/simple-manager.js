@@ -548,11 +548,14 @@ class SimpleFootprintManager {
     }
 
     // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Использовать алайнер для сравнения
-    async compareWithAlignment(footprint1, footprint2) {
+     async compareWithAlignment(footprint1, footprint2) {
         console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
 
         try {
-            // 🔥 ДОБАВЬТЕ ЭТОТ БЛОК СРАЗУ ПОСЛЕ TRY:
+            // 🔥 ИСПРАВЛЕНИЕ: Получаем оригинальные трансформации
+            let transformation1 = footprint1.getTransformation();
+            let transformation2 = footprint2.getTransformation();
+
             console.log(`\n🎯 ЗАПУСК ВЫРАВНИВАНИЯ: "${footprint1.name}" vs "${footprint2.name}"`);
 
             // 1. Проверим, что алигнер доступен
@@ -566,19 +569,11 @@ class SimpleFootprintManager {
                 console.log('✅ Алигнер создан');
             }
 
-            // 2. Получаем трансформации
-            const transformation1 = footprint1.getTransformation();
-            const transformation2 = footprint2.getTransformation();
-
             console.log(`📐 Трансформации для выравнивания:`);
             console.log(`   ${footprint1.name}: ${transformation1?.rotationAngle?.toFixed(1) || 0}°`);
             console.log(`   ${footprint2.name}: ${transformation2?.rotationAngle?.toFixed(1) || 0}°`);
 
-            // 3. Запускаем выравнивание
             console.log(`🔄 Запускаю алигнер...`);
-            // 🔥 ИСПРАВЛЕНИЕ: Получаем оригинальные трансформации
-            let transformation1 = footprint1.getTransformation();
-            let transformation2 = footprint2.getTransformation();
 
             console.log(`📐 Трансформация исходного следа:`);
             console.log(`   Поворот: ${transformation1?.rotationAngle?.toFixed(1) || 0}°`);
