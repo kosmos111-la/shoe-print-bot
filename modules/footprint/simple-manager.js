@@ -1629,14 +1629,16 @@ class SimpleFootprintManager {
             const graph = new SimpleGraph(`Временный_${Date.now()}`);
             graph.buildFromPoints(points);
 
-            // Нормализация
-            const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
+             // 🔥 НОРМАЛИЗАЦИЯ С ПРИНУДИТЕЛЬНЫМ ВЫРАВНИВАНИЕМ К 0°
+            console.log(`🎯 ПРИМЕНЯЮ ПРИНУДИТЕЛЬНУЮ НОРМАЛИЗАЦИЮ К 0°`);
+            const normalized = this.rotationProcessor.forceNormalizeToZero(graph, {
                 userId: userId,
                 photoInfo: photoInfo,
-                autoRotate: true
+                strictZero: true, // 🔥 НОВЫЙ ПАРАМЕТР
+                tolerance: 15     // Допуск ±15°
             });
 
-            console.log(`📐 Автоповорот: ${normalized.rotationAngle.toFixed(1)}° → 0°`);
+            console.log(`📐 Угол после принудительной нормализации: ${normalized.rotationAngle.toFixed(1)}°`);
             console.log(`🪞 Зеркало: ${normalized.isMirrored ? 'да' : 'нет'}`);
 
             // 🔥 СОХРАНЯЕМ ТРАНСФОРМАЦИЮ
@@ -2639,6 +2641,135 @@ class SimpleFootprintManager {
         });
 
         return points;
+    }
+
+    // 🔥 МЕТОД: Сравнить с учетом допуска по углу
+    async compareWithAngleTolerance(footprint1, footprint2, maxAngleDiff = 30) {
+        console.log(`\n🎯 СРАВНЕНИЕ С ДОПУСКОМ ПО УГЛУ (${maxAngleDiff}°)`);
+
+        // 1. Получаем углы трансформаций
+        const trans1 = footprint1.getTransformation();
+        const trans2 = footprint2.getTransformation();
+
+        const angle1 = trans1?.rotationAngle || 0;
+        const angle2 = trans2?.rotationAngle || 0;
+
+        console.log(`📐 Углы: ${angle1.toFixed(1)}° vs ${angle2.toFixed(1)}°`);
+        console.log(`📏 Разница: ${Math.abs(angle1 - angle2).toFixed(1)}°`);
+
+        // 2. Если углы сильно отличаются - нормализуем второй след к углу первого
+        const angleDiff = Math.abs(angle1 - angle2);
+
+        if (angleDiff > maxAngleDiff) {
+            console.log(`⚠️ Большая разница углов! Нормализую второй след...`);
+
+            // Вычисляем необходимый поворот
+            const neededRotation = angle1 - angle2;
+            console.log(`🔄 Необходимый поворот: ${neededRotation.toFixed(1)}°`);
+
+            // Создаем копию второго следа с поворотом
+            const alignedFootprint = this.rotateFootprintToAngle(footprint2, neededRotation);
+
+            // Сравниваем с выровненным следом
+            return await this.simpleCompare(footprint1, alignedFootprint);
+        }
+
+        // 3. Если углы близки - обычное сравнение
+        console.log(`✅ Углы достаточно близки, обычное сравнение`);
+        return await this.simpleCompare(footprint1, footprint2);
+    }
+
+    // 🔥 ПОВЕРНУТЬ СЛЕД НА ЗАДАННЫЙ УГОЛ
+    rotateFootprintToAngle(footprint, angle) {
+        const points = [];
+        for (const [id, point] of footprint.pointTracker.points) {
+            points.push({ id, x: point.x, y: point.y });
+        }
+
+        const center = this.calculateCenter(points);
+        const rad = angle * Math.PI / 180;
+        const cosA = Math.cos(rad);
+        const sinA = Math.sin(rad);
+
+        // Создаем новый след с повернутыми точками
+        const SimpleFootprint = require('./simple-footprint');
+        const rotated = new SimpleFootprint({
+            userId: footprint.userId,
+            name: footprint.name + '_rotated'
+        });
+
+        for (const point of points) {
+            const dx = point.x - center.x;
+            const dy = point.y - center.y;
+
+            const rotatedX = dx * cosA - dy * sinA + center.x;
+            const rotatedY = dy * cosA + dx * sinA + center.y;
+
+            // Добавляем точку в новый след
+            rotated.pointTracker.addPoint(point.id, rotatedX, rotatedY, {
+                originalX: point.x,
+                originalY: point.y,
+                rotationApplied: angle
+            });
+        }
+
+        return rotated;
+    }
+
+    // 🔥 ПРОСТОЕ СРАВНЕНИЕ (если такого метода нет)
+    async simpleCompare(footprint1, footprint2) {
+        console.log(`⚡ ПРОСТОЕ СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
+
+        try {
+            // Используем существующий метод или создаем простой
+            if (this.matcher && this.matcher.compareGraphs) {
+                return await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+            }
+
+            // Простое сравнение расстояний
+            const points1 = [];
+            for (const [id, point] of footprint1.pointTracker.points) {
+                points1.push({ id, x: point.x, y: point.y });
+            }
+
+            const points2 = [];
+            for (const [id, point] of footprint2.pointTracker.points) {
+                points2.push({ id, x: point.x, y: point.y });
+            }
+
+            let matches = 0;
+            const threshold = 25; // 25px
+
+            for (const p1 of points1) {
+                let minDist = Infinity;
+               
+                for (const p2 of points2) {
+                    const dist = Math.sqrt(
+                        Math.pow(p1.x - p2.x, 2) +
+                        Math.pow(p1.y - p2.y, 2)
+                    );
+                    if (dist < minDist) minDist = dist;
+                }
+               
+                if (minDist < threshold) matches++;
+            }
+
+            const similarity = matches / Math.max(points1.length, points2.length);
+            const decision = similarity > 0.6 ? 'same' : 'different';
+
+            return {
+                similarity,
+                decision,
+                matches,
+                points1Count: points1.length,
+                points2Count: points2.length,
+                method: 'simple_distance_fallback'
+            };
+
+        } catch (error) {
+            console.log(`❌ Ошибка сравнения: ${error.message}`);
+            return { similarity: 0, decision: 'error', error: error.message };
+        }
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ГЕОМЕТРИИ
