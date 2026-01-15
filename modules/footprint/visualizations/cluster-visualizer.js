@@ -339,148 +339,114 @@ class ClusterVisualizer {
         });
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Рисовать точки с учетом трансформации
-    drawPointsWithTransformation(ctx, points, side, canvasWidth, canvasHeight, label = '', transformation = null) {
-        const isLeft = side === 'left';
-        const offsetX = isLeft ? canvasWidth * 0.25 : canvasWidth * 0.75;
-        const offsetY = canvasHeight * 0.55;
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Рисовать точки с учетом трансформации
+drawPointsWithTransformation(ctx, points, side, canvasWidth, canvasHeight, label = '', transformation = null) {
+    const isLeft = side === 'left';
+    const offsetX = isLeft ? canvasWidth * 0.25 : canvasWidth * 0.75;
+    const offsetY = canvasHeight * 0.55;
 
-        // Подпись
-        ctx.fillStyle = '#212529';
-        ctx.font = 'bold 16px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(label, offsetX, offsetY - 180);
+    // Подпись
+    ctx.fillStyle = '#212529';
+    ctx.font = 'bold 16px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, offsetX, offsetY - 180);
 
-        // Информация о трансформации
-        if (transformation) {
-            ctx.font = '12px Arial';
-            ctx.fillStyle = '#6C757D';
-            ctx.fillText(`${transformation.rotationAngle?.toFixed(1)}°`, offsetX, offsetY - 160);
-        }
-
-        // Если нет точек - показываем сообщение
-        if (points.length === 0) {
-            ctx.fillStyle = '#6C757D';
-            ctx.font = '14px Arial';
-            ctx.fillText('Нет данных', offsetX, offsetY);
-            return;
-        }
-
-        // 🔥 ЕСЛИ ЕСТЬ ТРАНСФОРМАЦИЯ - ПРИМЕНЯЕМ ЕЕ ДЛЯ ОТОБРАЖЕНИЯ
-        let displayPoints = points;
-        if (transformation && transformation.matrix) {
-            displayPoints = this.applyTransformationToPoints(points, transformation);
-        }
-
-        // Масштабирование точек
-        const { minX, maxX, minY, maxY } = this.calculateBounds(displayPoints);
-        const scale = this.calculateScale(minX, maxX, minY, maxY, canvasWidth * 0.4, canvasHeight * 0.5);
-
-        // Рисуем каждую точку
-        displayPoints.forEach(point => {
-            const x = offsetX + (point.x - (minX + maxX) / 2) * scale;
-            const y = offsetY + (point.y - (minY + maxY) / 2) * scale;
-
-            // Цвет точки в зависимости от подтверждений
-            let color;
-            if (point.confirmedCount >= 2) {
-                color = this.config.pointColors.confirmed2; // 🔴 Красный
-            } else if (point.confirmedCount >= 1) {
-                color = this.config.pointColors.confirmed1; // 🔵 Синий
-            } else {
-                color = this.config.pointColors.confirmed0; // ⚪ Серый
-            }
-
-            // Размер точки в зависимости от уверенности
-            const size = 4 + (point.confidence * 8);
-
-            // Рисуем точку
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Обводка для высоконадежных точек
-            if (point.confidence > 0.8) {
-                ctx.strokeStyle = this.config.pointColors.highConfidence;
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-            }
-        });
+    // 🔥 ИНФОРМАЦИЯ О ТРАНСФОРМАЦИИ (ТОЛЬКО ТЕКСТ!)
+    if (transformation) {
+        ctx.font = '12px Arial';
+        ctx.fillStyle = '#6C757D';
+        ctx.fillText(`${transformation.rotationAngle?.toFixed(1)}°`, offsetX, offsetY - 160);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Рисовать точки одного следа с трансформацией
-    drawSingleFootprintPoints(ctx, points, canvasWidth, canvasHeight, transformation = null) {
-        const centerX = canvasWidth / 2;
-        const centerY = canvasHeight * 0.6;
-
-        if (points.length === 0) {
-            ctx.fillStyle = '#6C757D';
-            ctx.font = '14px Arial';
-            ctx.fillText('Нет данных для отображения', centerX, centerY);
-            return;
-        }
-
-        // 🔥 ЕСЛИ ЕСТЬ ТРАНСФОРМАЦИЯ - ПРИМЕНЯЕМ ЕЕ ДЛЯ ОТОБРАЖЕНИЯ
-        let displayPoints = points;
-        if (transformation && transformation.matrix) {
-            displayPoints = this.applyTransformationToPoints(points, transformation);
-        }
-
-        // Масштабирование
-        const { minX, maxX, minY, maxY } = this.calculateBounds(displayPoints);
-        const scale = this.calculateScale(minX, maxX, minY, maxY, canvasWidth * 0.8, canvasHeight * 0.6);
-
-        // Рисуем каждую точку
-        displayPoints.forEach(point => {
-            const x = centerX + (point.x - (minX + maxX) / 2) * scale;
-            const y = centerY + (point.y - (minY + maxY) / 2) * scale;
-
-            // Цвет точки
-            let color;
-            if (point.confirmedCount >= 2) {
-                color = this.config.pointColors.confirmed2; // 🔴 Красный
-            } else if (point.confirmedCount >= 1) {
-                color = this.config.pointColors.confirmed1; // 🔵 Синий
-            } else {
-                color = this.config.pointColors.confirmed0; // ⚪ Серый
-            }
-
-            // Размер
-            const size = 3 + (point.confidence * 6);
-
-            // Рисуем
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-        });
+    // 🔥 ТОЧКИ БЕЗ ИЗМЕНЕНИЙ (какие получили - такие и рисуем)
+    if (points.length === 0) {
+        ctx.fillStyle = '#6C757D';
+        ctx.font = '14px Arial';
+        ctx.fillText('Нет данных', offsetX, offsetY);
+        return;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Применить трансформацию к точкам
-    applyTransformationToPoints(points, transformation) {
-        if (!transformation || !transformation.matrix) {
-            return points;
+    // Масштабирование точек (БЕЗ ТРАНСФОРМАЦИИ!)
+    const { minX, maxX, minY, maxY } = this.calculateBounds(points);
+    const scale = this.calculateScale(minX, maxX, minY, maxY, canvasWidth * 0.4, canvasHeight * 0.5);
+
+    // Рисуем каждую точку (БЕЗ ИЗМЕНЕНИЙ КООРДИНАТ!)
+    points.forEach(point => {
+        const x = offsetX + (point.x - (minX + maxX) / 2) * scale;
+        const y = offsetY + (point.y - (minY + maxY) / 2) * scale;
+
+        // Цвет точки в зависимости от подтверждений
+        let color;
+        if (point.confirmedCount >= 2) {
+            color = this.config.pointColors.confirmed2; // 🔴 Красный
+        } else if (point.confirmedCount >= 1) {
+            color = this.config.pointColors.confirmed1; // 🔵 Синий
+        } else {
+            color = this.config.pointColors.confirmed0; // ⚪ Серый
         }
 
-        const matrix = transformation.matrix;
-        const center = transformation.center || { x: 0, y: 0 };
+        // Размер точки в зависимости от уверенности
+        const size = 4 + (point.confidence * 8);
 
-        return points.map(point => {
-            const relX = point.x - center.x;
-            const relY = point.y - center.y;
+        // Рисуем точку
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
 
-            const transformedX = relX * matrix[0] + relY * matrix[1] + center.x + matrix[2];
-            const transformedY = relX * matrix[3] + relY * matrix[4] + center.y + matrix[5];
+        // Обводка для высоконадежных точек
+        if (point.confidence > 0.8) {
+            ctx.strokeStyle = this.config.pointColors.highConfidence;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+        }
+    });
+}
 
-            return {
-                ...point,
-                x: transformedX,
-                y: transformedY,
-                transformed: true
-            };
-        });
+   // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Рисовать точки одного следа с трансформацией
+drawSingleFootprintPoints(ctx, points, canvasWidth, canvasHeight, transformation = null) {
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight * 0.6;
+
+    if (points.length === 0) {
+        ctx.fillStyle = '#6C757D';
+        ctx.font = '14px Arial';
+        ctx.fillText('Нет данных для отображения', centerX, centerY);
+        return;
     }
+
+    // 🔥 ТОЧКИ БЕЗ ИЗМЕНЕНИЙ (какие получили - такие и рисуем)
+    let displayPoints = points; // 🔥 УЖЕ ПОВЕРНУТЫЕ ТОЧКИ
+
+    // Масштабирование
+    const { minX, maxX, minY, maxY } = this.calculateBounds(displayPoints);
+    const scale = this.calculateScale(minX, maxX, minY, maxY, canvasWidth * 0.8, canvasHeight * 0.6);
+
+    // Рисуем каждую точку
+    displayPoints.forEach(point => {
+        const x = centerX + (point.x - (minX + maxX) / 2) * scale;
+        const y = centerY + (point.y - (minY + maxY) / 2) * scale;
+
+        // Цвет точки
+        let color;
+        if (point.confirmedCount >= 2) {
+            color = this.config.pointColors.confirmed2; // 🔴 Красный
+        } else if (point.confirmedCount >= 1) {
+            color = this.config.pointColors.confirmed1; // 🔵 Синий
+        } else {
+            color = this.config.pointColors.confirmed0; // ⚪ Серый
+        }
+
+        // Размер
+        const size = 3 + (point.confidence * 6);
+
+        // Рисуем
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
 
     // 🔥 НОВЫЙ МЕТОД: Получить точки напрямую из PointTracker
     getPointsFromPointTracker(footprint) {
