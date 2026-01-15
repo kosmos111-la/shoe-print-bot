@@ -552,6 +552,30 @@ class SimpleFootprintManager {
         console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
 
         try {
+            // 🔥 ДОБАВЬТЕ ЭТОТ БЛОК СРАЗУ ПОСЛЕ TRY:
+            console.log(`\n🎯 ЗАПУСК ВЫРАВНИВАНИЯ: "${footprint1.name}" vs "${footprint2.name}"`);
+
+            // 1. Проверим, что алигнер доступен
+            if (!this.aligner) {
+                console.log('❌ Алигнер не инициализирован!');
+                const SimpleAligner = require('./alignment/simple-aligner');
+                this.aligner = new SimpleAligner({
+                    debug: this.config.debug,
+                    visualizationDir: path.join(this.config.dbPath, 'visualizations/alignments')
+                });
+                console.log('✅ Алигнер создан');
+            }
+
+            // 2. Получаем трансформации
+            const transformation1 = footprint1.getTransformation();
+            const transformation2 = footprint2.getTransformation();
+
+            console.log(`📐 Трансформации для выравнивания:`);
+            console.log(`   ${footprint1.name}: ${transformation1?.rotationAngle?.toFixed(1) || 0}°`);
+            console.log(`   ${footprint2.name}: ${transformation2?.rotationAngle?.toFixed(1) || 0}°`);
+
+            // 3. Запускаем выравнивание
+            console.log(`🔄 Запускаю алигнер...`);
             // 🔥 ИСПРАВЛЕНИЕ: Получаем оригинальные трансформации
             let transformation1 = footprint1.getTransformation();
             let transformation2 = footprint2.getTransformation();
@@ -656,43 +680,34 @@ class SimpleFootprintManager {
                         }
                     }
                 };
-            } else {
-                console.log(`⚠️ Выравнивание не удалось, использую стандартный метод`);
-                const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
-
-                return {
-                    ...fallbackResult,
-                    alignment: { success: false, error: alignmentResult.error },
-                    method: 'graph_based_fallback'
-                };
+             } else {
+                console.log(`⚠️ Выравнивание не удалось: ${alignmentResult.error}`);
+                // 🔥 Фоллбэк на паттерны
+                return await this.fallbackToPatterns(footprint1, footprint2);
             }
 
         } catch (error) {
             console.log(`❌ Ошибка выравнивания:`, error.message);
             console.error(error.stack);
 
-            // 🔥 Фоллбэк на сравнение графов
-            try {
-                const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
-                return {
-                    ...fallbackResult,
-                    alignment: { success: false, error: error.message },
-                    method: 'graph_based_error_fallback'
-                };
-            } catch (fallbackError) {
-                console.log(`❌ Ошибка фоллбэка:`, fallbackError.message);
-
-                return {
-                    similarity: 0,
-                    decision: 'different',
-                    reason: `Ошибка сравнения: ${error.message}`,
-                    alignment: { success: false, error: error.message },
-                    method: 'error'
-                };
-            }
+            // 🔥 Фоллбэк на ПАТТЕРНЫ вместо сравнения графов
+            return await this.fallbackToPatterns(footprint1, footprint2);
         }
     }
+// 🔥 МЕТОД: Фоллбэк на паттерны (если алигнер не работает)
+    async fallbackToPatterns(footprint1, footprint2) {
+        console.log(`\n🔄 Фоллбэк на паттерновое сравнение...`);
 
+        // Используем существующий метод compareWithPatterns
+        const patternResult = await this.compareWithPatterns(footprint1, footprint2);
+
+        return {
+            similarity: patternResult.similarity,
+            decision: patternResult.decision,
+            method: 'pattern_fallback',
+            reason: 'Алигнер не сработал, использован паттерновый метод'
+        };
+    }
     // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Сравнить с учетом выравнивания
     compareFootprintsWithAlignment(footprint1, footprint2, alignedPoints2) {
         // Получаем точки первого следа
@@ -1844,18 +1859,19 @@ class SimpleFootprintManager {
                 transformationInfo: transformationInfo
             });
 
-            // 🔥 ИСПОЛЬЗУЕМ ПАТТЕРНОВОЕ СРАВНЕНИЕ
-            console.log(`🎯 Сравнение с паттернами следов...`);
-            const comparisonResult = await this.compareWithPatterns(
-                session.currentFootprint,
-                tempFootprint
-            );
+            // 🔥 ИСПОЛЬЗУЕМ ВЫРАВНИВАНИЕ С АЛИГНЕРОМ
+console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ (возвращаем рабочий метод)...`);
 
-            const similarity = comparisonResult?.similarity || 0;
-            const decision = similarity > 0.6 ? 'same' : 'different';
+// Используем алигнер для выравнивания
+const comparisonResult = await this.compareWithAlignment(
+    session.currentFootprint,
+    tempFootprint
+);
 
-            console.log(`🎯 Сходство (с паттернами): ${similarity.toFixed(3)}, решение: ${decision}`);
+const similarity = comparisonResult.similarity;
+const decision = comparisonResult.decision;
 
+console.log(`🎯 Сходство (с выравниванием): ${similarity.toFixed(3)}, решение: ${decision}`);
             // 🔥 СЛЕДЫ СОВПАЛИ - обновляем шаблон с накоплением
             if (decision === 'same') {
                 console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
