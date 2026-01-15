@@ -548,32 +548,13 @@ class SimpleFootprintManager {
     }
 
     // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Использовать алайнер для сравнения
-     async compareWithAlignment(footprint1, footprint2) {
+    async compareWithAlignment(footprint1, footprint2) {
         console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
 
         try {
             // 🔥 ИСПРАВЛЕНИЕ: Получаем оригинальные трансформации
             let transformation1 = footprint1.getTransformation();
             let transformation2 = footprint2.getTransformation();
-
-            console.log(`\n🎯 ЗАПУСК ВЫРАВНИВАНИЯ: "${footprint1.name}" vs "${footprint2.name}"`);
-
-            // 1. Проверим, что алигнер доступен
-            if (!this.aligner) {
-                console.log('❌ Алигнер не инициализирован!');
-                const SimpleAligner = require('./alignment/simple-aligner');
-                this.aligner = new SimpleAligner({
-                    debug: this.config.debug,
-                    visualizationDir: path.join(this.config.dbPath, 'visualizations/alignments')
-                });
-                console.log('✅ Алигнер создан');
-            }
-
-            console.log(`📐 Трансформации для выравнивания:`);
-            console.log(`   ${footprint1.name}: ${transformation1?.rotationAngle?.toFixed(1) || 0}°`);
-            console.log(`   ${footprint2.name}: ${transformation2?.rotationAngle?.toFixed(1) || 0}°`);
-
-            console.log(`🔄 Запускаю алигнер...`);
 
             console.log(`📐 Трансформация исходного следа:`);
             console.log(`   Поворот: ${transformation1?.rotationAngle?.toFixed(1) || 0}°`);
@@ -675,34 +656,43 @@ class SimpleFootprintManager {
                         }
                     }
                 };
-             } else {
-                console.log(`⚠️ Выравнивание не удалось: ${alignmentResult.error}`);
-                // 🔥 Фоллбэк на паттерны
-                return await this.fallbackToPatterns(footprint1, footprint2);
+            } else {
+                console.log(`⚠️ Выравнивание не удалось, использую стандартный метод`);
+                const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+
+                return {
+                    ...fallbackResult,
+                    alignment: { success: false, error: alignmentResult.error },
+                    method: 'graph_based_fallback'
+                };
             }
 
         } catch (error) {
             console.log(`❌ Ошибка выравнивания:`, error.message);
             console.error(error.stack);
 
-            // 🔥 Фоллбэк на ПАТТЕРНЫ вместо сравнения графов
-            return await this.fallbackToPatterns(footprint1, footprint2);
+            // 🔥 Фоллбэк на сравнение графов
+            try {
+                const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+                return {
+                    ...fallbackResult,
+                    alignment: { success: false, error: error.message },
+                    method: 'graph_based_error_fallback'
+                };
+            } catch (fallbackError) {
+                console.log(`❌ Ошибка фоллбэка:`, fallbackError.message);
+
+                return {
+                    similarity: 0,
+                    decision: 'different',
+                    reason: `Ошибка сравнения: ${error.message}`,
+                    alignment: { success: false, error: error.message },
+                    method: 'error'
+                };
+            }
         }
     }
-// 🔥 МЕТОД: Фоллбэк на паттерны (если алигнер не работает)
-    async fallbackToPatterns(footprint1, footprint2) {
-        console.log(`\n🔄 Фоллбэк на паттерновое сравнение...`);
 
-        // Используем существующий метод compareWithPatterns
-        const patternResult = await this.compareWithPatterns(footprint1, footprint2);
-
-        return {
-            similarity: patternResult.similarity,
-            decision: patternResult.decision,
-            method: 'pattern_fallback',
-            reason: 'Алигнер не сработал, использован паттерновый метод'
-        };
-    }
     // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Сравнить с учетом выравнивания
     compareFootprintsWithAlignment(footprint1, footprint2, alignedPoints2) {
         // Получаем точки первого следа
@@ -997,258 +987,206 @@ class SimpleFootprintManager {
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Обновление подтверждений с правильной трансформацией
     updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo = null) {
-    console.log(`\n🔄 ОБНОВЛЯЮ ПОДТВЕРЖДЕНИЯ с ПРАВИЛЬНОЙ ТРАНСФОРМАЦИЕЙ...`);
+        console.log(`🔄 ОБНОВЛЯЮ ПОДТВЕРЖДЕНИЯ с ПРАВИЛЬНОЙ ТРАНСФОРМАЦИЕЙ...`);
 
-    if (!footprint || !footprint.pointTracker) {
-        console.log('⚠️ Нет отпечатка или PointTracker');
-        return 0;
-    }
-
-    if (!vectorModel || !vectorModel.templateBuilder) {
-        console.log('⚠️ Нет шаблона');
-        return 0;
-    }
-
-    const tracker = footprint.pointTracker;
-    const templateBuilder = vectorModel.templateBuilder;
-
-    // 1. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ОТПЕЧАТКА
-    let footprintTransformation = footprint.getTransformation();
-
-    if (!footprintTransformation || !footprintTransformation.matrix) {
-        console.log('⚠️ У отпечатка нет трансформации! Создаю по умолчанию...');
-        footprintTransformation = {
-            matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-            rotationAngle: 0,
-            isMirrored: false,
-            center: { x: 0, y: 0 },
-            bounds: { minX: 0, maxX: 1000, minY: 0, maxY: 1000 },
-            scale: { x: 1, y: 1 },
-            translation: { x: 0, y: 0 },
-            type: 'default_identity'
-        };
-    }
-
-    console.log(`📐 Трансформация отпечатка:`);
-    console.log(`   Угол: ${footprintTransformation.rotationAngle?.toFixed(1) || 0}°`);
-    console.log(`   Зеркало: ${footprintTransformation.isMirrored ? 'да' : 'нет'}`);
-    console.log(`   Центр: (${footprintTransformation.center?.x?.toFixed(1)}, ${footprintTransformation.center?.y?.toFixed(1)})`);
-   
-    // 🔥 ДОБАВЛЕН ОТЛАДОЧНЫЙ ВЫВОД ДЛЯ МАТРИЦЫ:
-    console.log(`   Матрица: [${footprintTransformation.matrix?.slice(0, 3).join(', ')}...]`);
-    if (footprintTransformation.scale) {
-        console.log(`   Масштаб: x=${footprintTransformation.scale.x?.toFixed(2)}, y=${footprintTransformation.scale.y?.toFixed(2)}`);
-    }
-    if (footprintTransformation.translation) {
-        console.log(`   Сдвиг: x=${footprintTransformation.translation.x?.toFixed(1)}, y=${footprintTransformation.translation.y?.toFixed(1)}`);
-    }
-
-    // 2. ПОЛУЧАЕМ ДАННЫЕ ШАБЛОНА
-    const templateData = templateBuilder.getVisualizationData();
-    if (!templateData || !templateData.cells || templateData.cells.length === 0) {
-        console.log('⚠️ Нет данных ячеек в шаблоне');
-        return 0;
-    }
-
-    console.log(`📊 Данные шаблона: ${templateData.cells.length} ячеек`);
-
-    // 3. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ШАБЛОНА
-    const templateTransformation = templateBuilder.getNormalizationTransform();
-
-    if (!templateTransformation) {
-        console.log('⚠️ У шаблона нет трансформации!');
-        return this.fallbackDirectComparison(tracker, templateBuilder);
-    }
-
-    console.log(`📐 Трансформация шаблона:`);
-    console.log(`   Границы: ${templateTransformation.width?.toFixed(1)}x${templateTransformation.height?.toFixed(1)}`);
-    console.log(`   Смещение: (${templateTransformation.minX?.toFixed(1)}, ${templateTransformation.minY?.toFixed(1)})`);
-   
-    // 🔥 ДОБАВЛЕНО: Проверка размеров шаблона
-    console.log(`   Нормализованные координаты шаблона (0-1):`);
-    if (templateData.cells.length > 0) {
-        const cell = templateData.cells[0];
-        console.log(`   Пример ячейки: ID=${cell.id?.slice(0, 8)}, nx=${cell.nx?.toFixed(4)}, ny=${cell.ny?.toFixed(4)}`);
-    }
-
-    // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ПРОСТОЕ ПРЕОБРАЗОВАНИЕ КООРДИНАТ
-    const templatePointsInFootprintSystem = [];
-
-    // Для каждой ячейки шаблона
-    templateData.cells.forEach((cell, index) => {
-        // Координаты в нормализованной системе шаблона (0-1)
-        const normalizedX = cell.nx || 0;
-        const normalizedY = cell.ny || 0;
-
-        // 1. Преобразуем нормализованные координаты в реальные координаты шаблона
-        const templateX = normalizedX * templateTransformation.width + templateTransformation.minX;
-        const templateY = normalizedY * templateTransformation.height + templateTransformation.minY;
-
-        // 🔥 ПРОСТОЕ РЕШЕНИЕ: Предполагаем, что шаблон уже в нормализованной системе (угол 0°)
-        // И точка шаблона уже в правильной системе координат
-
-        // 2. Если отпечаток имеет трансформацию (поворот), применяем ее к точке
-        let transformedX = templateX;
-        let transformedY = templateY;
-
-        const footprintAngle = footprintTransformation.rotationAngle || 0;
-
-        if (footprintAngle !== 0 && footprintTransformation.center) {
-            // Применяем поворот отпечатка к точке шаблона
-            const centerX = footprintTransformation.center.x || 0;
-            const centerY = footprintTransformation.center.y || 0;
-
-            // Переносим в систему координат с центром в центре отпечатка
-            const dx = templateX - centerX;
-            const dy = templateY - centerY;
-
-            // Поворачиваем
-            const angleRad = -footprintAngle * Math.PI / 180; // Отрицательный, потому что мы компенсируем поворот
-            const cosA = Math.cos(angleRad);
-            const sinA = Math.sin(angleRad);
-
-            const rotatedX = dx * cosA - dy * sinA;
-            const rotatedY = dx * sinA + dy * cosA;
-
-            // Возвращаем в исходную систему координат
-            transformedX = rotatedX + centerX;
-            transformedY = rotatedY + centerY;
-
-            // Дебаг для первых точек
-            if (index < 3) {
-                console.log(`\n   🎯 Ячейка ${cell.id?.slice(0, 8)}:`);
-                console.log(`      В шаблоне (нормализованные): (${normalizedX.toFixed(4)}, ${normalizedY.toFixed(4)})`);
-                console.log(`      В шаблоне (реальные): (${templateX.toFixed(1)}, ${templateY.toFixed(1)})`);
-                console.log(`      После поворота ${footprintAngle.toFixed(1)}°: (${transformedX.toFixed(1)}, ${transformedY.toFixed(1)})`);
-               
-                // 🔥 ДОБАВЛЕНО: Расстояние от центра
-                const distanceFromCenter = Math.sqrt(dx*dx + dy*dy);
-                console.log(`      Расстояние от центра: ${distanceFromCenter.toFixed(1)}px`);
-            }
+        if (!footprint || !footprint.pointTracker) {
+            console.log('⚠️ Нет отпечатка или PointTracker');
+            return 0;
         }
 
-        templatePointsInFootprintSystem.push({
-            x: transformedX,
-            y: transformedY,
-            nx: normalizedX,
-            ny: normalizedY,
-            confirmations: cell.confirmations || 1,
-            confidence: cell.confidence || 0.7,
-            cellId: cell.id,
-            isNew: cell.isNew || false,
-            status: cell.status || 'unknown',
-            originalTemplatePoint: { x: templateX, y: templateY },
-            originalCell: cell,
-            cellIndex: index
-        });
-    });
+        if (!vectorModel || !vectorModel.templateBuilder) {
+            console.log('⚠️ Нет шаблона');
+            return 0;
+        }
 
-    console.log(`📊 Преобразовано ${templatePointsInFootprintSystem.length} точек шаблона`);
-   
-    // 🔥 ДОБАВЛЕНО: Проверка диапазона координат
-    const templateXs = templatePointsInFootprintSystem.map(p => p.x);
-    const templateYs = templatePointsInFootprintSystem.map(p => p.y);
-    console.log(`   Диапазон X (шаблон): ${Math.min(...templateXs).toFixed(1)}-${Math.max(...templateXs).toFixed(1)}`);
-    console.log(`   Диапазон Y (шаблон): ${Math.min(...templateYs).toFixed(1)}-${Math.max(...templateYs).toFixed(1)}`);
+        const tracker = footprint.pointTracker;
+        const templateBuilder = vectorModel.templateBuilder;
 
-    // 4. ПОЛУЧАЕМ ТОЧКИ ТРЕКЕРА В СИСТЕМЕ ОТПЕЧАТКА
-    const trackerPoints = [];
-    for (const [id, point] of tracker.points) {
-        trackerPoints.push({
-            id,
-            x: point.x,
-            y: point.y,
-            confidence: point.rating || 0.5,
-            confirmedCount: point.confirmedCount || 1,
-            pointData: point
-        });
-    }
+        // 1. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ОТПЕЧАТКА
+        let footprintTransformation = footprint.getTransformation();
 
-    console.log(`📊 Точки трекера: ${trackerPoints.length}`);
-   
-    // 🔥 ДОБАВЛЕНО: Проверка диапазона координат трекера
-    const trackerXs = trackerPoints.map(p => p.x);
-    const trackerYs = trackerPoints.map(p => p.y);
-    console.log(`   Диапазон X (трекер): ${Math.min(...trackerXs).toFixed(1)}-${Math.max(...trackerXs).toFixed(1)}`);
-    console.log(`   Диапазон Y (трекер): ${Math.min(...trackerYs).toFixed(1)}-${Math.max(...trackerYs).toFixed(1)}`);
+        if (!footprintTransformation || !footprintTransformation.matrix) {
+            console.log('⚠️ У отпечатка нет трансформации! Создаю по умолчанию...');
+            footprintTransformation = {
+                matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+                rotationAngle: 0,
+                isMirrored: false,
+                center: { x: 0, y: 0 },
+                bounds: { minX: 0, maxX: 1000, minY: 0, maxY: 1000 },
+                scale: { x: 1, y: 1 },
+                translation: { x: 0, y: 0 },
+                type: 'default_identity'
+            };
+        }
 
-    // 5. ДЕБАГ: Показываем примеры координат
-    if (trackerPoints.length > 0 && templatePointsInFootprintSystem.length > 0) {
-        console.log(`\n🔍 ПРИМЕРЫ КООРДИНАТ (первые 3):`);
+        console.log(`📐 Трансформация отпечатка:`);
+        console.log(`   Угол: ${footprintTransformation.rotationAngle?.toFixed(1) || 0}°`);
+        console.log(`   Зеркало: ${footprintTransformation.isMirrored ? 'да' : 'нет'}`);
+        console.log(`   Центр: (${footprintTransformation.center?.x?.toFixed(1)}, ${footprintTransformation.center?.y?.toFixed(1)})`);
 
-        for (let i = 0; i < Math.min(3, trackerPoints.length); i++) {
-            const trackerPoint = trackerPoints[i];
-            console.log(`\n   🎯 Точка трекера ${i+1}:`);
-            console.log(`      ID: ${trackerPoint.id?.slice(0, 8)}`);
-            console.log(`      Координаты: (${trackerPoint.x.toFixed(1)}, ${trackerPoint.y.toFixed(1)})`);
-            console.log(`      Подтверждений: ${trackerPoint.confirmedCount}`);
+        // 2. ПОЛУЧАЕМ ДАННЫЕ ШАБЛОНА
+        const templateData = templateBuilder.getVisualizationData();
+        if (!templateData || !templateData.cells || templateData.cells.length === 0) {
+            console.log('⚠️ Нет данных ячеек в шаблоне');
+            return 0;
+        }
 
-            // Ищем ближайшую точку шаблона
-            let nearestTemplate = null;
-            let minDistance = Infinity;
-            let distances = [];
+        console.log(`📊 Данные шаблона: ${templateData.cells.length} ячеек`);
 
-            for (const templatePoint of templatePointsInFootprintSystem) {
-                const distance = Math.sqrt(
-                    Math.pow(templatePoint.x - trackerPoint.x, 2) +
-                    Math.pow(templatePoint.y - trackerPoint.y, 2)
-                );
+        // 3. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ШАБЛОНА
+        const templateTransformation = templateBuilder.getNormalizationTransform();
 
-                distances.push(distance);
-               
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestTemplate = templatePoint;
+        if (!templateTransformation) {
+            console.log('⚠️ У шаблона нет трансформации!');
+            return this.fallbackDirectComparison(tracker, templateBuilder);
+        }
+
+        console.log(`📐 Трансформация шаблона:`);
+        console.log(`   Границы: ${templateTransformation.width?.toFixed(1)}x${templateTransformation.height?.toFixed(1)}`);
+        console.log(`   Смещение: (${templateTransformation.minX?.toFixed(1)}, ${templateTransformation.minY?.toFixed(1)})`);
+
+        // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ПРОСТОЕ ПРЕОБРАЗОВАНИЕ КООРДИНАТ
+        const templatePointsInFootprintSystem = [];
+
+        // Для каждой ячейки шаблона
+        templateData.cells.forEach((cell, index) => {
+            // Координаты в нормализованной системе шаблона (0-1)
+            const normalizedX = cell.nx || 0;
+            const normalizedY = cell.ny || 0;
+
+            // 1. Преобразуем нормализованные координаты в реальные координаты шаблона
+            const templateX = normalizedX * templateTransformation.width + templateTransformation.minX;
+            const templateY = normalizedY * templateTransformation.height + templateTransformation.minY;
+
+            // 🔥 ПРОСТОЕ РЕШЕНИЕ: Предполагаем, что шаблон уже в нормализованной системе (угол 0°)
+            // И точка шаблона уже в правильной системе координат
+
+            // 2. Если отпечаток имеет трансформацию (поворот), применяем ее к точке
+            let transformedX = templateX;
+            let transformedY = templateY;
+
+            const footprintAngle = footprintTransformation.rotationAngle || 0;
+
+            if (footprintAngle !== 0 && footprintTransformation.center) {
+                // Применяем поворот отпечатка к точке шаблона
+                const centerX = footprintTransformation.center.x || 0;
+                const centerY = footprintTransformation.center.y || 0;
+
+                // Переносим в систему координат с центром в центре отпечатка
+                const dx = templateX - centerX;
+                const dy = templateY - centerY;
+
+                // Поворачиваем
+                const angleRad = -footprintAngle * Math.PI / 180; // Отрицательный, потому что мы компенсируем поворот
+                const cosA = Math.cos(angleRad);
+                const sinA = Math.sin(angleRad);
+
+                const rotatedX = dx * cosA - dy * sinA;
+                const rotatedY = dx * sinA + dy * cosA;
+
+                // Возвращаем в исходную систему координат
+                transformedX = rotatedX + centerX;
+                transformedY = rotatedY + centerY;
+
+                // Дебаг для первых точек
+                if (index < 3) {
+                    console.log(`   Ячейка ${cell.id?.slice(0, 8)}:`);
+                    console.log(`     В шаблоне: (${templateX.toFixed(1)}, ${templateY.toFixed(1)})`);
+                    console.log(`     После поворота ${footprintAngle.toFixed(1)}°: (${transformedX.toFixed(1)}, ${transformedY.toFixed(1)})`);
                 }
             }
 
-            if (nearestTemplate) {
-                console.log(`      Ближайшая точка шаблона: (${nearestTemplate.x.toFixed(1)}, ${nearestTemplate.y.toFixed(1)})`);
-                console.log(`      Расстояние: ${minDistance.toFixed(1)}px`);
-                console.log(`      ID ячейки: ${nearestTemplate.cellId?.slice(0, 8)}`);
-                console.log(`      Подтверждений в ячейке: ${nearestTemplate.confirmations}`);
-               
-                // 🔥 ДОБАВЛЕНО: Показываем несколько ближайших расстояний
-                distances.sort((a, b) => a - b);
-                console.log(`      3 ближайших расстояния: ${distances.slice(0, 3).map(d => d.toFixed(1)).join(', ')}px`);
+            templatePointsInFootprintSystem.push({
+                x: transformedX,
+                y: transformedY,
+                nx: normalizedX,
+                ny: normalizedY,
+                confirmations: cell.confirmations || 1,
+                confidence: cell.confidence || 0.7,
+                cellId: cell.id,
+                isNew: cell.isNew || false,
+                status: cell.status || 'unknown',
+                originalTemplatePoint: { x: templateX, y: templateY },
+                originalCell: cell,
+                cellIndex: index
+            });
+        });
+
+        console.log(`📊 Преобразовано ${templatePointsInFootprintSystem.length} точек шаблона`);
+
+        // 4. ПОЛУЧАЕМ ТОЧКИ ТРЕКЕРА В СИСТЕМЕ ОТПЕЧАТКА
+        const trackerPoints = [];
+        for (const [id, point] of tracker.points) {
+            trackerPoints.push({
+                id,
+                x: point.x,
+                y: point.y,
+                confidence: point.rating || 0.5,
+                confirmedCount: point.confirmedCount || 1,
+                pointData: point
+            });
+        }
+
+        console.log(`📊 Точки трекера: ${trackerPoints.length}`);
+
+        // 5. ДЕБАГ: Показываем примеры координат
+        if (trackerPoints.length > 0 && templatePointsInFootprintSystem.length > 0) {
+            console.log(`\n🔍 ПРИМЕРЫ КООРДИНАТ (первые 3):`);
+
+            for (let i = 0; i < Math.min(3, trackerPoints.length); i++) {
+                const trackerPoint = trackerPoints[i];
+                console.log(`   Точка трекера ${i+1}: (${trackerPoint.x.toFixed(1)}, ${trackerPoint.y.toFixed(1)})`);
+
+                // Ищем ближайшую точку шаблона
+                let nearestTemplate = null;
+                let minDistance = Infinity;
+
+                for (const templatePoint of templatePointsInFootprintSystem) {
+                    const distance = Math.sqrt(
+                        Math.pow(templatePoint.x - trackerPoint.x, 2) +
+                        Math.pow(templatePoint.y - trackerPoint.y, 2)
+                    );
+
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearestTemplate = templatePoint;
+                    }
+                }
+
+                if (nearestTemplate) {
+                    console.log(`   Ближайшая точка шаблона: (${nearestTemplate.x.toFixed(1)}, ${nearestTemplate.y.toFixed(1)})`);
+                    console.log(`   Расстояние: ${minDistance.toFixed(1)}px`);
+                }
             }
         }
+
+        // 6. СРАВНИВАЕМ ТОЧКИ
+        const comparisonResult = this.comparePointsInSameCoordinateSystem(
+            trackerPoints,
+            templatePointsInFootprintSystem,
+            footprintTransformation
+        );
+
+        // 7. ПРИМЕНЯЕМ РЕЗУЛЬТАТЫ
+        const updatedCount = this.applyComparisonToTracker(
+            tracker,
+            comparisonResult.matches
+        );
+
+        // 8. ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ В ОТПЕЧАТКЕ
+        this.updateFootprintConfirmations(footprint, comparisonResult.matches);
+
+        console.log(`\n🎯 РЕЗУЛЬТАТ СРАВНЕНИЯ С ШАБЛОНОМ:`);
+        console.log(`   • Всего точек трекера: ${trackerPoints.length}`);
+        console.log(`   • Всего точек шаблона: ${templatePointsInFootprintSystem.length}`);
+        console.log(`   • Найдено совпадений: ${comparisonResult.matches.length}`);
+        console.log(`   • Идеальные (<15px): ${comparisonResult.perfectMatches}`);
+        console.log(`   • Хорошие (15-30px): ${comparisonResult.goodMatches}`);
+        console.log(`   • Обновлено точек: ${updatedCount}`);
+        console.log(`   • Процент совпадений: ${comparisonResult.matchRate.toFixed(1)}%`);
+
+        return updatedCount;
     }
-
-    // 6. СРАВНИВАЕМ ТОЧКИ
-    const comparisonResult = this.comparePointsInSameCoordinateSystem(
-        trackerPoints,
-        templatePointsInFootprintSystem,
-        footprintTransformation
-    );
-
-    // 7. ПРИМЕНЯЕМ РЕЗУЛЬТАТЫ
-    const updatedCount = this.applyComparisonToTracker(
-        tracker,
-        comparisonResult.matches
-    );
-
-    // 8. ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ В ОТПЕЧАТКЕ
-    this.updateFootprintConfirmations(footprint, comparisonResult.matches);
-
-    console.log(`\n🎯 РЕЗУЛЬТАТ СРАВНЕНИЯ С ШАБЛОНОМ:`);
-    console.log(`   • Всего точек трекера: ${trackerPoints.length}`);
-    console.log(`   • Всего точек шаблона: ${templatePointsInFootprintSystem.length}`);
-    console.log(`   • Найдено совпадений: ${comparisonResult.matches.length}`);
-    console.log(`   • Идеальные (<15px): ${comparisonResult.perfectMatches}`);
-    console.log(`   • Хорошие (15-30px): ${comparisonResult.goodMatches}`);
-    console.log(`   • Обновлено точек: ${updatedCount}`);
-    console.log(`   • Процент совпадений: ${comparisonResult.matchRate.toFixed(1)}%`);
-   
-    // 🔥 ДОБАВЛЕНО: Статистика по подтверждениям
-    if (comparisonResult.matches.length > 0) {
-        const confirmations = comparisonResult.matches.map(m => m.templatePoint?.confirmations || 0);
-        const avgConfirmations = confirmations.reduce((a, b) => a + b, 0) / confirmations.length;
-        console.log(`   • Среднее подтверждений в совпадениях: ${avgConfirmations.toFixed(1)}`);
-    }
-
-    return updatedCount;
-}
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Сравнить точки в одной системе координат
     comparePointsInSameCoordinateSystem(trackerPoints, templatePoints, transformation) {
@@ -1322,17 +1260,10 @@ class SimpleFootprintManager {
 
     // 🔥 НОВЫЙ МЕТОД: Рассчитать качество совпадения
     calculateMatchQuality(distance, templateConfidence) {
-    const distanceScore = Math.max(0, 1 - distance / 50);
-    const confidenceScore = templateConfidence || 0.5;
-    const quality = (distanceScore * 0.7 + confidenceScore * 0.3);
-   
-    // 🔥 ДОБАВЛЕН ОТЛАДОЧНЫЙ ВЫВОД:
-    if (this.config.debug && distance < 50) {
-        console.log(`   🎯 Качество совпадения: distance=${distance.toFixed(1)}px, distScore=${distanceScore.toFixed(3)}, confScore=${confidenceScore.toFixed(3)}, quality=${quality.toFixed(3)}`);
+        const distanceScore = Math.max(0, 1 - distance / 50);
+        const confidenceScore = templateConfidence || 0.5;
+        return (distanceScore * 0.7 + confidenceScore * 0.3);
     }
-   
-    return quality;
-}
 
     // 🔥 НОВЫЙ МЕТОД: Применить результаты сравнения к трекеру
     applyComparisonToTracker(tracker, matches) {
@@ -1539,52 +1470,7 @@ class SimpleFootprintManager {
         console.log(`✅ Прямое сравнение: обновлено ${updatedCount} точек`);
         return updatedCount;
     }
-// 🔥 МЕТОД: Получить уже повернутые точки
-    getTransformedPointsFromFootprint(footprint) {
-        const points = [];
 
-        // 🔥 ВАЖНО: Проверяем, есть ли трансформация
-        const transformation = footprint.getTransformation ? footprint.getTransformation() : null;
-
-        console.log(`📐 Получение точек для визуализации:`);
-        console.log(`   Угол трансформации: ${transformation?.rotationAngle?.toFixed(1) || 0}°`);
-
-        if (!footprint.pointTracker) {
-            console.log('⚠️ Нет PointTracker');
-            return points;
-        }
-
-        // 🔥 ЕСЛИ ЕСТЬ ТРАНСФОРМАЦИЯ - ПРИМЕНЯЕМ ЕЕ К ТОЧКАМ ЗДЕСЬ!
-        for (const [id, point] of footprint.pointTracker.points) {
-            let x = point.x;
-            let y = point.y;
-
-            // 🔥 ПРИМЕНЯЕМ ТРАНСФОРМАЦИЮ rotation-invariance.js ЗДЕСЬ!
-            if (transformation && transformation.matrix) {
-                const matrix = transformation.matrix;
-                const center = transformation.center || { x: 0, y: 0 };
-
-                const relX = x - center.x;
-                const relY = y - center.y;
-
-                x = relX * matrix[0] + relY * matrix[1] + center.x + matrix[2];
-                y = relX * matrix[3] + relY * matrix[4] + center.y + matrix[5];
-            }
-
-            points.push({
-                id,
-                x,
-                y,
-                confirmedCount: point.confirmedCount || 1,
-                confidence: point.rating || 0.5,
-                transformed: !!transformation
-            });
-        }
-
-        console.log(`✅ Получено ${points.length} точек (${transformation ? 'с трансформацией' : 'без трансформации'})`);
-
-        return points;
-    }
     // 🔥 ТЕСТ МЕТОД: Протестировать сравнение координат
     testCoordinateComparison(userId) {
         const session = this.userSessions.get(userId);
@@ -1684,16 +1570,14 @@ class SimpleFootprintManager {
             const graph = new SimpleGraph(`Временный_${Date.now()}`);
             graph.buildFromPoints(points);
 
-             // 🔥 НОРМАЛИЗАЦИЯ С ПРИНУДИТЕЛЬНЫМ ВЫРАВНИВАНИЕМ К 0°
-            console.log(`🎯 ПРИМЕНЯЮ ПРИНУДИТЕЛЬНУЮ НОРМАЛИЗАЦИЮ К 0°`);
-            const normalized = this.rotationProcessor.forceNormalizeToZero(graph, {
+            // Нормализация
+            const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
                 userId: userId,
                 photoInfo: photoInfo,
-                strictZero: true, // 🔥 НОВЫЙ ПАРАМЕТР
-                tolerance: 15     // Допуск ±15°
+                autoRotate: true
             });
 
-            console.log(`📐 Угол после принудительной нормализации: ${normalized.rotationAngle.toFixed(1)}°`);
+            console.log(`📐 Автоповорот: ${normalized.rotationAngle.toFixed(1)}° → 0°`);
             console.log(`🪞 Зеркало: ${normalized.isMirrored ? 'да' : 'нет'}`);
 
             // 🔥 СОХРАНЯЕМ ТРАНСФОРМАЦИЮ
@@ -1854,19 +1738,18 @@ class SimpleFootprintManager {
                 transformationInfo: transformationInfo
             });
 
-            // 🔥 ИСПОЛЬЗУЕМ ВЫРАВНИВАНИЕ С АЛИГНЕРОМ
-console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ (возвращаем рабочий метод)...`);
+            // 🔥 ИСПОЛЬЗУЕМ ПАТТЕРНОВОЕ СРАВНЕНИЕ
+            console.log(`🎯 Сравнение с паттернами следов...`);
+            const comparisonResult = await this.compareWithPatterns(
+                session.currentFootprint,
+                tempFootprint
+            );
 
-// Используем алигнер для выравнивания
-const comparisonResult = await this.compareWithAlignment(
-    session.currentFootprint,
-    tempFootprint
-);
+            const similarity = comparisonResult?.similarity || 0;
+            const decision = similarity > 0.6 ? 'same' : 'different';
 
-const similarity = comparisonResult.similarity;
-const decision = comparisonResult.decision;
+            console.log(`🎯 Сходство (с паттернами): ${similarity.toFixed(3)}, решение: ${decision}`);
 
-console.log(`🎯 Сходство (с выравниванием): ${similarity.toFixed(3)}, решение: ${decision}`);
             // 🔥 СЛЕДЫ СОВПАЛИ - обновляем шаблон с накоплением
             if (decision === 'same') {
                 console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
@@ -2255,41 +2138,46 @@ console.log(`🎯 Сходство (с выравниванием): ${similarity
     }
 
     // 🔥 ВАЖНЫЙ МЕТОД: Визуализация подтверждений ОДНОГО следа
-  
-async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
-    console.log(`🎨 Визуализация БЕЗ собственной трансформации...`);
+    async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
+        console.log(`🎨 Визуализация подтверждений для "${footprint.name}"...`);
 
-    try {
-        const ClusterVisualizer = require('./visualizations/cluster-visualizer');
-        const visualizer = new ClusterVisualizer({
-            outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
-            debug: this.config.debug
-        });
+        try {
+            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
+            const visualizer = new ClusterVisualizer({
+                outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
+                debug: this.config.debug
+            });
 
-        // 🔥 ПОЛУЧАЕМ ТОЧКИ УЖЕ ПОВЕРНУТЫМИ!
-        const points = this.getTransformedPointsFromFootprint(footprint);
+            const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
+                footprint,
+                {
+                    filename: `real_confirmations_${userId}_${Date.now()}.png`,
+                    transformationInfo: transformationInfo
+                }
+            );
 
-        console.log(`📊 Передаю ${points.length} уже повернутых точек в визуализацию`);
+            if (vizResult && vizResult.path) {
+                console.log(`✅ Визуализация создана: ${vizResult.path}`);
 
-        // 🔥 ПЕРЕДАЕМ transformationInfo ТОЛЬКО ДЛЯ ИНФОРМАЦИИ В ТЕКСТЕ!
-        const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
-            {
-                ...footprint,
-                transformedPoints: points // 🔥 УЖЕ ПОВЕРНУТЫЕ!
-            },
-            {
-                filename: `real_confirmations_${userId}_${Date.now()}.png`,
-                transformationInfo: transformationInfo // ТОЛЬКО ДЛЯ ТЕКСТА!
+                // Проверяем существование файла
+                if (fs.existsSync(vizResult.path)) {
+                    const stats = fs.statSync(vizResult.path);
+                    console.log(`📊 Размер файла: ${stats.size} байт`);
+                } else {
+                    console.log(`⚠️ Файл не найден: ${vizResult.path}`);
+                }
+            } else {
+                console.log(`⚠️ Визуализация не создана или результат пустой`);
             }
-        );
 
-        return vizResult;
+            return vizResult;
 
-    } catch (error) {
-        console.log('❌ Ошибка визуализации:', error.message);
-        return null;
+        } catch (error) {
+            console.log('❌ Ошибка визуализации:', error.message);
+            console.error(error.stack);
+            return null;
+        }
     }
-}
 
     // 🔥 ВОССТАНОВЛЕННЫЕ МЕТОДЫ ДЛЯ КОМАНД
     getActiveSession(userId) {
@@ -2653,58 +2541,7 @@ async visualizeSingleFootprintConfirmations(footprint, userId, transformationInf
 
         return originalPoints;
     }
-// 🔥 ОБНОВИТЬ СРАВНЕНИЕ:
-    async compareFootprintsWithSamePoints(footprint1, footprint2) {
-        console.log(`\n🎯 СРАВНЕНИЕ С ИДЕНТИЧНОЙ ТРАНСФОРМАЦИЕЙ`);
 
-        // 🔥 ИСПОЛЬЗУЕМ ТЕ ЖЕ ТОЧКИ, ЧТО И В ВИЗУАЛИЗАЦИИ!
-        const points1 = this.getTransformedPointsFromFootprint(footprint1);
-        const points2 = this.getTransformedPointsFromFootprint(footprint2);
-
-        console.log(`📊 Точки для сравнения:`);
-        console.log(`   След 1: ${points1.length} уже повернутых точек`);
-        console.log(`   След 2: ${points2.length} уже повернутых точек`);
-
-        if (points1.length > 0 && points2.length > 0) {
-            console.log(`   Пример точки 1: (${points1[0].x.toFixed(1)}, ${points1[0].y.toFixed(1)})`);
-            console.log(`   Пример точки 2: (${points2[0].x.toFixed(1)}, ${points2[0].y.toFixed(1)})`);
-        }
-
-        // 🔥 СРАВНЕНИЕ ТЕПЕРЬ КОРРЕКТНОЕ!
-        let matches = 0;
-        const THRESHOLD = 30;
-
-        for (const p1 of points1) {
-            let minDistance = Infinity;
-
-            for (const p2 of points2) {
-                const distance = Math.sqrt(
-                    Math.pow(p1.x - p2.x, 2) +
-                    Math.pow(p1.y - p2.y, 2)
-                );
-
-                if (distance < minDistance) {
-                    minDistance = distance;
-                }
-            }
-
-            if (minDistance < THRESHOLD) {
-                matches++;
-            }
-        }
-
-        const similarity = matches / Math.max(points1.length, points2.length);
-
-        console.log(`🎯 Результат:`);
-        console.log(`   Совпадений: ${matches}/${points1.length}`);
-        console.log(`   Сходство: ${(similarity * 100).toFixed(1)}%`);
-
-        return {
-            similarity,
-            decision: similarity > 0.6 ? 'same' : 'different',
-            matches
-        };
-    }
     prepareTemplatePointsForComparison(templateCells, templateBuilder, targetTransformation) {
         const points = [];
 
@@ -2743,135 +2580,6 @@ async visualizeSingleFootprintConfirmations(footprint, userId, transformationInf
         });
 
         return points;
-    }
-
-    // 🔥 МЕТОД: Сравнить с учетом допуска по углу
-    async compareWithAngleTolerance(footprint1, footprint2, maxAngleDiff = 30) {
-        console.log(`\n🎯 СРАВНЕНИЕ С ДОПУСКОМ ПО УГЛУ (${maxAngleDiff}°)`);
-
-        // 1. Получаем углы трансформаций
-        const trans1 = footprint1.getTransformation();
-        const trans2 = footprint2.getTransformation();
-
-        const angle1 = trans1?.rotationAngle || 0;
-        const angle2 = trans2?.rotationAngle || 0;
-
-        console.log(`📐 Углы: ${angle1.toFixed(1)}° vs ${angle2.toFixed(1)}°`);
-        console.log(`📏 Разница: ${Math.abs(angle1 - angle2).toFixed(1)}°`);
-
-        // 2. Если углы сильно отличаются - нормализуем второй след к углу первого
-        const angleDiff = Math.abs(angle1 - angle2);
-
-        if (angleDiff > maxAngleDiff) {
-            console.log(`⚠️ Большая разница углов! Нормализую второй след...`);
-
-            // Вычисляем необходимый поворот
-            const neededRotation = angle1 - angle2;
-            console.log(`🔄 Необходимый поворот: ${neededRotation.toFixed(1)}°`);
-
-            // Создаем копию второго следа с поворотом
-            const alignedFootprint = this.rotateFootprintToAngle(footprint2, neededRotation);
-
-            // Сравниваем с выровненным следом
-            return await this.simpleCompare(footprint1, alignedFootprint);
-        }
-
-        // 3. Если углы близки - обычное сравнение
-        console.log(`✅ Углы достаточно близки, обычное сравнение`);
-        return await this.simpleCompare(footprint1, footprint2);
-    }
-
-    // 🔥 ПОВЕРНУТЬ СЛЕД НА ЗАДАННЫЙ УГОЛ
-    rotateFootprintToAngle(footprint, angle) {
-        const points = [];
-        for (const [id, point] of footprint.pointTracker.points) {
-            points.push({ id, x: point.x, y: point.y });
-        }
-
-        const center = this.calculateCenter(points);
-        const rad = angle * Math.PI / 180;
-        const cosA = Math.cos(rad);
-        const sinA = Math.sin(rad);
-
-        // Создаем новый след с повернутыми точками
-        const SimpleFootprint = require('./simple-footprint');
-        const rotated = new SimpleFootprint({
-            userId: footprint.userId,
-            name: footprint.name + '_rotated'
-        });
-
-        for (const point of points) {
-            const dx = point.x - center.x;
-            const dy = point.y - center.y;
-
-            const rotatedX = dx * cosA - dy * sinA + center.x;
-            const rotatedY = dy * cosA + dx * sinA + center.y;
-
-            // Добавляем точку в новый след
-            rotated.pointTracker.addPoint(point.id, rotatedX, rotatedY, {
-                originalX: point.x,
-                originalY: point.y,
-                rotationApplied: angle
-            });
-        }
-
-        return rotated;
-    }
-
-    // 🔥 ПРОСТОЕ СРАВНЕНИЕ (если такого метода нет)
-    async simpleCompare(footprint1, footprint2) {
-        console.log(`⚡ ПРОСТОЕ СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
-
-        try {
-            // Используем существующий метод или создаем простой
-            if (this.matcher && this.matcher.compareGraphs) {
-                return await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
-            }
-
-            // Простое сравнение расстояний
-            const points1 = [];
-            for (const [id, point] of footprint1.pointTracker.points) {
-                points1.push({ id, x: point.x, y: point.y });
-            }
-
-            const points2 = [];
-            for (const [id, point] of footprint2.pointTracker.points) {
-                points2.push({ id, x: point.x, y: point.y });
-            }
-
-            let matches = 0;
-            const threshold = 25; // 25px
-
-            for (const p1 of points1) {
-                let minDist = Infinity;
-               
-                for (const p2 of points2) {
-                    const dist = Math.sqrt(
-                        Math.pow(p1.x - p2.x, 2) +
-                        Math.pow(p1.y - p2.y, 2)
-                    );
-                    if (dist < minDist) minDist = dist;
-                }
-               
-                if (minDist < threshold) matches++;
-            }
-
-            const similarity = matches / Math.max(points1.length, points2.length);
-            const decision = similarity > 0.6 ? 'same' : 'different';
-
-            return {
-                similarity,
-                decision,
-                matches,
-                points1Count: points1.length,
-                points2Count: points2.length,
-                method: 'simple_distance_fallback'
-            };
-
-        } catch (error) {
-            console.log(`❌ Ошибка сравнения: ${error.message}`);
-            return { similarity: 0, decision: 'error', error: error.message };
-        }
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ГЕОМЕТРИИ
