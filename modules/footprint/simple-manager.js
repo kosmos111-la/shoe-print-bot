@@ -2244,7 +2244,7 @@ class SimpleFootprintManager {
     }
 
     // 🔥 ВАЖНЫЙ МЕТОД: Визуализация подтверждений ОДНОГО следа
-    async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {// 🔥 ПЕРЕДАЕМ ТОЧКИ УЖЕ ПОВЕРНУТЫМИ!
+  
 async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
     console.log(`🎨 Визуализация БЕЗ собственной трансформации...`);
 
