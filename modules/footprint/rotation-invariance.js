@@ -442,6 +442,86 @@ class RotationInvariance {
             return { similarity: 0, decision: 'error', error: error.message };
         }
     }
-}
+   // 🔥 ДОБАВЬТЕ ЭТОТ МЕТОД В КЛАСС:
+    forceNormalizeToZero(graph, options = {}) {
+        console.log(`\n🎯 ПРИНУДИТЕЛЬНАЯ НОРМАЛИЗАЦИЯ К 0°`);
 
+        // 1. Получаем текущую нормализацию (старый метод)
+        const result = this.normalizeToCanonical(graph, options);
+
+        // 2. Проверяем угол после нормализации
+        const currentAngle = result.rotationAngle;
+        console.log(`📐 Угол после нормализации: ${currentAngle.toFixed(1)}°`);
+
+        // 3. 🔥 КЛЮЧЕВОЕ: Если угол не близок к 0° - доворачиваем!
+        const targetAngle = 0; // Всегда 0°!
+        const tolerance = options.tolerance || 15; // Допуск ±15°
+
+        if (Math.abs(currentAngle - targetAngle) > tolerance &&
+            Math.abs(currentAngle - targetAngle - 360) > tolerance &&
+            Math.abs(currentAngle - targetAngle + 360) > tolerance) {
+
+            console.log(`⚠️ Угол ${currentAngle.toFixed(1)}° не близок к 0°!`);
+            console.log(`🔄 Доворачиваю до 0°...`);
+
+            // Вычисляем дополнительный поворот
+            const additionalRotation = -currentAngle;
+            console.log(`📐 Дополнительный поворот: ${additionalRotation.toFixed(1)}°`);
+
+            // Применяем дополнительный поворот
+            const center = result.transformation.center || { x: 0, y: 0 };
+            const finalGraph = this.applyAdditionalRotation(
+                result.graph,
+                additionalRotation,
+                center
+            );
+
+            // Обновляем результат
+            result.graph = finalGraph;
+            result.rotationAngle = 0; // Теперь точно 0°!
+            result.transformation.rotationAngle = 0;
+            result.transformation.forceCorrected = true;
+            result.transformation.originalAngle = currentAngle;
+            result.transformation.correction = additionalRotation;
+
+            console.log(`✅ Принудительно нормализовано к 0°`);
+        } else {
+            console.log(`✅ Угол уже близок к 0° (${currentAngle.toFixed(1)}°)`);
+        }
+
+        return result;
+    }
+
+    // 🔥 ПРИМЕНИТЬ ДОПОЛНИТЕЛЬНЫЙ ПОВОРОТ
+    applyAdditionalRotation(graph, angle, center) {
+        const rad = angle * Math.PI / 180;
+        const cosA = Math.cos(rad);
+        const sinA = Math.sin(rad);
+
+        const rotatedGraph = {
+            nodes: new Map(),
+            edges: new Map(graph.edges),
+            id: graph.id + '_forced',
+            name: graph.name ? graph.name + ' (принудительно к 0°)' : 'forced_to_zero'
+        };
+
+        for (const [id, node] of graph.nodes) {
+            const dx = node.x - center.x;
+            const dy = node.y - center.y;
+
+            const rotatedX = dx * cosA - dy * sinA;
+            const rotatedY = dx * sinA + dy * cosA;
+
+            rotatedGraph.nodes.set(id, {
+                ...node,
+                x: rotatedX + center.x,
+                y: rotatedY + center.y,
+                forceRotated: true,
+                originalAngle: angle
+            });
+        }
+
+        return rotatedGraph;
+    }
+}
 module.exports = RotationInvariance;
