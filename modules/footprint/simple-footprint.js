@@ -94,7 +94,29 @@ class SimpleFootprint {
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Честное добавление анализа с сохранением трансформации
     addAnalysisHonest(analysis, sourceInfo = {}) {
         console.log(`📥 Честное добавление анализа с сохранением трансформации`);
+// Сохраняем трансформацию ИЗ ИСТОЧНИКА
+    if (sourceInfo.transformationInfo) {
+        this.transformation = sourceInfo.transformationInfo;
+        console.log(`📐 Сохранена трансформация из sourceInfo: ${this.transformation.rotationAngle}°`);
+    }
+    // Или из normalizedGraph
+    else if (sourceInfo.normalizedGraph && sourceInfo.normalizedGraph.transformation) {
+        this.transformation = sourceInfo.normalizedGraph.transformation;
+        console.log(`📐 Сохранена трансформация из normalizedGraph: ${this.transformation.rotationAngle}°`);
+    }
+    // Или создаем по умолчанию с реальным углом
+    else if (!this.transformation) {
+        // 🔥 ВАЖНО: получаем реальный угол из rotation-invariance
+        const RotationInvariance = require('./rotation-invariance');
+        const processor = new RotationInvariance();
 
+        const points = this.extractProtectorPoints(analysis.predictions);
+        if (points.length >= 3) {
+            const angle = processor.detectRotationAngle(points);
+            this.transformation = this.createTransformationWithAngle(angle); // 🔥 С РЕАЛЬНЫМ УГЛОМ
+            console.log(`📐 Создана трансформация с реальным углом: ${angle}°`);
+        }
+    }
         const { predictions } = analysis;
         const protectorPoints = this.extractProtectorPoints(predictions);
 
@@ -302,6 +324,63 @@ class SimpleFootprint {
         };
     }
 
+// 🔥 НОВЫЙ МЕТОД: Создать трансформацию с реальным углом
+    createTransformationWithAngle(angle) {
+        const points = [];
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [, point] of this.pointTracker.points) {
+                points.push({ x: point.x, y: point.y });
+            }
+        }
+
+        const bounds = this.calculateBounds(points);
+        const center = {
+            x: (bounds.minX + bounds.maxX) / 2,
+            y: (bounds.minY + bounds.maxY) / 2
+        };
+
+        const angleRad = angle * Math.PI / 180;
+        const cosA = Math.cos(angleRad);
+        const sinA = Math.sin(angleRad);
+
+        return {
+            matrix: [
+                cosA, -sinA, 0,
+                sinA, cosA, 0,
+                0, 0, 1
+            ],
+            rotationAngle: angle, // 🔥 РЕАЛЬНЫЙ УГОЛ, НЕ 0!
+            isMirrored: false,
+            center: center,
+            bounds: bounds,
+            type: 'calculated_with_real_angle',
+            timestamp: new Date()
+        };
+    }
+
+    // 🔥 ДЕБАГ МЕТОД: Проверить трансформации
+    debugTransformation() {
+        console.log(`\n🔍 ДЕБАГ ТРАНСФОРМАЦИИ ОТПЕЧАТКА "${this.name}":`);
+        console.log(`   Есть трансформация: ${!!this.transformation}`);
+
+        if (this.transformation) {
+            console.log(`   rotationAngle: ${this.transformation.rotationAngle}°`);
+            console.log(`   isMirrored: ${this.transformation.isMirrored}`);
+            console.log(`   center: (${this.transformation.center?.x?.toFixed(1)}, ${this.transformation.center?.y?.toFixed(1)})`);
+            console.log(`   type: ${this.transformation.type}`);
+        }
+
+        // Проверяем историю
+        if (this.analysisHistory && this.analysisHistory.length > 0) {
+            const lastAnalysis = this.analysisHistory[this.analysisHistory.length - 1];
+            console.log(`\n   Последний анализ:`);
+            console.log(`   Есть sourceInfo: ${!!lastAnalysis.sourceInfo}`);
+            if (lastAnalysis.sourceInfo && lastAnalysis.sourceInfo.transformationInfo) {
+                console.log(`   Угол в sourceInfo: ${lastAnalysis.sourceInfo.transformationInfo.rotationAngle}°`);
+            }
+        }
+    }
+  
     // 🔥 НОВЫЙ МЕТОД: Преобразовать точки к системе этого отпечатка
     transformPointsToMySystem(points, sourceTransformation) {
         if (!this.transformation || !sourceTransformation) {
