@@ -550,7 +550,36 @@ class SimpleFootprintManager {
     // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Использовать алайнер для сравнения
     async compareWithAlignment(footprint1, footprint2) {
         console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+// 🔥🔥🔥 ЭКСТРЕННЫЙ ПАТЧ 🔥🔥🔥
+        // Если углы 0° - устанавливаем их вручную
+        const angle1 = footprint1.transformation?.rotationAngle || 0;
+        const angle2 = footprint2.transformation?.rotationAngle || 0;
 
+        console.log(`📐 РЕАЛЬНЫЕ УГЛЫ: ${angle1}° vs ${angle2}°`);
+
+        // Если один 0°, а другой должен быть 90° - исправляем
+        if (angle1 === 0 && angle2 === 0) {
+            console.log(`⚠️ Оба угла 0°, проверяю нужна ли коррекция 90°...`);
+
+            // Простой тест: если следы "вертикальные" vs "горизонтальные"
+            const points1 = this.extractPointsFromFootprint(footprint1);
+            const points2 = this.extractPointsFromFootprint(footprint2);
+
+            const ratio1 = this.calculateAspectRatio(points1);
+            const ratio2 = this.calculateAspectRatio(points2);
+
+            console.log(`📏 Пропорции: ${ratio1.toFixed(2)} vs ${ratio2.toFixed(2)}`);
+
+            // Если один вертикальный (ratio < 0.5), а другой горизонтальный (ratio > 2)
+            if ((ratio1 < 0.5 && ratio2 > 2) || (ratio1 > 2 && ratio2 < 0.5)) {
+                console.log(`🔄 Применяю автоматическую коррекцию 90°!`);
+                // Временно устанавливаем угол 90°
+                if (!footprint2.transformation) footprint2.transformation = {};
+                footprint2.transformation.rotationAngle = 90;
+                console.log(`   Установлен угол 90° для сравнения`);
+            }
+        }
+        // 🔥🔥🔥 КОНЕЦ ПАТЧА 🔥🔥🔥
         try {
             // 🔥 ИСПРАВЛЕНИЕ: Получаем оригинальные трансформации
             let transformation1 = footprint1.getTransformation();
@@ -1633,25 +1662,26 @@ class SimpleFootprintManager {
 
             // 🔥 ПЕРВОЕ ФОТО: создаем отпечаток и шаблон
             if (!session.currentFootprint) {
-                console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
+    console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
 
-                // При создании отпечатка передаем трансформацию
-                session.currentFootprint = new SimpleFootprint({
-                    userId: userId,
-                    name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
-                    transformation: transformationInfo
-                });
+    // При создании отпечатка передаем трансформацию
+    session.currentFootprint = new SimpleFootprint({
+        userId: userId,
+        name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
+        // 🔥 ВАЖНО: передаем трансформацию при создании!
+        transformation: transformationInfo // УЖЕ СОДЕРЖИТ rotationAngle: 90°
+    });
 
-                session.currentFootprint.metadata.normalizationInfo = transformationInfo;
-
-                // Добавляем анализ
-                const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
-                    ...photoInfo,
-                    normalizedGraph: finalGraph,
-                    photoId: photoInfo.photoId || `photo_${Date.now()}`,
-                    source: photoInfo.source || 'telegram_bot',
-                    transformationInfo: transformationInfo
-                });
+    session.currentFootprint.metadata.normalizationInfo = transformationInfo;
+   
+    // Добавляем анализ
+    const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
+        ...photoInfo,
+        normalizedGraph: finalGraph,
+        photoId: photoInfo.photoId || `photo_${Date.now()}`,
+        source: photoInfo.source || 'telegram_bot',
+        transformationInfo: transformationInfo
+    });
 
                 // 🔥 СОЗДАЕМ СУПЕР-МОДЕЛЬ (ШАБЛОН)
                 const VectorSuperModel = require('./vector-super-model');
@@ -2616,6 +2646,62 @@ class SimpleFootprintManager {
             y: sumY / points.length
         };
     }
-}
+   // 🔥 НОВЫЙ МЕТОД: Извлечь точки из отпечатка
+    extractPointsFromFootprint(footprint) {
+        const points = [];
+       
+        if (footprint.pointTracker && footprint.pointTracker.points) {
+            for (const [, point] of footprint.pointTracker.points) {
+                points.push({ x: point.x, y: point.y });
+            }
+        }
+       
+        return points;
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: Рассчитать соотношение сторон
+    calculateAspectRatio(points) {
+        const bounds = this.calculateBounds(points);
+        return bounds.width / Math.max(1, bounds.height);
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: Расчет границ для точек
+    calculateBounds(points) {
+        if (!points || points.length === 0) {
+            return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+        }
+       
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+       
+        points.forEach(point => {
+            minX = Math.min(minX, point.x);
+            maxX = Math.max(maxX, point.x);
+            minY = Math.min(minY, point.y);
+            maxY = Math.max(maxY, point.y);
+        });
+       
+        return {
+            minX, maxX, minY, maxY,
+            width: maxX - minX,
+            height: maxY - minY
+        };
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: Расчет центра
+    calculateCenter(points) {
+        if (!points || points.length === 0) {
+            return { x: 0, y: 0 };
+        }
+       
+        const sumX = points.reduce((sum, p) => sum + p.x, 0);
+        const sumY = points.reduce((sum, p) => sum + p.y, 0);
+       
+        return {
+            x: sumX / points.length,
+            y: sumY / points.length
+        };
+    }
+} // <- ЭТО ЗАКРЫВАЮЩАЯ ФИГУРНАЯ СКОБКА КЛАССА SimpleFootprintManager
 
 module.exports = SimpleFootprintManager;
