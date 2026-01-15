@@ -319,10 +319,10 @@ class TemplateBuilder {
             quality: 0
         };
 
-        const EXACT_THRESHOLD = 0.02;
-        const PARTIAL_THRESHOLD = 0.05;
-        const LOW_QUALITY_THRESHOLD = 0.1;
-
+        const EXACT_THRESHOLD = 0.1;    // 10% вместо 2% (50px при 520px)
+const PARTIAL_THRESHOLD = 0.15; // 15% (78px)
+const LOW_QUALITY_THRESHOLD = 0.25; // 25% (130px)
+      
         // Для каждой точки нового графа ищем ближайшую в шаблоне
         normalizedPoints.forEach(newPoint => {
             let bestMatch = null;
