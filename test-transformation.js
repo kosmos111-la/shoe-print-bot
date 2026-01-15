@@ -1,5 +1,5 @@
-const SimpleFootprint = require('./simple-footprint');
-const RotationInvariance = require('./rotation-invariance');
+const SimpleFootprint = require('./modules/footprint/simple-footprint');
+const RotationInvariance = require('./modules/footprint/rotation-invariance');
 
 // 1. Создаем тестовые точки (имитация повернутого следа)
 const testPoints = [
