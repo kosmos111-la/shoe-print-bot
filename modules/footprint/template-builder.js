@@ -324,7 +324,29 @@ const PARTIAL_THRESHOLD = 0.15; // 15% (78px)
 const LOW_QUALITY_THRESHOLD = 0.25; // 25% (130px)
       
         // Для каждой точки нового графа ищем ближайшую в шаблоне
-        normalizedPoints.forEach(newPoint => {
+        normalizedPoints.forEach((newPoint, index) => {
+// 🔥 ДЕБАГ: Показываем первую точку
+if (this.config.debug && index === 0) {
+    console.log(`\n🎯 ДЕБАГ ПЕРВОЙ ТОЧКИ:`);
+    console.log(`   Нормализованные: (${newPoint.nx?.toFixed(4)}, ${newPoint.ny?.toFixed(4)})`);
+    console.log(`   Реальные: (${newPoint.x?.toFixed(1)}, ${newPoint.y?.toFixed(1)})`);
+   
+    // Показать первую ячейку шаблона
+    const firstCellId = Array.from(this.invariantCells.keys())[0];
+    if (firstCellId) {
+        const firstCell = this.invariantCells.get(firstCellId);
+        console.log(`   Первая ячейка шаблона: (${firstCell.normalizedCenter.nx?.toFixed(4)}, ${firstCell.normalizedCenter.ny?.toFixed(4)})`);
+       
+        const distance = Math.sqrt(
+            Math.pow(firstCell.normalizedCenter.nx - newPoint.nx, 2) +
+            Math.pow(firstCell.normalizedCenter.ny - newPoint.ny, 2)
+        );
+        console.log(`   Расстояние: ${distance.toFixed(4)}`);
+        console.log(`   Порог точных совпадений: ${EXACT_THRESHOLD} (<${EXACT_THRESHOLD * 100}%)`);
+        console.log(`   Это точное совпадение? ${distance < EXACT_THRESHOLD ? '✅ ДА' : '❌ НЕТ'}`);
+    }
+}
+              
             let bestMatch = null;
             let minDistance = Infinity;
             let bestCellId = null;
