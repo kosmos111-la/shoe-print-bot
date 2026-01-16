@@ -94,29 +94,30 @@ class SimpleFootprint {
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Честное добавление анализа с сохранением трансформации
     addAnalysisHonest(analysis, sourceInfo = {}) {
         console.log(`📥 Честное добавление анализа с сохранением трансформации`);
-// Сохраняем трансформацию ИЗ ИСТОЧНИКА
-    if (sourceInfo.transformationInfo) {
-        this.transformation = sourceInfo.transformationInfo;
-        console.log(`📐 Сохранена трансформация из sourceInfo: ${this.transformation.rotationAngle}°`);
-    }
-    // Или из normalizedGraph
-    else if (sourceInfo.normalizedGraph && sourceInfo.normalizedGraph.transformation) {
-        this.transformation = sourceInfo.normalizedGraph.transformation;
-        console.log(`📐 Сохранена трансформация из normalizedGraph: ${this.transformation.rotationAngle}°`);
-    }
-    // Или создаем по умолчанию с реальным углом
-    else if (!this.transformation) {
-        // 🔥 ВАЖНО: получаем реальный угол из rotation-invariance
-        const RotationInvariance = require('./rotation-invariance');
-        const processor = new RotationInvariance();
-
-        const points = this.extractProtectorPoints(analysis.predictions);
-        if (points.length >= 3) {
-            const angle = processor.detectRotationAngle(points);
-            this.transformation = this.createTransformationWithAngle(angle); // 🔥 С РЕАЛЬНЫМ УГЛОМ
-            console.log(`📐 Создана трансформация с реальным углом: ${angle}°`);
+        // Сохраняем трансформацию ИЗ ИСТОЧНИКА
+        if (sourceInfo.transformationInfo) {
+            this.transformation = sourceInfo.transformationInfo;
+            console.log(`📐 Сохранена трансформация из sourceInfo: ${this.transformation.rotationAngle}°`);
         }
-    }
+        // Или из normalizedGraph
+        else if (sourceInfo.normalizedGraph && sourceInfo.normalizedGraph.transformation) {
+            this.transformation = sourceInfo.normalizedGraph.transformation;
+            console.log(`📐 Сохранена трансформация из normalizedGraph: ${this.transformation.rotationAngle}°`);
+        }
+        // Или создаем по умолчанию с реальным углом
+        else if (!this.transformation) {
+            // 🔥 ВАЖНО: получаем реальный угол из rotation-invariance
+            const RotationInvariance = require('./rotation-invariance');
+            const processor = new RotationInvariance();
+
+            const points = this.extractProtectorPoints(analysis.predictions);
+            if (points.length >= 3) {
+                const angle = processor.detectRotationAngle(points);
+                this.transformation = this.createTransformationWithAngle(angle); // 🔥 С РЕАЛЬНЫМ УГЛОМ
+                console.log(`📐 Создана трансформация с реальным углом: ${angle}°`);
+            }
+        }
+       
         const { predictions } = analysis;
         const protectorPoints = this.extractProtectorPoints(predictions);
 
@@ -272,129 +273,107 @@ class SimpleFootprint {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Получить трансформацию
-   getTransformation() {
-    // 1. Если уже есть трансформация - возвращаем её
-    if (this.transformation && this.transformation.rotationAngle !== undefined) {
-        console.log(`📐 [getTransformation] Возвращаю сохраненную трансформацию: ${this.transformation.rotationAngle}°`);
+    // 🔥 НОВЫЙ МЕТОД: Создать трансформацию с учетом ориентации
+    createOrientationAwareTransformation(points) {
+        console.log('🔄 [createOrientationAwareTransformation] Создаю трансформацию с учетом ориентации...');
+
+        if (points.length < 3) {
+            console.log('⚠️ Мало точек (<3), возвращаю трансформацию по умолчанию');
+            return this.createEmergencyDefaultTransformation();
+        }
+
+        // Вычисляем границы
+        const bounds = this.calculateBounds(points);
+        const width = bounds.maxX - bounds.minX;
+        const height = bounds.maxY - bounds.minY;
+        const aspectRatio = width / Math.max(1, height);
+
+        console.log(`📏 Размеры: ${width.toFixed(1)}x${height.toFixed(1)} (ratio: ${aspectRatio.toFixed(2)})`);
+
+        let rotationAngle = 0;
+
+        // Определяем угол на основе ориентации
+        const VERTICAL_THRESHOLD = 0.5;
+        const HORIZONTAL_THRESHOLD = 2.0;
+
+        if (aspectRatio < VERTICAL_THRESHOLD) {
+            // Вертикальный след → поворачиваем на 90°
+            rotationAngle = 90;
+            console.log(`📐 ВЕРТИКАЛЬНЫЙ след -> поворачиваю на ${rotationAngle}°`);
+        } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
+            // Горизонтальный след → не поворачиваем
+            rotationAngle = 0;
+            console.log(`📐 ГОРИЗОНТАЛЬНЫЙ след -> не поворачиваю`);
+        } else {
+            // Квадратный след → используем PCA
+            try {
+                const RotationInvariance = require('./rotation-invariance');
+                const processor = new RotationInvariance({ debug: false });
+                rotationAngle = processor.detectRotationAngle(points);
+                console.log(`📐 КВАДРАТНЫЙ след -> PCA определил угол ${rotationAngle}°`);
+            } catch (error) {
+                console.log('❌ Ошибка PCA, использую 0°:', error.message);
+                rotationAngle = 0;
+            }
+        }
+
+        // Создаем трансформацию
+        return this.createTransformationWithAngle(rotationAngle);
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить трансформацию
+    getTransformation() {
+        // 1. Если уже есть трансформация - возвращаем её
+        if (this.transformation && this.transformation.rotationAngle !== undefined) {
+            console.log(`📐 [getTransformation] Возвращаю сохраненную трансформацию: ${this.transformation.rotationAngle}°`);
+            return this.transformation;
+        }
+
+        // 2. Если нет - создаем из текущих точек С УЧЕТОМ ОРИЕНТАЦИИ
+        console.log('⚠️ [getTransformation] Нет сохраненной трансформации, создаю из текущих точек с учетом ориентации...');
+
+        // Получаем точки из трекера
+        const points = [];
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [, point] of this.pointTracker.points) {
+                points.push({ x: point.x, y: point.y });
+            }
+        }
+
+        console.log(`📊 Найдено ${points.length} точек в трекере`);
+
+        if (points.length < 3) {
+            console.log('⚠️ Мало точек (<3), возвращаю трансформацию по умолчанию');
+            return this.createEmergencyDefaultTransformation();
+        }
+
+        // 🔥 ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД С УЧЕТОМ ОРИЕНТАЦИИ
+        this.transformation = this.createOrientationAwareTransformation(points);
+
+        console.log(`✅ Создана трансформация с учетом ориентации: ${this.transformation.rotationAngle}°`);
+
         return this.transformation;
     }
-   
-    // 2. Если нет - создаем из текущих точек
-    console.log('⚠️ [getTransformation] Нет сохраненной трансформации, создаю из текущих точек...');
-    return this.createTransformationFromCurrentPoints();
-}
 
-    // 🔥 НОВЫЙ МЕТОД: Создать трансформацию из текущих точек
-createTransformationFromCurrentPoints() {
-    console.log('🔄 [createTransformationFromCurrentPoints] Создаю трансформацию из текущих точек...');
-   
-    // Получаем точки из трекера
-    const points = [];
-    if (this.pointTracker && this.pointTracker.points) {
-        for (const [, point] of this.pointTracker.points) {
-            points.push({ x: point.x, y: point.y });
-        }
-    }
-   
-    console.log(`📊 Найдено ${points.length} точек в трекере`);
-   
-    if (points.length < 3) {
-        console.log('⚠️ Мало точек (<3), возвращаю трансформацию по умолчанию');
-        return this.createEmergencyDefaultTransformation();
-    }
-   
-    // Вычисляем реальный угол
-    try {
-        const RotationInvariance = require('./rotation-invariance');
-        const processor = new RotationInvariance({ debug: false });
-       
-        const angle = processor.detectRotationAngle(points);
-        console.log(`📐 Вычислен реальный угол: ${angle}°`);
-       
-        // Создаем полную трансформацию
-        return this.createTransformationWithAngle(angle);
-       
-    } catch (error) {
-        console.log('❌ Ошибка вычисления угла:', error.message);
-        return this.createEmergencyDefaultTransformation();
-    }
-}
+    // 🔥 НОВЫЙ МЕТОД: Создать аварийную трансформацию по умолчанию
+    createEmergencyDefaultTransformation() {
+        console.log('⚠️ Создаю аварийную трансформацию по умолчанию');
 
-// 🔥 НОВЫЙ МЕТОД: Создать аварийную трансформацию по умолчанию
-createEmergencyDefaultTransformation() {
-    console.log('⚠️ Создаю аварийную трансформацию по умолчанию');
-   
-    return {
-        matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-        rotationAngle: 0,
-        isMirrored: false,
-        center: { x: 0, y: 0 },
-        bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
-        type: 'emergency_default',
-        timestamp: new Date()
-    };
-}
-
-// 🔥 МЕТОД ИЗ ТЕСТА (УЖЕ ЕСТЬ В ВАШЕМ КОДЕ):
-createTransformationWithAngle(angle) {
-    console.log(`🔄 [createTransformationWithAngle] Создаю трансформацию с углом ${angle}°`);
-   
-    const points = [];
-    if (this.pointTracker && this.pointTracker.points) {
-        for (const [, point] of this.pointTracker.points) {
-            points.push({ x: point.x, y: point.y });
-        }
+        return {
+            matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            rotationAngle: 0,
+            isMirrored: false,
+            center: { x: 0, y: 0 },
+            bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+            type: 'emergency_default',
+            timestamp: new Date()
+        };
     }
-   
-    const bounds = this.calculateBounds(points);
-    const center = {
-        x: (bounds.minX + bounds.maxX) / 2,
-        y: (bounds.minY + bounds.maxY) / 2
-    };
-   
-    // Матрица поворота
-    const angleRad = angle * Math.PI / 180;
-    const cosA = Math.cos(angleRad);
-    const sinA = Math.sin(angleRad);
-   
-    return {
-        matrix: [
-            cosA, -sinA, 0,
-            sinA, cosA, 0,
-            0, 0, 1
-        ],
-        rotationAngle: angle,
-        isMirrored: false,
-        center: center,
-        bounds: bounds,
-        type: 'calculated_with_real_angle',
-        timestamp: new Date(),
-        source: 'createTransformationWithAngle'
-    };
-}
 
-// 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД (ЕСЛИ НЕТ):
-calculateBounds(points) {
-    if (!points || points.length === 0) {
-        return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
-    }
-   
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-   
-    points.forEach(p => {
-        minX = Math.min(minX, p.x);
-        maxX = Math.max(maxX, p.x);
-        minY = Math.min(minY, p.y);
-        maxY = Math.max(maxY, p.y);
-    });
-   
-    return { minX, maxX, minY, maxY };
-}
-
-// 🔥 НОВЫЙ МЕТОД: Создать трансформацию с реальным углом
+    // 🔥 МЕТОД ИЗ ТЕСТА (УЖЕ ЕСТЬ В ВАШЕМ КОДЕ):
     createTransformationWithAngle(angle) {
+        console.log(`🔄 [createTransformationWithAngle] Создаю трансформацию с углом ${angle}°`);
+
         const points = [];
         if (this.pointTracker && this.pointTracker.points) {
             for (const [, point] of this.pointTracker.points) {
@@ -408,6 +387,7 @@ calculateBounds(points) {
             y: (bounds.minY + bounds.maxY) / 2
         };
 
+        // Матрица поворота
         const angleRad = angle * Math.PI / 180;
         const cosA = Math.cos(angleRad);
         const sinA = Math.sin(angleRad);
@@ -418,13 +398,33 @@ calculateBounds(points) {
                 sinA, cosA, 0,
                 0, 0, 1
             ],
-            rotationAngle: angle, // 🔥 РЕАЛЬНЫЙ УГОЛ, НЕ 0!
+            rotationAngle: angle,
             isMirrored: false,
             center: center,
             bounds: bounds,
             type: 'calculated_with_real_angle',
-            timestamp: new Date()
+            timestamp: new Date(),
+            source: 'createTransformationWithAngle'
         };
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД (ЕСЛИ НЕТ):
+    calculateBounds(points) {
+        if (!points || points.length === 0) {
+            return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+        }
+
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+
+        points.forEach(p => {
+            minX = Math.min(minX, p.x);
+            maxX = Math.max(maxX, p.x);
+            minY = Math.min(minY, p.y);
+            maxY = Math.max(maxY, p.y);
+        });
+
+        return { minX, maxX, minY, maxY };
     }
 
     // 🔥 ДЕБАГ МЕТОД: Проверить трансформации
@@ -449,7 +449,7 @@ calculateBounds(points) {
             }
         }
     }
-  
+
     // 🔥 НОВЫЙ МЕТОД: Преобразовать точки к системе этого отпечатка
     transformPointsToMySystem(points, sourceTransformation) {
         if (!this.transformation || !sourceTransformation) {
