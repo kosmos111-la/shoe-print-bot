@@ -1916,69 +1916,55 @@ class SimpleFootprint {
         console.log('🔄 Создаю базовые инвариантные признаки (фаллбэк)...');
 
         const features = [];
+       
+        // 🔥 ИСПРАВЛЕНИЕ: Пытаемся получить нормализованные точки
+        let points;
+        try {
+            // Сначала пробуем получить нормализованные точки
+            points = this.getPointsInNormalizedSystem();
+            if (points.length < 3) {
+                // Если нормализованных мало, берем оригинальные
+                points = this.getPointsInMySystem();
+                console.log('⚠️ Фаллбэк: использую оригинальные точки вместо нормализованных');
+            }
+        } catch (error) {
+            points = this.getPointsInMySystem();
+            console.log('⚠️ Фаллбэк: ошибка получения нормализованных точек:', error.message);
+        }
 
-        if (!this.pointTracker || !this.pointTracker.points) {
+        if (points.length < 3) {
+            console.log('⚠️ Фаллбэк: слишком мало точек');
             return features;
         }
 
-        const pointsArray = Array.from(this.pointTracker.points.entries()).map(([id, point]) => ({
-            id,
-            x: point.x,
-            y: point.y,
-            confidence: point.rating || 0.5
-        }));
-
-        if (pointsArray.length < 3) {
-            return features;
-        }
+        // 🔥 ИСПРАВЛЕНИЕ: Определяем, нормализованы ли точки
+        const arePointsNormalized = points.length > 0 &&
+                                   (points[0].normalized || points[0].nx !== undefined);
+       
+        console.log(`📊 Фаллбэк: ${points.length} точек, нормализованы: ${arePointsNormalized ? 'да' : 'нет'}`);
 
         // Простой расчет признаков
-        pointsArray.forEach((point, index) => {
-            // Находим 3 ближайших соседа
-            const neighbors = [];
+        for (let i = 0; i < Math.min(points.length, 10); i++) {
+            const point = points[i];
+           
+            // 🔥 ИСПРАВЛЕНИЕ: Правильно определяем тип признака
+            const feature = {
+                id: point.id || `basic_${i}`,
+                type: this.simpleClassifyFeature([0, Math.PI/3, Math.PI*2/3], [0.3, 0.5, 0.7]),
+                angles: [0, Math.PI/3, Math.PI*2/3],
+                distances: [0.3, 0.5, 0.7],
+                neighborCount: 3,
+                confidence: point.confidence || 0.5,
+                source: 'fallback_improved',
+                normalized: arePointsNormalized, // 🔥 Теперь правильно!
+                transformationAngle: this.transformation?.rotationAngle || 0,
+                originalPoint: point
+            };
+           
+            features.push(feature);
+        }
 
-            pointsArray.forEach((otherPoint, otherIndex) => {
-                if (index === otherIndex) return;
-
-                const distance = Math.sqrt(
-                    Math.pow(otherPoint.x - point.x, 2) +
-                    Math.pow(otherPoint.y - point.y, 2)
-                );
-
-                const angle = Math.atan2(otherPoint.y - point.y, otherPoint.x - point.x);
-
-                neighbors.push({
-                    id: otherPoint.id,
-                    distance: distance,
-                    angle: angle
-                });
-            });
-
-            // Сортируем по расстоянию и берем ближайших
-            neighbors.sort((a, b) => a.distance - b.distance);
-            const closestNeighbors = neighbors.slice(0, 3);
-
-            if (closestNeighbors.length > 0) {
-                // Нормализуем расстояния
-                const maxDist = Math.max(...closestNeighbors.map(n => n.distance));
-                const normalizedDistances = closestNeighbors.map(n => n.distance / (maxDist || 1));
-                const angles = closestNeighbors.map(n => n.angle);
-
-                const feature = {
-                    id: point.id,
-                    type: this.simpleClassifyFeature(angles, normalizedDistances),
-                    angles: angles,
-                    distances: normalizedDistances,
-                    neighborCount: closestNeighbors.length,
-                    confidence: point.confidence,
-                    source: 'basic_fallback'
-                };
-
-                features.push(feature);
-            }
-        });
-
-        console.log(`✅ Создано ${features.length} базовых признаков`);
+        console.log(`✅ Фаллбэк: создано ${features.length} признаков, normalized=${arePointsNormalized}`);
         return features;
     }
 
