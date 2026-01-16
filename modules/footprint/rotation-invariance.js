@@ -493,60 +493,92 @@ class RotationInvariance {
 
     // Метод: Определение угла поворота с помощью PCA С ОТЛАДКОЙ
     detectRotationAngle(points) {
-        if (points.length < 3) {
-            console.log(`⚠️ Мало точек для PCA: ${points.length}`);
-            return 0;
-        }
-
-        console.log(`\n📐 ОПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА (PCA):`);
-        console.log(`   Количество точек: ${points.length}`);
-
-        // 1. Вычисляем центр масс
-        const center = this.calculateCenter(points);
-        console.log(`   Центр масс: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
-
-        // 2. Центрируем точки
-        const centeredPoints = points.map(p => ({
-            x: p.x - center.x,
-            y: p.y - center.y
-        }));
-
-        // 3. Строим ковариационную матрицу
-        const covMatrix = this.calculateCovarianceMatrix(centeredPoints);
-        console.log(`   Ковариационная матрица:`);
-        console.log(`       [${covMatrix[0][0].toFixed(1)}, ${covMatrix[0][1].toFixed(1)}]`);
-        console.log(`       [${covMatrix[1][0].toFixed(1)}, ${covMatrix[1][1].toFixed(1)}]`);
-
-        // 4. Находим собственные векторы (PCA)
-        const eigenvectors = this.calculateEigenvectors(covMatrix);
-        console.log(`   Собственные векторы:`);
-        console.log(`       Главный: [${eigenvectors[0][0].toFixed(3)}, ${eigenvectors[0][1].toFixed(3)}]`);
-        console.log(`       Второй:  [${eigenvectors[1][0].toFixed(3)}, ${eigenvectors[1][1].toFixed(3)}]`);
-
-        // 5. Главная ось = собственный вектор с максимальным собственным значением
-        const mainAxis = eigenvectors[0];
-
-        // 6. Вычисляем угол относительно горизонтали
-        let angleRad = Math.atan2(mainAxis[1], mainAxis[0]);
-        let angleDeg = angleRad * (180 / Math.PI);
-
-        console.log(`   Угол в радианах: ${angleRad.toFixed(3)}`);
-        console.log(`   Угол в градусах: ${angleDeg.toFixed(1)}°`);
-
-        // 7. Нормализуем угол к [-90°, 90°]
-        if (angleDeg > 90) {
-            console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg - 180).toFixed(1)}°`);
-            angleDeg -= 180;
-        }
-        if (angleDeg < -90) {
-            console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg + 180).toFixed(1)}°`);
-            angleDeg += 180;
-        }
-
-        console.log(`📐 ИТОГОВЫЙ УГОЛ: ${angleDeg.toFixed(1)}°`);
-
-        return angleDeg;
+    if (points.length < 3) {
+        console.log(`⚠️ Мало точек для PCA: ${points.length}`);
+        return 0;
     }
+
+    console.log(`\n📐 ОПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА (PCA):`);
+    console.log(`   Количество точек: ${points.length}`);
+
+    // 1. Вычисляем границы
+    const bounds = this.calculateBounds(points);
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+    const aspectRatio = width / Math.max(1, height);
+
+    console.log(`   Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
+    console.log(`   Соотношение сторон: ${aspectRatio.toFixed(2)}`);
+
+    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ:
+    // Если след вертикальный (ширина < высоты / 2), поворачиваем на 90°
+    const VERTICAL_THRESHOLD = 0.5; // Если ширина меньше половины высоты
+    const HORIZONTAL_THRESHOLD = 2.0; // Если ширина больше двойной высоты
+
+    if (aspectRatio < VERTICAL_THRESHOLD) {
+        // След вертикальный → нужно повернуть на 90°
+        console.log(`   📏 След ВЕРТИКАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} < ${VERTICAL_THRESHOLD})`);
+        console.log(`   🔧 Возвращаю угол 90° для нормализации к горизонтали`);
+        return 90;
+    } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
+        // След горизонтальный → угол 0°
+        console.log(`   📏 След ГОРИЗОНТАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} > ${HORIZONTAL_THRESHOLD})`);
+        console.log(`   🔧 Возвращаю угол 0° (уже горизонтальный)`);
+        return 0;
+    }
+
+    // 2. Вычисляем центр масс
+    const center = this.calculateCenter(points);
+    console.log(`   Центр масс: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+
+    // 3. Центрируем точки
+    const centeredPoints = points.map(p => ({
+        x: p.x - center.x,
+        y: p.y - center.y
+    }));
+
+    // 4. Строим ковариационную матрицу
+    const covMatrix = this.calculateCovarianceMatrix(centeredPoints);
+    console.log(`   Ковариационная матрица:`);
+    console.log(`       [${covMatrix[0][0].toFixed(1)}, ${covMatrix[0][1].toFixed(1)}]`);
+    console.log(`       [${covMatrix[1][0].toFixed(1)}, ${covMatrix[1][1].toFixed(1)}]`);
+
+    // 5. Находим собственные векторы (PCA)
+    const eigenvectors = this.calculateEigenvectors(covMatrix);
+    console.log(`   Собственные векторы:`);
+    console.log(`       Главный: [${eigenvectors[0][0].toFixed(3)}, ${eigenvectors[0][1].toFixed(3)}]`);
+    console.log(`       Второй:  [${eigenvectors[1][0].toFixed(3)}, ${eigenvectors[1][1].toFixed(3)}]`);
+
+    // 6. Главная ось = собственный вектор с максимальным собственным значением
+    const mainAxis = eigenvectors[0];
+
+    // 7. Вычисляем угол относительно горизонтали
+    let angleRad = Math.atan2(mainAxis[1], mainAxis[0]);
+    let angleDeg = angleRad * (180 / Math.PI);
+
+    console.log(`   Угол в радианах: ${angleRad.toFixed(3)}`);
+    console.log(`   Угол в градусах: ${angleDeg.toFixed(1)}°`);
+
+    // 8. Нормализуем угол к [-90°, 90°]
+    if (angleDeg > 90) {
+        console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg - 180).toFixed(1)}°`);
+        angleDeg -= 180;
+    }
+    if (angleDeg < -90) {
+        console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg + 180).toFixed(1)}°`);
+        angleDeg += 180;
+    }
+
+    // 🔥 ДОПОЛНИТЕЛЬНО: если след почти вертикальный, корректируем к 90°
+    if (aspectRatio < 0.7 && Math.abs(angleDeg) < 45) {
+        console.log(`   📏 След почти вертикальный (ratio: ${aspectRatio.toFixed(2)}), корректирую к 90°`);
+        angleDeg = 90;
+    }
+
+    console.log(`📐 ИТОГОВЫЙ УГОЛ: ${angleDeg.toFixed(1)}°`);
+
+    return angleDeg;
+}
 
     // Метод: Определение зеркальности С ОТЛАДКОЙ
     detectMirroring(points) {
