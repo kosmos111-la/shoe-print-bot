@@ -549,7 +549,24 @@ class SimpleFootprintManager {
 
     // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Использовать алайнер для сравнения
     async compareWithAlignment(footprint1, footprint2) {
-        console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+    console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+   
+    // 🔥 ДЕБАГ: Проверяем что возвращают getTransformation()
+    const trans1_raw = footprint1.transformation;
+    const trans1_get = footprint1.getTransformation();
+    const trans2_raw = footprint2.transformation;
+    const trans2_get = footprint2.getTransformation();
+   
+    console.log(`🔍 ДЕБАГ ТРАНСФОРМАЦИЙ:`);
+    console.log(`   След 1:`);
+    console.log(`     raw.transformation: ${trans1_raw?.rotationAngle || 'нет'}°`);
+    console.log(`     getTransformation(): ${trans1_get?.rotationAngle || 'нет'}°`);
+    console.log(`     Сравнение: ${trans1_raw === trans1_get ? 'одинаково' : 'РАЗНЫЕ!'}`);
+   
+    console.log(`   След 2:`);
+    console.log(`     raw.transformation: ${trans2_raw?.rotationAngle || 'нет'}°`);
+    console.log(`     getTransformation(): ${trans2_get?.rotationAngle || 'нет'}°`);
+    console.log(`     Сравнение: ${trans2_raw === trans2_get ? 'одинаково' : 'РАЗНЫЕ!'}`);
 // 🔥🔥🔥 ЭКСТРЕННЫЙ ПАТЧ 🔥🔥🔥
         // Если углы 0° - устанавливаем их вручную
         const angle1 = footprint1.transformation?.rotationAngle || 0;
