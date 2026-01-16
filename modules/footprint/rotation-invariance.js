@@ -316,12 +316,12 @@ console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.
     // 🔥 НОВЫЙ МЕТОД: Обратное преобразование С ОТЛАДКОЙ
     applyInverseTransformation(point, transformation) {
         if (!transformation || !transformation.matrix) {
-            console.log('⚠️ Нет трансформации для обратного преобразования');
+           console.log('⚠️ Нет трансформации для обратного преобразования');
             return point;
         }
 
-        console.log(`\n🔙 ОБРАТНОЕ ПРЕОБРАЗОВАНИЕ:`);
-        console.log(`   Входная точка: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+        // console.log(`\n🔙 ОБРАТНОЕ ПРЕОБРАЗОВАНИЕ:`);
+        // console.log(`   Входная точка: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
 
         const matrix = transformation.matrix;
         const center = transformation.center;
@@ -330,7 +330,7 @@ console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.
         const det = matrix[0] * matrix[4] - matrix[1] * matrix[3];
 
         if (Math.abs(det) < 1e-10) {
-            console.log('⚠️ Матрица вырождена, возвращаю исходную точку');
+         //   console.log('⚠️ Матрица вырождена, возвращаю исходную точку');
             return point;
         }
 
@@ -351,10 +351,10 @@ console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.
         const originalX = relX * invMatrix[0] + relY * invMatrix[1] + center.x;
         const originalY = relX * invMatrix[3] + relY * invMatrix[4] + center.y;
 
-        console.log(`   Определитель матрицы: ${det.toFixed(6)}`);
-        console.log(`   Обратное смещение: tx=${-tx.toFixed(2)}, ty=${-ty.toFixed(2)}`);
-        console.log(`   Результат: (${originalX.toFixed(1)}, ${originalY.toFixed(1)})`);
-        console.log(`   Смещение: ΔX=${(originalX - point.x).toFixed(1)}, ΔY=${(originalY - point.y).toFixed(1)}`);
+      //  console.log(`   Определитель матрицы: ${det.toFixed(6)}`);
+      //  console.log(`   Обратное смещение: tx=${-tx.toFixed(2)}, ty=${-ty.toFixed(2)}`);
+      //  console.log(`   Результат: (${originalX.toFixed(1)}, ${originalY.toFixed(1)})`);
+      //  console.log(`   Смещение: ΔX=${(originalX - point.x).toFixed(1)}, ΔY=${(originalY - point.y).toFixed(1)}`);
 
         return {
             x: originalX,
