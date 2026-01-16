@@ -501,44 +501,44 @@ class SimpleFootprint {
     console.log(`📐 Трансформация: ${this.transformation.rotationAngle}°`);
     console.log(`📊 Оригинальных точек: ${points.length}`);
 
-    // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Используем правильную логику
+    // 🔥 ИСПРАВЛЕНИЕ: Используем rotation-invariance для нормализации
     const RotationInvariance = require('./rotation-invariance');
     const processor = new RotationInvariance({ debug: false });
 
-    // Нормализованная система: угол 0°, без зеркала
-    const normalizedTransformation = {
-        matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-        rotationAngle: 0,
-        isMirrored: false,
-        center: { x: 0, y: 0 },
-        type: 'normalized_target'
-    };
-
-    const normalizedPoints = processor.transformPointsBetweenSystems(
+    // 1. Поворачиваем точки к 0°
+    const rotatedPoints = processor.transformPointsBetweenSystems(
         points,
-        this.transformation,  // из системы отпечатка
-        normalizedTransformation  // в нормализованную систему
+        this.transformation,
+        processor.createIdentityTransformation()
     );
 
-    console.log(`✅ Нормализовано ${normalizedPoints.length} точек`);
-    if (normalizedPoints.length > 0) {
-        console.log(`📍 Пример точки 0:`);
-        console.log(`   Было: (${points[0].x.toFixed(1)}, ${points[0].y.toFixed(1)})`);
-        console.log(`   Стало: (${normalizedPoints[0].x.toFixed(1)}, ${normalizedPoints[0].y.toFixed(1)})`);
+    // 2. 🔥 ЦЕНТРИРУЕМ к стандартной системе
+    const alignedPoints = processor.alignPointsToCommonSystem(rotatedPoints);
 
-        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА:
-        const diffX = Math.abs(normalizedPoints[0].x - points[0].x);
-        const diffY = Math.abs(normalizedPoints[0].y - points[0].y);
-        console.log(`   Разница: (${diffX.toFixed(1)}, ${diffY.toFixed(1)})`);
+    console.log(`✅ Нормализовано и выровнено ${alignedPoints.length} точек`);
 
-        // Если разница маленькая (<10) - значит нормализация не работает
-        if (diffX < 10 && diffY < 10) {
-            console.log(`⚠️ ВНИМАНИЕ: Маленькая разница! Нормализация не работает!`);
-            console.log(`⚠️ Причина: transformPointsBetweenSystems не применяет поворот ${this.transformation.rotationAngle}°`);
+    // 🔥 ДИАГНОСТИКА: Проверяем координаты
+    if (alignedPoints.length > 0) {
+        const bounds = processor.calculateBounds(alignedPoints);
+        const center = processor.calculateCenter(alignedPoints);
+
+        console.log(`📍 Координаты после выравнивания:`);
+        console.log(`   Центр: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+        console.log(`   Границы: X[${bounds.minX.toFixed(1)}-${bounds.maxX.toFixed(1)}], ` +
+                   `Y[${bounds.minY.toFixed(1)}-${bounds.maxY.toFixed(1)}]`);
+
+        // Проверяем, что центр близок к (500, 500)
+        const centerDistance = Math.sqrt(
+            Math.pow(center.x - 500, 2) +
+            Math.pow(center.y - 500, 2)
+        );
+
+        if (centerDistance > 100) {
+            console.log(`⚠️ Центр далеко от цели: ${centerDistance.toFixed(1)}px`);
         }
     }
 
-    return normalizedPoints;
+    return alignedPoints;
 }
 
     // 🔥 НОВЫЙ МЕТОД: Создать нормализованную трансформацию
@@ -2054,6 +2054,52 @@ getPointsForPatternMatching() {
    
     return pointsForTracker;
 }
+
+  // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
+alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
+    console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
+    console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
+    console.log(`   Количество точек: ${points.length}`);
+
+    if (points.length === 0) {
+        console.log('⚠️ Нет точек для выравнивания');
+        return points;
+    }
+
+    const currentCenter = this.calculateCenter(points);
+    console.log(`   Текущий центр: (${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)})`);
+
+    const offsetX = targetCenter.x - currentCenter.x;
+    const offsetY = targetCenter.y - currentCenter.y;
+
+    console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+
+    const alignedPoints = points.map(point => ({
+        ...point,
+        x: point.x + offsetX,
+        y: point.y + offsetY,
+        originalX: point.x,
+        originalY: point.y,
+        offsetApplied: { x: offsetX, y: offsetY }
+    }));
+
+    // Проверка после выравнивания
+    const alignedCenter = this.calculateCenter(alignedPoints);
+    const centerDistance = Math.sqrt(
+        Math.pow(alignedCenter.x - targetCenter.x, 2) +
+        Math.pow(alignedCenter.y - targetCenter.y, 2)
+    );
+
+    console.log(`   Центр после выравнивания: (${alignedCenter.x.toFixed(1)}, ${alignedCenter.y.toFixed(1)})`);
+    console.log(`   Отклонение от цели: ${centerDistance.toFixed(1)}px`);
+
+    if (centerDistance > 10) {
+        console.log(`⚠️ Центр все еще далеко от цели: ${centerDistance.toFixed(1)}px`);
+    }
+
+    return alignedPoints;
+}
+  
 }
 
 module.exports = SimpleFootprint;
