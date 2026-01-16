@@ -792,56 +792,98 @@ class SimpleFootprintManager {
     }
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение через инвариантные паттерны
-    async compareWithPatterns(footprint1, footprint2) {
-    console.log(`\n🎯 СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
-   
-    // 🔥 ВАЖНО: Используем нормализованные точки для сравнения
-    const points1 = footprint1.getPointsForPatternMatching();
-    const points2 = footprint2.getPointsForPatternMatching();
-   
-    console.log(`📊 Точки для сравнения:`);
-    console.log(`   ${footprint1.name}: ${points1.length} точек в нормализованной системе`);
-    console.log(`   ${footprint2.name}: ${points2.length} точек в нормализованной системе`);
-   
-    // 🔥 СРАВНЕНИЕ ТОЧЕК В ОДНОЙ СИСТЕМЕ КООРДИНАТ
+async compareWithPatterns(footprint1, footprint2) {
+    console.log(`\n🎯 СРАВНЕНИЕ С ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+
+    // 🔥 ИСПРАВЛЕНИЕ: Используем ВЫРОВНЕННЫЕ точки
+    const points1 = footprint1.getAlignedPointsForComparison();
+    const points2 = footprint2.getAlignedPointsForComparison();
+
+    console.log(`📊 Точки после выравнивания:`);
+    console.log(`   ${footprint1.name}: ${points1.length} точек`);
+    console.log(`   ${footprint2.name}: ${points2.length} точек`);
+
+    // 🔥 ПРОВЕРЯЕМ ВЫРАВНИВАНИЕ
+    const RotationInvariance = require('./rotation-invariance');
+    const processor = new RotationInvariance({ debug: false });
+
+    const center1 = processor.calculateCenter(points1);
+    const center2 = processor.calculateCenter(points2);
+
+    const centerDistance = Math.sqrt(
+        Math.pow(center2.x - center1.x, 2) +
+        Math.pow(center2.y - center1.y, 2)
+    );
+
+    console.log(`📏 Расстояние между центрами: ${centerDistance.toFixed(1)}px`);
+
+    if (centerDistance > 50) {
+        console.log(`⚠️ Центры слишком далеко, возможно проблема с выравниванием`);
+        console.log(`   Центр 1: (${center1.x.toFixed(1)}, ${center1.y.toFixed(1)})`);
+        console.log(`   Центр 2: (${center2.x.toFixed(1)}, ${center2.y.toFixed(1)})`);
+    }
+
+    // 🔥 СРАВНЕНИЕ С АДАПТИВНЫМ ПОРОГОМ
+    const adaptiveThreshold = Math.max(25, Math.min(50, centerDistance / 2));
+    console.log(`🎯 Адаптивный порог: ${adaptiveThreshold.toFixed(1)}px`);
+
     let matches = 0;
-    const threshold = 25; // 25px
-   
+    const matchDetails = [];
+
     for (const point1 of points1) {
+        let bestMatch = null;
+        let minDistance = Infinity;
+
         for (const point2 of points2) {
             const distance = Math.sqrt(
                 Math.pow(point2.x - point1.x, 2) +
                 Math.pow(point2.y - point1.y, 2)
             );
-           
-            if (distance < threshold) {
-                matches++;
-                break; // Каждая точка может совпасть только с одной
+
+            if (distance < minDistance) {
+                minDistance = distance;
+                bestMatch = {
+                    point1,
+                    point2,
+                    distance
+                };
             }
         }
+
+        if (bestMatch && minDistance < adaptiveThreshold) {
+            matches++;
+            matchDetails.push(bestMatch);
+        }
     }
-   
+
     const similarity = matches / Math.max(points1.length, points2.length);
-   
-    console.log(`📈 РЕЗУЛЬТАТ СРАВНЕНИЯ ТОЧЕК:`);
+
+    console.log(`📈 РЕЗУЛЬТАТ:`);
     console.log(`   Совпало точек: ${matches}/${Math.max(points1.length, points2.length)}`);
     console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}%`);
-   
-    // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ СРАЗУ
-    const updatedCount = this.updateConfirmationsDirectly(footprint1, footprint2);
-   
+
+    // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
+    let updatedCount = 0;
+    if (similarity > 0.5) {
+        console.log(`🔄 Обновляю подтверждения...`);
+        updatedCount = this.updateConfirmationsFromMatches(
+            footprint1, footprint2, matchDetails
+        );
+    }
+
+    // 🔥 РЕШЕНИЕ
     let decision, reason;
     if (similarity > 0.7) {
         decision = 'same';
-        reason = `Высокое сходство точек (${(similarity * 100).toFixed(1)}%)`;
+        reason = `Высокое сходство (${(similarity * 100).toFixed(1)}%) после выравнивания`;
     } else if (similarity > 0.4) {
         decision = 'similar';
-        reason = `Умеренное сходство точек (${(similarity * 100).toFixed(1)}%)`;
+        reason = `Умеренное сходство (${(similarity * 100).toFixed(1)}%) после выравнивания`;
     } else {
         decision = 'different';
-        reason = `Низкое сходство точек (${(similarity * 100).toFixed(1)}%)`;
+        reason = `Низкое сходство (${(similarity * 100).toFixed(1)}%) после выравнивания`;
     }
-   
+
     return {
         similarity,
         decision,
@@ -849,7 +891,12 @@ class SimpleFootprintManager {
         matchesCount: matches,
         totalPoints: Math.max(points1.length, points2.length),
         pointsUpdated: updatedCount,
-        method: 'normalized_point_comparison'
+        alignmentInfo: {
+            centerDistance,
+            adaptiveThreshold,
+            center1,
+            center2
+        }
     };
 }
 
@@ -2693,6 +2740,47 @@ calculateBounds(points) {
             y: sumY / points.length
         };
     }
+// 🔥 НОВЫЙ МЕТОД: Обновить подтверждения из совпадений
+updateConfirmationsFromMatches(footprint1, footprint2, matches) {
+    console.log(`🔄 Обновляю подтверждения из ${matches.length} совпадений...`);
+
+    let updatedCount = 0;
+
+    // Для каждого совпадения обновляем подтверждения в обоих следах
+    matches.forEach(match => {
+        // Обновляем в первом следе
+        if (footprint1.pointTracker && match.point1.id) {
+            const pointData = footprint1.pointTracker.points.get(match.point1.id);
+            if (pointData) {
+                const oldCount = pointData.confirmedCount || 1;
+                const newCount = Math.max(oldCount, 2); // Минимум 2 подтверждения
+
+                if (newCount > oldCount) {
+                    pointData.confirmedCount = newCount;
+                    updatedCount++;
+                }
+            }
+        }
+
+        // Обновляем во втором следе
+        if (footprint2.pointTracker && match.point2.id) {
+            const pointData = footprint2.pointTracker.points.get(match.point2.id);
+            if (pointData) {
+                const oldCount = pointData.confirmedCount || 1;
+                const newCount = Math.max(oldCount, 2);
+
+                if (newCount > oldCount) {
+                    pointData.confirmedCount = newCount;
+                    updatedCount++;
+                }
+            }
+        }
+    });
+
+    console.log(`✅ Обновлено ${updatedCount} подтверждений`);
+    return updatedCount;
+}
+  
 } // <- ЭТО ЗАКРЫВАЮЩАЯ ФИГУРНАЯ СКОБКА КЛАССА SimpleFootprintManager
 
 module.exports = SimpleFootprintManager;
