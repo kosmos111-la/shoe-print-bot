@@ -510,23 +510,6 @@ class RotationInvariance {
     console.log(`   Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
     console.log(`   Соотношение сторон: ${aspectRatio.toFixed(2)}`);
 
-    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ:
-    // Если след вертикальный (ширина < высоты / 2), поворачиваем на 90°
-    const VERTICAL_THRESHOLD = 0.5; // Если ширина меньше половины высоты
-    const HORIZONTAL_THRESHOLD = 2.0; // Если ширина больше двойной высоты
-
-    if (aspectRatio < VERTICAL_THRESHOLD) {
-        // След вертикальный → нужно повернуть на 90°
-        console.log(`   📏 След ВЕРТИКАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} < ${VERTICAL_THRESHOLD})`);
-        console.log(`   🔧 Возвращаю угол 90° для нормализации к горизонтали`);
-        return 90;
-    } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
-        // След горизонтальный → угол 0°
-        console.log(`   📏 След ГОРИЗОНТАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} > ${HORIZONTAL_THRESHOLD})`);
-        console.log(`   🔧 Возвращаю угол 0° (уже горизонтальный)`);
-        return 0;
-    }
-
     // 2. Вычисляем центр масс
     const center = this.calculateCenter(points);
     console.log(`   Центр масс: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
@@ -559,25 +542,67 @@ class RotationInvariance {
     console.log(`   Угол в радианах: ${angleRad.toFixed(3)}`);
     console.log(`   Угол в градусах: ${angleDeg.toFixed(1)}°`);
 
-    // 8. Нормализуем угол к [-90°, 90°]
-    if (angleDeg > 90) {
-        console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg - 180).toFixed(1)}°`);
-        angleDeg -= 180;
-    }
-    if (angleDeg < -90) {
-        console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg + 180).toFixed(1)}°`);
-        angleDeg += 180;
-    }
+    // 🔥 ИСПРАВЛЕНИЕ: НЕ форсируем 0°/90°!
+    // Сохраняем реальный угол PCA
+    // Но корректируем для удобства нормализации
+   
+    // 8. Нормализуем угол к [-45°, 45°] для следов, которые почти горизонтальны
+    // или к [45°, 135°] для следов, которые почти вертикальны
+   
+    const normalizedAngle = this.normalizeAngleForFootprint(angleDeg, aspectRatio);
+   
+    console.log(`📐 ИТОГОВЫЙ УГОЛ: ${normalizedAngle.toFixed(1)}° (реальный PCA: ${angleDeg.toFixed(1)}°)`);
+    console.log(`📏 Соотношение сторон: ${aspectRatio.toFixed(2)}`);
 
-    // 🔥 ДОПОЛНИТЕЛЬНО: если след почти вертикальный, корректируем к 90°
-    if (aspectRatio < 0.7 && Math.abs(angleDeg) < 45) {
-        console.log(`   📏 След почти вертикальный (ratio: ${aspectRatio.toFixed(2)}), корректирую к 90°`);
-        angleDeg = 90;
+    // 🔥 ВАЖНО: Возвращаем реальный угол, но помечаем для коррекции
+    return {
+        angle: normalizedAngle,
+        originalAngle: angleDeg,
+        aspectRatio: aspectRatio,
+        needs90DegreeCorrection: aspectRatio < 0.7 && Math.abs(normalizedAngle) < 30,
+        method: 'pca_with_intelligent_correction'
+    };
+}
+
+// 🔥 НОВЫЙ МЕТОД: Интеллектуальная нормализация угла
+normalizeAngleForFootprint(angleDeg, aspectRatio) {
+    // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
+    // Если след вертикальный и угол близок к 0°, корректируем на 90°
+    // Если след горизонтальный и угол близок к 90°, корректируем на 0°
+   
+    const VERTICAL_THRESHOLD = 0.7;   // Высота > ширина/0.7
+    const HORIZONTAL_THRESHOLD = 1.5; // Ширина > высота*1.5
+   
+    let normalizedAngle = angleDeg;
+   
+    // Нормализуем к [-90°, 90°]
+    if (normalizedAngle > 90) normalizedAngle -= 180;
+    if (normalizedAngle < -90) normalizedAngle += 180;
+   
+    // 🔥 АВТОКОРРЕКЦИЯ на основе пропорций
+    if (aspectRatio < VERTICAL_THRESHOLD) {
+        // След вертикальный
+        if (Math.abs(normalizedAngle) < 45) {
+            console.log(`   📏 Вертикальный след (ratio: ${aspectRatio.toFixed(2)}), ` +
+                       `но угол ${normalizedAngle.toFixed(1)}° близок к 0°`);
+            console.log(`   🔧 Корректирую на 90° для удобства сравнения`);
+            normalizedAngle += 90;
+        }
+    } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
+        // След горизонтальный
+        if (Math.abs(normalizedAngle) > 45) {
+            console.log(`   📏 Горизонтальный след (ratio: ${aspectRatio.toFixed(2)}), ` +
+                       `но угол ${normalizedAngle.toFixed(1)}° близок к 90°`);
+            console.log(`   🔧 Корректирую на -90° для удобства сравнения`);
+            normalizedAngle -= 90;
+        }
     }
-
-    console.log(`📐 ИТОГОВЫЙ УГОЛ: ${angleDeg.toFixed(1)}°`);
-
-    return angleDeg;
+   
+    // Финальная нормализация к [-90°, 90°]
+    if (normalizedAngle > 90) normalizedAngle -= 180;
+    if (normalizedAngle < -90) normalizedAngle += 180;
+   
+    return normalizedAngle;
 }
 
     // Метод: Определение зеркальности С ОТЛАДКОЙ
