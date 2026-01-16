@@ -105,8 +105,9 @@ class RotationInvariance {
         }
 
         // 1. Определить текущий угол поворота
-        const rotationAngle = this.detectRotationAngle(points);
-        console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.toFixed(1)}°`);
+const rotationAngleResult = this.detectRotationAngle(points);
+const rotationAngle = rotationAngleResult.angle || rotationAngleResult; // Поддержка старого формата
+console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.toFixed(1)}°`);
 
         // 2. Определить зеркальность
         const mirrorInfo = this.detectMirroring(points);
@@ -510,6 +511,22 @@ class RotationInvariance {
     console.log(`   Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
     console.log(`   Соотношение сторон: ${aspectRatio.toFixed(2)}`);
 
+    // 🔥 ПРОСТОЙ ВАРИАНТ: Если соотношение сторон явно вертикальное/горизонтальное
+    const VERTICAL_THRESHOLD = 0.7;   // Высота > ширина/0.7
+    const HORIZONTAL_THRESHOLD = 1.5; // Ширина > высота*1.5
+   
+    if (aspectRatio < VERTICAL_THRESHOLD) {
+        // След вертикальный → 90°
+        console.log(`   📏 След ВЕРТИКАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} < ${VERTICAL_THRESHOLD})`);
+        console.log(`   🔧 Возвращаю угол 90° для нормализации к горизонтали`);
+        return 90;
+    } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
+        // След горизонтальный → 0°
+        console.log(`   📏 След ГОРИЗОНТАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} > ${HORIZONTAL_THRESHOLD})`);
+        console.log(`   🔧 Возвращаю угол 0° (уже горизонтальный)`);
+        return 0;
+    }
+
     // 2. Вычисляем центр масс
     const center = this.calculateCenter(points);
     console.log(`   Центр масс: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
@@ -542,26 +559,33 @@ class RotationInvariance {
     console.log(`   Угол в радианах: ${angleRad.toFixed(3)}`);
     console.log(`   Угол в градусах: ${angleDeg.toFixed(1)}°`);
 
-    // 🔥 ИСПРАВЛЕНИЕ: НЕ форсируем 0°/90°!
-    // Сохраняем реальный угол PCA
-    // Но корректируем для удобства нормализации
-   
-    // 8. Нормализуем угол к [-45°, 45°] для следов, которые почти горизонтальны
-    // или к [45°, 135°] для следов, которые почти вертикальны
-   
-    const normalizedAngle = this.normalizeAngleForFootprint(angleDeg, aspectRatio);
-   
-    console.log(`📐 ИТОГОВЫЙ УГОЛ: ${normalizedAngle.toFixed(1)}° (реальный PCA: ${angleDeg.toFixed(1)}°)`);
-    console.log(`📏 Соотношение сторон: ${aspectRatio.toFixed(2)}`);
+    // 8. Нормализуем угол к [-90°, 90°]
+    if (angleDeg > 90) {
+        console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg - 180).toFixed(1)}°`);
+        angleDeg -= 180;
+    }
+    if (angleDeg < -90) {
+        console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg + 180).toFixed(1)}°`);
+        angleDeg += 180;
+    }
 
-    // 🔥 ВАЖНО: Возвращаем реальный угол, но помечаем для коррекции
-    return {
-        angle: normalizedAngle,
-        originalAngle: angleDeg,
-        aspectRatio: aspectRatio,
-        needs90DegreeCorrection: aspectRatio < 0.7 && Math.abs(normalizedAngle) < 30,
-        method: 'pca_with_intelligent_correction'
-    };
+    // 🔥 ИСПРАВЛЕНИЕ: ДОПОЛНИТЕЛЬНАЯ КОРРЕКЦИЯ ДЛЯ СРАВНЕНИЯ
+    // Если след почти вертикальный (aspectRatio < 0.8), но PCA показывает маленький угол (<45°),
+    // значит, скорее всего, след повернут на 90°
+    if (aspectRatio < 0.8 && Math.abs(angleDeg) < 45) {
+        console.log(`   📏 След почти вертикальный (ratio: ${aspectRatio.toFixed(2)}), ` +
+                   `но PCA показывает угол ${angleDeg.toFixed(1)}°`);
+        console.log(`   🔧 Корректирую на 90° для удобства сравнения`);
+        angleDeg += 90;
+       
+        // Снова нормализуем
+        if (angleDeg > 90) angleDeg -= 180;
+        if (angleDeg < -90) angleDeg += 180;
+    }
+
+    console.log(`📐 ИТОГОВЫЙ УГОЛ: ${angleDeg.toFixed(1)}°`);
+
+    return angleDeg; // 🔥 ВОЗВРАЩАЕМ ЧИСЛО, А НЕ ОБЪЕКТ!
 }
 
 // 🔥 НОВЫЙ МЕТОД: Интеллектуальная нормализация угла
