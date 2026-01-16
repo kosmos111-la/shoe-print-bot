@@ -93,7 +93,7 @@ const config = {
     OPENWEATHER_API_KEY: process.env.OPENWEATHER_API_KEY,
 
     ROBOFLOW: {
-        API_URL: 'https://detect.roboflow.com/-zqyih/35',
+        API_URL: 'https://detect.roboflow.com/-zqyih/38',
         API_KEY: 'NeHOB854EyHkDbGGLE6G',
         CONFIDENCE: 25,
         OVERLAP: 30
