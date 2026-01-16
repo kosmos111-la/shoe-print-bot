@@ -2034,6 +2034,26 @@ class SimpleFootprint {
 
         return points;
     }
+  
+  // 🔥 НОВЫЙ МЕТОД: Получить точки в системе PatternMatcher
+getPointsForPatternMatching() {
+    console.log(`🔧 getPointsForPatternMatching() для "${this.name}"`);
+   
+    // Получаем нормализованные точки
+    const normalizedPoints = this.getPointsInNormalizedSystem();
+   
+    // Преобразуем в формат для PointTracker
+    const pointsForTracker = normalizedPoints.map(point => ({
+        x: point.x,
+        y: point.y,
+        confidence: point.confidence || 0.5,
+        id: point.id
+    }));
+   
+    console.log(`📊 Подготовлено ${pointsForTracker.length} точек для сравнения`);
+   
+    return pointsForTracker;
+}
 }
 
 module.exports = SimpleFootprint;
