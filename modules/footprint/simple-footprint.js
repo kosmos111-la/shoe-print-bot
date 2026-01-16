@@ -489,57 +489,57 @@ class SimpleFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Получить точки в нормализованной системе
    getPointsInNormalizedSystem() {
-        console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
-       
-        const points = this.getPointsInMySystem();
-       
-        if (!this.transformation || points.length === 0) {
-            console.log('⚠️ Нет трансформации или точек');
-            return points;
-        }
-       
-        console.log(`📐 Трансформация: ${this.transformation.rotationAngle}°`);
-        console.log(`📊 Оригинальных точек: ${points.length}`);
-       
-        // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Используем правильную логику
-        const RotationInvariance = require('./rotation-invariance');
-        const processor = new RotationInvariance({ debug: false });
-       
-        // Нормализованная система: угол 0°, без зеркала
-        const normalizedTransformation = {
-            matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-            rotationAngle: 0,
-            isMirrored: false,
-            center: { x: 0, y: 0 },
-            type: 'normalized_target'
-        };
-       
-        const normalizedPoints = processor.transformPointsBetweenSystems(
-            points,
-            this.transformation,  // из системы отпечатка
-            normalizedTransformation  // в нормализованную систему
-        );
-       
-        console.log(`✅ Нормализовано ${normalizedPoints.length} точек`);
-        if (normalizedPoints.length > 0) {
-            console.log(`📍 Пример точки 0:`);
-            console.log(`   Было: (${points[0].x.toFixed(1)}, ${points[0].y.toFixed(1)})`);
-            console.log(`   Стало: (${normalizedPoints[0].x.toFixed(1)}, ${normalizedPoints[0].y.toFixed(1)})`);
-           
-            // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА:
-            const diffX = Math.abs(normalizedPoints[0].x - points[0].x);
-            const diffY = Math.abs(normalizedPoints[0].y - points[0].y);
-            console.log(`   Разница: (${diffX.toFixed(1)}, ${diffY.toFixed(1)})`);
-           
-            // Если разница маленькая (<10) - значит нормализация не работает
-            if (diffX < 10 && diffY < 10) {
-                console.log(`⚠️ ВНИМАНИЕ: Маленькая разница! Нормализация не работает!`);
-                console.log(`⚠️ Причина: transformPointsBetweenSystems не применяет поворот ${this.transformation.rotationAngle}°`);
-            }
-        }
-       
-        return normalizedPoints;
+    console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
+
+    const points = this.getPointsInMySystem();
+
+    if (!this.transformation || points.length === 0) {
+        console.log('⚠️ Нет трансформации или точек');
+        return points;
     }
+
+    console.log(`📐 Трансформация: ${this.transformation.rotationAngle}°`);
+    console.log(`📊 Оригинальных точек: ${points.length}`);
+
+    // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Используем правильную логику
+    const RotationInvariance = require('./rotation-invariance');
+    const processor = new RotationInvariance({ debug: false });
+
+    // Нормализованная система: угол 0°, без зеркала
+    const normalizedTransformation = {
+        matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        rotationAngle: 0,
+        isMirrored: false,
+        center: { x: 0, y: 0 },
+        type: 'normalized_target'
+    };
+
+    const normalizedPoints = processor.transformPointsBetweenSystems(
+        points,
+        this.transformation,  // из системы отпечатка
+        normalizedTransformation  // в нормализованную систему
+    );
+
+    console.log(`✅ Нормализовано ${normalizedPoints.length} точек`);
+    if (normalizedPoints.length > 0) {
+        console.log(`📍 Пример точки 0:`);
+        console.log(`   Было: (${points[0].x.toFixed(1)}, ${points[0].y.toFixed(1)})`);
+        console.log(`   Стало: (${normalizedPoints[0].x.toFixed(1)}, ${normalizedPoints[0].y.toFixed(1)})`);
+
+        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА:
+        const diffX = Math.abs(normalizedPoints[0].x - points[0].x);
+        const diffY = Math.abs(normalizedPoints[0].y - points[0].y);
+        console.log(`   Разница: (${diffX.toFixed(1)}, ${diffY.toFixed(1)})`);
+
+        // Если разница маленькая (<10) - значит нормализация не работает
+        if (diffX < 10 && diffY < 10) {
+            console.log(`⚠️ ВНИМАНИЕ: Маленькая разница! Нормализация не работает!`);
+            console.log(`⚠️ Причина: transformPointsBetweenSystems не применяет поворот ${this.transformation.rotationAngle}°`);
+        }
+    }
+
+    return normalizedPoints;
+}
 
     // 🔥 НОВЫЙ МЕТОД: Создать нормализованную трансформацию
     createNormalizedTransformation() {
