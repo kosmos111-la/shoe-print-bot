@@ -1747,49 +1747,30 @@ class SimpleFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Получить инвариантные признаки (добавлен в конец класса)
     getInvariantFeatures() {
-        console.log(`\n🎯🔍 ДЕБАГ getInvariantFeatures для "${this.name}":`);
+        console.log(`🔍 getInvariantFeatures для "${this.name}"`);
        
-        // 1. Проверяем трансформацию
+        // 🔥 МИНИМАЛЬНЫЙ ДЕБАГ вместо спама
         const trans = this.getTransformation();
         console.log(`   Трансформация: ${trans?.rotationAngle || 0}°`);
        
-        // 🔥 ПЕРВОЕ ИСПРАВЛЕНИЕ: Используем нормализованные точки!
-        console.log(`   Получаю точки в нормализованной системе...`);
+        // Получаем нормализованные точки
         const normalizedPoints = this.getPointsInNormalizedSystem();
        
         if (normalizedPoints.length < 3) {
-            console.log('⚠️ Недостаточно точек в нормализованной системе');
-            return this.createBasicInvariantFeatures(); // фаллбэк
+            console.log('⚠️ Недостаточно точек');
+            return this.createBasicInvariantFeatures();
         }
        
-        // 2. Сравниваем точки до/после нормализации
-        const originalPoints = this.getPointsInMySystem();
-       
-        console.log(`   Оригинальных точек: ${originalPoints.length}`);
-        console.log(`   Нормализованных точек: ${normalizedPoints.length}`);
-       
-        if (originalPoints.length > 0 && normalizedPoints.length > 0) {
-            console.log(`   Пример точки 0:`);
-            console.log(`     Оригинал: (${originalPoints[0].x.toFixed(1)}, ${originalPoints[0].y.toFixed(1)})`);
-            console.log(`     Нормализ: (${normalizedPoints[0].x.toFixed(1)}, ${normalizedPoints[0].y.toFixed(1)})`);
+        // 🔥 ВАЖНАЯ ПРОВЕРКА: координаты не должны быть около 0
+        if (normalizedPoints.length > 0) {
+            const point = normalizedPoints[0];
+            console.log(`   Пример нормализованной точки: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
            
-            // Проверка разницы
-            const diffX = Math.abs(normalizedPoints[0].x - originalPoints[0].x);
-            const diffY = Math.abs(normalizedPoints[0].y - originalPoints[0].y);
-            console.log(`     Разница: (${diffX.toFixed(1)}, ${diffY.toFixed(1)})`);
-           
-            // Проверяем, работает ли нормализация
-            if (diffX < 10 && diffY < 10) {
-                console.log(`   ⚠️ ВНИМАНИЕ: Маленькая разница! Нормализация может не работать!`);
-                console.log(`   ⚠️ Трансформация была: ${trans?.rotationAngle || 0}°`);
+            // Если координаты слишком маленькие (<1) - проблема!
+            if (Math.abs(point.x) < 1 && Math.abs(point.y) < 1) {
+                console.log(`⚠️ ПРОБЛЕМА: координаты слишком маленькие!`);
+                console.log(`⚠️ getPointsInNormalizedSystem() не работает правильно!`);
             }
-        }
-       
-        console.log(`📊 Точки для признаков: ${normalizedPoints.length} (первая: ${normalizedPoints[0]?.x?.toFixed(1)}, ${normalizedPoints[0]?.y?.toFixed(1)})`);
-       
-        // 🔥 ВТОРОЕ: Проверяем трансформацию
-        if (trans) {
-            console.log(`📐 Трансформация: ${trans.rotationAngle}°, зеркало: ${trans.isMirrored ? 'да' : 'нет'}`);
         }
        
         // 🔥 ИСПРАВЛЕННЫЙ КОД: Создаем признаки из НОРМАЛИЗОВАННЫХ точек
