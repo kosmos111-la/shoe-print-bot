@@ -793,88 +793,64 @@ class SimpleFootprintManager {
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение через инвариантные паттерны
     async compareWithPatterns(footprint1, footprint2) {
-    // 🔥 КОРОТКИЙ ВЫВОД вместо спама
     console.log(`\n🎯 СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
-
-    const trans1 = footprint1.getTransformation();
-    const trans2 = footprint2.getTransformation();
-
-    console.log(`   ${footprint1.name}: ${trans1?.rotationAngle || 0}°`);
-    console.log(`   ${footprint2.name}: ${trans2?.rotationAngle || 0}°`);
-
-    const angleDiff = Math.abs((trans1?.rotationAngle || 0) - (trans2?.rotationAngle || 0));
-    console.log(`   Разница углов: ${angleDiff}°`);
-
-    if (angleDiff > 45 && angleDiff < 135) {
-        console.log(`   ⚠️ Следы повернуты на ~90°`);
-    }
-
-    try {
-        // 🔥 ВАЖНО: Получаем точки в НОРМАЛИЗОВАННОЙ системе для сравнения
-        const points1 = footprint1.getPointsInNormalizedSystem();
-        const points2 = footprint2.getPointsInNormalizedSystem();
-
-        console.log(`📊 Точки для сравнения:`);
-        console.log(`   ${footprint1.name}: ${points1.length} точек в нормализованной системе`);
-        console.log(`   ${footprint2.name}: ${points2.length} точек в нормализованной системе`);
-
-        // 🔥 СРАВНЕНИЕ ТОЧЕК В ОДНОЙ СИСТЕМЕ КООРДИНАТ
-        let matches = 0;
-        const threshold = 25; // 25px в нормализованной системе
-
-        for (const point1 of points1) {
-            for (const point2 of points2) {
-                const distance = Math.sqrt(
-                    Math.pow(point2.x - point1.x, 2) +
-                    Math.pow(point2.y - point1.y, 2)
-                );
-
-                if (distance < threshold) {
-                    matches++;
-                    break; // Каждая точка может совпасть только с одной
-                }
+   
+    // 🔥 ВАЖНО: Используем нормализованные точки для сравнения
+    const points1 = footprint1.getPointsForPatternMatching();
+    const points2 = footprint2.getPointsForPatternMatching();
+   
+    console.log(`📊 Точки для сравнения:`);
+    console.log(`   ${footprint1.name}: ${points1.length} точек в нормализованной системе`);
+    console.log(`   ${footprint2.name}: ${points2.length} точек в нормализованной системе`);
+   
+    // 🔥 СРАВНЕНИЕ ТОЧЕК В ОДНОЙ СИСТЕМЕ КООРДИНАТ
+    let matches = 0;
+    const threshold = 25; // 25px
+   
+    for (const point1 of points1) {
+        for (const point2 of points2) {
+            const distance = Math.sqrt(
+                Math.pow(point2.x - point1.x, 2) +
+                Math.pow(point2.y - point1.y, 2)
+            );
+           
+            if (distance < threshold) {
+                matches++;
+                break; // Каждая точка может совпасть только с одной
             }
         }
-
-        const similarity = matches / Math.max(points1.length, points2.length);
-
-        console.log(`📈 РЕЗУЛЬТАТ СРАВНЕНИЯ ТОЧЕК:`);
-        console.log(`   Совпало точек: ${matches}/${Math.max(points1.length, points2.length)}`);
-        console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}%`);
-
-        // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ СРАЗУ
-        const updatedCount = this.updateConfirmationsDirectly(footprint1, footprint2);
-
-        let decision, reason;
-        if (similarity > 0.7) {
-            decision = 'same';
-            reason = `Высокое сходство точек (${(similarity * 100).toFixed(1)}%)`;
-        } else if (similarity > 0.4) {
-            decision = 'similar';
-            reason = `Умеренное сходство точек (${(similarity * 100).toFixed(1)}%)`;
-        } else {
-            decision = 'different';
-            reason = `Низкое сходство точек (${(similarity * 100).toFixed(1)}%)`;
-        }
-
-        return {
-            similarity,
-            decision,
-            reason,
-            matchesCount: matches,
-            totalPoints: Math.max(points1.length, points2.length),
-            pointsUpdated: updatedCount,
-            method: 'normalized_point_comparison'
-        };
-
-    } catch (error) {
-        console.log(`❌ Ошибка паттернового сравнения:`, error.message);
-        console.error(error.stack);
-
-        // Фоллбэк на выравнивание
-        console.log('🔄 Использую выравнивание как фоллбэк...');
-        return await this.compareWithAlignment(footprint1, footprint2);
     }
+   
+    const similarity = matches / Math.max(points1.length, points2.length);
+   
+    console.log(`📈 РЕЗУЛЬТАТ СРАВНЕНИЯ ТОЧЕК:`);
+    console.log(`   Совпало точек: ${matches}/${Math.max(points1.length, points2.length)}`);
+    console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}%`);
+   
+    // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ СРАЗУ
+    const updatedCount = this.updateConfirmationsDirectly(footprint1, footprint2);
+   
+    let decision, reason;
+    if (similarity > 0.7) {
+        decision = 'same';
+        reason = `Высокое сходство точек (${(similarity * 100).toFixed(1)}%)`;
+    } else if (similarity > 0.4) {
+        decision = 'similar';
+        reason = `Умеренное сходство точек (${(similarity * 100).toFixed(1)}%)`;
+    } else {
+        decision = 'different';
+        reason = `Низкое сходство точек (${(similarity * 100).toFixed(1)}%)`;
+    }
+   
+    return {
+        similarity,
+        decision,
+        reason,
+        matchesCount: matches,
+        totalPoints: Math.max(points1.length, points2.length),
+        pointsUpdated: updatedCount,
+        method: 'normalized_point_comparison'
+    };
 }
 
     // 🔥 НОВЫЙ МЕТОД: Анализ типов паттернов
@@ -2050,31 +2026,31 @@ class SimpleFootprintManager {
     }
 
     // 🔥 НОВЫЙ МЕТОД: Прямое обновление подтверждений между следами
-    updateConfirmationsDirectly(footprint1, footprint2) {
+   updateConfirmationsDirectly(footprint1, footprint2) {
     console.log(`🔄 Прямое обновление подтверждений между двумя следами...`);
 
     // 🔥 ИСПРАВЛЕНИЕ: Используем нормализованные точки
-    const points1 = footprint1.getPointsInNormalizedSystem();
-    const points2 = footprint2.getPointsInNormalizedSystem();
-
+    const points1 = footprint1.getPointsForPatternMatching();
+    const points2 = footprint2.getPointsForPatternMatching();
+   
     console.log(`🔍 Сравниваю ${points1.length} и ${points2.length} точек в НОРМАЛИЗОВАННОЙ системе`);
 
     let updatedCount = 0;
     const threshold = 25; // 25px в нормализованной системе
-
+   
     // 🔥 ИСПРАВЛЕНИЕ: Находим все совпадения
     const matches = [];
-
+   
     for (const point1 of points1) {
         let bestMatch = null;
         let minDistance = Infinity;
-
+       
         for (const point2 of points2) {
             const distance = Math.sqrt(
                 Math.pow(point2.x - point1.x, 2) +
                 Math.pow(point2.y - point1.y, 2)
             );
-
+           
             if (distance < minDistance && distance < threshold) {
                 minDistance = distance;
                 bestMatch = {
@@ -2084,25 +2060,25 @@ class SimpleFootprintManager {
                 };
             }
         }
-
+       
         if (bestMatch) {
             matches.push(bestMatch);
         }
     }
-
+   
     console.log(`📊 Найдено ${matches.length} совпадений (<${threshold}px)`);
-
+   
     // 🔥 ВАЖНО: Обновляем подтверждения в ОРИГИНАЛЬНОМ PointTracker
     // Используем ID точек для нахождения их в оригинальном трекере
     if (footprint1.pointTracker) {
         for (const match of matches) {
             const pointId = match.point1.id;
             const pointData = footprint1.pointTracker.points.get(pointId);
-
+           
             if (pointData) {
                 const oldCount = pointData.confirmedCount || 1;
                 const newCount = Math.max(oldCount, 2); // 2 фото = 2 подтверждения
-
+               
                 if (newCount > oldCount) {
                     pointData.confirmedCount = newCount;
                     updatedCount++;
@@ -2110,19 +2086,19 @@ class SimpleFootprintManager {
             }
         }
     }
-
+   
     console.log(`✅ Обновлено ${updatedCount} точек в оригинальном трекере`);
-
+   
     // 🔥 ДИАГНОСТИКА
     const totalPoints = Math.max(points1.length, points2.length);
     const matchRate = matches.length / totalPoints;
-
+   
     console.log(`📈 ЭФФЕКТИВНОСТЬ СРАВНЕНИЯ:`);
     console.log(`   Всего точек: ${totalPoints}`);
     console.log(`   Совпадений: ${matches.length}`);
     console.log(`   Процент совпадений: ${(matchRate * 100).toFixed(1)}%`);
     console.log(`   Обновлено в трекере: ${updatedCount}`);
-
+   
     return updatedCount;
 }
 
