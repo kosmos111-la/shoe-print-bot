@@ -1394,6 +1394,51 @@ normalizeAngleForFootprint(angleDeg, aspectRatio) {
 
         return bestScore;
     }
+
+    // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
+alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
+    console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
+    console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
+    console.log(`   Количество точек: ${points.length}`);
+
+    if (points.length === 0) {
+        console.log('⚠️ Нет точек для выравнивания');
+        return points;
+    }
+
+    const currentCenter = this.calculateCenter(points);
+    console.log(`   Текущий центр: (${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)})`);
+
+    const offsetX = targetCenter.x - currentCenter.x;
+    const offsetY = targetCenter.y - currentCenter.y;
+
+    console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+
+    const alignedPoints = points.map(point => ({
+        ...point,
+        x: point.x + offsetX,
+        y: point.y + offsetY,
+        originalX: point.x,
+        originalY: point.y,
+        offsetApplied: { x: offsetX, y: offsetY }
+    }));
+
+    // Проверка после выравнивания
+    const alignedCenter = this.calculateCenter(alignedPoints);
+    const centerDistance = Math.sqrt(
+        Math.pow(alignedCenter.x - targetCenter.x, 2) +
+        Math.pow(alignedCenter.y - targetCenter.y, 2)
+    );
+
+    console.log(`   Центр после выравнивания: (${alignedCenter.x.toFixed(1)}, ${alignedCenter.y.toFixed(1)})`);
+    console.log(`   Отклонение от цели: ${centerDistance.toFixed(1)}px`);
+
+    if (centerDistance > 10) {
+        console.log(`⚠️ Центр все еще далеко от цели: ${centerDistance.toFixed(1)}px`);
+    }
+
+    return alignedPoints;
+}  
 }
 
 module.exports = RotationInvariance;
