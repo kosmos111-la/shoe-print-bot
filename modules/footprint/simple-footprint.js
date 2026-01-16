@@ -2099,6 +2099,29 @@ alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
 
     return alignedPoints;
 }
+
+// 🔥 НОВЫЙ МЕТОД: Получить точки, готовые для сравнения
+getAlignedPointsForComparison() {
+    // Получаем нормализованные и выровненные точки
+    const normalizedPoints = this.getPointsInNormalizedSystem();
+   
+    // 🔥 ДОПОЛНИТЕЛЬНОЕ ВЫРАВНИВАНИЕ для точного сравнения
+    const RotationInvariance = require('./rotation-invariance');
+    const processor = new RotationInvariance({ debug: false });
+   
+    // Если точек мало, возвращаем как есть
+    if (normalizedPoints.length < 3) return normalizedPoints;
+   
+    // Выравниваем к точному центру (500, 500)
+    const preciselyAligned = processor.alignPointsToCommonSystem(
+        normalizedPoints,
+        { x: 500, y: 500 }
+    );
+   
+    console.log(`🎯 Точки готовы для сравнения: ${preciselyAligned.length} точек`);
+   
+    return preciselyAligned;
+}
   
 }
 
