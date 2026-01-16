@@ -551,193 +551,176 @@ class SimpleFootprintManager {
     async compareWithAlignment(footprint1, footprint2) {
     console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
    
-    // 🔥 ДЕБАГ: Проверяем что возвращают getTransformation()
+    // 🔥 ШАГ 1: ГЛУБОКИЙ ДЕБАГ ТРАНСФОРМАЦИЙ
+    console.log(`\n🔍🔍🔍 ГЛУБОКИЙ АНАЛИЗ ТРАНСФОРМАЦИЙ:`);
+   
     const trans1_raw = footprint1.transformation;
     const trans1_get = footprint1.getTransformation();
     const trans2_raw = footprint2.transformation;
     const trans2_get = footprint2.getTransformation();
    
-    console.log(`🔍 ДЕБАГ ТРАНСФОРМАЦИЙ:`);
-    console.log(`   След 1:`);
-    console.log(`     raw.transformation: ${trans1_raw?.rotationAngle || 'нет'}°`);
-    console.log(`     getTransformation(): ${trans1_get?.rotationAngle || 'нет'}°`);
-    console.log(`     Сравнение: ${trans1_raw === trans1_get ? 'одинаково' : 'РАЗНЫЕ!'}`);
+    console.log(`📌 СЛЕД 1 "${footprint1.name}":`);
+    console.log(`   • this.transformation: ${trans1_raw?.rotationAngle || 'нет'}°`);
+    console.log(`   • getTransformation(): ${trans1_get?.rotationAngle || 'нет'}°`);
+    console.log(`   • Сравнение: ${trans1_raw?.rotationAngle === trans1_get?.rotationAngle ? 'одинаково ✅' : 'РАЗНЫЕ! ❌'}`);
    
-    console.log(`   След 2:`);
-    console.log(`     raw.transformation: ${trans2_raw?.rotationAngle || 'нет'}°`);
-    console.log(`     getTransformation(): ${trans2_get?.rotationAngle || 'нет'}°`);
-    console.log(`     Сравнение: ${trans2_raw === trans2_get ? 'одинаково' : 'РАЗНЫЕ!'}`);
-// 🔥🔥🔥 ЭКСТРЕННЫЙ ПАТЧ 🔥🔥🔥
-        // Если углы 0° - устанавливаем их вручную
-        const angle1 = footprint1.transformation?.rotationAngle || 0;
-        const angle2 = footprint2.transformation?.rotationAngle || 0;
-
-        console.log(`📐 РЕАЛЬНЫЕ УГЛЫ: ${angle1}° vs ${angle2}°`);
-
-        // Если один 0°, а другой должен быть 90° - исправляем
-        if (angle1 === 0 && angle2 === 0) {
-            console.log(`⚠️ Оба угла 0°, проверяю нужна ли коррекция 90°...`);
-
-            // Простой тест: если следы "вертикальные" vs "горизонтальные"
-            const points1 = this.extractPointsFromFootprint(footprint1);
-            const points2 = this.extractPointsFromFootprint(footprint2);
-
-            const ratio1 = this.calculateAspectRatio(points1);
-            const ratio2 = this.calculateAspectRatio(points2);
-
-            console.log(`📏 Пропорции: ${ratio1.toFixed(2)} vs ${ratio2.toFixed(2)}`);
-
-            // Если один вертикальный (ratio < 0.5), а другой горизонтальный (ratio > 2)
-            if ((ratio1 < 0.5 && ratio2 > 2) || (ratio1 > 2 && ratio2 < 0.5)) {
-                console.log(`🔄 Применяю автоматическую коррекцию 90°!`);
-                // Временно устанавливаем угол 90°
-                if (!footprint2.transformation) footprint2.transformation = {};
-                footprint2.transformation.rotationAngle = 90;
-                console.log(`   Установлен угол 90° для сравнения`);
-            }
-        }
-        // 🔥🔥🔥 КОНЕЦ ПАТЧА 🔥🔥🔥
-        try {
-            // 🔥 ИСПРАВЛЕНИЕ: Получаем оригинальные трансформации
-            let transformation1 = footprint1.getTransformation();
-            let transformation2 = footprint2.getTransformation();
-
-            console.log(`📐 Трансформация исходного следа:`);
-            console.log(`   Поворот: ${transformation1?.rotationAngle?.toFixed(1) || 0}°`);
-            console.log(`   Зеркало: ${transformation1?.isMirrored || false}`);
-
-            console.log(`📐 Трансформация эталона:`);
-            console.log(`   Поворот: ${transformation2?.rotationAngle?.toFixed(1) || 0}°`);
-            console.log(`   Зеркало: ${transformation2?.isMirrored || false}`);
-
-            // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Создаем нормализованные трансформации с углом 0°
-            const normalizedTransformation1 = transformation1 ? {
-                ...transformation1,
-                rotationAngle: 0, // 🔥 НОРМАЛИЗУЕМ К 0°
-                isMirrored: false, // 🔥 Сбрасываем зеркальность
-                normalized: true,
-                originalRotation: transformation1.rotationAngle // Сохраняем оригинальный угол для отладки
-            } : null;
-
-            const normalizedTransformation2 = transformation2 ? {
-                ...transformation2,
-                rotationAngle: 0, // 🔥 НОРМАЛИЗУЕМ К 0°
-                isMirrored: false, // 🔥 Сбрасываем зеркальность
-                normalized: true,
-                originalRotation: transformation2.rotationAngle // Сохраняем оригинальный угол для отладки
-            } : null;
-
-            console.log(`📐 Нормализованные трансформации (для выравнивания):`);
-            console.log(`   ${footprint1.name}: ${normalizedTransformation1?.rotationAngle || 0}° (было ${transformation1?.rotationAngle || 0}°)`);
-            console.log(`   ${footprint2.name}: ${normalizedTransformation2?.rotationAngle || 0}° (было ${transformation2?.rotationAngle || 0}°)`);
-
-            // 🔥 ПРОВЕРКА КООРДИНАТ: Получаем точки в их системах координат
-            console.log(`🔍 ПРОВЕРКА КООРДИНАТ:`);
-
-            // Получаем точки из трекеров (уже нормализованные к 0°)
-            const points1 = this.getTrackerPointsInFootprintSystem(footprint1.pointTracker, transformation1 || this.createIdentityTransformation());
-            const points2 = this.getTrackerPointsInFootprintSystem(footprint2.pointTracker, transformation2 || this.createIdentityTransformation());
-
-            console.log(`   След 1: ${points1.length} точек, пример: (${points1[0]?.x?.toFixed(1) || 0}, ${points1[0]?.y?.toFixed(1) || 0})`);
-            console.log(`   След 2: ${points2.length} точек, пример: (${points2[0]?.x?.toFixed(1) || 0}, ${points2[0]?.y?.toFixed(1) || 0})`);
-
-            // Проверяем, нормализованы ли уже координаты
-            const checkNormalization = (points) => {
-                if (points.length === 0) {
-                    return { width: 0, height: 0, ratio: 0 };
+    console.log(`\n📌 СЛЕД 2 "${footprint2.name}":`);
+    console.log(`   • this.transformation: ${trans2_raw?.rotationAngle || 'нет'}°`);
+    console.log(`   • getTransformation(): ${trans2_get?.rotationAngle || 'нет'}°`);
+    console.log(`   • Сравнение: ${trans2_raw?.rotationAngle === trans2_get?.rotationAngle ? 'одинаково ✅' : 'РАЗНЫЕ! ❌'}`);
+   
+    // 🔥 ШАГ 2: ИСПОЛЬЗУЕМ РЕАЛЬНЫЕ УГЛЫ, НЕ НОРМАЛИЗУЕМ ИХ!
+    let transformation1 = trans1_get;
+    let transformation2 = trans2_get;
+   
+    console.log(`\n📐 ИСПОЛЬЗУЮ РЕАЛЬНЫЕ ТРАНСФОРМАЦИИ (БЕЗ нормализации к 0°!):`);
+    console.log(`   ${footprint1.name}: ${transformation1?.rotationAngle || 0}°`);
+    console.log(`   ${footprint2.name}: ${transformation2?.rotationAngle || 0}°`);
+   
+    // 🔥 ШАГ 3: ЕСЛИ ОБА УГЛА 0°, ПРОВЕРЯЕМ НУЖНА ЛИ КОРРЕКЦИЯ
+    if ((transformation1?.rotationAngle || 0) === 0 && (transformation2?.rotationAngle || 0) === 0) {
+        console.log(`\n⚠️ ВНИМАНИЕ: Оба угла 0°, проверяю правильно ли это...`);
+       
+        const points1 = this.extractPointsFromFootprint(footprint1);
+        const points2 = this.extractPointsFromFootprint(footprint2);
+       
+        if (points1.length >= 3 && points2.length >= 3) {
+            const bounds1 = this.calculateBounds(points1);
+            const bounds2 = this.calculateBounds(points2);
+           
+            const ratio1 = bounds1.width / Math.max(1, bounds1.height);
+            const ratio2 = bounds2.width / Math.max(1, bounds2.height);
+           
+            console.log(`   Пропорции следов:`);
+            console.log(`     ${footprint1.name}: ${bounds1.width.toFixed(1)}x${bounds1.height.toFixed(1)} (ratio: ${ratio1.toFixed(2)})`);
+            console.log(`     ${footprint2.name}: ${bounds2.width.toFixed(1)}x${bounds2.height.toFixed(1)} (ratio: ${ratio2.toFixed(2)})`);
+           
+            // 🔥 АВТОКОРРЕКЦИЯ: если один след вертикальный, другой горизонтальный
+            const VERTICAL_THRESHOLD = 0.5;
+            const HORIZONTAL_THRESHOLD = 2.0;
+           
+            const isVertical1 = ratio1 < VERTICAL_THRESHOLD;
+            const isHorizontal1 = ratio1 > HORIZONTAL_THRESHOLD;
+            const isVertical2 = ratio2 < VERTICAL_THRESHOLD;
+            const isHorizontal2 = ratio2 > HORIZONTAL_THRESHOLD;
+           
+            if ((isVertical1 && isHorizontal2) || (isHorizontal1 && isVertical2)) {
+                console.log(`\n🚨 ОБНАРУЖЕНО: Следы повернуты на 90° друг относительно друга!`);
+                console.log(`   Но их трансформации показывают 0° - это ошибка!`);
+               
+                // 🔥 АВТОКОРРЕКЦИЯ: Устанавливаем правильные углы
+                const correctedAngle = 90;
+                console.log(`   🔧 Применяю авто-коррекцию: устанавливаю угол ${correctedAngle}°`);
+               
+                // Корректируем один из следов
+                if (isVertical1 && isHorizontal2) {
+                    // След 2 должен быть повернут на 90°
+                    transformation2 = {
+                        ...transformation2,
+                        rotationAngle: correctedAngle,
+                        autoCorrected: true,
+                        originalRatio: ratio2,
+                        correctionType: 'vertical_to_horizontal'
+                    };
+                    console.log(`   ✅ ${footprint2.name} скорректирован до ${correctedAngle}°`);
+                } else {
+                    // След 1 должен быть повернут на 90°
+                    transformation1 = {
+                        ...transformation1,
+                        rotationAngle: correctedAngle,
+                        autoCorrected: true,
+                        originalRatio: ratio1,
+                        correctionType: 'horizontal_to_vertical'
+                    };
+                    console.log(`   ✅ ${footprint1.name} скорректирован до ${correctedAngle}°`);
                 }
-                const xs = points.map(p => p.x);
-                const ys = points.map(p => p.y);
-                const width = Math.max(...xs) - Math.min(...xs);
-                const height = Math.max(...ys) - Math.min(...ys);
-
-                return {
-                    width,
-                    height,
-                    ratio: width / (height || 1)
-                };
-            };
-
-            const norm1 = checkNormalization(points1);
-            const norm2 = checkNormalization(points2);
-
-            console.log(`📏 РАЗМЕРЫ ТОЧЕК:`);
-            console.log(`   След 1: ${norm1.width.toFixed(1)}x${norm1.height.toFixed(1)} (ratio: ${norm1.ratio.toFixed(2)})`);
-            console.log(`   След 2: ${norm2.width.toFixed(1)}x${norm2.height.toFixed(1)} (ratio: ${norm2.ratio.toFixed(2)})`);
-
-            // 🔥 Передаем ВЫРАВНИВАТЕЛЮ нормализованные трансформации
-            const alignmentResult = await this.aligner.testAlignment(
-                footprint1,
-                footprint2,
-                normalizedTransformation2 || this.createIdentityTransformation(), // 🔥 Передаем нормализованные
-                normalizedTransformation1 || this.createIdentityTransformation()  // 🔥 а не оригинальные
-            );
-
-            if (alignmentResult.success) {
-                console.log(`✅ Выравнивание успешно! Качество: ${alignmentResult.quality?.toFixed(3) || 0}`);
-
-                // Теперь можно сравнить выровненные точки
-                const comparison = this.compareFootprintsWithAlignment(
-                    footprint1,
-                    footprint2,
-                    alignmentResult.alignedPoints || []
-                );
-
-                return {
-                    ...comparison,
-                    alignment: alignmentResult,
-                    method: 'alignment_based',
-                    debug: {
-                        originalRotations: {
-                            footprint1: transformation1?.rotationAngle || 0,
-                            footprint2: transformation2?.rotationAngle || 0
-                        },
-                        normalizedRotations: {
-                            footprint1: normalizedTransformation1?.rotationAngle || 0,
-                            footprint2: normalizedTransformation2?.rotationAngle || 0
-                        },
-                        pointsCount: {
-                            footprint1: points1.length,
-                            footprint2: points2.length
-                        }
-                    }
-                };
-            } else {
-                console.log(`⚠️ Выравнивание не удалось, использую стандартный метод`);
-                const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
-
-                return {
-                    ...fallbackResult,
-                    alignment: { success: false, error: alignmentResult.error },
-                    method: 'graph_based_fallback'
-                };
-            }
-
-        } catch (error) {
-            console.log(`❌ Ошибка выравнивания:`, error.message);
-            console.error(error.stack);
-
-            // 🔥 Фоллбэк на сравнение графов
-            try {
-                const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
-                return {
-                    ...fallbackResult,
-                    alignment: { success: false, error: error.message },
-                    method: 'graph_based_error_fallback'
-                };
-            } catch (fallbackError) {
-                console.log(`❌ Ошибка фоллбэка:`, fallbackError.message);
-
-                return {
-                    similarity: 0,
-                    decision: 'different',
-                    reason: `Ошибка сравнения: ${error.message}`,
-                    alignment: { success: false, error: error.message },
-                    method: 'error'
-                };
             }
         }
     }
+   
+    // 🔥 ШАГ 4: ВЫВОД ИНФОРМАЦИИ ДЛЯ ВЫРАВНИВАНИЯ
+    console.log(`\n🎯 ИНФОРМАЦИЯ ДЛЯ ВЫРАВНИВАНИЯ:`);
+    console.log(`   ${footprint1.name}: ${transformation1?.rotationAngle || 0}° (${transformation1?.autoCorrected ? 'авто-скорректировано' : 'оригинальный'})`);
+    console.log(`   ${footprint2.name}: ${transformation2?.rotationAngle || 0}° (${transformation2?.autoCorrected ? 'авто-скорректировано' : 'оригинальный'})`);
+   
+    // 🔥 ШАГ 5: ВЫРАВНИВАНИЕ С РЕАЛЬНЫМИ УГЛАМИ
+    try {
+        // 🔥 ВАЖНО: Передаем РЕАЛЬНЫЕ трансформации, а не нормализованные к 0°!
+        const alignmentResult = await this.aligner.testAlignment(
+            footprint1,
+            footprint2,
+            transformation2 || this.createIdentityTransformation(),
+            transformation1 || this.createIdentityTransformation()
+        );
+       
+        if (alignmentResult.success) {
+            console.log(`✅ Выравнивание успешно! Качество: ${alignmentResult.quality?.toFixed(3)}`);
+           
+            // Сравниваем выровненные точки
+            const comparison = this.compareFootprintsWithAlignment(
+                footprint1,
+                footprint2,
+                alignmentResult.alignedPoints || []
+            );
+           
+            return {
+                ...comparison,
+                alignment: alignmentResult,
+                method: 'alignment_based_with_real_angles',
+                transformations: {
+                    footprint1: {
+                        angle: transformation1?.rotationAngle || 0,
+                        autoCorrected: transformation1?.autoCorrected || false
+                    },
+                    footprint2: {
+                        angle: transformation2?.rotationAngle || 0,
+                        autoCorrected: transformation2?.autoCorrected || false
+                    }
+                },
+                debug: {
+                    originalAngles: {
+                        footprint1: trans1_get?.rotationAngle || 0,
+                        footprint2: trans2_get?.rotationAngle || 0
+                    },
+                    usedAngles: {
+                        footprint1: transformation1?.rotationAngle || 0,
+                        footprint2: transformation2?.rotationAngle || 0
+                    }
+                }
+            };
+        } else {
+            console.log(`⚠️ Выравнивание не удалось, использую стандартный метод`);
+            const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+           
+            return {
+                ...fallbackResult,
+                alignment: { success: false, error: alignmentResult.error },
+                method: 'graph_based_fallback'
+            };
+        }
+       
+    } catch (error) {
+        console.log(`❌ Ошибка выравнивания:`, error.message);
+       
+        // Фоллбэк на сравнение графов
+        try {
+            const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+            return {
+                ...fallbackResult,
+                alignment: { success: false, error: error.message },
+                method: 'graph_based_error_fallback'
+            };
+        } catch (fallbackError) {
+            return {
+                similarity: 0,
+                decision: 'different',
+                reason: `Ошибка сравнения: ${error.message}`,
+                alignment: { success: false, error: error.message },
+                method: 'error'
+            };
+        }
+    }
+}
 
     // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Сравнить с учетом выравнивания
     compareFootprintsWithAlignment(footprint1, footprint2, alignedPoints2) {
@@ -2663,18 +2646,24 @@ class SimpleFootprintManager {
             y: sumY / points.length
         };
     }
-   // 🔥 НОВЫЙ МЕТОД: Извлечь точки из отпечатка
-    extractPointsFromFootprint(footprint) {
-        const points = [];
-       
-        if (footprint.pointTracker && footprint.pointTracker.points) {
-            for (const [, point] of footprint.pointTracker.points) {
-                points.push({ x: point.x, y: point.y });
-            }
+   // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Извлечь точки из отпечатка
+extractPointsFromFootprint(footprint) {
+    const points = [];
+   
+    if (footprint.pointTracker && footprint.pointTracker.points) {
+        for (const [id, point] of footprint.pointTracker.points) {
+            points.push({
+                id,
+                x: point.x,
+                y: point.y,
+                confidence: point.rating || 0.5
+            });
         }
-       
-        return points;
     }
+   
+    console.log(`   📊 Извлечено ${points.length} точек из ${footprint.name}`);
+    return points;
+}
    
     // 🔥 НОВЫЙ МЕТОД: Рассчитать соотношение сторон
     calculateAspectRatio(points) {
@@ -2682,28 +2671,26 @@ class SimpleFootprintManager {
         return bounds.width / Math.max(1, bounds.height);
     }
    
-    // 🔥 НОВЫЙ МЕТОД: Расчет границ для точек
-    calculateBounds(points) {
-        if (!points || points.length === 0) {
-            return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
-        }
-       
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-       
-        points.forEach(point => {
-            minX = Math.min(minX, point.x);
-            maxX = Math.max(maxX, point.x);
-            minY = Math.min(minY, point.y);
-            maxY = Math.max(maxY, point.y);
-        });
-       
-        return {
-            minX, maxX, minY, maxY,
-            width: maxX - minX,
-            height: maxY - minY
-        };
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Рассчитать границы
+calculateBounds(points) {
+    if (points.length === 0) {
+        return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
     }
+   
+    const xs = points.map(p => p.x);
+    const ys = points.map(p => p.y);
+   
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+   
+    return {
+        minX, maxX, minY, maxY,
+        width: maxX - minX,
+        height: maxY - minY
+    };
+}
    
     // 🔥 НОВЫЙ МЕТОД: Расчет центра
     calculateCenter(points) {
