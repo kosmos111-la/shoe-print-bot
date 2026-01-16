@@ -1714,93 +1714,127 @@ class SimpleFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Получить инвариантные признаки (добавлен в конец класса)
     getInvariantFeatures() {
-        console.log(`🎯 Извлекаю инвариантные признаки для "${this.name}"...`);
-
-        const features = [];
-
-        if (!this.pointTracker || !this.pointTracker.points || this.pointTracker.points.size === 0) {
-            console.log('⚠️ Нет точек в PointTracker для извлечения признаков');
-            return features;
+        console.log(`\n🎯🔍 ДЕБАГ getInvariantFeatures для "${this.name}":`);
+       
+        // 1. Проверяем трансформацию
+        const trans = this.getTransformation();
+        console.log(`   Трансформация: ${trans?.rotationAngle || 0}°`);
+       
+        // 🔥 ПЕРВОЕ ИСПРАВЛЕНИЕ: Используем нормализованные точки!
+        console.log(`   Получаю точки в нормализованной системе...`);
+        const normalizedPoints = this.getPointsInNormalizedSystem();
+       
+        if (normalizedPoints.length < 3) {
+            console.log('⚠️ Недостаточно точек в нормализованной системе');
+            return this.createBasicInvariantFeatures(); // фаллбэк
         }
-
-        // 🔥 ИСПОЛЬЗУЕМ УЖЕ СУЩЕСТВУЮЩУЮ ЛОГИКУ ИЗ template-builder.js
+       
+        // 2. Сравниваем точки до/после нормализации
+        const originalPoints = this.getPointsInMySystem();
+       
+        console.log(`   Оригинальных точек: ${originalPoints.length}`);
+        console.log(`   Нормализованных точек: ${normalizedPoints.length}`);
+       
+        if (originalPoints.length > 0 && normalizedPoints.length > 0) {
+            console.log(`   Пример точки 0:`);
+            console.log(`     Оригинал: (${originalPoints[0].x.toFixed(1)}, ${originalPoints[0].y.toFixed(1)})`);
+            console.log(`     Нормализ: (${normalizedPoints[0].x.toFixed(1)}, ${normalizedPoints[0].y.toFixed(1)})`);
+           
+            // Проверка разницы
+            const diffX = Math.abs(normalizedPoints[0].x - originalPoints[0].x);
+            const diffY = Math.abs(normalizedPoints[0].y - originalPoints[0].y);
+            console.log(`     Разница: (${diffX.toFixed(1)}, ${diffY.toFixed(1)})`);
+           
+            // Проверяем, работает ли нормализация
+            if (diffX < 10 && diffY < 10) {
+                console.log(`   ⚠️ ВНИМАНИЕ: Маленькая разница! Нормализация может не работать!`);
+                console.log(`   ⚠️ Трансформация была: ${trans?.rotationAngle || 0}°`);
+            }
+        }
+       
+        console.log(`📊 Точки для признаков: ${normalizedPoints.length} (первая: ${normalizedPoints[0]?.x?.toFixed(1)}, ${normalizedPoints[0]?.y?.toFixed(1)})`);
+       
+        // 🔥 ВТОРОЕ: Проверяем трансформацию
+        if (trans) {
+            console.log(`📐 Трансформация: ${trans.rotationAngle}°, зеркало: ${trans.isMirrored ? 'да' : 'нет'}`);
+        }
+       
+        // 🔥 ИСПРАВЛЕННЫЙ КОД: Создаем признаки из НОРМАЛИЗОВАННЫХ точек
+        const features = [];
+       
         try {
-            const TemplateBuilder = require('./template-builder');
-            const builder = new TemplateBuilder({ debug: false });
-
-            // Создаем временный граф из точек трекера
-            const graph = new SimpleGraph(`temp_for_invariants_${Date.now()}`);
-
-            const pointsArray = [];
-            for (const [id, point] of this.pointTracker.points) {
-                pointsArray.push({
-                    id: id,
-                    x: point.x,
-                    y: point.y,
-                    confidence: point.rating || 0.5,
-                    confirmedCount: point.confirmedCount || 1
-                });
-            }
-
-            if (pointsArray.length < 3) {
-                console.log('⚠️ Слишком мало точек для извлечения признаков');
-                return features;
-            }
-
-            graph.buildFromPoints(pointsArray);
-
-            // Извлекаем точки из графа
-            const graphPoints = this.extractPointsFromGraph(graph);
-
-            // Нормализуем точки
-            const bounds = builder.calculateBounds(graphPoints);
-            const normalizedPoints = graphPoints.map(point => ({
-                ...point,
-                nx: (point.x - bounds.minX) / Math.max(1, bounds.width),
-                ny: (point.y - bounds.minY) / Math.max(1, bounds.height),
-                normalized: true
-            }));
-
-            // Создаем признаки для каждой точки
+            // Используем только нормализованные точки
             normalizedPoints.forEach((point, index) => {
-                const invariants = builder.calculatePointInvariants(point, normalizedPoints);
-
-                if (invariants.nearestNeighbors && invariants.nearestNeighbors.length > 0) {
-                    const feature = {
-                        id: point.id || `feature_${index}`,
-                        type: this.classifyPointFeature(invariants),
-                        angles: invariants.nearestNeighbors.map(n => n.angle),
-                        distances: invariants.nearestNeighbors.map(n => n.normalizedDistance),
-                        density: invariants.distanceDistribution?.[0] || 0,
-                        neighborCount: invariants.nearestNeighbors.length,
-                        topology: {
-                            neighborCount: invariants.nearestNeighbors.length,
-                            connectivity: Math.min(1, invariants.nearestNeighbors.length / 5),
-                            edgeTypes: this.detectEdgeTypes(invariants)
-                        },
-                        confidence: point.confidence || 0.5,
-                        source: 'point_tracker',
-                        originalPoint: {
-                            x: point.x,
-                            y: point.y,
-                            nx: point.nx,
-                            ny: point.ny
+                if (index < 20) { // Ограничиваем для производительности
+                    try {
+                        // Находим ближайших соседей в НОРМАЛИЗОВАННОЙ системе
+                        const neighbors = [];
+                       
+                        normalizedPoints.forEach((otherPoint, otherIndex) => {
+                            if (index === otherIndex) return;
+                           
+                            const distance = Math.sqrt(
+                                Math.pow(otherPoint.x - point.x, 2) +
+                                Math.pow(otherPoint.y - point.y, 2)
+                            );
+                           
+                            const angle = Math.atan2(otherPoint.y - point.y, otherPoint.x - point.x);
+                           
+                            neighbors.push({
+                                distance: distance,
+                                angle: angle,
+                                otherPoint: otherPoint
+                            });
+                        });
+                       
+                        // Сортируем и берем 3 ближайших
+                        neighbors.sort((a, b) => a.distance - b.distance);
+                        const closestNeighbors = neighbors.slice(0, 3);
+                       
+                        if (closestNeighbors.length >= 2) {
+                            // Создаем признак
+                            const feature = {
+                                id: point.id || `norm_feat_${index}`,
+                                type: this.simpleClassifyFeature(
+                                    closestNeighbors.map(n => n.angle),
+                                    closestNeighbors.map(n => n.distance)
+                                ),
+                                angles: closestNeighbors.map(n => n.angle),
+                                distances: closestNeighbors.map(n => n.distance),
+                                neighborCount: closestNeighbors.length,
+                                confidence: point.confidence || 0.5,
+                                source: 'normalized_system',
+                                normalized: true,
+                                transformationAngle: trans?.rotationAngle || 0,
+                                originalPoint: point
+                            };
+                           
+                            features.push(feature);
+                           
+                            // Дебаг для первых признаков
+                            if (index < 3) {
+                                console.log(`   Признак ${index + 1}: ${feature.type}`);
+                                console.log(`     Координаты: (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`);
+                                console.log(`     Углы: ${feature.angles.map(a => (a * 180/Math.PI).toFixed(1) + '°').join(', ')}`);
+                            }
                         }
-                    };
-
-                    features.push(feature);
+                    } catch (pointError) {
+                        console.log(`⚠️ Ошибка обработки точки ${index}:`, pointError.message);
+                    }
                 }
             });
-
-            console.log(`✅ Извлечено ${features.length} инвариантных признаков`);
-            return features;
-
         } catch (error) {
-            console.log('⚠️ Ошибка извлечения инвариантов:', error.message);
-
-            // 🔥 ПРОСТОЙ ФАЛЛБЭК: создаем базовые признаки
+            console.log('⚠️ Ошибка создания признаков:', error.message);
             return this.createBasicInvariantFeatures();
         }
+       
+        console.log(`✅ Создано ${features.length} инвариантных признаков из НОРМАЛИЗОВАННОЙ системы`);
+       
+        // Проверяем, что признаки созданы из нормализованных точек
+        const normalizedCount = features.filter(f => f.normalized).length;
+        console.log(`📊 Признаки из нормализованной системы: ${normalizedCount}/${features.length}`);
+       
+        return features;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Классифицировать признак точки
