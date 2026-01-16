@@ -793,83 +793,47 @@ class SimpleFootprintManager {
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение через инвариантные паттерны
     async compareWithPatterns(footprint1, footprint2) {
-        console.log(`\n🎯🎯🎯 ПАТТЕРНОВОЕ СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
+        // 🔥 КОРОТКИЙ ВЫВОД вместо спама
+        console.log(`\n🎯 СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
+       
+        const trans1 = footprint1.getTransformation();
+        const trans2 = footprint2.getTransformation();
+       
+        console.log(`   ${footprint1.name}: ${trans1?.rotationAngle || 0}°`);
+        console.log(`   ${footprint2.name}: ${trans2?.rotationAngle || 0}°`);
+       
+        const angleDiff = Math.abs((trans1?.rotationAngle || 0) - (trans2?.rotationAngle || 0));
+        console.log(`   Разница углов: ${angleDiff}°`);
+       
+        if (angleDiff > 45 && angleDiff < 135) {
+            console.log(`   ⚠️ Следы повернуты на ~90°`);
+        }
 
         try {
-            // 🔥 ПРОВЕРКА ТРАНСФОРМАЦИЙ ПЕРЕД СРАВНЕНИЕМ
-            console.log(`🔍🔍🔍 ПРОВЕРКА ТРАНСФОРМАЦИЙ ПЕРЕД СРАВНЕНИЕМ ПАТТЕРНОВ:`);
-           
-            const trans1 = footprint1.getTransformation();
-            const trans2 = footprint2.getTransformation();
-           
-            console.log(`📌 ${footprint1.name}:`);
-            console.log(`   Угол: ${trans1?.rotationAngle || 0}°`);
-            console.log(`   Зеркало: ${trans1?.isMirrored ? 'да' : 'нет'}`);
-            console.log(`   Центр: (${trans1?.center?.x?.toFixed(1) || 0}, ${trans1?.center?.y?.toFixed(1) || 0})`);
-           
-            console.log(`📌 ${footprint2.name}:`);
-            console.log(`   Угол: ${trans2?.rotationAngle || 0}°`);
-            console.log(`   Зеркало: ${trans2?.isMirrored ? 'да' : 'нет'}`);
-            console.log(`   Центр: (${trans2?.center?.x?.toFixed(1) || 0}, ${trans2?.center?.y?.toFixed(1) || 0})`);
-           
-            const angleDiff = Math.abs((trans1?.rotationAngle || 0) - (trans2?.rotationAngle || 0));
-            console.log(`📊 Разница углов: ${angleDiff}°`);
-           
-            // ВАЖНОЕ ПРЕДУПРЕЖДЕНИЕ:
-            if (angleDiff > 45 && angleDiff < 135) {
-                console.log(`⚠️ ВНИМАНИЕ: Следы повернуты на ~90° относительно друг друга!`);
-                console.log(`⚠️ Паттерновое сравнение должно работать правильно, т.к. использует нормализованные точки.`);
-            }
-
             // 🔥 Проверяем, что методы getInvariantFeatures существуют
             if (!footprint1.getInvariantFeatures || !footprint2.getInvariantFeatures) {
                 console.log('⚠️ Один из следов не поддерживает паттерновое сравнение');
                 return await this.compareWithAlignment(footprint1, footprint2);
             }
 
-            // 2. Получаем инвариантные признаки (теперь они будут из нормализованной системы!)
-            console.log('\n🔍 Извлекаю инвариантные признаки...');
-           
-            // 🔥 ДЕБАГ ВРЕМЕНИ: Засекаем, сколько времени занимает извлечение признаков
-            const startTime = Date.now();
+            // Получаем инвариантные признаки
+            console.log('🔍 Извлекаю признаки...');
             const features1 = footprint1.getInvariantFeatures();
             const features2 = footprint2.getInvariantFeatures();
-            const endTime = Date.now();
-           
-            console.log(`⏱️ Извлечение признаков заняло: ${endTime - startTime}мс`);
-            console.log(`📊 Признаки после нормализации:`);
-            console.log(`   ${footprint1.name}: ${features1.length} признаков`);
-            console.log(`   ${footprint2.name}: ${features2.length} признаков`);
 
-            // 3. ПРОВЕРКА НОРМАЛИЗАЦИИ ПРИЗНАКОВ
+            console.log(`📊 Признаки: ${features1.length} vs ${features2.length}`);
+           
+            // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА: признаки должны быть нормализованы
             if (features1.length > 0 && features2.length > 0) {
-                console.log(`\n🔍 ПРОВЕРКА СИСТЕМ КООРДИНАТ ПРИЗНАКОВ:`);
-               
-                // Проверяем первый признак каждого следа
                 const feat1 = features1[0];
                 const feat2 = features2[0];
                
-                console.log(`   ${footprint1.name}:`);
-                console.log(`     Тип: ${feat1?.type || 'unknown'}`);
-                console.log(`     Система: ${feat1?.normalized ? 'НОРМАЛИЗОВАННАЯ ✅' : 'оригинальная ❌'}`);
-                console.log(`     Угол трансформации при создании: ${feat1?.transformationAngle || 0}°`);
+                console.log(`   Проверка нормализации:`);
+                console.log(`   ${footprint1.name}: ${feat1?.normalized ? '✅' : '❌'}`);
+                console.log(`   ${footprint2.name}: ${feat2?.normalized ? '✅' : '❌'}`);
                
-                console.log(`   ${footprint2.name}:`);
-                console.log(`     Тип: ${feat2?.type || 'unknown'}`);
-                console.log(`     Система: ${feat2?.normalized ? 'НОРМАЛИЗОВАННАЯ ✅' : 'оригинальная ❌'}`);
-                console.log(`     Угол трансформации при создании: ${feat2?.transformationAngle || 0}°`);
-               
-                // Проверяем, все ли признаки нормализованы
-                const normalized1 = features1.filter(f => f.normalized).length;
-                const normalized2 = features2.filter(f => f.normalized).length;
-               
-                console.log(`\n📊 СТАТИСТИКА НОРМАЛИЗАЦИИ:`);
-                console.log(`   ${footprint1.name}: ${normalized1}/${features1.length} нормализованных`);
-                console.log(`   ${footprint2.name}: ${normalized2}/${features2.length} нормализованных`);
-               
-                if (normalized1 < features1.length * 0.8 || normalized2 < features2.length * 0.8) {
-                    console.log(`⚠️ ВНИМАНИЕ: Не все признаки нормализованы!`);
-                    console.log(`⚠️ Паттерновое сравнение может дать некорректный результат!`);
+                if (!feat1?.normalized || !feat2?.normalized) {
+                    console.log(`⚠️ ВНИМАНИЕ: Признаки не нормализованы!`);
                 }
             }
 
