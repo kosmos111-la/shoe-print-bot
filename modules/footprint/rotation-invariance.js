@@ -186,6 +186,31 @@ console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.
         const angleAfterNormalization = this.detectRotationAngle(normalizedPoints);
         console.log(`📐 УГОЛ ПОСЛЕ НОРМАЛИЗАЦИИ: ${angleAfterNormalization.toFixed(1)}°`);
 
+// 🔥 ШАГ 8: ЦЕНТРИРОВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ
+console.log(`🎯 ЦЕНТРИРУЮ СЛЕД К СТАНДАРТНОЙ СИСТЕМЕ...`);
+
+// Определяем целевой центр
+const TARGET_CENTER = { x: 500, y: 500 };
+
+// Получаем текущий центр после поворота
+const rotatedPoints = this.extractPointsFromGraph(normalizedGraph);
+const currentCenter = this.calculateCenter(rotatedPoints);
+
+// Вычисляем смещение
+const offsetX = TARGET_CENTER.x - currentCenter.x;
+const offsetY = TARGET_CENTER.y - currentCenter.y;
+
+// Применяем смещение ко всем узлам
+normalizedGraph.nodes.forEach((node, nodeId) => {
+    node.x += offsetX;
+    node.y += offsetY;
+});
+
+// Обновляем трансформацию
+transformation.center = TARGET_CENTER;
+transformation.offsetApplied = { x: offsetX, y: offsetY };
+transformation.originalCenter = currentCenter;
+      
         console.log(`✅ ========== НОРМАЛИЗАЦИЯ ЗАВЕРШЕНА ==========`);
         console.log(`   Поворот: ${rotationAngle.toFixed(1)}° → ${angleAfterNormalization.toFixed(1)}°`);
         console.log(`   Зеркало: ${mirrorInfo.isMirrored ? 'ДА' : 'НЕТ'}`);
