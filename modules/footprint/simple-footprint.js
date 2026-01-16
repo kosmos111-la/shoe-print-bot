@@ -274,8 +274,12 @@ class SimpleFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Получить трансформацию
     getTransformation() {
-        return this.transformation || this.createDefaultTransformation();
+    // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Если нет трансформации, создаем из текущих точек
+    if (!this.transformation) {
+        return this.createTransformationFromCurrentPoints(); // 🔥 НОВЫЙ МЕТОД!
     }
+    return this.transformation;
+}
 
     // 🔥 НОВЫЙ МЕТОД: Создать трансформацию по умолчанию
     createDefaultTransformation() {
