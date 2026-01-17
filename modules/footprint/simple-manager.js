@@ -793,12 +793,13 @@ class SimpleFootprintManager {
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение через инвариантные паттерны
 async compareWithPatterns(footprint1, footprint2) {
-     console.log(`\n🎯 СРАВНЕНИЕ С ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+    console.log(`\n🎯 СРАВНЕНИЕ С ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
 
-    // 🔥 ВРЕМЕННОЕ ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ поворот
+    // 🔥 ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ поворот для произвольных углов
     const RotationInvariance = require('./rotation-invariance');
     const processor = new RotationInvariance({ debug: true });
    
+    // Получаем сырые точки
     const points1_raw = this.extractPointsFromFootprint(footprint1);
     const points2_raw = this.extractPointsFromFootprint(footprint2);
    
@@ -806,60 +807,48 @@ async compareWithPatterns(footprint1, footprint2) {
     const angle1 = footprint1.getTransformation()?.rotationAngle || 0;
     const angle2 = footprint2.getTransformation()?.rotationAngle || 0;
    
-    console.log(`📐 Углы: ${angle1.toFixed(1)}° vs ${angle2.toFixed(1)}°`);
+    console.log(`📐 УГЛЫ ПОВОРОТА:`);
+    console.log(`   ${footprint1.name}: ${angle1.toFixed(1)}°`);
+    console.log(`   ${footprint2.name}: ${angle2.toFixed(1)}°`);
    
-    // 🔥 ПРОСТОЙ ПОВОРОТ: оба к 0°
+    // 🔥 ПРОСТОЙ ПОВОРОТ: оба следа к 0°
+    console.log(`\n🔄 ПОВОРАЧИВАЮ СЛЕДЫ К 0°:`);
+   
     const points1 = processor.transformPointsSimple(points1_raw, angle1, 0);
     const points2 = processor.transformPointsSimple(points2_raw, angle2, 0);
    
     // 🔥 ЦЕНТРИРОВАНИЕ к (500, 500)
+    console.log(`\n🎯 ЦЕНТРИРУЮ К ОБЩЕЙ СИСТЕМЕ (500, 500):`);
+   
     const points1_centered = processor.alignPointsToCommonSystem(points1);
     const points2_centered = processor.alignPointsToCommonSystem(points2);
    
-    console.log(`📊 Точки после простого выравнивания:`);
+    console.log(`📊 ТОЧКИ ПОСЛЕ ПРОСТОГО ВЫРАВНИВАНИЯ:`);
     console.log(`   ${footprint1.name}: ${points1_centered.length} точек`);
     console.log(`   ${footprint2.name}: ${points2_centered.length} точек`);
-
-    // 🔥 ИСПРАВЛЕНИЕ: Используем ВЫРОВНЕННЫЕ точки
-    const points1 = footprint1.getAlignedPointsForComparison();
-    const points2 = footprint2.getAlignedPointsForComparison();
-
-    console.log(`📊 Точки после выравнивания:`);
-    console.log(`   ${footprint1.name}: ${points1.length} точек`);
-    console.log(`   ${footprint2.name}: ${points2.length} точек`);
-
-    // 🔥 ПРОВЕРЯЕМ ВЫРАВНИВАНИЕ
-    const RotationInvariance = require('./rotation-invariance');
-    const processor = new RotationInvariance({ debug: false });
-
-    const center1 = processor.calculateCenter(points1);
-    const center2 = processor.calculateCenter(points2);
-
+   
+    // 🔥 ПРОВЕРКА ЦЕНТРОВ
+    const center1 = processor.calculateCenter(points1_centered);
+    const center2 = processor.calculateCenter(points2_centered);
     const centerDistance = Math.sqrt(
         Math.pow(center2.x - center1.x, 2) +
         Math.pow(center2.y - center1.y, 2)
     );
-
-    console.log(`📏 Расстояние между центрами: ${centerDistance.toFixed(1)}px`);
-
-    if (centerDistance > 50) {
-        console.log(`⚠️ Центры слишком далеко, возможно проблема с выравниванием`);
-        console.log(`   Центр 1: (${center1.x.toFixed(1)}, ${center1.y.toFixed(1)})`);
-        console.log(`   Центр 2: (${center2.x.toFixed(1)}, ${center2.y.toFixed(1)})`);
-    }
-
-    // 🔥 СРАВНЕНИЕ С АДАПТИВНЫМ ПОРОГОМ
+   
+    console.log(`📏 РАССТОЯНИЕ МЕЖДУ ЦЕНТРАМИ: ${centerDistance.toFixed(1)}px`);
+   
+    // Продолжение оригинального метода...
     const adaptiveThreshold = Math.max(25, Math.min(50, centerDistance / 2));
     console.log(`🎯 Адаптивный порог: ${adaptiveThreshold.toFixed(1)}px`);
 
     let matches = 0;
     const matchDetails = [];
 
-    for (const point1 of points1) {
+    for (const point1 of points1_centered) {
         let bestMatch = null;
         let minDistance = Infinity;
 
-        for (const point2 of points2) {
+        for (const point2 of points2_centered) {
             const distance = Math.sqrt(
                 Math.pow(point2.x - point1.x, 2) +
                 Math.pow(point2.y - point1.y, 2)
@@ -881,10 +870,10 @@ async compareWithPatterns(footprint1, footprint2) {
         }
     }
 
-    const similarity = matches / Math.max(points1.length, points2.length);
+    const similarity = matches / Math.max(points1_centered.length, points2_centered.length);
 
     console.log(`📈 РЕЗУЛЬТАТ:`);
-    console.log(`   Совпало точек: ${matches}/${Math.max(points1.length, points2.length)}`);
+    console.log(`   Совпало точек: ${matches}/${Math.max(points1_centered.length, points2_centered.length)}`);
     console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}%`);
 
     // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
@@ -900,13 +889,13 @@ async compareWithPatterns(footprint1, footprint2) {
     let decision, reason;
     if (similarity > 0.7) {
         decision = 'same';
-        reason = `Высокое сходство (${(similarity * 100).toFixed(1)}%) после выравнивания`;
+        reason = `Высокое сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
     } else if (similarity > 0.4) {
         decision = 'similar';
-        reason = `Умеренное сходство (${(similarity * 100).toFixed(1)}%) после выравнивания`;
+        reason = `Умеренное сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
     } else {
         decision = 'different';
-        reason = `Низкое сходство (${(similarity * 100).toFixed(1)}%) после выравнивания`;
+        reason = `Низкое сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
     }
 
     return {
@@ -914,13 +903,16 @@ async compareWithPatterns(footprint1, footprint2) {
         decision,
         reason,
         matchesCount: matches,
-        totalPoints: Math.max(points1.length, points2.length),
+        totalPoints: Math.max(points1_centered.length, points2_centered.length),
         pointsUpdated: updatedCount,
         alignmentInfo: {
             centerDistance,
             adaptiveThreshold,
             center1,
-            center2
+            center2,
+            angle1,
+            angle2,
+            method: 'simple_rotation_90_fix'
         }
     };
 }
