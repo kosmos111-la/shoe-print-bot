@@ -536,22 +536,21 @@ transformation.originalCenter = currentCenter;
     console.log(`   Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
     console.log(`   Соотношение сторон: ${aspectRatio.toFixed(2)}`);
 
-    // 🔥 ИСПРАВЛЕНИЕ: НЕ форсируем 0°/90° для средних пропорций
-    const VERTICAL_THRESHOLD = 0.7;
-    const HORIZONTAL_THRESHOLD = 1.5;
-
-    // Только крайние случаи форсируем
+    // 🔥 ПРОСТОЙ ВАРИАНТ: Если соотношение сторон явно вертикальное/горизонтальное
+    const VERTICAL_THRESHOLD = 0.7;   // Высота > ширина/0.7
+    const HORIZONTAL_THRESHOLD = 1.5; // Ширина > высота*1.5
+   
     if (aspectRatio < VERTICAL_THRESHOLD) {
-        console.log(`📏 След ВЕРТИКАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)})`);
-        return 90; // ✅ Вертикальный → 90°
+        // След вертикальный → 90°
+        console.log(`   📏 След ВЕРТИКАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} < ${VERTICAL_THRESHOLD})`);
+        console.log(`   🔧 Возвращаю угол 90° для нормализации к горизонтали`);
+        return 90;
+    } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
+        // След горизонтальный → 0°
+        console.log(`   📏 След ГОРИЗОНТАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} > ${HORIZONTAL_THRESHOLD})`);
+        console.log(`   🔧 Возвращаю угол 0° (уже горизонтальный)`);
+        return 0;
     }
-    if (aspectRatio > HORIZONTAL_THRESHOLD) {
-        console.log(`📏 След ГОРИЗОНТАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)})`);
-        return 0; // ✅ Горизонтальный → 0°
-    }
-
-    // 🔥 СРЕДНИЕ ПРОПОРЦИИ: используем реальный угол PCA
-    console.log(`📏 След СРЕДНИЙ (ratio: ${aspectRatio.toFixed(2)}) → использую реальный PCA угол`);
 
     // 2. Вычисляем центр масс
     const center = this.calculateCenter(points);
@@ -595,7 +594,7 @@ transformation.originalCenter = currentCenter;
         angleDeg += 180;
     }
 
-    // 🔥 ДОПОЛНИТЕЛЬНАЯ КОРРЕКЦИЯ (ОСТАВЛЯЮ КАК БЫЛО)
+    // 🔥 ИСПРАВЛЕНИЕ: ДОПОЛНИТЕЛЬНАЯ КОРРЕКЦИЯ ДЛЯ СРАВНЕНИЯ
     // Если след почти вертикальный (aspectRatio < 0.8), но PCA показывает маленький угол (<45°),
     // значит, скорее всего, след повернут на 90°
     if (aspectRatio < 0.8 && Math.abs(angleDeg) < 45) {
@@ -603,38 +602,16 @@ transformation.originalCenter = currentCenter;
                    `но PCA показывает угол ${angleDeg.toFixed(1)}°`);
         console.log(`   🔧 Корректирую на 90° для удобства сравнения`);
         angleDeg += 90;
-
+       
         // Снова нормализуем
         if (angleDeg > 90) angleDeg -= 180;
         if (angleDeg < -90) angleDeg += 180;
     }
 
-    // 🔥 ИНТЕЛЛЕКТУАЛЬНАЯ НОРМАЛИЗАЦИЯ (ОСТАВЛЯЮ КАК БЫЛО)
-    angleDeg = this.normalizeAngleForFootprint(angleDeg, aspectRatio);
-
     console.log(`📐 ИТОГОВЫЙ УГОЛ: ${angleDeg.toFixed(1)}°`);
 
     return angleDeg; // 🔥 ВОЗВРАЩАЕМ ЧИСЛО, А НЕ ОБЪЕКТ!
-    }
-```
-
-Что изменено строго по инструкции:
-
-1. Добавлены пороги и логика разделения:
-   ```javascript
-   const VERTICAL_THRESHOLD = 0.7;
-   const HORIZONTAL_THRESHOLD = 1.5;
-  
-   if (aspectRatio < VERTICAL_THRESHOLD) {
-       console.log(`📏 След ВЕРТИКАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)})`);
-       return 90;
-   }
-   if (aspectRatio > HORIZONTAL_THRESHOLD) {
-       console.log(`📏 След ГОРИЗОНТАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)})`);
-       return 0;
-   }
-  
-   console.log(`📏 След СРЕДНИЙ (ratio: ${aspectRatio.toFixed(2)}) → использую реальный PCA угол`);
+}
 
 // 🔥 НОВЫЙ МЕТОД: Интеллектуальная нормализация угла
 normalizeAngleForFootprint(angleDeg, aspectRatio) {
