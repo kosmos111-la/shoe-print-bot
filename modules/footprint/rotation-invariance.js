@@ -340,118 +340,122 @@ transformation.originalCenter = currentCenter;
 
     // 🔥 НОВЫЙ МЕТОД: Обратное преобразование С ОТЛАДКОЙ
     applyInverseTransformation(point, transformation) {
-        if (!transformation || !transformation.matrix) {
-           console.log('⚠️ Нет трансформации для обратного преобразования');
-            return point;
-        }
-
-        // console.log(`\n🔙 ОБРАТНОЕ ПРЕОБРАЗОВАНИЕ:`);
-        // console.log(`   Входная точка: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-
-        const matrix = transformation.matrix;
-        const center = transformation.center;
-
-        // Обратная матрица (для простых поворотов)
-        const det = matrix[0] * matrix[4] - matrix[1] * matrix[3];
-
-        if (Math.abs(det) < 1e-10) {
-         //   console.log('⚠️ Матрица вырождена, возвращаю исходную точку');
-            return point;
-        }
-
-        // Простая инверсия для поворота+отражения+сдвига
-        const invMatrix = [
-             matrix[4] / det, -matrix[1] / det, 0,
-            -matrix[3] / det,  matrix[0] / det, 0,
-            0, 0, 1
-        ];
-
-        // Обратный сдвиг
-        const tx = matrix[2];
-        const ty = matrix[5];
-
-        const relX = point.x - center.x - tx;
-        const relY = point.y - center.y - ty;
-
-        const originalX = relX * invMatrix[0] + relY * invMatrix[1] + center.x;
-        const originalY = relX * invMatrix[3] + relY * invMatrix[4] + center.y;
-
-      //  console.log(`   Определитель матрицы: ${det.toFixed(6)}`);
-      //  console.log(`   Обратное смещение: tx=${-tx.toFixed(2)}, ty=${-ty.toFixed(2)}`);
-      //  console.log(`   Результат: (${originalX.toFixed(1)}, ${originalY.toFixed(1)})`);
-      //  console.log(`   Смещение: ΔX=${(originalX - point.x).toFixed(1)}, ΔY=${(originalY - point.y).toFixed(1)}`);
-
-        return {
-            x: originalX,
-            y: originalY,
-            transformed: true
-        };
+    if (!transformation || !transformation.matrix) {
+        return point;
     }
+
+    const matrix = transformation.matrix;
+    const center = transformation.center || { x: 0, y: 0 };
+   
+    // 🔥 ИСПРАВЛЕНИЕ 1: Правильное вычисление обратной матрицы
+    // Для аффинной матрицы [a, b, tx, c, d, ty, 0, 0, 1]
+    const a = matrix[0], b = matrix[1], tx = matrix[2];
+    const c = matrix[3], d = matrix[4], ty = matrix[5];
+   
+    const det = a * d - b * c;
+   
+    if (Math.abs(det) < 1e-10) {
+        console.log('⚠️ Матрица вырождена');
+        return point;
+    }
+   
+    // 🔥 ИСПРАВЛЕНИЕ 2: Правильная формула обратной аффинной матрицы
+    const invDet = 1 / det;
+    const invA = d * invDet;
+    const invB = -b * invDet;
+    const invC = -c * invDet;
+    const invD = a * invDet;
+   
+    // 🔥 ИСПРАВЛЕНИЕ 3: Учитываем трансляцию
+    const invTx = -(invA * tx + invC * ty);
+    const invTy = -(invB * tx + invD * ty);
+   
+    // Применяем обратное преобразование
+    const x = point.x - center.x;
+    const y = point.y - center.y;
+   
+    const originalX = invA * x + invC * y + invTx + center.x;
+    const originalY = invB * x + invD * y + invTy + center.y;
+   
+    return {
+        x: originalX,
+        y: originalY,
+        transformed: true
+    };
+}
+
+// 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Прямое преобразование
+applyTransformation(point, transformation) {
+    if (!transformation || !transformation.matrix) {
+        return point;
+    }
+
+    const matrix = transformation.matrix;
+    const center = transformation.center || { x: 0, y: 0 };
+   
+    // 🔥 ИСПРАВЛЕНИЕ: Простая и понятная формула
+    const a = matrix[0], b = matrix[1], tx = matrix[2];
+    const c = matrix[3], d = matrix[4], ty = matrix[5];
+   
+    const x = point.x - center.x;
+    const y = point.y - center.y;
+   
+    const transformedX = a * x + c * y + tx + center.x;
+    const transformedY = b * x + d * y + ty + center.y;
+   
+    return {
+        x: transformedX,
+        y: transformedY,
+        transformed: true
+    };
+}
 
     // 🔥 НОВЫЙ МЕТОД: Преобразование точек из одной системы в другую С ОТЛАДКОЙ
     transformPointsBetweenSystems(points, fromTransformation, toTransformation) {
-        if (!fromTransformation || !toTransformation) {
-            console.log('⚠️ Нет трансформаций для преобразования');
-            return points;
-        }
-
-        console.log(`\n🔄 ПРЕОБРАЗОВАНИЕ ТОЧЕК МЕЖДУ СИСТЕМАМИ:`);
-        console.log(`   Количество точек: ${points.length}`);
-        console.log(`   Из системы с углом: ${fromTransformation.rotationAngle.toFixed(1)}°`);
-        console.log(`   В систему с углом: ${toTransformation.rotationAngle.toFixed(1)}°`);
-
-        const transformedPoints = [];
-
-        points.forEach((point, index) => {
-            // Отладочный вывод для первых 3 точек
-            const debug = this.config.verbose && index < 3;
-
-            if (debug) {
-                console.log(`\n   Точка ${index + 1}:`);
-                console.log(`       Исходная: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-            }
-
-            // 1. Обратное преобразование из исходной системы
-            const originalPoint = this.applyInverseTransformation(point, fromTransformation);
-
-            if (debug) {
-                console.log(`       После обратного преобразования: (${originalPoint.x.toFixed(1)}, ${originalPoint.y.toFixed(1)})`);
-            }
-
-            // 2. Прямое преобразование в целевую систему
-            const targetPoint = this.applyTransformation(originalPoint, toTransformation);
-
-            if (debug) {
-                console.log(`       После прямого преобразования: (${targetPoint.x.toFixed(1)}, ${targetPoint.y.toFixed(1)})`);
-                console.log(`       Итоговое смещение от исходной: ΔX=${(targetPoint.x - point.x).toFixed(1)}, ΔY=${(targetPoint.y - point.y).toFixed(1)}`);
-            }
-
-            transformedPoints.push({
-                ...point,
-                x: targetPoint.x,
-                y: targetPoint.y,
-                transformed: true,
-                originalCoordinates: { x: point.x, y: point.y },
-                transformationIndex: index
-            });
-        });
-
-        // Статистика преобразования
-        if (transformedPoints.length > 0) {
-            const firstPoint = transformedPoints[0];
-            const lastPoint = transformedPoints[transformedPoints.length - 1];
-
-            console.log(`\n📊 СТАТИСТИКА ПРЕОБРАЗОВАНИЯ:`);
-            console.log(`   Первая точка:`);
-            console.log(`       Было: (${points[0].x.toFixed(1)}, ${points[0].y.toFixed(1)})`);
-            console.log(`       Стало: (${firstPoint.x.toFixed(1)}, ${firstPoint.y.toFixed(1)})`);
-            console.log(`   Последняя точка:`);
-            console.log(`       Было: (${points[points.length-1].x.toFixed(1)}, ${points[points.length-1].y.toFixed(1)})`);
-            console.log(`       Стало: (${lastPoint.x.toFixed(1)}, ${lastPoint.y.toFixed(1)})`);
-        }
-
-        return transformedPoints;
+    if (!fromTransformation || !toTransformation) {
+        console.log('⚠️ Нет трансформаций для преобразования');
+        return points;
     }
+
+    console.log(`\n🔄 ПРЕОБРАЗОВАНИЕ ТОЧЕК МЕЖДУ СИСТЕМАМИ:`);
+    console.log(`   Из: ${fromTransformation.rotationAngle.toFixed(1)}° → В: ${toTransformation.rotationAngle.toFixed(1)}°`);
+   
+    // 🔥 НОВОЕ: Проверяем границы до преобразования
+    const originalBounds = this.calculateBounds(points);
+    console.log(`   Исходные границы: ${originalBounds.width.toFixed(1)}x${originalBounds.height.toFixed(1)}`);
+
+    const transformedPoints = [];
+   
+    points.forEach((point, index) => {
+        // 1. Получаем исходную точку в системе fromTransformation
+        const originalInFromSystem = { x: point.x, y: point.y };
+       
+        // 2. Преобразуем в глобальную систему (через обратное преобразование from)
+        const inGlobalSystem = this.applyInverseTransformation(
+            originalInFromSystem,
+            fromTransformation
+        );
+       
+        // 3. Преобразуем из глобальной системы в систему to
+        const inToSystem = this.applyTransformation(
+            inGlobalSystem,
+            toTransformation
+        );
+       
+        transformedPoints.push({
+            ...point,
+            x: inToSystem.x,
+            y: inToSystem.y,
+            originalCoordinates: { x: point.x, y: point.y }
+        });
+    });
+   
+    // 🔥 НОВОЕ: Проверяем границы после преобразования
+    const newBounds = this.calculateBounds(transformedPoints);
+    console.log(`   Новые границы: ${newBounds.width.toFixed(1)}x${newBounds.height.toFixed(1)}`);
+   
+    return transformedPoints;
+}
 
     // 🔥 НОВЫЙ МЕТОД: Прямое преобразование С ОТЛАДКОЙ
     applyTransformation(point, transformation) {
@@ -1444,6 +1448,64 @@ alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
 
     return alignedPoints;
 }  
+
+// 🔥 НОВЫЙ МЕТОД: Простое преобразование для произвольных углов
+transformPointsSimple(points, fromAngle, toAngle) {
+    console.log(`\n🔄 ПРОСТОЕ ПРЕОБРАЗОВАНИЕ: ${fromAngle.toFixed(1)}° → ${toAngle.toFixed(1)}°`);
+   
+    const center = this.calculateCenter(points);
+    const deltaAngle = (toAngle - fromAngle) * Math.PI / 180;
+    const cos = Math.cos(deltaAngle);
+    const sin = Math.sin(deltaAngle);
+   
+    const transformed = points.map(point => {
+        // Сдвигаем к центру
+        const x = point.x - center.x;
+        const y = point.y - center.y;
+       
+        // Поворачиваем
+        const rotatedX = x * cos - y * sin;
+        const rotatedY = x * sin + y * cos;
+       
+        // Возвращаем обратно
+        return {
+            ...point,
+            x: rotatedX + center.x,
+            y: rotatedY + center.y
+        };
+    });
+   
+    return transformed;
+}
+
+// 🔥 ОБНОВЛЕННЫЙ метод getPointsInNormalizedSystem в simple-footprint.js:
+getPointsInNormalizedSystem() {
+    console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
+   
+    const points = this.getPointsInMySystem();
+   
+    if (!this.transformation || points.length === 0) {
+        return points;
+    }
+   
+    const currentAngle = this.transformation.rotationAngle || 0;
+    console.log(`📐 Текущий угол: ${currentAngle}°, нормализую к 0°`);
+   
+    // 🔥 ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ метод для поворота
+    const RotationInvariance = require('./rotation-invariance');
+    const processor = new RotationInvariance({ debug: false });
+   
+    // 1. Просто поворачиваем к 0°
+    const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
+   
+    // 2. Центрируем
+    const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints);
+   
+    console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
+   
+    return centeredPoints;
+}      
+      
 }
 
 module.exports = RotationInvariance;
