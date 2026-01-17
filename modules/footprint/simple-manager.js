@@ -2093,77 +2093,86 @@ async compareWithPatterns(footprint1, footprint2) {
    updateConfirmationsDirectly(footprint1, footprint2) {
     console.log(`🔄 Прямое обновление подтверждений между двумя следами...`);
 
-    // 🔥 ИСПРАВЛЕНИЕ: Используем нормализованные точки
-    const points1 = footprint1.getPointsForPatternMatching();
-    const points2 = footprint2.getPointsForPatternMatching();
-   
-    console.log(`🔍 Сравниваю ${points1.length} и ${points2.length} точек в НОРМАЛИЗОВАННОЙ системе`);
-
-    let updatedCount = 0;
-    const threshold = 25; // 25px в нормализованной системе
-   
-    // 🔥 ИСПРАВЛЕНИЕ: Находим все совпадения
-    const matches = [];
-   
-    for (const point1 of points1) {
-        let bestMatch = null;
-        let minDistance = Infinity;
+    try {
+        // 🔥 ИСПРАВЛЕНИЕ: Защита от ошибок при получении точек
+        let points1, points2;
        
-        for (const point2 of points2) {
-            const distance = Math.sqrt(
-                Math.pow(point2.x - point1.x, 2) +
-                Math.pow(point2.y - point1.y, 2)
-            );
+        try {
+            points1 = footprint1.getPointsForPatternMatching();
+        } catch (error) {
+            console.log(`❌ Ошибка получения точек для ${footprint1.name}: ${error.message}`);
+            points1 = this.extractPointsFromFootprint(footprint1);
+        }
+       
+        try {
+            points2 = footprint2.getPointsForPatternMatching();
+        } catch (error) {
+            console.log(`❌ Ошибка получения точек для ${footprint2.name}: ${error.message}`);
+            points2 = this.extractPointsFromFootprint(footprint2);
+        }
+       
+        console.log(`🔍 Сравниваю ${points1.length} и ${points2.length} точек`);
+
+        let updatedCount = 0;
+        const threshold = 25;
+       
+        // 🔥 ПРОСТОЕ СРАВНЕНИЕ без сложных преобразований
+        const matches = [];
+       
+        for (const point1 of points1) {
+            let bestMatch = null;
+            let minDistance = Infinity;
            
-            if (distance < minDistance && distance < threshold) {
-                minDistance = distance;
-                bestMatch = {
-                    point1,
-                    point2,
-                    distance
-                };
+            for (const point2 of points2) {
+                const distance = Math.sqrt(
+                    Math.pow(point2.x - point1.x, 2) +
+                    Math.pow(point2.y - point1.y, 2)
+                );
+               
+                if (distance < minDistance && distance < threshold) {
+                    minDistance = distance;
+                    bestMatch = {
+                        point1,
+                        point2,
+                        distance
+                    };
+                }
+            }
+           
+            if (bestMatch) {
+                matches.push(bestMatch);
             }
         }
        
-        if (bestMatch) {
-            matches.push(bestMatch);
-        }
-    }
-   
-    console.log(`📊 Найдено ${matches.length} совпадений (<${threshold}px)`);
-   
-    // 🔥 ВАЖНО: Обновляем подтверждения в ОРИГИНАЛЬНОМ PointTracker
-    // Используем ID точек для нахождения их в оригинальном трекере
-    if (footprint1.pointTracker) {
-        for (const match of matches) {
-            const pointId = match.point1.id;
-            const pointData = footprint1.pointTracker.points.get(pointId);
-           
-            if (pointData) {
-                const oldCount = pointData.confirmedCount || 1;
-                const newCount = Math.max(oldCount, 2); // 2 фото = 2 подтверждения
-               
-                if (newCount > oldCount) {
-                    pointData.confirmedCount = newCount;
-                    updatedCount++;
+        console.log(`📊 Найдено ${matches.length} совпадений (<${threshold}px)`);
+       
+        // Обновляем подтверждения
+        if (footprint1.pointTracker) {
+            for (const match of matches) {
+                const pointId = match.point1.id;
+                if (pointId) {
+                    const pointData = footprint1.pointTracker.points.get(pointId);
+                    if (pointData) {
+                        const oldCount = pointData.confirmedCount || 1;
+                        const newCount = Math.max(oldCount, 2);
+                       
+                        if (newCount > oldCount) {
+                            pointData.confirmedCount = newCount;
+                            updatedCount++;
+                        }
+                    }
                 }
             }
         }
+       
+        console.log(`✅ Обновлено ${updatedCount} точек`);
+       
+        return updatedCount;
+       
+    } catch (error) {
+        console.log(`❌ Критическая ошибка в updateConfirmationsDirectly: ${error.message}`);
+        return 0;
     }
-   
-    console.log(`✅ Обновлено ${updatedCount} точек в оригинальном трекере`);
-   
-    // 🔥 ДИАГНОСТИКА
-    const totalPoints = Math.max(points1.length, points2.length);
-    const matchRate = matches.length / totalPoints;
-   
-    console.log(`📈 ЭФФЕКТИВНОСТЬ СРАВНЕНИЯ:`);
-    console.log(`   Всего точек: ${totalPoints}`);
-    console.log(`   Совпадений: ${matches.length}`);
-    console.log(`   Процент совпадений: ${(matchRate * 100).toFixed(1)}%`);
-    console.log(`   Обновлено в трекере: ${updatedCount}`);
-   
-    return updatedCount;
 }
 
     // 🔥 МЕТОД ДЛЯ ПРЕОБРАЗОВАНИЯ ТОЧЕК ШАБЛОНА
