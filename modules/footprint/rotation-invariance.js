@@ -536,22 +536,6 @@ transformation.originalCenter = currentCenter;
     console.log(`   Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
     console.log(`   Соотношение сторон: ${aspectRatio.toFixed(2)}`);
 
-    // 🔥 ПРОСТОЙ ВАРИАНТ: Если соотношение сторон явно вертикальное/горизонтальное
-    const VERTICAL_THRESHOLD = 0.7;   // Высота > ширина/0.7
-    const HORIZONTAL_THRESHOLD = 1.5; // Ширина > высота*1.5
-   
-    if (aspectRatio < VERTICAL_THRESHOLD) {
-        // След вертикальный → 90°
-        console.log(`   📏 След ВЕРТИКАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} < ${VERTICAL_THRESHOLD})`);
-        console.log(`   🔧 Возвращаю угол 90° для нормализации к горизонтали`);
-        return 90;
-    } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
-        // След горизонтальный → 0°
-        console.log(`   📏 След ГОРИЗОНТАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} > ${HORIZONTAL_THRESHOLD})`);
-        console.log(`   🔧 Возвращаю угол 0° (уже горизонтальный)`);
-        return 0;
-    }
-
     // 2. Вычисляем центр масс
     const center = this.calculateCenter(points);
     console.log(`   Центр масс: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
@@ -594,23 +578,44 @@ transformation.originalCenter = currentCenter;
         angleDeg += 180;
     }
 
-    // 🔥 ИСПРАВЛЕНИЕ: ДОПОЛНИТЕЛЬНАЯ КОРРЕКЦИЯ ДЛЯ СРАВНЕНИЯ
-    // Если след почти вертикальный (aspectRatio < 0.8), но PCA показывает маленький угол (<45°),
-    // значит, скорее всего, след повернут на 90°
-    if (aspectRatio < 0.8 && Math.abs(angleDeg) < 45) {
-        console.log(`   📏 След почти вертикальный (ratio: ${aspectRatio.toFixed(2)}), ` +
-                   `но PCA показывает угол ${angleDeg.toFixed(1)}°`);
-        console.log(`   🔧 Корректирую на 90° для удобства сравнения`);
-        angleDeg += 90;
+    // 🔥 ИСПРАВЛЕНИЕ 1: Интеллектуальная коррекция для сравнения
+    const VERTICAL_THRESHOLD = 0.7;   // ratio < 0.7 = вертикальный
+    const HORIZONTAL_THRESHOLD = 1.5; // ratio > 1.5 = горизонтальный
+   
+    if (aspectRatio < VERTICAL_THRESHOLD) {
+        // След вертикальный
+        console.log(`   📏 След ВЕРТИКАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} < ${VERTICAL_THRESHOLD})`);
        
-        // Снова нормализуем
-        if (angleDeg > 90) angleDeg -= 180;
-        if (angleDeg < -90) angleDeg += 180;
+        if (Math.abs(angleDeg) < 30) {
+            // PCA показывает ~0°, но след вертикальный → корректируем на 90°
+            console.log(`   🔧 PCA показывает ${angleDeg.toFixed(1)}°, но след вертикальный → корректирую к 90°`);
+            angleDeg += 90;
+        }
+    } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
+        // След горизонтальный
+        console.log(`   📏 След ГОРИЗОНТАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} > ${HORIZONTAL_THRESHOLD})`);
+       
+        if (Math.abs(angleDeg) > 60) {
+            // PCA показывает ~90°, но след горизонтальный → корректируем к 0°
+            console.log(`   🔧 PCA показывает ${angleDeg.toFixed(1)}°, но след горизонтальный → корректирую к 0°`);
+            angleDeg = Math.abs(angleDeg) > 90 ? angleDeg - 90 : angleDeg;
+        }
+    } else {
+        // След средней пропорции - используем реальный угол PCA
+        console.log(`   📏 След СРЕДНИХ пропорций (ratio: ${aspectRatio.toFixed(2)}) → использую реальный PCA угол`);
+        // Никакой коррекции - оставляем как есть (45°, 30°, 60° и т.д.)
     }
 
-    console.log(`📐 ИТОГОВЫЙ УГОЛ: ${angleDeg.toFixed(1)}°`);
+    // Финальная нормализация
+    if (angleDeg > 90) angleDeg -= 180;
+    if (angleDeg < -90) angleDeg += 180;
 
-    return angleDeg; // 🔥 ВОЗВРАЩАЕМ ЧИСЛО, А НЕ ОБЪЕКТ!
+    console.log(`📐 ИТОГОВЫЙ УГОЛ: ${angleDeg.toFixed(1)}°`);
+   
+    // 🔥 ИСПРАВЛЕНИЕ 2: Гарантируем, что возвращаем ЧИСЛО
+    const finalAngle = Number(angleDeg.toFixed(1));
+   
+    return finalAngle; // ✅ Всегда число, не объект
 }
 
 // 🔥 НОВЫЙ МЕТОД: Интеллектуальная нормализация угла
