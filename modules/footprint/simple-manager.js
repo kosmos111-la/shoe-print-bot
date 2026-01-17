@@ -793,7 +793,32 @@ class SimpleFootprintManager {
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение через инвариантные паттерны
 async compareWithPatterns(footprint1, footprint2) {
-    console.log(`\n🎯 СРАВНЕНИЕ С ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+     console.log(`\n🎯 СРАВНЕНИЕ С ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+
+    // 🔥 ВРЕМЕННОЕ ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ поворот
+    const RotationInvariance = require('./rotation-invariance');
+    const processor = new RotationInvariance({ debug: true });
+   
+    const points1_raw = this.extractPointsFromFootprint(footprint1);
+    const points2_raw = this.extractPointsFromFootprint(footprint2);
+   
+    // Получаем реальные углы из трансформаций
+    const angle1 = footprint1.getTransformation()?.rotationAngle || 0;
+    const angle2 = footprint2.getTransformation()?.rotationAngle || 0;
+   
+    console.log(`📐 Углы: ${angle1.toFixed(1)}° vs ${angle2.toFixed(1)}°`);
+   
+    // 🔥 ПРОСТОЙ ПОВОРОТ: оба к 0°
+    const points1 = processor.transformPointsSimple(points1_raw, angle1, 0);
+    const points2 = processor.transformPointsSimple(points2_raw, angle2, 0);
+   
+    // 🔥 ЦЕНТРИРОВАНИЕ к (500, 500)
+    const points1_centered = processor.alignPointsToCommonSystem(points1);
+    const points2_centered = processor.alignPointsToCommonSystem(points2);
+   
+    console.log(`📊 Точки после простого выравнивания:`);
+    console.log(`   ${footprint1.name}: ${points1_centered.length} точек`);
+    console.log(`   ${footprint2.name}: ${points2_centered.length} точек`);
 
     // 🔥 ИСПРАВЛЕНИЕ: Используем ВЫРОВНЕННЫЕ точки
     const points1 = footprint1.getAlignedPointsForComparison();
