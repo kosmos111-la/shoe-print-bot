@@ -412,49 +412,98 @@ applyTransformation(point, transformation) {
 
     // 🔥 НОВЫЙ МЕТОД: Преобразование точек из одной системы в другую С ОТЛАДКОЙ
     transformPointsBetweenSystems(points, fromTransformation, toTransformation) {
+    // 🔥 ДОБАВЛЕНА ПРОВЕРКА 1: Если нет трансформаций, возвращаем точки как есть
     if (!fromTransformation || !toTransformation) {
-        console.log('⚠️ Нет трансформаций для преобразования');
+        console.log('⚠️ Нет одной из трансформаций для преобразования');
+        console.log(`   fromTransformation: ${fromTransformation ? 'есть' : 'нет'}`);
+        console.log(`   toTransformation: ${toTransformation ? 'есть' : 'нет'}`);
         return points;
     }
 
-    console.log(`\n🔄 ПРЕОБРАЗОВАНИЕ ТОЧЕК МЕЖДУ СИСТЕМАМИ:`);
-    console.log(`   Из: ${fromTransformation.rotationAngle.toFixed(1)}° → В: ${toTransformation.rotationAngle.toFixed(1)}°`);
+    // 🔥 ДОБАВЛЕНА ПРОВЕРКА 2: Если нет rotationAngle, устанавливаем 0
+    const fromAngle = fromTransformation.rotationAngle || 0;
+    const toAngle = toTransformation.rotationAngle || 0;
    
-    // 🔥 НОВОЕ: Проверяем границы до преобразования
-    const originalBounds = this.calculateBounds(points);
-    console.log(`   Исходные границы: ${originalBounds.width.toFixed(1)}x${originalBounds.height.toFixed(1)}`);
+    console.log(`\n🔄 ПРЕОБРАЗОВАНИЕ ТОЧЕК МЕЖДУ СИСТЕМАМИ:`);
+    console.log(`   Количество точек: ${points.length}`);
+    console.log(`   Из системы с углом: ${fromAngle.toFixed(1)}°`);
+    console.log(`   В систему с углом: ${toAngle.toFixed(1)}°`);
+
+    // Если углы одинаковые, не преобразуем
+    if (Math.abs(fromAngle - toAngle) < 0.1) {
+        console.log(`   ⏩ Углы одинаковые (${fromAngle.toFixed(1)}°), пропускаю преобразование`);
+        return points.map(p => ({ ...p, transformed: false }));
+    }
+
+    // 🔥 ДОБАВЛЕНА ПРОВЕРКА 3: Если матрицы нет, используем простой метод
+    if (!fromTransformation.matrix || !toTransformation.matrix) {
+        console.log(`   ⚠️ Нет матриц трансформации, использую простой метод`);
+        return this.transformPointsSimple(points, fromAngle, toAngle);
+    }
+
+    // 🔥 ДОБАВЛЕНА ПРОВЕРКА 4: Для нулевых углов используем простой метод
+    if (Math.abs(fromAngle) < 0.1 && Math.abs(toAngle) < 0.1) {
+        console.log(`   ⏩ Оба угла ~0°, пропускаю преобразование`);
+        return points.map(p => ({ ...p, transformed: false }));
+    }
 
     const transformedPoints = [];
-   
+
     points.forEach((point, index) => {
-        // 1. Получаем исходную точку в системе fromTransformation
-        const originalInFromSystem = { x: point.x, y: point.y };
-       
-        // 2. Преобразуем в глобальную систему (через обратное преобразование from)
-        const inGlobalSystem = this.applyInverseTransformation(
-            originalInFromSystem,
-            fromTransformation
-        );
-       
-        // 3. Преобразуем из глобальной системы в систему to
-        const inToSystem = this.applyTransformation(
-            inGlobalSystem,
-            toTransformation
-        );
-       
+        // 🔥 ИСПРАВЛЕНИЕ: Упрощенный подход
+        const debug = this.config.verbose && index < 3;
+
+        if (debug) {
+            console.log(`\n   Точка ${index + 1}:`);
+            console.log(`       Исходная: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+        }
+
+        // Если fromAngle не 0, поворачиваем к 0
+        let normalizedPoint = { ...point };
+        if (Math.abs(fromAngle) > 0.1) {
+            normalizedPoint = this.rotatePointAroundCenter(point, fromTransformation.center || this.calculateCenter(points), -fromAngle);
+        }
+
+        // Если toAngle не 0, поворачиваем от 0
+        let finalPoint = normalizedPoint;
+        if (Math.abs(toAngle) > 0.1) {
+            finalPoint = this.rotatePointAroundCenter(normalizedPoint, toTransformation.center || this.calculateCenter(points), toAngle);
+        }
+
         transformedPoints.push({
             ...point,
-            x: inToSystem.x,
-            y: inToSystem.y,
-            originalCoordinates: { x: point.x, y: point.y }
+            x: finalPoint.x,
+            y: finalPoint.y,
+            transformed: true,
+            originalCoordinates: { x: point.x, y: point.y },
+            transformationIndex: index
         });
     });
-   
-    // 🔥 НОВОЕ: Проверяем границы после преобразования
-    const newBounds = this.calculateBounds(transformedPoints);
-    console.log(`   Новые границы: ${newBounds.width.toFixed(1)}x${newBounds.height.toFixed(1)}`);
-   
+
+    // Статистика
+    if (transformedPoints.length > 0) {
+        const bounds = this.calculateBounds(transformedPoints);
+        console.log(`📊 Границы после преобразования: ${bounds.width.toFixed(1)}x${bounds.height.toFixed(1)}`);
+    }
+
     return transformedPoints;
+}
+
+// 🔥 НОВЫЙ МЕТОД: Простой поворот точки вокруг центра
+rotatePointAroundCenter(point, center, angleDeg) {
+    if (Math.abs(angleDeg) < 0.1) return { ...point };
+   
+    const angleRad = angleDeg * Math.PI / 180;
+    const cosA = Math.cos(angleRad);
+    const sinA = Math.sin(angleRad);
+   
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+   
+    const rotatedX = dx * cosA - dy * sinA + center.x;
+    const rotatedY = dx * sinA + dy * cosA + center.y;
+   
+    return { x: rotatedX, y: rotatedY };
 }
 
     // 🔥 НОВЫЙ МЕТОД: Прямое преобразование С ОТЛАДКОЙ
