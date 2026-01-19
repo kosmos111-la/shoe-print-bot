@@ -798,35 +798,35 @@ async compareWithPatterns(footprint1, footprint2) {
     // 🔥 ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ поворот для произвольных углов
     const RotationInvariance = require('./rotation-invariance');
     const processor = new RotationInvariance({ debug: true });
-   
+
     // Получаем сырые точки
     const points1_raw = this.extractPointsFromFootprint(footprint1);
     const points2_raw = this.extractPointsFromFootprint(footprint2);
-   
+
     // Получаем реальные углы из трансформаций
     const angle1 = footprint1.getTransformation()?.rotationAngle || 0;
     const angle2 = footprint2.getTransformation()?.rotationAngle || 0;
-   
+
     console.log(`📐 УГЛЫ ПОВОРОТА:`);
     console.log(`   ${footprint1.name}: ${angle1.toFixed(1)}°`);
     console.log(`   ${footprint2.name}: ${angle2.toFixed(1)}°`);
-   
+
     // 🔥 ПРОСТОЙ ПОВОРОТ: оба следа к 0°
     console.log(`\n🔄 ПОВОРАЧИВАЮ СЛЕДЫ К 0°:`);
-   
+
     const points1 = processor.transformPointsSimple(points1_raw, angle1, 0);
     const points2 = processor.transformPointsSimple(points2_raw, angle2, 0);
-   
+
     // 🔥 ЦЕНТРИРОВАНИЕ к (500, 500)
     console.log(`\n🎯 ЦЕНТРИРУЮ К ОБЩЕЙ СИСТЕМЕ (500, 500):`);
-   
+
     const points1_centered = processor.alignPointsToCommonSystem(points1);
     const points2_centered = processor.alignPointsToCommonSystem(points2);
-   
+
     console.log(`📊 ТОЧКИ ПОСЛЕ ПРОСТОГО ВЫРАВНИВАНИЯ:`);
     console.log(`   ${footprint1.name}: ${points1_centered.length} точек`);
     console.log(`   ${footprint2.name}: ${points2_centered.length} точек`);
-   
+
     // 🔥 ПРОВЕРКА ЦЕНТРОВ
     const center1 = processor.calculateCenter(points1_centered);
     const center2 = processor.calculateCenter(points2_centered);
@@ -834,9 +834,9 @@ async compareWithPatterns(footprint1, footprint2) {
         Math.pow(center2.x - center1.x, 2) +
         Math.pow(center2.y - center1.y, 2)
     );
-   
+
     console.log(`📏 РАССТОЯНИЕ МЕЖДУ ЦЕНТРАМИ: ${centerDistance.toFixed(1)}px`);
-   
+
     // Продолжение оригинального метода...
     const adaptiveThreshold = Math.max(25, Math.min(50, centerDistance / 2));
     console.log(`🎯 Адаптивный порог: ${adaptiveThreshold.toFixed(1)}px`);
@@ -898,6 +898,14 @@ async compareWithPatterns(footprint1, footprint2) {
         reason = `Низкое сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
     }
 
+    // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: СОХРАНЯЕМ ДЕТАЛИ ДЛЯ ПЕРЕДАЧИ
+    const transformationUsed = {
+        rotationAngle1: angle1,
+        rotationAngle2: angle2,
+        center: { x: 500, y: 500 },
+        method: 'simple_rotation_and_centering'
+    };
+
     return {
         similarity,
         decision,
@@ -913,6 +921,13 @@ async compareWithPatterns(footprint1, footprint2) {
             angle1,
             angle2,
             method: 'simple_rotation_90_fix'
+        },
+        // 🔥 НОВОЕ: детали для TemplateBuilder
+        comparisonDetails: {
+            matchedPoints: matches,
+            totalCompared: Math.max(points1_centered.length, points2_centered.length),
+            transformation: transformationUsed,
+            matchedPairs: matchDetails.slice(0, 20) // первые 20 совпадений
         }
     };
 }
@@ -1817,62 +1832,73 @@ async compareWithPatterns(footprint1, footprint2) {
             console.log(`🎯 Сходство (с паттернами): ${similarity.toFixed(3)}, решение: ${decision}`);
 
             // 🔥 СЛЕДЫ СОВПАЛИ - обновляем шаблон с накоплением
-            if (decision === 'same') {
-                console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+if (decision === 'same') {
+    console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
 
-                // Получаем или создаем шаблон
-                let vectorModel = this.vectorSuperModels.get(userId);
+    // Получаем или создаем шаблон
+    let vectorModel = this.vectorSuperModels.get(userId);
 
-                if (!vectorModel) {
-                    const VectorSuperModel = require('./vector-super-model');
-                    vectorModel = new VectorSuperModel({
-                        name: `Шаблон_${String(userId).slice(0, 6)}`,
-                        enablePCA: false,
-                        cellSize: 25,
-                        debug: this.config.debug
-                    });
-                    this.vectorSuperModels.set(userId, vectorModel);
+    if (!vectorModel) {
+        const VectorSuperModel = require('./vector-super-model');
+        vectorModel = new VectorSuperModel({
+            name: `Шаблон_${String(userId).slice(0, 6)}`,
+            enablePCA: false,
+            cellSize: 25,
+            debug: this.config.debug
+        });
+        this.vectorSuperModels.set(userId, vectorModel);
 
-                    // Добавляем существующий граф
-                    vectorModel.addGraph(
-                        session.currentFootprint.graph,
-                        session.currentFootprint.id,
-                        {
-                            isFirst: true,
-                            transformationInfo: existingTransformationInfo
-                        }
-                    );
-                }
+        // Добавляем существующий граф
+        vectorModel.addGraph(
+            session.currentFootprint.graph,
+            session.currentFootprint.id,
+            {
+                isFirst: true,
+                transformationInfo: existingTransformationInfo
+            }
+        );
+    }
 
-                // 🔥 ДОБАВЛЯЕМ НОВЫЙ ГРАФ В ШАБЛОН С НАКОПЛЕНИЕМ
-                console.log(`🔄 Добавляю новый граф в шаблон с накоплением деталей...`);
-                const addedWithAccumulation = vectorModel.addGraph(
-                    finalGraph,
-                    tempFootprint.id,
-                    {
-                        similarity: similarity,
-                        timestamp: new Date(),
-                        ...photoInfo,
-                        transformationInfo: transformationInfo
-                    }
-                );
+    // 🔥 ДОБАВЛЯЕМ НОВЫЙ ГРАФ В ШАБЛОН С НАКОПЛЕНИЕМ
+    console.log(`🔄 Добавляю новый граф в шаблон с накоплением деталей...`);
+   
+    // 🔥 ИСПРАВЛЕНИЕ: ПЕРЕДАЁМ РЕЗУЛЬТАТЫ СРАВНЕНИЯ В ШАБЛОН
+    const addedWithAccumulation = vectorModel.addGraph(
+        finalGraph,
+        tempFootprint.id,
+        {
+            similarity: similarity,
+            comparisonResult: comparisonResult, // 🔥 ВСЁ РЕЗУЛЬТАТЫ!
+            timestamp: new Date(),
+            ...photoInfo,
+            transformationInfo: transformationInfo,
+            // 🔥 ЯВНО ГОВОРИМ: "ЭТОТ СЛЕД СОВПАЛ!"
+            isConfirmedMatch: true,
+            matchQuality: similarity,
+            matchDetails: {
+                pointsMatched: comparisonResult.matchesCount,
+                totalPoints: comparisonResult.totalPoints,
+                percentage: (comparisonResult.matchesCount / comparisonResult.totalPoints * 100).toFixed(1)
+            }
+        }
+    );
 
-                if (!addedWithAccumulation) {
-                    console.log(`❌ Не удалось добавить граф в шаблон`);
-                }
+    if (!addedWithAccumulation) {
+        console.log(`❌ Не удалось добавить граф в шаблон`);
+    }
 
-                // 🔥 ПРЯМОЕ ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ МЕЖДУ СЛЕДАМИ
-                console.log(`🔄 Прямое обновление подтверждений между следами...`);
-                const directUpdates = this.updateConfirmationsDirectly(session.currentFootprint, tempFootprint);
-                console.log(`✅ Прямо обновлено: ${directUpdates} точек`);
+    // 🔥 ПРЯМОЕ ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ МЕЖДУ СЛЕДАМИ
+    console.log(`🔄 Прямое обновление подтверждений между следами...`);
+    const directUpdates = this.updateConfirmationsDirectly(session.currentFootprint, tempFootprint);
+    console.log(`✅ Прямо обновлено: ${directUpdates} точек`);
 
-                // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ ИЗ ШАБЛОНА
-                console.log(`🔄 Обновляю подтверждения из шаблона...`);
-                const updatedFromTemplate = this.updateConfirmationsFromTemplate(
-                    session.currentFootprint,
-                    vectorModel,
-                    existingTransformationInfo
-                );
+    // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ ИЗ ШАБЛОНА
+    console.log(`🔄 Обновляю подтверждения из шаблона...`);
+    const updatedFromTemplate = this.updateConfirmationsFromTemplate(
+        session.currentFootprint,
+        vectorModel,
+        existingTransformationInfo
+    );
 
                 // 🔥 ВИЗУАЛИЗАЦИЯ ПОДТВЕРЖДЕНИЙ
                 let clusterVizResult = null;
