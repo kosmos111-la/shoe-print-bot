@@ -90,67 +90,70 @@ class VectorSuperModel {
     }
 
     // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавить граф
-    addGraph(graph, graphId, metadata = {}) {
-        console.log(`🔄 Добавляю граф ${graphId} к динамической супер-модели...`);
+   addGraph(graph, graphId, metadata = {}) {
+    console.log(`🔄 Добавляю граф ${graphId} к динамической супер-модели...`);
 
-        // 1. Сохраняем исходный граф
-        this.saveSourceGraph(graph, graphId, metadata);
+    // 1. Сохраняем исходный граф
+    this.saveSourceGraph(graph, graphId, metadata);
 
-        // 2. 🔥 ДОБАВЛЯЕМ К TEMPLATE BUILDER (он сам решит, обновлять ли эталон)
-        let addedToTemplate = false;
-
-        if (this.templateBuilder.referenceGraphId === null) {
-            // Первый граф
-            console.log(`🎯 Устанавливаю граф ${graphId} как начальный эталон`);
-            addedToTemplate = this.templateBuilder.setReferenceGraph(graph, graphId, metadata);
-
-            if (addedToTemplate) {
-                this.bestGraphId = graphId;
-                this.bestGraphScore = this.calculateGraphScore(graph);
-                this.bestGraphMetadata = metadata;
-                console.log(`🏆 Начальный эталон установлен: ${graphId}`);
-            }
-        } else {
-            // Последующие графы - TemplateBuilder сам решит, обновлять ли эталон
-            addedToTemplate = this.templateBuilder.addGraph(graph, graphId, metadata);
-
-            if (addedToTemplate) {
-                // 🔥 ПРОВЕРЯЕМ, НЕ ИЗМЕНИЛСЯ ЛИ ЭТАЛОН В TEMPLATE BUILDER
-                const newReferenceId = this.templateBuilder.referenceGraphId;
-
-                if (newReferenceId !== this.bestGraphId) {
-                    // Эталон обновился!
-                    console.log(`🔄 ОБНОВЛЕНИЕ ЭТАЛОНА В СУПЕР-МОДЕЛИ:`);
-                    console.log(`   Старый: ${this.bestGraphId}`);
-                    console.log(`   Новый: ${newReferenceId}`);
-
-                    this.bestGraphId = newReferenceId;
-                    this.bestGraphScore = this.templateBuilder.referenceGraphQuality;
-
-                    // Обновляем метаданные
-                    const sourceGraph = this.sourceGraphs.get(newReferenceId);
-                    if (sourceGraph) {
-                        this.bestGraphMetadata = sourceGraph.metadata;
-                    }
-
-                    this.stats.bestGraphUpdates++;
-                    console.log(`🏆 ЭТАЛОН ОБНОВЛЁН: ${newReferenceId} (оценка: ${this.bestGraphScore.toFixed(3)})`);
-                }
-            }
+    // 2. 🔥 ПЕРЕДАЁМ ВСЕ МЕТАДАННЫЕ В TEMPLATE BUILDER
+    const addedToTemplate = this.templateBuilder.addGraph(
+        graph,
+        graphId,
+        {
+            ...metadata,
+            // Добавляем информацию о супер-модели
+            superModelId: this.id,
+            superModelName: this.name,
+            // 🔥 ПЕРЕДАЕМ ВСЕ ДАННЫЕ ДЛЯ ПОДТВЕРЖДЕННЫХ СОВПАДЕНИЙ
+            isConfirmedMatch: metadata.isConfirmedMatch || false,
+            similarity: metadata.similarity || metadata.comparisonResult?.similarity || 0,
+            matchDetails: metadata.matchDetails,
+            comparisonResult: metadata.comparisonResult
         }
+    );
 
-        if (!addedToTemplate) {
-            console.log(`⚠️ Граф ${graphId} не добавлен к шаблону`);
-            return false;
+    // 3. Если добавлен как подтверждённый - проверяем, не лучше ли этот след
+    if (addedToTemplate && metadata.isConfirmedMatch) {
+        console.log(`🎯 Подтверждённый след добавлен, проверяю качество...`);
+
+        const currentQuality = this.templateBuilder.referenceGraphQuality || 0;
+        const newQuality = metadata.similarity || metadata.comparisonResult?.similarity || 0.7;
+
+        console.log(`📊 Сравнение качества:`);
+        console.log(`   Текущий эталон: ${currentQuality.toFixed(3)} (${this.bestGraphId})`);
+        console.log(`   Новый след: ${newQuality.toFixed(3)} (${graphId})`);
+
+        // Если новый след лучше - обновляем эталон
+        if (newQuality > currentQuality * 1.1) {
+            console.log(`🔄 Новый след лучше на ${(newQuality/currentQuality).toFixed(2)}x`);
+            console.log(`   Обновляю эталон на ${graphId}`);
+
+            this.bestGraphId = graphId;
+            this.bestGraphScore = newQuality;
+           
+            // 🔥 ОБНОВЛЯЕМ МЕТАДАННЫЕ ЛУЧШЕГО ГРАФА
+            const sourceGraph = this.sourceGraphs.get(graphId);
+            if (sourceGraph) {
+                this.bestGraphMetadata = sourceGraph.metadata;
+            }
+           
+            this.stats.bestGraphUpdates++;
+           
+            console.log(`🏆 Новый эталон установлен: ${graphId} с качеством ${newQuality.toFixed(3)}`);
+        } else if (newQuality > currentQuality) {
+            console.log(`📈 След лучше, но недостаточно для замены эталона`);
         }
+    }
 
-        // 3. Обновить статистику
+    // 4. Обновить статистику
+    if (addedToTemplate) {
         this.stats.totalMerges++;
         this.stats.totalGraphsAdded++;
         this.stats.lastUpdated = new Date();
         this.updateStats();
 
-        // 4. Получить информацию о шаблоне
+        // Получить информацию о шаблоне
         const templateInfo = this.templateBuilder.getInfo();
 
         console.log(`✅ Граф добавлен. Динамическая статистика:`);
@@ -158,9 +161,10 @@ class VectorSuperModel {
         console.log(`   Подтвержденных ячеек: ${templateInfo.stats.confirmedCells}`);
         console.log(`   Лучший граф: ${this.bestGraphId} (${this.bestGraphScore.toFixed(3)})`);
         console.log(`   Всего графов: ${this.stats.sourceGraphsCount}`);
-
-        return true;
     }
+
+    return addedToTemplate;
+}
 
     // 🔥 СОХРАНИТЬ ИСХОДНЫЙ ГРАФ (без изменений)
     saveSourceGraph(graph, graphId, metadata) {
