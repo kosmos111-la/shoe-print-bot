@@ -89,7 +89,7 @@ class TemplateBuilder {
         return this.addConfirmedMatch(graph, graphId, metadata);
     }
 
-    // 🔥 ПРОВЕРЯЕМ ЕСТЬ ЛИ ДАННЫЕ СРАВНЕНИЯ
+    // 🔥 ПРОВЕРЯЕМ ЕСТЬ ЛИ ДАННЫЕ СРАВНЕНИЯ ИЗ SIMPLE-MANAGER
     if (metadata.comparisonResult && metadata.comparisonResult.similarity > 0.6) {
         console.log(`📊 Использую данные сравнения из SimpleManager`);
         console.log(`   Сходство: ${metadata.comparisonResult.similarity.toFixed(3)}`);
@@ -100,9 +100,10 @@ class TemplateBuilder {
         });
     }
 
-    // Старая логика для следов без предварительной проверки
+    // 🔥 Старая логика для следов без предварительной проверки
     console.log(`🔄 Добавляю граф ${graphId} с ПРАВИЛЬНОЙ системой координат...`);
 
+    // 🔥 ВАЖНО: Получаем РЕАЛЬНЫЕ координаты из графа
     const realPoints = this.extractRealPointsFromGraph(graph, metadata);
 
     if (realPoints.length < 3) {
@@ -112,14 +113,16 @@ class TemplateBuilder {
 
     console.log(`📊 Реальные точки: ${realPoints.length} (первая: ${realPoints[0]?.x?.toFixed(1)}, ${realPoints[0]?.y?.toFixed(1)})`);
 
-    // Если первый граф - устанавливаем эталон
+    // 1. Если первый граф - устанавливаем эталон
     if (!this.referenceGraph) {
         console.log(`🎯 Первый граф, устанавливаю как эталон с реальными координатами`);
         return this.setReferenceGraphWithRealPoints(graph, graphId, realPoints, metadata);
     }
 
-    // Продолжение старой логики...
+    // 2. Нормализуем точки к системе шаблона
     const normalizedPoints = this.normalizeToTemplateSystem(realPoints, metadata);
+
+    // 3. Ищем совпадения в НОРМАЛИЗОВАННОЙ системе
     const matchResults = this.findMatchesInNormalizedSystem(normalizedPoints, graphId);
 
     if (matchResults.totalMatches < Math.max(3, this.referencePoints.length * 0.2)) {
@@ -133,18 +136,29 @@ class TemplateBuilder {
     console.log(`   • Частичные совпадения: ${matchResults.partialMatchesCount}`);
     console.log(`   • Новые точки: ${matchResults.newPointsCount}`);
 
+    // 4. 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ СУЩЕСТВУЮЩИХ ТОЧЕК
     const updatedCells = this.updateTemplateWithMatches(matchResults, graphId);
+
+    // 5. 🔥 ДОБАВЛЯЕМ НОВЫЕ ТОЧКИ В ШАБЛОН
     const newCellsAdded = this.addNewPointsToTemplate(
         matchResults.unmatchedPoints,
         graphId,
         metadata
     );
-    const refinedCells = this.refineTemplatePoints(matchResults, graphId);
+
+    // 6. 🔥 УТОЧНЯЕМ КООРДИНАТЫ СУЩЕСТВУЮЩИХ ТОЧЕК
+    const refinedCells = this.refineTemplatePoints(
+        matchResults,
+        graphId
+    );
+
+    // 7. 🔥 ОБРАБАТЫВАЕМ НИЗКОКАЧЕСТВЕННЫЕ ТОЧКИ
     const lowQualityProcessed = this.processLowQualityPoints(
         matchResults.lowQualityMatches,
         graphId
     );
 
+    // 8. Сохранить трансформацию и статистику
     this.graphTransformations.set(graphId, {
         metadata: metadata,
         timestamp: new Date(),
@@ -164,10 +178,12 @@ class TemplateBuilder {
         }
     });
 
+    // 9. Обновить статистику
     this.stats.totalGraphs++;
     this.stats.lastUpdated = new Date();
     this.updateStats();
 
+    // 🔥 10. ПРОВЕРЯЕМ, НЕ НУЖНО ЛИ ПЕРЕСТРОИТЬ ШАБЛОН
     if (newCellsAdded > this.invariantCells.size * 0.3) {
         console.log(`⚠️ Много новых точек (${newCellsAdded}), проверяю необходимость реструктуризации...`);
         this.checkAndRestructureTemplate();
