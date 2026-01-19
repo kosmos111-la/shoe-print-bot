@@ -200,42 +200,176 @@ class TemplateBuilder {
 
 // 🔥 НОВЫЙ МЕТОД: Добавить подтверждённый след
 addConfirmedMatch(graph, graphId, metadata) {
-    console.log(`🔄 Добавляю подтверждённый след ${graphId}...`);
-
-    // 1. Получаем реальные точки
+    console.log(`\n🔍🔍🔍 ДЕБАГ ТРАНСФОРМАЦИЙ ДЛЯ ${graphId}:`);
+   
+    // 🔥 КЛЮЧЕВОЕ: Нужно преобразовать к СИСТЕМЕ ШАБЛОНА, а не к (500,500)
+   
+    // 1. Получаем точки графа
     const realPoints = this.extractRealPointsFromGraph(graph, metadata);
     console.log(`📊 Реальные точки: ${realPoints.length}`);
 
-    // 2. 🔥 ИСПОЛЬЗУЕМ ТУ ЖЕ ТРАНСФОРМАЦИЮ ЧТО И ПРИ СРАВНЕНИИ
+    // 🔥 ПРЕОБРАЗУЕМ К СИСТЕМЕ ШАБЛОНА, а не к общей системе!
     const RotationInvariance = require('./rotation-invariance');
-    const processor = new RotationInvariance({ debug: false });
+    const processor = new RotationInvariance({ debug: true });
 
-    // Если есть информация о трансформации из сравнения - используем её
-    let pointsToAdd = realPoints;
+    // 🔥 Если у шаблона есть эталонный граф - используем ЕГО систему
+    if (this.referenceGraphId && this.normalizationTransform) {
+        console.log(`📐 Преобразую к системе шаблона...`);
+       
+        // 🔥 ВАЖНО: Нужно знать трансформацию ЭТАЛОННОГО графа
+        const referenceMetadata = this.getGraphMetadata(this.referenceGraphId);
+       
+        if (referenceMetadata?.transformationInfo) {
+            console.log(`   Эталонная трансформация: ${referenceMetadata.transformationInfo.rotationAngle || 0}°`);
+           
+            // Трансформация текущего графа
+            const currentAngle = metadata.transformationInfo?.rotationAngle || 0;
+            const referenceAngle = referenceMetadata.transformationInfo.rotationAngle || 0;
+           
+            console.log(`   Текущий угол: ${currentAngle}°, эталонный: ${referenceAngle}°`);
+           
+            // 🔥 ПРЕОБРАЗУЕМ: текущая система → система эталона
+            console.log(`🔄 Преобразую точки из системы ${currentAngle}° в систему ${referenceAngle}°`);
+           
+            const pointsInReferenceSystem = processor.transformPointsBetweenSystems(
+                realPoints,
+                metadata.transformationInfo || { rotationAngle: currentAngle },
+                referenceMetadata.transformationInfo || { rotationAngle: referenceAngle }
+            );
+           
+            // Теперь нормализуем к системе шаблона (0-1)
+            console.log(`🎯 Нормализую к границам шаблона...`);
+            const normalizedPoints = pointsInReferenceSystem.map(point => {
+                const nx = (point.x - this.normalizationTransform.minX) / Math.max(1, this.normalizationTransform.width);
+                const ny = (point.y - this.normalizationTransform.minY) / Math.max(1, this.normalizationTransform.height);
+               
+                return {
+                    ...point,
+                    nx: nx,
+                    ny: ny,
+                    normalized: true,
+                    originalX: point.x,
+                    originalY: point.y
+                };
+            });
+           
+            console.log(`✅ Преобразовано ${normalizedPoints.length} точек к системе шаблона`);
+           
+            // Сохраняем дебаг-информацию
+            if (normalizedPoints.length > 0) {
+                console.log(`📐 Пример нормализованной точки:`);
+                console.log(`   Было: (${realPoints[0].x?.toFixed(1)}, ${realPoints[0].y?.toFixed(1)})`);
+                console.log(`   Стало: (${normalizedPoints[0].nx?.toFixed(4)}, ${normalizedPoints[0].ny?.toFixed(4)})`);
+                console.log(`   Границы шаблона: ${this.normalizationTransform.width.toFixed(1)}x${this.normalizationTransform.height.toFixed(1)}`);
+            }
+           
+            // Добавляем точки в шаблон
+            const addedCount = this.addAllPointsToTemplate(
+                normalizedPoints,
+                graphId,
+                metadata,
+                metadata.similarity || 0.7
+            );
 
-    if (metadata.transformationInfo) {
-        const angle = metadata.transformationInfo.rotationAngle || 0;
-        console.log(`📐 Применяю трансформацию из сравнения: ${angle.toFixed(1)}° → 0°`);
+            // Сохраняем информацию о добавлении
+            this.graphTransformations.set(graphId, {
+                metadata: metadata,
+                timestamp: new Date(),
+                pointsCount: realPoints.length,
+                addedAsConfirmedMatch: true,
+                similarity: metadata.similarity,
+                matchDetails: metadata.matchDetails,
+                addedCount: addedCount,
+                transformationApplied: true,
+                fromAngle: currentAngle,
+                toAngle: referenceAngle,
+                method: 'reference_system_alignment'
+            });
 
-        // Поворачиваем к 0° (как в compareWithPatterns)
-        pointsToAdd = processor.transformPointsSimple(realPoints, angle, 0);
+            // Обновляем статистику
+            this.stats.totalGraphs++;
+            this.stats.lastUpdated = new Date();
+            this.updateStats();
 
-        // Центрируем к (500, 500) - как в compareWithPatterns
-        pointsToAdd = processor.alignPointsToCommonSystem(pointsToAdd);
+            console.log(`✅ Подтверждённый след добавлен: ${addedCount} точек`);
+           
+            // 🔥 ПРОВЕРЯЕМ, НЕ ЛУЧШЕ ЛИ ЭТОТ СЛЕД
+            if (metadata.similarity > this.bestGraphQuality) {
+                console.log(`🏆 Этот след лучше текущего эталона!`);
+                console.log(`   Новое качество: ${metadata.similarity.toFixed(3)}`);
+                console.log(`   Старое качество: ${this.bestGraphQuality.toFixed(3)}`);
+               
+                if (metadata.similarity > this.bestGraphQuality * 1.1) {
+                    console.log(`🔄 Обновляю эталон на ${graphId}`);
+                    this.autoUpdateReferenceGraph(graphId);
+                }
+            }
+
+            return true;
+        }
     }
-
-    // 3. Нормализуем к системе шаблона
-    const normalizedPoints = this.normalizeToTemplateSystem(pointsToAdd, metadata);
-
-    // 4. 🔥 ПРОСТО ДОБАВЛЯЕМ ВСЕ ТОЧКИ БЕЗ ПРОВЕРКИ
+   
+    // 🔥 ФОЛЛБЭК: ПРОСТОЙ ТЕСТ - повернуть оба к 0° и центрировать одинаково
+    console.log(`⚠️ Нет информации об эталоне, использую простую синхронизацию`);
+   
+    // Получаем точки эталона
+    const referencePoints = this.referencePoints || [];
+   
+    // 1. ОБА следа к 0°
+    const referenceAngle = this.getGraphMetadata(this.referenceGraphId)?.transformationInfo?.rotationAngle || 0;
+    const currentAngle = metadata.transformationInfo?.rotationAngle || 0;
+   
+    console.log(`🔄 Поворачиваю: эталон ${referenceAngle}°→0°, текущий ${currentAngle}°→0°`);
+   
+    const referencePointsRotated = processor.transformPointsSimple(
+        referencePoints,
+        referenceAngle,
+        0
+    );
+   
+    const currentPointsRotated = processor.transformPointsSimple(
+        realPoints,
+        currentAngle,
+        0
+    );
+   
+    // 2. Центрируем ОБА к (500, 500)
+    const referenceCentered = processor.alignPointsToCommonSystem(referencePointsRotated);
+    const currentCentered = processor.alignPointsToCommonSystem(currentPointsRotated);
+   
+    console.log(`🎯 Центры после выравнивания:`);
+    const refCenter = this.calculateCenter(referenceCentered);
+    const currCenter = this.calculateCenter(currentCentered);
+    console.log(`   Эталон: (${refCenter.x.toFixed(1)}, ${refCenter.y.toFixed(1)})`);
+    console.log(`   Текущий: (${currCenter.x.toFixed(1)}, ${currCenter.y.toFixed(1)})`);
+   
+    // 3. Теперь нормализуем текущий след к границам эталона
+    const bounds = this.calculateBounds(referenceCentered);
+    console.log(`📏 Границы эталона: ${bounds.width.toFixed(1)}x${bounds.height.toFixed(1)}`);
+   
+    const normalizedPoints = currentCentered.map(point => {
+        const nx = (point.x - bounds.minX) / Math.max(1, bounds.width);
+        const ny = (point.y - bounds.minY) / Math.max(1, bounds.height);
+       
+        return {
+            ...point,
+            nx: nx,
+            ny: ny,
+            normalized: true
+        };
+    });
+   
+    console.log(`✅ Нормализовано ${normalizedPoints.length} точек`);
+   
+    // Добавляем точки
     const addedCount = this.addAllPointsToTemplate(
         normalizedPoints,
         graphId,
         metadata,
         metadata.similarity || 0.7
     );
-
-    // 5. Сохраняем информацию о добавлении
+   
+    // Сохраняем информацию
     this.graphTransformations.set(graphId, {
         metadata: metadata,
         timestamp: new Date(),
@@ -243,28 +377,23 @@ addConfirmedMatch(graph, graphId, metadata) {
         addedAsConfirmedMatch: true,
         similarity: metadata.similarity,
         matchDetails: metadata.matchDetails,
-        addedCount: addedCount
+        addedCount: addedCount,
+        transformationApplied: true,
+        fromAngle: currentAngle,
+        toAngle: 0,
+        method: 'simple_synchronization',
+        debugInfo: {
+            referenceCenter: refCenter,
+            currentCenter: currCenter,
+            bounds: bounds
+        }
     });
 
-    // 6. Обновляем статистику
     this.stats.totalGraphs++;
     this.stats.lastUpdated = new Date();
     this.updateStats();
 
-    console.log(`✅ Подтверждённый след добавлен: ${addedCount} точек`);
-   
-    // 🔥 ПРОВЕРЯЕМ, НЕ ЛУЧШЕ ЛИ ЭТОТ СЛЕД
-    if (metadata.similarity > this.bestGraphQuality) {
-        console.log(`🏆 Этот след лучше текущего эталона!`);
-        console.log(`   Новое качество: ${metadata.similarity.toFixed(3)}`);
-        console.log(`   Старое качество: ${this.bestGraphQuality.toFixed(3)}`);
-       
-        if (metadata.similarity > this.bestGraphQuality * 1.1) {
-            console.log(`🔄 Обновляю эталон на ${graphId}`);
-            this.autoUpdateReferenceGraph(graphId);
-        }
-    }
-
+    console.log(`✅ Подтверждённый след добавлен (фоллбэк): ${addedCount} точек`);
     return true;
 }
 
@@ -342,6 +471,68 @@ addAllPointsToTemplate(normalizedPoints, graphId, metadata, confidence = 0.7) {
     return addedCount + updatedCount;
 }
 
+// 🔥 НОВЫЙ МЕТОД: Получить метаданные графа
+getGraphMetadata(graphId) {
+    // Ищем в сохранённых графах
+    for (const [id, graphData] of this.allGraphs) {
+        if (id === graphId) {
+            return graphData.metadata;
+        }
+    }
+   
+    // Или в transformations
+    const transform = this.graphTransformations.get(graphId);
+    if (transform) {
+        return transform.metadata;
+    }
+   
+    // Или в reference graph
+    if (graphId === this.referenceGraphId && this.referenceGraph) {
+        const referenceTransform = this.graphTransformations.get(this.referenceGraphId);
+        if (referenceTransform) {
+            return referenceTransform.metadata;
+        }
+    }
+   
+    return null;
+}
+
+// 🔥 Вспомогательный метод: Рассчитать центр точек
+calculateCenter(points) {
+    if (!points || points.length === 0) {
+        return { x: 0, y: 0 };
+    }
+
+    const sumX = points.reduce((sum, p) => sum + (p.x || 0), 0);
+    const sumY = points.reduce((sum, p) => sum + (p.y || 0), 0);
+
+    return {
+        x: sumX / points.length,
+        y: sumY / points.length
+    };
+}
+
+// 🔥 Вспомогательный метод: Рассчитать границы точек
+calculateBounds(points) {
+    if (!points || points.length === 0) {
+        return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+    }
+
+    const xs = points.map(p => p.x || 0);
+    const ys = points.map(p => p.y || 0);
+
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    return {
+        minX, maxX, minY, maxY,
+        width: Math.max(1, maxX - minX),
+        height: Math.max(1, maxY - minY)
+    };
+}
+  
     // 🔥 НОВЫЙ МЕТОД: Извлечь РЕАЛЬНЫЕ координаты
     extractRealPointsFromGraph(graph, metadata) {
         const points = [];
