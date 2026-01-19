@@ -8,11 +8,12 @@ const crypto = require('crypto');
 // 🔥 Импорт SimpleGraph
 const SimpleGraph = require('./simple-graph');
 
-// 🔥 ШАГ 3: ДОБАВЛЯЕМ ИМПОРТ SIMPLE ALIGNER
+// 🔥 Импорт новых модулей
 const SimpleAligner = require('./alignment/simple-aligner');
-
-// 🔥 ДОБАВЛЯЕМ ИМПОРТ КОНВЕРТЕРА СИСТЕМ КООРДИНАТ
 const CoordinateSystemConverter = require('./alignment/coordinate-system-converter');
+const CoordinateValidator = require('./alignment/coordinate-validator');
+const TransformationDebugger = require('./alignment/transformation-debugger');
+const ImprovedAligner = require('./alignment/improved-aligner');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -56,15 +57,27 @@ class SimpleFootprintManager {
             debug: this.config.debug
         });
 
-        // 🔥 ШАГ 3: ДОБАВЛЯЕМ SIMPLE ALIGNER В КОНСТРУКТОР
+        // 🔥 ИНИЦИАЛИЗАЦИЯ ВЫНЕСЕННЫХ МОДУЛЕЙ
         this.aligner = new SimpleAligner({
             debug: this.config.debug,
             visualizationDir: path.join(this.config.dbPath, 'visualizations/alignments')
         });
 
-        // 🔥 ДОБАВЛЯЕМ КОНВЕРТЕР СИСТЕМ КООРДИНАТ
         this.coordinateConverter = new CoordinateSystemConverter({
             debug: this.config.debug
+        });
+
+        this.coordinateValidator = new CoordinateValidator({
+            debug: this.config.debug
+        });
+
+        this.transformationDebugger = new TransformationDebugger({
+            debug: this.config.debug
+        });
+
+        this.improvedAligner = new ImprovedAligner({
+            debug: this.config.debug,
+            visualizationDir: path.join(this.config.dbPath, 'visualizations/alignments')
         });
 
         // Сессии пользователей
@@ -101,43 +114,139 @@ class SimpleFootprintManager {
         console.log(`🚀 SimpleFootprintManager с ИСПРАВЛЕННЫМИ ТРАНСФОРМАЦИЯМИ И ВАЛИДАЦИЕЙ`);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Сравнение с преобразованием систем координат
+    // 🔥 ОСНОВНОЙ МЕТОД СРАВНЕНИЯ С ИСПОЛЬЗОВАНИЕМ ВЫНЕСЕННЫХ МОДУЛЕЙ
+    async compareWithAlignment(footprint1, footprint2) {
+        console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+       
+        // 1. ДЕБАГ ТРАНСФОРМАЦИЙ
+        const debugResult = this.transformationDebugger.analyzeTransformation(footprint1, footprint2);
+       
+        // 2. ВАЛИДАЦИЯ СИСТЕМ КООРДИНАТ
+        const validationResult = this.coordinateValidator.validateCoordinateSystems(footprint1, footprint2);
+       
+        // 3. ПОДГОТОВКА ДАННЫХ ДЛЯ СРАВНЕНИЯ
+        const points1 = this.getPointsInConsistentSystem(footprint1);
+        const points2 = this.getPointsInConsistentSystem(footprint2);
+       
+        console.log(`📊 Точки для сравнения: ${points1.length} и ${points2.length}`);
+       
+        // 4. ВЫБОР МЕТОДА ВЫРАВНИВАНИЯ
+        let alignmentResult;
+       
+        if (validationResult.needsCorrection || (debugResult.summary && debugResult.summary.needsCorrection)) {
+            console.log(`🔄 Использую улучшенное выравнивание с коррекцией`);
+            alignmentResult = await this.improvedAligner.alignWithIntelligentMatching(
+                points2, points1,
+                footprint2.getTransformation(),
+                footprint1.getTransformation()
+            );
+        } else {
+            console.log(`🔄 Использую стандартное выравнивание`);
+            alignmentResult = await this.aligner.testAlignment(
+                footprint1, footprint2,
+                footprint2.getTransformation() || this.createIdentityTransformation(),
+                footprint1.getTransformation() || this.createIdentityTransformation()
+            );
+        }
+       
+        // 5. ОБРАБОТКА РЕЗУЛЬТАТА
+        if (alignmentResult && alignmentResult.success) {
+            const comparison = this.compareFootprintsWithAlignment(
+                footprint1, footprint2, alignmentResult.alignedPoints || []
+            );
+           
+            return {
+                ...comparison,
+                alignment: alignmentResult,
+                validation: validationResult,
+                debug: debugResult.summary,
+                method: 'enhanced_alignment_with_modules'
+            };
+        } else {
+            console.log(`⚠️ Выравнивание не удалось, использую графический метод`);
+            const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
+           
+            return {
+                ...fallbackResult,
+                alignment: { success: false, error: alignmentResult?.error || 'Unknown error' },
+                method: 'graph_based_fallback'
+            };
+        }
+    }
+   
+    // 🔥 МЕТОД ДЛЯ СРАВНЕНИЯ С ПРЕОБРАЗОВАНИЕМ КООРДИНАТ
     async compareWithCoordinateConversion(footprint1, footprint2) {
         console.log(`🎯 СРАВНЕНИЕ С ПРЕОБРАЗОВАНИЕМ СИСТЕМ КООРДИНАТ:`);
-
-        // 1. Анализируем системы координат
+       
+        // 1. Анализ систем координат через конвертер
         const analysis = this.coordinateConverter.analyzeCoordinateSystems(footprint1, footprint2);
-
-        // 2. Получаем точки в правильной системе
+       
+        // 2. Получаем точки
         const points1 = this.getPointsInSystem(footprint1, 'template');
         const points2 = this.getPointsInSystem(footprint2, 'template');
-
-        console.log(`📊 Точки для сравнения:`);
-        console.log(`   След 1: ${points1.length} точек`);
-        console.log(`   След 2: ${points2.length} точек`);
-
+       
+        console.log(`📊 Точки: ${points1.length} и ${points2.length}`);
+       
         // 3. Если системы не совместимы - преобразуем
         if (!analysis.compatible && analysis.steps) {
-            console.log(`🔄 Преобразую точки System2 → System1...`);
+            console.log(`🔄 Преобразую System2 → System1...`);
+           
             const transformedPoints2 = this.coordinateConverter.convertPoints(
                 points2,
                 analysis.system2,
                 analysis.system1
             );
-
-            // 4. Выравниваем преобразованные точки
-            const aligner = new SimpleAligner({ debug: true });
-            const alignedPoints = await aligner.alignWithIntelligentMatching(
+           
+            // 4. Выравниваем
+            const alignedPoints = await this.improvedAligner.alignWithIntelligentMatching(
                 transformedPoints2,
                 points1
             );
-
+           
             // 5. Сравниваем
-            return this.compareAlignedFootprints(points1, alignedPoints);
+            return this.compareAlignedFootprints(points1, alignedPoints.alignedPoints || alignedPoints);
         } else {
-            // Системы совместимы, используем обычное выравнивание
+            // Используем обычное сравнение
             return await this.compareWithAlignment(footprint1, footprint2);
         }
+    }
+   
+    // 🔥 ВАЛИДАЦИЯ И СРАВНЕНИЕ
+    async validateAndCompare(footprint1, footprint2) {
+        console.log('\n🔍 ВАЛИДАЦИЯ ПЕРЕД СРАВНЕНИЕМ:');
+       
+        // 1. Валидация через отдельный модуль
+        const validation = this.coordinateValidator.validateCoordinateSystems(footprint1, footprint2);
+       
+        // 2. Получаем точки
+        const points1 = this.getPointsInConsistentSystem(footprint1);
+        const points2 = this.getPointsInConsistentSystem(footprint2);
+       
+        console.log(`📊 Точки: ${points1.length} и ${points2.length}`);
+       
+        // 3. Проверяем ориентацию
+        const needsCorrection = this.needsOrientationCorrection(points1, points2);
+       
+        let correctedPoints2 = [...points2];
+        if (needsCorrection) {
+            console.log('🔄 Применяю коррекцию ориентации...');
+            correctedPoints2 = this.applyAutomaticOrientationCorrection(correctedPoints2, points1);
+        }
+       
+        // 4. Выравнивание
+        const alignmentResult = await this.improvedAligner.alignWithIntelligentMatching(
+            correctedPoints2, points1,
+            footprint2.getTransformation(),
+            footprint1.getTransformation()
+        );
+       
+        // 5. Сравнение
+        return this.compareAlignedFootprints(
+            points1,
+            alignmentResult.alignedPoints || correctedPoints2,
+            footprint1,
+            footprint2
+        );
     }
 
     // 🔥 НОВЫЙ МЕТОД: Получить точки в указанной системе
@@ -152,7 +261,7 @@ class SimpleFootprintManager {
 
             // Если нужно преобразовать в систему шаблона
             if (targetSystem === 'template' && footprint.getTransformation()) {
-                const systemInfo = this.extractCoordinateSystem(footprint);
+                const systemInfo = this.coordinateConverter.extractCoordinateSystem(footprint);
                 const templateSystem = this.getTemplateCoordinateSystem();
 
                 const converted = this.coordinateConverter.convertSinglePoint(
@@ -185,70 +294,6 @@ class SimpleFootprintManager {
             bounds: { minX: 0, maxX: 1, minY: 0, maxY: 1 }, // Нормализованные координаты
             description: 'Нормализованная система шаблона (0-1)'
         };
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Извлечь информацию о системе координат отпечатка
-    extractCoordinateSystem(footprint) {
-        const transformation = footprint.getTransformation();
-
-        // Получаем точки для анализа границ
-        const points = [];
-        if (footprint.pointTracker) {
-            for (const [id, point] of footprint.pointTracker.points) {
-                points.push({ x: point.x, y: point.y });
-            }
-        }
-
-        const bounds = this.calculateBounds(points);
-
-        return {
-            type: transformation ? 'transformed' : 'raw',
-            rotationAngle: transformation?.rotationAngle || 0,
-            isMirrored: transformation?.isMirrored || false,
-            matrix: transformation?.matrix,
-            center: transformation?.center,
-            bounds: bounds,
-            pointCount: points.length,
-            footprintName: footprint.name
-        };
-    }
-
-    // 🔥 ВАЛИДАЦИЯ ПЕРЕД СРАВНЕНИЕМ (СУЩЕСТВУЮЩИЙ МЕТОД)
-    async validateAndCompare(footprint1, footprint2) {
-        console.log('\n🔍 ВАЛИДАЦИЯ ПЕРЕД СРАВНЕНИЕМ:');
-
-        // 1. Проверить системы координат
-        const CoordinateValidator = require('./alignment/coordinate-validator');
-        const validator = new CoordinateValidator({ debug: true });
-        validator.validateCoordinateSystems(footprint1, footprint2);
-
-        // 2. Получить точки в правильной системе
-        const points1 = this.getPointsInConsistentSystem(footprint1);
-        const points2 = this.getPointsInConsistentSystem(footprint2);
-
-        console.log(`📊 Точки для сравнения:`);
-        console.log(`   След 1: ${points1.length} точек`);
-        console.log(`   След 2: ${points2.length} точек`);
-
-        // 3. Проверить, нужна ли коррекция ориентации
-        let needsCorrection = this.needsOrientationCorrection(points1, points2);
-
-        let correctedPoints2 = [...points2];
-        if (needsCorrection) {
-            console.log('🔄 Применяю автоматическую коррекцию ориентации...');
-            correctedPoints2 = this.applyAutomaticOrientationCorrection(correctedPoints2, points1);
-        }
-
-        // 4. Выполнить выравнивание
-        const aligner = new SimpleAligner({ debug: true });
-        const alignedPoints = await aligner.alignWithIntelligentMatching(
-            correctedPoints2, points1,
-            footprint2.getTransformation(),
-            footprint1.getTransformation()
-        );
-
-        // 5. Сравнить
-        return this.compareAlignedFootprints(points1, alignedPoints, footprint1, footprint2);
     }
 
     // 🔥 НОВЫЙ МЕТОД: Получить точки в согласованной системе
@@ -402,9 +447,7 @@ class SimpleFootprintManager {
         console.log(`🎯 УМНОЕ СРАВНЕНИЕ С ПОВЕРНУТЫМИ СЛЕДАМИ`);
 
         // 1. Дебаг трансформаций
-        const TransformationDebugger = require('./alignment/transformation-debugger');
-        const debuggerTool = new TransformationDebugger({ debug: true });
-        debuggerTool.analyzeTransformation(footprint1, footprint2);
+        const debugResult = this.transformationDebugger.analyzeTransformation(footprint1, footprint2);
 
         // 2. Получить точки в их системах координат
         let points1 = this.getTrackerPointsInFootprintSystem(footprint1.pointTracker, footprint1.getTransformation());
@@ -419,10 +462,7 @@ class SimpleFootprintManager {
         }
 
         // 4. Использовать улучшенный алайнер
-        const ImprovedAligner = require('./alignment/improved-aligner');
-        const aligner = new ImprovedAligner({ debug: true });
-
-        const alignmentResult = await aligner.alignWithIntelligentMatching(
+        const alignmentResult = await this.improvedAligner.alignWithIntelligentMatching(
             points2,
             points1,
             footprint2.getTransformation(),
@@ -547,230 +587,6 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Использовать алайнер для сравнения
-    async compareWithAlignment(footprint1, footprint2) {
-    console.log(`🎯 Сравнение с ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
-   
-    // 🔥 ШАГ 1: ГЛУБОКИЙ ДЕБАГ ТРАНСФОРМАЦИЙ
-    console.log(`\n🔍🔍🔍 ГЛУБОКИЙ АНАЛИЗ ТРАНСФОРМАЦИЙ:`);
-   
-    const trans1_raw = footprint1.transformation;
-    const trans1_get = footprint1.getTransformation();
-    const trans2_raw = footprint2.transformation;
-    const trans2_get = footprint2.getTransformation();
-   
-    console.log(`📌 СЛЕД 1 "${footprint1.name}":`);
-    console.log(`   • this.transformation: ${trans1_raw?.rotationAngle || 'нет'}°`);
-    console.log(`   • getTransformation(): ${trans1_get?.rotationAngle || 'нет'}°`);
-    console.log(`   • Сравнение: ${trans1_raw?.rotationAngle === trans1_get?.rotationAngle ? 'одинаково ✅' : 'РАЗНЫЕ! ❌'}`);
-   
-    console.log(`\n📌 СЛЕД 2 "${footprint2.name}":`);
-    console.log(`   • this.transformation: ${trans2_raw?.rotationAngle || 'нет'}°`);
-    console.log(`   • getTransformation(): ${trans2_get?.rotationAngle || 'нет'}°`);
-    console.log(`   • Сравнение: ${trans2_raw?.rotationAngle === trans2_get?.rotationAngle ? 'одинаково ✅' : 'РАЗНЫЕ! ❌'}`);
-   
-    // 🔥 ШАГ 2: ИСПОЛЬЗУЕМ РЕАЛЬНЫЕ УГЛЫ, НЕ НОРМАЛИЗУЕМ ИХ!
-    let transformation1 = trans1_get;
-    let transformation2 = trans2_get;
-   
-    console.log(`\n📐 ИСПОЛЬЗУЮ РЕАЛЬНЫЕ ТРАНСФОРМАЦИИ (БЕЗ нормализации к 0°!):`);
-    console.log(`   ${footprint1.name}: ${transformation1?.rotationAngle || 0}°`);
-    console.log(`   ${footprint2.name}: ${transformation2?.rotationAngle || 0}°`);
-   
-    // 🔥 ШАГ 3: ЕСЛИ ОБА УГЛА 0°, ПРОВЕРЯЕМ НУЖНА ЛИ КОРРЕКЦИЯ
-    if ((transformation1?.rotationAngle || 0) === 0 && (transformation2?.rotationAngle || 0) === 0) {
-        console.log(`\n⚠️ ВНИМАНИЕ: Оба угла 0°, проверяю правильно ли это...`);
-       
-        const points1 = this.extractPointsFromFootprint(footprint1);
-        const points2 = this.extractPointsFromFootprint(footprint2);
-       
-        if (points1.length >= 3 && points2.length >= 3) {
-            const bounds1 = this.calculateBounds(points1);
-            const bounds2 = this.calculateBounds(points2);
-           
-            const ratio1 = bounds1.width / Math.max(1, bounds1.height);
-            const ratio2 = bounds2.width / Math.max(1, bounds2.height);
-           
-            console.log(`   Пропорции следов:`);
-            console.log(`     ${footprint1.name}: ${bounds1.width.toFixed(1)}x${bounds1.height.toFixed(1)} (ratio: ${ratio1.toFixed(2)})`);
-            console.log(`     ${footprint2.name}: ${bounds2.width.toFixed(1)}x${bounds2.height.toFixed(1)} (ratio: ${ratio2.toFixed(2)})`);
-           
-            // 🔥 АВТОКОРРЕКЦИЯ: если один след вертикальный, другой горизонтальный
-            const VERTICAL_THRESHOLD = 0.5;
-            const HORIZONTAL_THRESHOLD = 2.0;
-           
-            const isVertical1 = ratio1 < VERTICAL_THRESHOLD;
-            const isHorizontal1 = ratio1 > HORIZONTAL_THRESHOLD;
-            const isVertical2 = ratio2 < VERTICAL_THRESHOLD;
-            const isHorizontal2 = ratio2 > HORIZONTAL_THRESHOLD;
-           
-            if ((isVertical1 && isHorizontal2) || (isHorizontal1 && isVertical2)) {
-                console.log(`\n🚨 ОБНАРУЖЕНО: Следы повернуты на 90° друг относительно друга!`);
-                console.log(`   Но их трансформации показывают 0° - это ошибка!`);
-               
-                // 🔥 АВТОКОРРЕКЦИЯ: Устанавливаем правильные углы
-                const correctedAngle = 90;
-                console.log(`   🔧 Применяю авто-коррекцию: устанавливаю угол ${correctedAngle}°`);
-               
-                // Корректируем один из следов
-                if (isVertical1 && isHorizontal2) {
-                    // След 2 должен быть повернут на 90°
-                    transformation2 = {
-                        ...transformation2,
-                        rotationAngle: correctedAngle,
-                        autoCorrected: true,
-                        originalRatio: ratio2,
-                        correctionType: 'vertical_to_horizontal'
-                    };
-                    console.log(`   ✅ ${footprint2.name} скорректирован до ${correctedAngle}°`);
-                } else {
-                    // След 1 должен быть повернут на 90°
-                    transformation1 = {
-                        ...transformation1,
-                        rotationAngle: correctedAngle,
-                        autoCorrected: true,
-                        originalRatio: ratio1,
-                        correctionType: 'horizontal_to_vertical'
-                    };
-                    console.log(`   ✅ ${footprint1.name} скорректирован до ${correctedAngle}°`);
-                }
-            }
-        }
-    }
-   
-    // 🔥 ШАГ 4: ВЫВОД ИНФОРМАЦИИ ДЛЯ ВЫРАВНИВАНИЯ
-    console.log(`\n🎯 ИНФОРМАЦИЯ ДЛЯ ВЫРАВНИВАНИЯ:`);
-    console.log(`   ${footprint1.name}: ${transformation1?.rotationAngle || 0}° (${transformation1?.autoCorrected ? 'авто-скорректировано' : 'оригинальный'})`);
-    console.log(`   ${footprint2.name}: ${transformation2?.rotationAngle || 0}° (${transformation2?.autoCorrected ? 'авто-скорректировано' : 'оригинальный'})`);
-   
-    // 🔥 ШАГ 5: ВЫРАВНИВАНИЕ С РЕАЛЬНЫМИ УГЛАМИ
-    try {
-        // 🔥 ВАЖНО: Передаем РЕАЛЬНЫЕ трансформации, а не нормализованные к 0°!
-        const alignmentResult = await this.aligner.testAlignment(
-            footprint1,
-            footprint2,
-            transformation2 || this.createIdentityTransformation(),
-            transformation1 || this.createIdentityTransformation()
-        );
-       
-        if (alignmentResult.success) {
-            console.log(`✅ Выравнивание успешно! Качество: ${alignmentResult.quality?.toFixed(3)}`);
-           
-            // Сравниваем выровненные точки
-            const comparison = this.compareFootprintsWithAlignment(
-                footprint1,
-                footprint2,
-                alignmentResult.alignedPoints || []
-            );
-           
-            return {
-                ...comparison,
-                alignment: alignmentResult,
-                method: 'alignment_based_with_real_angles',
-                transformations: {
-                    footprint1: {
-                        angle: transformation1?.rotationAngle || 0,
-                        autoCorrected: transformation1?.autoCorrected || false
-                    },
-                    footprint2: {
-                        angle: transformation2?.rotationAngle || 0,
-                        autoCorrected: transformation2?.autoCorrected || false
-                    }
-                },
-                debug: {
-                    originalAngles: {
-                        footprint1: trans1_get?.rotationAngle || 0,
-                        footprint2: trans2_get?.rotationAngle || 0
-                    },
-                    usedAngles: {
-                        footprint1: transformation1?.rotationAngle || 0,
-                        footprint2: transformation2?.rotationAngle || 0
-                    }
-                }
-            };
-        } else {
-            console.log(`⚠️ Выравнивание не удалось, использую стандартный метод`);
-            const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
-           
-            return {
-                ...fallbackResult,
-                alignment: { success: false, error: alignmentResult.error },
-                method: 'graph_based_fallback'
-            };
-        }
-       
-    } catch (error) {
-        console.log(`❌ Ошибка выравнивания:`, error.message);
-       
-        // Фоллбэк на сравнение графов
-        try {
-            const fallbackResult = await this.matcher.compareGraphs(footprint1.graph, footprint2.graph);
-            return {
-                ...fallbackResult,
-                alignment: { success: false, error: error.message },
-                method: 'graph_based_error_fallback'
-            };
-        } catch (fallbackError) {
-            return {
-                similarity: 0,
-                decision: 'different',
-                reason: `Ошибка сравнения: ${error.message}`,
-                alignment: { success: false, error: error.message },
-                method: 'error'
-            };
-        }
-    }
-}
-
-    // 🔥 ШАГ 3: НОВЫЙ МЕТОД - Сравнить с учетом выравнивания
-    compareFootprintsWithAlignment(footprint1, footprint2, alignedPoints2) {
-        // Получаем точки первого следа
-        const points1 = [];
-        for (const [id, point] of footprint1.pointTracker.points) {
-            points1.push({
-                id,
-                x: point.x,
-                y: point.y,
-                confirmedCount: point.confirmedCount || 1
-            });
-        }
-
-        // Сравниваем выровненные точки
-        let matches = 0;
-        const matchThreshold = 25; // 25px
-
-        alignedPoints2.forEach(point2 => {
-            const nearest = this.findNearestPointInArray(point2, points1, matchThreshold);
-            if (nearest) {
-                matches++;
-            }
-        });
-
-        const similarity = matches / Math.max(points1.length, alignedPoints2.length);
-
-        let decision, reason;
-        if (similarity > 0.7) {
-            decision = 'same';
-            reason = `Высокая схожесть после выравнивания (${similarity.toFixed(3)})`;
-        } else if (similarity > 0.4) {
-            decision = 'similar';
-            reason = `Умеренная схожесть после выравнивания (${similarity.toFixed(3)})`;
-        } else {
-            decision = 'different';
-            reason = `Низкая схожесть после выравнивания (${similarity.toFixed(3)})`;
-        }
-
-        return {
-            similarity,
-            decision,
-            reason,
-            matches,
-            totalPoints1: points1.length,
-            totalPoints2: alignedPoints2.length,
-            matchRate: (matches / Math.min(points1.length, alignedPoints2.length)).toFixed(3)
-        };
-    }
-
     // 🔥 ШАГ 3: ВСПОМОГАТЕЛЬНЫЙ МЕТОД - Найти ближайшую точку в массиве
     findNearestPointInArray(point, pointsArray, maxDistance = Infinity) {
         let nearest = null;
@@ -792,130 +608,130 @@ class SimpleFootprintManager {
     }
 
     // 🔥 НОВЫЙ МЕТОД: Сравнение через инвариантные паттерны
-async compareWithPatterns(footprint1, footprint2) {
-    console.log(`\n🎯 СРАВНЕНИЕ С ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
+    async compareWithPatterns(footprint1, footprint2) {
+        console.log(`\n🎯 СРАВНЕНИЕ С ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
 
-    // 🔥 ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ поворот для произвольных углов
-    const RotationInvariance = require('./rotation-invariance');
-    const processor = new RotationInvariance({ debug: true });
-   
-    // Получаем сырые точки
-    const points1_raw = this.extractPointsFromFootprint(footprint1);
-    const points2_raw = this.extractPointsFromFootprint(footprint2);
-   
-    // Получаем реальные углы из трансформаций
-    const angle1 = footprint1.getTransformation()?.rotationAngle || 0;
-    const angle2 = footprint2.getTransformation()?.rotationAngle || 0;
-   
-    console.log(`📐 УГЛЫ ПОВОРОТА:`);
-    console.log(`   ${footprint1.name}: ${angle1.toFixed(1)}°`);
-    console.log(`   ${footprint2.name}: ${angle2.toFixed(1)}°`);
-   
-    // 🔥 ПРОСТОЙ ПОВОРОТ: оба следа к 0°
-    console.log(`\n🔄 ПОВОРАЧИВАЮ СЛЕДЫ К 0°:`);
-   
-    const points1 = processor.transformPointsSimple(points1_raw, angle1, 0);
-    const points2 = processor.transformPointsSimple(points2_raw, angle2, 0);
-   
-    // 🔥 ЦЕНТРИРОВАНИЕ к (500, 500)
-    console.log(`\n🎯 ЦЕНТРИРУЮ К ОБЩЕЙ СИСТЕМЕ (500, 500):`);
-   
-    const points1_centered = processor.alignPointsToCommonSystem(points1);
-    const points2_centered = processor.alignPointsToCommonSystem(points2);
-   
-    console.log(`📊 ТОЧКИ ПОСЛЕ ПРОСТОГО ВЫРАВНИВАНИЯ:`);
-    console.log(`   ${footprint1.name}: ${points1_centered.length} точек`);
-    console.log(`   ${footprint2.name}: ${points2_centered.length} точек`);
-   
-    // 🔥 ПРОВЕРКА ЦЕНТРОВ
-    const center1 = processor.calculateCenter(points1_centered);
-    const center2 = processor.calculateCenter(points2_centered);
-    const centerDistance = Math.sqrt(
-        Math.pow(center2.x - center1.x, 2) +
-        Math.pow(center2.y - center1.y, 2)
-    );
-   
-    console.log(`📏 РАССТОЯНИЕ МЕЖДУ ЦЕНТРАМИ: ${centerDistance.toFixed(1)}px`);
-   
-    // Продолжение оригинального метода...
-    const adaptiveThreshold = Math.max(25, Math.min(50, centerDistance / 2));
-    console.log(`🎯 Адаптивный порог: ${adaptiveThreshold.toFixed(1)}px`);
+        // 🔥 ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ поворот для произвольных углов
+        const RotationInvariance = require('./rotation-invariance');
+        const processor = new RotationInvariance({ debug: true });
+       
+        // Получаем сырые точки
+        const points1_raw = this.extractPointsFromFootprint(footprint1);
+        const points2_raw = this.extractPointsFromFootprint(footprint2);
+       
+        // Получаем реальные углы из трансформаций
+        const angle1 = footprint1.getTransformation()?.rotationAngle || 0;
+        const angle2 = footprint2.getTransformation()?.rotationAngle || 0;
+       
+        console.log(`📐 УГЛЫ ПОВОРОТА:`);
+        console.log(`   ${footprint1.name}: ${angle1.toFixed(1)}°`);
+        console.log(`   ${footprint2.name}: ${angle2.toFixed(1)}°`);
+       
+        // 🔥 ПРОСТОЙ ПОВОРОТ: оба следа к 0°
+        console.log(`\n🔄 ПОВОРАЧИВАЮ СЛЕДЫ К 0°:`);
+       
+        const points1 = processor.transformPointsSimple(points1_raw, angle1, 0);
+        const points2 = processor.transformPointsSimple(points2_raw, angle2, 0);
+       
+        // 🔥 ЦЕНТРИРОВАНИЕ к (500, 500)
+        console.log(`\n🎯 ЦЕНТРИРУЮ К ОБЩЕЙ СИСТЕМЕ (500, 500):`);
+       
+        const points1_centered = processor.alignPointsToCommonSystem(points1);
+        const points2_centered = processor.alignPointsToCommonSystem(points2);
+       
+        console.log(`📊 ТОЧКИ ПОСЛЕ ПРОСТОГО ВЫРАВНИВАНИЯ:`);
+        console.log(`   ${footprint1.name}: ${points1_centered.length} точек`);
+        console.log(`   ${footprint2.name}: ${points2_centered.length} точек`);
+       
+        // 🔥 ПРОВЕРКА ЦЕНТРОВ
+        const center1 = processor.calculateCenter(points1_centered);
+        const center2 = processor.calculateCenter(points2_centered);
+        const centerDistance = Math.sqrt(
+            Math.pow(center2.x - center1.x, 2) +
+            Math.pow(center2.y - center1.y, 2)
+        );
+       
+        console.log(`📏 РАССТОЯНИЕ МЕЖДУ ЦЕНТРАМИ: ${centerDistance.toFixed(1)}px`);
+       
+        // Продолжение оригинального метода...
+        const adaptiveThreshold = Math.max(25, Math.min(50, centerDistance / 2));
+        console.log(`🎯 Адаптивный порог: ${adaptiveThreshold.toFixed(1)}px`);
 
-    let matches = 0;
-    const matchDetails = [];
+        let matches = 0;
+        const matchDetails = [];
 
-    for (const point1 of points1_centered) {
-        let bestMatch = null;
-        let minDistance = Infinity;
+        for (const point1 of points1_centered) {
+            let bestMatch = null;
+            let minDistance = Infinity;
 
-        for (const point2 of points2_centered) {
-            const distance = Math.sqrt(
-                Math.pow(point2.x - point1.x, 2) +
-                Math.pow(point2.y - point1.y, 2)
-            );
+            for (const point2 of points2_centered) {
+                const distance = Math.sqrt(
+                    Math.pow(point2.x - point1.x, 2) +
+                    Math.pow(point2.y - point1.y, 2)
+                );
 
-            if (distance < minDistance) {
-                minDistance = distance;
-                bestMatch = {
-                    point1,
-                    point2,
-                    distance
-                };
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    bestMatch = {
+                        point1,
+                        point2,
+                        distance
+                    };
+                }
+            }
+
+            if (bestMatch && minDistance < adaptiveThreshold) {
+                matches++;
+                matchDetails.push(bestMatch);
             }
         }
 
-        if (bestMatch && minDistance < adaptiveThreshold) {
-            matches++;
-            matchDetails.push(bestMatch);
+        const similarity = matches / Math.max(points1_centered.length, points2_centered.length);
+
+        console.log(`📈 РЕЗУЛЬТАТ:`);
+        console.log(`   Совпало точек: ${matches}/${Math.max(points1_centered.length, points2_centered.length)}`);
+        console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}%`);
+
+        // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
+        let updatedCount = 0;
+        if (similarity > 0.5) {
+            console.log(`🔄 Обновляю подтверждения...`);
+            updatedCount = this.updateConfirmationsFromMatches(
+                footprint1, footprint2, matchDetails
+            );
         }
-    }
 
-    const similarity = matches / Math.max(points1_centered.length, points2_centered.length);
-
-    console.log(`📈 РЕЗУЛЬТАТ:`);
-    console.log(`   Совпало точек: ${matches}/${Math.max(points1_centered.length, points2_centered.length)}`);
-    console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}%`);
-
-    // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
-    let updatedCount = 0;
-    if (similarity > 0.5) {
-        console.log(`🔄 Обновляю подтверждения...`);
-        updatedCount = this.updateConfirmationsFromMatches(
-            footprint1, footprint2, matchDetails
-        );
-    }
-
-    // 🔥 РЕШЕНИЕ
-    let decision, reason;
-    if (similarity > 0.7) {
-        decision = 'same';
-        reason = `Высокое сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
-    } else if (similarity > 0.4) {
-        decision = 'similar';
-        reason = `Умеренное сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
-    } else {
-        decision = 'different';
-        reason = `Низкое сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
-    }
-
-    return {
-        similarity,
-        decision,
-        reason,
-        matchesCount: matches,
-        totalPoints: Math.max(points1_centered.length, points2_centered.length),
-        pointsUpdated: updatedCount,
-        alignmentInfo: {
-            centerDistance,
-            adaptiveThreshold,
-            center1,
-            center2,
-            angle1,
-            angle2,
-            method: 'simple_rotation_90_fix'
+        // 🔥 РЕШЕНИЕ
+        let decision, reason;
+        if (similarity > 0.7) {
+            decision = 'same';
+            reason = `Высокое сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
+        } else if (similarity > 0.4) {
+            decision = 'similar';
+            reason = `Умеренное сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
+        } else {
+            decision = 'different';
+            reason = `Низкое сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
         }
-    };
-}
+
+        return {
+            similarity,
+            decision,
+            reason,
+            matchesCount: matches,
+            totalPoints: Math.max(points1_centered.length, points2_centered.length),
+            pointsUpdated: updatedCount,
+            alignmentInfo: {
+                centerDistance,
+                adaptiveThreshold,
+                center1,
+                center2,
+                angle1,
+                angle2,
+                method: 'simple_rotation_90_fix'
+            }
+        };
+    }
 
     // 🔥 НОВЫЙ МЕТОД: Анализ типов паттернов
     analyzePatternTypes(matchingPatterns) {
@@ -1676,7 +1492,7 @@ async compareWithPatterns(footprint1, footprint2) {
             let session = this.userSessions.get(userId);
             if (!session) {
                 session = this.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-                console.log(`🆕 Создана новая сессия`);
+                console.log(`🆕 Создана новая сессию`);
             }
 
             // Сохраняем трансформацию
@@ -1698,26 +1514,26 @@ async compareWithPatterns(footprint1, footprint2) {
 
             // 🔥 ПЕРВОЕ ФОТО: создаем отпечаток и шаблон
             if (!session.currentFootprint) {
-    console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
+                console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
 
-    // При создании отпечатка передаем трансформацию
-    session.currentFootprint = new SimpleFootprint({
-        userId: userId,
-        name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
-        // 🔥 ВАЖНО: передаем трансформацию при создании!
-        transformation: transformationInfo // УЖЕ СОДЕРЖИТ rotationAngle: 90°
-    });
+                // При создании отпечатка передаем трансформацию
+                session.currentFootprint = new SimpleFootprint({
+                    userId: userId,
+                    name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
+                    // 🔥 ВАЖНО: передаем трансформацию при создании!
+                    transformation: transformationInfo // УЖЕ СОДЕРЖИТ rotationAngle: 90°
+                });
 
-    session.currentFootprint.metadata.normalizationInfo = transformationInfo;
-   
-    // Добавляем анализ
-    const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
-        ...photoInfo,
-        normalizedGraph: finalGraph,
-        photoId: photoInfo.photoId || `photo_${Date.now()}`,
-        source: photoInfo.source || 'telegram_bot',
-        transformationInfo: transformationInfo
-    });
+                session.currentFootprint.metadata.normalizationInfo = transformationInfo;
+               
+                // Добавляем анализ
+                const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
+                    ...photoInfo,
+                    normalizedGraph: finalGraph,
+                    photoId: photoInfo.photoId || `photo_${Date.now()}`,
+                    source: photoInfo.source || 'telegram_bot',
+                    transformationInfo: transformationInfo
+                });
 
                 // 🔥 СОЗДАЕМ СУПЕР-МОДЕЛЬ (ШАБЛОН)
                 const VectorSuperModel = require('./vector-super-model');
@@ -2090,90 +1906,90 @@ async compareWithPatterns(footprint1, footprint2) {
     }
 
     // 🔥 НОВЫЙ МЕТОД: Прямое обновление подтверждений между следами
-   updateConfirmationsDirectly(footprint1, footprint2) {
-    console.log(`🔄 Прямое обновление подтверждений между двумя следами...`);
+    updateConfirmationsDirectly(footprint1, footprint2) {
+        console.log(`🔄 Прямое обновление подтверждений между двумя следами...`);
 
-    try {
-        // 🔥 ИСПРАВЛЕНИЕ: Защита от ошибок при получении точек
-        let points1, points2;
-       
         try {
-            points1 = footprint1.getPointsForPatternMatching();
-        } catch (error) {
-            console.log(`❌ Ошибка получения точек для ${footprint1.name}: ${error.message}`);
-            points1 = this.extractPointsFromFootprint(footprint1);
-        }
-       
-        try {
-            points2 = footprint2.getPointsForPatternMatching();
-        } catch (error) {
-            console.log(`❌ Ошибка получения точек для ${footprint2.name}: ${error.message}`);
-            points2 = this.extractPointsFromFootprint(footprint2);
-        }
-       
-        console.log(`🔍 Сравниваю ${points1.length} и ${points2.length} точек`);
-
-        let updatedCount = 0;
-        const threshold = 25;
-       
-        // 🔥 ПРОСТОЕ СРАВНЕНИЕ без сложных преобразований
-        const matches = [];
-       
-        for (const point1 of points1) {
-            let bestMatch = null;
-            let minDistance = Infinity;
+            // 🔥 ИСПРАВЛЕНИЕ: Защита от ошибок при получении точек
+            let points1, points2;
            
-            for (const point2 of points2) {
-                const distance = Math.sqrt(
-                    Math.pow(point2.x - point1.x, 2) +
-                    Math.pow(point2.y - point1.y, 2)
-                );
+            try {
+                points1 = footprint1.getPointsForPatternMatching();
+            } catch (error) {
+                console.log(`❌ Ошибка получения точек для ${footprint1.name}: ${error.message}`);
+                points1 = this.extractPointsFromFootprint(footprint1);
+            }
+           
+            try {
+                points2 = footprint2.getPointsForPatternMatching();
+            } catch (error) {
+                console.log(`❌ Ошибка получения точек для ${footprint2.name}: ${error.message}`);
+                points2 = this.extractPointsFromFootprint(footprint2);
+            }
+           
+            console.log(`🔍 Сравниваю ${points1.length} и ${points2.length} точек`);
+
+            let updatedCount = 0;
+            const threshold = 25;
+           
+            // 🔥 ПРОСТОЕ СРАВНЕНИЕ без сложных преобразований
+            const matches = [];
+           
+            for (const point1 of points1) {
+                let bestMatch = null;
+                let minDistance = Infinity;
                
-                if (distance < minDistance && distance < threshold) {
-                    minDistance = distance;
-                    bestMatch = {
-                        point1,
-                        point2,
-                        distance
-                    };
+                for (const point2 of points2) {
+                    const distance = Math.sqrt(
+                        Math.pow(point2.x - point1.x, 2) +
+                        Math.pow(point2.y - point1.y, 2)
+                    );
+                   
+                    if (distance < minDistance && distance < threshold) {
+                        minDistance = distance;
+                        bestMatch = {
+                            point1,
+                            point2,
+                            distance
+                        };
+                    }
+                }
+               
+                if (bestMatch) {
+                    matches.push(bestMatch);
                 }
             }
            
-            if (bestMatch) {
-                matches.push(bestMatch);
-            }
-        }
-       
-        console.log(`📊 Найдено ${matches.length} совпадений (<${threshold}px)`);
-       
-        // Обновляем подтверждения
-        if (footprint1.pointTracker) {
-            for (const match of matches) {
-                const pointId = match.point1.id;
-                if (pointId) {
-                    const pointData = footprint1.pointTracker.points.get(pointId);
-                    if (pointData) {
-                        const oldCount = pointData.confirmedCount || 1;
-                        const newCount = Math.max(oldCount, 2);
-                       
-                        if (newCount > oldCount) {
-                            pointData.confirmedCount = newCount;
-                            updatedCount++;
+            console.log(`📊 Найдено ${matches.length} совпадений (<${threshold}px)`);
+           
+            // Обновляем подтверждения
+            if (footprint1.pointTracker) {
+                for (const match of matches) {
+                    const pointId = match.point1.id;
+                    if (pointId) {
+                        const pointData = footprint1.pointTracker.points.get(pointId);
+                        if (pointData) {
+                            const oldCount = pointData.confirmedCount || 1;
+                            const newCount = Math.max(oldCount, 2);
+                           
+                            if (newCount > oldCount) {
+                                pointData.confirmedCount = newCount;
+                                updatedCount++;
+                            }
                         }
                     }
                 }
             }
+           
+            console.log(`✅ Обновлено ${updatedCount} точек`);
+           
+            return updatedCount;
+           
+        } catch (error) {
+            console.log(`❌ Критическая ошибка в updateConfirmationsDirectly: ${error.message}`);
+            return 0;
         }
-       
-        console.log(`✅ Обновлено ${updatedCount} точек`);
-       
-        return updatedCount;
-       
-    } catch (error) {
-        console.log(`❌ Критическая ошибка в updateConfirmationsDirectly: ${error.message}`);
-        return 0;
     }
-}
 
     // 🔥 МЕТОД ДЛЯ ПРЕОБРАЗОВАНИЯ ТОЧЕК ШАБЛОНА
     transformTemplatePointsToFootprintSystem(templateCells, templateTransformation, footprintTransformation) {
@@ -2706,24 +2522,25 @@ async compareWithPatterns(footprint1, footprint2) {
             y: sumY / points.length
         };
     }
-   // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Извлечь точки из отпечатка
-extractPointsFromFootprint(footprint) {
-    const points = [];
-   
-    if (footprint.pointTracker && footprint.pointTracker.points) {
-        for (const [id, point] of footprint.pointTracker.points) {
-            points.push({
-                id,
-                x: point.x,
-                y: point.y,
-                confidence: point.rating || 0.5
-            });
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Извлечь точки из отпечатка
+    extractPointsFromFootprint(footprint) {
+        const points = [];
+       
+        if (footprint.pointTracker && footprint.pointTracker.points) {
+            for (const [id, point] of footprint.pointTracker.points) {
+                points.push({
+                    id,
+                    x: point.x,
+                    y: point.y,
+                    confidence: point.rating || 0.5
+                });
+            }
         }
+       
+        console.log(`   📊 Извлечено ${points.length} точек из ${footprint.name}`);
+        return points;
     }
-   
-    console.log(`   📊 Извлечено ${points.length} точек из ${footprint.name}`);
-    return points;
-}
    
     // 🔥 НОВЫЙ МЕТОД: Рассчитать соотношение сторон
     calculateAspectRatio(points) {
@@ -2731,82 +2548,47 @@ extractPointsFromFootprint(footprint) {
         return bounds.width / Math.max(1, bounds.height);
     }
    
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Рассчитать границы
-calculateBounds(points) {
-    if (points.length === 0) {
-        return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
-    }
-   
-    const xs = points.map(p => p.x);
-    const ys = points.map(p => p.y);
-   
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-   
-    return {
-        minX, maxX, minY, maxY,
-        width: maxX - minX,
-        height: maxY - minY
-    };
-}
-   
-    // 🔥 НОВЫЙ МЕТОД: Расчет центра
-    calculateCenter(points) {
-        if (!points || points.length === 0) {
-            return { x: 0, y: 0 };
-        }
-       
-        const sumX = points.reduce((sum, p) => sum + p.x, 0);
-        const sumY = points.reduce((sum, p) => sum + p.y, 0);
-       
-        return {
-            x: sumX / points.length,
-            y: sumY / points.length
-        };
-    }
-// 🔥 НОВЫЙ МЕТОД: Обновить подтверждения из совпадений
-updateConfirmationsFromMatches(footprint1, footprint2, matches) {
-    console.log(`🔄 Обновляю подтверждения из ${matches.length} совпадений...`);
+    // 🔥 НОВЫЙ МЕТОД: Обновить подтверждения из совпадений
+    updateConfirmationsFromMatches(footprint1, footprint2, matches) {
+        console.log(`🔄 Обновляю подтверждения из ${matches.length} совпадений...`);
 
-    let updatedCount = 0;
+        let updatedCount = 0;
 
-    // Для каждого совпадения обновляем подтверждения в обоих следах
-    matches.forEach(match => {
-        // Обновляем в первом следе
-        if (footprint1.pointTracker && match.point1.id) {
-            const pointData = footprint1.pointTracker.points.get(match.point1.id);
-            if (pointData) {
-                const oldCount = pointData.confirmedCount || 1;
-                const newCount = Math.max(oldCount, 2); // Минимум 2 подтверждения
+        // Для каждого совпадения обновляем подтверждения в обоих следах
+        matches.forEach(match => {
+            // Обновляем в первом следе
+            if (footprint1.pointTracker && match.point1.id) {
+                const pointData = footprint1.pointTracker.points.get(match.point1.id);
+                if (pointData) {
+                    const oldCount = pointData.confirmedCount || 1;
+                    const newCount = Math.max(oldCount, 2); // Минимум 2 подтверждения
 
-                if (newCount > oldCount) {
-                    pointData.confirmedCount = newCount;
-                    updatedCount++;
+                    if (newCount > oldCount) {
+                        pointData.confirmedCount = newCount;
+                        updatedCount++;
+                    }
                 }
             }
-        }
 
-        // Обновляем во втором следе
-        if (footprint2.pointTracker && match.point2.id) {
-            const pointData = footprint2.pointTracker.points.get(match.point2.id);
-            if (pointData) {
-                const oldCount = pointData.confirmedCount || 1;
-                const newCount = Math.max(oldCount, 2);
+            // Обновляем во втором следе
+            if (footprint2.pointTracker && match.point2.id) {
+                const pointData = footprint2.pointTracker.points.get(match.point2.id);
+                if (pointData) {
+                    const oldCount = pointData.confirmedCount || 1;
+                    const newCount = Math.max(oldCount, 2);
 
-                if (newCount > oldCount) {
-                    pointData.confirmedCount = newCount;
-                    updatedCount++;
+                    if (newCount > oldCount) {
+                        pointData.confirmedCount = newCount;
+                        updatedCount++;
+                    }
                 }
             }
-        }
-    });
+        });
 
-    console.log(`✅ Обновлено ${updatedCount} подтверждений`);
-    return updatedCount;
-}
-  
+        console.log(`✅ Обновлено ${updatedCount} подтверждений`);
+        return updatedCount;
+    }
+ 
 } // <- ЭТО ЗАКРЫВАЮЩАЯ ФИГУРНАЯ СКОБКА КЛАССА SimpleFootprintManager
 
 module.exports = SimpleFootprintManager;
