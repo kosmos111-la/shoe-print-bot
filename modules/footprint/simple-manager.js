@@ -1,4 +1,4 @@
-/ modules/footprint/simple-manager.js
+// modules/footprint/simple-manager.js
 // 🔥 ФИНАЛЬНАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ ВИЗУАЛИЗАЦИЙ
 
 const fs = require('fs');
