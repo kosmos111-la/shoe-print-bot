@@ -517,7 +517,7 @@ class FootprintComparisonEngine {
         console.log(`\n🎯 СРАВНЕНИЕ С ВЫРАВНИВАНИЕМ: "${footprint1.name}" vs "${footprint2.name}"`);
 
         // 🔥 ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ поворот для произвольных углов
-        const RotationInvariance = require('../rotation-invariance');
+        const RotationInvariance = require('../../rotation-invariance');
         const processor = new RotationInvariance({ debug: true });
 
         // Получаем сырые точки
