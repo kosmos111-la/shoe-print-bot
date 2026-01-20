@@ -21,6 +21,24 @@ const ImprovedAligner = require('./alignment/improved-aligner');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
+        console.log(`🔍 === КОНСТРУКТОР SimpleFootprintManager ===`);
+       
+        try {
+            console.log(`🔧 Импорт SimpleGraph...`);
+            const SimpleGraph = require('./simple-graph');
+            console.log(`✅ SimpleGraph загружен`);
+           
+            console.log(`🔧 Импорт модулей выравнивания...`);
+            const SimpleAligner = require('./alignment/simple-aligner');
+            console.log(`✅ SimpleAligner загружен`);
+           
+            // ... остальные импорты с проверками ...
+           
+        } catch (error) {
+            console.log(`❌ ОШИБКА ИМПОРТА в конструкторе: ${error.message}`);
+            throw error;
+        }
+
         this.config = {
             dbPath: options.dbPath || './data/footprints',
             autoAlignment: options.autoAlignment !== false,
@@ -240,7 +258,8 @@ class SimpleFootprintManager {
 
     // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО с сохранением трансформации и накоплением`);
+        console.log(`\n🔍 === НАЧАЛО addPhotoToSession ===`);
+        console.log(`📊 Параметры: userId=${userId}, predictions=${analysis?.predictions?.length || 0}, bot=${!!bot}, chatId=${chatId}`);
 
         // Шаг 3: Проверяем что визуализация включена
         console.log(`🔍 НАСТРОЙКИ СИСТЕМЫ:`);
@@ -255,30 +274,47 @@ class SimpleFootprintManager {
         }
 
         try {
+            // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 1: анализ
             if (!analysis || !analysis.predictions) {
+                console.log(`❌ ОШИБКА: Нет данных анализа`);
                 return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
             }
+            console.log(`✅ Анализ OK: ${analysis.predictions.length} предсказаний`);
 
             const points = this.extractPointsFromAnalysis(analysis);
+            console.log(`✅ Точки извлечены: ${points.length}`);
+           
             if (points.length < 5) {
+                console.log(`❌ ОШИБКА: Слишком мало точек: ${points.length}`);
                 return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
             }
 
-            console.log(`🔍 Извлечено ${points.length} точек протекторов`);
-
-            // Создаем граф
+            // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 2: SimpleGraph
+            console.log(`🔧 Создаю SimpleGraph...`);
+            const SimpleGraph = require('./simple-graph');
             const graph = new SimpleGraph(`Временный_${Date.now()}`);
             graph.buildFromPoints(points);
+            console.log(`✅ Граф создан: ${graph.nodes.size} узлов`);
 
-            // Нормализация
+            // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 3: rotationProcessor
+            console.log(`🔧 Нормализация через rotationProcessor...`);
             const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
                 userId: userId,
                 photoInfo: photoInfo,
                 autoRotate: true
             });
+            console.log(`✅ Нормализация OK: угол=${normalized.rotationAngle?.toFixed(1) || 0}°, зеркало=${normalized.isMirrored}`);
 
-            console.log(`📐 Автоповорот: ${normalized.rotationAngle.toFixed(1)}° → 0°`);
-            console.log(`🪞 Зеркало: ${normalized.isMirrored ? 'да' : 'нет'}`);
+            // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 4: mirrorDetector
+            console.log(`🔧 Коррекция зеркала...`);
+            const corrected = this.mirrorDetector.autoCorrectMirroring(
+                normalized.graph,
+                'right'
+            );
+            console.log(`✅ Коррекция зеркала OK: ${corrected.correctionApplied ? 'применена' : 'не нужна'}`);
+
+            const finalGraph = corrected.graph;
+            console.log(`✅ Финальный граф: ${finalGraph.nodes.size} узлов`);
 
             // 🔥 СОХРАНЯЕМ ТРАНСФОРМАЦИЮ
             const transformationInfo = {
@@ -291,28 +327,24 @@ class SimpleFootprintManager {
                 photoId: photoInfo.photoId || `photo_${Date.now()}`
             };
 
-            const corrected = this.mirrorDetector.autoCorrectMirroring(
-                normalized.graph,
-                'right'
-            );
-
             if (corrected.correctionApplied) {
                 console.log(`🔄 Автокоррекция применена: ${corrected.correctionType}`);
                 transformationInfo.corrected = true;
                 transformationInfo.correctionType = corrected.correctionType;
             }
 
-            const finalGraph = corrected.graph;
-
             // 🔥 ПЕРЕДАЕМ ТРАНСФОРМАЦИЮ В ГРАФ
             finalGraph.transformation = transformationInfo;
 
-            // Получаем или создаем сессию
+            // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА 5: сессия
+            console.log(`🔧 Получаю/создаю сессию...`);
             let session = this.sessionManager.getActiveSession(userId);
             if (!session) {
+                console.log(`🔧 Создаю новую сессию...`);
                 session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
                 console.log(`🆕 Создана новая сессию`);
             }
+            console.log(`✅ Сессия: ${session.id?.slice(0, 8) || 'без ID'}`);
 
             // Сохраняем трансформацию
             if (!session.metadata.normalizationHistory) {
@@ -353,7 +385,10 @@ class SimpleFootprintManager {
                     transformationInfo: transformationInfo
                 });
 
+                console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
+
                 // 🔥 СОЗДАЕМ СУПЕР-МОДЕЛЬ (ШАБЛОН)
+                console.log(`🔧 Создаю векторную супер-модель...`);
                 const VectorSuperModel = require('./vector-super-model');
                 const vectorModel = new VectorSuperModel({
                     name: `Шаблон_${String(userId).slice(0, 6)}`,
@@ -370,7 +405,6 @@ class SimpleFootprintManager {
 
                 this.vectorSuperModels.set(userId, vectorModel);
 
-                console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
                 console.log(`✅ Создан шаблон с ${vectorModel.templateBuilder.getVisualizationData()?.cells?.length || 0} ячейками`);
 
                 // 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ ДЛЯ ПЕРВОГО ФОТО (Шаг 1 из инструкции)
@@ -419,7 +453,7 @@ class SimpleFootprintManager {
                             try {
                                 let caption = `👣 **ПЕРВЫЙ СЛЕД СОЗДАН**\n\n`;
                                 caption += `📊 Извлечено: ${addResult.added} точек\n`;
-                                caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                                caption += `📐 Угол: ${transformationInfo.rotationAngle?.toFixed(1) || 0}°\n`;
                                 caption += `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
                                 caption += `✅ Создан шаблон для накопления деталей`;
 
@@ -605,7 +639,7 @@ class SimpleFootprintManager {
                             // Простой текст без Markdown для избежания ошибок
                             let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
                             caption += `📊 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
-                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle?.toFixed(1) || 0}°\n`;
                             caption += `🔄 Метод сравнения: ${comparisonResult.method || 'pattern_based'}\n`;
 
                             if (comparisonResult.alignment && comparisonResult.alignment.quality) {
@@ -734,7 +768,7 @@ class SimpleFootprintManager {
                         try {
                             let caption = `🆕 СОЗДАН НОВЫЙ СЛЕД\n\n`;
                             caption += `📊 Сходство с предыдущим: ${(similarity * 100).toFixed(1)}%\n`;
-                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                            caption += `📐 Угол: ${transformationInfo.rotationAngle?.toFixed(1) || 0}°\n`;
                             caption += `📈 Добавлено точек: ${addResult.added}\n\n`;
                             caption += `⚠️ След признан другим (низкое сходство)`;
 
@@ -761,7 +795,7 @@ class SimpleFootprintManager {
             }
 
         } catch (error) {
-            console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
+            console.log(`❌ КРИТИЧЕСКАЯ ОШИБКА в addPhotoToSession: ${error.message}`);
             console.error(error.stack);
             return { success: false, error: error.message, nodesAdded: 0 };
         }
@@ -818,7 +852,7 @@ class SimpleFootprintManager {
             ctx.fillText(`Пользователь: ${userId}`, 20, 55);
 
             if (transformationInfo) {
-                ctx.fillText(`Угол: ${transformationInfo.rotationAngle?.toFixed(1)}°`, 20, 80);
+                ctx.fillText(`Угол: ${transformationInfo.rotationAngle?.toFixed(1) || 0}°`, 20, 80);
                 ctx.fillText(`Зеркало: ${transformationInfo.isMirrored ? 'да' : 'нет'}`, 20, 105);
             }
 
