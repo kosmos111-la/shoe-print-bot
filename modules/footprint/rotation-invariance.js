@@ -18,6 +18,18 @@ class RotationInvariance {
         console.log(`   Детальный вывод: ${this.config.verbose ? 'ВКЛ' : 'ВЫКЛ'}`);
     }
 
+    // 🔥 ДОБАВЛЕН МЕТОД: safeToFixed()
+    safeToFixed(value, decimals = 1) {
+        if (value === undefined || value === null || isNaN(value)) {
+            return '0.0';
+        }
+        const num = Number(value);
+        if (isNaN(num)) {
+            return '0.0';
+        }
+        return num.toFixed(decimals);
+    }
+
     // 🔥 НОВЫЙ МЕТОД: Нормализация с сохранением относительных пропорций
     normalizeWithRelativePreservation(graph, metadata = {}) {
         console.log(`\n🔄 НОРМАЛИЗАЦИЯ С СОХРАНЕНИЕМ ПРОПОРЦИЙ:`);
@@ -100,14 +112,14 @@ class RotationInvariance {
         if (this.config.verbose) {
             console.log(`🔍 ТОЧКИ ДО НОРМАЛИЗАЦИИ (первые 3 из ${points.length}):`);
             points.slice(0, 3).forEach((p, i) => {
-                console.log(`   Точка ${i}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+                console.log(`   Точка ${i}: (${this.safeToFixed(p.x)}, ${this.safeToFixed(p.y)})`);
             });
         }
 
         // 1. Определить текущий угол поворота
-const rotationAngleResult = this.detectRotationAngle(points);
-const rotationAngle = rotationAngleResult.angle || rotationAngleResult; // Поддержка старого формата
-console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.toFixed(1)}°`);
+        const rotationAngleResult = this.detectRotationAngle(points);
+        const rotationAngle = rotationAngleResult.angle || rotationAngleResult; // Поддержка старого формата
+        console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${this.safeToFixed(rotationAngle)}°`);
 
         // 2. Определить зеркальность
         const mirrorInfo = this.detectMirroring(points);
@@ -120,9 +132,9 @@ console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.
         const height = Math.max(1, bounds.maxY - bounds.minY);
 
         console.log(`📊 ПАРАМЕТРЫ ДО НОРМАЛИЗАЦИИ:`);
-        console.log(`   Центр: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
-        console.log(`   Границы: X[${bounds.minX.toFixed(1)}-${bounds.maxX.toFixed(1)}], Y[${bounds.minY.toFixed(1)}-${bounds.maxY.toFixed(1)}]`);
-        console.log(`   Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
+        console.log(`   Центр: (${this.safeToFixed(center.x)}, ${this.safeToFixed(center.y)})`);
+        console.log(`   Границы: X[${this.safeToFixed(bounds.minX)}-${this.safeToFixed(bounds.maxX)}], Y[${this.safeToFixed(bounds.minY)}-${this.safeToFixed(bounds.maxY)}]`);
+        console.log(`   Размеры: ${this.safeToFixed(width)}x${this.safeToFixed(height)}`);
 
         // 4. 🔥 СОЗДАЕМ ТРАНСФОРМАЦИЮ
         const transformation = this.createTransformation(
@@ -136,10 +148,10 @@ console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.
 
         console.log(`🔧 СОЗДАНА ТРАНСФОРМАЦИЯ:`);
         console.log(`   Матрица: [${transformation.matrix.map(v => v.toFixed(3)).join(', ')}]`);
-        console.log(`   Угол в трансформации: ${transformation.rotationAngle.toFixed(1)}°`);
+        console.log(`   Угол в трансформации: ${this.safeToFixed(transformation.rotationAngle)}°`);
 
         // 5. Повернуть граф к канонической ориентации
-        console.log(`🔄 ВЫПОЛНЯЮ ПОВОРОТ НА ${-rotationAngle.toFixed(1)}°...`);
+        console.log(`🔄 ВЫПОЛНЯЮ ПОВОРОТ НА ${this.safeToFixed(-rotationAngle)}°...`);
         const normalizedGraph = this.rotateGraphWithTransformation(
             graph,
             transformation,
@@ -171,50 +183,50 @@ console.log(`📐 ОПРЕДЕЛЁН УГОЛ ПОВОРОТА: ${rotationAngle.
         if (this.config.verbose && normalizedPoints.length > 0) {
             console.log(`🔍 ТОЧКИ ПОСЛЕ НОРМАЛИЗАЦИИ (первые 3 из ${normalizedPoints.length}):`);
             normalizedPoints.slice(0, 3).forEach((p, i) => {
-                console.log(`   Точка ${i}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+                console.log(`   Точка ${i}: (${this.safeToFixed(p.x)}, ${this.safeToFixed(p.y)})`);
 
                 // Сравниваем с исходными точками
                 if (i < points.length) {
                     const dx = p.x - points[i].x;
                     const dy = p.y - points[i].y;
-                    console.log(`        ΔX: ${dx.toFixed(1)}, ΔY: ${dy.toFixed(1)}`);
+                    console.log(`        ΔX: ${this.safeToFixed(dx)}, ΔY: ${this.safeToFixed(dy)}`);
                 }
             });
         }
 
         // Проверяем угол после нормализации
         const angleAfterNormalization = this.detectRotationAngle(normalizedPoints);
-        console.log(`📐 УГОЛ ПОСЛЕ НОРМАЛИЗАЦИИ: ${angleAfterNormalization.toFixed(1)}°`);
+        console.log(`📐 УГОЛ ПОСЛЕ НОРМАЛИЗАЦИИ: ${this.safeToFixed(angleAfterNormalization)}°`);
 
-// 🔥 ШАГ 8: ЦЕНТРИРОВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ
-console.log(`🎯 ЦЕНТРИРУЮ СЛЕД К СТАНДАРТНОЙ СИСТЕМЕ...`);
+        // 🔥 ШАГ 8: ЦЕНТРИРОВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ
+        console.log(`🎯 ЦЕНТРИРУЮ СЛЕД К СТАНДАРТНОЙ СИСТЕМЕ...`);
 
-// Определяем целевой центр
-const TARGET_CENTER = { x: 500, y: 500 };
+        // Определяем целевой центр
+        const TARGET_CENTER = { x: 500, y: 500 };
 
-// Получаем текущий центр после поворота
-const rotatedPoints = this.extractPointsFromGraph(normalizedGraph);
-const currentCenter = this.calculateCenter(rotatedPoints);
+        // Получаем текущий центр после поворота
+        const rotatedPoints = this.extractPointsFromGraph(normalizedGraph);
+        const currentCenter = this.calculateCenter(rotatedPoints);
 
-// Вычисляем смещение
-const offsetX = TARGET_CENTER.x - currentCenter.x;
-const offsetY = TARGET_CENTER.y - currentCenter.y;
+        // Вычисляем смещение
+        const offsetX = TARGET_CENTER.x - currentCenter.x;
+        const offsetY = TARGET_CENTER.y - currentCenter.y;
 
-// Применяем смещение ко всем узлам
-normalizedGraph.nodes.forEach((node, nodeId) => {
-    node.x += offsetX;
-    node.y += offsetY;
-});
+        // Применяем смещение ко всем узлам
+        normalizedGraph.nodes.forEach((node, nodeId) => {
+            node.x += offsetX;
+            node.y += offsetY;
+        });
 
-// Обновляем трансформацию
-transformation.center = TARGET_CENTER;
-transformation.offsetApplied = { x: offsetX, y: offsetY };
-transformation.originalCenter = currentCenter;
-      
+        // Обновляем трансформацию
+        transformation.center = TARGET_CENTER;
+        transformation.offsetApplied = { x: offsetX, y: offsetY };
+        transformation.originalCenter = currentCenter;
+
         console.log(`✅ ========== НОРМАЛИЗАЦИЯ ЗАВЕРШЕНА ==========`);
-        console.log(`   Поворот: ${rotationAngle.toFixed(1)}° → ${angleAfterNormalization.toFixed(1)}°`);
+        console.log(`   Поворот: ${this.safeToFixed(rotationAngle)}° → ${this.safeToFixed(angleAfterNormalization)}°`);
         console.log(`   Зеркало: ${mirrorInfo.isMirrored ? 'ДА' : 'НЕТ'}`);
-        console.log(`   Центр сохранен: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+        console.log(`   Центр сохранен: (${this.safeToFixed(center.x)}, ${this.safeToFixed(center.y)})`);
 
         return {
             graph: normalizedGraph,
@@ -230,16 +242,16 @@ transformation.originalCenter = currentCenter;
     // 🔥 НОВЫЙ МЕТОД: Создание трансформации С ОТЛАДКОЙ
     createTransformation(rotationAngle, isMirrored, center, bounds, width, height) {
         console.log(`\n🔧 СОЗДАНИЕ ТРАНСФОРМАЦИИ:`);
-        console.log(`   Входной угол: ${rotationAngle.toFixed(1)}°`);
+        console.log(`   Входной угол: ${this.safeToFixed(rotationAngle)}°`);
         console.log(`   Зеркало: ${isMirrored}`);
-        console.log(`   Центр: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+        console.log(`   Центр: (${this.safeToFixed(center.x)}, ${this.safeToFixed(center.y)})`);
 
         const angleRad = rotationAngle * (Math.PI / 180);
         const cosA = Math.cos(-angleRad); // Отрицательный угол для нормализации
         const sinA = Math.sin(-angleRad);
 
-        console.log(`   cos(-${rotationAngle.toFixed(1)}°): ${cosA.toFixed(4)}`);
-        console.log(`   sin(-${rotationAngle.toFixed(1)}°): ${sinA.toFixed(4)}`);
+        console.log(`   cos(-${this.safeToFixed(rotationAngle)}°): ${cosA.toFixed(4)}`);
+        console.log(`   sin(-${this.safeToFixed(rotationAngle)}°): ${sinA.toFixed(4)}`);
 
         // Аффинная матрица преобразования
         const matrix = [
@@ -262,7 +274,7 @@ transformation.originalCenter = currentCenter;
         matrix[2] = tx;
         matrix[5] = ty;
 
-        console.log(`   Смещение: tx=${tx.toFixed(2)}, ty=${ty.toFixed(2)}`);
+        console.log(`   Смещение: tx=${this.safeToFixed(tx, 2)}, ty=${this.safeToFixed(ty, 2)}`);
         console.log(`   Итоговая матрица: [${matrix.map(v => v.toFixed(4)).join(', ')}]`);
 
         return {
@@ -288,7 +300,7 @@ transformation.originalCenter = currentCenter;
         const matrix = transformation.matrix;
         const center = transformation.center;
 
-        console.log(`   Центр вращения: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+        console.log(`   Центр вращения: (${this.safeToFixed(center.x)}, ${this.safeToFixed(center.y)})`);
         console.log(`   Количество узлов: ${graph.nodes.size}`);
 
         // Собираем статистику
@@ -323,13 +335,13 @@ transformation.originalCenter = currentCenter;
             // Отладочный вывод для первых 3 точек
             if (this.config.verbose && rotatedGraph.nodes.size <= 3) {
                 console.log(`   Узел ${rotatedGraph.nodes.size}:`);
-                console.log(`       Было: (${origX.toFixed(1)}, ${origY.toFixed(1)})`);
-                console.log(`       Стало: (${transformedX.toFixed(1)}, ${transformedY.toFixed(1)})`);
-                console.log(`       Δ: (${(transformedX - origX).toFixed(1)}, ${(transformedY - origY).toFixed(1)})`);
+                console.log(`       Было: (${this.safeToFixed(origX)}, ${this.safeToFixed(origY)})`);
+                console.log(`       Стало: (${this.safeToFixed(transformedX)}, ${this.safeToFixed(transformedY)})`);
+                console.log(`       Δ: (${this.safeToFixed(transformedX - origX)}, ${this.safeToFixed(transformedY - origY)})`);
             }
         });
 
-        console.log(`   Границы после вращения: X[${minX.toFixed(1)}-${maxX.toFixed(1)}], Y[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
+        console.log(`   Границы после вращения: X[${this.safeToFixed(minX)}-${this.safeToFixed(maxX)}], Y[${this.safeToFixed(minY)}-${this.safeToFixed(maxY)}]`);
 
         // Копируем метаданные
         rotatedGraph.originalGraphId = graph.id;
@@ -340,192 +352,170 @@ transformation.originalCenter = currentCenter;
 
     // 🔥 НОВЫЙ МЕТОД: Обратное преобразование С ОТЛАДКОЙ
     applyInverseTransformation(point, transformation) {
-    if (!transformation || !transformation.matrix) {
-        return point;
-    }
-
-    const matrix = transformation.matrix;
-    const center = transformation.center || { x: 0, y: 0 };
-   
-    // 🔥 ИСПРАВЛЕНИЕ 1: Правильное вычисление обратной матрицы
-    // Для аффинной матрицы [a, b, tx, c, d, ty, 0, 0, 1]
-    const a = matrix[0], b = matrix[1], tx = matrix[2];
-    const c = matrix[3], d = matrix[4], ty = matrix[5];
-   
-    const det = a * d - b * c;
-   
-    if (Math.abs(det) < 1e-10) {
-        console.log('⚠️ Матрица вырождена');
-        return point;
-    }
-   
-    // 🔥 ИСПРАВЛЕНИЕ 2: Правильная формула обратной аффинной матрицы
-    const invDet = 1 / det;
-    const invA = d * invDet;
-    const invB = -b * invDet;
-    const invC = -c * invDet;
-    const invD = a * invDet;
-   
-    // 🔥 ИСПРАВЛЕНИЕ 3: Учитываем трансляцию
-    const invTx = -(invA * tx + invC * ty);
-    const invTy = -(invB * tx + invD * ty);
-   
-    // Применяем обратное преобразование
-    const x = point.x - center.x;
-    const y = point.y - center.y;
-   
-    const originalX = invA * x + invC * y + invTx + center.x;
-    const originalY = invB * x + invD * y + invTy + center.y;
-   
-    return {
-        x: originalX,
-        y: originalY,
-        transformed: true
-    };
-}
-
-// 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Прямое преобразование
-applyTransformation(point, transformation) {
-    if (!transformation || !transformation.matrix) {
-        return point;
-    }
-
-    const matrix = transformation.matrix;
-    const center = transformation.center || { x: 0, y: 0 };
-   
-    // 🔥 ИСПРАВЛЕНИЕ: Простая и понятная формула
-    const a = matrix[0], b = matrix[1], tx = matrix[2];
-    const c = matrix[3], d = matrix[4], ty = matrix[5];
-   
-    const x = point.x - center.x;
-    const y = point.y - center.y;
-   
-    const transformedX = a * x + c * y + tx + center.x;
-    const transformedY = b * x + d * y + ty + center.y;
-   
-    return {
-        x: transformedX,
-        y: transformedY,
-        transformed: true
-    };
-}
-
-    // 🔥 НОВЫЙ МЕТОД: Преобразование точек из одной системы в другую С ОТЛАДКОЙ
-    transformPointsBetweenSystems(points, fromTransformation, toTransformation) {
-    // 🔥 ДОБАВЛЕНА ПРОВЕРКА 1: Если нет трансформаций, возвращаем точки как есть
-    if (!fromTransformation || !toTransformation) {
-        console.log('⚠️ Нет одной из трансформаций для преобразования');
-        console.log(`   fromTransformation: ${fromTransformation ? 'есть' : 'нет'}`);
-        console.log(`   toTransformation: ${toTransformation ? 'есть' : 'нет'}`);
-        return points;
-    }
-
-    // 🔥 ДОБАВЛЕНА ПРОВЕРКА 2: Если нет rotationAngle, устанавливаем 0
-    const fromAngle = fromTransformation.rotationAngle || 0;
-    const toAngle = toTransformation.rotationAngle || 0;
-   
-    console.log(`\n🔄 ПРЕОБРАЗОВАНИЕ ТОЧЕК МЕЖДУ СИСТЕМАМИ:`);
-    console.log(`   Количество точек: ${points.length}`);
-    console.log(`   Из системы с углом: ${fromAngle.toFixed(1)}°`);
-    console.log(`   В систему с углом: ${toAngle.toFixed(1)}°`);
-
-    // Если углы одинаковые, не преобразуем
-    if (Math.abs(fromAngle - toAngle) < 0.1) {
-        console.log(`   ⏩ Углы одинаковые (${fromAngle.toFixed(1)}°), пропускаю преобразование`);
-        return points.map(p => ({ ...p, transformed: false }));
-    }
-
-    // 🔥 ДОБАВЛЕНА ПРОВЕРКА 3: Если матрицы нет, используем простой метод
-    if (!fromTransformation.matrix || !toTransformation.matrix) {
-        console.log(`   ⚠️ Нет матриц трансформации, использую простой метод`);
-        return this.transformPointsSimple(points, fromAngle, toAngle);
-    }
-
-    // 🔥 ДОБАВЛЕНА ПРОВЕРКА 4: Для нулевых углов используем простой метод
-    if (Math.abs(fromAngle) < 0.1 && Math.abs(toAngle) < 0.1) {
-        console.log(`   ⏩ Оба угла ~0°, пропускаю преобразование`);
-        return points.map(p => ({ ...p, transformed: false }));
-    }
-
-    const transformedPoints = [];
-
-    points.forEach((point, index) => {
-        // 🔥 ИСПРАВЛЕНИЕ: Упрощенный подход
-        const debug = this.config.verbose && index < 3;
-
-        if (debug) {
-            console.log(`\n   Точка ${index + 1}:`);
-            console.log(`       Исходная: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+        if (!transformation || !transformation.matrix) {
+            return point;
         }
 
-        // Если fromAngle не 0, поворачиваем к 0
-        let normalizedPoint = { ...point };
-        if (Math.abs(fromAngle) > 0.1) {
-            normalizedPoint = this.rotatePointAroundCenter(point, fromTransformation.center || this.calculateCenter(points), -fromAngle);
+        const matrix = transformation.matrix;
+        const center = transformation.center || { x: 0, y: 0 };
+
+        // 🔥 ИСПРАВЛЕНИЕ 1: Правильное вычисление обратной матрицы
+        // Для аффинной матрицы [a, b, tx, c, d, ty, 0, 0, 1]
+        const a = matrix[0], b = matrix[1], tx = matrix[2];
+        const c = matrix[3], d = matrix[4], ty = matrix[5];
+
+        const det = a * d - b * c;
+
+        if (Math.abs(det) < 1e-10) {
+            console.log('⚠️ Матрица вырождена');
+            return point;
         }
 
-        // Если toAngle не 0, поворачиваем от 0
-        let finalPoint = normalizedPoint;
-        if (Math.abs(toAngle) > 0.1) {
-            finalPoint = this.rotatePointAroundCenter(normalizedPoint, toTransformation.center || this.calculateCenter(points), toAngle);
-        }
+        // 🔥 ИСПРАВЛЕНИЕ 2: Правильная формула обратной аффинной матрицы
+        const invDet = 1 / det;
+        const invA = d * invDet;
+        const invB = -b * invDet;
+        const invC = -c * invDet;
+        const invD = a * invDet;
 
-        transformedPoints.push({
-            ...point,
-            x: finalPoint.x,
-            y: finalPoint.y,
-            transformed: true,
-            originalCoordinates: { x: point.x, y: point.y },
-            transformationIndex: index
-        });
-    });
+        // 🔥 ИСПРАВЛЕНИЕ 3: Учитываем трансляцию
+        const invTx = -(invA * tx + invC * ty);
+        const invTy = -(invB * tx + invD * ty);
 
-    // Статистика
-    if (transformedPoints.length > 0) {
-        const bounds = this.calculateBounds(transformedPoints);
-        console.log(`📊 Границы после преобразования: ${bounds.width.toFixed(1)}x${bounds.height.toFixed(1)}`);
+        // Применяем обратное преобразование
+        const x = point.x - center.x;
+        const y = point.y - center.y;
+
+        const originalX = invA * x + invC * y + invTx + center.x;
+        const originalY = invB * x + invD * y + invTy + center.y;
+
+        return {
+            x: originalX,
+            y: originalY,
+            transformed: true
+        };
     }
 
-    return transformedPoints;
-}
-
-// 🔥 НОВЫЙ МЕТОД: Простой поворот точки вокруг центра
-rotatePointAroundCenter(point, center, angleDeg) {
-    if (Math.abs(angleDeg) < 0.1) return { ...point };
-   
-    const angleRad = angleDeg * Math.PI / 180;
-    const cosA = Math.cos(angleRad);
-    const sinA = Math.sin(angleRad);
-   
-    const dx = point.x - center.x;
-    const dy = point.y - center.y;
-   
-    const rotatedX = dx * cosA - dy * sinA + center.x;
-    const rotatedY = dx * sinA + dy * cosA + center.y;
-   
-    return { x: rotatedX, y: rotatedY };
-}
-
-    // 🔥 НОВЫЙ МЕТОД: Прямое преобразование С ОТЛАДКОЙ
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Прямое преобразование
     applyTransformation(point, transformation) {
         if (!transformation || !transformation.matrix) {
             return point;
         }
 
         const matrix = transformation.matrix;
-        const center = transformation.center;
+        const center = transformation.center || { x: 0, y: 0 };
 
-        const relX = point.x - center.x;
-        const relY = point.y - center.y;
+        // 🔥 ИСПРАВЛЕНИЕ: Простая и понятная формула
+        const a = matrix[0], b = matrix[1], tx = matrix[2];
+        const c = matrix[3], d = matrix[4], ty = matrix[5];
 
-        const transformedX = relX * matrix[0] + relY * matrix[1] + center.x + matrix[2];
-        const transformedY = relX * matrix[3] + relY * matrix[4] + center.y + matrix[5];
+        const x = point.x - center.x;
+        const y = point.y - center.y;
+
+        const transformedX = a * x + c * y + tx + center.x;
+        const transformedY = b * x + d * y + ty + center.y;
 
         return {
             x: transformedX,
             y: transformedY,
             transformed: true
         };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Преобразование точек из одной системы в другую С ОТЛАДКОЙ
+    transformPointsBetweenSystems(points, fromTransformation, toTransformation) {
+        // 🔥 ДОБАВЛЕНА ПРОВЕРКА 1: Если нет трансформаций, возвращаем точки как есть
+        if (!fromTransformation || !toTransformation) {
+            console.log('⚠️ Нет одной из трансформаций для преобразования');
+            console.log(`   fromTransformation: ${fromTransformation ? 'есть' : 'нет'}`);
+            console.log(`   toTransformation: ${toTransformation ? 'есть' : 'нет'}`);
+            return points;
+        }
+
+        // 🔥 ДОБАВЛЕНА ПРОВЕРКА 2: Если нет rotationAngle, устанавливаем 0
+        const fromAngle = fromTransformation.rotationAngle || 0;
+        const toAngle = toTransformation.rotationAngle || 0;
+
+        console.log(`\n🔄 ПРЕОБРАЗОВАНИЕ ТОЧЕК МЕЖДУ СИСТЕМАМИ:`);
+        console.log(`   Количество точек: ${points.length}`);
+        console.log(`   Из системы с углом: ${this.safeToFixed(fromAngle)}°`);
+        console.log(`   В систему с углом: ${this.safeToFixed(toAngle)}°`);
+
+        // Если углы одинаковые, не преобразуем
+        if (Math.abs(fromAngle - toAngle) < 0.1) {
+            console.log(`   ⏩ Углы одинаковые (${this.safeToFixed(fromAngle)}°), пропускаю преобразование`);
+            return points.map(p => ({ ...p, transformed: false }));
+        }
+
+        // 🔥 ДОБАВЛЕНА ПРОВЕРКА 3: Если матрицы нет, используем простой метод
+        if (!fromTransformation.matrix || !toTransformation.matrix) {
+            console.log(`   ⚠️ Нет матриц трансформации, использую простой метод`);
+            return this.transformPointsSimple(points, fromAngle, toAngle);
+        }
+
+        // 🔥 ДОБАВЛЕНА ПРОВЕРКА 4: Для нулевых углов используем простой метод
+        if (Math.abs(fromAngle) < 0.1 && Math.abs(toAngle) < 0.1) {
+            console.log(`   ⏩ Оба угла ~0°, пропускаю преобразование`);
+            return points.map(p => ({ ...p, transformed: false }));
+        }
+
+        const transformedPoints = [];
+
+        points.forEach((point, index) => {
+            // 🔥 ИСПРАВЛЕНИЕ: Упрощенный подход
+            const debug = this.config.verbose && index < 3;
+
+            if (debug) {
+                console.log(`\n   Точка ${index + 1}:`);
+                console.log(`       Исходная: (${this.safeToFixed(point.x)}, ${this.safeToFixed(point.y)})`);
+            }
+
+            // Если fromAngle не 0, поворачиваем к 0
+            let normalizedPoint = { ...point };
+            if (Math.abs(fromAngle) > 0.1) {
+                normalizedPoint = this.rotatePointAroundCenter(point, fromTransformation.center || this.calculateCenter(points), -fromAngle);
+            }
+
+            // Если toAngle не 0, поворачиваем от 0
+            let finalPoint = normalizedPoint;
+            if (Math.abs(toAngle) > 0.1) {
+                finalPoint = this.rotatePointAroundCenter(normalizedPoint, toTransformation.center || this.calculateCenter(points), toAngle);
+            }
+
+            transformedPoints.push({
+                ...point,
+                x: finalPoint.x,
+                y: finalPoint.y,
+                transformed: true,
+                originalCoordinates: { x: point.x, y: point.y },
+                transformationIndex: index
+            });
+        });
+
+        // Статистика
+        if (transformedPoints.length > 0) {
+            const bounds = this.calculateBounds(transformedPoints);
+            console.log(`📊 Границы после преобразования: ${this.safeToFixed(bounds.width)}x${this.safeToFixed(bounds.height)}`);
+        }
+
+        return transformedPoints;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Простой поворот точки вокруг центра
+    rotatePointAroundCenter(point, center, angleDeg) {
+        if (Math.abs(angleDeg) < 0.1) return { ...point };
+
+        const angleRad = angleDeg * Math.PI / 180;
+        const cosA = Math.cos(angleRad);
+        const sinA = Math.sin(angleRad);
+
+        const dx = point.x - center.x;
+        const dy = point.y - center.y;
+
+        const rotatedX = dx * cosA - dy * sinA + center.x;
+        const rotatedY = dx * sinA + dy * cosA + center.y;
+
+        return { x: rotatedX, y: rotatedY };
     }
 
     // 🔥 НОВЫЙ МЕТОД: Создание единичной трансформации
@@ -563,8 +553,8 @@ rotatePointAroundCenter(point, center, angleDeg) {
 
         if (this.config.verbose) {
             console.log(`📏 РАСЧЕТ ГРАНИЦ:`);
-            console.log(`   X: ${minX.toFixed(1)} → ${maxX.toFixed(1)} (ширина: ${(maxX - minX).toFixed(1)})`);
-            console.log(`   Y: ${minY.toFixed(1)} → ${maxY.toFixed(1)} (высота: ${(maxY - minY).toFixed(1)})`);
+            console.log(`   X: ${this.safeToFixed(minX)} → ${this.safeToFixed(maxX)} (ширина: ${this.safeToFixed(maxX - minX)})`);
+            console.log(`   Y: ${this.safeToFixed(minY)} → ${this.safeToFixed(maxY)} (высота: ${this.safeToFixed(maxY - minY)})`);
         }
 
         return { minX, maxX, minY, maxY };
@@ -572,145 +562,145 @@ rotatePointAroundCenter(point, center, angleDeg) {
 
     // Метод: Определение угла поворота с помощью PCA С ОТЛАДКОЙ
     detectRotationAngle(points) {
-    if (points.length < 3) {
-        console.log(`⚠️ Мало точек для PCA: ${points.length}`);
-        return 0;
-    }
-
-    console.log(`\n📐 ОПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА (PCA):`);
-    console.log(`   Количество точек: ${points.length}`);
-
-    // 1. Вычисляем границы
-    const bounds = this.calculateBounds(points);
-    const width = bounds.maxX - bounds.minX;
-    const height = bounds.maxY - bounds.minY;
-    const aspectRatio = width / Math.max(1, height);
-
-    console.log(`   Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
-    console.log(`   Соотношение сторон: ${aspectRatio.toFixed(2)}`);
-
-    // 2. Вычисляем центр масс
-    const center = this.calculateCenter(points);
-    console.log(`   Центр масс: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
-
-    // 3. Центрируем точки
-    const centeredPoints = points.map(p => ({
-        x: p.x - center.x,
-        y: p.y - center.y
-    }));
-
-    // 4. Строим ковариационную матрицу
-    const covMatrix = this.calculateCovarianceMatrix(centeredPoints);
-    console.log(`   Ковариационная матрица:`);
-    console.log(`       [${covMatrix[0][0].toFixed(1)}, ${covMatrix[0][1].toFixed(1)}]`);
-    console.log(`       [${covMatrix[1][0].toFixed(1)}, ${covMatrix[1][1].toFixed(1)}]`);
-
-    // 5. Находим собственные векторы (PCA)
-    const eigenvectors = this.calculateEigenvectors(covMatrix);
-    console.log(`   Собственные векторы:`);
-    console.log(`       Главный: [${eigenvectors[0][0].toFixed(3)}, ${eigenvectors[0][1].toFixed(3)}]`);
-    console.log(`       Второй:  [${eigenvectors[1][0].toFixed(3)}, ${eigenvectors[1][1].toFixed(3)}]`);
-
-    // 6. Главная ось = собственный вектор с максимальным собственным значением
-    const mainAxis = eigenvectors[0];
-
-    // 7. Вычисляем угол относительно горизонтали
-    let angleRad = Math.atan2(mainAxis[1], mainAxis[0]);
-    let angleDeg = angleRad * (180 / Math.PI);
-
-    console.log(`   Угол в радианах: ${angleRad.toFixed(3)}`);
-    console.log(`   Угол в градусах: ${angleDeg.toFixed(1)}°`);
-
-    // 8. Нормализуем угол к [-90°, 90°]
-    if (angleDeg > 90) {
-        console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg - 180).toFixed(1)}°`);
-        angleDeg -= 180;
-    }
-    if (angleDeg < -90) {
-        console.log(`   Нормализация: ${angleDeg.toFixed(1)}° → ${(angleDeg + 180).toFixed(1)}°`);
-        angleDeg += 180;
-    }
-
-    // 🔥 ИСПРАВЛЕНИЕ 1: Интеллектуальная коррекция для сравнения
-    const VERTICAL_THRESHOLD = 0.7;   // ratio < 0.7 = вертикальный
-    const HORIZONTAL_THRESHOLD = 1.5; // ratio > 1.5 = горизонтальный
-   
-    if (aspectRatio < VERTICAL_THRESHOLD) {
-        // След вертикальный
-        console.log(`   📏 След ВЕРТИКАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} < ${VERTICAL_THRESHOLD})`);
-       
-        if (Math.abs(angleDeg) < 30) {
-            // PCA показывает ~0°, но след вертикальный → корректируем на 90°
-            console.log(`   🔧 PCA показывает ${angleDeg.toFixed(1)}°, но след вертикальный → корректирую к 90°`);
-            angleDeg += 90;
+        if (points.length < 3) {
+            console.log(`⚠️ Мало точек для PCA: ${points.length}`);
+            return 0;
         }
-    } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
-        // След горизонтальный
-        console.log(`   📏 След ГОРИЗОНТАЛЬНЫЙ (ratio: ${aspectRatio.toFixed(2)} > ${HORIZONTAL_THRESHOLD})`);
-       
-        if (Math.abs(angleDeg) > 60) {
-            // PCA показывает ~90°, но след горизонтальный → корректируем к 0°
-            console.log(`   🔧 PCA показывает ${angleDeg.toFixed(1)}°, но след горизонтальный → корректирую к 0°`);
-            angleDeg = Math.abs(angleDeg) > 90 ? angleDeg - 90 : angleDeg;
+
+        console.log(`\n📐 ОПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА (PCA):`);
+        console.log(`   Количество точек: ${points.length}`);
+
+        // 1. Вычисляем границы
+        const bounds = this.calculateBounds(points);
+        const width = bounds.maxX - bounds.minX;
+        const height = bounds.maxY - bounds.minY;
+        const aspectRatio = width / Math.max(1, height);
+
+        console.log(`   Размеры: ${this.safeToFixed(width)}x${this.safeToFixed(height)}`);
+        console.log(`   Соотношение сторон: ${this.safeToFixed(aspectRatio, 2)}`);
+
+        // 2. Вычисляем центр масс
+        const center = this.calculateCenter(points);
+        console.log(`   Центр масс: (${this.safeToFixed(center.x)}, ${this.safeToFixed(center.y)})`);
+
+        // 3. Центрируем точки
+        const centeredPoints = points.map(p => ({
+            x: p.x - center.x,
+            y: p.y - center.y
+        }));
+
+        // 4. Строим ковариационную матрицу
+        const covMatrix = this.calculateCovarianceMatrix(centeredPoints);
+        console.log(`   Ковариационная матрица:`);
+        console.log(`       [${this.safeToFixed(covMatrix[0][0])}, ${this.safeToFixed(covMatrix[0][1])}]`);
+        console.log(`       [${this.safeToFixed(covMatrix[1][0])}, ${this.safeToFixed(covMatrix[1][1])}]`);
+
+        // 5. Находим собственные векторы (PCA)
+        const eigenvectors = this.calculateEigenvectors(covMatrix);
+        console.log(`   Собственные векторы:`);
+        console.log(`       Главный: [${this.safeToFixed(eigenvectors[0][0], 3)}, ${this.safeToFixed(eigenvectors[0][1], 3)}]`);
+        console.log(`       Второй:  [${this.safeToFixed(eigenvectors[1][0], 3)}, ${this.safeToFixed(eigenvectors[1][1], 3)}]`);
+
+        // 6. Главная ось = собственный вектор с максимальным собственным значением
+        const mainAxis = eigenvectors[0];
+
+        // 7. Вычисляем угол относительно горизонтали
+        let angleRad = Math.atan2(mainAxis[1], mainAxis[0]);
+        let angleDeg = angleRad * (180 / Math.PI);
+
+        console.log(`   Угол в радианах: ${angleRad.toFixed(3)}`);
+        console.log(`   Угол в градусах: ${this.safeToFixed(angleDeg)}°`);
+
+        // 8. Нормализуем угол к [-90°, 90°]
+        if (angleDeg > 90) {
+            console.log(`   Нормализация: ${this.safeToFixed(angleDeg)}° → ${this.safeToFixed(angleDeg - 180)}°`);
+            angleDeg -= 180;
         }
-    } else {
-        // След средней пропорции - используем реальный угол PCA
-        console.log(`   📏 След СРЕДНИХ пропорций (ratio: ${aspectRatio.toFixed(2)}) → использую реальный PCA угол`);
-        // Никакой коррекции - оставляем как есть (45°, 30°, 60° и т.д.)
+        if (angleDeg < -90) {
+            console.log(`   Нормализация: ${this.safeToFixed(angleDeg)}° → ${this.safeToFixed(angleDeg + 180)}°`);
+            angleDeg += 180;
+        }
+
+        // 🔥 ИСПРАВЛЕНИЕ 1: Интеллектуальная коррекция для сравнения
+        const VERTICAL_THRESHOLD = 0.7;   // ratio < 0.7 = вертикальный
+        const HORIZONTAL_THRESHOLD = 1.5; // ratio > 1.5 = горизонтальный
+
+        if (aspectRatio < VERTICAL_THRESHOLD) {
+            // След вертикальный
+            console.log(`   📏 След ВЕРТИКАЛЬНЫЙ (ratio: ${this.safeToFixed(aspectRatio, 2)} < ${VERTICAL_THRESHOLD})`);
+
+            if (Math.abs(angleDeg) < 30) {
+                // PCA показывает ~0°, но след вертикальный → корректируем на 90°
+                console.log(`   🔧 PCA показывает ${this.safeToFixed(angleDeg)}°, но след вертикальный → корректирую к 90°`);
+                angleDeg += 90;
+            }
+        } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
+            // След горизонтальный
+            console.log(`   📏 След ГОРИЗОНТАЛЬНЫЙ (ratio: ${this.safeToFixed(aspectRatio, 2)} > ${HORIZONTAL_THRESHOLD})`);
+
+            if (Math.abs(angleDeg) > 60) {
+                // PCA показывает ~90°, но след горизонтальный → корректируем к 0°
+                console.log(`   🔧 PCA показывает ${this.safeToFixed(angleDeg)}°, но след горизонтальный → корректирую к 0°`);
+                angleDeg = Math.abs(angleDeg) > 90 ? angleDeg - 90 : angleDeg;
+            }
+        } else {
+            // След средней пропорции - используем реальный угол PCA
+            console.log(`   📏 След СРЕДНИХ пропорций (ratio: ${this.safeToFixed(aspectRatio, 2)}) → использую реальный PCA угол`);
+            // Никакой коррекции - оставляем как есть (45°, 30°, 60° и т.д.)
+        }
+
+        // Финальная нормализация
+        if (angleDeg > 90) angleDeg -= 180;
+        if (angleDeg < -90) angleDeg += 180;
+
+        console.log(`📐 ИТОГОВЫЙ УГОЛ: ${this.safeToFixed(angleDeg)}°`);
+
+        // 🔥 ИСПРАВЛЕНИЕ 2: Гарантируем, что возвращаем ЧИСЛО
+        const finalAngle = Number(angleDeg.toFixed(1));
+
+        return finalAngle; // ✅ Всегда число, не объект
     }
 
-    // Финальная нормализация
-    if (angleDeg > 90) angleDeg -= 180;
-    if (angleDeg < -90) angleDeg += 180;
+    // 🔥 НОВЫЙ МЕТОД: Интеллектуальная нормализация угла
+    normalizeAngleForFootprint(angleDeg, aspectRatio) {
+        // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
+        // Если след вертикальный и угол близок к 0°, корректируем на 90°
+        // Если след горизонтальный и угол близок к 90°, корректируем на 0°
 
-    console.log(`📐 ИТОГОВЫЙ УГОЛ: ${angleDeg.toFixed(1)}°`);
-   
-    // 🔥 ИСПРАВЛЕНИЕ 2: Гарантируем, что возвращаем ЧИСЛО
-    const finalAngle = Number(angleDeg.toFixed(1));
-   
-    return finalAngle; // ✅ Всегда число, не объект
-}
+        const VERTICAL_THRESHOLD = 0.7;   // Высота > ширина/0.7
+        const HORIZONTAL_THRESHOLD = 1.5; // Ширина > высота*1.5
 
-// 🔥 НОВЫЙ МЕТОД: Интеллектуальная нормализация угла
-normalizeAngleForFootprint(angleDeg, aspectRatio) {
-    // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
-    // Если след вертикальный и угол близок к 0°, корректируем на 90°
-    // Если след горизонтальный и угол близок к 90°, корректируем на 0°
-   
-    const VERTICAL_THRESHOLD = 0.7;   // Высота > ширина/0.7
-    const HORIZONTAL_THRESHOLD = 1.5; // Ширина > высота*1.5
-   
-    let normalizedAngle = angleDeg;
-   
-    // Нормализуем к [-90°, 90°]
-    if (normalizedAngle > 90) normalizedAngle -= 180;
-    if (normalizedAngle < -90) normalizedAngle += 180;
-   
-    // 🔥 АВТОКОРРЕКЦИЯ на основе пропорций
-    if (aspectRatio < VERTICAL_THRESHOLD) {
-        // След вертикальный
-        if (Math.abs(normalizedAngle) < 45) {
-            console.log(`   📏 Вертикальный след (ratio: ${aspectRatio.toFixed(2)}), ` +
-                       `но угол ${normalizedAngle.toFixed(1)}° близок к 0°`);
-            console.log(`   🔧 Корректирую на 90° для удобства сравнения`);
-            normalizedAngle += 90;
+        let normalizedAngle = angleDeg;
+
+        // Нормализуем к [-90°, 90°]
+        if (normalizedAngle > 90) normalizedAngle -= 180;
+        if (normalizedAngle < -90) normalizedAngle += 180;
+
+        // 🔥 АВТОКОРРЕКЦИЯ на основе пропорций
+        if (aspectRatio < VERTICAL_THRESHOLD) {
+            // След вертикальный
+            if (Math.abs(normalizedAngle) < 45) {
+                console.log(`   📏 Вертикальный след (ratio: ${this.safeToFixed(aspectRatio, 2)}), ` +
+                           `но угол ${this.safeToFixed(normalizedAngle)}° близок к 0°`);
+                console.log(`   🔧 Корректирую на 90° для удобства сравнения`);
+                normalizedAngle += 90;
+            }
+        } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
+            // След горизонтальный
+            if (Math.abs(normalizedAngle) > 45) {
+                console.log(`   📏 Горизонтальный след (ratio: ${this.safeToFixed(aspectRatio, 2)}), ` +
+                           `но угол ${this.safeToFixed(normalizedAngle)}° близок к 90°`);
+                console.log(`   🔧 Корректирую на -90° для удобства сравнения`);
+                normalizedAngle -= 90;
+            }
         }
-    } else if (aspectRatio > HORIZONTAL_THRESHOLD) {
-        // След горизонтальный
-        if (Math.abs(normalizedAngle) > 45) {
-            console.log(`   📏 Горизонтальный след (ratio: ${aspectRatio.toFixed(2)}), ` +
-                       `но угол ${normalizedAngle.toFixed(1)}° близок к 90°`);
-            console.log(`   🔧 Корректирую на -90° для удобства сравнения`);
-            normalizedAngle -= 90;
-        }
+
+        // Финальная нормализация к [-90°, 90°]
+        if (normalizedAngle > 90) normalizedAngle -= 180;
+        if (normalizedAngle < -90) normalizedAngle += 180;
+
+        return normalizedAngle;
     }
-   
-    // Финальная нормализация к [-90°, 90°]
-    if (normalizedAngle > 90) normalizedAngle -= 180;
-    if (normalizedAngle < -90) normalizedAngle += 180;
-   
-    return normalizedAngle;
-}
 
     // Метод: Определение зеркальности С ОТЛАДКОЙ
     detectMirroring(points) {
@@ -723,7 +713,7 @@ normalizeAngleForFootprint(angleDeg, aspectRatio) {
         console.log(`   Количество точек: ${points.length}`);
 
         const center = this.calculateCenter(points);
-        console.log(`   Центр: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+        console.log(`   Центр: (${this.safeToFixed(center.x)}, ${this.safeToFixed(center.y)})`);
 
         // Разделяем точки на левую и правую половины
         const leftPoints = points.filter(p => p.x < center.x);
@@ -809,9 +799,9 @@ normalizeAngleForFootprint(angleDeg, aspectRatio) {
         }
 
         const trans = graph.transformation;
-        console.log(`   Угол: ${trans.rotationAngle.toFixed(1)}°`);
+        console.log(`   Угол: ${this.safeToFixed(trans.rotationAngle)}°`);
         console.log(`   Зеркало: ${trans.isMirrored ? 'ДА' : 'НЕТ'}`);
-        console.log(`   Центр: (${trans.center.x.toFixed(1)}, ${trans.center.y.toFixed(1)})`);
+        console.log(`   Центр: (${this.safeToFixed(trans.center.x)}, ${this.safeToFixed(trans.center.y)})`);
         console.log(`   Тип: ${trans.type}`);
         console.log(`   Время: ${trans.timestamp}`);
 
@@ -836,7 +826,7 @@ normalizeAngleForFootprint(angleDeg, aspectRatio) {
     // 🔥 НОВЫЙ МЕТОД: Тестовый поворот точки
     testRotation(point, angle) {
         console.log(`\n🧪 ТЕСТ ПОВОРОТА ТОЧКИ:`);
-        console.log(`   Точка: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+        console.log(`   Точка: (${this.safeToFixed(point.x)}, ${this.safeToFixed(point.y)})`);
         console.log(`   Угол: ${angle}°`);
 
         const angleRad = angle * (Math.PI / 180);
@@ -846,8 +836,8 @@ normalizeAngleForFootprint(angleDeg, aspectRatio) {
         const rotatedX = point.x * cosA - point.y * sinA;
         const rotatedY = point.x * sinA + point.y * cosA;
 
-        console.log(`   Результат: (${rotatedX.toFixed(1)}, ${rotatedY.toFixed(1)})`);
-        console.log(`   Смещение: ΔX=${(rotatedX - point.x).toFixed(1)}, ΔY=${(rotatedY - point.y).toFixed(1)}`);
+        console.log(`   Результат: (${this.safeToFixed(rotatedX)}, ${this.safeToFixed(rotatedY)})`);
+        console.log(`   Смещение: ΔX=${this.safeToFixed(rotatedX - point.x)}, ΔY=${this.safeToFixed(rotatedY - point.y)}`);
 
         return { x: rotatedX, y: rotatedY };
     }
@@ -863,7 +853,7 @@ normalizeAngleForFootprint(angleDeg, aspectRatio) {
         const sinA = Math.sin(angleRad);
 
         const center = this.calculateCenter(Array.from(graph.nodes.values()));
-        console.log(`   Центр вращения: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+        console.log(`   Центр вращения: (${this.safeToFixed(center.x)}, ${this.safeToFixed(center.y)})`);
 
         // Создаем копию графа
         const SimpleGraph = require('./simple-graph');
@@ -954,8 +944,8 @@ normalizeAngleForFootprint(angleDeg, aspectRatio) {
 
         if (hasTrans1 && hasTrans2) {
             console.log(`   Оба графа имеют трансформации`);
-            console.log(`   Угол 1: ${graph1.transformation.rotationAngle.toFixed(1)}°`);
-            console.log(`   Угол 2: ${graph2.transformation.rotationAngle.toFixed(1)}°`);
+            console.log(`   Угол 1: ${this.safeToFixed(graph1.transformation.rotationAngle)}°`);
+            console.log(`   Угол 2: ${this.safeToFixed(graph2.transformation.rotationAngle)}°`);
         }
 
         // 🔥 ПРОСТОЕ СРАВНЕНИЕ БЕЗ СОЗДАНИЯ SimpleGraphMatcher
@@ -977,9 +967,9 @@ normalizeAngleForFootprint(angleDeg, aspectRatio) {
             Math.pow(center2.y - center1.y, 2)
         );
 
-        console.log(`   Центр 1: (${center1.x.toFixed(1)}, ${center1.y.toFixed(1)})`);
-        console.log(`   Центр 2: (${center2.x.toFixed(1)}, ${center2.y.toFixed(1)})`);
-        console.log(`   Расстояние между центрами: ${centerDistance.toFixed(1)}px`);
+        console.log(`   Центр 1: (${this.safeToFixed(center1.x)}, ${this.safeToFixed(center1.y)})`);
+        console.log(`   Центр 2: (${this.safeToFixed(center2.x)}, ${this.safeToFixed(center2.y)})`);
+        console.log(`   Расстояние между центрами: ${this.safeToFixed(centerDistance)}px`);
 
         // 3. Простая оценка схожести
         const sizeSimilarity = Math.max(0, Math.min(1, nodeRatio));
@@ -1453,108 +1443,108 @@ normalizeAngleForFootprint(angleDeg, aspectRatio) {
         return bestScore;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
-alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
-    console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
-    console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
-    console.log(`   Количество точек: ${points.length}`);
+    // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
+    alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
+        console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
+        console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
+        console.log(`   Количество точек: ${points.length}`);
 
-    if (points.length === 0) {
-        console.log('⚠️ Нет точек для выравнивания');
-        return points;
-    }
+        if (points.length === 0) {
+            console.log('⚠️ Нет точек для выравнивания');
+            return points;
+        }
 
-    const currentCenter = this.calculateCenter(points);
-    console.log(`   Текущий центр: (${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)})`);
+        const currentCenter = this.calculateCenter(points);
+        console.log(`   Текущий центр: (${this.safeToFixed(currentCenter.x)}, ${this.safeToFixed(currentCenter.y)})`);
 
-    const offsetX = targetCenter.x - currentCenter.x;
-    const offsetY = targetCenter.y - currentCenter.y;
+        const offsetX = targetCenter.x - currentCenter.x;
+        const offsetY = targetCenter.y - currentCenter.y;
 
-    console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+        console.log(`   Смещение: (${this.safeToFixed(offsetX)}, ${this.safeToFixed(offsetY)})`);
 
-    const alignedPoints = points.map(point => ({
-        ...point,
-        x: point.x + offsetX,
-        y: point.y + offsetY,
-        originalX: point.x,
-        originalY: point.y,
-        offsetApplied: { x: offsetX, y: offsetY }
-    }));
-
-    // Проверка после выравнивания
-    const alignedCenter = this.calculateCenter(alignedPoints);
-    const centerDistance = Math.sqrt(
-        Math.pow(alignedCenter.x - targetCenter.x, 2) +
-        Math.pow(alignedCenter.y - targetCenter.y, 2)
-    );
-
-    console.log(`   Центр после выравнивания: (${alignedCenter.x.toFixed(1)}, ${alignedCenter.y.toFixed(1)})`);
-    console.log(`   Отклонение от цели: ${centerDistance.toFixed(1)}px`);
-
-    if (centerDistance > 10) {
-        console.log(`⚠️ Центр все еще далеко от цели: ${centerDistance.toFixed(1)}px`);
-    }
-
-    return alignedPoints;
-}  
-
-// 🔥 НОВЫЙ МЕТОД: Простое преобразование для произвольных углов
-transformPointsSimple(points, fromAngle, toAngle) {
-    console.log(`\n🔄 ПРОСТОЕ ПРЕОБРАЗОВАНИЕ: ${fromAngle.toFixed(1)}° → ${toAngle.toFixed(1)}°`);
-   
-    const center = this.calculateCenter(points);
-    const deltaAngle = (toAngle - fromAngle) * Math.PI / 180;
-    const cos = Math.cos(deltaAngle);
-    const sin = Math.sin(deltaAngle);
-   
-    const transformed = points.map(point => {
-        // Сдвигаем к центру
-        const x = point.x - center.x;
-        const y = point.y - center.y;
-       
-        // Поворачиваем
-        const rotatedX = x * cos - y * sin;
-        const rotatedY = x * sin + y * cos;
-       
-        // Возвращаем обратно
-        return {
+        const alignedPoints = points.map(point => ({
             ...point,
-            x: rotatedX + center.x,
-            y: rotatedY + center.y
-        };
-    });
-   
-    return transformed;
-}
+            x: point.x + offsetX,
+            y: point.y + offsetY,
+            originalX: point.x,
+            originalY: point.y,
+            offsetApplied: { x: offsetX, y: offsetY }
+        }));
 
-// 🔥 ОБНОВЛЕННЫЙ метод getPointsInNormalizedSystem в simple-footprint.js:
-getPointsInNormalizedSystem() {
-    console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
-   
-    const points = this.getPointsInMySystem();
-   
-    if (!this.transformation || points.length === 0) {
-        return points;
+        // Проверка после выравнивания
+        const alignedCenter = this.calculateCenter(alignedPoints);
+        const centerDistance = Math.sqrt(
+            Math.pow(alignedCenter.x - targetCenter.x, 2) +
+            Math.pow(alignedCenter.y - targetCenter.y, 2)
+        );
+
+        console.log(`   Центр после выравнивания: (${this.safeToFixed(alignedCenter.x)}, ${this.safeToFixed(alignedCenter.y)})`);
+        console.log(`   Отклонение от цели: ${this.safeToFixed(centerDistance)}px`);
+
+        if (centerDistance > 10) {
+            console.log(`⚠️ Центр все еще далеко от цели: ${this.safeToFixed(centerDistance)}px`);
+        }
+
+        return alignedPoints;
     }
-   
-    const currentAngle = this.transformation.rotationAngle || 0;
-    console.log(`📐 Текущий угол: ${currentAngle}°, нормализую к 0°`);
-   
-    // 🔥 ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ метод для поворота
-    const RotationInvariance = require('./rotation-invariance');
-    const processor = new RotationInvariance({ debug: false });
-   
-    // 1. Просто поворачиваем к 0°
-    const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
-   
-    // 2. Центрируем
-    const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints);
-   
-    console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
-   
-    return centeredPoints;
-}      
-      
+
+    // 🔥 НОВЫЙ МЕТОД: Простое преобразование для произвольных углов
+    transformPointsSimple(points, fromAngle, toAngle) {
+        console.log(`\n🔄 ПРОСТОЕ ПРЕОБРАЗОВАНИЕ: ${this.safeToFixed(fromAngle)}° → ${this.safeToFixed(toAngle)}°`);
+
+        const center = this.calculateCenter(points);
+        const deltaAngle = (toAngle - fromAngle) * Math.PI / 180;
+        const cos = Math.cos(deltaAngle);
+        const sin = Math.sin(deltaAngle);
+
+        const transformed = points.map(point => {
+            // Сдвигаем к центру
+            const x = point.x - center.x;
+            const y = point.y - center.y;
+
+            // Поворачиваем
+            const rotatedX = x * cos - y * sin;
+            const rotatedY = x * sin + y * cos;
+
+            // Возвращаем обратно
+            return {
+                ...point,
+                x: rotatedX + center.x,
+                y: rotatedY + center.y
+            };
+        });
+
+        return transformed;
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ метод getPointsInNormalizedSystem в simple-footprint.js:
+    getPointsInNormalizedSystem() {
+        console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
+
+        const points = this.getPointsInMySystem();
+
+        if (!this.transformation || points.length === 0) {
+            return points;
+        }
+
+        const currentAngle = this.transformation.rotationAngle || 0;
+        console.log(`📐 Текущий угол: ${currentAngle}°, нормализую к 0°`);
+
+        // 🔥 ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ метод для поворота
+        const RotationInvariance = require('./rotation-invariance');
+        const processor = new RotationInvariance({ debug: false });
+
+        // 1. Просто поворачиваем к 0°
+        const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
+
+        // 2. Центрируем
+        const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints);
+
+        console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
+
+        return centeredPoints;
+    }
+
 }
 
 module.exports = RotationInvariance;
