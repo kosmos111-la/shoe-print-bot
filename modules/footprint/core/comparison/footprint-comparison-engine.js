@@ -10,7 +10,7 @@ class FootprintComparisonEngine {
        
         // Импорты для зависимостей
         this.RotationInvariance = require('../../rotation-invariance');
-        this.SimpleGraph = require('../simple-graph');
+        this.SimpleGraph = require('../../simple-graph');
     }
 
     // 🔥 ОСНОВНОЙ МЕТОД СРАВНЕНИЯ С ИСПОЛЬЗОВАНИЕМ ВЫНЕСЕННЫХ МОДУЛЕЙ
