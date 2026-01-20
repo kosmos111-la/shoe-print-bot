@@ -364,15 +364,15 @@ class SimpleFootprintManager {
             try {
                 // 3. Отправка отпечатка
                 if (firstPhotoViz && firstPhotoViz.path && fs.existsSync(firstPhotoViz.path)) {
-                    let caption = `👣 **ПЕРВЫЙ СЛЕД СОЗДАН**\n\n`;
-                    caption += `📊 Извлечено: ${addResult.added} точек\n`;
-                    caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
-                    caption += `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
-                    caption += `✅ Создан шаблон для накопления деталей`;
+                    let caption = `ПЕРВЫЙ СЛЕД СОЗДАН\n\n`;
+                    caption += `Извлечено: ${addResult.added} точек\n`;
+                    caption += `Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                    caption += `Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
+                    caption += `Создан шаблон для накопления деталей`;
 
                     await bot.sendPhoto(chatId, firstPhotoViz.path, {
                         caption: caption,
-                        parse_mode: 'Markdown'
+                        parse_mode: null  // 🔥 ОТКЛЮЧИТЬ MARKDOWN ПАРСИНГ
                     });
 
                     console.log('✅ Визуализация первого следа отправлена');
@@ -385,14 +385,14 @@ class SimpleFootprintManager {
                     const templateData = vectorModel.templateBuilder.getVisualizationData();
                     const stats = templateData?.stats || {};
 
-                    let templateCaption = `📊 **ШАБЛОН СОЗДАН**\n\n`;
-                    templateCaption += `📋 Ячеек: ${stats.cells || 0}\n`;
-                    templateCaption += `🎯 Эталонный граф: ${templateData.referenceGraphId?.slice(0, 8) || 'создан'}\n`;
-                    templateCaption += `📈 Система готова к накоплению деталей`;
+                    let templateCaption = `ШАБЛОН СОЗДАН\n\n`;
+                    templateCaption += `Ячеек: ${stats.cells || 0}\n`;
+                    templateCaption += `Эталонный граф: ${templateData.referenceGraphId?.slice(0, 8) || 'создан'}\n`;
+                    templateCaption += `Система готова к накоплению деталей`;
 
                     await bot.sendPhoto(chatId, templateVizResult.template, {
                         caption: templateCaption,
-                        parse_mode: 'Markdown'
+                        parse_mode: null  // 🔥 ОТКЛЮЧИТЬ MARKDOWN ПАРСИНГ
                     });
 
                     console.log('✅ Визуализация шаблона отправлена');
@@ -425,12 +425,15 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 ОБРАБОТКА ПОСЛЕДУЮЩИХ ФОТО
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ОБРАБОТКА ПОСЛЕДУЮЩИХ ФОТО
     async handleSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`🔍 Проверяю совпадение с существующим отпечатком`);
 
         const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
-                                         session.currentFootprint.getTransformation();
+                                          session.currentFootprint.getTransformation();
+
+        // 🔥 ИСПРАВЛЕНИЕ: ОБЪЯВЛЯЕМ tempResult ЗДЕСЬ!
+        let tempResult = null;
 
         // Создание временного отпечатка для сравнения
         const SimpleFootprint = require('./simple-footprint');
@@ -440,7 +443,9 @@ class SimpleFootprintManager {
         });
 
         tempFootprint.metadata.normalizationInfo = transformationInfo;
-        const tempResult = tempFootprint.addAnalysisHonest(analysis, {
+
+        // 🔥 ТЕПЕРЬ tempResult ДОСТУПНА ВЕЗДЕ В ЭТОМ МЕТОДЕ
+        tempResult = tempFootprint.addAnalysisHonest(analysis, {
             ...photoInfo,
             normalizedGraph: finalGraph,
             photoId: photoInfo.photoId || `photo_${Date.now()}_temp`,
@@ -460,9 +465,10 @@ class SimpleFootprintManager {
         console.log(`🎯 Сходство: ${similarity.toFixed(3)}, решение: ${decision}`);
 
         if (decision === 'same') {
+            // 🔥 ПЕРЕДАЕМ tempResult В handleMatchingFootprint
             return await this.handleMatchingFootprint(
                 session, userId, tempFootprint, finalGraph, transformationInfo,
-                existingTransformationInfo, similarity, comparisonResult, bot, chatId
+                existingTransformationInfo, similarity, comparisonResult, tempResult, bot, chatId
             );
         } else {
             return await this.handleNewFootprint(
@@ -472,10 +478,13 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ОБРАБОТКА СОВПАДАЮЩИХ СЛЕДОВ
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: ОБРАБОТКА СОВПАДАЮЩИХ СЛЕДОВ
     async handleMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
-                                 existingTransformationInfo, similarity, comparisonResult, bot, chatId) {
+                                existingTransformationInfo, similarity, comparisonResult, tempResult, bot, chatId) {
         console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+
+        // 🔥 ТЕПЕРЬ tempResult ДОСТУПНА!
+        console.log(`📊 Временный отпечаток: ${tempResult.added} точек добавлено`);
 
         // Работа с шаблоном
         let vectorModel = this.vectorSuperModels.get(userId);
@@ -561,18 +570,18 @@ class SimpleFootprintManager {
             // 3. Отправка подтверждений
             if (clusterVizResult?.path && fs.existsSync(clusterVizResult.path)) {
                 const stats = this.calculateConfirmationStats(session.currentFootprint);
-                let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
-                caption += `📊 Сходство: ${(comparisonResult.similarity * 100).toFixed(1)}%\n`;
-                caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
-                caption += `🔄 Метод: ${comparisonResult.method || 'pattern_based'}\n\n`;
-                caption += `📈 СТАТИСТИКА (после ${session.photos.length} фото):\n`;
+                let caption = `РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
+                caption += `Сходство: ${(comparisonResult.similarity * 100).toFixed(1)}%\n`;
+                caption += `Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                caption += `Метод: ${comparisonResult.method || 'pattern_based'}\n\n`;
+                caption += `СТАТИСТИКА (после ${session.photos.length} фото):\n`;
                 caption += `• Всего точек: ${stats.totalPoints}\n`;
                 caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
                 caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
                 caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}`;
 
                 try {
-                    await bot.sendPhoto(chatId, clusterVizResult.path, { caption: caption });
+                    await bot.sendPhoto(chatId, clusterVizResult.path, { caption: caption, parse_mode: null });
                     telegramSent = true;
                     console.log('✅ Визуализация подтверждений отправлена');
                 } catch (error) {
@@ -584,14 +593,15 @@ class SimpleFootprintManager {
             if (templateVizResult?.template && fs.existsSync(templateVizResult.template)) {
                 try {
                     const templateStats = templateVizResult.stats || {};
-                    let templateCaption = `📊 ШАБЛОН ПОСЛЕ ${session.photos.length} ФОТО\n\n`;
-                    templateCaption += `📋 Ячеек: ${templateStats.cells || 0}\n`;
-                    templateCaption += `✅ Подтверждений: ${templateStats.totalConfirmations || 0}\n`;
-                    templateCaption += `📈 Среднее: ${templateStats.averageConfirmations?.toFixed(2) || '0.00'}\n\n`;
-                    templateCaption += `🔍 Накопление деталей работает`;
+                    let templateCaption = `ШАБЛОН ПОСЛЕ ${session.photos.length} ФОТО\n\n`;
+                    templateCaption += `Ячеек: ${templateStats.cells || 0}\n`;
+                    templateCaption += `Подтверждений: ${templateStats.totalConfirmations || 0}\n`;
+                    templateCaption += `Среднее: ${templateStats.averageConfirmations?.toFixed(2) || '0.00'}\n\n`;
+                    templateCaption += `Накопление деталей работает`;
 
                     await bot.sendPhoto(chatId, templateVizResult.template, {
-                        caption: templateCaption
+                        caption: templateCaption,
+                        parse_mode: null
                     });
 
                     templateSent = true;
