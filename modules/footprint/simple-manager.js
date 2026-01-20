@@ -1,5 +1,5 @@
-// modules/footprint/simple-manager.js
-// 🔥 ФИНАЛЬНАЯ ВЕРСИЯ (350 строк)
+/ modules/footprint/simple-manager.js
+// 🔥 ФИНАЛЬНАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ ВИЗУАЛИЗАЦИЙ
 
 const fs = require('fs');
 const path = require('path');
@@ -69,6 +69,21 @@ class SimpleFootprintManager {
         this.sessionManager = new SessionManager(this);
         this.visualizationManager = new VisualizationManager(this);
         this.geometryUtils = new GeometryUtils(this);
+
+        // 🔥 ПРОВЕРКА МОДУЛЕЙ
+        console.log(`🔍 ПРОВЕРКА МОДУЛЕЙ:`);
+        console.log(`   - comparisonEngine: ${this.comparisonEngine ? '✅' : '❌'}`);
+        console.log(`   - templateCoordinator: ${this.templateCoordinator ? '✅' : '❌'}`);
+        console.log(`   - sessionManager: ${this.sessionManager ? '✅' : '❌'}`);
+        console.log(`   - visualizationManager: ${this.visualizationManager ? '✅' : '❌'}`);
+        console.log(`   - geometryUtils: ${this.geometryUtils ? '✅' : '❌'}`);
+
+        // 🔥 ПРОВЕРКА МЕТОДОВ ВИЗУАЛИЗАЦИИ
+        if (this.visualizationManager) {
+            console.log(`🔍 МЕТОДЫ ВИЗУАЛИЗАЦИИ:`);
+            console.log(`   - visualizeSingleFootprintConfirmations: ${typeof this.visualizationManager.visualizeSingleFootprintConfirmations === 'function' ? '✅' : '❌'}`);
+            console.log(`   - visualizeVectorSuperModel: ${typeof this.visualizationManager.visualizeVectorSuperModel === 'function' ? '✅' : '❌'}`);
+        }
 
         // Инициализация остальных компонентов
         this.mergeVisualizer = new MergeVisualizer({
@@ -285,7 +300,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ОБРАБОТКА ПЕРВОГО ФОТО
+    // 🔥 ОБРАБОТКА ПЕРВОГО ФОТО (исправленная версия)
     async handleFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
 
@@ -325,14 +340,75 @@ class SimpleFootprintManager {
         console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
         console.log(`✅ Создан шаблон с ${vectorModel.templateBuilder.getVisualizationData()?.cells?.length || 0} ячейками`);
 
-        // Визуализация
+        // 🔥 ВИЗУАЛИЗАЦИЯ И ОТПРАВКА ПЕРВОГО СЛЕДА
         let firstPhotoViz = null;
+        let templateVizResult = null;
+
         if (bot && chatId && this.config.enableMergeVisualization) {
+            console.log(`🎨 Создаю визуализацию для первого фото...`);
+
+            // 1. Визуализация отпечатка
             firstPhotoViz = await this.visualizeSingleFootprintConfirmations(
                 session.currentFootprint,
                 userId,
                 transformationInfo
             );
+
+            // 2. Визуализация шаблона (если включено)
+            if (this.config.enableTemplateVisualization) {
+                console.log(`🎨 Создаю визуализацию шаблона...`);
+                templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
+            }
+
+            // 🔥 ОТПРАВКА В TELEGRAM
+            try {
+                // 3. Отправка отпечатка
+                if (firstPhotoViz && firstPhotoViz.path && fs.existsSync(firstPhotoViz.path)) {
+                    let caption = `👣 **ПЕРВЫЙ СЛЕД СОЗДАН**\n\n`;
+                    caption += `📊 Извлечено: ${addResult.added} точек\n`;
+                    caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                    caption += `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
+                    caption += `✅ Создан шаблон для накопления деталей`;
+
+                    await bot.sendPhoto(chatId, firstPhotoViz.path, {
+                        caption: caption,
+                        parse_mode: 'Markdown'
+                    });
+
+                    console.log('✅ Визуализация первого следа отправлена');
+                } else {
+                    console.log('⚠️ Визуализация отпечатка не создана');
+                }
+
+                // 4. Отправка шаблона
+                if (templateVizResult && templateVizResult.template && fs.existsSync(templateVizResult.template)) {
+                    const templateData = vectorModel.templateBuilder.getVisualizationData();
+                    const stats = templateData?.stats || {};
+
+                    let templateCaption = `📊 **ШАБЛОН СОЗДАН**\n\n`;
+                    templateCaption += `📋 Ячеек: ${stats.cells || 0}\n`;
+                    templateCaption += `🎯 Эталонный граф: ${templateData.referenceGraphId?.slice(0, 8) || 'создан'}\n`;
+                    templateCaption += `📈 Система готова к накоплению деталей`;
+
+                    await bot.sendPhoto(chatId, templateVizResult.template, {
+                        caption: templateCaption,
+                        parse_mode: 'Markdown'
+                    });
+
+                    console.log('✅ Визуализация шаблона отправлена');
+                } else {
+                    console.log('⚠️ Визуализация шаблона не создана');
+                }
+
+            } catch (sendError) {
+                console.log('❌ Ошибка отправки в Telegram:', sendError.message);
+            }
+        } else {
+            console.log(`⏭️ Визуализация пропущена:`, {
+                bot: !!bot,
+                chatId: !!chatId,
+                enableMergeVisualization: this.config.enableMergeVisualization
+            });
         }
 
         return {
@@ -344,7 +420,8 @@ class SimpleFootprintManager {
             totalNodes: session.currentFootprint.graph.nodes.size,
             sessionId: session.id,
             hasTemplate: true,
-            hasVisualization: !!firstPhotoViz
+            hasVisualization: !!firstPhotoViz,
+            hasTemplateViz: !!templateVizResult
         };
     }
 
@@ -448,19 +525,23 @@ class SimpleFootprintManager {
             message: `✅ След добавлен! Сходство: ${(similarity * 100).toFixed(1)}%`,
             hasVisualization: visualizationResults.hasVisualization,
             telegramSent: visualizationResults.telegramSent,
+            templateSent: visualizationResults.templateSent,
             pointsUpdated: updatedFromTemplate + directUpdates,
             realStats: stats,
             totalPhotos: session.photos.length
         };
     }
 
-    // 🔥 СОЗДАНИЕ ВИЗУАЛИЗАЦИЙ
+    // 🔥 СОЗДАНИЕ ВИЗУАЛИЗАЦИЙ (исправленная версия)
     async createVisualizations(session, userId, transformationInfo, existingTransformationInfo,
                               comparisonResult, vectorModel, bot, chatId) {
         let clusterVizResult = null;
+        let templateVizResult = null;
         let telegramSent = false;
+        let templateSent = false;
 
         if (this.config.enableMergeVisualization && bot && chatId) {
+            // 1. Визуализация подтверждений
             clusterVizResult = await this.visualizeSingleFootprintConfirmations(
                 session.currentFootprint,
                 userId,
@@ -471,6 +552,13 @@ class SimpleFootprintManager {
                 }
             );
 
+            // 2. Визуализация шаблона (если включено)
+            if (this.config.enableTemplateVisualization && vectorModel) {
+                console.log(`🎨 Создаю визуализацию шаблона...`);
+                templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
+            }
+
+            // 3. Отправка подтверждений
             if (clusterVizResult?.path && fs.existsSync(clusterVizResult.path)) {
                 const stats = this.calculateConfirmationStats(session.currentFootprint);
                 let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
@@ -486,15 +574,38 @@ class SimpleFootprintManager {
                 try {
                     await bot.sendPhoto(chatId, clusterVizResult.path, { caption: caption });
                     telegramSent = true;
+                    console.log('✅ Визуализация подтверждений отправлена');
                 } catch (error) {
                     console.log('❌ Ошибка отправки визуализации:', error.message);
+                }
+            }
+
+            // 4. Отправка шаблона
+            if (templateVizResult?.template && fs.existsSync(templateVizResult.template)) {
+                try {
+                    const templateStats = templateVizResult.stats || {};
+                    let templateCaption = `📊 ШАБЛОН ПОСЛЕ ${session.photos.length} ФОТО\n\n`;
+                    templateCaption += `📋 Ячеек: ${templateStats.cells || 0}\n`;
+                    templateCaption += `✅ Подтверждений: ${templateStats.totalConfirmations || 0}\n`;
+                    templateCaption += `📈 Среднее: ${templateStats.averageConfirmations?.toFixed(2) || '0.00'}\n\n`;
+                    templateCaption += `🔍 Накопление деталей работает`;
+
+                    await bot.sendPhoto(chatId, templateVizResult.template, {
+                        caption: templateCaption
+                    });
+
+                    templateSent = true;
+                    console.log('✅ Визуализация шаблона отправлена');
+                } catch (error) {
+                    console.log('❌ Ошибка отправки шаблона:', error.message);
                 }
             }
         }
 
         return {
             hasVisualization: !!clusterVizResult,
-            telegramSent: telegramSent
+            telegramSent: telegramSent,
+            templateSent: templateSent
         };
     }
 
