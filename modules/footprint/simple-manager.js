@@ -242,6 +242,18 @@ class SimpleFootprintManager {
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО с сохранением трансформации и накоплением`);
 
+        // Шаг 3: Проверяем что визуализация включена
+        console.log(`🔍 НАСТРОЙКИ СИСТЕМЫ:`);
+        console.log(`   - enableMergeVisualization: ${this.config.enableMergeVisualization}`);
+        console.log(`   - enableTemplateVisualization: ${this.config.enableTemplateVisualization}`);
+        console.log(`   - debug: ${this.config.debug}`);
+
+        // Если визуализация отключена, включаем ее временно
+        if (this.config.enableMergeVisualization === false) {
+            console.log(`⚠️ Визуализация отключена в настройках! Включаю временно...`);
+            this.config.enableMergeVisualization = true;
+        }
+
         try {
             if (!analysis || !analysis.predictions) {
                 return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
@@ -361,33 +373,77 @@ class SimpleFootprintManager {
                 console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
                 console.log(`✅ Создан шаблон с ${vectorModel.templateBuilder.getVisualizationData()?.cells?.length || 0} ячейками`);
 
-                // 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ ДЛЯ ПЕРВОГО ФОТО
+                // 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ ДЛЯ ПЕРВОГО ФОТО (Шаг 1 из инструкции)
                 let firstPhotoViz = null;
                 if (bot && chatId && this.config.enableMergeVisualization) {
-                    console.log(`🎨 Создаю визуализацию для первого фото...`);
-                    firstPhotoViz = await this.visualizeSingleFootprintConfirmationsQuickFix(
-    session.currentFootprint,
-    userId,
-    transformationInfo
-);
+                    // 🔥 ДЕБАГ: Проверяем настройки визуализации
+                    console.log(`🔍 НАСТРОЙКИ ВИЗУАЛИЗАЦИИ:`);
+                    console.log(`   - enableMergeVisualization: ${this.config.enableMergeVisualization}`);
+                    console.log(`   - bot exists: ${!!bot}`);
+                    console.log(`   - chatId: ${chatId}`);
+                    console.log(`   - visualizationManager exists: ${!!this.visualizationManager}`);
 
-                    if (firstPhotoViz && firstPhotoViz.path) {
-                        try {
-                            let caption = `👣 **ПЕРВЫЙ СЛЕД СОЗДАН**\n\n`;
-                            caption += `📊 Извлечено: ${addResult.added} точек\n`;
-                            caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
-                            caption += `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
-                            caption += `✅ Создан шаблон для накопления деталей`;
+                    console.log(`🎨 СОЗДАЮ ВИЗУАЛИЗАЦИЮ ДЛЯ ПЕРВОГО ФОТО...`);
 
-                            await bot.sendPhoto(chatId, firstPhotoViz.path, {
-                                caption: caption,
-                                parse_mode: 'Markdown'
-                            });
-                            console.log('✅ Визуализация первого следа отправлена');
-                        } catch (sendError) {
-                            console.log('❌ Ошибка отправки первого фото:', sendError.message);
+                    try {
+                        // Пробуем разные методы
+                        if (this.visualizationManager && this.visualizationManager.visualizeSingleFootprintConfirmations) {
+                            console.log(`🔧 Использую visualizationManager...`);
+                            firstPhotoViz = await this.visualizationManager.visualizeSingleFootprintConfirmations(
+                                session.currentFootprint,
+                                userId,
+                                transformationInfo
+                            );
+                        } else if (this.visualizeSingleFootprintConfirmationsQuickFix) {
+                            console.log(`🔧 Использую quick fix...`);
+                            firstPhotoViz = await this.visualizeSingleFootprintConfirmationsQuickFix(
+                                session.currentFootprint,
+                                userId,
+                                transformationInfo
+                            );
+                        } else {
+                            console.log(`🔧 Создаю простую визуализацию напрямую...`);
+                            firstPhotoViz = await this.createSimpleVisualization(
+                                session.currentFootprint,
+                                userId,
+                                transformationInfo
+                            );
                         }
+
+                        console.log(`📊 Результат визуализации:`, firstPhotoViz ? 'SUCCESS' : 'FAILED');
+
+                        if (firstPhotoViz && firstPhotoViz.path) {
+                            console.log(`📁 Путь к файлу: ${firstPhotoViz.path}`);
+                            console.log(`📏 Файл существует: ${fs.existsSync(firstPhotoViz.path) ? 'да' : 'нет'}`);
+
+                            try {
+                                let caption = `👣 **ПЕРВЫЙ СЛЕД СОЗДАН**\n\n`;
+                                caption += `📊 Извлечено: ${addResult.added} точек\n`;
+                                caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                                caption += `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
+                                caption += `✅ Создан шаблон для накопления деталей`;
+
+                                await bot.sendPhoto(chatId, firstPhotoViz.path, {
+                                    caption: caption,
+                                    parse_mode: 'Markdown'
+                                });
+                                console.log('✅ Визуализация первого следа отправлена');
+                            } catch (sendError) {
+                                console.log('❌ Ошибка отправки первого фото:', sendError.message);
+                                console.log('📋 Детали:', sendError.stack);
+                            }
+                        } else {
+                            console.log('⚠️ Визуализация не создана или путь отсутствует');
+                        }
+                    } catch (error) {
+                        console.log('❌ Ошибка создания визуализации:', error.message);
+                        console.error(error.stack);
                     }
+                } else {
+                    console.log(`⏭️ Визуализация пропущена. Причины:`);
+                    if (!bot) console.log(`   - Нет бота`);
+                    if (!chatId) console.log(`   - Нет chatId`);
+                    if (!this.config.enableMergeVisualization) console.log(`   - Визуализация отключена в настройках`);
                 }
 
                 return {
@@ -502,14 +558,14 @@ class SimpleFootprintManager {
                     console.log(`🎨 Создаю визуализацию подтверждений...`);
 
                     clusterVizResult = await this.visualizeSingleFootprintConfirmationsQuickFix(
-    session.currentFootprint,
-    userId,
-    {
-        currentTransformation: transformationInfo,
-        previousTransformation: existingTransformationInfo,
-        comparisonResult: comparisonResult
-    }
-);
+                        session.currentFootprint,
+                        userId,
+                        {
+                            currentTransformation: transformationInfo,
+                            previousTransformation: existingTransformationInfo,
+                            comparisonResult: comparisonResult
+                        }
+                    );
 
                     // 🔥 ВАЖНО: Проверяем результат визуализации
                     if (clusterVizResult && clusterVizResult.path) {
@@ -669,10 +725,10 @@ class SimpleFootprintManager {
                 if (bot && chatId && this.config.enableMergeVisualization) {
                     console.log(`🎨 Создаю визуализацию для нового следа...`);
                     newFootprintViz = await this.visualizeSingleFootprintConfirmationsQuickFix(
-    session.currentFootprint,
-    userId,
-    transformationInfo
-);
+                        session.currentFootprint,
+                        userId,
+                        transformationInfo
+                    );
 
                     if (newFootprintViz && newFootprintViz.path && fs.existsSync(newFootprintViz.path)) {
                         try {
@@ -711,118 +767,234 @@ class SimpleFootprintManager {
         }
     }
 
-// 🔥 ГОРЯЧИЙ ФИКС: Добавляем в simple-manager.js временный метод визуализации
-async visualizeSingleFootprintConfirmationsQuickFix(footprint, userId, transformationInfo = null) {
-    console.log(`🎨 БЫСТРАЯ ВИЗУАЛИЗАЦИЯ для "${footprint.name}"...`);
-   
-    try {
-        const path = require('path');
-        const fs = require('fs');
-       
-        // Проверяем, есть ли модуль визуализации
+    // 🔥 ГОРЯЧИЙ ФИКС: Добавляем в simple-manager.js временный метод визуализации
+    async visualizeSingleFootprintConfirmationsQuickFix(footprint, userId, transformationInfo = null) {
+        console.log(`🎨 БЫСТРАЯ ВИЗУАЛИЗАЦИЯ для "${footprint.name}"...`);
+
         try {
-            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
-            const visualizer = new ClusterVisualizer({
-                outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
-                debug: this.config.debug
-            });
+            const path = require('path');
+            const fs = require('fs');
 
-            const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
-                footprint,
-                {
-                    filename: `quick_fix_${userId}_${Date.now()}.png`,
-                    transformationInfo: transformationInfo
-                }
-            );
+            // Проверяем, есть ли модуль визуализации
+            try {
+                const ClusterVisualizer = require('./visualizations/cluster-visualizer');
+                const visualizer = new ClusterVisualizer({
+                    outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
+                    debug: this.config.debug
+                });
 
-            if (vizResult && vizResult.path) {
-                console.log(`✅ Визуализация создана: ${vizResult.path}`);
-                return vizResult;
-            }
-        } catch (vizError) {
-            console.log('⚠️ ClusterVisualizer не работает, создаем простую визуализацию...');
-        }
-       
-        // 🔥 ПРОСТАЯ ВИЗУАЛИЗАЦИЯ как фоллбэк
-        const { createCanvas } = require('canvas');
-        const canvas = createCanvas(800, 600);
-        const ctx = canvas.getContext('2d');
-       
-        // Белый фон
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, 800, 600);
-       
-        // Заголовок
-        ctx.fillStyle = 'black';
-        ctx.font = 'bold 20px Arial';
-        ctx.fillText(`След: ${footprint.name}`, 20, 30);
-       
-        // Подзаголовок
-        ctx.font = '14px Arial';
-        ctx.fillText(`Пользователь: ${userId}`, 20, 55);
-       
-        if (transformationInfo) {
-            ctx.fillText(`Угол: ${transformationInfo.rotationAngle?.toFixed(1)}°`, 20, 80);
-            ctx.fillText(`Зеркало: ${transformationInfo.isMirrored ? 'да' : 'нет'}`, 20, 105);
-        }
-       
-        // Рисуем точки
-        let pointCount = 0;
-        if (footprint.pointTracker && footprint.pointTracker.points) {
-            for (const [, point] of footprint.pointTracker.points) {
-                const x = 100 + (point.x % 600);
-                const y = 200 + (point.y % 400);
-               
-                // Цвет в зависимости от подтверждений
-                const confirmations = point.confirmedCount || 1;
-                if (confirmations >= 2) {
-                    ctx.fillStyle = 'red';
-                    ctx.fillRect(x, y, 6, 6);
-                } else if (confirmations >= 1) {
-                    ctx.fillStyle = 'blue';
-                    ctx.fillRect(x, y, 4, 4);
-                } else {
-                    ctx.fillStyle = 'gray';
-                    ctx.fillRect(x, y, 2, 2);
+                const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
+                    footprint,
+                    {
+                        filename: `quick_fix_${userId}_${Date.now()}.png`,
+                        transformationInfo: transformationInfo
+                    }
+                );
+
+                if (vizResult && vizResult.path) {
+                    console.log(`✅ Визуализация создана: ${vizResult.path}`);
+                    return vizResult;
                 }
-                pointCount++;
+            } catch (vizError) {
+                console.log('⚠️ ClusterVisualizer не работает, создаем простую визуализацию...');
             }
+
+            // 🔥 ПРОСТАЯ ВИЗУАЛИЗАЦИЯ как фоллбэк
+            const { createCanvas } = require('canvas');
+            const canvas = createCanvas(800, 600);
+            const ctx = canvas.getContext('2d');
+
+            // Белый фон
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, 800, 600);
+
+            // Заголовок
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText(`След: ${footprint.name}`, 20, 30);
+
+            // Подзаголовок
+            ctx.font = '14px Arial';
+            ctx.fillText(`Пользователь: ${userId}`, 20, 55);
+
+            if (transformationInfo) {
+                ctx.fillText(`Угол: ${transformationInfo.rotationAngle?.toFixed(1)}°`, 20, 80);
+                ctx.fillText(`Зеркало: ${transformationInfo.isMirrored ? 'да' : 'нет'}`, 20, 105);
+            }
+
+            // Рисуем точки
+            let pointCount = 0;
+            if (footprint.pointTracker && footprint.pointTracker.points) {
+                for (const [, point] of footprint.pointTracker.points) {
+                    const x = 100 + (point.x % 600);
+                    const y = 200 + (point.y % 400);
+
+                    // Цвет в зависимости от подтверждений
+                    const confirmations = point.confirmedCount || 1;
+                    if (confirmations >= 2) {
+                        ctx.fillStyle = 'red';
+                        ctx.fillRect(x, y, 6, 6);
+                    } else if (confirmations >= 1) {
+                        ctx.fillStyle = 'blue';
+                        ctx.fillRect(x, y, 4, 4);
+                    } else {
+                        ctx.fillStyle = 'gray';
+                        ctx.fillRect(x, y, 2, 2);
+                    }
+                    pointCount++;
+                }
+            }
+
+            // Статистика
+            ctx.fillStyle = 'green';
+            ctx.font = '16px Arial';
+            ctx.fillText(`Точек: ${pointCount}`, 600, 30);
+
+            const stats = this.calculateConfirmationStats(footprint);
+            ctx.fillText(`🔴 2+: ${stats.confirmed2}`, 600, 55);
+            ctx.fillText(`🔵 1: ${stats.confirmed1}`, 600, 80);
+            ctx.fillText(`⚪ 0: ${stats.confirmed0}`, 600, 105);
+
+            // Сохраняем файл
+            const outputDir = path.join(this.config.dbPath, 'visualizations/clusters');
+            if (!fs.existsSync(outputDir)) {
+                fs.mkdirSync(outputDir, { recursive: true });
+            }
+
+            const outputPath = path.join(outputDir, `quick_viz_${userId}_${Date.now()}.png`);
+            const buffer = canvas.toBuffer('image/png');
+            fs.writeFileSync(outputPath, buffer);
+
+            console.log(`✅ Простая визуализация создана: ${outputPath}`);
+
+            return {
+                path: outputPath,
+                success: true,
+                method: 'quick_fix_canvas'
+            };
+
+        } catch (error) {
+            console.log('❌ Ошибка быстрой визуализации:', error.message);
+            return null;
         }
-       
-        // Статистика
-        ctx.fillStyle = 'green';
-        ctx.font = '16px Arial';
-        ctx.fillText(`Точек: ${pointCount}`, 600, 30);
-       
-        const stats = this.calculateConfirmationStats(footprint);
-        ctx.fillText(`🔴 2+: ${stats.confirmed2}`, 600, 55);
-        ctx.fillText(`🔵 1: ${stats.confirmed1}`, 600, 80);
-        ctx.fillText(`⚪ 0: ${stats.confirmed0}`, 600, 105);
-       
-        // Сохраняем файл
-        const outputDir = path.join(this.config.dbPath, 'visualizations/clusters');
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-        }
-       
-        const outputPath = path.join(outputDir, `quick_viz_${userId}_${Date.now()}.png`);
-        const buffer = canvas.toBuffer('image/png');
-        fs.writeFileSync(outputPath, buffer);
-       
-        console.log(`✅ Простая визуализация создана: ${outputPath}`);
-       
-        return {
-            path: outputPath,
-            success: true,
-            method: 'quick_fix_canvas'
-        };
-       
-    } catch (error) {
-        console.log('❌ Ошибка быстрой визуализации:', error.message);
-        return null;
     }
-}
-  
+
+    // 🔥 Шаг 2 из инструкции: ПРОСТОЙ МЕТОД ВИЗУАЛИЗАЦИИ
+    async createSimpleVisualization(footprint, userId, transformationInfo = null) {
+        console.log(`🎨 СОЗДАЮ ПРОСТУЮ ВИЗУАЛИЗАЦИЮ...`);
+
+        try {
+            const path = require('path');
+            const fs = require('fs');
+            const { createCanvas } = require('canvas');
+
+            // Создаем холст
+            const canvas = createCanvas(800, 600);
+            const ctx = canvas.getContext('2d');
+
+            // Белый фон
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, 800, 600);
+
+            // Заголовок
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 24px Arial';
+            ctx.fillText(`👣 СЛЕД: ${footprint.name || 'Без имени'}`, 20, 40);
+
+            // Информация
+            ctx.font = '16px Arial';
+            ctx.fillText(`ID: ${userId}`, 20, 70);
+
+            if (transformationInfo) {
+                ctx.fillText(`📐 Угол: ${transformationInfo.rotationAngle?.toFixed(1) || 0}°`, 20, 100);
+                ctx.fillText(`🪞 Зеркало: ${transformationInfo.isMirrored ? 'да' : 'нет'}`, 20, 130);
+                ctx.fillText(`📅 Дата: ${new Date().toLocaleString('ru-RU')}`, 20, 160);
+            }
+
+            // Статистика точек
+            let totalPoints = 0;
+            let confirmed2 = 0, confirmed1 = 0, confirmed0 = 0;
+
+            if (footprint.pointTracker && footprint.pointTracker.points) {
+                totalPoints = footprint.pointTracker.points.size;
+
+                for (const [, point] of footprint.pointTracker.points) {
+                    const confirmations = point.confirmedCount || 1;
+                    if (confirmations >= 2) confirmed2++;
+                    else if (confirmations >= 1) confirmed1++;
+                    else confirmed0++;
+                }
+            }
+
+            // Рисуем статистику
+            ctx.fillStyle = 'blue';
+            ctx.font = 'bold 18px Arial';
+            ctx.fillText('📊 СТАТИСТИКА:', 20, 200);
+
+            ctx.fillStyle = 'black';
+            ctx.font = '16px Arial';
+            ctx.fillText(`Всего точек: ${totalPoints}`, 40, 230);
+            ctx.fillStyle = 'red';
+            ctx.fillText(`🔴 2+ подтверждений: ${confirmed2}`, 40, 260);
+            ctx.fillStyle = 'blue';
+            ctx.fillText(`🔵 1 подтверждение: ${confirmed1}`, 40, 290);
+            ctx.fillStyle = 'gray';
+            ctx.fillText(`⚪ 0 подтверждений: ${confirmed0}`, 40, 320);
+
+            // Рисуем простую диаграмму
+            const max = Math.max(confirmed2, confirmed1, confirmed0, 1);
+            const barWidth = 200;
+
+            // 🔴 Красные (2+)
+            ctx.fillStyle = 'red';
+            const redHeight = (confirmed2 / max) * 100;
+            ctx.fillRect(400, 250 - redHeight, 50, redHeight);
+            ctx.fillText(`${confirmed2}`, 400, 270);
+
+            // 🔵 Синие (1)
+            ctx.fillStyle = 'blue';
+            const blueHeight = (confirmed1 / max) * 100;
+            ctx.fillRect(470, 250 - blueHeight, 50, blueHeight);
+            ctx.fillText(`${confirmed1}`, 470, 270);
+
+            // ⚪ Серые (0)
+            ctx.fillStyle = 'gray';
+            const grayHeight = (confirmed0 / max) * 100;
+            ctx.fillRect(540, 250 - grayHeight, 50, grayHeight);
+            ctx.fillText(`${confirmed0}`, 540, 270);
+
+            // Подпись диаграммы
+            ctx.fillStyle = 'black';
+            ctx.font = '12px Arial';
+            ctx.fillText('Подтверждения', 400, 290);
+
+            // Сохраняем файл
+            const outputDir = path.join(this.config.dbPath, 'visualizations');
+            if (!fs.existsSync(outputDir)) {
+                fs.mkdirSync(outputDir, { recursive: true });
+                console.log(`📁 Создана директория: ${outputDir}`);
+            }
+
+            const filename = `simple_viz_${userId}_${Date.now()}.png`;
+            const outputPath = path.join(outputDir, filename);
+            const buffer = canvas.toBuffer('image/png');
+            fs.writeFileSync(outputPath, buffer);
+
+            console.log(`✅ Простая визуализация создана: ${outputPath}`);
+            console.log(`📏 Размер файла: ${buffer.length} байт`);
+
+            return {
+                path: outputPath,
+                success: true,
+                stats: { totalPoints, confirmed2, confirmed1, confirmed0 }
+            };
+
+        } catch (error) {
+            console.log('❌ Ошибка создания простой визуализации:', error.message);
+            return null;
+        }
+    }
+
     // 🔥 ОСТАВШИЕСЯ ВАЖНЫЕ МЕТОДЫ
     getVectorSuperModel(userId) {
         return this.vectorSuperModels.get(userId);
@@ -956,14 +1128,30 @@ async visualizeSingleFootprintConfirmationsQuickFix(footprint, userId, transform
     }
 
     ensureDirectories() {
+        // Шаг 4 из инструкции: Проверяем структуру директорий
+        console.log(`🔍 ПРОВЕРКА ДИРЕКТОРИЙ ВИЗУАЛИЗАЦИИ:`);
+       
+        const vizDirs = [
+            path.join(this.config.dbPath, 'visualizations'),
+            path.join(this.config.dbPath, 'visualizations/clusters'),
+            path.join(this.config.dbPath, 'visualizations/templates'),
+            path.join(this.config.dbPath, 'visualizations/alignments')
+        ];
+
+        vizDirs.forEach(dir => {
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+                console.log(`📁 Создана: ${dir}`);
+            } else {
+                console.log(`✅ Существует: ${dir}`);
+            }
+        });
+
         const dirs = [
             this.config.dbPath,
             path.join(this.config.dbPath, 'models'),
             path.join(this.config.dbPath, 'sessions'),
-            path.join(this.config.dbPath, 'visualizations'),
-            path.join(this.config.dbPath, 'visualizations/templates'),
-            path.join(this.config.dbPath, 'visualizations/alignments'),
-            path.join(this.config.dbPath, 'visualizations/clusters')
+            ...vizDirs
         ];
 
         dirs.forEach(dir => {
