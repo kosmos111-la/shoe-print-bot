@@ -65,9 +65,9 @@ class GeometryUtils {
 
         console.log(`📐 Преобразование координат ${originalPoints.length} точек (${direction})...`);
 
-        const RotationInvariance = require('../rotation-invariance');
+         const RotationInvariance = require('../../rotation-invariance');
         const processor = new RotationInvariance();
-
+      
         if (direction === 'to_normalized') {
             // Из системы фото в нормализованную систему
             const targetTransformation = processor.createIdentityTransformation();
@@ -107,7 +107,7 @@ class GeometryUtils {
         // Получаем трансформацию шаблона (из templateBuilder)
         const templateTransformation = templateBuilder.getNormalizationTransform();
 
-        const RotationInvariance = require('../rotation-invariance');
+        const RotationInvariance = require('../../rotation-invariance');
         const processor = new RotationInvariance();
 
         templateCells.forEach((cell, index) => {
