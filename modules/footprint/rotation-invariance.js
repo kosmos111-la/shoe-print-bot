@@ -1,5 +1,5 @@
 // modules/footprint/rotation-invariance.js
-// АВТООПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА И НОРМАЛИЗАЦИЯ ПРОТЕКТОРА (ВЕРСИЯ С ОТЛАДКОЙ)
+// АВТООПРЕДЕЛЕНИЕ УГЛА ПОВОРОТА И НОРМАЛИЗАЦИЯ ПРОТЕКТОРА (ВЕРСИЯ С ОТЛАДКОЙ И ИСПРАВЛЕНИЯМИ)
 
 class RotationInvariance {
     constructor(options = {}) {
@@ -396,13 +396,27 @@ class RotationInvariance {
         };
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Прямое преобразование
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Прямое преобразование С ДИАГНОСТИКОЙ
     applyTransformation(point, transformation) {
-        if (!transformation || !transformation.matrix) {
-            return point;
+        if (!point || !transformation || !transformation.matrix) {
+            console.warn(`⚠️ [FIX] Invalid transformation input`);
+            return { x: point?.x || 0, y: point?.y || 0 };
         }
-
+       
         const matrix = transformation.matrix;
+       
+        // 🔥 ПРОВЕРИТЬ МАТРИЦУ НА NaN
+        if (matrix.some(v => !isFinite(v))) {
+            console.warn(`⚠️ [FIX] Matrix contains NaN/Infinity: ${matrix}`);
+            return { x: point.x, y: point.y };
+        }
+       
+        // 🔥 ПРОВЕРИТЬ РАЗМЕР МАТРИЦЫ
+        if (matrix.length !== 9) {
+            console.warn(`⚠️ [FIX] Matrix size invalid: ${matrix.length}, expected 9`);
+            return { x: point.x, y: point.y };
+        }
+       
         const center = transformation.center || { x: 0, y: 0 };
 
         // 🔥 ИСПРАВЛЕНИЕ: Простая и понятная формула
@@ -415,6 +429,14 @@ class RotationInvariance {
         const transformedX = a * x + c * y + tx + center.x;
         const transformedY = b * x + d * y + ty + center.y;
 
+        // 🔥 ДИАГНОСТИКА: Записать результат
+        if (this.config.debug && Math.abs(point.x) > 0.1 && Math.abs(transformedX) < 0.1) {
+            console.log(`🔍 [DIAG-TRANSFORM] Точка превратилась в ~0:`);
+            console.log(`   Было: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+            console.log(`   Стало: (${transformedX.toFixed(1)}, ${transformedY.toFixed(1)})`);
+            console.log(`   Матрица: [${matrix.map(v => v.toFixed(3)).join(', ')}]`);
+        }
+
         return {
             x: transformedX,
             y: transformedY,
@@ -422,24 +444,37 @@ class RotationInvariance {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Преобразование точек из одной системы в другую С ОТЛАДКОЙ
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Преобразование точек из одной системы в другую С ОТЛАДКОЙ
     transformPointsBetweenSystems(points, fromTransformation, toTransformation) {
+        console.log(`\n🔄 ПРЕОБРАЗОВАНИЕ ТОЧЕК МЕЖДУ СИСТЕМАМИ:`);
+        console.log(`   Количество точек: ${points.length}`);
+       
+        // 🔥 ДИАГНОСТИКА: Записать входные данные
+        if (this.config.debug && points.length > 0) {
+            console.log(`🔍 [DIAG-TRANSFORM-INPUT]`);
+            console.log(`   points[0]: (${this.safeToFixed(points[0].x)}, ${this.safeToFixed(points[0].y)})`);
+            console.log(`   fromTransformation.rotationAngle: ${fromTransformation?.rotationAngle || 'none'}`);
+            console.log(`   toTransformation.rotationAngle: ${toTransformation?.rotationAngle || 'none'}`);
+        }
+
         // 🔥 ДОБАВЛЕНА ПРОВЕРКА 1: Если нет трансформаций, возвращаем точки как есть
         if (!fromTransformation || !toTransformation) {
             console.log('⚠️ Нет одной из трансформаций для преобразования');
             console.log(`   fromTransformation: ${fromTransformation ? 'есть' : 'нет'}`);
             console.log(`   toTransformation: ${toTransformation ? 'есть' : 'нет'}`);
-            return points;
+            return points.map(p => ({ ...p, transformed: false }));
         }
 
         // 🔥 ДОБАВЛЕНА ПРОВЕРКА 2: Если нет rotationAngle, устанавливаем 0
         const fromAngle = fromTransformation.rotationAngle || 0;
         const toAngle = toTransformation.rotationAngle || 0;
 
-        console.log(`\n🔄 ПРЕОБРАЗОВАНИЕ ТОЧЕК МЕЖДУ СИСТЕМАМИ:`);
-        console.log(`   Количество точек: ${points.length}`);
         console.log(`   Из системы с углом: ${this.safeToFixed(fromAngle)}°`);
         console.log(`   В систему с углом: ${this.safeToFixed(toAngle)}°`);
+
+        // 🔥 ИСПРАВЛЕНИЕ: Проверяем, что точки не нулевые
+        const zeroPoints = points.filter(p => Math.abs(p.x) < 0.1 && Math.abs(p.y) < 0.1).length;
+        console.log(`🔍 [DIAG-TRANSFORM-ZERO] Точек ~(0,0): ${zeroPoints}/${points.length}`);
 
         // Если углы одинаковые, не преобразуем
         if (Math.abs(fromAngle - toAngle) < 0.1) {
@@ -470,16 +505,39 @@ class RotationInvariance {
                 console.log(`       Исходная: (${this.safeToFixed(point.x)}, ${this.safeToFixed(point.y)})`);
             }
 
+            // 🔥 ИСПРАВЛЕНИЕ: Если нет центра, используем расчетный
+            let fromCenter = fromTransformation.center;
+            let toCenter = toTransformation.center;
+           
+            if (!fromCenter || !toCenter) {
+                const allPoints = points.map(p => ({ x: p.x, y: p.y }));
+                const center = this.calculateCenter(allPoints);
+                fromCenter = fromCenter || center;
+                toCenter = toCenter || center;
+               
+                if (debug) {
+                    console.log(`       Использую расчетный центр: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+                }
+            }
+
             // Если fromAngle не 0, поворачиваем к 0
             let normalizedPoint = { ...point };
             if (Math.abs(fromAngle) > 0.1) {
-                normalizedPoint = this.rotatePointAroundCenter(point, fromTransformation.center || this.calculateCenter(points), -fromAngle);
+                normalizedPoint = this.rotatePointAroundCenter(point, fromCenter, -fromAngle);
+               
+                if (debug) {
+                    console.log(`       После поворота на -${fromAngle.toFixed(1)}°: (${this.safeToFixed(normalizedPoint.x)}, ${this.safeToFixed(normalizedPoint.y)})`);
+                }
             }
 
             // Если toAngle не 0, поворачиваем от 0
             let finalPoint = normalizedPoint;
             if (Math.abs(toAngle) > 0.1) {
-                finalPoint = this.rotatePointAroundCenter(normalizedPoint, toTransformation.center || this.calculateCenter(points), toAngle);
+                finalPoint = this.rotatePointAroundCenter(normalizedPoint, toCenter, toAngle);
+               
+                if (debug) {
+                    console.log(`       После поворота на ${toAngle.toFixed(1)}°: (${this.safeToFixed(finalPoint.x)}, ${this.safeToFixed(finalPoint.y)})`);
+                }
             }
 
             transformedPoints.push({
@@ -492,10 +550,23 @@ class RotationInvariance {
             });
         });
 
+        // 🔥 ДИАГНОСТИКА: Проверить результат
+        if (transformedPoints.length > 0 && this.config.debug) {
+            console.log(`🔍 [DIAG-TRANSFORM-RESULT]`);
+            console.log(`   Преобразовано точек: ${transformedPoints.length}`);
+           
+            const firstPoint = transformedPoints[0];
+            console.log(`   Было: (${this.safeToFixed(points[0]?.x)}, ${this.safeToFixed(points[0]?.y)})`);
+            console.log(`   Стало: (${this.safeToFixed(firstPoint.x)}, ${this.safeToFixed(firstPoint.y)})`);
+           
+            const zeroAfterTransform = transformedPoints.filter(p => Math.abs(p.x) < 0.1 && Math.abs(p.y) < 0.1).length;
+            console.log(`   Точек ~(0,0) после преобразования: ${zeroAfterTransform}`);
+        }
+
         // Статистика
         if (transformedPoints.length > 0) {
             const bounds = this.calculateBounds(transformedPoints);
-            console.log(`📊 Границы после преобразования: ${this.safeToFixed(bounds.width)}x${this.safeToFixed(bounds.height)}`);
+            console.log(`📊 Границы после преобразования: ${this.safeToFixed(bounds.maxX - bounds.minX)}x${this.safeToFixed(bounds.maxY - bounds.minY)}`);
         }
 
         return transformedPoints;
@@ -535,9 +606,10 @@ class RotationInvariance {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Расчет границ С ОТЛАДКОЙ
+    // 🔥 ИСПРАВЛЕННЫЙ метод: Расчет границ С ОТЛАДКОЙ
     calculateBounds(points) {
         if (points.length === 0) {
+            console.log('⚠️ [FIX] Нет точек для расчета границ');
             return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
         }
 
@@ -545,11 +617,21 @@ class RotationInvariance {
         let minY = Infinity, maxY = -Infinity;
 
         points.forEach(p => {
+            if (p.x === undefined || p.y === undefined) {
+                console.warn(`⚠️ [FIX] Точка без координат:`, p);
+                return;
+            }
+           
             minX = Math.min(minX, p.x);
             maxX = Math.max(maxX, p.x);
             minY = Math.min(minY, p.y);
             maxY = Math.max(maxY, p.y);
         });
+
+        if (minX === Infinity || minY === Infinity) {
+            console.log('⚠️ [FIX] Не удалось рассчитать границы');
+            return { minX: 0, maxX: 100, minY: 0, maxY: 100 };
+        }
 
         if (this.config.verbose) {
             console.log(`📏 РАСЧЕТ ГРАНИЦ:`);
@@ -557,7 +639,7 @@ class RotationInvariance {
             console.log(`   Y: ${this.safeToFixed(minY)} → ${this.safeToFixed(maxY)} (высота: ${this.safeToFixed(maxY - minY)})`);
         }
 
-        return { minX, maxX, minY, maxY };
+        return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
     }
 
     // Метод: Определение угла поворота с помощью PCA С ОТЛАДКОЙ
@@ -1412,82 +1494,6 @@ class RotationInvariance {
         };
     }
 
-    compareRadialDistributions(desc1, desc2) {
-        if (desc1.radii.length !== desc2.radii.length) return 0;
-
-        let sumDiff = 0;
-        for (let i = 0; i < desc1.radii.length; i++) {
-            sumDiff += Math.abs(desc1.radii[i] - desc2.radii[i]);
-        }
-
-        return Math.max(0, 1 - sumDiff / desc1.radii.length);
-    }
-
-    compareAngularDistributions(desc1, desc2) {
-        // Сдвигаем второй дескриптор для поиска наилучшего совпадения
-        const len = desc1.angles.length;
-        let bestScore = 0;
-
-        for (let shift = 0; shift < len; shift++) {
-            let score = 0;
-            for (let i = 0; i < len; i++) {
-                const j = (i + shift) % len;
-                const angleDiff = Math.abs(desc1.angles[i] - desc2.angles[j]);
-                const normalizedDiff = Math.min(angleDiff, 2 * Math.PI - angleDiff) / Math.PI;
-                score += 1 - normalizedDiff;
-            }
-            score /= len;
-            bestScore = Math.max(bestScore, score);
-        }
-
-        return bestScore;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
-    alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
-        console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
-        console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
-        console.log(`   Количество точек: ${points.length}`);
-
-        if (points.length === 0) {
-            console.log('⚠️ Нет точек для выравнивания');
-            return points;
-        }
-
-        const currentCenter = this.calculateCenter(points);
-        console.log(`   Текущий центр: (${this.safeToFixed(currentCenter.x)}, ${this.safeToFixed(currentCenter.y)})`);
-
-        const offsetX = targetCenter.x - currentCenter.x;
-        const offsetY = targetCenter.y - currentCenter.y;
-
-        console.log(`   Смещение: (${this.safeToFixed(offsetX)}, ${this.safeToFixed(offsetY)})`);
-
-        const alignedPoints = points.map(point => ({
-            ...point,
-            x: point.x + offsetX,
-            y: point.y + offsetY,
-            originalX: point.x,
-            originalY: point.y,
-            offsetApplied: { x: offsetX, y: offsetY }
-        }));
-
-        // Проверка после выравнивания
-        const alignedCenter = this.calculateCenter(alignedPoints);
-        const centerDistance = Math.sqrt(
-            Math.pow(alignedCenter.x - targetCenter.x, 2) +
-            Math.pow(alignedCenter.y - targetCenter.y, 2)
-        );
-
-        console.log(`   Центр после выравнивания: (${this.safeToFixed(alignedCenter.x)}, ${this.safeToFixed(alignedCenter.y)})`);
-        console.log(`   Отклонение от цели: ${this.safeToFixed(centerDistance)}px`);
-
-        if (centerDistance > 10) {
-            console.log(`⚠️ Центр все еще далеко от цели: ${this.safeToFixed(centerDistance)}px`);
-        }
-
-        return alignedPoints;
-    }
-
     // 🔥 НОВЫЙ МЕТОД: Простое преобразование для произвольных углов
     transformPointsSimple(points, fromAngle, toAngle) {
         console.log(`\n🔄 ПРОСТОЕ ПРЕОБРАЗОВАНИЕ: ${this.safeToFixed(fromAngle)}° → ${this.safeToFixed(toAngle)}°`);
@@ -1517,34 +1523,129 @@ class RotationInvariance {
         return transformed;
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ метод getPointsInNormalizedSystem в simple-footprint.js:
-    getPointsInNormalizedSystem() {
-        console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
+    // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
+    alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
+        console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
+        console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
+        console.log(`   Количество точек: ${points.length}`);
 
-        const points = this.getPointsInMySystem();
-
-        if (!this.transformation || points.length === 0) {
+        if (points.length === 0) {
+            console.log('⚠️ Нет точек для выравнивания');
             return points;
         }
 
-        const currentAngle = this.transformation.rotationAngle || 0;
+        const currentCenter = this.calculateCenter(points);
+        console.log(`   Текущий центр: (${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)})`);
+
+        const offsetX = targetCenter.x - currentCenter.x;
+        const offsetY = targetCenter.y - currentCenter.y;
+
+        console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+
+        const alignedPoints = points.map(point => ({
+            ...point,
+            x: point.x + offsetX,
+            y: point.y + offsetY,
+            originalX: point.x,
+            originalY: point.y,
+            offsetApplied: { x: offsetX, y: offsetY }
+        }));
+
+        // Проверка после выравнивания
+        const alignedCenter = this.calculateCenter(alignedPoints);
+        const centerDistance = Math.sqrt(
+            Math.pow(alignedCenter.x - targetCenter.x, 2) +
+            Math.pow(alignedCenter.y - targetCenter.y, 2)
+        );
+
+        console.log(`   Центр после выравнивания: (${alignedCenter.x.toFixed(1)}, ${alignedCenter.y.toFixed(1)})`);
+        console.log(`   Отклонение от цели: ${centerDistance.toFixed(1)}px`);
+
+        if (centerDistance > 10) {
+            console.log(`⚠️ Центр все еще далеко от цели: ${centerDistance.toFixed(1)}px`);
+        }
+
+        return alignedPoints;
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ метод getPointsInNormalizedSystem для simple-footprint.js:
+    getPointsInNormalizedSystemForFootprint(footprint) {
+        console.log(`🔧 getPointsInNormalizedSystem() для "${footprint.name}"`);
+
+        const points = footprint.getPointsInMySystem();
+
+        if (!footprint.transformation || points.length === 0) {
+            return points;
+        }
+
+        const currentAngle = footprint.transformation.rotationAngle || 0;
         console.log(`📐 Текущий угол: ${currentAngle}°, нормализую к 0°`);
 
         // 🔥 ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ метод для поворота
-        const RotationInvariance = require('./rotation-invariance');
-        const processor = new RotationInvariance({ debug: false });
+        const rotatedPoints = this.transformPointsSimple(points, currentAngle, 0);
 
-        // 1. Просто поворачиваем к 0°
-        const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
-
-        // 2. Центрируем
-        const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints);
+        // Центрируем
+        const centeredPoints = this.alignPointsToCommonSystem(rotatedPoints);
 
         console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
 
         return centeredPoints;
     }
 
+    // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ВАЛИДАЦИИ
+    validateMatrix(matrix) {
+        if (!matrix || matrix.length !== 9) {
+            return { valid: false, reason: 'Неправильный размер матрицы' };
+        }
+
+        // Проверить на NaN
+        if (matrix.some(v => !isFinite(v))) {
+            return { valid: false, reason: 'Матрица содержит NaN/Infinity' };
+        }
+
+        // Проверить определитель
+        const det = matrix[0] * matrix[4] - matrix[1] * matrix[3];
+        if (Math.abs(det) < 1e-10) {
+            return { valid: false, reason: 'Матрица вырождена (определитель ~0)' };
+        }
+
+        return { valid: true, determinant: det };
+    }
+
+    // 🔥 МЕТОД ДЛЯ ВЕРИФИКАЦИИ РЕЗУЛЬТАТОВ
+    verifyTransformationResults(pointsBefore, pointsAfter, transformation) {
+        console.log(`\n✅ [VERIFICATION] Проверка результатов преобразования:`);
+       
+        if (pointsBefore.length !== pointsAfter.length) {
+            console.log(`   ⚠️ Количество точек изменилось: ${pointsBefore.length} → ${pointsAfter.length}`);
+            return false;
+        }
+
+        // Проверить нулевые точки
+        const zeroBefore = pointsBefore.filter(p => Math.abs(p.x) < 0.1 && Math.abs(p.y) < 0.1).length;
+        const zeroAfter = pointsAfter.filter(p => Math.abs(p.x) < 0.1 && Math.abs(p.y) < 0.1).length;
+       
+        console.log(`   Точек ~(0,0) до: ${zeroBefore}, после: ${zeroAfter}`);
+       
+        if (zeroBefore === 0 && zeroAfter > 0) {
+            console.log(`   ⚠️ Появились нулевые точки после преобразования!`);
+            return false;
+        }
+
+        // Проверить границы
+        const boundsBefore = this.calculateBounds(pointsBefore);
+        const boundsAfter = this.calculateBounds(pointsAfter);
+       
+        console.log(`   Границы до: ${boundsBefore.width.toFixed(1)}x${boundsBefore.height.toFixed(1)}`);
+        console.log(`   Границы после: ${boundsAfter.width.toFixed(1)}x${boundsAfter.height.toFixed(1)}`);
+       
+        if (boundsAfter.width < 1 || boundsAfter.height < 1) {
+            console.log(`   ⚠️ Границы после преобразования слишком малы!`);
+            return false;
+        }
+
+        return true;
+    }
 }
 
 module.exports = RotationInvariance;
