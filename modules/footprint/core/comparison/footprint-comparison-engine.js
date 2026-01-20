@@ -9,7 +9,7 @@ class FootprintComparisonEngine {
         this.config = manager.config;
        
         // Импорты для зависимостей
-        this.RotationInvariance = require('../rotation-invariance');
+        this.RotationInvariance = require('../../rotation-invariance');
         this.SimpleGraph = require('../simple-graph');
     }
 
