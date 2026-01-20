@@ -365,11 +365,11 @@ class SimpleFootprintManager {
                 let firstPhotoViz = null;
                 if (bot && chatId && this.config.enableMergeVisualization) {
                     console.log(`🎨 Создаю визуализацию для первого фото...`);
-                    firstPhotoViz = await this.visualizationManager.visualizeSingleFootprintConfirmations(
-                        session.currentFootprint,
-                        userId,
-                        transformationInfo
-                    );
+                    firstPhotoViz = await this.visualizeSingleFootprintConfirmationsQuickFix(
+    session.currentFootprint,
+    userId,
+    transformationInfo
+);
 
                     if (firstPhotoViz && firstPhotoViz.path) {
                         try {
@@ -501,15 +501,15 @@ class SimpleFootprintManager {
                 if (this.config.enableMergeVisualization) {
                     console.log(`🎨 Создаю визуализацию подтверждений...`);
 
-                    clusterVizResult = await this.visualizationManager.visualizeSingleFootprintConfirmations(
-                        session.currentFootprint,
-                        userId,
-                        {
-                            currentTransformation: transformationInfo,
-                            previousTransformation: existingTransformationInfo,
-                            comparisonResult: comparisonResult
-                        }
-                    );
+                    clusterVizResult = await this.visualizeSingleFootprintConfirmationsQuickFix(
+    session.currentFootprint,
+    userId,
+    {
+        currentTransformation: transformationInfo,
+        previousTransformation: existingTransformationInfo,
+        comparisonResult: comparisonResult
+    }
+);
 
                     // 🔥 ВАЖНО: Проверяем результат визуализации
                     if (clusterVizResult && clusterVizResult.path) {
@@ -668,11 +668,11 @@ class SimpleFootprintManager {
                 let newFootprintViz = null;
                 if (bot && chatId && this.config.enableMergeVisualization) {
                     console.log(`🎨 Создаю визуализацию для нового следа...`);
-                    newFootprintViz = await this.visualizationManager.visualizeSingleFootprintConfirmations(
-                        session.currentFootprint,
-                        userId,
-                        transformationInfo
-                    );
+                    newFootprintViz = await this.visualizeSingleFootprintConfirmationsQuickFix(
+    session.currentFootprint,
+    userId,
+    transformationInfo
+);
 
                     if (newFootprintViz && newFootprintViz.path && fs.existsSync(newFootprintViz.path)) {
                         try {
@@ -711,6 +711,118 @@ class SimpleFootprintManager {
         }
     }
 
+// 🔥 ГОРЯЧИЙ ФИКС: Добавляем в simple-manager.js временный метод визуализации
+async visualizeSingleFootprintConfirmationsQuickFix(footprint, userId, transformationInfo = null) {
+    console.log(`🎨 БЫСТРАЯ ВИЗУАЛИЗАЦИЯ для "${footprint.name}"...`);
+   
+    try {
+        const path = require('path');
+        const fs = require('fs');
+       
+        // Проверяем, есть ли модуль визуализации
+        try {
+            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
+            const visualizer = new ClusterVisualizer({
+                outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
+                debug: this.config.debug
+            });
+
+            const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
+                footprint,
+                {
+                    filename: `quick_fix_${userId}_${Date.now()}.png`,
+                    transformationInfo: transformationInfo
+                }
+            );
+
+            if (vizResult && vizResult.path) {
+                console.log(`✅ Визуализация создана: ${vizResult.path}`);
+                return vizResult;
+            }
+        } catch (vizError) {
+            console.log('⚠️ ClusterVisualizer не работает, создаем простую визуализацию...');
+        }
+       
+        // 🔥 ПРОСТАЯ ВИЗУАЛИЗАЦИЯ как фоллбэк
+        const { createCanvas } = require('canvas');
+        const canvas = createCanvas(800, 600);
+        const ctx = canvas.getContext('2d');
+       
+        // Белый фон
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, 800, 600);
+       
+        // Заголовок
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 20px Arial';
+        ctx.fillText(`След: ${footprint.name}`, 20, 30);
+       
+        // Подзаголовок
+        ctx.font = '14px Arial';
+        ctx.fillText(`Пользователь: ${userId}`, 20, 55);
+       
+        if (transformationInfo) {
+            ctx.fillText(`Угол: ${transformationInfo.rotationAngle?.toFixed(1)}°`, 20, 80);
+            ctx.fillText(`Зеркало: ${transformationInfo.isMirrored ? 'да' : 'нет'}`, 20, 105);
+        }
+       
+        // Рисуем точки
+        let pointCount = 0;
+        if (footprint.pointTracker && footprint.pointTracker.points) {
+            for (const [, point] of footprint.pointTracker.points) {
+                const x = 100 + (point.x % 600);
+                const y = 200 + (point.y % 400);
+               
+                // Цвет в зависимости от подтверждений
+                const confirmations = point.confirmedCount || 1;
+                if (confirmations >= 2) {
+                    ctx.fillStyle = 'red';
+                    ctx.fillRect(x, y, 6, 6);
+                } else if (confirmations >= 1) {
+                    ctx.fillStyle = 'blue';
+                    ctx.fillRect(x, y, 4, 4);
+                } else {
+                    ctx.fillStyle = 'gray';
+                    ctx.fillRect(x, y, 2, 2);
+                }
+                pointCount++;
+            }
+        }
+       
+        // Статистика
+        ctx.fillStyle = 'green';
+        ctx.font = '16px Arial';
+        ctx.fillText(`Точек: ${pointCount}`, 600, 30);
+       
+        const stats = this.calculateConfirmationStats(footprint);
+        ctx.fillText(`🔴 2+: ${stats.confirmed2}`, 600, 55);
+        ctx.fillText(`🔵 1: ${stats.confirmed1}`, 600, 80);
+        ctx.fillText(`⚪ 0: ${stats.confirmed0}`, 600, 105);
+       
+        // Сохраняем файл
+        const outputDir = path.join(this.config.dbPath, 'visualizations/clusters');
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+       
+        const outputPath = path.join(outputDir, `quick_viz_${userId}_${Date.now()}.png`);
+        const buffer = canvas.toBuffer('image/png');
+        fs.writeFileSync(outputPath, buffer);
+       
+        console.log(`✅ Простая визуализация создана: ${outputPath}`);
+       
+        return {
+            path: outputPath,
+            success: true,
+            method: 'quick_fix_canvas'
+        };
+       
+    } catch (error) {
+        console.log('❌ Ошибка быстрой визуализации:', error.message);
+        return null;
+    }
+}
+  
     // 🔥 ОСТАВШИЕСЯ ВАЖНЫЕ МЕТОДЫ
     getVectorSuperModel(userId) {
         return this.vectorSuperModels.get(userId);
