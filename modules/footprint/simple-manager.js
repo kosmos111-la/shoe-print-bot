@@ -1,23 +1,23 @@
 // modules/footprint/simple-manager.js
-// 🔥 ФАСАД МЕНЕДЖЕРА (еще на 500 строк меньше!)
+// 🔥 ФИНАЛЬНЫЙ ФАСАД МЕНЕДЖЕРА (~300 строк!)
 
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
-
-// 🔥 Импорт SimpleGraph
-const SimpleGraph = require('./simple-graph');
 
 // 🔥 Импорт модулей
+const FootprintComparisonEngine = require('./core/comparison/footprint-comparison-engine');
+const TemplateCoordination = require('./core/comparison/template-coordination');
+const SessionManager = require('./core/session/session-manager');
+const VisualizationManager = require('./core/visualization/visualization-manager');
+const GeometryUtils = require('./core/utils/geometry-utils');
+
+// 🔥 Импорт зависимостей
+const SimpleGraph = require('./simple-graph');
 const SimpleAligner = require('./alignment/simple-aligner');
 const CoordinateSystemConverter = require('./alignment/coordinate-system-converter');
 const CoordinateValidator = require('./alignment/coordinate-validator');
 const TransformationDebugger = require('./alignment/transformation-debugger');
 const ImprovedAligner = require('./alignment/improved-aligner');
-
-// 🔥 Импорт модулей сравнения и работы с шаблонами
-const FootprintComparisonEngine = require('./core/comparison/footprint-comparison-engine');
-const TemplateCoordination = require('./core/comparison/template-coordination');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -49,7 +49,6 @@ class SimpleFootprintManager {
         const SimpleMatcher = require('./simple-matcher');
         const MergeVisualizer = require('./merge-visualizer');
         const VectorSuperModel = require('./vector-super-model');
-        const TemplateVisualizer = require('./template-visualizer');
         const RotationInvariance = require('./rotation-invariance');
         const MirrorDetection = require('./mirror-detection');
 
@@ -84,22 +83,16 @@ class SimpleFootprintManager {
             visualizationDir: path.join(this.config.dbPath, 'visualizations/alignments')
         });
 
-        // 🔥 ИНИЦИАЛИЗАЦИЯ ДВИЖКА СРАВНЕНИЯ И РАБОТЫ С ШАБЛОНАМИ
+        // 🔥 ИНИЦИАЛИЗАЦИЯ ОСНОВНЫХ МОДУЛЕЙ
         this.comparisonEngine = new FootprintComparisonEngine(this);
         this.templateCoordinator = new TemplateCoordination(this);
+        this.sessionManager = new SessionManager(this);
+        this.visualizationManager = new VisualizationManager(this);
+        this.geometryUtils = new GeometryUtils(this);
 
-        // Сессии пользователей
-        this.userSessions = new Map();
-        this.loadedModels = new Map();
-        this.vectorSuperModels = new Map();
-
+        // Инициализация остальных компонентов
         this.mergeVisualizer = new MergeVisualizer({
             outputDir: path.join(this.config.dbPath, 'visualizations'),
-            debug: this.config.debug
-        });
-
-        this.templateVisualizer = new TemplateVisualizer({
-            outputDir: path.join(this.config.dbPath, 'visualizations/templates'),
             debug: this.config.debug
         });
 
@@ -107,6 +100,11 @@ class SimpleFootprintManager {
             debug: this.config.debug,
             similarityThreshold: this.config.topologySimilarityThreshold
         });
+
+        // Сессии и модели
+        this.userSessions = new Map();
+        this.loadedModels = new Map();
+        this.vectorSuperModels = new Map();
 
         this.systemStats = {
             totalUsers: 0,
@@ -119,7 +117,8 @@ class SimpleFootprintManager {
         this.ensureDirectories();
         this.loadExistingModels();
 
-        console.log(`🚀 SimpleFootprintManager с МОДУЛЬНОЙ АРХИТЕКТУРОЙ (два модуля вынесены)`);
+        console.log(`🚀 SimpleFootprintManager с ПОЛНОСТЬЮ МОДУЛЬНОЙ АРХИТЕКТУРОЙ`);
+        console.log(`📊 Модули: comparison, template, session, visualization, utils`);
     }
 
     // 🔥 ФАСАДНЫЕ МЕТОДЫ ДЛЯ СРАВНЕНИЯ
@@ -156,7 +155,90 @@ class SimpleFootprintManager {
         return this.templateCoordinator.debugAccumulation(userId);
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию с ВИЗУАЛИЗАЦИЯМИ
+    // 🔥 ФАСАДНЫЕ МЕТОДЫ ДЛЯ СЕССИЙ
+    createSession(userId, name = null) {
+        return this.sessionManager.createSession(userId, name);
+    }
+
+    getActiveSession(userId) {
+        return this.sessionManager.getActiveSession(userId);
+    }
+
+    saveSessionAsModel(userId, modelName = null) {
+        return this.sessionManager.saveSessionAsModel(userId, modelName);
+    }
+
+    getSessionInfo(userId) {
+        return this.sessionManager.getSessionInfo(userId);
+    }
+
+    cleanupOldSessions(maxAgeHours = 24) {
+        return this.sessionManager.cleanupOldSessions(maxAgeHours);
+    }
+
+    getAllSessions() {
+        return this.sessionManager.getAllSessions();
+    }
+
+    hasSession(userId) {
+        return this.sessionManager.hasSession(userId);
+    }
+
+    updateLastActivity(userId) {
+        return this.sessionManager.updateLastActivity(userId);
+    }
+
+    // 🔥 ФАСАДНЫЕ МЕТОДЫ ДЛЯ ВИЗУАЛИЗАЦИИ
+    async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
+        return this.visualizationManager.visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo);
+    }
+
+    async visualizeVectorSuperModel(userId, vectorModel) {
+        return this.visualizationManager.visualizeVectorSuperModel(userId, vectorModel);
+    }
+
+    debugVisualizations(userId) {
+        return this.visualizationManager.debugVisualizations(userId);
+    }
+
+    // 🔥 ФАСАДНЫЕ МЕТОДЫ ДЛЯ ГЕОМЕТРИИ
+    calculateBounds(points) {
+        return this.geometryUtils.calculateBounds(points);
+    }
+
+    calculateCenter(points) {
+        return this.geometryUtils.calculateCenter(points);
+    }
+
+    calculateAspectRatio(points) {
+        return this.geometryUtils.calculateAspectRatio(points);
+    }
+
+    calculateDistance(point1, point2) {
+        return this.geometryUtils.calculateDistance(point1, point2);
+    }
+
+    transformCoordinatesBetweenSystems(originalPoints, transformationInfo, direction = 'to_normalized', referenceTransformation = null) {
+        return this.geometryUtils.transformCoordinatesBetweenSystems(originalPoints, transformationInfo, direction, referenceTransformation);
+    }
+
+    prepareTemplatePointsForComparison(templateCells, templateBuilder, targetTransformation) {
+        return this.geometryUtils.prepareTemplatePointsForComparison(templateCells, templateBuilder, targetTransformation);
+    }
+
+    transformTemplatePointsToFootprintSystem(templateCells, templateTransformation, footprintTransformation) {
+        return this.geometryUtils.transformTemplatePointsToFootprintSystem(templateCells, templateTransformation, footprintTransformation);
+    }
+
+    findNearestPoint(point, pointsArray, maxDistance = Infinity) {
+        return this.geometryUtils.findNearestPoint(point, pointsArray, maxDistance);
+    }
+
+    findPointsInRadius(centerPoint, pointsArray, radius) {
+        return this.geometryUtils.findPointsInRadius(centerPoint, pointsArray, radius);
+    }
+
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО с сохранением трансформации и накоплением`);
 
@@ -214,9 +296,9 @@ class SimpleFootprintManager {
             finalGraph.transformation = transformationInfo;
 
             // Получаем или создаем сессию
-            let session = this.userSessions.get(userId);
+            let session = this.sessionManager.getActiveSession(userId);
             if (!session) {
-                session = this.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
+                session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
                 console.log(`🆕 Создана новая сессию`);
             }
 
@@ -245,8 +327,7 @@ class SimpleFootprintManager {
                 session.currentFootprint = new SimpleFootprint({
                     userId: userId,
                     name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
-                    // 🔥 ВАЖНО: передаем трансформацию при создании!
-                    transformation: transformationInfo // УЖЕ СОДЕРЖИТ rotationAngle: 90°
+                    transformation: transformationInfo
                 });
 
                 session.currentFootprint.metadata.normalizationInfo = transformationInfo;
@@ -284,7 +365,7 @@ class SimpleFootprintManager {
                 let firstPhotoViz = null;
                 if (bot && chatId && this.config.enableMergeVisualization) {
                     console.log(`🎨 Создаю визуализацию для первого фото...`);
-                    firstPhotoViz = await this.visualizeSingleFootprintConfirmations(
+                    firstPhotoViz = await this.visualizationManager.visualizeSingleFootprintConfirmations(
                         session.currentFootprint,
                         userId,
                         transformationInfo
@@ -420,7 +501,7 @@ class SimpleFootprintManager {
                 if (this.config.enableMergeVisualization) {
                     console.log(`🎨 Создаю визуализацию подтверждений...`);
 
-                    clusterVizResult = await this.visualizeSingleFootprintConfirmations(
+                    clusterVizResult = await this.visualizationManager.visualizeSingleFootprintConfirmations(
                         session.currentFootprint,
                         userId,
                         {
@@ -448,7 +529,7 @@ class SimpleFootprintManager {
                 // 🔥 ВИЗУАЛИЗАЦИЯ ШАБЛОНА
                 let templateVizResult = null;
                 if (this.config.enableTemplateVisualization && vectorModel) {
-                    templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
+                    templateVizResult = await this.visualizationManager.visualizeVectorSuperModel(userId, vectorModel);
                 }
 
                 // 🔥 РЕАЛЬНАЯ СТАТИСТИКА
@@ -489,7 +570,7 @@ class SimpleFootprintManager {
 
                             await bot.sendPhoto(chatId, clusterVizResult.path, {
                                 caption: caption,
-                                parse_mode: null  // Простой текст без Markdown
+                                parse_mode: null
                             });
                             console.log('✅ Визуализация подтверждений отправлена');
                             telegramSent = true;
@@ -549,7 +630,7 @@ class SimpleFootprintManager {
                 console.log(`🆕 Следы разные (${similarity.toFixed(3)}) - новая модель`);
 
                 if (session.currentFootprint.graph.nodes.size >= 10) {
-                    this.saveSessionAsModel(userId, `Модель_${new Date().toLocaleTimeString('ru-RU')}`);
+                    this.sessionManager.saveSessionAsModel(userId, `Модель_${new Date().toLocaleTimeString('ru-RU')}`);
                 }
 
                 session.currentFootprint = new SimpleFootprint({
@@ -587,7 +668,7 @@ class SimpleFootprintManager {
                 let newFootprintViz = null;
                 if (bot && chatId && this.config.enableMergeVisualization) {
                     console.log(`🎨 Создаю визуализацию для нового следа...`);
-                    newFootprintViz = await this.visualizeSingleFootprintConfirmations(
+                    newFootprintViz = await this.visualizationManager.visualizeSingleFootprintConfirmations(
                         session.currentFootprint,
                         userId,
                         transformationInfo
@@ -630,53 +711,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ВАЖНЫЙ МЕТОД: Визуализация подтверждений ОДНОГО следа
-    async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
-        console.log(`🎨 Визуализация подтверждений для "${footprint.name}"...`);
-
-        try {
-            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
-            const visualizer = new ClusterVisualizer({
-                outputDir: path.join(this.config.dbPath, 'visualizations/clusters'),
-                debug: this.config.debug
-            });
-
-            const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
-                footprint,
-                {
-                    filename: `real_confirmations_${userId}_${Date.now()}.png`,
-                    transformationInfo: transformationInfo
-                }
-            );
-
-            if (vizResult && vizResult.path) {
-                console.log(`✅ Визуализация создана: ${vizResult.path}`);
-
-                // Проверяем существование файла
-                if (fs.existsSync(vizResult.path)) {
-                    const stats = fs.statSync(vizResult.path);
-                    console.log(`📊 Размер файла: ${stats.size} байт`);
-                } else {
-                    console.log(`⚠️ Файл не найден: ${vizResult.path}`);
-                }
-            } else {
-                console.log(`⚠️ Визуализация не создана или результат пустой`);
-            }
-
-            return vizResult;
-
-        } catch (error) {
-            console.log('❌ Ошибка визуализации:', error.message);
-            console.error(error.stack);
-            return null;
-        }
-    }
-
-    // 🔥 ВОССТАНОВЛЕННЫЕ МЕТОДЫ ДЛЯ КОМАНД
-    getActiveSession(userId) {
-        return this.userSessions.get(userId);
-    }
-
+    // 🔥 ОСТАВШИЕСЯ ВАЖНЫЕ МЕТОДЫ
     getVectorSuperModel(userId) {
         return this.vectorSuperModels.get(userId);
     }
@@ -736,7 +771,7 @@ class SimpleFootprintManager {
             return null;
         }
 
-        return this.visualizeVectorSuperModel(userId, vectorModel);
+        return this.visualizationManager.visualizeVectorSuperModel(userId, vectorModel);
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
@@ -790,70 +825,22 @@ class SimpleFootprintManager {
         };
     }
 
-    async visualizeVectorSuperModel(userId, vectorModel) {
-        console.log(`🎨 Создаю визуализацию ШАБЛОНА...`);
+    extractPointsFromFootprint(footprint) {
+        const points = [];
 
-        try {
-            if (!vectorModel) return null;
-
-            let templateData = vectorModel.templateBuilder.getVisualizationData();
-
-            if (!templateData || !templateData.cells || templateData.cells.length === 0) {
-                if (vectorModel.templateBuilder) {
-                    templateData = vectorModel.templateBuilder.getVisualizationData();
-                }
+        if (footprint.pointTracker && footprint.pointTracker.points) {
+            for (const [id, point] of footprint.pointTracker.points) {
+                points.push({
+                    id,
+                    x: point.x,
+                    y: point.y,
+                    confidence: point.rating || 0.5
+                });
             }
-
-            const result = await this.templateVisualizer.visualizeTemplate(templateData, {
-                filename: `template_${userId}_${Date.now()}.png`
-            });
-
-            const heatmapResult = await this.templateVisualizer.createHeatmap(templateData, {
-                filename: `heatmap_${userId}_${Date.now()}.png`
-            });
-
-            let heatmapPath = heatmapResult;
-            if (heatmapResult && typeof heatmapResult === 'object' && heatmapResult.path) {
-                heatmapPath = heatmapResult.path;
-            }
-
-            return {
-                template: result.path,
-                heatmap: heatmapPath,
-                stats: templateData?.stats,
-                templateId: templateData?.templateId
-            };
-
-        } catch (error) {
-            console.log(`❌ Ошибка визуализации шаблона: ${error.message}`);
-            return null;
         }
-    }
 
-    createSession(userId, name = null) {
-        const sessionId = `session_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-
-        const session = {
-            id: sessionId,
-            userId: String(userId),
-            name: name || `Сессия_${new Date().toLocaleDateString('ru-RU')}`,
-            startTime: new Date(),
-            lastActivity: new Date(),
-            photos: [],
-            currentFootprint: null,
-            metadata: {
-                created: new Date(),
-                normalizationHistory: [],
-                lastTransformation: null
-            }
-        };
-
-        this.userSessions.set(userId, session);
-        this.systemStats.totalUsers = this.userSessions.size;
-
-        console.log(`🆕 Создана сессия ${sessionId.slice(0, 8)} для пользователя ${userId}`);
-
-        return session;
+        console.log(`   📊 Извлечено ${points.length} точек из ${footprint.name}`);
+        return points;
     }
 
     ensureDirectories() {
@@ -907,54 +894,6 @@ class SimpleFootprintManager {
         console.log(`✅ Загружено ${loadedCount} моделей`);
     }
 
-    saveSessionAsModel(userId, modelName = null) {
-        const session = this.userSessions.get(userId);
-        if (!session || !session.currentFootprint) {
-            return { success: false, error: 'Нет активной сессии или отпечатка' };
-        }
-
-        const footprint = session.currentFootprint;
-
-        if (modelName) {
-            footprint.name = modelName;
-        }
-
-        const modelPath = path.join(this.config.dbPath, 'models', `${footprint.id}.json`);
-
-        try {
-            const modelData = footprint.toJSON();
-            modelData.metadata.sessionInfo = {
-                sessionId: session.id,
-                photosCount: session.photos.length,
-                normalizationHistory: session.metadata.normalizationHistory || []
-            };
-
-            fs.writeFileSync(modelPath, JSON.stringify(modelData, null, 2));
-
-            this.loadedModels.set(footprint.id, footprint);
-            this.systemStats.totalModels = this.loadedModels.size;
-
-            console.log(`💾 Модель сохранена: ${footprint.id} (${footprint.graph.nodes.size} узлов)`);
-
-            this.userSessions.delete(userId);
-
-            return {
-                success: true,
-                modelId: footprint.id,
-                modelName: footprint.name,
-                modelPath: modelPath,
-                modelStats: {
-                    nodes: footprint.graph.nodes.size,
-                    edges: footprint.graph.edges.size
-                }
-            };
-
-        } catch (error) {
-            console.log('❌ Ошибка сохранения модели:', error.message);
-            return { success: false, error: error.message };
-        }
-    }
-
     getSystemStats() {
         const templateStats = [];
 
@@ -991,153 +930,8 @@ class SimpleFootprintManager {
         return 1;
     }
 
-    // 🔥 Вспомогательные методы для совместимости
-    transformCoordinatesBetweenSystems(originalPoints, transformationInfo, direction = 'to_normalized', referenceTransformation = null) {
-        if (!transformationInfo) {
-            console.log('⚠️ Нет информации о трансформации');
-            return originalPoints;
-        }
-
-        console.log(`📐 Преобразование координат ${originalPoints.length} точек (${direction})...`);
-
-        const RotationInvariance = require('./rotation-invariance');
-        const processor = new RotationInvariance();
-
-        if (direction === 'to_normalized') {
-            // Из системы фото в нормализованную систему
-            const targetTransformation = processor.createIdentityTransformation();
-            return processor.transformPointsBetweenSystems(
-                originalPoints,
-                transformationInfo,
-                targetTransformation
-            );
-        } else if (direction === 'to_original') {
-            // Из нормализованной системы в систему фото
-            if (!referenceTransformation) {
-                console.log('⚠️ Нет эталонной трансформации для обратного преобразования');
-                return originalPoints;
-            }
-
-            return processor.transformPointsBetweenSystems(
-                originalPoints,
-                processor.createIdentityTransformation(),
-                referenceTransformation
-            );
-        } else if (direction === 'between_footprints' && referenceTransformation) {
-            // Из системы одного отпечатка в систему другого
-            return processor.transformPointsBetweenSystems(
-                originalPoints,
-                transformationInfo,
-                referenceTransformation
-            );
-        }
-
-        return originalPoints;
-    }
-
-    prepareTemplatePointsForComparison(templateCells, templateBuilder, targetTransformation) {
-        const points = [];
-
-        // Получаем трансформацию шаблона (из templateBuilder)
-        const templateTransformation = templateBuilder.getNormalizationTransform();
-
-        const RotationInvariance = require('./rotation-invariance');
-        const processor = new RotationInvariance();
-
-        templateCells.forEach((cell, index) => {
-            // Создаем точку из ячейки шаблона
-            const templatePoint = {
-                x: cell.x || 0,
-                y: cell.y || 0,
-                nx: cell.nx || 0,
-                ny: cell.ny || 0,
-                confirmations: cell.confirmations || 1,
-                confidence: cell.confidence || 0.7,
-                cellId: cell.id
-            };
-
-            // 🔥 ПРЕОБРАЗУЕМ В СИСТЕМУ ЦЕЛЕВОГО ОТПЕЧАТКА
-            const transformedPoint = processor.transformPointsBetweenSystems(
-                [templatePoint],
-                templateTransformation,
-                targetTransformation
-            )[0];
-
-            if (transformedPoint) {
-                points.push({
-                    ...transformedPoint,
-                    originalTemplatePoint: templatePoint,
-                    cellIndex: index
-                });
-            }
-        });
-
-        return points;
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ГЕОМЕТРИИ
-    calculateBounds(points) {
-        if (points.length === 0) {
-            return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
-        }
-
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-
-        return {
-            minX, maxX, minY, maxY,
-            width: maxX - minX,
-            height: maxY - minY
-        };
-    }
-
-    calculateCenter(points) {
-        if (points.length === 0) {
-            return { x: 0, y: 0 };
-        }
-
-        const sumX = points.reduce((sum, p) => sum + p.x, 0);
-        const sumY = points.reduce((sum, p) => sum + p.y, 0);
-
-        return {
-            x: sumX / points.length,
-            y: sumY / points.length
-        };
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Извлечь точки из отпечатка
-    extractPointsFromFootprint(footprint) {
-        const points = [];
-
-        if (footprint.pointTracker && footprint.pointTracker.points) {
-            for (const [id, point] of footprint.pointTracker.points) {
-                points.push({
-                    id,
-                    x: point.x,
-                    y: point.y,
-                    confidence: point.rating || 0.5
-                });
-            }
-        }
-
-        console.log(`   📊 Извлечено ${points.length} точек из ${footprint.name}`);
-        return points;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Рассчитать соотношение сторон
-    calculateAspectRatio(points) {
-        const bounds = this.calculateBounds(points);
-        return bounds.width / Math.max(1, bounds.height);
-    }
-
-    // 🔥 ТЕСТ МЕТОД: Протестировать сравнение координат
     testCoordinateComparison(userId) {
-        const session = this.userSessions.get(userId);
+        const session = this.sessionManager.getActiveSession(userId);
         if (!session || !session.currentFootprint) {
             console.log('❌ Нет активной сессии');
             return;
@@ -1180,7 +974,7 @@ class SimpleFootprintManager {
 
             // Преобразуем в систему отпечатка
             const templateTransformation = vectorModel.templateBuilder.getNormalizationTransform();
-            const transformedPoints = this.transformTemplatePointsToFootprintSystem(
+            const transformedPoints = this.geometryUtils.transformTemplatePointsToFootprintSystem(
                 [testCell],
                 templateTransformation,
                 transformation
@@ -1212,57 +1006,6 @@ class SimpleFootprintManager {
         console.log(`  🔵 1 подтверждение: ${confirmed1}`);
         console.log(`  ⚪ 0 подтверждений: ${confirmed0}`);
         console.log(`  Всего: ${tracker.points.size}`);
-    }
-
-    transformTemplatePointsToFootprintSystem(templateCells, templateTransformation, footprintTransformation) {
-        const points = [];
-
-        templateCells.forEach((cell, index) => {
-            const normalizedX = cell.nx || 0;
-            const normalizedY = cell.ny || 0;
-
-            const templateX = normalizedX * templateTransformation.width + templateTransformation.minX;
-            const templateY = normalizedY * templateTransformation.height + templateTransformation.minY;
-
-            let transformedX = templateX;
-            let transformedY = templateY;
-
-            const footprintAngle = footprintTransformation.rotationAngle || 0;
-
-            if (footprintAngle !== 0 && footprintTransformation.center) {
-                const centerX = footprintTransformation.center.x || 0;
-                const centerY = footprintTransformation.center.y || 0;
-
-                const dx = templateX - centerX;
-                const dy = templateY - centerY;
-
-                const angleRad = -footprintAngle * Math.PI / 180;
-                const cosA = Math.cos(angleRad);
-                const sinA = Math.sin(angleRad);
-
-                const rotatedX = dx * cosA - dy * sinA;
-                const rotatedY = dx * sinA + dy * cosA;
-
-                transformedX = rotatedX + centerX;
-                transformedY = rotatedY + centerY;
-            }
-
-            points.push({
-                x: transformedX,
-                y: transformedY,
-                nx: normalizedX,
-                ny: normalizedY,
-                confirmations: cell.confirmations || 1,
-                confidence: cell.confidence || 0.7,
-                cellId: cell.id,
-                isNew: cell.isNew || false,
-                status: cell.status || 'unknown',
-                originalCell: cell,
-                cellIndex: index
-            });
-        });
-
-        return points;
     }
 }
 
