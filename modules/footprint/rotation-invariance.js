@@ -1568,30 +1568,6 @@ class RotationInvariance {
         return alignedPoints;
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ метод getPointsInNormalizedSystem для simple-footprint.js:
-    getPointsInNormalizedSystemForFootprint(footprint) {
-        console.log(`🔧 getPointsInNormalizedSystem() для "${footprint.name}"`);
-
-        const points = footprint.getPointsInMySystem();
-
-        if (!footprint.transformation || points.length === 0) {
-            return points;
-        }
-
-        const currentAngle = footprint.transformation.rotationAngle || 0;
-        console.log(`📐 Текущий угол: ${currentAngle}°, нормализую к 0°`);
-
-        // 🔥 ИСПРАВЛЕНИЕ: Используем ПРОСТОЙ метод для поворота
-        const rotatedPoints = this.transformPointsSimple(points, currentAngle, 0);
-
-        // Центрируем
-        const centeredPoints = this.alignPointsToCommonSystem(rotatedPoints);
-
-        console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
-
-        return centeredPoints;
-    }
-
     // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ВАЛИДАЦИИ
     validateMatrix(matrix) {
         if (!matrix || matrix.length !== 9) {
