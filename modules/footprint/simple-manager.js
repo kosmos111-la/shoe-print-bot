@@ -374,19 +374,34 @@ class SimpleFootprintManager {
                 templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
             }
 
-            // 🔥 ОТПРАВКА В TELEGRAM
+            // 🔥 ОТПРАВКА В TELEGRAM (ИСПРАВЛЕННЫЙ КОД)
             try {
+                // 🔥 ОЧИСТКА ОТ Markdown-СИМВОЛОВ
+                const cleanMarkdown = (text) => {
+                    return text
+                        .replace(/\*\*/g, '')  // убираем **
+                        .replace(/\*/g, '')    // убираем *
+                        .replace(/__/g, '')    // убираем __
+                        .replace(/_/g, '')     // убираем _
+                        .replace(/`/g, '')     // убираем `
+                        .replace(/\[/g, '(')   // заменяем [
+                        .replace(/\]/g, ')');  // заменяем ]
+                };
+
                 // 3. Отправка отпечатка
                 if (firstPhotoViz && firstPhotoViz.path && fs.existsSync(firstPhotoViz.path)) {
-                    let caption = `👣 **ПЕРВЫЙ СЛЕД СОЗДАН**\n\n`;
+                    let caption = `👣 ПЕРВЫЙ СЛЕД СОЗДАН\n\n`;
                     caption += `📊 Извлечено: ${addResult.added} точек\n`;
                     caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
                     caption += `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
                     caption += `✅ Создан шаблон для накопления деталей`;
 
+                    // 🔥 ОЧИЩАЕМ ОТ Markdown
+                    const cleanCaption = cleanMarkdown(caption);
+
                     await bot.sendPhoto(chatId, firstPhotoViz.path, {
-                        caption: caption,
-                        parse_mode: 'Markdown'
+                        caption: cleanCaption,
+                        parse_mode: 'HTML'  // 🔥 ИСПОЛЬЗУЕМ HTML ИЛИ УБИРАЕМ
                     });
 
                     console.log('✅ Визуализация первого следа отправлена');
@@ -399,14 +414,17 @@ class SimpleFootprintManager {
                     const templateData = vectorModel.templateBuilder.getVisualizationData();
                     const stats = templateData?.stats || {};
 
-                    let templateCaption = `📊 **ШАБЛОН СОЗДАН**\n\n`;
+                    let templateCaption = `📊 ШАБЛОН СОЗДАН\n\n`;
                     templateCaption += `📋 Ячеек: ${stats.cells || 0}\n`;
                     templateCaption += `🎯 Эталонный граф: ${templateData.referenceGraphId?.slice(0, 8) || 'создан'}\n`;
                     templateCaption += `📈 Система готова к накоплению деталей`;
 
+                    // 🔥 ОЧИЩАЕМ ОТ Markdown
+                    const cleanTemplateCaption = cleanMarkdown(templateCaption);
+
                     await bot.sendPhoto(chatId, templateVizResult.template, {
-                        caption: templateCaption,
-                        parse_mode: 'Markdown'
+                        caption: cleanTemplateCaption,
+                        parse_mode: 'HTML'
                     });
 
                     console.log('✅ Визуализация шаблона отправлена');
@@ -416,6 +434,11 @@ class SimpleFootprintManager {
 
             } catch (sendError) {
                 console.log('❌ Ошибка отправки в Telegram:', sendError.message);
+                console.log('Подробности:', {
+                    errorType: sendError.constructor.name,
+                    message: sendError.message,
+                    stack: sendError.stack
+                });
             }
         } else {
             console.log(`⏭️ Визуализация пропущена:`, {
@@ -439,7 +462,7 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 ОБРАБОТКА ПОСЛЕДУЮЩИХ ФОТО
+    // 🔥 ОБРАБОТКА ПОСЛЕДУЮЩИХ ФОТО (ИСПРАВЛЕННАЯ ВЕРСИЯ)
     async handleSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`🔍 Проверяю совпадение с существующим отпечатком`);
 
@@ -454,6 +477,8 @@ class SimpleFootprintManager {
         });
 
         tempFootprint.metadata.normalizationInfo = transformationInfo;
+       
+        // 🔥 СОХРАНЯЕМ РЕЗУЛЬТАТ В ПЕРЕМЕННУЮ
         const tempResult = tempFootprint.addAnalysisHonest(analysis, {
             ...photoInfo,
             normalizedGraph: finalGraph,
@@ -482,7 +507,8 @@ class SimpleFootprintManager {
         if (decision === 'same') {
             return await this.handleMatchingFootprint(
                 session, userId, tempFootprint, finalGraph, transformationInfo,
-                existingTransformationInfo, similarity, comparisonResult, bot, chatId
+                existingTransformationInfo, similarity, comparisonResult,
+                tempResult, bot, chatId  // 🔥 ПЕРЕДАЕМ tempResult как параметр
             );
         } else {
             return await this.handleNewFootprint(
@@ -492,10 +518,17 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ОБРАБОТКА СОВПАДАЮЩИХ СЛЕДОВ
+    // 🔥 ОБРАБОТКА СОВПАДАЮЩИХ СЛЕДОВ (ИСПРАВЛЕННАЯ ВЕРСИЯ)
     async handleMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
-                                 existingTransformationInfo, similarity, comparisonResult, bot, chatId) {
+                                 existingTransformationInfo, similarity, comparisonResult,
+                                 tempResult, bot, chatId) {  // 🔥 ДОБАВЛЕН tempResult в параметры
         console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+
+        // 🔥 ПРОВЕРЯЕМ НАЛИЧИЕ tempResult
+        if (!tempResult) {
+            console.log(`⚠️ tempResult не определен, создаю пустой результат`);
+            tempResult = { added: 0, error: 'tempResult не был передан' };
+        }
 
         // Работа с шаблоном
         let vectorModel = this.vectorSuperModels.get(userId);
@@ -541,7 +574,7 @@ class SimpleFootprintManager {
             success: true,
             similarity: similarity,
             decision: 'same',
-            nodesAdded: tempResult.added,
+            nodesAdded: tempResult.added || 0,  // 🔥 ИСПОЛЬЗУЕМ tempResult.added
             message: `✅ След добавлен! Сходство: ${(similarity * 100).toFixed(1)}%`,
             hasVisualization: visualizationResults.hasVisualization,
             telegramSent: visualizationResults.telegramSent,
@@ -561,6 +594,18 @@ class SimpleFootprintManager {
         let templateSent = false;
 
         if (this.config.enableMergeVisualization && bot && chatId) {
+            // 🔥 ОЧИСТКА ОТ Markdown-СИМВОЛОВ
+            const cleanMarkdown = (text) => {
+                return text
+                    .replace(/\*\*/g, '')
+                    .replace(/\*/g, '')
+                    .replace(/__/g, '')
+                    .replace(/_/g, '')
+                    .replace(/`/g, '')
+                    .replace(/\[/g, '(')
+                    .replace(/\]/g, ')');
+            };
+
             // 1. Визуализация подтверждений
             clusterVizResult = await this.visualizeSingleFootprintConfirmations(
                 session.currentFootprint,
@@ -591,8 +636,14 @@ class SimpleFootprintManager {
                 caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
                 caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}`;
 
+                // 🔥 ОЧИЩАЕМ ОТ Markdown
+                const cleanCaption = cleanMarkdown(caption);
+
                 try {
-                    await bot.sendPhoto(chatId, clusterVizResult.path, { caption: caption });
+                    await bot.sendPhoto(chatId, clusterVizResult.path, {
+                        caption: cleanCaption,
+                        parse_mode: 'HTML'
+                    });
                     telegramSent = true;
                     console.log('✅ Визуализация подтверждений отправлена');
                 } catch (error) {
@@ -610,8 +661,12 @@ class SimpleFootprintManager {
                     templateCaption += `📈 Среднее: ${templateStats.averageConfirmations?.toFixed(2) || '0.00'}\n\n`;
                     templateCaption += `🔍 Накопление деталей работает`;
 
+                    // 🔥 ОЧИЩАЕМ ОТ Markdown
+                    const cleanTemplateCaption = cleanMarkdown(templateCaption);
+
                     await bot.sendPhoto(chatId, templateVizResult.template, {
-                        caption: templateCaption
+                        caption: cleanTemplateCaption,
+                        parse_mode: 'HTML'
                     });
 
                     templateSent = true;
