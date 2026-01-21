@@ -56,6 +56,258 @@ class VectorSuperModel {
         console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}" с ДИНАМИЧЕСКИМ эталоном`);
     }
 
+ // 🔥 ДОБАВЛЯЕМ ОТСУТСТВУЮЩИЙ МЕТОД updateStats()
+    updateStats() {
+        console.log(`📊 VectorSuperModel.updateStats() - обновление статистики`);
+
+        try {
+            // Получаем реальные данные из TemplateBuilder
+            const templateInfo = this.templateBuilder ? this.templateBuilder.getInfo() : null;
+            const visualizationData = this.templateBuilder ? this.templateBuilder.getVisualizationData() : null;
+
+            if (!visualizationData || !visualizationData.cells || visualizationData.cells.length === 0) {
+                console.log('⚠️ Нет данных визуализации для обновления статистики');
+                this.stats.confidence = 0;
+                this.stats.templateCells = 0;
+                this.stats.confirmedCells = 0;
+                this.stats.avgConfirmations = 0;
+                return;
+            }
+
+            // 🔥 БЕРЕМ РЕАЛЬНЫЕ ДАННЫЕ ИЗ ВИЗУАЛИЗАЦИИ
+            const cells = visualizationData.cells;
+            const stats = visualizationData.stats || {};
+
+            // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
+            this.stats.templateCells = cells.length;
+            this.stats.confirmedCells = stats.confirmedCells || 0;
+            this.stats.totalConfirmations = stats.totalConfirmations || 0;  // 🔥 ВАЖНО!
+            this.stats.averageConfirmations = stats.averageConfirmations || 0;
+            this.stats.highConfidenceCells = stats.highConfidenceCells || 0;
+
+            // 🔥 РАСЧЕТ УВЕРЕННОСТИ
+            const confirmedRatio = this.stats.confirmedCells / Math.max(1, this.stats.templateCells);
+            const avgConfirmations = this.stats.averageConfirmations;
+
+            // 🔥 НОВАЯ ФОРМУЛА УВЕРЕННОСТИ
+            this.stats.confidence = Math.min(1.0,
+                confirmedRatio * 0.5 +                    // 50% за долю подтвержденных
+                Math.min(0.3, avgConfirmations * 0.15) +  // 30% за среднее подтверждений
+                (this.bestGraphScore * 0.2)               // 20% за качество лучшего графа
+            );
+
+            // 🔥 ОБНОВЛЯЕМ ВРЕМЯ ПОСЛЕДНЕГО ОБНОВЛЕНИЯ
+            this.stats.lastUpdated = new Date();
+
+            console.log(`✅ Статистика обновлена:`);
+            console.log(`   Ячеек: ${this.stats.templateCells}`);
+            console.log(`   Подтвержденных: ${this.stats.confirmedCells}`);
+            console.log(`   Среднее подтверждений: ${this.stats.averageConfirmations.toFixed(2)}`);
+            console.log(`   Уверенность: ${this.stats.confidence.toFixed(3)}`);
+
+        } catch (error) {
+            console.error(`❌ Ошибка обновления статистики:`, error.message);
+            this.stats.confidence = 0;
+        }
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Добавить граф
+    addGraph(graph, graphId, metadata = {}) {
+        console.log(`🔄 Добавляю граф ${graphId} к динамической супер-модели...`);
+
+        // 1. Сохраняем исходный граф
+        this.saveSourceGraph(graph, graphId, metadata);
+
+        // 2. 🔥 ДОБАВЛЯЕМ К TEMPLATE BUILDER (он сам решит, обновлять ли эталон)
+        let addedToTemplate = false;
+
+        if (this.templateBuilder.referenceGraphId === null) {
+            // Первый граф
+            console.log(`🎯 Устанавливаю граф ${graphId} как начальный эталон`);
+            addedToTemplate = this.templateBuilder.setReferenceGraph(graph, graphId, metadata);
+
+            if (addedToTemplate) {
+                this.bestGraphId = graphId;
+                this.bestGraphScore = this.calculateGraphScore(graph);
+                this.bestGraphMetadata = metadata;
+                console.log(`🏆 Начальный эталон установлен: ${graphId}`);
+            }
+        } else {
+            // Последующие графы - TemplateBuilder сам решит, обновлять ли эталон
+            addedToTemplate = this.templateBuilder.addGraph(graph, graphId, metadata);
+
+            if (addedToTemplate) {
+                // 🔥 ПРОВЕРЯЕМ, НЕ ИЗМЕНИЛСЯ ЛИ ЭТАЛОН В TEMPLATE BUILDER
+                const newReferenceId = this.templateBuilder.referenceGraphId;
+
+                if (newReferenceId !== this.bestGraphId) {
+                    // Эталон обновился!
+                    console.log(`🔄 ОБНОВЛЕНИЕ ЭТАЛОНА В СУПЕР-МОДЕЛИ:`);
+                    console.log(`   Старый: ${this.bestGraphId}`);
+                    console.log(`   Новый: ${newReferenceId}`);
+
+                    this.bestGraphId = newReferenceId;
+                    this.bestGraphScore = this.templateBuilder.referenceGraphQuality;
+
+                    // Обновляем метаданные
+                    const sourceGraph = this.sourceGraphs.get(newReferenceId);
+                    if (sourceGraph) {
+                        this.bestGraphMetadata = sourceGraph.metadata;
+                    }
+
+                    this.stats.bestGraphUpdates++;
+                    console.log(`🏆 ЭТАЛОН ОБНОВЛЁН: ${newReferenceId} (оценка: ${this.bestGraphScore.toFixed(3)})`);
+                }
+            }
+        }
+
+        if (!addedToTemplate) {
+            console.log(`⚠️ Граф ${graphId} не добавлен к шаблону`);
+            return false;
+        }
+
+        // 3. 🔥 ВЫЗЫВАЕМ ОБНОВЛЕНИЕ СТАТИСТИКИ
+        this.updateStats(); // 🔥 ЭТО ИСПРАВЛЯЕТ ОШИБКУ!
+
+        // 4. Обновить остальную статистику
+        this.stats.totalMerges++;
+        this.stats.totalGraphsAdded++;
+        this.stats.lastUpdated = new Date();
+
+        // 5. Получить информацию о шаблоне
+        const templateInfo = this.templateBuilder.getInfo();
+
+        console.log(`✅ Граф добавлен. Динамическая статистика:`);
+        console.log(`   Ячеек шаблона: ${templateInfo.templateCells}`);
+        console.log(`   Подтвержденных ячеек: ${templateInfo.stats.confirmedCells}`);
+        console.log(`   Лучший граф: ${this.bestGraphId} (${this.bestGraphScore.toFixed(3)})`);
+        console.log(`   Всего графов: ${this.stats.sourceGraphsCount}`);
+
+        return true;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить данные для визуализации шаблона
+    getTemplateVisualizationData() {
+        console.log(`🎨 VectorSuperModel.getTemplateVisualizationData() - получение данных для визуализации`);
+       
+        try {
+            if (!this.templateBuilder) {
+                console.log('⚠️ Нет TemplateBuilder для визуализации');
+                return {
+                    success: false,
+                    error: 'No TemplateBuilder',
+                    cells: [],
+                    stats: {}
+                };
+            }
+
+            const templateData = this.templateBuilder.getVisualizationData();
+           
+            if (!templateData || !templateData.cells) {
+                console.log('⚠️ Нет данных визуализации из TemplateBuilder');
+                return {
+                    success: false,
+                    error: 'No visualization data',
+                    cells: [],
+                    stats: {}
+                };
+            }
+
+            // Обновляем статистику перед возвратом данных
+            this.updateStats();
+
+            const visualizationData = {
+                success: true,
+                id: this.id,
+                name: this.name,
+                cells: templateData.cells,
+                stats: {
+                    ...templateData.stats,
+                    modelConfidence: this.stats.confidence,
+                    bestGraphId: this.bestGraphId,
+                    bestGraphScore: this.bestGraphScore,
+                    totalGraphs: this.stats.sourceGraphsCount,
+                    totalMerges: this.stats.totalMerges,
+                    bestGraphUpdates: this.stats.bestGraphUpdates
+                },
+                metadata: {
+                    createdAt: this.stats.createdAt,
+                    lastUpdated: this.stats.lastUpdated,
+                    dynamicReferenceEnabled: this.config.enableDynamicReference,
+                    referenceGraphId: this.templateBuilder.referenceGraphId,
+                    referenceGraphQuality: this.templateBuilder.referenceGraphQuality
+                },
+                referenceGraph: this.getReferenceGraphData()
+            };
+
+            console.log(`✅ Данные визуализации подготовлены: ${visualizationData.cells.length} ячеек`);
+            return visualizationData;
+
+        } catch (error) {
+            console.error(`❌ Ошибка получения данных визуализации:`, error.message);
+            return {
+                success: false,
+                error: error.message,
+                cells: [],
+                stats: {}
+            };
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить данные эталонного графа
+    getReferenceGraphData() {
+        if (!this.bestGraphId || !this.sourceGraphs.has(this.bestGraphId)) {
+            return null;
+        }
+
+        const sourceGraph = this.sourceGraphs.get(this.bestGraphId);
+        if (!sourceGraph || !sourceGraph.graph) {
+            return null;
+        }
+
+        try {
+            const graph = sourceGraph.graph;
+            const bounds = graph.calculateGraphBounds ? graph.calculateGraphBounds() : null;
+           
+            return {
+                graphId: this.bestGraphId,
+                nodeCount: sourceGraph.nodeCount,
+                edgeCount: sourceGraph.edgeCount,
+                quality: this.bestGraphScore,
+                bounds: bounds,
+                metadata: sourceGraph.metadata
+            };
+        } catch (error) {
+            console.log(`⚠️ Ошибка получения данных эталонного графа: ${error.message}`);
+            return null;
+        }
+    }
+
+    // 🔥 ДОБАВЛЯЕМ МЕТОД для визуализации (совместимость)
+    visualize() {
+        console.log(`\n📊 ВИЗУАЛИЗАЦИЯ VECTOR SUPER MODEL "${this.name}":`);
+        console.log(`├─ ID: ${this.id}`);
+        console.log(`├─ Лучший граф: ${this.bestGraphId || 'нет'}`);
+        console.log(`├─ Оценка лучшего графа: ${this.bestGraphScore.toFixed(3)}`);
+        console.log(`├─ Всего графов: ${this.stats.sourceGraphsCount}`);
+        console.log(`├─ Объединений: ${this.stats.totalMerges}`);
+        console.log(`├─ Обновлений эталона: ${this.stats.bestGraphUpdates}`);
+        console.log(`├─ Уверенность: ${this.stats.confidence.toFixed(3)}`);
+        console.log(`├─ Дата создания: ${this.stats.createdAt.toLocaleString('ru-RU')}`);
+        console.log(`└─ Последнее обновление: ${this.stats.lastUpdated.toLocaleString('ru-RU')}`);
+
+        if (this.templateBuilder) {
+            const templateInfo = this.templateBuilder.getInfo();
+            console.log(`\n📊 ШАБЛОН:`);
+            console.log(`├─ Ячеек: ${templateInfo.templateCells}`);
+            console.log(`├─ Подтвержденных ячеек: ${templateInfo.stats.confirmedCells}`);
+            console.log(`├─ Высоконадёжных ячеек: ${templateInfo.stats.highConfidenceCells}`);
+            console.log(`├─ Среднее подтверждений: ${templateInfo.stats.avgConfirmations?.toFixed(2) || '0.00'}`);
+            console.log(`├─ Эталонный граф: ${this.templateBuilder.referenceGraphId || 'нет'}`);
+            console.log(`└─ Качество эталона: ${this.templateBuilder.referenceGraphQuality?.toFixed(3) || 0}`);
+        }
+    }
+  
     // 🔥 НОВЫЙ МЕТОД: Сравнение с паттернами (для совместимости)
     compareWithPatterns(otherFootprint, options = {}) {
         console.log(`🎯 [FIX] VectorSuperModel.compareWithPatterns() - Сравнение с "${otherFootprint.name}"`);
