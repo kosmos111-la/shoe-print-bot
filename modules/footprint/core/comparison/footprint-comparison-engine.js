@@ -7,7 +7,7 @@ class FootprintComparisonEngine {
     constructor(manager) {
         this.manager = manager;
         this.config = manager.config;
-       
+
         // Импорты для зависимостей
         this.RotationInvariance = require('../../rotation-invariance');
         this.SimpleGraph = require('../../simple-graph');
@@ -143,7 +143,7 @@ class FootprintComparisonEngine {
         return this.compareAlignedFootprints(
             points1,
             alignmentResult.alignedPoints || correctedPoints2,
-            footprint1,
+            footrint1,
             footprint2
         );
     }
@@ -226,7 +226,7 @@ class FootprintComparisonEngine {
         } else {
             console.log(`📊 Точки в согласованной системе: ${points.length} (первые точки undefined)`);
         }
-       
+
         return points;
     }
 
@@ -593,37 +593,88 @@ class FootprintComparisonEngine {
 
         const similarity = matches / Math.max(points1_centered.length, points2_centered.length);
 
+        // 🔥 ДОБАВЛЯЕМ ДИАГНОСТИКУ 100% СОВПАДЕНИЙ:
+        console.log(`\n🔍 [DIAG-100%] ПРОВЕРКА ЛОЖНЫХ 100% СОВПАДЕНИЙ:`);
+
+        // Реальные совпадения по разумным порогам
+        const REAL_THRESHOLDS = {
+            PERFECT: 15,    // <15px - точное совпадение
+            GOOD: 30,       // <30px - хорошее совпадение
+            ACCEPTABLE: 50  // <50px - допустимое совпадение
+        };
+
+        // Считаем реальные совпадения
+        const realMatches = matchDetails.filter(match =>
+            match.distance < REAL_THRESHOLDS.ACCEPTABLE
+        );
+
+        const falseMatches = matchDetails.filter(match =>
+            match.distance >= REAL_THRESHOLDS.ACCEPTABLE
+        );
+
+        console.log(`   Всего совпадений: ${matchDetails.length}`);
+        console.log(`   Реальные (<${REAL_THRESHOLDS.ACCEPTABLE}px): ${realMatches.length}`);
+        console.log(`   Ложные (≥${REAL_THRESHOLDS.ACCEPTABLE}px): ${falseMatches.length}`);
+
+        // Показываем примеры ложных совпадений
+        if (falseMatches.length > 0 && falseMatches.length <= 3) {
+            falseMatches.forEach((match, i) => {
+                console.log(`   Ложное ${i+1}: расстояние=${match.distance.toFixed(1)}px`);
+            });
+        }
+
+        // 🔥 ИСПРАВЛЕННЫЙ РАСЧЕТ ПРОЦЕНТА
+        const realSimilarity = realMatches.length / Math.max(points1_centered.length, points2_centered.length);
+        console.log(`📊 Реальная схожесть: ${(realSimilarity * 100).toFixed(1)}% (не ${(similarity * 100).toFixed(1)}%)`);
+
+        // 🔥 ИСПОЛЬЗУЕМ РЕАЛЬНЫЙ ПРОЦЕНТ ДЛЯ РЕШЕНИЙ
+        const finalSimilarity = realSimilarity;
+        console.log(`🎯 Финальная схожесть для решения: ${(finalSimilarity * 100).toFixed(1)}%`);
+
+        // 🔥 ДОПОЛНИТЕЛЬНАЯ ДИАГНОСТИКА: проверим распределение расстояний
+        const distances = matchDetails.map(m => m.distance);
+        if (distances.length > 0) {
+            const minDist = Math.min(...distances);
+            const maxDist = Math.max(...distances);
+            const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
+
+            console.log(`📏 Распределение расстояний:`);
+            console.log(`   Минимальное: ${minDist.toFixed(1)}px`);
+            console.log(`   Среднее: ${avgDist.toFixed(1)}px`);
+            console.log(`   Максимальное: ${maxDist.toFixed(1)}px`);
+        }
+
         console.log(`📈 РЕЗУЛЬТАТ:`);
-        console.log(`   Совпало точек: ${matches}/${Math.max(points1_centered.length, points2_centered.length)}`);
-        console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}%`);
+        console.log(`   Совпало точек: ${realMatches.length}/${Math.max(points1_centered.length, points2_centered.length)}`);
+        console.log(`   Схожесть: ${(realSimilarity * 100).toFixed(1)}%`);
 
         // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
         let updatedCount = 0;
-        if (similarity > 0.5) {
+        if (realSimilarity > 0.5) {  // 🔥 ИСПОЛЬЗУЕМ realSimilarity
             console.log(`🔄 Обновляю подтверждения...`);
             updatedCount = this.manager.updateConfirmationsFromMatches(
-                footprint1, footprint2, matchDetails
+                footprint1, footprint2, realMatches  // 🔥 Используем только реальные совпадения
             );
         }
 
-        // 🔥 РЕШЕНИЕ
+        // 🔥 РЕШЕНИЕ (используем realSimilarity)
         let decision, reason;
-        if (similarity > 0.7) {
+        if (realSimilarity > 0.7) {  // 🔥 ИСПОЛЬЗУЕМ realSimilarity
             decision = 'same';
-            reason = `Высокое сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
-        } else if (similarity > 0.4) {
+            reason = `Высокое сходство (${(realSimilarity * 100).toFixed(1)}%) после простого выравнивания`;
+        } else if (realSimilarity > 0.4) {
             decision = 'similar';
-            reason = `Умеренное сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
+            reason = `Умеренное сходство (${(realSimilarity * 100).toFixed(1)}%) после простого выравнивания`;
         } else {
             decision = 'different';
-            reason = `Низкое сходство (${(similarity * 100).toFixed(1)}%) после простого выравнивания`;
+            reason = `Низкое сходство (${(realSimilarity * 100).toFixed(1)}%) после простого выравнивания`;
         }
 
         return {
-            similarity,
+            similarity: realSimilarity,  // 🔥 Возвращаем исправленную схожесть
             decision,
             reason,
-            matchesCount: matches,
+            matchesCount: realMatches.length,
             totalPoints: Math.max(points1_centered.length, points2_centered.length),
             pointsUpdated: updatedCount,
             alignmentInfo: {
@@ -633,7 +684,15 @@ class FootprintComparisonEngine {
                 center2,
                 angle1,
                 angle2,
-                method: 'simple_rotation_90_fix'
+                method: 'simple_rotation_90_fix_with_diagnostics'
+            },
+            diagnostics: {
+                totalMatches: matchDetails.length,
+                realMatches: realMatches.length,
+                falseMatches: falseMatches.length,
+                minDistance: distances.length > 0 ? Math.min(...distances) : 0,
+                avgDistance: distances.length > 0 ? distances.reduce((a, b) => a + b, 0) / distances.length : 0,
+                maxDistance: distances.length > 0 ? Math.max(...distances) : 0
             }
         };
     }
