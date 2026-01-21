@@ -183,15 +183,14 @@ class SimpleFootprint {
         }
 
         // 🔥 ВАЖНО: Преобразуем точки трекера в формат для графа
-        const graphPoints = trackedPoints.map((trackedPoint, index) => (
-        
-            id: `n_${trackedPoint.id}`,
-            x: trackedPoint.x,
-            y: trackedPoint.y,
-            confidence: trackedPoint.rating,
-            confirmedCount: trackedPoint.confirmedCount,
-            pointTrackerId: trackedPoint.id
-        }));
+        const graphPoints = trackedPoints.map((trackedPoint, index) => ({
+    id: `n_${trackedPoint.id}`,
+    x: trackedPoint.x,
+    y: trackedPoint.y,
+    confidence: trackedPoint.rating,
+    confirmedCount: trackedPoint.confirmedCount,
+    pointTrackerId: trackedPoint.id
+}));
 
         // 🔥 ВАЖНО: Строим граф из точек
         console.log(`🏗️  Строю граф из ${graphPoints.length} точек...`);
