@@ -8,6 +8,28 @@ class VectorSuperModel {
         this.id = `vsm_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
         this.name = options.name || 'Шаблонная супер-модель';
 
+        // 🔥 ДОБАВЛЯЕМ СОВМЕСТИМЫЕ ПОРОГИ
+        this.config = {
+            matchThreshold: options.matchThreshold || 0.05, // 🔥 СНИЖАЕМ с 0.08 до 0.05
+            minConfirmationsForHighConfidence: 2,
+            bestGraphMinNodes: options.bestGraphMinNodes || 15,
+            enableTemplateMode: true,
+            enableDynamicReference: true,
+
+            // 🔥 ДОБАВЛЯЕМ СОВМЕСТИМЫЕ ПОРОГИ
+            similarityThresholds: {
+                SAME: 0.6,      // 60% - как в simple-manager.js
+                SIMILAR: 0.4,   // 40%
+                DIFFERENT: 0.0
+            },
+
+            referenceUpdateThreshold: 1.15,
+            minQualityForReference: 0.4,
+            ...options
+        };
+
+        console.log(`🎯 VECTOR-MODEL пороги: matchThreshold=${this.config.matchThreshold}, same=${this.config.similarityThresholds.SAME}`);
+
         // 🔥 ЗАМЕНЯЕМ СТАРУЮ ЛОГИКУ НА TEMPLATE BUILDER
         this.templateBuilder = new TemplateBuilder({
             name: `Шаблон_${this.name}`,
@@ -39,18 +61,6 @@ class VectorSuperModel {
             templateCells: 0,
             confirmedCells: 0,
             avgConfirmations: 0
-        };
-
-        // 🔥 НАСТРОЙКИ ДЛЯ ДИНАМИЧЕСКОГО ЭТАЛОНА
-        this.config = {
-            matchThreshold: options.matchThreshold || 0.08,
-            minConfirmationsForHighConfidence: 2,
-            bestGraphMinNodes: options.bestGraphMinNodes || 15,
-            enableTemplateMode: true,
-            enableDynamicReference: true, // 🔥 ВКЛЮЧАЕМ ДИНАМИЧЕСКИЙ ЭТАЛОН
-            referenceUpdateThreshold: 1.15, // На 15% лучше
-            minQualityForReference: 0.4,
-            ...options
         };
 
         console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}" с ДИНАМИЧЕСКИМ эталоном`);
