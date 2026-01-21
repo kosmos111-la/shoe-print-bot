@@ -1,10 +1,12 @@
-// diagnostic.js - Диагностика системы
+// diagnostic.js - Исправленные пути
 const fs = require('fs');
+const path = require('path');
 
 class SystemDiagnostic {
     constructor() {
         this.checks = [];
         this.results = [];
+        this.basePath = path.join(__dirname, 'modules/footprint');
     }
    
     addCheck(name, checkFn) {
@@ -68,11 +70,12 @@ async function runDiagnostics() {
     const diagnostic = new SystemDiagnostic();
    
     // 1. Проверка модулей
+    // 1. Проверка модулей - ИСПРАВЛЕННЫЕ ПУТИ
     diagnostic.addCheck('Загрузка модулей', () => {
         const modules = [
             'simple-footprint',
-            'footprint-comparison-engine',
-            'template-coordination',
+            'core/comparison/footprint-comparison-engine',
+            'core/comparison/template-coordination',
             'vector-super-model',
             'rotation-invariance'
         ];
@@ -80,12 +83,13 @@ async function runDiagnostics() {
         const loaded = [];
         const failed = [];
        
-        modules.forEach(moduleName => {
+        modules.forEach(modulePath => {
             try {
-                require(`./modules/footprint/${moduleName}`);
-                loaded.push(moduleName);
+                const fullPath = path.join(__dirname, 'modules/footprint', modulePath);
+                require(fullPath);
+                loaded.push(modulePath.split('/').pop()); // берем только имя файла
             } catch (e) {
-                failed.push(`${moduleName}: ${e.message}`);
+                failed.push(`${modulePath}: ${e.message.split('\n')[0]}`);
             }
         });
        
