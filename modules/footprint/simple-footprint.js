@@ -488,59 +488,68 @@ class SimpleFootprint {
     }
 
     // 🔥 НОВЫЙ МЕТОД: Получить точки в нормализованной системе
-   getPointsInNormalizedSystem() {
+  getPointsInNormalizedSystem() {
     console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
    
-    const points = this.getPointsInMySystem(); // или другой метод получения точек
-   
-    if (!this.transformation || points.length === 0) {
-        console.log('⚠️ Нет трансформации или точек');
-        return points;
+    // Получаем точки из трекера
+    const points = [];
+    if (this.pointTracker && this.pointTracker.points) {
+        for (const [id, point] of this.pointTracker.points) {
+            points.push({
+                id,
+                x: point.x,
+                y: point.y,
+                confidence: point.rating || 0.5,
+                confirmedCount: point.confirmedCount || 1
+            });
+        }
     }
    
-    const currentAngle = this.transformation.rotationAngle || 0;
+    if (points.length === 0) {
+        console.log('⚠️ Нет точек для нормализации');
+        return [];
+    }
+   
+    // Получаем текущий угол трансформации
+    const currentTransformation = this.getTransformation();
+    const currentAngle = currentTransformation?.rotationAngle || 0;
+   
     console.log(`📐 Текущий угол: ${currentAngle.toFixed(1)}°, нормализую к 0°`);
    
     // 🔥 ИСПРАВЛЕНИЕ: Если угол уже 0°, возвращаем точки как есть
     if (Math.abs(currentAngle) < 0.1) {
         console.log(`✅ Уже нормализован (0°), возвращаю ${points.length} точек`);
-        return points;
+       
+        // Все равно центрируем для согласованности
+        const RotationInvariance = require('./rotation-invariance');
+        const processor = new RotationInvariance({ debug: false });
+        const targetCenter = { x: 500, y: 500 };
+        const centeredPoints = processor.alignPointsToCommonSystem(points, targetCenter);
+       
+        return centeredPoints;
     }
    
+    // Используем ваш новый простой метод
     const RotationInvariance = require('./rotation-invariance');
     const processor = new RotationInvariance({ debug: false });
    
-    // Создаем простую трансформацию для текущего угла
-    const currentTransformation = {
-        rotationAngle: currentAngle,
-        center: this.transformation.center || processor.calculateCenter(points),
-        matrix: this.transformation.matrix || null
-    };
+    // 1. Поворачиваем к 0°
+    const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
    
-    // Создаем целевую трансформацию (0°)
-    const targetTransformation = {
-        rotationAngle: 0,
-        center: currentTransformation.center,
-        matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1]
-    };
+    // 2. Центрируем
+    const targetCenter = { x: 500, y: 500 };
+    const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints, targetCenter);
    
-    // 🔥 ИСПРАВЛЕНИЕ: Используем защищенный метод
-    let normalizedPoints;
-    try {
-        normalizedPoints = processor.transformPointsBetweenSystems(
-            points,
-            currentTransformation,
-            targetTransformation
-        );
-    } catch (error) {
-        console.log(`⚠️ Ошибка при преобразовании: ${error.message}`);
-        console.log(`   Использую простой метод`);
-        normalizedPoints = processor.transformPointsSimple(points, currentAngle, 0);
+    console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
+   
+    // 🔥 ДИАГНОСТИКА: Проверим координаты
+    if (centeredPoints.length > 0) {
+        console.log(`📊 Пример координат после нормализации:`);
+        console.log(`   Первая точка: (${centeredPoints[0].x.toFixed(1)}, ${centeredPoints[0].y.toFixed(1)})`);
+        console.log(`   Последняя точка: (${centeredPoints[centeredPoints.length-1].x.toFixed(1)}, ${centeredPoints[centeredPoints.length-1].y.toFixed(1)})`);
     }
    
-    console.log(`✅ Нормализовано ${normalizedPoints.length} точек`);
-   
-    return normalizedPoints;
+    return centeredPoints;
 }
 
     // 🔥 НОВЫЙ МЕТОД: Создать нормализованную трансформацию
