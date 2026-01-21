@@ -154,9 +154,7 @@ class SimpleFootprint {
         // Получаем ВСЕ точки из трекера для построения графа
         const trackedPoints = [];
       // В методе addAnalysisHonest() после строчки "const trackedPoints = [];"
-console.log(`🔍 [DIAG-GRAPH] Построение графа:`);
-console.log(`   Точки в трекере: ${this.pointTracker.points.size}`);
-console.log(`   Предыдущих узлов в графе: ${previousNodeCount}`);
+
         for (const [id, pt] of this.pointTracker.points) {
             trackedPoints.push({
                 id,
@@ -185,8 +183,7 @@ console.log(`   Предыдущих узлов в графе: ${previousNodeC
         }
 
         // 🔥 ВАЖНО: Преобразуем точки трекера в формат для графа
-        const graphPoints = trackedPoints.map((trackedPoint, index) => ({
-console.log(`   Подготовлено для графа: ${graphPoints.length} точек`);
+        const graphPoints = trackedPoints.map((trackedPoint, index) => (
         
             id: `n_${trackedPoint.id}`,
             x: trackedPoint.x,
