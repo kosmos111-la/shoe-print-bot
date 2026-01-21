@@ -1,5 +1,6 @@
 // modules/footprint/template-builder.js
 // 🔥 ПЕРЕРАБОТАННЫЙ С ДИНАМИЧЕСКИМ ЭТАЛОНОМ И ПОЛНЫМ НАКОПЛЕНИЕМ
+
 const SimpleGraphMatcher = require('./simple-matcher');
 
 class TemplateBuilder {
@@ -100,6 +101,26 @@ class TemplateBuilder {
 
         // 3. Ищем совпадения в НОРМАЛИЗОВАННОЙ системе
         const matchResults = this.findMatchesInNormalizedSystem(normalizedPoints, graphId);
+
+        // 🔥 ДОБАВЛЯЕМ ДИАГНОСТИКУ ПЕРЕД ВЫВОДОМ "другой протектор"
+        console.log(`🔍 [DIAG-VECTOR] СРАВНЕНИЕ С ЭТАЛОНОМ:`);
+        console.log(`   Совпадений: ${matchResults.totalMatches || 0}`);
+        console.log(`   Нужно минимум: ${Math.max(3, this.referencePoints.length * 0.2)}`);
+        console.log(`   Порог SAME из simple-manager: 0.6 (60%)`);
+
+        const matchRate = matchResults.totalMatches / Math.max(1, normalizedPoints.length);
+        console.log(`   Процент совпадений: ${(matchRate * 100).toFixed(1)}%`);
+       
+        // 🔥 СИНХРОНИЗАЦИЯ: используем тот же порог, что и в simple-manager.js
+        const isSame = matchRate > 0.6; // 60% как в simple-manager.js
+
+        if (!isSame) {
+            console.log(`⚠️ VECTOR-MODEL: "другой протектор"`);
+            console.log(`   Нужно: >60% совпадений`);
+            console.log(`   Есть: ${(matchRate * 100).toFixed(1)}%`);
+        } else {
+            console.log(`✅ VECTOR-MODEL: достаточно совпадений, добавляю`);
+        }
 
         if (matchResults.totalMatches < Math.max(3, this.referencePoints.length * 0.2)) {
             console.log(`❌ Недостаточно совпадений: ${matchResults.totalMatches}`);
