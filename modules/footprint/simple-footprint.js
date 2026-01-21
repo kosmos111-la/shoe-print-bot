@@ -117,7 +117,7 @@ class SimpleFootprint {
                 console.log(`📐 Создана трансформация с реальным углом: ${angle}°`);
             }
         }
-       
+
         const { predictions } = analysis;
         const protectorPoints = this.extractProtectorPoints(predictions);
 
@@ -151,10 +151,12 @@ class SimpleFootprint {
         // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Получаем точки из трекера и СТРОИМ ГРАФ
         const previousNodeCount = this.graph.nodes.size;
 
+        console.log(`🔍 [DIAG-GRAPH] Построение графа:`);
+        console.log(`   Точки в трекере: ${this.pointTracker.points.size}`);
+        console.log(`   Предыдущих узлов в графе: ${previousNodeCount}`);
+
         // Получаем ВСЕ точки из трекера для построения графа
         const trackedPoints = [];
-      // В методе addAnalysisHonest() после строчки "const trackedPoints = [];"
-
         for (const [id, pt] of this.pointTracker.points) {
             trackedPoints.push({
                 id,
@@ -165,6 +167,29 @@ class SimpleFootprint {
                 uniquePhotos: pt.confirmedPhotos ? pt.confirmedPhotos.size : 1,
                 lastSeen: pt.lastSeen
             });
+        }
+
+        console.log(`📊 [DIAG] Точки для графа из трекера: ${trackedPoints.length}`);
+        if (trackedPoints.length > 0) {
+            console.log(`   Пример: ID=${trackedPoints[0].id}, (${trackedPoints[0].x}, ${trackedPoints[0].y})`);
+        }
+
+        // УБЕДИТЕСЬ ЧТО trackedPoints не пустой:
+        if (trackedPoints.length === 0) {
+            console.log('⚠️ Нет точек в трекере для построения графа!');
+            // Добавим точки из текущего анализа как фаллбэк
+            protectorPoints.forEach((point, index) => {
+                trackedPoints.push({
+                    id: `emergency_pt_${index}`,
+                    x: point.x,
+                    y: point.y,
+                    rating: point.confidence || 0.5,
+                    confirmedCount: 1,
+                    uniquePhotos: 1,
+                    lastSeen: new Date()
+                });
+            });
+            console.log(`   Добавлено ${trackedPoints.length} аварийных точек`);
         }
 
         console.log(`📊 Собрано ${trackedPoints.length} точек из трекера для построения графа`);
@@ -182,15 +207,17 @@ class SimpleFootprint {
             };
         }
 
-        // 🔥 ВАЖНО: Преобразуем точки трекера в формат для графа
+        // 🔥 ВАЖНО: Преобразуем точки трекера в формат для графа (ИСПРАВЛЕН СИНТАКСИС)
         const graphPoints = trackedPoints.map((trackedPoint, index) => ({
-    id: `n_${trackedPoint.id}`,
-    x: trackedPoint.x,
-    y: trackedPoint.y,
-    confidence: trackedPoint.rating,
-    confirmedCount: trackedPoint.confirmedCount,
-    pointTrackerId: trackedPoint.id
-}));
+            id: `n_${trackedPoint.id}`,
+            x: trackedPoint.x,
+            y: trackedPoint.y,
+            confidence: trackedPoint.rating,
+            confirmedCount: trackedPoint.confirmedCount,
+            pointTrackerId: trackedPoint.id
+        }));
+
+        console.log(`   Подготовлено для графа: ${graphPoints.length} точек`);
 
         // 🔥 ВАЖНО: Строим граф из точек
         console.log(`🏗️  Строю граф из ${graphPoints.length} точек...`);
@@ -490,9 +517,9 @@ class SimpleFootprint {
     }
 
     // 🔥 НОВЫЙ МЕТОД: Получить точки в нормализованной системе
-  getPointsInNormalizedSystem() {
+  getPointsInNormalizedSystem() {
     console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
-   
+
     // Получаем точки из трекера
     const points = [];
     if (this.pointTracker && this.pointTracker.points) {
@@ -506,51 +533,51 @@ class SimpleFootprint {
             });
         }
     }
-   
+
     if (points.length === 0) {
         console.log('⚠️ Нет точек для нормализации');
         return [];
     }
-   
+
     // Получаем текущий угол трансформации
     const currentTransformation = this.getTransformation();
     const currentAngle = currentTransformation?.rotationAngle || 0;
-   
+
     console.log(`📐 Текущий угол: ${currentAngle.toFixed(1)}°, нормализую к 0°`);
-   
+
     // 🔥 ИСПРАВЛЕНИЕ: Если угол уже 0°, возвращаем точки как есть
     if (Math.abs(currentAngle) < 0.1) {
         console.log(`✅ Уже нормализован (0°), возвращаю ${points.length} точек`);
-       
+
         // Все равно центрируем для согласованности
         const RotationInvariance = require('./rotation-invariance');
         const processor = new RotationInvariance({ debug: false });
         const targetCenter = { x: 500, y: 500 };
         const centeredPoints = processor.alignPointsToCommonSystem(points, targetCenter);
-       
+
         return centeredPoints;
     }
-   
+
     // Используем ваш новый простой метод
     const RotationInvariance = require('./rotation-invariance');
     const processor = new RotationInvariance({ debug: false });
-   
+
     // 1. Поворачиваем к 0°
     const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
-   
+
     // 2. Центрируем
     const targetCenter = { x: 500, y: 500 };
     const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints, targetCenter);
-   
+
     console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
-   
+
     // 🔥 ДИАГНОСТИКА: Проверим координаты
     if (centeredPoints.length > 0) {
         console.log(`📊 Пример координат после нормализации:`);
         console.log(`   Первая точка: (${centeredPoints[0].x.toFixed(1)}, ${centeredPoints[0].y.toFixed(1)})`);
         console.log(`   Последняя точка: (${centeredPoints[centeredPoints.length-1].x.toFixed(1)}, ${centeredPoints[centeredPoints.length-1].y.toFixed(1)})`);
     }
-   
+
     return centeredPoints;
 }
 
@@ -1761,34 +1788,34 @@ class SimpleFootprint {
     // 🔥 НОВЫЙ МЕТОД: Получить инвариантные признаки (добавлен в конец класса)
     getInvariantFeatures() {
         console.log(`🔍 getInvariantFeatures для "${this.name}"`);
-       
+
         // 🔥 МИНИМАЛЬНЫЙ ДЕБАГ вместо спама
         const trans = this.getTransformation();
         console.log(`   Трансформация: ${trans?.rotationAngle || 0}°`);
-       
+
         // Получаем нормализованные точки
         const normalizedPoints = this.getPointsInNormalizedSystem();
-       
+
         if (normalizedPoints.length < 3) {
             console.log('⚠️ Недостаточно точек');
             return this.createBasicInvariantFeatures();
         }
-       
+
         // 🔥 ВАЖНАЯ ПРОВЕРКА: координаты не должны быть около 0
         if (normalizedPoints.length > 0) {
             const point = normalizedPoints[0];
             console.log(`   Пример нормализованной точки: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-           
+
             // Если координаты слишком маленькие (<1) - проблема!
             if (Math.abs(point.x) < 1 && Math.abs(point.y) < 1) {
                 console.log(`⚠️ ПРОБЛЕМА: координаты слишком маленькие!`);
                 console.log(`⚠️ getPointsInNormalizedSystem() не работает правильно!`);
             }
         }
-       
+
         // 🔥 ИСПРАВЛЕННЫЙ КОД: Создаем признаки из НОРМАЛИЗОВАННЫХ точек
         const features = [];
-       
+
         try {
             // Используем только нормализованные точки
             normalizedPoints.forEach((point, index) => {
@@ -1796,28 +1823,28 @@ class SimpleFootprint {
                     try {
                         // Находим ближайших соседей в НОРМАЛИЗОВАННОЙ системе
                         const neighbors = [];
-                       
+
                         normalizedPoints.forEach((otherPoint, otherIndex) => {
                             if (index === otherIndex) return;
-                           
+
                             const distance = Math.sqrt(
                                 Math.pow(otherPoint.x - point.x, 2) +
                                 Math.pow(otherPoint.y - point.y, 2)
                             );
-                           
+
                             const angle = Math.atan2(otherPoint.y - point.y, otherPoint.x - point.x);
-                           
+
                             neighbors.push({
                                 distance: distance,
                                 angle: angle,
                                 otherPoint: otherPoint
                             });
                         });
-                       
+
                         // Сортируем и берем 3 ближайших
                         neighbors.sort((a, b) => a.distance - b.distance);
                         const closestNeighbors = neighbors.slice(0, 3);
-                       
+
                         if (closestNeighbors.length >= 2) {
                             // Создаем признак
                             const feature = {
@@ -1835,9 +1862,9 @@ class SimpleFootprint {
                                 transformationAngle: trans?.rotationAngle || 0,
                                 originalPoint: point
                             };
-                           
+
                             features.push(feature);
-                           
+
                             // Дебаг для первых признаков
                             if (index < 3) {
                                 console.log(`   Признак ${index + 1}: ${feature.type}`);
@@ -1854,13 +1881,13 @@ class SimpleFootprint {
             console.log('⚠️ Ошибка создания признаков:', error.message);
             return this.createBasicInvariantFeatures();
         }
-       
+
         console.log(`✅ Создано ${features.length} инвариантных признаков из НОРМАЛИЗОВАННОЙ системы`);
-       
+
         // Проверяем, что признаки созданы из нормализованных точек
         const normalizedCount = features.filter(f => f.normalized).length;
         console.log(`📊 Признаки из нормализованной системы: ${normalizedCount}/${features.length}`);
-       
+
         return features;
     }
 
@@ -1943,7 +1970,7 @@ class SimpleFootprint {
         console.log('🔄 Создаю базовые инвариантные признаки (фаллбэк)...');
 
         const features = [];
-       
+
         // 🔥 ИСПРАВЛЕНИЕ: Пытаемся получить нормализованные точки
         let points;
         try {
@@ -1967,13 +1994,13 @@ class SimpleFootprint {
         // 🔥 ИСПРАВЛЕНИЕ: Определяем, нормализованы ли точки
         const arePointsNormalized = points.length > 0 &&
                                    (points[0].normalized || points[0].nx !== undefined);
-       
+
         console.log(`📊 Фаллбэк: ${points.length} точек, нормализованы: ${arePointsNormalized ? 'да' : 'нет'}`);
 
         // Простой расчет признаков
         for (let i = 0; i < Math.min(points.length, 10); i++) {
             const point = points[i];
-           
+
             // 🔥 ИСПРАВЛЕНИЕ: Правильно определяем тип признака
             const feature = {
                 id: point.id || `basic_${i}`,
@@ -1987,7 +2014,7 @@ class SimpleFootprint {
                 transformationAngle: this.transformation?.rotationAngle || 0,
                 originalPoint: point
             };
-           
+
             features.push(feature);
         }
 
@@ -2047,20 +2074,20 @@ class SimpleFootprint {
 
         return points;
     }
-  
-  // 🔥 НОВЫЙ МЕТОД: Получить точки в системе PatternMatcher
+
+  // 🔥 НОВЫЙ МЕТОД: Получить точки в системе PatternMatcher
 getPointsForPatternMatching() {
     console.log(`🔧 getPointsForPatternMatching() для "${this.name}"`);
-   
+
     try {
         // Получаем точки в нормализованной системе
         const normalizedPoints = this.getPointsInNormalizedSystem();
-       
+
         if (!normalizedPoints || normalizedPoints.length === 0) {
             console.log(`⚠️ Нет нормализованных точек для сравнения паттернов`);
             return [];
         }
-       
+
         // 🔥 ИСПРАВЛЕНИЕ: Убедимся, что все точки имеют нужные поля
         const points = normalizedPoints.map((point, index) => ({
             id: point.id || `pt_${index}`,
@@ -2070,17 +2097,17 @@ getPointsForPatternMatching() {
             originalX: point.originalX || point.x,
             originalY: point.originalY || point.y
         }));
-       
+
         console.log(`📊 Подготовлено ${points.length} точек для сравнения паттернов`);
         return points;
-       
+
     } catch (error) {
         console.log(`❌ Ошибка в getPointsForPatternMatching: ${error.message}`);
         return [];
     }
 }
 
-  // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
+  // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
 alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
     console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
     console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
@@ -2129,25 +2156,25 @@ alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
 getAlignedPointsForComparison() {
     // Получаем нормализованные и выровненные точки
     const normalizedPoints = this.getPointsInNormalizedSystem();
-   
+
     // 🔥 ДОПОЛНИТЕЛЬНОЕ ВЫРАВНИВАНИЕ для точного сравнения
     const RotationInvariance = require('./rotation-invariance');
     const processor = new RotationInvariance({ debug: false });
-   
+
     // Если точек мало, возвращаем как есть
     if (normalizedPoints.length < 3) return normalizedPoints;
-   
+
     // Выравниваем к точному центру (500, 500)
     const preciselyAligned = processor.alignPointsToCommonSystem(
         normalizedPoints,
         { x: 500, y: 500 }
     );
-   
+
     console.log(`🎯 Точки готовы для сравнения: ${preciselyAligned.length} точек`);
-   
+
     return preciselyAligned;
 }
-  
+
 }
 
 module.exports = SimpleFootprint;
