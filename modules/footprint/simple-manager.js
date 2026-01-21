@@ -113,6 +113,20 @@ class SimpleFootprintManager {
         this.loadExistingModels();
 
         console.log(`🚀 SimpleFootprintManager с ПОЛНОСТЬЮ МОДУЛЬНОЙ АРХИТЕКТУРОЙ (${this.getLinesOfCode()} строк)`);
+
+        // 🔥 ЕДИНЫЕ ПОРОГИ ДЛЯ ВСЕХ МОДУЛЕЙ
+        this.DECISION_THRESHOLDS = {
+            // Пороги из логов (работающие значения)
+            PATTERN_SIMILARITY: 0.6,      // Из лога: 80.6% проходит → порог < 0.8
+            MIN_MATCHES: 10,              // Из лога: "Недостаточно: 9" → нужно > 9
+            MAX_DISTANCE: 50,             // Из лога виден порог
+            VECTOR_MATCH_THRESHOLD: 0.05  // Снизили с 0.08 для совместимости
+        };
+
+        console.log(`🎯 Единые пороги решений:`);
+        console.log(`   Паттерн-сходство: >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
+        console.log(`   Минимальные совпадения: >${this.DECISION_THRESHOLDS.MIN_MATCHES}`);
+        console.log(`   Максимальное расстояние: <${this.DECISION_THRESHOLDS.MAX_DISTANCE}px`);
     }
 
     // 🔥 СТАТИСТИКА ПО СТРОКАМ КОДА
@@ -455,9 +469,15 @@ class SimpleFootprintManager {
         );
 
         const similarity = comparisonResult?.similarity || 0;
-        const decision = similarity > 0.6 ? 'same' : 'different';
 
-        console.log(`🎯 Сходство: ${similarity.toFixed(3)}, решение: ${decision}`);
+        // 🔥 ИСПОЛЬЗУЕМ ЕДИНЫЙ ПОРОГ ИЗ КОНФИГА
+        const decision = similarity > this.DECISION_THRESHOLDS.PATTERN_SIMILARITY ? 'same' : 'different';
+
+        console.log(`🎯 ЕДИНОЕ РЕШЕНИЕ (simple-manager):`);
+        console.log(`   Similarity: ${similarity.toFixed(3)}`);
+        console.log(`   Требуется: >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
+        console.log(`   Решение: ${decision}`);
+        console.log(`   Источник: compareWithPatterns()`);
 
         if (decision === 'same') {
             return await this.handleMatchingFootprint(
