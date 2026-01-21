@@ -186,7 +186,7 @@ console.log(`   Предыдущих узлов в графе: ${previousNodeC
 
         // 🔥 ВАЖНО: Преобразуем точки трекера в формат для графа
         const graphPoints = trackedPoints.map((trackedPoint, index) => ({
-onsole.log(`   Подготовлено для графа: ${graphPoints.length} точек`);
+console.log(`   Подготовлено для графа: ${graphPoints.length} точек`);
         
             id: `n_${trackedPoint.id}`,
             x: trackedPoint.x,
