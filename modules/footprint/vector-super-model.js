@@ -1,5 +1,5 @@
 // modules/footprint/vector-super-model.js
-// 🔥 ОБНОВЛЯЕМ ДЛЯ ДИНАМИЧЕСКОГО ЭТАЛОНА
+// 🔥 ИСПРАВЛЕНИЕ: Добавляем метод compareWithPatterns для совместимости
 
 const TemplateBuilder = require('./template-builder');
 
@@ -56,40 +56,306 @@ class VectorSuperModel {
         console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}" с ДИНАМИЧЕСКИМ эталоном`);
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД ИЗ ИНСТРУКЦИИ
-    updateStats() {
-        // Получаем реальные данные из TemplateBuilder
-        const templateInfo = this.templateBuilder.getInfo();
-        const visualizationData = this.templateBuilder.getVisualizationData();
-
-        if (!visualizationData || visualizationData.cells.length === 0) {
-            this.stats.confidence = 0;
-            return;
+    // 🔥 НОВЫЙ МЕТОД: Сравнение с паттернами (для совместимости)
+    compareWithPatterns(otherFootprint, options = {}) {
+        console.log(`🎯 [FIX] VectorSuperModel.compareWithPatterns() - Сравнение с "${otherFootprint.name}"`);
+       
+        if (!this.templateBuilder) {
+            console.log('⚠️ Нет шаблона для сравнения');
+            return {
+                success: false,
+                matchCount: 0,
+                percentage: 0,
+                decision: 'different',
+                reason: 'Нет шаблона для сравнения'
+            };
         }
 
-        // 🔥 БЕРЕМ РЕАЛЬНЫЕ ДАННЫЕ ИЗ ВИЗУАЛИЗАЦИИ
-        const cells = visualizationData.cells;
-        const stats = visualizationData.stats;
+        try {
+            // Получаем точки отпечатка для сравнения
+            let footprintPoints = [];
+           
+            // Пробуем разные методы получения точек
+            if (typeof otherFootprint.getPointsForPatternMatching === 'function') {
+                footprintPoints = otherFootprint.getPointsForPatternMatching();
+                console.log(`📊 Получено ${footprintPoints.length} точек через getPointsForPatternMatching()`);
+            } else if (typeof otherFootprint.getAlignedPointsForComparison === 'function') {
+                footprintPoints = otherFootprint.getAlignedPointsForComparison();
+                console.log(`📊 Получено ${footprintPoints.length} точек через getAlignedPointsForComparison()`);
+            } else {
+                // Фаллбэк: получаем точки из графа
+                if (otherFootprint.graph && otherFootprint.graph.nodes) {
+                    otherFootprint.graph.nodes.forEach((node, nodeId) => {
+                        footprintPoints.push({
+                            id: nodeId,
+                            x: node.x || 0,
+                            y: node.y || 0,
+                            confidence: node.confidence || 0.5
+                        });
+                    });
+                    console.log(`📊 Получено ${footprintPoints.length} точек из графа`);
+                }
+            }
 
-        // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
-        this.stats.templateCells = cells.length;
-        this.stats.confirmedCells = stats.confirmedCells || 0;
-        this.stats.totalConfirmations = stats.totalConfirmations || 0;  // 🔥 ВАЖНО!
-        this.stats.averageConfirmations = stats.averageConfirmations || 0;
+            if (footprintPoints.length === 0) {
+                console.log('⚠️ Нет точек для сравнения');
+                return {
+                    success: false,
+                    matchCount: 0,
+                    percentage: 0,
+                    decision: 'different',
+                    reason: 'Нет точек для сравнения'
+                };
+            }
 
-        // 🔥 РАСЧЕТ УВЕРЕННОСТИ
-        const confirmedRatio = this.stats.confirmedCells / Math.max(1, this.stats.templateCells);
-        const avgConfirmations = this.stats.averageConfirmations;
+            // 🔥 ИСПРАВЛЕНИЕ: Выравниваем точки к системе шаблона
+            const templateInfo = this.templateBuilder.getInfo();
+            const alignedPoints = this.alignPointsToTemplateSystem(footprintPoints);
+           
+            console.log(`📊 Точки для сравнения: ${alignedPoints.length} (после выравнивания)`);
 
-        // 🔥 НОВАЯ ФОРМУЛА УВЕРЕННОСТИ
-        this.stats.confidence = Math.min(1.0,
-            confirmedRatio * 0.5 +                    // 50% за долю подтвержденных
-            Math.min(0.3, avgConfirmations * 0.15) +  // 30% за среднее подтверждений
-            (this.bestGraphScore * 0.2)               // 20% за качество лучшего графа
-        );
+            // Получаем шаблон для сравнения
+            const template = this.templateBuilder.getTemplateForComparison();
+           
+            if (!template || !template.cells || template.cells.length === 0) {
+                console.log('⚠️ Шаблон пустой');
+                return {
+                    success: false,
+                    matchCount: 0,
+                    percentage: 0,
+                    decision: 'different',
+                    reason: 'Шаблон пустой'
+                };
+            }
+
+            console.log(`📊 Шаблон для сравнения: ${template.cells.length} ячеек`);
+
+            // 🔥 ИСПРАВЛЕННЫЙ МЕТОД СРАВНЕНИЯ: Реальный подсчет совпадений
+            const comparisonResult = this.comparePointsWithTemplate(alignedPoints, template, options);
+           
+            console.log(`📊 Результат сравнения: ${comparisonResult.matchCount} совпадений (${comparisonResult.percentage.toFixed(1)}%)`);
+
+            // 🔥 ИСПРАВЛЕНИЕ: Единое решение с другими модулями
+            const finalDecision = this.makeConsistentDecision(comparisonResult, options);
+           
+            return {
+                ...comparisonResult,
+                decision: finalDecision,
+                footprintPoints: alignedPoints.length,
+                templateCells: template.cells.length,
+                diagnostics: {
+                    hasPoints: alignedPoints.length > 0,
+                    hasTemplate: template.cells.length > 0,
+                    avgConfidence: comparisonResult.avgConfidence || 0
+                }
+            };
+
+        } catch (error) {
+            console.error(`❌ Ошибка в compareWithPatterns:`, error.message);
+           
+            return {
+                success: false,
+                matchCount: 0,
+                percentage: 0,
+                decision: 'different',
+                reason: `Ошибка сравнения: ${error.message}`,
+                error: error.message
+            };
+        }
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавить граф
+    // 🔥 НОВЫЙ МЕТОД: Сравнение точек с шаблоном (реальная статистика)
+    comparePointsWithTemplate(points, template, options = {}) {
+        const MATCH_THRESHOLD = options.threshold || this.config.matchThreshold || 0.08;
+       
+        console.log(`🔍 Сравнение ${points.length} точек с ${template.cells.length} ячейками шаблона`);
+        console.log(`   Порог совпадения: ${MATCH_THRESHOLD}`);
+
+        let matchCount = 0;
+        let totalConfidence = 0;
+        const matchedPoints = [];
+        const matchedCells = [];
+        const unmatchedPoints = [];
+
+        // 🔥 ДИАГНОСТИКА: Проверяем координаты точек
+        const zeroPoints = points.filter(p => Math.abs(p.x) < 0.1 && Math.abs(p.y) < 0.1).length;
+        if (zeroPoints > 0) {
+            console.warn(`⚠️ ${zeroPoints} точек близко к (0,0)!`);
+        }
+
+        // Для каждой точки ищем совпадение в шаблоне
+        points.forEach((point, index) => {
+            let bestMatch = null;
+            let bestDistance = Infinity;
+            let bestCell = null;
+
+            // 🔥 ОПТИМИЗАЦИЯ: Ищем только в ближайших ячейках
+            const candidateCells = this.findNearbyCells(point, template.cells, 100); // 100px радиус
+           
+            candidateCells.forEach(cell => {
+                const distance = Math.sqrt(
+                    Math.pow(cell.x - point.x, 2) + Math.pow(cell.y - point.y, 2)
+                );
+               
+                // 🔥 ИСПРАВЛЕНИЕ: Используем нормализованное расстояние
+                const normalizedDistance = distance / Math.max(1, cell.size || 25);
+               
+                if (normalizedDistance < bestDistance) {
+                    bestDistance = normalizedDistance;
+                    bestMatch = {
+                        point: point,
+                        cell: cell,
+                        distance: distance,
+                        normalizedDistance: normalizedDistance,
+                        confidence: Math.max(0.1, point.confidence || 0.5)
+                    };
+                    bestCell = cell;
+                }
+            });
+
+            if (bestMatch && bestMatch.normalizedDistance <= MATCH_THRESHOLD) {
+                matchCount++;
+                totalConfidence += bestMatch.confidence;
+                matchedPoints.push(bestMatch);
+                matchedCells.push(bestCell);
+               
+                // Дебаг для первых совпадений
+                if (matchCount <= 3) {
+                    console.log(`   Совпадение ${matchCount}: расстояние=${bestMatch.distance.toFixed(1)}px, ` +
+                              `норм.расстояние=${bestMatch.normalizedDistance.toFixed(3)}`);
+                }
+            } else {
+                unmatchedPoints.push(point);
+            }
+        });
+
+        // 🔥 ИСПРАВЛЕНИЕ: РЕАЛЬНЫЙ процент, а не 100%
+        const percentage = points.length > 0 ? (matchCount / points.length) * 100 : 0;
+        const avgConfidence = matchCount > 0 ? totalConfidence / matchCount : 0;
+
+        // 🔥 ПРОВЕРКА НА ЛОЖНЫЕ 100%
+        if (percentage > 99 && matchCount < 3) {
+            console.warn(`⚠️ ЛОЖНЫЙ 100%: ${percentage.toFixed(1)}% при ${matchCount} совпадениях`);
+        }
+
+        console.log(`📊 Результат: ${matchCount}/${points.length} совпадений (${percentage.toFixed(1)}%)`);
+        console.log(`   Средняя уверенность совпадений: ${avgConfidence.toFixed(3)}`);
+
+        return {
+            matchCount,
+            percentage: Math.min(100, percentage), // Ограничиваем 100%
+            avgConfidence,
+            matchedPoints: matchedPoints.length,
+            unmatchedPoints: unmatchedPoints.length,
+            totalPoints: points.length,
+            templateCells: template.cells.length
+        };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Поиск ближайших ячеек
+    findNearbyCells(point, cells, radius = 100) {
+        if (!cells || cells.length === 0) return [];
+       
+        return cells.filter(cell => {
+            const distance = Math.sqrt(
+                Math.pow(cell.x - point.x, 2) + Math.pow(cell.y - point.y, 2)
+            );
+            return distance <= radius;
+        });
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Выравнивание точек к системе шаблона
+    alignPointsToTemplateSystem(points) {
+        console.log(`🎯 Выравнивание ${points.length} точек к системе шаблона...`);
+       
+        if (points.length === 0) return points;
+       
+        try {
+            // Получаем текущий эталонный граф
+            const referenceGraphId = this.templateBuilder.referenceGraphId;
+            if (!referenceGraphId) {
+                console.log('⚠️ Нет эталонного графа для выравнивания');
+                return points;
+            }
+           
+            // Получаем данные эталонного графа
+            const referenceData = this.sourceGraphs.get(referenceGraphId);
+            if (!referenceData || !referenceData.graph) {
+                console.log('⚠️ Нет данных эталонного графа');
+                return points;
+            }
+           
+            const referenceGraph = referenceData.graph;
+            const referenceBounds = referenceGraph.calculateGraphBounds ?
+                referenceGraph.calculateGraphBounds() :
+                { centerX: 500, centerY: 500 };
+           
+            // Вычисляем текущий центр точек
+            const currentCenter = this.calculateCenter(points);
+            const offsetX = referenceBounds.centerX - currentCenter.x;
+            const offsetY = referenceBounds.centerY - currentCenter.y;
+           
+            console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+           
+            // Применяем смещение
+            return points.map(point => ({
+                ...point,
+                x: point.x + offsetX,
+                y: point.y + offsetY,
+                originalX: point.x,
+                originalY: point.y,
+                aligned: true
+            }));
+           
+        } catch (error) {
+            console.log(`⚠️ Ошибка выравнивания: ${error.message}`);
+            return points; // Возвращаем как есть
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Единое решение для совместимости
+    makeConsistentDecision(comparisonResult, options = {}) {
+        const MIN_MATCHES = options.minMatches || 10; // Из логов: "Недостаточно: 9"
+        const MIN_PERCENTAGE = options.minPercentage || 60;
+       
+        console.log(`🎯 Принятие решения: ${comparisonResult.matchCount} совпадений, ${comparisonResult.percentage.toFixed(1)}%`);
+        console.log(`   Пороги: MIN_MATCHES=${MIN_MATCHES}, MIN_PERCENTAGE=${MIN_PERCENTAGE}`);
+       
+        const hasEnoughMatches = comparisonResult.matchCount >= MIN_MATCHES;
+        const hasEnoughPercentage = comparisonResult.percentage >= MIN_PERCENTAGE;
+       
+        if (hasEnoughMatches && hasEnoughPercentage) {
+            console.log(`✅ Достаточно совпадений: ${comparisonResult.matchCount} >= ${MIN_MATCHES} и ${comparisonResult.percentage.toFixed(1)}% >= ${MIN_PERCENTAGE}%`);
+            return 'same';
+        } else if (comparisonResult.matchCount >= MIN_MATCHES * 0.7) {
+            console.log(`🟡 Умеренные совпадения: ${comparisonResult.matchCount} (нужно ${MIN_MATCHES})`);
+            return 'similar';
+        } else {
+            console.log(`🔴 Недостаточно совпадений: ${comparisonResult.matchCount} (нужно ${MIN_MATCHES})`);
+            return 'different';
+        }
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Расчет центра
+    calculateCenter(points) {
+        if (!points || points.length === 0) return { x: 0, y: 0 };
+       
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+       
+        return {
+            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+            y: (Math.min(...ys) + Math.max(...ys)) / 2
+        };
+    }
+
+    // 🔥 ДОБАВЛЯЕМ МЕТОД compare для совместимости
+    compare(otherFootprint, options = {}) {
+        console.log(`🔍 [FIX] VectorSuperModel.compare() - вызов через compareWithPatterns`);
+        return this.compareWithPatterns(otherFootprint, options);
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Добавить граф
     addGraph(graph, graphId, metadata = {}) {
         console.log(`🔄 Добавляю граф ${graphId} к динамической супер-модели...`);
 
