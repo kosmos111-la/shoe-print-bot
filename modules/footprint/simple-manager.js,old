@@ -1849,6 +1849,81 @@ class SimpleFootprintManager {
 
         return points;
     }
+async getVectorModelVisualization(footprintId = null) {
+    console.log(`🎨 Получение визуализации векторной модели для ${footprintId || 'текущей сессии'}`);
+   
+    try {
+        if (!this.currentFootprint || !this.currentFootprint.vectorSuperModel) {
+            console.log('⚠️ Нет векторной модели для визуализации');
+            return {
+                success: false,
+                error: 'No vector model available',
+                visualizationType: 'vector_model'
+            };
+        }
+
+        const vectorModel = this.currentFootprint.vectorSuperModel;
+       
+        // 🔥 ИСПРАВЛЕНИЕ: Используем правильный метод
+        let visualizationData;
+       
+        if (typeof vectorModel.getTemplateVisualizationData === 'function') {
+            // Используем новый метод
+            visualizationData = vectorModel.getTemplateVisualizationData();
+        } else if (typeof vectorModel.getVisualizationData === 'function') {
+            // Используем старый метод
+            visualizationData = vectorModel.getVisualizationData();
+        } else {
+            console.log('⚠️ В векторной модели нет метода для визуализации');
+            return {
+                success: false,
+                error: 'No visualization method in vector model',
+                visualizationType: 'vector_model'
+            };
+        }
+
+        if (!visualizationData || !visualizationData.success) {
+            console.log('⚠️ Не удалось получить данные визуализации');
+            return {
+                success: false,
+                error: visualizationData?.error || 'Unknown error',
+                visualizationType: 'vector_model'
+            };
+        }
+
+        console.log(`✅ Получены данные визуализации: ${visualizationData.cells?.length || 0} ячеек`);
+       
+        // Сохраняем данные для кэширования
+        this.visualizationCache = {
+            type: 'vector_model',
+            timestamp: new Date(),
+            data: visualizationData,
+            footprintId: this.currentFootprint.id
+        };
+
+        return {
+            success: true,
+            visualizationType: 'vector_model',
+            data: visualizationData,
+            metadata: {
+                modelId: vectorModel.id,
+                modelName: vectorModel.name,
+                confidence: vectorModel.stats?.confidence || 0,
+                cellsCount: visualizationData.cells?.length || 0,
+                generatedAt: new Date().toISOString()
+            }
+        };
+
+    } catch (error) {
+        console.error(`❌ Ошибка получения визуализации векторной модели:`, error.message);
+        return {
+            success: false,
+            error: error.message,
+            visualizationType: 'vector_model'
+        };
+    }
+}
+
 }
 
 module.exports = SimpleFootprintManager;
