@@ -210,8 +210,13 @@ class SimpleFootprintManager {
    
     // Для CoordinateManager
     getCoordinates(source, options = {}) {
-        return this.coordinateManager.getCoordinates(source, options);
-    }
+    // Добавляем suppressWarnings по умолчанию для обычной работы
+    const defaultOptions = {
+        suppressWarnings: true, // 🔥 ПОДАВЛЯЕМ ПРЕДУПРЕЖДЕНИЯ ПО УМОЛЧАНИЮ
+        ...options
+    };
+    return this.coordinateManager.getCoordinates(source, defaultOptions);
+}
    
     transformToSystem(points, fromSystem, toSystem, transformation = null) {
         return this.coordinateManager.transformToSystem(points, fromSystem, toSystem, transformation);
