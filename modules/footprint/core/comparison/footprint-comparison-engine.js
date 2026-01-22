@@ -12,7 +12,7 @@ class FootprintComparisonEngine {
         this.coordinateSystemLogger = manager.coordinateSystemLogger;
        
         // Импорт зависимостей
-        const SimpleMatcher = require('../simple-matcher');
+        const SimpleMatcher = require('../../simple-matcher')
         const ImprovedAligner = require('../alignment/improved-aligner');
         const CoordinateSystemConverter = require('../alignment/coordinate-system-converter');
        
