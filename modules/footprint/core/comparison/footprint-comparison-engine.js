@@ -13,8 +13,8 @@ class FootprintComparisonEngine {
        
         // Импорт зависимостей
         const SimpleMatcher = require('../../simple-matcher')
-        const ImprovedAligner = require('../alignment/improved-aligner');
-        const CoordinateSystemConverter = require('../alignment/coordinate-system-converter');
+        const ImprovedAligner = require('../../alignment/improved-aligner');
+        const CoordinateSystemConverter = require('../../alignment/coordinate-system-converter');
        
         this.matcher = new SimpleMatcher({
             debug: this.config.debug,
