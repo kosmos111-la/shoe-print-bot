@@ -1,17 +1,10 @@
 // modules/footprint/core/comparison/template-coordination.js
-// 🔥 ОБНОВЛЕННАЯ ВЕРСИЯ С ИСПОЛЬЗОВАНИЕМ CoordinateManager
+// 🔥 ВЫНЕСЕННАЯ ЛОГИКА РАБОТЫ С ШАБЛОНАМИ И ПОДТВЕРЖДЕНИЯМИ (ПОЛНАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ)
 
 class TemplateCoordination {
     constructor(manager) {
         this.manager = manager;
         this.config = manager.config;
-       
-        // 🔥 ИСПОЛЬЗУЕМ МОДУЛИ ИЗ МЕНЕДЖЕРА
-        this.coordinateManager = manager.coordinateManager;
-        this.transformationValidator = manager.transformationValidator;
-        this.coordinateSystemLogger = manager.coordinateSystemLogger;
-       
-        console.log('🔗 TemplateCoordination создан с интеграцией CoordinateManager');
     }
 
     // 🔥 НОВЫЙ МЕТОД: Рассчитать реальный процент совпадений
@@ -26,7 +19,7 @@ class TemplateCoordination {
         // 🔥 ИСПОЛЬЗОВАТЬ РЕАЛЬНЫЕ ПОРОГИ ИЗ ЛОГОВ
         const REAL_THRESHOLDS = {
             perfect: 15,    // "Идеальные (<15px)"
-            good: 30,       // "Хорошие (15-30px)"
+            good: 30,       // "Хорошие (15-30px)" 
             acceptable: 50  // Из лога виден порог ~50px
         };
        
@@ -73,10 +66,8 @@ class TemplateCoordination {
         const tracker = footprint.pointTracker;
         const templateBuilder = vectorModel.templateBuilder;
 
-        // 🔥 1. ПОЛУЧАЕМ ТРАНСФОРМАЦИИ ЧЕРЕЗ CoordinateManager
-        console.log('📐 Получаю трансформации...');
-       
-        let footprintTransformation = footprint.getTransformation ? footprint.getTransformation() : footprint.transformation;
+        // 1. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ОТПЕЧАТКА
+        let footprintTransformation = footprint.getTransformation();
 
         if (!footprintTransformation || !footprintTransformation.matrix) {
             console.log('⚠️ У отпечатка нет трансформации! Создаю по умолчанию...');
@@ -92,27 +83,12 @@ class TemplateCoordination {
             };
         }
 
-        // 🔥 2. ЛОГИРУЕМ СИСТЕМЫ КООРДИНАТ
-        if (this.config.enableCoordinateDiagnostics) {
-            this.coordinateSystemLogger.logCoordinateSystems(
-                'Обновление подтверждений из шаблона',
-                footprint,
-                templateBuilder
-            );
-           
-            this.coordinateSystemLogger.logTransformations(
-                [footprintTransformation],
-                'Трансформация отпечатка'
-            );
-        }
-
         console.log(`📐 Трансформация отпечатка:`);
         console.log(`   Угол: ${footprintTransformation.rotationAngle?.toFixed(1) || 0}°`);
         console.log(`   Зеркало: ${footprintTransformation.isMirrored ? 'да' : 'нет'}`);
         console.log(`   Центр: (${footprintTransformation.center?.x?.toFixed(1)}, ${footprintTransformation.center?.y?.toFixed(1)})`);
 
-        // 🔥 3. ПОЛУЧАЕМ ДАННЫЕ ШАБЛОНА ЧЕРЕЗ CoordinateManager
-        console.log('📊 Получаю данные шаблона...');
+        // 2. ПОЛУЧАЕМ ДАННЫЕ ШАБЛОНА
         const templateData = templateBuilder.getVisualizationData();
         if (!templateData || !templateData.cells || templateData.cells.length === 0) {
             console.log('⚠️ Нет данных ячеек в шаблоне');
@@ -121,7 +97,7 @@ class TemplateCoordination {
 
         console.log(`📊 Данные шаблона: ${templateData.cells.length} ячеек`);
 
-        // 🔥 4. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ШАБЛОНА
+        // 3. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ШАБЛОНА
         const templateTransformation = templateBuilder.getNormalizationTransform();
 
         if (!templateTransformation) {
@@ -133,56 +109,32 @@ class TemplateCoordination {
         console.log(`   Границы: ${templateTransformation.width?.toFixed(1)}x${templateTransformation.height?.toFixed(1)}`);
         console.log(`   Смещение: (${templateTransformation.minX?.toFixed(1)}, ${templateTransformation.minY?.toFixed(1)})`);
 
-        // 🔥 5. ИСПОЛЬЗУЕМ CoordinateManager ДЛЯ ПРЕОБРАЗОВАНИЯ
-        console.log('🔄 Преобразую точки шаблона в систему отпечатка...');
-       
-        // Получаем точки шаблона в его собственной системе
-        const templatePointsInTemplateSystem = this.coordinateManager.getCoordinates(
-            templateBuilder,
-            {
-                coordinateSystem: 'template',
-                includeMetadata: false,
-                debug: this.config.debug
-            }
-        );
-
-        if (!templatePointsInTemplateSystem.valid || templatePointsInTemplateSystem.points.length === 0) {
-            console.log('❌ Не удалось получить точки шаблона');
-            return this.fallbackDirectComparison(tracker, templateBuilder);
-        }
-
-        // Преобразуем точки шаблона в систему отпечатка
-        const templatePointsInFootprintSystem = this.coordinateManager.transformToSystem(
-            templatePointsInTemplateSystem.points,
-            templatePointsInTemplateSystem.coordinateSystem,
-            'original', // Преобразуем в оригинальную систему
-            templateTransformation
+        // 🔥 ИСПРАВЛЕНИЕ: Преобразовать точки шаблона в систему отпечатка
+        const templatePointsInFootprintSystem = this.transformTemplatePointsToFootprintSystem(
+            templateData.cells,
+            templateTransformation,
+            footprintTransformation
         );
 
         console.log(`📊 Преобразовано ${templatePointsInFootprintSystem.length} точек шаблона`);
 
-        // 🔥 6. ПОЛУЧАЕМ ТОЧКИ ТРЕКЕРА ЧЕРЕЗ CoordinateManager
-        console.log('📊 Получаю точки трекера...');
-        const trackerPointsResult = this.coordinateManager.getCoordinates(
-            tracker,
-            {
-                coordinateSystem: 'original',
-                includeMetadata: false,
-                debug: this.config.debug
-            }
-        );
-
-        const trackerPoints = trackerPointsResult.points;
-
-        if (!trackerPointsResult.valid || trackerPoints.length === 0) {
-            console.log('❌ Не удалось получить точки трекера');
-            return 0;
+        // 4. ПОЛУЧАЕМ ТОЧКИ ТРЕКЕРА В СИСТЕМЕ ОТПЕЧАТКА
+        const trackerPoints = [];
+        for (const [id, point] of tracker.points) {
+            trackerPoints.push({
+                id,
+                x: point.x,
+                y: point.y,
+                confidence: point.rating || 0.5,
+                confirmedCount: point.confirmedCount || 1,
+                pointData: point
+            });
         }
 
         console.log(`📊 Точки трекера: ${trackerPoints.length}`);
 
-        // 🔥 7. ВАЛИДАЦИЯ: Проверить координаты
-        if (this.config.debug && trackerPoints.length > 0 && templatePointsInFootprintSystem.length > 0) {
+        // 🔥 ВАЛИДАЦИЯ: Проверить координаты
+        if (trackerPoints.length > 0 && templatePointsInFootprintSystem.length > 0) {
             const trackerSample = trackerPoints[0];
             const templateSample = templatePointsInFootprintSystem[0];
            
@@ -198,14 +150,14 @@ class TemplateCoordination {
             if (zeroTemplate > 0) console.log(`⚠️ [DIAG-COORD] ${zeroTemplate} точек шаблона имеют координаты ~(0,0)`);
         }
 
-        // 🔥 8. СРАВНИВАЕМ ТОЧКИ В ОДНОЙ СИСТЕМЕ КООРДИНАТ
+        // 5. СРАВНИВАЕМ ТОЧКИ
         const comparisonResult = this.comparePointsInSameCoordinateSystem(
             trackerPoints,
             templatePointsInFootprintSystem,
             footprintTransformation
         );
 
-        // 🔥 9. ИСПРАВЛЕНИЕ: Верифицировать результат
+        // 🔥 ИСПРАВЛЕНИЕ: Верифицировать результат
         console.log(`\n🎯 РЕЗУЛЬТАТ СРАВНЕНИЯ С ШАБЛОНОМ:`);
         console.log(`   • Всего точек трекера: ${comparisonResult.trackerPointsCount}`);
         console.log(`   • Всего точек шаблона: ${comparisonResult.templatePointsCount}`);
@@ -219,7 +171,7 @@ class TemplateCoordination {
             console.log(`⚠️ [FIX-STATS-WARN] Подозрительный результат: ${comparisonResult.matchRate.toFixed(1)}% совпадений, но только ${comparisonResult.perfectMatches} идеальных (<15px)`);
         }
 
-        // 🔥 10. ПРИМЕНЯЕМ РЕЗУЛЬТАТЫ
+        // 6. ПРИМЕНЯЕМ РЕЗУЛЬТАТЫ
         const updatedCount = this.applyComparisonToTracker(
             tracker,
             comparisonResult.matches
@@ -227,7 +179,7 @@ class TemplateCoordination {
 
         console.log(`   • Обновлено точек: ${updatedCount}`);
 
-        // 🔥 11. ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ В ОТПЕЧАТКЕ
+        // 7. ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ В ОТПЕЧАТКЕ
         this.updateFootprintConfirmations(footprint, comparisonResult.matches);
 
         return updatedCount;
@@ -245,9 +197,6 @@ class TemplateCoordination {
         const GOOD_THRESHOLD = 30;       // 30px - хорошее совпадение
         const MAX_THRESHOLD = 50;        // 50px - максимальное
 
-        // 🔥 УЛУЧШЕННЫЙ АЛГОРИТМ: Используем kd-tree или пространственное индексирование для скорости
-        // Пока используем простой алгоритм, но можно оптимизировать
-       
         // ДЛЯ КАЖДОЙ ТОЧКИ ТРЕКЕРА ИЩЕМ БЛИЖАЙШУЮ ТОЧКУ ШАБЛОНА
         trackerPoints.forEach(trackerPoint => {
             let bestMatch = null;
@@ -417,32 +366,12 @@ class TemplateCoordination {
             return 0;
         }
 
-        // 🔥 ИСПОЛЬЗУЕМ CoordinateManager для получения точек
-        const templatePointsResult = this.coordinateManager.getCoordinates(
-            templateBuilder,
-            {
-                coordinateSystem: 'original',
-                includeMetadata: false,
-                debug: false
-            }
-        );
-
-        const trackerPointsResult = this.coordinateManager.getCoordinates(
-            tracker,
-            {
-                coordinateSystem: 'original',
-                includeMetadata: false,
-                debug: false
-            }
-        );
-
-        if (!templatePointsResult.valid || !trackerPointsResult.valid) {
-            console.log('❌ Не удалось получить точки для прямого сравнения');
-            return 0;
-        }
-
-        const templatePoints = templatePointsResult.points;
-        const trackerPoints = trackerPointsResult.points;
+        // Прямое сравнение без трансформаций (старая логика)
+        const templatePoints = templateData.cells.map(cell => ({
+            x: cell.x || 0,
+            y: cell.y || 0,
+            confirmations: cell.confirmations || 1
+        }));
 
         let updatedCount = 0;
         const threshold = 25;
@@ -483,35 +412,24 @@ class TemplateCoordination {
         console.log(`\n🔄 Прямое обновление подтверждений между двумя следами...`);
 
         try {
-            // 🔥 ИСПОЛЬЗУЕМ CoordinateManager для получения точек
+            // 🔥 ИСПРАВЛЕНИЕ: Защита от ошибок при получении точек
             let points1, points2;
 
             try {
-                points1 = this.coordinateManager.getCoordinates(footprint1, {
-                    coordinateSystem: 'canonical', // Используем каноническую систему для сравнения
-                    includeMetadata: false,
-                    debug: this.config.debug,
-                    forceRecalculate: true
-                }).points;
+                points1 = footprint1.getPointsForPatternMatching();
             } catch (error) {
                 console.log(`❌ Ошибка получения точек для ${footprint1.name}: ${error.message}`);
-                // Фоллбэк: старый метод
                 points1 = this.manager.extractPointsFromFootprint(footprint1);
             }
 
             try {
-                points2 = this.coordinateManager.getCoordinates(footprint2, {
-                    coordinateSystem: 'canonical',
-                    includeMetadata: false,
-                    debug: this.config.debug,
-                    forceRecalculate: true
-                }).points;
+                points2 = footprint2.getPointsForPatternMatching();
             } catch (error) {
                 console.log(`❌ Ошибка получения точек для ${footprint2.name}: ${error.message}`);
                 points2 = this.manager.extractPointsFromFootprint(footprint2);
             }
 
-            console.log(`🔍 Сравниваю ${points1.length} и ${points2.length} точек в канонической системе`);
+            console.log(`🔍 Сравниваю ${points1.length} и ${points2.length} точек`);
 
             let updatedCount = 0;
             const threshold = 25;
@@ -616,7 +534,7 @@ class TemplateCoordination {
         return updatedCount;
     }
 
-    // 🔥 МЕТОД: Преобразовать точки шаблона в систему отпечатка (ОБНОВЛЕННЫЙ)
+    // 🔥 МЕТОД: Преобразовать точки шаблона в систему отпечатка
     transformTemplatePointsToFootprintSystem(templateCells, templateTransformation, footprintTransformation) {
         const points = [];
 
@@ -668,7 +586,7 @@ class TemplateCoordination {
         return points;
     }
 
-    // 🔥 МЕТОД: Проверить накопление деталей (ОБНОВЛЕННЫЙ)
+    // 🔥 МЕТОД: Проверить накопление деталей
     debugAccumulation(userId) {
         const vectorModel = this.manager.vectorSuperModels.get(userId);
         if (!vectorModel || !vectorModel.templateBuilder) {
@@ -737,30 +655,7 @@ class TemplateCoordination {
         console.log(`   Лучший граф: ${templateData.dynamicInfo?.bestGraphId?.slice(0, 8) || 'нет'}`);
         console.log(`   Качество лучшего: ${templateData.dynamicInfo?.bestGraphQuality?.toFixed(3) || 0}`);
        
-        // 🔥 ДИАГНОСТИКА СИСТЕМЫ КООРДИНАТ
-        if (this.config.enableCoordinateDiagnostics) {
-            console.log(`\n🔧 ДИАГНОСТИКА СИСТЕМЫ КООРДИНАТ ШАБЛОНА:`);
-           
-            // Получаем точки шаблона через CoordinateManager
-            const templatePoints = this.coordinateManager.getCoordinates(
-                vectorModel.templateBuilder,
-                {
-                    coordinateSystem: 'original',
-                    includeMetadata: true,
-                    debug: false
-                }
-            );
-           
-            console.log(`   Система координат: ${templatePoints.coordinateSystem}`);
-            console.log(`   Всего точек: ${templatePoints.count}`);
-            if (templatePoints.metadata && templatePoints.metadata.bounds) {
-                const bounds = templatePoints.metadata.bounds;
-                console.log(`   Границы: ${bounds.width.toFixed(1)}x${bounds.height.toFixed(1)}`);
-                console.log(`   Центр: (${bounds.center?.x?.toFixed(1) || 0}, ${bounds.center?.y?.toFixed(1) || 0})`);
-            }
-        }
-       
-        // 🔥 ТРАНСФОРМАЦИИ ШАБЛОНА
+        // 🔥 ДИАГНОСТИКА: Проверить трансформации
         console.log(`\n🔧 ТРАНСФОРМАЦИИ ШАБЛОНА:`);
         const templateTransformation = vectorModel.templateBuilder.getNormalizationTransform();
         if (templateTransformation) {
@@ -772,184 +667,7 @@ class TemplateCoordination {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Диагностика координат шаблона
-    diagnoseTemplateCoordinates(userId) {
-        const vectorModel = this.manager.vectorSuperModels.get(userId);
-        if (!vectorModel) {
-            return { success: false, error: 'Шаблон не найден' };
-        }
-
-        console.log('\n🔍 ПОЛНАЯ ДИАГНОСТИКА СИСТЕМЫ КООРДИНАТ ШАБЛОНА');
-
-        const diagnosis = {
-            timestamp: new Date(),
-            userId: userId,
-            templateName: vectorModel.name,
-            steps: [],
-            results: {}
-        };
-
-        try {
-            const templateBuilder = vectorModel.templateBuilder;
-
-            // 1. Базовая информация о шаблоне
-            const templateData = templateBuilder.getVisualizationData();
-            diagnosis.templateInfo = {
-                cells: templateData.cells?.length || 0,
-                totalConfirmations: templateData.stats?.totalConfirmations || 0,
-                referenceGraphId: templateData.referenceGraphId,
-                referenceGraphQuality: templateData.referenceGraphQuality
-            };
-
-            diagnosis.steps.push({
-                step: 'template_info',
-                success: true,
-                details: diagnosis.templateInfo
-            });
-
-            // 2. Логируем системы координат шаблона
-            console.log('\n📊 СИСТЕМЫ КООРДИНАТ ШАБЛОНА:');
-            this.coordinateSystemLogger.logCoordinateSystems(
-                `Шаблон ${vectorModel.name}`,
-                templateBuilder
-            );
-
-            // 3. Проверяем трансформации
-            console.log('\n🔄 ТРАНСФОРМАЦИИ ШАБЛОНА:');
-            const templateTransform = templateBuilder.getNormalizationTransform();
-           
-            if (templateTransform) {
-                this.coordinateSystemLogger.logTransformations(
-                    [templateTransform],
-                    'Трансформация нормализации шаблона'
-                );
-               
-                diagnosis.steps.push({
-                    step: 'transformations',
-                    success: true,
-                    details: {
-                        width: templateTransform.width,
-                        height: templateTransform.height,
-                        minX: templateTransform.minX,
-                        minY: templateTransform.minY
-                    }
-                });
-            } else {
-                console.log('❌ Нет трансформации шаблона');
-                diagnosis.steps.push({
-                    step: 'transformations',
-                    success: false,
-                    error: 'Нет трансформации шаблона'
-                });
-            }
-
-            // 4. Получаем точки в разных системах координат
-            console.log('\n🗺️ ТОЧКИ ШАБЛОНА В РАЗНЫХ СИСТЕМАХ КООРДИНАТ:');
-           
-            const coordinateSystems = ['original', 'normalized', 'template', 'canonical'];
-            const pointsBySystem = {};
-           
-            coordinateSystems.forEach(system => {
-                try {
-                    const result = this.coordinateManager.getCoordinates(
-                        templateBuilder,
-                        {
-                            coordinateSystem: system,
-                            debug: false,
-                            forceRecalculate: true
-                        }
-                    );
-                   
-                    pointsBySystem[system] = {
-                        count: result.count,
-                        valid: result.valid,
-                        system: result.coordinateSystem,
-                        sample: result.points.length > 0 ?
-                            `(${result.points[0].x.toFixed(1)}, ${result.points[0].y.toFixed(1)})` :
-                            'no points'
-                    };
-                   
-                } catch (error) {
-                    pointsBySystem[system] = {
-                        error: error.message,
-                        valid: false
-                    };
-                }
-            });
-           
-            diagnosis.pointsBySystem = pointsBySystem;
-           
-            console.log('   СИСТЕМЫ КООРДИНАТ:');
-            Object.entries(pointsBySystem).forEach(([system, data]) => {
-                const status = data.valid ? '✅' : '❌';
-                console.log(`   ${status} ${system}: ${data.count} точек ${data.sample ? `- ${data.sample}` : ''}`);
-                if (data.error) console.log(`     Ошибка: ${data.error}`);
-            });
-
-            // 5. Проверяем согласованность с текущим отпечатком
-            const session = this.manager.getActiveSession(userId);
-            if (session && session.currentFootprint) {
-                console.log('\n🔗 СОГЛАСОВАННОСТЬ С ТЕКУЩИМ ОТПЕЧАТКОМ:');
-               
-                const footprint = session.currentFootprint;
-                const comparison = this.coordinateSystemLogger.compareCoordinateSystems(
-                    templateBuilder,
-                    footprint,
-                    { title: 'Сравнение шаблона с текущим отпечатком', detailed: true }
-                );
-               
-                diagnosis.comparisonWithCurrentFootprint = comparison;
-               
-                // Проверяем трансформации
-                const footprintTransformation = footprint.getTransformation ? footprint.getTransformation() : footprint.transformation;
-                if (footprintTransformation && templateTransform) {
-                    const transCheck = this.transformationValidator.compareTransformations(
-                        footprintTransformation,
-                        templateTransform
-                    );
-                   
-                    diagnosis.transformationConsistency = transCheck;
-                   
-                    console.log(`   Трансформации согласованы: ${transCheck.consistent ? '✅' : '❌'}`);
-                    if (!transCheck.consistent && transCheck.differences) {
-                        console.log(`   Различия: ${transCheck.differences.join(', ')}`);
-                    }
-                }
-            }
-
-            // 6. Генерация отчета
-            console.log('\n📋 ИТОГ ДИАГНОСТИКИ:');
-           
-            const validSteps = diagnosis.steps.filter(s => s.success).length;
-            const totalSteps = diagnosis.steps.length;
-           
-            console.log(`   Выполнено шагов: ${validSteps}/${totalSteps}`);
-            console.log(`   Ячеек в шаблоне: ${diagnosis.templateInfo.cells}`);
-            console.log(`   Всего подтверждений: ${diagnosis.templateInfo.totalConfirmations}`);
-           
-            if (pointsBySystem.original && pointsBySystem.original.valid) {
-                console.log(`   Точки в оригинальной системе: ${pointsBySystem.original.count}`);
-            }
-           
-            if (diagnosis.transformationConsistency) {
-                console.log(`   Трансформации согласованы: ${diagnosis.transformationConsistency.consistent ? '✅' : '❌'}`);
-            }
-           
-            diagnosis.success = true;
-            diagnosis.summary = `Диагностика завершена: ${validSteps}/${totalSteps} шагов успешно`;
-           
-            console.log(`\n✅ ${diagnosis.summary}`);
-
-        } catch (error) {
-            console.log(`❌ Ошибка диагностики шаблона: ${error.message}`);
-            diagnosis.success = false;
-            diagnosis.error = error.message;
-        }
-
-        return diagnosis;
-    }
-
-    // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ (оригинальные, с небольшими улучшениями)
+    // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ (оригинальные, без изменений)
    
     // Метод для получения статистики подтверждений
     getConfirmationStats(userId) {
@@ -980,26 +698,14 @@ class TemplateCoordination {
             return { success: false, message: 'Шаблон не найден' };
         }
        
-        // 🔥 ЛОГИРУЕМ ПЕРЕД ОЧИСТКОЙ
-        if (this.config.enableCoordinateDiagnostics) {
-            console.log('\n🧹 ОЧИСТКА ШАБЛОНА - ДИАГНОСТИКА:');
-            this.coordinateSystemLogger.logCoordinateSystems(
-                `Шаблон перед очисткой (пользователь ${userId})`,
-                vectorModel.templateBuilder
-            );
-        }
-       
         // Сбрасываем шаблон
         vectorModel.templateBuilder.reset();
-       
-        // 🔥 ОЧИЩАЕМ КЭШ КООРДИНАТ
-        this.coordinateManager.clearCache();
        
         console.log(`🧹 Шаблон очищен для пользователя ${userId}`);
         return { success: true, message: 'Шаблон очищен' };
     }
    
-    // Метод для проверки целостности шаблона (ОБНОВЛЕННЫЙ)
+    // Метод для проверки целостности шаблона
     validateTemplateIntegrity(userId) {
         const vectorModel = this.manager.vectorSuperModels.get(userId);
         if (!vectorModel) {
@@ -1007,7 +713,6 @@ class TemplateCoordination {
         }
        
         const errors = [];
-        const warnings = [];
         const templateData = vectorModel.templateBuilder.getVisualizationData();
        
         // Проверка наличия данных
@@ -1034,50 +739,23 @@ class TemplateCoordination {
        
         // Проверка эталонного графа
         if (!templateData.referenceGraphId) {
-            warnings.push('Нет эталонного графа (может быть нормально для нового шаблона)');
-        }
-       
-        // 🔥 ПРОВЕРКА СИСТЕМЫ КООРДИНАТ
-        try {
-            const coordResult = this.coordinateManager.getCoordinates(
-                vectorModel.templateBuilder,
-                {
-                    coordinateSystem: 'original',
-                    debug: false
-                }
-            );
-           
-            if (!coordResult.valid) {
-                errors.push('Не удалось получить координаты из шаблона');
-            } else if (coordResult.points.length === 0) {
-                warnings.push('Шаблон не содержит точек');
-            }
-        } catch (error) {
-            errors.push(`Ошибка проверки координат: ${error.message}`);
+            errors.push('Нет эталонного графа');
         }
        
         const isValid = errors.length === 0;
-        const hasWarnings = warnings.length > 0;
        
         console.log(`🔍 Проверка целостности шаблона ${userId}: ${isValid ? '✅' : '❌'}`);
-       
         if (!isValid) {
             console.log(`   Ошибки: ${errors.join(', ')}`);
-        }
-       
-        if (hasWarnings) {
-            console.log(`   Предупреждения: ${warnings.join(', ')}`);
         }
        
         return {
             valid: isValid,
             errors: errors,
-            warnings: warnings,
             stats: {
                 cells: templateData.cells?.length || 0,
                 transformation: !!transformation,
-                referenceGraph: !!templateData.referenceGraphId,
-                coordinateSystemValid: isValid && !hasWarnings
+                referenceGraph: !!templateData.referenceGraphId
             }
         };
     }
@@ -1092,7 +770,7 @@ class TemplateCoordination {
         return vectorModel.templateBuilder.getVisualizationData();
     }
    
-    // Метод для обновления шаблона из нескольких отпечатков (ОБНОВЛЕННЫЙ)
+    // Метод для обновления шаблона из нескольких отпечатков
     updateTemplateFromMultipleFootprints(userId, footprints) {
         console.log(`\n🔄 Обновление шаблона из ${footprints.length} отпечатков...`);
        
@@ -1103,43 +781,19 @@ class TemplateCoordination {
         }
        
         let totalUpdated = 0;
-        let processedCount = 0;
        
         footprints.forEach((footprint, index) => {
-            console.log(`\n   Обработка отпечатка ${index + 1}/${footprints.length}: ${footprint.name}`);
+            console.log(`   Обработка отпечатка ${index + 1}/${footprints.length}: ${footprint.name}`);
            
             try {
-                // 🔥 ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ЧЕРЕЗ CoordinateManager
-                let transformation;
-                try {
-                    const coordResult = this.coordinateManager.getCoordinates(footprint, {
-                        coordinateSystem: 'original',
-                        includeMetadata: true,
-                        debug: false
-                    });
-                   
-                    transformation = coordResult.transformation;
-                } catch (error) {
-                    console.log(`   ⚠️ Не удалось получить трансформацию через CoordinateManager: ${error.message}`);
-                    transformation = footprint.getTransformation ? footprint.getTransformation() : footprint.transformation;
-                }
-               
+                // Получаем трансформацию отпечатка
+                const transformation = footprint.getTransformation();
                 if (!transformation) {
                     console.log(`   ⚠️ Нет трансформации, пропускаем`);
                     return;
                 }
                
-                // 🔥 ЛОГИРОВАНИЕ СИСТЕМ КООРДИНАТ
-                if (this.config.enableCoordinateDiagnostics && index < 3) {
-                    this.coordinateSystemLogger.logCoordinateSystems(
-                        `Обновление шаблона из отпечатка ${index + 1}`,
-                        footprint,
-                        vectorModel.templateBuilder
-                    );
-                }
-               
                 // Добавляем граф в шаблон
-                console.log(`   📐 Трансформация: ${transformation.rotationAngle?.toFixed(1) || 0}°`);
                 vectorModel.addGraph(footprint.graph, footprint.id, {
                     isBatchUpdate: true,
                     transformationInfo: transformation,
@@ -1149,7 +803,6 @@ class TemplateCoordination {
                 // Обновляем подтверждения
                 const updated = this.updateConfirmationsFromTemplate(footprint, vectorModel, transformation);
                 totalUpdated += updated;
-                processedCount++;
                
                 console.log(`   ✅ Обновлено: ${updated} точек`);
                
@@ -1158,87 +811,13 @@ class TemplateCoordination {
             }
         });
        
-        console.log(`\n🎯 Итого обновлено: ${totalUpdated} точек из ${processedCount} отпечатков`);
-       
-        // 🔥 ОЧИЩАЕМ КЭШ ПОСЛЕ ОБНОВЛЕНИЯ
-        this.coordinateManager.clearCache();
+        console.log(`🎯 Итого обновлено: ${totalUpdated} точек из ${footprints.length} отпечатков`);
        
         return {
             success: true,
             totalUpdated: totalUpdated,
-            footprintsProcessed: processedCount,
-            footprintsTotal: footprints.length
+            footprintsProcessed: footprints.length
         };
-    }
-   
-    // 🔥 НОВЫЙ МЕТОД: Синхронизация трансформаций шаблона
-    synchronizeTemplateTransformations(userId) {
-        const vectorModel = this.manager.vectorSuperModels.get(userId);
-        if (!vectorModel) {
-            return { success: false, error: 'Шаблон не найден' };
-        }
-       
-        console.log('\n🔄 СИНХРОНИЗАЦИЯ ТРАНСФОРМАЦИЙ ШАБЛОНА');
-       
-        const session = this.manager.getActiveSession(userId);
-        if (!session || !session.currentFootprint) {
-            return { success: false, error: 'Нет активной сессии или отпечатка' };
-        }
-       
-        const footprint = session.currentFootprint;
-        const templateBuilder = vectorModel.templateBuilder;
-       
-        try {
-            // 1. Получаем текущие трансформации
-            const footprintTransformation = footprint.getTransformation ? footprint.getTransformation() : footprint.transformation;
-            const templateTransformation = templateBuilder.getNormalizationTransform();
-           
-            if (!footprintTransformation || !templateTransformation) {
-                return { success: false, error: 'Не хватает трансформаций для синхронизации' };
-            }
-           
-            // 2. Сравниваем трансформации
-            const comparison = this.transformationValidator.compareTransformations(
-                footprintTransformation,
-                templateTransformation
-            );
-           
-            console.log(`   Сравнение трансформаций:`);
-            console.log(`     Отпечаток: ${footprintTransformation.rotationAngle?.toFixed(1) || 0}°`);
-            console.log(`     Шаблон: ${templateTransformation.width?.toFixed(1)}x${templateTransformation.height?.toFixed(1)}`);
-            console.log(`     Согласованы: ${comparison.consistent ? '✅' : '❌'}`);
-           
-            if (comparison.consistent) {
-                console.log('   ✅ Трансформации уже согласованы');
-                return { success: true, synchronized: false, reason: 'Уже согласованы' };
-            }
-           
-            // 3. Пытаемся синхронизировать
-            console.log('   🔄 Пытаюсь синхронизировать трансформации...');
-           
-            // Простая стратегия: обновляем трансформацию шаблона на основе отпечатка
-            // В реальной системе это может быть более сложная логика
-           
-            // 4. Обновляем подтверждения с новой трансформацией
-            const updated = this.updateConfirmationsFromTemplate(footprint, vectorModel, footprintTransformation);
-           
-            console.log(`   ✅ Синхронизация завершена: обновлено ${updated} точек`);
-           
-            return {
-                success: true,
-                synchronized: true,
-                updatedPoints: updated,
-                transformations: {
-                    footprint: footprintTransformation,
-                    template: templateTransformation,
-                    comparison: comparison
-                }
-            };
-           
-        } catch (error) {
-            console.log(`❌ Ошибка синхронизации: ${error.message}`);
-            return { success: false, error: error.message };
-        }
     }
 }
 
