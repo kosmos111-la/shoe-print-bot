@@ -279,25 +279,64 @@ class CoordinateSystemLogger {
     }
    
     analyzeGraph(graph, analysis) {
-        analysis.type = 'graph';
-        analysis.points = this.extractPointsFromGraph(graph);
-        analysis.pointCount = analysis.points.length;
-        analysis.hasPoints = analysis.pointCount > 0;
-       
-        // Трансформация из графа
-        if (graph.transformation) {
-            analysis.transformation = graph.transformation;
-        }
-       
-        // Выбираем образцы
-        analysis.samples = this.getPointSamples(analysis.points);
-       
-        // Вычисляем границы и центр
-        if (analysis.points.length > 0) {
-            analysis.bounds = this.calculateBounds(analysis.points);
-            analysis.center = this.calculateCenter(analysis.points);
-        }
+    analysis.type = 'graph';
+   
+    // 🔥 ИСПРАВЛЕНИЕ: Правильное извлечение точек из графа
+    if (graph.nodes && typeof graph.nodes.forEach === 'function') {
+        // Это Map
+        graph.nodes.forEach((node, nodeId) => {
+            analysis.points.push({
+                id: nodeId,
+                x: node.x || 0,
+                y: node.y || 0,
+                confidence: node.confidence || 0.5,
+                _source: 'graph',
+                _graphId: graph.id || 'unknown'
+            });
+        });
+    } else if (Array.isArray(graph.nodes)) {
+        // Это массив
+        graph.nodes.forEach((node, index) => {
+            analysis.points.push({
+                id: node.id || `node_${index}`,
+                x: node.x || 0,
+                y: node.y || 0,
+                confidence: node.confidence || 0.5,
+                _source: 'graph_array',
+                _graphId: graph.id || 'unknown'
+            });
+        });
+    } else if (graph.nodes && typeof graph.nodes === 'object') {
+        // Это обычный объект
+        Object.entries(graph.nodes).forEach(([nodeId, node]) => {
+            analysis.points.push({
+                id: nodeId,
+                x: node.x || 0,
+                y: node.y || 0,
+                confidence: node.confidence || 0.5,
+                _source: 'graph_object',
+                _graphId: graph.id || 'unknown'
+            });
+        });
     }
+   
+    analysis.pointCount = analysis.points.length;
+    analysis.hasPoints = analysis.pointCount > 0;
+   
+    // Трансформация из графа
+    if (graph.transformation) {
+        analysis.transformation = graph.transformation;
+    }
+   
+    // Выбираем образцы
+    analysis.samples = this.getPointSamples(analysis.points);
+   
+    // Вычисляем границы и центр
+    if (analysis.points.length > 0) {
+        analysis.bounds = this.calculateBounds(analysis.points);
+        analysis.center = this.calculateCenter(analysis.points);
+    }
+}
    
     analyzePointTracker(tracker, analysis) {
         analysis.type = 'pointTracker';
