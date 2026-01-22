@@ -19,12 +19,6 @@ class SimpleFootprint {
         this.originalBounds = options.originalBounds || null;
         this.normalizationInfo = options.normalizationInfo || null;
 
-        // 🔥 НОВЫЕ ПОЛЯ ДЛЯ ИНТЕГРАЦИИ С МОДУЛЯМИ КООРДИНАТ
-        this.coordinateSystem = 'original'; // Система координат по умолчанию
-        this.coordinateManager = null; // Будет установлен извне
-        this.coordinateSystemLogger = null; // Будет установлен извне
-        this.transformationValidator = null; // Будет установлен извне
-
         // 🔥 ВАЖНО: Создаем новый граф при инициализации
         this.graph = options.graph || new SimpleGraph(this.name);
 
@@ -502,21 +496,10 @@ class SimpleFootprint {
         );
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить точки в моей системе координат
+    // 🔥 НОВЫЙ МЕТОД: Получить точки в моей системе координат
     getPointsInMySystem() {
-        // 🔥 ИСПОЛЬЗУЕМ CoordinateManager ЕСЛИ ДОСТУПЕН
-        if (this.coordinateManager) {
-            const result = this.coordinateManager.getCoordinates(this, {
-                coordinateSystem: 'original',
-                includeMetadata: false,
-                debug: false
-            });
-            return result.points;
-        }
-       
-        // 🔥 СТАРАЯ ЛОГИКА КАК ФОЛЛБЭК
         const points = [];
-       
+
         if (this.pointTracker && this.pointTracker.points) {
             for (const [id, point] of this.pointTracker.points) {
                 points.push({
@@ -525,95 +508,78 @@ class SimpleFootprint {
                     y: point.y,
                     confirmedCount: point.confirmedCount || 1,
                     confidence: point.rating || 0.5,
-                    source: 'point_tracker',
-                    _coordinateSystem: 'original'
+                    source: 'point_tracker'
                 });
             }
         }
-       
+
         return points;
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить точки в нормализованной системе
-    getPointsInNormalizedSystem() {
-        console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
-       
-        // 🔥 ИСПОЛЬЗУЕМ CoordinateManager ЕСЛИ ДОСТУПЕН
-        if (this.coordinateManager) {
-            const result = this.coordinateManager.getCoordinates(this, {
-                coordinateSystem: 'normalized',
-                includeMetadata: false,
-                debug: false
+    // 🔥 НОВЫЙ МЕТОД: Получить точки в нормализованной системе
+  getPointsInNormalizedSystem() {
+    console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
+
+    // Получаем точки из трекера
+    const points = [];
+    if (this.pointTracker && this.pointTracker.points) {
+        for (const [id, point] of this.pointTracker.points) {
+            points.push({
+                id,
+                x: point.x,
+                y: point.y,
+                confidence: point.rating || 0.5,
+                confirmedCount: point.confirmedCount || 1
             });
-           
-            console.log(`✅ Нормализовано ${result.points.length} точек через CoordinateManager`);
-            return result.points;
         }
-       
-        // 🔥 СТАРАЯ ЛОГИКА КАК ФОЛЛБЭК
-        console.log('⚠️ CoordinateManager не доступен, использую старую логику');
-       
-        // Получаем точки из трекера
-        const points = [];
-        if (this.pointTracker && this.pointTracker.points) {
-            for (const [id, point] of this.pointTracker.points) {
-                points.push({
-                    id,
-                    x: point.x,
-                    y: point.y,
-                    confidence: point.rating || 0.5,
-                    confirmedCount: point.confirmedCount || 1,
-                    _coordinateSystem: 'original'
-                });
-            }
-        }
+    }
 
-        if (points.length === 0) {
-            console.log('⚠️ Нет точек для нормализации');
-            return [];
-        }
+    if (points.length === 0) {
+        console.log('⚠️ Нет точек для нормализации');
+        return [];
+    }
 
-        // Получаем текущий угол трансформации
-        const currentTransformation = this.getTransformation();
-        const currentAngle = currentTransformation?.rotationAngle || 0;
+    // Получаем текущий угол трансформации
+    const currentTransformation = this.getTransformation();
+    const currentAngle = currentTransformation?.rotationAngle || 0;
 
-        console.log(`📐 Текущий угол: ${currentAngle.toFixed(1)}°, нормализую к 0°`);
+    console.log(`📐 Текущий угол: ${currentAngle.toFixed(1)}°, нормализую к 0°`);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Если угол уже 0°, возвращаем точки как есть
-        if (Math.abs(currentAngle) < 0.1) {
-            console.log(`✅ Уже нормализован (0°), возвращаю ${points.length} точек`);
+    // 🔥 ИСПРАВЛЕНИЕ: Если угол уже 0°, возвращаем точки как есть
+    if (Math.abs(currentAngle) < 0.1) {
+        console.log(`✅ Уже нормализован (0°), возвращаю ${points.length} точек`);
 
-            // Все равно центрируем для согласованности
-            const RotationInvariance = require('./rotation-invariance');
-            const processor = new RotationInvariance({ debug: false });
-            const targetCenter = { x: 500, y: 500 };
-            const centeredPoints = processor.alignPointsToCommonSystem(points, targetCenter);
-
-            return centeredPoints;
-        }
-
-        // Используем ваш новый простой метод
+        // Все равно центрируем для согласованности
         const RotationInvariance = require('./rotation-invariance');
         const processor = new RotationInvariance({ debug: false });
-
-        // 1. Поворачиваем к 0°
-        const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
-
-        // 2. Центрируем
         const targetCenter = { x: 500, y: 500 };
-        const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints, targetCenter);
-
-        console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
-
-        // 🔥 ДИАГНОСТИКА: Проверим координаты
-        if (centeredPoints.length > 0) {
-            console.log(`📊 Пример координат после нормализации:`);
-            console.log(`   Первая точка: (${centeredPoints[0].x.toFixed(1)}, ${centeredPoints[0].y.toFixed(1)})`);
-            console.log(`   Последняя точка: (${centeredPoints[centeredPoints.length-1].x.toFixed(1)}, ${centeredPoints[centeredPoints.length-1].y.toFixed(1)})`);
-        }
+        const centeredPoints = processor.alignPointsToCommonSystem(points, targetCenter);
 
         return centeredPoints;
     }
+
+    // Используем ваш новый простой метод
+    const RotationInvariance = require('./rotation-invariance');
+    const processor = new RotationInvariance({ debug: false });
+
+    // 1. Поворачиваем к 0°
+    const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
+
+    // 2. Центрируем
+    const targetCenter = { x: 500, y: 500 };
+    const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints, targetCenter);
+
+    console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
+
+    // 🔥 ДИАГНОСТИКА: Проверим координаты
+    if (centeredPoints.length > 0) {
+        console.log(`📊 Пример координат после нормализации:`);
+        console.log(`   Первая точка: (${centeredPoints[0].x.toFixed(1)}, ${centeredPoints[0].y.toFixed(1)})`);
+        console.log(`   Последняя точка: (${centeredPoints[centeredPoints.length-1].x.toFixed(1)}, ${centeredPoints[centeredPoints.length-1].y.toFixed(1)})`);
+    }
+
+    return centeredPoints;
+}
 
     // 🔥 НОВЫЙ МЕТОД: Создать нормализованную трансформацию
     createNormalizedTransformation() {
@@ -626,245 +592,6 @@ class SimpleFootprint {
             bounds: this.transformation?.bounds || { minX: 0, maxX: 0, minY: 0, maxY: 0 },
             type: 'normalized'
         };
-    }
-
-    // 🔥 НОВЫЕ МЕТОДЫ ДЛЯ ИНТЕГРАЦИИ С МОДУЛЯМИ КООРДИНАТ
-
-    // Установить ссылки на модули координат
-    setCoordinateModules(modules) {
-        if (modules.coordinateManager) {
-            this.coordinateManager = modules.coordinateManager;
-            console.log(`🗺️ CoordinateManager установлен для отпечатка "${this.name}"`);
-        }
-       
-        if (modules.coordinateSystemLogger) {
-            this.coordinateSystemLogger = modules.coordinateSystemLogger;
-        }
-       
-        if (modules.transformationValidator) {
-            this.transformationValidator = modules.transformationValidator;
-        }
-       
-        // Обновляем систему координат
-        this.updateCoordinateSystem();
-    }
-
-    // Обновить информацию о системе координат
-    updateCoordinateSystem() {
-        if (this.coordinateManager) {
-            try {
-                const result = this.coordinateManager.getCoordinates(this, {
-                    coordinateSystem: 'original',
-                    includeMetadata: false,
-                    debug: false
-                });
-               
-                this.coordinateSystem = result.coordinateSystem || 'original';
-               
-                if (this.coordinateSystemLogger) {
-                    this.coordinateSystemLogger.logCoordinateSystems(
-                        `Отпечаток "${this.name}" - обновление системы координат`,
-                        this
-                    );
-                }
-               
-            } catch (error) {
-                console.log(`⚠️ Ошибка обновления системы координат: ${error.message}`);
-                this.coordinateSystem = 'original';
-            }
-        }
-    }
-
-    // Диагностика системы координат отпечатка
-    diagnoseCoordinateSystem(options = {}) {
-        console.log(`\n🔍 ДИАГНОСТИКА СИСТЕМЫ КООРДИНАТ ОТПЕЧАТКА "${this.name}"`);
-       
-        const diagnosis = {
-            timestamp: new Date(),
-            footprintId: this.id,
-            footprintName: this.name,
-            steps: [],
-            results: {}
-        };
-       
-        try {
-            // 1. Базовая информация
-            diagnosis.steps.push({
-                step: 'basic_info',
-                success: true,
-                details: {
-                    pointCount: this.graph?.nodes?.size || 0,
-                    trackerPoints: this.pointTracker?.points?.size || 0,
-                    coordinateSystem: this.coordinateSystem,
-                    transformation: !!this.transformation
-                }
-            });
-           
-            // 2. Проверка модулей координат
-            const modulesAvailable = !!this.coordinateManager && !!this.coordinateSystemLogger;
-            diagnosis.steps.push({
-                step: 'coordinate_modules',
-                success: modulesAvailable,
-                details: {
-                    coordinateManager: !!this.coordinateManager,
-                    coordinateSystemLogger: !!this.coordinateSystemLogger,
-                    transformationValidator: !!this.transformationValidator
-                }
-            });
-           
-            if (!modulesAvailable) {
-                console.log('⚠️ Модули координат не установлены');
-                diagnosis.results.error = 'Модули координат не установлены';
-                return diagnosis;
-            }
-           
-            // 3. Логирование систем координат
-            console.log('\n📊 СИСТЕМЫ КООРДИНАТ ОТПЕЧАТКА:');
-            this.coordinateSystemLogger.logCoordinateSystems(
-                `Диагностика отпечатка "${this.name}"`,
-                this
-            );
-           
-            // 4. Получение точек в разных системах
-            console.log('\n🗺️ ТОЧКИ В РАЗНЫХ СИСТЕМАХ КООРДИНАТ:');
-           
-            const systems = ['original', 'normalized', 'canonical', 'template'];
-            const pointsBySystem = {};
-           
-            systems.forEach(system => {
-                try {
-                    const result = this.coordinateManager.getCoordinates(this, {
-                        coordinateSystem: system,
-                        debug: false,
-                        forceRecalculate: true
-                    });
-                   
-                    pointsBySystem[system] = {
-                        count: result.count,
-                        valid: result.valid,
-                        system: result.coordinateSystem,
-                        sample: result.points.length > 0 ?
-                            `(${result.points[0].x.toFixed(1)}, ${result.points[0].y.toFixed(1)})` :
-                            'no points'
-                    };
-                   
-                } catch (error) {
-                    pointsBySystem[system] = {
-                        error: error.message,
-                        valid: false
-                    };
-                }
-            });
-           
-            diagnosis.pointsBySystem = pointsBySystem;
-           
-            // 5. Проверка трансформаций
-            if (this.transformation) {
-                console.log('\n🔄 ТРАНСФОРМАЦИИ:');
-                this.coordinateSystemLogger.logTransformations(
-                    [this.transformation],
-                    'Трансформация отпечатка'
-                );
-               
-                // Проверка валидности матрицы
-                if (this.transformation.matrix) {
-                    const matrixValid = this.isMatrixValid(this.transformation.matrix);
-                    diagnosis.steps.push({
-                        step: 'matrix_validation',
-                        success: matrixValid,
-                        details: { matrixLength: this.transformation.matrix.length }
-                    });
-                }
-            }
-           
-            // 6. Сравнение источников точек
-            console.log('\n🔗 СРАВНЕНИЕ ИСТОЧНИКОВ ТОЧЕК:');
-           
-            const trackerPoints = this.pointTracker ? this.pointTracker.points.size : 0;
-            const graphNodes = this.graph ? this.graph.nodes.size : 0;
-           
-            console.log(`   • Точки в трекере: ${trackerPoints}`);
-            console.log(`   • Узлы в графе: ${graphNodes}`);
-           
-            if (trackerPoints !== graphNodes) {
-                console.log(`   ⚠️ Расхождение: трекер=${trackerPoints}, граф=${graphNodes}`);
-                diagnosis.steps.push({
-                    step: 'points_consistency',
-                    success: false,
-                    warning: `Разное количество точек: трекер=${trackerPoints}, граф=${graphNodes}`
-                });
-            }
-           
-            diagnosis.success = true;
-            diagnosis.summary = `Диагностика завершена: ${systems.length} систем координат проверено`;
-           
-            console.log(`\n✅ ${diagnosis.summary}`);
-           
-        } catch (error) {
-            console.log(`❌ Ошибка диагностики: ${error.message}`);
-            diagnosis.success = false;
-            diagnosis.error = error.message;
-        }
-       
-        return diagnosis;
-    }
-
-    // Проверка валидности матрицы
-    isMatrixValid(matrix) {
-        if (!Array.isArray(matrix) || matrix.length !== 9) return false;
-       
-        // Проверяем на NaN и Infinity
-        for (const value of matrix) {
-            if (isNaN(value) || !isFinite(value)) return false;
-        }
-       
-        // Проверяем, что матрица не нулевая
-        const sum = matrix.reduce((s, v) => s + Math.abs(v), 0);
-        if (sum < 0.001) return false;
-       
-        return true;
-    }
-
-    // Получить точки в указанной системе координат
-    getPointsInSystem(system, options = {}) {
-        if (this.coordinateManager) {
-            return this.coordinateManager.getCoordinates(this, {
-                coordinateSystem: system,
-                includeMetadata: options.includeMetadata || false,
-                debug: options.debug || false,
-                forceRecalculate: options.forceRecalculate || false
-            });
-        }
-       
-        // Фоллбэк для разных систем
-        switch (system) {
-            case 'original':
-            case 'tracker':
-                return {
-                    points: this.getPointsInMySystem(),
-                    count: this.getPointsInMySystem().length,
-                    coordinateSystem: 'original',
-                    valid: true
-                };
-               
-            case 'normalized':
-            case 'canonical':
-                return {
-                    points: this.getPointsInNormalizedSystem(),
-                    count: this.getPointsInNormalizedSystem().length,
-                    coordinateSystem: 'normalized',
-                    valid: true
-                };
-               
-            default:
-                console.log(`⚠️ Неизвестная система координат: ${system}`);
-                return {
-                    points: [],
-                    count: 0,
-                    coordinateSystem: 'unknown',
-                    valid: false
-                };
-        }
     }
 
     // 🔥 В toJSON и fromJSON добавляем сохранение трансформации
@@ -887,9 +614,6 @@ class SimpleFootprint {
             transformation: this.transformation,
             originalBounds: this.originalBounds,
             normalizationInfo: this.normalizationInfo,
-            // 🔥 СОХРАНЯЕМ ИНФОРМАЦИЮ О СИСТЕМЕ КООРДИНАТ
-            coordinateSystem: this.coordinateSystem,
-            coordinateManagerVersion: 'integrated',
             _version: '2.1-with-transformation',
             _savedAt: new Date().toISOString(),
             _honestConfirmations: true
@@ -949,12 +673,6 @@ class SimpleFootprint {
             metadata: data.metadata,
             confidence: data.stats?.confidence
         });
-
-        // 🔥 ВОССТАНАВЛИВАЕМ СИСТЕМУ КООРДИНАТ
-        if (data.coordinateSystem) {
-            footprint.coordinateSystem = data.coordinateSystem;
-            console.log(`   🗺️ Система координат: ${data.coordinateSystem}`);
-        }
 
         if (Array.isArray(data.analysisHistory)) {
             footprint.analysisHistory = data.analysisHistory;
@@ -2067,140 +1785,32 @@ class SimpleFootprint {
         console.log(`└─ Плотность: ${invariants.density.toFixed(4)}`);
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить инвариантные признаки
+    // 🔥 НОВЫЙ МЕТОД: Получить инвариантные признаки (добавлен в конец класса)
     getInvariantFeatures() {
         console.log(`🔍 getInvariantFeatures для "${this.name}"`);
-       
-        // 🔥 ИСПОЛЬЗУЕМ CoordinateManager ЕСЛИ ДОСТУПЕН
-        if (this.coordinateManager) {
-            console.log('   Использую CoordinateManager для получения инвариантных признаков');
-           
-            const result = this.coordinateManager.getCoordinates(this, {
-                coordinateSystem: 'normalized',
-                includeMetadata: true,
-                debug: false
-            });
-           
-            if (!result.valid || result.points.length < 3) {
-                console.log('⚠️ Недостаточно точек через CoordinateManager');
-                return this.createBasicInvariantFeatures();
-            }
-           
-            // 🔥 МИНИМАЛЬНЫЙ ДЕБАГ вместо спама
-            const trans = this.getTransformation();
-            console.log(`   Трансформация: ${trans?.rotationAngle || 0}°`);
-            console.log(`   Получено ${result.points.length} точек через CoordinateManager`);
-           
-            // Продолжить со старой логикой, но с точками из CoordinateManager
-            const normalizedPoints = result.points;
 
-            if (normalizedPoints.length < 3) {
-                console.log('⚠️ Недостаточно точек');
-                return this.createBasicInvariantFeatures();
-            }
-
-            // 🔥 ВАЖНАЯ ПРОВЕРКА: координаты не должны быть около 0
-            if (normalizedPoints.length > 0) {
-                const point = normalizedPoints[0];
-                console.log(`   Пример нормализованной точки: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-
-                // Если координаты слишком маленькие (<1) - проблема!
-                if (Math.abs(point.x) < 1 && Math.abs(point.y) < 1) {
-                    console.log(`⚠️ ПРОБЛЕМА: координаты слишком маленькие!`);
-                    console.log(`⚠️ getPointsInNormalizedSystem() не работает правильно!`);
-                }
-            }
-
-            // 🔥 ИСПРАВЛЕННЫЙ КОД: Создаем признаки из НОРМАЛИЗОВАННЫХ точек
-            const features = [];
-
-            try {
-                // Используем только нормализованные точки
-                normalizedPoints.forEach((point, index) => {
-                    if (index < 20) { // Ограничиваем для производительности
-                        try {
-                            // Находим ближайших соседей в НОРМАЛИЗОВАННОЙ системе
-                            const neighbors = [];
-
-                            normalizedPoints.forEach((otherPoint, otherIndex) => {
-                                if (index === otherIndex) return;
-
-                                const distance = Math.sqrt(
-                                    Math.pow(otherPoint.x - point.x, 2) +
-                                    Math.pow(otherPoint.y - point.y, 2)
-                                );
-
-                                const angle = Math.atan2(otherPoint.y - point.y, otherPoint.x - point.x);
-
-                                neighbors.push({
-                                    distance: distance,
-                                    angle: angle,
-                                    otherPoint: otherPoint
-                                });
-                            });
-
-                            // Сортируем и берем 3 ближайших
-                            neighbors.sort((a, b) => a.distance - b.distance);
-                            const closestNeighbors = neighbors.slice(0, 3);
-
-                            if (closestNeighbors.length >= 2) {
-                                // Создаем признак
-                                const feature = {
-                                    id: point.id || `norm_feat_${index}`,
-                                    type: this.simpleClassifyFeature(
-                                        closestNeighbors.map(n => n.angle),
-                                        closestNeighbors.map(n => n.distance)
-                                    ),
-                                    angles: closestNeighbors.map(n => n.angle),
-                                    distances: closestNeighbors.map(n => n.distance),
-                                    neighborCount: closestNeighbors.length,
-                                    confidence: point.confidence || 0.5,
-                                    source: 'normalized_system',
-                                    normalized: true,
-                                    transformationAngle: trans?.rotationAngle || 0,
-                                    originalPoint: point
-                                };
-
-                                features.push(feature);
-
-                                // Дебаг для первых признаков
-                                if (index < 3) {
-                                    console.log(`   Признак ${index + 1}: ${feature.type}`);
-                                    console.log(`     Координаты: (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`);
-                                    console.log(`     Углы: ${feature.angles.map(a => (a * 180/Math.PI).toFixed(1) + '°').join(', ')}`);
-                                }
-                            }
-                        } catch (pointError) {
-                            console.log(`⚠️ Ошибка обработки точки ${index}:`, pointError.message);
-                        }
-                    }
-                });
-            } catch (error) {
-                console.log('⚠️ Ошибка создания признаков:', error.message);
-                return this.createBasicInvariantFeatures();
-            }
-
-            console.log(`✅ Создано ${features.length} инвариантных признаков из НОРМАЛИЗОВАННОЙ системы`);
-
-            // Проверяем, что признаки созданы из нормализованных точек
-            const normalizedCount = features.filter(f => f.normalized).length;
-            console.log(`📊 Признаки из нормализованной системы: ${normalizedCount}/${features.length}`);
-
-            return features;
-        }
-       
-        // 🔥 СТАРАЯ ЛОГИКА КАК ФОЛЛБЭК
-        console.log('⚠️ CoordinateManager не доступен, использую старую логику');
-       
+        // 🔥 МИНИМАЛЬНЫЙ ДЕБАГ вместо спама
         const trans = this.getTransformation();
         console.log(`   Трансформация: ${trans?.rotationAngle || 0}°`);
-       
+
         // Получаем нормализованные точки
         const normalizedPoints = this.getPointsInNormalizedSystem();
-       
+
         if (normalizedPoints.length < 3) {
             console.log('⚠️ Недостаточно точек');
             return this.createBasicInvariantFeatures();
+        }
+
+        // 🔥 ВАЖНАЯ ПРОВЕРКА: координаты не должны быть около 0
+        if (normalizedPoints.length > 0) {
+            const point = normalizedPoints[0];
+            console.log(`   Пример нормализованной точки: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+
+            // Если координаты слишком маленькие (<1) - проблема!
+            if (Math.abs(point.x) < 1 && Math.abs(point.y) < 1) {
+                console.log(`⚠️ ПРОБЛЕМА: координаты слишком маленькие!`);
+                console.log(`⚠️ getPointsInNormalizedSystem() не работает правильно!`);
+            }
         }
 
         // 🔥 ИСПРАВЛЕННЫЙ КОД: Создаем признаки из НОРМАЛИЗОВАННЫХ точек
@@ -2465,234 +2075,106 @@ class SimpleFootprint {
         return points;
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить точки в системе PatternMatcher
-    getPointsForPatternMatching() {
-        console.log(`🔧 getPointsForPatternMatching() для "${this.name}"`);
-       
-        try {
-            // 🔥 ПЕРВЫЙ ПРИОРИТЕТ: Использовать CoordinateManager
-            if (this.coordinateManager) {
-                const result = this.coordinateManager.getCoordinates(this, {
-                    coordinateSystem: 'canonical', // Используем каноническую систему для сравнения
-                    includeMetadata: false,
-                    debug: false
-                });
-               
-                if (result.valid && result.points.length > 0) {
-                    console.log(`📊 Получено ${result.points.length} точек для сравнения паттернов через CoordinateManager`);
-                    return result.points;
-                }
-            }
-           
-            // 🔥 ФОЛЛБЭК: старая логика
-            console.log('⚠️ CoordinateManager не доступен или не вернул точки, использую фоллбэк');
-           
-            // Получаем точки в нормализованной системе
-            const normalizedPoints = this.getPointsInNormalizedSystem();
-           
-            if (!normalizedPoints || normalizedPoints.length === 0) {
-                console.log(`⚠️ Нет нормализованных точек для сравнения паттернов`);
-                return [];
-            }
-           
-            const points = normalizedPoints.map((point, index) => ({
-                id: point.id || `pt_${index}`,
-                x: point.x || 0,
-                y: point.y || 0,
-                confidence: point.confidence || point.rating || 0.5,
-                originalX: point.originalX || point.x,
-                originalY: point.originalY || point.y,
-                _coordinateSystem: point._coordinateSystem || 'normalized',
-                _source: 'fallback_pattern_matching'
-            }));
-           
-            console.log(`📊 Подготовлено ${points.length} точек для сравнения паттернов (фоллбэк)`);
-            return points;
-           
-        } catch (error) {
-            console.log(`❌ Ошибка в getPointsForPatternMatching: ${error.message}`);
+  // 🔥 НОВЫЙ МЕТОД: Получить точки в системе PatternMatcher
+getPointsForPatternMatching() {
+    console.log(`🔧 getPointsForPatternMatching() для "${this.name}"`);
+
+    try {
+        // Получаем точки в нормализованной системе
+        const normalizedPoints = this.getPointsInNormalizedSystem();
+
+        if (!normalizedPoints || normalizedPoints.length === 0) {
+            console.log(`⚠️ Нет нормализованных точек для сравнения паттернов`);
             return [];
         }
-    }
 
-    // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
-    alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
-        console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
-        console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
-        console.log(`   Количество точек: ${points.length}`);
-
-        if (points.length === 0) {
-            console.log('⚠️ Нет точек для выравнивания');
-            return points;
-        }
-
-        const currentCenter = this.calculateCenter(points);
-        console.log(`   Текущий центр: (${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)})`);
-
-        const offsetX = targetCenter.x - currentCenter.x;
-        const offsetY = targetCenter.y - currentCenter.y;
-
-        console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
-
-        const alignedPoints = points.map(point => ({
-            ...point,
-            x: point.x + offsetX,
-            y: point.y + offsetY,
-            originalX: point.x,
-            originalY: point.y,
-            offsetApplied: { x: offsetX, y: offsetY }
+        // 🔥 ИСПРАВЛЕНИЕ: Убедимся, что все точки имеют нужные поля
+        const points = normalizedPoints.map((point, index) => ({
+            id: point.id || `pt_${index}`,
+            x: point.x || 0,
+            y: point.y || 0,
+            confidence: point.confidence || point.rating || 0.5,
+            originalX: point.originalX || point.x,
+            originalY: point.originalY || point.y
         }));
 
-        // Проверка после выравнивания
-        const alignedCenter = this.calculateCenter(alignedPoints);
-        const centerDistance = Math.sqrt(
-            Math.pow(alignedCenter.x - targetCenter.x, 2) +
-            Math.pow(alignedCenter.y - targetCenter.y, 2)
-        );
+        console.log(`📊 Подготовлено ${points.length} точек для сравнения паттернов`);
+        return points;
 
-        console.log(`   Центр после выравнивания: (${alignedCenter.x.toFixed(1)}, ${alignedCenter.y.toFixed(1)})`);
-        console.log(`   Отклонение от цели: ${centerDistance.toFixed(1)}px`);
-
-        if (centerDistance > 10) {
-            console.log(`⚠️ Центр все еще далеко от цели: ${centerDistance.toFixed(1)}px`);
-        }
-
-        return alignedPoints;
+    } catch (error) {
+        console.log(`❌ Ошибка в getPointsForPatternMatching: ${error.message}`);
+        return [];
     }
-
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить точки, готовые для сравнения
-    getAlignedPointsForComparison() {
-        console.log(`🎯 Подготовка точек для сравнения отпечатка "${this.name}"`);
-       
-        // 🔥 ПЕРВЫЙ ПРИОРИТЕТ: Использовать CoordinateManager
-        if (this.coordinateManager) {
-            const result = this.coordinateManager.getCoordinates(this, {
-                coordinateSystem: 'canonical',
-                includeMetadata: false,
-                debug: false,
-                forceRecalculate: true // Принудительно пересчитать для сравнения
-            });
-           
-            if (result.valid && result.points.length >= 3) {
-                console.log(`✅ Получено ${result.points.length} точек в канонической системе через CoordinateManager`);
-                return result.points;
-            }
-        }
-       
-        // 🔥 ФОЛЛБЭК: старая логика
-        console.log('⚠️ CoordinateManager не доступен, использую фоллбэк');
-       
-        // Получаем нормализованные и выровненные точки
-        const normalizedPoints = this.getPointsInNormalizedSystem();
-       
-        // 🔥 ДОПОЛНИТЕЛЬНОЕ ВЫРАВНИВАНИЕ для точного сравнения
-        const RotationInvariance = require('./rotation-invariance');
-        const processor = new RotationInvariance({ debug: false });
-       
-        // Если точек мало, возвращаем как есть
-        if (normalizedPoints.length < 3) {
-            console.log(`⚠️ Слишком мало точек для выравнивания: ${normalizedPoints.length}`);
-            return normalizedPoints;
-        }
-       
-        // Выравниваем к точному центру (500, 500)
-        const preciselyAligned = processor.alignPointsToCommonSystem(
-            normalizedPoints,
-            { x: 500, y: 500 }
-        );
-       
-        console.log(`🎯 Точки готовы для сравнения (фоллбэк): ${preciselyAligned.length} точек`);
-       
-        return preciselyAligned;
-    }
-
 }
 
-// 🔥 СТАТИЧЕСКИЕ МЕТОДЫ ДЛЯ РАБОТЫ С МОДУЛЯМИ КООРДИНАТ
+  // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
+alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
+    console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
+    console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
+    console.log(`   Количество точек: ${points.length}`);
 
-// Создать отпечаток с интегрированными модулями координат
-SimpleFootprint.createWithCoordinateModules = function(options = {}, modules = {}) {
-    const footprint = new SimpleFootprint(options);
-   
-    if (modules) {
-        footprint.setCoordinateModules(modules);
+    if (points.length === 0) {
+        console.log('⚠️ Нет точек для выравнивания');
+        return points;
     }
-   
-    return footprint;
+
+    const currentCenter = this.calculateCenter(points);
+    console.log(`   Текущий центр: (${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)})`);
+
+    const offsetX = targetCenter.x - currentCenter.x;
+    const offsetY = targetCenter.y - currentCenter.y;
+
+    console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+
+    const alignedPoints = points.map(point => ({
+        ...point,
+        x: point.x + offsetX,
+        y: point.y + offsetY,
+        originalX: point.x,
+        originalY: point.y,
+        offsetApplied: { x: offsetX, y: offsetY }
+    }));
+
+    // Проверка после выравнивания
+    const alignedCenter = this.calculateCenter(alignedPoints);
+    const centerDistance = Math.sqrt(
+        Math.pow(alignedCenter.x - targetCenter.x, 2) +
+        Math.pow(alignedCenter.y - targetCenter.y, 2)
+    );
+
+    console.log(`   Центр после выравнивания: (${alignedCenter.x.toFixed(1)}, ${alignedCenter.y.toFixed(1)})`);
+    console.log(`   Отклонение от цели: ${centerDistance.toFixed(1)}px`);
+
+    if (centerDistance > 10) {
+        console.log(`⚠️ Центр все еще далеко от цели: ${centerDistance.toFixed(1)}px`);
+    }
+
+    return alignedPoints;
 }
 
-// Массовая диагностика нескольких отпечатков
-SimpleFootprint.diagnoseMultipleFootprints = function(footprints, coordinateManager) {
-    console.log(`\n🔍 МАССОВАЯ ДИАГНОСТИКА ${footprints.length} ОТПЕЧАТКОВ`);
-   
-    const results = {
-        timestamp: new Date(),
-        totalFootprints: footprints.length,
-        footprints: [],
-        issues: [],
-        summary: {}
-    };
-   
-    footprints.forEach((footprint, index) => {
-        console.log(`\n${index + 1}. Диагностика отпечатка "${footprint.name}"`);
-       
-        try {
-            // Устанавливаем модули координат если нужно
-            if (coordinateManager && !footprint.coordinateManager) {
-                footprint.setCoordinateModules({
-                    coordinateManager: coordinateManager,
-                    coordinateSystemLogger: coordinateManager.manager?.coordinateSystemLogger,
-                    transformationValidator: coordinateManager.manager?.transformationValidator
-                });
-            }
-           
-            // Выполняем диагностику
-            const diagnosis = footprint.diagnoseCoordinateSystem();
-           
-            results.footprints.push({
-                id: footprint.id,
-                name: footprint.name,
-                diagnosis: diagnosis
-            });
-           
-            if (!diagnosis.success) {
-                results.issues.push({
-                    footprint: footprint.name,
-                    error: diagnosis.error
-                });
-            }
-           
-        } catch (error) {
-            console.log(`❌ Ошибка диагностики: ${error.message}`);
-            results.footprints.push({
-                id: footprint.id,
-                name: footprint.name,
-                error: error.message
-            });
-            results.issues.push({
-                footprint: footprint.name,
-                error: error.message
-            });
-        }
-    });
-   
-    // Статистика
-    const successful = results.footprints.filter(f => f.diagnosis?.success).length;
-    const withIssues = results.issues.length;
-   
-    results.summary = {
-        successful,
-        withIssues,
-        successRate: (successful / footprints.length * 100).toFixed(1) + '%'
-    };
-   
-    console.log(`\n📊 ИТОГ МАССОВОЙ ДИАГНОСТИКИ:`);
-    console.log(`   Всего отпечатков: ${footprints.length}`);
-    console.log(`   Успешно: ${successful}`);
-    console.log(`   С проблемами: ${withIssues}`);
-    console.log(`   Успешность: ${results.summary.successRate}`);
-   
-    return results;
+// 🔥 НОВЫЙ МЕТОД: Получить точки, готовые для сравнения
+getAlignedPointsForComparison() {
+    // Получаем нормализованные и выровненные точки
+    const normalizedPoints = this.getPointsInNormalizedSystem();
+
+    // 🔥 ДОПОЛНИТЕЛЬНОЕ ВЫРАВНИВАНИЕ для точного сравнения
+    const RotationInvariance = require('./rotation-invariance');
+    const processor = new RotationInvariance({ debug: false });
+
+    // Если точек мало, возвращаем как есть
+    if (normalizedPoints.length < 3) return normalizedPoints;
+
+    // Выравниваем к точному центру (500, 500)
+    const preciselyAligned = processor.alignPointsToCommonSystem(
+        normalizedPoints,
+        { x: 500, y: 500 }
+    );
+
+    console.log(`🎯 Точки готовы для сравнения: ${preciselyAligned.length} точек`);
+
+    return preciselyAligned;
+}
+
 }
 
 module.exports = SimpleFootprint;
