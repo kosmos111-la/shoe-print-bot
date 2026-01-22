@@ -1,5 +1,5 @@
 // modules/footprint/simple-footprint.js
-// 🔥 ФИНАЛЬНАЯ ВЕРСИЯ С ИНТЕГРАЦИЕЙ МОДУЛЕЙ КООРДИНАТ
+// 🔥 ДОБАВЛЯЕМ ТРАНСФОРМАЦИЮ В ОТПЕЧАТОК
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -8,140 +8,24 @@ const HybridFootprint = require('./hybrid-footprint');
 const PointTracker = require('./point-tracker');
 const path = require('path');
 
-// 🔥 ИМПОРТЫ НОВЫХ МОДУЛЕЙ КООРДИНАТ
-let CoordinateManager = null;
-let TransformationValidator = null;
-let CoordinateSystemLogger = null;
-
-// Пытаемся загрузить модули (не падаем если их нет)
-try {
-    CoordinateManager = require('./core/coordinate-manager');
-} catch (error) {
-    console.log('⚠️ CoordinateManager не найден, будет использована заглушка');
-}
-
-try {
-    TransformationValidator = require('./core/transformation-validator');
-} catch (error) {
-    console.log('⚠️ TransformationValidator не найден, будет использована заглушка');
-}
-
-try {
-    CoordinateSystemLogger = require('./core/coordinate-system-logger');
-} catch (error) {
-    console.log('⚠️ CoordinateSystemLogger не найден, будет использована заглушка');
-}
-
-// 🔥 ЗАГЛУШКА ДЛЯ COORDINATE MANAGER
-class CoordinateManagerStub {
-    constructor() {
-        this.canonicalCenter = { x: 500, y: 500 };
-        this.systems = ['original', 'normalized', 'canonical', 'comparison'];
-        console.log('🔄 Создан заглушка CoordinateManager');
-    }
-
-    getCoordinates(source, options = {}) {
-        console.log('⚠️ CoordinateManagerStub: Использую фоллбэк логику');
-
-        const system = options.system || 'original';
-
-        // Получаем точки из источника
-        const points = this._extractPointsFromSource(source);
-
-        if (system === 'original' || points.length === 0) {
-            return { points, system, fromStub: true };
-        }
-
-        try {
-            const RotationInvariance = require('./rotation-invariance');
-            const processor = new RotationInvariance({ debug: false });
-
-            let transformedPoints = points;
-            if (system === 'normalized' || system === 'canonical' || system === 'comparison') {
-                transformedPoints = processor.normalizePoints(points);
-                transformedPoints = processor.alignPointsToCommonSystem(transformedPoints, this.canonicalCenter);
-            }
-
-            return {
-                points: transformedPoints,
-                system,
-                fromStub: true,
-                warning: 'Используется заглушка CoordinateManager'
-            };
-        } catch (error) {
-            console.log('❌ Ошибка в заглушке:', error.message);
-            return { points, system: 'original', fromStub: true, error: error.message };
-        }
-    }
-
-    _extractPointsFromSource(source) {
-        const points = [];
-
-        // Проверяем разные типы источников
-        if (source.pointTracker && source.pointTracker.points) {
-            for (const [id, point] of source.pointTracker.points) {
-                points.push({
-                    id,
-                    x: point.x,
-                    y: point.y,
-                    confidence: point.rating || 0.5,
-                    confirmedCount: point.confirmedCount || 1,
-                    _source: 'pointTracker'
-                });
-            }
-        } else if (source.graph && source.graph.nodes) {
-            source.graph.nodes.forEach((node, nodeId) => {
-                points.push({
-                    id: nodeId,
-                    x: node.x,
-                    y: node.y,
-                    confidence: node.confidence || 0.5,
-                    confirmedCount: node.confirmedCount || 1,
-                    _source: 'graph'
-                });
-            });
-        } else if (Array.isArray(source)) {
-            points.push(...source);
-        }
-
-        return points;
-    }
-
-    transformToSystem(points, fromSystem, toSystem, transformation = null) {
-        console.log(`⚠️ CoordinateManagerStub.transformToSystem: ${fromSystem}→${toSystem}`);
-        return points; // Просто возвращаем точки без преобразования
-    }
-}
-
 class SimpleFootprint {
     constructor(options = {}) {
         this.id = options.id || `fp_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
         this.name = options.name || `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`;
         this.userId = options.userId || null;
 
-        // 🔥 ПОЛЯ ДЛЯ ТРАНСФОРМАЦИИ
+        // 🔥 ДОБАВЛЯЕМ ПОЛЕ ДЛЯ ТРАНСФОРМАЦИИ
         this.transformation = options.transformation || null;
         this.originalBounds = options.originalBounds || null;
         this.normalizationInfo = options.normalizationInfo || null;
 
-        // 🔥 ИНИЦИАЛИЗАЦИЯ НОВЫХ МОДУЛЕЙ КООРДИНАТ
-        this.coordinateManager = options.coordinateManager ||
-            (CoordinateManager ? new CoordinateManager({ debug: options.debug || false }) : new CoordinateManagerStub());
+        // 🔥 НОВЫЕ ПОЛЯ ДЛЯ ИНТЕГРАЦИИ С МОДУЛЯМИ КООРДИНАТ
+        this.coordinateSystem = 'original'; // Система координат по умолчанию
+        this.coordinateManager = null; // Будет установлен извне
+        this.coordinateSystemLogger = null; // Будет установлен извне
+        this.transformationValidator = null; // Будет установлен извне
 
-        this.transformationValidator = options.transformationValidator ||
-            (TransformationValidator ? new TransformationValidator({ debug: options.debug || false }) : null);
-
-        this.coordinateSystemLogger = options.coordinateSystemLogger ||
-            (CoordinateSystemLogger ? new CoordinateSystemLogger({ debug: options.debug || false }) : null);
-
-        // 🔥 СОХРАНЯЕМ ССЫЛКИ НА МОДУЛИ
-        this._coordinateModules = {
-            manager: this.coordinateManager,
-            validator: this.transformationValidator,
-            logger: this.coordinateSystemLogger
-        };
-
-        // 🔥 СОЗДАЕМ НОВЫЙ ГРАФ
+        // 🔥 ВАЖНО: Создаем новый граф при инициализации
         this.graph = options.graph || new SimpleGraph(this.name);
 
         this.hybridFootprint = options.hybridFootprint || null;
@@ -157,7 +41,7 @@ class SimpleFootprint {
             }
         }
 
-        // 🔥 POINT TRACKER
+        // 🔥 ОБНОВЛЕННЫЙ POINT TRACKER с честными подтверждениями
         this.pointTracker = options.pointTracker || new PointTracker({
             ratingDecay: 0.97,
             minRating: 0.1,
@@ -188,11 +72,7 @@ class SimpleFootprint {
                 hasPointTracker: true,
                 hasHonestConfirmations: true,
                 hasMoments: this.hybridFootprint?.moments ? true : false,
-                hasBitmask: this.hybridFootprint?.bitmask ? true : false,
-                // 🔥 НОВЫЕ ФЛАГИ
-                hasCoordinateManager: !!this.coordinateManager,
-                hasTransformationValidator: !!this.transformationValidator,
-                hasCoordinateSystemLogger: !!this.coordinateSystemLogger
+                hasBitmask: this.hybridFootprint?.bitmask ? true : false
             },
             ...(options.metadata || {})
         };
@@ -214,126 +94,23 @@ class SimpleFootprint {
         this.linkedFootprints = [];
         this.visualizationCache = null;
 
-        console.log(`👣 Создан цифровой отпечаток "${this.name}" (ID: ${this.id}) с интеграцией модулей координат`);
-
-        // 🔥 ДИАГНОСТИКА СИСТЕМ КООРДИНАТ ПРИ СОЗДАНИИ
-        if (this.coordinateSystemLogger) {
-            this.coordinateSystemLogger.logCoordinateSystems(
-                `Новый отпечаток "${this.name}"`,
-                this
-            );
-        }
+        console.log(`👣 Создан цифровой отпечаток "${this.name}" (ID: ${this.id}) с трансформацией`);
     }
 
-    // 🔥 ГЛАВНЫЙ НОВЫЙ МЕТОД: Получить точки в указанной системе координат
-    getPoints(system = 'original', options = {}) {
-        console.log(`🗺️ [getPoints] Запрос точек в системе: ${system}`);
-
-        // Фоллбэк если CoordinateManager не инициализирован
-        if (!this.coordinateManager) {
-            console.log('⚠️ CoordinateManager не инициализирован, использую фоллбэк');
-            return this._getPointsFallback(system, options);
-        }
-
-        try {
-            // Используем CoordinateManager для получения точек
-            const result = this.coordinateManager.getCoordinates(this, {
-                system: system,
-                debug: options.debug || false,
-                alignToCenter: options.alignToCenter || (system !== 'original'),
-                forceRecalculate: options.forceRecalculate || false,
-                ...options
-            });
-
-            console.log(`✅ [getPoints] Получено ${result.points?.length || 0} точек в системе ${system}`);
-
-            return result.points || [];
-
-        } catch (error) {
-            console.log(`❌ Ошибка в getPoints: ${error.message}`);
-            return this._getPointsFallback(system, options);
-        }
-    }
-
-    // 🔥 ОБЕРТКИ ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
-    getPointsInMySystem() {
-        return this.getPoints('original');
-    }
-
-    getPointsInNormalizedSystem() {
-        return this.getPoints('normalized');
-    }
-
-    getPointsForPatternMatching() {
-        return this.getPoints('canonical');
-    }
-
-    getPointsForComparison() {
-        return this.getPoints('comparison');
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Получить выровненные точки для сравнения
-    getAlignedPointsForComparison() {
-        return this.getPoints('comparison', { alignToCenter: true });
-    }
-
-    // 🔥 ФОЛЛБЭК МЕТОД
-    _getPointsFallback(system, options) {
-        console.log(`⚠️ Использую фоллбэк для системы: ${system}`);
-
-        // Получаем базовые точки из трекера
-        const points = [];
-        if (this.pointTracker && this.pointTracker.points) {
-            for (const [id, point] of this.pointTracker.points) {
-                points.push({
-                    id,
-                    x: point.x,
-                    y: point.y,
-                    confidence: point.rating || 0.5,
-                    confirmedCount: point.confirmedCount || 1,
-                    _source: 'fallback_pointTracker'
-                });
-            }
-        }
-
-        if (system === 'original' || points.length === 0) {
-            return points;
-        }
-
-        // Простая нормализация как фоллбэк
-        try {
-            const RotationInvariance = require('./rotation-invariance');
-            const processor = new RotationInvariance({ debug: false });
-
-            switch(system) {
-                case 'normalized':
-                    return processor.normalizePoints(points);
-                case 'canonical':
-                case 'comparison':
-                    const normalized = processor.normalizePoints(points);
-                    return processor.alignPointsToCommonSystem(normalized, { x: 500, y: 500 });
-                default:
-                    return points;
-            }
-        } catch (error) {
-            console.log('⚠️ Ошибка фоллбэк нормализации:', error.message);
-            return points;
-        }
-    }
-
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Честное добавление анализа
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Честное добавление анализа с сохранением трансформации
     addAnalysisHonest(analysis, sourceInfo = {}) {
         console.log(`📥 Честное добавление анализа с сохранением трансформации`);
-
         // Сохраняем трансформацию ИЗ ИСТОЧНИКА
         if (sourceInfo.transformationInfo) {
             this.transformation = sourceInfo.transformationInfo;
             console.log(`📐 Сохранена трансформация из sourceInfo: ${this.transformation.rotationAngle}°`);
         }
+        // Или из normalizedGraph
         else if (sourceInfo.normalizedGraph && sourceInfo.normalizedGraph.transformation) {
             this.transformation = sourceInfo.normalizedGraph.transformation;
             console.log(`📐 Сохранена трансформация из normalizedGraph: ${this.transformation.rotationAngle}°`);
         }
+        // Или создаем по умолчанию с реальным углом
         else if (!this.transformation) {
             // 🔥 ВАЖНО: получаем реальный угол из rotation-invariance
             const RotationInvariance = require('./rotation-invariance');
@@ -342,7 +119,7 @@ class SimpleFootprint {
             const points = this.extractProtectorPoints(analysis.predictions);
             if (points.length >= 3) {
                 const angle = processor.detectRotationAngle(points);
-                this.transformation = this.createTransformationWithAngle(angle);
+                this.transformation = this.createTransformationWithAngle(angle); // 🔥 С РЕАЛЬНЫМ УГЛОМ
                 console.log(`📐 Создана трансформация с реальным углом: ${angle}°`);
             }
         }
@@ -361,6 +138,7 @@ class SimpleFootprint {
         if (sourceInfo.normalizedGraph && sourceInfo.normalizedGraph.transformation) {
             this.transformation = sourceInfo.normalizedGraph.transformation;
             this.normalizationInfo = sourceInfo.normalizationInfo || {};
+
             console.log(`📐 Сохранена трансформация: поворот ${this.transformation.rotationAngle}°`);
         }
 
@@ -398,6 +176,9 @@ class SimpleFootprint {
         }
 
         console.log(`📊 [DIAG] Точки для графа из трекера: ${trackedPoints.length}`);
+        if (trackedPoints.length > 0) {
+            console.log(`   Пример: ID=${trackedPoints[0].id}, (${trackedPoints[0].x}, ${trackedPoints[0].y})`);
+        }
 
         // УБЕДИТЕСЬ ЧТО trackedPoints не пустой:
         if (trackedPoints.length === 0) {
@@ -417,7 +198,22 @@ class SimpleFootprint {
             console.log(`   Добавлено ${trackedPoints.length} аварийных точек`);
         }
 
-        // 🔥 ВАЖНО: Преобразуем точки трекера в формат для графа
+        console.log(`📊 Собрано ${trackedPoints.length} точек из трекера для построения графа`);
+
+        // 🔥 ВАЖНО: Если нет точек - создаем пустой результат
+        if (trackedPoints.length === 0) {
+            console.log(`⚠️ Нет точек для построения графа`);
+            return {
+                success: true,
+                added: 0,
+                updated: trackerResults.updated,
+                totalNodes: 0,
+                confidence: 0.5,
+                honestScore: 0.5
+            };
+        }
+
+        // 🔥 ВАЖНО: Преобразуем точки трекера в формат для графа (ИСПРАВЛЕН СИНТАКСИС)
         const graphPoints = trackedPoints.map((trackedPoint, index) => ({
             id: `n_${trackedPoint.id}`,
             x: trackedPoint.x,
@@ -430,7 +226,7 @@ class SimpleFootprint {
         console.log(`   Подготовлено для графа: ${graphPoints.length} точек`);
 
         // 🔥 ВАЖНО: Строим граф из точек
-        console.log(`🏗️ Строю граф из ${graphPoints.length} точек...`);
+        console.log(`🏗️  Строю граф из ${graphPoints.length} точек...`);
         const graphInvariants = this.graph.buildFromPoints(graphPoints.map(p => ({
             x: p.x,
             y: p.y,
@@ -489,22 +285,14 @@ class SimpleFootprint {
 
         // Комбинированная уверенность
         this.stats.confidence = (graphConfidence * 0.3 +
-                               trackerConfidence * 0.4 +
-                               honestConfidence * 0.3);
+                                trackerConfidence * 0.4 +
+                                honestConfidence * 0.3);
 
         const addedNodes = this.graph.nodes.size - previousNodeCount;
 
         console.log(`✅ Анализ добавлен (честно): +${addedNodes} узлов в граф, ` +
                    `всего узлов: ${this.graph.nodes.size}, ` +
                    `подтверждений: ${trackerResults.updated}`);
-
-        // 🔥 ЛОГИРУЕМ СИСТЕМУ КООРДИНАТ ПОСЛЕ ДОБАВЛЕНИЯ
-        if (this.coordinateSystemLogger) {
-            this.coordinateSystemLogger.logCoordinateSystems(
-                `Отпечаток "${this.name}" после добавления анализа`,
-                this
-            );
-        }
 
         return {
             success: true,
@@ -518,52 +306,6 @@ class SimpleFootprint {
             trackerStats: trackerStats,
             linkedCount: linkedCount
         };
-    }
-
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить трансформацию с валидацией
-    getTransformation() {
-        // 1. Если уже есть трансформация - возвращаем её
-        if (this.transformation && this.transformation.rotationAngle !== undefined) {
-            // 🔥 ВАЛИДИРУЕМ ТРАНСФОРМАЦИЮ только если есть валидатор
-            if (this.transformationValidator && typeof this.transformationValidator.validate === 'function') {
-                const isValid = this.transformationValidator.validate(this.transformation);
-                if (!isValid) {
-                    console.log('⚠️ Трансформация невалидна, пересчитываю...');
-                    this.transformation = this._createDefaultTransformation();
-                }
-            }
-
-            console.log(`📐 [getTransformation] Возвращаю сохраненную трансформацию: ${this.transformation.rotationAngle}°`);
-            return this.transformation;
-        }
-
-        // 2. Если нет - создаем из текущих точек
-        console.log('⚠️ [getTransformation] Нет сохраненной трансформации, создаю из текущих точек...');
-
-        // Получаем точки из трекера
-        const points = this.getPoints('original', { debug: false });
-
-        console.log(`📊 Найдено ${points.length} точек в трекере`);
-
-        if (points.length < 3) {
-            console.log('⚠️ Мало точек (<3), возвращаю трансформацию по умолчанию');
-            return this.createEmergencyDefaultTransformation();
-        }
-
-        // 🔥 ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД С УЧЕТОМ ОРИЕНТАЦИИ
-        this.transformation = this.createOrientationAwareTransformation(points);
-
-        console.log(`✅ Создана трансформация с учетом ориентации: ${this.transformation.rotationAngle}°`);
-
-        // 🔥 ЛОГИРУЕМ СОЗДАНИЕ ТРАНСФОРМАЦИИ
-        if (this.coordinateSystemLogger) {
-            this.coordinateSystemLogger.logTransformations(
-                [this.transformation],
-                `Создана трансформация для отпечатка "${this.name}"`
-            );
-        }
-
-        return this.transformation;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Создать трансформацию с учетом ориентации
@@ -614,6 +356,40 @@ class SimpleFootprint {
         return this.createTransformationWithAngle(rotationAngle);
     }
 
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить трансформацию
+    getTransformation() {
+        // 1. Если уже есть трансформация - возвращаем её
+        if (this.transformation && this.transformation.rotationAngle !== undefined) {
+            console.log(`📐 [getTransformation] Возвращаю сохраненную трансформацию: ${this.transformation.rotationAngle}°`);
+            return this.transformation;
+        }
+
+        // 2. Если нет - создаем из текущих точек С УЧЕТОМ ОРИЕНТАЦИИ
+        console.log('⚠️ [getTransformation] Нет сохраненной трансформации, создаю из текущих точек с учетом ориентации...');
+
+        // Получаем точки из трекера
+        const points = [];
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [, point] of this.pointTracker.points) {
+                points.push({ x: point.x, y: point.y });
+            }
+        }
+
+        console.log(`📊 Найдено ${points.length} точек в трекере`);
+
+        if (points.length < 3) {
+            console.log('⚠️ Мало точек (<3), возвращаю трансформацию по умолчанию');
+            return this.createEmergencyDefaultTransformation();
+        }
+
+        // 🔥 ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД С УЧЕТОМ ОРИЕНТАЦИИ
+        this.transformation = this.createOrientationAwareTransformation(points);
+
+        console.log(`✅ Создана трансформация с учетом ориентации: ${this.transformation.rotationAngle}°`);
+
+        return this.transformation;
+    }
+
     // 🔥 НОВЫЙ МЕТОД: Создать аварийную трансформацию по умолчанию
     createEmergencyDefaultTransformation() {
         console.log('⚠️ Создаю аварийную трансформацию по умолчанию');
@@ -629,11 +405,17 @@ class SimpleFootprint {
         };
     }
 
-    // 🔥 МЕТОД: Создать трансформацию с углом
+    // 🔥 МЕТОД ИЗ ТЕСТА (УЖЕ ЕСТЬ В ВАШЕМ КОДЕ):
     createTransformationWithAngle(angle) {
         console.log(`🔄 [createTransformationWithAngle] Создаю трансформацию с углом ${angle}°`);
 
-        const points = this.getPoints('original', { debug: false });
+        const points = [];
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [, point] of this.pointTracker.points) {
+                points.push({ x: point.x, y: point.y });
+            }
+        }
+
         const bounds = this.calculateBounds(points);
         const center = {
             x: (bounds.minX + bounds.maxX) / 2,
@@ -661,7 +443,7 @@ class SimpleFootprint {
         };
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Вычислить границы
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД (ЕСЛИ НЕТ):
     calculateBounds(points) {
         if (!points || points.length === 0) {
             return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
@@ -680,271 +462,523 @@ class SimpleFootprint {
         return { minX, maxX, minY, maxY };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Диагностика систем координат отпечатка
-    diagnoseCoordinateSystems() {
-        console.log(`\n🔧 ДИАГНОСТИКА СИСТЕМ КООРДИНАТ - ${this.name}:`);
-        console.log(`═`.repeat(60));
+    // 🔥 ДЕБАГ МЕТОД: Проверить трансформации
+    debugTransformation() {
+        console.log(`\n🔍 ДЕБАГ ТРАНСФОРМАЦИИ ОТПЕЧАТКА "${this.name}":`);
+        console.log(`   Есть трансформация: ${!!this.transformation}`);
 
-        // 1. Информация о трансформации
-        const trans = this.getTransformation();
-        console.log(`📐 ТРАНСФОРМАЦИЯ:`);
-        console.log(`├─ Угол: ${trans.rotationAngle}°`);
-        console.log(`├─ Центр: (${trans.center?.x?.toFixed(1)}, ${trans.center?.y?.toFixed(1)})`);
-        console.log(`├─ Тип: ${trans.type}`);
-        console.log(`└─ Валидность: ${this.transformationValidator && typeof this.transformationValidator.validate === 'function' ? this.transformationValidator.validate(trans) ? '✅' : '❌' : 'N/A'}`);
+        if (this.transformation) {
+            console.log(`   rotationAngle: ${this.transformation.rotationAngle}°`);
+            console.log(`   isMirrored: ${this.transformation.isMirrored}`);
+            console.log(`   center: (${this.transformation.center?.x?.toFixed(1)}, ${this.transformation.center?.y?.toFixed(1)})`);
+            console.log(`   type: ${this.transformation.type}`);
+        }
 
-        // 2. Количество точек в разных системах
-        const systems = ['original', 'normalized', 'canonical', 'comparison'];
-        console.log(`\n📊 ТОЧКИ В РАЗНЫХ СИСТЕМАХ:`);
-
-        systems.forEach(system => {
-            try {
-                const points = this.getPoints(system, { debug: false });
-                const count = points.length;
-                const firstPoint = count > 0 ? points[0] : null;
-
-                console.log(`├─ ${system}: ${count} точек`);
-                if (firstPoint) {
-                    console.log(`│  └─ Пример: (${firstPoint.x.toFixed(1)}, ${firstPoint.y.toFixed(1)})`);
-                }
-            } catch (error) {
-                console.log(`├─ ${system}: ❌ ${error.message}`);
+        // Проверяем историю
+        if (this.analysisHistory && this.analysisHistory.length > 0) {
+            const lastAnalysis = this.analysisHistory[this.analysisHistory.length - 1];
+            console.log(`\n   Последний анализ:`);
+            console.log(`   Есть sourceInfo: ${!!lastAnalysis.sourceInfo}`);
+            if (lastAnalysis.sourceInfo && lastAnalysis.sourceInfo.transformationInfo) {
+                console.log(`   Угол в sourceInfo: ${lastAnalysis.sourceInfo.transformationInfo.rotationAngle}°`);
             }
-        });
-
-        // 3. Информация о модулях координат
-        console.log(`\n🛠️ МОДУЛИ КООРДИНАТ:`);
-        console.log(`├─ CoordinateManager: ${this.coordinateManager ? '✅' : '❌'}`);
-        console.log(`├─ TransformationValidator: ${this.transformationValidator ? '✅' : '❌'}`);
-        console.log(`└─ CoordinateSystemLogger: ${this.coordinateSystemLogger ? '✅' : '❌'}`);
-
-        // 4. Используем CoordinateSystemLogger если есть
-        if (this.coordinateSystemLogger) {
-            this.coordinateSystemLogger.logCoordinateSystems(
-                `Полная диагностика отпечатка "${this.name}"`,
-                this
-            );
-        }
-
-        console.log(`\n═`.repeat(60));
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Инициализировать модули координат
-    initializeCoordinateModules(manager) {
-        if (manager) {
-            this.coordinateManager = manager.coordinateManager || this.coordinateManager;
-            this.transformationValidator = manager.transformationValidator || this.transformationValidator;
-            this.coordinateSystemLogger = manager.coordinateSystemLogger || this.coordinateSystemLogger;
-
-            console.log(`✅ Инициализированы модули координат для отпечатка "${this.name}"`);
-
-            // 🔥 ОБНОВЛЯЕМ МЕТАДАННЫЕ
-            this.metadata.features.hasCoordinateManager = !!this.coordinateManager;
-            this.metadata.features.hasTransformationValidator = !!this.transformationValidator;
-            this.metadata.features.hasCoordinateSystemLogger = !!this.coordinateSystemLogger;
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Получить инвариантные признаки через CoordinateManager
-    getInvariantFeatures() {
-        console.log(`🔍 getInvariantFeatures для "${this.name}"`);
-
-        // Получаем нормализованные точки через CoordinateManager
-        const normalizedPoints = this.getPoints('normalized', { debug: false });
-
-        if (normalizedPoints.length < 3) {
-            console.log('⚠️ Недостаточно точек для признаков');
-            return this.createBasicInvariantFeatures();
+    // 🔥 НОВЫЙ МЕТОД: Преобразовать точки к системе этого отпечатка
+    transformPointsToMySystem(points, sourceTransformation) {
+        if (!this.transformation || !sourceTransformation) {
+            console.log('⚠️ Нет трансформаций для преобразования');
+            return points;
         }
 
-        const trans = this.getTransformation();
-        console.log(`   Трансформация: ${trans?.rotationAngle || 0}°`);
-        console.log(`   Нормализованных точек: ${normalizedPoints.length}`);
+        const RotationInvariance = require('./rotation-invariance');
+        const processor = new RotationInvariance();
 
-        // Проверяем координаты
-        if (normalizedPoints.length > 0) {
-            const point = normalizedPoints[0];
-            console.log(`   Пример точки: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-        }
-
-        // Создаем признаки из нормализованных точек
-        const features = [];
-
-        try {
-            normalizedPoints.forEach((point, index) => {
-                if (index < 20) { // Ограничиваем для производительности
-                    // Находим ближайших соседей
-                    const neighbors = [];
-
-                    normalizedPoints.forEach((otherPoint, otherIndex) => {
-                        if (index === otherIndex) return;
-
-                        const distance = Math.sqrt(
-                            Math.pow(otherPoint.x - point.x, 2) +
-                            Math.pow(otherPoint.y - point.y, 2)
-                        );
-
-                        const angle = Math.atan2(otherPoint.y - point.y, otherPoint.x - point.x);
-
-                        neighbors.push({
-                            distance: distance,
-                            angle: angle,
-                            otherPoint: otherPoint
-                        });
-                    });
-
-                    // Сортируем и берем 3 ближайших
-                    neighbors.sort((a, b) => a.distance - b.distance);
-                    const closestNeighbors = neighbors.slice(0, 3);
-
-                    if (closestNeighbors.length >= 2) {
-                        const feature = {
-                            id: point.id || `norm_feat_${index}`,
-                            type: this.simpleClassifyFeature(
-                                closestNeighbors.map(n => n.angle),
-                                closestNeighbors.map(n => n.distance)
-                            ),
-                            angles: closestNeighbors.map(n => n.angle),
-                            distances: closestNeighbors.map(n => n.distance),
-                            neighborCount: closestNeighbors.length,
-                            confidence: point.confidence || 0.5,
-                            source: 'normalized_system',
-                            normalized: true,
-                            transformationAngle: trans?.rotationAngle || 0,
-                            originalPoint: point
-                        };
-
-                        features.push(feature);
-                    }
-                }
-            });
-        } catch (error) {
-            console.log('⚠️ Ошибка создания признаков:', error.message);
-            return this.createBasicInvariantFeatures();
-        }
-
-        console.log(`✅ Создано ${features.length} инвариантных признаков`);
-        return features;
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (оставлены без изменений)
-    extractProtectorPoints(predictions) {
-        const points = [];
-
-        const protectors = predictions.filter(p =>
-            p.class === 'shoe-protector' ||
-            (p.class && p.class.toLowerCase().includes('protector'))
+        return processor.transformPointsBetweenSystems(
+            points,
+            sourceTransformation,
+            this.transformation
         );
+    }
 
-        if (protectors.length === 0 && predictions.length > 0) {
-            console.log('⚠️ Нет класса shoe-protector, использую все точки с confidence > 0.3');
-
-            predictions.forEach((pred, index) => {
-                if ((pred.confidence || 0) > 0.3 && pred.points && pred.points.length > 0) {
-                    const center = this.calculateCenter(pred.points);
-                    points.push({
-                        x: center.x,
-                        y: center.y,
-                        confidence: pred.confidence || 0.5,
-                        originalPoints: pred.points
-                    });
-                }
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить точки в моей системе координат
+    getPointsInMySystem() {
+        // 🔥 ИСПОЛЬЗУЕМ CoordinateManager ЕСЛИ ДОСТУПЕН
+        if (this.coordinateManager) {
+            const result = this.coordinateManager.getCoordinates(this, {
+                coordinateSystem: 'original',
+                includeMetadata: false,
+                debug: false
             });
-        } else {
-            protectors.forEach(protector => {
-                if (protector.points && protector.points.length > 0) {
-                    const center = this.calculateCenter(protector.points);
-                    points.push({
-                        x: center.x,
-                        y: center.y,
-                        confidence: protector.confidence || 0.5,
-                        originalPoints: protector.points
-                    });
-                }
-            });
+            return result.points;
         }
-
+       
+        // 🔥 СТАРАЯ ЛОГИКА КАК ФОЛЛБЭК
+        const points = [];
+       
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [id, point] of this.pointTracker.points) {
+                points.push({
+                    id,
+                    x: point.x,
+                    y: point.y,
+                    confirmedCount: point.confirmedCount || 1,
+                    confidence: point.rating || 0.5,
+                    source: 'point_tracker',
+                    _coordinateSystem: 'original'
+                });
+            }
+        }
+       
         return points;
     }
 
-    calculateCenter(points) {
-        if (!points || points.length === 0) {
-            return { x: 0, y: 0 };
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить точки в нормализованной системе
+    getPointsInNormalizedSystem() {
+        console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
+       
+        // 🔥 ИСПОЛЬЗУЕМ CoordinateManager ЕСЛИ ДОСТУПЕН
+        if (this.coordinateManager) {
+            const result = this.coordinateManager.getCoordinates(this, {
+                coordinateSystem: 'normalized',
+                includeMetadata: false,
+                debug: false
+            });
+           
+            console.log(`✅ Нормализовано ${result.points.length} точек через CoordinateManager`);
+            return result.points;
+        }
+       
+        // 🔥 СТАРАЯ ЛОГИКА КАК ФОЛЛБЭК
+        console.log('⚠️ CoordinateManager не доступен, использую старую логику');
+       
+        // Получаем точки из трекера
+        const points = [];
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [id, point] of this.pointTracker.points) {
+                points.push({
+                    id,
+                    x: point.x,
+                    y: point.y,
+                    confidence: point.rating || 0.5,
+                    confirmedCount: point.confirmedCount || 1,
+                    _coordinateSystem: 'original'
+                });
+            }
         }
 
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
+        if (points.length === 0) {
+            console.log('⚠️ Нет точек для нормализации');
+            return [];
+        }
 
+        // Получаем текущий угол трансформации
+        const currentTransformation = this.getTransformation();
+        const currentAngle = currentTransformation?.rotationAngle || 0;
+
+        console.log(`📐 Текущий угол: ${currentAngle.toFixed(1)}°, нормализую к 0°`);
+
+        // 🔥 ИСПРАВЛЕНИЕ: Если угол уже 0°, возвращаем точки как есть
+        if (Math.abs(currentAngle) < 0.1) {
+            console.log(`✅ Уже нормализован (0°), возвращаю ${points.length} точек`);
+
+            // Все равно центрируем для согласованности
+            const RotationInvariance = require('./rotation-invariance');
+            const processor = new RotationInvariance({ debug: false });
+            const targetCenter = { x: 500, y: 500 };
+            const centeredPoints = processor.alignPointsToCommonSystem(points, targetCenter);
+
+            return centeredPoints;
+        }
+
+        // Используем ваш новый простой метод
+        const RotationInvariance = require('./rotation-invariance');
+        const processor = new RotationInvariance({ debug: false });
+
+        // 1. Поворачиваем к 0°
+        const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
+
+        // 2. Центрируем
+        const targetCenter = { x: 500, y: 500 };
+        const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints, targetCenter);
+
+        console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
+
+        // 🔥 ДИАГНОСТИКА: Проверим координаты
+        if (centeredPoints.length > 0) {
+            console.log(`📊 Пример координат после нормализации:`);
+            console.log(`   Первая точка: (${centeredPoints[0].x.toFixed(1)}, ${centeredPoints[0].y.toFixed(1)})`);
+            console.log(`   Последняя точка: (${centeredPoints[centeredPoints.length-1].x.toFixed(1)}, ${centeredPoints[centeredPoints.length-1].y.toFixed(1)})`);
+        }
+
+        return centeredPoints;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Создать нормализованную трансформацию
+    createNormalizedTransformation() {
+        // Нормализованная система: поворот 0°, без зеркала, центр в (0,0)
         return {
-            x: (Math.min(...xs) + Math.max(...xs)) / 2,
-            y: (Math.min(...ys) + Math.max(...ys)) / 2
+            matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            rotationAngle: 0,
+            isMirrored: false,
+            center: { x: 0, y: 0 },
+            bounds: this.transformation?.bounds || { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+            type: 'normalized'
         };
     }
 
-    simpleClassifyFeature(angles, distances) {
-        if (angles.length < 2) return 'isolated';
+    // 🔥 НОВЫЕ МЕТОДЫ ДЛЯ ИНТЕГРАЦИИ С МОДУЛЯМИ КООРДИНАТ
 
-        if (angles.length >= 3) {
-            const sortedAngles = [...angles].sort((a, b) => a - b);
-            let totalDiff = 0;
-
-            for (let i = 0; i < sortedAngles.length - 1; i++) {
-                totalDiff += Math.abs(sortedAngles[i + 1] - sortedAngles[i]);
-            }
-            const avgDiff = totalDiff / (sortedAngles.length - 1);
-
-            if (Math.abs(avgDiff - 2 * Math.PI / 3) < Math.PI / 6) {
-                return 'triangle';
-            }
+    // Установить ссылки на модули координат
+    setCoordinateModules(modules) {
+        if (modules.coordinateManager) {
+            this.coordinateManager = modules.coordinateManager;
+            console.log(`🗺️ CoordinateManager установлен для отпечатка "${this.name}"`);
         }
-
-        const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
-        const variance = distances.reduce((sum, d) => sum + Math.pow(d - avgDistance, 2), 0) / distances.length;
-
-        if (variance < 0.1) {
-            return 'regular';
+       
+        if (modules.coordinateSystemLogger) {
+            this.coordinateSystemLogger = modules.coordinateSystemLogger;
         }
-
-        if (distances[0] < avgDistance * 0.5) {
-            return 'cluster';
+       
+        if (modules.transformationValidator) {
+            this.transformationValidator = modules.transformationValidator;
         }
-
-        return 'general';
+       
+        // Обновляем систему координат
+        this.updateCoordinateSystem();
     }
 
-    createBasicInvariantFeatures() {
-        console.log('🔄 Создаю базовые инвариантные признаки (фаллбэк)...');
-
-        const features = [];
-        const points = this.getPoints('original', { debug: false });
-
-        if (points.length < 3) {
-            console.log('⚠️ Фаллбэк: слишком мало точек');
-            return features;
+    // Обновить информацию о системе координат
+    updateCoordinateSystem() {
+        if (this.coordinateManager) {
+            try {
+                const result = this.coordinateManager.getCoordinates(this, {
+                    coordinateSystem: 'original',
+                    includeMetadata: false,
+                    debug: false
+                });
+               
+                this.coordinateSystem = result.coordinateSystem || 'original';
+               
+                if (this.coordinateSystemLogger) {
+                    this.coordinateSystemLogger.logCoordinateSystems(
+                        `Отпечаток "${this.name}" - обновление системы координат`,
+                        this
+                    );
+                }
+               
+            } catch (error) {
+                console.log(`⚠️ Ошибка обновления системы координат: ${error.message}`);
+                this.coordinateSystem = 'original';
+            }
         }
-
-        for (let i = 0; i < Math.min(points.length, 10); i++) {
-            const point = points[i];
-            const feature = {
-                id: point.id || `basic_${i}`,
-                type: this.simpleClassifyFeature([0, Math.PI/3, Math.PI*2/3], [0.3, 0.5, 0.7]),
-                angles: [0, Math.PI/3, Math.PI*2/3],
-                distances: [0.3, 0.5, 0.7],
-                neighborCount: 3,
-                confidence: point.confidence || 0.5,
-                source: 'fallback_improved',
-                normalized: false,
-                transformationAngle: this.transformation?.rotationAngle || 0,
-                originalPoint: point
-            };
-
-            features.push(feature);
-        }
-
-        console.log(`✅ Фаллбэк: создано ${features.length} признаков`);
-        return features;
     }
 
+    // Диагностика системы координат отпечатка
+    diagnoseCoordinateSystem(options = {}) {
+        console.log(`\n🔍 ДИАГНОСТИКА СИСТЕМЫ КООРДИНАТ ОТПЕЧАТКА "${this.name}"`);
+       
+        const diagnosis = {
+            timestamp: new Date(),
+            footprintId: this.id,
+            footprintName: this.name,
+            steps: [],
+            results: {}
+        };
+       
+        try {
+            // 1. Базовая информация
+            diagnosis.steps.push({
+                step: 'basic_info',
+                success: true,
+                details: {
+                    pointCount: this.graph?.nodes?.size || 0,
+                    trackerPoints: this.pointTracker?.points?.size || 0,
+                    coordinateSystem: this.coordinateSystem,
+                    transformation: !!this.transformation
+                }
+            });
+           
+            // 2. Проверка модулей координат
+            const modulesAvailable = !!this.coordinateManager && !!this.coordinateSystemLogger;
+            diagnosis.steps.push({
+                step: 'coordinate_modules',
+                success: modulesAvailable,
+                details: {
+                    coordinateManager: !!this.coordinateManager,
+                    coordinateSystemLogger: !!this.coordinateSystemLogger,
+                    transformationValidator: !!this.transformationValidator
+                }
+            });
+           
+            if (!modulesAvailable) {
+                console.log('⚠️ Модули координат не установлены');
+                diagnosis.results.error = 'Модули координат не установлены';
+                return diagnosis;
+            }
+           
+            // 3. Логирование систем координат
+            console.log('\n📊 СИСТЕМЫ КООРДИНАТ ОТПЕЧАТКА:');
+            this.coordinateSystemLogger.logCoordinateSystems(
+                `Диагностика отпечатка "${this.name}"`,
+                this
+            );
+           
+            // 4. Получение точек в разных системах
+            console.log('\n🗺️ ТОЧКИ В РАЗНЫХ СИСТЕМАХ КООРДИНАТ:');
+           
+            const systems = ['original', 'normalized', 'canonical', 'template'];
+            const pointsBySystem = {};
+           
+            systems.forEach(system => {
+                try {
+                    const result = this.coordinateManager.getCoordinates(this, {
+                        coordinateSystem: system,
+                        debug: false,
+                        forceRecalculate: true
+                    });
+                   
+                    pointsBySystem[system] = {
+                        count: result.count,
+                        valid: result.valid,
+                        system: result.coordinateSystem,
+                        sample: result.points.length > 0 ?
+                            `(${result.points[0].x.toFixed(1)}, ${result.points[0].y.toFixed(1)})` :
+                            'no points'
+                    };
+                   
+                } catch (error) {
+                    pointsBySystem[system] = {
+                        error: error.message,
+                        valid: false
+                    };
+                }
+            });
+           
+            diagnosis.pointsBySystem = pointsBySystem;
+           
+            // 5. Проверка трансформаций
+            if (this.transformation) {
+                console.log('\n🔄 ТРАНСФОРМАЦИИ:');
+                this.coordinateSystemLogger.logTransformations(
+                    [this.transformation],
+                    'Трансформация отпечатка'
+                );
+               
+                // Проверка валидности матрицы
+                if (this.transformation.matrix) {
+                    const matrixValid = this.isMatrixValid(this.transformation.matrix);
+                    diagnosis.steps.push({
+                        step: 'matrix_validation',
+                        success: matrixValid,
+                        details: { matrixLength: this.transformation.matrix.length }
+                    });
+                }
+            }
+           
+            // 6. Сравнение источников точек
+            console.log('\n🔗 СРАВНЕНИЕ ИСТОЧНИКОВ ТОЧЕК:');
+           
+            const trackerPoints = this.pointTracker ? this.pointTracker.points.size : 0;
+            const graphNodes = this.graph ? this.graph.nodes.size : 0;
+           
+            console.log(`   • Точки в трекере: ${trackerPoints}`);
+            console.log(`   • Узлы в графе: ${graphNodes}`);
+           
+            if (trackerPoints !== graphNodes) {
+                console.log(`   ⚠️ Расхождение: трекер=${trackerPoints}, граф=${graphNodes}`);
+                diagnosis.steps.push({
+                    step: 'points_consistency',
+                    success: false,
+                    warning: `Разное количество точек: трекер=${trackerPoints}, граф=${graphNodes}`
+                });
+            }
+           
+            diagnosis.success = true;
+            diagnosis.summary = `Диагностика завершена: ${systems.length} систем координат проверено`;
+           
+            console.log(`\n✅ ${diagnosis.summary}`);
+           
+        } catch (error) {
+            console.log(`❌ Ошибка диагностики: ${error.message}`);
+            diagnosis.success = false;
+            diagnosis.error = error.message;
+        }
+       
+        return diagnosis;
+    }
+
+    // Проверка валидности матрицы
+    isMatrixValid(matrix) {
+        if (!Array.isArray(matrix) || matrix.length !== 9) return false;
+       
+        // Проверяем на NaN и Infinity
+        for (const value of matrix) {
+            if (isNaN(value) || !isFinite(value)) return false;
+        }
+       
+        // Проверяем, что матрица не нулевая
+        const sum = matrix.reduce((s, v) => s + Math.abs(v), 0);
+        if (sum < 0.001) return false;
+       
+        return true;
+    }
+
+    // Получить точки в указанной системе координат
+    getPointsInSystem(system, options = {}) {
+        if (this.coordinateManager) {
+            return this.coordinateManager.getCoordinates(this, {
+                coordinateSystem: system,
+                includeMetadata: options.includeMetadata || false,
+                debug: options.debug || false,
+                forceRecalculate: options.forceRecalculate || false
+            });
+        }
+       
+        // Фоллбэк для разных систем
+        switch (system) {
+            case 'original':
+            case 'tracker':
+                return {
+                    points: this.getPointsInMySystem(),
+                    count: this.getPointsInMySystem().length,
+                    coordinateSystem: 'original',
+                    valid: true
+                };
+               
+            case 'normalized':
+            case 'canonical':
+                return {
+                    points: this.getPointsInNormalizedSystem(),
+                    count: this.getPointsInNormalizedSystem().length,
+                    coordinateSystem: 'normalized',
+                    valid: true
+                };
+               
+            default:
+                console.log(`⚠️ Неизвестная система координат: ${system}`);
+                return {
+                    points: [],
+                    count: 0,
+                    coordinateSystem: 'unknown',
+                    valid: false
+                };
+        }
+    }
+
+    // 🔥 В toJSON и fromJSON добавляем сохранение трансформации
+    toJSON() {
+        const data = {
+            id: this.id,
+            name: this.name,
+            userId: this.userId,
+            graph: this.graph.toJSON(),
+            metadata: {
+                ...this.metadata,
+                created: this.metadata.created.toISOString(),
+                lastUpdated: this.metadata.lastUpdated.toISOString()
+            },
+            stats: this.stats,
+            analysisHistory: this.analysisHistory,
+            photoHistory: this.photoHistory,
+            linkedFootprints: this.linkedFootprints,
+            // 🔥 СОХРАНЯЕМ ТРАНСФОРМАЦИЮ
+            transformation: this.transformation,
+            originalBounds: this.originalBounds,
+            normalizationInfo: this.normalizationInfo,
+            // 🔥 СОХРАНЯЕМ ИНФОРМАЦИЮ О СИСТЕМЕ КООРДИНАТ
+            coordinateSystem: this.coordinateSystem,
+            coordinateManagerVersion: 'integrated',
+            _version: '2.1-with-transformation',
+            _savedAt: new Date().toISOString(),
+            _honestConfirmations: true
+        };
+
+        if (this.hybridFootprint) {
+            data.hybridFootprint = this.hybridFootprint.toJSON();
+        }
+
+        if (this.pointTracker) {
+            data.pointTracker = this.pointTracker.toJSON();
+        }
+
+        return data;
+    }
+
+    static fromJSON(data) {
+        console.log(`📂 Загружаю отпечаток "${data.name}" с честными подтверждениями и трансформацией...`);
+
+        const graph = SimpleGraph.fromJSON(data.graph);
+
+        let hybridFootprint = null;
+        if (data.hybridFootprint && HybridFootprint) {
+            try {
+                hybridFootprint = HybridFootprint.fromJSON(data.hybridFootprint);
+                console.log('   🎯 Загружен гибридный отпечаток');
+            } catch (error) {
+                console.log('⚠️ Ошибка загрузки гибридного отпечатка:', error.message);
+            }
+        }
+
+        let pointTracker = null;
+        if (data.pointTracker && PointTracker) {
+            try {
+                pointTracker = PointTracker.fromJSON(data.pointTracker);
+                console.log('   🎯 Загружен PointTracker с честными подтверждениями');
+            } catch (error) {
+                console.log('⚠️ Ошибка загрузки PointTracker:', error.message);
+                pointTracker = new PointTracker({ honestConfirmations: true });
+            }
+        } else {
+            pointTracker = new PointTracker({ honestConfirmations: true });
+        }
+
+        // 🔥 СОХРАНЯЕМ ТРАНСФОРМАЦИЮ ПРИ ЗАГРУЗКЕ
+        const footprint = new SimpleFootprint({
+            id: data.id,
+            name: data.name,
+            userId: data.userId,
+            graph: graph,
+            hybridFootprint: hybridFootprint,
+            pointTracker: pointTracker,
+            // 🔥 ЗАГРУЖАЕМ ТРАНСФОРМАЦИЮ
+            transformation: data.transformation || null,
+            originalBounds: data.originalBounds || null,
+            normalizationInfo: data.normalizationInfo || null,
+            metadata: data.metadata,
+            confidence: data.stats?.confidence
+        });
+
+        // 🔥 ВОССТАНАВЛИВАЕМ СИСТЕМУ КООРДИНАТ
+        if (data.coordinateSystem) {
+            footprint.coordinateSystem = data.coordinateSystem;
+            console.log(`   🗺️ Система координат: ${data.coordinateSystem}`);
+        }
+
+        if (Array.isArray(data.analysisHistory)) {
+            footprint.analysisHistory = data.analysisHistory;
+        }
+
+        if (Array.isArray(data.photoHistory)) {
+            footprint.photoHistory = data.photoHistory;
+        }
+
+        if (Array.isArray(data.linkedFootprints)) {
+            footprint.linkedFootprints = data.linkedFootprints;
+        }
+
+        if (data.stats) {
+            footprint.stats = { ...footprint.stats, ...data.stats };
+        }
+
+        console.log(`✅ Загружен отпечаток "${footprint.name}" с ` +
+                   `${footprint.graph.nodes.size} узлами, честными подтверждениями и трансформацией`);
+
+        return footprint;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Честное связывание узлов с трекером
     linkNodesWithTrackerHonest(graphNodes) {
         console.log(`🔗 Честное связывание: ${graphNodes.length} узлов`);
 
@@ -1005,124 +1039,197 @@ class SimpleFootprint {
         return linkedCount;
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ toJSON и fromJSON
-    toJSON() {
+    // 🔥 НОВЫЙ МЕТОД: Получить честные данные для визуализации
+    getHonestVisualizationData() {
+        console.log(`📊 Получаю честные данные для визуализации...`);
+
         const data = {
             id: this.id,
             name: this.name,
-            userId: this.userId,
-            graph: this.graph.toJSON(),
-            metadata: {
-                ...this.metadata,
-                created: this.metadata.created.toISOString(),
-                lastUpdated: this.metadata.lastUpdated.toISOString()
-            },
-            stats: this.stats,
-            analysisHistory: this.analysisHistory,
-            photoHistory: this.photoHistory,
-            linkedFootprints: this.linkedFootprints,
-            // 🔥 СОХРАНЯЕМ ТРАНСФОРМАЦИЮ И МОДУЛИ
-            transformation: this.transformation,
-            originalBounds: this.originalBounds,
-            normalizationInfo: this.normalizationInfo,
-            coordinateModules: {
-                hasCoordinateManager: !!this.coordinateManager,
-                hasTransformationValidator: !!this.transformationValidator,
-                hasCoordinateSystemLogger: !!this.coordinateSystemLogger,
-                canonicalCenter: this.coordinateManager?.canonicalCenter || { x: 500, y: 500 }
-            },
-            _version: '3.0-with-coordinate-modules',
-            _savedAt: new Date().toISOString(),
-            _honestConfirmations: true
+            totalPhotos: this.metadata.totalPhotos,
+            points: [],
+            clusters: [],
+            confirmationsInfo: {
+                totalPoints: 0,
+                confirmed2: 0,
+                confirmed1: 0,
+                confirmed0: 0
+            }
         };
 
-        if (this.hybridFootprint) {
-            data.hybridFootprint = this.hybridFootprint.toJSON();
+        // Собираем честные данные из трекера
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [id, point] of this.pointTracker.points) {
+                const confirmations = point.confirmedCount || 0;
+
+                let confirmationLevel;
+                if (confirmations >= 2) {
+                    confirmationLevel = 'confirmed2';
+                    data.confirmationsInfo.confirmed2++;
+                } else if (confirmations >= 1) {
+                    confirmationLevel = 'confirmed1';
+                    data.confirmationsInfo.confirmed1++;
+                } else {
+                    confirmationLevel = 'confirmed0';
+                    data.confirmationsInfo.confirmed0++;
+                }
+
+                data.points.push({
+                    id,
+                    x: point.x,
+                    y: point.y,
+                    confirmations: confirmations,
+                    confidence: point.rating || point.confidence || 0.5,
+                    confirmationLevel: confirmationLevel,
+                    clusterData: point.clusterData || null,
+                    lastSeen: point.lastSeen
+                });
+
+                data.confirmationsInfo.totalPoints++;
+            }
         }
 
-        if (this.pointTracker) {
-            data.pointTracker = this.pointTracker.toJSON();
+        console.log(`📈 Честная статистика: ${data.confirmationsInfo.totalPoints} точек`);
+        console.log(`   🔴 2+ подтверждений: ${data.confirmationsInfo.confirmed2}`);
+        console.log(`   🔵 1 подтверждение: ${data.confirmationsInfo.confirmed1}`);
+        console.log(`   ⚪ 0 подтверждений: ${data.confirmationsInfo.confirmed0}`);
+
+        return data;
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Получить объединенные данные для визуализации с РЕАЛЬНЫМИ данными (без временного решения)
+    getMergedVisualizationData() {
+        console.log(`🔄 Получаю объединенные данные для визуализации...`);
+
+        const data = {
+            id: this.id,
+            name: this.name,
+            totalPhotos: this.metadata.totalPhotos,
+            points: [],
+            clusters: [],
+            confirmationStats: {
+                fromTracker: { total: 0, confirmed2: 0, confirmed1: 0, confirmed0: 0 },
+                fromSuperModel: { total: 0, avgConfirmations: 0, highConfidence: 0 }
+            },
+            merged: true // Флаг что это объединенные данные
+        };
+
+        // 1. Данные из PointTracker
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [id, point] of this.pointTracker.points) {
+                const confirmations = point.confirmedCount || 0;
+
+                let color, size;
+                if (confirmations >= 2) {
+                    color = '#FF5252'; // 🔴 Красный
+                    size = 8 + (point.confidence || 0.5) * 6;
+                    data.confirmationStats.fromTracker.confirmed2++;
+                } else if (confirmations >= 1) {
+                    color = '#2196F3'; // 🔵 Синий
+                    size = 6 + (point.confidence || 0.5) * 4;
+                    data.confirmationStats.fromTracker.confirmed1++;
+                } else {
+                    color = '#BDBDBD'; // ⚪ Серый
+                    size = 4;
+                    data.confirmationStats.fromTracker.confirmed0++;
+                }
+
+                data.points.push({
+                    id,
+                    x: point.x,
+                    y: point.y,
+                    color: color,
+                    size: size,
+                    confirmations: confirmations,
+                    confidence: point.rating || point.confidence || 0.5,
+                    source: 'tracker',
+                    clusterData: point.clusterData || null
+                });
+
+                data.confirmationStats.fromTracker.total++;
+            }
+        }
+
+        // 2. Данные из супер-модели (если есть)
+        if (this.metadata?.features?.hasSuperModel) {
+            // Можно добавить данные из супер-модели
+            // Например, границы шаблона, зоны и т.д.
+        }
+
+        // 🔥 ИСПРАВЛЕНИЕ: Убрано временное решение! Теперь показываем только реальные данные
+        console.log(`📊 РЕАЛЬНАЯ статистика подтверждений:`);
+        console.log(`   • Всего точек: ${data.confirmationStats.fromTracker.total}`);
+        console.log(`   • 🔴 2+ подтверждений: ${data.confirmationStats.fromTracker.confirmed2}`);
+        console.log(`   • 🔵 1 подтверждение: ${data.confirmationStats.fromTracker.confirmed1}`);
+        console.log(`   • ⚪ 0 подтверждений: ${data.confirmationStats.fromTracker.confirmed0}`);
+
+        // 🔥 Добавляем предупреждение если точек с 2+ подтверждениями мало
+        if (this.metadata.totalPhotos >= 2 && data.confirmationStats.fromTracker.confirmed2 === 0) {
+            console.log(`⚠️ ВНИМАНИЕ: ${this.metadata.totalPhotos} фото, но 0 точек с 2+ подтверждениями!`);
+            console.log(`   Проверьте updatePointTrackerFromSuperModel в SimpleFootprintManager`);
+            data.warning = `Нужно 2+ фото для подтверждений. Текущие фото: ${this.metadata.totalPhotos}`;
         }
 
         return data;
     }
 
-    static fromJSON(data) {
-        console.log(`📂 Загружаю отпечаток "${data.name}" с модулями координат...`);
-
-        const graph = SimpleGraph.fromJSON(data.graph);
-
-        let hybridFootprint = null;
-        if (data.hybridFootprint && HybridFootprint) {
-            try {
-                hybridFootprint = HybridFootprint.fromJSON(data.hybridFootprint);
-                console.log('   🎯 Загружен гибридный отпечаток');
-            } catch (error) {
-                console.log('⚠️ Ошибка загрузки гибридного отпечатка:', error.message);
-            }
-        }
-
-        let pointTracker = null;
-        if (data.pointTracker && PointTracker) {
-            try {
-                pointTracker = PointTracker.fromJSON(data.pointTracker);
-                console.log('   🎯 Загружен PointTracker с честными подтверждениями');
-            } catch (error) {
-                console.log('⚠️ Ошибка загрузки PointTracker:', error.message);
-                pointTracker = new PointTracker({ honestConfirmations: true });
-            }
-        } else {
-            pointTracker = new PointTracker({ honestConfirmations: true });
-        }
-
-        // Создаем отпечаток
-        const footprint = new SimpleFootprint({
-            id: data.id,
-            name: data.name,
-            userId: data.userId,
-            graph: graph,
-            hybridFootprint: hybridFootprint,
-            pointTracker: pointTracker,
-            transformation: data.transformation || null,
-            originalBounds: data.originalBounds || null,
-            normalizationInfo: data.normalizationInfo || null,
-            metadata: data.metadata,
-            confidence: data.stats?.confidence
-        });
-
-        // 🔥 ВОССТАНАВЛИВАЕМ ИСТОРИЮ И ССЫЛКИ
-        if (Array.isArray(data.analysisHistory)) {
-            footprint.analysisHistory = data.analysisHistory;
-        }
-
-        if (Array.isArray(data.photoHistory)) {
-            footprint.photoHistory = data.photoHistory;
-        }
-
-        if (Array.isArray(data.linkedFootprints)) {
-            footprint.linkedFootprints = data.linkedFootprints;
-        }
-
-        if (data.stats) {
-            footprint.stats = { ...footprint.stats, ...data.stats };
-        }
-
-        console.log(`✅ Загружен отпечаток "${footprint.name}" с ` +
-                   `${footprint.graph.nodes.size} узлами и модулями координат`);
-
-        return footprint;
+    // 🔥 СТАРЫЙ МЕТОД addAnalysis (для совместимости)
+    addAnalysis(analysis, sourceInfo = {}) {
+        console.log(`📥 Добавляю анализ в отпечаток "${this.name}"...`);
+        return this.addAnalysisHonest(analysis, sourceInfo);
     }
 
-    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ (без изменений для совместимости)
-    _createDefaultTransformation() {
+    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ (без изменений)
+    extractProtectorPoints(predictions) {
+        const points = [];
+
+        const protectors = predictions.filter(p =>
+            p.class === 'shoe-protector' ||
+            (p.class && p.class.toLowerCase().includes('protector'))
+        );
+
+        if (protectors.length === 0 && predictions.length > 0) {
+            console.log('⚠️ Нет класса shoe-protector, использую все точки с confidence > 0.3');
+
+            predictions.forEach((pred, index) => {
+                if ((pred.confidence || 0) > 0.3 && pred.points && pred.points.length > 0) {
+                    const center = this.calculateCenter(pred.points);
+                    points.push({
+                        x: center.x,
+                        y: center.y,
+                        confidence: pred.confidence || 0.5,
+                        originalPoints: pred.points
+                    });
+                }
+            });
+        } else {
+            protectors.forEach(protector => {
+                if (protector.points && protector.points.length > 0) {
+                    const center = this.calculateCenter(protector.points);
+                    points.push({
+                        x: center.x,
+                        y: center.y,
+                        confidence: protector.confidence || 0.5,
+                        originalPoints: protector.points
+                    });
+                }
+            });
+        }
+
+        return points;
+    }
+
+    calculateCenter(points) {
+        if (!points || points.length === 0) {
+            return { x: 0, y: 0 };
+        }
+
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+
         return {
-            matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-            rotationAngle: 0,
-            isMirrored: false,
-            center: { x: 0, y: 0 },
-            bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
-            type: 'default_identity',
-            timestamp: new Date()
+            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+            y: (Math.min(...ys) + Math.max(...ys)) / 2
         };
     }
 
@@ -1178,11 +1285,6 @@ class SimpleFootprint {
         if (graphInvariants.nodeCount > 30 && !this.metadata.estimatedSize) {
             this.metadata.estimatedSize = Math.round(35 + (graphInvariants.nodeCount - 30) / 3);
         }
-    }
-
-    addAnalysis(analysis, sourceInfo = {}) {
-        console.log(`📥 Добавляю анализ в отпечаток "${this.name}"...`);
-        return this.addAnalysisHonest(analysis, sourceInfo);
     }
 
     compare(otherFootprint) {
@@ -1965,260 +2067,219 @@ class SimpleFootprint {
         console.log(`└─ Плотность: ${invariants.density.toFixed(4)}`);
     }
 
-    // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
-
-    // 🔥 НОВЫЙ МЕТОД: Извлечь точки из графа
-    extractPointsFromGraph(graph) {
-        const points = [];
-
-        if (!graph || !graph.nodes) return points;
-
-        graph.nodes.forEach((node, nodeId) => {
-            points.push({
-                id: nodeId,
-                x: node.x || 0,
-                y: node.y || 0,
-                confidence: node.confidence || 0.5,
-                originalNode: node
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить инвариантные признаки
+    getInvariantFeatures() {
+        console.log(`🔍 getInvariantFeatures для "${this.name}"`);
+       
+        // 🔥 ИСПОЛЬЗУЕМ CoordinateManager ЕСЛИ ДОСТУПЕН
+        if (this.coordinateManager) {
+            console.log('   Использую CoordinateManager для получения инвариантных признаков');
+           
+            const result = this.coordinateManager.getCoordinates(this, {
+                coordinateSystem: 'normalized',
+                includeMetadata: true,
+                debug: false
             });
-        });
-
-        return points;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
-    alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
-        console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
-        console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
-        console.log(`   Количество точек: ${points.length}`);
-
-        if (points.length === 0) {
-            console.log('⚠️ Нет точек для выравнивания');
-            return points;
-        }
-
-        const currentCenter = this.calculateCenter(points);
-        console.log(`   Текущий центр: (${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)})`);
-
-        const offsetX = targetCenter.x - currentCenter.x;
-        const offsetY = targetCenter.y - currentCenter.y;
-
-        console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
-
-        const alignedPoints = points.map(point => ({
-            ...point,
-            x: point.x + offsetX,
-            y: point.y + offsetY,
-            originalX: point.x,
-            originalY: point.y,
-            offsetApplied: { x: offsetX, y: offsetY }
-        }));
-
-        // Проверка после выравнивания
-        const alignedCenter = this.calculateCenter(alignedPoints);
-        const centerDistance = Math.sqrt(
-            Math.pow(alignedCenter.x - targetCenter.x, 2) +
-            Math.pow(alignedCenter.y - targetCenter.y, 2)
-        );
-
-        console.log(`   Центр после выравнивания: (${alignedCenter.x.toFixed(1)}, ${alignedCenter.y.toFixed(1)})`);
-        console.log(`   Отклонение от цели: ${centerDistance.toFixed(1)}px`);
-
-        if (centerDistance > 10) {
-            console.log(`⚠️ Центр все еще далеко от цели: ${centerDistance.toFixed(1)}px`);
-        }
-
-        return alignedPoints;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Получить честные данные для визуализации
-    getHonestVisualizationData() {
-        console.log(`📊 Получаю честные данные для визуализации...`);
-
-        const data = {
-            id: this.id,
-            name: this.name,
-            totalPhotos: this.metadata.totalPhotos,
-            points: [],
-            clusters: [],
-            confirmationsInfo: {
-                totalPoints: 0,
-                confirmed2: 0,
-                confirmed1: 0,
-                confirmed0: 0
+           
+            if (!result.valid || result.points.length < 3) {
+                console.log('⚠️ Недостаточно точек через CoordinateManager');
+                return this.createBasicInvariantFeatures();
             }
-        };
+           
+            // 🔥 МИНИМАЛЬНЫЙ ДЕБАГ вместо спама
+            const trans = this.getTransformation();
+            console.log(`   Трансформация: ${trans?.rotationAngle || 0}°`);
+            console.log(`   Получено ${result.points.length} точек через CoordinateManager`);
+           
+            // Продолжить со старой логикой, но с точками из CoordinateManager
+            const normalizedPoints = result.points;
 
-        // Собираем честные данные из трекера
-        if (this.pointTracker && this.pointTracker.points) {
-            for (const [id, point] of this.pointTracker.points) {
-                const confirmations = point.confirmedCount || 0;
+            if (normalizedPoints.length < 3) {
+                console.log('⚠️ Недостаточно точек');
+                return this.createBasicInvariantFeatures();
+            }
 
-                let confirmationLevel;
-                if (confirmations >= 2) {
-                    confirmationLevel = 'confirmed2';
-                    data.confirmationsInfo.confirmed2++;
-                } else if (confirmations >= 1) {
-                    confirmationLevel = 'confirmed1';
-                    data.confirmationsInfo.confirmed1++;
-                } else {
-                    confirmationLevel = 'confirmed0';
-                    data.confirmationsInfo.confirmed0++;
+            // 🔥 ВАЖНАЯ ПРОВЕРКА: координаты не должны быть около 0
+            if (normalizedPoints.length > 0) {
+                const point = normalizedPoints[0];
+                console.log(`   Пример нормализованной точки: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+
+                // Если координаты слишком маленькие (<1) - проблема!
+                if (Math.abs(point.x) < 1 && Math.abs(point.y) < 1) {
+                    console.log(`⚠️ ПРОБЛЕМА: координаты слишком маленькие!`);
+                    console.log(`⚠️ getPointsInNormalizedSystem() не работает правильно!`);
                 }
-
-                data.points.push({
-                    id,
-                    x: point.x,
-                    y: point.y,
-                    confirmations: confirmations,
-                    confidence: point.rating || point.confidence || 0.5,
-                    confirmationLevel: confirmationLevel,
-                    clusterData: point.clusterData || null,
-                    lastSeen: point.lastSeen
-                });
-
-                data.confirmationsInfo.totalPoints++;
             }
+
+            // 🔥 ИСПРАВЛЕННЫЙ КОД: Создаем признаки из НОРМАЛИЗОВАННЫХ точек
+            const features = [];
+
+            try {
+                // Используем только нормализованные точки
+                normalizedPoints.forEach((point, index) => {
+                    if (index < 20) { // Ограничиваем для производительности
+                        try {
+                            // Находим ближайших соседей в НОРМАЛИЗОВАННОЙ системе
+                            const neighbors = [];
+
+                            normalizedPoints.forEach((otherPoint, otherIndex) => {
+                                if (index === otherIndex) return;
+
+                                const distance = Math.sqrt(
+                                    Math.pow(otherPoint.x - point.x, 2) +
+                                    Math.pow(otherPoint.y - point.y, 2)
+                                );
+
+                                const angle = Math.atan2(otherPoint.y - point.y, otherPoint.x - point.x);
+
+                                neighbors.push({
+                                    distance: distance,
+                                    angle: angle,
+                                    otherPoint: otherPoint
+                                });
+                            });
+
+                            // Сортируем и берем 3 ближайших
+                            neighbors.sort((a, b) => a.distance - b.distance);
+                            const closestNeighbors = neighbors.slice(0, 3);
+
+                            if (closestNeighbors.length >= 2) {
+                                // Создаем признак
+                                const feature = {
+                                    id: point.id || `norm_feat_${index}`,
+                                    type: this.simpleClassifyFeature(
+                                        closestNeighbors.map(n => n.angle),
+                                        closestNeighbors.map(n => n.distance)
+                                    ),
+                                    angles: closestNeighbors.map(n => n.angle),
+                                    distances: closestNeighbors.map(n => n.distance),
+                                    neighborCount: closestNeighbors.length,
+                                    confidence: point.confidence || 0.5,
+                                    source: 'normalized_system',
+                                    normalized: true,
+                                    transformationAngle: trans?.rotationAngle || 0,
+                                    originalPoint: point
+                                };
+
+                                features.push(feature);
+
+                                // Дебаг для первых признаков
+                                if (index < 3) {
+                                    console.log(`   Признак ${index + 1}: ${feature.type}`);
+                                    console.log(`     Координаты: (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`);
+                                    console.log(`     Углы: ${feature.angles.map(a => (a * 180/Math.PI).toFixed(1) + '°').join(', ')}`);
+                                }
+                            }
+                        } catch (pointError) {
+                            console.log(`⚠️ Ошибка обработки точки ${index}:`, pointError.message);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.log('⚠️ Ошибка создания признаков:', error.message);
+                return this.createBasicInvariantFeatures();
+            }
+
+            console.log(`✅ Создано ${features.length} инвариантных признаков из НОРМАЛИЗОВАННОЙ системы`);
+
+            // Проверяем, что признаки созданы из нормализованных точек
+            const normalizedCount = features.filter(f => f.normalized).length;
+            console.log(`📊 Признаки из нормализованной системы: ${normalizedCount}/${features.length}`);
+
+            return features;
+        }
+       
+        // 🔥 СТАРАЯ ЛОГИКА КАК ФОЛЛБЭК
+        console.log('⚠️ CoordinateManager не доступен, использую старую логику');
+       
+        const trans = this.getTransformation();
+        console.log(`   Трансформация: ${trans?.rotationAngle || 0}°`);
+       
+        // Получаем нормализованные точки
+        const normalizedPoints = this.getPointsInNormalizedSystem();
+       
+        if (normalizedPoints.length < 3) {
+            console.log('⚠️ Недостаточно точек');
+            return this.createBasicInvariantFeatures();
         }
 
-        console.log(`📈 Честная статистика: ${data.confirmationsInfo.totalPoints} точек`);
-        console.log(`   🔴 2+ подтверждений: ${data.confirmationsInfo.confirmed2}`);
-        console.log(`   🔵 1 подтверждение: ${data.confirmationsInfo.confirmed1}`);
-        console.log(`   ⚪ 0 подтверждений: ${data.confirmationsInfo.confirmed0}`);
+        // 🔥 ИСПРАВЛЕННЫЙ КОД: Создаем признаки из НОРМАЛИЗОВАННЫХ точек
+        const features = [];
 
-        return data;
-    }
+        try {
+            // Используем только нормализованные точки
+            normalizedPoints.forEach((point, index) => {
+                if (index < 20) { // Ограничиваем для производительности
+                    try {
+                        // Находим ближайших соседей в НОРМАЛИЗОВАННОЙ системе
+                        const neighbors = [];
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Получить объединенные данные для визуализации с РЕАЛЬНЫМИ данными (без временного решения)
-    getMergedVisualizationData() {
-        console.log(`🔄 Получаю объединенные данные для визуализации...`);
+                        normalizedPoints.forEach((otherPoint, otherIndex) => {
+                            if (index === otherIndex) return;
 
-        const data = {
-            id: this.id,
-            name: this.name,
-            totalPhotos: this.metadata.totalPhotos,
-            points: [],
-            clusters: [],
-            confirmationStats: {
-                fromTracker: { total: 0, confirmed2: 0, confirmed1: 0, confirmed0: 0 },
-                fromSuperModel: { total: 0, avgConfirmations: 0, highConfidence: 0 }
-            },
-            merged: true // Флаг что это объединенные данные
-        };
+                            const distance = Math.sqrt(
+                                Math.pow(otherPoint.x - point.x, 2) +
+                                Math.pow(otherPoint.y - point.y, 2)
+                            );
 
-        // 1. Данные из PointTracker
-        if (this.pointTracker && this.pointTracker.points) {
-            for (const [id, point] of this.pointTracker.points) {
-                const confirmations = point.confirmedCount || 0;
+                            const angle = Math.atan2(otherPoint.y - point.y, otherPoint.x - point.x);
 
-                let color, size;
-                if (confirmations >= 2) {
-                    color = '#FF5252'; // 🔴 Красный
-                    size = 8 + (point.confidence || 0.5) * 6;
-                    data.confirmationStats.fromTracker.confirmed2++;
-                } else if (confirmations >= 1) {
-                    color = '#2196F3'; // 🔵 Синий
-                    size = 6 + (point.confidence || 0.5) * 4;
-                    data.confirmationStats.fromTracker.confirmed1++;
-                } else {
-                    color = '#BDBDBD'; // ⚪ Серый
-                    size = 4;
-                    data.confirmationStats.fromTracker.confirmed0++;
+                            neighbors.push({
+                                distance: distance,
+                                angle: angle,
+                                otherPoint: otherPoint
+                            });
+                        });
+
+                        // Сортируем и берем 3 ближайших
+                        neighbors.sort((a, b) => a.distance - b.distance);
+                        const closestNeighbors = neighbors.slice(0, 3);
+
+                        if (closestNeighbors.length >= 2) {
+                            // Создаем признак
+                            const feature = {
+                                id: point.id || `norm_feat_${index}`,
+                                type: this.simpleClassifyFeature(
+                                    closestNeighbors.map(n => n.angle),
+                                    closestNeighbors.map(n => n.distance)
+                                ),
+                                angles: closestNeighbors.map(n => n.angle),
+                                distances: closestNeighbors.map(n => n.distance),
+                                neighborCount: closestNeighbors.length,
+                                confidence: point.confidence || 0.5,
+                                source: 'normalized_system',
+                                normalized: true,
+                                transformationAngle: trans?.rotationAngle || 0,
+                                originalPoint: point
+                            };
+
+                            features.push(feature);
+
+                            // Дебаг для первых признаков
+                            if (index < 3) {
+                                console.log(`   Признак ${index + 1}: ${feature.type}`);
+                                console.log(`     Координаты: (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`);
+                                console.log(`     Углы: ${feature.angles.map(a => (a * 180/Math.PI).toFixed(1) + '°').join(', ')}`);
+                            }
+                        }
+                    } catch (pointError) {
+                        console.log(`⚠️ Ошибка обработки точки ${index}:`, pointError.message);
+                    }
                 }
-
-                data.points.push({
-                    id,
-                    x: point.x,
-                    y: point.y,
-                    color: color,
-                    size: size,
-                    confirmations: confirmations,
-                    confidence: point.rating || point.confidence || 0.5,
-                    source: 'tracker',
-                    clusterData: point.clusterData || null
-                });
-
-                data.confirmationStats.fromTracker.total++;
-            }
+            });
+        } catch (error) {
+            console.log('⚠️ Ошибка создания признаков:', error.message);
+            return this.createBasicInvariantFeatures();
         }
 
-        // 2. Данные из супер-модели (если есть)
-        if (this.metadata?.features?.hasSuperModel) {
-            // Можно добавить данные из супер-модели
-            // Например, границы шаблона, зоны и т.д.
-        }
+        console.log(`✅ Создано ${features.length} инвариантных признаков из НОРМАЛИЗОВАННОЙ системы`);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Убрано временное решение! Теперь показываем только реальные данные
-        console.log(`📊 РЕАЛЬНАЯ статистика подтверждений:`);
-        console.log(`   • Всего точек: ${data.confirmationStats.fromTracker.total}`);
-        console.log(`   • 🔴 2+ подтверждений: ${data.confirmationStats.fromTracker.confirmed2}`);
-        console.log(`   • 🔵 1 подтверждение: ${data.confirmationStats.fromTracker.confirmed1}`);
-        console.log(`   • ⚪ 0 подтверждений: ${data.confirmationStats.fromTracker.confirmed0}`);
+        // Проверяем, что признаки созданы из нормализованных точек
+        const normalizedCount = features.filter(f => f.normalized).length;
+        console.log(`📊 Признаки из нормализованной системы: ${normalizedCount}/${features.length}`);
 
-        // 🔥 Добавляем предупреждение если точек с 2+ подтверждениями мало
-        if (this.metadata.totalPhotos >= 2 && data.confirmationStats.fromTracker.confirmed2 === 0) {
-            console.log(`⚠️ ВНИМАНИЕ: ${this.metadata.totalPhotos} фото, но 0 точек с 2+ подтверждениями!`);
-            console.log(`   Проверьте updatePointTrackerFromSuperModel в SimpleFootprintManager`);
-            data.warning = `Нужно 2+ фото для подтверждений. Текущие фото: ${this.metadata.totalPhotos}`;
-        }
-
-        return data;
+        return features;
     }
-
-    // 🔥 ДЕБАГ МЕТОД: Проверить трансформации
-    debugTransformation() {
-        console.log(`\n🔍 ДЕБАГ ТРАНСФОРМАЦИИ ОТПЕЧАТКА "${this.name}":`);
-        console.log(`   Есть трансформация: ${!!this.transformation}`);
-
-        if (this.transformation) {
-            console.log(`   rotationAngle: ${this.transformation.rotationAngle}°`);
-            console.log(`   isMirrored: ${this.transformation.isMirrored}`);
-            console.log(`   center: (${this.transformation.center?.x?.toFixed(1)}, ${this.transformation.center?.y?.toFixed(1)})`);
-            console.log(`   type: ${this.transformation.type}`);
-        }
-
-        // Проверяем историю
-        if (this.analysisHistory && this.analysisHistory.length > 0) {
-            const lastAnalysis = this.analysisHistory[this.analysisHistory.length - 1];
-            console.log(`\n   Последний анализ:`);
-            console.log(`   Есть sourceInfo: ${!!lastAnalysis.sourceInfo}`);
-            if (lastAnalysis.sourceInfo && lastAnalysis.sourceInfo.transformationInfo) {
-                console.log(`   Угол в sourceInfo: ${lastAnalysis.sourceInfo.transformationInfo.rotationAngle}°`);
-            }
-        }
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Преобразовать точки к системе этого отпечатка
-    transformPointsToMySystem(points, sourceTransformation) {
-        if (!this.transformation || !sourceTransformation) {
-            console.log('⚠️ Нет трансформаций для преобразования');
-            return points;
-        }
-
-        const RotationInvariance = require('./rotation-invariance');
-        const processor = new RotationInvariance();
-
-        return processor.transformPointsBetweenSystems(
-            points,
-            sourceTransformation,
-            this.transformation
-        );
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Создать нормализованную трансформацию
-    createNormalizedTransformation() {
-        // Нормализованная система: поворот 0°, без зеркала, центр в (0,0)
-        return {
-            matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-            rotationAngle: 0,
-            isMirrored: false,
-            center: { x: 0, y: 0 },
-            bounds: this.transformation?.bounds || { minX: 0, maxX: 0, minY: 0, maxY: 0 },
-            type: 'normalized'
-        };
-    }
-
-    // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ КЛАССИФИКАЦИИ
 
     // 🔥 НОВЫЙ МЕТОД: Классифицировать признак точки
     classifyPointFeature(invariants) {
@@ -2293,6 +2354,345 @@ class SimpleFootprint {
 
         return types;
     }
+
+    // 🔥 НОВЫЙ МЕТОД: Создать базовые признаки (фаллбэк)
+    createBasicInvariantFeatures() {
+        console.log('🔄 Создаю базовые инвариантные признаки (фаллбэк)...');
+
+        const features = [];
+
+        // 🔥 ИСПРАВЛЕНИЕ: Пытаемся получить нормализованные точки
+        let points;
+        try {
+            // Сначала пробуем получить нормализованные точки
+            points = this.getPointsInNormalizedSystem();
+            if (points.length < 3) {
+                // Если нормализованных мало, берем оригинальные
+                points = this.getPointsInMySystem();
+                console.log('⚠️ Фаллбэк: использую оригинальные точки вместо нормализованных');
+            }
+        } catch (error) {
+            points = this.getPointsInMySystem();
+            console.log('⚠️ Фаллбэк: ошибка получения нормализованных точек:', error.message);
+        }
+
+        if (points.length < 3) {
+            console.log('⚠️ Фаллбэк: слишком мало точек');
+            return features;
+        }
+
+        // 🔥 ИСПРАВЛЕНИЕ: Определяем, нормализованы ли точки
+        const arePointsNormalized = points.length > 0 &&
+                                   (points[0].normalized || points[0].nx !== undefined);
+
+        console.log(`📊 Фаллбэк: ${points.length} точек, нормализованы: ${arePointsNormalized ? 'да' : 'нет'}`);
+
+        // Простой расчет признаков
+        for (let i = 0; i < Math.min(points.length, 10); i++) {
+            const point = points[i];
+
+            // 🔥 ИСПРАВЛЕНИЕ: Правильно определяем тип признака
+            const feature = {
+                id: point.id || `basic_${i}`,
+                type: this.simpleClassifyFeature([0, Math.PI/3, Math.PI*2/3], [0.3, 0.5, 0.7]),
+                angles: [0, Math.PI/3, Math.PI*2/3],
+                distances: [0.3, 0.5, 0.7],
+                neighborCount: 3,
+                confidence: point.confidence || 0.5,
+                source: 'fallback_improved',
+                normalized: arePointsNormalized, // 🔥 Теперь правильно!
+                transformationAngle: this.transformation?.rotationAngle || 0,
+                originalPoint: point
+            };
+
+            features.push(feature);
+        }
+
+        console.log(`✅ Фаллбэк: создано ${features.length} признаков, normalized=${arePointsNormalized}`);
+        return features;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Простая классификация
+    simpleClassifyFeature(angles, distances) {
+        if (angles.length < 2) return 'isolated';
+
+        if (angles.length >= 3) {
+            // Проверяем равномерность углов
+            const sortedAngles = [...angles].sort((a, b) => a - b);
+            let totalDiff = 0;
+
+            for (let i = 0; i < sortedAngles.length - 1; i++) {
+                totalDiff += Math.abs(sortedAngles[i + 1] - sortedAngles[i]);
+            }
+            const avgDiff = totalDiff / (sortedAngles.length - 1);
+
+            if (Math.abs(avgDiff - 2 * Math.PI / 3) < Math.PI / 6) {
+                return 'triangle';
+            }
+        }
+
+        // Проверяем расстояния
+        const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
+        const variance = distances.reduce((sum, d) => sum + Math.pow(d - avgDistance, 2), 0) / distances.length;
+
+        if (variance < 0.1) {
+            return 'regular';
+        }
+
+        if (distances[0] < avgDistance * 0.5) {
+            return 'cluster';
+        }
+
+        return 'general';
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Извлечь точки из графа
+    extractPointsFromGraph(graph) {
+        const points = [];
+
+        if (!graph || !graph.nodes) return points;
+
+        graph.nodes.forEach((node, nodeId) => {
+            points.push({
+                id: nodeId,
+                x: node.x || 0,
+                y: node.y || 0,
+                confidence: node.confidence || 0.5,
+                originalNode: node
+            });
+        });
+
+        return points;
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить точки в системе PatternMatcher
+    getPointsForPatternMatching() {
+        console.log(`🔧 getPointsForPatternMatching() для "${this.name}"`);
+       
+        try {
+            // 🔥 ПЕРВЫЙ ПРИОРИТЕТ: Использовать CoordinateManager
+            if (this.coordinateManager) {
+                const result = this.coordinateManager.getCoordinates(this, {
+                    coordinateSystem: 'canonical', // Используем каноническую систему для сравнения
+                    includeMetadata: false,
+                    debug: false
+                });
+               
+                if (result.valid && result.points.length > 0) {
+                    console.log(`📊 Получено ${result.points.length} точек для сравнения паттернов через CoordinateManager`);
+                    return result.points;
+                }
+            }
+           
+            // 🔥 ФОЛЛБЭК: старая логика
+            console.log('⚠️ CoordinateManager не доступен или не вернул точки, использую фоллбэк');
+           
+            // Получаем точки в нормализованной системе
+            const normalizedPoints = this.getPointsInNormalizedSystem();
+           
+            if (!normalizedPoints || normalizedPoints.length === 0) {
+                console.log(`⚠️ Нет нормализованных точек для сравнения паттернов`);
+                return [];
+            }
+           
+            const points = normalizedPoints.map((point, index) => ({
+                id: point.id || `pt_${index}`,
+                x: point.x || 0,
+                y: point.y || 0,
+                confidence: point.confidence || point.rating || 0.5,
+                originalX: point.originalX || point.x,
+                originalY: point.originalY || point.y,
+                _coordinateSystem: point._coordinateSystem || 'normalized',
+                _source: 'fallback_pattern_matching'
+            }));
+           
+            console.log(`📊 Подготовлено ${points.length} точек для сравнения паттернов (фоллбэк)`);
+            return points;
+           
+        } catch (error) {
+            console.log(`❌ Ошибка в getPointsForPatternMatching: ${error.message}`);
+            return [];
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
+    alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
+        console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
+        console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
+        console.log(`   Количество точек: ${points.length}`);
+
+        if (points.length === 0) {
+            console.log('⚠️ Нет точек для выравнивания');
+            return points;
+        }
+
+        const currentCenter = this.calculateCenter(points);
+        console.log(`   Текущий центр: (${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)})`);
+
+        const offsetX = targetCenter.x - currentCenter.x;
+        const offsetY = targetCenter.y - currentCenter.y;
+
+        console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+
+        const alignedPoints = points.map(point => ({
+            ...point,
+            x: point.x + offsetX,
+            y: point.y + offsetY,
+            originalX: point.x,
+            originalY: point.y,
+            offsetApplied: { x: offsetX, y: offsetY }
+        }));
+
+        // Проверка после выравнивания
+        const alignedCenter = this.calculateCenter(alignedPoints);
+        const centerDistance = Math.sqrt(
+            Math.pow(alignedCenter.x - targetCenter.x, 2) +
+            Math.pow(alignedCenter.y - targetCenter.y, 2)
+        );
+
+        console.log(`   Центр после выравнивания: (${alignedCenter.x.toFixed(1)}, ${alignedCenter.y.toFixed(1)})`);
+        console.log(`   Отклонение от цели: ${centerDistance.toFixed(1)}px`);
+
+        if (centerDistance > 10) {
+            console.log(`⚠️ Центр все еще далеко от цели: ${centerDistance.toFixed(1)}px`);
+        }
+
+        return alignedPoints;
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить точки, готовые для сравнения
+    getAlignedPointsForComparison() {
+        console.log(`🎯 Подготовка точек для сравнения отпечатка "${this.name}"`);
+       
+        // 🔥 ПЕРВЫЙ ПРИОРИТЕТ: Использовать CoordinateManager
+        if (this.coordinateManager) {
+            const result = this.coordinateManager.getCoordinates(this, {
+                coordinateSystem: 'canonical',
+                includeMetadata: false,
+                debug: false,
+                forceRecalculate: true // Принудительно пересчитать для сравнения
+            });
+           
+            if (result.valid && result.points.length >= 3) {
+                console.log(`✅ Получено ${result.points.length} точек в канонической системе через CoordinateManager`);
+                return result.points;
+            }
+        }
+       
+        // 🔥 ФОЛЛБЭК: старая логика
+        console.log('⚠️ CoordinateManager не доступен, использую фоллбэк');
+       
+        // Получаем нормализованные и выровненные точки
+        const normalizedPoints = this.getPointsInNormalizedSystem();
+       
+        // 🔥 ДОПОЛНИТЕЛЬНОЕ ВЫРАВНИВАНИЕ для точного сравнения
+        const RotationInvariance = require('./rotation-invariance');
+        const processor = new RotationInvariance({ debug: false });
+       
+        // Если точек мало, возвращаем как есть
+        if (normalizedPoints.length < 3) {
+            console.log(`⚠️ Слишком мало точек для выравнивания: ${normalizedPoints.length}`);
+            return normalizedPoints;
+        }
+       
+        // Выравниваем к точному центру (500, 500)
+        const preciselyAligned = processor.alignPointsToCommonSystem(
+            normalizedPoints,
+            { x: 500, y: 500 }
+        );
+       
+        console.log(`🎯 Точки готовы для сравнения (фоллбэк): ${preciselyAligned.length} точек`);
+       
+        return preciselyAligned;
+    }
+
+}
+
+// 🔥 СТАТИЧЕСКИЕ МЕТОДЫ ДЛЯ РАБОТЫ С МОДУЛЯМИ КООРДИНАТ
+
+// Создать отпечаток с интегрированными модулями координат
+SimpleFootprint.createWithCoordinateModules = function(options = {}, modules = {}) {
+    const footprint = new SimpleFootprint(options);
+   
+    if (modules) {
+        footprint.setCoordinateModules(modules);
+    }
+   
+    return footprint;
+}
+
+// Массовая диагностика нескольких отпечатков
+SimpleFootprint.diagnoseMultipleFootprints = function(footprints, coordinateManager) {
+    console.log(`\n🔍 МАССОВАЯ ДИАГНОСТИКА ${footprints.length} ОТПЕЧАТКОВ`);
+   
+    const results = {
+        timestamp: new Date(),
+        totalFootprints: footprints.length,
+        footprints: [],
+        issues: [],
+        summary: {}
+    };
+   
+    footprints.forEach((footprint, index) => {
+        console.log(`\n${index + 1}. Диагностика отпечатка "${footprint.name}"`);
+       
+        try {
+            // Устанавливаем модули координат если нужно
+            if (coordinateManager && !footprint.coordinateManager) {
+                footprint.setCoordinateModules({
+                    coordinateManager: coordinateManager,
+                    coordinateSystemLogger: coordinateManager.manager?.coordinateSystemLogger,
+                    transformationValidator: coordinateManager.manager?.transformationValidator
+                });
+            }
+           
+            // Выполняем диагностику
+            const diagnosis = footprint.diagnoseCoordinateSystem();
+           
+            results.footprints.push({
+                id: footprint.id,
+                name: footprint.name,
+                diagnosis: diagnosis
+            });
+           
+            if (!diagnosis.success) {
+                results.issues.push({
+                    footprint: footprint.name,
+                    error: diagnosis.error
+                });
+            }
+           
+        } catch (error) {
+            console.log(`❌ Ошибка диагностики: ${error.message}`);
+            results.footprints.push({
+                id: footprint.id,
+                name: footprint.name,
+                error: error.message
+            });
+            results.issues.push({
+                footprint: footprint.name,
+                error: error.message
+            });
+        }
+    });
+   
+    // Статистика
+    const successful = results.footprints.filter(f => f.diagnosis?.success).length;
+    const withIssues = results.issues.length;
+   
+    results.summary = {
+        successful,
+        withIssues,
+        successRate: (successful / footprints.length * 100).toFixed(1) + '%'
+    };
+   
+    console.log(`\n📊 ИТОГ МАССОВОЙ ДИАГНОСТИКИ:`);
+    console.log(`   Всего отпечатков: ${footprints.length}`);
+    console.log(`   Успешно: ${successful}`);
+    console.log(`   С проблемами: ${withIssues}`);
+    console.log(`   Успешность: ${results.summary.successRate}`);
+   
+    return results;
 }
 
 module.exports = SimpleFootprint;
