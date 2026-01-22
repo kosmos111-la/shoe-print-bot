@@ -363,11 +363,7 @@ class SimpleFootprintManager {
     calculateDistance(point1, point2) {
         return this.geometryUtils.calculateDistance(point1, point2);
     }
-```
 
-Теперь перехожу к Шагу 2.2: Замена старых методов на использование CoordinateManager. Обновлю ключевые методы в simple-manager.js:
-
-```javascript
     // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ОБНОВЛЕННЫЙ с CoordinateManager)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
@@ -757,11 +753,224 @@ class SimpleFootprintManager {
             );
         }
     }
-```
 
-Теперь перехожу к Шагу 2.3: Добавление диагностических методов в конец класса:
+    // 🔥 МЕТОД: Обработка совпадающих следов (ОБНОВЛЕННЫЙ)
+    async handleMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
+                                 existingTransformationInfo, similarity, comparisonResult,
+                                 tempResult, bot, chatId) {
+        console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
 
-```javascript
+        // 🔥 ПРОВЕРЯЕМ НАЛИЧИЕ tempResult
+        if (!tempResult) {
+            console.log(`⚠️ tempResult не определен, создаю пустой результат`);
+            tempResult = { added: 0, error: 'tempResult не был передан' };
+        }
+
+        // Работа с шаблоном
+        let vectorModel = this.vectorSuperModels.get(userId);
+        if (!vectorModel) {
+            const VectorSuperModel = require('./vector-super-model');
+            vectorModel = new VectorSuperModel({
+                name: `Шаблон_${String(userId).slice(0, 6)}`,
+                enablePCA: false,
+                cellSize: 25,
+                debug: this.config.debug
+            });
+            this.vectorSuperModels.set(userId, vectorModel);
+            vectorModel.addGraph(session.currentFootprint.graph, session.currentFootprint.id, {
+                isFirst: true,
+                transformationInfo: existingTransformationInfo
+            });
+        }
+
+        vectorModel.addGraph(finalGraph, tempFootprint.id, {
+            similarity: similarity,
+            timestamp: new Date(),
+            transformationInfo: transformationInfo
+        });
+
+        // Обновление подтверждений
+        const directUpdates = this.updateConfirmationsDirectly(session.currentFootprint, tempFootprint);
+        const updatedFromTemplate = this.updateConfirmationsFromTemplate(
+            session.currentFootprint,
+            vectorModel,
+            existingTransformationInfo
+        );
+
+        // Визуализации
+        const visualizationResults = await this.createVisualizations(
+            session, userId, transformationInfo, existingTransformationInfo,
+            comparisonResult, vectorModel, bot, chatId
+        );
+
+        // Статистика
+        const stats = this.calculateConfirmationStats(session.currentFootprint);
+
+        return {
+            success: true,
+            similarity: similarity,
+            decision: 'same',
+            nodesAdded: tempResult.added || 0,  // 🔥 ИСПОЛЬЗУЕМ tempResult.added
+            message: `✅ След добавлен! Сходство: ${(similarity * 100).toFixed(1)}%`,
+            hasVisualization: visualizationResults.hasVisualization,
+            telegramSent: visualizationResults.telegramSent,
+            templateSent: visualizationResults.templateSent,
+            pointsUpdated: updatedFromTemplate + directUpdates,
+            realStats: stats,
+            totalPhotos: session.photos.length
+        };
+    }
+
+    // 🔥 СОЗДАНИЕ ВИЗУАЛИЗАЦИЙ (исправленная версия)
+    async createVisualizations(session, userId, transformationInfo, existingTransformationInfo,
+                              comparisonResult, vectorModel, bot, chatId) {
+        let clusterVizResult = null;
+        let templateVizResult = null;
+        let telegramSent = false;
+        let templateSent = false;
+
+        if (this.config.enableMergeVisualization && bot && chatId) {
+            // 🔥 ОЧИСТКА ОТ Markdown-СИМВОЛОВ
+            const cleanMarkdown = (text) => {
+                return text
+                    .replace(/\*\*/g, '')
+                    .replace(/\*/g, '')
+                    .replace(/__/g, '')
+                    .replace(/_/g, '')
+                    .replace(/`/g, '')
+                    .replace(/\[/g, '(')
+                    .replace(/\]/g, ')');
+            };
+
+            // 1. Визуализация подтверждений
+            clusterVizResult = await this.visualizeSingleFootprintConfirmations(
+                session.currentFootprint,
+                userId,
+                {
+                    currentTransformation: transformationInfo,
+                    previousTransformation: existingTransformationInfo,
+                    comparisonResult: comparisonResult
+                }
+            );
+
+            // 2. Визуализация шаблона (если включено)
+            if (this.config.enableTemplateVisualization && vectorModel) {
+                console.log(`🎨 Создаю визуализацию шаблона...`);
+                templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
+            }
+
+            // 3. Отправка подтверждений
+            if (clusterVizResult?.path && fs.existsSync(clusterVizResult.path)) {
+                const stats = this.calculateConfirmationStats(session.currentFootprint);
+                let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
+                caption += `📊 Сходство: ${(comparisonResult.similarity * 100).toFixed(1)}%\n`;
+                caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                caption += `🔄 Метод: ${comparisonResult.method || 'pattern_based'}\n\n`;
+                caption += `📈 СТАТИСТИКА (после ${session.photos.length} фото):\n`;
+                caption += `• Всего точек: ${stats.totalPoints}\n`;
+                caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
+                caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
+                caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}`;
+
+                // 🔥 ОЧИЩАЕМ ОТ Markdown
+                const cleanCaption = cleanMarkdown(caption);
+
+                try {
+                    await bot.sendPhoto(chatId, clusterVizResult.path, {
+                        caption: cleanCaption,
+                        parse_mode: 'HTML'
+                    });
+                    telegramSent = true;
+                    console.log('✅ Визуализация подтверждений отправлена');
+                } catch (error) {
+                    console.log('❌ Ошибка отправки визуализации:', error.message);
+                }
+            }
+
+            // 4. Отправка шаблона
+            if (templateVizResult?.template && fs.existsSync(templateVizResult.template)) {
+                try {
+                    const templateStats = templateVizResult.stats || {};
+                    let templateCaption = `📊 ШАБЛОН ПОСЛЕ ${session.photos.length} ФОТО\n\n`;
+                    templateCaption += `📋 Ячеек: ${templateStats.cells || 0}\n`;
+                    templateCaption += `✅ Подтверждений: ${templateStats.totalConfirmations || 0}\n`;
+                    templateCaption += `📈 Среднее: ${templateStats.averageConfirmations?.toFixed(2) || '0.00'}\n\n`;
+                    templateCaption += `🔍 Накопление деталей работает`;
+
+                    // 🔥 ОЧИЩАЕМ ОТ Markdown
+                    const cleanTemplateCaption = cleanMarkdown(templateCaption);
+
+                    await bot.sendPhoto(chatId, templateVizResult.template, {
+                        caption: cleanTemplateCaption,
+                        parse_mode: 'HTML'
+                    });
+
+                    templateSent = true;
+                    console.log('✅ Визуализация шаблона отправлена');
+                } catch (error) {
+                    console.log('❌ Ошибка отправки шаблона:', error.message);
+                }
+            }
+        }
+
+        return {
+            hasVisualization: !!clusterVizResult,
+            telegramSent: telegramSent,
+            templateSent: templateSent
+        };
+    }
+
+    // 🔥 ОБРАБОТКА НОВОГО СЛЕДА
+    async handleNewFootprint(session, userId, analysis, photoInfo, finalGraph, transformationInfo,
+                            similarity, bot, chatId) {
+        console.log(`🆕 Следы разные (${similarity.toFixed(3)}) - новая модель`);
+
+        if (session.currentFootprint.graph.nodes.size >= 10) {
+            this.saveSessionAsModel(userId, `Модель_${new Date().toLocaleTimeString('ru-RU')}`);
+        }
+
+        const SimpleFootprint = require('./simple-footprint');
+        session.currentFootprint = new SimpleFootprint({
+            userId: userId,
+            name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`
+        });
+
+        session.currentFootprint.metadata.normalizationInfo = transformationInfo;
+
+        const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
+            ...photoInfo,
+            normalizedGraph: finalGraph,
+            photoId: photoInfo.photoId || `photo_${Date.now()}`,
+            source: photoInfo.source || 'telegram_bot',
+            transformationInfo: transformationInfo
+        });
+
+        // Новый шаблон
+        const VectorSuperModel = require('./vector-super-model');
+        const vectorModel = new VectorSuperModel({
+            name: `Шаблон_${String(userId).slice(0, 6)}_new`,
+            enablePCA: false,
+            cellSize: 25,
+            debug: this.config.debug
+        });
+
+        vectorModel.addGraph(finalGraph, session.currentFootprint.id, {
+            isFirst: true,
+            transformationInfo: transformationInfo
+        });
+
+        this.vectorSuperModels.set(userId, vectorModel);
+
+        return {
+            success: true,
+            similarity: similarity,
+            decision: 'different',
+            isNewModel: true,
+            nodesAdded: addResult.added,
+            hasTemplate: true
+        };
+    }
+
     // 🔥 НОВЫЕ ДИАГНОСТИЧЕСКИЕ МЕТОДЫ
    
     // Метод для отладки систем координат
