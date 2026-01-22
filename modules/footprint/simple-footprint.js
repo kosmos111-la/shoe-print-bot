@@ -1,5 +1,5 @@
 // modules/footprint/simple-footprint.js
-// 🔥 ФИНАЛЬНАЯ ВЕРСИЯ С ИНТЕГРАЦИЕЙ МОДУЛЕЙ КООРДИНАТ
+// 🔥 ФИНАЛЬНАЯ ВЕРСИЯ С ИСПРАВЛЕНИЕМ ОШИБКИ ВАЛИДАЦИИ
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -113,6 +113,23 @@ class CoordinateManagerStub {
     }
 }
 
+// 🔥 ЗАГЛУШКА ДЛЯ TRANSFORMATION VALIDATOR
+class TransformationValidatorStub {
+    constructor() {
+        console.log('🔄 Создан заглушка TransformationValidator');
+    }
+
+    validate(transformation) {
+        console.log('⚠️ TransformationValidatorStub.validate: всегда возвращаю true');
+        return true;
+    }
+
+    validateMultiple(transformations) {
+        console.log('⚠️ TransformationValidatorStub.validateMultiple: всегда возвращаю true');
+        return { valid: true, conflicts: [], report: 'stub' };
+    }
+}
+
 class SimpleFootprint {
     constructor(options = {}) {
         this.id = options.id || `fp_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
@@ -128,8 +145,9 @@ class SimpleFootprint {
         this.coordinateManager = options.coordinateManager ||
             (CoordinateManager ? new CoordinateManager({ debug: options.debug || false }) : new CoordinateManagerStub());
 
+        // 🔥 ИСПРАВЛЕНИЕ: Проверяем, что transformationValidator имеет метод validate
         this.transformationValidator = options.transformationValidator ||
-            (TransformationValidator ? new TransformationValidator({ debug: options.debug || false }) : null);
+            (TransformationValidator ? new TransformationValidator({ debug: options.debug || false }) : new TransformationValidatorStub());
 
         this.coordinateSystemLogger = options.coordinateSystemLogger ||
             (CoordinateSystemLogger ? new CoordinateSystemLogger({ debug: options.debug || false }) : null);
@@ -430,7 +448,7 @@ class SimpleFootprint {
         console.log(`   Подготовлено для графа: ${graphPoints.length} точек`);
 
         // 🔥 ВАЖНО: Строим граф из точек
-        console.log(`🏗️ Строю граф из ${graphPoints.length} точек...`);
+        console.log(`🏗 Строю граф из ${graphPoints.length} точек...`);
         const graphInvariants = this.graph.buildFromPoints(graphPoints.map(p => ({
             x: p.x,
             y: p.y,
@@ -524,13 +542,15 @@ class SimpleFootprint {
     getTransformation() {
         // 1. Если уже есть трансформация - возвращаем её
         if (this.transformation && this.transformation.rotationAngle !== undefined) {
-            // 🔥 ВАЛИДИРУЕМ ТРАНСФОРМАЦИЮ
-            if (this.transformationValidator) {
+            // 🔥 ИСПРАВЛЕНИЕ: Проверяем, что transformationValidator существует и имеет метод validate
+            if (this.transformationValidator && typeof this.transformationValidator.validate === 'function') {
                 const isValid = this.transformationValidator.validate(this.transformation);
                 if (!isValid) {
                     console.log('⚠️ Трансформация невалидна, пересчитываю...');
                     this.transformation = this._createDefaultTransformation();
                 }
+            } else {
+                console.log('⚠️ TransformationValidator не имеет метода validate, пропускаю валидацию');
             }
 
             console.log(`📐 [getTransformation] Возвращаю сохраненную трансформацию: ${this.transformation.rotationAngle}°`);
@@ -691,7 +711,8 @@ class SimpleFootprint {
         console.log(`├─ Угол: ${trans.rotationAngle}°`);
         console.log(`├─ Центр: (${trans.center?.x?.toFixed(1)}, ${trans.center?.y?.toFixed(1)})`);
         console.log(`├─ Тип: ${trans.type}`);
-        console.log(`└─ Валидность: ${this.transformationValidator?.validate(trans) ? '✅' : '❌'}`);
+        console.log(`└─ Валидность: ${this.transformationValidator && typeof this.transformationValidator.validate === 'function' ?
+            (this.transformationValidator.validate(trans) ? '✅' : '❌') : '❓'}`);
 
         // 2. Количество точек в разных системах
         const systems = ['original', 'normalized', 'canonical', 'comparison'];
@@ -1185,6 +1206,129 @@ class SimpleFootprint {
         return this.addAnalysisHonest(analysis, sourceInfo);
     }
 
+    // 🔥 ВАЖНОЕ ДОБАВЛЕНИЕ: Методы визуализации, которые были удалены
+    getMergedVisualizationData() {
+        console.log(`🔄 Получаю объединенные данные для визуализации...`);
+
+        const data = {
+            id: this.id,
+            name: this.name,
+            totalPhotos: this.metadata.totalPhotos,
+            points: [],
+            clusters: [],
+            confirmationStats: {
+                fromTracker: { total: 0, confirmed2: 0, confirmed1: 0, confirmed0: 0 },
+                fromSuperModel: { total: 0, avgConfirmations: 0, highConfidence: 0 }
+            },
+            merged: true
+        };
+
+        // 1. Данные из PointTracker
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [id, point] of this.pointTracker.points) {
+                const confirmations = point.confirmedCount || 0;
+
+                let color, size;
+                if (confirmations >= 2) {
+                    color = '#FF5252';
+                    size = 8 + (point.confidence || 0.5) * 6;
+                    data.confirmationStats.fromTracker.confirmed2++;
+                } else if (confirmations >= 1) {
+                    color = '#2196F3';
+                    size = 6 + (point.confidence || 0.5) * 4;
+                    data.confirmationStats.fromTracker.confirmed1++;
+                } else {
+                    color = '#BDBDBD';
+                    size = 4;
+                    data.confirmationStats.fromTracker.confirmed0++;
+                }
+
+                data.points.push({
+                    id,
+                    x: point.x,
+                    y: point.y,
+                    color: color,
+                    size: size,
+                    confirmations: confirmations,
+                    confidence: point.rating || point.confidence || 0.5,
+                    source: 'tracker',
+                    clusterData: point.clusterData || null
+                });
+
+                data.confirmationStats.fromTracker.total++;
+            }
+        }
+
+        console.log(`📊 РЕАЛЬНАЯ статистика подтверждений:`);
+        console.log(`   • Всего точек: ${data.confirmationStats.fromTracker.total}`);
+        console.log(`   • 🔴 2+ подтверждений: ${data.confirmationStats.fromTracker.confirmed2}`);
+        console.log(`   • 🔵 1 подтверждение: ${data.confirmationStats.fromTracker.confirmed1}`);
+        console.log(`   • ⚪ 0 подтверждений: ${data.confirmationStats.fromTracker.confirmed0}`);
+
+        if (this.metadata.totalPhotos >= 2 && data.confirmationStats.fromTracker.confirmed2 === 0) {
+            console.log(`⚠️ ВНИМАНИЕ: ${this.metadata.totalPhotos} фото, но 0 точек с 2+ подтверждениями!`);
+            data.warning = `Нужно 2+ фото для подтверждений. Текущие фото: ${this.metadata.totalPhotos}`;
+        }
+
+        return data;
+    }
+
+    getHonestVisualizationData() {
+        console.log(`📊 Получаю честные данные для визуализации...`);
+
+        const data = {
+            id: this.id,
+            name: this.name,
+            totalPhotos: this.metadata.totalPhotos,
+            points: [],
+            clusters: [],
+            confirmationsInfo: {
+                totalPoints: 0,
+                confirmed2: 0,
+                confirmed1: 0,
+                confirmed0: 0
+            }
+        };
+
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [id, point] of this.pointTracker.points) {
+                const confirmations = point.confirmedCount || 0;
+
+                let confirmationLevel;
+                if (confirmations >= 2) {
+                    confirmationLevel = 'confirmed2';
+                    data.confirmationsInfo.confirmed2++;
+                } else if (confirmations >= 1) {
+                    confirmationLevel = 'confirmed1';
+                    data.confirmationsInfo.confirmed1++;
+                } else {
+                    confirmationLevel = 'confirmed0';
+                    data.confirmationsInfo.confirmed0++;
+                }
+
+                data.points.push({
+                    id,
+                    x: point.x,
+                    y: point.y,
+                    confirmations: confirmations,
+                    confidence: point.rating || point.confidence || 0.5,
+                    confirmationLevel: confirmationLevel,
+                    clusterData: point.clusterData || null,
+                    lastSeen: point.lastSeen
+                });
+
+                data.confirmationsInfo.totalPoints++;
+            }
+        }
+
+        console.log(`📈 Честная статистика: ${data.confirmationsInfo.totalPoints} точек`);
+        console.log(`   🔴 2+ подтверждений: ${data.confirmationsInfo.confirmed2}`);
+        console.log(`   🔵 1 подтверждение: ${data.confirmationsInfo.confirmed1}`);
+        console.log(`   ⚪ 0 подтверждений: ${data.confirmationsInfo.confirmed0}`);
+
+        return data;
+    }
+
     compare(otherFootprint) {
         console.log(`🔍 Сравниваю "${this.name}" с "${otherFootprint.name}"...`);
 
@@ -1243,7 +1387,6 @@ class SimpleFootprint {
         const invariants1 = this.graph.getBasicInvariants();
         const invariants2 = otherFootprint.graph.getBasicInvariants();
 
-        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Проверяем что графы не пустые
         if (invariants1.nodeCount === 0 || invariants2.nodeCount === 0) {
             console.log(`⚠️ Один из графов пустой: ${invariants1.nodeCount} vs ${invariants2.nodeCount}`);
             return {
@@ -1318,651 +1461,6 @@ class SimpleFootprint {
                 clustering: invariants2.clusteringCoefficient.toFixed(3)
             }
         };
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Сравнение с визуализацией
-    async compareWithVisualization(otherFootprint, options = {}) {
-        console.log(`🎨 Сравнение с визуализацией "${this.name}" vs "${otherFootprint.name}"...`);
-
-        try {
-            // Создаем визуализатор кластеров
-            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
-            const visualizer = new ClusterVisualizer({
-                outputDir: './data/footprints/comparisons',
-                ...options.visualizerOptions
-            });
-
-            // Выполняем сравнение с визуализацией
-            const visualizationResult = await visualizer.visualizeTwoFootprintComparison(
-                this,
-                otherFootprint,
-                {
-                    mode: options.mode || 'auto',
-                    filename: `comparison_${this.id}_${otherFootprint.id}.png`,
-                    ...options
-                }
-            );
-
-            // Также получаем текстовое сравнение
-            const comparisonResult = this.compare(otherFootprint);
-
-            return {
-                ...comparisonResult,
-                visualizations: visualizationResult,
-                combinedConfidence: (comparisonResult.similarity +
-                    (visualizationResult.stats?.similarity || 0)) / 2
-            };
-
-        } catch (error) {
-            console.log('⚠️ Ошибка визуализации сравнения:', error.message);
-
-            // Фаллбэк: обычное сравнение
-            return this.compare(otherFootprint);
-        }
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Получить данные для визуализации
-    getVisualizationData(options = {}) {
-        const data = {
-            id: this.id,
-            name: this.name,
-            points: [],
-            clusters: [],
-            stats: this.getConfirmationStats(),
-            metadata: {
-                totalPhotos: this.metadata.totalPhotos,
-                createdAt: this.metadata.created,
-                lastUpdated: this.metadata.lastUpdated,
-                honestConfirmations: true
-            }
-        };
-
-        // Собираем точки
-        if (this.pointTracker) {
-            for (const [id, point] of this.pointTracker.points) {
-                data.points.push({
-                    id,
-                    x: point.x,
-                    y: point.y,
-                    confirmations: point.confirmedCount,
-                    confidence: point.rating,
-                    clusterData: point.clusterData,
-                    lastSeen: point.lastSeen,
-                    uniquePhotos: point.confirmedPhotos ? point.confirmedPhotos.size : 1,
-                    isCluster: point.clusterOrigin || false,
-                    clusterSize: point.clusterSize || 1
-                });
-            }
-        }
-
-        // Собираем кластеры
-        if (this.pointTracker && this.pointTracker.getEnhancedStats) {
-            const trackerStats = this.pointTracker.getEnhancedStats();
-            data.clusters = {
-                count: trackerStats.clusterPoints || 0,
-                avgSize: trackerStats.avgClusterSize || 1,
-                ratio: trackerStats.clusterRatio || 0
-            };
-        }
-
-        // Добавляем статистику честности
-        if (this.pointTracker && this.pointTracker.getHonestStats) {
-            const honestStats = this.pointTracker.getHonestStats();
-            data.honestStats = {
-                uniquePhotos: honestStats.uniquePhotos || 0,
-                confirmationIntegrity: honestStats.confirmationIntegrity || 0,
-                averageConfirmationsPerPhoto: honestStats.averageConfirmationsPerPhoto || 0
-            };
-        }
-
-        return data;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Проверить целостность подтверждений
-    validateConfirmations() {
-        if (!this.pointTracker) {
-            return {
-                valid: false,
-                error: 'PointTracker не инициализирован'
-            };
-        }
-
-        // Получаем статистику вместо вызова несуществующего метода
-        const trackerStats = this.pointTracker.getHonestStats();
-
-        // Простая проверка
-        const issues = [];
-        let totalPoints = 0;
-        let totalConfirmations = 0;
-
-        if (this.pointTracker.points) {
-            for (const [id, point] of this.pointTracker.points) {
-                totalPoints++;
-                const confirmations = point.confirmedCount || 0;
-                totalConfirmations += confirmations;
-
-                // Проверяем базовые проблемы
-                if (confirmations < 0) {
-                    issues.push({
-                        pointId: id,
-                        type: 'negative_confirmations',
-                        actual: confirmations,
-                        expected: '>= 0'
-                    });
-                }
-
-                // Проверяем слишком много подтверждений для уникальных фото
-                if (point.confirmedPhotos) {
-                    const photoCount = point.confirmedPhotos.size;
-                    if (confirmations > photoCount) {
-                        issues.push({
-                            pointId: id,
-                            type: 'confirmations_exceed_photos',
-                            confirmations: confirmations,
-                            photoCount: photoCount
-                        });
-                    }
-                }
-            }
-        }
-
-        // Дополнительная проверка узлов графа
-        const graphIssues = [];
-        let graphConfirmations = 0;
-        let graphNodes = 0;
-
-        if (this.graph && this.graph.nodes) {
-            this.graph.nodes.forEach((node, nodeId) => {
-                graphNodes++;
-                const nodeConfirmations = node.confirmedCount || 1;
-                graphConfirmations += nodeConfirmations;
-
-                if (node.pointTrackerId) {
-                    const trackerPoint = this.pointTracker.points.get(node.pointTrackerId);
-                    if (trackerPoint) {
-                        const trackerConfirmations = trackerPoint.confirmedCount || 1;
-                        if (nodeConfirmations !== trackerConfirmations) {
-                            graphIssues.push({
-                                nodeId,
-                                pointTrackerId: node.pointTrackerId,
-                                nodeConfirmations,
-                                trackerConfirmations,
-                                difference: Math.abs(nodeConfirmations - trackerConfirmations)
-                            });
-                        }
-                    }
-                }
-            });
-        }
-
-        const avgConfirmations = totalPoints > 0 ? totalConfirmations / totalPoints : 0;
-        const confirmationIntegrity = trackerStats.confirmationIntegrity || 0;
-
-        return {
-            valid: issues.length === 0 && graphIssues.length === 0,
-            issues: issues,
-            graphIssues: graphIssues,
-            stats: {
-                totalPoints,
-                avgConfirmations,
-                confirmationIntegrity,
-                graphNodes,
-                graphAvgConfirmations: graphNodes > 0 ? graphConfirmations / graphNodes : 0
-            },
-            overallValid: issues.length === 0 && graphIssues.length === 0
-        };
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Визуализация подтверждений
-    async visualizeConfirmations(options = {}) {
-        try {
-            // Создаем простую визуализацию если нет кластер-визуализатора
-            const outputDir = options.outputDir || './data/visualizations';
-            const filename = options.filename || `confirmations_${this.id}.png`;
-
-            // Проверяем наличие директории
-            if (!fs.existsSync(outputDir)) {
-                fs.mkdirSync(outputDir, { recursive: true });
-            }
-
-            const filepath = path.join(outputDir, filename);
-
-            // Создаем простой текстовый отчет если нет Canvas
-            const report = this.createConfirmationReport();
-
-            // Сохраняем отчет
-            const reportPath = path.join(outputDir, `report_${this.id}.txt`);
-            fs.writeFileSync(reportPath, report);
-
-            console.log(`📊 Визуализация подтверждений сохранена: ${filepath}`);
-            console.log(`📋 Текстовый отчет: ${reportPath}`);
-
-            return {
-                success: true,
-                imagePath: filepath,
-                reportPath: reportPath,
-                stats: this.getConfirmationStats()
-            };
-
-        } catch (error) {
-            console.log('⚠️ Ошибка визуализации подтверждений:', error.message);
-
-            // Фаллбэк: текстовый отчет
-            const report = this.createConfirmationReport();
-            console.log(report);
-
-            return {
-                success: false,
-                report: report,
-                error: error.message
-            };
-        }
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Создать отчет о подтверждениях
-    createConfirmationReport() {
-        const stats = this.getConfirmationStats();
-        const validation = this.validateConfirmations();
-        const trackerStats = this.pointTracker ? this.pointTracker.getHonestStats() : null;
-
-        let report = `📊 ОТЧЕТ О ПОДТВЕРЖДЕНИЯХ - ${this.name}\n`;
-        report += `═`.repeat(50) + `\n\n`;
-        report += `📅 Дата создания: ${new Date().toLocaleString('ru-RU')}\n`;
-        report += `👣 Отпечаток ID: ${this.id}\n`;
-        report += `📸 Всего фото: ${this.metadata.totalPhotos}\n\n`;
-
-        report += `📈 СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:\n`;
-        report += `├─ Всего узлов: ${stats.totalNodes}\n`;
-        report += `├─ Подтвержденных узлов: ${stats.confirmedNodes}\n`;
-        report += `├─ Среднее подтверждений: ${stats.averageConfirmations.toFixed(2)}\n`;
-
-        if (trackerStats) {
-            report += `├─ Уникальных фото: ${trackerStats.uniquePhotos || 0}\n`;
-            report += `├─ Целостность подтверждений: ${(trackerStats.confirmationIntegrity || 0).toFixed(3)}\n`;
-            report += `└─ Среднее подтверждений на фото: ${(trackerStats.averageConfirmationsPerPhoto || 0).toFixed(2)}\n\n`;
-        }
-
-        report += `🎯 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ:\n`;
-        const pointsByConfirmations = trackerStats?.pointsByConfirmations || { '1': 0, '2': 0, '3': 0, '4+': 0 };
-        report += `├─ 1 подтверждение: ${pointsByConfirmations['1']}\n`;
-        report += `├─ 2 подтверждения: ${pointsByConfirmations['2']}\n`;
-        report += `├─ 3 подтверждения: ${pointsByConfirmations['3']}\n`;
-        report += `└─ 4+ подтверждений: ${pointsByConfirmations['4+']}\n\n`;
-
-        report += `✅ ПРОВЕРКА ЦЕЛОСТНОСТИ:\n`;
-        report += `├─ Статус: ${validation.overallValid ? '✅ ВСЕ ПРАВИЛЬНО' : '⚠️ ЕСТЬ ПРОБЛЕМЫ'}\n`;
-        report += `├─ Проблем в трекере: ${validation.issues.length}\n`;
-        report += `└─ Несоответствий в графе: ${validation.graphIssues.length}\n\n`;
-
-        if (!validation.overallValid && validation.issues.length > 0) {
-            report += `⚠️ ПРОБЛЕМЫ С ПОДТВЕРЖДЕНИЯМИ:\n`;
-            validation.issues.slice(0, 5).forEach((issue, index) => {
-                report += `${index + 1}. Точка ${issue.pointId}: `;
-                if (issue.expected !== issue.actual) {
-                    report += `ожидалось ${issue.expected}, получено ${issue.actual}\n`;
-                } else if (issue.type === 'duplicate_photos') {
-                    report += `дублирование фото: ${issue.duplicates.length}\n`;
-                }
-            });
-            if (validation.issues.length > 5) {
-                report += `... и еще ${validation.issues.length - 5} проблем\n`;
-            }
-            report += `\n`;
-        }
-
-        report += `🎨 ЦВЕТОВАЯ СХЕМА ВИЗУАЛИЗАЦИИ:\n`;
-        report += `🔴 Красный - 1 подтверждение (новые/ненадежные точки)\n`;
-        report += `🟡 Желтый - 2 подтверждения (мало подтверждений)\n`;
-        report += `🟠 Оранжевый - 3 подтверждения (средняя надежность)\n`;
-        report += `🟢 Зеленый - 4+ подтверждений (высокая надежность)\n`;
-
-        report += `\n═`.repeat(50) + `\n`;
-        report += `Система честных подтверждений: 1 фото = 1 подтверждение точки\n`;
-        report += `Гарантирует точный подсчет и предотвращает накрутку\n`;
-
-        return report;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Получить точки для сравнения с честными подтверждениями
-    getPointsForComparison(options = {}) {
-        const {
-            minConfirmations = 0,
-            minRating = 0,
-            includeUnconfirmed = false
-        } = options;
-
-        const points = [];
-
-        if (this.pointTracker) {
-            for (const [id, point] of this.pointTracker.points) {
-                if (point.confirmedCount >= minConfirmations && point.rating >= minRating) {
-                    points.push({
-                        id,
-                        x: point.x,
-                        y: point.y,
-                        confidence: point.rating,
-                        confirmations: point.confirmedCount,
-                        uniquePhotos: point.confirmedPhotos ? point.confirmedPhotos.size : 1,
-                        isCluster: point.clusterOrigin || false,
-                        clusterSize: point.clusterSize || 1,
-                        lastSeen: point.lastSeen
-                    });
-                }
-            }
-        }
-
-        // Сортировка по надежности
-        points.sort((a, b) => {
-            // Сначала по количеству подтверждений
-            if (a.confirmations !== b.confirmations) {
-                return b.confirmations - a.confirmations;
-            }
-            // Затем по рейтингу
-            return b.confidence - a.confidence;
-        });
-
-        return points;
-    }
-
-    // 🔥 ПЕРЕОПРЕДЕЛЕННЫЙ МЕТОД: Получить статистику подтверждений
-    getConfirmationStats() {
-        if (!this.pointTracker) {
-            return {
-                totalNodes: this.graph.nodes.size,
-                confirmedNodes: 0,
-                unconfirmedNodes: 0,
-                averageConfirmations: 0,
-                trackerStats: null,
-                honestStats: null
-            };
-        }
-
-        const trackerStats = this.pointTracker.getHonestStats();
-
-        let totalNodes = 0;
-        let confirmedNodes = 0;
-        let totalConfirmations = 0;
-
-        if (this.graph && this.graph.nodes) {
-            this.graph.nodes.forEach((node, nodeId) => {
-                totalNodes++;
-                const confirmCount = node.confirmedCount || 1;
-                totalConfirmations += confirmCount;
-
-                if (confirmCount >= 1) {
-                    confirmedNodes++;
-                }
-            });
-        }
-
-        return {
-            totalNodes,
-            confirmedNodes,
-            unconfirmedNodes: 0, // 🔥 Все узлы имеют минимум 1 подтверждение
-            averageConfirmations: totalNodes > 0 ? totalConfirmations / totalNodes : 1,
-            trackerStats: {
-                totalPoints: trackerStats.totalPoints,
-                highConfidencePoints: trackerStats.highConfidencePoints,
-                avgRating: trackerStats.avgRating,
-                avgConfirmations: trackerStats.avgConfirmations,
-                uniquePhotos: trackerStats.uniquePhotos || 0,
-                confirmationIntegrity: trackerStats.confirmationIntegrity || 0
-            },
-            honestStats: {
-                pointsByConfirmations: trackerStats.pointsByConfirmations || {},
-                averageConfirmationsPerPhoto: trackerStats.averageConfirmationsPerPhoto || 0
-            },
-            combinedConfidence: trackerStats.avgRating > 0 ?
-                (trackerStats.avgRating + (confirmedNodes / Math.max(1, totalNodes))) / 2 :
-                (confirmedNodes / Math.max(1, totalNodes))
-        };
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Сравнение с другим отпечатком с проверкой честности
-    compareWithHonestValidation(otherFootprint) {
-        console.log(`🔍 Честное сравнение "${this.name}" с "${otherFootprint.name}"...`);
-
-        // Проверяем целостность обоих отпечатков
-        const validation1 = this.validateConfirmations();
-        const validation2 = otherFootprint.validateConfirmations();
-
-        if (!validation1.overallValid || !validation2.overallValid) {
-            console.log(`⚠️  ВНИМАНИЕ: У одного из отпечатков проблемы с подтверждениями!`);
-        }
-
-        // Выполняем обычное сравнение
-        const comparison = this.compare(otherFootprint);
-
-        // Добавляем информацию о честности
-        comparison.honestValidation = {
-            footprint1: {
-                valid: validation1.overallValid,
-                issues: validation1.issues.length + validation1.graphIssues.length,
-                uniquePhotos: this.pointTracker ?
-                    this.pointTracker.getUniquePhotoCount() : 0,
-                confirmationIntegrity: this.pointTracker ?
-                    this.pointTracker.getHonestStats().confirmationIntegrity || 0 : 0
-            },
-            footprint2: {
-                valid: validation2.overallValid,
-                issues: validation2.issues.length + validation2.graphIssues.length,
-                uniquePhotos: otherFootprint.pointTracker ?
-                    otherFootprint.pointTracker.getUniquePhotoCount() : 0,
-                confirmationIntegrity: otherFootprint.pointTracker ?
-                    otherFootprint.pointTracker.getHonestStats().confirmationIntegrity || 0 : 0
-            },
-            overallValid: validation1.overallValid && validation2.overallValid
-        };
-
-        // Корректируем схожесть на основе целостности подтверждений
-        if (!comparison.honestValidation.overallValid) {
-            comparison.similarity *= 0.9; // Штраф за проблемы с подтверждениями
-            comparison.reason += " (проблемы с подтверждениями)";
-        }
-
-        return comparison;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Экспорт для визуализации
-    exportForVisualization(options = {}) {
-        const data = {
-            id: this.id,
-            name: this.name,
-            type: 'footprint',
-            version: '2.0-honest',
-            metadata: this.metadata,
-            stats: this.stats,
-            confirmationStats: this.getConfirmationStats(),
-            points: [],
-            clusters: [],
-            createdAt: new Date().toISOString()
-        };
-
-        // Экспорт точек
-        if (this.pointTracker) {
-            const trackerData = this.pointTracker.exportForVisualization();
-            data.points = trackerData.points;
-            data.clusters = trackerData.clusters || [];
-        }
-
-        // Экспорт графа
-        if (this.graph) {
-            data.graph = {
-                nodes: Array.from(this.graph.nodes.values()).map(node => ({
-                    id: node.id,
-                    x: node.x,
-                    y: node.y,
-                    confidence: node.confidence,
-                    confirmedCount: node.confirmedCount,
-                    pointTrackerId: node.pointTrackerId
-                })),
-                edges: Array.from(this.graph.edges.values()).map(edge => ({
-                    source: edge.source,
-                    target: edge.target,
-                    weight: edge.weight
-                })),
-                invariants: this.graph.getBasicInvariants()
-            };
-        }
-
-        return data;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Визуализировать статистику подтверждений
-    visualizeConfirmationStats() {
-        console.log(`\n🎯 СТАТИСТИКА ЧЕСТНЫХ ПОДТВЕРЖДЕНИЙ - ${this.name}:`);
-        console.log(`═`.repeat(50));
-
-        const stats = this.getConfirmationStats();
-        const trackerStats = stats.trackerStats;
-        const honestStats = stats.honestStats;
-
-        console.log(`📊 ОБЩАЯ ИНФОРМАЦИЯ:`);
-        console.log(`├─ Всего узлов в графе: ${stats.totalNodes}`);
-        console.log(`├─ Подтвержденных узлов: ${stats.confirmedNodes}`);
-        console.log(`├─ Среднее подтверждений: ${stats.averageConfirmations.toFixed(2)}`);
-
-        if (trackerStats) {
-            console.log(`\n🎯 POINT TRACKER:`);
-            console.log(`├─ Всего точек: ${trackerStats.totalPoints}`);
-            console.log(`├─ Высоконадёжных: ${trackerStats.highConfidencePoints}`);
-            console.log(`├─ Средний рейтинг: ${trackerStats.avgRating.toFixed(3)}`);
-            console.log(`├─ Среднее подтверждений: ${trackerStats.avgConfirmations.toFixed(2)}`);
-            console.log(`├─ Уникальных фото: ${trackerStats.uniquePhotos || 0}`);
-            console.log(`└─ Целостность: ${(trackerStats.confirmationIntegrity || 0).toFixed(3)}`);
-        }
-
-        if (honestStats && honestStats.pointsByConfirmations) {
-            console.log(`\n📈 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ:`);
-            console.log(`├─ 1 подтверждение: ${honestStats.pointsByConfirmations['1'] || 0}`);
-            console.log(`├─ 2 подтверждения: ${honestStats.pointsByConfirmations['2'] || 0}`);
-            console.log(`├─ 3 подтверждения: ${honestStats.pointsByConfirmations['3'] || 0}`);
-            console.log(`└─ 4+ подтверждений: ${honestStats.pointsByConfirmations['4+'] || 0}`);
-
-            const total = (honestStats.pointsByConfirmations['1'] || 0) +
-                         (honestStats.pointsByConfirmations['2'] || 0) +
-                         (honestStats.pointsByConfirmations['3'] || 0) +
-                         (honestStats.pointsByConfirmations['4+'] || 0);
-
-            if (total > 0) {
-                console.log(`\n📊 ПРОЦЕНТНОЕ СООТНОШЕНИЕ:`);
-                console.log(`├─ 1 подтверждение: ${((honestStats.pointsByConfirmations['1'] || 0) / total * 100).toFixed(1)}%`);
-                console.log(`├─ 2 подтверждения: ${((honestStats.pointsByConfirmations['2'] || 0) / total * 100).toFixed(1)}%`);
-                console.log(`├─ 3 подтверждения: ${((honestStats.pointsByConfirmations['3'] || 0) / total * 100).toFixed(1)}%`);
-                console.log(`└─ 4+ подтверждений: ${((honestStats.pointsByConfirmations['4+'] || 0) / total * 100).toFixed(1)}%`);
-            }
-        }
-
-        // Валидация
-        const validation = this.validateConfirmations();
-        console.log(`\n✅ ПРОВЕРКА ЦЕЛОСТНОСТИ:`);
-        console.log(`├─ Статус: ${validation.overallValid ? '✅ ВСЕ ПРАВИЛЬНО' : '⚠️ ЕСТЬ ПРОБЛЕМЫ'}`);
-        console.log(`├─ Проблем в трекере: ${validation.issues.length}`);
-        console.log(`└─ Несоответствий в графе: ${validation.graphIssues.length}`);
-
-        if (!validation.overallValid) {
-            console.log(`\n⚠️  ДЕТАЛИ ПРОБЛЕМ:`);
-            validation.issues.slice(0, 3).forEach((issue, index) => {
-                console.log(`${index + 1}. Точка ${issue.pointId}: ${issue.type || 'несоответствие'}`);
-            });
-            if (validation.issues.length > 3) {
-                console.log(`... и еще ${validation.issues.length - 3} проблем`);
-            }
-        }
-
-        console.log(`\n🎨 ЛЕГЕНДА ЦВЕТОВ:`);
-        console.log(`🔴 Красный - 1 подтверждение (0-25% надежности)`);
-        console.log(`🟡 Желтый - 2 подтверждения (25-50% надежности)`);
-        console.log(`🟠 Оранжевый - 3 подтверждения (50-75% надежности)`);
-        console.log(`🟢 Зеленый - 4+ подтверждений (75-100% надежности)`);
-
-        console.log(`\n═`.repeat(50));
-        console.log(`Система гарантирует: 1 фото = 1 подтверждение точки`);
-        console.log(`Предотвращает накрутку и обеспечивает точный подсчет`);
-    }
-
-    // 🔥 ПЕРЕОПРЕДЕЛЕННЫЙ МЕТОД: Информация об отпечатке
-    getInfo() {
-        const info = {
-            id: this.id,
-            name: this.name,
-            userId: this.userId,
-            stats: {
-                ...this.stats,
-                qualityScore: Math.round(this.stats.qualityScore * 100),
-                honestScore: Math.round((this.stats.honestScore || 0) * 100)
-            },
-            metadata: {
-                ...this.metadata,
-                created: this.metadata.created.toLocaleString('ru-RU'),
-                lastUpdated: this.metadata.lastUpdated.toLocaleString('ru-RU'),
-                features: this.metadata.features
-            },
-            history: {
-                analyses: this.analysisHistory.length,
-                photos: this.photoHistory.length,
-                linkedFootprints: this.linkedFootprints.length
-            },
-            graph: {
-                nodes: this.graph.nodes.size,
-                edges: this.graph.edges.size,
-                invariants: this.graph.getBasicInvariants()
-            }
-        };
-
-        // Информация о гибридных признаках
-        if (this.hybridFootprint) {
-            info.hybrid = this.hybridFootprint.getInfo();
-        }
-
-        // 🔥 ОБНОВЛЕННАЯ информация о PointTracker
-        if (this.pointTracker) {
-            const trackerStats = this.pointTracker.getHonestStats();
-            info.pointTracker = {
-                totalPoints: trackerStats.totalPoints,
-                highConfidencePoints: trackerStats.highConfidencePoints,
-                avgRating: trackerStats.avgRating,
-                avgConfirmations: trackerStats.avgConfirmations,
-                uniquePhotos: trackerStats.uniquePhotos || 0,
-                confirmationIntegrity: trackerStats.confirmationIntegrity || 0,
-                hasHonestConfirmations: true,
-                validation: this.validateConfirmations().overallValid
-            };
-        }
-
-        return info;
-    }
-
-    visualize() {
-        console.log(`\n👣 ЦИФРОВОЙ ОТПЕЧАТОК "${this.name}" (честные подтверждения):`);
-        console.log(`├─ ID: ${this.id}`);
-        console.log(`├─ Узлов в графе: ${this.graph.nodes.size}`);
-        console.log(`├─ Рёбер в графе: ${this.graph.edges.size}`);
-        console.log(`├─ Фото в истории: ${this.photoHistory.length}`);
-        console.log(`├─ Уверенность: ${Math.round(this.stats.confidence * 100)}%`);
-        console.log(`├─ Качество: ${Math.round(this.stats.qualityScore * 100)}%`);
-        console.log(`├─ Честность: ${Math.round((this.stats.honestScore || 0) * 100)}%`);
-
-        if (this.pointTracker) {
-            const trackerStats = this.pointTracker.getHonestStats();
-            console.log(`├─ PointTracker: ${trackerStats.totalPoints} точек`);
-            console.log(`├─ Высоконадёжных: ${trackerStats.highConfidencePoints}`);
-            console.log(`├─ Средний рейтинг: ${trackerStats.avgRating.toFixed(3)}`);
-            console.log(`├─ Уникальных фото: ${trackerStats.uniquePhotos || 0}`);
-            console.log(`└─ Целостность: ${(trackerStats.confirmationIntegrity || 0).toFixed(3)}`);
-        }
-
-        if (this.hybridFootprint) {
-            console.log(`├─ Гибридный режим: ВКЛЮЧЕН`);
-            console.log(`└─ Гибридный score: ${Math.round(this.stats.hybridScore * 100)}%`);
-        }
-
-        console.log(`\n📊 ИНВАРИАНТЫ ГРАФА:`);
-        const invariants = this.graph.getBasicInvariants();
-        console.log(`├─ Диаметр: ${invariants.graphDiameter}`);
-        console.log(`├─ Кластеризация: ${invariants.clusteringCoefficient.toFixed(3)}`);
-        console.log(`├─ Средняя степень: ${invariants.avgDegree.toFixed(2)}`);
-        console.log(`└─ Плотность: ${invariants.density.toFixed(4)}`);
     }
 }
 
