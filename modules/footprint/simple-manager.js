@@ -148,9 +148,9 @@ class SimpleFootprintManager {
         }
        
         // Заменяем console.log на this.log.info() во всем коде
-        console.log = (...args) => this.log.info(...args);
-        console.error = (...args) => this.log.error(...args);
-        console.warn = (...args) => this.log.warn(...args);
+    //    console.log = (...args) => this.log.info(...args);
+    //    console.error = (...args) => this.log.error(...args);
+    //    console.warn = (...args) => this.log.warn(...args);
        
         console.log(`🚀 SimpleFootprintManager с улучшенным логированием`);
     
