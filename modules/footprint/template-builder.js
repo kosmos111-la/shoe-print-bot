@@ -70,7 +70,19 @@ class TemplateBuilder {
             enableDynamicReference: true,
             referenceUpdateThreshold: 1.15,
             minQualityForReference: 0.4,
+           
+            // 🔥 ДОБАВЛЯЕМ ССЫЛКУ НА COORDINATE MANAGER
+            coordinateManager: options.coordinateManager || null,
+            useCoordinateManager: options.useCoordinateManager !== false,
             ...options
+        };
+
+        // 🔥 НОВЫЙ ФЛАГ: единая система координат
+        this.unifiedCoordinateSystem = {
+            type: 'normalized_template',
+            center: { x: 500, y: 500 },
+            rotationAngle: 0,
+            isMirrored: false
         };
 
         console.log(`🏗️ Создан TemplateBuilder "${this.name}" с ДИНАМИЧЕСКИМ эталоном и полным накоплением`);
@@ -110,7 +122,7 @@ class TemplateBuilder {
 
         const matchRate = matchResults.totalMatches / Math.max(1, normalizedPoints.length);
         console.log(`   Процент совпадений: ${(matchRate * 100).toFixed(1)}%`);
-       
+      
         // 🔥 СИНХРОНИЗАЦИЯ: используем тот же порог, что и в simple-manager.js
         const isSame = matchRate > 0.6; // 60% как в simple-manager.js
 
@@ -143,7 +155,7 @@ class TemplateBuilder {
             metadata
         );
 
-        // 6. 🔥 УТОЧНЯЕМ КООРДИНАТЫ СУЩЕСТВУЮЩИХ ТОЧЕК
+        // 6. 🔥 УТОЧНЯЕМ КООРДИНАТЫ СУЩЕСТВУЮЩИХ ТОЧКИ
         const refinedCells = this.refineTemplatePoints(
             matchResults,
             graphId
@@ -268,8 +280,31 @@ class TemplateBuilder {
         });
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Нормализовать к системе шаблона
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Нормализовать к системе шаблона
     normalizeToTemplateSystem(points, metadata) {
+        console.log(`📐 Нормализую ${points.length} точек к системе шаблона...`);
+       
+        // 🔥 ИСПОЛЬЗУЕМ COORDINATE MANAGER ЕСЛИ ДОСТУПЕН
+        if (this.config.useCoordinateManager && this.config.coordinateManager) {
+            console.log(`✅ Использую CoordinateManager для нормализации`);
+           
+            const result = this.config.coordinateManager.getCoordinates(points, {
+                coordinateSystem: 'template',
+                transformation: {
+                    templateTransform: this.normalizationTransform,
+                    footprintTransform: metadata.transformationInfo
+                },
+                debug: this.config.debug
+            });
+           
+            return result.points.map(p => ({
+                ...p,
+                normalized: true,
+                _normalizedBy: 'coordinate_manager'
+            }));
+        }
+       
+        // 🔥 ФАЛЛБЭК: старая логика
         if (!this.normalizationTransform) {
             console.log(`⚠️ Нет трансформации шаблона, использую прямую нормализацию`);
             return this.normalizePoints(points, {
@@ -278,20 +313,20 @@ class TemplateBuilder {
             });
         }
 
-        // Нормализуем к системе шаблона
         const normalized = points.map(point => {
-            const nx = (point.x - this.normalizationTransform.minX) / this.normalizationTransform.width;
-            const ny = (point.y - this.normalizationTransform.minY) / this.normalizationTransform.height;
+            const nx = (point.x - this.normalizationTransform.minX) / Math.max(1, this.normalizationTransform.width);
+            const ny = (point.y - this.normalizationTransform.minY) / Math.max(1, this.normalizationTransform.height);
 
             return {
                 ...point,
                 nx: nx,
                 ny: ny,
-                normalized: true
+                normalized: true,
+                _normalizedBy: 'fallback'
             };
         });
 
-        console.log(`📐 Нормализовано ${normalized.length} точек к системе шаблона`);
+        console.log(`📐 Нормализовано ${normalized.length} точек к системе шаблона (фаллбэк)`);
         return normalized;
     }
 
