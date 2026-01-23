@@ -1,705 +1,899 @@
 // modules/footprint/vector-super-model.js
-const TemplateBuilder = require('./template-builder');
+const VectorTemplateBuilder = require('./vector-template-builder');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 class VectorSuperModel {
     constructor(options = {}) {
-        this.id = `vsm_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-        this.name = options.name || 'Шаблонная супер-модель';
-
-        // 🔥 СИНХРОНИЗИРУЕМ ПОРОГИ
-        this.config = {
-            matchThreshold: 0.05,
-            decisionThreshold: 0.6,
-            minConfirmationsForHighConfidence: 2,
-            bestGraphMinNodes: options.bestGraphMinNodes || 15,
-            enableTemplateMode: true,
-            enableDynamicReference: true,
-
-            similarityThresholds: {
-                SAME: 0.6,
-                SIMILAR: 0.4,
-                DIFFERENT: 0.0
-            },
-
-            referenceUpdateThreshold: 1.15,
-            minQualityForReference: 0.4,
-            ...options
-        };
-
-        console.log(`🎯 VECTOR-MODEL пороги СИНХРОНИЗИРОВАНЫ: SAME=${this.config.similarityThresholds.SAME}`);
-
-        // 🔥 TEMPLATE BUILDER
-        this.templateBuilder = new TemplateBuilder({
-            name: `Шаблон_${this.name}`,
-            enablePCA: false,
-            cellSize: 25,
-            matchThreshold: 0.05,
-            decisionThreshold: 0.6,
-            ...options
-        });
-
-        // 🔥 Храним ссылки на исходные графы
-        this.sourceGraphs = new Map();
-
-        // 🔥 Лучший след-представитель
-        this.bestGraphId = null;
-        this.bestGraphScore = 0;
-        this.bestGraphMetadata = null;
-
+        this.id = options.id || `super_model_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+        this.name = options.name || 'Супер-модель отпечатка';
+        this.createdAt = new Date();
+        this.lastUpdated = new Date();
+        this.userId = options.userId || null;
+       
+        // Основной строитель шаблонов
+        this.templateBuilder = options.templateBuilder || new VectorTemplateBuilder();
+       
         // Статистика
         this.stats = {
-            totalMerges: 0,
+            totalGraphsProcessed: 0,
             totalGraphsAdded: 0,
-            confidence: 0,
-            createdAt: new Date(),
-            lastUpdated: new Date(),
-            bestGraphUpdates: 0,
-            sourceGraphsCount: 0,
-            templateCells: 0,
-            confirmedCells: 0,
-            avgConfirmations: 0
+            totalMerges: 0,
+            totalRejections: 0,
+            avgSimilarity: 0,
+            templateSize: 0,
+            lastGraphAdded: null,
+            validationPasses: 0,
+            validationFails: 0,
+            // 🔥 ДОБАВЛЕНО: Статистика для единой системы координат
+            unifiedSystemStats: {
+                comparisons: 0,
+                matches: 0,
+                avgDistance: 0,
+                successRate: 0
+            }
         };
-
-        console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}"`);
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Принудительное добавление С ПРАВИЛЬНЫМИ КООРДИНАТАМИ
-    addGraphWithForcedConfidence(graph, graphId, metadata = {}) {
-    console.log(`🎯 [FORCED-ADD] ПРИНУДИТЕЛЬНО добавляю граф ${graphId} с уверенностью ${metadata.similarity}`);
-   
-    if (metadata.similarity && metadata.similarity > 0.9) {
-        console.log(`🔥 SIMPLE-MATCHER УВЕРЕН НА ${(metadata.similarity * 100).toFixed(1)}%`);
        
-        // 1. Сохраняем исходный граф
-        this.saveSourceGraph(graph, graphId, metadata);
+        // История
+        this.history = [];
+        this.validationResults = [];
+        this.rejectionReasons = [];
        
-        // 2. 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Получаем точки В ПРАВИЛЬНОЙ СИСТЕМЕ КООРДИНАТ
-        let pointsForTemplate = [];
+        // Настройки
+        this.settings = {
+            minSimilarityForMerge: options.minSimilarityForMerge || 0.6,
+            maxCells: options.maxCells || 1000,
+            minConfirmationsForCell: options.minConfirmationsForCell || 2,
+            enableAutoValidation: options.enableAutoValidation !== false,
+            debugMode: options.debugMode || false,
+            enableClustering: options.enableClustering !== false,
+            clusterThreshold: options.clusterThreshold || 30,
+            saveInterval: options.saveInterval || 10, // сохранять каждые N операций
+            autoSave: options.autoSave !== false,
+            // 🔥 ДОБАВЛЕНО: Настройки для единой системы координат
+            unifiedSystemThreshold: options.unifiedSystemThreshold || 50, // px
+            minMatchPercentage: options.minMatchPercentage || 60, // %
+            enableUnifiedSystem: options.enableUnifiedSystem !== false,
+            requireUnifiedSystem: options.requireUnifiedSystem || false
+        };
        
-        if (metadata.sourceFootprint && metadata.sourceFootprint.getPointsForTemplateComparison) {
-            // Получаем точки уже в системе шаблона [0,1]
-            pointsForTemplate = metadata.sourceFootprint.getPointsForTemplateComparison();
-            console.log(`📊 Получено ${pointsForTemplate.length} точек в системе шаблона [0,1]`);
-           
-            if (pointsForTemplate.length > 0) {
-                console.log(`   Пример: (${pointsForTemplate[0].nx?.toFixed(3)}, ${pointsForTemplate[0].ny?.toFixed(3)})`);
-            }
-        } else {
-            // 🔥 ВАЖНО: Если нет метода getPointsForTemplateComparison, используем прямой метод
-            console.log(`⚠️ Нет метода getPointsForTemplateComparison, использую извлечение из графа`);
-           
-            // Извлекаем точки из графа
-            const graphPoints = this.templateBuilder.extractPointsFromGraph(graph);
-           
-            if (graphPoints.length > 0) {
-                // 🔥 ПРЕОБРАЗУЕМ К СИСТЕМЕ ШАБЛОНА [0,1]
-                const xs = graphPoints.map(p => p.x);
-                const ys = graphPoints.map(p => p.y);
-               
-                const minX = Math.min(...xs);
-                const maxX = Math.max(...xs);
-                const minY = Math.min(...ys);
-                const maxY = Math.max(...ys);
-               
-                const width = Math.max(1, maxX - minX);
-                const height = Math.max(1, maxY - minY);
-               
-                pointsForTemplate = graphPoints.map((point, index) => ({
-                    ...point,
-                    nx: (point.x - minX) / width,
-                    ny: (point.y - minY) / height,
-                    id: point.id || `forced_${index}`
-                }));
-               
-                console.log(`📊 Преобразовано ${pointsForTemplate.length} точек к [0,1]`);
-            }
-        }
+        // Операционный счетчик
+        this.operationCounter = 0;
        
-        if (pointsForTemplate.length < 3) {
-            console.log(`❌ Недостаточно точек для принудительного добавления: ${pointsForTemplate.length}`);
-            return false;
-        }
-       
-        // 3. 🔥 ПРОВЕРЯЕМ, ЧТО У ВСЕХ ТОЧЕК ЕСТЬ nx/ny
-        const pointsWithoutCoords = pointsForTemplate.filter(p => !p.nx || !p.ny);
-        if (pointsWithoutCoords.length > 0) {
-            console.log(`⚠️ ${pointsWithoutCoords.length} точек без nx/ny координат`);
-           
-            // 🔥 ИСПРАВЛЕНИЕ: Создаем nx/ny из x/y
-            pointsForTemplate = pointsForTemplate.map((point, index) => {
-                if (!point.nx || !point.ny) {
-                    // Используем простую нормализацию
-                    return {
-                        ...point,
-                        nx: (point.x || 0) / 1000, // Предполагаем диапазон 0-1000
-                        ny: (point.y || 0) / 1000,
-                        _autoNormalized: true
-                    };
-                }
-                return point;
-            });
-           
-            console.log(`📊 Автоматически нормализовано ${pointsWithoutCoords.length} точек`);
-        }
-       
-        // Проверяем координаты
-        if (pointsForTemplate.length > 0) {
-            const sample = pointsForTemplate[0];
-            console.log(`📊 Проверка координат:`);
-            console.log(`   Пример: (${sample.nx?.toFixed(3)}, ${sample.ny?.toFixed(3)})`);
-            console.log(`   Диапазон: nx=${Math.min(...pointsForTemplate.map(p => p.nx)).toFixed(3)}-${Math.max(...pointsForTemplate.map(p => p.nx)).toFixed(3)}`);
-            console.log(`            ny=${Math.min(...pointsForTemplate.map(p => p.ny)).toFixed(3)}-${Math.max(...pointsForTemplate.map(p => p.ny)).toFixed(3)}`);
-        }
-       
-        // 4. 🔥 ДОБАВЛЯЕМ К ШАБЛОНУ
-        if (!this.templateBuilder.referenceGraphId) {
-            // Первый граф
-            console.log(`🎯 Устанавливаю как начальный эталон`);
-            this.templateBuilder.setReferenceGraph(graph, graphId, metadata);
-           
-            if (this.templateBuilder.referenceGraphId) {
-                this.bestGraphId = graphId;
-                this.bestGraphScore = this.calculateGraphScore(graph);
-                this.bestGraphMetadata = metadata;
-                console.log(`🏆 Начальный эталон установлен`);
-            }
-        } else {
-            // 🔥 ВАЖНО: Добавляем точки К СУЩЕСТВУЮЩЕМУ ШАБЛОНУ
-            console.log(`🔄 Принудительно добавляю ${pointsForTemplate.length} точек к существующему шаблону...`);
-           
-            let addedCount = 0;
-            let mergedCount = 0;
-           
-            // 🔥 ИСПРАВЛЕНИЕ: Простой алгоритм добавления
-            pointsForTemplate.forEach((point, index) => {
-                // Проверяем координаты
-                if (point.nx === undefined || point.ny === undefined) {
-                    console.log(`⚠️ Пропускаю точку ${index} без координат`);
-                    return;
-                }
-               
-                // Проверяем диапазон координат
-                if (point.nx < 0 || point.nx > 1 || point.ny < 0 || point.ny > 1) {
-                    console.log(`⚠️ Координаты точки ${index} вне диапазона [0,1]: (${point.nx.toFixed(3)}, ${point.ny.toFixed(3)})`);
-                   
-                    // Нормализуем
-                    point.nx = Math.max(0, Math.min(1, point.nx));
-                    point.ny = Math.max(0, Math.min(1, point.ny));
-                    console.log(`   Исправлено на: (${point.nx.toFixed(3)}, ${point.ny.toFixed(3)})`);
-                }
-               
-                // 🔥 ПРОСТОЙ МЕТОД: Создаем новую ячейку
-                const cellId = `forced_${graphId}_${index}_${Date.now()}`;
-               
-                const newCell = {
-                    normalizedCenter: {
-                        nx: point.nx,
-                        ny: point.ny
-                    },
-                    originalCenter: {
-                        x: point.x || (point.nx * 1000), // Для отладки
-                        y: point.y || (point.ny * 1000)
-                    },
-                    radius: 0.03,
-                    points: [point.id || `pt_${index}`],
-                    confirmations: 1,
-                    confidence: metadata.similarity * 0.8, // Учитываем уверенность
-                    sources: new Set([graphId]),
-                    invariants: null,
-                    isForced: true,
-                    forcedBy: 'high_confidence_match',
-                    forcedConfidence: metadata.similarity,
-                    addedAt: new Date(),
-                    _debug: {
-                        originalNx: point.nx,
-                        originalNy: point.ny,
-                        source: 'forced_addition'
-                    }
-                };
-               
-                // 🔥 ИСПРАВЛЕНИЕ: Сохраняем в templateBuilder
-                if (this.templateBuilder && this.templateBuilder.invariantCells) {
-                    this.templateBuilder.invariantCells.set(cellId, newCell);
-                    addedCount++;
-                   
-                    // Также добавляем в templateCells для совместимости
-                    if (this.templateBuilder.templateCells) {
-                        this.templateBuilder.templateCells.set(cellId, {
-                            center: newCell.originalCenter,
-                            radius: 25,
-                            points: newCell.points,
-                            confirmations: 1,
-                            confidence: newCell.confidence,
-                            sources: newCell.sources,
-                            matchedPoints: [],
-                            isForced: true
-                        });
-                    }
-                } else {
-                    console.log(`⚠️ Нет templateBuilder.invariantCells для сохранения`);
-                }
-            });
-           
-            console.log(`✅ Принудительно добавлено: ${addedCount} новых ячеек`);
-           
-            // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ TEMPLATE BUILDER
-            if (this.templateBuilder) {
-                this.templateBuilder.stats.totalGraphs = (this.templateBuilder.stats.totalGraphs || 0) + 1;
-                this.templateBuilder.stats.lastUpdated = new Date();
-               
-                console.log(`📊 Статистика шаблона после добавления:`);
-                console.log(`   Всего ячеек: ${this.templateBuilder.invariantCells?.size || 0}`);
-                console.log(`   Всего графов: ${this.templateBuilder.stats.totalGraphs}`);
-            }
-        }
-       
-        // Обновляем статистику vector-model
-        this.stats.totalGraphsAdded++;
-        this.stats.totalMerges++;
-        this.stats.lastUpdated = new Date();
-        this.updateStats();
-       
-        console.log(`🏁 Принудительное добавление завершено УСПЕШНО`);
-        console.log(`   Всего ячеек в шаблоне: ${this.templateBuilder.invariantCells?.size || 0}`);
-        console.log(`   Уверенность simple-matcher: ${(metadata.similarity * 100).toFixed(1)}%`);
-       
-        return true;
+        console.log(`🎯 Создана VectorSuperModel "${this.name}" (ID: ${this.id})`);
     }
    
-    console.log(`⚠️ Недостаточная уверенность для принудительного добавления: ${metadata.similarity}`);
-    return this.addGraph(graph, graphId, metadata);
-}
+    // 🔥 НОВЫЙ МЕТОД: Сравнить точки в единой системе координат
+    comparePointsInUnifiedSystem(newPoints, templatePoints) {
+        console.log(`🎯 [UNIFIED-COMPARE] Сравниваю точки в ЕДИНОЙ системе координат`);
+        console.log(`   Новых точек: ${newPoints.length}`);
+        console.log(`   Точек в шаблоне: ${templatePoints.length}`);
 
-    // 🔥 ИСПРАВЛЕННЫЙ addGraph - используем принудительное добавление при высокой уверенности
+        if (newPoints.length === 0 || templatePoints.length === 0) {
+            console.log('⚠️ Нет точек для сравнения');
+            return { matches: 0, percentage: 0, avgDistance: 0 };
+        }
+
+        // 🔥 ВАЖНО: Проверяем системы координат
+        const sampleNew = newPoints[0];
+        const sampleTemplate = templatePoints[0];
+
+        console.log(`📊 Пример координат ДО сравнения:`);
+        console.log(`   Новая точка: (${sampleNew.x?.toFixed(1)}, ${sampleNew.y?.toFixed(1)})`);
+        console.log(`   Точка шаблона: (${sampleTemplate.x?.toFixed(1)}, ${sampleTemplate.y?.toFixed(1)})`);
+
+        let matchedCount = 0;
+        let totalDistance = 0;
+        const MATCH_THRESHOLD = this.settings.unifiedSystemThreshold;
+        const matchedPairs = [];
+
+        // Для каждой новой точки ищем ближайшую в шаблоне
+        newPoints.forEach((newPoint, i) => {
+            let minDistance = Infinity;
+            let closestTemplatePoint = null;
+
+            templatePoints.forEach(templatePoint => {
+                // 🔥 СРАВНИВАЕМ В ОДНОЙ СИСТЕМЕ КООРДИНАТ
+                const distance = Math.sqrt(
+                    Math.pow(newPoint.x - templatePoint.x, 2) +
+                    Math.pow(newPoint.y - templatePoint.y, 2)
+                );
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestTemplatePoint = templatePoint;
+                }
+            });
+
+            if (minDistance < MATCH_THRESHOLD) {
+                matchedCount++;
+                totalDistance += minDistance;
+                matchedPairs.push({
+                    newPoint,
+                    templatePoint: closestTemplatePoint,
+                    distance: minDistance
+                });
+
+                // Дебаг для первых совпадений
+                if (matchedCount <= 3 && this.settings.debugMode) {
+                    console.log(`   Совпадение ${matchedCount}: расстояние=${minDistance.toFixed(1)}px`);
+                }
+            }
+        });
+
+        const matchPercentage = (matchedCount / newPoints.length) * 100;
+        const avgDistance = matchedCount > 0 ? totalDistance / matchedCount : 0;
+
+        // Обновляем статистику
+        this.stats.unifiedSystemStats.comparisons++;
+        this.stats.unifiedSystemStats.matches += matchedCount;
+        const oldAvg = this.stats.unifiedSystemStats.avgDistance;
+        const oldComparisons = this.stats.unifiedSystemStats.comparisons - 1;
+       
+        this.stats.unifiedSystemStats.avgDistance =
+            (oldAvg * oldComparisons + avgDistance) / this.stats.unifiedSystemStats.comparisons;
+           
+        this.stats.unifiedSystemStats.successRate =
+            (this.stats.unifiedSystemStats.matches / (this.stats.unifiedSystemStats.comparisons * Math.max(newPoints.length, 1))) * 100;
+
+        console.log(`📊 РЕЗУЛЬТАТ сравнения в ЕДИНОЙ системе:`);
+        console.log(`   Совпадений: ${matchedCount}/${newPoints.length}`);
+        console.log(`   Процент: ${matchPercentage.toFixed(1)}%`);
+        console.log(`   Среднее расстояние: ${avgDistance.toFixed(1)}px`);
+        console.log(`   Порог: <${MATCH_THRESHOLD}px`);
+
+        return {
+            matches: matchedCount,
+            percentage: matchPercentage,
+            avgDistance: avgDistance,
+            threshold: MATCH_THRESHOLD,
+            totalPoints: newPoints.length,
+            matchedPairs: matchedPairs,
+            timestamp: new Date()
+        };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить точки шаблона для сравнения
+    getTemplatePointsForComparison() {
+        const points = [];
+
+        if (!this.templateBuilder || !this.templateBuilder.invariantCells) {
+            return points;
+        }
+
+        // Преобразуем ячейки шаблона в точки для сравнения
+        for (const [cellId, cell] of this.templateBuilder.invariantCells) {
+            // 🔥 ВАЖНО: Преобразуем nx/ny обратно в px для сравнения
+            // Предполагаем, что шаблон в диапазоне 200-800
+            const targetMin = 200;
+            const targetMax = 800;
+
+            const x = targetMin + cell.normalizedCenter.nx * (targetMax - targetMin);
+            const y = targetMin + cell.normalizedCenter.ny * (targetMax - targetMin);
+
+            points.push({
+                id: cellId,
+                x: x,
+                y: y,
+                nx: cell.normalizedCenter.nx,
+                ny: cell.normalizedCenter.ny,
+                confirmations: cell.confirmations || 1,
+                confidence: cell.confidence || 0.5,
+                source: 'template',
+                _fromTemplate: true,
+                _cellInfo: {
+                    confirmations: cell.confirmations,
+                    confidence: cell.confidence,
+                    lastUpdated: cell.lastUpdated,
+                    totalGraphs: cell.totalGraphs || 1
+                }
+            });
+        }
+
+        if (this.settings.debugMode) {
+            console.log(`📊 Получено ${points.length} точек шаблона для сравнения`);
+            if (points.length > 0) {
+                console.log(`   Диапазон X: ${Math.min(...points.map(p => p.x)).toFixed(1)}-${Math.max(...points.map(p => p.x)).toFixed(1)}`);
+                console.log(`   Диапазон Y: ${Math.min(...points.map(p => p.y)).toFixed(1)}-${Math.max(...points.map(p => p.y)).toFixed(1)}`);
+            }
+        }
+
+        return points;
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавить граф с проверкой в единой системе
     addGraph(graph, graphId, metadata = {}) {
-        console.log(`🔄 Добавляю граф ${graphId} к динамической супер-модели...`);
+        console.log(`🔄 Добавляю граф ${graphId}...`);
+        this.operationCounter++;
 
-        // 🔥 ВАЖНО: Если simple-matcher уверен >90% - используем ПРИНУДИТЕЛЬНОЕ ДОБАВЛЕНИЕ
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Если высокая уверенность - принудительное добавление
         if (metadata.similarity && metadata.similarity > 0.9) {
-            console.log(`🎯 ВЫСОКАЯ УВЕРЕННОСТЬ ${metadata.similarity.toFixed(3)} - использую принудительное добавление`);
+            console.log(`🎯 ВЫСОКАЯ УВЕРЕННОСТЬ ${metadata.similarity.toFixed(3)} - принудительное добавление`);
             return this.addGraphWithForcedConfidence(graph, graphId, metadata);
         }
 
-        console.log(`🔍 [VECTOR-MODEL-DIAG] Входные данные:`);
-        console.log(`   Узлов в графе: ${graph?.nodes?.size || 0}`);
-        console.log(`   Сходство из metadata: ${metadata.similarity || 'нет'}`);
-
-        // 🔥 ПРОВЕРЯЕМ ПОРОГИ ИЗ МЕТАДАННЫХ (если есть)
-        if (metadata.similarity !== undefined) {
-            const decisionCheck = this.checkDecisionWithSynchronizedThreshold(metadata.similarity);
+        // 🔥 ПОЛУЧАЕМ ТОЧКИ В ЕДИНОЙ СИСТЕМЕ КООРДИНАТ
+        let newPoints = [];
+        if (metadata.sourceFootprint && metadata.sourceFootprint.getPointsForTemplateMatching) {
+            newPoints = metadata.sourceFootprint.getPointsForTemplateMatching();
+            console.log(`📊 Получено ${newPoints.length} точек в единой системе`);
            
-            // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О РЕШЕНИИ В МЕТАДАННЫЕ
-            metadata.vectorDecision = decisionCheck.decision;
-            metadata.vectorDecisionReason = decisionCheck.reason;
-            metadata.vectorThresholdUsed = decisionCheck.thresholdUsed;
-        }
-
-        // 1. Сохраняем исходный граф
-        this.saveSourceGraph(graph, graphId, metadata);
-
-        // 2. 🔥 ДОБАВЛЯЕМ К TEMPLATE BUILDER
-        let addedToTemplate = false;
-
-        if (this.templateBuilder.referenceGraphId === null) {
-            // Первый граф
-            console.log(`🎯 Устанавливаю граф ${graphId} как начальный эталон`);
-            addedToTemplate = this.templateBuilder.setReferenceGraph(graph, graphId, metadata);
-
-            if (addedToTemplate) {
-                this.bestGraphId = graphId;
-                this.bestGraphScore = this.calculateGraphScore(graph);
-                this.bestGraphMetadata = metadata;
-                console.log(`🏆 Начальный эталон установлен: ${graphId}`);
+            // Дебаг информации о точках
+            if (newPoints.length > 0 && this.settings.debugMode) {
+                console.log(`🔍 Диагностика точек из отпечатка:`);
+                console.log(`   Диапазон X: ${Math.min(...newPoints.map(p => p.x)).toFixed(1)}-${Math.max(...newPoints.map(p => p.x)).toFixed(1)}`);
+                console.log(`   Диапазон Y: ${Math.min(...newPoints.map(p => p.y)).toFixed(1)}-${Math.max(...newPoints.map(p => p.y)).toFixed(1)}`);
+                console.log(`   Имеют nx/ny: ${newPoints.filter(p => p.nx && p.ny).length}/${newPoints.length}`);
             }
         } else {
-            // Последующие графы
-            addedToTemplate = this.templateBuilder.addGraph(graph, graphId, metadata);
-
-            if (addedToTemplate) {
-                // 🔥 ПРОВЕРЯЕМ, НЕ ИЗМЕНИЛСЯ ЛИ ЭТАЛОН
-                const newReferenceId = this.templateBuilder.referenceGraphId;
-
-                if (newReferenceId !== this.bestGraphId) {
-                    // Эталон обновился!
-                    console.log(`🔄 ОБНОВЛЕНИЕ ЭТАЛОНА В СУПЕР-МОДЕЛИ:`);
-                    console.log(`   Старый: ${this.bestGraphId}`);
-                    console.log(`   Новый: ${newReferenceId}`);
-
-                    this.bestGraphId = newReferenceId;
-                    this.bestGraphScore = this.templateBuilder.referenceGraphQuality;
-
-                    // Обновляем метаданные
-                    const sourceGraph = this.sourceGraphs.get(newReferenceId);
-                    if (sourceGraph) {
-                        this.bestGraphMetadata = sourceGraph.metadata;
-                    }
-
-                    this.stats.bestGraphUpdates++;
-                    console.log(`🏆 ЭТАЛОН ОБНОВЛЁН: ${newReferenceId} (оценка: ${this.bestGraphScore.toFixed(3)})`);
-                }
-            }
+            newPoints = this.templateBuilder.extractPointsFromGraph(graph);
+            console.log(`📊 Извлечено ${newPoints.length} точек из графа`);
         }
 
-        if (!addedToTemplate) {
-            console.log(`⚠️ Граф ${graphId} не добавлен к шаблону`);
-           
-            // 🔥 ЕСЛИ SIMPLE-MATCHER УВЕРЕН - ПРЕДЛАГАЕМ ПРИНУДИТЕЛЬНОЕ ДОБАВЛЕНИЕ
-            if (metadata.similarity && metadata.similarity > 0.7) {
-                console.log(`💡 РЕКОМЕНДАЦИЯ: simple-matcher уверен на ${(metadata.similarity * 100).toFixed(1)}%`);
-                console.log(`   Используйте addGraphWithForcedConfidence для принудительного добавления`);
-            }
-           
+        if (newPoints.length < 3) {
+            console.log(`⚠️ Недостаточно точек: ${newPoints.length}`);
+            this.stats.totalRejections++;
+            this.rejectionReasons.push({
+                graphId,
+                reason: 'Недостаточно точек',
+                count: newPoints.length,
+                timestamp: new Date()
+            });
             return false;
         }
 
-        // 3. Обновить статистику
-        this.stats.totalMerges++;
-        this.stats.totalGraphsAdded++;
-        this.stats.lastUpdated = new Date();
-        this.updateStats();
+        // 🔥 СРАВНИВАЕМ С ШАБЛОНОМ В ЕДИНОЙ СИСТЕМЕ
+        const templatePoints = this.getTemplatePointsForComparison();
 
-        // 4. Получить информацию о шаблоне
-        const templateInfo = this.templateBuilder.getInfo();
-
-        console.log(`✅ Граф добавлен. Динамическая статистика:`);
-        console.log(`   Ячеек шаблона: ${templateInfo.templateCells}`);
-        console.log(`   Подтвержденных ячеек: ${templateInfo.stats.confirmedCells}`);
-        console.log(`   Лучший граф: ${this.bestGraphId} (${this.bestGraphScore.toFixed(3)})`);
-        console.log(`   Всего графов: ${this.stats.sourceGraphsCount}`);
-        console.log(`   СИНХРОНИЗИРОВАННЫЕ ПОРОГИ: SAME=${this.config.similarityThresholds.SAME}`);
-
-        return true;
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Проверка решения с синхронизированным порогом
-    checkDecisionWithSynchronizedThreshold(similarity) {
-        console.log(`🎯 [VECTOR-MODEL] Проверка решения с синхронизированным порогом:`);
-        console.log(`   Сходство: ${similarity.toFixed(3)}`);
-        console.log(`   Порог "SAME": ${this.config.similarityThresholds.SAME}`);
-        console.log(`   Порог "SIMILAR": ${this.config.similarityThresholds.SIMILAR}`);
-
-        let decision, reason;
-
-        if (similarity >= this.config.similarityThresholds.SAME) {
-            decision = 'same';
-            reason = `Сходство ${(similarity * 100).toFixed(1)}% ≥ порог ${(this.config.similarityThresholds.SAME * 100).toFixed(1)}%`;
-        } else if (similarity >= this.config.similarityThresholds.SIMILAR) {
-            decision = 'similar';
-            reason = `Сходство ${(similarity * 100).toFixed(1)}% ≥ порог ${(this.config.similarityThresholds.SIMILAR * 100).toFixed(1)}%`;
-        } else {
-            decision = 'different';
-            reason = `Сходство ${(similarity * 100).toFixed(1)}% < порог ${(this.config.similarityThresholds.SIMILAR * 100).toFixed(1)}%`;
-        }
-
-        console.log(`   Решение: ${decision} (${reason})`);
-
-        return {
-            decision,
-            reason,
-            similarity,
-            thresholdUsed: this.config.similarityThresholds.SAME,
-            isSynchronized: true
-        };
-    }
-
-    // 🔥 СОХРАНИТЬ ИСХОДНЫЙ ГРАФ
-    saveSourceGraph(graph, graphId, metadata) {
-        const nodeCount = graph.nodes ? graph.nodes.size : 0;
-
-        this.sourceGraphs.set(graphId, {
-            graphId: graphId,
-            nodeCount: nodeCount,
-            edgeCount: graph.edges ? graph.edges.size : 0,
-            metadata: metadata,
-            addedAt: new Date(),
-            invariants: graph.getBasicInvariants ? graph.getBasicInvariants() : null,
-            graph: nodeCount <= 100 ? graph : null,
-            graphData: nodeCount > 100 ? this.extractGraphData(graph) : null
-        });
-
-        this.stats.sourceGraphsCount = this.sourceGraphs.size;
-        console.log(`💾 Сохранен исходный граф ${graphId} с ${nodeCount} узлами`);
-    }
-
-    // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
-    updateStats() {
-        const templateInfo = this.templateBuilder.getInfo();
-        const visualizationData = this.templateBuilder.getVisualizationData();
-
-        if (!visualizationData || visualizationData.cells.length === 0) {
-            this.stats.confidence = 0;
-            return;
-        }
-
-        const cells = visualizationData.cells;
-        const stats = visualizationData.stats;
-
-        this.stats.templateCells = cells.length;
-        this.stats.confirmedCells = stats.confirmedCells || 0;
-        this.stats.totalConfirmations = stats.totalConfirmations || 0;
-        this.stats.averageConfirmations = stats.averageConfirmations || 0;
-
-        const confirmedRatio = this.stats.confirmedCells / Math.max(1, this.stats.templateCells);
-        const avgConfirmations = this.stats.averageConfirmations;
-
-        this.stats.confidence = Math.min(1.0,
-            confirmedRatio * 0.5 +
-            Math.min(0.3, avgConfirmations * 0.15) +
-            (this.bestGraphScore * 0.2)
-        );
-    }
-
-    // 🔥 ПОЛУЧИТЬ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ
-    getVisualizationData() {
-        const templateData = this.templateBuilder.getVisualizationData();
-
-        return {
-            ...templateData,
-            metadata: {
-                id: this.id,
-                name: this.name,
-                merges: this.stats.totalMerges,
-                createdAt: this.stats.createdAt,
-                visualizationMethod: 'template_based',
-                bestGraphId: this.bestGraphId,
-                bestGraphScore: this.bestGraphScore,
-                sourceGraphsCount: this.stats.sourceGraphsCount,
-                dynamicReferenceEnabled: this.config.enableDynamicReference,
-                bestGraphUpdates: this.stats.bestGraphUpdates,
-                thresholds: {
-                    same: this.config.similarityThresholds.SAME,
-                    similar: this.config.similarityThresholds.SIMILAR,
-                    match: this.config.matchThreshold,
-                    synchronized: true
+        if (templatePoints.length === 0) {
+            // Первый граф - устанавливаем как эталон
+            console.log(`🎯 Первый граф, устанавливаю как эталон`);
+            const result = this.templateBuilder.setReferenceGraph(graph, graphId, metadata);
+           
+            if (result) {
+                this.stats.totalGraphsAdded++;
+                this.stats.lastGraphAdded = {
+                    graphId,
+                    timestamp: new Date(),
+                    pointsCount: newPoints.length,
+                    isReference: true
+                };
+               
+                this.updateStats();
+               
+                // Записываем в историю
+                this.history.push({
+                    timestamp: new Date(),
+                    graphId,
+                    action: 'set_reference',
+                    pointsCount: newPoints.length,
+                    metadata,
+                    unifiedSystem: { isFirst: true }
+                });
+               
+                // Авто-сохранение
+                if (this.settings.autoSave && this.operationCounter % this.settings.saveInterval === 0) {
+                    this.autoSave();
                 }
             }
-        };
-    }
-
-    // 🔥 РАСЧЁТ ОЦЕНКИ ГРАФА
-    calculateGraphScore(graph) {
-        if (!graph || !graph.nodes) return 0;
-
-        const nodeCount = graph.nodes.size;
-        const edgeCount = graph.edges ? graph.edges.size : 0;
-
-        if (nodeCount < this.config.bestGraphMinNodes) {
-            return 0;
+           
+            return result;
         }
 
-        const factors = {
-            nodeCount: Math.min(1, nodeCount / 50),
-            connectivity: Math.min(1, edgeCount / (nodeCount * 1.5)),
-            uniformity: this.calculateNodeUniformity(graph),
-            clusterQuality: this.calculateClusterQuality(graph)
-        };
+        const comparison = this.comparePointsInUnifiedSystem(newPoints, templatePoints);
 
-        const weights = {
-            nodeCount: 0.35,
-            connectivity: 0.25,
-            uniformity: 0.20,
-            clusterQuality: 0.20
-        };
+        // 🔥 ИСПРАВЛЕННЫЙ ПОРОГ: 60% для "same"
+        const MIN_MATCH_PERCENTAGE = this.settings.minMatchPercentage;
 
-        let totalScore = 0;
-        for (const [factor, value] of Object.entries(factors)) {
-            totalScore += value * weights[factor];
-        }
+        console.log(`🎯 Решение о добавлении:`);
+        console.log(`   Совпадений: ${comparison.percentage.toFixed(1)}%`);
+        console.log(`   Среднее расстояние: ${comparison.avgDistance.toFixed(1)}px`);
+        console.log(`   Требуется: >${MIN_MATCH_PERCENTAGE}%`);
 
-        return Math.min(1, totalScore);
-    }
+        if (comparison.percentage >= MIN_MATCH_PERCENTAGE) {
+            console.log(`✅ Достаточно совпадений, добавляю к шаблону`);
 
-    // 🔥 ИНФОРМАЦИЯ
-    getInfo() {
-        const templateStats = this.templateBuilder.getInfo();
-        const bestGraphInfo = this.bestGraphId ? {
-            bestGraphId: this.bestGraphId,
-            bestGraphScore: Math.round(this.bestGraphScore * 1000) / 1000,
-            bestGraphUpdates: this.stats.bestGraphUpdates,
-            bestGraphNodeCount: this.sourceGraphs.get(this.bestGraphId)?.nodeCount || 0
-        } : {};
+            // Добавляем к шаблону
+            const added = this.templateBuilder.addGraph(graph, graphId, {
+                ...metadata,
+                unifiedSystemComparison: comparison
+            });
 
-        return {
-            id: this.id,
-            name: this.name,
-            stats: {
-                ...this.stats,
-                confidence: Math.round(this.stats.confidence * 1000) / 1000,
-                createdAt: this.stats.createdAt.toLocaleString('ru-RU'),
-                lastUpdated: this.stats.lastUpdated.toLocaleString('ru-RU'),
-                ...bestGraphInfo
-            },
-            template: templateStats,
-            config: this.config,
-            hasTemplate: !!this.templateBuilder.referenceGraphId,
-            dynamicReferenceEnabled: this.config.enableDynamicReference,
-            thresholdsSynchronized: {
-                withSimpleManager: true,
-                sameThreshold: this.config.similarityThresholds.SAME,
-                note: 'Пороги синхронизированы с simple-manager.js (0.6 для SAME)'
+            if (added) {
+                this.stats.totalGraphsAdded++;
+                this.stats.totalMerges++;
+                this.stats.lastGraphAdded = {
+                    graphId,
+                    timestamp: new Date(),
+                    pointsCount: newPoints.length,
+                    matchPercentage: comparison.percentage,
+                    avgDistance: comparison.avgDistance
+                };
+               
+                this.updateStats();
+
+                // Записываем в историю
+                this.history.push({
+                    timestamp: new Date(),
+                    graphId,
+                    action: 'add',
+                    comparison: comparison,
+                    pointsCount: newPoints.length,
+                    metadata,
+                    unifiedSystem: {
+                        matchPercentage: comparison.percentage,
+                        avgDistance: comparison.avgDistance
+                    }
+                });
+
+                console.log(`📈 Шаблон обновлен: ${this.templateBuilder.invariantCells.size} ячеек`);
+               
+                // Авто-сохранение
+                if (this.settings.autoSave && this.operationCounter % this.settings.saveInterval === 0) {
+                    this.autoSave();
+                }
+               
+                return true;
             }
+        } else {
+            console.log(`⚠️ Недостаточно совпадений: ${comparison.percentage.toFixed(1)}% < ${MIN_MATCH_PERCENTAGE}%`);
+            this.stats.totalRejections++;
+           
+            this.rejectionReasons.push({
+                graphId,
+                reason: 'Недостаточно совпадений в единой системе',
+                matchPercentage: comparison.percentage,
+                required: MIN_MATCH_PERCENTAGE,
+                timestamp: new Date()
+            });
+
+            // 🔥 ЕСЛИ SIMPLE-MATCHER УВЕРЕН - ПРЕДЛАГАЕМ ПРИНУДИТЕЛЬНОЕ ДОБАВЛЕНИЕ
+            if (metadata.similarity && metadata.similarity > 0.7) {
+                console.log(`💡 РЕКОМЕНДАЦИЯ: simple-matcher уверен на ${(metadata.similarity * 100).toFixed(1)}%`);
+                console.log(`   Используйте addGraphWithForcedConfidence`);
+            }
+
+            // Записываем отказ в историю
+            this.history.push({
+                timestamp: new Date(),
+                graphId,
+                action: 'reject',
+                reason: `Недостаточно совпадений: ${comparison.percentage.toFixed(1)}% < ${MIN_MATCH_PERCENTAGE}%`,
+                comparison: comparison,
+                metadata,
+                unifiedSystem: {
+                    matchPercentage: comparison.percentage,
+                    avgDistance: comparison.avgDistance
+                }
+            });
+        }
+
+        return false;
+    }
+
+    // 🔥 ДОПОЛНИТЕЛЬНЫЙ МЕТОД: Проверить совместимость в единой системе
+    checkCompatibilityInUnifiedSystem(footprint, options = {}) {
+        console.log(`🔍 Проверяю совместимость в единой системе...`);
+       
+        if (!footprint || !footprint.getPointsForTemplateMatching) {
+            console.log('⚠️ Отпечаток не поддерживает единую систему координат');
+            return { compatible: false, error: 'Unsupported footprint' };
+        }
+       
+        // Получаем точки из отпечатка
+        const newPoints = footprint.getPointsForTemplateMatching();
+       
+        if (newPoints.length < 3) {
+            console.log(`⚠️ Недостаточно точек: ${newPoints.length}`);
+            return { compatible: false, error: 'Not enough points' };
+        }
+       
+        // Получаем точки шаблона
+        const templatePoints = this.getTemplatePointsForComparison();
+       
+        if (templatePoints.length === 0) {
+            console.log('✅ Нет шаблона - первый отпечаток всегда совместим');
+            return {
+                compatible: true,
+                isFirst: true,
+                message: 'Первый отпечаток, будет установлен как эталон'
+            };
+        }
+       
+        // Сравниваем
+        const comparison = this.comparePointsInUnifiedSystem(newPoints, templatePoints);
+       
+        const isCompatible = comparison.percentage >= this.settings.minMatchPercentage;
+       
+        return {
+            compatible: isCompatible,
+            comparison: comparison,
+            requiredPercentage: this.settings.minMatchPercentage,
+            message: isCompatible ?
+                `Совместим (${comparison.percentage.toFixed(1)}% ≥ ${this.settings.minMatchPercentage}%)` :
+                `Не совместим (${comparison.percentage.toFixed(1)}% < ${this.settings.minMatchPercentage}%)`,
+            recommendation: isCompatible ?
+                'Можно добавить к шаблону' :
+                'Рекомендуется использовать принудительное добавление'
         };
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    extractGraphData(graph) {
-        const nodes = [];
-        const edges = [];
-
-        if (graph.nodes) {
-            for (const [id, node] of graph.nodes) {
-                nodes.push({
-                    id: id,
-                    x: node.x,
-                    y: node.y,
-                    confidence: node.confidence || 0.5
+    // 🔥 СУЩЕСТВУЮЩИЕ МЕТОДЫ (ВОССТАНАВЛИВАЕМ ВСЕ)
+   
+    addGraphWithForcedConfidence(graph, graphId, metadata = {}) {
+        console.log(`🎯 ПРИНУДИТЕЛЬНОЕ ДОБАВЛЕНИЕ графа ${graphId}...`);
+        this.operationCounter++;
+       
+        const added = this.templateBuilder.addGraph(graph, graphId, {
+            ...metadata,
+            forced: true,
+            forcedReason: metadata.similarity ?
+                `Высокая уверенность simple-matcher: ${metadata.similarity.toFixed(3)}` :
+                'Принудительное добавление'
+        });
+       
+        if (added) {
+            this.stats.totalGraphsAdded++;
+            this.stats.lastGraphAdded = {
+                graphId,
+                timestamp: new Date(),
+                pointsCount: this.templateBuilder.extractPointsFromGraph(graph).length,
+                forced: true,
+                forcedReason: metadata.forcedReason
+            };
+           
+            this.updateStats();
+           
+            const historyEntry = {
+                timestamp: new Date(),
+                graphId,
+                action: 'forced_add',
+                reason: metadata.forcedReason || 'Принудительное добавление',
+                metadata
+            };
+           
+            this.history.push(historyEntry);
+           
+            console.log(`✅ Граф принудительно добавлен к шаблону`);
+           
+            // Авто-сохранение
+            if (this.settings.autoSave && this.operationCounter % this.settings.saveInterval === 0) {
+                this.autoSave();
+            }
+           
+            return true;
+        }
+       
+        return false;
+    }
+   
+    compareWithTemplate(graph, graphId, metadata = {}) {
+        console.log(`🔍 Сравниваю граф ${graphId} с шаблоном...`);
+        this.operationCounter++;
+       
+        if (!this.templateBuilder) {
+            console.log('⚠️ Нет шаблона для сравнения');
+            return { similarity: 0, decision: 'no_template', error: 'No template available' };
+        }
+       
+        // Используем метод шаблона для сравнения
+        const comparison = this.templateBuilder.compareGraphWithTemplate(graph, {
+            ...metadata,
+            debug: this.settings.debugMode
+        });
+       
+        // Обновляем статистику
+        this.stats.totalGraphsProcessed++;
+        this.stats.avgSimilarity = (this.stats.avgSimilarity * (this.stats.totalGraphsProcessed - 1) +
+                                   comparison.similarity) / this.stats.totalGraphsProcessed;
+       
+        // Записываем в историю
+        const historyEntry = {
+            timestamp: new Date(),
+            graphId,
+            comparison: comparison,
+            action: 'compare',
+            metadata
+        };
+       
+        this.history.push(historyEntry);
+       
+        // Авто-сохранение
+        if (this.settings.autoSave && this.operationCounter % this.settings.saveInterval === 0) {
+            this.autoSave();
+        }
+       
+        return comparison;
+    }
+   
+    validateTemplate(force = false) {
+        console.log(`✅ Валидация шаблона...`);
+       
+        if (!this.templateBuilder) {
+            return {
+                valid: false,
+                errors: ['Нет строителя шаблона'],
+                warnings: [],
+                timestamp: new Date()
+            };
+        }
+       
+        const validation = this.templateBuilder.validate(force);
+       
+        // Добавляем проверку единой системы координат
+        if (this.settings.enableUnifiedSystem) {
+            const templatePoints = this.getTemplatePointsForComparison();
+            if (templatePoints.length > 0) {
+                // Проверяем, что точки в правильном диапазоне
+                const outOfRange = templatePoints.filter(p => p.x < 150 || p.x > 850 || p.y < 150 || p.y > 850);
+                if (outOfRange.length > 0) {
+                    validation.warnings.push(`⚠️ ${outOfRange.length} точек шаблона вне диапазона 200-800`);
+                } else {
+                    validation.warnings.push(`✅ Все точки шаблона в диапазоне 200-800`);
+                }
+               
+                // Проверяем статистику единой системы
+                if (this.stats.unifiedSystemStats.comparisons > 0) {
+                    validation.stats = {
+                        ...validation.stats,
+                        unifiedSystem: this.stats.unifiedSystemStats
+                    };
+                }
+            }
+        }
+       
+        // Обновляем статистику валидации
+        if (validation.valid) {
+            this.stats.validationPasses++;
+        } else {
+            this.stats.validationFails++;
+        }
+       
+        // Сохраняем результат валидации
+        this.validationResults.push({
+            timestamp: new Date(),
+            ...validation
+        });
+       
+        return validation;
+    }
+   
+    getTemplateInfo(detailed = false) {
+        if (!this.templateBuilder) {
+            return { error: 'No template builder' };
+        }
+       
+        const info = this.templateBuilder.getInfo(detailed);
+       
+        // Добавляем информацию о единой системе координат
+        info.unifiedSystem = {
+            enabled: this.settings.enableUnifiedSystem,
+            threshold: this.settings.unifiedSystemThreshold,
+            minMatchPercentage: this.settings.minMatchPercentage,
+            requireUnifiedSystem: this.settings.requireUnifiedSystem,
+            stats: this.stats.unifiedSystemStats
+        };
+       
+        // Добавляем общую статистику
+        info.stats = {
+            totalGraphsProcessed: this.stats.totalGraphsProcessed,
+            totalGraphsAdded: this.stats.totalGraphsAdded,
+            totalMerges: this.stats.totalMerges,
+            totalRejections: this.stats.totalRejections,
+            avgSimilarity: this.stats.avgSimilarity,
+            validationPasses: this.stats.validationPasses,
+            validationFails: this.stats.validationFails
+        };
+       
+        return info;
+    }
+   
+    updateStats() {
+        if (this.templateBuilder) {
+            this.stats.templateSize = this.templateBuilder.invariantCells.size;
+        }
+       
+        this.stats.lastUpdated = new Date();
+       
+        if (this.settings.debugMode) {
+            console.log(`📊 Статистика супер-модели:`);
+            console.log(`   Обработано графов: ${this.stats.totalGraphsProcessed}`);
+            console.log(`   Добавлено к шаблону: ${this.stats.totalGraphsAdded}`);
+            console.log(`   Слияний: ${this.stats.totalMerges}`);
+            console.log(`   Отклонений: ${this.stats.totalRejections}`);
+            console.log(`   Средняя схожесть: ${this.stats.avgSimilarity.toFixed(3)}`);
+            console.log(`   Размер шаблона: ${this.stats.templateSize} ячеек`);
+            console.log(`   Валидаций пройдено: ${this.stats.validationPasses}`);
+            console.log(`   Валидаций не пройдено: ${this.stats.validationFails}`);
+           
+            // Статистика единой системы
+            if (this.settings.enableUnifiedSystem) {
+                console.log(`📊 Статистика ЕДИНОЙ системы координат:`);
+                console.log(`   Сравнений: ${this.stats.unifiedSystemStats.comparisons}`);
+                console.log(`   Совпадений: ${this.stats.unifiedSystemStats.matches}`);
+                console.log(`   Среднее расстояние: ${this.stats.unifiedSystemStats.avgDistance.toFixed(1)}px`);
+                console.log(`   Успешность: ${this.stats.unifiedSystemStats.successRate.toFixed(1)}%`);
+            }
+        }
+    }
+   
+    visualize(detailed = false) {
+        console.log(`\n🎯 VECTOR SUPER MODEL "${this.name}":`);
+        console.log(`═`.repeat(70));
+        console.log(`├─ ID: ${this.id}`);
+        console.log(`├─ Создана: ${this.createdAt.toLocaleString('ru-RU')}`);
+        console.log(`├─ Последнее обновление: ${this.lastUpdated.toLocaleString('ru-RU')}`);
+        console.log(`├─ Графов обработано: ${this.stats.totalGraphsProcessed}`);
+        console.log(`├─ Добавлено к шаблону: ${this.stats.totalGraphsAdded}`);
+        console.log(`├─ Слияний: ${this.stats.totalMerges}`);
+        console.log(`├─ Отклонений: ${this.stats.totalRejections}`);
+        console.log(`├─ Размер шаблона: ${this.stats.templateSize} ячеек`);
+       
+        if (this.settings.enableUnifiedSystem) {
+            console.log(`├─ 🎯 ЕДИНАЯ СИСТЕМА КООРДИНАТ:`);
+            console.log(`│  ├─ Включена: ДА`);
+            console.log(`│  ├─ Обязательна: ${this.settings.requireUnifiedSystem ? 'ДА' : 'НЕТ'}`);
+            console.log(`│  ├─ Порог совпадения: ${this.settings.unifiedSystemThreshold}px`);
+            console.log(`│  ├─ Минимальный процент: ${this.settings.minMatchPercentage}%`);
+            console.log(`│  ├─ Сравнений: ${this.stats.unifiedSystemStats.comparisons}`);
+            console.log(`│  ├─ Совпадений: ${this.stats.unifiedSystemStats.matches}`);
+            console.log(`│  └─ Успешность: ${this.stats.unifiedSystemStats.successRate.toFixed(1)}%`);
+        }
+       
+        if (this.templateBuilder) {
+            const templateInfo = this.templateBuilder.getInfo(detailed);
+            console.log(`├─ 🏗️  ШАБЛОН:`);
+            console.log(`│  ├─ Ячеек: ${templateInfo.cellsCount}`);
+            console.log(`│  ├─ Высокая уверенность: ${templateInfo.highConfidenceCells}`);
+            console.log(`│  ├─ Средняя уверенность: ${templateInfo.avgConfidence.toFixed(3)}`);
+            console.log(`│  ├─ Подтверждений в среднем: ${templateInfo.avgConfirmations?.toFixed(1) || 'N/A'}`);
+            console.log(`│  └─ Последнее обновление: ${templateInfo.lastUpdated ? new Date(templateInfo.lastUpdated).toLocaleString('ru-RU') : 'никогда'}`);
+           
+            if (detailed && templateInfo.cellsByConfidence) {
+                console.log(`│  📊 Распределение по уверенности:`);
+                for (const [range, count] of Object.entries(templateInfo.cellsByConfidence)) {
+                    console.log(`│     ${range}: ${count} ячеек`);
+                }
+            }
+        }
+       
+        console.log(`├─ 📊 Средняя схожесть: ${this.stats.avgSimilarity.toFixed(3)}`);
+        console.log(`├─ ✅ Валидаций пройдено: ${this.stats.validationPasses}`);
+        console.log(`└─ ❌ Валидаций не пройдено: ${this.stats.validationFails}`);
+       
+        if (detailed) {
+            console.log(`\n⚙️  НАСТРОЙКИ:`);
+            console.log(`   Минимальная схожесть для слияния: ${this.settings.minSimilarityForMerge}`);
+            console.log(`   Максимальное количество ячеек: ${this.settings.maxCells}`);
+            console.log(`   Минимальное подтверждений для ячейки: ${this.settings.minConfirmationsForCell}`);
+            console.log(`   Авто-валидация: ${this.settings.enableAutoValidation ? 'ВКЛ' : 'ВЫКЛ'}`);
+            console.log(`   Режим отладки: ${this.settings.debugMode ? 'ВКЛ' : 'ВЫКЛ'}`);
+            console.log(`   Авто-сохранение: ${this.settings.autoSave ? `каждые ${this.settings.saveInterval} операций` : 'ВЫКЛ'}`);
+           
+            if (this.settings.enableUnifiedSystem) {
+                console.log(`   🎯 Единая система координат: ВКЛ`);
+                console.log(`      Порог: ${this.settings.unifiedSystemThreshold}px`);
+                console.log(`      Мин. процент: ${this.settings.minMatchPercentage}%`);
+                console.log(`      Обязательна: ${this.settings.requireUnifiedSystem ? 'ДА' : 'НЕТ'}`);
+            }
+           
+            // Показываем последние 5 операций
+            if (this.history.length > 0) {
+                console.log(`\n📋 ПОСЛЕДНИЕ ОПЕРАЦИИ (последние 5):`);
+                const recentHistory = this.history.slice(-5).reverse();
+                recentHistory.forEach((entry, index) => {
+                    const time = new Date(entry.timestamp).toLocaleTimeString('ru-RU');
+                    console.log(`   ${index + 1}. ${time} - ${entry.graphId}: ${entry.action}${entry.reason ? ` (${entry.reason})` : ''}`);
                 });
             }
         }
-
-        return { nodes, edges };
     }
-
-    calculateNodeUniformity(graph) {
-        if (!graph.nodes || graph.nodes.size < 10) return 0.5;
-
-        const nodes = Array.from(graph.nodes.values());
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-
-        nodes.forEach(node => {
-            minX = Math.min(minX, node.x || 0);
-            maxX = Math.max(maxX, node.x || 0);
-            minY = Math.min(minY, node.y || 0);
-            maxY = Math.max(maxY, node.y || 0);
-        });
-
-        const width = Math.max(1, maxX - minX);
-        const height = Math.max(1, maxY - minY);
-        const grid = Array(9).fill(0);
-        const cellWidth = width / 3;
-        const cellHeight = height / 3;
-
-        nodes.forEach(node => {
-            const gridX = Math.min(2, Math.floor((node.x - minX) / cellWidth));
-            const gridY = Math.min(2, Math.floor((node.y - minY) / cellHeight));
-            const cellIndex = gridY * 3 + gridX;
-            grid[cellIndex]++;
-        });
-
-        const avg = nodes.length / 9;
-        let variance = 0;
-        grid.forEach(count => {
-            variance += Math.pow(count - avg, 2);
-        });
-        variance /= 9;
-
-        const maxVariance = Math.pow(nodes.length, 2) / 9;
-        const uniformity = 1 - (variance / maxVariance);
-
-        return Math.max(0, Math.min(1, uniformity));
-    }
-
-    calculateClusterQuality(graph) {
-        if (!graph.nodes || graph.nodes.size === 0) return 0;
-
-        let totalNeighbors = 0;
-
-        if (graph.edges && graph.edges.size > 0) {
-            const degrees = new Map();
-
-            for (const [edgeId, edge] of graph.edges) {
-                degrees.set(edge.from, (degrees.get(edge.from) || 0) + 1);
-                degrees.set(edge.to, (degrees.get(edge.to) || 0) + 1);
+   
+    saveToFile(filepath = null) {
+        try {
+            const defaultPath = `./data/super_models/${this.id}.json`;
+            const savePath = filepath || defaultPath;
+           
+            // Создаем директорию если нет
+            const dir = path.dirname(savePath);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
             }
-
-            for (const degree of degrees.values()) {
-                totalNeighbors += degree;
-            }
-
-            const avgDegree = totalNeighbors / graph.nodes.size;
-            return Math.min(1, avgDegree / 4);
+           
+            const data = this.toJSON();
+            fs.writeFileSync(savePath, JSON.stringify(data, null, 2));
+           
+            console.log(`💾 Супер-модель сохранена: ${savePath}`);
+            return { success: true, path: savePath };
+        } catch (error) {
+            console.log(`❌ Ошибка сохранения супер-модели:`, error.message);
+            return { success: false, error: error.message };
         }
-
-        return 0.3;
     }
-
-    // 🔥 СОХРАНИТЬ И ЗАГРУЗИТЬ
+   
+    autoSave() {
+        if (this.settings.autoSave) {
+            console.log(`💾 Авто-сохранение супер-модели...`);
+            return this.saveToFile();
+        }
+        return { success: false, reason: 'autoSave disabled' };
+    }
+   
+    static loadFromFile(filepath) {
+        try {
+            if (!fs.existsSync(filepath)) {
+                console.log(`⚠️ Файл не найден: ${filepath}`);
+                return null;
+            }
+           
+            const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+            const model = VectorSuperModel.fromJSON(data);
+           
+            console.log(`📂 Супер-модель загружена из: ${filepath}`);
+            return model;
+        } catch (error) {
+            console.log(`❌ Ошибка загрузки супер-модели:`, error.message);
+            return null;
+        }
+    }
+   
     toJSON() {
         const data = {
             id: this.id,
             name: this.name,
+            userId: this.userId,
+            createdAt: this.createdAt.toISOString(),
+            lastUpdated: new Date().toISOString(),
             stats: this.stats,
-            config: this.config,
-            bestGraphId: this.bestGraphId,
-            bestGraphScore: this.bestGraphScore,
-            bestGraphMetadata: this.bestGraphMetadata,
-            _version: '3.0-dynamic-reference-synchronized',
+            settings: this.settings,
+            history: this.history,
+            validationResults: this.validationResults,
+            rejectionReasons: this.rejectionReasons,
+            operationCounter: this.operationCounter,
+            _version: '2.1-with-unified-system',
             _savedAt: new Date().toISOString()
         };
-
+       
         if (this.templateBuilder) {
             data.templateBuilder = this.templateBuilder.toJSON();
         }
-
-        if (this.sourceGraphs.size > 0) {
-            data.sourceGraphs = Array.from(this.sourceGraphs.values());
-        }
-
+       
         return data;
     }
-
+   
     static fromJSON(data) {
+        console.log(`📂 Загружаю VectorSuperModel "${data.name}"...`);
+       
         const model = new VectorSuperModel({
+            id: data.id,
             name: data.name,
-            matchThreshold: data.config?.matchThreshold,
-            decisionThreshold: 0.6,
-            enableDynamicReference: data.config?.enableDynamicReference !== false
+            userId: data.userId,
+            minSimilarityForMerge: data.settings?.minSimilarityForMerge,
+            maxCells: data.settings?.maxCells,
+            minConfirmationsForCell: data.settings?.minConfirmationsForCell,
+            enableAutoValidation: data.settings?.enableAutoValidation,
+            debugMode: data.settings?.debugMode,
+            enableClustering: data.settings?.enableClustering,
+            clusterThreshold: data.settings?.clusterThreshold,
+            saveInterval: data.settings?.saveInterval,
+            autoSave: data.settings?.autoSave,
+            // 🔥 НАСТРОЙКИ ЕДИНОЙ СИСТЕМЫ
+            unifiedSystemThreshold: data.settings?.unifiedSystemThreshold,
+            minMatchPercentage: data.settings?.minMatchPercentage,
+            enableUnifiedSystem: data.settings?.enableUnifiedSystem,
+            requireUnifiedSystem: data.settings?.requireUnifiedSystem
         });
-
-        model.id = data.id || model.id;
-        model.stats = data.stats || model.stats;
-        model.config = data.config || model.config;
-
-        if (model.config.similarityThresholds) {
-            model.config.similarityThresholds.SAME = 0.6;
-            model.config.similarityThresholds.SIMILAR = 0.4;
+       
+        // Восстанавливаем даты
+        model.createdAt = new Date(data.createdAt);
+        model.lastUpdated = new Date(data.lastUpdated);
+       
+        // Восстанавливаем статистику
+        if (data.stats) {
+            model.stats = { ...model.stats, ...data.stats };
         }
-
-        if (data.templateBuilder) {
+       
+        // Восстанавливаем историю, валидацию и причины отказов
+        if (Array.isArray(data.history)) {
+            model.history = data.history.map(entry => ({
+                ...entry,
+                timestamp: new Date(entry.timestamp)
+            }));
+        }
+       
+        if (Array.isArray(data.validationResults)) {
+            model.validationResults = data.validationResults.map(result => ({
+                ...result,
+                timestamp: new Date(result.timestamp)
+            }));
+        }
+       
+        if (Array.isArray(data.rejectionReasons)) {
+            model.rejectionReasons = data.rejectionReasons.map(reason => ({
+                ...reason,
+                timestamp: new Date(reason.timestamp)
+            }));
+        }
+       
+        // Восстанавливаем счетчик операций
+        model.operationCounter = data.operationCounter || 0;
+       
+        // Восстанавливаем строитель шаблона
+        if (data.templateBuilder && VectorTemplateBuilder) {
             try {
-                model.templateBuilder = TemplateBuilder.fromJSON(data.templateBuilder);
-                console.log(`📂 Восстановлен TemplateBuilder`);
+                model.templateBuilder = VectorTemplateBuilder.fromJSON(data.templateBuilder);
+                console.log('   🎯 Загружен строитель шаблона');
             } catch (error) {
-                console.log(`⚠️ Ошибка восстановления TemplateBuilder:`, error.message);
-                model.templateBuilder = new TemplateBuilder({
-                    name: model.name,
-                    enableDynamicReference: model.config.enableDynamicReference,
-                    decisionThreshold: 0.6
-                });
+                console.log('⚠️ Ошибка загрузки строителя шаблона:', error.message);
+                model.templateBuilder = new VectorTemplateBuilder();
             }
         }
-
-        if (data.bestGraphId) {
-            model.bestGraphId = data.bestGraphId;
-            model.bestGraphScore = data.bestGraphScore || 0;
-            model.bestGraphMetadata = data.bestGraphMetadata || null;
+       
+        console.log(`✅ Загружена VectorSuperModel "${model.name}" с ` +
+                   `${model.stats.templateSize} ячейками в шаблоне`);
+       
+        if (model.settings.enableUnifiedSystem) {
+            console.log(`   🎯 Единая система координат: ВКЛЮЧЕНА`);
+            console.log(`      Порог: ${model.settings.unifiedSystemThreshold}px`);
+            console.log(`      Мин. процент: ${model.settings.minMatchPercentage}%`);
         }
-
-        if (data.sourceGraphs && Array.isArray(data.sourceGraphs)) {
-            data.sourceGraphs.forEach(graphData => {
-                if (graphData.graphId) {
-                    model.sourceGraphs.set(graphData.graphId, graphData);
-                }
-            });
-            model.stats.sourceGraphsCount = model.sourceGraphs.size;
-        }
-
-        console.log(`📂 Загружена ШАБЛОННАЯ супер-модель "${model.name}" с СИНХРОНИЗИРОВАННЫМИ порогами`);
-        console.log(`   Ячеек шаблона: ${model.templateBuilder?.invariantCells?.size || 0}`);
-        console.log(`   Лучший граф: ${model.bestGraphId || 'нет'}`);
-
+       
         return model;
+    }
+   
+    // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ОТЛАДКИ
+   
+    debugUnifiedSystem() {
+        console.log(`\n🔍 ДЕБАГ ЕДИНОЙ СИСТЕМЫ КООРДИНАТ:`);
+        console.log(`═`.repeat(50));
+       
+        const templatePoints = this.getTemplatePointsForComparison();
+        console.log(`📊 Точки шаблона: ${templatePoints.length}`);
+       
+        if (templatePoints.length > 0) {
+            console.log(`   Диапазон координат:`);
+            console.log(`   X: ${Math.min(...templatePoints.map(p => p.x)).toFixed(1)} - ${Math.max(...templatePoints.map(p => p.x)).toFixed(1)}`);
+            console.log(`   Y: ${Math.min(...templatePoints.map(p => p.y)).toFixed(1)} - ${Math.max(...templatePoints.map(p => p.y)).toFixed(1)}`);
+           
+            // Проверяем что в диапазоне 200-800
+            const inRange = templatePoints.filter(p => p.x >= 200 && p.x <= 800 && p.y >= 200 && p.y <= 800);
+            console.log(`   В диапазоне 200-800: ${inRange.length}/${templatePoints.length}`);
+           
+            if (inRange.length < templatePoints.length) {
+                const outOfRange = templatePoints.filter(p => p.x < 200 || p.x > 800 || p.y < 200 || p.y > 800);
+                console.log(`   ⚠️ Точки вне диапазона:`);
+                outOfRange.slice(0, 3).forEach(p => {
+                    console.log(`      (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+                });
+                if (outOfRange.length > 3) {
+                    console.log(`      ... и еще ${outOfRange.length - 3} точек`);
+                }
+            }
+        }
+       
+        console.log(`\n📊 Статистика единой системы:`);
+        console.log(`   Сравнений: ${this.stats.unifiedSystemStats.comparisons}`);
+        console.log(`   Совпадений: ${this.stats.unifiedSystemStats.matches}`);
+        console.log(`   Среднее расстояние: ${this.stats.unifiedSystemStats.avgDistance.toFixed(1)}px`);
+        console.log(`   Успешность: ${this.stats.unifiedSystemStats.successRate.toFixed(1)}%`);
+       
+        console.log(`\n⚙️ Настройки:`);
+        console.log(`   Порог совпадения: ${this.settings.unifiedSystemThreshold}px`);
+        console.log(`   Минимальный процент: ${this.settings.minMatchPercentage}%`);
+        console.log(`   Включена: ${this.settings.enableUnifiedSystem ? 'ДА' : 'НЕТ'}`);
+        console.log(`   Обязательна: ${this.settings.requireUnifiedSystem ? 'ДА' : 'НЕТ'}`);
+    }
+   
+    resetUnifiedSystemStats() {
+        console.log(`🔄 Сброс статистики единой системы...`);
+        this.stats.unifiedSystemStats = {
+            comparisons: 0,
+            matches: 0,
+            avgDistance: 0,
+            successRate: 0
+        };
+        console.log(`✅ Статистика сброшена`);
     }
 }
 
