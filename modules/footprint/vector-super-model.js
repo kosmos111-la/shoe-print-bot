@@ -12,10 +12,10 @@ class VectorSuperModel {
         this.config = {
             // 🔥 ВНУТРЕННИЙ ПОРОГ ДЛЯ ТОЧНОГО СРАВНЕНИЯ
             matchThreshold: 0.05, // Для точного сравнения точек
-           
+          
             // 🔥 ВНЕШНИЙ ПОРОГ ДЛЯ РЕШЕНИЙ (СИНХРОННЫЙ С simple-manager.js)
             decisionThreshold: 0.6, // 60% - как в simple-manager.js
-           
+          
             minConfirmationsForHighConfidence: 2,
             bestGraphMinNodes: options.bestGraphMinNodes || 15,
             enableTemplateMode: true,
@@ -42,11 +42,15 @@ class VectorSuperModel {
             name: `Шаблон_${this.name}`,
             enablePCA: false, // 🔥 ОТКЛЮЧАЕМ PCA
             cellSize: 25,     // 🔥 УВЕЛИЧИВАЕМ РАЗМЕР ЯЧЕЙКИ
-           
+          
             // 🔥 СИНХРОНИЗИРУЕМ ПОРОГИ TEMPLATE BUILDER
             matchThreshold: 0.05, // Для точного сравнения внутри шаблона
             decisionThreshold: 0.6, // Для решений
-           
+          
+            // 🔥 ПЕРЕДАЕМ COORDINATE MANAGER ЕСЛИ ЕСТЬ
+            coordinateManager: options.coordinateManager,
+            useCoordinateManager: options.useCoordinateManager !== false,
+          
             ...options
         });
 
@@ -73,7 +77,7 @@ class VectorSuperModel {
             templateCells: 0,
             confirmedCells: 0,
             avgConfirmations: 0,
-           
+          
             // 🔥 ДОБАВЛЯЕМ СТАТИСТИКУ ПОРОГОВ
             thresholds: {
                 match: this.config.matchThreshold,
@@ -92,9 +96,9 @@ class VectorSuperModel {
         console.log(`   Сходство: ${similarity.toFixed(3)}`);
         console.log(`   Порог "SAME": ${this.config.similarityThresholds.SAME}`);
         console.log(`   Порог "SIMILAR": ${this.config.similarityThresholds.SIMILAR}`);
-       
+      
         let decision, reason;
-       
+      
         if (similarity >= this.config.similarityThresholds.SAME) {
             decision = 'same';
             reason = `Сходство ${(similarity * 100).toFixed(1)}% ≥ порог ${(this.config.similarityThresholds.SAME * 100).toFixed(1)}%`;
@@ -105,9 +109,9 @@ class VectorSuperModel {
             decision = 'different';
             reason = `Сходство ${(similarity * 100).toFixed(1)}% < порог ${(this.config.similarityThresholds.SIMILAR * 100).toFixed(1)}%`;
         }
-       
+      
         console.log(`   Решение: ${decision} (${reason})`);
-       
+      
         return {
             decision,
             reason,
@@ -153,16 +157,35 @@ class VectorSuperModel {
     // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавить граф с проверкой порогов
     addGraph(graph, graphId, metadata = {}) {
         console.log(`🔄 Добавляю граф ${graphId} к динамической супер-модели...`);
+       
+        // 🔥 ДИАГНОСТИКА: Проверяем входные данные
+        console.log(`🔍 [VECTOR-MODEL-DIAG] Входные данные:`);
+        console.log(`   Граф ID: ${graphId}`);
+        console.log(`   Узлов в графе: ${graph?.nodes?.size || 0}`);
+        console.log(`   Сходство из metadata: ${metadata.similarity || 'нет'}`);
+        console.log(`   Порог SAME: ${this.config.similarityThresholds.SAME}`);
 
         // 🔥 ПРОВЕРЯЕМ ПОРОГИ ИЗ МЕТАДАННЫХ (если есть)
         if (metadata.similarity !== undefined) {
             const decisionCheck = this.checkDecisionWithSynchronizedThreshold(metadata.similarity);
-            console.log(`📊 Решение из simple-manager: ${metadata.similarity.toFixed(3)} -> ${decisionCheck.decision}`);
+            const syncCheck = this.compareWithSimpleManagerThreshold(metadata.similarity);
            
-            // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О РЕШЕНИИ В МЕТАДАННЫЕ
-            metadata.vectorDecision = decisionCheck.decision;
-            metadata.vectorDecisionReason = decisionCheck.reason;
-            metadata.vectorThresholdUsed = decisionCheck.thresholdUsed;
+            console.log(`📊 Решение из simple-manager: ${metadata.similarity.toFixed(3)} -> ${decisionCheck.decision}`);
+          
+            if (!syncCheck.isSynchronized || !syncCheck.decisionsMatch) {
+                console.log(`⚠️ [VECTOR-MODEL-WARN] Расхождение порогов!`);
+                console.log(`   Решение simple-manager: ${syncCheck.simpleManagerDecision}`);
+                console.log(`   Решение vector-model: ${syncCheck.vectorModelDecision}`);
+               
+                // 🔥 ПРИНИМАЕМ РЕШЕНИЕ ОТ SIMPLE-MANAGER (главное)
+                metadata.vectorDecisionOverride = syncCheck.simpleManagerDecision;
+                metadata.vectorDecisionOverrideReason = 'Приоритет simple-manager при расхождении';
+            } else {
+                // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О РЕШЕНИИ В МЕТАДАННЫЕ
+                metadata.vectorDecision = decisionCheck.decision;
+                metadata.vectorDecisionReason = decisionCheck.reason;
+                metadata.vectorThresholdUsed = decisionCheck.thresholdUsed;
+            }
         }
 
         // 1. Сохраняем исходный граф
@@ -238,20 +261,20 @@ class VectorSuperModel {
     // 🔥 НОВЫЙ МЕТОД: СРАВНИТЬ С SIMPLE-MANAGER ПОРОГОМ
     compareWithSimpleManagerThreshold(similarity) {
         const simpleManagerThreshold = 0.6; // 🔥 ТОЧНОЕ ЗНАЧЕНИЕ ИЗ simple-manager.js
-       
+      
         console.log(`\n🔍 [SYNC-CHECK] Сравнение порогов:`);
         console.log(`   simple-manager порог: ${simpleManagerThreshold}`);
         console.log(`   vector-model порог: ${this.config.similarityThresholds.SAME}`);
         console.log(`   Сходство: ${similarity.toFixed(3)}`);
-       
+      
         const isSynchronized = Math.abs(this.config.similarityThresholds.SAME - simpleManagerThreshold) < 0.01;
         const simpleManagerDecision = similarity >= simpleManagerThreshold ? 'same' : 'different';
         const vectorModelDecision = similarity >= this.config.similarityThresholds.SAME ? 'same' : 'different';
-       
+      
         console.log(`   Пороги синхронизированы: ${isSynchronized ? '✅' : '❌'}`);
         console.log(`   Решение simple-manager: ${simpleManagerDecision}`);
         console.log(`   Решение vector-model: ${vectorModelDecision}`);
-       
+      
         return {
             isSynchronized,
             simpleManagerDecision,
@@ -298,7 +321,7 @@ class VectorSuperModel {
                 sourceGraphsCount: this.stats.sourceGraphsCount,
                 dynamicReferenceEnabled: this.config.enableDynamicReference,
                 bestGraphUpdates: this.stats.bestGraphUpdates,
-               
+              
                 // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ПОРОГАХ
                 thresholds: {
                     same: this.config.similarityThresholds.SAME,
@@ -383,7 +406,7 @@ class VectorSuperModel {
             config: this.config,
             hasTemplate: !!this.templateBuilder.referenceGraphId,
             dynamicReferenceEnabled: this.config.enableDynamicReference,
-           
+          
             // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СИНХРОНИЗАЦИИ ПОРОГОВ
             thresholdsSynchronized: {
                 withSimpleManager: true,
@@ -438,7 +461,7 @@ class VectorSuperModel {
         model.id = data.id || model.id;
         model.stats = data.stats || model.stats;
         model.config = data.config || model.config;
-       
+      
         // 🔥 ГАРАНТИРУЕМ СИНХРОНИЗАЦИЮ ПОРОГОВ
         if (model.config.similarityThresholds) {
             model.config.similarityThresholds.SAME = 0.6; // СИНХРОНИЗИРУЕМ
