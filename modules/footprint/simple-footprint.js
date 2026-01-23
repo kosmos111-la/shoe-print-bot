@@ -2175,6 +2175,94 @@ getAlignedPointsForComparison() {
     return preciselyAligned;
 }
 
+    // 🔥 НОВЫЙ МЕТОД: Получить ВСЕ трансформации для валидации
+    getAllTransformationsForValidation() {
+        const transformations = [];
+       
+        // 1. Основная трансформация
+        if (this.transformation) {
+            transformations.push({
+                ...this.transformation,
+                source: 'footprint.transformation',
+                timestamp: this.transformation.timestamp || new Date()
+            });
+        }
+       
+        // 2. Трансформация из getTransformation()
+        try {
+            const getTrans = this.getTransformation();
+            if (getTrans && getTrans !== this.transformation) {
+                transformations.push({
+                    ...getTrans,
+                    source: 'footprint.getTransformation()',
+                    timestamp: new Date()
+                });
+            }
+        } catch (error) {
+            console.log(`⚠️ Ошибка получения трансформации:`, error.message);
+        }
+       
+        // 3. Трансформация из метаданных
+        if (this.metadata?.normalizationInfo) {
+            transformations.push({
+                ...this.metadata.normalizationInfo,
+                source: 'footprint.metadata.normalizationInfo',
+                timestamp: this.metadata.normalizationInfo.timestamp || new Date()
+            });
+        }
+       
+        // 4. Трансформация из графа
+        if (this.graph?.transformation) {
+            transformations.push({
+                ...this.graph.transformation,
+                source: 'footprint.graph.transformation',
+                timestamp: new Date()
+            });
+        }
+       
+        // 5. Трансформация из PointTracker
+        if (this.pointTracker?.transformation) {
+            transformations.push({
+                ...this.pointTracker.transformation,
+                source: 'footprint.pointTracker.transformation',
+                timestamp: new Date()
+            });
+        }
+       
+        console.log(`📊 Всего трансформаций в отпечатке: ${transformations.length}`);
+        transformations.forEach((t, i) => {
+            console.log(`   ${i+1}. ${t.source}: ${t.rotationAngle?.toFixed(1)}°`);
+        });
+       
+        return transformations;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Установить трансформацию во всех местах
+    setTransformationConsistently(transformation) {
+        console.log(`🔄 Устанавливаю трансформацию согласованно во всех модулях...`);
+       
+        this.transformation = transformation;
+       
+        // Также устанавливаем в графе
+        if (this.graph) {
+            this.graph.transformation = transformation;
+        }
+       
+        // Также устанавливаем в метаданных
+        if (!this.metadata) this.metadata = {};
+        if (!this.metadata.normalizationHistory) {
+            this.metadata.normalizationHistory = [];
+        }
+        this.metadata.normalizationHistory.push(transformation);
+        this.metadata.lastTransformation = transformation;
+       
+        // Также устанавливаем в PointTracker
+        if (this.pointTracker) {
+            this.pointTracker.transformation = transformation;
+        }
+       
+        console.log(`✅ Трансформация установлена согласованно: ${transformation.rotationAngle}°`);
+    }
 }
 
 module.exports = SimpleFootprint;
