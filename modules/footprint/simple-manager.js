@@ -856,71 +856,7 @@ class SimpleFootprintManager {
     }
 
     // 🔥 МЕТОД: Обработка совпадающих следов (ОБНОВЛЕННЫЙ)
-    async handleMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
-                                 existingTransformationInfo, similarity, comparisonResult,
-                                 tempResult, bot, chatId) {
-        console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
-
-        // 🔥 ПРОВЕРЯЕМ НАЛИЧИЕ tempResult
-        if (!tempResult) {
-            console.log(`⚠️ tempResult не определен, создаю пустой результат`);
-            tempResult = { added: 0, error: 'tempResult не был передан' };
-        }
-
-        // Работа с шаблоном
-        let vectorModel = this.vectorSuperModels.get(userId);
-        if (!vectorModel) {
-            const VectorSuperModel = require('./vector-super-model');
-            vectorModel = new VectorSuperModel({
-                name: `Шаблон_${String(userId).slice(0, 6)}`,
-                enablePCA: false,
-                cellSize: 25,
-                debug: this.config.debug
-            });
-            this.vectorSuperModels.set(userId, vectorModel);
-            vectorModel.addGraph(session.currentFootprint.graph, session.currentFootprint.id, {
-                isFirst: true,
-                transformationInfo: existingTransformationInfo
-            });
-        }
-
-        vectorModel.addGraph(finalGraph, tempFootprint.id, {
-            similarity: similarity,
-            timestamp: new Date(),
-            transformationInfo: transformationInfo
-        });
-
-        // Обновление подтверждений
-        const directUpdates = this.updateConfirmationsDirectly(session.currentFootprint, tempFootprint);
-        const updatedFromTemplate = this.updateConfirmationsFromTemplate(
-            session.currentFootprint,
-            vectorModel,
-            existingTransformationInfo
-        );
-
-        // Визуализации
-        const visualizationResults = await this.createVisualizations(
-            session, userId, transformationInfo, existingTransformationInfo,
-            comparisonResult, vectorModel, bot, chatId
-        );
-
-        // Статистика
-        const stats = this.calculateConfirmationStats(session.currentFootprint);
-
-        return {
-            success: true,
-            similarity: similarity,
-            decision: 'same',
-            nodesAdded: tempResult.added || 0,  // 🔥 ИСПОЛЬЗУЕМ tempResult.added
-            message: `✅ След добавлен! Сходство: ${(similarity * 100).toFixed(1)}%`,
-            hasVisualization: visualizationResults.hasVisualization,
-            telegramSent: visualizationResults.telegramSent,
-            templateSent: visualizationResults.templateSent,
-            pointsUpdated: updatedFromTemplate + directUpdates,
-            realStats: stats,
-            totalPhotos: session.photos.length
-        };
-    }
+    console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
 
     // 🔥 СОЗДАНИЕ ВИЗУАЛИЗАЦИЙ (исправленная версия)
     async createVisualizations(session, userId, transformationInfo, existingTransformationInfo,
@@ -1055,10 +991,25 @@ class SimpleFootprintManager {
             debug: this.config.debug
         });
 
-        vectorModel.addGraph(finalGraph, session.currentFootprint.id, {
+        if (vectorModel.addGraphWithForcedConfidence) {
+    // Первый граф тоже добавляем через принудительный метод
+    vectorModel.addGraphWithForcedConfidence(
+        finalGraph,
+        session.currentFootprint.id,
+        {
+            sourceFootprint: session.currentFootprint, // 🔥 ДОБАВЛЯЕМ!
+            similarity: 1.0, // Первый граф - 100% уверенность
             isFirst: true,
             transformationInfo: transformationInfo
-        });
+        }
+    );
+} else {
+    // Фаллбэк
+    vectorModel.addGraph(finalGraph, session.currentFootprint.id, {
+        isFirst: true,
+        transformationInfo: transformationInfo
+    });
+}
 
         this.vectorSuperModels.set(userId, vectorModel);
 
