@@ -1,5 +1,5 @@
 // modules/footprint/simple-manager.js
-// 🔥 ФИНАЛЬНАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ ВИЗУАЛИЗАЦИЙ + НОВЫЕ МОДУЛИ КООРДИНАТ
+// 🔥 ФИНАЛЬНАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ ВИЗУАЛИЗАЦИЙ + НОВЫЕ МОДУЛИ КООРДИНАТ + ИСПРАВЛЕНИЕ ОШИБКИ
 
 const fs = require('fs');
 const path = require('path');
@@ -24,6 +24,7 @@ const CoordinateValidator = require('./alignment/coordinate-validator');
 const TransformationDebugger = require('./alignment/transformation-debugger');
 const ImprovedAligner = require('./alignment/improved-aligner');
 const LogManager = require('./core/log-manager');
+
 class SimpleFootprintManager {
     constructor(options = {}) {
         this.config = {
@@ -135,151 +136,146 @@ class SimpleFootprintManager {
         console.log(`   Минимальные совпадения: >${this.DECISION_THRESHOLDS.MIN_MATCHES}`);
         console.log(`   Максимальное расстояние: <${this.DECISION_THRESHOLDS.MAX_DISTANCE}px`);
 
-        // 🔥 ИНИЦИАЛИЗАЦИОННАЯ ДИАГНОСТИКА (если включено)
-        if (this.config.enableCoordinateDiagnostics) {
-            this.runInitialDiagnostics();
-        }
-   // 🔥 ИНИЦИАЛИЗАЦИЯ МЕНЕДЖЕРА ЛОГОВ
+        // 🔥 ИНИЦИАЛИЗАЦИЯ МЕНЕДЖЕРА ЛОГОВ
         this.log = new LogManager(this);
-       
+
         // Устанавливаем уровень из конфига
         if (options.logLevel) {
             this.log.setLevel(options.logLevel);
         }
-       
-        // Заменяем console.log на this.log.info() во всем коде
-    //    console.log = (...args) => this.log.info(...args);
-    //    console.error = (...args) => this.log.error(...args);
-    //    console.warn = (...args) => this.log.warn(...args);
-       
+
         console.log(`🚀 SimpleFootprintManager с улучшенным логированием`);
-    
-    }
+
+        // 🔥 ИНИЦИАЛИЗАЦИОННАЯ ДИАГНОСТИКА (если включено)
+        if (this.config.enableCoordinateDiagnostics) {
+            this.runInitialDiagnostics();
+        }
+    }
 
     // 🔥 НОВЫЙ МЕТОД: Запуск начальной диагностики
     runInitialDiagnostics() {
-    console.log('\n🔍 ЗАПУСК НАЧАЛЬНОЙ ДИАГНОСТИКИ СИСТЕМЫ КООРДИНАТ...');
-   
-    // 1. Проверка модулей координат
-    console.log('  1. Проверка модулей координат...');
-    try {
-        // Тестируем CoordinateManager с РЕАЛЬНЫМИ тестовыми данными
-        const testPoints = [
-            { x: 100, y: 100, id: 'test1', confidence: 0.8 },
-            { x: 200, y: 200, id: 'test2', confidence: 0.7 },
-            { x: 300, y: 300, id: 'test3', confidence: 0.9 }
-        ];
-       
-        // Тестируем несколько преобразований
-        const result1 = this.coordinateManager.getCoordinates(testPoints, {
-            coordinateSystem: 'original',
-            debug: false,
-            suppressWarnings: true
-        });
-       
-        const result2 = this.coordinateManager.getCoordinates(testPoints, {
-            coordinateSystem: 'normalized',
-            debug: false,
-            suppressWarnings: true
-        });
-       
-        console.log(`     CoordinateManager: ✅`);
-        console.log(`       • Оригинальные точки: ${result1.count}`);
-        console.log(`       • Нормализованные точки: ${result2.count}`);
-        console.log(`       • Преобразования работают: ${result1.count === result2.count ? '✅' : '❌'}`);
-       
-    } catch (error) {
-        console.log(`     CoordinateManager: ❌ ${error.message}`);
+        console.log('\n🔍 ЗАПУСК НАЧАЛЬНОЙ ДИАГНОСТИКИ СИСТЕМЫ КООРДИНАТ...');
+
+        // 1. Проверка модулей координат
+        console.log('  1. Проверка модулей координат...');
+        try {
+            // Тестируем CoordinateManager с РЕАЛЬНЫМИ тестовыми данными
+            const testPoints = [
+                { x: 100, y: 100, id: 'test1', confidence: 0.8 },
+                { x: 200, y: 200, id: 'test2', confidence: 0.7 },
+                { x: 300, y: 300, id: 'test3', confidence: 0.9 }
+            ];
+
+            // Тестируем несколько преобразований
+            const result1 = this.coordinateManager.getCoordinates(testPoints, {
+                coordinateSystem: 'original',
+                debug: false,
+                suppressWarnings: true
+            });
+
+            const result2 = this.coordinateManager.getCoordinates(testPoints, {
+                coordinateSystem: 'normalized',
+                debug: false,
+                suppressWarnings: true
+            });
+
+            console.log(`     CoordinateManager: ✅`);
+            console.log(`       • Оригинальные точки: ${result1.count}`);
+            console.log(`       • Нормализованные точки: ${result2.count}`);
+            console.log(`       • Преобразования работают: ${result1.count === result2.count ? '✅' : '❌'}`);
+
+        } catch (error) {
+            console.log(`     CoordinateManager: ❌ ${error.message}`);
+        }
+
+        // 2. Проверка TransformationValidator
+        console.log('  2. Проверка TransformationValidator...');
+        try {
+            // Создаем тестовые трансформации для проверки
+            const testTransformations = [
+                {
+                    rotationAngle: 0,
+                    center: { x: 500, y: 500 },
+                    type: 'test_1',
+                    timestamp: new Date()
+                },
+                {
+                    rotationAngle: 10,
+                    center: { x: 510, y: 490 },
+                    type: 'test_2',
+                    timestamp: new Date()
+                }
+            ];
+
+            // Логируем тестовые трансформации
+            this.coordinateSystemLogger.logTransformations(
+                testTransformations,
+                'Тестовые трансформации для проверки'
+            );
+
+            // Проверяем, что модуль инициализирован
+            console.log(`     TransformationValidator: ✅ (инициализирован)`);
+
+            // Пока не запускаем полную проверку, так как система может быть пустой
+            console.log(`     Примечание: полная проверка будет при наличии данных`);
+
+        } catch (error) {
+            console.log(`     TransformationValidator: ❌ ${error.message}`);
+        }
+
+        // 3. Проверка CoordinateSystemLogger
+        console.log('  3. Проверка CoordinateSystemLogger...');
+        try {
+            // Создаем РЕАЛЬНЫЙ тестовый объект для логирования
+            const testObject = {
+                id: 'test_footprint',
+                name: 'Тестовый отпечаток',
+                graph: {
+                    nodes: new Map([
+                        ['node1', { x: 100, y: 100, confidence: 0.8 }],
+                        ['node2', { x: 200, y: 200, confidence: 0.7 }],
+                        ['node3', { x: 300, y: 300, confidence: 0.9 }]
+                    ]),
+                    edges: new Map()
+                },
+                transformation: {
+                    rotationAngle: 15,
+                    center: { x: 500, y: 500 },
+                    type: 'test_transformation'
+                }
+            };
+
+            // Логируем реальный объект
+            this.coordinateSystemLogger.logCoordinateSystems(
+                'Тест CoordinateSystemLogger с реальными данными',
+                testObject
+            );
+
+            console.log(`     CoordinateSystemLogger: ✅ (логирование работает)`);
+
+        } catch (error) {
+            console.log(`     CoordinateSystemLogger: ❌ ${error.message}`);
+        }
+
+        // 4. Проверка загруженных данных
+        console.log('  4. Проверка состояния системы...');
+        console.log(`     • Загружено моделей: ${this.loadedModels.size}`);
+        console.log(`     • Активных сессий: ${this.userSessions.size}`);
+        console.log(`     • Шаблонов: ${this.vectorSuperModels.size}`);
+        console.log(`     • Режим отладки: ${this.config.debug ? 'включен' : 'выключен'}`);
+
+        // 5. Проверка доступных преобразований
+        console.log('  5. Проверка преобразований...');
+        try {
+            const transformInfo = this.coordinateManager.getTransformationInfo();
+            console.log(`     • Реализовано преобразований: ${transformInfo.implemented.length}`);
+            console.log(`     • Предупреждений в истории: ${transformInfo.warningCount}`);
+        } catch (error) {
+            console.log(`     • Ошибка проверки преобразований: ${error.message}`);
+        }
+
+        console.log('✅ Начальная диагностика завершена\n');
     }
-   
-    // 2. Проверка TransformationValidator
-    console.log('  2. Проверка TransformationValidator...');
-    try {
-        // Создаем тестовые трансформации для проверки
-        const testTransformations = [
-            {
-                rotationAngle: 0,
-                center: { x: 500, y: 500 },
-                type: 'test_1',
-                timestamp: new Date()
-            },
-            {
-                rotationAngle: 10,
-                center: { x: 510, y: 490 },
-                type: 'test_2',
-                timestamp: new Date()
-            }
-        ];
-       
-        // Логируем тестовые трансформации
-        this.coordinateSystemLogger.logTransformations(
-            testTransformations,
-            'Тестовые трансформации для проверки'
-        );
-       
-        // Проверяем, что модуль инициализирован
-        console.log(`     TransformationValidator: ✅ (инициализирован)`);
-       
-        // Пока не запускаем полную проверку, так как система может быть пустой
-        console.log(`     Примечание: полная проверка будет при наличии данных`);
-       
-    } catch (error) {
-        console.log(`     TransformationValidator: ❌ ${error.message}`);
-    }
-   
-    // 3. Проверка CoordinateSystemLogger
-    console.log('  3. Проверка CoordinateSystemLogger...');
-    try {
-        // Создаем РЕАЛЬНЫЙ тестовый объект для логирования
-        const testObject = {
-            id: 'test_footprint',
-            name: 'Тестовый отпечаток',
-            graph: {
-                nodes: new Map([
-                    ['node1', { x: 100, y: 100, confidence: 0.8 }],
-                    ['node2', { x: 200, y: 200, confidence: 0.7 }],
-                    ['node3', { x: 300, y: 300, confidence: 0.9 }]
-                ]),
-                edges: new Map()
-            },
-            transformation: {
-                rotationAngle: 15,
-                center: { x: 500, y: 500 },
-                type: 'test_transformation'
-            }
-        };
-       
-        // Логируем реальный объект
-        this.coordinateSystemLogger.logCoordinateSystems(
-            'Тест CoordinateSystemLogger с реальными данными',
-            testObject
-        );
-       
-        console.log(`     CoordinateSystemLogger: ✅ (логирование работает)`);
-       
-    } catch (error) {
-        console.log(`     CoordinateSystemLogger: ❌ ${error.message}`);
-    }
-   
-    // 4. Проверка загруженных данных
-    console.log('  4. Проверка состояния системы...');
-    console.log(`     • Загружено моделей: ${this.loadedModels.size}`);
-    console.log(`     • Активных сессий: ${this.userSessions.size}`);
-    console.log(`     • Шаблонов: ${this.vectorSuperModels.size}`);
-    console.log(`     • Режим отладки: ${this.debug ? 'включен' : 'выключен'}`);
-   
-    // 5. Проверка доступных преобразований
-    console.log('  5. Проверка преобразований...');
-    try {
-        const transformInfo = this.coordinateManager.getTransformationInfo();
-        console.log(`     • Реализовано преобразований: ${transformInfo.implemented.length}`);
-        console.log(`     • Предупреждений в истории: ${transformInfo.warningCount}`);
-    } catch (error) {
-        console.log(`     • Ошибка проверки преобразований: ${error.message}`);
-    }
-   
-    console.log('✅ Начальная диагностика завершена\n');
-}
 
     // 🔥 СТАТИСТИКА ПО СТРОКАМ КОДА (обновленная)
     getLinesOfCode() {
@@ -290,91 +286,91 @@ class SimpleFootprintManager {
             200,  // session-manager.js
             150,  // visualization-manager.js
             150,  // geometry-utils.js
-           
+
             // Новые модули координат
             800,  // coordinate-manager.js
             600,  // transformation-validator.js
             700,  // coordinate-system-logger.js
-           
+
             400,  // simple-manager.js (текущий файл, обновленный)
         ];
         return lines.reduce((a, b) => a + b, 0);
     }
 
     // 🔥 НОВЫЕ ФАСАДНЫЕ МЕТОДЫ ДЛЯ МОДУЛЕЙ КООРДИНАТ
-   
+
     // Для CoordinateManager
     getCoordinates(source, options = {}) {
-    // Добавляем suppressWarnings по умолчанию для обычной работы
-    const defaultOptions = {
-        suppressWarnings: true, // 🔥 ПОДАВЛЯЕМ ПРЕДУПРЕЖДЕНИЯ ПО УМОЛЧАНИЮ
-        ...options
-    };
-    return this.coordinateManager.getCoordinates(source, defaultOptions);
-}
-   
+        // Добавляем suppressWarnings по умолчанию для обычной работы
+        const defaultOptions = {
+            suppressWarnings: true, // 🔥 ПОДАВЛЯЕМ ПРЕДУПРЕЖДЕНИЯ ПО УМОЛЧАНИЮ
+            ...options
+        };
+        return this.coordinateManager.getCoordinates(source, defaultOptions);
+    }
+
     transformToSystem(points, fromSystem, toSystem, transformation = null) {
         return this.coordinateManager.transformToSystem(points, fromSystem, toSystem, transformation);
     }
-   
+
     validatePoints(points) {
         return this.coordinateManager.validatePoints(points);
     }
-   
+
     comparePoints(points1, points2, options = {}) {
         return this.coordinateManager.comparePoints(points1, points2, options);
     }
-   
+
     detectCoordinateSystem(points) {
         return this.coordinateManager.detectCoordinateSystem(points);
     }
-   
+
     clearCoordinateCache() {
         return this.coordinateManager.clearCache();
     }
-   
+
     diagnoseCoordinateSystem(source, options = {}) {
         return this.coordinateManager.diagnoseSystem(source, options);
     }
-   
+
     // Для TransformationValidator
     validateAllTransformations(userId = null) {
         return this.transformationValidator.validateTransformationsAcrossModules(userId);
     }
-   
+
     validateTransformations(obj1, obj2) {
         // Собираем трансформации из объектов и сравниваем
         const trans1 = this.extractTransformations(obj1);
         const trans2 = this.extractTransformations(obj2);
-       
+
         if (trans1.length === 0 || trans2.length === 0) {
             return { consistent: false, error: 'Нет трансформаций для сравнения' };
         }
-       
+
         return this.transformationValidator.compareTransformations(trans1[0], trans2[0]);
     }
-   
+
     extractTransformations(obj) {
         return this.transformationValidator.extractTransformationsFromFootprint(obj);
     }
-   
+
     // Для CoordinateSystemLogger
     logCoordinateSystems(title, ...objects) {
         return this.coordinateSystemLogger.logCoordinateSystems(title, ...objects);
     }
-   
+
     logTransformations(transformations, title = 'ТРАНСФОРМАЦИИ') {
         return this.coordinateSystemLogger.logTransformations(transformations, title);
     }
-   
+
     generateDiagnosticReport(userId = null) {
         return this.coordinateSystemLogger.generateDiagnosticReport(userId);
     }
-   
+
     compareSystems(obj1, obj2, options = {}) {
         return this.coordinateSystemLogger.compareCoordinateSystems(obj1, obj2, options);
     }
-   
+
     // 🔥 СУЩЕСТВУЮЩИЕ ФАСАДНЫЕ МЕТОДЫ (без изменений)
     async compareWithAlignment(footprint1, footprint2) {
         return this.comparisonEngine.compareWithAlignment(footprint1, footprint2);
@@ -433,7 +429,13 @@ class SimpleFootprintManager {
     }
 
     updateLastActivity(userId) {
-        return this.sessionManager.updateLastActivity(userId);
+        // 🔥 ИСПРАВЛЕНИЕ: используем прямой метод
+        const session = this.getActiveSession(userId);
+        if (session) {
+            session.lastActivity = new Date();
+            return true;
+        }
+        return false;
     }
 
     async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
@@ -464,7 +466,7 @@ class SimpleFootprintManager {
         return this.geometryUtils.calculateDistance(point1, point2);
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ОБНОВЛЕННЫЙ с CoordinateManager)
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ОБНОВЛЕННЫЙ с CoordinateManager + ИСПРАВЛЕНИЕ)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
 
@@ -531,7 +533,8 @@ class SimpleFootprintManager {
                 session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
             }
 
-            this.sessionManager.updateLastActivity(userId);
+            // 🔥 ИСПРАВЛЕНИЕ: Вместо вызова несуществующего метода обновляем напрямую
+            session.lastActivity = new Date();
 
             if (!session.metadata.normalizationHistory) {
                 session.metadata.normalizationHistory = [];
@@ -545,8 +548,6 @@ class SimpleFootprintManager {
                 pointsCount: points.length,
                 transformationInfo: transformationInfo
             });
-
-            const SimpleFootprint = require('./simple-footprint');
 
             // 🔥 ПЕРВОЕ ФОТО
             if (!session.currentFootprint) {
@@ -596,7 +597,7 @@ class SimpleFootprintManager {
             includeMetadata: false,
             debug: this.config.debug
         });
-       
+
         return result.points;
     }
 
@@ -649,7 +650,7 @@ class SimpleFootprintManager {
         if (this.config.enableCoordinateDiagnostics) {
             console.log('\n🔍 ПРОВЕРКА СОГЛАСОВАННОСТИ ПОСЛЕ СОЗДАНИЯ ОТПЕЧАТКА:');
             const validationResult = this.transformationValidator.validateTransformationsAcrossModules(userId);
-           
+
             if (!validationResult.overallValid) {
                 console.log('⚠️ Обнаружены расхождения в трансформациях!');
                 // Можно добавить автоматическую коррекцию здесь
@@ -792,7 +793,7 @@ class SimpleFootprintManager {
         });
 
         tempFootprint.metadata.normalizationInfo = transformationInfo;
-       
+
         // 🔥 СОХРАНЯЕМ РЕЗУЛЬТАТ В ПЕРЕМЕННУЮ
         const tempResult = tempFootprint.addAnalysisHonest(analysis, {
             ...photoInfo,
@@ -810,13 +811,13 @@ class SimpleFootprintManager {
                 existingTransformationInfo,
                 transformationInfo
             );
-           
+
             transformationConsistent = transComparison.consistent;
-           
+
             if (!transformationConsistent) {
                 console.log('⚠️ Трансформации не согласованы перед сравнением отпечатков');
                 console.log(`   Различия: ${transComparison.differences.join(', ')}`);
-               
+
                 // Можем попытаться скорректировать
                 console.log('🔄 Пытаюсь скорректировать систему координат для сравнения...');
             }
@@ -1072,22 +1073,22 @@ class SimpleFootprintManager {
     }
 
     // 🔥 НОВЫЕ ДИАГНОСТИЧЕСКИЕ МЕТОДЫ
-   
+
     // Метод для отладки систем координат
     debugCoordinateSystems(userId) {
         console.log('\n🔍 ЗАПУСК ПОЛНОЙ ДИАГНОСТИКИ СИСТЕМ КООРДИНАТ');
-       
+
         if (!userId) {
             console.log('⚠️ Не указан userId');
             return { success: false, error: 'Требуется userId' };
         }
-       
+
         const results = {
             userId: userId,
             timestamp: new Date(),
             steps: []
         };
-       
+
         try {
             // 1. Проверяем сессию
             const session = this.getActiveSession(userId);
@@ -1096,16 +1097,16 @@ class SimpleFootprintManager {
                 results.steps.push({ step: 'session_check', success: false, error: 'Нет активной сессии' });
                 return results;
             }
-           
+
             results.steps.push({ step: 'session_check', success: true, sessionId: session.id });
-           
+
             // 2. Проверяем текущий отпечаток
             if (!session.currentFootprint) {
                 console.log('❌ Нет текущего отпечатка в сессии');
                 results.steps.push({ step: 'footprint_check', success: false, error: 'Нет отпечатка' });
                 return results;
             }
-           
+
             const footprint = session.currentFootprint;
             results.steps.push({
                 step: 'footprint_check',
@@ -1113,19 +1114,19 @@ class SimpleFootprintManager {
                 footprintId: footprint.id,
                 pointCount: footprint.graph?.nodes?.size || 0
             });
-           
+
             // 3. Логируем системы координат отпечатка
             console.log('\n📊 СИСТЕМЫ КООРДИНАТ ОТПЕЧАТКА:');
             this.coordinateSystemLogger.logCoordinateSystems(
                 `Отпечаток ${footprint.name}`,
                 footprint
             );
-           
+
             // 4. Проверяем трансформации
             console.log('\n🔄 ПРОВЕРКА ТРАНСФОРМАЦИЙ:');
             const validationResult = this.validateAllTransformations(userId);
             results.transformationValidation = validationResult;
-           
+
             // 5. Проверяем векторную модель (шаблон)
             const vectorModel = this.getVectorSuperModel(userId);
             if (vectorModel) {
@@ -1134,7 +1135,7 @@ class SimpleFootprintManager {
                     `Шаблон ${vectorModel.name}`,
                     vectorModel.templateBuilder
                 );
-               
+
                 results.steps.push({
                     step: 'template_check',
                     success: true,
@@ -1144,42 +1145,42 @@ class SimpleFootprintManager {
                 console.log('⚠️ Нет шаблона для пользователя');
                 results.steps.push({ step: 'template_check', success: false, error: 'Нет шаблона' });
             }
-           
+
             // 6. Генерируем полный отчет
             console.log('\n📋 ПОЛНЫЙ ДИАГНОСТИЧЕСКИЙ ОТЧЕТ:');
             const diagnosticReport = this.generateDiagnosticReport(userId);
             results.diagnosticReport = diagnosticReport;
-           
+
             // 7. Проверяем согласованность данных
             console.log('\n🔗 ПРОВЕРКА СОГЛАСОВАННОСТИ ДАННЫХ:');
             this.checkDataConsistency(userId);
-           
+
             results.success = true;
             results.message = 'Диагностика завершена успешно';
-           
+
             console.log('\n✅ ДИАГНОСТИКА ЗАВЕРШЕНА');
-           
+
         } catch (error) {
             console.log(`❌ Ошибка диагностики: ${error.message}`);
             results.success = false;
             results.error = error.message;
             results.steps.push({ step: 'diagnostic_error', success: false, error: error.message });
         }
-       
+
         return results;
     }
-   
+
     // Метод для сравнения отпечатков с диагностикой
     async compareFootprintsWithDiagnostics(footprint1, footprint2, options = {}) {
         console.log('\n🔍 СРАВНЕНИЕ ОТПЕЧАТКОВ С ПОЛНОЙ ДИАГНОСТИКОЙ');
-       
+
         const results = {
             timestamp: new Date(),
             footprint1: { id: footprint1.id, name: footprint1.name },
             footprint2: { id: footprint2.id, name: footprint2.name },
             steps: []
         };
-       
+
         try {
             // 1. Логируем системы координат каждого отпечатка
             console.log('\n📊 СИСТЕМЫ КООРДИНАТ ДЛЯ СРАВНЕНИЯ:');
@@ -1188,7 +1189,7 @@ class SimpleFootprintManager {
                 footprint2,
                 { title: 'Сравнение отпечатков перед анализом' }
             );
-           
+
             // 2. Проверяем трансформации
             const transComparison = this.validateTransformations(footprint1, footprint2);
             results.transformationComparison = transComparison;
@@ -1197,20 +1198,20 @@ class SimpleFootprintManager {
                 success: transComparison.consistent,
                 details: transComparison.differences || []
             });
-           
+
             // 3. Получаем точки в единой системе координат
             console.log('\n🗺️ ПОЛУЧЕНИЕ ТОЧЕК В ЕДИНОЙ СИСТЕМЕ КООРДИНАТ:');
-           
+
             const points1 = this.coordinateManager.getCoordinates(footprint1, {
                 coordinateSystem: 'canonical',
                 debug: true
             });
-           
+
             const points2 = this.coordinateManager.getCoordinates(footprint2, {
                 coordinateSystem: 'canonical',
                 debug: true
             });
-           
+
             results.steps.push({
                 step: 'coordinate_conversion',
                 success: points1.valid && points2.valid,
@@ -1218,14 +1219,14 @@ class SimpleFootprintManager {
                 points2: points2.count,
                 system: 'canonical'
             });
-           
+
             // 4. Сравниваем точки
             const pointComparison = this.coordinateManager.comparePoints(
                 points1.points,
                 points2.points,
                 { maxDistance: 50, debug: true }
             );
-           
+
             results.pointComparison = pointComparison;
             results.steps.push({
                 step: 'point_comparison',
@@ -1233,23 +1234,23 @@ class SimpleFootprintManager {
                 matchCount: pointComparison.matchCount,
                 matchRate: pointComparison.matchRate
             });
-           
+
             // 5. Выполняем стандартное сравнение
             console.log('\n🎯 ВЫПОЛНЕНИЕ СТАНДАРТНОГО СРАВНЕНИЯ:');
             const standardComparison = await this.compareWithPatterns(footprint1, footprint2);
             results.standardComparison = standardComparison;
-           
+
             // 6. Анализируем результаты
             results.finalAnalysis = this.analyzeComparisonResults(
                 pointComparison,
                 standardComparison,
                 transComparison
             );
-           
+
             // 7. Формируем итоговое решение
             const finalDecision = this.makeFinalDecision(results.finalAnalysis);
             results.finalDecision = finalDecision;
-           
+
             console.log('\n🎯 ИТОГОВОЕ РЕШЕНИЕ:');
             console.log(`   Сходство: ${standardComparison.similarity.toFixed(3)}`);
             console.log(`   Совпадений точек: ${pointComparison.matchCount}/${pointComparison.points1Count}`);
@@ -1258,46 +1259,46 @@ class SimpleFootprintManager {
             if (finalDecision.reason) {
                 console.log(`   Причина: ${finalDecision.reason}`);
             }
-           
+
             results.success = true;
-           
+
         } catch (error) {
             console.log(`❌ Ошибка сравнения с диагностикой: ${error.message}`);
             results.success = false;
             results.error = error.message;
         }
-       
+
         return results;
     }
-   
+
     // Метод для проверки согласованности всей системы
     validateSystemConsistency(userId = null) {
         console.log('\n🔍 ПРОВЕРКА СОГЛАСОВАННОСТИ ВСЕЙ СИСТЕМЫ');
-       
+
         const results = {
             timestamp: new Date(),
             userId: userId,
             checks: [],
             overallValid: true
         };
-       
+
         try {
             // 1. Проверка модулей координат
             console.log('  1. Проверка модулей координат...');
             const coordinateModulesValid = this.coordinateManager &&
                                          this.transformationValidator &&
                                          this.coordinateSystemLogger;
-           
+
             results.checks.push({
                 check: 'coordinate_modules',
                 valid: coordinateModulesValid,
                 message: coordinateModulesValid ? 'Модули координат инициализированы' : 'Модули координат не инициализированы'
             });
-           
+
             if (!coordinateModulesValid) {
                 results.overallValid = false;
             }
-           
+
             // 2. Проверка сессий
             console.log('  2. Проверка сессий...');
             const sessionsValid = this.userSessions && this.userSessions.size >= 0;
@@ -1306,7 +1307,7 @@ class SimpleFootprintManager {
                 valid: sessionsValid,
                 message: sessionsValid ? `Активных сессий: ${this.userSessions.size}` : 'Проблема с сессиями'
             });
-           
+
             // 3. Проверка загруженных моделей
             console.log('  3. Проверка загруженных моделей...');
             const modelsValid = this.loadedModels && this.loadedModels.size >= 0;
@@ -1315,7 +1316,7 @@ class SimpleFootprintManager {
                 valid: modelsValid,
                 message: modelsValid ? `Загружено моделей: ${this.loadedModels.size}` : 'Проблема с моделями'
             });
-           
+
             // 4. Проверка векторных моделей (шаблонов)
             console.log('  4. Проверка векторных моделей...');
             const vectorModelsValid = this.vectorSuperModels && this.vectorSuperModels.size >= 0;
@@ -1324,7 +1325,7 @@ class SimpleFootprintManager {
                 valid: vectorModelsValid,
                 message: vectorModelsValid ? `Шаблонов: ${this.vectorSuperModels.size}` : 'Проблема с шаблонами'
             });
-           
+
             // 5. Проверка трансформаций (если указан userId)
             if (userId) {
                 console.log('  5. Проверка трансформаций...');
@@ -1335,12 +1336,12 @@ class SimpleFootprintManager {
                     valid: validationResult.overallValid,
                     message: validationResult.overallValid ? 'Трансформации согласованы' : 'Обнаружены расхождения в трансформациях'
                 });
-               
+
                 if (!validationResult.overallValid) {
                     results.overallValid = false;
                 }
             }
-           
+
             // 6. Проверка директорий
             console.log('  6. Проверка директорий...');
             const directoriesValid = this.checkDirectories();
@@ -1349,62 +1350,62 @@ class SimpleFootprintManager {
                 valid: directoriesValid.valid,
                 message: directoriesValid.message
             });
-           
+
             if (!directoriesValid.valid) {
                 results.overallValid = false;
             }
-           
+
             // 7. Генерация отчета
             console.log('\n📊 ИТОГ ПРОВЕРКИ:');
             results.checks.forEach(check => {
                 const status = check.valid ? '✅' : '❌';
                 console.log(`  ${status} ${check.check}: ${check.message}`);
             });
-           
+
             console.log(`\n🎯 ОБЩИЙ СТАТУС: ${results.overallValid ? '✅ СИСТЕМА СОГЛАСОВАНА' : '❌ ОБНАРУЖЕНЫ ПРОБЛЕМЫ'}`);
-           
+
         } catch (error) {
             console.log(`❌ Ошибка проверки согласованности: ${error.message}`);
             results.overallValid = false;
             results.error = error.message;
         }
-       
+
         return results;
     }
-   
+
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ДИАГНОСТИКИ
-   
+
     checkDataConsistency(userId) {
         const session = this.getActiveSession(userId);
         if (!session || !session.currentFootprint) return;
-       
+
         const footprint = session.currentFootprint;
-       
+
         // Проверяем согласованность между трекером и графом
         if (footprint.pointTracker && footprint.graph) {
             const trackerPoints = this.extractPointsFromFootprint(footprint);
             const graphNodes = Array.from(footprint.graph.nodes.values());
-           
+
             console.log(`   • Точки в трекере: ${trackerPoints.length}`);
             console.log(`   • Узлы в графе: ${graphNodes.length}`);
-           
+
             if (trackerPoints.length !== graphNodes.length) {
                 console.log(`   ⚠️ Расхождение: трекер=${trackerPoints.length}, граф=${graphNodes.length}`);
             }
         }
-       
+
         // Проверяем трансформации
         const transformations = [];
         if (footprint.transformation) transformations.push('footprint.transformation');
         if (footprint.metadata?.normalizationInfo) transformations.push('footprint.metadata.normalizationInfo');
-       
+
         console.log(`   • Трансформации: ${transformations.length} источников`);
-       
+
         if (transformations.length > 1) {
             console.log(`   ⚠️ Множественные трансформации: ${transformations.join(', ')}`);
         }
     }
-   
+
     analyzeComparisonResults(pointComparison, standardComparison, transComparison) {
         const analysis = {
             pointMatchRate: pointComparison.matchRate,
@@ -1412,53 +1413,53 @@ class SimpleFootprintManager {
             transformationsConsistent: transComparison.consistent,
             confidence: 0
         };
-       
+
         // Рассчитываем общую уверенность
         let confidence = 0;
         let factors = 0;
-       
+
         if (pointComparison.success) {
             confidence += pointComparison.matchRate;
             factors++;
         }
-       
+
         if (standardComparison.similarity !== undefined) {
             confidence += standardComparison.similarity;
             factors++;
         }
-       
+
         if (transComparison.consistent) {
             confidence += 1.0;
             factors++;
         }
-       
+
         analysis.confidence = factors > 0 ? confidence / factors : 0;
-       
+
         // Определяем рекомендации
         analysis.recommendations = [];
-       
+
         if (!transComparison.consistent) {
             analysis.recommendations.push('Трансформации не согласованы. Проверьте системы координат.');
         }
-       
+
         if (pointComparison.matchRate < 0.3) {
             analysis.recommendations.push('Мало совпадений точек. Возможно, разные отпечатки.');
         }
-       
+
         if (standardComparison.similarity < 0.5) {
             analysis.recommendations.push('Низкое сходство паттернов.');
         }
-       
+
         return analysis;
     }
-   
+
     makeFinalDecision(analysis) {
         const decision = {
             decision: 'unknown',
             confidence: analysis.confidence,
             reason: ''
         };
-       
+
         // Решаем на основе всех факторов
         if (analysis.confidence > 0.7) {
             decision.decision = 'same';
@@ -1470,16 +1471,16 @@ class SimpleFootprintManager {
             decision.decision = 'different';
             decision.reason = 'Низкая уверенность';
         }
-       
+
         // Учитываем согласованность трансформаций
         if (!analysis.transformationsConsistent && decision.decision === 'same') {
             decision.decision = 'similar';
             decision.reason += ' (трансформации не согласованы)';
         }
-       
+
         return decision;
     }
-   
+
     checkDirectories() {
         const requiredDirs = [
             this.config.dbPath,
@@ -1489,15 +1490,15 @@ class SimpleFootprintManager {
             path.join(this.config.dbPath, 'reports'),
             path.join(this.config.dbPath, 'diagnostic_reports')
         ];
-       
+
         const missingDirs = [];
-       
+
         requiredDirs.forEach(dir => {
             if (!fs.existsSync(dir)) {
                 missingDirs.push(dir);
             }
         });
-       
+
         if (missingDirs.length === 0) {
             return { valid: true, message: 'Все директории существуют' };
         } else {
