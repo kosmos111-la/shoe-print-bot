@@ -1,12 +1,17 @@
 // modules/footprint/simple-graph.js
-// 🔥 ДОБАВЛЕНА ЗАЩИТА ОТ ПОВТОРНЫХ ВЫЧИСЛЕНИЙ И РЕКУРСИИ
+// ФУНДАМЕНТ НОВОЙ СИСТЕМЫ - ПРОСТОЙ ГРАФ ДЛЯ СЛЕДОВ (ИСПРАВЛЕННЫЙ)
 
 class SimpleGraph {
-    constructor(name = 'Безымянный граф') {
-        this.name = name;
+    constructor(name = 'Без названия') {
         this.id = `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        this.nodes = new Map();
-        this.edges = new Map();
+        this.name = name;
+        this.createdAt = new Date();
+
+        // Узлы графа (центры протекторов)
+        this.nodes = new Map(); // id -> {x, y, confidence, degree}
+
+        // Рёбра графа (связи между протекторами)
+        this.edges = new Map(); // "node1-node2" -> {from, to, length, confidence}
 
         // 🔥 ЗАЩИТА ОТ ПОВТОРНЫХ ВЫЧИСЛЕНИЙ
         this.invariantsCache = null;
@@ -14,14 +19,159 @@ class SimpleGraph {
         this.cacheValidityDuration = 5000; // 5 секунд
         this._calculatingInvariants = false;
 
-        // 🔥 Для методов из оригинального файла
-        this.cachedInvariants = null;
-        this.lastUpdated = new Date();
-
-        console.log(`📊 Создан граф "${name}"`);
+        console.log(`📐 Создан новый граф "${name}" (ID: ${this.id})`);
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Вычислить инварианты с кэшированием
+    // 1. ДОБАВИТЬ УЗЕЛ (центр протектора)
+    addNode(point, confidence = 0.5) {
+        if (!point || point.x === undefined || point.y === undefined) {
+            console.log('⚠️ Пропускаю узел без координат');
+            return null;
+        }
+
+        const nodeId = `n${this.nodes.size + 1}`;
+        const node = {
+            id: nodeId,
+            x: point.x,
+            y: point.y,
+            confidence: Math.max(0.1, Math.min(1.0, confidence)),
+            degree: 0,
+            neighbors: new Set()
+        };
+
+        this.nodes.set(nodeId, node);
+        this.invalidateCache(); // 🔥 ОЧИЩАЕМ КЭШ
+
+        return nodeId;
+    }
+
+    // 2. ДОБАВИТЬ РЕБРО МЕЖДУ УЗЛАМИ
+    addEdge(nodeId1, nodeId2) {
+        if (!this.nodes.has(nodeId1) || !this.nodes.has(nodeId2) || nodeId1 === nodeId2) {
+            return false;
+        }
+
+        const edgeId = `${nodeId1}-${nodeId2}`;
+        const reverseEdgeId = `${nodeId2}-${nodeId1}`;
+
+        // Убедиться, что ребро ещё не существует
+        if (this.edges.has(edgeId) || this.edges.has(reverseEdgeId)) {
+            return false;
+        }
+
+        const node1 = this.nodes.get(nodeId1);
+        const node2 = this.nodes.get(nodeId2);
+
+        // Вычислить длину ребра
+        const length = Math.sqrt(
+            Math.pow(node2.x - node1.x, 2) +
+            Math.pow(node2.y - node1.y, 2)
+        );
+
+        // Уверенность ребра = средняя уверенность узлов
+        const confidence = (node1.confidence + node2.confidence) / 2;
+
+        const edge = {
+            id: edgeId,
+            from: nodeId1,
+            to: nodeId2,
+            length: length,
+            confidence: confidence,
+            normalizedLength: null // Будет заполнено позже
+        };
+
+        this.edges.set(edgeId, edge);
+
+        // Обновить степени узлов
+        node1.degree++;
+        node2.degree++;
+        node1.neighbors.add(nodeId2);
+        node2.neighbors.add(nodeId1);
+
+        this.invalidateCache(); // 🔥 ОЧИЩАЕМ КЭШ
+        return true;
+    }
+
+    // 3. ПОСТРОИТЬ ГРАФ ИЗ ТОЧЕК (основной метод)
+    buildFromPoints(points, maxNeighbors = 5, distanceThreshold = 150) {
+        console.log(`🔨 Строю граф из ${points.length} точек...`);
+
+        // Шаг 1: Создать узлы из всех точек
+        const nodeIds = [];
+        points.forEach((point, index) => {
+            const nodeId = this.addNode(
+                { x: point.x, y: point.y },
+                point.confidence || 0.5
+            );
+            if (nodeId) {
+                nodeIds.push({
+                    id: nodeId,
+                    x: point.x,
+                    y: point.y,
+                    confidence: point.confidence || 0.5
+                });
+            }
+        });
+
+        console.log(`✅ Создано ${nodeIds.length} узлов`);
+
+        // Шаг 2: Найти ближайших соседей для каждого узла
+        nodeIds.forEach((node1, i) => {
+            // Создать список расстояний до всех других узлов
+            const distances = [];
+            nodeIds.forEach((node2, j) => {
+                if (i !== j) {
+                    const dist = Math.sqrt(
+                        Math.pow(node2.x - node1.x, 2) +
+                        Math.pow(node2.y - node1.y, 2)
+                    );
+                    if (dist <= distanceThreshold) {
+                        distances.push({
+                            nodeId: node2.id,
+                            distance: dist,
+                            confidence: node2.confidence
+                        });
+                    }
+                }
+            });
+
+            // Отсортировать по расстоянию и взять ближайших
+            distances.sort((a, b) => a.distance - b.distance);
+            const nearest = distances.slice(0, maxNeighbors);
+
+            // Добавить рёбра к ближайшим соседям
+            nearest.forEach(neighbor => {
+                this.addEdge(node1.id, neighbor.nodeId);
+            });
+        });
+
+        // Шаг 3: Нормализовать длины рёбер для инвариантности к масштабу
+        this.normalizeEdgeLengths();
+
+        console.log(`✅ Построен граф: ${this.nodes.size} узлов, ${this.edges.size} рёбер`);
+        return this.getBasicInvariants();
+    }
+
+    // 4. НОРМАЛИЗОВАТЬ ДЛИНЫ РЁБЕР (чтобы граф был инвариантен к масштабу)
+    normalizeEdgeLengths() {
+        if (this.edges.size === 0) return;
+
+        // Найти среднюю длину рёбер
+        let totalLength = 0;
+        this.edges.forEach(edge => {
+            totalLength += edge.length;
+        });
+        const meanLength = totalLength / this.edges.size;
+
+        // Нормализовать все длины рёбер
+        this.edges.forEach(edge => {
+            edge.normalizedLength = edge.length / meanLength;
+        });
+
+        console.log(`📏 Нормализовано ${this.edges.size} рёбер (средняя длина: ${meanLength.toFixed(1)})`);
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Вычислить инварианты с кэшированием
     getBasicInvariants(forceRecalculate = false) {
         // Проверяем кэш
         const now = Date.now();
@@ -46,7 +196,7 @@ class SimpleGraph {
             const edgeCount = this.edges.size;
 
             if (nodeCount === 0) {
-                return {
+                const emptyInvariants = {
                     nodeCount: 0,
                     edgeCount: 0,
                     graphDiameter: 0,
@@ -56,96 +206,101 @@ class SimpleGraph {
                     _cached: true,
                     _fromCache: false
                 };
+                this.invariantsCache = emptyInvariants;
+                this.invariantsCacheTime = now;
+                return emptyInvariants;
             }
 
-            // Вычисляем реальные инварианты
-            const invariants = this.calculateAllInvariants();
+            // Базовые инварианты
+            const invariants = {
+                // 1. Количественные
+                nodeCount: nodeCount,
+                edgeCount: edgeCount,
+                density: edgeCount / Math.max(1, nodeCount * (nodeCount - 1) / 2),
+
+                // 2. Степени узлов
+                avgDegree: 0,
+                maxDegree: 0,
+                degreeHistogram: [],
+
+                // 3. Длины рёбер
+                avgEdgeLength: 0,
+                edgeLengthHistogram: [],
+
+                // 4. Структурные
+                graphDiameter: this.calculateGraphDiameter(),
+                clusteringCoefficient: this.calculateClusteringCoefficient(),
+
+                // 5. Геометрические (нормализованные)
+                normalizedMetrics: {
+                    normalizedEdgeLengths: [],
+                    normalizedNodeDistribution: []
+                }
+            };
+
+            // Вычислить степени узлов
+            let totalDegree = 0;
+            const degreeCounts = {};
+
+            this.nodes.forEach(node => {
+                totalDegree += node.degree;
+                invariants.maxDegree = Math.max(invariants.maxDegree, node.degree);
+
+                // Собрать гистограмму степеней
+                degreeCounts[node.degree] = (degreeCounts[node.degree] || 0) + 1;
+            });
+
+            invariants.avgDegree = nodeCount > 0 ? totalDegree / nodeCount : 0;
+
+            // Преобразовать гистограмму степеней в массив
+            invariants.degreeHistogram = Object.entries(degreeCounts)
+                .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+                .map(([degree, count]) => ({ degree: parseInt(degree), count }));
+
+            // Вычислить длины рёбер
+            let totalEdgeLength = 0;
+            const edgeLengths = [];
+
+            this.edges.forEach(edge => {
+                totalEdgeLength += edge.length;
+                edgeLengths.push(edge.length);
+            });
+
+            invariants.avgEdgeLength = edgeCount > 0 ? totalEdgeLength / edgeCount : 0;
+
+            // Создать гистограмму длин рёбер (8 корзин)
+            invariants.edgeLengthHistogram = this.createHistogram(edgeLengths, 8);
+
+            // Нормализованные длины рёбер
+            invariants.normalizedMetrics.normalizedEdgeLengths = [];
+            this.edges.forEach(edge => {
+                if (edge.normalizedLength) {
+                    invariants.normalizedMetrics.normalizedEdgeLengths.push(
+                        edge.normalizedLength
+                    );
+                }
+            });
+
+            // 🔥 ИСПРАВЛЕНИЕ: Добавлен метод calculateNormalizedNodeDistribution()
+            invariants.normalizedMetrics.normalizedNodeDistribution = this.calculateNormalizedNodeDistribution();
+
+            // Добавляем метаданные кэша
+            invariants._cached = true;
+            invariants._fromCache = false;
+            invariants._calculatedAt = new Date();
 
             // Кэшируем результат
             this.invariantsCache = invariants;
             this.invariantsCacheTime = now;
-            this.cachedInvariants = invariants;
-            this.lastUpdated = new Date();
 
-            console.log(`✅ Инварианты вычислены: ${nodeCount} узлов, ${edgeCount} рёбер, диаметр=${invariants.graphDiameter}`);
+            console.log(`✅ Инварианты вычислены: ${nodeCount} узлов, ${edgeCount} рёбер, ` +
+                       `диаметр=${invariants.graphDiameter}, кластеризация=${invariants.clusteringCoefficient.toFixed(3)}`);
 
             return invariants;
 
         } finally {
             this._calculatingInvariants = false;
         }
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Вычислить все инварианты
-    calculateAllInvariants() {
-        const nodeCount = this.nodes.size;
-        const edgeCount = this.edges.size;
-
-        // Базовые инварианты
-        const invariants = {
-            nodeCount: nodeCount,
-            edgeCount: edgeCount,
-            density: edgeCount / Math.max(1, nodeCount * (nodeCount - 1) / 2),
-           
-            avgDegree: 0,
-            maxDegree: 0,
-            degreeHistogram: [],
-           
-            avgEdgeLength: 0,
-            edgeLengthHistogram: [],
-           
-            graphDiameter: this.calculateGraphDiameter(),
-            clusteringCoefficient: this.calculateClusteringCoefficient(),
-           
-            normalizedMetrics: {
-                normalizedEdgeLengths: [],
-                normalizedNodeDistribution: this.calculateNormalizedNodeDistribution()
-            },
-            _cached: true,
-            _fromCache: false,
-            _calculatedAt: new Date()
-        };
-
-        // Вычислить степени узлов
-        let totalDegree = 0;
-        const degreeCounts = {};
-
-        this.nodes.forEach(node => {
-            totalDegree += node.degree || 0;
-            invariants.maxDegree = Math.max(invariants.maxDegree, node.degree || 0);
-           
-            degreeCounts[node.degree || 0] = (degreeCounts[node.degree || 0] || 0) + 1;
-        });
-
-        invariants.avgDegree = nodeCount > 0 ? totalDegree / nodeCount : 0;
-
-        // Преобразовать гистограмму степеней
-        invariants.degreeHistogram = Object.entries(degreeCounts)
-            .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
-            .map(([degree, count]) => ({ degree: parseInt(degree), count }));
-
-        // Вычислить длины рёбер
-        let totalEdgeLength = 0;
-        const edgeLengths = [];
-
-        this.edges.forEach(edge => {
-            if (edge.length) {
-                totalEdgeLength += edge.length;
-                edgeLengths.push(edge.length);
-            }
-        });
-
-        invariants.avgEdgeLength = edgeCount > 0 ? totalEdgeLength / edgeCount : 0;
-        invariants.edgeLengthHistogram = this.createHistogram(edgeLengths, 8);
-
-        // Нормализованные длины рёбер
-        this.edges.forEach(edge => {
-            if (edge.normalizedLength) {
-                invariants.normalizedMetrics.normalizedEdgeLengths.push(edge.normalizedLength);
-            }
-        });
-
-        return invariants;
     }
 
     createEmergencyInvariants() {
@@ -165,204 +320,9 @@ class SimpleGraph {
     invalidateCache() {
         this.invariantsCache = null;
         this.invariantsCacheTime = 0;
-        this.cachedInvariants = null;
     }
 
-    // Методы из оригинального файла с добавлением очистки кэша
-    addNode(point, confidence = 0.5) {
-        if (!point || point.x === undefined || point.y === undefined) {
-            console.log('⚠️ Пропускаю узел без координат');
-            return null;
-        }
-
-        const nodeId = `n${this.nodes.size + 1}`;
-        const node = {
-            id: nodeId,
-            x: point.x,
-            y: point.y,
-            confidence: Math.max(0.1, Math.min(1.0, confidence)),
-            degree: 0,
-            neighbors: new Set()
-        };
-
-        this.nodes.set(nodeId, node);
-        this.invalidateCache(); // 🔥 ОЧИЩАЕМ КЭШ
-        return nodeId;
-    }
-
-    addEdge(nodeId1, nodeId2) {
-        if (!this.nodes.has(nodeId1) || !this.nodes.has(nodeId2) || nodeId1 === nodeId2) {
-            return false;
-        }
-
-        const edgeId = `${nodeId1}-${nodeId2}`;
-        const reverseEdgeId = `${nodeId2}-${nodeId1}`;
-
-        if (this.edges.has(edgeId) || this.edges.has(reverseEdgeId)) {
-            return false;
-        }
-
-        const node1 = this.nodes.get(nodeId1);
-        const node2 = this.nodes.get(nodeId2);
-
-        const length = Math.sqrt(
-            Math.pow(node2.x - node1.x, 2) +
-            Math.pow(node2.y - node1.y, 2)
-        );
-
-        const confidence = (node1.confidence + node2.confidence) / 2;
-
-        const edge = {
-            id: edgeId,
-            from: nodeId1,
-            to: nodeId2,
-            length: length,
-            confidence: confidence,
-            normalizedLength: null
-        };
-
-        this.edges.set(edgeId, edge);
-
-        // Обновить степени узлов
-        node1.degree = (node1.degree || 0) + 1;
-        node2.degree = (node2.degree || 0) + 1;
-        if (node1.neighbors) node1.neighbors.add(nodeId2);
-        if (node2.neighbors) node2.neighbors.add(nodeId1);
-
-        this.invalidateCache(); // 🔥 ОЧИЩАЕМ КЭШ
-        return true;
-    }
-
-    buildFromPoints(points, maxNeighbors = 5, distanceThreshold = 150) {
-        console.log(`🔨 Строю граф из ${points.length} точек...`);
-
-        // Создать узлы
-        const nodeIds = [];
-        points.forEach((point, index) => {
-            const nodeId = this.addNode(
-                { x: point.x, y: point.y },
-                point.confidence || 0.5
-            );
-            if (nodeId) {
-                nodeIds.push({
-                    id: nodeId,
-                    x: point.x,
-                    y: point.y,
-                    confidence: point.confidence || 0.5
-                });
-            }
-        });
-
-        console.log(`✅ Создано ${nodeIds.length} узлов`);
-
-        // Создать рёбра к ближайшим соседям
-        nodeIds.forEach((node1, i) => {
-            const distances = [];
-            nodeIds.forEach((node2, j) => {
-                if (i !== j) {
-                    const dist = Math.sqrt(
-                        Math.pow(node2.x - node1.x, 2) +
-                        Math.pow(node2.y - node1.y, 2)
-                    );
-                    if (dist <= distanceThreshold) {
-                        distances.push({
-                            nodeId: node2.id,
-                            distance: dist,
-                            confidence: node2.confidence
-                        });
-                    }
-                }
-            });
-
-            distances.sort((a, b) => a.distance - b.distance);
-            const nearest = distances.slice(0, maxNeighbors);
-
-            nearest.forEach(neighbor => {
-                this.addEdge(node1.id, neighbor.nodeId);
-            });
-        });
-
-        // Нормализовать длины рёбер
-        this.normalizeEdgeLengths();
-
-        console.log(`✅ Построен граф: ${this.nodes.size} узлов, ${this.edges.size} рёбер`);
-        return this.getBasicInvariants();
-    }
-
-    normalizeEdgeLengths() {
-        if (this.edges.size === 0) return;
-
-        let totalLength = 0;
-        this.edges.forEach(edge => {
-            totalLength += edge.length || 0;
-        });
-        const meanLength = totalLength / this.edges.size;
-
-        this.edges.forEach(edge => {
-            edge.normalizedLength = meanLength > 0 ? edge.length / meanLength : 1;
-        });
-
-        console.log(`📏 Нормализовано ${this.edges.size} рёбер (средняя длина: ${meanLength.toFixed(1)})`);
-    }
-
-    calculateGraphDiameter() {
-        if (this.nodes.size < 2) return 0;
-
-        const nodeIds = Array.from(this.nodes.keys());
-        let maxDistance = 0;
-
-        for (let i = 0; i < nodeIds.length; i++) {
-            for (let j = i + 1; j < nodeIds.length; j++) {
-                const node1 = this.nodes.get(nodeIds[i]);
-                const node2 = this.nodes.get(nodeIds[j]);
-                const distance = Math.sqrt(
-                    Math.pow(node2.x - node1.x, 2) +
-                    Math.pow(node2.y - node1.y, 2)
-                );
-                maxDistance = Math.max(maxDistance, distance);
-            }
-        }
-
-        return Math.round(maxDistance);
-    }
-
-    calculateClusteringCoefficient() {
-        if (this.nodes.size < 3) return 0;
-
-        let totalCoefficient = 0;
-        let nodesWithNeighbors = 0;
-
-        this.nodes.forEach(node => {
-            const neighbors = node.neighbors ? Array.from(node.neighbors) : [];
-            const k = neighbors.length;
-
-            if (k < 2) {
-                totalCoefficient += 0;
-                return;
-            }
-
-            let edgesBetweenNeighbors = 0;
-            for (let i = 0; i < neighbors.length; i++) {
-                for (let j = i + 1; j < neighbors.length; j++) {
-                    const edgeId1 = `${neighbors[i]}-${neighbors[j]}`;
-                    const edgeId2 = `${neighbors[j]}-${neighbors[i]}`;
-                    if (this.edges.has(edgeId1) || this.edges.has(edgeId2)) {
-                        edgesBetweenNeighbors++;
-                    }
-                }
-            }
-
-            const maxPossibleEdges = k * (k - 1) / 2;
-            const nodeCoefficient = maxPossibleEdges > 0 ?
-                edgesBetweenNeighbors / maxPossibleEdges : 0;
-
-            totalCoefficient += nodeCoefficient;
-            nodesWithNeighbors++;
-        });
-
-        return nodesWithNeighbors > 0 ? totalCoefficient / nodesWithNeighbors : 0;
-    }
-
+    // 🔥 НОВЫЙ МЕТОД: РАСЧЕТ НОРМАЛИЗОВАННОГО РАСПРЕДЕЛЕНИЯ УЗЛОВ
     calculateNormalizedNodeDistribution() {
         if (this.nodes.size === 0) return [];
 
@@ -378,6 +338,7 @@ class SimpleGraph {
         const width = Math.max(1, maxX - minX);
         const height = Math.max(1, maxY - minY);
 
+        // Нормализуем к [0, 1]
         return nodesArray.map(node => ({
             nx: width === 0 ? 0.5 : (node.x - minX) / width,
             ny: height === 0 ? 0.5 : (node.y - minY) / height,
@@ -387,6 +348,72 @@ class SimpleGraph {
         }));
     }
 
+    // 6. ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+
+    // Вычислить диаметр графа (максимальное расстояние между узлами)
+    calculateGraphDiameter() {
+        if (this.nodes.size < 2) return 0;
+
+        const nodeIds = Array.from(this.nodes.keys());
+        let maxDistance = 0;
+
+        // Простой алгоритм - ищем максимальное геометрическое расстояние
+        for (let i = 0; i < nodeIds.length; i++) {
+            for (let j = i + 1; j < nodeIds.length; j++) {
+                const node1 = this.nodes.get(nodeIds[i]);
+                const node2 = this.nodes.get(nodeIds[j]);
+                const distance = Math.sqrt(
+                    Math.pow(node2.x - node1.x, 2) +
+                    Math.pow(node2.y - node1.y, 2)
+                );
+                maxDistance = Math.max(maxDistance, distance);
+            }
+        }
+
+        return Math.round(maxDistance);
+    }
+
+    // Вычислить коэффициент кластеризации
+    calculateClusteringCoefficient() {
+        if (this.nodes.size < 3) return 0;
+
+        let totalCoefficient = 0;
+        let nodesWithNeighbors = 0;
+
+        this.nodes.forEach(node => {
+            const neighbors = Array.from(node.neighbors);
+            const k = neighbors.length;
+
+            if (k < 2) {
+                totalCoefficient += 0;
+                return;
+            }
+
+            // Подсчитать количество рёбер между соседями
+            let edgesBetweenNeighbors = 0;
+            for (let i = 0; i < neighbors.length; i++) {
+                for (let j = i + 1; j < neighbors.length; j++) {
+                    const edgeId1 = `${neighbors[i]}-${neighbors[j]}`;
+                    const edgeId2 = `${neighbors[j]}-${neighbors[i]}`;
+                    if (this.edges.has(edgeId1) || this.edges.has(edgeId2)) {
+                        edgesBetweenNeighbors++;
+                    }
+                }
+            }
+
+            // Коэффициент кластеризации для узла
+            const maxPossibleEdges = k * (k - 1) / 2;
+            const nodeCoefficient = maxPossibleEdges > 0 ?
+                edgesBetweenNeighbors / maxPossibleEdges : 0;
+
+            totalCoefficient += nodeCoefficient;
+            nodesWithNeighbors++;
+        });
+
+        return nodesWithNeighbors > 0 ? totalCoefficient / nodesWithNeighbors : 0;
+    }
+
+    // Создать гистограмму
     createHistogram(values, bins = 8) {
         if (!values || values.length === 0) return [];
 
@@ -412,12 +439,12 @@ class SimpleGraph {
         return histogram;
     }
 
-    // Другие методы из оригинального файла...
+    // 7. СОХРАНИТЬ ГРАФ В JSON
     toJSON() {
         return {
             id: this.id,
             name: this.name,
-            createdAt: new Date().toISOString(),
+            createdAt: this.createdAt.toISOString(),
             lastUpdated: new Date().toISOString(),
             nodes: Array.from(this.nodes.values()),
             edges: Array.from(this.edges.values()),
@@ -425,10 +452,13 @@ class SimpleGraph {
         };
     }
 
+    // 8. ЗАГРУЗИТЬ ГРАФ ИЗ JSON
     static fromJSON(data) {
         const graph = new SimpleGraph(data.name || 'Загруженный граф');
         graph.id = data.id || graph.id;
+        graph.createdAt = new Date(data.createdAt || Date.now());
 
+        // Загрузить узлы
         if (Array.isArray(data.nodes)) {
             data.nodes.forEach(nodeData => {
                 const node = {
@@ -443,20 +473,24 @@ class SimpleGraph {
             });
         }
 
+        // Загрузить рёбра
         if (Array.isArray(data.edges)) {
             data.edges.forEach(edgeData => {
                 graph.edges.set(edgeData.id, edgeData);
             });
         }
 
+        // Восстановить кэш инвариантов
         if (data.invariants) {
-            graph.cachedInvariants = data.invariants;
+            graph.invariantsCache = data.invariants;
+            graph.invariantsCacheTime = Date.now();
         }
 
         console.log(`📂 Загружен граф "${graph.name}" с ${graph.nodes.size} узлами`);
         return graph;
     }
 
+    // 9. ПОЛУЧИТЬ СТАТИСТИКУ ГРАФА
     getStats() {
         const invariants = this.getBasicInvariants();
 
@@ -468,15 +502,40 @@ class SimpleGraph {
             avgDegree: invariants.avgDegree.toFixed(2),
             graphDiameter: invariants.graphDiameter,
             clusteringCoefficient: invariants.clusteringCoefficient.toFixed(3),
-            density: invariants.density.toFixed(3)
+            density: invariants.density.toFixed(3),
+            created: this.createdAt.toLocaleString('ru-RU'),
+            updated: new Date().toLocaleString('ru-RU')
         };
     }
 
+    // 10. ВИЗУАЛИЗАЦИЯ ГРАФА (для отладки)
     visualize() {
         console.log('\n🕸️  ВИЗУАЛИЗАЦИЯ ГРАФА:');
         console.log(`├─ Название: ${this.name}`);
         console.log(`├─ Узлы: ${this.nodes.size}`);
         console.log(`├─ Рёбра: ${this.edges.size}`);
+
+        if (this.nodes.size > 0) {
+            console.log('├─ Первые 3 узла:');
+            let count = 0;
+            for (const [id, node] of this.nodes) {
+                if (count >= 3) break;
+                console.log(`│  ├─ ${id}: (${node.x.toFixed(1)}, ${node.y.toFixed(1)}) ` +
+                          `[уверенность: ${node.confidence.toFixed(2)}, степень: ${node.degree}]`);
+                count++;
+            }
+        }
+
+        if (this.edges.size > 0) {
+            console.log('├─ Первые 3 ребра:');
+            let count = 0;
+            for (const [id, edge] of this.edges) {
+                if (count >= 3) break;
+                console.log(`│  ├─ ${id}: длина=${edge.length.toFixed(1)}, ` +
+                          `норм.длина=${edge.normalizedLength?.toFixed(2) || 'н/д'}`);
+                count++;
+            }
+        }
 
         const invariants = this.getBasicInvariants();
         console.log('└─ ИНВАРИАНТЫ:');
@@ -486,6 +545,114 @@ class SimpleGraph {
         console.log(`   ├─ Диаметр графа: ${invariants.graphDiameter}`);
         console.log(`   └─ Коэф. кластеризации: ${invariants.clusteringCoefficient.toFixed(3)}`);
     }
+
+    // 11. ПОЛУЧИТЬ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ
+    getVisualizationData() {
+        const nodes = Array.from(this.nodes.values());
+        const edges = Array.from(this.edges.values());
+
+        return {
+            name: this.name,
+            id: this.id,
+            nodes: nodes.map(node => ({
+                id: node.id,
+                x: node.x,
+                y: node.y,
+                confidence: node.confidence,
+                degree: node.degree,
+                neighbors: Array.from(node.neighbors || [])
+            })),
+            edges: edges.map(edge => ({
+                id: edge.id,
+                from: edge.from,
+                to: edge.to,
+                length: edge.length,
+                normalizedLength: edge.normalizedLength,
+                confidence: edge.confidence
+            })),
+            bounds: this.calculateGraphBounds(),
+            invariants: this.getBasicInvariants()
+        };
+    }
+
+    // 12. РАССЧИТАТЬ ГРАНИЦЫ ГРАФА
+    calculateGraphBounds() {
+        const nodes = Array.from(this.nodes.values());
+        if (nodes.length === 0) {
+            return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+        }
+
+        const xs = nodes.map(n => n.x);
+        const ys = nodes.map(n => n.y);
+
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+
+        return {
+            minX, maxX, minY, maxY,
+            width: maxX - minX,
+            height: maxY - minY,
+            centerX: (minX + maxX) / 2,
+            centerY: (minY + maxY) / 2
+        };
+    }
+
+    // 13. ЭКСПОРТ ДЛЯ WEB-ВИЗУАЛИЗАЦИИ
+    exportForWeb() {
+        const data = this.getVisualizationData();
+
+        return {
+            ...data,
+            svg: this.generateSimpleSVG(),
+            timestamp: new Date().toISOString(),
+            version: '1.0'
+        };
+    }
+
+    // 14. ГЕНЕРАЦИЯ ПРОСТОГО SVG
+    generateSimpleSVG() {
+        const bounds = this.calculateGraphBounds();
+        const width = Math.max(100, bounds.width || 100);
+        const height = Math.max(100, bounds.height || 100);
+        const padding = 20;
+        const scale = 1.0;
+
+        let svg = `<svg width="${width + padding * 2}" height="${height + padding * 2}" xmlns="http://www.w3.org/2000/svg">`;
+        svg += `<rect width="100%" height="100%" fill="#1a1a2e"/>`;
+
+        // Рёбра
+        Array.from(this.edges.values()).forEach(edge => {
+            const fromNode = this.nodes.get(edge.from);
+            const toNode = this.nodes.get(edge.to);
+
+            if (fromNode && toNode) {
+                const x1 = fromNode.x * scale + padding;
+                const y1 = fromNode.y * scale + padding;
+                const x2 = toNode.x * scale + padding;
+                const y2 = toNode.y * scale + padding;
+
+                svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#70a1ff80" stroke-width="1"/>`;
+            }
+        });
+
+        // Узлы
+        Array.from(this.nodes.values()).forEach(node => {
+            const x = node.x * scale + padding;
+            const y = node.y * scale + padding;
+            const radius = 4;
+            const color = node.confidence > 0.7 ? '#ff4757' :
+                         node.confidence > 0.4 ? '#ffa502' : '#2ed573';
+
+            svg += `<circle cx="${x}" cy="${y}" r="${radius}" fill="${color}"/>`;
+            svg += `<circle cx="${x}" cy="${y}" r="${radius - 1}" fill="#000000"/>`;
+        });
+
+        svg += `</svg>`;
+        return svg;
+    }
 }
 
+// Экспорт класса
 module.exports = SimpleGraph;
