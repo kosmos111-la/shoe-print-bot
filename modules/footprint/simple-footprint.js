@@ -2361,23 +2361,30 @@ class SimpleFootprint {
     getPointsForTemplateComparison() {
     console.log(`🔍 [TEMPLATE-COMPARE] Готовлю точки для сравнения с шаблоном`);
    
-    // Получаем точки в системе 500±300
-    const normalizedPoints = this.getUnifiedCoordinates({
+    // 1. Получаем унифицированные координаты
+    const unifiedPoints = this.getUnifiedCoordinates({
         coordinateSystem: 'normalized',
         debug: true
     });
    
-    if (normalizedPoints.length === 0) {
-        console.log('⚠️ Нет нормализованных точек');
+    if (unifiedPoints.length === 0) {
+        console.log('⚠️ Нет точек для шаблона');
         return [];
     }
    
-    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ПРЕОБРАЗУЕМ К СИСТЕМЕ ШАБЛОНА (0-1)
+    // 2. 🔥 ГАРАНТИРУЕМ, ЧТО КООРДИНАТЫ В ДИАПАЗОНЕ 0-1000
+    const safePoints = unifiedPoints.map(p => ({
+        ...p,
+        x: Math.max(0, Math.min(1000, p.x || 0)),
+        y: Math.max(0, Math.min(1000, p.y || 0))
+    }));
+   
+    // 3. 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ПРЕОБРАЗУЕМ К СИСТЕМЕ ШАБЛОНА [0,1]
     console.log(`📐 Преобразую координаты к системе шаблона [0, 1]...`);
    
-    // 1. Находим границы
-    const xs = normalizedPoints.map(p => p.x);
-    const ys = normalizedPoints.map(p => p.y);
+    // Находим фактические границы
+    const xs = safePoints.map(p => p.x);
+    const ys = safePoints.map(p => p.y);
    
     const minX = Math.min(...xs);
     const maxX = Math.max(...xs);
@@ -2388,30 +2395,51 @@ class SimpleFootprint {
     const height = Math.max(1, maxY - minY);
    
     console.log(`📏 Границы: X[${minX.toFixed(1)}-${maxX.toFixed(1)}] Y[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
+    console.log(`📏 Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
    
-    // 2. Преобразуем к [0, 1]
-    const templatePoints = normalizedPoints.map(p => {
+    // 4. Преобразуем к [0, 1]
+    const templatePoints = safePoints.map((p, index) => {
         const nx = (p.x - minX) / width;
         const ny = (p.y - minY) / height;
        
+        // 🔥 ГАРАНТИРУЕМ правильный диапазон
         return {
             ...p,
-            nx: nx, // 🔥 ДЛЯ ШАБЛОНА ВАЖНЫ nx/ny
-            ny: ny,
-            x: p.x, // Сохраняем оригинальные для отладки
-            y: p.y,
-            _templateReady: true,
-            _normalizedToTemplate: true
+            id: p.id || `template_pt_${index}`,
+            nx: Math.max(0, Math.min(1, nx)),
+            ny: Math.max(0, Math.min(1, ny)),
+            _normalizedToTemplate: true,
+            _normalizationInfo: {
+                minX, maxX, minY, maxY,
+                width, height
+            }
         };
     });
    
-    // Проверка
-    const sample = templatePoints[0];
-    console.log(`📊 Пример точки для шаблона:`);
-    console.log(`   Оригинальные: (${sample.x?.toFixed(1)}, ${sample.y?.toFixed(1)})`);
-    console.log(`   Для шаблона (nx/ny): (${sample.nx?.toFixed(3)}, ${sample.ny?.toFixed(3)})`);
-    console.log(`   Диапазон: [0.0-1.0] для шаблона`);
+    // 5. Проверка
+    if (templatePoints.length > 0) {
+        const sample = templatePoints[0];
+        console.log(`📊 ПРОВЕРКА координат для шаблона:`);
+        console.log(`   Оригинальные: (${sample.x?.toFixed(1)}, ${sample.y?.toFixed(1)})`);
+        console.log(`   Для шаблона (nx/ny): (${sample.nx?.toFixed(3)}, ${sample.ny?.toFixed(3)})`);
+       
+        // Проверяем диапазон всех точек
+        const allNx = templatePoints.map(p => p.nx);
+        const allNy = templatePoints.map(p => p.ny);
+       
+        console.log(`   Диапазон nx: ${Math.min(...allNx).toFixed(3)}-${Math.max(...allNx).toFixed(3)}`);
+        console.log(`   Диапазон ny: ${Math.min(...allNy).toFixed(3)}-${Math.max(...allNy).toFixed(3)}`);
+       
+        // Проверяем что в диапазоне [0,1]
+        const invalidPoints = templatePoints.filter(p => p.nx < 0 || p.nx > 1 || p.ny < 0 || p.ny > 1);
+        if (invalidPoints.length > 0) {
+            console.log(`⚠️ ВНИМАНИЕ: ${invalidPoints.length} точек вне диапазона [0,1]`);
+        } else {
+            console.log(`✅ ВСЕ точки в правильном диапазоне [0,1]`);
+        }
+    }
    
+    console.log(`✅ Подготовлено ${templatePoints.length} точек для шаблона`);
     return templatePoints;
 }
 }
