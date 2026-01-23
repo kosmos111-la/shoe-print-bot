@@ -1,180 +1,335 @@
 // modules/footprint/core/session/session-manager.js
-// 🔥 МЕНЕДЖЕР СЕССИЙ
-
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+// 🔥 ИСПРАВЛЕНИЕ ДУБЛИРОВАНИЯ СЕССИЙ
 
 class SessionManager {
     constructor(manager) {
         this.manager = manager;
-        this.config = manager.config;
+        this.sessions = new Map();
+        this.sessionTimeouts = new Map();
+
+        // 🔥 КОНТРОЛЬ ДУБЛИРОВАНИЯ
+        this.userActiveSession = new Map(); // userId -> sessionId
+        this.maxSessionsPerUser = 3;
+
+        console.log('🔄 SessionManager создан с контролем дублирования сессий');
     }
 
-    // 🔥 СОЗДАНИЕ СЕССИИ
     createSession(userId, name = null) {
-        const sessionId = `session_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+        console.log(`🔄 Создаю сессию для пользователя ${userId}...`);
+
+        // 🔥 ПРОВЕРЯЕМ, ЕСТЬ ЛИ УЖЕ АКТИВНАЯ СЕССИЯ
+        const existingSessionId = this.userActiveSession.get(userId);
+        if (existingSessionId && this.sessions.has(existingSessionId)) {
+            console.log(`📌 У пользователя ${userId} уже есть активная сессия: ${existingSessionId}`);
+
+            // Возвращаем существующую сессию
+            const existingSession = this.sessions.get(existingSessionId);
+            existingSession.lastActivity = new Date();
+
+            // Обновляем таймаут
+            this.resetSessionTimeout(userId, existingSessionId);
+
+            return existingSession;
+        }
+
+        // 🔥 ОЧИЩАЕМ СТАРЫЕ СЕССИИ (если их слишком много)
+        this.cleanupOldSessionsForUser(userId);
+
+        // Создаем новую сессию
+        const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+        const sessionName = name || `Сессия_${new Date().toLocaleTimeString('ru-RU')}`;
 
         const session = {
             id: sessionId,
-            userId: String(userId),
-            name: name || `Сессия_${new Date().toLocaleDateString('ru-RU')}`,
-            startTime: new Date(),
+            userId: userId,
+            name: sessionName,
+            createdAt: new Date(),
             lastActivity: new Date(),
-            photos: [],
             currentFootprint: null,
+            photos: [],
             metadata: {
-                created: new Date(),
                 normalizationHistory: [],
                 lastTransformation: null
             }
         };
 
-        this.manager.userSessions.set(userId, session);
-        this.manager.systemStats.totalUsers = this.manager.userSessions.size;
+        // Сохраняем сессию
+        this.sessions.set(sessionId, session);
+        this.userActiveSession.set(userId, sessionId);
 
-        console.log(`🆕 Создана сессия ${sessionId.slice(0, 8)} для пользователя ${userId}`);
+        // Устанавливаем таймаут
+        this.resetSessionTimeout(userId, sessionId);
+
+        console.log(`✅ Создана сессия: ${sessionId} для пользователя ${userId}`);
+        console.log(`   Всего сессий у пользователя: ${this.getUserSessionCount(userId)}`);
 
         return session;
     }
 
-    // 🔥 ПОЛУЧЕНИЕ АКТИВНОЙ СЕССИИ
-    getActiveSession(userId) {
-        return this.manager.userSessions.get(userId);
-    }
+    // 🔥 НОВЫЙ МЕТОД: Очистить старые сессии пользователя
+    cleanupOldSessionsForUser(userId) {
+        const userSessions = this.getUserSessions(userId);
 
-    // 🔥 СОХРАНЕНИЕ СЕССИИ КАК МОДЕЛИ
-    saveSessionAsModel(userId, modelName = null) {
-        const session = this.manager.userSessions.get(userId);
-        if (!session || !session.currentFootprint) {
-            return { success: false, error: 'Нет активной сессии или отпечатка' };
-        }
+        if (userSessions.length >= this.maxSessionsPerUser) {
+            console.log(`🧹 Очищаю старые сессии для пользователя ${userId} (есть ${userSessions.length})`);
 
-        const footprint = session.currentFootprint;
+            // Сортируем по времени последней активности
+            userSessions.sort((a, b) => b.lastActivity - a.lastActivity);
 
-        if (modelName) {
-            footprint.name = modelName;
-        }
+            // Оставляем только maxSessionsPerUser-1 самых новых
+            const sessionsToRemove = userSessions.slice(this.maxSessionsPerUser - 1);
 
-        const modelPath = path.join(this.config.dbPath, 'models', `${footprint.id}.json`);
+            sessionsToRemove.forEach(session => {
+                console.log(`   Удаляю старую сессию: ${session.id}`);
+                this.sessions.delete(session.id);
 
-        try {
-            const modelData = footprint.toJSON();
-            modelData.metadata.sessionInfo = {
-                sessionId: session.id,
-                photosCount: session.photos.length,
-                normalizationHistory: session.metadata.normalizationHistory || []
-            };
-
-            fs.writeFileSync(modelPath, JSON.stringify(modelData, null, 2));
-
-            this.manager.loadedModels.set(footprint.id, footprint);
-            this.manager.systemStats.totalModels = this.manager.loadedModels.size;
-
-            console.log(`💾 Модель сохранена: ${footprint.id} (${footprint.graph.nodes.size} узлов)`);
-
-            this.manager.userSessions.delete(userId);
-
-            return {
-                success: true,
-                modelId: footprint.id,
-                modelName: footprint.name,
-                modelPath: modelPath,
-                modelStats: {
-                    nodes: footprint.graph.nodes.size,
-                    edges: footprint.graph.edges.size
+                // Если это была активная сессия - очищаем
+                if (this.userActiveSession.get(userId) === session.id) {
+                    this.userActiveSession.delete(userId);
                 }
-            };
-
-        } catch (error) {
-            console.log('❌ Ошибка сохранения модели:', error.message);
-            return { success: false, error: error.message };
+            });
         }
     }
 
-    // 🔥 ПОЛУЧЕНИЕ ИНФОРМАЦИИ О СЕССИИ
-    getSessionInfo(userId) {
-        const session = this.manager.userSessions.get(userId);
-        if (!session) {
-            return {
-                exists: false,
-                message: 'Сессия не найдена'
-            };
+    // 🔥 НОВЫЙ МЕТОД: Получить все сессии пользователя
+    getUserSessions(userId) {
+        const userSessions = [];
+
+        for (const [sessionId, session] of this.sessions) {
+            if (session.userId === userId) {
+                userSessions.push(session);
+            }
         }
 
-        return {
-            exists: true,
-            sessionId: session.id,
-            userId: session.userId,
-            name: session.name,
-            startTime: session.startTime,
-            lastActivity: session.lastActivity,
-            photosCount: session.photos.length,
-            hasFootprint: !!session.currentFootprint,
-            footprintNodes: session.currentFootprint?.graph?.nodes?.size || 0,
-            normalizationHistory: session.metadata.normalizationHistory?.length || 0
+        return userSessions;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить количество сессий пользователя
+    getUserSessionCount(userId) {
+        return this.getUserSessions(userId).length;
+    }
+
+    getActiveSession(userId) {
+        // 🔥 ИСПОЛЬЗУЕМ КЭШ АКТИВНОЙ СЕССИИ
+        const activeSessionId = this.userActiveSession.get(userId);
+
+        if (activeSessionId && this.sessions.has(activeSessionId)) {
+            const session = this.sessions.get(activeSessionId);
+            session.lastActivity = new Date(); // Обновляем активность
+            this.resetSessionTimeout(userId, activeSessionId);
+            return session;
+        }
+
+        // Если активной нет, ищем любую сессию пользователя
+        const userSessions = this.getUserSessions(userId);
+
+        if (userSessions.length > 0) {
+            // Берем самую новую
+            userSessions.sort((a, b) => b.lastActivity - a.lastActivity);
+            const newestSession = userSessions[0];
+
+            // Устанавливаем как активную
+            this.userActiveSession.set(userId, newestSession.id);
+            newestSession.lastActivity = new Date();
+            this.resetSessionTimeout(userId, newestSession.id);
+
+            console.log(`📌 Восстановлена активная сессия для ${userId}: ${newestSession.id}`);
+
+            return newestSession;
+        }
+
+        return null; // Нет сессий
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Установить активную сессию
+    setActiveSession(userId, sessionId) {
+        if (!this.sessions.has(sessionId)) {
+            console.log(`❌ Сессия ${sessionId} не существует`);
+            return false;
+        }
+
+        const session = this.sessions.get(sessionId);
+        if (session.userId !== userId) {
+            console.log(`❌ Сессия ${sessionId} принадлежит другому пользователю`);
+            return false;
+        }
+
+        this.userActiveSession.set(userId, sessionId);
+        session.lastActivity = new Date();
+        this.resetSessionTimeout(userId, sessionId);
+
+        console.log(`✅ Установлена активная сессия для ${userId}: ${sessionId}`);
+        return true;
+    }
+
+    getSession(sessionId) {
+        return this.sessions.get(sessionId) || null;
+    }
+
+    updateSession(sessionId, updates) {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        Object.assign(session, updates);
+        session.lastActivity = new Date();
+
+        // Обновляем таймаут
+        this.resetSessionTimeout(session.userId, sessionId);
+
+        return session;
+    }
+
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Удалить сессию
+    deleteSession(sessionId) {
+        const session = this.sessions.get(sessionId);
+        if (!session) return false;
+
+        const userId = session.userId;
+
+        // Удаляем из активных, если это активная сессия
+        if (this.userActiveSession.get(userId) === sessionId) {
+            this.userActiveSession.delete(userId);
+        }
+
+        // Очищаем таймаут
+        if (this.sessionTimeouts.has(sessionId)) {
+            clearTimeout(this.sessionTimeouts.get(sessionId));
+            this.sessionTimeouts.delete(sessionId);
+        }
+
+        // Удаляем сессию
+        this.sessions.delete(sessionId);
+
+        console.log(`🗑️ Удалена сессия: ${sessionId} (пользователь: ${userId})`);
+        return true;
+    }
+
+    resetSessionTimeout(userId, sessionId) {
+        const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 минут
+
+        // Очищаем предыдущий таймаут
+        if (this.sessionTimeouts.has(sessionId)) {
+            clearTimeout(this.sessionTimeouts.get(sessionId));
+        }
+
+        // Устанавливаем новый таймаут
+        const timeout = setTimeout(() => {
+            console.log(`⏰ Сессия ${sessionId} истекла по таймауту (30 минут)`);
+           
+            // Удаляем из активных
+            if (this.userActiveSession.get(userId) === sessionId) {
+                this.userActiveSession.delete(userId);
+            }
+           
+            // Удаляем сессию
+            this.sessions.delete(sessionId);
+            this.sessionTimeouts.delete(sessionId);
+        }, SESSION_TIMEOUT_MS);
+
+        this.sessionTimeouts.set(sessionId, timeout);
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить статистику сессий
+    getSessionStats() {
+        const stats = {
+            totalSessions: this.sessions.size,
+            usersWithSessions: new Set(),
+            activeSessions: this.userActiveSession.size,
+            sessionsByUser: {}
         };
+
+        // Собираем статистику по пользователям
+        for (const [sessionId, session] of this.sessions) {
+            const userId = session.userId;
+            stats.usersWithSessions.add(userId);
+
+            if (!stats.sessionsByUser[userId]) {
+                stats.sessionsByUser[userId] = 0;
+            }
+            stats.sessionsByUser[userId]++;
+        }
+
+        stats.uniqueUsers = stats.usersWithSessions.size;
+
+        return stats;
     }
 
-    // 🔥 ОЧИСТКА СТАРЫХ СЕССИЙ
+    // 🔥 НОВЫЙ МЕТОД: Очистить старые сессии
     cleanupOldSessions(maxAgeHours = 24) {
         const now = new Date();
-        let cleanedCount = 0;
+        const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
+        let deletedCount = 0;
 
-        for (const [userId, session] of this.manager.userSessions.entries()) {
-            const hoursDiff = (now - session.lastActivity) / (1000 * 60 * 60);
+        for (const [sessionId, session] of this.sessions) {
+            const sessionAge = now - session.lastActivity;
            
-            if (hoursDiff > maxAgeHours) {
-                this.manager.userSessions.delete(userId);
-               
-                // Также очищаем связанные супер-модели
-                if (this.manager.vectorSuperModels.has(userId)) {
-                    this.manager.vectorSuperModels.delete(userId);
-                }
-               
-                cleanedCount++;
-                console.log(`🧹 Очищена старая сессия: ${session.id.slice(0, 8)} (${hoursDiff.toFixed(1)} часов)`);
+            if (sessionAge > maxAgeMs) {
+                this.deleteSession(sessionId);
+                deletedCount++;
+            }
+        }
+
+        console.log(`🧹 Очищено ${deletedCount} старых сессий (старше ${maxAgeHours} часов)`);
+        return deletedCount;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Переключить активную сессию
+    switchActiveSession(userId, sessionId) {
+        const session = this.getSession(sessionId);
+        if (!session || session.userId !== userId) {
+            console.log(`❌ Не могу переключиться на сессию ${sessionId}`);
+            return false;
+        }
+
+        // Устанавливаем как активную
+        this.setActiveSession(userId, sessionId);
+
+        console.log(`🔄 Переключена активная сессия для ${userId}: ${sessionId}`);
+        return true;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить список сессий пользователя
+    listUserSessions(userId) {
+        const userSessions = this.getUserSessions(userId);
+        const activeSessionId = this.userActiveSession.get(userId);
+
+        return userSessions.map(session => ({
+            id: session.id,
+            name: session.name,
+            createdAt: session.createdAt,
+            lastActivity: session.lastActivity,
+            isActive: session.id === activeSessionId,
+            photoCount: session.photos ? session.photos.length : 0,
+            hasFootprint: !!session.currentFootprint
+        }));
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Проверить здоровье сессий
+    checkSessionHealth() {
+        const stats = this.getSessionStats();
+        const issues = [];
+
+        // Проверка на слишком много сессий у одного пользователя
+        Object.entries(stats.sessionsByUser).forEach(([userId, count]) => {
+            if (count > this.maxSessionsPerUser) {
+                issues.push(`Пользователь ${userId}: ${count} сессий (макс: ${this.maxSessionsPerUser})`);
+            }
+        });
+
+        // Проверка старых сессий
+        const now = new Date();
+        for (const [sessionId, session] of this.sessions) {
+            const ageHours = (now - session.lastActivity) / (60 * 60 * 1000);
+            if (ageHours > 24) {
+                issues.push(`Сессия ${sessionId}: неактивна ${ageHours.toFixed(1)} часов`);
             }
         }
 
         return {
-            cleanedCount,
-            remainingSessions: this.manager.userSessions.size
+            healthy: issues.length === 0,
+            stats: stats,
+            issues: issues
         };
-    }
-
-    // 🔥 ПОЛУЧЕНИЕ ВСЕХ СЕССИЙ (для админки)
-    getAllSessions() {
-        const sessions = [];
-       
-        for (const [userId, session] of this.manager.userSessions.entries()) {
-            sessions.push({
-                userId,
-                sessionId: session.id,
-                name: session.name,
-                startTime: session.startTime,
-                lastActivity: session.lastActivity,
-                photosCount: session.photos.length,
-                hasFootprint: !!session.currentFootprint
-            });
-        }
-       
-        return sessions;
-    }
-
-    // 🔥 ПРОВЕРКА СУЩЕСТВОВАНИЯ СЕССИИ
-    hasSession(userId) {
-        return this.manager.userSessions.has(userId);
-    }
-
-    // 🔥 ОБНОВЛЕНИЕ ВРЕМЕНИ АКТИВНОСТИ
-    updateLastActivity(userId) {
-        const session = this.manager.userSessions.get(userId);
-        if (session) {
-            session.lastActivity = new Date();
-            return true;
-        }
-        return false;
     }
 }
 
