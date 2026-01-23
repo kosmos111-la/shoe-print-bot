@@ -33,7 +33,7 @@ class CoordinateManager {
             // 🔥 ДОБАВЛЯЕМ ПРЯМЫЕ ПРЕОБРАЗОВАНИЯ ДЛЯ ВСЕХ КОМБИНАЦИЙ
             'original→normalized': 'normalizePoints',
             'normalized→original': 'denormalizePoints',
-            'original→template': 'normalizedToTemplate',
+            'original→template': 'originalToTemplate',
             'template→original': 'templateToOriginal',
             'tracker→original': 'trackerToOriginal',
             'original→tracker': 'originalToTracker',
@@ -363,28 +363,84 @@ class CoordinateManager {
     }
 
     // original → template (оригинальные → шаблон)
-    normalizedToTemplate(points, transformation) {
-        // Для преобразования в систему шаблона нужна трансформация шаблона
-        // Пока возвращаем как есть
-        return points.map(p => ({
-            ...p,
-            _inTemplateSystem: true,
-            _templateTransformation: 'placeholder'
-        }));
+    originalToTemplate(points, transformation) {
+        // Преобразуем оригинальные точки в систему шаблона
+        if (!transformation || !transformation.templateTransform) {
+            console.log('⚠️ Нет трансформации шаблона для преобразования');
+            return points;
+        }
+
+        const templateTransform = transformation.templateTransform;
+        const footprintTransform = transformation.footprintTransform;
+
+        // Применяем обратную трансформацию отпечатка, затем преобразуем к шаблону
+        let transformedPoints = points;
+
+        // Если есть трансформация отпечатка - применяем обратную
+        if (footprintTransform && footprintTransform.rotationAngle) {
+            const RotationInvariance = require('../rotation-invariance');
+            const processor = new RotationInvariance({ debug: false });
+           
+            const angleRad = -footprintTransform.rotationAngle * Math.PI / 180;
+            transformedPoints = processor.transformPointsSimple(points, 0, -footprintTransform.rotationAngle);
+        }
+
+        // Преобразуем к нормализованным координатам шаблона
+        return transformedPoints.map(p => {
+            const width = templateTransform.width || 1000;
+            const height = templateTransform.height || 1000;
+           
+            return {
+                ...p,
+                nx: (p.x - (templateTransform.minX || 0)) / Math.max(1, width),
+                ny: (p.y - (templateTransform.minY || 0)) / Math.max(1, height),
+                _inTemplateSystem: true,
+                _templateTransformation: templateTransform
+            };
+        });
     }
 
     // template → original (шаблон → оригинальные)
     templateToOriginal(points, transformation) {
         // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Преобразование из шаблона
-        // Всегда центрируем шаблон в единую систему
-        return points.map(p => ({
+        if (!transformation || !transformation.templateTransform) {
+            console.log('⚠️ Нет трансформации шаблона для обратного преобразования');
+            return points;
+        }
+
+        const templateTransform = transformation.templateTransform;
+        const footprintTransform = transformation.footprintTransform;
+       
+        const width = templateTransform.width || 1000;
+        const height = templateTransform.height || 1000;
+
+        // Преобразуем из нормализованных координат шаблона
+        let originalPoints = points.map(p => ({
             ...p,
-            _fromTemplate: true,
-            x: (p.nx || 0) * 1000, // Приводим к диапазону 0-1000
-            y: (p.ny || 0) * 1000,
-            // 🔥 СДВИГ К ЕДИНОМУ ЦЕНТРУ
-            x: p.x + this.SYSTEM_CONSTANTS.CENTER.x - 500,
-            y: p.y + this.SYSTEM_CONSTANTS.CENTER.y - 500
+            x: (p.nx || 0) * width + (templateTransform.minX || 0),
+            y: (p.ny || 0) * height + (templateTransform.minY || 0),
+            _fromTemplate: true
+        }));
+
+        // Если есть трансформация отпечатка - применяем прямую
+        if (footprintTransform && footprintTransform.rotationAngle) {
+            const RotationInvariance = require('../rotation-invariance');
+            const processor = new RotationInvariance({ debug: false });
+           
+            originalPoints = processor.transformPointsSimple(originalPoints, 0, footprintTransform.rotationAngle);
+        }
+
+        // 🔥 СДВИГ К ЕДИНОМУ ЦЕНТРУ
+        const targetCenter = this.SYSTEM_CONSTANTS.CENTER;
+        const currentCenter = this.calculateCenter(originalPoints);
+        const offsetX = targetCenter.x - currentCenter.x;
+        const offsetY = targetCenter.y - currentCenter.y;
+
+        return originalPoints.map(p => ({
+            ...p,
+            x: p.x + offsetX,
+            y: p.y + offsetY,
+            _alignedToSystemCenter: true
         }));
     }
 
