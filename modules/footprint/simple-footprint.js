@@ -2265,13 +2265,13 @@ class SimpleFootprint {
     // 🔥 НОВЫЙ МЕТОД: Получить точки через единый CoordinateManager
     getUnifiedCoordinates(options = {}) {
         console.log(`📡 [UNIFIED-COORD] Получаю единые координаты для отпечатка "${this.name}"`);
-       
+
         const {
             coordinateSystem = 'normalized',
             debug = false,
             forceRecalculate = false
         } = options;
-       
+
         // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Получаем точки из трекера в оригинальной системе
         const originalPoints = [];
         if (this.pointTracker && this.pointTracker.points) {
@@ -2287,42 +2287,42 @@ class SimpleFootprint {
                 });
             }
         }
-       
+
         if (originalPoints.length === 0) {
             console.log('⚠️ Нет точек в трекере');
             return [];
         }
-       
+
         console.log(`📊 Оригинальных точек: ${originalPoints.length}`);
         console.log(`   Пример: (${originalPoints[0]?.x?.toFixed(1)}, ${originalPoints[0]?.y?.toFixed(1)})`);
-       
+
         // Если запрашиваем оригинальную систему - возвращаем как есть
         if (coordinateSystem === 'original') {
             return originalPoints;
         }
-       
+
         // 🔥 ПРЯМАЯ НОРМАЛИЗАЦИЯ БЕЗ КОМПЛИКАЦИЙ
         try {
             const RotationInvariance = require('./rotation-invariance');
             const processor = new RotationInvariance({ debug: debug });
-           
+
             // Получаем трансформацию
             const transformation = this.getTransformation();
             const rotationAngle = transformation?.rotationAngle || 0;
-           
+
             console.log(`📐 Трансформация: ${rotationAngle.toFixed(1)}°`);
-           
+
             // 1. Поворачиваем к 0°
             let normalizedPoints = originalPoints;
             if (Math.abs(rotationAngle) > 0.1) {
                 console.log(`🔄 Поворачиваю на ${-rotationAngle.toFixed(1)}°`);
                 normalizedPoints = processor.transformPointsSimple(originalPoints, rotationAngle, 0);
             }
-           
+
             // 2. Центрируем к (500, 500)
             const targetCenter = { x: 500, y: 500 };
             const centeredPoints = processor.alignPointsToCommonSystem(normalizedPoints, targetCenter);
-           
+
             // 3. Проверяем результат
             if (centeredPoints.length > 0) {
                 const firstPoint = centeredPoints[0];
@@ -2330,15 +2330,15 @@ class SimpleFootprint {
                     Math.pow(firstPoint.x - 500, 2) +
                     Math.pow(firstPoint.y - 500, 2)
                 );
-               
+
                 console.log(`🎯 Центрирование: (${firstPoint.x.toFixed(1)}, ${firstPoint.y.toFixed(1)})`);
                 console.log(`📏 Отклонение от центра: ${distanceFromCenter.toFixed(1)}px`);
-               
+
                 if (distanceFromCenter > 50) {
                     console.log(`⚠️ ВНИМАНИЕ: Точки далеко от центра!`);
                 }
             }
-           
+
             // 4. Добавляем метаданные
             const resultPoints = centeredPoints.map(p => ({
                 ...p,
@@ -2347,101 +2347,137 @@ class SimpleFootprint {
                 _originalAngle: rotationAngle,
                 _centeredTo: targetCenter
             }));
-           
+
             console.log(`✅ Нормализовано ${resultPoints.length} точек`);
             return resultPoints;
-           
+
         } catch (error) {
             console.log(`❌ Ошибка нормализации: ${error.message}`);
             return originalPoints; // Возвращаем оригинальные точки как фаллбэк
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Получить точки для сравнения с шаблоном
-    getPointsForTemplateComparison() {
-    console.log(`🔍 [TEMPLATE-COMPARE] Готовлю точки для сравнения с шаблоном`);
-   
-    // 1. Получаем унифицированные координаты
-    const unifiedPoints = this.getUnifiedCoordinates({
-        coordinateSystem: 'normalized',
-        debug: true
-    });
-   
-    if (unifiedPoints.length === 0) {
-        console.log('⚠️ Нет точек для шаблона');
-        return [];
-    }
-   
-    // 2. 🔥 ГАРАНТИРУЕМ, ЧТО КООРДИНАТЫ В ДИАПАЗОНЕ 0-1000
-    const safePoints = unifiedPoints.map(p => ({
-        ...p,
-        x: Math.max(0, Math.min(1000, p.x || 0)),
-        y: Math.max(0, Math.min(1000, p.y || 0))
-    }));
-   
-    // 3. 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ПРЕОБРАЗУЕМ К СИСТЕМЕ ШАБЛОНА [0,1]
-    console.log(`📐 Преобразую координаты к системе шаблона [0, 1]...`);
-   
-    // Находим фактические границы
-    const xs = safePoints.map(p => p.x);
-    const ys = safePoints.map(p => p.y);
-   
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-   
-    const width = Math.max(1, maxX - minX);
-    const height = Math.max(1, maxY - minY);
-   
-    console.log(`📏 Границы: X[${minX.toFixed(1)}-${maxX.toFixed(1)}] Y[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
-    console.log(`📏 Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
-   
-    // 4. Преобразуем к [0, 1]
-    const templatePoints = safePoints.map((p, index) => {
-        const nx = (p.x - minX) / width;
-        const ny = (p.y - minY) / height;
-       
-        // 🔥 ГАРАНТИРУЕМ правильный диапазон
-        return {
-            ...p,
-            id: p.id || `template_pt_${index}`,
-            nx: Math.max(0, Math.min(1, nx)),
-            ny: Math.max(0, Math.min(1, ny)),
-            _normalizedToTemplate: true,
-            _normalizationInfo: {
-                minX, maxX, minY, maxY,
-                width, height
-            }
-        };
-    });
-   
-    // 5. Проверка
-    if (templatePoints.length > 0) {
-        const sample = templatePoints[0];
-        console.log(`📊 ПРОВЕРКА координат для шаблона:`);
-        console.log(`   Оригинальные: (${sample.x?.toFixed(1)}, ${sample.y?.toFixed(1)})`);
-        console.log(`   Для шаблона (nx/ny): (${sample.nx?.toFixed(3)}, ${sample.ny?.toFixed(3)})`);
-       
-        // Проверяем диапазон всех точек
-        const allNx = templatePoints.map(p => p.nx);
-        const allNy = templatePoints.map(p => p.ny);
-       
-        console.log(`   Диапазон nx: ${Math.min(...allNx).toFixed(3)}-${Math.max(...allNx).toFixed(3)}`);
-        console.log(`   Диапазон ny: ${Math.min(...allNy).toFixed(3)}-${Math.max(...allNy).toFixed(3)}`);
-       
-        // Проверяем что в диапазоне [0,1]
-        const invalidPoints = templatePoints.filter(p => p.nx < 0 || p.nx > 1 || p.ny < 0 || p.ny > 1);
-        if (invalidPoints.length > 0) {
-            console.log(`⚠️ ВНИМАНИЕ: ${invalidPoints.length} точек вне диапазона [0,1]`);
-        } else {
-            console.log(`✅ ВСЕ точки в правильном диапазоне [0,1]`);
+    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ НОВЫЙ МЕТОД ДЛЯ ЕДИНОЙ СИСТЕМЫ КООРДИНАТ
+    getPointsForTemplateMatching() {
+        console.log(`🎯 [TEMPLATE-MATCH] Получаю точки для сравнения с шаблоном в ЕДИНОЙ системе координат`);
+
+        // 1. Получаем точки в нормализованной системе (500±300)
+        const normalizedPoints = this.getUnifiedCoordinates({
+            coordinateSystem: 'normalized',
+            debug: false
+        });
+
+        if (normalizedPoints.length === 0) {
+            console.log('⚠️ Нет нормализованных точек');
+            return [];
         }
+
+        // 2. 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Приводим к СИСТЕМЕ ШАБЛОНА
+        // Предположим, что шаблон работает в диапазоне 0-1000
+        // Нам нужно масштабировать точки к этому диапазону
+
+        // Находим границы наших точек
+        const xs = normalizedPoints.map(p => p.x);
+        const ys = normalizedPoints.map(p => p.y);
+
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+
+        const width = Math.max(1, maxX - minX);
+        const height = Math.max(1, maxY - minY);
+
+        console.log(`📏 Наши границы: X[${minX.toFixed(1)}-${maxX.toFixed(1)}], Y[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
+        console.log(`📏 Размеры: ${width.toFixed(1)}x${height.toFixed(1)}`);
+
+        // 3. 🔥 ПРЕОБРАЗОВАНИЕ К СИСТЕМЕ ШАБЛОНА (0-1000)
+        const templateSystemPoints = normalizedPoints.map((point, index) => {
+            // Преобразуем к диапазону 200-800 (центр 500)
+            const targetMin = 200;
+            const targetMax = 800;
+
+            // Сохраняем оригинальные координаты
+            const originalX = point.x;
+            const originalY = point.y;
+
+            // Преобразуем к системе шаблона
+            const templateX = targetMin + (point.x - minX) / width * (targetMax - targetMin);
+            const templateY = targetMin + (point.y - minY) / height * (targetMax - targetMin);
+
+            // 🔥 ВАЖНО: Также создаем nx/ny для шаблона [0,1]
+            const nx = (templateX - targetMin) / (targetMax - targetMin);
+            const ny = (templateY - targetMin) / (targetMax - targetMin);
+
+            return {
+                ...point,
+                // Для сравнения с другими точками в px
+                x: templateX,
+                y: templateY,
+
+                // Для шаблона в нормализованных координатах
+                nx: Math.max(0, Math.min(1, nx)),
+                ny: Math.max(0, Math.min(1, ny)),
+
+                // Сохраняем оригинальные для отладки
+                originalX: originalX,
+                originalY: originalY,
+
+                _matchedInTemplateSystem: true,
+                _templateRange: `${targetMin}-${targetMax}`,
+                _conversionInfo: {
+                    minX, maxX, minY, maxY,
+                    width, height,
+                    originalCoords: `(${originalX.toFixed(1)}, ${originalY.toFixed(1)})`
+                }
+            };
+        });
+
+        // 4. Проверяем результат
+        if (templateSystemPoints.length > 0) {
+            const sample = templateSystemPoints[0];
+            console.log(`📊 РЕЗУЛЬТАТ преобразования координат:`);
+            console.log(`   Оригинал: (${sample.originalX?.toFixed(1)}, ${sample.originalY?.toFixed(1)})`);
+            console.log(`   Для шаблона (x/y): (${sample.x?.toFixed(1)}, ${sample.y?.toFixed(1)})`);
+            console.log(`   Для шаблона (nx/ny): (${sample.nx?.toFixed(3)}, ${sample.ny?.toFixed(3)})`);
+            console.log(`   Диапазон: 200-800 (центр 500)`);
+        }
+
+        console.log(`✅ Подготовлено ${templateSystemPoints.length} точек в ЕДИНОЙ системе координат`);
+        return templateSystemPoints;
     }
-   
-    console.log(`✅ Подготовлено ${templatePoints.length} точек для шаблона`);
-    return templatePoints;
-}
+
+    // 🔥 ОБНОВЛЯЕМ существующий метод getPointsForTemplateComparison:
+    getPointsForTemplateComparison() {
+        console.log(`🔍 [TEMPLATE-COMPARE] Готовлю точки для добавления к шаблону`);
+
+        // Используем новый метод для ЕДИНОЙ системы координат
+        const templatePoints = this.getPointsForTemplateMatching();
+
+        if (templatePoints.length === 0) {
+            return [];
+        }
+
+        // 🔥 ГАРАНТИРУЕМ, что все точки имеют nx/ny
+        const validatedPoints = templatePoints.map((point, index) => {
+            if (!point.nx || !point.ny) {
+                // Автоматически создаем nx/ny из x/y
+                const nx = (point.x || 0) / 1000;
+                const ny = (point.y || 0) / 1000;
+
+                return {
+                    ...point,
+                    nx: Math.max(0, Math.min(1, nx)),
+                    ny: Math.max(0, Math.min(1, ny)),
+                    _autoNormalized: true
+                };
+            }
+            return point;
+        });
+
+        console.log(`✅ ВСЕ точки подготовлены для шаблона`);
+        return validatedPoints;
+    }
 }
 
 module.exports = SimpleFootprint;
