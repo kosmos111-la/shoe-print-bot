@@ -65,146 +65,210 @@ class VectorSuperModel {
 
     // 🔥 НОВЫЙ МЕТОД: Принудительное добавление С ПРАВИЛЬНЫМИ КООРДИНАТАМИ
     addGraphWithForcedConfidence(graph, graphId, metadata = {}) {
-        console.log(`🎯 [FORCED-ADD] ПРИНУДИТЕЛЬНО добавляю граф ${graphId} с уверенностью ${metadata.similarity}`);
+    console.log(`🎯 [FORCED-ADD] ПРИНУДИТЕЛЬНО добавляю граф ${graphId} с уверенностью ${metadata.similarity}`);
+   
+    if (metadata.similarity && metadata.similarity > 0.9) {
+        console.log(`🔥 SIMPLE-MATCHER УВЕРЕН НА ${(metadata.similarity * 100).toFixed(1)}%`);
        
-        if (metadata.similarity && metadata.similarity > 0.9) {
-            console.log(`🔥 SIMPLE-MATCHER УВЕРЕН НА ${(metadata.similarity * 100).toFixed(1)}%`);
+        // 1. Сохраняем исходный граф
+        this.saveSourceGraph(graph, graphId, metadata);
+       
+        // 2. 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Получаем точки В ПРАВИЛЬНОЙ СИСТЕМЕ КООРДИНАТ
+        let pointsForTemplate = [];
+       
+        if (metadata.sourceFootprint && metadata.sourceFootprint.getPointsForTemplateComparison) {
+            // Получаем точки уже в системе шаблона [0,1]
+            pointsForTemplate = metadata.sourceFootprint.getPointsForTemplateComparison();
+            console.log(`📊 Получено ${pointsForTemplate.length} точек в системе шаблона [0,1]`);
            
-            // 1. Сохраняем исходный граф
-            this.saveSourceGraph(graph, graphId, metadata);
-           
-            // 2. 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Получаем точки В ПРАВИЛЬНОЙ СИСТЕМЕ КООРДИНАТ
-            let pointsForTemplate = [];
-           
-            if (metadata.sourceFootprint && metadata.sourceFootprint.getPointsForTemplateComparison) {
-                // Получаем точки уже в системе шаблона [0,1]
-                pointsForTemplate = metadata.sourceFootprint.getPointsForTemplateComparison();
-                console.log(`📊 Получено ${pointsForTemplate.length} точек в системе шаблона [0,1]`);
-               
-                if (pointsForTemplate.length > 0) {
-                    console.log(`   Пример: (${pointsForTemplate[0].nx?.toFixed(3)}, ${pointsForTemplate[0].ny?.toFixed(3)})`);
-                }
-            } else {
-                // Фаллбэк
-                pointsForTemplate = this.templateBuilder.extractPointsFromGraph(graph);
-                console.log(`⚠️ Фаллбэк: получено ${pointsForTemplate.length} точек`);
+            if (pointsForTemplate.length > 0) {
+                console.log(`   Пример: (${pointsForTemplate[0].nx?.toFixed(3)}, ${pointsForTemplate[0].ny?.toFixed(3)})`);
             }
+        } else {
+            // 🔥 ВАЖНО: Если нет метода getPointsForTemplateComparison, используем прямой метод
+            console.log(`⚠️ Нет метода getPointsForTemplateComparison, использую извлечение из графа`);
            
-            if (pointsForTemplate.length < 3) {
-                console.log(`❌ Недостаточно точек для принудительного добавления: ${pointsForTemplate.length}`);
-                return false;
+            // Извлекаем точки из графа
+            const graphPoints = this.templateBuilder.extractPointsFromGraph(graph);
+           
+            if (graphPoints.length > 0) {
+                // 🔥 ПРЕОБРАЗУЕМ К СИСТЕМЕ ШАБЛОНА [0,1]
+                const xs = graphPoints.map(p => p.x);
+                const ys = graphPoints.map(p => p.y);
+               
+                const minX = Math.min(...xs);
+                const maxX = Math.max(...xs);
+                const minY = Math.min(...ys);
+                const maxY = Math.max(...ys);
+               
+                const width = Math.max(1, maxX - minX);
+                const height = Math.max(1, maxY - minY);
+               
+                pointsForTemplate = graphPoints.map((point, index) => ({
+                    ...point,
+                    nx: (point.x - minX) / width,
+                    ny: (point.y - minY) / height,
+                    id: point.id || `forced_${index}`
+                }));
+               
+                console.log(`📊 Преобразовано ${pointsForTemplate.length} точек к [0,1]`);
             }
-           
-            // 3. 🔥 ДОБАВЛЯЕМ К ШАБЛОНУ С ПРАВИЛЬНЫМИ КООРДИНАТАМИ
-            if (!this.templateBuilder.referenceGraphId) {
-                // Первый граф
-                console.log(`🎯 Устанавливаю как начальный эталон`);
-                this.templateBuilder.setReferenceGraph(graph, graphId, metadata);
-               
-                if (this.templateBuilder.referenceGraphId) {
-                    this.bestGraphId = graphId;
-                    this.bestGraphScore = this.calculateGraphScore(graph);
-                    this.bestGraphMetadata = metadata;
-                }
-            } else {
-                // 🔥 ВАЖНО: Добавляем точки К СУЩЕСТВУЮЩЕМУ ШАБЛОНУ
-                console.log(`🔄 Принудительно добавляю ${pointsForTemplate.length} точек к существующему шаблону...`);
-               
-                let addedCount = 0;
-                let mergedCount = 0;
-               
-                pointsForTemplate.forEach((point, index) => {
-                    if (!point.nx || !point.ny) {
-                        console.log(`⚠️ Точка ${index} без nx/ny координат`);
-                        return;
-                    }
-                   
-                    // Ищем ближайшую ячейку в шаблоне
-                    let nearestCellId = null;
-                    let minDistance = Infinity;
-                   
-                    for (const [cellId, cell] of this.templateBuilder.invariantCells) {
-                        const distance = Math.sqrt(
-                            Math.pow(cell.normalizedCenter.nx - point.nx, 2) +
-                            Math.pow(cell.normalizedCenter.ny - point.ny, 2)
-                        );
-                       
-                        if (distance < minDistance) {
-                            minDistance = distance;
-                            nearestCellId = cellId;
-                        }
-                    }
-                   
-                    const MERGE_DISTANCE = 0.05; // 5% от размера шаблона
-                   
-                    if (nearestCellId && minDistance < MERGE_DISTANCE) {
-                        // Объединяем с существующей ячейкой
-                        const cell = this.templateBuilder.invariantCells.get(nearestCellId);
-                        if (cell) {
-                            const oldConfirmations = cell.confirmations || 1;
-                            cell.confirmations = oldConfirmations + 1;
-                            cell.confidence = Math.min(1.0, (cell.confidence || 0.7) + 0.1);
-                           
-                            if (!cell.sources) cell.sources = new Set();
-                            cell.sources.add(graphId);
-                           
-                            // Уточняем координаты
-                            const weight = 1.0 / cell.confirmations;
-                            cell.normalizedCenter.nx = cell.normalizedCenter.nx * (1 - weight) +
-                                                      point.nx * weight;
-                            cell.normalizedCenter.ny = cell.normalizedCenter.ny * (1 - weight) +
-                                                      point.ny * weight;
-                           
-                            mergedCount++;
-                        }
-                    } else {
-                        // Создаем новую ячейку
-                        const cellId = `forced_${graphId}_${index}_${Date.now()}`;
-                       
-                        const newCell = {
-                            normalizedCenter: {
-                                nx: point.nx,
-                                ny: point.ny
-                            },
-                            originalCenter: {
-                                x: point.x || 0,
-                                y: point.y || 0
-                            },
-                            radius: 0.03,
-                            points: [point.id || `pt_${index}`],
-                            confirmations: 1,
-                            confidence: metadata.similarity * 0.9, // Учитываем уверенность simple-matcher
-                            sources: new Set([graphId]),
-                            invariants: null,
-                            isForced: true,
-                            forcedBy: 'high_confidence_match',
-                            forcedConfidence: metadata.similarity,
-                            addedAt: new Date()
-                        };
-                       
-                        this.templateBuilder.invariantCells.set(cellId, newCell);
-                        addedCount++;
-                    }
-                });
-               
-                console.log(`✅ Принудительно добавлено: ${addedCount} новых, ${mergedCount} объединено`);
-            }
-           
-            // Обновляем статистику
-            this.stats.totalGraphsAdded++;
-            this.stats.totalMerges++;
-            this.stats.lastUpdated = new Date();
-            this.updateStats();
-           
-            console.log(`🏁 Принудительное добавление завершено`);
-            console.log(`   Всего ячеек в шаблоне: ${this.templateBuilder.invariantCells.size}`);
-           
-            return true;
         }
        
-        console.log(`⚠️ Недостаточная уверенность для принудительного добавления: ${metadata.similarity}`);
-        return this.addGraph(graph, graphId, metadata);
+        if (pointsForTemplate.length < 3) {
+            console.log(`❌ Недостаточно точек для принудительного добавления: ${pointsForTemplate.length}`);
+            return false;
+        }
+       
+        // 3. 🔥 ПРОВЕРЯЕМ, ЧТО У ВСЕХ ТОЧЕК ЕСТЬ nx/ny
+        const pointsWithoutCoords = pointsForTemplate.filter(p => !p.nx || !p.ny);
+        if (pointsWithoutCoords.length > 0) {
+            console.log(`⚠️ ${pointsWithoutCoords.length} точек без nx/ny координат`);
+           
+            // 🔥 ИСПРАВЛЕНИЕ: Создаем nx/ny из x/y
+            pointsForTemplate = pointsForTemplate.map((point, index) => {
+                if (!point.nx || !point.ny) {
+                    // Используем простую нормализацию
+                    return {
+                        ...point,
+                        nx: (point.x || 0) / 1000, // Предполагаем диапазон 0-1000
+                        ny: (point.y || 0) / 1000,
+                        _autoNormalized: true
+                    };
+                }
+                return point;
+            });
+           
+            console.log(`📊 Автоматически нормализовано ${pointsWithoutCoords.length} точек`);
+        }
+       
+        // Проверяем координаты
+        if (pointsForTemplate.length > 0) {
+            const sample = pointsForTemplate[0];
+            console.log(`📊 Проверка координат:`);
+            console.log(`   Пример: (${sample.nx?.toFixed(3)}, ${sample.ny?.toFixed(3)})`);
+            console.log(`   Диапазон: nx=${Math.min(...pointsForTemplate.map(p => p.nx)).toFixed(3)}-${Math.max(...pointsForTemplate.map(p => p.nx)).toFixed(3)}`);
+            console.log(`            ny=${Math.min(...pointsForTemplate.map(p => p.ny)).toFixed(3)}-${Math.max(...pointsForTemplate.map(p => p.ny)).toFixed(3)}`);
+        }
+       
+        // 4. 🔥 ДОБАВЛЯЕМ К ШАБЛОНУ
+        if (!this.templateBuilder.referenceGraphId) {
+            // Первый граф
+            console.log(`🎯 Устанавливаю как начальный эталон`);
+            this.templateBuilder.setReferenceGraph(graph, graphId, metadata);
+           
+            if (this.templateBuilder.referenceGraphId) {
+                this.bestGraphId = graphId;
+                this.bestGraphScore = this.calculateGraphScore(graph);
+                this.bestGraphMetadata = metadata;
+                console.log(`🏆 Начальный эталон установлен`);
+            }
+        } else {
+            // 🔥 ВАЖНО: Добавляем точки К СУЩЕСТВУЮЩЕМУ ШАБЛОНУ
+            console.log(`🔄 Принудительно добавляю ${pointsForTemplate.length} точек к существующему шаблону...`);
+           
+            let addedCount = 0;
+            let mergedCount = 0;
+           
+            // 🔥 ИСПРАВЛЕНИЕ: Простой алгоритм добавления
+            pointsForTemplate.forEach((point, index) => {
+                // Проверяем координаты
+                if (point.nx === undefined || point.ny === undefined) {
+                    console.log(`⚠️ Пропускаю точку ${index} без координат`);
+                    return;
+                }
+               
+                // Проверяем диапазон координат
+                if (point.nx < 0 || point.nx > 1 || point.ny < 0 || point.ny > 1) {
+                    console.log(`⚠️ Координаты точки ${index} вне диапазона [0,1]: (${point.nx.toFixed(3)}, ${point.ny.toFixed(3)})`);
+                   
+                    // Нормализуем
+                    point.nx = Math.max(0, Math.min(1, point.nx));
+                    point.ny = Math.max(0, Math.min(1, point.ny));
+                    console.log(`   Исправлено на: (${point.nx.toFixed(3)}, ${point.ny.toFixed(3)})`);
+                }
+               
+                // 🔥 ПРОСТОЙ МЕТОД: Создаем новую ячейку
+                const cellId = `forced_${graphId}_${index}_${Date.now()}`;
+               
+                const newCell = {
+                    normalizedCenter: {
+                        nx: point.nx,
+                        ny: point.ny
+                    },
+                    originalCenter: {
+                        x: point.x || (point.nx * 1000), // Для отладки
+                        y: point.y || (point.ny * 1000)
+                    },
+                    radius: 0.03,
+                    points: [point.id || `pt_${index}`],
+                    confirmations: 1,
+                    confidence: metadata.similarity * 0.8, // Учитываем уверенность
+                    sources: new Set([graphId]),
+                    invariants: null,
+                    isForced: true,
+                    forcedBy: 'high_confidence_match',
+                    forcedConfidence: metadata.similarity,
+                    addedAt: new Date(),
+                    _debug: {
+                        originalNx: point.nx,
+                        originalNy: point.ny,
+                        source: 'forced_addition'
+                    }
+                };
+               
+                // 🔥 ИСПРАВЛЕНИЕ: Сохраняем в templateBuilder
+                if (this.templateBuilder && this.templateBuilder.invariantCells) {
+                    this.templateBuilder.invariantCells.set(cellId, newCell);
+                    addedCount++;
+                   
+                    // Также добавляем в templateCells для совместимости
+                    if (this.templateBuilder.templateCells) {
+                        this.templateBuilder.templateCells.set(cellId, {
+                            center: newCell.originalCenter,
+                            radius: 25,
+                            points: newCell.points,
+                            confirmations: 1,
+                            confidence: newCell.confidence,
+                            sources: newCell.sources,
+                            matchedPoints: [],
+                            isForced: true
+                        });
+                    }
+                } else {
+                    console.log(`⚠️ Нет templateBuilder.invariantCells для сохранения`);
+                }
+            });
+           
+            console.log(`✅ Принудительно добавлено: ${addedCount} новых ячеек`);
+           
+            // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ TEMPLATE BUILDER
+            if (this.templateBuilder) {
+                this.templateBuilder.stats.totalGraphs = (this.templateBuilder.stats.totalGraphs || 0) + 1;
+                this.templateBuilder.stats.lastUpdated = new Date();
+               
+                console.log(`📊 Статистика шаблона после добавления:`);
+                console.log(`   Всего ячеек: ${this.templateBuilder.invariantCells?.size || 0}`);
+                console.log(`   Всего графов: ${this.templateBuilder.stats.totalGraphs}`);
+            }
+        }
+       
+        // Обновляем статистику vector-model
+        this.stats.totalGraphsAdded++;
+        this.stats.totalMerges++;
+        this.stats.lastUpdated = new Date();
+        this.updateStats();
+       
+        console.log(`🏁 Принудительное добавление завершено УСПЕШНО`);
+        console.log(`   Всего ячеек в шаблоне: ${this.templateBuilder.invariantCells?.size || 0}`);
+        console.log(`   Уверенность simple-matcher: ${(metadata.similarity * 100).toFixed(1)}%`);
+       
+        return true;
     }
+   
+    console.log(`⚠️ Недостаточная уверенность для принудительного добавления: ${metadata.similarity}`);
+    return this.addGraph(graph, graphId, metadata);
+}
 
     // 🔥 ИСПРАВЛЕННЫЙ addGraph - используем принудительное добавление при высокой уверенности
     addGraph(graph, graphId, metadata = {}) {
