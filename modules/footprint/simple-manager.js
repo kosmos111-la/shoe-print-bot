@@ -856,7 +856,7 @@ class SimpleFootprintManager {
     }
 
     // 🔥 МЕТОД: Обработка совпадающих следов (ОБНОВЛЕННЫЙ)
-    console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+   // console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
 
     // 🔥 СОЗДАНИЕ ВИЗУАЛИЗАЦИЙ (исправленная версия)
     async createVisualizations(session, userId, transformationInfo, existingTransformationInfo,
