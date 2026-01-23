@@ -23,7 +23,7 @@ const CoordinateSystemConverter = require('./alignment/coordinate-system-convert
 const CoordinateValidator = require('./alignment/coordinate-validator');
 const TransformationDebugger = require('./alignment/transformation-debugger');
 const ImprovedAligner = require('./alignment/improved-aligner');
-
+const LogManager = require('./core/log-manager');
 class SimpleFootprintManager {
     constructor(options = {}) {
         this.config = {
@@ -139,7 +139,22 @@ class SimpleFootprintManager {
         if (this.config.enableCoordinateDiagnostics) {
             this.runInitialDiagnostics();
         }
-    }
+   // 🔥 ИНИЦИАЛИЗАЦИЯ МЕНЕДЖЕРА ЛОГОВ
+        this.log = new LogManager(this);
+       
+        // Устанавливаем уровень из конфига
+        if (options.logLevel) {
+            this.log.setLevel(options.logLevel);
+        }
+       
+        // Заменяем console.log на this.log.info() во всем коде
+        console.log = (...args) => this.log.info(...args);
+        console.error = (...args) => this.log.error(...args);
+        console.warn = (...args) => this.log.warn(...args);
+       
+        console.log(`🚀 SimpleFootprintManager с улучшенным логированием`);
+    
+    }
 
     // 🔥 НОВЫЙ МЕТОД: Запуск начальной диагностики
     runInitialDiagnostics() {
