@@ -2359,60 +2359,61 @@ class SimpleFootprint {
 
     // 🔥 НОВЫЙ МЕТОД: Получить точки для сравнения с шаблоном
     getPointsForTemplateComparison() {
-        console.log(`🔍 [TEMPLATE-COMPARE] Готовлю точки для сравнения с шаблоном`);
-       
-        // Используем единые нормализованные координаты
-        const normalizedPoints = this.getUnifiedCoordinates({
-            coordinateSystem: 'normalized',
-            debug: true
-        });
-       
-        if (normalizedPoints.length === 0) {
-            console.log('⚠️ Нет нормализованных точек');
-            return [];
-        }
-       
-        // 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА: координаты должны быть в диапазоне ~200-800
-        const samplePoint = normalizedPoints[0];
-        console.log(`📊 Проверка нормализации:`);
-        console.log(`   Координаты: (${samplePoint.x.toFixed(1)}, ${samplePoint.y.toFixed(1)})`);
-        console.log(`   Ожидаемый диапазон: 200-800 (центр 500,500)`);
-       
-        // Если координаты вне диапазона - исправляем
-        if (samplePoint.x < 100 || samplePoint.x > 900 ||
-            samplePoint.y < 100 || samplePoint.y > 900) {
-           
-            console.log(`⚠️ Координаты вне ожидаемого диапазона!`);
-            console.log(`   Исправляю масштабированием...`);
-           
-            // Масштабируем к диапазону 200-800
-            const xs = normalizedPoints.map(p => p.x);
-            const ys = normalizedPoints.map(p => p.y);
-           
-            const minX = Math.min(...xs);
-            const maxX = Math.max(...xs);
-            const minY = Math.min(...ys);
-            const maxY = Math.max(...ys);
-           
-            const width = Math.max(1, maxX - minX);
-            const height = Math.max(1, maxY - minY);
-           
-            const targetMin = 200;
-            const targetMax = 800;
-           
-            const scaledPoints = normalizedPoints.map(p => ({
-                ...p,
-                x: targetMin + (p.x - minX) / width * (targetMax - targetMin),
-                y: targetMin + (p.y - minY) / height * (targetMax - targetMin),
-                _scaled: true
-            }));
-           
-            console.log(`   После масштабирования: (${scaledPoints[0].x.toFixed(1)}, ${scaledPoints[0].y.toFixed(1)})`);
-            return scaledPoints;
-        }
-       
-        return normalizedPoints;
+    console.log(`🔍 [TEMPLATE-COMPARE] Готовлю точки для сравнения с шаблоном`);
+   
+    // Получаем точки в системе 500±300
+    const normalizedPoints = this.getUnifiedCoordinates({
+        coordinateSystem: 'normalized',
+        debug: true
+    });
+   
+    if (normalizedPoints.length === 0) {
+        console.log('⚠️ Нет нормализованных точек');
+        return [];
     }
+   
+    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ПРЕОБРАЗУЕМ К СИСТЕМЕ ШАБЛОНА (0-1)
+    console.log(`📐 Преобразую координаты к системе шаблона [0, 1]...`);
+   
+    // 1. Находим границы
+    const xs = normalizedPoints.map(p => p.x);
+    const ys = normalizedPoints.map(p => p.y);
+   
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+   
+    const width = Math.max(1, maxX - minX);
+    const height = Math.max(1, maxY - minY);
+   
+    console.log(`📏 Границы: X[${minX.toFixed(1)}-${maxX.toFixed(1)}] Y[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
+   
+    // 2. Преобразуем к [0, 1]
+    const templatePoints = normalizedPoints.map(p => {
+        const nx = (p.x - minX) / width;
+        const ny = (p.y - minY) / height;
+       
+        return {
+            ...p,
+            nx: nx, // 🔥 ДЛЯ ШАБЛОНА ВАЖНЫ nx/ny
+            ny: ny,
+            x: p.x, // Сохраняем оригинальные для отладки
+            y: p.y,
+            _templateReady: true,
+            _normalizedToTemplate: true
+        };
+    });
+   
+    // Проверка
+    const sample = templatePoints[0];
+    console.log(`📊 Пример точки для шаблона:`);
+    console.log(`   Оригинальные: (${sample.x?.toFixed(1)}, ${sample.y?.toFixed(1)})`);
+    console.log(`   Для шаблона (nx/ny): (${sample.nx?.toFixed(3)}, ${sample.ny?.toFixed(3)})`);
+    console.log(`   Диапазон: [0.0-1.0] для шаблона`);
+   
+    return templatePoints;
+}
 }
 
 module.exports = SimpleFootprint;
