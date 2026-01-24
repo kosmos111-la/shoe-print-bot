@@ -11,6 +11,10 @@ class VectorTemplateBuilder {
         // Инвариантные ячейки - основные строительные блоки шаблона
         this.invariantCells = new Map(); // Map<cellId, Cell>
 
+        // 🔥 ЗАЩИТА ОТ РЕКУРСИИ
+        this._gettingVisualizationData = false;
+        this._gettingStats = false;
+
         // Статистика
         this.stats = {
             totalGraphsProcessed: 0,
@@ -32,6 +36,231 @@ class VectorTemplateBuilder {
         };
 
         console.log(`🏗️  Создан VectorTemplateBuilder "${this.name}" (ID: ${this.id})`);
+    }
+
+    // 🔥 ИСПРАВЛЕНИЕ: Метод getStats без рекурсии
+    getStats() {
+        if (this._gettingStats) {
+            console.warn('⚠️ Предотвращена рекурсия в getStats()');
+            return {
+                cells: this.invariantCells.size,
+                totalConfirmations: 0,
+                averageConfirmations: 0,
+                avgConfidence: 0,
+                highConfidenceCells: 0,
+                confirmedCells: 0,
+                totalGraphsProcessed: this.stats.totalGraphsProcessed || 0,
+                lastUpdated: this.lastUpdated
+            };
+        }
+
+        this._gettingStats = true;
+       
+        try {
+            const cells = Array.from(this.invariantCells?.values() || []);
+
+            let totalConfirmations = 0;
+            let totalConfidence = 0;
+            let highConfidenceCells = 0;
+            let confirmedCells = 0;
+
+            // 🔥 Безопасный цикл без вызовов других методов
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+                if (cell) {
+                    const conf = cell.confidence || 0;
+                    const confirm = cell.confirmations || 0;
+
+                    totalConfirmations += confirm;
+                    totalConfidence += conf;
+
+                    if (conf > 0.8) highConfidenceCells++;
+                    if (confirm >= 2) confirmedCells++;
+                }
+            }
+
+            const cellCount = cells.length;
+            const avgConfirmations = cellCount > 0 ? totalConfirmations / cellCount : 0;
+            const avgConfidence = cellCount > 0 ? totalConfidence / cellCount : 0;
+
+            const result = {
+                cells: cellCount,
+                totalConfirmations: totalConfirmations,
+                averageConfirmations: Math.round(avgConfirmations * 100) / 100,
+                avgConfidence: Math.round(avgConfidence * 1000) / 1000,
+                highConfidenceCells: highConfidenceCells,
+                confirmedCells: confirmedCells,
+                totalGraphsProcessed: this.stats.totalGraphsProcessed || 0,
+                lastUpdated: this.lastUpdated
+            };
+
+            return result;
+        } finally {
+            this._gettingStats = false;
+        }
+    }
+
+    // 🔥 ИСПРАВЛЕНИЕ: getVisualizationData без рекурсии
+    getVisualizationData(options = {}) {
+        if (this._gettingVisualizationData) {
+            console.warn('⚠️ Предотвращена рекурсия в getVisualizationData()');
+            return {
+                id: this.id,
+                name: this.name,
+                cellsCount: this.invariantCells.size,
+                points: [],
+                cells: [],
+                stats: { cells: this.invariantCells.size },
+                metadata: {
+                    createdAt: this.createdAt,
+                    lastUpdated: this.lastUpdated,
+                    warning: 'Рекурсивный вызов предотвращен'
+                }
+            };
+        }
+
+        this._gettingVisualizationData = true;
+       
+        try {
+            console.log(`🎨 Получаю данные для визуализации шаблона...`);
+
+            // 🔥 Безопасное получение статистики
+            const stats = this.getStats();
+           
+            const data = {
+                id: this.id,
+                name: this.name,
+                cellsCount: this.invariantCells.size,
+                points: [],
+                cells: [],
+                stats: stats,
+                metadata: {
+                    createdAt: this.createdAt,
+                    lastUpdated: this.lastUpdated,
+                    referenceGraphId: this.referenceGraphId,
+                    totalGraphsAdded: this.totalGraphsAdded
+                }
+            };
+
+            // Преобразуем ячейки в точки для визуализации
+            if (this.invariantCells && this.invariantCells.size > 0) {
+                // 🔥 Безопасный обход Map
+                const iterator = this.invariantCells.entries();
+                let result = iterator.next();
+               
+                while (!result.done) {
+                    const [cellId, cell] = result.value;
+                   
+                    if (cell && cell.normalizedCenter) {
+                        data.points.push({
+                            id: cellId,
+                            x: cell.normalizedCenter.nx * 1000,
+                            y: cell.normalizedCenter.ny * 1000,
+                            confidence: cell.confidence || 0.5,
+                            confirmations: cell.confirmations || 1,
+                            type: 'template_cell'
+                        });
+
+                        data.cells.push({
+                            id: cellId,
+                            center: cell.normalizedCenter,
+                            confirmations: cell.confirmations || 1,
+                            confidence: cell.confidence || 0.5
+                        });
+                    }
+                   
+                    result = iterator.next();
+                }
+            }
+
+            console.log(`✅ Подготовлено ${data.points.length} точек для визуализации`);
+            return data;
+        } catch (error) {
+            console.error(`❌ Ошибка в getVisualizationData: ${error.message}`);
+           
+            return {
+                id: this.id,
+                name: this.name,
+                cellsCount: 0,
+                points: [],
+                cells: [],
+                stats: { cells: 0 },
+                metadata: {
+                    error: error.message
+                }
+            };
+        } finally {
+            this._gettingVisualizationData = false;
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить простые данные без рекурсии
+    getSimpleData() {
+        return {
+            id: this.id,
+            name: this.name,
+            cellCount: this.invariantCells.size,
+            lastUpdated: this.lastUpdated,
+            cells: this.invariantCells ? Array.from(this.invariantCells.values()).map(cell => ({
+                id: cell.id,
+                nx: cell.normalizedCenter?.nx || 0,
+                ny: cell.normalizedCenter?.ny || 0,
+                confirmations: cell.confirmations || 1,
+                confidence: cell.confidence || 0.5
+            })) : []
+        };
+    }
+
+    // 🔥 ИСПРАВЛЕНИЕ: getSimpleVisualizationData без рекурсии
+    getSimpleVisualizationData() {
+        const points = [];
+
+        if (this.invariantCells && this.invariantCells.size > 0) {
+            for (const [cellId, cell] of this.invariantCells) {
+                if (cell && cell.normalizedCenter) {
+                    const x = cell.normalizedCenter.nx * 1000;
+                    const y = cell.normalizedCenter.ny * 1000;
+
+                    let color;
+                    if (cell.confidence > 0.8) {
+                        color = '#4CAF50';
+                    } else if (cell.confidence > 0.5) {
+                        color = '#FFC107';
+                    } else {
+                        color = '#F44336';
+                    }
+
+                    const size = 4 + Math.min(cell.confirmations || 1, 10);
+
+                    points.push({
+                        id: cellId,
+                        x: x,
+                        y: y,
+                        color: color,
+                        size: size,
+                        confidence: cell.confidence || 0.5,
+                        confirmations: cell.confirmations || 1,
+                        label: `Уверенность: ${((cell.confidence || 0.5) * 100).toFixed(0)}%`
+                    });
+                }
+            }
+        }
+
+        // 🔥 Безопасный расчет статистики
+        let avgConfidence = 0;
+        let totalConfirmations = 0;
+        if (points.length > 0) {
+            const totalConfidence = points.reduce((sum, p) => sum + (p.confidence || 0), 0);
+            avgConfidence = totalConfidence / points.length;
+            totalConfirmations = points.reduce((sum, p) => sum + (p.confirmations || 0), 0);
+        }
+
+        return {
+            points: points,
+            cellCount: this.invariantCells?.size || 0,
+            avgConfidence: avgConfidence,
+            totalConfirmations: totalConfirmations
+        };
     }
 
     // Установить эталонный граф
@@ -299,155 +528,6 @@ class VectorTemplateBuilder {
         return info;
     }
 
-    // Получить данные для визуализации
-    getVisualizationData(options = {}) {
-        console.log(`🎨 Получаю данные для визуализации шаблона...`);
-
-        const data = {
-            id: this.id,
-            name: this.name,
-            cellsCount: this.invariantCells.size,
-            points: [],
-            cells: [],
-            stats: this.getStats(),
-            metadata: {
-                createdAt: this.createdAt,
-                lastUpdated: this.lastUpdated,
-                referenceGraphId: this.referenceGraphId,
-                totalGraphsAdded: this.totalGraphsAdded
-            }
-        };
-
-        // Преобразуем ячейки в точки для визуализации
-        if (this.invariantCells && this.invariantCells.size > 0) {
-            for (const [cellId, cell] of this.invariantCells) {
-                // Точка центра ячейки
-                data.points.push({
-                    id: cellId,
-                    x: cell.normalizedCenter.nx * 1000, // Преобразуем к [0, 1000]
-                    y: cell.normalizedCenter.ny * 1000,
-                    confidence: cell.confidence,
-                    confirmations: cell.confirmations,
-                    totalGraphs: cell.totalGraphs || 1,
-                    isInvariant: cell.isInvariant || false,
-                    type: 'template_cell'
-                });
-
-                // Данные ячейки
-                data.cells.push({
-                    id: cellId,
-                    center: cell.normalizedCenter,
-                    confirmations: cell.confirmations,
-                    confidence: cell.confidence,
-                    totalGraphs: cell.totalGraphs || 1,
-                    lastUpdated: cell.lastUpdated,
-                    isInvariant: cell.isInvariant || false,
-                    features: cell.features || []
-                });
-            }
-        }
-
-        // Если нужны данные референсного графа
-        if (options.includeReferenceGraph && this.referenceGraph) {
-            data.referenceGraph = {
-                nodes: Array.from(this.referenceGraph.nodes?.values() || []).map(node => ({
-                    id: node.id,
-                    x: node.x,
-                    y: node.y,
-                    confidence: node.confidence
-                })),
-                edges: Array.from(this.referenceGraph.edges?.values() || []).map(edge => ({
-                    source: edge.source,
-                    target: edge.target,
-                    weight: edge.weight
-                }))
-            };
-        }
-
-        console.log(`✅ Подготовлено ${data.points.length} точек для визуализации`);
-        return data;
-    }
-
-    // Получить простые данные для визуализации
-    getSimpleVisualizationData() {
-        const points = [];
-
-        if (this.invariantCells && this.invariantCells.size > 0) {
-            for (const [cellId, cell] of this.invariantCells) {
-                // Преобразуем nx/ny к пикселям (диапазон 0-1000)
-                const x = cell.normalizedCenter.nx * 1000;
-                const y = cell.normalizedCenter.ny * 1000;
-
-                // Определяем цвет по уверенности
-                let color;
-                if (cell.confidence > 0.8) {
-                    color = '#4CAF50'; // Зеленый - высокая уверенность
-                } else if (cell.confidence > 0.5) {
-                    color = '#FFC107'; // Желтый - средняя уверенность
-                } else {
-                    color = '#F44336'; // Красный - низкая уверенность
-                }
-
-                // Размер по количеству подтверждений
-                const size = 4 + Math.min(cell.confirmations, 10);
-
-                points.push({
-                    id: cellId,
-                    x: x,
-                    y: y,
-                    color: color,
-                    size: size,
-                    confidence: cell.confidence,
-                    confirmations: cell.confirmations,
-                    label: `Уверенность: ${(cell.confidence * 100).toFixed(0)}%`
-                });
-            }
-        }
-
-        return {
-            points: points,
-            cellCount: this.invariantCells?.size || 0,
-            avgConfidence: this.getStats().avgConfidence,
-            totalConfirmations: this.getStats().totalConfirmations
-        };
-    }
-
-    // 🔥 ДОБАВЛЕННЫЙ МЕТОД: Получить статистику
-    getStats() {
-        const cells = Array.from(this.invariantCells?.values() || []);
-
-        let totalConfirmations = 0;
-        let totalConfidence = 0;
-        let highConfidenceCells = 0;
-        let confirmedCells = 0;
-
-        cells.forEach(cell => {
-            totalConfirmations += cell.confirmations || 0;
-            totalConfidence += cell.confidence || 0;
-           
-            if ((cell.confidence || 0) > 0.8) {
-                highConfidenceCells++;
-            }
-           
-            if ((cell.confirmations || 0) >= 2) {
-                confirmedCells++;
-            }
-        });
-
-        return {
-            cells: cells.length,
-            totalConfirmations: totalConfirmations,
-            averageConfirmations: cells.length > 0 ? totalConfirmations / cells.length : 0,
-            avgConfidence: cells.length > 0 ? totalConfidence / cells.length : 0,
-            highConfidenceCells: highConfidenceCells,
-            confirmedCells: confirmedCells,
-            totalGraphsProcessed: this.stats.totalGraphsProcessed || 0,
-            lastUpdated: this.lastUpdated
-        };
-    }
-
-    // Вспомогательные методы
-
     extractPointsFromGraph(graph) {
         const points = [];
 
@@ -467,10 +547,6 @@ class VectorTemplateBuilder {
     }
 
     normalizePoint(point) {
-        // Простая нормализация к [0, 1] на основе текущих границ
-        // В реальной реализации нужно использовать общие границы
-
-        // Для простоты используем фиксированные границы
         const BOUNDS = { minX: 0, maxX: 1000, minY: 0, maxY: 1000 };
 
         const nx = (point.x - BOUNDS.minX) / (BOUNDS.maxX - BOUNDS.minX);
@@ -485,7 +561,6 @@ class VectorTemplateBuilder {
     }
 
     generateCellId(point) {
-        // Генерируем ID на основе нормализованных координат
         const normalized = this.normalizePoint(point);
         const gridX = Math.floor(normalized.nx * 100);
         const gridY = Math.floor(normalized.ny * 100);
@@ -551,7 +626,6 @@ class VectorTemplateBuilder {
 
         cell.lastUpdated = new Date();
 
-        // Для отладки
         if (this.settings.debugMode) {
             console.log(`   Обновлена ячейка ${cell.id}: подтверждений=${cell.confirmations}, уверенность=${cell.confidence.toFixed(3)}`);
         }
@@ -575,7 +649,6 @@ class VectorTemplateBuilder {
     }
 
     toJSON() {
-        // Преобразуем Set в массив для сериализации
         const serializableCells = {};
 
         for (const [cellId, cell] of this.invariantCells) {
@@ -660,6 +733,37 @@ class VectorTemplateBuilder {
         console.log(`   Адаптивные ячейки: ${this.settings.enableAdaptiveCells ? 'ВКЛ' : 'ВЫКЛ'}`);
         console.log(`   Макс. ячеек: ${this.settings.maxCells}`);
         console.log(`   Режим отладки: ${this.settings.debugMode ? 'ВКЛ' : 'ВЫКЛ'}`);
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить данные для трансформации (без рекурсии)
+    getNormalizationTransform() {
+        return {
+            width: 1000,
+            height: 1000,
+            minX: 0,
+            minY: 0,
+            maxX: 1000,
+            maxY: 1000,
+            centerX: 500,
+            centerY: 500,
+            type: 'normalized_canvas'
+        };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Сбросить шаблон
+    reset() {
+        console.log(`🔄 Сбрасываю шаблон ${this.id}`);
+        this.invariantCells.clear();
+        this.stats = {
+            totalGraphsProcessed: 0,
+            totalCellsCreated: 0,
+            totalCellsMerged: 0,
+            totalCellsRemoved: 0,
+            avgCellConfidence: 0,
+            avgCellConfirmations: 0
+        };
+        this.lastUpdated = new Date();
+        console.log(`✅ Шаблон сброшен`);
     }
 }
 
