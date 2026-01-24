@@ -645,7 +645,24 @@ class SimpleFootprintManager {
         });
 
         this.vectorSuperModels.set(userId, vectorModel);
+  // 🔥 ИСПРАВЛЕНИЕ: Проверяем наличие метода перед вызовом
+    let cellCount = 0;
+    try {
+        if (vectorModel.templateBuilder && typeof vectorModel.templateBuilder.getVisualizationData === 'function') {
+            const vizData = vectorModel.templateBuilder.getVisualizationData();
+            cellCount = vizData?.cells?.length || 0;
+        } else {
+            // Фаллбэк: получаем количество ячеек другим способом
+            cellCount = vectorModel.templateBuilder?.invariantCells?.size || 0;
+            console.log(`ℹ️ Используем фаллбэк для получения количества ячеек: ${cellCount}`);
+        }
+    } catch (error) {
+        console.log(`⚠️ Ошибка при получении данных визуализации: ${error.message}`);
+        cellCount = 0;
+    }
 
+    console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
+    console.log(`✅ Создан шаблон с ${cellCount} ячейками`);
         // 🔥 ПРОВЕРЯЕМ СОГЛАСОВАННОСТЬ ТРАНСФОРМАЦИЙ
         if (this.config.enableCoordinateDiagnostics) {
             console.log('\n🔍 ПРОВЕРКА СОГЛАСОВАННОСТИ ПОСЛЕ СОЗДАНИЯ ОТПЕЧАТКА:');
