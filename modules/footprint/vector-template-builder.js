@@ -521,6 +521,119 @@ class VectorTemplateBuilder {
         console.log(`   Макс. ячеек: ${this.settings.maxCells}`);
         console.log(`   Режим отладки: ${this.settings.debugMode ? 'ВКЛ' : 'ВЫКЛ'}`);
     }
+
+  // 🔥 ДОБАВЛЯЕМ НОВЫЙ МЕТОД: Получить данные для визуализации
+    getVisualizationData(options = {}) {
+        console.log(`🎨 Получаю данные для визуализации шаблона...`);
+       
+        const data = {
+            id: this.id,
+            name: this.name,
+            cellsCount: this.invariantCells.size,
+            points: [],
+            cells: [],
+            stats: this.getStats(),
+            metadata: {
+                createdAt: this.createdAt,
+                lastUpdated: this.lastUpdated,
+                referenceGraphId: this.referenceGraphId,
+                totalGraphsAdded: this.totalGraphsAdded
+            }
+        };
+       
+        // Преобразуем ячейки в точки для визуализации
+        if (this.invariantCells && this.invariantCells.size > 0) {
+            for (const [cellId, cell] of this.invariantCells) {
+                // Точка центра ячейки
+                data.points.push({
+                    id: cellId,
+                    x: cell.normalizedCenter.nx * 1000, // Преобразуем к [0, 1000]
+                    y: cell.normalizedCenter.ny * 1000,
+                    confidence: cell.confidence,
+                    confirmations: cell.confirmations,
+                    totalGraphs: cell.totalGraphs || 1,
+                    isInvariant: cell.isInvariant || false,
+                    type: 'template_cell'
+                });
+               
+                // Данные ячейки
+                data.cells.push({
+                    id: cellId,
+                    center: cell.normalizedCenter,
+                    confirmations: cell.confirmations,
+                    confidence: cell.confidence,
+                    totalGraphs: cell.totalGraphs || 1,
+                    lastUpdated: cell.lastUpdated,
+                    isInvariant: cell.isInvariant || false,
+                    features: cell.features || []
+                });
+            }
+        }
+       
+        // Если нужны данные референсного графа
+        if (options.includeReferenceGraph && this.referenceGraph) {
+            data.referenceGraph = {
+                nodes: Array.from(this.referenceGraph.nodes?.values() || []).map(node => ({
+                    id: node.id,
+                    x: node.x,
+                    y: node.y,
+                    confidence: node.confidence
+                })),
+                edges: Array.from(this.referenceGraph.edges?.values() || []).map(edge => ({
+                    source: edge.source,
+                    target: edge.target,
+                    weight: edge.weight
+                }))
+            };
+        }
+       
+        console.log(`✅ Подготовлено ${data.points.length} точек для визуализации`);
+        return data;
+    }
+
+    // 🔥 ДОПОЛНИТЕЛЬНЫЙ МЕТОД: Получить простые данные для визуализации
+    getSimpleVisualizationData() {
+        const points = [];
+       
+        if (this.invariantCells && this.invariantCells.size > 0) {
+            for (const [cellId, cell] of this.invariantCells) {
+                // Преобразуем nx/ny к пикселям (диапазон 0-1000)
+                const x = cell.normalizedCenter.nx * 1000;
+                const y = cell.normalizedCenter.ny * 1000;
+               
+                // Определяем цвет по уверенности
+                let color;
+                if (cell.confidence > 0.8) {
+                    color = '#4CAF50'; // Зеленый - высокая уверенность
+                } else if (cell.confidence > 0.5) {
+                    color = '#FFC107'; // Желтый - средняя уверенность
+                } else {
+                    color = '#F44336'; // Красный - низкая уверенность
+                }
+               
+                // Размер по количеству подтверждений
+                const size = 4 + Math.min(cell.confirmations, 10);
+               
+                points.push({
+                    id: cellId,
+                    x: x,
+                    y: y,
+                    color: color,
+                    size: size,
+                    confidence: cell.confidence,
+                    confirmations: cell.confirmations,
+                    label: `Уверенность: ${(cell.confidence * 100).toFixed(0)}%`
+                });
+            }
+        }
+       
+        return {
+            points: points,
+            cellCount: this.invariantCells?.size || 0,
+            avgConfidence: this.getStats().avgConfidence,
+            totalConfirmations: this.getStats().totalConfirmations
+        };
+    }
 }
 
 module.exports = VectorTemplateBuilder;
