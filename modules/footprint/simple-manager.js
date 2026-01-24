@@ -726,25 +726,13 @@ class SimpleFootprintManager {
                 }
 
                 // 4. Отправка шаблона
-                if (templateVizResult && templateVizResult.template && fs.existsSync(templateVizResult.template)) {
-                    // 🔥 БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ДАННЫХ ШАБЛОНА
+                if (templateVizResult?.template && fs.existsSync(templateVizResult.template)) {
+                    // 🔥 БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ДАННЫХ ШАБЛОНА (без getVisualizationData)
                     let templateStats = { cells: cellCount };
-                    let referenceGraphId = '';
-
-                    try {
-                        if (vectorModel.templateBuilder && typeof vectorModel.templateBuilder.getVisualizationData === 'function') {
-                            const templateData = vectorModel.templateBuilder.getVisualizationData();
-                            templateStats = templateData?.stats || {};
-                            referenceGraphId = templateData.metadata?.referenceGraphId || '';
-                        }
-                    } catch (error) {
-                        console.log(`⚠️ Ошибка при получении данных шаблона: ${error.message}`);
-                    }
 
                     let templateCaption = `📊 ШАБЛОН СОЗДАН\n\n`;
-                    templateCaption += `📋 Ячеек: ${templateStats.cells || 0}\n`;
-                    templateCaption += `🎯 Эталонный граф: ${referenceGraphId.slice(0, 8) || 'создан'}\n`;
-                    templateCaption += `📈 Система готова к накоплению деталей`;
+                    templateCaption += `📋 Ячеек: ${cellCount}\n`;
+                    templateCaption += `🎯 Система готова к накоплению деталей`;
 
                     // 🔥 ОЧИЩАЕМ ОТ Markdown
                     const cleanTemplateCaption = cleanMarkdown(templateCaption);
@@ -1000,19 +988,16 @@ class SimpleFootprintManager {
             // 4. Отправка шаблона
             if (templateVizResult?.template && fs.existsSync(templateVizResult.template)) {
                 try {
-                    // 🔥 БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ДАННЫХ ШАБЛОНА
-                    let templateStats = {};
+                    // 🔥 БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ДАННЫХ ШАБЛОНА (без getVisualizationData)
                     let cellCount = 0;
-                   
+
                     if (vectorModel.templateBuilder) {
                         try {
-                            const templateData = vectorModel.templateBuilder.getVisualizationData();
-                            templateStats = templateData?.stats || {};
-                            cellCount = templateData?.cellsCount || 0;
-                        } catch (dataError) {
-                            console.log(`⚠️ Ошибка получения данных шаблона: ${dataError.message}`);
+                            // 🔥 ВМЕСТО getVisualizationData() используем прямой доступ
                             cellCount = vectorModel.templateBuilder.invariantCells?.size || 0;
-                            templateStats = { cells: cellCount };
+                        } catch (dataError) {
+                            console.log(`⚠️ Ошибка получения количества ячеек: ${dataError.message}`);
+                            cellCount = 0;
                         }
                     }
 
@@ -1546,18 +1531,11 @@ class SimpleFootprintManager {
         // 🔥 БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ДАННЫХ
         let cellsCount = 0;
         let stats = {};
-       
+
         try {
             if (vectorModel.templateBuilder) {
                 cellsCount = vectorModel.templateBuilder.invariantCells?.size || 0;
-               
-                try {
-                    const templateData = vectorModel.templateBuilder.getVisualizationData();
-                    stats = templateData?.stats || {};
-                } catch (dataError) {
-                    console.log(`⚠️ Ошибка получения данных шаблона: ${dataError.message}`);
-                    stats = { cells: cellsCount };
-                }
+                stats = { cells: cellsCount };
             }
         } catch (error) {
             console.log(`⚠️ Ошибка доступа к шаблону: ${error.message}`);
@@ -1668,23 +1646,15 @@ class SimpleFootprintManager {
             let cells = 0;
             let totalConfirmations = 0;
             let averageConfirmations = '0.00';
-           
+
             try {
                 if (vectorModel.templateBuilder) {
-                    try {
-                        const templateData = vectorModel.templateBuilder.getVisualizationData();
-                        const stats = templateData?.stats || {};
-                        cells = templateData?.cellsCount || 0;
-                        totalConfirmations = stats.totalConfirmations || 0;
-                        averageConfirmations = stats.averageConfirmations?.toFixed(2) || '0.00';
-                    } catch (dataError) {
-                        cells = vectorModel.templateBuilder.invariantCells?.size || 0;
-                    }
+                    cells = vectorModel.templateBuilder.invariantCells?.size || 0;
                 }
             } catch (error) {
                 console.log(`⚠️ Ошибка статистики шаблона ${userId}: ${error.message}`);
             }
-           
+
             templateStats.push({
                 userId,
                 cells: cells,
