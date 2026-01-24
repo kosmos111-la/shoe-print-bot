@@ -7,10 +7,10 @@ class VectorTemplateBuilder {
         this.name = options.name || 'Векторный шаблон';
         this.createdAt = new Date();
         this.lastUpdated = new Date();
-       
+
         // Инвариантные ячейки - основные строительные блоки шаблона
         this.invariantCells = new Map(); // Map<cellId, Cell>
-       
+
         // Статистика
         this.stats = {
             totalGraphsProcessed: 0,
@@ -20,7 +20,7 @@ class VectorTemplateBuilder {
             avgCellConfidence: 0,
             avgCellConfirmations: 0
         };
-       
+
         // Настройки
         this.settings = {
             cellSize: options.cellSize || 20, // размер ячейки в px
@@ -30,39 +30,57 @@ class VectorTemplateBuilder {
             maxCells: options.maxCells || 1000,
             debugMode: options.debugMode || false
         };
-       
+
         console.log(`🏗️  Создан VectorTemplateBuilder "${this.name}" (ID: ${this.id})`);
     }
-   
+
+    // 🔥 ДОБАВЛЯЕМ ОТСУТСТВУЮЩИЙ МЕТОД getStats()
+    getStats() {
+        const cells = Array.from(this.invariantCells?.values() || []);
+
+        const totalConfirmations = cells.reduce((sum, cell) => sum + (cell.confirmations || 0), 0);
+        const totalConfidence = cells.reduce((sum, cell) => sum + (cell.confidence || 0), 0);
+
+        return {
+            cells: cells.length,
+            totalConfirmations: totalConfirmations,
+            avgConfidence: cells.length > 0 ? totalConfidence / cells.length : 0,
+            avgConfirmations: cells.length > 0 ? totalConfirmations / cells.length : 0,
+            highConfidenceCells: cells.filter(cell => (cell.confidence || 0) > 0.8).length,
+            confirmedCells: cells.filter(cell => (cell.confirmations || 0) >= 2).length,
+            lastUpdated: this.lastUpdated
+        };
+    }
+
     // Установить эталонный граф
     setReferenceGraph(graph, graphId, metadata = {}) {
         console.log(`🎯 Устанавливаю эталонный граф ${graphId}...`);
-       
+
         if (!graph || !graph.nodes || graph.nodes.size === 0) {
             console.log('⚠️ Граф пустой');
             return false;
         }
-       
+
         // Очищаем существующие ячейки
         this.invariantCells.clear();
-       
+
         // Извлекаем точки из графа
         const points = this.extractPointsFromGraph(graph);
-       
+
         if (points.length < 3) {
             console.log(`⚠️ Недостаточно точек: ${points.length}`);
             return false;
         }
-       
+
         // Создаем ячейки из точек
         let cellsCreated = 0;
-       
+
         points.forEach((point, index) => {
             const cellId = this.generateCellId(point);
-           
+
             // Создаем нормализованные координаты [0, 1]
             const normalizedCenter = this.normalizePoint(point);
-           
+
             const cell = {
                 id: cellId,
                 originalPoint: point,
@@ -78,38 +96,38 @@ class VectorTemplateBuilder {
                     sourcePointId: point.id
                 }
             };
-           
+
             this.invariantCells.set(cellId, cell);
             cellsCreated++;
         });
-       
+
         this.stats.totalGraphsProcessed = 1;
         this.stats.totalCellsCreated = cellsCreated;
         this.updateStats();
-       
+
         console.log(`✅ Эталонный граф установлен: создано ${cellsCreated} ячеек`);
         return true;
     }
-   
+
     // Добавить граф к шаблону
     addGraph(graph, graphId, metadata = {}) {
         console.log(`➕ Добавляю граф ${graphId} к шаблону...`);
         this.stats.totalGraphsProcessed++;
-       
+
         const points = this.extractPointsFromGraph(graph);
-       
+
         if (points.length < 3) {
             console.log(`⚠️ Недостаточно точек: ${points.length}`);
             return false;
         }
-       
+
         let cellsMerged = 0;
         let cellsCreated = 0;
-       
+
         points.forEach(point => {
             const normalizedPoint = this.normalizePoint(point);
             const existingCell = this.findMatchingCell(normalizedPoint);
-           
+
             if (existingCell) {
                 // Обновляем существующую ячейку
                 this.updateCell(existingCell, point, graphId, metadata);
@@ -122,21 +140,21 @@ class VectorTemplateBuilder {
                 cellsCreated++;
             }
         });
-       
+
         this.stats.totalCellsMerged += cellsMerged;
         this.stats.totalCellsCreated += cellsCreated;
         this.updateStats();
-       
+
         console.log(`✅ Граф добавлен: ${cellsMerged} объединено, ${cellsCreated} создано`);
         return true;
     }
-   
+
     // Сравнить граф с шаблоном
     compareGraphWithTemplate(graph, options = {}) {
         console.log(`🔍 Сравниваю граф с шаблоном...`);
-       
+
         const points = this.extractPointsFromGraph(graph);
-       
+
         if (points.length === 0) {
             return {
                 similarity: 0,
@@ -145,7 +163,7 @@ class VectorTemplateBuilder {
                 totalPoints: 0
             };
         }
-       
+
         if (this.invariantCells.size === 0) {
             return {
                 similarity: 0,
@@ -154,14 +172,14 @@ class VectorTemplateBuilder {
                 totalPoints: points.length
             };
         }
-       
+
         let matches = 0;
         const matchedCells = [];
-       
+
         points.forEach(point => {
             const normalizedPoint = this.normalizePoint(point);
             const matchingCell = this.findMatchingCell(normalizedPoint, options.matchThreshold || 0.1);
-           
+
             if (matchingCell) {
                 matches++;
                 matchedCells.push({
@@ -171,10 +189,10 @@ class VectorTemplateBuilder {
                 });
             }
         });
-       
+
         const similarity = matches / Math.max(points.length, this.invariantCells.size);
         let decision;
-       
+
         if (similarity > 0.7) {
             decision = 'same';
         } else if (similarity > 0.4) {
@@ -182,7 +200,7 @@ class VectorTemplateBuilder {
         } else {
             decision = 'different';
         }
-       
+
         return {
             similarity: Math.round(similarity * 1000) / 1000,
             decision,
@@ -194,58 +212,58 @@ class VectorTemplateBuilder {
             timestamp: new Date()
         };
     }
-   
+
     // Валидация шаблона
     validate(force = false) {
         console.log(`✅ Валидация шаблона...`);
-       
+
         const errors = [];
         const warnings = [];
-       
+
         // Проверяем наличие ячеек
         if (this.invariantCells.size === 0) {
             warnings.push('Шаблон пустой - нет инвариантных ячеек');
         }
-       
+
         // Проверяем среднюю уверенность
         let totalConfidence = 0;
         let totalConfirmations = 0;
         let lowConfidenceCells = 0;
         let unconfirmedCells = 0;
-       
+
         for (const [cellId, cell] of this.invariantCells) {
             totalConfidence += cell.confidence || 0;
             totalConfirmations += cell.confirmations || 0;
-           
+
             if (cell.confidence < this.settings.minConfidence) {
                 lowConfidenceCells++;
             }
-           
+
             if (cell.confirmations < this.settings.minConfirmations) {
                 unconfirmedCells++;
             }
         }
-       
+
         const avgConfidence = this.invariantCells.size > 0 ? totalConfidence / this.invariantCells.size : 0;
         const avgConfirmations = this.invariantCells.size > 0 ? totalConfirmations / this.invariantCells.size : 0;
-       
+
         if (avgConfidence < 0.5) {
             warnings.push(`Низкая средняя уверенность: ${avgConfidence.toFixed(3)}`);
         }
-       
+
         if (lowConfidenceCells > 0) {
             warnings.push(`${lowConfidenceCells} ячеек с уверенностью < ${this.settings.minConfidence}`);
         }
-       
+
         if (unconfirmedCells > 0) {
             warnings.push(`${unconfirmedCells} ячеек с подтверждениями < ${this.settings.minConfirmations}`);
         }
-       
+
         // Проверяем максимальное количество ячеек
         if (this.invariantCells.size > this.settings.maxCells * 0.9) {
             warnings.push(`Шаблон почти заполнен: ${this.invariantCells.size}/${this.settings.maxCells} ячеек`);
         }
-       
+
         return {
             valid: errors.length === 0,
             errors,
@@ -260,11 +278,11 @@ class VectorTemplateBuilder {
             }
         };
     }
-   
+
     // Получить информацию о шаблоне
     getInfo(detailed = false) {
         const validation = this.validate();
-       
+
         const info = {
             id: this.id,
             name: this.name,
@@ -279,7 +297,7 @@ class VectorTemplateBuilder {
             warnings: validation.warnings.length,
             lastValidation: validation.stats?.lastValidation || null
         };
-       
+
         if (detailed) {
             info.cellsByConfidence = {
                 '0.0-0.3': Array.from(this.invariantCells.values()).filter(c => c.confidence < 0.3).length,
@@ -287,7 +305,7 @@ class VectorTemplateBuilder {
                 '0.5-0.7': Array.from(this.invariantCells.values()).filter(c => c.confidence >= 0.5 && c.confidence < 0.7).length,
                 '0.7-1.0': Array.from(this.invariantCells.values()).filter(c => c.confidence >= 0.7).length
             };
-           
+
             info.cellsByConfirmations = {
                 '1': Array.from(this.invariantCells.values()).filter(c => c.confirmations === 1).length,
                 '2': Array.from(this.invariantCells.values()).filter(c => c.confirmations === 2).length,
@@ -295,17 +313,17 @@ class VectorTemplateBuilder {
                 '4+': Array.from(this.invariantCells.values()).filter(c => c.confirmations >= 4).length
             };
         }
-       
+
         return info;
     }
-   
+
     // Вспомогательные методы
-   
+
     extractPointsFromGraph(graph) {
         const points = [];
-       
+
         if (!graph || !graph.nodes) return points;
-       
+
         graph.nodes.forEach((node, nodeId) => {
             points.push({
                 id: nodeId,
@@ -315,20 +333,20 @@ class VectorTemplateBuilder {
                 originalNode: node
             });
         });
-       
+
         return points;
     }
-   
+
     normalizePoint(point) {
         // Простая нормализация к [0, 1] на основе текущих границ
         // В реальной реализации нужно использовать общие границы
-       
+
         // Для простоты используем фиксированные границы
         const BOUNDS = { minX: 0, maxX: 1000, minY: 0, maxY: 1000 };
-       
+
         const nx = (point.x - BOUNDS.minX) / (BOUNDS.maxX - BOUNDS.minX);
         const ny = (point.y - BOUNDS.minY) / (BOUNDS.maxY - BOUNDS.minY);
-       
+
         return {
             nx: Math.max(0, Math.min(1, nx)),
             ny: Math.max(0, Math.min(1, ny)),
@@ -336,38 +354,38 @@ class VectorTemplateBuilder {
             originalY: point.y
         };
     }
-   
+
     generateCellId(point) {
         // Генерируем ID на основе нормализованных координат
         const normalized = this.normalizePoint(point);
         const gridX = Math.floor(normalized.nx * 100);
         const gridY = Math.floor(normalized.ny * 100);
-       
+
         return `cell_${gridX}_${gridY}_${crypto.randomBytes(2).toString('hex')}`;
     }
-   
+
     findMatchingCell(normalizedPoint, threshold = 0.1) {
         for (const [cellId, cell] of this.invariantCells) {
             const distance = this.calculateDistance(normalizedPoint, cell.normalizedCenter);
-           
+
             if (distance < threshold) {
                 return cell;
             }
         }
-       
+
         return null;
     }
-   
+
     calculateDistance(point1, point2) {
         return Math.sqrt(
             Math.pow(point1.nx - point2.nx, 2) +
             Math.pow(point1.ny - point2.ny, 2)
         );
     }
-   
+
     createCell(cellId, point, graphId, metadata) {
         const normalizedCenter = this.normalizePoint(point);
-       
+
         return {
             id: cellId,
             originalPoint: point,
@@ -384,48 +402,48 @@ class VectorTemplateBuilder {
             }
         };
     }
-   
+
     updateCell(cell, point, graphId, metadata) {
         // Увеличиваем счетчик подтверждений
         cell.confirmations = (cell.confirmations || 1) + 1;
-       
+
         // Обновляем уверенность (среднее)
         cell.confidence = (cell.confidence + (point.confidence || 0.5)) / 2;
-       
+
         // Добавляем граф в историю
         cell.graphs.add(graphId);
-       
+
         // Обновляем метаданные
         cell.metadata = {
             ...cell.metadata,
             lastGraph: graphId,
             lastUpdate: new Date()
         };
-       
+
         cell.lastUpdated = new Date();
-       
+
         // Для отладки
         if (this.settings.debugMode) {
             console.log(`   Обновлена ячейка ${cell.id}: подтверждений=${cell.confirmations}, уверенность=${cell.confidence.toFixed(3)}`);
         }
     }
-   
+
     updateStats() {
         let totalConfidence = 0;
         let totalConfirmations = 0;
-       
+
         for (const [cellId, cell] of this.invariantCells) {
             totalConfidence += cell.confidence || 0;
             totalConfirmations += cell.confirmations || 0;
         }
-       
+
         this.stats.avgCellConfidence = this.invariantCells.size > 0 ?
             totalConfidence / this.invariantCells.size : 0;
         this.stats.avgCellConfirmations = this.invariantCells.size > 0 ?
             totalConfirmations / this.invariantCells.size : 0;
-       
+
         this.lastUpdated = new Date();
-       
+
         if (this.settings.debugMode) {
             console.log(`📊 Статистика шаблона:`);
             console.log(`   Ячеек: ${this.invariantCells.size}`);
@@ -433,11 +451,11 @@ class VectorTemplateBuilder {
             console.log(`   Средние подтверждения: ${this.stats.avgCellConfirmations.toFixed(1)}`);
         }
     }
-   
+
     toJSON() {
         // Преобразуем Set в массив для сериализации
         const serializableCells = {};
-       
+
         for (const [cellId, cell] of this.invariantCells) {
             serializableCells[cellId] = {
                 ...cell,
@@ -446,7 +464,7 @@ class VectorTemplateBuilder {
                 lastUpdated: cell.lastUpdated.toISOString()
             };
         }
-       
+
         return {
             id: this.id,
             name: this.name,
@@ -458,10 +476,10 @@ class VectorTemplateBuilder {
             _version: '1.0'
         };
     }
-   
+
     static fromJSON(data) {
         console.log(`📂 Загружаю VectorTemplateBuilder "${data.name}"...`);
-       
+
         const builder = new VectorTemplateBuilder({
             id: data.id,
             name: data.name,
@@ -472,16 +490,16 @@ class VectorTemplateBuilder {
             maxCells: data.settings?.maxCells,
             debugMode: data.settings?.debugMode
         });
-       
+
         // Восстанавливаем даты
         builder.createdAt = new Date(data.createdAt);
         builder.lastUpdated = new Date(data.lastUpdated);
-       
+
         // Восстанавливаем статистику
         if (data.stats) {
             builder.stats = { ...builder.stats, ...data.stats };
         }
-       
+
         // Восстанавливаем ячейки
         if (data.invariantCells) {
             for (const [cellId, cellData] of Object.entries(data.invariantCells)) {
@@ -493,13 +511,13 @@ class VectorTemplateBuilder {
                 });
             }
         }
-       
+
         console.log(`✅ Загружен VectorTemplateBuilder "${builder.name}" с ` +
                    `${builder.invariantCells.size} ячейками`);
-       
+
         return builder;
     }
-   
+
     visualize() {
         console.log(`\n🏗️  VECTOR TEMPLATE BUILDER "${this.name}":`);
         console.log(`═`.repeat(60));
@@ -512,7 +530,7 @@ class VectorTemplateBuilder {
         console.log(`├─ Обработано графов: ${this.stats.totalGraphsProcessed}`);
         console.log(`├─ Создано ячеек: ${this.stats.totalCellsCreated}`);
         console.log(`└─ Объединено ячеек: ${this.stats.totalCellsMerged}`);
-       
+
         console.log(`\n⚙️  НАСТРОЙКИ:`);
         console.log(`   Размер ячейки: ${this.settings.cellSize}px`);
         console.log(`   Мин. уверенность: ${this.settings.minConfidence}`);
@@ -522,10 +540,10 @@ class VectorTemplateBuilder {
         console.log(`   Режим отладки: ${this.settings.debugMode ? 'ВКЛ' : 'ВЫКЛ'}`);
     }
 
-  // 🔥 ДОБАВЛЯЕМ НОВЫЙ МЕТОД: Получить данные для визуализации
+    // 🔥 ДОБАВЛЯЕМ НОВЫЙ МЕТОД: Получить данные для визуализации
     getVisualizationData(options = {}) {
         console.log(`🎨 Получаю данные для визуализации шаблона...`);
-       
+
         const data = {
             id: this.id,
             name: this.name,
@@ -540,7 +558,7 @@ class VectorTemplateBuilder {
                 totalGraphsAdded: this.totalGraphsAdded
             }
         };
-       
+
         // Преобразуем ячейки в точки для визуализации
         if (this.invariantCells && this.invariantCells.size > 0) {
             for (const [cellId, cell] of this.invariantCells) {
@@ -555,7 +573,7 @@ class VectorTemplateBuilder {
                     isInvariant: cell.isInvariant || false,
                     type: 'template_cell'
                 });
-               
+
                 // Данные ячейки
                 data.cells.push({
                     id: cellId,
@@ -569,7 +587,7 @@ class VectorTemplateBuilder {
                 });
             }
         }
-       
+
         // Если нужны данные референсного графа
         if (options.includeReferenceGraph && this.referenceGraph) {
             data.referenceGraph = {
@@ -586,7 +604,7 @@ class VectorTemplateBuilder {
                 }))
             };
         }
-       
+
         console.log(`✅ Подготовлено ${data.points.length} точек для визуализации`);
         return data;
     }
@@ -594,13 +612,13 @@ class VectorTemplateBuilder {
     // 🔥 ДОПОЛНИТЕЛЬНЫЙ МЕТОД: Получить простые данные для визуализации
     getSimpleVisualizationData() {
         const points = [];
-       
+
         if (this.invariantCells && this.invariantCells.size > 0) {
             for (const [cellId, cell] of this.invariantCells) {
                 // Преобразуем nx/ny к пикселям (диапазон 0-1000)
                 const x = cell.normalizedCenter.nx * 1000;
                 const y = cell.normalizedCenter.ny * 1000;
-               
+
                 // Определяем цвет по уверенности
                 let color;
                 if (cell.confidence > 0.8) {
@@ -610,10 +628,10 @@ class VectorTemplateBuilder {
                 } else {
                     color = '#F44336'; // Красный - низкая уверенность
                 }
-               
+
                 // Размер по количеству подтверждений
                 const size = 4 + Math.min(cell.confirmations, 10);
-               
+
                 points.push({
                     id: cellId,
                     x: x,
@@ -626,7 +644,7 @@ class VectorTemplateBuilder {
                 });
             }
         }
-       
+
         return {
             points: points,
             cellCount: this.invariantCells?.size || 0,
