@@ -34,40 +34,6 @@ class VectorTemplateBuilder {
         console.log(`🏗️  Создан VectorTemplateBuilder "${this.name}" (ID: ${this.id})`);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Получить статистику
-    getStats() {
-        const cells = Array.from(this.invariantCells?.values() || []);
-
-        let totalConfirmations = 0;
-        let totalConfidence = 0;
-        let highConfidenceCells = 0;
-        let confirmedCells = 0;
-
-        cells.forEach(cell => {
-            totalConfirmations += cell.confirmations || 0;
-            totalConfidence += cell.confidence || 0;
-           
-            if ((cell.confidence || 0) > 0.8) {
-                highConfidenceCells++;
-            }
-           
-            if ((cell.confirmations || 0) >= 2) {
-                confirmedCells++;
-            }
-        });
-
-        return {
-            cells: cells.length,
-            totalConfirmations: totalConfirmations,
-            averageConfirmations: cells.length > 0 ? totalConfirmations / cells.length : 0,
-            avgConfidence: cells.length > 0 ? totalConfidence / cells.length : 0,
-            highConfidenceCells: highConfidenceCells,
-            confirmedCells: confirmedCells,
-            totalGraphsProcessed: this.stats.totalGraphsProcessed || 0,
-            lastUpdated: this.lastUpdated
-        };
-    }
-
     // Установить эталонный граф
     setReferenceGraph(graph, graphId, metadata = {}) {
         console.log(`🎯 Устанавливаю эталонный граф ${graphId}...`);
@@ -333,116 +299,182 @@ class VectorTemplateBuilder {
         return info;
     }
 
-    // Получить данные для визуализации
+    // 🔥 ИСПРАВЛЕНИЕ: Добавлен отсутствующий метод getStats()
+    getStats() {
+        const cells = Array.from(this.invariantCells?.values() || []);
+
+        let totalConfirmations = 0;
+        let totalConfidence = 0;
+        let highConfidenceCells = 0;
+        let confirmedCells = 0;
+
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            if (cell) {
+                const conf = cell.confidence || 0;
+                const confirm = cell.confirmations || 0;
+
+                totalConfirmations += confirm;
+                totalConfidence += conf;
+
+                if (conf > 0.8) highConfidenceCells++;
+                if (confirm >= 2) confirmedCells++;
+            }
+        }
+
+        const cellCount = cells.length;
+        const avgConfirmations = cellCount > 0 ? totalConfirmations / cellCount : 0;
+        const avgConfidence = cellCount > 0 ? totalConfidence / cellCount : 0;
+
+        return {
+            cells: cellCount,
+            totalConfirmations: totalConfirmations,
+            averageConfirmations: Math.round(avgConfirmations * 100) / 100,
+            avgConfidence: Math.round(avgConfidence * 1000) / 1000,
+            highConfidenceCells: highConfidenceCells,
+            confirmedCells: confirmedCells,
+            totalGraphsProcessed: this.stats.totalGraphsProcessed || 0,
+            lastUpdated: this.lastUpdated
+        };
+    }
+
+    // 🔥 ИСПРАВЛЕНИЕ: getVisualizationData с безопасным вызовом getStats()
     getVisualizationData(options = {}) {
         console.log(`🎨 Получаю данные для визуализации шаблона...`);
 
-        const data = {
-            id: this.id,
-            name: this.name,
-            cellsCount: this.invariantCells.size,
-            points: [],
-            cells: [],
-            stats: this.getStats(), // 🔥 ТЕПЕРЬ МЕТОД СУЩЕСТВУЕТ
-            metadata: {
-                createdAt: this.createdAt,
-                lastUpdated: this.lastUpdated,
-                referenceGraphId: this.referenceGraphId,
-                totalGraphsAdded: this.totalGraphsAdded
+        try {
+            // 🔥 Безопасно получаем статистику
+            const stats = this.getStats();
+           
+            const data = {
+                id: this.id,
+                name: this.name,
+                cellsCount: this.invariantCells.size,
+                points: [],
+                cells: [],
+                stats: stats, // 🔥 Используем уже вычисленную статистику
+                metadata: {
+                    createdAt: this.createdAt,
+                    lastUpdated: this.lastUpdated,
+                    referenceGraphId: this.referenceGraphId,
+                    totalGraphsAdded: this.totalGraphsAdded
+                }
+            };
+
+            // Преобразуем ячейки в точки для визуализации
+            if (this.invariantCells && this.invariantCells.size > 0) {
+                // 🔥 Безопасный обход Map
+                for (const [cellId, cell] of this.invariantCells) {
+                    if (cell && cell.normalizedCenter) {
+                        // Точка центра ячейки
+                        data.points.push({
+                            id: cellId,
+                            x: cell.normalizedCenter.nx * 1000, // Преобразуем к [0, 1000]
+                            y: cell.normalizedCenter.ny * 1000,
+                            confidence: cell.confidence,
+                            confirmations: cell.confirmations,
+                            totalGraphs: cell.totalGraphs || 1,
+                            isInvariant: cell.isInvariant || false,
+                            type: 'template_cell'
+                        });
+
+                        // Данные ячейки
+                        data.cells.push({
+                            id: cellId,
+                            center: cell.normalizedCenter,
+                            confirmations: cell.confirmations,
+                            confidence: cell.confidence,
+                            totalGraphs: cell.totalGraphs || 1,
+                            lastUpdated: cell.lastUpdated,
+                            isInvariant: cell.isInvariant || false,
+                            features: cell.features || []
+                        });
+                    }
+                }
             }
-        };
 
-        // Преобразуем ячейки в точки для визуализации
-        if (this.invariantCells && this.invariantCells.size > 0) {
-            for (const [cellId, cell] of this.invariantCells) {
-                // Точка центра ячейки
-                data.points.push({
-                    id: cellId,
-                    x: cell.normalizedCenter.nx * 1000, // Преобразуем к [0, 1000]
-                    y: cell.normalizedCenter.ny * 1000,
-                    confidence: cell.confidence,
-                    confirmations: cell.confirmations,
-                    totalGraphs: cell.totalGraphs || 1,
-                    isInvariant: cell.isInvariant || false,
-                    type: 'template_cell'
-                });
-
-                // Данные ячейки
-                data.cells.push({
-                    id: cellId,
-                    center: cell.normalizedCenter,
-                    confirmations: cell.confirmations,
-                    confidence: cell.confidence,
-                    totalGraphs: cell.totalGraphs || 1,
-                    lastUpdated: cell.lastUpdated,
-                    isInvariant: cell.isInvariant || false,
-                    features: cell.features || []
-                });
+            // Если нужны данные референсного графа
+            if (options.includeReferenceGraph && this.referenceGraph) {
+                data.referenceGraph = {
+                    nodes: Array.from(this.referenceGraph.nodes?.values() || []).map(node => ({
+                        id: node.id,
+                        x: node.x,
+                        y: node.y,
+                        confidence: node.confidence
+                    })),
+                    edges: Array.from(this.referenceGraph.edges?.values() || []).map(edge => ({
+                        source: edge.source,
+                        target: edge.target,
+                        weight: edge.weight
+                    }))
+                };
             }
-        }
 
-        // Если нужны данные референсного графа
-        if (options.includeReferenceGraph && this.referenceGraph) {
-            data.referenceGraph = {
-                nodes: Array.from(this.referenceGraph.nodes?.values() || []).map(node => ({
-                    id: node.id,
-                    x: node.x,
-                    y: node.y,
-                    confidence: node.confidence
-                })),
-                edges: Array.from(this.referenceGraph.edges?.values() || []).map(edge => ({
-                    source: edge.source,
-                    target: edge.target,
-                    weight: edge.weight
-                }))
+            console.log(`✅ Подготовлено ${data.points.length} точек для визуализации`);
+            return data;
+        } catch (error) {
+            console.error(`❌ Ошибка в getVisualizationData: ${error.message}`);
+           
+            return {
+                id: this.id,
+                name: this.name,
+                cellsCount: 0,
+                points: [],
+                cells: [],
+                stats: { cells: 0 },
+                metadata: {
+                    error: error.message
+                }
             };
         }
-
-        console.log(`✅ Подготовлено ${data.points.length} точек для визуализации`);
-        return data;
     }
 
-    // Получить простые данные для визуализации
+    // 🔥 ИСПРАВЛЕНИЕ: getSimpleVisualizationData с безопасным вызовом getStats()
     getSimpleVisualizationData() {
         const points = [];
 
         if (this.invariantCells && this.invariantCells.size > 0) {
             for (const [cellId, cell] of this.invariantCells) {
-                // Преобразуем nx/ny к пикселям (диапазон 0-1000)
-                const x = cell.normalizedCenter.nx * 1000;
-                const y = cell.normalizedCenter.ny * 1000;
+                if (cell && cell.normalizedCenter) {
+                    // Преобразуем nx/ny к пикселям (диапазон 0-1000)
+                    const x = cell.normalizedCenter.nx * 1000;
+                    const y = cell.normalizedCenter.ny * 1000;
 
-                // Определяем цвет по уверенности
-                let color;
-                if (cell.confidence > 0.8) {
-                    color = '#4CAF50'; // Зеленый - высокая уверенность
-                } else if (cell.confidence > 0.5) {
-                    color = '#FFC107'; // Желтый - средняя уверенность
-                } else {
-                    color = '#F44336'; // Красный - низкая уверенность
+                    // Определяем цвет по уверенности
+                    let color;
+                    if (cell.confidence > 0.8) {
+                        color = '#4CAF50'; // Зеленый - высокая уверенность
+                    } else if (cell.confidence > 0.5) {
+                        color = '#FFC107'; // Желтый - средняя уверенность
+                    } else {
+                        color = '#F44336'; // Красный - низкая уверенность
+                    }
+
+                    // Размер по количеству подтверждений
+                    const size = 4 + Math.min(cell.confirmations, 10);
+
+                    points.push({
+                        id: cellId,
+                        x: x,
+                        y: y,
+                        color: color,
+                        size: size,
+                        confidence: cell.confidence,
+                        confirmations: cell.confirmations,
+                        label: `Уверенность: ${(cell.confidence * 100).toFixed(0)}%`
+                    });
                 }
-
-                // Размер по количеству подтверждений
-                const size = 4 + Math.min(cell.confirmations, 10);
-
-                points.push({
-                    id: cellId,
-                    x: x,
-                    y: y,
-                    color: color,
-                    size: size,
-                    confidence: cell.confidence,
-                    confirmations: cell.confirmations,
-                    label: `Уверенность: ${(cell.confidence * 100).toFixed(0)}%`
-                });
             }
         }
 
+        // 🔥 Безопасный вызов getStats()
+        const stats = this.getStats();
+       
         return {
             points: points,
             cellCount: this.invariantCells?.size || 0,
-            avgConfidence: this.getStats().avgConfidence,
-            totalConfirmations: this.getStats().totalConfirmations
+            avgConfidence: stats.avgConfidence || 0,
+            totalConfirmations: stats.totalConfirmations || 0
         };
     }
 
@@ -572,13 +604,6 @@ class VectorTemplateBuilder {
             totalConfirmations / this.invariantCells.size : 0;
 
         this.lastUpdated = new Date();
-
-        if (this.settings.debugMode) {
-            console.log(`📊 Статистика шаблона:`);
-            console.log(`   Ячеек: ${this.invariantCells.size}`);
-            console.log(`   Средняя уверенность: ${this.stats.avgCellConfidence.toFixed(3)}`);
-            console.log(`   Средние подтверждения: ${this.stats.avgCellConfirmations.toFixed(1)}`);
-        }
     }
 
     toJSON() {
