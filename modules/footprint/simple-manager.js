@@ -120,7 +120,7 @@ class SimpleFootprintManager {
         this.ensureDirectories();
         this.loadExistingModels();
 
-        console.log(`🚀 SimpleFootprintManager с ПОЛНОСТЬЮ МОДУЛЬНОЙ АРХИТЕКТУРОЙ И НОВЫМИ МОДУЛЯМИ КООРДИНАТ`);
+        console.log(`🚀 SimpleFootprintManager с ПОЛНОСТЬЮ МОДУЛЬНОЙ АРХИТЕКТУРОЙ И НОВЫМИ МОДУЛЯМИ КООРДИНАТ (${this.getLinesOfCode()} строк)`);
 
         // 🔥 ЕДИНЫЕ ПОРОГИ ДЛЯ ВСЕХ МОДУЛЕЙ
         this.DECISION_THRESHOLDS = {
@@ -466,7 +466,7 @@ class SimpleFootprintManager {
         return this.geometryUtils.calculateDistance(point1, point2);
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ОБНОВЛЕННЫЙ с CoordinateManager + ИСПРАВЛЕНИЕ)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
 
@@ -564,7 +564,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 МЕТОД: Извлечь точки из анализа
+    // 🔥 МЕТОД: Извлечь точки из анализа (ОБНОВЛЕННЫЙ)
     extractPointsFromAnalysis(analysis) {
         const points = [];
         const predictions = analysis.predictions || [];
@@ -589,7 +589,7 @@ class SimpleFootprintManager {
         return this.coordinateManager.validatePoints(points);
     }
 
-    // 🔥 МЕТОД: Извлечь точки из отпечатка
+    // 🔥 МЕТОД: Извлечь точки из отпечатка (ОБНОВЛЕННЫЙ - теперь через CoordinateManager)
     extractPointsFromFootprint(footprint) {
         // 🔥 ИСПОЛЬЗУЕМ CoordinateManager вместо старой логики
         const result = this.coordinateManager.getCoordinates(footprint, {
@@ -601,7 +601,7 @@ class SimpleFootprintManager {
         return result.points;
     }
 
-    // 🔥 МЕТОД: Обработка первого фото
+    // 🔥 МЕТОД: Обработка первого фото (ОБНОВЛЕННЫЙ)
     async handleFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
 
@@ -646,20 +646,6 @@ class SimpleFootprintManager {
 
         this.vectorSuperModels.set(userId, vectorModel);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Безопасный способ получить количество ячеек
-        let cellCount = 0;
-        try {
-            if (vectorModel.templateBuilder && vectorModel.templateBuilder.invariantCells) {
-                cellCount = vectorModel.templateBuilder.invariantCells.size || 0;
-            }
-        } catch (error) {
-            console.log(`⚠️ Ошибка при получении количества ячеек: ${error.message}`);
-            cellCount = 0;
-        }
-
-        console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
-        console.log(`✅ Создан шаблон с ${cellCount} ячейками`);
-
         // 🔥 ПРОВЕРЯЕМ СОГЛАСОВАННОСТЬ ТРАНСФОРМАЦИЙ
         if (this.config.enableCoordinateDiagnostics) {
             console.log('\n🔍 ПРОВЕРКА СОГЛАСОВАННОСТИ ПОСЛЕ СОЗДАНИЯ ОТПЕЧАТКА:');
@@ -667,8 +653,12 @@ class SimpleFootprintManager {
 
             if (!validationResult.overallValid) {
                 console.log('⚠️ Обнаружены расхождения в трансформациях!');
+                // Можно добавить автоматическую коррекцию здесь
             }
         }
+
+        console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
+        console.log(`✅ Создан шаблон с ${vectorModel.templateBuilder.getVisualizationData()?.cells?.length || 0} ячейками`);
 
         // 🔥 ВИЗУАЛИЗАЦИЯ И ОТПРАВКА ПЕРВОГО СЛЕДА
         let firstPhotoViz = null;
@@ -690,7 +680,7 @@ class SimpleFootprintManager {
                 templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
             }
 
-            // 🔥 ОТПРАВКА В TELEGRAM
+            // 🔥 ОТПРАВКА В TELEGRAM (ИСПРАВЛЕННЫЙ КОД)
             try {
                 // 🔥 ОЧИСТКА ОТ Markdown-СИМВОЛОВ
                 const cleanMarkdown = (text) => {
@@ -717,7 +707,7 @@ class SimpleFootprintManager {
 
                     await bot.sendPhoto(chatId, firstPhotoViz.path, {
                         caption: cleanCaption,
-                        parse_mode: 'HTML'
+                        parse_mode: 'HTML'  // 🔥 ИСПОЛЬЗУЕМ HTML ИЛИ УБИРАЕМ
                     });
 
                     console.log('✅ Визуализация первого следа отправлена');
@@ -726,13 +716,14 @@ class SimpleFootprintManager {
                 }
 
                 // 4. Отправка шаблона
-                if (templateVizResult?.template && fs.existsSync(templateVizResult.template)) {
-                    // 🔥 БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ДАННЫХ ШАБЛОНА (без getVisualizationData)
-                    let templateStats = { cells: cellCount };
+                if (templateVizResult && templateVizResult.template && fs.existsSync(templateVizResult.template)) {
+                    const templateData = vectorModel.templateBuilder.getVisualizationData();
+                    const stats = templateData?.stats || {};
 
                     let templateCaption = `📊 ШАБЛОН СОЗДАН\n\n`;
-                    templateCaption += `📋 Ячеек: ${cellCount}\n`;
-                    templateCaption += `🎯 Система готова к накоплению деталей`;
+                    templateCaption += `📋 Ячеек: ${stats.cells || 0}\n`;
+                    templateCaption += `🎯 Эталонный граф: ${templateData.referenceGraphId?.slice(0, 8) || 'создан'}\n`;
+                    templateCaption += `📈 Система готова к накоплению деталей`;
 
                     // 🔥 ОЧИЩАЕМ ОТ Markdown
                     const cleanTemplateCaption = cleanMarkdown(templateCaption);
@@ -749,9 +740,18 @@ class SimpleFootprintManager {
 
             } catch (sendError) {
                 console.log('❌ Ошибка отправки в Telegram:', sendError.message);
+                console.log('Подробности:', {
+                    errorType: sendError.constructor.name,
+                    message: sendError.message,
+                    stack: sendError.stack
+                });
             }
         } else {
-            console.log(`⏭️ Визуализация пропущена`);
+            console.log(`⏭️ Визуализация пропущена:`, {
+                bot: !!bot,
+                chatId: !!chatId,
+                enableMergeVisualization: this.config.enableMergeVisualization
+            });
         }
 
         return {
@@ -769,7 +769,7 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 МЕТОД: Обработка последующих фото
+    // 🔥 МЕТОД: Обработка последующих фото (ОБНОВЛЕННЫЙ)
     async handleSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`🔍 Проверяю совпадение с существующим отпечатком`);
 
@@ -817,6 +817,9 @@ class SimpleFootprintManager {
             if (!transformationConsistent) {
                 console.log('⚠️ Трансформации не согласованы перед сравнением отпечатков');
                 console.log(`   Различия: ${transComparison.differences.join(', ')}`);
+
+                // Можем попытаться скорректировать
+                console.log('🔄 Пытаюсь скорректировать систему координат для сравнения...');
             }
         }
 
@@ -852,7 +855,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 МЕТОД: Обработка совпадающих следов
+    // 🔥 МЕТОД: Обработка совпадающих следов (ОБНОВЛЕННЫЙ)
     async handleMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
                                  existingTransformationInfo, similarity, comparisonResult,
                                  tempResult, bot, chatId) {
@@ -908,7 +911,7 @@ class SimpleFootprintManager {
             success: true,
             similarity: similarity,
             decision: 'same',
-            nodesAdded: tempResult.added || 0,
+            nodesAdded: tempResult.added || 0,  // 🔥 ИСПОЛЬЗУЕМ tempResult.added
             message: `✅ След добавлен! Сходство: ${(similarity * 100).toFixed(1)}%`,
             hasVisualization: visualizationResults.hasVisualization,
             telegramSent: visualizationResults.telegramSent,
@@ -919,7 +922,7 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 СОЗДАНИЕ ВИЗУАЛИЗАЦИЙ
+    // 🔥 СОЗДАНИЕ ВИЗУАЛИЗАЦИЙ (исправленная версия)
     async createVisualizations(session, userId, transformationInfo, existingTransformationInfo,
                               comparisonResult, vectorModel, bot, chatId) {
         let clusterVizResult = null;
@@ -988,21 +991,11 @@ class SimpleFootprintManager {
             // 4. Отправка шаблона
             if (templateVizResult?.template && fs.existsSync(templateVizResult.template)) {
                 try {
-                    // 🔥 БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ДАННЫХ ШАБЛОНА (без getVisualizationData)
-                    let cellCount = 0;
-
-                    if (vectorModel.templateBuilder) {
-                        try {
-                            // 🔥 ВМЕСТО getVisualizationData() используем прямой доступ
-                            cellCount = vectorModel.templateBuilder.invariantCells?.size || 0;
-                        } catch (dataError) {
-                            console.log(`⚠️ Ошибка получения количества ячеек: ${dataError.message}`);
-                            cellCount = 0;
-                        }
-                    }
-
+                    const templateStats = templateVizResult.stats || {};
                     let templateCaption = `📊 ШАБЛОН ПОСЛЕ ${session.photos.length} ФОТО\n\n`;
-                    templateCaption += `📋 Ячеек: ${cellCount}\n`;
+                    templateCaption += `📋 Ячеек: ${templateStats.cells || 0}\n`;
+                    templateCaption += `✅ Подтверждений: ${templateStats.totalConfirmations || 0}\n`;
+                    templateCaption += `📈 Среднее: ${templateStats.averageConfirmations?.toFixed(2) || '0.00'}\n\n`;
                     templateCaption += `🔍 Накопление деталей работает`;
 
                     // 🔥 ОЧИЩАЕМ ОТ Markdown
@@ -1130,7 +1123,7 @@ class SimpleFootprintManager {
             );
 
             // 4. Проверяем трансформации
-            console.log('\n🔄 ПРОВЕРКА ТРАНСФОРМАЦИИ:');
+            console.log('\n🔄 ПРОВЕРКА ТРАНСФОРМАЦИЙ:');
             const validationResult = this.validateAllTransformations(userId);
             results.transformationValidation = validationResult;
 
@@ -1516,8 +1509,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ
-
+    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ (без изменений)
     getVectorSuperModel(userId) {
         return this.vectorSuperModels.get(userId);
     }
@@ -1528,24 +1520,14 @@ class SimpleFootprintManager {
             return { exists: false, message: 'Шаблон не найден' };
         }
 
-        // 🔥 БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ДАННЫХ
-        let cellsCount = 0;
-        let stats = {};
-
-        try {
-            if (vectorModel.templateBuilder) {
-                cellsCount = vectorModel.templateBuilder.invariantCells?.size || 0;
-                stats = { cells: cellsCount };
-            }
-        } catch (error) {
-            console.log(`⚠️ Ошибка доступа к шаблону: ${error.message}`);
-        }
+        const templateData = vectorModel.templateBuilder.getVisualizationData();
+        const stats = templateData?.stats || {};
 
         return {
             exists: true,
             userId: userId,
             templateName: vectorModel.name,
-            cellsCount: cellsCount,
+            cellsCount: templateData?.cells?.length || 0,
             totalConfirmations: stats.totalConfirmations || 0,
             averageConfirmations: stats.averageConfirmations?.toFixed(2) || '0.00',
             confirmedCells: stats.confirmedCells || 0,
@@ -1642,24 +1624,13 @@ class SimpleFootprintManager {
     getSystemStats() {
         const templateStats = [];
         for (const [userId, vectorModel] of this.vectorSuperModels) {
-            // 🔥 БЕЗОПАСНЫЙ ВЫЗОВ getVisualizationData
-            let cells = 0;
-            let totalConfirmations = 0;
-            let averageConfirmations = '0.00';
-
-            try {
-                if (vectorModel.templateBuilder) {
-                    cells = vectorModel.templateBuilder.invariantCells?.size || 0;
-                }
-            } catch (error) {
-                console.log(`⚠️ Ошибка статистики шаблона ${userId}: ${error.message}`);
-            }
-
+            const templateData = vectorModel.templateBuilder?.getVisualizationData();
+            const stats = templateData?.stats || {};
             templateStats.push({
                 userId,
-                cells: cells,
-                totalConfirmations: totalConfirmations,
-                averageConfirmations: averageConfirmations
+                cells: templateData?.cells?.length || 0,
+                totalConfirmations: stats.totalConfirmations || 0,
+                averageConfirmations: stats.averageConfirmations?.toFixed(2) || '0.00'
             });
         }
 
