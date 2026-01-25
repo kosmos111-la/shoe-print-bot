@@ -10,34 +10,46 @@ class TemplateCoordination {
     // 🔥 НОВЫЙ МЕТОД: Рассчитать реальный процент совпадений
     calculateRealMatchPercentage(matches, totalTrackerPoints) {
         console.log(`\n📊 [FIX-STATS] Расчет реального процента совпадений:`);
-
+       
         if (!totalTrackerPoints || totalTrackerPoints === 0) {
             console.log('⚠️ [FIX-STATS] Нет точек трекера');
             return 0;
         }
-
+       
+        // 🔥 ИСПОЛЬЗОВАТЬ РЕАЛЬНЫЕ ПОРОГИ ИЗ ЛОГОВ
         const REAL_THRESHOLDS = {
-            perfect: 15,
-            good: 30,
-            acceptable: 50
+            perfect: 15,    // "Идеальные (<15px)"
+            good: 30,       // "Хорошие (15-30px)" 
+            acceptable: 50  // Из лога виден порог ~50px
         };
-
+       
         const realMatches = matches.filter(m =>
             m.distance && m.distance < REAL_THRESHOLDS.acceptable
         );
-
+       
         const percentage = (realMatches.length / totalTrackerPoints) * 100;
-
+       
         console.log(`📊 [FIX-STATS] Реальные совпадения:`);
         console.log(`   Всего точек трекера: ${totalTrackerPoints}`);
         console.log(`   Всего совпадений: ${matches.length}`);
         console.log(`   Реальных (расстояние < ${REAL_THRESHOLDS.acceptable}px): ${realMatches.length}`);
         console.log(`   Реальный процент: ${percentage.toFixed(1)}%`);
-
-        return Math.min(percentage, 100);
+       
+        // 🔥 ДИАГНОСТИКА: Если процент 100%, проверить детали
+        if (percentage > 95 && realMatches.length < totalTrackerPoints) {
+            console.log(`⚠️ [FIX-STATS-WARN] Подозрительный результат: ${percentage.toFixed(1)}% при ${realMatches.length}/${totalTrackerPoints} реальных совпадений`);
+           
+            // Показать расстояния
+            matches.slice(0, 5).forEach((match, i) => {
+                console.log(`   Совпадение ${i+1}: расстояние=${match.distance?.toFixed(1)}px, ` +
+                          `type=${match.matchType}, valid=${match.distance < REAL_THRESHOLDS.acceptable}`);
+            });
+        }
+       
+        return Math.min(percentage, 100); // Ограничить 100%
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Обновление подтверждений БЕЗ РЕКУРСИИ
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Обновление подтверждений с правильной трансформацией
     updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo = null) {
         console.log(`\n🔄 ОБНОВЛЯЮ ПОДТВЕРЖДЕНИЯ с ПРАВИЛЬНОЙ ТРАНСФОРМАЦИЕЙ...`);
 
@@ -74,15 +86,16 @@ class TemplateCoordination {
         console.log(`📐 Трансформация отпечатка:`);
         console.log(`   Угол: ${footprintTransformation.rotationAngle?.toFixed(1) || 0}°`);
         console.log(`   Зеркало: ${footprintTransformation.isMirrored ? 'да' : 'нет'}`);
+        console.log(`   Центр: (${footprintTransformation.center?.x?.toFixed(1)}, ${footprintTransformation.center?.y?.toFixed(1)})`);
 
-        // 2. 🔥 ИСПРАВЛЕНИЕ: Используем getSimpleData() вместо getVisualizationData()
-        const templateSimpleData = templateBuilder.getSimpleData();
-        if (!templateSimpleData || !templateSimpleData.cells || templateSimpleData.cells.length === 0) {
+        // 2. ПОЛУЧАЕМ ДАННЫЕ ШАБЛОНА
+        const templateData = templateBuilder.getVisualizationData();
+        if (!templateData || !templateData.cells || templateData.cells.length === 0) {
             console.log('⚠️ Нет данных ячеек в шаблоне');
-            return this.fallbackDirectComparison(tracker, templateBuilder);
+            return 0;
         }
 
-        console.log(`📊 Данные шаблона: ${templateSimpleData.cells.length} ячеек`);
+        console.log(`📊 Данные шаблона: ${templateData.cells.length} ячеек`);
 
         // 3. ПОЛУЧАЕМ ТРАНСФОРМАЦИЮ ШАБЛОНА
         const templateTransformation = templateBuilder.getNormalizationTransform();
@@ -94,10 +107,11 @@ class TemplateCoordination {
 
         console.log(`📐 Трансформация шаблона:`);
         console.log(`   Границы: ${templateTransformation.width?.toFixed(1)}x${templateTransformation.height?.toFixed(1)}`);
+        console.log(`   Смещение: (${templateTransformation.minX?.toFixed(1)}, ${templateTransformation.minY?.toFixed(1)})`);
 
         // 🔥 ИСПРАВЛЕНИЕ: Преобразовать точки шаблона в систему отпечатка
         const templatePointsInFootprintSystem = this.transformTemplatePointsToFootprintSystem(
-            templateSimpleData.cells,
+            templateData.cells,
             templateTransformation,
             footprintTransformation
         );
@@ -106,13 +120,7 @@ class TemplateCoordination {
 
         // 4. ПОЛУЧАЕМ ТОЧКИ ТРЕКЕРА В СИСТЕМЕ ОТПЕЧАТКА
         const trackerPoints = [];
-        const trackerPointIds = [];
-       
-        // 🔥 ОГРАНИЧИВАЕМ КОЛИЧЕСТВО ТОЧЕК ДЛЯ ИЗБЕЖАНИЯ ПЕРЕПОЛНЕНИЯ
-        let pointCount = 0;
         for (const [id, point] of tracker.points) {
-            if (pointCount++ > 1000) break; // 🔥 ОГРАНИЧЕНИЕ
-           
             trackerPoints.push({
                 id,
                 x: point.x,
@@ -121,10 +129,26 @@ class TemplateCoordination {
                 confirmedCount: point.confirmedCount || 1,
                 pointData: point
             });
-            trackerPointIds.push(id);
         }
 
         console.log(`📊 Точки трекера: ${trackerPoints.length}`);
+
+        // 🔥 ВАЛИДАЦИЯ: Проверить координаты
+        if (trackerPoints.length > 0 && templatePointsInFootprintSystem.length > 0) {
+            const trackerSample = trackerPoints[0];
+            const templateSample = templatePointsInFootprintSystem[0];
+           
+            console.log(`🔍 [DIAG-COORD-CHECK] Пример координат:`);
+            console.log(`   Точка трекера: (${trackerSample.x.toFixed(1)}, ${trackerSample.y.toFixed(1)})`);
+            console.log(`   Точка шаблона: (${templateSample.x.toFixed(1)}, ${templateSample.y.toFixed(1)})`);
+           
+            // Проверить на нулевые координаты
+            const zeroTracker = trackerPoints.filter(p => Math.abs(p.x) < 0.1 && Math.abs(p.y) < 0.1).length;
+            const zeroTemplate = templatePointsInFootprintSystem.filter(p => Math.abs(p.x) < 0.1 && Math.abs(p.y) < 0.1).length;
+           
+            if (zeroTracker > 0) console.log(`⚠️ [DIAG-COORD] ${zeroTracker} точек трекера имеют координаты ~(0,0)`);
+            if (zeroTemplate > 0) console.log(`⚠️ [DIAG-COORD] ${zeroTemplate} точек шаблона имеют координаты ~(0,0)`);
+        }
 
         // 5. СРАВНИВАЕМ ТОЧКИ
         const comparisonResult = this.comparePointsInSameCoordinateSystem(
@@ -141,6 +165,11 @@ class TemplateCoordination {
         console.log(`   • Идеальные (<15px): ${comparisonResult.perfectMatches}`);
         console.log(`   • Хорошие (15-30px): ${comparisonResult.goodMatches}`);
         console.log(`   • Процент совпадений: ${comparisonResult.matchRate.toFixed(1)}%`);
+
+        // 🔥 ПРОВЕРКА: Если процент 100%, но реальных совпадений мало
+        if (comparisonResult.matchRate > 90 && comparisonResult.perfectMatches < 3) {
+            console.log(`⚠️ [FIX-STATS-WARN] Подозрительный результат: ${comparisonResult.matchRate.toFixed(1)}% совпадений, но только ${comparisonResult.perfectMatches} идеальных (<15px)`);
+        }
 
         // 6. ПРИМЕНЯЕМ РЕЗУЛЬТАТЫ
         const updatedCount = this.applyComparisonToTracker(
@@ -164,26 +193,21 @@ class TemplateCoordination {
         let perfectMatches = 0;
         let goodMatches = 0;
 
-        const PERFECT_THRESHOLD = 15;
-        const GOOD_THRESHOLD = 30;
-        const MAX_THRESHOLD = 50;
+        const PERFECT_THRESHOLD = 15;    // 15px - точное совпадение
+        const GOOD_THRESHOLD = 30;       // 30px - хорошее совпадение
+        const MAX_THRESHOLD = 50;        // 50px - максимальное
 
-        // 🔥 ОГРАНИЧИВАЕМ ПЕРЕБОР ДЛЯ ИЗБЕЖАНИЯ ПЕРЕПОЛНЕНИЯ
-        const maxPointsToCheck = Math.min(trackerPoints.length, 500);
-       
-        for (let i = 0; i < maxPointsToCheck; i++) {
-            const trackerPoint = trackerPoints[i];
+        // ДЛЯ КАЖДОЙ ТОЧКИ ТРЕКЕРА ИЩЕМ БЛИЖАЙШУЮ ТОЧКУ ШАБЛОНА
+        trackerPoints.forEach(trackerPoint => {
             let bestMatch = null;
             let minDistance = Infinity;
+            let bestTemplatePoint = null;
 
-            // 🔥 ОГРАНИЧИВАЕМ ПОИСК В ШАБЛОНЕ
-            const maxTemplatePointsToCheck = Math.min(templatePoints.length, 200);
-            for (let j = 0; j < maxTemplatePointsToCheck; j++) {
-                const templatePoint = templatePoints[j];
-               
-                const dx = templatePoint.x - trackerPoint.x;
-                const dy = templatePoint.y - trackerPoint.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+            for (const templatePoint of templatePoints) {
+                const distance = Math.sqrt(
+                    Math.pow(templatePoint.x - trackerPoint.x, 2) +
+                    Math.pow(templatePoint.y - trackerPoint.y, 2)
+                );
 
                 if (distance < minDistance) {
                     minDistance = distance;
@@ -193,6 +217,7 @@ class TemplateCoordination {
                         distance: distance,
                         quality: this.calculateMatchQuality(distance, templatePoint.confidence)
                     };
+                    bestTemplatePoint = templatePoint;
                 }
             }
 
@@ -212,9 +237,20 @@ class TemplateCoordination {
 
                 matches.push(bestMatch);
             }
-        }
+        });
 
-        // 🔥 РЕАЛЬНЫЙ РАСЧЕТ ПРОЦЕНТА
+        // 🔥 ДИАГНОСТИКА: Записать первые совпадения
+        console.log(`🔍 [DIAG-STATS] Расчет процента совпадений:`);
+        console.log(`   Всего точек трекера: ${trackerPoints.length}`);
+        console.log(`   Найдено совпадений: ${matches.length}`);
+
+        // 🔥 ПРОВЕРИТЬ КАЖДОЕ "СОВПАДЕНИЕ":
+        matches.slice(0, 5).forEach((match, i) => {
+            console.log(`   Совпадение ${i+1}: расстояние=${match.distance?.toFixed(1)}px, ` +
+                      `valid=${match.distance < 50}, type=${match.matchType}`);
+        });
+
+        // 🔥 ИСПРАВЛЕНИЕ: Использовать реальный расчет процента
         const realPercentage = this.calculateRealMatchPercentage(matches, trackerPoints.length);
 
         return {
@@ -222,7 +258,7 @@ class TemplateCoordination {
             perfectMatches: perfectMatches,
             goodMatches: goodMatches,
             totalMatches: matches.length,
-            matchRate: realPercentage,
+            matchRate: realPercentage, // 🔥 ИСПОЛЬЗОВАТЬ РЕАЛЬНЫЙ ПРОЦЕНТ
             trackerPointsCount: trackerPoints.length,
             templatePointsCount: templatePoints.length,
             transformationUsed: transformation
@@ -271,12 +307,15 @@ class TemplateCoordination {
             // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
             const oldConfirmations = pointData.confirmedCount || 1;
             const templateConfirmations = bestMatch.templatePoint.confirmations || 1;
+
+            // 🔥 ВАЖНОЕ ПРАВИЛО: точка получает МАКСИМУМ из своего и шаблона
             const newConfirmations = Math.max(oldConfirmations, templateConfirmations);
 
             if (newConfirmations > oldConfirmations) {
                 pointData.confirmedCount = newConfirmations;
                 updatedCount++;
-
+               
+                // 🔥 ДИАГНОСТИКА: Записать обновление
                 if (updatedCount < 5) {
                     console.log(`   🔄 Точка ${pointId}: ${oldConfirmations} → ${newConfirmations} подтверждений`);
                 }
@@ -292,6 +331,7 @@ class TemplateCoordination {
             return;
         }
 
+        // Обновляем узлы графа на основе совпадений
         let updatedNodes = 0;
 
         matches.forEach(match => {
@@ -317,37 +357,34 @@ class TemplateCoordination {
         }
     }
 
-    // 🔥 ФОЛЛБЭК: Прямое сравнение
+    // 🔥 ФОЛЛБЭК: Прямое сравнение (старый метод, если нет трансформаций)
     fallbackDirectComparison(tracker, templateBuilder) {
         console.log(`🔄 Использую прямое сравнение (фоллбэк)...`);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Используем getSimpleData()
-        const templateSimpleData = templateBuilder.getSimpleData();
-        if (!templateSimpleData || !templateSimpleData.cells) {
+        const templateData = templateBuilder.getVisualizationData();
+        if (!templateData || !templateData.cells) {
             return 0;
         }
 
-        const templatePoints = templateSimpleData.cells.map(cell => ({
-            x: (cell.nx || 0) * 1000,
-            y: (cell.ny || 0) * 1000,
+        // Прямое сравнение без трансформаций (старая логика)
+        const templatePoints = templateData.cells.map(cell => ({
+            x: cell.x || 0,
+            y: cell.y || 0,
             confirmations: cell.confirmations || 1
         }));
 
         let updatedCount = 0;
         const threshold = 25;
 
-        // 🔥 ОГРАНИЧИВАЕМ КОЛИЧЕСТВО ТОЧЕК
-        let pointCount = 0;
         for (const [trackerId, trackerPoint] of tracker.points) {
-            if (pointCount++ > 500) break;
-           
             let bestDistance = Infinity;
             let bestConfirmations = 1;
 
             for (const templatePoint of templatePoints) {
-                const dx = templatePoint.x - trackerPoint.x;
-                const dy = templatePoint.y - trackerPoint.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+                const distance = Math.sqrt(
+                    Math.pow(templatePoint.x - trackerPoint.x, 2) +
+                    Math.pow(templatePoint.y - trackerPoint.y, 2)
+                );
 
                 if (distance < bestDistance && distance < threshold) {
                     bestDistance = distance;
@@ -375,6 +412,7 @@ class TemplateCoordination {
         console.log(`\n🔄 Прямое обновление подтверждений между двумя следами...`);
 
         try {
+            // 🔥 ИСПРАВЛЕНИЕ: Защита от ошибок при получении точек
             let points1, points2;
 
             try {
@@ -395,21 +433,19 @@ class TemplateCoordination {
 
             let updatedCount = 0;
             const threshold = 25;
+
+            // 🔥 ПРОСТОЕ СРАВНЕНИЕ без сложных преобразований
             const matches = [];
 
-            // 🔥 ОГРАНИЧИВАЕМ КОЛИЧЕСТВО ТОЧЕК ДЛЯ СРАВНЕНИЯ
-            const maxPoints = Math.min(500, points1.length);
-            for (let i = 0; i < maxPoints; i++) {
-                const point1 = points1[i];
+            for (const point1 of points1) {
                 let bestMatch = null;
                 let minDistance = Infinity;
 
-                const maxPoints2 = Math.min(200, points2.length);
-                for (let j = 0; j < maxPoints2; j++) {
-                    const point2 = points2[j];
-                    const dx = point2.x - point1.x;
-                    const dy = point2.y - point1.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+                for (const point2 of points2) {
+                    const distance = Math.sqrt(
+                        Math.pow(point2.x - point1.x, 2) +
+                        Math.pow(point2.y - point1.y, 2)
+                    );
 
                     if (distance < minDistance && distance < threshold) {
                         minDistance = distance;
@@ -448,6 +484,7 @@ class TemplateCoordination {
             }
 
             console.log(`✅ Обновлено ${updatedCount} точек`);
+
             return updatedCount;
 
         } catch (error) {
@@ -462,18 +499,14 @@ class TemplateCoordination {
 
         let updatedCount = 0;
 
-        // 🔥 ОГРАНИЧИВАЕМ ОБРАБОТКУ СОВПАДЕНИЙ
-        const maxMatches = Math.min(matches.length, 1000);
-       
-        for (let i = 0; i < maxMatches; i++) {
-            const match = matches[i];
-           
+        // Для каждого совпадения обновляем подтверждения в обоих следах
+        matches.forEach(match => {
             // Обновляем в первом следе
             if (footprint1.pointTracker && match.point1 && match.point1.id) {
                 const pointData = footprint1.pointTracker.points.get(match.point1.id);
                 if (pointData) {
                     const oldCount = pointData.confirmedCount || 1;
-                    const newCount = Math.max(oldCount, 2);
+                    const newCount = Math.max(oldCount, 2); // Минимум 2 подтверждения
 
                     if (newCount > oldCount) {
                         pointData.confirmedCount = newCount;
@@ -495,7 +528,7 @@ class TemplateCoordination {
                     }
                 }
             }
-        }
+        });
 
         console.log(`✅ Обновлено ${updatedCount} подтверждений`);
         return updatedCount;
@@ -505,11 +538,7 @@ class TemplateCoordination {
     transformTemplatePointsToFootprintSystem(templateCells, templateTransformation, footprintTransformation) {
         const points = [];
 
-        // 🔥 ОГРАНИЧИВАЕМ КОЛИЧЕСТВО ЯЧЕЕК
-        const maxCells = Math.min(templateCells.length, 1000);
-       
-        for (let i = 0; i < maxCells; i++) {
-            const cell = templateCells[i];
+        templateCells.forEach((cell, index) => {
             const normalizedX = cell.nx || 0;
             const normalizedY = cell.ny || 0;
 
@@ -547,14 +576,17 @@ class TemplateCoordination {
                 confirmations: cell.confirmations || 1,
                 confidence: cell.confidence || 0.7,
                 cellId: cell.id,
-                cellIndex: i
+                isNew: cell.isNew || false,
+                status: cell.status || 'unknown',
+                originalCell: cell,
+                cellIndex: index
             });
-        }
+        });
 
         return points;
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Проверить накопление деталей (без getVisualizationData)
+    // 🔥 МЕТОД: Проверить накопление деталей
     debugAccumulation(userId) {
         const vectorModel = this.manager.vectorSuperModels.get(userId);
         if (!vectorModel || !vectorModel.templateBuilder) {
@@ -562,196 +594,229 @@ class TemplateCoordination {
             return;
         }
 
-        // 🔥 ИСПРАВЛЕНИЕ: Используем getSimpleData()
-        const templateSimpleData = vectorModel.templateBuilder.getSimpleData();
+        const templateData = vectorModel.templateBuilder.getVisualizationData();
 
         console.log('\n🔍 ДЕБАГ НАКОПЛЕНИЯ ДЕТАЛЕЙ:');
-        console.log(`Шаблон: ${templateSimpleData.name}`);
-        console.log(`Всего ячеек: ${templateSimpleData.cellCount}`);
-        console.log(`Последнее обновление: ${templateSimpleData.lastUpdated.toLocaleString()}`);
+        console.log(`Шаблон: ${templateData.name}`);
+        console.log(`Всего ячеек: ${templateData.stats.totalCells}`);
+        console.log(`Всего подтверждений: ${templateData.stats.totalConfirmations}`);
 
-        if (templateSimpleData.cells && templateSimpleData.cells.length > 0) {
-            // 🔥 СТАТИСТИКА ПО ПОДТВЕРЖДЕНИЯМ
-            const confirmationDistribution = {};
-            let totalConfirmations = 0;
-           
-            templateSimpleData.cells.forEach(cell => {
-                const conf = cell.confirmations || 1;
-                totalConfirmations += conf;
-               
-                if (conf >= 5) confirmationDistribution['5+'] = (confirmationDistribution['5+'] || 0) + 1;
-                else confirmationDistribution[conf] = (confirmationDistribution[conf] || 0) + 1;
-            });
+        // 🔥 СТАТИСТИКА ПО ТИПАМ ТОЧЕК
+        const cells = templateData.cells || [];
+        const byStatus = {};
 
-            console.log(`\n📈 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ:`);
-            Object.entries(confirmationDistribution).sort((a, b) => {
-                const aKey = a[0] === '5+' ? 5 : parseInt(a[0]);
-                const bKey = b[0] === '5+' ? 5 : parseInt(b[0]);
-                return aKey - bKey;
-            }).forEach(([confirmations, count]) => {
-                const percent = templateSimpleData.cellCount > 0 ?
-                    ((count / templateSimpleData.cellCount) * 100).toFixed(1) : '0.0';
-                console.log(`   ${confirmations}: ${count} (${percent}%)`);
-            });
+        cells.forEach(cell => {
+            const status = cell.status || 'unknown';
+            byStatus[status] = (byStatus[status] || 0) + 1;
+        });
 
-            const avgConfirmations = templateSimpleData.cellCount > 0 ?
-                totalConfirmations / templateSimpleData.cellCount : 0;
-            console.log(`\n📊 СРЕДНЕЕ: ${avgConfirmations.toFixed(2)} подтверждений на ячейку`);
-        }
+        console.log('\n📊 РАСПРЕДЕЛЕНИЕ ПО СТАТУСАМ:');
+        Object.entries(byStatus).forEach(([status, count]) => {
+            const percent = ((count / cells.length) * 100).toFixed(1);
+            console.log(`   ${status}: ${count} (${percent}%)`);
+        });
 
+        // 🔥 НОВЫЕ ТОЧКИ
+        const newCells = cells.filter(c => c.isNew);
+        console.log(`\n🆕 НОВЫЕ ТОЧКИ: ${newCells.length}`);
+        newCells.slice(0, 3).forEach((cell, i) => {
+            console.log(`   ${i + 1}. ${cell.id.slice(0, 12)}: ${cell.confirmations} подтверждений`);
+        });
+
+        // 🔥 КАЧЕСТВО ПОДТВЕРЖДЕНИЙ
+        const confirmationDistribution = {};
+        cells.forEach(cell => {
+            const conf = cell.confirmations || 1;
+            if (conf >= 5) confirmationDistribution['5+'] = (confirmationDistribution['5+'] || 0) + 1;
+            else confirmationDistribution[conf] = (confirmationDistribution[conf] || 0) + 1;
+        });
+
+        console.log('\n📈 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ:');
+        Object.entries(confirmationDistribution).sort((a, b) => {
+            const aKey = a[0] === '5+' ? 5 : parseInt(a[0]);
+            const bKey = b[0] === '5+' ? 5 : parseInt(b[0]);
+            return aKey - bKey;
+        }).forEach(([confirmations, count]) => {
+            const percent = ((count / cells.length) * 100).toFixed(1);
+            console.log(`   ${confirmations}: ${count} (${percent}%)`);
+        });
+
+        // 🔥 ИСТОЧНИКИ (графы)
+        const sources = new Set();
+        cells.forEach(cell => {
+            (cell.sources || []).forEach(source => sources.add(source));
+        });
+
+        console.log(`\n📁 ИСТОЧНИКИ: ${sources.size} различных графов`);
+
+        // 🔥 КАЧЕСТВО ЭТАЛОНА
+        console.log(`\n🎯 ЭТАЛОН: ${templateData.referenceGraphId?.slice(0, 8) || 'нет'}`);
+        console.log(`   Качество: ${templateData.referenceGraphQuality?.toFixed(3) || 0}`);
+        console.log(`   Лучший граф: ${templateData.dynamicInfo?.bestGraphId?.slice(0, 8) || 'нет'}`);
+        console.log(`   Качество лучшего: ${templateData.dynamicInfo?.bestGraphQuality?.toFixed(3) || 0}`);
+       
         // 🔥 ДИАГНОСТИКА: Проверить трансформации
         console.log(`\n🔧 ТРАНСФОРМАЦИИ ШАБЛОНА:`);
         const templateTransformation = vectorModel.templateBuilder.getNormalizationTransform();
         if (templateTransformation) {
             console.log(`   Ширина: ${templateTransformation.width?.toFixed(1)}`);
             console.log(`   Высота: ${templateTransformation.height?.toFixed(1)}`);
+            console.log(`   Смещение: (${templateTransformation.minX?.toFixed(1)}, ${templateTransformation.minY?.toFixed(1)})`);
         } else {
             console.log(`   ❌ Нет трансформации шаблона`);
         }
     }
 
-    // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ
-
+    // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ (оригинальные, без изменений)
+   
     // Метод для получения статистики подтверждений
     getConfirmationStats(userId) {
         const vectorModel = this.manager.vectorSuperModels.get(userId);
         if (!vectorModel) {
             return { exists: false, stats: null };
         }
-
-        // 🔥 ИСПРАВЛЕНИЕ: Используем getSimpleData()
-        const templateSimpleData = vectorModel.templateBuilder.getSimpleData();
        
-        let totalConfirmations = 0;
-        if (templateSimpleData.cells && templateSimpleData.cells.length > 0) {
-            totalConfirmations = templateSimpleData.cells.reduce((sum, cell) =>
-                sum + (cell.confirmations || 0), 0);
-        }
-
-        const avgConfirmations = templateSimpleData.cellCount > 0 ?
-            totalConfirmations / templateSimpleData.cellCount : 0;
-
+        const templateData = vectorModel.templateBuilder.getVisualizationData();
+        const stats = templateData?.stats || {};
+       
         return {
             exists: true,
             stats: {
-                totalCells: templateSimpleData.cellCount || 0,
-                confirmedCells: templateSimpleData.cellCount || 0,
-                totalConfirmations: totalConfirmations,
-                averageConfirmations: avgConfirmations.toFixed(2),
-                lastUpdated: templateSimpleData.lastUpdated
+                totalCells: stats.totalCells || 0,
+                confirmedCells: stats.confirmedCells || 0,
+                totalConfirmations: stats.totalConfirmations || 0,
+                averageConfirmations: stats.averageConfirmations?.toFixed(2) || '0.00',
+                referenceGraphId: templateData.referenceGraphId?.slice(0, 8) || 'none'
             }
         };
     }
-
+   
     // Метод для очистки шаблона
     clearTemplateForUser(userId) {
         const vectorModel = this.manager.vectorSuperModels.get(userId);
         if (!vectorModel) {
             return { success: false, message: 'Шаблон не найден' };
         }
-
+       
+        // Сбрасываем шаблон
         vectorModel.templateBuilder.reset();
+       
         console.log(`🧹 Шаблон очищен для пользователя ${userId}`);
         return { success: true, message: 'Шаблон очищен' };
     }
-
+   
     // Метод для проверки целостности шаблона
     validateTemplateIntegrity(userId) {
         const vectorModel = this.manager.vectorSuperModels.get(userId);
         if (!vectorModel) {
             return { valid: false, errors: ['Шаблон не найден'] };
         }
-
+       
         const errors = [];
-        const templateSimpleData = vectorModel.templateBuilder.getSimpleData();
-
-        if (!templateSimpleData) {
+        const templateData = vectorModel.templateBuilder.getVisualizationData();
+       
+        // Проверка наличия данных
+        if (!templateData) {
             errors.push('Нет данных шаблона');
         }
-
-        if (!templateSimpleData.cells || templateSimpleData.cellCount === 0) {
+       
+        if (!templateData.cells || templateData.cells.length === 0) {
             errors.push('Нет ячеек в шаблоне');
         }
-
+       
+        // Проверка трансформации
         const transformation = vectorModel.templateBuilder.getNormalizationTransform();
         if (!transformation) {
             errors.push('Нет трансформации шаблона');
+        } else {
+            if (!transformation.width || transformation.width < 1) {
+                errors.push(`Неверная ширина шаблона: ${transformation.width}`);
+            }
+            if (!transformation.height || transformation.height < 1) {
+                errors.push(`Неверная высота шаблона: ${transformation.height}`);
+            }
         }
-
-        const isValid = errors.length === 0;
-        console.log(`🔍 Проверка целостности шаблона ${userId}: ${isValid ? '✅' : '❌'}`);
        
+        // Проверка эталонного графа
+        if (!templateData.referenceGraphId) {
+            errors.push('Нет эталонного графа');
+        }
+       
+        const isValid = errors.length === 0;
+       
+        console.log(`🔍 Проверка целостности шаблона ${userId}: ${isValid ? '✅' : '❌'}`);
         if (!isValid) {
             console.log(`   Ошибки: ${errors.join(', ')}`);
         }
-
+       
         return {
             valid: isValid,
             errors: errors,
             stats: {
-                cells: templateSimpleData.cellCount || 0,
-                transformation: !!transformation
+                cells: templateData.cells?.length || 0,
+                transformation: !!transformation,
+                referenceGraph: !!templateData.referenceGraphId
             }
         };
     }
-
+   
     // Метод для получения визуализации шаблона
     getTemplateVisualizationData(userId) {
         const vectorModel = this.manager.vectorSuperModels.get(userId);
         if (!vectorModel) {
             return null;
         }
-
-        // 🔥 ИСПРАВЛЕНИЕ: Используем getSimpleData() для безопасности
-        return vectorModel.templateBuilder.getSimpleData();
+       
+        return vectorModel.templateBuilder.getVisualizationData();
     }
-
+   
     // Метод для обновления шаблона из нескольких отпечатков
     updateTemplateFromMultipleFootprints(userId, footprints) {
         console.log(`\n🔄 Обновление шаблона из ${footprints.length} отпечатков...`);
-
+       
         const vectorModel = this.manager.vectorSuperModels.get(userId);
         if (!vectorModel) {
             console.log('❌ Шаблон не найден');
             return { success: false, updated: 0 };
         }
-
+       
         let totalUpdated = 0;
-        const maxFootprints = Math.min(footprints.length, 10); // 🔥 ОГРАНИЧЕНИЕ
-
-        for (let i = 0; i < maxFootprints; i++) {
-            const footprint = footprints[i];
-            console.log(`   Обработка отпечатка ${i + 1}/${maxFootprints}: ${footprint.name}`);
-
+       
+        footprints.forEach((footprint, index) => {
+            console.log(`   Обработка отпечатка ${index + 1}/${footprints.length}: ${footprint.name}`);
+           
             try {
+                // Получаем трансформацию отпечатка
                 const transformation = footprint.getTransformation();
                 if (!transformation) {
                     console.log(`   ⚠️ Нет трансформации, пропускаем`);
-                    continue;
+                    return;
                 }
-
+               
+                // Добавляем граф в шаблон
                 vectorModel.addGraph(footprint.graph, footprint.id, {
                     isBatchUpdate: true,
                     transformationInfo: transformation,
-                    index: i
+                    index: index
                 });
-
+               
+                // Обновляем подтверждения
                 const updated = this.updateConfirmationsFromTemplate(footprint, vectorModel, transformation);
                 totalUpdated += updated;
-
+               
                 console.log(`   ✅ Обновлено: ${updated} точек`);
-
+               
             } catch (error) {
                 console.log(`   ❌ Ошибка обработки: ${error.message}`);
             }
-        }
-
-        console.log(`🎯 Итого обновлено: ${totalUpdated} точек из ${maxFootprints} отпечатков`);
-
+        });
+       
+        console.log(`🎯 Итого обновлено: ${totalUpdated} точек из ${footprints.length} отпечатков`);
+       
         return {
             success: true,
             totalUpdated: totalUpdated,
-            footprintsProcessed: maxFootprints
+            footprintsProcessed: footprints.length
         };
     }
 }
