@@ -551,116 +551,116 @@ class SimpleFootprintManager {
         return this.geometryUtils.calculateDistance(point1, point2);
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ОБНОВЛЕННЫЙ с CoordinateDirector)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
+    console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
 
-        try {
-            // Валидация входных данных
-            if (!analysis?.predictions) {
-                return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
-            }
-
-            // 🔥 ИСПОЛЬЗУЕМ CoordinateManager для извлечения точек
-            const points = this.extractPointsFromAnalysis(analysis);
-            if (points.length < this.config.minPointsForFootprint) {
-                return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
-            }
-
-            // 🔥 ЛОГИРУЕМ СИСТЕМУ КООРДИНАТ (если включено)
-            if (this.config.enableCoordinateDiagnostics) {
-                this.coordinateSystemLogger.logCoordinateSystems(
-                    `Извлечение точек из анализа для пользователя ${userId}`,
-                    points
-                );
-            }
-
-            // Создание и нормализация графа
-            const graph = new SimpleGraph(`Временный_${Date.now()}`);
-            graph.buildFromPoints(points);
-
-            const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
-                userId: userId,
-                photoInfo: photoInfo,
-                autoRotate: true
-            });
-
-            const transformationInfo = {
-                ...normalized.transformation,
-                rotationAngle: normalized.rotationAngle,
-                isMirrored: normalized.isMirrored,
-                corrected: false,
-                timestamp: new Date(),
-                footType: normalized.footType,
-                photoId: photoInfo.photoId || `photo_${Date.now()}`
-            };
-
-            const corrected = this.mirrorDetector.autoCorrectMirroring(normalized.graph, 'right');
-            if (corrected.correctionApplied) {
-                transformationInfo.corrected = true;
-                transformationInfo.correctionType = corrected.correctionType;
-            }
-
-            const finalGraph = corrected.graph;
-            finalGraph.transformation = transformationInfo;
-
-            // 🔥 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ: Исправляем через директор
-            if (this.config.guaranteeCanonicalSystem) {
-                const canonicalTrans = this.coordinateDirector.enforceCanonicalSystem(
-                    `photo_${userId}_${photoInfo.photoId || Date.now()}`,
-                    transformationInfo
-                );
-               
-                finalGraph.transformation = canonicalTrans;
-                transformationInfo = canonicalTrans;
-               
-                console.log(`✅ Фото приведено к канонической системе: ${canonicalTrans.rotationAngle}°`);
-            }
-
-            // 🔥 ЛОГИРУЕМ ТРАНСФОРМАЦИИ
-            if (this.config.enableCoordinateDiagnostics) {
-                this.coordinateSystemLogger.logTransformations(
-                    [transformationInfo],
-                    `Трансформация для фото ${photoInfo.photoId || 'unknown'}`
-                );
-            }
-
-            // Работа с сессией
-            let session = this.sessionManager.getActiveSession(userId);
-            if (!session) {
-                session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-            }
-
-            // 🔥 ИСПРАВЛЕНИЕ: Вместо вызова несуществующего метода обновляем напрямую
-            session.lastActivity = new Date();
-
-            if (!session.metadata.normalizationHistory) {
-                session.metadata.normalizationHistory = [];
-            }
-            session.metadata.normalizationHistory.push(transformationInfo);
-            session.metadata.lastTransformation = transformationInfo;
-
-            session.photos.push({
-                id: `photo_${Date.now()}`,
-                timestamp: new Date(),
-                pointsCount: points.length,
-                transformationInfo: transformationInfo
-            });
-
-            // 🔥 ПЕРВОЕ ФОТО
-            if (!session.currentFootprint) {
-                return await this.handleFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
-            }
-
-            // 🔥 ПОСЛЕДУЮЩИЕ ФОТО
-            return await this.handleSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
-
-        } catch (error) {
-            console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
-            console.error(error.stack);
-            return { success: false, error: error.message, nodesAdded: 0 };
+    try {
+        // Валидация входных данных
+        if (!analysis?.predictions) {
+            return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
         }
+
+        // 🔥 ИСПОЛЬЗУЕМ CoordinateManager для извлечения точек
+        const points = this.extractPointsFromAnalysis(analysis);
+        if (points.length < this.config.minPointsForFootprint) {
+            return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
+        }
+
+        // 🔥 ЛОГИРУЕМ СИСТЕМУ КООРДИНАТ (если включено)
+        if (this.config.enableCoordinateDiagnostics) {
+            this.coordinateSystemLogger.logCoordinateSystems(
+                `Извлечение точек из анализа для пользователя ${userId}`,
+                points
+            );
+        }
+
+        // Создание и нормализация графа
+        const graph = new SimpleGraph(`Временный_${Date.now()}`);
+        graph.buildFromPoints(points);
+
+        const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
+            userId: userId,
+            photoInfo: photoInfo,
+            autoRotate: true
+        });
+
+        // 🔥 ИЗМЕНЕНИЕ: используем let вместо const
+        let transformationInfo = {
+            ...normalized.transformation,
+            rotationAngle: normalized.rotationAngle,
+            isMirrored: normalized.isMirrored,
+            corrected: false,
+            timestamp: new Date(),
+            footType: normalized.footType,
+            photoId: photoInfo.photoId || `photo_${Date.now()}`
+        };
+
+        const corrected = this.mirrorDetector.autoCorrectMirroring(normalized.graph, 'right');
+        if (corrected.correctionApplied) {
+            transformationInfo.corrected = true;
+            transformationInfo.correctionType = corrected.correctionType;
+        }
+
+        const finalGraph = corrected.graph;
+        finalGraph.transformation = transformationInfo;
+
+        // 🔥 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ: Исправляем через директор
+        if (this.config.guaranteeCanonicalSystem) {
+            const canonicalTrans = this.coordinateDirector.enforceCanonicalSystem(
+                `photo_${userId}_${photoInfo.photoId || Date.now()}`,
+                transformationInfo
+            );
+           
+            finalGraph.transformation = canonicalTrans;
+            transformationInfo = canonicalTrans; // 🔥 ТЕПЕРЬ ЭТО РАБОТАЕТ
+           
+            console.log(`✅ Фото приведено к канонической системе: ${canonicalTrans.rotationAngle}°`);
+        }
+
+        // 🔥 ЛОГИРУЕМ ТРАНСФОРМАЦИИ
+        if (this.config.enableCoordinateDiagnostics) {
+            this.coordinateSystemLogger.logTransformations(
+                [transformationInfo],
+                `Трансформация для фото ${photoInfo.photoId || 'unknown'}`
+            );
+        }
+
+        // Работа с сессией
+        let session = this.sessionManager.getActiveSession(userId);
+        if (!session) {
+            session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
+        }
+
+        // 🔥 ИСПРАВЛЕНИЕ: Вместо вызова несуществующего метода обновляем напрямую
+        session.lastActivity = new Date();
+
+        if (!session.metadata.normalizationHistory) {
+            session.metadata.normalizationHistory = [];
+        }
+        session.metadata.normalizationHistory.push(transformationInfo);
+        session.metadata.lastTransformation = transformationInfo;
+
+        session.photos.push({
+            id: `photo_${Date.now()}`,
+            timestamp: new Date(),
+            pointsCount: points.length,
+            transformationInfo: transformationInfo
+        });
+
+        // 🔥 ПЕРВОЕ ФОТО
+        if (!session.currentFootprint) {
+            return await this.handleFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
+        }
+
+        // 🔥 ПОСЛЕДУЮЩИЕ ФОТО
+        return await this.handleSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
+
+    } catch (error) {
+        console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
+        console.error(error.stack);
+        return { success: false, error: error.message, nodesAdded: 0 };
     }
+}
 
     // 🔥 МЕТОД: Извлечь точки из анализа (ОБНОВЛЕННЫЙ)
     extractPointsFromAnalysis(analysis) {
@@ -882,98 +882,101 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 МЕТОД: Обработка последующих фото (ОБНОВЛЕННЫЙ с CoordinateDirector)
-    async handleSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
-        console.log(`🔍 Проверяю совпадение с существующим отпечатком`);
+    // 🔥 МЕТОД: Обработка последующих фото (ИСПРАВЛЕННЫЙ)
+async handleSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, originalTransformationInfo, bot, chatId) {
+    console.log(`🔍 Проверяю совпадение с существующим отпечатком`);
 
-        // 🔥 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ ПЕРЕД СРАВНЕНИЕМ
-        if (this.config.guaranteeCanonicalSystem) {
-            console.log('🎯 ПРИВЕДЕНИЕ К ЕДИНОЙ СИСТЕМЕ КООРДИНАТ...');
-           
-            // 1. Исправляем текущее фото
-            const canonicalPhotoTrans = this.coordinateDirector.enforceCanonicalSystem(
-                `photo_${userId}_${Date.now()}`,
-                transformationInfo
-            );
-            finalGraph.transformation = canonicalPhotoTrans;
-            transformationInfo = canonicalPhotoTrans;
-           
-            // 2. Исправляем существующий отпечаток
-            const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
-                                             session.currentFootprint.getTransformation();
-           
-            const canonicalFootprintTrans = this.coordinateDirector.enforceCanonicalSystem(
-                `footprint_${session.currentFootprint.id}`,
-                existingTransformationInfo
-            );
-           
-            session.currentFootprint.transformation = canonicalFootprintTrans;
-            session.currentFootprint.metadata.normalizationInfo = canonicalFootprintTrans;
-           
-            console.log(`✅ Обе системы приведены к канонической (0°)`);
-        }
+    // 🔥 ИЗМЕНЕНИЕ: создаем копию, которую можно изменять
+    let transformationInfo = { ...originalTransformationInfo };
 
-        // 🔥 ЛОГИРУЕМ СИСТЕМЫ КООРДИНАТ ПЕРЕД СРАВНЕНИЕМ
-        if (this.config.enableCoordinateDiagnostics) {
-            this.coordinateSystemLogger.logCoordinateSystems(
-                `Сравнение фото с существующим отпечатком (пользователь ${userId})`,
-                session.currentFootprint,
-                { points: this.extractPointsFromAnalysis(analysis), _source: 'new_analysis' }
-            );
-        }
-
+    // 🔥 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ ПЕРЕД СРАВНЕНИЕМ
+    if (this.config.guaranteeCanonicalSystem) {
+        console.log('🎯 ПРИВЕДЕНИЕ К ЕДИНОЙ СИСТЕМЕ КООРДИНАТ...');
+       
+        // 1. Исправляем текущее фото
+        const canonicalPhotoTrans = this.coordinateDirector.enforceCanonicalSystem(
+            `photo_${userId}_${Date.now()}`,
+            transformationInfo
+        );
+        finalGraph.transformation = canonicalPhotoTrans;
+        transformationInfo = canonicalPhotoTrans;
+       
+        // 2. Исправляем существующий отпечаток
         const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
                                          session.currentFootprint.getTransformation();
-
-        // Создание временного отпечатка для сравнения
-        const SimpleFootprint = require('./simple-footprint');
-        const tempFootprint = new SimpleFootprint({
-            userId: userId,
-            name: `Temp_${Date.now()}`
-        });
-
-        tempFootprint.metadata.normalizationInfo = transformationInfo;
-
-        // 🔥 СОХРАНЯЕМ РЕЗУЛЬТАТ В ПЕРЕМЕННУЮ
-        const tempResult = tempFootprint.addAnalysisHonest(analysis, {
-            ...photoInfo,
-            normalizedGraph: finalGraph,
-            photoId: photoInfo.photoId || `photo_${Date.now()}_temp`,
-            source: photoInfo.source || 'telegram_bot_temp',
-            transformationInfo: transformationInfo
-        });
-
-        // 🔥 СРАВНЕНИЕ С ГАРАНТИЕЙ КАНОНИЧЕСКОЙ СИСТЕМЫ
-        const comparisonResult = await this.compareWithGuaranteedSystem(
-            session.currentFootprint,
-            tempFootprint
+       
+        const canonicalFootprintTrans = this.coordinateDirector.enforceCanonicalSystem(
+            `footprint_${session.currentFootprint.id}`,
+            existingTransformationInfo
         );
-
-        const similarity = comparisonResult?.similarity || 0;
-
-        // 🔥 ИСПОЛЬЗУЕМ ЕДИНЫЙ ПОРОГ ИЗ КОНФИГА
-        const decision = similarity > this.DECISION_THRESHOLDS.PATTERN_SIMILARITY ? 'same' : 'different';
-
-        console.log(`🎯 ЕДИНОЕ РЕШЕНИЕ (с гарантией системы):`);
-        console.log(`   Similarity: ${similarity.toFixed(3)}`);
-        console.log(`   Требуется: >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
-        console.log(`   Решение: ${decision}`);
-        console.log(`   Источник: compareWithGuaranteedSystem()`);
-        console.log(`   Гарантия канонической системы: ${this.config.guaranteeCanonicalSystem ? '✅' : '❌'}`);
-
-        if (decision === 'same') {
-            return await this.handleMatchingFootprint(
-                session, userId, tempFootprint, finalGraph, transformationInfo,
-                existingTransformationInfo, similarity, comparisonResult,
-                tempResult, bot, chatId
-            );
-        } else {
-            return await this.handleNewFootprint(
-                session, userId, analysis, photoInfo, finalGraph, transformationInfo,
-                similarity, bot, chatId
-            );
-        }
+       
+        session.currentFootprint.transformation = canonicalFootprintTrans;
+        session.currentFootprint.metadata.normalizationInfo = canonicalFootprintTrans;
+       
+        console.log(`✅ Обе системы приведены к канонической (0°)`);
     }
+
+    // 🔥 ЛОГИРУЕМ СИСТЕМЫ КООРДИНАТ ПЕРЕД СРАВНЕНИЕМ
+    if (this.config.enableCoordinateDiagnostics) {
+        this.coordinateSystemLogger.logCoordinateSystems(
+            `Сравнение фото с существующим отпечатком (пользователь ${userId})`,
+            session.currentFootprint,
+            { points: this.extractPointsFromAnalysis(analysis), _source: 'new_analysis' }
+        );
+    }
+
+    const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
+                                     session.currentFootprint.getTransformation();
+
+    // Создание временного отпечатка для сравнения
+    const SimpleFootprint = require('./simple-footprint');
+    const tempFootprint = new SimpleFootprint({
+        userId: userId,
+        name: `Temp_${Date.now()}`
+    });
+
+    tempFootprint.metadata.normalizationInfo = transformationInfo;
+
+    // 🔥 СОХРАНЯЕМ РЕЗУЛЬТАТ В ПЕРЕМЕННУЮ
+    const tempResult = tempFootprint.addAnalysisHonest(analysis, {
+        ...photoInfo,
+        normalizedGraph: finalGraph,
+        photoId: photoInfo.photoId || `photo_${Date.now()}_temp`,
+        source: photoInfo.source || 'telegram_bot_temp',
+        transformationInfo: transformationInfo
+    });
+
+    // 🔥 СРАВНЕНИЕ С ГАРАНТИЕЙ КАНОНИЧЕСКОЙ СИСТЕМЫ
+    const comparisonResult = await this.compareWithGuaranteedSystem(
+        session.currentFootprint,
+        tempFootprint
+    );
+
+    const similarity = comparisonResult?.similarity || 0;
+
+    // 🔥 ИСПОЛЬЗУЕМ ЕДИНЫЙ ПОРОГ ИЗ КОНФИГА
+    const decision = similarity > this.DECISION_THRESHOLDS.PATTERN_SIMILARITY ? 'same' : 'different';
+
+    console.log(`🎯 ЕДИНОЕ РЕШЕНИЕ (с гарантией системы):`);
+    console.log(`   Similarity: ${similarity.toFixed(3)}`);
+    console.log(`   Требуется: >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
+    console.log(`   Решение: ${decision}`);
+    console.log(`   Источник: compareWithGuaranteedSystem()`);
+    console.log(`   Гарантия канонической системы: ${this.config.guaranteeCanonicalSystem ? '✅' : '❌'}`);
+
+    if (decision === 'same') {
+        return await this.handleMatchingFootprint(
+            session, userId, tempFootprint, finalGraph, transformationInfo,
+            existingTransformationInfo, similarity, comparisonResult,
+            tempResult, bot, chatId
+        );
+    } else {
+        return await this.handleNewFootprint(
+            session, userId, analysis, photoInfo, finalGraph, transformationInfo,
+            similarity, bot, chatId
+        );
+    }
+}
 
     // 🔥 МЕТОД: Обработка совпадающих следов (ОБНОВЛЕННЫЙ)
     async handleMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
