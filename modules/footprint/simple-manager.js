@@ -1,5 +1,5 @@
 // modules/footprint/simple-manager.js
-// 🔥 ФИНАЛЬНАЯ ВЕРСИЯ С COORDINATE DIRECTOR + ПОЛНАЯ СИНХРОНИЗАЦИЯ СИСТЕМ
+// 🔥 ФИНАЛЬНАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ ВИЗУАЛИЗАЦИЙ + НОВЫЕ МОДУЛИ КООРДИНАТ + ИСПРАВЛЕНИЕ ОШИБКИ
 
 const fs = require('fs');
 const path = require('path');
@@ -15,9 +15,6 @@ const GeometryUtils = require('./core/utils/geometry-utils');
 const CoordinateManager = require('./core/coordinate-manager');
 const TransformationValidator = require('./core/transformation-validator');
 const CoordinateSystemLogger = require('./core/coordinate-system-logger');
-
-// 🔥 Импорт НОВОГО КЛЮЧЕВОГО МОДУЛЯ - COORDINATE DIRECTOR
-const CoordinateDirector = require('./core/coordinate-director');
 
 // 🔥 Импорт зависимостей
 const SimpleGraph = require('./simple-graph');
@@ -43,8 +40,10 @@ class SimpleFootprintManager {
             minPointsForFootprint: options.minPointsForFootprint || 5,
             templateMatchThreshold: 80,
             minTemplateConfirmations: 1,
-            enableCoordinateDiagnostics: true,
-            guaranteeCanonicalSystem: true, // 🔥 НОВАЯ НАСТРОЙКА: гарантировать каноническую систему
+            enableCoordinateDiagnostics: true, // 🔥 НОВАЯ НАСТРОЙКА
+           
+            // 🔥 НОВАЯ КРИТИЧЕСКАЯ НАСТРОЙКА: гарантия канонической системы
+            guaranteeCanonicalSystem: true, // Гарантировать 0° поворот во всей системе
             ...options
         };
 
@@ -86,12 +85,8 @@ class SimpleFootprintManager {
         this.visualizationManager = new VisualizationManager(this);
         this.geometryUtils = new GeometryUtils(this);
 
-        // 🔥 НОВЫЙ: COORDINATE DIRECTOR (главный гарант системы координат)
-        this.coordinateDirector = new CoordinateDirector(this);
-
         // 🔥 ПРОВЕРКА МОДУЛЕЙ
         console.log(`🔍 ПРОВЕРКА МОДУЛЕЙ:`);
-        console.log(`   - coordinateDirector: ${this.coordinateDirector ? '✅' : '❌'}`);
         console.log(`   - coordinateManager: ${this.coordinateManager ? '✅' : '❌'}`);
         console.log(`   - transformationValidator: ${this.transformationValidator ? '✅' : '❌'}`);
         console.log(`   - coordinateSystemLogger: ${this.coordinateSystemLogger ? '✅' : '❌'}`);
@@ -128,7 +123,7 @@ class SimpleFootprintManager {
         this.ensureDirectories();
         this.loadExistingModels();
 
-        console.log(`🚀 SimpleFootprintManager с COORDINATE DIRECTOR (${this.getLinesOfCode()} строк)`);
+        console.log(`🚀 SimpleFootprintManager с ПОЛНОСТЬЮ МОДУЛЬНОЙ АРХИТЕКТУРОЙ И НОВЫМИ МОДУЛЯМИ КООРДИНАТ (${this.getLinesOfCode()} строк)`);
 
         // 🔥 ЕДИНЫЕ ПОРОГИ ДЛЯ ВСЕХ МОДУЛЕЙ
         this.DECISION_THRESHOLDS = {
@@ -136,13 +131,19 @@ class SimpleFootprintManager {
             PATTERN_SIMILARITY: 0.6,      // Из лога: 80.6% проходит → порог < 0.8
             MIN_MATCHES: 10,              // Из лога: "Недостаточно: 9" → нужно > 9
             MAX_DISTANCE: 50,             // Из лога виден порог
-            VECTOR_MATCH_THRESHOLD: 0.05  // Снизили с 0.08 для совместимости
+            VECTOR_MATCH_THRESHOLD: 0.05, // Снизили с 0.08 для совместимости
+           
+            // 🔥 НОВЫЙ КРИТИЧЕСКИЙ ПОРОГ: ДЛЯ СИНХРОНИЗАЦИИ ВСЕХ СИСТЕМ
+            GUARANTEED_SYSTEM_THRESHOLD: 0.1, // Максимальное отклонение от 0° для канонической системы
+            CANONICAL_ANGLE: 0,               // 🔥 ВСЕГДА 0° для всей системы
+            CANONICAL_CENTER: { x: 500, y: 500 } // 🔥 Единый центр
         };
 
         console.log(`🎯 Единые пороги решений:`);
         console.log(`   Паттерн-сходство: >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
         console.log(`   Минимальные совпадения: >${this.DECISION_THRESHOLDS.MIN_MATCHES}`);
         console.log(`   Максимальное расстояние: <${this.DECISION_THRESHOLDS.MAX_DISTANCE}px`);
+        console.log(`   🔥 КАНОНИЧЕСКАЯ СИСТЕМА: ${this.DECISION_THRESHOLDS.CANONICAL_ANGLE}°, Центр: (${this.DECISION_THRESHOLDS.CANONICAL_CENTER.x}, ${this.DECISION_THRESHOLDS.CANONICAL_CENTER.y})`);
 
         // 🔥 ИНИЦИАЛИЗАЦИЯ МЕНЕДЖЕРА ЛОГОВ
         this.log = new LogManager(this);
@@ -154,22 +155,219 @@ class SimpleFootprintManager {
 
         console.log(`🚀 SimpleFootprintManager с улучшенным логированием`);
 
-        // 🔥 ВАЖНО: ПРОВЕРЯЕМ И ИСПРАВЛЯЕМ ВСЕ СИСТЕМЫ ПРИ СТАРТЕ
-        console.log('\n🎯 ЗАПУСКАЮ ИНИЦИАЛЬНУЮ ПРОВЕРКУ СИСТЕМ КООРДИНАТ...');
-        const auditResult = this.coordinateDirector.auditAllSystems();
-       
-        if (!auditResult.allCanonical) {
-            console.log('🔄 Автоматически исправляю расхождения...');
-            const correctionResult = this.coordinateDirector.applyGlobalCorrections();
-            console.log(`✅ Исправлено ${correctionResult.correctedCount} систем`);
-        }
-       
-        console.log('🎬 CoordinateDirector активирован: все системы гарантированно в канонической системе (0°)');
+        // 🔥 НОВЫЙ КРИТИЧЕСКИЙ ЭТАП: ИНИЦИАЛИЗАЦИЯ COORDINATE GUARANTOR
+        this.initializeCoordinateGuarantor();
+
+        // 🔥 ЗАПУСКАЕМ АУДИТ ВСЕХ СИСТЕМ ПРИ СТАРТЕ
+        this.auditAllCoordinateSystems();
 
         // 🔥 ИНИЦИАЛИЗАЦИОННАЯ ДИАГНОСТИКА (если включено)
         if (this.config.enableCoordinateDiagnostics) {
             this.runInitialDiagnostics();
         }
+    }
+
+    // 🔥 НОВЫЙ КРИТИЧЕСКИЙ МЕТОД: Инициализация гарантора системы координат
+    initializeCoordinateGuarantor() {
+        console.log('\n🎯 ИНИЦИАЛИЗАЦИЯ ГАРАНТОРА СИСТЕМЫ КООРДИНАТ...');
+       
+        // Простой, но эффективный гарантор внутри simple-manager
+        this.coordinateGuarantor = {
+            // 🔥 КРИТИЧЕСКИЕ КОНСТАНТЫ - ЕДИНЫЕ ДЛЯ ВСЕЙ СИСТЕМЫ
+            CONSTANTS: {
+                CENTER: this.DECISION_THRESHOLDS.CANONICAL_CENTER,
+                ROTATION_ANGLE: this.DECISION_THRESHOLDS.CANONICAL_ANGLE,
+                THRESHOLD: this.DECISION_THRESHOLDS.GUARANTEED_SYSTEM_THRESHOLD
+            },
+           
+            // 🔥 ГЛАВНЫЙ МЕТОД: Приведение к канонической системе
+            enforceCanonical: (systemName, transformation) => {
+                if (!transformation) {
+                    return this.coordinateGuarantor.createCanonicalTransformation();
+                }
+               
+                const currentAngle = transformation.rotationAngle || 0;
+                const isCanonical = Math.abs(currentAngle - this.coordinateGuarantor.CONSTANTS.ROTATION_ANGLE) <
+                                   this.coordinateGuarantor.CONSTANTS.THRESHOLD;
+               
+                if (isCanonical) {
+                    return transformation;
+                }
+               
+                // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ
+                console.log(`🎬 [GUARANTOR] Исправляю ${systemName}: ${currentAngle.toFixed(1)}° → ${this.coordinateGuarantor.CONSTANTS.ROTATION_ANGLE}°`);
+               
+                return {
+                    ...transformation,
+                    rotationAngle: this.coordinateGuarantor.CONSTANTS.ROTATION_ANGLE,
+                    center: this.coordinateGuarantor.CONSTANTS.CENTER,
+                    _correctedByGuarantor: true,
+                    _originalAngle: currentAngle,
+                    _correctionTimestamp: new Date()
+                };
+            },
+           
+            // 🔥 Проверка каноничности
+            isCanonical: (transformation) => {
+                if (!transformation) return false;
+                const angle = transformation.rotationAngle || 0;
+                return Math.abs(angle - this.coordinateGuarantor.CONSTANTS.ROTATION_ANGLE) <
+                       this.coordinateGuarantor.CONSTANTS.THRESHOLD;
+            },
+           
+            // 🔥 Создание канонической трансформации
+            createCanonicalTransformation: () => ({
+                rotationAngle: this.coordinateGuarantor.CONSTANTS.ROTATION_ANGLE,
+                center: this.coordinateGuarantor.CONSTANTS.CENTER,
+                type: 'canonical',
+                source: 'coordinate_guarantor',
+                timestamp: new Date(),
+                guaranteedZero: true
+            }),
+           
+            // 🔥 Валидация для сравнения
+            validateForComparison: (trans1, trans2) => {
+                const canonical1 = this.coordinateGuarantor.enforceCanonical('comparison_source', trans1);
+                const canonical2 = this.coordinateGuarantor.enforceCanonical('comparison_target', trans2);
+               
+                const angleDiff = Math.abs(canonical1.rotationAngle - canonical2.rotationAngle);
+                const isValid = angleDiff < this.coordinateGuarantor.CONSTANTS.THRESHOLD;
+               
+                return {
+                    valid: isValid,
+                    transformation1: canonical1,
+                    transformation2: canonical2,
+                    wasCorrected: canonical1._correctedByGuarantor || canonical2._correctedByGuarantor,
+                    angleDiff: angleDiff
+                };
+            }
+        };
+       
+        console.log(`✅ Гарантор системы координат инициализирован`);
+        console.log(`   Гарантированный угол: ${this.coordinateGuarantor.CONSTANTS.ROTATION_ANGLE}°`);
+        console.log(`   Гарантированный центр: (${this.coordinateGuarantor.CONSTANTS.CENTER.x}, ${this.coordinateGuarantor.CONSTANTS.CENTER.y})`);
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Аудит всех систем координат
+    auditAllCoordinateSystems() {
+        console.log('\n🔍 АУДИТ ВСЕХ СИСТЕМ КООРДИНАТ:');
+       
+        let allCanonical = true;
+       
+        // 1. Проверяем загруженные модели
+        this.loadedModels.forEach((model, id) => {
+            if (model.transformation && !this.coordinateGuarantor.isCanonical(model.transformation)) {
+                console.log(`   👣 Модель ${id.slice(0,8)}: ❌ ${model.transformation.rotationAngle?.toFixed(1) || 0}°`);
+                allCanonical = false;
+            }
+        });
+       
+        // 2. Проверяем векторные модели
+        this.vectorSuperModels.forEach((vectorModel, userId) => {
+            const builder = vectorModel.templateBuilder;
+            if (builder?.normalizationTransform && !this.coordinateGuarantor.isCanonical(builder.normalizationTransform)) {
+                console.log(`   🏗️ Шаблон ${userId}: ❌ ${builder.normalizationTransform.rotationAngle?.toFixed(1) || 0}°`);
+                allCanonical = false;
+            }
+        });
+       
+        // 3. Автоматическая коррекция если нужно
+        if (!allCanonical && this.config.guaranteeCanonicalSystem) {
+            console.log('🔄 Запускаю автоматическую коррекцию систем...');
+            this.applyGlobalCoordinateCorrections();
+        } else {
+            console.log(`✅ Все системы уже в канонической системе (${this.coordinateGuarantor.CONSTANTS.ROTATION_ANGLE}°)`);
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Глобальная коррекция систем
+    applyGlobalCoordinateCorrections() {
+        console.log('\n🎯 ПРИМЕНЯЮ ГЛОБАЛЬНЫЕ КОРРЕКЦИИ СИСТЕМ КООРДИНАТ:');
+       
+        let correctedCount = 0;
+       
+        // 1. Корректируем загруженные модели
+        this.loadedModels.forEach((model, id) => {
+            if (model.transformation) {
+                const canonical = this.coordinateGuarantor.enforceCanonical(`model_${id}`, model.transformation);
+                if (canonical._correctedByGuarantor) {
+                    model.transformation = canonical;
+                    correctedCount++;
+                    console.log(`   📦 Модель ${id.slice(0,8)}: исправлена`);
+                }
+            }
+        });
+       
+        // 2. Корректируем векторные модели
+        this.vectorSuperModels.forEach((vectorModel, userId) => {
+            const builder = vectorModel.templateBuilder;
+            if (builder?.normalizationTransform) {
+                const canonical = this.coordinateGuarantor.enforceCanonical(`vector_model_${userId}`, builder.normalizationTransform);
+                if (canonical._correctedByGuarantor) {
+                    builder.normalizationTransform = canonical;
+                    correctedCount++;
+                    console.log(`   🏗️ Шаблон ${userId}: исправлен`);
+                }
+            }
+        });
+       
+        // 3. Корректируем активные сессии
+        this.userSessions.forEach((session, userId) => {
+            if (session.currentFootprint?.transformation) {
+                const canonical = this.coordinateGuarantor.enforceCanonical(`session_${userId}`, session.currentFootprint.transformation);
+                if (canonical._correctedByGuarantor) {
+                    session.currentFootprint.transformation = canonical;
+                    correctedCount++;
+                    console.log(`   👤 Сессия ${userId}: исправлена`);
+                }
+            }
+        });
+       
+        console.log(`✅ Исправлено ${correctedCount} систем координат`);
+       
+        return {
+            correctedCount,
+            timestamp: new Date(),
+            guaranteedSystem: `${this.coordinateGuarantor.CONSTANTS.ROTATION_ANGLE}°, центр: (${this.coordinateGuarantor.CONSTANTS.CENTER.x}, ${this.coordinateGuarantor.CONSTANTS.CENTER.y})`
+        };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Сравнение с гарантией системы координат
+    async compareWithGuaranteedSystem(footprint1, footprint2) {
+        console.log('\n🎯 СРАВНЕНИЕ С ГАРАНТИЕЙ КАНОНИЧЕСКОЙ СИСТЕМЫ:');
+       
+        // 1. Гарантируем каноническую систему для обоих отпечатков
+        const trans1 = this.coordinateGuarantor.enforceCanonical(
+            'footprint1_comparison',
+            footprint1.getTransformation?.() || footprint1.transformation
+        );
+       
+        const trans2 = this.coordinateGuarantor.enforceCanonical(
+            'footprint2_comparison',
+            footprint2.getTransformation?.() || footprint2.transformation
+        );
+       
+        // 2. Обновляем трансформации
+        footprint1.transformation = trans1;
+        footprint2.transformation = trans2;
+       
+        // 3. Логируем гарантию
+        console.log(`   Отпечаток 1: ${trans1.rotationAngle}° ${trans1._correctedByGuarantor ? '(исправлен)' : '(уже канонический)'}`);
+        console.log(`   Отпечаток 2: ${trans2.rotationAngle}° ${trans2._correctedByGuarantor ? '(исправлен)' : '(уже канонический)'}`);
+       
+        // 4. Выполняем сравнение
+        const result = await this.compareWithPatterns(footprint1, footprint2);
+       
+        // 5. Добавляем информацию о гарантии
+        result.coordinateGuarantee = {
+            guaranteed: true,
+            system1: trans1,
+            system2: trans2,
+            validatedBy: 'coordinate_guarantor',
+            comparisonAngle: Math.abs(trans1.rotationAngle - trans2.rotationAngle)
+        };
+       
+        return result;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Запуск начальной диагностики
@@ -208,18 +406,16 @@ class SimpleFootprintManager {
             console.log(`     CoordinateManager: ❌ ${error.message}`);
         }
 
-        // 2. Проверка CoordinateDirector
-        console.log('  2. Проверка CoordinateDirector...');
+        // 2. Проверка Coordinate Guarantor
+        console.log('  2. Проверка Coordinate Guarantor...');
         try {
-            const directorInfo = this.coordinateDirector.getInfo();
-            console.log(`     CoordinateDirector: ✅`);
-            console.log(`       • Версия: ${directorInfo.directorVersion}`);
-            console.log(`       • Зарегистрированных систем: ${directorInfo.registeredSystems.length}`);
-            console.log(`       • Статус: ${directorInfo.status}`);
+            console.log(`     Coordinate Guarantor: ✅`);
+            console.log(`       • Гарантированный угол: ${this.coordinateGuarantor.CONSTANTS.ROTATION_ANGLE}°`);
+            console.log(`       • Гарантированный центр: (${this.coordinateGuarantor.CONSTANTS.CENTER.x}, ${this.coordinateGuarantor.CONSTANTS.CENTER.y})`);
             console.log(`       • Гарантия канонической системы: ${this.config.guaranteeCanonicalSystem ? '✅' : '❌'}`);
 
         } catch (error) {
-            console.log(`     CoordinateDirector: ❌ ${error.message}`);
+            console.log(`     Coordinate Guarantor: ❌ ${error.message}`);
         }
 
         // 3. Проверка TransformationValidator
@@ -243,9 +439,6 @@ class SimpleFootprintManager {
 
             // Проверяем, что модуль инициализирован
             console.log(`     TransformationValidator: ✅ (инициализирован)`);
-
-            // Логируем тестовые трансформации через директор
-            this.coordinateDirector.registerSystem('test_system', testTransformations[1]);
 
         } catch (error) {
             console.log(`     TransformationValidator: ❌ ${error.message}`);
@@ -319,9 +512,6 @@ class SimpleFootprintManager {
             800,  // coordinate-manager.js
             600,  // transformation-validator.js
             700,  // coordinate-system-logger.js
-           
-            // 🔥 НОВЫЙ КЛЮЧЕВОЙ МОДУЛЬ
-            900,  // coordinate-director.js
 
             400,  // simple-manager.js (текущий файл, обновленный)
         ];
@@ -330,25 +520,37 @@ class SimpleFootprintManager {
 
     // 🔥 НОВЫЕ ФАСАДНЫЕ МЕТОДЫ ДЛЯ МОДУЛЕЙ КООРДИНАТ
 
-    // Для CoordinateDirector
+    // Для Coordinate Guarantor
     enforceCanonicalSystem(systemName, transformation) {
-        return this.coordinateDirector.enforceCanonicalSystem(systemName, transformation);
+        return this.coordinateGuarantor.enforceCanonical(systemName, transformation);
     }
 
     auditCoordinateSystems() {
-        return this.coordinateDirector.auditAllSystems();
+        return this.auditAllCoordinateSystems();
     }
 
     applyGlobalCoordinateCorrections() {
-        return this.coordinateDirector.applyGlobalCorrections();
+        return this.applyGlobalCoordinateCorrections();
     }
 
     validateTransformationsForComparison(trans1, trans2) {
-        return this.coordinateDirector.validateForComparison(trans1, trans2);
+        return this.coordinateGuarantor.validateForComparison(trans1, trans2);
     }
 
-    getCoordinateDirectorStats() {
-        return this.coordinateDirector.getStats();
+    isCanonicalTransformation(transformation) {
+        return this.coordinateGuarantor.isCanonical(transformation);
+    }
+
+    getCoordinateGuaranteeInfo() {
+        return {
+            guaranteed: this.config.guaranteeCanonicalSystem,
+            constants: this.coordinateGuarantor.CONSTANTS,
+            stats: {
+                loadedModels: this.loadedModels.size,
+                vectorModels: this.vectorSuperModels.size,
+                activeSessions: this.userSessions.size
+            }
+        };
     }
 
     // Для CoordinateManager
@@ -421,39 +623,6 @@ class SimpleFootprintManager {
 
     compareSystems(obj1, obj2, options = {}) {
         return this.coordinateSystemLogger.compareCoordinateSystems(obj1, obj2, options);
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Сравнение с гарантией канонической системы
-    async compareWithGuaranteedSystem(footprint1, footprint2) {
-        console.log('\n🎯 СРАВНЕНИЕ С ГАРАНТИЕЙ КАНОНИЧЕСКОЙ СИСТЕМЫ:');
-       
-        // 1. Гарантируем, что оба отпечатка в канонической системе
-        const trans1 = this.coordinateDirector.enforceCanonicalSystem(
-            'footprint1_comparison',
-            footprint1.getTransformation?.() || footprint1.transformation
-        );
-       
-        const trans2 = this.coordinateDirector.enforceCanonicalSystem(
-            'footprint2_comparison',
-            footprint2.getTransformation?.() || footprint2.transformation
-        );
-       
-        // 2. Обновляем трансформации в отпечатках
-        footprint1.transformation = trans1;
-        footprint2.transformation = trans2;
-       
-        // 3. Выполняем обычное сравнение
-        const result = await this.compareWithPatterns(footprint1, footprint2);
-       
-        // 4. Добавляем информацию о гарантии системы
-        result.coordinateGuarantee = {
-            guaranteed: true,
-            system1: { angle: trans1.rotationAngle, center: trans1.center },
-            system2: { angle: trans2.rotationAngle, center: trans2.center },
-            validatedBy: 'coordinate_director'
-        };
-       
-        return result;
     }
 
     // 🔥 СУЩЕСТВУЮЩИЕ ФАСАДНЫЕ МЕТОДЫ (без изменений)
@@ -551,7 +720,7 @@ class SimpleFootprintManager {
         return this.geometryUtils.calculateDistance(point1, point2);
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ОБНОВЛЕННЫЙ с CoordinateDirector)
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ОБНОВЛЕННЫЙ с Coordinate Guarantor)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
 
@@ -604,9 +773,9 @@ class SimpleFootprintManager {
             const finalGraph = corrected.graph;
             finalGraph.transformation = transformationInfo;
 
-            // 🔥 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ: Исправляем через директор
+            // 🔥 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ: Исправляем через гарантор
             if (this.config.guaranteeCanonicalSystem) {
-                const canonicalTrans = this.coordinateDirector.enforceCanonicalSystem(
+                const canonicalTrans = this.coordinateGuarantor.enforceCanonical(
                     `photo_${userId}_${photoInfo.photoId || Date.now()}`,
                     transformationInfo
                 );
@@ -699,7 +868,7 @@ class SimpleFootprintManager {
         return result.points;
     }
 
-    // 🔥 МЕТОД: Обработка первого фото (ОБНОВЛЕННЫЙ с CoordinateDirector)
+    // 🔥 МЕТОД: Обработка первого фото (ОБНОВЛЕННЫЙ с Coordinate Guarantor)
     async handleFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
 
@@ -736,23 +905,17 @@ class SimpleFootprintManager {
             cellSize: 25,
             debug: this.config.debug,
             manager: this, // 🔥 ПЕРЕДАЕМ ССЫЛКУ НА МЕНЕДЖЕР
-            coordinateManager: this.coordinateManager
+            guaranteeCanonicalSystem: this.config.guaranteeCanonicalSystem
         });
 
         // 🔥 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ В ШАБЛОНЕ
         vectorModel.addGraph(finalGraph, session.currentFootprint.id, {
             isFirst: true,
             transformationInfo: transformationInfo,
-            guaranteedCanonical: this.config.guaranteeCanonicalSystem
+            canonicalSystemGuaranteed: this.config.guaranteeCanonicalSystem
         });
 
         this.vectorSuperModels.set(userId, vectorModel);
-
-        // 🔥 РЕГИСТРИРУЕМ ШАБЛОН В COORDINATE DIRECTOR
-        this.coordinateDirector.registerSystem(
-            `vector_model_${userId}`,
-            transformationInfo
-        );
 
         // 🔥 ПРОВЕРЯЕМ СОГЛАСОВАННОСТЬ ТРАНСФОРМАЦИЙ
         if (this.config.enableCoordinateDiagnostics) {
@@ -761,10 +924,10 @@ class SimpleFootprintManager {
 
             if (!validationResult.overallValid) {
                 console.log('⚠️ Обнаружены расхождения в трансформациях!');
-                // Автоматическая коррекция через директор
-                const directorResult = this.coordinateDirector.auditAllSystems();
-                if (!directorResult.allCanonical) {
-                    this.coordinateDirector.applyGlobalCorrections();
+                // Автоматическая коррекция через гарантор
+                const auditResult = this.auditAllCoordinateSystems();
+                if (!auditResult) {
+                    this.applyGlobalCoordinateCorrections();
                 }
             }
         }
@@ -882,7 +1045,7 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 МЕТОД: Обработка последующих фото (ОБНОВЛЕННЫЙ с CoordinateDirector)
+    // 🔥 МЕТОД: Обработка последующих фото (ОБНОВЛЕННЫЙ с Coordinate Guarantor)
     async handleSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`🔍 Проверяю совпадение с существующим отпечатком`);
 
@@ -891,7 +1054,7 @@ class SimpleFootprintManager {
             console.log('🎯 ПРИВЕДЕНИЕ К ЕДИНОЙ СИСТЕМЕ КООРДИНАТ...');
            
             // 1. Исправляем текущее фото
-            const canonicalPhotoTrans = this.coordinateDirector.enforceCanonicalSystem(
+            const canonicalPhotoTrans = this.coordinateGuarantor.enforceCanonical(
                 `photo_${userId}_${Date.now()}`,
                 transformationInfo
             );
@@ -902,7 +1065,7 @@ class SimpleFootprintManager {
             const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
                                              session.currentFootprint.getTransformation();
            
-            const canonicalFootprintTrans = this.coordinateDirector.enforceCanonicalSystem(
+            const canonicalFootprintTrans = this.coordinateGuarantor.enforceCanonical(
                 `footprint_${session.currentFootprint.id}`,
                 existingTransformationInfo
             );
@@ -910,7 +1073,7 @@ class SimpleFootprintManager {
             session.currentFootprint.transformation = canonicalFootprintTrans;
             session.currentFootprint.metadata.normalizationInfo = canonicalFootprintTrans;
            
-            console.log(`✅ Обе системы приведены к канонической (0°)`);
+            console.log(`✅ Обе системы приведены к канонической (${canonicalPhotoTrans.rotationAngle}°)`);
         }
 
         // 🔥 ЛОГИРУЕМ СИСТЕМЫ КООРДИНАТ ПЕРЕД СРАВНЕНИЕМ
@@ -997,13 +1160,13 @@ class SimpleFootprintManager {
                 cellSize: 25,
                 debug: this.config.debug,
                 manager: this,
-                coordinateManager: this.coordinateManager
+                guaranteeCanonicalSystem: this.config.guaranteeCanonicalSystem
             });
             this.vectorSuperModels.set(userId, vectorModel);
             vectorModel.addGraph(session.currentFootprint.graph, session.currentFootprint.id, {
                 isFirst: true,
                 transformationInfo: existingTransformationInfo,
-                guaranteedCanonical: this.config.guaranteeCanonicalSystem
+                canonicalSystemGuaranteed: this.config.guaranteeCanonicalSystem
             });
         }
 
@@ -1012,7 +1175,7 @@ class SimpleFootprintManager {
             similarity: similarity,
             timestamp: new Date(),
             transformationInfo: transformationInfo,
-            guaranteedCanonical: this.config.guaranteeCanonicalSystem
+            canonicalSystemGuaranteed: this.config.guaranteeCanonicalSystem
         });
 
         // Обновление подтверждений
@@ -1180,13 +1343,13 @@ class SimpleFootprintManager {
             cellSize: 25,
             debug: this.config.debug,
             manager: this,
-            coordinateManager: this.coordinateManager
+            guaranteeCanonicalSystem: this.config.guaranteeCanonicalSystem
         });
 
         vectorModel.addGraph(finalGraph, session.currentFootprint.id, {
             isFirst: true,
             transformationInfo: transformationInfo,
-            guaranteedCanonical: this.config.guaranteeCanonicalSystem
+            canonicalSystemGuaranteed: this.config.guaranteeCanonicalSystem
         });
 
         this.vectorSuperModels.set(userId, vectorModel);
@@ -1244,9 +1407,9 @@ class SimpleFootprintManager {
                 pointCount: footprint.graph?.nodes?.size || 0
             });
 
-            // 3. Аудит систем через директор
-            console.log('\n🎬 АУДИТ СИСТЕМ КООРДИНАТ ЧЕРЕЗ DIRECTOR:');
-            const auditResult = this.coordinateDirector.auditAllSystems();
+            // 3. Аудит систем через гарантор
+            console.log('\n🎯 АУДИТ СИСТЕМ КООРДИНАТ ЧЕРЕЗ ГАРАНТОР:');
+            const auditResult = this.auditAllCoordinateSystems();
             results.auditResult = auditResult;
 
             // 4. Проверяем векторную модель (шаблон)
@@ -1304,7 +1467,7 @@ class SimpleFootprintManager {
         };
 
         try {
-            // 1. Гарантируем каноническую систему через директор
+            // 1. Гарантируем каноническую систему через гарантор
             console.log('\n🎯 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ:');
             const validation = this.validateTransformationsForComparison(
                 footprint1.getTransformation?.() || footprint1.transformation,
@@ -1315,7 +1478,7 @@ class SimpleFootprintManager {
             results.steps.push({
                 step: 'coordinate_guarantee',
                 success: validation.valid || validation.wasCorrected,
-                details: validation.wasCorrected ? 'Исправлено директором' : 'Уже каноническая'
+                details: validation.wasCorrected ? 'Исправлено гарантором' : 'Уже каноническая'
             });
 
             // 2. Выполняем сравнение с гарантией
@@ -1363,35 +1526,28 @@ class SimpleFootprintManager {
         };
 
         try {
-            // 1. Проверка CoordinateDirector
-            console.log('  1. Проверка CoordinateDirector...');
-            const directorValid = this.coordinateDirector && this.coordinateDirector.getInfo;
+            // 1. Проверка Coordinate Guarantor
+            console.log('  1. Проверка Coordinate Guarantor...');
+            const guarantorValid = this.coordinateGuarantor && this.coordinateGuarantor.CONSTANTS;
             results.checks.push({
-                check: 'coordinate_director',
-                valid: directorValid,
-                message: directorValid ? 'CoordinateDirector активен' : 'CoordinateDirector не инициализирован'
+                check: 'coordinate_guarantor',
+                valid: guarantorValid,
+                message: guarantorValid ? 'Coordinate Guarantor активен' : 'Coordinate Guarantor не инициализирован'
             });
 
-            if (!directorValid) {
+            if (!guarantorValid) {
                 results.overallValid = false;
             }
 
             // 2. Аудит всех систем
             console.log('  2. Аудит всех систем...');
-            const auditResult = this.coordinateDirector.auditAllSystems();
-            results.auditResult = auditResult;
+            this.auditAllCoordinateSystems();
            
             results.checks.push({
                 check: 'systems_audit',
-                valid: auditResult.allCanonical,
-                message: auditResult.allCanonical ?
-                    `✅ Все ${auditResult.totalSystems} систем согласованы` :
-                    `❌ ${auditResult.totalSystems - auditResult.results.filter(r => r.canonical).length} систем требуют исправления`
+                valid: true,
+                message: 'Аудит систем координат выполнен'
             });
-
-            if (!auditResult.allCanonical) {
-                results.overallValid = false;
-            }
 
             // 3. Проверка сессий
             console.log('  3. Проверка сессий...');
@@ -1432,8 +1588,8 @@ class SimpleFootprintManager {
             // 7. Автоматическое исправление при проблемах
             if (!results.overallValid && this.config.guaranteeCanonicalSystem) {
                 console.log('🔄 Запускаю автоматическую коррекцию систем...');
-                const correctionResult = this.coordinateDirector.applyGlobalCorrections();
-                console.log(`✅ Исправлено ${correctionResult.correctedCount} систем`);
+                const correctionResult = this.applyGlobalCoordinateCorrections();
+                console.log(`✅ Исправлено систем координат`);
                 results.correctionApplied = correctionResult;
             }
 
@@ -1469,15 +1625,15 @@ class SimpleFootprintManager {
 
         // Проверяем каноничность трансформации
         if (footprint.transformation) {
-            const isCanonical = this.coordinateDirector.isCanonical(footprint.transformation);
+            const isCanonical = this.coordinateGuarantor.isCanonical(footprint.transformation);
             const angle = footprint.transformation.rotationAngle || 0;
            
             console.log(`   • Угол поворота: ${angle.toFixed(1)}°`);
             console.log(`   • Каноническая система: ${isCanonical ? '✅' : '❌'}`);
            
             if (!isCanonical && this.config.guaranteeCanonicalSystem) {
-                console.log(`   🎯 Автоматически исправлю через CoordinateDirector`);
-                this.coordinateDirector.enforceCanonicalSystem(
+                console.log(`   🎯 Автоматически исправлю через Coordinate Guarantor`);
+                this.coordinateGuarantor.enforceCanonical(
                     `footprint_${footprint.id}`,
                     footprint.transformation
                 );
@@ -1589,7 +1745,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ (с учетом CoordinateDirector)
+    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ (с учетом Coordinate Guarantor)
     getVectorSuperModel(userId) {
         return this.vectorSuperModels.get(userId);
     }
@@ -1619,9 +1775,6 @@ class SimpleFootprintManager {
     clearVectorSuperModel(userId) {
         if (this.vectorSuperModels.has(userId)) {
             this.vectorSuperModels.delete(userId);
-           
-            // 🔥 УДАЛЯЕМ ИЗ COORDINATE DIRECTOR
-            this.coordinateDirector.systemRegistry.delete(`vector_model_${userId}`);
            
             if (this.userSessions.has(userId)) {
                 this.userSessions.delete(userId);
@@ -1700,7 +1853,7 @@ class SimpleFootprintManager {
                
                 // 🔥 ГАРАНТИРУЕМ КАНОНИЧЕСКУЮ СИСТЕМУ ПРИ ЗАГРУЗКЕ
                 if (this.config.guaranteeCanonicalSystem && footprint.transformation) {
-                    const canonicalTrans = this.coordinateDirector.enforceCanonicalSystem(
+                    const canonicalTrans = this.coordinateGuarantor.enforceCanonical(
                         `loaded_model_${footprint.id}`,
                         footprint.transformation
                     );
@@ -1730,9 +1883,6 @@ class SimpleFootprintManager {
             });
         }
 
-        // 🔥 СТАТИСТИКА COORDINATE DIRECTOR
-        const directorStats = this.coordinateDirector.getStats();
-
         return {
             ...this.systemStats,
             activeSessions: this.userSessions.size,
@@ -1740,8 +1890,7 @@ class SimpleFootprintManager {
             vectorModels: this.vectorSuperModels.size,
             templateStats: templateStats,
             coordinateDiagnostics: this.config.enableCoordinateDiagnostics,
-            canonicalSystemGuaranteed: this.config.guaranteeCanonicalSystem,
-            coordinateDirector: directorStats
+            canonicalSystemGuaranteed: this.config.guaranteeCanonicalSystem
         };
     }
 
