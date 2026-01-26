@@ -167,16 +167,38 @@ class VectorSuperModel {
 
         // 🔥 ИСПРАВЛЕНИЕ: ПРОВЕРЯЕМ И ИСПРАВЛЯЕМ УГОЛ ПОВОРОТА
         if (graph.transformation && graph.transformation.rotationAngle !== 0) {
-            console.log(`🎯 Исправляю угол поворота графа: ${graph.transformation.rotationAngle.toFixed(1)}° → 0°`);
-            graph.transformation.rotationAngle = 0;
-            graph.transformation._correctedToZero = true;
-            graph.transformation._originalAngle = graph.transformation.rotationAngle;
+    const angle = graph.transformation.rotationAngle;
+    console.log(`🎯 РЕАЛЬНО исправляю угол графа: ${angle.toFixed(1)}° → 0°`);
+   
+    // РЕАЛЬНО поворачиваем точки графа
+    if (graph.nodes) {
+        const center = graph.transformation.center || { x: 500, y: 500 };
+        const rad = -angle * Math.PI / 180; // Обратный поворот
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+       
+        for (const [id, node] of graph.nodes) {
+            const dx = node.x - center.x;
+            const dy = node.y - center.y;
            
-            if (metadata.transformationInfo) {
-                metadata.transformationInfo.rotationAngle = 0;
-                metadata.transformationInfo._correctedToZero = true;
-            }
+            const newX = dx * cos - dy * sin;
+            const newY = dx * sin + dy * cos;
+           
+            node.x = newX + center.x;
+            node.y = newY + center.y;
         }
+    }
+   
+    // Обновляем информацию
+    graph.transformation.rotationAngle = 0;
+    graph.transformation._correctedToZero = true;
+    graph.transformation._originalAngle = angle;
+   
+    if (metadata.transformationInfo) {
+        metadata.transformationInfo.rotationAngle = 0;
+        metadata.transformationInfo._correctedToZero = true;
+    }
+}
 
         // 🔥 ПРОВЕРЯЕМ ПОРОГИ ИЗ МЕТАДАННЫХ (если есть)
         if (metadata.similarity !== undefined) {
