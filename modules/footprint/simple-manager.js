@@ -476,6 +476,12 @@ class SimpleFootprintManager {
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
 
+        // 🔥 КРИТИЧНО: СИНХРОНИЗИРУЕМ ПЕРЕД СРАВНЕНИЕМ
+        if (this.coordinateDirector) {
+            console.log('🎬 Синхронизирую системы координат перед сравнением...');
+            this.coordinateDirector.forceSynchronizeBeforeComparison();
+        }
+
         try {
             // Валидация входных данных
             if (!analysis?.predictions) {
