@@ -25,6 +25,9 @@ const TransformationDebugger = require('./alignment/transformation-debugger');
 const ImprovedAligner = require('./alignment/improved-aligner');
 const LogManager = require('./core/log-manager');
 
+// 🔥 НОВЫЙ: Coordinate Director
+const CoordinateDirector = require('./core/coordinate-director');
+
 class SimpleFootprintManager {
     constructor(options = {}) {
         this.config = {
@@ -150,6 +153,21 @@ class SimpleFootprintManager {
         if (this.config.enableCoordinateDiagnostics) {
             this.runInitialDiagnostics();
         }
+
+        // 🔥 НОВЫЙ: Coordinate Director (главный гарант системы координат)
+        this.coordinateDirector = new CoordinateDirector(this);
+       
+        // 🔥 ВАЖНО: ПРОВЕРЯЕМ И ИСПРАВЛЯЕМ ВСЕ СИСТЕМЫ ПРИ СТАРТЕ
+        console.log('\n🎯 ЗАПУСКАЮ ИНИЦИАЛЬНУЮ ПРОВЕРКУ СИСТЕМ КООРДИНАТ...');
+        const auditResult = this.coordinateDirector.auditAllSystems();
+       
+        if (!auditResult.allCanonical) {
+            console.log('🔄 Автоматически исправляю расхождения...');
+            const correctionResult = this.coordinateDirector.applyGlobalCorrections();
+            console.log(`✅ Исправлено ${correctionResult.correctedCount} систем`);
+        }
+       
+        console.log('🎬 CoordinateDirector активирован: все системы гарантированно в канонической системе (0°)');
     }
 
     // 🔥 НОВЫЙ МЕТОД: Запуск начальной диагностики
@@ -517,41 +535,7 @@ class SimpleFootprintManager {
             }
 
             const finalGraph = corrected.graph;
-           
-            // 🔥 ИСПРАВЛЕНИЕ: ПРИВОДИМ К 0° ПЕРЕД ВИЗУАЛИЗАЦИЕЙ
-           if (transformationInfo.rotationAngle !== 0) {
-    const angleToCorrect = -transformationInfo.rotationAngle; // Поворачиваем обратно
-    console.log(`🎯 РЕАЛЬНО исправляю угол: ${transformationInfo.rotationAngle.toFixed(1)}° → 0°`);
-   
-    // Поворачиваем все точки графа
-    if (finalGraph.nodes) {
-        const center = transformationInfo.center || { x: 500, y: 500 };
-        const rad = angleToCorrect * Math.PI / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-       
-        for (const [id, node] of finalGraph.nodes) {
-            // Переводим в систему с центром в центре поворота
-            const dx = node.x - center.x;
-            const dy = node.y - center.y;
-           
-            // Поворачиваем
-            const newX = dx * cos - dy * sin;
-            const newY = dx * sin + dy * cos;
-           
-            // Возвращаем в оригинальную систему
-            node.x = newX + center.x;
-            node.y = newY + center.y;
-        }
-    }
-   
-    // Обновляем информацию о трансформации
-    transformationInfo.rotationAngle = 0;
-    transformationInfo._correctedToZero = true;
-    transformationInfo._originalAngle = transformationInfo.rotationAngle;
-}
-
-finalGraph.transformation = transformationInfo;
+            finalGraph.transformation = transformationInfo;
 
             // 🔥 ЛОГИРУЕМ ТРАНСФОРМАЦИИ
             if (this.config.enableCoordinateDiagnostics) {
@@ -819,16 +803,6 @@ finalGraph.transformation = transformationInfo;
         const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
                                          session.currentFootprint.getTransformation();
 
-        // 🔥 ИСПРАВЛЕНИЕ: ПРИВОДИМ СУЩЕСТВУЮЩИЙ ОТПЕЧАТОК К 0°
-        if (existingTransformationInfo && existingTransformationInfo.rotationAngle !== 0) {
-            console.log(`🎯 Исправляю существующий отпечаток: ${existingTransformationInfo.rotationAngle.toFixed(1)}° → 0°`);
-            existingTransformationInfo.rotationAngle = 0;
-            existingTransformationInfo._correctedToZero = true;
-            existingTransformationInfo._originalAngle = existingTransformationInfo.rotationAngle;
-            session.currentFootprint.transformation = existingTransformationInfo;
-            session.currentFootprint.metadata.normalizationInfo = existingTransformationInfo;
-        }
-
         // Создание временного отпечатка для сравнения
         const SimpleFootprint = require('./simple-footprint');
         const tempFootprint = new SimpleFootprint({
@@ -901,8 +875,8 @@ finalGraph.transformation = transformationInfo;
 
     // 🔥 МЕТОД: Обработка совпадающих следов (ОБНОВЛЕННЫЙ)
     async handleMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
-                                 existingTransformationInfo, similarity, comparisonResult,
-                                 tempResult, bot, chatId) {
+                                existingTransformationInfo, similarity, comparisonResult,
+                                tempResult, bot, chatId) {
         console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
 
         // 🔥 ПРОВЕРЯЕМ НАЛИЧИЕ tempResult
@@ -1009,7 +983,7 @@ finalGraph.transformation = transformationInfo;
                 const stats = this.calculateConfirmationStats(session.currentFootprint);
                 let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
                 caption += `📊 Сходство: ${(comparisonResult.similarity * 100).toFixed(1)}%\n`;
-                caption += `📐 Угл: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
                 caption += `🔄 Метод: ${comparisonResult.method || 'pattern_based'}\n\n`;
                 caption += `📈 СТАТИСТИКА (после ${session.photos.length} фото):\n`;
                 caption += `• Всего точек: ${stats.totalPoints}\n`;
@@ -1167,7 +1141,7 @@ finalGraph.transformation = transformationInfo;
             );
 
             // 4. Проверяем трансформации
-            console.log('\n🔄 ПРОВЕРКА ТРАНСФОРМАЦИЙ:');
+            console.log('\n🔄 ПРОВЕРКА ТРАНСФОРМАЦИИ:');
             const validationResult = this.validateAllTransformations(userId);
             results.transformationValidation = validationResult;
 
