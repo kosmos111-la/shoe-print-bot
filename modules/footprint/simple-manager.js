@@ -519,7 +519,40 @@ class SimpleFootprintManager {
             const finalGraph = corrected.graph;
            
             // 🔥 ИСПРАВЛЕНИЕ: ПРИВОДИМ К 0° ПЕРЕД ВИЗУАЛИЗАЦИЕЙ
-                       }
+           if (transformationInfo.rotationAngle !== 0) {
+    const angleToCorrect = -transformationInfo.rotationAngle; // Поворачиваем обратно
+    console.log(`🎯 РЕАЛЬНО исправляю угол: ${transformationInfo.rotationAngle.toFixed(1)}° → 0°`);
+   
+    // Поворачиваем все точки графа
+    if (finalGraph.nodes) {
+        const center = transformationInfo.center || { x: 500, y: 500 };
+        const rad = angleToCorrect * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+       
+        for (const [id, node] of finalGraph.nodes) {
+            // Переводим в систему с центром в центре поворота
+            const dx = node.x - center.x;
+            const dy = node.y - center.y;
+           
+            // Поворачиваем
+            const newX = dx * cos - dy * sin;
+            const newY = dx * sin + dy * cos;
+           
+            // Возвращаем в оригинальную систему
+            node.x = newX + center.x;
+            node.y = newY + center.y;
+        }
+    }
+   
+    // Обновляем информацию о трансформации
+    transformationInfo.rotationAngle = 0;
+    transformationInfo._correctedToZero = true;
+    transformationInfo._originalAngle = transformationInfo.rotationAngle;
+}
+
+finalGraph.transformation = transformationInfo;
+
             // 🔥 ЛОГИРУЕМ ТРАНСФОРМАЦИИ
             if (this.config.enableCoordinateDiagnostics) {
                 this.coordinateSystemLogger.logTransformations(
