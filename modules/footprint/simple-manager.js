@@ -135,7 +135,7 @@ class SimpleFootprintManager {
         };
 
         console.log(`🎯 Единые пороги решений:`);
-        console.log(`   Паттерн-сходство: >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
+        console.log(`   Паттерн+сходство: >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
         console.log(`   Минимальные совпадения: >${this.DECISION_THRESHOLDS.MIN_MATCHES}`);
         console.log(`   Максимальное расстояние: <${this.DECISION_THRESHOLDS.MAX_DISTANCE}px`);
 
@@ -156,18 +156,6 @@ class SimpleFootprintManager {
 
         // 🔥 НОВЫЙ: Coordinate Director (главный гарант системы координат)
         this.coordinateDirector = new CoordinateDirector(this);
-       
-        // 🔥 ВАЖНО: ПРОВЕРЯЕМ И ИСПРАВЛЯЕМ ВСЕ СИСТЕМЫ ПРИ СТАРТЕ
-        console.log('\n🎯 ЗАПУСКАЮ ИНИЦИАЛЬНУЮ ПРОВЕРКУ СИСТЕМ КООРДИНАТ...');
-        const auditResult = this.coordinateDirector.auditAllSystems();
-       
-        if (!auditResult.allCanonical) {
-            console.log('🔄 Автоматически исправляю расхождения...');
-            const correctionResult = this.coordinateDirector.applyGlobalCorrections();
-            console.log(`✅ Исправлено ${correctionResult.correctedCount} систем`);
-        }
-       
-        console.log('🎬 CoordinateDirector активирован: все системы гарантированно в канонической системе (0°)');
     }
 
     // 🔥 НОВЫЙ МЕТОД: Запуск начальной диагностики
@@ -1141,7 +1129,7 @@ class SimpleFootprintManager {
             );
 
             // 4. Проверяем трансформации
-            console.log('\n🔄 ПРОВЕРКА ТРАНСФОРМАЦИИ:');
+            console.log('\n🔄 ПРОВЕРКА ТРАНСФОРМАЦИЙ:');
             const validationResult = this.validateAllTransformations(userId);
             results.transformationValidation = validationResult;
 
