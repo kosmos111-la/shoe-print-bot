@@ -519,15 +519,7 @@ class SimpleFootprintManager {
             const finalGraph = corrected.graph;
            
             // 🔥 ИСПРАВЛЕНИЕ: ПРИВОДИМ К 0° ПЕРЕД ВИЗУАЛИЗАЦИЕЙ
-            if (transformationInfo.rotationAngle !== 0) {
-                console.log(`🎯 Исправляю угол поворота: ${transformationInfo.rotationAngle.toFixed(1)}° → 0°`);
-                transformationInfo.rotationAngle = 0;
-                transformationInfo._correctedToZero = true;
-                transformationInfo._originalAngle = normalized.rotationAngle;
-            }
-           
-            finalGraph.transformation = transformationInfo;
-
+                       }
             // 🔥 ЛОГИРУЕМ ТРАНСФОРМАЦИИ
             if (this.config.enableCoordinateDiagnostics) {
                 this.coordinateSystemLogger.logTransformations(
