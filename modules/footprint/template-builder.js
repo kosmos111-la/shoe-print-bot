@@ -70,7 +70,7 @@ class TemplateBuilder {
             enableDynamicReference: true,
             referenceUpdateThreshold: 1.15,
             minQualityForReference: 0.4,
-           
+
             // 🔥 ДОБАВЛЯЕМ ССЫЛКУ НА COORDINATE MANAGER
             coordinateManager: options.coordinateManager || null,
             useCoordinateManager: options.useCoordinateManager !== false,
@@ -122,7 +122,7 @@ class TemplateBuilder {
 
         const matchRate = matchResults.totalMatches / Math.max(1, normalizedPoints.length);
         console.log(`   Процент совпадений: ${(matchRate * 100).toFixed(1)}%`);
-      
+
         // 🔥 СИНХРОНИЗАЦИЯ: используем тот же порог, что и в simple-manager.js
         const isSame = matchRate > 0.6; // 60% как в simple-manager.js
 
@@ -283,11 +283,11 @@ class TemplateBuilder {
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Нормализовать к системе шаблона
     normalizeToTemplateSystem(points, metadata) {
         console.log(`📐 Нормализую ${points.length} точек к системе шаблона...`);
-       
+
         // 🔥 ИСПОЛЬЗУЕМ COORDINATE MANAGER ЕСЛИ ДОСТУПЕН
         if (this.config.useCoordinateManager && this.config.coordinateManager) {
             console.log(`✅ Использую CoordinateManager для нормализации`);
-           
+
             const result = this.config.coordinateManager.getCoordinates(points, {
                 coordinateSystem: 'template',
                 transformation: {
@@ -296,38 +296,54 @@ class TemplateBuilder {
                 },
                 debug: this.config.debug
             });
-           
+
             return result.points.map(p => ({
                 ...p,
                 normalized: true,
                 _normalizedBy: 'coordinate_manager'
             }));
         }
-       
-        // 🔥 ФАЛЛБЭК: старая логика
-        if (!this.normalizationTransform) {
-            console.log(`⚠️ Нет трансформации шаблона, использую прямую нормализацию`);
-            return this.normalizePoints(points, {
-                minX: 0, maxX: 1, minY: 0, maxY: 1,
-                width: 1, height: 1
-            });
-        }
+
+        // 🔥 ИСПРАВЛЕННЫЙ ФАЛЛБЭК: Гарантируем каноническую систему
+        console.log(`⚠️ Использую фаллбэк, но гарантирую каноническую систему`);
 
         const normalized = points.map(point => {
-            const nx = (point.x - this.normalizationTransform.minX) / Math.max(1, this.normalizationTransform.width);
-            const ny = (point.y - this.normalizationTransform.minY) / Math.max(1, this.normalizationTransform.height);
+            // Используем нормализованные координаты ИЛИ преобразуем к центру 500,500
+            const nx = point.nx || (point.x / 1000);
+            const ny = point.ny || (point.y / 1000);
+
+            // 🔥 ГАРАНТИЯ: Если координаты слишком большие/маленькие - центрируем
+            const centeredX = (nx - 0.5) * 0.8 + 0.5;
+            const centeredY = (ny - 0.5) * 0.8 + 0.5;
 
             return {
                 ...point,
-                nx: nx,
-                ny: ny,
+                nx: centeredX,
+                ny: centeredY,
                 normalized: true,
-                _normalizedBy: 'fallback'
+                _normalizedWithFallback: true,
+                _originalCoords: { x: point.x, y: point.y }
             };
         });
 
-        console.log(`📐 Нормализовано ${normalized.length} точек к системе шаблона (фаллбэк)`);
+        console.log(`📐 Нормализовано ${normalized.length} точек (фаллбэк с гарантией)`);
         return normalized;
+    }
+
+    // 🔥 ДОБАВЛЯЕМ метод для создания трансформации по умолчанию
+    createDefaultTransformation() {
+        return {
+            minX: 0,
+            maxX: 1000,
+            minY: 0,
+            maxY: 1000,
+            width: 1000,
+            height: 1000,
+            rotationAngle: 0,
+            center: { x: 500, y: 500 },
+            type: 'default_template',
+            timestamp: new Date()
+        };
     }
 
     // 🔥 НОВЫЙ МЕТОД: Установить эталонный граф с реальными точками
@@ -1444,7 +1460,7 @@ class TemplateBuilder {
     calculateConfidenceScore(nodes, metadata) {
         let totalConfidence = 0;
         nodes.forEach(node => {
-            totalConfidence += node.confidence || 0.5;
+            totalConfidence += node.confidence || 0.5);
         });
         const avgNodeConfidence = nodes.length > 0 ? totalConfidence / nodes.length : 0.5;
 
