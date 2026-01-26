@@ -1,5 +1,5 @@
 // modules/footprint/core/session/session-manager.js
-// 🔥 ИСПРАВЛЕНИЕ ДУБЛИРОВАНИЯ СЕССИЙ
+// 🔥 ИСПРАВЛЕНИЕ ДУБЛИРОВАНИЯ СЕССИЙ + ДОБАВЛЕНИЕ saveSessionAsModel
 
 class SessionManager {
     constructor(manager) {
@@ -64,6 +64,81 @@ class SessionManager {
         console.log(`   Всего сессий у пользователя: ${this.getUserSessionCount(userId)}`);
 
         return session;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Сохранить сессию как модель
+    saveSessionAsModel(sessionId, modelName = null) {
+        const session = this.sessions.get(sessionId);
+        if (!session) {
+            console.log(`❌ Сессия ${sessionId} не найдена`);
+            return { success: false, error: 'Сессия не найдена' };
+        }
+
+        if (!session.currentFootprint) {
+            console.log(`❌ В сессии ${sessionId} нет отпечатка`);
+            return { success: false, error: 'Нет отпечатка в сессии' };
+        }
+
+        try {
+            // Импортируем SimpleFootprint
+            const SimpleFootprint = require('../simple-footprint');
+           
+            // Создаем модель из текущего отпечатка
+            const model = SimpleFootprint.fromJSON(session.currentFootprint.toJSON());
+            model.id = `model_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+            model.name = modelName || `Модель_${new Date().toLocaleString('ru-RU')}`;
+            model.metadata = model.metadata || {};
+            model.metadata.sourceSession = sessionId;
+            model.metadata.savedAt = new Date();
+
+            // Добавляем модель в менеджер
+            if (this.manager && this.manager.loadedModels) {
+                this.manager.loadedModels.set(model.id, model);
+            }
+
+            // Сохраняем в файл если есть dbPath
+            if (this.manager?.config?.dbPath) {
+                const fs = require('fs');
+                const path = require('path');
+               
+                const modelsDir = path.join(this.manager.config.dbPath, 'models');
+                if (!fs.existsSync(modelsDir)) {
+                    fs.mkdirSync(modelsDir, { recursive: true });
+                }
+               
+                const filePath = path.join(modelsDir, `${model.id}.json`);
+                fs.writeFileSync(filePath, JSON.stringify(model.toJSON(), null, 2));
+               
+                console.log(`💾 Сессия сохранена как модель: ${model.name}`);
+                console.log(`   Файл: ${filePath}`);
+                console.log(`   Узлов: ${model.graph?.nodes?.size || 0}`);
+                console.log(`   Трансформация: ${model.transformation?.rotationAngle?.toFixed(1) || 0}°`);
+               
+                return {
+                    success: true,
+                    modelId: model.id,
+                    modelName: model.name,
+                    filePath: filePath,
+                    nodeCount: model.graph?.nodes?.size || 0,
+                    sessionId: sessionId
+                };
+            } else {
+                console.log(`💾 Сессия сохранена как модель (в памяти): ${model.name}`);
+               
+                return {
+                    success: true,
+                    modelId: model.id,
+                    modelName: model.name,
+                    nodeCount: model.graph?.nodes?.size || 0,
+                    sessionId: sessionId,
+                    inMemory: true
+                };
+            }
+           
+        } catch (error) {
+            console.log(`❌ Ошибка сохранения сессии как модели: ${error.message}`);
+            return { success: false, error: error.message };
+        }
     }
 
     // 🔥 НОВЫЙ МЕТОД: Очистить старые сессии пользователя
@@ -215,12 +290,12 @@ class SessionManager {
         // Устанавливаем новый таймаут
         const timeout = setTimeout(() => {
             console.log(`⏰ Сессия ${sessionId} истекла по таймауту (30 минут)`);
-           
+
             // Удаляем из активных
             if (this.userActiveSession.get(userId) === sessionId) {
                 this.userActiveSession.delete(userId);
             }
-           
+
             // Удаляем сессию
             this.sessions.delete(sessionId);
             this.sessionTimeouts.delete(sessionId);
@@ -262,7 +337,7 @@ class SessionManager {
 
         for (const [sessionId, session] of this.sessions) {
             const sessionAge = now - session.lastActivity;
-           
+
             if (sessionAge > maxAgeMs) {
                 this.deleteSession(sessionId);
                 deletedCount++;
@@ -329,6 +404,57 @@ class SessionManager {
             healthy: issues.length === 0,
             stats: stats,
             issues: issues
+        };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Получить информацию о сессии
+    getSessionInfo(sessionId) {
+        const session = this.getSession(sessionId);
+        if (!session) return null;
+
+        return {
+            id: session.id,
+            name: session.name,
+            userId: session.userId,
+            createdAt: session.createdAt,
+            lastActivity: session.lastActivity,
+            photoCount: session.photos.length,
+            hasFootprint: !!session.currentFootprint,
+            footprintInfo: session.currentFootprint ? {
+                id: session.currentFootprint.id,
+                nodeCount: session.currentFootprint.graph?.nodes?.size || 0,
+                transformation: session.currentFootprint.transformation
+            } : null,
+            isActive: this.userActiveSession.get(session.userId) === sessionId
+        };
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Проверить наличие сессии
+    hasSession(userId) {
+        return this.getUserSessions(userId).length > 0;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Сохранить все сессии пользователя как модели
+    saveAllUserSessionsAsModels(userId, prefix = null) {
+        const userSessions = this.getUserSessions(userId);
+        const results = [];
+
+        userSessions.forEach(session => {
+            if (session.currentFootprint) {
+                const modelName = prefix ? `${prefix}_${session.name}` : session.name;
+                const result = this.saveSessionAsModel(session.id, modelName);
+                results.push({
+                    sessionId: session.id,
+                    sessionName: session.name,
+                    ...result
+                });
+            }
+        });
+
+        return {
+            totalSessions: userSessions.length,
+            savedCount: results.filter(r => r.success).length,
+            results: results
         };
     }
 }
