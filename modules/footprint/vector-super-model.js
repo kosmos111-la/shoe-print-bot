@@ -90,115 +90,29 @@ class VectorSuperModel {
         console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}" с ДИНАМИЧЕСКИМ эталоном и СИНХРОНИЗИРОВАННЫМИ порогами`);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ПРОВЕРКА РЕШЕНИЯ С СИНХРОНИЗИРОВАННЫМ ПОРОГОМ
-    checkDecisionWithSynchronizedThreshold(similarity) {
-        console.log(`🎯 [VECTOR-MODEL] Проверка решения с синхронизированным порогом:`);
-        console.log(`   Сходство: ${similarity.toFixed(3)}`);
-        console.log(`   Порог "SAME": ${this.config.similarityThresholds.SAME}`);
-        console.log(`   Порог "SIMILAR": ${this.config.similarityThresholds.SIMILAR}`);
-     
-        let decision, reason;
-     
-        if (similarity >= this.config.similarityThresholds.SAME) {
-            decision = 'same';
-            reason = `Сходство ${(similarity * 100).toFixed(1)}% ≥ порог ${(this.config.similarityThresholds.SAME * 100).toFixed(1)}%`;
-        } else if (similarity >= this.config.similarityThresholds.SIMILAR) {
-            decision = 'similar';
-            reason = `Сходство ${(similarity * 100).toFixed(1)}% ≥ порог ${(this.config.similarityThresholds.SIMILAR * 100).toFixed(1)}%`;
-        } else {
-            decision = 'different';
-            reason = `Сходство ${(similarity * 100).toFixed(1)}% < порог ${(this.config.similarityThresholds.SIMILAR * 100).toFixed(1)}%`;
-        }
-     
-        console.log(`   Решение: ${decision} (${reason})`);
-     
-        return {
-            decision,
-            reason,
-            similarity,
-            thresholdUsed: this.config.similarityThresholds.SAME,
-            isSynchronized: true
-        };
-    }
-
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД ИЗ ИНСТРУКЦИИ
-    updateStats() {
-        // Получаем реальные данные из TemplateBuilder
-        const templateInfo = this.templateBuilder.getInfo();
-        const visualizationData = this.templateBuilder.getVisualizationData();
-
-        if (!visualizationData || visualizationData.cells.length === 0) {
-            this.stats.confidence = 0;
-            return;
-        }
-
-        // 🔥 БЕРЕМ РЕАЛЬНЫЕ ДАННЫЕ ИЗ ВИЗУАЛИЗАЦИИ
-        const cells = visualizationData.cells;
-        const stats = visualizationData.stats;
-
-        // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
-        this.stats.templateCells = cells.length;
-        this.stats.confirmedCells = stats.confirmedCells || 0;
-        this.stats.totalConfirmations = stats.totalConfirmations || 0;  // 🔥 ВАЖНО!
-        this.stats.averageConfirmations = stats.averageConfirmations || 0;
-
-        // 🔥 РАСЧЕТ УВЕРЕННОСТИ
-        const confirmedRatio = this.stats.confirmedCells / Math.max(1, this.stats.templateCells);
-        const avgConfirmations = this.stats.averageConfirmations;
-
-        // 🔥 НОВАЯ ФОРМУЛА УВЕРЕННОСТИ
-        this.stats.confidence = Math.min(1.0,
-            confirmedRatio * 0.5 +                    // 50% за долю подтвержденных
-            Math.min(0.3, avgConfirmations * 0.15) +  // 30% за среднее подтверждений
-            (this.bestGraphScore * 0.2)               // 20% за качество лучшего графа
-        );
-    }
-
     // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавить граф с проверкой порогов
     addGraph(graph, graphId, metadata = {}) {
         console.log(`🔄 Добавляю граф ${graphId} к динамической супер-модели...`);
-      
+       
+        // 🔥 ГАРАНТИЯ: Приводим граф к канонической системе перед добавлением
+        if (graph.transformation) {
+            const director = this.manager?.coordinateDirector;
+            if (director) {
+                const canonicalTrans = director.enforceCanonicalSystem(
+                    `vector_model_${graphId}`,
+                    graph.transformation
+                );
+                graph.transformation = canonicalTrans;
+                console.log(`✅ Граф приведен к канонической системе: ${canonicalTrans.rotationAngle}°`);
+            }
+        }
+       
         // 🔥 ДИАГНОСТИКА: Проверяем входные данные
         console.log(`🔍 [VECTOR-MODEL-DIAG] Входные данные:`);
         console.log(`   Граф ID: ${graphId}`);
         console.log(`   Узлов в графе: ${graph?.nodes?.size || 0}`);
         console.log(`   Сходство из metadata: ${metadata.similarity || 'нет'}`);
         console.log(`   Порог SAME: ${this.config.similarityThresholds.SAME}`);
-
-        // 🔥 ИСПРАВЛЕНИЕ: ПРОВЕРЯЕМ И ИСПРАВЛЯЕМ УГОЛ ПОВОРОТА
-        if (graph.transformation && graph.transformation.rotationAngle !== 0) {
-    const angle = graph.transformation.rotationAngle;
-    console.log(`🎯 РЕАЛЬНО исправляю угол графа: ${angle.toFixed(1)}° → 0°`);
-   
-    // РЕАЛЬНО поворачиваем точки графа
-    if (graph.nodes) {
-        const center = graph.transformation.center || { x: 500, y: 500 };
-        const rad = -angle * Math.PI / 180; // Обратный поворот
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-       
-        for (const [id, node] of graph.nodes) {
-            const dx = node.x - center.x;
-            const dy = node.y - center.y;
-           
-            const newX = dx * cos - dy * sin;
-            const newY = dx * sin + dy * cos;
-           
-            node.x = newX + center.x;
-            node.y = newY + center.y;
-        }
-    }
-   
-    // Обновляем информацию
-    graph.transformation.rotationAngle = 0;
-    graph.transformation._correctedToZero = true;
-    graph.transformation._originalAngle = angle;
-   
-    if (metadata.transformationInfo) {
-        metadata.transformationInfo.rotationAngle = 0;
-        metadata.transformationInfo._correctedToZero = true;
-    }
-}
 
         // 🔥 ПРОВЕРЯЕМ ПОРОГИ ИЗ МЕТАДАННЫХ (если есть)
         if (metadata.similarity !== undefined) {
@@ -291,6 +205,70 @@ class VectorSuperModel {
         console.log(`   СИНХРОНИЗИРОВАННЫЕ ПОРОГИ: SAME=${this.config.similarityThresholds.SAME}`);
 
         return true;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ПРОВЕРКА РЕШЕНИЯ С СИНХРОНИЗИРОВАННЫМ ПОРОГОМ
+    checkDecisionWithSynchronizedThreshold(similarity) {
+        console.log(`🎯 [VECTOR-MODEL] Проверка решения с синхронизированным порогом:`);
+        console.log(`   Сходство: ${similarity.toFixed(3)}`);
+        console.log(`   Порог "SAME": ${this.config.similarityThresholds.SAME}`);
+        console.log(`   Порог "SIMILAR": ${this.config.similarityThresholds.SIMILAR}`);
+     
+        let decision, reason;
+     
+        if (similarity >= this.config.similarityThresholds.SAME) {
+            decision = 'same';
+            reason = `Сходство ${(similarity * 100).toFixed(1)}% ≥ порог ${(this.config.similarityThresholds.SAME * 100).toFixed(1)}%`;
+        } else if (similarity >= this.config.similarityThresholds.SIMILAR) {
+            decision = 'similar';
+            reason = `Сходство ${(similarity * 100).toFixed(1)}% ≥ порог ${(this.config.similarityThresholds.SIMILAR * 100).toFixed(1)}%`;
+        } else {
+            decision = 'different';
+            reason = `Сходство ${(similarity * 100).toFixed(1)}% < порог ${(this.config.similarityThresholds.SIMILAR * 100).toFixed(1)}%`;
+        }
+     
+        console.log(`   Решение: ${decision} (${reason})`);
+     
+        return {
+            decision,
+            reason,
+            similarity,
+            thresholdUsed: this.config.similarityThresholds.SAME,
+            isSynchronized: true
+        };
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД ИЗ ИНСТРУКЦИИ
+    updateStats() {
+        // Получаем реальные данные из TemplateBuilder
+        const templateInfo = this.templateBuilder.getInfo();
+        const visualizationData = this.templateBuilder.getVisualizationData();
+
+        if (!visualizationData || visualizationData.cells.length === 0) {
+            this.stats.confidence = 0;
+            return;
+        }
+
+        // 🔥 БЕРЕМ РЕАЛЬНЫЕ ДАННЫЕ ИЗ ВИЗУАЛИЗАЦИИ
+        const cells = visualizationData.cells;
+        const stats = visualizationData.stats;
+
+        // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
+        this.stats.templateCells = cells.length;
+        this.stats.confirmedCells = stats.confirmedCells || 0;
+        this.stats.totalConfirmations = stats.totalConfirmations || 0;  // 🔥 ВАЖНО!
+        this.stats.averageConfirmations = stats.averageConfirmations || 0;
+
+        // 🔥 РАСЧЕТ УВЕРЕННОСТИ
+        const confirmedRatio = this.stats.confirmedCells / Math.max(1, this.stats.templateCells);
+        const avgConfirmations = this.stats.averageConfirmations;
+
+        // 🔥 НОВАЯ ФОРМУЛА УВЕРЕННОСТИ
+        this.stats.confidence = Math.min(1.0,
+            confirmedRatio * 0.5 +                    // 50% за долю подтвержденных
+            Math.min(0.3, avgConfirmations * 0.15) +  // 30% за среднее подтверждений
+            (this.bestGraphScore * 0.2)               // 20% за качество лучшего графа
+        );
     }
 
     // 🔥 НОВЫЙ МЕТОД: СРАВНИТЬ С SIMPLE-MANAGER ПОРОГОМ
