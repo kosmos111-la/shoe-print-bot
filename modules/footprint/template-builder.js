@@ -1458,11 +1458,11 @@ class TemplateBuilder {
     }
 
     calculateConfidenceScore(nodes, metadata) {
-        let totalConfidence = 0;
-        nodes.forEach(node => {
-            totalConfidence += node.confidence || 0.5);
-        });
-        const avgNodeConfidence = nodes.length > 0 ? totalConfidence / nodes.length : 0.5;
+    let totalConfidence = 0;
+    nodes.forEach(node => {
+        totalConfidence += node.confidence || 0.5;
+    });
+    const avgNodeConfidence = nodes.length > 0 ? totalConfidence / nodes.length : 0.5;
 
         let metadataConfidence = 0.5;
         if (metadata.photoQuality) {
