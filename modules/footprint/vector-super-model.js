@@ -1,5 +1,5 @@
 // modules/footprint/vector-super-model.js
-// 🔥 ОБНОВЛЯЕМ ДЛЯ ИНТЕГРАЦИИ С COORDINATE DIRECTOR
+// 🔥 ИСПРАВЛЕННАЯ ВЕРСИЯ ДЛЯ ИНТЕГРАЦИИ С COORDINATE DIRECTOR
 
 const TemplateBuilder = require('./template-builder');
 
@@ -11,24 +11,19 @@ class VectorSuperModel {
         // 🔥 ССЫЛКА НА МЕНЕДЖЕР ДЛЯ ДОСТУПА К COORDINATE DIRECTOR
         this.manager = options.manager || null;
 
-        // 🔥 СИНХРОНИЗИРУЕМ ПОРОГИ С simple-manager.js (0.6 для "same")
+        // 🔥 СИНХРОНИЗИРУЕМ ПОРОГИ С simple-manager.js
         this.config = {
-            // 🔥 ВНУТРЕННИЙ ПОРОГ ДЛЯ ТОЧНОГО СРАВНЕНИЯ
-            matchThreshold: 0.05, // Для точного сравнения точек
-         
-            // 🔥 ВНЕШНИЙ ПОРОГ ДЛЯ РЕШЕНИЙ (СИНХРОННЫЙ С simple-manager.js)
-            decisionThreshold: 0.6, // 60% - как в simple-manager.js
-         
+            matchThreshold: 0.05,
+            decisionThreshold: 0.6,
             minConfirmationsForHighConfidence: 2,
             bestGraphMinNodes: options.bestGraphMinNodes || 15,
             enableTemplateMode: true,
             enableDynamicReference: true,
-            guaranteeCanonicalSystem: options.guaranteeCanonicalSystem !== false, // 🔥 НОВАЯ НАСТРОЙКА
+            guaranteeCanonicalSystem: options.guaranteeCanonicalSystem !== false,
 
-            // 🔥 СОВМЕСТИМЫЕ ПОРОГИ С simple-manager.js
             similarityThresholds: {
-                SAME: 0.6,      // 60% - синхронно с simple-manager.js DECISION_THRESHOLDS.PATTERN_SIMILARITY
-                SIMILAR: 0.4,   // 40%
+                SAME: 0.6,
+                SIMILAR: 0.4,
                 DIFFERENT: 0.0
             },
 
@@ -38,36 +33,25 @@ class VectorSuperModel {
         };
 
         console.log(`🎯 VECTOR-MODEL пороги СИНХРОНИЗИРОВАНЫ:`);
-        console.log(`   Внутренний matchThreshold: ${this.config.matchThreshold} (для точного сравнения)`);
-        console.log(`   Решающий порог (SAME): ${this.config.similarityThresholds.SAME} (синхронно с simple-manager)`);
+        console.log(`   Решающий порог (SAME): ${this.config.similarityThresholds.SAME}`);
         console.log(`   Гарантия канонической системы: ${this.config.guaranteeCanonicalSystem ? '✅' : '❌'}`);
 
-        // 🔥 ЗАМЕНЯЕМ СТАРУЮ ЛОГИКУ НА TEMPLATE BUILDER
+        // 🔥 TEMPLATE BUILDER
         this.templateBuilder = new TemplateBuilder({
             name: `Шаблон_${this.name}`,
-            enablePCA: false, // 🔥 ОТКЛЮЧАЕМ PCA
-            cellSize: 25,     // 🔥 УВЕЛИЧИВАЕМ РАЗМЕР ЯЧЕЙКИ
-         
-            // 🔥 СИНХРОНИЗИРУЕМ ПОРОГИ TEMPLATE BUILDER
-            matchThreshold: 0.05, // Для точного сравнения внутри шаблона
-            decisionThreshold: 0.6, // Для решений
-         
-            // 🔥 ПЕРЕДАЕМ COORDINATE MANAGER ЕСЛИ ЕСТЬ
+            enablePCA: false,
+            cellSize: 25,
+            matchThreshold: 0.05,
+            decisionThreshold: 0.6,
             coordinateManager: options.coordinateManager,
             useCoordinateManager: options.useCoordinateManager !== false,
             guaranteeCanonicalSystem: this.config.guaranteeCanonicalSystem,
-            manager: this.manager, // 🔥 ПЕРЕДАЕМ МЕНЕДЖЕР
-         
+            manager: this.manager,
             ...options
         });
 
-        // Для совместимости сохраняем старые поля
-        this.nodes = []; // Устарело, но оставляем
-
-        // 🔥 Храним ссылки на исходные графы
-        this.sourceGraphs = new Map(); // graphId -> {graph, metadata, nodeCount, addedAt}
-
-        // 🔥 Лучший след-представитель
+        this.nodes = [];
+        this.sourceGraphs = new Map();
         this.bestGraphId = null;
         this.bestGraphScore = 0;
         this.bestGraphMetadata = null;
@@ -84,34 +68,28 @@ class VectorSuperModel {
             templateCells: 0,
             confirmedCells: 0,
             avgConfirmations: 0,
-         
-            // 🔥 ДОБАВЛЯЕМ СТАТИСТИКУ ПОРОГОВ
             thresholds: {
                 match: this.config.matchThreshold,
                 decision: this.config.decisionThreshold,
                 same: this.config.similarityThresholds.SAME,
                 similar: this.config.similarityThresholds.SIMILAR
             },
-           
-            // 🔥 ИНФОРМАЦИЯ О СИСТЕМЕ КООРДИНАТ
             coordinateSystem: {
                 guaranteedCanonical: this.config.guaranteeCanonicalSystem,
                 registeredInDirector: false
             }
         };
 
-        console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}" с ИНТЕГРАЦИЕЙ COORDINATE DIRECTOR`);
+        console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}"`);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ПРОВЕРКА РЕШЕНИЯ С СИНХРОНИЗИРОВАННЫМ ПОРОГОМ
     checkDecisionWithSynchronizedThreshold(similarity) {
         console.log(`🎯 [VECTOR-MODEL] Проверка решения с синхронизированным порогом:`);
         console.log(`   Сходство: ${similarity.toFixed(3)}`);
         console.log(`   Порог "SAME": ${this.config.similarityThresholds.SAME}`);
-        console.log(`   Порог "SIMILAR": ${this.config.similarityThresholds.SIMILAR}`);
-     
+
         let decision, reason;
-     
+
         if (similarity >= this.config.similarityThresholds.SAME) {
             decision = 'same';
             reason = `Сходство ${(similarity * 100).toFixed(1)}% ≥ порог ${(this.config.similarityThresholds.SAME * 100).toFixed(1)}%`;
@@ -122,9 +100,9 @@ class VectorSuperModel {
             decision = 'different';
             reason = `Сходство ${(similarity * 100).toFixed(1)}% < порог ${(this.config.similarityThresholds.SIMILAR * 100).toFixed(1)}%`;
         }
-     
+
         console.log(`   Решение: ${decision} (${reason})`);
-     
+
         return {
             decision,
             reason,
@@ -134,9 +112,7 @@ class VectorSuperModel {
         };
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД ИЗ ИНСТРУКЦИИ
     updateStats() {
-        // Получаем реальные данные из TemplateBuilder
         const templateInfo = this.templateBuilder.getInfo();
         const visualizationData = this.templateBuilder.getVisualizationData();
 
@@ -145,33 +121,29 @@ class VectorSuperModel {
             return;
         }
 
-        // 🔥 БЕРЕМ РЕАЛЬНЫЕ ДАННЫЕ ИЗ ВИЗУАЛИЗАЦИИ
         const cells = visualizationData.cells;
         const stats = visualizationData.stats;
 
-        // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
         this.stats.templateCells = cells.length;
         this.stats.confirmedCells = stats.confirmedCells || 0;
-        this.stats.totalConfirmations = stats.totalConfirmations || 0;  // 🔥 ВАЖНО!
+        this.stats.totalConfirmations = stats.totalConfirmations || 0;
         this.stats.averageConfirmations = stats.averageConfirmations || 0;
 
-        // 🔥 РАСЧЕТ УВЕРЕННОСТИ
         const confirmedRatio = this.stats.confirmedCells / Math.max(1, this.stats.templateCells);
         const avgConfirmations = this.stats.averageConfirmations;
 
-        // 🔥 НОВАЯ ФОРМУЛА УВЕРЕННОСТИ
         this.stats.confidence = Math.min(1.0,
-            confirmedRatio * 0.5 +                    // 50% за долю подтвержденных
-            Math.min(0.3, avgConfirmations * 0.15) +  // 30% за среднее подтверждений
-            (this.bestGraphScore * 0.2)               // 20% за качество лучшего графа
+            confirmedRatio * 0.5 +
+            Math.min(0.3, avgConfirmations * 0.15) +
+            (this.bestGraphScore * 0.2)
         );
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавить граф с гарантией канонической системы
+    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавить граф
     addGraph(graph, graphId, metadata = {}) {
-        console.log(`🔄 Добавляю граф ${graphId} к динамической супер-модели...`);
-      
-        // 🔥 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ: Приводим граф к канонической системе перед добавлением
+        console.log(`🔄 Добавляю граф ${graphId} к супер-модели...`);
+
+        // 🔥 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ
         if (this.config.guaranteeCanonicalSystem && this.manager?.coordinateDirector && graph.transformation) {
             console.log('🎯 ПРИВЕДЕНИЕ ГРАФА К КАНОНИЧЕСКОЙ СИСТЕМЕ...');
            
@@ -189,31 +161,26 @@ class VectorSuperModel {
             console.log(`✅ Граф приведен к канонической системе: ${canonicalTrans.rotationAngle}°`);
         }
 
-        // 🔥 ДИАГНОСТИКА: Проверяем входные данные
-        console.log(`🔍 [VECTOR-MODEL-DIAG] Входные данные:`);
+        console.log(`🔍 Входные данные:`);
         console.log(`   Граф ID: ${graphId}`);
         console.log(`   Узлов в графе: ${graph?.nodes?.size || 0}`);
         console.log(`   Сходство из metadata: ${metadata.similarity || 'нет'}`);
-        console.log(`   Порог SAME: ${this.config.similarityThresholds.SAME}`);
         console.log(`   Каноническая система: ${graph.transformation?.rotationAngle || 0}°`);
 
-        // 🔥 ПРОВЕРЯЕМ ПОРОГИ ИЗ МЕТАДАННЫХ (если есть)
+        // 🔥 ПРОВЕРЯЕМ ПОРОГИ ИЗ МЕТАДАННЫХ
         if (metadata.similarity !== undefined) {
             const decisionCheck = this.checkDecisionWithSynchronizedThreshold(metadata.similarity);
             const syncCheck = this.compareWithSimpleManagerThreshold(metadata.similarity);
-          
+           
             console.log(`📊 Решение из simple-manager: ${metadata.similarity.toFixed(3)} -> ${decisionCheck.decision}`);
-         
+           
             if (!syncCheck.isSynchronized || !syncCheck.decisionsMatch) {
                 console.log(`⚠️ [VECTOR-MODEL-WARN] Расхождение порогов!`);
-                console.log(`   Решение simple-manager: ${syncCheck.simpleManagerDecision}`);
-                console.log(`   Решение vector-model: ${syncCheck.vectorModelDecision}`);
-              
-                // 🔥 ПРИНИМАЕМ РЕШЕНИЕ ОТ SIMPLE-MANAGER (главное)
+               
+                // 🔥 ПРИНИМАЕМ РЕШЕНИЕ ОТ SIMPLE-MANAGER
                 metadata.vectorDecisionOverride = syncCheck.simpleManagerDecision;
                 metadata.vectorDecisionOverrideReason = 'Приоритет simple-manager при расхождении';
             } else {
-                // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О РЕШЕНИИ В МЕТАДАННЫЕ
                 metadata.vectorDecision = decisionCheck.decision;
                 metadata.vectorDecisionReason = decisionCheck.reason;
                 metadata.vectorThresholdUsed = decisionCheck.thresholdUsed;
@@ -233,11 +200,10 @@ class VectorSuperModel {
         // 1. Сохраняем исходный граф
         this.saveSourceGraph(graph, graphId, metadata);
 
-        // 2. 🔥 ДОБАВЛЯЕМ К TEMPLATE BUILDER (он сам решит, обновлять ли эталон)
+        // 2. ДОБАВЛЯЕМ К TEMPLATE BUILDER
         let addedToTemplate = false;
 
         if (this.templateBuilder.referenceGraphId === null) {
-            // Первый граф
             console.log(`🎯 Устанавливаю граф ${graphId} как начальный эталон`);
             addedToTemplate = this.templateBuilder.setReferenceGraph(graph, graphId, metadata);
 
@@ -248,15 +214,12 @@ class VectorSuperModel {
                 console.log(`🏆 Начальный эталон установлен: ${graphId}`);
             }
         } else {
-            // Последующие графы - TemplateBuilder сам решит, обновлять ли эталон
             addedToTemplate = this.templateBuilder.addGraph(graph, graphId, metadata);
 
             if (addedToTemplate) {
-                // 🔥 ПРОВЕРЯЕМ, НЕ ИЗМЕНИЛСЯ ЛИ ЭТАЛОН В TEMPLATE BUILDER
                 const newReferenceId = this.templateBuilder.referenceGraphId;
 
                 if (newReferenceId !== this.bestGraphId) {
-                    // Эталон обновился!
                     console.log(`🔄 ОБНОВЛЕНИЕ ЭТАЛОНА В СУПЕР-МОДЕЛИ:`);
                     console.log(`   Старый: ${this.bestGraphId}`);
                     console.log(`   Новый: ${newReferenceId}`);
@@ -264,7 +227,6 @@ class VectorSuperModel {
                     this.bestGraphId = newReferenceId;
                     this.bestGraphScore = this.templateBuilder.referenceGraphQuality;
 
-                    // Обновляем метаданные
                     const sourceGraph = this.sourceGraphs.get(newReferenceId);
                     if (sourceGraph) {
                         this.bestGraphMetadata = sourceGraph.metadata;
@@ -281,43 +243,38 @@ class VectorSuperModel {
             return false;
         }
 
-        // 3. Обновить статистику
         this.stats.totalMerges++;
         this.stats.totalGraphsAdded++;
         this.stats.lastUpdated = new Date();
         this.updateStats();
 
-        // 4. Получить информацию о шаблоне
         const templateInfo = this.templateBuilder.getInfo();
 
-        console.log(`✅ Граф добавлен. Динамическая статистика:`);
+        console.log(`✅ Граф добавлен. Статистика:`);
         console.log(`   Ячеек шаблона: ${templateInfo.templateCells}`);
         console.log(`   Подтвержденных ячеек: ${templateInfo.stats.confirmedCells}`);
         console.log(`   Лучший граф: ${this.bestGraphId} (${this.bestGraphScore.toFixed(3)})`);
         console.log(`   Всего графов: ${this.stats.sourceGraphsCount}`);
-        console.log(`   СИНХРОНИЗИРОВАННЫЕ ПОРОГИ: SAME=${this.config.similarityThresholds.SAME}`);
-        console.log(`   КАНОНИЧЕСКАЯ СИСТЕМА: ${this.config.guaranteeCanonicalSystem ? '✅ гарантирована' : '❌ не гарантирована'}`);
 
         return true;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: СРАВНИТЬ С SIMPLE-MANAGER ПОРОГОМ
     compareWithSimpleManagerThreshold(similarity) {
-        const simpleManagerThreshold = 0.6; // 🔥 ТОЧНОЕ ЗНАЧЕНИЕ ИЗ simple-manager.js
-     
+        const simpleManagerThreshold = 0.6;
+
         console.log(`\n🔍 [SYNC-CHECK] Сравнение порогов:`);
         console.log(`   simple-manager порог: ${simpleManagerThreshold}`);
         console.log(`   vector-model порог: ${this.config.similarityThresholds.SAME}`);
         console.log(`   Сходство: ${similarity.toFixed(3)}`);
-     
+
         const isSynchronized = Math.abs(this.config.similarityThresholds.SAME - simpleManagerThreshold) < 0.01;
         const simpleManagerDecision = similarity >= simpleManagerThreshold ? 'same' : 'different';
         const vectorModelDecision = similarity >= this.config.similarityThresholds.SAME ? 'same' : 'different';
-     
+
         console.log(`   Пороги синхронизированы: ${isSynchronized ? '✅' : '❌'}`);
         console.log(`   Решение simple-manager: ${simpleManagerDecision}`);
         console.log(`   Решение vector-model: ${vectorModelDecision}`);
-     
+
         return {
             isSynchronized,
             simpleManagerDecision,
@@ -326,7 +283,6 @@ class VectorSuperModel {
         };
     }
 
-    // 🔥 СОХРАНИТЬ ИСХОДНЫЙ ГРАФ (без изменений)
     saveSourceGraph(graph, graphId, metadata) {
         const nodeCount = graph.nodes ? graph.nodes.size : 0;
 
@@ -345,12 +301,9 @@ class VectorSuperModel {
         console.log(`💾 Сохранен исходный граф ${graphId} с ${nodeCount} узлами`);
     }
 
-    // 🔥 ПОЛУЧИТЬ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ (ОСНОВАННЫЕ НА ШАБЛОНЕ)
     getVisualizationData() {
-        // 🔥 ИСПОЛЬЗУЕМ ДАННЫЕ ИЗ TEMPLATE BUILDER
         const templateData = this.templateBuilder.getVisualizationData();
 
-        // Добавляем информацию о супер-модели
         return {
             ...templateData,
             metadata: {
@@ -364,16 +317,12 @@ class VectorSuperModel {
                 sourceGraphsCount: this.stats.sourceGraphsCount,
                 dynamicReferenceEnabled: this.config.enableDynamicReference,
                 bestGraphUpdates: this.stats.bestGraphUpdates,
-             
-                // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ПОРОГАХ
                 thresholds: {
                     same: this.config.similarityThresholds.SAME,
                     similar: this.config.similarityThresholds.SIMILAR,
                     match: this.config.matchThreshold,
                     synchronized: true
                 },
-               
-                // 🔥 ИНФОРМАЦИЯ О СИСТЕМЕ КООРДИНАТ
                 coordinateSystem: {
                     guaranteedCanonical: this.config.guaranteeCanonicalSystem,
                     registeredInDirector: this.stats.coordinateSystem.registeredInDirector
@@ -382,7 +331,6 @@ class VectorSuperModel {
         };
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧИТЬ СТАТИСТИКУ ШАБЛОНА
     getTemplateStats() {
         if (!this.templateBuilder) return null;
 
@@ -409,7 +357,6 @@ class VectorSuperModel {
         };
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить информацию
     getInfo() {
         const templateStats = this.getTemplateStats();
         const bestGraphInfo = this.bestGraphId ? {
@@ -419,7 +366,6 @@ class VectorSuperModel {
             bestGraphNodeCount: this.sourceGraphs.get(this.bestGraphId)?.nodeCount || 0
         } : {};
 
-        // 🔥 ИНФОРМАЦИЯ О ВСЕХ ГРАФАХ
         const allGraphsInfo = [];
         for (const [graphId, graphData] of this.sourceGraphs) {
             allGraphsInfo.push({
@@ -432,7 +378,6 @@ class VectorSuperModel {
             });
         }
 
-        // Сортируем по качеству
         allGraphsInfo.sort((a, b) => b.quality - a.quality);
 
         return {
@@ -450,20 +395,16 @@ class VectorSuperModel {
                 total: allGraphsInfo.length,
                 bestQuality: allGraphsInfo.length > 0 ? allGraphsInfo[0].quality : 0,
                 referenceQuality: this.templateBuilder.referenceGraphQuality || 0,
-                list: allGraphsInfo.slice(0, 5) // Только топ-5
+                list: allGraphsInfo.slice(0, 5)
             },
             config: this.config,
             hasTemplate: !!this.templateBuilder.referenceGraphId,
             dynamicReferenceEnabled: this.config.enableDynamicReference,
-         
-            // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СИНХРОНИЗАЦИИ ПОРОГОВ
             thresholdsSynchronized: {
                 withSimpleManager: true,
                 sameThreshold: this.config.similarityThresholds.SAME,
                 note: 'Пороги синхронизированы с simple-manager.js (0.6 для SAME)'
             },
-           
-            // 🔥 ИНФОРМАЦИЯ О КАНОНИЧЕСКОЙ СИСТЕМЕ
             coordinateSystem: {
                 guaranteedCanonical: this.config.guaranteeCanonicalSystem,
                 registeredInDirector: this.stats.coordinateSystem.registeredInDirector,
@@ -472,7 +413,6 @@ class VectorSuperModel {
         };
     }
 
-    // 🔥 РАСЧЁТ ОЦЕНКИ ГРАФА (без изменений)
     calculateGraphScore(graph) {
         if (!graph || !graph.nodes) return 0;
 
@@ -505,12 +445,11 @@ class VectorSuperModel {
         return Math.min(1, totalScore);
     }
 
-    // 🔥 ЗАГРУЗИТЬ ИЗ JSON (ОБНОВЛЕННЫЙ)
     static fromJSON(data) {
         const model = new VectorSuperModel({
             name: data.name,
             matchThreshold: data.config?.matchThreshold,
-            decisionThreshold: 0.6, // 🔥 ГАРАНТИРУЕМ СИНХРОНИЗАЦИЮ
+            decisionThreshold: 0.6,
             enableDynamicReference: data.config?.enableDynamicReference !== false,
             guaranteeCanonicalSystem: data.config?.guaranteeCanonicalSystem !== false
         });
@@ -518,37 +457,33 @@ class VectorSuperModel {
         model.id = data.id || model.id;
         model.stats = data.stats || model.stats;
         model.config = data.config || model.config;
-     
-        // 🔥 ГАРАНТИРУЕМ СИНХРОНИЗАЦИЮ ПОРОГОВ
+
         if (model.config.similarityThresholds) {
-            model.config.similarityThresholds.SAME = 0.6; // СИНХРОНИЗИРУЕМ
+            model.config.similarityThresholds.SAME = 0.6;
             model.config.similarityThresholds.SIMILAR = 0.4;
         }
 
-        // 🔥 ВОССТАНАВЛИВАЕМ TEMPLATE BUILDER
         if (data.templateBuilder) {
             try {
                 model.templateBuilder = TemplateBuilder.fromJSON(data.templateBuilder);
-                console.log(`📂 Восстановлен TemplateBuilder с ДИНАМИЧЕСКИМ эталоном`);
+                console.log(`📂 Восстановлен TemplateBuilder`);
             } catch (error) {
                 console.log(`⚠️ Ошибка восстановления TemplateBuilder:`, error.message);
                 model.templateBuilder = new TemplateBuilder({
                     name: model.name,
                     enableDynamicReference: model.config.enableDynamicReference,
-                    decisionThreshold: 0.6, // 🔥 СИНХРОНИЗИРУЕМ
+                    decisionThreshold: 0.6,
                     guaranteeCanonicalSystem: model.config.guaranteeCanonicalSystem
                 });
             }
         }
 
-        // Восстанавливаем лучший граф
         if (data.bestGraphId) {
             model.bestGraphId = data.bestGraphId;
             model.bestGraphScore = data.bestGraphScore || 0;
             model.bestGraphMetadata = data.bestGraphMetadata || null;
         }
 
-        // Восстанавливаем исходные графы
         if (data.sourceGraphs && Array.isArray(data.sourceGraphs)) {
             data.sourceGraphs.forEach(graphData => {
                 if (graphData.graphId) {
@@ -558,7 +493,6 @@ class VectorSuperModel {
             model.stats.sourceGraphsCount = model.sourceGraphs.size;
         }
 
-        // Восстановить даты
         if (model.stats.createdAt && typeof model.stats.createdAt === 'string') {
             model.stats.createdAt = new Date(model.stats.createdAt);
         }
@@ -566,18 +500,13 @@ class VectorSuperModel {
             model.stats.lastUpdated = new Date(model.stats.lastUpdated);
         }
 
-        console.log(`📂 Загружена ШАБЛОННАЯ супер-модель "${model.name}" с СИНХРОНИЗИРОВАННЫМИ порогами`);
+        console.log(`📂 Загружена супер-модель "${model.name}"`);
         console.log(`   Ячеек шаблона: ${model.templateBuilder?.templateCells?.size || 0}`);
         console.log(`   Лучший граф: ${model.bestGraphId || 'нет'}`);
-        console.log(`   Эталонный граф: ${model.templateBuilder?.referenceGraphId || 'нет'}`);
-        console.log(`   Качество эталона: ${model.templateBuilder?.referenceGraphQuality?.toFixed(3) || 0}`);
-        console.log(`   Порог "SAME": ${model.config.similarityThresholds?.SAME || 0.6}`);
-        console.log(`   Каноническая система: ${model.config.guaranteeCanonicalSystem ? '✅ гарантирована' : '❌ не гарантирована'}`);
 
         return model;
     }
 
-    // 🔥 СОХРАНИТЬ В JSON (ОБНОВЛЕННЫЙ)
     toJSON() {
         const data = {
             id: this.id,
@@ -587,16 +516,14 @@ class VectorSuperModel {
             bestGraphId: this.bestGraphId,
             bestGraphScore: this.bestGraphScore,
             bestGraphMetadata: this.bestGraphMetadata,
-            _version: '3.0-coordinate-director-integration', // 🔥 ОБНОВИЛИ ВЕРСИЮ
+            _version: '3.0-coordinate-director-integration',
             _savedAt: new Date().toISOString()
         };
 
-        // 🔥 СОХРАНЯЕМ TEMPLATE BUILDER
         if (this.templateBuilder) {
             data.templateBuilder = this.templateBuilder.toJSON();
         }
 
-        // Сохраняем исходные графы
         if (this.sourceGraphs.size > 0) {
             data.sourceGraphs = Array.from(this.sourceGraphs.values());
         }
@@ -604,9 +531,6 @@ class VectorSuperModel {
         return data;
     }
 
-    // ============ СТАРЫЕ МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ ============
-
-    // 🔥 ОСТАВЛЯЕМ ДЛЯ СОВМЕСТИМОСТИ, НО ПОМЕЧАЕМ КАК УСТАРЕВШИЕ
     extractGraphData(graph) {
         const nodes = [];
         const edges = [];
@@ -626,7 +550,6 @@ class VectorSuperModel {
     }
 
     calculateNodeUniformity(graph) {
-        // Для совместимости
         if (!graph.nodes || graph.nodes.size < 10) return 0.5;
 
         const nodes = Array.from(graph.nodes.values());
