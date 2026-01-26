@@ -12,10 +12,10 @@ class VectorSuperModel {
         this.config = {
             // 🔥 ВНУТРЕННИЙ ПОРОГ ДЛЯ ТОЧНОГО СРАВНЕНИЯ
             matchThreshold: 0.05, // Для точного сравнения точек
-         
+
             // 🔥 ВНЕШНИЙ ПОРОГ ДЛЯ РЕШЕНИЙ (СИНХРОННЫЙ С simple-manager.js)
             decisionThreshold: 0.6, // 60% - как в simple-manager.js
-         
+
             minConfirmationsForHighConfidence: 2,
             bestGraphMinNodes: options.bestGraphMinNodes || 15,
             enableTemplateMode: true,
@@ -42,15 +42,15 @@ class VectorSuperModel {
             name: `Шаблон_${this.name}`,
             enablePCA: false, // 🔥 ОТКЛЮЧАЕМ PCA
             cellSize: 25,     // 🔥 УВЕЛИЧИВАЕМ РАЗМЕР ЯЧЕЙКИ
-         
+
             // 🔥 СИНХРОНИЗИРУЕМ ПОРОГИ TEMPLATE BUILDER
             matchThreshold: 0.05, // Для точного сравнения внутри шаблона
             decisionThreshold: 0.6, // Для решений
-         
+
             // 🔥 ПЕРЕДАЕМ COORDINATE MANAGER ЕСЛИ ЕСТЬ
             coordinateManager: options.coordinateManager,
             useCoordinateManager: options.useCoordinateManager !== false,
-         
+
             ...options
         });
 
@@ -77,7 +77,7 @@ class VectorSuperModel {
             templateCells: 0,
             confirmedCells: 0,
             avgConfirmations: 0,
-         
+
             // 🔥 ДОБАВЛЯЕМ СТАТИСТИКУ ПОРОГОВ
             thresholds: {
                 match: this.config.matchThreshold,
@@ -93,20 +93,35 @@ class VectorSuperModel {
     // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавить граф с проверкой порогов
     addGraph(graph, graphId, metadata = {}) {
         console.log(`🔄 Добавляю граф ${graphId} с ГАРАНТИЕЙ КАНОНИЧЕСКОЙ СИСТЕМЫ...`);
-       
-        // 🔥 ГАРАНТИЯ: Приводим граф к канонической системе перед добавлением
-        if (graph.transformation) {
-            const director = this.manager?.coordinateDirector;
-            if (director) {
-                const canonicalTrans = director.enforceCanonicalSystem(
-                    `vector_model_${graphId}`,
+
+        // 🔥 КРИТИЧНОЕ ИСПРАВЛЕНИЕ: РЕАЛЬНАЯ коррекция через director
+        if (this.manager?.coordinateDirector) {
+            console.log('🎬 Использую CoordinateDirector для гарантии канонической системы...');
+
+            // 1. Исправляем трансформацию графа
+            if (graph.transformation) {
+                const canonicalTrans = this.manager.coordinateDirector.enforceCanonicalSystem(
+                    `vector_model_graph_${graphId}`,
                     graph.transformation
                 );
                 graph.transformation = canonicalTrans;
-                console.log(`✅ Граф приведен к канонической системе: ${canonicalTrans.rotationAngle}°`);
+                console.log(`✅ Граф ${graphId}: ${graph.transformation.rotationAngle}° → ${canonicalTrans.rotationAngle}°`);
             }
+
+            // 2. Исправляем normalizationTransform в templateBuilder
+            if (this.templateBuilder?.normalizationTransform) {
+                const builderTrans = this.manager.coordinateDirector.enforceCanonicalSystem(
+                    `template_builder_${graphId}`,
+                    this.templateBuilder.normalizationTransform
+                );
+                this.templateBuilder.normalizationTransform = builderTrans;
+                console.log(`✅ Шаблон: ${this.templateBuilder.normalizationTransform.rotationAngle}° → ${builderTrans.rotationAngle}°`);
+            }
+
+            // 3. Принудительно синхронизируем все системы
+            this.manager.coordinateDirector.auditAllSystems();
         }
-       
+
         // 🔥 ДИАГНОСТИКА: Проверяем входные данные
         console.log(`🔍 [VECTOR-MODEL-DIAG] Входные данные:`);
         console.log(`   Граф ID: ${graphId}`);
@@ -118,14 +133,14 @@ class VectorSuperModel {
         if (metadata.similarity !== undefined) {
             const decisionCheck = this.checkDecisionWithSynchronizedThreshold(metadata.similarity);
             const syncCheck = this.compareWithSimpleManagerThreshold(metadata.similarity);
-          
+
             console.log(`📊 Решение из simple-manager: ${metadata.similarity.toFixed(3)} -> ${decisionCheck.decision}`);
-         
+
             if (!syncCheck.isSynchronized || !syncCheck.decisionsMatch) {
                 console.log(`⚠️ [VECTOR-MODEL-WARN] Расхождение порогов!`);
                 console.log(`   Решение simple-manager: ${syncCheck.simpleManagerDecision}`);
                 console.log(`   Решение vector-model: ${syncCheck.vectorModelDecision}`);
-              
+
                 // 🔥 ПРИНИМАЕМ РЕШЕНИЕ ОТ SIMPLE-MANAGER (главное)
                 metadata.vectorDecisionOverride = syncCheck.simpleManagerDecision;
                 metadata.vectorDecisionOverrideReason = 'Приоритет simple-manager при расхождении';
@@ -213,9 +228,9 @@ class VectorSuperModel {
         console.log(`   Сходство: ${similarity.toFixed(3)}`);
         console.log(`   Порог "SAME": ${this.config.similarityThresholds.SAME}`);
         console.log(`   Порог "SIMILAR": ${this.config.similarityThresholds.SIMILAR}`);
-     
+
         let decision, reason;
-     
+
         if (similarity >= this.config.similarityThresholds.SAME) {
             decision = 'same';
             reason = `Сходство ${(similarity * 100).toFixed(1)}% ≥ порог ${(this.config.similarityThresholds.SAME * 100).toFixed(1)}%`;
@@ -226,9 +241,9 @@ class VectorSuperModel {
             decision = 'different';
             reason = `Сходство ${(similarity * 100).toFixed(1)}% < порог ${(this.config.similarityThresholds.SIMILAR * 100).toFixed(1)}%`;
         }
-     
+
         console.log(`   Решение: ${decision} (${reason})`);
-     
+
         return {
             decision,
             reason,
@@ -274,20 +289,20 @@ class VectorSuperModel {
     // 🔥 НОВЫЙ МЕТОД: СРАВНИТЬ С SIMPLE-MANAGER ПОРОГОМ
     compareWithSimpleManagerThreshold(similarity) {
         const simpleManagerThreshold = 0.6; // 🔥 ТОЧНОЕ ЗНАЧЕНИЕ ИЗ simple-manager.js
-     
+
         console.log(`\n🔍 [SYNC-CHECK] Сравнение порогов:`);
         console.log(`   simple-manager порог: ${simpleManagerThreshold}`);
         console.log(`   vector-model порог: ${this.config.similarityThresholds.SAME}`);
         console.log(`   Сходство: ${similarity.toFixed(3)}`);
-     
+
         const isSynchronized = Math.abs(this.config.similarityThresholds.SAME - simpleManagerThreshold) < 0.01;
         const simpleManagerDecision = similarity >= simpleManagerThreshold ? 'same' : 'different';
         const vectorModelDecision = similarity >= this.config.similarityThresholds.SAME ? 'same' : 'different';
-     
+
         console.log(`   Пороги синхронизированы: ${isSynchronized ? '✅' : '❌'}`);
         console.log(`   Решение simple-manager: ${simpleManagerDecision}`);
         console.log(`   Решение vector-model: ${vectorModelDecision}`);
-     
+
         return {
             isSynchronized,
             simpleManagerDecision,
@@ -334,7 +349,7 @@ class VectorSuperModel {
                 sourceGraphsCount: this.stats.sourceGraphsCount,
                 dynamicReferenceEnabled: this.config.enableDynamicReference,
                 bestGraphUpdates: this.stats.bestGraphUpdates,
-             
+
                 // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ПОРОГАХ
                 thresholds: {
                     same: this.config.similarityThresholds.SAME,
@@ -419,7 +434,7 @@ class VectorSuperModel {
             config: this.config,
             hasTemplate: !!this.templateBuilder.referenceGraphId,
             dynamicReferenceEnabled: this.config.enableDynamicReference,
-         
+
             // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СИНХРОНИЗАЦИИ ПОРОГОВ
             thresholdsSynchronized: {
                 withSimpleManager: true,
@@ -474,7 +489,7 @@ class VectorSuperModel {
         model.id = data.id || model.id;
         model.stats = data.stats || model.stats;
         model.config = data.config || model.config;
-     
+
         // 🔥 ГАРАНТИРУЕМ СИНХРОНИЗАЦИЮ ПОРОГОВ
         if (model.config.similarityThresholds) {
             model.config.similarityThresholds.SAME = 0.6; // СИНХРОНИЗИРУЕМ
