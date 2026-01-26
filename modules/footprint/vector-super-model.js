@@ -1,5 +1,5 @@
 // modules/footprint/vector-super-model.js
-// 🔥 ОБНОВЛЯЕМ ДЛЯ ИНТЕГРАЦИИ С COORDINATE DIRECTOR
+// 🔥 ОБНОВЛЯЕМ ДЛЯ ДИНАМИЧЕСКОГО ЭТАЛОНА С СИНХРОНИЗИРОВАННЫМИ ПОРОГАМИ И ГАРАНТИЕЙ КАНОНИЧЕСКОЙ СИСТЕМЫ
 
 const TemplateBuilder = require('./template-builder');
 
@@ -8,7 +8,7 @@ class VectorSuperModel {
         this.id = `vsm_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
         this.name = options.name || 'Шаблонная супер-модель';
 
-        // 🔥 ССЫЛКА НА МЕНЕДЖЕР ДЛЯ ДОСТУПА К COORDINATE DIRECTOR
+        // 🔥 ССЫЛКА НА МЕНЕДЖЕР ДЛЯ ДОСТУПА К COORDINATE GUARANTOR
         this.manager = options.manager || null;
 
         // 🔥 СИНХРОНИЗИРУЕМ ПОРОГИ С simple-manager.js (0.6 для "same")
@@ -23,7 +23,9 @@ class VectorSuperModel {
             bestGraphMinNodes: options.bestGraphMinNodes || 15,
             enableTemplateMode: true,
             enableDynamicReference: true,
-            guaranteeCanonicalSystem: options.guaranteeCanonicalSystem !== false, // 🔥 НОВАЯ НАСТРОЙКА
+
+            // 🔥 КРИТИЧЕСКАЯ НАСТРОЙКА: гарантия канонической системы
+            guaranteeCanonicalSystem: options.guaranteeCanonicalSystem !== false,
 
             // 🔥 СОВМЕСТИМЫЕ ПОРОГИ С simple-manager.js
             similarityThresholds: {
@@ -40,7 +42,7 @@ class VectorSuperModel {
         console.log(`🎯 VECTOR-MODEL пороги СИНХРОНИЗИРОВАНЫ:`);
         console.log(`   Внутренний matchThreshold: ${this.config.matchThreshold} (для точного сравнения)`);
         console.log(`   Решающий порог (SAME): ${this.config.similarityThresholds.SAME} (синхронно с simple-manager)`);
-        console.log(`   Гарантия канонической системы: ${this.config.guaranteeCanonicalSystem ? '✅' : '❌'}`);
+        console.log(`   🔥 Каноническая система: ${this.config.guaranteeCanonicalSystem ? 'ГАРАНТИРОВАНА' : 'не гарантирована'}`);
 
         // 🔥 ЗАМЕНЯЕМ СТАРУЮ ЛОГИКУ НА TEMPLATE BUILDER
         this.templateBuilder = new TemplateBuilder({
@@ -52,11 +54,9 @@ class VectorSuperModel {
             matchThreshold: 0.05, // Для точного сравнения внутри шаблона
             decisionThreshold: 0.6, // Для решений
          
-            // 🔥 ПЕРЕДАЕМ COORDINATE MANAGER ЕСЛИ ЕСТЬ
-            coordinateManager: options.coordinateManager,
-            useCoordinateManager: options.useCoordinateManager !== false,
+            // 🔥 ПЕРЕДАЕМ НАСТРОЙКИ КАНОНИЧЕСКОЙ СИСТЕМЫ
             guaranteeCanonicalSystem: this.config.guaranteeCanonicalSystem,
-            manager: this.manager, // 🔥 ПЕРЕДАЕМ МЕНЕДЖЕР
+            manager: this.manager,
          
             ...options
         });
@@ -93,14 +93,17 @@ class VectorSuperModel {
                 similar: this.config.similarityThresholds.SIMILAR
             },
            
-            // 🔥 ИНФОРМАЦИЯ О СИСТЕМЕ КООРДИНАТ
-            coordinateSystem: {
-                guaranteedCanonical: this.config.guaranteeCanonicalSystem,
-                registeredInDirector: false
+            // 🔥 ИНФОРМАЦИЯ О КАНОНИЧЕСКОЙ СИСТЕМЕ
+            canonicalSystem: {
+                guaranteed: this.config.guaranteeCanonicalSystem,
+                angle: 0, // 🔥 ВСЕГДА 0°
+                center: { x: 500, y: 500 }, // 🔥 Единый центр
+                totalCorrections: 0,
+                lastCorrected: null
             }
         };
 
-        console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}" с ИНТЕГРАЦИЕЙ COORDINATE DIRECTOR`);
+        console.log(`🏗️ Создана ШАБЛОННАЯ векторная супер-модель "${this.name}" с ДИНАМИЧЕСКИМ эталоном, СИНХРОНИЗИРОВАННЫМИ порогами и ГАРАНТИЕЙ КАНОНИЧЕСКОЙ СИСТЕМЫ`);
     }
 
     // 🔥 НОВЫЙ МЕТОД: ПРОВЕРКА РЕШЕНИЯ С СИНХРОНИЗИРОВАННЫМ ПОРОГОМ
@@ -171,22 +174,34 @@ class VectorSuperModel {
     addGraph(graph, graphId, metadata = {}) {
         console.log(`🔄 Добавляю граф ${graphId} к динамической супер-модели...`);
       
-        // 🔥 ГАРАНТИЯ КАНОНИЧЕСКОЙ СИСТЕМЫ: Приводим граф к канонической системе перед добавлением
-        if (this.config.guaranteeCanonicalSystem && this.manager?.coordinateDirector && graph.transformation) {
+        // 🔥 КРИТИЧЕСКИЙ ЭТАП: Гарантия канонической системы
+        if (this.config.guaranteeCanonicalSystem && this.manager) {
             console.log('🎯 ПРИВЕДЕНИЕ ГРАФА К КАНОНИЧЕСКОЙ СИСТЕМЕ...');
            
-            const canonicalTrans = this.manager.coordinateDirector.enforceCanonicalSystem(
-                `vector_model_${graphId}`,
-                graph.transformation
-            );
-           
-            graph.transformation = canonicalTrans;
-           
-            if (metadata.transformationInfo) {
-                metadata.transformationInfo = canonicalTrans;
+            // Используем гарантор из менеджера
+            if (this.manager.enforceCanonicalSystem && graph.transformation) {
+                const canonicalTrans = this.manager.enforceCanonicalSystem(
+                    `vector_model_${graphId}`,
+                    graph.transformation
+                );
+               
+                graph.transformation = canonicalTrans;
+               
+                // Обновляем метаданные
+                if (metadata.transformationInfo) {
+                    metadata.transformationInfo = canonicalTrans;
+                }
+               
+                console.log(`✅ Граф приведен к канонической системе: ${canonicalTrans.rotationAngle}°`);
+               
+                // Добавляем флаг гарантии в метаданные
+                metadata.canonicalSystemGuaranteed = true;
+                metadata.canonicalAngle = canonicalTrans.rotationAngle;
+                metadata.canonicalCorrectionApplied = canonicalTrans._correctedByGuarantor || false;
             }
-           
-            console.log(`✅ Граф приведен к канонической системе: ${canonicalTrans.rotationAngle}°`);
+        } else if (graph.transformation && graph.transformation.rotationAngle !== 0) {
+            console.log(`⚠️ ВНИМАНИЕ: Граф ${graphId} не в канонической системе: ${graph.transformation.rotationAngle}°`);
+            console.log(`   Рекомендуется включить guaranteeCanonicalSystem для автоматической коррекции`);
         }
 
         // 🔥 ДИАГНОСТИКА: Проверяем входные данные
@@ -218,16 +233,6 @@ class VectorSuperModel {
                 metadata.vectorDecisionReason = decisionCheck.reason;
                 metadata.vectorThresholdUsed = decisionCheck.thresholdUsed;
             }
-        }
-
-        // 🔥 РЕГИСТРИРУЕМ СИСТЕМУ В COORDINATE DIRECTOR
-        if (this.manager?.coordinateDirector && !this.stats.coordinateSystem.registeredInDirector) {
-            this.manager.coordinateDirector.registerSystem(
-                `vector_model_${this.id}`,
-                graph.transformation || { rotationAngle: 0, center: { x: 500, y: 500 } }
-            );
-            this.stats.coordinateSystem.registeredInDirector = true;
-            console.log(`📝 VectorModel зарегистрирована в CoordinateDirector`);
         }
 
         // 1. Сохраняем исходный граф
@@ -345,6 +350,63 @@ class VectorSuperModel {
         console.log(`💾 Сохранен исходный граф ${graphId} с ${nodeCount} узлами`);
     }
 
+    // 🔥 НОВЫЙ МЕТОД: Проверка и коррекция системы координат
+    ensureCanonicalSystem() {
+        if (!this.config.guaranteeCanonicalSystem || !this.manager) {
+            return { corrected: false, reason: 'Гарантия канонической системы не включена' };
+        }
+       
+        console.log(`🔍 Проверка канонической системы для VectorModel ${this.id}...`);
+       
+        let correctedCount = 0;
+       
+        // 1. Проверяем и корректируем все исходные графы
+        for (const [graphId, graphData] of this.sourceGraphs) {
+            if (graphData.graph?.transformation && this.manager.enforceCanonicalSystem) {
+                const canonicalTrans = this.manager.enforceCanonicalSystem(
+                    `source_graph_${graphId}`,
+                    graphData.graph.transformation
+                );
+               
+                if (canonicalTrans._correctedByGuarantor) {
+                    graphData.graph.transformation = canonicalTrans;
+                    correctedCount++;
+                    console.log(`   📊 Исходный граф ${graphId}: исправлен`);
+                }
+            }
+        }
+       
+        // 2. Проверяем и корректируем templateBuilder
+        if (this.templateBuilder?.normalizationTransform && this.manager.enforceCanonicalSystem) {
+            const canonicalTrans = this.manager.enforceCanonicalSystem(
+                `template_builder_${this.id}`,
+                this.templateBuilder.normalizationTransform
+            );
+           
+            if (canonicalTrans._correctedByGuarantor) {
+                this.templateBuilder.normalizationTransform = canonicalTrans;
+                correctedCount++;
+                console.log(`   🏗️ TemplateBuilder: исправлен`);
+            }
+        }
+       
+        // 3. Обновляем статистику
+        if (correctedCount > 0) {
+            this.stats.canonicalSystem.lastCorrected = new Date();
+            this.stats.canonicalSystem.totalCorrections = (this.stats.canonicalSystem.totalCorrections || 0) + correctedCount;
+            console.log(`✅ Исправлено ${correctedCount} систем координат в VectorModel`);
+        } else {
+            console.log(`✅ Все системы уже канонические (0°)`);
+        }
+       
+        return {
+            corrected: correctedCount > 0,
+            correctedCount,
+            timestamp: new Date(),
+            canonicalAngle: 0
+        };
+    }
+
     // 🔥 ПОЛУЧИТЬ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ (ОСНОВАННЫЕ НА ШАБЛОНЕ)
     getVisualizationData() {
         // 🔥 ИСПОЛЬЗУЕМ ДАННЫЕ ИЗ TEMPLATE BUILDER
@@ -376,7 +438,10 @@ class VectorSuperModel {
                 // 🔥 ИНФОРМАЦИЯ О СИСТЕМЕ КООРДИНАТ
                 coordinateSystem: {
                     guaranteedCanonical: this.config.guaranteeCanonicalSystem,
-                    registeredInDirector: this.stats.coordinateSystem.registeredInDirector
+                    canonicalAngle: 0,
+                    canonicalCenter: { x: 500, y: 500 },
+                    totalCorrections: this.stats.canonicalSystem.totalCorrections,
+                    lastCorrected: this.stats.canonicalSystem.lastCorrected
                 }
             }
         };
@@ -428,7 +493,8 @@ class VectorSuperModel {
                 edgeCount: graphData.edgeCount,
                 quality: this.templateBuilder.graphQualities.get(graphId) || 0,
                 isBest: graphId === this.bestGraphId,
-                isReference: graphId === this.templateBuilder.referenceGraphId
+                isReference: graphId === this.templateBuilder.referenceGraphId,
+                canonicalAngle: graphData.graph?.transformation?.rotationAngle || 0
             });
         }
 
@@ -463,11 +529,15 @@ class VectorSuperModel {
                 note: 'Пороги синхронизированы с simple-manager.js (0.6 для SAME)'
             },
            
-            // 🔥 ИНФОРМАЦИЯ О КАНОНИЧЕСКОЙ СИСТЕМЕ
+            // 🔥 КРИТИЧЕСКАЯ ИНФОРМАЦИЯ О КАНОНИЧЕСКОЙ СИСТЕМЕ
             coordinateSystem: {
-                guaranteedCanonical: this.config.guaranteeCanonicalSystem,
-                registeredInDirector: this.stats.coordinateSystem.registeredInDirector,
-                directorAvailable: !!this.manager?.coordinateDirector
+                guaranteed: this.config.guaranteeCanonicalSystem,
+                canonicalAngle: 0, // 🔥 ВСЕГДА 0°
+                canonicalCenter: { x: 500, y: 500 },
+                managerAvailable: !!this.manager,
+                canEnforceCanonical: !!this.manager?.enforceCanonicalSystem,
+                totalCorrections: this.stats.canonicalSystem.totalCorrections,
+                lastCorrected: this.stats.canonicalSystem.lastCorrected
             }
         };
     }
@@ -587,7 +657,7 @@ class VectorSuperModel {
             bestGraphId: this.bestGraphId,
             bestGraphScore: this.bestGraphScore,
             bestGraphMetadata: this.bestGraphMetadata,
-            _version: '3.0-coordinate-director-integration', // 🔥 ОБНОВИЛИ ВЕРСИЮ
+            _version: '3.0-coordinate-guarantee-integration', // 🔥 ОБНОВИЛИ ВЕРСИЮ
             _savedAt: new Date().toISOString()
         };
 
