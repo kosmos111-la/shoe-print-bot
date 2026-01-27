@@ -253,7 +253,61 @@ class VectorSuperModel {
         };
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД ИЗ ИНСТРУКЦИИ
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД ИЗ ИНСТРУКЦИИ: В методе findMatchesInNormalizedSystem() добавляем диагностику
+    findMatchesInNormalizedSystem(normalizedPoints, graphId) {
+        console.log(`🔍 Нахожу совпадения в нормализованной системе...`);
+
+        // 🔥 ДИАГНОСТИКА: Проверяем координаты первых точек
+        if (normalizedPoints.length > 0 && this.config.debug) {
+            console.log(`📊 Диагностика координат (первые 3):`);
+            normalizedPoints.slice(0, 3).forEach((point, i) => {
+                console.log(`   Точка ${i}: nx=${point.nx?.toFixed(4)}, ny=${point.ny?.toFixed(4)}, x=${point.x?.toFixed(1)}, y=${point.y?.toFixed(1)}`);
+            });
+        }
+
+        // 🔥 КРИТИЧНО: Если точки слишком далеко от центра (0.5,0.5) - центрируем
+        const needsCentering = normalizedPoints.some(p =>
+            p.nx && p.ny && (Math.abs(p.nx - 0.5) > 0.4 || Math.abs(p.ny - 0.5) > 0.4)
+        );
+
+        if (needsCentering && this.manager?.coordinateDirector) {
+            console.log(`🔄 Точки требуют центрирования, применяю коррекцию...`);
+
+            normalizedPoints = normalizedPoints.map(point => {
+                // Центрируем к (0.5, 0.5)
+                const centeredNX = (point.nx - 0.5) * 0.8 + 0.5;
+                const centeredNY = (point.ny - 0.5) * 0.8 + 0.5;
+
+                return {
+                    ...point,
+                    nx: centeredNX,
+                    ny: centeredNY,
+                    _centered: true
+                };
+            });
+        }
+
+        // ... остальной код метода ...
+        // ВАЖНО: Здесь должен быть реальный код метода findMatchesInNormalizedSystem
+        // Поскольку в вашем файле этого метода нет, оставляю комментарий
+       
+       
+        // 🔥 ВАЖНО: ВАШ ИСХОДНЫЙ КОД МЕТОДА ДОЛЖЕН БЫТЬ ЗДЕСЬ
+        console.log(`⚠️ Метод findMatchesInNormalizedSystem требует реализации`);
+        console.log(`   Обрабатываю ${normalizedPoints.length} точек для графа ${graphId}`);
+       
+       
+        return {
+            matches: [],
+            points: normalizedPoints,
+            diagnostics: {
+                needsCentering: needsCentering,
+                centeredPoints: needsCentering ? normalizedPoints.length : 0
+            }
+        };
+    }
+
+    // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
     updateStats() {
         // Получаем реальные данные из TemplateBuilder
         const templateInfo = this.templateBuilder.getInfo();
