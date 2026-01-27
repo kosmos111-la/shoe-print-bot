@@ -88,7 +88,97 @@ class SimpleFootprint {
         this.linkedFootprints = [];
         this.visualizationCache = null;
 
+        // 🔥 НОВОЕ ПОЛЕ: ссылка на менеджер
+        this._manager = null;
+
         console.log(`👣 Создан цифровой отпечаток "${this.name}" (ID: ${this.id}) с трансформацией`);
+    }
+
+    // 🔥 ДОБАВЛЯЕМ метод для установки менеджера
+    setManager(manager) {
+        this._manager = manager;
+        console.log(`👤 [FOOTPRINT] Установлен менеджер для ${this.id}`);
+    }
+
+    // 🔥 ДОБАВЛЯЕМ метод принудительной коррекции
+    forceCanonicalTransformation(manager) {
+        if (!manager?.coordinateDirector) return false;
+
+        console.log(`🔄 [FOOTPRINT] ПРИНУДИТЕЛЬНАЯ КОРРЕКЦИЯ ТРАНСФОРМАЦИИ...`);
+
+        const oldAngle = this.transformation?.rotationAngle || 0;
+        const corrected = manager.coordinateDirector.enforceCanonicalSystem(
+            `footprint_force_${this.id}`,
+            this.transformation || this.createTransformationWithAngle(0)
+        );
+
+        this.transformation = corrected;
+        this._manager = manager;
+
+        console.log(`✅ [FOOTPRINT] Принудительно исправлено: ${oldAngle.toFixed(1)}° → ${corrected.rotationAngle}°`);
+
+        return true;
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Получить трансформацию
+    getTransformation() {
+        // 🔥 КРИТИЧНО: Если есть manager с coordinateDirector - исправляем через него
+        const manager = this._manager || (typeof global !== 'undefined' && global.footprintManager);
+
+        if (manager?.coordinateDirector) {
+            console.log(`🎯 [FOOTPRINT] Использую CoordinateDirector для исправления трансформации...`);
+
+            // 1. Получаем текущую трансформацию (или создаем новую)
+            let currentTrans = this.transformation;
+            if (!currentTrans) {
+                // Создаем из точек
+                currentTrans = this.createTransformationWithAngle(0);
+            }
+
+            // 2. 🔥 ФОРСИРУЕМ КОРРЕКЦИЮ до канонической системы
+            const correctedTrans = manager.coordinateDirector.enforceCanonicalSystem(
+                `footprint_${this.id}`,
+                currentTrans
+            );
+
+            // 3. Сохраняем исправленную трансформацию
+            this.transformation = correctedTrans;
+
+            console.log(`✅ [FOOTPRINT] Трансформация исправлена: ${currentTrans.rotationAngle?.toFixed(1) || '?'}° → ${correctedTrans.rotationAngle}°`);
+
+            return correctedTrans;
+        }
+
+        // 🔥 ФАЛЛБЭК: старый код
+        if (this.transformation && this.transformation.rotationAngle !== undefined) {
+            console.log(`📐 [FOOTPRINT-FALLBACK] Возвращаю сохраненную: ${this.transformation.rotationAngle}°`);
+            return this.transformation;
+        }
+
+        // 2. Если нет - создаем из текущих точек С УЧЕТОМ ОРИЕНТАЦИИ
+        console.log('⚠️ [getTransformation] Нет сохраненной трансформации, создаю из текущих точек с учетом ориентации...');
+
+        // Получаем точки из трекера
+        const points = [];
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [, point] of this.pointTracker.points) {
+                points.push({ x: point.x, y: point.y });
+            }
+        }
+
+        console.log(`📊 Найдено ${points.length} точек в трекере`);
+
+        if (points.length < 3) {
+            console.log('⚠️ Мало точек (<3), возвращаю трансформацию по умолчанию');
+            return this.createEmergencyDefaultTransformation();
+        }
+
+        // 🔥 ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД С УЧЕТОМ ОРИЕНТАЦИИ
+        this.transformation = this.createOrientationAwareTransformation(points);
+
+        console.log(`✅ Создана трансформация с учетом ориентации: ${this.transformation.rotationAngle}°`);
+
+        return this.transformation;
     }
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Честное добавление анализа с сохранением трансформации
@@ -348,40 +438,6 @@ class SimpleFootprint {
 
         // Создаем трансформацию
         return this.createTransformationWithAngle(rotationAngle);
-    }
-
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Получить трансформацию
-    getTransformation() {
-        // 1. Если уже есть трансформация - возвращаем её
-        if (this.transformation && this.transformation.rotationAngle !== undefined) {
-            console.log(`📐 [getTransformation] Возвращаю сохраненную трансформацию: ${this.transformation.rotationAngle}°`);
-            return this.transformation;
-        }
-
-        // 2. Если нет - создаем из текущих точек С УЧЕТОМ ОРИЕНТАЦИИ
-        console.log('⚠️ [getTransformation] Нет сохраненной трансформации, создаю из текущих точек с учетом ориентации...');
-
-        // Получаем точки из трекера
-        const points = [];
-        if (this.pointTracker && this.pointTracker.points) {
-            for (const [, point] of this.pointTracker.points) {
-                points.push({ x: point.x, y: point.y });
-            }
-        }
-
-        console.log(`📊 Найдено ${points.length} точек в трекере`);
-
-        if (points.length < 3) {
-            console.log('⚠️ Мало точек (<3), возвращаю трансформацию по умолчанию');
-            return this.createEmergencyDefaultTransformation();
-        }
-
-        // 🔥 ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД С УЧЕТОМ ОРИЕНТАЦИИ
-        this.transformation = this.createOrientationAwareTransformation(points);
-
-        console.log(`✅ Создана трансформация с учетом ориентации: ${this.transformation.rotationAngle}°`);
-
-        return this.transformation;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Создать аварийную трансформацию по умолчанию
@@ -2178,7 +2234,7 @@ getAlignedPointsForComparison() {
     // 🔥 НОВЫЙ МЕТОД: Получить ВСЕ трансформации для валидации
     getAllTransformationsForValidation() {
         const transformations = [];
-       
+
         // 1. Основная трансформация
         if (this.transformation) {
             transformations.push({
@@ -2187,7 +2243,7 @@ getAlignedPointsForComparison() {
                 timestamp: this.transformation.timestamp || new Date()
             });
         }
-       
+
         // 2. Трансформация из getTransformation()
         try {
             const getTrans = this.getTransformation();
@@ -2201,7 +2257,7 @@ getAlignedPointsForComparison() {
         } catch (error) {
             console.log(`⚠️ Ошибка получения трансформации:`, error.message);
         }
-       
+
         // 3. Трансформация из метаданных
         if (this.metadata?.normalizationInfo) {
             transformations.push({
@@ -2210,7 +2266,7 @@ getAlignedPointsForComparison() {
                 timestamp: this.metadata.normalizationInfo.timestamp || new Date()
             });
         }
-       
+
         // 4. Трансформация из графа
         if (this.graph?.transformation) {
             transformations.push({
@@ -2219,7 +2275,7 @@ getAlignedPointsForComparison() {
                 timestamp: new Date()
             });
         }
-       
+
         // 5. Трансформация из PointTracker
         if (this.pointTracker?.transformation) {
             transformations.push({
@@ -2228,26 +2284,26 @@ getAlignedPointsForComparison() {
                 timestamp: new Date()
             });
         }
-       
+
         console.log(`📊 Всего трансформаций в отпечатке: ${transformations.length}`);
         transformations.forEach((t, i) => {
             console.log(`   ${i+1}. ${t.source}: ${t.rotationAngle?.toFixed(1)}°`);
         });
-       
+
         return transformations;
     }
 
     // 🔥 НОВЫЙ МЕТОД: Установить трансформацию во всех местах
     setTransformationConsistently(transformation) {
         console.log(`🔄 Устанавливаю трансформацию согласованно во всех модулях...`);
-       
+
         this.transformation = transformation;
-       
+
         // Также устанавливаем в графе
         if (this.graph) {
             this.graph.transformation = transformation;
         }
-       
+
         // Также устанавливаем в метаданных
         if (!this.metadata) this.metadata = {};
         if (!this.metadata.normalizationHistory) {
@@ -2255,12 +2311,12 @@ getAlignedPointsForComparison() {
         }
         this.metadata.normalizationHistory.push(transformation);
         this.metadata.lastTransformation = transformation;
-       
+
         // Также устанавливаем в PointTracker
         if (this.pointTracker) {
             this.pointTracker.transformation = transformation;
         }
-       
+
         console.log(`✅ Трансформация установлена согласованно: ${transformation.rotationAngle}°`);
     }
 }
