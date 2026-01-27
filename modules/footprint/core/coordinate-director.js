@@ -448,6 +448,20 @@ class CoordinateDirector {
             });
         }
 
+        // 3. Синхронизируем активные сессии
+        if (this.manager.userSessions) {
+            this.manager.userSessions.forEach((session, userId) => {
+                if (session.currentFootprint?.transformation && !this.isCanonical(session.currentFootprint.transformation)) {
+                    const corrected = this.enforceCanonicalSystem(
+                        `session_${userId}`,
+                        session.currentFootprint.transformation
+                    );
+                    session.currentFootprint.transformation = corrected;
+                    synchronized++;
+                }
+            });
+        }
+
         console.log(`✅ Синхронизировано ${synchronized} модулей`);
         return synchronized;
     }
@@ -484,6 +498,71 @@ class CoordinateDirector {
             forceCorrection: this.CONSTANTS.FORCE_CORRECTION,
             status: stats.canonicalPercentage === '100.0' ? '✅ ВСЕ СИСТЕМЫ СОГЛАСОВАНЫ' : '⚠️ ТРЕБУЕТСЯ КОРРЕКЦИЯ'
         };
+    }
+
+    // 🔥 ИСПРАВЛЕНИЕ ТРАНСФОРМАЦИИ ОТПЕЧАТКА (добавлено из инструкции)
+    correctFootprintTransformation(footprint) {
+        if (!footprint) return null;
+
+        console.log(`🎬 Коррекция трансформации отпечатка ${footprint.id}...`);
+
+        // Получаем текущую трансформацию
+        let currentTrans;
+        try {
+            currentTrans = footprint.getTransformation ? footprint.getTransformation() :
+                      footprint.transformation;
+        } catch (error) {
+            currentTrans = footprint.transformation;
+        }
+
+        if (!currentTrans) {
+            console.log(`⚠️ У отпечатка ${footprint.id} нет трансформации`);
+            return this.createCanonicalTransformation();
+        }
+
+        const oldAngle = currentTrans.rotationAngle || 0;
+
+        // Исправляем
+        const corrected = this.enforceCanonicalSystem(
+            `footprint_${footprint.id}`,
+            currentTrans
+        );
+
+        // Сохраняем в отпечатке
+        footprint.transformation = corrected;
+
+        console.log(`✅ Отпечаток ${footprint.id}: ${oldAngle.toFixed(1)}° → ${corrected.rotationAngle}°`);
+
+        return corrected;
+    }
+
+    // 🔥 МАССОВОЕ ИСПРАВЛЕНИЕ ВСЕХ ОТПЕЧАТКОВ (добавлено из инструкции)
+    correctAllFootprints() {
+        console.log('\n🎬 МАССОВОЕ ИСПРАВЛЕНИЕ ВСЕХ ОТПЕЧАТКОВ:');
+
+        let correctedCount = 0;
+
+        // 1. Исправляем отпечатки в сессиях
+        if (this.manager?.userSessions) {
+            this.manager.userSessions.forEach((session, userId) => {
+                if (session.currentFootprint) {
+                    const result = this.correctFootprintTransformation(session.currentFootprint);
+                    if (result) correctedCount++;
+                }
+            });
+        }
+
+        // 2. Исправляем загруженные модели
+        if (this.manager?.loadedModels) {
+            this.manager.loadedModels.forEach((footprint, id) => {
+                const result = this.correctFootprintTransformation(footprint);
+                if (result) correctedCount++;
+            });
+        }
+
+        console.log(`✅ Исправлено ${correctedCount} отпечатков`);
+
+        return { correctedCount, timestamp: new Date() };
     }
 }
 
