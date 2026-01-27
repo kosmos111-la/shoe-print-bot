@@ -787,9 +787,16 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 МЕТОД: Обработка последующих фото (ТОЧНО по инструкции - исправление в правильном месте)
+    // 🔥 МЕТОД: Обработка последующих фото (ОБНОВЛЕННЫЙ с исправлениями из инструкции)
     async handleSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`🔍 Проверяю совпадение с существующим отпечатком`);
+
+        // 🔥 КРИТИЧНО: ИСПРАВЛЯЕМ существующий отпечаток (добавлено из инструкции)
+        if (session.currentFootprint) {
+            // 🔥 ИСПРАВЛЯЕМ существующий отпечаток
+            session.currentFootprint.setManager(this);
+            session.currentFootprint.forceCanonicalTransformation(this);
+        }
 
         // 🔥 ЛОГИРУЕМ СИСТЕМЫ КООРДИНАТ ПЕРЕД СРАВНЕНИЕМ
         if (this.config.enableCoordinateDiagnostics) {
@@ -798,13 +805,6 @@ class SimpleFootprintManager {
                 session.currentFootprint,
                 { points: this.extractPointsFromAnalysis(analysis), _source: 'new_analysis' }
             );
-        }
-
-        // 🔥 ИСПРАВЛЯЕМ существующий отпечаток (ТОЧНО по инструкции: "после получения существующего отпечатка")
-        if (session.currentFootprint) {
-            // 🔥 ИСПРАВЛЯЕМ существующий отпечаток
-            session.currentFootprint.setManager(this);
-            session.currentFootprint.forceCanonicalTransformation(this);
         }
 
         const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
@@ -1197,7 +1197,7 @@ class SimpleFootprintManager {
 
     // Метод для сравнения отпечатков с диагностикой
     async compareFootprintsWithDiagnostics(footprint1, footprint2, options = {}) {
-        console.log('\n🔍 СРАВНЕНИЕ ОТПЕЧАТКОВ С ПОЛНОЙ ДИАГНОСТИКОЙ');
+        console.log('\n🔍 СРАВНЕНИЕ ОТПЕЧАТКОВ С ПОЛНОЙ ДИАГНОСТИКОИ');
 
         const results = {
             timestamp: new Date(),
