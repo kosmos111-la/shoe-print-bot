@@ -290,13 +290,11 @@ class VectorSuperModel {
         // ... остальной код метода ...
         // ВАЖНО: Здесь должен быть реальный код метода findMatchesInNormalizedSystem
         // Поскольку в вашем файле этого метода нет, оставляю комментарий
-       
-       
+
         // 🔥 ВАЖНО: ВАШ ИСХОДНЫЙ КОД МЕТОДА ДОЛЖЕН БЫТЬ ЗДЕСЬ
         console.log(`⚠️ Метод findMatchesInNormalizedSystem требует реализации`);
         console.log(`   Обрабатываю ${normalizedPoints.length} точек для графа ${graphId}`);
-       
-       
+
         return {
             matches: [],
             points: normalizedPoints,
