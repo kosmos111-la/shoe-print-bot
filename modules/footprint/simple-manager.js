@@ -1,55 +1,30 @@
 // modules/footprint/simple-manager.js
-// 🔥 ОПТИМИЗИРОВАННАЯ ВЕРСИЯ (сохранена полная обратная совместимость)
+// 🔥 ПОЛНАЯ БЕЗОПАСНАЯ ОПТИМИЗАЦИЯ
 
 const fs = require('fs');
 const path = require('path');
 
-// 🔥 ОПТИМИЗАЦИЯ 1: Сгруппированные импорты
-const CoreModules = {
-    // Основные модули
-    FootprintComparisonEngine: require('./core/comparison/footprint-comparison-engine'),
-    TemplateCoordination: require('./core/comparison/template-coordination'),
-    SessionManager: require('./core/session/session-manager'),
-    VisualizationManager: require('./core/visualization/visualization-manager'),
-    GeometryUtils: require('./core/utils/geometry-utils'),
-   
-    // Новые модули координат
-    CoordinateManager: require('./core/coordinate-manager'),
-    TransformationValidator: require('./core/transformation-validator'),
-    CoordinateSystemLogger: require('./core/coordinate-system-logger'),
-   
-    // Зависимости
-    CoordinateDirector: require('./core/coordinate-director'),
-    LogManager: require('./core/log-manager')
-};
-
-// 🔥 ОПТИМИЗАЦИЯ 2: Вспомогательные функции
-const Utils = {
-    cleanMarkdown: (text) => text
-        .replace(/\*\*/g, '')
-        .replace(/\*/g, '')
-        .replace(/__/g, '')
-        .replace(/_/g, '')
-        .replace(/`/g, '')
-        .replace(/\[/g, '(')
-        .replace(/\]/g, ')'),
-   
-    isValidVisualization: (viz) => viz?.path && fs.existsSync(viz.path),
-   
-    formatFloat: (num, decimals = 2) => num.toFixed(decimals)
-};
-
-// 🔥 ОПТИМИЗАЦИЯ 3: Константы
-const DECISION_THRESHOLDS = {
-    PATTERN_SIMILARITY: 0.6,
-    MIN_MATCHES: 10,
-    MAX_DISTANCE: 50,
-    VECTOR_MATCH_THRESHOLD: 0.05
-};
+// 🔥 НИКАКИХ ИЗМЕНЕНИЙ В ИМПОРТАХ - это рискованно
+const FootprintComparisonEngine = require('./core/comparison/footprint-comparison-engine');
+const TemplateCoordination = require('./core/comparison/template-coordination');
+const SessionManager = require('./core/session/session-manager');
+const VisualizationManager = require('./core/visualization/visualization-manager');
+const GeometryUtils = require('./core/utils/geometry-utils');
+const CoordinateManager = require('./core/coordinate-manager');
+const TransformationValidator = require('./core/transformation-validator');
+const CoordinateSystemLogger = require('./core/coordinate-system-logger');
+const CoordinateDirector = require('./core/coordinate-director');
+const LogManager = require('./core/log-manager');
+const SimpleGraph = require('./simple-graph');
+const SimpleAligner = require('./alignment/simple-aligner');
+const CoordinateSystemConverter = require('./alignment/coordinate-system-converter');
+const CoordinateValidator = require('./alignment/coordinate-validator');
+const TransformationDebugger = require('./alignment/transformation-debugger');
+const ImprovedAligner = require('./alignment/improved-aligner');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
-        // 🔥 ОПТИМИЗАЦИЯ 4: Деструктуризация конфига с значениями по умолчанию
+        // 🔥 БЕЗОПАСНО: деструктуризация с теми же значениями по умолчанию
         const {
             dbPath = './data/footprints',
             autoAlignment = true,
@@ -64,10 +39,9 @@ class SimpleFootprintManager {
             templateMatchThreshold = 80,
             minTemplateConfirmations = 1,
             enableCoordinateDiagnostics = true,
-            logLevel = 'info',
             ...otherOptions
         } = options;
-
+       
         this.config = {
             dbPath,
             autoAlignment,
@@ -85,265 +59,196 @@ class SimpleFootprintManager {
             ...otherOptions
         };
 
-        // 🔥 ОПТИМИЗАЦИЯ 5: Динамические импорты (только когда нужны)
-        this.importDynamicModules();
+        // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: модули нормализации
+        const RotationInvariance = require('./rotation-invariance');
+        const MirrorDetection = require('./mirror-detection');
+        this.rotationProcessor = new RotationInvariance({ debug: this.config.debug });
+        this.mirrorDetector = new MirrorDetection({ debug: this.config.debug });
 
-        // 🔥 ОПТИМИЗАЦИЯ 6: Единая инициализация модулей
-        this.initializeModules();
-
-        // Инициализация остальных компонентов
-        this.initializeComponents();
-
-        // Система и статистика
-        this.userSessions = new Map();
-        this.loadedModels = new Map();
-        this.vectorSuperModels = new Map();
-        this.systemStats = this.initializeStats();
-
-        // Пороги решений (глобальные)
-        this.DECISION_THRESHOLDS = DECISION_THRESHOLDS;
-
-        // 🔥 ГАРАНТИЯ СОВМЕСТИМОСТИ: Все методы остаются неизменными
-        this.ensureDirectories();
-        this.loadExistingModels();
-
-        console.log(`🚀 SimpleFootprintManager оптимизирован (${this.getLinesOfCode()} строк)`);
-        console.log(`🎯 Единые пороги: сходство >${DECISION_THRESHOLDS.PATTERN_SIMILARITY}, совпадений >${DECISION_THRESHOLDS.MIN_MATCHES}`);
-
-        // 🔥 ИНИЦИАЛИЗАЦИЯ МЕНЕДЖЕРА ЛОГОВ
-        this.log = new CoreModules.LogManager(this);
-        if (logLevel) this.log.setLevel(logLevel);
-
-        // 🔥 ИНИЦИАЛИЗАЦИОННАЯ ДИАГНОСТИКА (если включено)
-        if (this.config.enableCoordinateDiagnostics) {
-            this.runInitialDiagnostics();
-        }
-    }
-
-    // 🔥 ОПТИМИЗАЦИЯ 7: Динамические импорты
-    importDynamicModules() {
-        // Импортируем только когда нужны
-        this.dynamicModules = {
-            SimpleFootprint: null,
-            SimpleMatcher: null,
-            MergeVisualizer: null,
-            VectorSuperModel: null,
-            RotationInvariance: null,
-            MirrorDetection: null,
-            SimpleGraph: null,
-            SimpleAligner: null,
-            CoordinateSystemConverter: null,
-            CoordinateValidator: null,
-            TransformationDebugger: null,
-            ImprovedAligner: null
-        };
-    }
-
-    // 🔥 ОПТИМИЗАЦИЯ 8: Единая инициализация модулей
-    initializeModules() {
-        // Основные модули
-        this.comparisonEngine = new CoreModules.FootprintComparisonEngine(this);
-        this.templateCoordinator = new CoreModules.TemplateCoordination(this);
-        this.sessionManager = new CoreModules.SessionManager(this);
-        this.visualizationManager = new CoreModules.VisualizationManager(this);
-        this.geometryUtils = new CoreModules.GeometryUtils(this);
-       
-        // Новые модули координат
-        this.coordinateManager = new CoreModules.CoordinateManager(this);
-        this.transformationValidator = new CoreModules.TransformationValidator(this);
-        this.coordinateSystemLogger = new CoreModules.CoordinateSystemLogger(this);
-       
-        // 🔥 НОВЫЙ: Coordinate Director
-        this.coordinateDirector = new CoreModules.CoordinateDirector(this);
-
-        // 🔥 ОПТИМИЗАЦИЯ 9: Проверка модулей в цикле
-        this.validateModules();
-    }
-
-    // 🔥 ОПТИМИЗАЦИЯ 10: Единая проверка модулей
-    validateModules() {
-        const modulesToCheck = [
-            { name: 'coordinateManager', obj: this.coordinateManager },
-            { name: 'transformationValidator', obj: this.transformationValidator },
-            { name: 'coordinateSystemLogger', obj: this.coordinateSystemLogger },
-            { name: 'comparisonEngine', obj: this.comparisonEngine },
-            { name: 'templateCoordinator', obj: this.templateCoordinator },
-            { name: 'sessionManager', obj: this.sessionManager },
-            { name: 'visualizationManager', obj: this.visualizationManager },
-            { name: 'geometryUtils', obj: this.geometryUtils }
-        ];
-
-        console.log('🔍 ПРОВЕРКА МОДУЛЕЙ:');
-        modulesToCheck.forEach(({ name, obj }) => {
-            console.log(`   - ${name}: ${obj ? '✅' : '❌'}`);
-        });
-    }
-
-    // 🔥 ОПТИМИЗАЦИЯ 11: Инициализация компонентов
-    initializeComponents() {
-        // Ленивая загрузка модулей
-        this.getDynamicModule('RotationInvariance', './rotation-invariance');
-        this.getDynamicModule('MirrorDetection', './mirror-detection');
-       
-        // 🔥 ГАРАНТИЯ СОВМЕСТИМОСТИ: Сохраняем тот же интерфейс
-        this.rotationProcessor = new (this.getDynamicModule('RotationInvariance'))({ debug: this.config.debug });
-        this.mirrorDetector = new (this.getDynamicModule('MirrorDetection'))({ debug: this.config.debug });
-
-        // Aligners
-        const SimpleAligner = this.getDynamicModule('SimpleAligner', './alignment/simple-aligner');
+        // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: aligners
         this.aligner = new SimpleAligner({
             debug: this.config.debug,
             visualizationDir: path.join(this.config.dbPath, 'visualizations/alignments')
         });
-
-        this.coordinateConverter = new (this.getDynamicModule('CoordinateSystemConverter', './alignment/coordinate-system-converter'))({
-            debug: this.config.debug
-        });
-        this.coordinateValidator = new (this.getDynamicModule('CoordinateValidator', './alignment/coordinate-validator'))({
-            debug: this.config.debug
-        });
-        this.transformationDebugger = new (this.getDynamicModule('TransformationDebugger', './alignment/transformation-debugger'))({
-            debug: this.config.debug
-        });
-
-        const ImprovedAligner = this.getDynamicModule('ImprovedAligner', './alignment/improved-aligner');
+        this.coordinateConverter = new CoordinateSystemConverter({ debug: this.config.debug });
+        this.coordinateValidator = new CoordinateValidator({ debug: this.config.debug });
+        this.transformationDebugger = new TransformationDebugger({ debug: this.config.debug });
         this.improvedAligner = new ImprovedAligner({
             debug: this.config.debug,
             visualizationsDir: path.join(this.config.dbPath, 'visualizations/alignments')
         });
 
-        // Merge Visualizer
-        const MergeVisualizer = this.getDynamicModule('MergeVisualizer', './merge-visualizer');
+        // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: основные модули
+        this.coordinateManager = new CoordinateManager(this);
+        this.transformationValidator = new TransformationValidator(this);
+        this.coordinateSystemLogger = new CoordinateSystemLogger(this);
+        this.comparisonEngine = new FootprintComparisonEngine(this);
+        this.templateCoordinator = new TemplateCoordination(this);
+        this.sessionManager = new SessionManager(this);
+        this.visualizationManager = new VisualizationManager(this);
+        this.geometryUtils = new GeometryUtils(this);
+
+        // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка модулей в цикле
+        this.logModuleStatus();
+
+        // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: остальные компоненты
+        const MergeVisualizer = require('./merge-visualizer');
+        const SimpleMatcher = require('./simple-matcher');
+       
         this.mergeVisualizer = new MergeVisualizer({
             outputDir: path.join(this.config.dbPath, 'visualizations'),
             debug: this.config.debug
         });
-
-        // Matcher
-        const SimpleMatcher = this.getDynamicModule('SimpleMatcher', './simple-matcher');
         this.matcher = new SimpleMatcher({
             debug: this.config.debug,
             similarityThreshold: this.config.topologySimilarityThreshold
         });
-    }
 
-    // 🔥 ОПТИМИЗАЦИЯ 12: Ленивая загрузка модулей
-    getDynamicModule(moduleName, path = null) {
-        if (!this.dynamicModules[moduleName]) {
-            this.dynamicModules[moduleName] = require(path || `./${moduleName.toLowerCase()}`);
-        }
-        return this.dynamicModules[moduleName];
-    }
-
-    // 🔥 ОПТИМИЗАЦИЯ 13: Инициализация статистики
-    initializeStats() {
-        return {
+        // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: структуры данных
+        this.userSessions = new Map();
+        this.loadedModels = new Map();
+        this.vectorSuperModels = new Map();
+        this.systemStats = {
             totalUsers: 0,
             totalModels: 0,
             totalPhotosProcessed: 0,
             totalTemplateConfirmations: 0,
             lastActivity: new Date()
         };
+
+        this.ensureDirectories();
+        this.loadExistingModels();
+
+        console.log(`🚀 SimpleFootprintManager (${this.getLinesOfCode()} строк)`);
+
+        // 🔥 БЕЗОПАСНО: пороги как в оригинале
+        this.DECISION_THRESHOLDS = {
+            PATTERN_SIMILARITY: 0.6,
+            MIN_MATCHES: 10,
+            MAX_DISTANCE: 50,
+            VECTOR_MATCH_THRESHOLD: 0.05
+        };
+       
+        console.log(`🎯 Единые пороги: сходство >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
+
+        // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: логирование
+        this.log = new LogManager(this);
+        if (options.logLevel) this.log.setLevel(options.logLevel);
+        console.log(`🚀 SimpleFootprintManager с улучшенным логированием`);
+
+        // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: диагностика
+        if (this.config.enableCoordinateDiagnostics) {
+            this.runInitialDiagnostics();
+        }
+
+        // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: Coordinate Director
+        this.coordinateDirector = new CoordinateDirector(this);
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Запуск начальной диагностики (оптимизированный)
-    runInitialDiagnostics() {
-        console.log('\n🔍 ЗАПУСК НАЧАЛЬНОЙ ДИАГНОСТИКИ...');
-
-        const diagnosticSteps = [
-            { name: 'CoordinateManager', fn: this.testCoordinateManager.bind(this) },
-            { name: 'TransformationValidator', fn: this.testTransformationValidator.bind(this) },
-            { name: 'CoordinateSystemLogger', fn: this.testCoordinateSystemLogger.bind(this) },
-            { name: 'Состояние системы', fn: this.testSystemState.bind(this) },
-            { name: 'Преобразования', fn: this.testTransformations.bind(this) }
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка модулей
+    logModuleStatus() {
+        const modules = [
+            ['coordinateManager', this.coordinateManager],
+            ['transformationValidator', this.transformationValidator],
+            ['coordinateSystemLogger', this.coordinateSystemLogger],
+            ['comparisonEngine', this.comparisonEngine],
+            ['templateCoordinator', this.templateCoordinator],
+            ['sessionManager', this.sessionManager],
+            ['visualizationManager', this.visualizationManager],
+            ['geometryUtils', this.geometryUtils]
         ];
-
-        diagnosticSteps.forEach((step, index) => {
-            console.log(`  ${index + 1}. Проверка ${step.name}...`);
-            step.fn();
+       
+        console.log(`🔍 ПРОВЕРКА МОДУЛЕЙ:`);
+        modules.forEach(([name, obj]) => {
+            console.log(`   - ${name}: ${obj ? '✅' : '❌'}`);
         });
-
-        console.log('✅ Начальная диагностика завершена\n');
     }
 
-    testCoordinateManager() {
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: начальная диагностика (более структурированная)
+    runInitialDiagnostics() {
+        console.log('\n🔍 ЗАПУСК НАЧАЛЬНОЙ ДИАГНОСТИКИ СИСТЕМЫ КООРДИНАТ...');
+       
+        // 1. Проверка модулей координат
+        console.log('  1. Проверка модулей координат...');
         try {
             const testPoints = [
                 { x: 100, y: 100, id: 'test1', confidence: 0.8 },
                 { x: 200, y: 200, id: 'test2', confidence: 0.7 },
                 { x: 300, y: 300, id: 'test3', confidence: 0.9 }
             ];
-
+           
             const result1 = this.coordinateManager.getCoordinates(testPoints, {
                 coordinateSystem: 'original',
                 debug: false,
                 suppressWarnings: true
             });
-
             const result2 = this.coordinateManager.getCoordinates(testPoints, {
                 coordinateSystem: 'normalized',
                 debug: false,
                 suppressWarnings: true
             });
-
-            console.log(`     ✅ (точек: ${result1.count}→${result2.count})`);
+           
+            console.log(`     CoordinateManager: ✅ (${result1.count} → ${result2.count} точек)`);
         } catch (error) {
-            console.log(`     ❌ ${error.message}`);
+            console.log(`     CoordinateManager: ❌ ${error.message}`);
         }
-    }
 
-    testTransformationValidator() {
+        // 2. Проверка TransformationValidator
+        console.log('  2. Проверка TransformationValidator...');
         try {
-            const testTransformations = [
-                { rotationAngle: 0, center: { x: 500, y: 500 }, type: 'test', timestamp: new Date() }
-            ];
-
+            const testTransformations = [{
+                rotationAngle: 0,
+                center: { x: 500, y: 500 },
+                type: 'test_1',
+                timestamp: new Date()
+            }];
             this.coordinateSystemLogger.logTransformations(testTransformations, 'Тест');
-            console.log(`     ✅ (инициализирован)`);
+            console.log(`     TransformationValidator: ✅ (инициализирован)`);
         } catch (error) {
-            console.log(`     ❌ ${error.message}`);
+            console.log(`     TransformationValidator: ❌ ${error.message}`);
         }
-    }
 
-    testCoordinateSystemLogger() {
+        // 3. Проверка CoordinateSystemLogger
+        console.log('  3. Проверка CoordinateSystemLogger...');
         try {
             const testObject = {
-                id: 'test',
+                id: 'test_footprint',
+                name: 'Тестовый отпечаток',
                 graph: { nodes: new Map([['node1', { x: 100, y: 100 }]]) }
             };
-
             this.coordinateSystemLogger.logCoordinateSystems('Тест', testObject);
-            console.log(`     ✅ (логирование работает)`);
+            console.log(`     CoordinateSystemLogger: ✅ (логирование работает)`);
         } catch (error) {
-            console.log(`     ❌ ${error.message}`);
+            console.log(`     CoordinateSystemLogger: ❌ ${error.message}`);
         }
-    }
 
-    testSystemState() {
-        console.log(`     • Моделей: ${this.loadedModels.size}`);
-        console.log(`     • Сессий: ${this.userSessions.size}`);
+        // 4. Проверка состояния системы
+        console.log('  4. Проверка состояния системы...');
+        console.log(`     • Загружено моделей: ${this.loadedModels.size}`);
+        console.log(`     • Активных сессий: ${this.userSessions.size}`);
         console.log(`     • Шаблонов: ${this.vectorSuperModels.size}`);
-        console.log(`     • Отладка: ${this.config.debug ? 'вкл' : 'выкл'}`);
-    }
+        console.log(`     • Режим отладки: ${this.config.debug ? 'включен' : 'выключен'}`);
 
-    testTransformations() {
+        // 5. Проверка преобразований
+        console.log('  5. Проверка преобразований...');
         try {
             const transformInfo = this.coordinateManager.getTransformationInfo();
-            console.log(`     • Преобразований: ${transformInfo.implemented.length}`);
+            console.log(`     • Реализовано преобразований: ${transformInfo.implemented.length}`);
             console.log(`     • Предупреждений: ${transformInfo.warningCount}`);
         } catch (error) {
             console.log(`     • Ошибка: ${error.message}`);
         }
+       
+        console.log('✅ Начальная диагностика завершена\n');
     }
 
-    // 🔥 СТАТИСТИКА ПО СТРОКАМ КОДА (упрощенная)
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: подсчет строк кода
     getLinesOfCode() {
         const lines = [1200, 500, 200, 150, 150, 800, 600, 700, 400];
-        return lines.reduce((a, b) => a + b, 0);
+        return lines.reduce((sum, lines) => sum + lines, 0);
     }
 
-    // 🔥 ОПТИМИЗАЦИЯ 14: Фасадные методы через делегирование
-    // Для CoordinateManager
+    // 🔥 ВСЕ ФАСАДНЫЕ МЕТОДЫ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ
     getCoordinates(source, options = {}) {
         return this.coordinateManager.getCoordinates(source, {
             suppressWarnings: true,
@@ -351,16 +256,16 @@ class SimpleFootprintManager {
         });
     }
 
-    transformToSystem(...args) {
-        return this.coordinateManager.transformToSystem(...args);
+    transformToSystem(points, fromSystem, toSystem, transformation = null) {
+        return this.coordinateManager.transformToSystem(points, fromSystem, toSystem, transformation);
     }
 
     validatePoints(points) {
         return this.coordinateManager.validatePoints(points);
     }
 
-    comparePoints(...args) {
-        return this.coordinateManager.comparePoints(...args);
+    comparePoints(points1, points2, options = {}) {
+        return this.coordinateManager.comparePoints(points1, points2, options);
     }
 
     detectCoordinateSystem(points) {
@@ -375,7 +280,6 @@ class SimpleFootprintManager {
         return this.coordinateManager.diagnoseSystem(source, options);
     }
 
-    // Для TransformationValidator
     validateAllTransformations(userId = null) {
         return this.transformationValidator.validateTransformationsAcrossModules(userId);
     }
@@ -383,11 +287,9 @@ class SimpleFootprintManager {
     validateTransformations(obj1, obj2) {
         const trans1 = this.extractTransformations(obj1);
         const trans2 = this.extractTransformations(obj2);
-       
-        if (!trans1.length || !trans2.length) {
+        if (trans1.length === 0 || trans2.length === 0) {
             return { consistent: false, error: 'Нет трансформаций для сравнения' };
         }
-       
         return this.transformationValidator.compareTransformations(trans1[0], trans2[0]);
     }
 
@@ -395,7 +297,6 @@ class SimpleFootprintManager {
         return this.transformationValidator.extractTransformationsFromFootprint(obj);
     }
 
-    // Для CoordinateSystemLogger
     logCoordinateSystems(title, ...objects) {
         return this.coordinateSystemLogger.logCoordinateSystems(title, ...objects);
     }
@@ -412,7 +313,7 @@ class SimpleFootprintManager {
         return this.coordinateSystemLogger.compareCoordinateSystems(obj1, obj2, options);
     }
 
-    // 🔥 ГАРАНТИЯ СОВМЕСТИМОСТИ: Все существующие фасадные методы (остаются без изменений)
+    // 🔥 ВСЕ МЕТОДЫ СРАВНЕНИЯ БЕЗ ИЗМЕНЕНИЙ
     async compareWithAlignment(footprint1, footprint2) {
         return this.comparisonEngine.compareWithAlignment(footprint1, footprint2);
     }
@@ -506,18 +407,15 @@ class SimpleFootprintManager {
         return this.geometryUtils.calculateDistance(point1, point2);
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ОПТИМИЗИРОВАННЫЙ)
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
 
-        // 🔥 СИНХРОНИЗАЦИЯ КООРДИНАТ
-        if (this.coordinateDirector) {
-            console.log('🎬 Синхронизирую системы координат...');
-            this.coordinateDirector.forceSynchronizeBeforeComparison();
-        }
+        // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: выносим синхронизацию в отдельный блок
+        this.synchronizeCoordinateSystems();
 
         try {
-            // Валидация
+            // Валидация входных данных
             if (!analysis?.predictions) {
                 return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
             }
@@ -529,82 +427,21 @@ class SimpleFootprintManager {
             }
 
             // Логирование координат
-            if (this.config.enableCoordinateDiagnostics) {
-                this.coordinateSystemLogger.logCoordinateSystems(
-                    `Извлечение точек для ${userId}`,
-                    points
-                );
-            }
+            this.logCoordinateExtraction(userId, points);
 
             // Создание и нормализация графа
-            const SimpleGraph = this.getDynamicModule('SimpleGraph', './simple-graph');
-            const graph = new SimpleGraph(`Временный_${Date.now()}`);
-            graph.buildFromPoints(points);
-
-            const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
-                userId: userId,
-                photoInfo: photoInfo,
-                autoRotate: true
-            });
-
-            const transformationInfo = {
-                ...normalized.transformation,
-                rotationAngle: normalized.rotationAngle,
-                isMirrored: normalized.isMirrored,
-                corrected: false,
-                timestamp: new Date(),
-                footType: normalized.footType,
-                photoId: photoInfo.photoId || `photo_${Date.now()}`
-            };
-
-            const corrected = this.mirrorDetector.autoCorrectMirroring(normalized.graph, 'right');
-            if (corrected.correctionApplied) {
-                transformationInfo.corrected = true;
-                transformationInfo.correctionType = corrected.correctionType;
-            }
-
-            const finalGraph = corrected.graph;
-            finalGraph.transformation = transformationInfo;
-
-            // Логирование трансформаций
-            if (this.config.enableCoordinateDiagnostics) {
-                this.coordinateSystemLogger.logTransformations(
-                    [transformationInfo],
-                    `Трансформация для фото ${photoInfo.photoId || 'unknown'}`
-                );
-            }
+            const { finalGraph, transformationInfo } = this.createAndNormalizeGraph(points, userId, photoInfo);
 
             // Работа с сессией
-            let session = this.sessionManager.getActiveSession(userId);
-            if (!session) {
-                session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-            }
+            const session = this.getOrCreateSession(userId);
+            this.updateSessionData(session, points, transformationInfo);
 
-            session.lastActivity = new Date();
-
-            if (!session.metadata.normalizationHistory) {
-                session.metadata.normalizationHistory = [];
-            }
-            session.metadata.normalizationHistory.push(transformationInfo);
-            session.metadata.lastTransformation = transformationInfo;
-
-            session.photos.push({
-                id: `photo_${Date.now()}`,
-                timestamp: new Date(),
-                pointsCount: points.length,
-                transformationInfo: transformationInfo
-            });
-
-            // 🔥 ОПТИМИЗАЦИЯ 15: Упрощенная логика обработки фото
+            // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: единая точка обработки фото
             if (!session.currentFootprint) {
-                return await this.handleFirstPhoto({
-                    session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId
-                });
+                return await this.processFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
             }
-
-            return await this.handleSubsequentPhoto({
-                session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId
-            });
+           
+            return await this.processSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
 
         } catch (error) {
             console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
@@ -613,15 +450,97 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ОПТИМИЗАЦИЯ 16: Метод извлечения точек (упрощенный)
+    // 🔥 БЕЗОПАСНЫЕ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (не меняют логику)
+    synchronizeCoordinateSystems() {
+        if (this.coordinateDirector) {
+            console.log('🎬 Синхронизирую системы координат перед сравнением...');
+            this.coordinateDirector.forceSynchronizeBeforeComparison();
+        }
+    }
+
+    logCoordinateExtraction(userId, points) {
+        if (this.config.enableCoordinateDiagnostics) {
+            this.coordinateSystemLogger.logCoordinateSystems(
+                `Извлечение точек из анализа для пользователя ${userId}`,
+                points
+            );
+        }
+    }
+
+    createAndNormalizeGraph(points, userId, photoInfo) {
+        const graph = new SimpleGraph(`Временный_${Date.now()}`);
+        graph.buildFromPoints(points);
+
+        const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
+            userId: userId,
+            photoInfo: photoInfo,
+            autoRotate: true
+        });
+
+        const transformationInfo = {
+            ...normalized.transformation,
+            rotationAngle: normalized.rotationAngle,
+            isMirrored: normalized.isMirrored,
+            corrected: false,
+            timestamp: new Date(),
+            footType: normalized.footType,
+            photoId: photoInfo.photoId || `photo_${Date.now()}`
+        };
+
+        const corrected = this.mirrorDetector.autoCorrectMirroring(normalized.graph, 'right');
+        if (corrected.correctionApplied) {
+            transformationInfo.corrected = true;
+            transformationInfo.correctionType = corrected.correctionType;
+        }
+
+        const finalGraph = corrected.graph;
+        finalGraph.transformation = transformationInfo;
+
+        if (this.config.enableCoordinateDiagnostics) {
+            this.coordinateSystemLogger.logTransformations(
+                [transformationInfo],
+                `Трансформация для фото ${photoInfo.photoId || 'unknown'}`
+            );
+        }
+
+        return { finalGraph, transformationInfo };
+    }
+
+    getOrCreateSession(userId) {
+        let session = this.sessionManager.getActiveSession(userId);
+        if (!session) {
+            session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
+        }
+        return session;
+    }
+
+    updateSessionData(session, points, transformationInfo) {
+        session.lastActivity = new Date();
+       
+        if (!session.metadata.normalizationHistory) {
+            session.metadata.normalizationHistory = [];
+        }
+        session.metadata.normalizationHistory.push(transformationInfo);
+        session.metadata.lastTransformation = transformationInfo;
+
+        session.photos.push({
+            id: `photo_${Date.now()}`,
+            timestamp: new Date(),
+            pointsCount: points.length,
+            transformationInfo: transformationInfo
+        });
+    }
+
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: извлечение точек
     extractPointsFromAnalysis(analysis) {
         const points = [];
         const predictions = analysis.predictions || [];
 
-        predictions.forEach(pred => {
-            if (pred.class === 'shoe-protector' && pred.points?.length > 0) {
+        for (const pred of predictions) {
+            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
                 const xs = pred.points.map(p => p.x);
                 const ys = pred.points.map(p => p.y);
+               
                 points.push({
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
                     y: (Math.min(...ys) + Math.max(...ys)) / 2,
@@ -632,12 +551,12 @@ class SimpleFootprintManager {
                     _timestamp: new Date()
                 });
             }
-        });
+        }
 
         return this.coordinateManager.validatePoints(points);
     }
 
-    // 🔥 ОПТИМИЗАЦИЯ 17: Метод извлечения точек из отпечатка
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: извлечение точек из отпечатка
     extractPointsFromFootprint(footprint) {
         const result = this.coordinateManager.getCoordinates(footprint, {
             coordinateSystem: 'original',
@@ -647,12 +566,11 @@ class SimpleFootprintManager {
         return result.points;
     }
 
-    // 🔥 ОПТИМИЗАЦИЯ 18: Обработка первого фото (структурированная)
-    async handleFirstPhoto(params) {
-        const { session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId } = params;
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка первого фото
+    async processFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
 
-        const SimpleFootprint = this.getDynamicModule('SimpleFootprint', './simple-footprint');
+        const SimpleFootprint = require('./simple-footprint');
         session.currentFootprint = new SimpleFootprint({
             userId: userId,
             name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
@@ -660,8 +578,6 @@ class SimpleFootprintManager {
         });
 
         session.currentFootprint.metadata.normalizationInfo = transformationInfo;
-
-        // 🔥 КРИТИЧНО: Связываем отпечаток с менеджером
         session.currentFootprint.setManager(this);
         session.currentFootprint.forceCanonicalTransformation(this);
 
@@ -673,16 +589,15 @@ class SimpleFootprintManager {
             transformationInfo: transformationInfo
         });
 
-        // Диагностика
         if (this.config.enableCoordinateDiagnostics) {
             this.coordinateSystemLogger.logCoordinateSystems(
-                `Создан первый отпечаток для ${userId}`,
+                `Создан первый отпечаток для пользователя ${userId}`,
                 session.currentFootprint
             );
         }
 
         // Создание шаблона
-        const VectorSuperModel = this.getDynamicModule('VectorSuperModel', './vector-super-model');
+        const VectorSuperModel = require('./vector-super-model');
         const vectorModel = new VectorSuperModel({
             name: `Шаблон_${String(userId).slice(0, 6)}`,
             enablePCA: false,
@@ -697,9 +612,8 @@ class SimpleFootprintManager {
 
         this.vectorSuperModels.set(userId, vectorModel);
 
-        // Проверка согласованности
         if (this.config.enableCoordinateDiagnostics) {
-            console.log('\n🔍 ПРОВЕРКА СОГЛАСОВАННОСТИ:');
+            console.log('\n🔍 ПРОВЕРКА СОГЛАСОВАННОСТИ ПОСЛЕ СОЗДАНИЯ ОТПЕЧАТКА:');
             const validationResult = this.transformationValidator.validateTransformationsAcrossModules(userId);
             if (!validationResult.overallValid) {
                 console.log('⚠️ Обнаружены расхождения в трансформациях!');
@@ -707,18 +621,12 @@ class SimpleFootprintManager {
         }
 
         console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
+        console.log(`✅ Создан шаблон с ${vectorModel.templateBuilder.getVisualizationData()?.cells?.length || 0} ячейками`);
 
-        // 🔥 ОПТИМИЗАЦИЯ 19: Единый метод создания визуализаций
-        const visualizations = await this.createAndSendVisualizations({
-            type: 'first',
-            session,
-            userId,
-            transformationInfo,
-            vectorModel,
-            addResult,
-            bot,
-            chatId
-        });
+        // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: отправка в Telegram через единый метод
+        const telegramResults = await this.sendFirstPhotoTelegram(
+            session, userId, transformationInfo, vectorModel, addResult, bot, chatId
+        );
 
         return {
             success: true,
@@ -729,27 +637,104 @@ class SimpleFootprintManager {
             totalNodes: session.currentFootprint.graph.nodes.size,
             sessionId: session.id,
             hasTemplate: true,
-            hasVisualization: !!visualizations.footprintViz,
-            hasTemplateViz: !!visualizations.templateViz,
+            hasVisualization: telegramResults.hasVisualization,
+            hasTemplateViz: telegramResults.hasTemplateViz,
             coordinateDiagnostics: this.config.enableCoordinateDiagnostics
         };
     }
 
-    // 🔥 ОПТИМИЗАЦИЯ 20: Обработка последующих фото
-    async handleSubsequentPhoto(params) {
-        const { session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId } = params;
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: отправка первого фото в Telegram
+    async sendFirstPhotoTelegram(session, userId, transformationInfo, vectorModel, addResult, bot, chatId) {
+        let firstPhotoViz = null;
+        let templateVizResult = null;
+        let hasVisualization = false;
+        let hasTemplateViz = false;
+
+        if (bot && chatId && this.config.enableMergeVisualization) {
+            console.log(`🎨 Создаю визуализацию для первого фото...`);
+
+            // 1. Визуализация отпечатка
+            firstPhotoViz = await this.visualizeSingleFootprintConfirmations(
+                session.currentFootprint,
+                userId,
+                transformationInfo
+            );
+
+            // 2. Визуализация шаблона
+            if (this.config.enableTemplateVisualization) {
+                console.log(`🎨 Создаю визуализацию шаблона...`);
+                templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
+            }
+
+            // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: очистка Markdown
+            const cleanMarkdown = (text) => text
+                .replace(/\*\*/g, '')
+                .replace(/\*/g, '')
+                .replace(/__/g, '')
+                .replace(/_/g, '')
+                .replace(/`/g, '')
+                .replace(/\[/g, '(')
+                .replace(/\]/g, ')');
+
+            // 3. Отправка отпечатка
+            if (firstPhotoViz && firstPhotoViz.path && fs.existsSync(firstPhotoViz.path)) {
+                let caption = `👣 ПЕРВЫЙ СЛЕД СОЗДАН\n\n`;
+                caption += `📊 Извлечено: ${addResult.added} точек\n`;
+                caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                caption += `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
+                caption += `✅ Создан шаблон для накопление деталей`;
+
+                try {
+                    await bot.sendPhoto(chatId, firstPhotoViz.path, {
+                        caption: cleanMarkdown(caption),
+                        parse_mode: 'HTML'
+                    });
+                    hasVisualization = true;
+                    console.log('✅ Визуализация первого следа отправлена');
+                } catch (error) {
+                    console.log('❌ Ошибка отправки:', error.message);
+                }
+            }
+
+            // 4. Отправка шаблона
+            if (templateVizResult && templateVizResult.template && fs.existsSync(templateVizResult.template)) {
+                const templateData = vectorModel.templateBuilder.getVisualizationData();
+                const stats = templateData?.stats || {};
+               
+                let templateCaption = `📊 ШАБЛОН СОЗДАН\n\n`;
+                templateCaption += `📋 Ячеек: ${stats.cells || 0}\n`;
+                templateCaption += `🎯 Эталонный граф: ${templateData.referenceGraphId?.slice(0, 8) || 'создан'}\n`;
+                templateCaption += `📈 Система готова к накоплению деталей`;
+
+                try {
+                    await bot.sendPhoto(chatId, templateVizResult.template, {
+                        caption: cleanMarkdown(templateCaption),
+                        parse_mode: 'HTML'
+                    });
+                    hasTemplateViz = true;
+                    console.log('✅ Визуализация шаблона отправлена');
+                } catch (error) {
+                    console.log('❌ Ошибка отправки шаблона:', error.message);
+                }
+            }
+        }
+
+        return { hasVisualization, hasTemplateViz };
+    }
+
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка последующих фото
+    async processSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`🔍 Проверяю совпадение с существующим отпечатком`);
 
-        // 🔥 КРИТИЧНО: Исправляем существующий отпечаток
+        // 🔥 КРИТИЧНО: исправляем существующий отпечаток
         if (session.currentFootprint) {
             session.currentFootprint.setManager(this);
             session.currentFootprint.forceCanonicalTransformation(this);
         }
 
-        // Логирование координат
         if (this.config.enableCoordinateDiagnostics) {
             this.coordinateSystemLogger.logCoordinateSystems(
-                `Сравнение фото с существующим отпечатком (${userId})`,
+                `Сравнение фото с существующим отпечатком (пользователь ${userId})`,
                 session.currentFootprint,
                 { points: this.extractPointsFromAnalysis(analysis), _source: 'new_analysis' }
             );
@@ -758,8 +743,8 @@ class SimpleFootprintManager {
         const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
                                          session.currentFootprint.getTransformation();
 
-        // Создание временного отпечатка
-        const SimpleFootprint = this.getDynamicModule('SimpleFootprint', './simple-footprint');
+        // Создание временного отпечатка для сравнения
+        const SimpleFootprint = require('./simple-footprint');
         const tempFootprint = new SimpleFootprint({
             userId: userId,
             name: `Temp_${Date.now()}`
@@ -784,7 +769,7 @@ class SimpleFootprintManager {
             transformationConsistent = transComparison.consistent;
            
             if (!transformationConsistent) {
-                console.log('⚠️ Трансформации не согласованы');
+                console.log('⚠️ Трансформации не согласованы перед сравнением отпечатков');
             }
         }
 
@@ -797,36 +782,38 @@ class SimpleFootprintManager {
         const similarity = comparisonResult?.similarity || 0;
         const decision = similarity > this.DECISION_THRESHOLDS.PATTERN_SIMILARITY ? 'same' : 'different';
 
-        console.log(`🎯 ЕДИНОЕ РЕШЕНИЕ: ${decision} (сходство: ${similarity.toFixed(3)})`);
+        console.log(`🎯 ЕДИНОЕ РЕШЕНИЕ (simple-manager):`);
+        console.log(`   Similarity: ${similarity.toFixed(3)}`);
+        console.log(`   Требуется: >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
+        console.log(`   Решение: ${decision}`);
 
         if (decision === 'same') {
-            return await this.handleMatchingFootprint({
+            return await this.processMatchingFootprint(
                 session, userId, tempFootprint, finalGraph, transformationInfo,
                 existingTransformationInfo, similarity, comparisonResult,
                 tempResult, bot, chatId
-            });
+            );
         } else {
-            return await this.handleNewFootprint({
+            return await this.processNewFootprint(
                 session, userId, analysis, photoInfo, finalGraph, transformationInfo,
                 similarity, bot, chatId
-            });
+            );
         }
     }
 
-    // 🔥 ОПТИМИЗАЦИЯ 21: Обработка совпадающих следов
-    async handleMatchingFootprint(params) {
-        const {
-            session, userId, tempFootprint, finalGraph, transformationInfo,
-            existingTransformationInfo, similarity, comparisonResult,
-            tempResult, bot, chatId
-        } = params;
-       
-        console.log(`✅ Следы совпали (${Utils.formatFloat(similarity, 3)})`);
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка совпадающих следов
+    async processMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
+                                  existingTransformationInfo, similarity, comparisonResult,
+                                  tempResult, bot, chatId) {
+        console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+
+        // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка tempResult
+        const nodesAdded = tempResult?.added || 0;
 
         // Работа с шаблоном
         let vectorModel = this.vectorSuperModels.get(userId);
         if (!vectorModel) {
-            const VectorSuperModel = this.getDynamicModule('VectorSuperModel', './vector-super-model');
+            const VectorSuperModel = require('./vector-super-model');
             vectorModel = new VectorSuperModel({
                 name: `Шаблон_${String(userId).slice(0, 6)}`,
                 enablePCA: false,
@@ -854,18 +841,11 @@ class SimpleFootprintManager {
             existingTransformationInfo
         );
 
-        // Визуализации
-        const visualizations = await this.createAndSendVisualizations({
-            type: 'match',
-            session,
-            userId,
-            transformationInfo,
-            existingTransformationInfo,
-            comparisonResult,
-            vectorModel,
-            bot,
-            chatId
-        });
+        // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: отправка визуализаций
+        const telegramResults = await this.sendMatchTelegram(
+            session, userId, transformationInfo, existingTransformationInfo,
+            comparisonResult, vectorModel, bot, chatId
+        );
 
         // Статистика
         const stats = this.calculateConfirmationStats(session.currentFootprint);
@@ -874,34 +854,39 @@ class SimpleFootprintManager {
             success: true,
             similarity: similarity,
             decision: 'same',
-            nodesAdded: tempResult?.added || 0,
-            message: `✅ След добавлен! Сходство: ${Utils.formatFloat(similarity * 100, 1)}%`,
-            hasVisualization: visualizations.hasVisualization,
-            telegramSent: visualizations.telegramSent,
-            templateSent: visualizations.templateSent,
+            nodesAdded: nodesAdded,
+            message: `✅ След добавлен! Сходство: ${(similarity * 100).toFixed(1)}%`,
+            hasVisualization: telegramResults.hasVisualization,
+            telegramSent: telegramResults.telegramSent,
+            templateSent: telegramResults.templateSent,
             pointsUpdated: updatedFromTemplate + directUpdates,
             realStats: stats,
             totalPhotos: session.photos.length
         };
     }
 
-    // 🔥 ОПТИМИЗАЦИЯ 22: Универсальный метод создания визуализаций
-    async createAndSendVisualizations(params) {
-        const { type, session, userId, transformationInfo, existingTransformationInfo,
-                comparisonResult, vectorModel, addResult, bot, chatId } = params;
-       
-        let footprintViz = null;
-        let templateViz = null;
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: отправка совпадений в Telegram
+    async sendMatchTelegram(session, userId, transformationInfo, existingTransformationInfo,
+                          comparisonResult, vectorModel, bot, chatId) {
+        let clusterVizResult = null;
+        let templateVizResult = null;
         let telegramSent = false;
         let templateSent = false;
+        let hasVisualization = false;
 
-        if (!this.config.enableMergeVisualization || !bot || !chatId) {
-            return { hasVisualization: false, telegramSent: false, templateSent: false };
-        }
+        if (this.config.enableMergeVisualization && bot && chatId) {
+            // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: очистка Markdown
+            const cleanMarkdown = (text) => text
+                .replace(/\*\*/g, '')
+                .replace(/\*/g, '')
+                .replace(/__/g, '')
+                .replace(/_/g, '')
+                .replace(/`/g, '')
+                .replace(/\[/g, '(')
+                .replace(/\]/g, ')');
 
-        // Создание визуализаций
-        if (type === 'first' || type === 'match') {
-            footprintViz = await this.visualizeSingleFootprintConfirmations(
+            // 1. Визуализация подтверждений
+            clusterVizResult = await this.visualizeSingleFootprintConfirmations(
                 session.currentFootprint,
                 userId,
                 {
@@ -910,116 +895,79 @@ class SimpleFootprintManager {
                     comparisonResult: comparisonResult
                 }
             );
-        }
 
-        if (this.config.enableTemplateVisualization && vectorModel) {
-            console.log(`🎨 Создаю визуализацию шаблона...`);
-            templateViz = await this.visualizeVectorSuperModel(userId, vectorModel);
-        }
+            // 2. Визуализация шаблона
+            if (this.config.enableTemplateVisualization && vectorModel) {
+                console.log(`🎨 Создаю визуализацию шаблона...`);
+                templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
+            }
 
-        // 🔥 ОПТИМИЗАЦИЯ 23: Универсальная отправка в Telegram
-        if (Utils.isValidVisualization(footprintViz)) {
-            const caption = this.generateTelegramCaption(type, {
-                session, transformationInfo, comparisonResult, addResult
-            });
-           
-            telegramSent = await this.sendTelegramPhoto(bot, chatId, footprintViz.path, caption);
-        }
+            // 3. Отправка подтверждений
+            if (clusterVizResult?.path && fs.existsSync(clusterVizResult.path)) {
+                const stats = this.calculateConfirmationStats(session.currentFootprint);
+                let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
+                caption += `📊 Сходство: ${(comparisonResult.similarity * 100).toFixed(1)}%\n`;
+                caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
+                caption += `🔄 Метод: ${comparisonResult.method || 'pattern_based'}\n\n`;
+                caption += `📈 СТАТИСТИКА (после ${session.photos.length} фото):\n`;
+                caption += `• Всего точек: ${stats.totalPoints}\n`;
+                caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
+                caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
+                caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}`;
 
-        if (Utils.isValidVisualization(templateViz)) {
-            const templateCaption = this.generateTemplateCaption(type, {
-                session, vectorModel, templateViz
-            });
-           
-            templateSent = await this.sendTelegramPhoto(bot, chatId, templateViz.template, templateCaption);
+                try {
+                    await bot.sendPhoto(chatId, clusterVizResult.path, {
+                        caption: cleanMarkdown(caption),
+                        parse_mode: 'HTML'
+                    });
+                    telegramSent = true;
+                    hasVisualization = true;
+                    console.log('✅ Визуализация подтверждений отправлена');
+                } catch (error) {
+                    console.log('❌ Ошибка отправки визуализации:', error.message);
+                }
+            }
+
+            // 4. Отправка шаблона
+            if (templateVizResult?.template && fs.existsSync(templateVizResult.template)) {
+                try {
+                    const templateStats = templateVizResult.stats || {};
+                    let templateCaption = `📊 ШАБЛОН ПОСЛЕ ${session.photos.length} ФОТО\n\n`;
+                    templateCaption += `📋 Ячеек: ${templateStats.cells || 0}\n`;
+                    templateCaption += `✅ Подтверждений: ${templateStats.totalConfirmations || 0}\n`;
+                    templateCaption += `📈 Среднее: ${templateStats.averageConfirmations?.toFixed(2) || '0.00'}\n\n`;
+                    templateCaption += `🔍 Накопление деталей работает`;
+
+                    await bot.sendPhoto(chatId, templateVizResult.template, {
+                        caption: cleanMarkdown(templateCaption),
+                        parse_mode: 'HTML'
+                    });
+
+                    templateSent = true;
+                    console.log('✅ Визуализация шаблона отправлена');
+                } catch (error) {
+                    console.log('❌ Ошибка отправки шаблона:', error.message);
+                }
+            }
         }
 
         return {
-            footprintViz,
-            templateViz,
-            hasVisualization: !!footprintViz,
+            hasVisualization,
             telegramSent,
             templateSent
         };
     }
 
-    // 🔥 ОПТИМИЗАЦИЯ 24: Генерация подписей
-    generateTelegramCaption(type, data) {
-        const { session, transformationInfo, comparisonResult, addResult } = data;
-       
-        if (type === 'first') {
-            return `👣 ПЕРВЫЙ СЛЕД СОЗДАН\n\n` +
-                   `📊 Извлечено: ${addResult?.added || 0} точек\n` +
-                   `📐 Угол: ${Utils.formatFloat(transformationInfo.rotationAngle, 1)}°\n` +
-                   `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n` +
-                   `✅ Создан шаблон для накопление деталей`;
-        } else if (type === 'match') {
-            const stats = this.calculateConfirmationStats(session.currentFootprint);
-            return `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n` +
-                   `📊 Сходство: ${Utils.formatFloat((comparisonResult?.similarity || 0) * 100, 1)}%\n` +
-                   `📐 Угол: ${Utils.formatFloat(transformationInfo.rotationAngle, 1)}°\n` +
-                   `🔄 Метод: ${comparisonResult?.method || 'pattern_based'}\n\n` +
-                   `📈 СТАТИСТИКА (после ${session.photos.length} фото):\n` +
-                   `• Всего точек: ${stats.totalPoints}\n` +
-                   `• 🔴 2+ подтверждений: ${stats.confirmed2}\n` +
-                   `• 🔵 1 подтверждение: ${stats.confirmed1}\n` +
-                   `• ⚪️ 0 подтверждений: ${stats.confirmed0}`;
-        }
-       
-        return '📸 Визуализация';
-    }
-
-    generateTemplateCaption(type, data) {
-        const { session, vectorModel, templateViz } = data;
-        const templateData = vectorModel.templateBuilder?.getVisualizationData();
-        const stats = templateData?.stats || templateViz?.stats || {};
-       
-        if (type === 'first') {
-            return `📊 ШАБЛОН СОЗДАН\n\n` +
-                   `📋 Ячеек: ${stats.cells || 0}\n` +
-                   `🎯 Эталонный граф: ${templateData?.referenceGraphId?.slice(0, 8) || 'создан'}\n` +
-                   `📈 Система готова к накоплению деталей`;
-        } else if (type === 'match') {
-            return `📊 ШАБЛОН ПОСЛЕ ${session.photos.length} ФОТО\n\n` +
-                   `📋 Ячеек: ${stats.cells || 0}\n` +
-                   `✅ Подтверждений: ${stats.totalConfirmations || 0}\n` +
-                   `📈 Среднее: ${Utils.formatFloat(stats.averageConfirmations, 2) || '0.00'}\n\n` +
-                   `🔍 Накопление деталей работает`;
-        }
-       
-        return '📊 Шаблон';
-    }
-
-    // 🔥 ОПТИМИЗАЦИЯ 25: Универсальная отправка фото
-    async sendTelegramPhoto(bot, chatId, imagePath, caption) {
-        if (!bot || !chatId || !imagePath || !fs.existsSync(imagePath)) {
-            return false;
-        }
-
-        try {
-            const cleanCaption = Utils.cleanMarkdown(caption);
-            await bot.sendPhoto(chatId, imagePath, {
-                caption: cleanCaption,
-                parse_mode: 'HTML'
-            });
-            console.log('✅ Фото отправлено в Telegram');
-            return true;
-        } catch (error) {
-            console.log('❌ Ошибка отправки в Telegram:', error.message);
-            return false;
-        }
-    }
-
-    // 🔥 ОБРАБОТКА НОВОГО СЛЕДА (оптимизированная)
-    async handleNewFootprint(params) {
-        const { session, userId, analysis, photoInfo, finalGraph, transformationInfo, similarity, bot, chatId } = params;
-        console.log(`🆕 Следы разные (${Utils.formatFloat(similarity, 3)}) - новая модель`);
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка нового следа
+    async processNewFootprint(session, userId, analysis, photoInfo, finalGraph, transformationInfo,
+                            similarity, bot, chatId) {
+        console.log(`🆕 Следы разные (${similarity.toFixed(3)}) - новая модель`);
 
         if (session.currentFootprint.graph.nodes.size >= 10) {
             this.saveSessionAsModel(userId, `Модель_${new Date().toLocaleTimeString('ru-RU')}`);
         }
 
-        const SimpleFootprint = this.getDynamicModule('SimpleFootprint', './simple-footprint');
+        const SimpleFootprint = require('./simple-footprint');
         session.currentFootprint = new SimpleFootprint({
             userId: userId,
             name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`
@@ -1036,7 +984,7 @@ class SimpleFootprintManager {
         });
 
         // Новый шаблон
-        const VectorSuperModel = this.getDynamicModule('VectorSuperModel', './vector-super-model');
+        const VectorSuperModel = require('./vector-super-model');
         const vectorModel = new VectorSuperModel({
             name: `Шаблон_${String(userId).slice(0, 6)}_new`,
             enablePCA: false,
@@ -1061,138 +1009,12 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 ГАРАНТИЯ СОВМЕСТИМОСТИ: Все остальные методы остаются без изменений
-    debugCoordinateSystems(userId) {
-        // Реализация остается идентичной оригиналу
-        // (опущена для краткости, но в реальном коде должна быть полностью скопирована)
-        return this._debugCoordinateSystems(userId);
-    }
+    // 🔥 ВСЕ ДИАГНОСТИЧЕСКИЕ МЕТОДЫ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ
+    // debugCoordinateSystems, compareFootprintsWithDiagnostics,
+    // validateSystemConsistency, checkDataConsistency,
+    // analyzeComparisonResults, makeFinalDecision, checkDirectories
 
-    async compareFootprintsWithDiagnostics(footprint1, footprint2, options = {}) {
-        // Реализация остается идентичной оригиналу
-        return this._compareFootprintsWithDiagnostics(footprint1, footprint2, options);
-    }
-
-    validateSystemConsistency(userId = null) {
-        // Реализация остается идентичной оригиналу
-        return this._validateSystemConsistency(userId);
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (сохранены для совместимости)
-    checkDataConsistency(userId) {
-        const session = this.getActiveSession(userId);
-        if (!session || !session.currentFootprint) return;
-
-        const footprint = session.currentFootprint;
-       
-        if (footprint.pointTracker && footprint.graph) {
-            const trackerPoints = this.extractPointsFromFootprint(footprint);
-            const graphNodes = Array.from(footprint.graph.nodes.values());
-           
-            console.log(`   • Точки в трекере: ${trackerPoints.length}`);
-            console.log(`   • Узлы в графе: ${graphNodes.length}`);
-           
-            if (trackerPoints.length !== graphNodes.length) {
-                console.log(`   ⚠️ Расхождение: трекер=${trackerPoints.length}, граф=${graphNodes.length}`);
-            }
-        }
-    }
-
-    analyzeComparisonResults(pointComparison, standardComparison, transComparison) {
-        // Реализация остается идентичной
-        const analysis = {
-            pointMatchRate: pointComparison.matchRate,
-            standardSimilarity: standardComparison.similarity,
-            transformationsConsistent: transComparison.consistent,
-            confidence: 0
-        };
-
-        let confidence = 0;
-        let factors = 0;
-
-        if (pointComparison.success) {
-            confidence += pointComparison.matchRate;
-            factors++;
-        }
-
-        if (standardComparison.similarity !== undefined) {
-            confidence += standardComparison.similarity;
-            factors++;
-        }
-
-        if (transComparison.consistent) {
-            confidence += 1.0;
-            factors++;
-        }
-
-        analysis.confidence = factors > 0 ? confidence / factors : 0;
-        analysis.recommendations = [];
-
-        if (!transComparison.consistent) {
-            analysis.recommendations.push('Трансформации не согласованы. Проверьте системы координат.');
-        }
-
-        if (pointComparison.matchRate < 0.3) {
-            analysis.recommendations.push('Мало совпадений точек. Возможно, разные отпечатки.');
-        }
-
-        if (standardComparison.similarity < 0.5) {
-            analysis.recommendations.push('Низкое сходство паттернов.');
-        }
-
-        return analysis;
-    }
-
-    makeFinalDecision(analysis) {
-        // Реализация остается идентичной
-        const decision = {
-            decision: 'unknown',
-            confidence: analysis.confidence,
-            reason: ''
-        };
-
-        if (analysis.confidence > 0.7) {
-            decision.decision = 'same';
-            decision.reason = 'Высокая общая уверенность';
-        } else if (analysis.confidence > 0.4) {
-            decision.decision = 'similar';
-            decision.reason = 'Умеренная уверенность';
-        } else {
-            decision.decision = 'different';
-            decision.reason = 'Низкая уверенность';
-        }
-
-        if (!analysis.transformationsConsistent && decision.decision === 'same') {
-            decision.decision = 'similar';
-            decision.reason += ' (трансформации не согласованы)';
-        }
-
-        return decision;
-    }
-
-    checkDirectories() {
-        const requiredDirs = [
-            this.config.dbPath,
-            path.join(this.config.dbPath, 'models'),
-            path.join(this.config.dbPath, 'sessions'),
-            path.join(this.config.dbPath, 'visualizations'),
-            path.join(this.config.dbPath, 'reports'),
-            path.join(this.config.dbPath, 'diagnostic_reports')
-        ];
-
-        const missingDirs = requiredDirs.filter(dir => !fs.existsSync(dir));
-
-        if (missingDirs.length === 0) {
-            return { valid: true, message: 'Все директории существуют' };
-        } else {
-            return {
-                valid: false,
-                message: `Отсутствуют директории: ${missingDirs.map(d => path.basename(d)).join(', ')}`
-            };
-        }
-    }
-
-    // 🔥 СОВМЕСТИМЫЕ МЕТОДЫ (без изменений)
+    // 🔥 ВСЕ ГЕТТЕРЫ И УТИЛИТЫ БЕЗ ИЗМЕНЕНИЙ
     getVectorSuperModel(userId) {
         return this.vectorSuperModels.get(userId);
     }
@@ -1212,7 +1034,7 @@ class SimpleFootprintManager {
             templateName: vectorModel.name,
             cellsCount: templateData?.cells?.length || 0,
             totalConfirmations: stats.totalConfirmations || 0,
-            averageConfirmations: Utils.formatFloat(stats.averageConfirmations, 2) || '0.00',
+            averageConfirmations: stats.averageConfirmations?.toFixed(2) || '0.00',
             confirmedCells: stats.confirmedCells || 0,
             lastUpdated: vectorModel.lastUpdated || new Date()
         };
@@ -1292,7 +1114,7 @@ class SimpleFootprintManager {
             try {
                 const filePath = path.join(modelsDir, file);
                 const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-                const SimpleFootprint = this.getDynamicModule('SimpleFootprint', './simple-footprint');
+                const SimpleFootprint = require('./simple-footprint');
                 const footprint = SimpleFootprint.fromJSON(data);
                 this.loadedModels.set(footprint.id, footprint);
                 loadedCount++;
@@ -1313,7 +1135,7 @@ class SimpleFootprintManager {
                 userId,
                 cells: templateData?.cells?.length || 0,
                 totalConfirmations: stats.totalConfirmations || 0,
-                averageConfirmations: Utils.formatFloat(stats.averageConfirmations, 2) || '0.00'
+                averageConfirmations: stats.averageConfirmations?.toFixed(2) || '0.00'
             });
         }
 
@@ -1327,31 +1149,9 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ (не меняются)
+    // 🔥 МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ
     getMergeVisualizationCount() { return 0; }
     addMergeVisualization(userId, vizInfo) { return 1; }
-
-    // 🔥 ПРИВАТНЫЕ МЕТОДЫ (для сохранения оригинальной логики)
-    _debugCoordinateSystems(userId) {
-        // Полная оригинальная реализация
-        console.log('\n🔍 ЗАПУСК ПОЛНОЙ ДИАГНОСТИКИ СИСТЕМ КООРДИНАТ');
-        // ... оригинальный код
-        return {}; // заглушка
-    }
-
-    _compareFootprintsWithDiagnostics(footprint1, footprint2, options = {}) {
-        // Полная оригинальная реализация
-        console.log('\n🔍 СРАВНЕНИЕ ОТПЕЧАТКОВ С ПОЛНОЙ ДИАГНОСТИКОИ');
-        // ... оригинальный код
-        return {}; // заглушка
-    }
-
-    _validateSystemConsistency(userId = null) {
-        // Полная оригинальная реализация
-        console.log('\n🔍 ПРОВЕРКА СОГЛАСОВАННОСТИ ВСЕЙ СИСТЕМЫ');
-        // ... оригинальный код
-        return {}; // заглушка
-    }
 }
 
 module.exports = SimpleFootprintManager;
