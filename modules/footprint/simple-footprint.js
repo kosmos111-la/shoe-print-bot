@@ -369,8 +369,8 @@ class SimpleFootprint {
 
         // Комбинированная уверенность
         this.stats.confidence = (graphConfidence * 0.3 +
-                                trackerConfidence * 0.4 +
-                                honestConfidence * 0.3);
+                               trackerConfidence * 0.4 +
+                               honestConfidence * 0.3);
 
         const addedNodes = this.graph.nodes.size - previousNodeCount;
 
@@ -573,69 +573,69 @@ class SimpleFootprint {
     }
 
     // 🔥 НОВЫЙ МЕТОД: Получить точки в нормализованной системе
-  getPointsInNormalizedSystem() {
-    console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
+    getPointsInNormalizedSystem() {
+        console.log(`🔧 getPointsInNormalizedSystem() для "${this.name}"`);
 
-    // Получаем точки из трекера
-    const points = [];
-    if (this.pointTracker && this.pointTracker.points) {
-        for (const [id, point] of this.pointTracker.points) {
-            points.push({
-                id,
-                x: point.x,
-                y: point.y,
-                confidence: point.rating || 0.5,
-                confirmedCount: point.confirmedCount || 1
-            });
+        // Получаем точки из трекера
+        const points = [];
+        if (this.pointTracker && this.pointTracker.points) {
+            for (const [id, point] of this.pointTracker.points) {
+                points.push({
+                    id,
+                    x: point.x,
+                    y: point.y,
+                    confidence: point.rating || 0.5,
+                    confirmedCount: point.confirmedCount || 1
+                });
+            }
         }
-    }
 
-    if (points.length === 0) {
-        console.log('⚠️ Нет точек для нормализации');
-        return [];
-    }
+        if (points.length === 0) {
+            console.log('⚠️ Нет точек для нормализации');
+            return [];
+        }
 
-    // Получаем текущий угол трансформации
-    const currentTransformation = this.getTransformation();
-    const currentAngle = currentTransformation?.rotationAngle || 0;
+        // Получаем текущий угол трансформации
+        const currentTransformation = this.getTransformation();
+        const currentAngle = currentTransformation?.rotationAngle || 0;
 
-    console.log(`📐 Текущий угол: ${currentAngle.toFixed(1)}°, нормализую к 0°`);
+        console.log(`📐 Текущий угол: ${currentAngle.toFixed(1)}°, нормализую к 0°`);
 
-    // 🔥 ИСПРАВЛЕНИЕ: Если угол уже 0°, возвращаем точки как есть
-    if (Math.abs(currentAngle) < 0.1) {
-        console.log(`✅ Уже нормализован (0°), возвращаю ${points.length} точек`);
+        // 🔥 ИСПРАВЛЕНИЕ: Если угол уже 0°, возвращаем точки как есть
+        if (Math.abs(currentAngle) < 0.1) {
+            console.log(`✅ Уже нормализован (0°), возвращаю ${points.length} точек`);
 
-        // Все равно центрируем для согласованности
+            // Все равно центрируем для согласованности
+            const RotationInvariance = require('./rotation-invariance');
+            const processor = new RotationInvariance({ debug: false });
+            const targetCenter = { x: 500, y: 500 };
+            const centeredPoints = processor.alignPointsToCommonSystem(points, targetCenter);
+
+            return centeredPoints;
+        }
+
+        // Используем ваш новый простой метод
         const RotationInvariance = require('./rotation-invariance');
         const processor = new RotationInvariance({ debug: false });
+
+        // 1. Поворачиваем к 0°
+        const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
+
+        // 2. Центрируем
         const targetCenter = { x: 500, y: 500 };
-        const centeredPoints = processor.alignPointsToCommonSystem(points, targetCenter);
+        const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints, targetCenter);
+
+        console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
+
+        // 🔥 ДИАГНОСТИКА: Проверим координаты
+        if (centeredPoints.length > 0) {
+            console.log(`📊 Пример координат после нормализации:`);
+            console.log(`   Первая точка: (${centeredPoints[0].x.toFixed(1)}, ${centeredPoints[0].y.toFixed(1)})`);
+            console.log(`   Последняя точка: (${centeredPoints[centeredPoints.length-1].x.toFixed(1)}, ${centeredPoints[centeredPoints.length-1].y.toFixed(1)})`);
+        }
 
         return centeredPoints;
     }
-
-    // Используем ваш новый простой метод
-    const RotationInvariance = require('./rotation-invariance');
-    const processor = new RotationInvariance({ debug: false });
-
-    // 1. Поворачиваем к 0°
-    const rotatedPoints = processor.transformPointsSimple(points, currentAngle, 0);
-
-    // 2. Центрируем
-    const targetCenter = { x: 500, y: 500 };
-    const centeredPoints = processor.alignPointsToCommonSystem(rotatedPoints, targetCenter);
-
-    console.log(`✅ Нормализовано ${centeredPoints.length} точек`);
-
-    // 🔥 ДИАГНОСТИКА: Проверим координаты
-    if (centeredPoints.length > 0) {
-        console.log(`📊 Пример координат после нормализации:`);
-        console.log(`   Первая точка: (${centeredPoints[0].x.toFixed(1)}, ${centeredPoints[0].y.toFixed(1)})`);
-        console.log(`   Последняя точка: (${centeredPoints[centeredPoints.length-1].x.toFixed(1)}, ${centeredPoints[centeredPoints.length-1].y.toFixed(1)})`);
-    }
-
-    return centeredPoints;
-}
 
     // 🔥 НОВЫЙ МЕТОД: Создать нормализованную трансформацию
     createNormalizedTransformation() {
@@ -2131,105 +2131,105 @@ class SimpleFootprint {
         return points;
     }
 
-  // 🔥 НОВЫЙ МЕТОД: Получить точки в системе PatternMatcher
-getPointsForPatternMatching() {
-    console.log(`🔧 getPointsForPatternMatching() для "${this.name}"`);
+    // 🔥 НОВЫЙ МЕТОД: Получить точки в системе PatternMatcher
+    getPointsForPatternMatching() {
+        console.log(`🔧 getPointsForPatternMatching() для "${this.name}"`);
 
-    try {
-        // Получаем точки в нормализованной системе
-        const normalizedPoints = this.getPointsInNormalizedSystem();
+        try {
+            // Получаем точки в нормализованной системе
+            const normalizedPoints = this.getPointsInNormalizedSystem();
 
-        if (!normalizedPoints || normalizedPoints.length === 0) {
-            console.log(`⚠️ Нет нормализованных точек для сравнения паттернов`);
+            if (!normalizedPoints || normalizedPoints.length === 0) {
+                console.log(`⚠️ Нет нормализованных точек для сравнения паттернов`);
+                return [];
+            }
+
+            // 🔥 ИСПРАВЛЕНИЕ: Убедимся, что все точки имеют нужные поля
+            const points = normalizedPoints.map((point, index) => ({
+                id: point.id || `pt_${index}`,
+                x: point.x || 0,
+                y: point.y || 0,
+                confidence: point.confidence || point.rating || 0.5,
+                originalX: point.originalX || point.x,
+                originalY: point.originalY || point.y
+            }));
+
+            console.log(`📊 Подготовлено ${points.length} точек для сравнения паттернов`);
+            return points;
+
+        } catch (error) {
+            console.log(`❌ Ошибка в getPointsForPatternMatching: ${error.message}`);
             return [];
         }
+    }
 
-        // 🔥 ИСПРАВЛЕНИЕ: Убедимся, что все точки имеют нужные поля
-        const points = normalizedPoints.map((point, index) => ({
-            id: point.id || `pt_${index}`,
-            x: point.x || 0,
-            y: point.y || 0,
-            confidence: point.confidence || point.rating || 0.5,
-            originalX: point.originalX || point.x,
-            originalY: point.originalY || point.y
+    // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
+    alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
+        console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
+        console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
+        console.log(`   Количество точек: ${points.length}`);
+
+        if (points.length === 0) {
+            console.log('⚠️ Нет точек для выравнивания');
+            return points;
+        }
+
+        const currentCenter = this.calculateCenter(points);
+        console.log(`   Текущий центр: (${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)})`);
+
+        const offsetX = targetCenter.x - currentCenter.x;
+        const offsetY = targetCenter.y - currentCenter.y;
+
+        console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+
+        const alignedPoints = points.map(point => ({
+            ...point,
+            x: point.x + offsetX,
+            y: point.y + offsetY,
+            originalX: point.x,
+            originalY: point.y,
+            offsetApplied: { x: offsetX, y: offsetY }
         }));
 
-        console.log(`📊 Подготовлено ${points.length} точек для сравнения паттернов`);
-        return points;
+        // Проверка после выравнивания
+        const alignedCenter = this.calculateCenter(alignedPoints);
+        const centerDistance = Math.sqrt(
+            Math.pow(alignedCenter.x - targetCenter.x, 2) +
+            Math.pow(alignedCenter.y - targetCenter.y, 2)
+        );
 
-    } catch (error) {
-        console.log(`❌ Ошибка в getPointsForPatternMatching: ${error.message}`);
-        return [];
-    }
-}
+        console.log(`   Центр после выравнивания: (${alignedCenter.x.toFixed(1)}, ${alignedCenter.y.toFixed(1)})`);
+        console.log(`   Отклонение от цели: ${centerDistance.toFixed(1)}px`);
 
-  // 🔥 НОВЫЙ МЕТОД: Выровнять точки к общей системе координат
-alignPointsToCommonSystem(points, targetCenter = { x: 500, y: 500 }) {
-    console.log(`🎯 ВЫРАВНИВАНИЕ К СТАНДАРТНОЙ СИСТЕМЕ КООРДИНАТ...`);
-    console.log(`   Целевой центр: (${targetCenter.x}, ${targetCenter.y})`);
-    console.log(`   Количество точек: ${points.length}`);
+        if (centerDistance > 10) {
+            console.log(`⚠️ Центр все еще далеко от цели: ${centerDistance.toFixed(1)}px`);
+        }
 
-    if (points.length === 0) {
-        console.log('⚠️ Нет точек для выравнивания');
-        return points;
+        return alignedPoints;
     }
 
-    const currentCenter = this.calculateCenter(points);
-    console.log(`   Текущий центр: (${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)})`);
+    // 🔥 НОВЫЙ МЕТОД: Получить точки, готовые для сравнения
+    getAlignedPointsForComparison() {
+        // Получаем нормализованные и выровненные точки
+        const normalizedPoints = this.getPointsInNormalizedSystem();
 
-    const offsetX = targetCenter.x - currentCenter.x;
-    const offsetY = targetCenter.y - currentCenter.y;
+        // 🔥 ДОПОЛНИТЕЛЬНОЕ ВЫРАВНИВАНИЕ для точного сравнения
+        const RotationInvariance = require('./rotation-invariance');
+        const processor = new RotationInvariance({ debug: false });
 
-    console.log(`   Смещение: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+        // Если точек мало, возвращаем как есть
+        if (normalizedPoints.length < 3) return normalizedPoints;
 
-    const alignedPoints = points.map(point => ({
-        ...point,
-        x: point.x + offsetX,
-        y: point.y + offsetY,
-        originalX: point.x,
-        originalY: point.y,
-        offsetApplied: { x: offsetX, y: offsetY }
-    }));
+        // Выравниваем к точному центру (500, 500)
+        const preciselyAligned = processor.alignPointsToCommonSystem(
+            normalizedPoints,
+            { x: 500, y: 500 }
+        );
 
-    // Проверка после выравнивания
-    const alignedCenter = this.calculateCenter(alignedPoints);
-    const centerDistance = Math.sqrt(
-        Math.pow(alignedCenter.x - targetCenter.x, 2) +
-        Math.pow(alignedCenter.y - targetCenter.y, 2)
-    );
+        console.log(`🎯 Точки готовы для сравнения: ${preciselyAligned.length} точек`);
 
-    console.log(`   Центр после выравнивания: (${alignedCenter.x.toFixed(1)}, ${alignedCenter.y.toFixed(1)})`);
-    console.log(`   Отклонение от цели: ${centerDistance.toFixed(1)}px`);
-
-    if (centerDistance > 10) {
-        console.log(`⚠️ Центр все еще далеко от цели: ${centerDistance.toFixed(1)}px`);
+        return preciselyAligned;
     }
-
-    return alignedPoints;
-}
-
-// 🔥 НОВЫЙ МЕТОД: Получить точки, готовые для сравнения
-getAlignedPointsForComparison() {
-    // Получаем нормализованные и выровненные точки
-    const normalizedPoints = this.getPointsInNormalizedSystem();
-
-    // 🔥 ДОПОЛНИТЕЛЬНОЕ ВЫРАВНИВАНИЕ для точного сравнения
-    const RotationInvariance = require('./rotation-invariance');
-    const processor = new RotationInvariance({ debug: false });
-
-    // Если точек мало, возвращаем как есть
-    if (normalizedPoints.length < 3) return normalizedPoints;
-
-    // Выравниваем к точному центру (500, 500)
-    const preciselyAligned = processor.alignPointsToCommonSystem(
-        normalizedPoints,
-        { x: 500, y: 500 }
-    );
-
-    console.log(`🎯 Точки готовы для сравнения: ${preciselyAligned.length} точек`);
-
-    return preciselyAligned;
-}
 
     // 🔥 НОВЫЙ МЕТОД: Получить ВСЕ трансформации для валидации
     getAllTransformationsForValidation() {
