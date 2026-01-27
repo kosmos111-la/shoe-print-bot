@@ -70,7 +70,7 @@ class SimpleFootprintManager {
 
         this.improvedAligner = new ImprovedAligner({
             debug: this.config.debug,
-            visualizationDir: path.join(this.config.dbPath, 'visualizations/alignments')
+            visualizationsDir: path.join(this.config.dbPath, 'visualizations/alignments')
         });
 
         // 🔥 ИНИЦИАЛИЗАЦИЯ НОВЫХ МОДУЛЕЙ КООРДИНАТ
@@ -494,7 +494,7 @@ class SimpleFootprintManager {
                 return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
             }
 
-            // 🔥 ЛОГИРУЕМ СИСТЕМУ КООРДИНАТ (если включено)
+            // 🔥 ЛОГИРУЕМ СИСТЕМЫ КООРДИНАТ (если включено)
             if (this.config.enableCoordinateDiagnostics) {
                 this.coordinateSystemLogger.logCoordinateSystems(
                     `Извлечение точек из анализа для пользователя ${userId}`,
@@ -613,7 +613,7 @@ class SimpleFootprintManager {
         return result.points;
     }
 
-    // 🔥 МЕТОД: Обработка первого фото (ОБНОВЛЕННЫЙ)
+    // 🔥 МЕТОД: Обработка первого фото (ОБНОВЛЕННЫЙ с исправлениями из инструкции)
     async handleFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
 
@@ -625,6 +625,12 @@ class SimpleFootprintManager {
         });
 
         session.currentFootprint.metadata.normalizationInfo = transformationInfo;
+
+        // 🔥 КРИТИЧНО: Связываем отпечаток с менеджером для доступа к CoordinateDirector
+        session.currentFootprint.setManager(this);
+
+        // 🔥 ЕЩЕ ВАЖНЕЕ: Исправляем трансформацию ЧЕРЕЗ CoordinateDirector
+        session.currentFootprint.forceCanonicalTransformation(this);
 
         const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
             ...photoInfo,
@@ -712,7 +718,7 @@ class SimpleFootprintManager {
                     caption += `📊 Извлечено: ${addResult.added} точек\n`;
                     caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
                     caption += `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
-                    caption += `✅ Создан шаблон для накопления деталей`;
+                    caption += `✅ Создан шаблон для накопление деталей`;
 
                     // 🔥 ОЧИЩАЕМ ОТ Markdown
                     const cleanCaption = cleanMarkdown(caption);
@@ -781,9 +787,16 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 МЕТОД: Обработка последующих фото (ОБНОВЛЕННЫЙ)
+    // 🔥 МЕТОД: Обработка последующих фото (ОБНОВЛЕННЫЙ с исправлениями из инструкции)
     async handleSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`🔍 Проверяю совпадение с существующим отпечатком`);
+
+        // 🔥 КРИТИЧНО: ИСПРАВЛЯЕМ существующий отпечаток (добавлено из инструкции)
+        if (session.currentFootprint) {
+            // 🔥 ИСПРАВЛЯЕМ существующий отпечаток
+            session.currentFootprint.setManager(this);
+            session.currentFootprint.forceCanonicalTransformation(this);
+        }
 
         // 🔥 ЛОГИРУЕМ СИСТЕМЫ КООРДИНАТ ПЕРЕД СРАВНЕНИЕМ
         if (this.config.enableCoordinateDiagnostics) {
