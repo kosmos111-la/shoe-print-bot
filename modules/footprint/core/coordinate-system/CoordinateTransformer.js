@@ -106,35 +106,36 @@ class CoordinateTransformer {
     /**
      * Общая трансформация точек (из rotation-invariance.js, simple-footprint.js и др.)
      */
-    static transform(points, options = {}) {
-        const defaultOptions = {
-            rotateTo: 0,
-            centerTo: this.CONSTANTS.CENTER,
-            scaleTo: 1.0
-        };
-       
-        const opts = { ...defaultOptions, ...options };
-       
-        console.log(`[CoordinateTransformer] Трансформация ${points.length} точек`);
-       
-        // Копируем точки для безопасности
-        const transformed = points.map(p => ({ ...p }));
-       
-        // Применяем трансформации
-        if (opts.rotateTo !== 0) {
-            this._rotatePoints(transformed, opts.rotateTo);
-        }
-       
-        if (opts.centerTo) {
-            this._centerPoints(transformed, opts.centerTo);
-        }
-       
-        if (opts.scaleTo !== 1.0) {
-            this._scalePoints(transformed, opts.scaleTo);
-        }
-       
-        return transformed;
+static transform(points, options = {}) {
+    const defaultOptions = {
+        rotateTo: 0,
+        centerTo: this.CONSTANTS.CENTER,
+        scaleTo: 1.0
+    };
+
+    const opts = { ...defaultOptions, ...options };
+
+    console.log(`[CoordinateTransformer] Трансформация ${points.length} точек`);
+
+    // Копируем точки для безопасности
+    const transformed = points.map(p => ({ ...p }));
+
+    // 🔥 ИСПРАВЛЕНИЕ: вызываем статические методы через класс, не через this
+    // Применяем трансформации
+    if (opts.rotateTo !== 0) {
+        CoordinateTransformer._rotatePoints(transformed, opts.rotateTo);
     }
+
+    if (opts.centerTo) {
+        CoordinateTransformer._centerPoints(transformed, opts.centerTo);
+    }
+
+    if (opts.scaleTo !== 1.0) {
+        CoordinateTransformer._scalePoints(transformed, opts.scaleTo);
+    }
+
+    return transformed;
+}
 
     /**
      * Вращение точек (из rotation-invariance.js)
