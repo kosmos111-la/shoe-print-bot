@@ -18,9 +18,10 @@ class LegacyCoordinateManager {
 
     // 🔥 КРИТИЧЕСКИ ВАЖНЫЕ МЕТОДЫ (вызываются из кода)
     _centerPoints(points, options = {}) {
-        console.log('[Legacy] _centerPoints -> NewSystem.centerPoints');
-        return NewSystem.centerPoints(points, options);
-    }
+    console.log('[Legacy] _centerPoints -> NewSystem.centerPoints');
+    // ВАЖНО: у нас есть метод centerPoints (с маленькой буквы)
+    return NewSystem.centerPoints(points, options);
+}
    
     _normalizePoints(points, options = {}) {
         console.log('[Legacy] _normalizePoints -> NewSystem.normalize');
