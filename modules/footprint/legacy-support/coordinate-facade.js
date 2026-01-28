@@ -16,7 +16,51 @@ class LegacyCoordinateManager {
         console.log('[LegacyCoordinateManager] Создан для обратной совместимости');
         console.log('[LegacyCoordinateManager] Все вызовы перенаправляются в CoordinateSystem');
     }
+_centerPoints(points, options = {}) {
+        console.log('[Legacy] _centerPoints -> NewSystem.center');
+        return NewSystem.centerPoints(points, options);
+    }
+   
+    _normalizePoints(points, options = {}) {
+        console.log('[Legacy] _normalizePoints -> NewSystem.normalize');
+        return NewSystem.normalize(points, options);
+    }
+   
+    _rotatePoints(points, angle, center = null) {
+        console.log('[Legacy] _rotatePoints -> NewSystem.rotate');
+        return NewSystem.rotate(points, angle, center);
+    }
+   
+    _scalePoints(points, scale) {
+        console.log('[Legacy] _scalePoints -> NewSystem.scale');
+        return NewSystem.scale(points, scale);
+    }
+   
+    // Старые методы, которые могут вызываться
+    transformPoints(points, options) {
+        return this._transformPoints(points, options);
+    }
+   
+    _transformPoints(points, options) {
+        console.log('[Legacy] _transformPoints -> NewSystem.transform');
+        return NewSystem.transform(points, options);
+    }
+   
+    validateTransformation(transformation) {
+        console.log('[Legacy] validateTransformation');
+        return {
+            valid: true,
+            type: transformation?.type || 'unknown',
+            message: 'Проверка трансформации (легаси режим)'
+        };
+    }
+   
+    getTransformation() {
+        console.log('[Legacy] getTransformation');
+        return NewSystem.createCanonicalTransformation();
+    }
 
+  
     // Основные методы (из coordinate-manager.js)
     getCoordinates(source, options = {}) {
         console.log(`[Legacy] getCoordinates -> NewSystem.transform (${typeof source === 'object' ? 'object' : 'points'})`);
