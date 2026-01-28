@@ -10,10 +10,10 @@ const TemplateCoordination = require('./core/comparison/template-coordination');
 const SessionManager = require('./core/session/session-manager');
 const VisualizationManager = require('./core/visualization/visualization-manager');
 const GeometryUtils = require('./core/utils/geometry-utils');
-const CoordinateManager = require('./core/coordinate-manager');
-const TransformationValidator = require('./core/transformation-validator');
+// const CoordinateManager = require('./core/coordinate-manager');
+// const TransformationValidator = require('./core/transformation-validator');
 const CoordinateSystemLogger = require('./core/coordinate-system-logger');
-const CoordinateDirector = require('./core/coordinate-director');
+// const CoordinateDirector = require('./core/coordinate-director');
 const LogManager = require('./core/log-manager');
 const SimpleGraph = require('./simple-graph');
 const SimpleAligner = require('./alignment/simple-aligner');
@@ -21,6 +21,9 @@ const CoordinateSystemConverter = require('./alignment/coordinate-system-convert
 const CoordinateValidator = require('./alignment/coordinate-validator');
 const TransformationDebugger = require('./alignment/transformation-debugger');
 const ImprovedAligner = require('./alignment/improved-aligner');
+
+const CoordinateSystem = require('./core/coordinate-system');
+const LegacyCoordinates = require('./legacy-support/coordinate-facade');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -142,7 +145,8 @@ class SimpleFootprintManager {
         }
 
         // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: Coordinate Director
-        this.coordinateDirector = new CoordinateDirector(this);
+        // this.coordinateDirector = new CoordinateDirector(this);
+        this.coordinateSystem = CoordinateSystem;
     }
 
     // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка модулей
