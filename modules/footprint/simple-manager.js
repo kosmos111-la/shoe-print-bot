@@ -5,15 +5,22 @@ const fs = require('fs');
 const path = require('path');
 
 // 🔥 НИКАКИХ ИЗМЕНЕНИЙ В ИМПОРТАХ - это рискованно
+const fs = require('fs');
+const path = require('path');
+
+// 🔥 СТАРЫЕ МОДУЛИ - ЗАМЕНЯЕМ НА ФАСАД
+const LegacyCoordinates = require('./legacy-support/coordinate-facade');
+
+// 🔥 НОВАЯ СИСТЕМА КООРДИНАТ
+const CoordinateSystem = require('./core/coordinate-system');
+
+// 🔥 ОСТАЛЬНЫЕ МОДУЛИ (без изменений)
 const FootprintComparisonEngine = require('./core/comparison/footprint-comparison-engine');
 const TemplateCoordination = require('./core/comparison/template-coordination');
 const SessionManager = require('./core/session/session-manager');
 const VisualizationManager = require('./core/visualization/visualization-manager');
 const GeometryUtils = require('./core/utils/geometry-utils');
-// const CoordinateManager = require('./core/coordinate-manager');
-// const TransformationValidator = require('./core/transformation-validator');
 const CoordinateSystemLogger = require('./core/coordinate-system-logger');
-// const CoordinateDirector = require('./core/coordinate-director');
 const LogManager = require('./core/log-manager');
 const SimpleGraph = require('./simple-graph');
 const SimpleAligner = require('./alignment/simple-aligner');
@@ -21,9 +28,6 @@ const CoordinateSystemConverter = require('./alignment/coordinate-system-convert
 const CoordinateValidator = require('./alignment/coordinate-validator');
 const TransformationDebugger = require('./alignment/transformation-debugger');
 const ImprovedAligner = require('./alignment/improved-aligner');
-
-const CoordinateSystem = require('./core/coordinate-system');
-const LegacyCoordinates = require('./legacy-support/coordinate-facade');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -147,6 +151,10 @@ class SimpleFootprintManager {
         // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: Coordinate Director
         // this.coordinateDirector = new CoordinateDirector(this);
         this.coordinateSystem = CoordinateSystem;
+
+    // this.coordinateDirector = new LegacyCoordinates.CoordinateDirector(this); // если нужно
+        // или используем новую систему напрямую:
+        this.coordinateSystem = CoordinateSystem;
     }
 
     // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка модулей
@@ -253,11 +261,41 @@ class SimpleFootprintManager {
     }
 
     // 🔥 ВСЕ ФАСАДНЫЕ МЕТОДЫ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ
-    getCoordinates(source, options = {}) {
-        return this.coordinateManager.getCoordinates(source, {
-            suppressWarnings: true,
-            ...options
-        });
+     getCoordinates(source, options = {}) {
+        // 🔥 ПОСТЕПЕННАЯ МИГРАЦИЯ: сначала через фасад
+        const legacyResult = this.coordinateManager.getCoordinates(source, options);
+       
+        // 🔥 НОВАЯ ЛОГИКА: если нужно больше контроля
+        if (options.useNewSystem) {
+            console.log('[SimpleManager] Использую новую систему координат');
+            if (Array.isArray(source)) {
+                return {
+                    points: this.coordinateSystem.transform(source, options),
+                    count: source.length,
+                    source: 'new_system'
+                };
+            }
+        }
+       
+        return legacyResult;
+    }
+   
+    // 🔥 УПРОЩЕННЫЙ МЕТОД ДЛЯ ТОЧЕК
+    transformPoints(points, options = {}) {
+        console.log('[SimpleManager] transformPoints -> CoordinateSystem.transform');
+        return this.coordinateSystem.transform(points, options);
+    }
+   
+    // 🔥 УПРОЩЕННЫЙ МЕТОД ДЛЯ НОРМАЛИЗАЦИИ
+    normalizePoints(points, options = {}) {
+        console.log('[SimpleManager] normalizePoints -> CoordinateSystem.normalize');
+        return this.coordinateSystem.normalize(points, options);
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: принудительная каноническая система
+    enforceCanonical(transformation, systemName = 'simple_manager') {
+        console.log(`[SimpleManager] enforceCanonical для ${systemName}`);
+        return this.coordinateSystem.enforceCanonical(transformation, systemName);
     }
 
     transformToSystem(points, fromSystem, toSystem, transformation = null) {
