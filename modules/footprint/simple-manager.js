@@ -82,7 +82,7 @@ class SimpleFootprintManager {
         });
 
         // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: основные модули
-        his.coordinateManager = new LegacyCoordinates.CoordinateManager(this);
+        this.coordinateManager = new LegacyCoordinates.CoordinateManager(this);
 this.transformationValidator = new LegacyCoordinates.TransformationValidator(this);
         this.coordinateSystemLogger = new CoordinateSystemLogger(this);
         this.comparisonEngine = new FootprintComparisonEngine(this);
