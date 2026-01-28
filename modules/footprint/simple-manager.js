@@ -1,9 +1,5 @@
 // modules/footprint/simple-manager.js
 // 🔥 ПОЛНАЯ БЕЗОПАСНАЯ ОПТИМИЗАЦИЯ
-
-const fs = require('fs');
-const path = require('path');
-
 // 🔥 НИКАКИХ ИЗМЕНЕНИЙ В ИМПОРТАХ - это рискованно
 const fs = require('fs');
 const path = require('path');
