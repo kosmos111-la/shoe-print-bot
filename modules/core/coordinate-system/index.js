@@ -1,29 +1,57 @@
 // modules/core/coordinate-system/index.js
-const CoordinateTransformer = require('./CoordinateTransformer');
-const CoordinateNormalizer = require('./CoordinateNormalizer');
-const CoordinateValidator = require('./CoordinateValidator'); // создадим позже
-
 /**
 * Единый фасад для всех операций с координатами
+* Заменяет CoordinateDirector, CoordinateManager и другие 30 модулей
 */
+
+const CoordinateTransformer = require('./CoordinateTransformer');
+const CoordinateNormalizer = require('./CoordinateNormalizer');
+
+// Для валидации создадим позже
+const CoordinateValidator = {
+    validate: (points) => {
+        console.log('[CoordinateValidator] Валидация точек');
+        return Array.isArray(points) && points.length > 0;
+    }
+};
+
+// 🔥 ОСНОВНОЙ ЭКСПОРТ
 module.exports = {
-    // Трансформации
+    // === ТРАНСФОРМАЦИИ ===
+    // Основные методы
     transform: CoordinateTransformer.transform,
-    transformPoints: CoordinateTransformer.transformPoints,
-    rotate: CoordinateTransformer.rotate,
-    scale: CoordinateTransformer.scale,
-    translate: CoordinateTransformer.translate,
-    align: CoordinateTransformer.align,
+    enforceCanonical: CoordinateTransformer.enforceCanonical,
+    isCanonical: CoordinateTransformer.isCanonical,
+    createCanonicalTransformation: CoordinateTransformer.createCanonicalTransformation,
    
-    // Нормализация
+    // Алиасы для обратной совместимости
+    transformPoints: CoordinateTransformer.transformPoints,
+    applyTransformation: CoordinateTransformer.applyTransformation,
+    correctToCanonical: CoordinateTransformer.correctToCanonical,
+   
+    // Вращение (из rotation-invariance.js)
+    rotate: CoordinateTransformer._rotatePoints,
+   
+    // === НОРМАЛИЗАЦИЯ ===
+    // Основные методы
     normalize: CoordinateNormalizer.normalize,
+   
+    // Алиасы для обратной совместимости
     normalizePoints: CoordinateNormalizer.normalizePoints,
     standardize: CoordinateNormalizer.standardize,
+    normalizeToRange: CoordinateNormalizer.normalizeToRange,
    
-    // Валидация (будет позже)
+    // === ВАЛИДАЦИЯ ===
     validate: CoordinateValidator.validate,
    
-    // Для удобства
+    // === КОНСТАНТЫ ===
+    CONSTANTS: CoordinateTransformer.CONSTANTS,
+   
+    // === УТИЛИТЫ ===
+    calculateCenter: CoordinateTransformer._calculateCenter,
+    getBounds: CoordinateNormalizer._getBounds,
+   
+    // === КЛАССЫ ДЛЯ ПРЯМОГО ДОСТУПА ===
     Transformer: CoordinateTransformer,
     Normalizer: CoordinateNormalizer,
     Validator: CoordinateValidator
