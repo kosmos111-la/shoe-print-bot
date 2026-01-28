@@ -55,4 +55,18 @@ module.exports = {
     Transformer: CoordinateTransformer,
     Normalizer: CoordinateNormalizer,
     Validator: CoordinateValidator
+// Новые методы для обратной совместимости
+    centerPoints: CoordinateTransformer.centerPoints,
+    calculateCenter: CoordinateTransformer.calculateCenter,
+    getBounds: CoordinateTransformer.getBounds,
+    createCanonicalTransformation: CoordinateTransformer.createCanonicalTransformation,
+    isCanonical: CoordinateTransformer.isCanonical,
+    applyTransformation: CoordinateTransformer.transform, // алиас
+   
+    // Константы для обратной совместимости
+    CONSTANTS: {
+        CENTER: { x: 500, y: 500 },
+        CANONICAL_ANGLE: 0,
+        DEFAULT_SCALE: 1.0
+    }
 };
