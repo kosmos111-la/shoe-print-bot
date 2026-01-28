@@ -216,7 +216,7 @@ class CoordinateTransformer {
  /**
      * Центрирование точек
      */
-    static centerPoints(points, options = {}) {
+     static centerPoints(points, options = {}) {
         console.log('[CoordinateTransformer] Центрирование точек');
         if (!points || points.length === 0) return points;
        
@@ -245,7 +245,6 @@ class CoordinateTransformer {
         };
     }
    
-    // Другие часто используемые методы
     static getBounds(points) {
         if (!points || points.length === 0) {
             return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
@@ -264,10 +263,32 @@ class CoordinateTransformer {
         return { minX, maxX, minY, maxY };
     }
    
+    static rotate(points, angle, center = null) {
+        console.log(`[CoordinateTransformer] Вращение на ${angle}°`);
+        if (!points || points.length === 0) return points;
+       
+        const rad = angle * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+       
+        const c = center || this.calculateCenter(points);
+       
+        return points.map(p => {
+            const dx = p.x - c.x;
+            const dy = p.y - c.y;
+           
+            return {
+                ...p,
+                x: c.x + dx * cos - dy * sin,
+                y: c.y + dx * sin + dy * cos
+            };
+        });
+    }
+   
     static createCanonicalTransformation() {
         return {
             rotationAngle: 0,
-            center: { x: 500, y: 500 }, // стандартный центр
+            center: { x: 500, y: 500 },
             scale: 1.0,
             type: 'canonical',
             timestamp: new Date()
@@ -280,6 +301,13 @@ class CoordinateTransformer {
                Math.abs((transformation.center?.x || 0) - 500) < 10 &&
                Math.abs((transformation.center?.y || 0) - 500) < 10;
     }
+   
+    // Статические константы
+    static CONSTANTS = {
+        CENTER: { x: 500, y: 500 },
+        CANONICAL_ANGLE: 0,
+        DEFAULT_SCALE: 1.0
+    };
 }
 
 module.exports = CoordinateTransformer;
