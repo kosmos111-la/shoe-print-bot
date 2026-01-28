@@ -3,10 +3,9 @@
 * Фасад для обратной совместимости
 * НЕМЕДЛЕННОЕ решение - все вызовы перенаправляются в новую систему
 */
-
-const NewSystem = require('../core/coordinate-system');
 const path = require('path');
 const fs = require('fs');
+const NewSystem = require('../core/coordinate-system');
 
 // 🔥 ФУНКЦИОНАЛЬНОСТЬ CoordinateManager
 class LegacyCoordinateManager {
@@ -16,8 +15,10 @@ class LegacyCoordinateManager {
         console.log('[LegacyCoordinateManager] Создан для обратной совместимости');
         console.log('[LegacyCoordinateManager] Все вызовы перенаправляются в CoordinateSystem');
     }
-_centerPoints(points, options = {}) {
-        console.log('[Legacy] _centerPoints -> NewSystem.center');
+
+    // 🔥 КРИТИЧЕСКИ ВАЖНЫЕ МЕТОДЫ (вызываются из кода)
+    _centerPoints(points, options = {}) {
+        console.log('[Legacy] _centerPoints -> NewSystem.centerPoints');
         return NewSystem.centerPoints(points, options);
     }
    
@@ -27,18 +28,17 @@ _centerPoints(points, options = {}) {
     }
    
     _rotatePoints(points, angle, center = null) {
-        console.log('[Legacy] _rotatePoints -> NewSystem.rotate');
+        console.log(`[Legacy] _rotatePoints(${angle}°) -> NewSystem.rotate`);
         return NewSystem.rotate(points, angle, center);
     }
    
     _scalePoints(points, scale) {
-        console.log('[Legacy] _scalePoints -> NewSystem.scale');
-        return NewSystem.scale(points, scale);
-    }
-   
-    // Старые методы, которые могут вызываться
-    transformPoints(points, options) {
-        return this._transformPoints(points, options);
+        console.log(`[Legacy] _scalePoints(${scale})`);
+        return points.map(p => ({
+            ...p,
+            x: p.x * scale,
+            y: p.y * scale
+        }));
     }
    
     _transformPoints(points, options) {
@@ -46,22 +46,7 @@ _centerPoints(points, options = {}) {
         return NewSystem.transform(points, options);
     }
    
-    validateTransformation(transformation) {
-        console.log('[Legacy] validateTransformation');
-        return {
-            valid: true,
-            type: transformation?.type || 'unknown',
-            message: 'Проверка трансформации (легаси режим)'
-        };
-    }
-   
-    getTransformation() {
-        console.log('[Legacy] getTransformation');
-        return NewSystem.createCanonicalTransformation();
-    }
-
-  
-    // Основные методы (из coordinate-manager.js)
+    // Основные публичные методы
     getCoordinates(source, options = {}) {
         console.log(`[Legacy] getCoordinates -> NewSystem.transform (${typeof source === 'object' ? 'object' : 'points'})`);
        
@@ -111,6 +96,24 @@ _centerPoints(points, options = {}) {
             source: 'unknown',
             method: 'default'
         };
+  }
+   
+    transformPoints(points, options) {
+        return this._transformPoints(points, options);
+    }
+   
+    validateTransformation(transformation) {
+        console.log('[Legacy] validateTransformation');
+        return {
+            valid: true,
+            type: transformation?.type || 'unknown',
+            message: 'Проверка трансформации (легаси режим)'
+        };
+    }
+   
+    getTransformation() {
+        console.log('[Legacy] getTransformation');
+        return NewSystem.createCanonicalTransformation();
     }
 
     transformToSystem(points, fromSystem, toSystem, transformation = null) {
@@ -346,17 +349,17 @@ module.exports = {
     // Старые классы
     CoordinateManager: LegacyCoordinateManager,
     TransformationValidator: LegacyTransformationValidator,
-   
+
     // Старые функции для прямого использования
     transformPoints: NewSystem.transformPoints,
     normalizePoints: NewSystem.normalizePoints,
     applyTransformation: NewSystem.applyTransformation,
     createCanonicalTransformation: NewSystem.createCanonicalTransformation,
     isCanonical: NewSystem.isCanonical,
-   
+
     // Константы
     CONSTANTS: NewSystem.CONSTANTS,
-   
+
     // Ссылка на новую систему
     NewSystem: NewSystem
 };
