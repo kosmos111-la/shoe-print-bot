@@ -213,6 +213,73 @@ class CoordinateTransformer {
         }
         return points;
     }
+ /**
+     * Центрирование точек
+     */
+    static centerPoints(points, options = {}) {
+        console.log('[CoordinateTransformer] Центрирование точек');
+        if (!points || points.length === 0) return points;
+       
+        // Находим центр
+        const center = this.calculateCenter(points);
+       
+        // Сдвигаем все точки
+        return points.map(p => ({
+            ...p,
+            x: p.x - center.x,
+            y: p.y - center.y
+        }));
+    }
+   
+    static calculateCenter(points) {
+        if (!points || points.length === 0) return { x: 0, y: 0 };
+       
+        const sum = points.reduce((acc, p) => ({
+            x: acc.x + p.x,
+            y: acc.y + p.y
+        }), { x: 0, y: 0 });
+       
+        return {
+            x: sum.x / points.length,
+            y: sum.y / points.length
+        };
+    }
+   
+    // Другие часто используемые методы
+    static getBounds(points) {
+        if (!points || points.length === 0) {
+            return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+        }
+       
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+       
+        points.forEach(p => {
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
+        });
+       
+        return { minX, maxX, minY, maxY };
+    }
+   
+    static createCanonicalTransformation() {
+        return {
+            rotationAngle: 0,
+            center: { x: 500, y: 500 }, // стандартный центр
+            scale: 1.0,
+            type: 'canonical',
+            timestamp: new Date()
+        };
+    }
+   
+    static isCanonical(transformation) {
+        if (!transformation) return false;
+        return Math.abs(transformation.rotationAngle || 0) < 0.1 &&
+               Math.abs((transformation.center?.x || 0) - 500) < 10 &&
+               Math.abs((transformation.center?.y || 0) - 500) < 10;
+    }
 }
 
 module.exports = CoordinateTransformer;
