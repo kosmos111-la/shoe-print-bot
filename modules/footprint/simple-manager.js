@@ -9,6 +9,7 @@ const LegacyCoordinates = require('./legacy-support/coordinate-facade');
 
 // 🔥 НОВАЯ СИСТЕМА КООРДИНАТ
 const CoordinateSystem = require('./core/coordinate-system');
+const LegacySupport = require('./legacy-support/coordinate-facade');
 
 // 🔥 ОСТАЛЬНЫЕ МОДУЛИ (без изменений)
 const FootprintComparisonEngine = require('./core/comparison/footprint-comparison-engine');
@@ -16,7 +17,7 @@ const TemplateCoordination = require('./core/comparison/template-coordination');
 const SessionManager = require('./core/session/session-manager');
 const VisualizationManager = require('./core/visualization/visualization-manager');
 const GeometryUtils = require('./core/utils/geometry-utils');
-const CoordinateSystemLogger = require('./core/coordinate-system-logger');
+// const CoordinateSystemLogger = require('./core/coordinate-system-logger');
 const LogManager = require('./core/log-manager');
 const SimpleGraph = require('./simple-graph');
 const SimpleAligner = require('./alignment/simple-aligner');
@@ -147,10 +148,18 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
         // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: Coordinate Director
         // this.coordinateDirector = new CoordinateDirector(this);
         this.coordinateSystem = CoordinateSystem;
+    this.coordinateManager = new LegacySupport.CoordinateManager(this);
+    this.transformationValidator = new LegacySupport.TransformationValidator(this);
+   
+    // Для обратной совместимости создайте эти поля:
+    this.coordinateSystemConstants = CoordinateSystem.CONSTANTS;
+    this.CoordinateSystemConstants = class {
+        static get CENTER() { return CoordinateSystem.CONSTANTS.CENTER; }
+        static get BOUNDS() { return CoordinateSystem.CONSTANTS.BOUNDS; }
+        // ... другие геттеры по необходимости
 
     // this.coordinateDirector = new LegacyCoordinates.CoordinateDirector(this); // если нужно
-        // или используем новую систему напрямую:
-        this.coordinateSystem = CoordinateSystem;
+       
     }
 
     // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка модулей
