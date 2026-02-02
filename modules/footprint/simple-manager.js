@@ -1,14 +1,12 @@
 // modules/footprint/simple-manager.js
-// 🔥 ПОЛНАЯ БЕЗОПАСНАЯ ОПТИМИЗАЦИЯ
-// 🔥 НИКАКИХ ИЗМЕНЕНИЙ В ИМПОРТАХ - это рискованно
+// 🔥 ПОЛНАЯ МИГРАЦИЯ НА НОВУЮ СИСТЕМУ КООРДИНАТ
 const fs = require('fs');
 const path = require('path');
 
-// 🔥 СТАРЫЕ МОДУЛИ - ЗАМЕНЯЕМ НА ФАСАД
-const LegacyCoordinates = require('./legacy-support/coordinate-facade');
-
-// 🔥 НОВАЯ СИСТЕМА КООРДИНАТ
+// 🔥 НОВАЯ ЕДИНАЯ СИСТЕМА КООРДИНАТ
 const CoordinateSystem = require('./core/coordinate-system');
+
+// 🔥 Legacy фасад ТОЛЬКО для обратной совместимости
 const LegacySupport = require('./legacy-support/coordinate-facade');
 
 // 🔥 ОСТАЛЬНЫЕ МОДУЛИ (без изменений)
@@ -17,7 +15,6 @@ const TemplateCoordination = require('./core/comparison/template-coordination');
 const SessionManager = require('./core/session/session-manager');
 const VisualizationManager = require('./core/visualization/visualization-manager');
 const GeometryUtils = require('./core/utils/geometry-utils');
-// const CoordinateSystemLogger = require('./core/coordinate-system-logger');
 const LogManager = require('./core/log-manager');
 const SimpleGraph = require('./simple-graph');
 const SimpleAligner = require('./alignment/simple-aligner');
@@ -45,7 +42,7 @@ class SimpleFootprintManager {
             enableCoordinateDiagnostics = true,
             ...otherOptions
         } = options;
-       
+
         this.config = {
             dbPath,
             autoAlignment,
@@ -82,23 +79,24 @@ class SimpleFootprintManager {
             visualizationsDir: path.join(this.config.dbPath, 'visualizations/alignments')
         });
 
-        // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: основные модули
-        this.coordinateManager = new LegacyCoordinates.CoordinateManager(this);
-this.transformationValidator = new LegacyCoordinates.TransformationValidator(this);
-        this.coordinateSystemLogger = new CoordinateSystemLogger(this);
+        // 🔥 ВАЖНОЕ ИЗМЕНЕНИЕ: используем ТОЛЬКО новую систему координат
+        this.coordinateSystem = CoordinateSystem;
+       
+        // 🔥 Legacy поддержка ТОЛЬКО для обратной совместимости методов
+        this.coordinateManager = new LegacySupport.CoordinateManager(this);
+        this.transformationValidator = new LegacySupport.TransformationValidator(this);
+       
+        // 🔥 Основные модули
         this.comparisonEngine = new FootprintComparisonEngine(this);
         this.templateCoordinator = new TemplateCoordination(this);
         this.sessionManager = new SessionManager(this);
         this.visualizationManager = new VisualizationManager(this);
         this.geometryUtils = new GeometryUtils(this);
 
-        // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка модулей в цикле
-        this.logModuleStatus();
-
         // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: остальные компоненты
         const MergeVisualizer = require('./merge-visualizer');
         const SimpleMatcher = require('./simple-matcher');
-       
+
         this.mergeVisualizer = new MergeVisualizer({
             outputDir: path.join(this.config.dbPath, 'visualizations'),
             debug: this.config.debug
@@ -120,10 +118,19 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
             lastActivity: new Date()
         };
 
+        // 🔥 Для обратной совместимости со старым кодом
+        this.coordinateSystemConstants = CoordinateSystem.CONSTANTS;
+        this.CoordinateSystemConstants = class {
+            static get CENTER() { return CoordinateSystem.CONSTANTS.CENTER; }
+            static get BOUNDS() { return CoordinateSystem.CONSTANTS.BOUNDS; }
+            static get CANONICAL_ANGLE() { return CoordinateSystem.CONSTANTS.CANONICAL_ANGLE; }
+            static get DEFAULT_SCALE() { return CoordinateSystem.CONSTANTS.DEFAULT_SCALE; }
+        };
+
         this.ensureDirectories();
         this.loadExistingModels();
 
-        console.log(`🚀 SimpleFootprintManager (${this.getLinesOfCode()} строк)`);
+        console.log(`🚀 SimpleFootprintManager инициализирован с новой системой координат`);
 
         // 🔥 БЕЗОПАСНО: пороги как в оригинале
         this.DECISION_THRESHOLDS = {
@@ -132,131 +139,86 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
             MAX_DISTANCE: 50,
             VECTOR_MATCH_THRESHOLD: 0.05
         };
-       
+
         console.log(`🎯 Единые пороги: сходство >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
 
         // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: логирование
         this.log = new LogManager(this);
         if (options.logLevel) this.log.setLevel(options.logLevel);
-        console.log(`🚀 SimpleFootprintManager с улучшенным логированием`);
 
         // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: диагностика
         if (this.config.enableCoordinateDiagnostics) {
             this.runInitialDiagnostics();
         }
-
-        // 🔥 НИКАКИХ ИЗМЕНЕНИЙ: Coordinate Director
-        // this.coordinateDirector = new CoordinateDirector(this);
-        this.coordinateSystem = CoordinateSystem;
-    this.coordinateManager = new LegacySupport.CoordinateManager(this);
-    this.transformationValidator = new LegacySupport.TransformationValidator(this);
-   
-    // Для обратной совместимости создайте эти поля:
-    this.coordinateSystemConstants = CoordinateSystem.CONSTANTS;
-    this.CoordinateSystemConstants = class {
-        static get CENTER() { return CoordinateSystem.CONSTANTS.CENTER; }
-        static get BOUNDS() { return CoordinateSystem.CONSTANTS.BOUNDS; }
-        // ... другие геттеры по необходимости
-
-    // this.coordinateDirector = new LegacyCoordinates.CoordinateDirector(this); // если нужно
-       
     }
 
     // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка модулей
     logModuleStatus() {
         const modules = [
-            ['coordinateManager', this.coordinateManager],
+            ['coordinateSystem', this.coordinateSystem],
+            ['coordinateManager (legacy)', this.coordinateManager],
             ['transformationValidator', this.transformationValidator],
-            ['coordinateSystemLogger', this.coordinateSystemLogger],
             ['comparisonEngine', this.comparisonEngine],
             ['templateCoordinator', this.templateCoordinator],
             ['sessionManager', this.sessionManager],
             ['visualizationManager', this.visualizationManager],
             ['geometryUtils', this.geometryUtils]
         ];
-       
-        console.log(`🔍 ПРОВЕРКА МОДУЛЕЙ:`);
+
+        console.log(`🔍 ПРОВЕРКА МОДУЛЕЙ (новая система координат):`);
         modules.forEach(([name, obj]) => {
             console.log(`   - ${name}: ${obj ? '✅' : '❌'}`);
         });
     }
 
-    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: начальная диагностика (более структурированная)
+    // 🔥 ОБНОВЛЕННАЯ диагностика для новой системы
     runInitialDiagnostics() {
-        console.log('\n🔍 ЗАПУСК НАЧАЛЬНОЙ ДИАГНОСТИКИ СИСТЕМЫ КООРДИНАТ...');
-       
-        // 1. Проверка модулей координат
-        console.log('  1. Проверка модулей координат...');
+        console.log('\n🔍 ЗАПУСК НАЧАЛЬНОЙ ДИАГНОСТИКИ НОВОЙ СИСТЕМЫ КООРДИНАТ...');
+
+        // 1. Проверка новой системы координат
+        console.log('  1. Проверка новой системы координат...');
         try {
             const testPoints = [
                 { x: 100, y: 100, id: 'test1', confidence: 0.8 },
                 { x: 200, y: 200, id: 'test2', confidence: 0.7 },
                 { x: 300, y: 300, id: 'test3', confidence: 0.9 }
             ];
-           
-            const result1 = this.coordinateManager.getCoordinates(testPoints, {
+
+            // Проверяем трансформацию
+            const transformed = this.coordinateSystem.transform(testPoints);
+            // Проверяем нормализацию
+            const normalized = this.coordinateSystem.normalize(testPoints);
+            // Проверяем валидацию
+            const validation = this.coordinateSystem.validate(testPoints);
+
+            console.log(`     ✅ CoordinateSystem активен`);
+            console.log(`     • Трансформация: ${transformed.length} точек`);
+            console.log(`     • Нормализация: ${normalized.length} точек`);
+            console.log(`     • Валидация: ${validation.validCount}/${validation.total} валидных`);
+        } catch (error) {
+            console.log(`     ❌ CoordinateSystem: ${error.message}`);
+        }
+
+        // 2. Проверка Legacy поддержки
+        console.log('  2. Проверка Legacy поддержки...');
+        try {
+            const legacyResult = this.coordinateManager.getCoordinates([{x: 100, y: 100}], {
                 coordinateSystem: 'original',
-                debug: false,
                 suppressWarnings: true
             });
-            const result2 = this.coordinateManager.getCoordinates(testPoints, {
-                coordinateSystem: 'normalized',
-                debug: false,
-                suppressWarnings: true
-            });
-           
-            console.log(`     CoordinateManager: ✅ (${result1.count} → ${result2.count} точек)`);
+            console.log(`     ✅ Legacy поддержка: ${legacyResult.count} точек`);
         } catch (error) {
-            console.log(`     CoordinateManager: ❌ ${error.message}`);
+            console.log(`     ❌ Legacy поддержка: ${error.message}`);
         }
 
-        // 2. Проверка TransformationValidator
-        console.log('  2. Проверка TransformationValidator...');
-        try {
-            const testTransformations = [{
-                rotationAngle: 0,
-                center: { x: 500, y: 500 },
-                type: 'test_1',
-                timestamp: new Date()
-            }];
-            this.coordinateSystemLogger.logTransformations(testTransformations, 'Тест');
-            console.log(`     TransformationValidator: ✅ (инициализирован)`);
-        } catch (error) {
-            console.log(`     TransformationValidator: ❌ ${error.message}`);
-        }
-
-        // 3. Проверка CoordinateSystemLogger
-        console.log('  3. Проверка CoordinateSystemLogger...');
-        try {
-            const testObject = {
-                id: 'test_footprint',
-                name: 'Тестовый отпечаток',
-                graph: { nodes: new Map([['node1', { x: 100, y: 100 }]]) }
-            };
-            this.coordinateSystemLogger.logCoordinateSystems('Тест', testObject);
-            console.log(`     CoordinateSystemLogger: ✅ (логирование работает)`);
-        } catch (error) {
-            console.log(`     CoordinateSystemLogger: ❌ ${error.message}`);
-        }
-
-        // 4. Проверка состояния системы
-        console.log('  4. Проверка состояния системы...');
+        // 3. Проверка состояния системы
+        console.log('  3. Проверка состояния системы...');
         console.log(`     • Загружено моделей: ${this.loadedModels.size}`);
-        console.log(`     • Активных сессий: ${this.userSessions.size}`);
         console.log(`     • Шаблонов: ${this.vectorSuperModels.size}`);
+        console.log(`     • Константы: центр (${CoordinateSystem.CONSTANTS.CENTER.x}, ${CoordinateSystem.CONSTANTS.CENTER.y})`);
         console.log(`     • Режим отладки: ${this.config.debug ? 'включен' : 'выключен'}`);
 
-        // 5. Проверка преобразований
-        console.log('  5. Проверка преобразований...');
-        try {
-            const transformInfo = this.coordinateManager.getTransformationInfo();
-            console.log(`     • Реализовано преобразований: ${transformInfo.implemented.length}`);
-            console.log(`     • Предупреждений: ${transformInfo.warningCount}`);
-        } catch (error) {
-            console.log(`     • Ошибка: ${error.message}`);
-        }
-       
-        console.log('✅ Начальная диагностика завершена\n');
+        console.log('\n✅ Начальная диагностика новой системы координат завершена\n');
     }
 
     // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: подсчет строк кода
@@ -265,12 +227,9 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
         return lines.reduce((sum, lines) => sum + lines, 0);
     }
 
-    // 🔥 ВСЕ ФАСАДНЫЕ МЕТОДЫ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ
-     getCoordinates(source, options = {}) {
-        // 🔥 ПОСТЕПЕННАЯ МИГРАЦИЯ: сначала через фасад
-        const legacyResult = this.coordinateManager.getCoordinates(source, options);
-       
-        // 🔥 НОВАЯ ЛОГИКА: если нужно больше контроля
+    // 🔥 ФАСАДНЫЕ МЕТОДЫ С ИСПОЛЬЗОВАНИЕМ НОВОЙ СИСТЕМЫ
+    getCoordinates(source, options = {}) {
+        // 🔥 Используем legacy для совместимости, но можно переключаться
         if (options.useNewSystem) {
             console.log('[SimpleManager] Использую новую систему координат');
             if (Array.isArray(source)) {
@@ -282,33 +241,34 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
             }
         }
        
-        return legacyResult;
+        return this.coordinateManager.getCoordinates(source, options);
     }
-   
-    // 🔥 УПРОЩЕННЫЙ МЕТОД ДЛЯ ТОЧЕК
+
+    // 🔥 УПРОЩЕННЫЕ МЕТОДЫ ДЛЯ НОВОЙ СИСТЕМЫ
     transformPoints(points, options = {}) {
         console.log('[SimpleManager] transformPoints -> CoordinateSystem.transform');
         return this.coordinateSystem.transform(points, options);
     }
-   
-    // 🔥 УПРОЩЕННЫЙ МЕТОД ДЛЯ НОРМАЛИЗАЦИИ
+
     normalizePoints(points, options = {}) {
         console.log('[SimpleManager] normalizePoints -> CoordinateSystem.normalize');
         return this.coordinateSystem.normalize(points, options);
     }
-   
+
+    validatePoints(points) {
+        console.log('[SimpleManager] validatePoints -> CoordinateSystem.validate');
+        return this.coordinateSystem.validate(points);
+    }
+
     // 🔥 НОВЫЙ МЕТОД: принудительная каноническая система
     enforceCanonical(transformation, systemName = 'simple_manager') {
         console.log(`[SimpleManager] enforceCanonical для ${systemName}`);
         return this.coordinateSystem.enforceCanonical(transformation, systemName);
     }
 
+    // 🔥 Legacy методы для обратной совместимости
     transformToSystem(points, fromSystem, toSystem, transformation = null) {
         return this.coordinateManager.transformToSystem(points, fromSystem, toSystem, transformation);
-    }
-
-    validatePoints(points) {
-        return this.coordinateManager.validatePoints(points);
     }
 
     comparePoints(points1, points2, options = {}) {
@@ -344,20 +304,85 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
         return this.transformationValidator.extractTransformationsFromFootprint(obj);
     }
 
+    // 🔥 УПРОЩЕННЫЕ МЕТОДЫ ЛОГИРОВАНИЯ
     logCoordinateSystems(title, ...objects) {
-        return this.coordinateSystemLogger.logCoordinateSystems(title, ...objects);
+        console.log(`[CoordinateSystem LOG] ${title}: ${objects.length} объектов`);
+       
+        objects.forEach((obj, idx) => {
+            if (obj && typeof obj === 'object') {
+                const points = this.extractPointsFromObject(obj);
+                console.log(`  Объект ${idx + 1}: ${points.length} точек`);
+            }
+        });
+       
+        return { logged: true, count: objects.length };
     }
 
     logTransformations(transformations, title = 'ТРАНСФОРМАЦИИ') {
-        return this.coordinateSystemLogger.logTransformations(transformations, title);
+        console.log(`[CoordinateSystem LOG] ${title}: ${Array.isArray(transformations) ? transformations.length : 1} трансформаций`);
+       
+        if (Array.isArray(transformations)) {
+            transformations.forEach((trans, idx) => {
+                if (trans && typeof trans === 'object') {
+                    console.log(`  Трансформация ${idx + 1}: угол=${trans.rotationAngle || 0}°, центр=(${trans.center?.x || 0}, ${trans.center?.y || 0})`);
+                }
+            });
+        }
+       
+        return { logged: true, count: Array.isArray(transformations) ? transformations.length : 1 };
     }
 
     generateDiagnosticReport(userId = null) {
-        return this.coordinateSystemLogger.generateDiagnosticReport(userId);
+        const report = {
+            timestamp: new Date().toISOString(),
+            userId: userId,
+            system: 'Новая единая система координат',
+            status: 'active',
+           
+            coordinateSystem: {
+                constants: this.coordinateSystem.CONSTANTS,
+                availableMethods: Object.keys(this.coordinateSystem).filter(k => typeof this.coordinateSystem[k] === 'function')
+            },
+           
+            legacySupport: {
+                coordinateManager: !!this.coordinateManager,
+                transformationValidator: !!this.transformationValidator
+            },
+           
+            statistics: {
+                loadedModels: this.loadedModels.size,
+                vectorSuperModels: this.vectorSuperModels.size,
+                userSessions: this.userSessions.size
+            },
+           
+            config: {
+                debug: this.config.debug,
+                enableCoordinateDiagnostics: this.config.enableCoordinateDiagnostics,
+                minPointsForFootprint: this.config.minPointsForFootprint
+            }
+        };
+       
+        console.log(`[CoordinateSystem] Диагностический отчет сгенерирован для ${userId || 'system'}`);
+        return report;
     }
 
     compareSystems(obj1, obj2, options = {}) {
-        return this.coordinateSystemLogger.compareCoordinateSystems(obj1, obj2, options);
+        const points1 = this.extractPointsFromObject(obj1);
+        const points2 = this.extractPointsFromObject(obj2);
+       
+        if (points1.length === 0 || points2.length === 0) {
+            return { comparable: false, error: 'Недостаточно точек для сравнения' };
+        }
+       
+        const comparison = this.coordinateManager.comparePoints(points1, points2, options);
+       
+        return {
+            comparable: true,
+            similarity: comparison.similarity || 0,
+            distance: comparison.distance || 0,
+            points1: points1.length,
+            points2: points2.length
+        };
     }
 
     // 🔥 ВСЕ МЕТОДЫ СРАВНЕНИЯ БЕЗ ИЗМЕНЕНИЙ
@@ -454,12 +479,32 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
         return this.geometryUtils.calculateDistance(point1, point2);
     }
 
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    extractPointsFromObject(obj) {
+        if (Array.isArray(obj)) {
+            return obj.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
+        }
+       
+        if (obj && obj.graph && obj.graph.nodes) {
+            const points = [];
+            for (const [, node] of obj.graph.nodes) {
+                if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+                    points.push({ x: node.x, y: node.y });
+                }
+            }
+            return points;
+        }
+       
+        if (obj && obj.points) {
+            return Array.isArray(obj.points) ? obj.points : [];
+        }
+       
+        return [];
+    }
+
     // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
-
-        // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: выносим синхронизацию в отдельный блок
-        this.synchronizeCoordinateSystems();
 
         try {
             // Валидация входных данных
@@ -467,14 +512,16 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
                 return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
             }
 
-            // Извлечение точек
+            // Извлечение точек с использованием новой системы
             const points = this.extractPointsFromAnalysis(analysis);
             if (points.length < this.config.minPointsForFootprint) {
                 return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
             }
 
             // Логирование координат
-            this.logCoordinateExtraction(userId, points);
+            if (this.config.enableCoordinateDiagnostics) {
+                this.logCoordinateSystems(`Извлечение точек для пользователя ${userId}`, points);
+            }
 
             // Создание и нормализация графа
             const { finalGraph, transformationInfo } = this.createAndNormalizeGraph(points, userId, photoInfo);
@@ -487,7 +534,7 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
             if (!session.currentFootprint) {
                 return await this.processFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
             }
-           
+
             return await this.processSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
 
         } catch (error) {
@@ -497,23 +544,7 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
         }
     }
 
-    // 🔥 БЕЗОПАСНЫЕ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (не меняют логику)
-    synchronizeCoordinateSystems() {
-        if (this.coordinateDirector) {
-            console.log('🎬 Синхронизирую системы координат перед сравнением...');
-            this.coordinateDirector.forceSynchronizeBeforeComparison();
-        }
-    }
-
-    logCoordinateExtraction(userId, points) {
-        if (this.config.enableCoordinateDiagnostics) {
-            this.coordinateSystemLogger.logCoordinateSystems(
-                `Извлечение точек из анализа для пользователя ${userId}`,
-                points
-            );
-        }
-    }
-
+    // 🔥 БЕЗОПАСНЫЕ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     createAndNormalizeGraph(points, userId, photoInfo) {
         const graph = new SimpleGraph(`Временный_${Date.now()}`);
         graph.buildFromPoints(points);
@@ -544,10 +575,7 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
         finalGraph.transformation = transformationInfo;
 
         if (this.config.enableCoordinateDiagnostics) {
-            this.coordinateSystemLogger.logTransformations(
-                [transformationInfo],
-                `Трансформация для фото ${photoInfo.photoId || 'unknown'}`
-            );
+            this.logTransformations([transformationInfo], `Трансформация для фото ${photoInfo.photoId || 'unknown'}`);
         }
 
         return { finalGraph, transformationInfo };
@@ -563,7 +591,7 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
 
     updateSessionData(session, points, transformationInfo) {
         session.lastActivity = new Date();
-       
+
         if (!session.metadata.normalizationHistory) {
             session.metadata.normalizationHistory = [];
         }
@@ -587,7 +615,7 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
             if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
                 const xs = pred.points.map(p => p.x);
                 const ys = pred.points.map(p => p.y);
-               
+
                 points.push({
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
                     y: (Math.min(...ys) + Math.max(...ys)) / 2,
@@ -600,7 +628,16 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
             }
         }
 
-        return this.coordinateManager.validatePoints(points);
+        // 🔥 Используем новую систему для валидации
+        const validation = this.coordinateSystem.validate(points);
+        if (!validation.valid) {
+            console.log(`⚠️ Валидация точек: ${validation.validCount}/${validation.total} валидных`);
+        }
+
+        return points.filter(p =>
+            p && typeof p.x === 'number' && typeof p.y === 'number' &&
+            !isNaN(p.x) && !isNaN(p.y)
+        );
     }
 
     // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: извлечение точек из отпечатка
@@ -637,10 +674,7 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
         });
 
         if (this.config.enableCoordinateDiagnostics) {
-            this.coordinateSystemLogger.logCoordinateSystems(
-                `Создан первый отпечаток для пользователя ${userId}`,
-                session.currentFootprint
-            );
+            this.logCoordinateSystems(`Создан первый отпечаток для пользователя ${userId}`, session.currentFootprint);
         }
 
         // Создание шаблона
@@ -670,7 +704,7 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
         console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
         console.log(`✅ Создан шаблон с ${vectorModel.templateBuilder.getVisualizationData()?.cells?.length || 0} ячейками`);
 
-        // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: отправка в Telegram через единый метод
+        // Отправка в Telegram
         const telegramResults = await this.sendFirstPhotoTelegram(
             session, userId, transformationInfo, vectorModel, addResult, bot, chatId
         );
@@ -747,7 +781,7 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
             if (templateVizResult && templateVizResult.template && fs.existsSync(templateVizResult.template)) {
                 const templateData = vectorModel.templateBuilder.getVisualizationData();
                 const stats = templateData?.stats || {};
-               
+
                 let templateCaption = `📊 ШАБЛОН СОЗДАН\n\n`;
                 templateCaption += `📋 Ячеек: ${stats.cells || 0}\n`;
                 templateCaption += `🎯 Эталонный граф: ${templateData.referenceGraphId?.slice(0, 8) || 'создан'}\n`;
@@ -780,7 +814,7 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
         }
 
         if (this.config.enableCoordinateDiagnostics) {
-            this.coordinateSystemLogger.logCoordinateSystems(
+            this.logCoordinateSystems(
                 `Сравнение фото с существующим отпечатком (пользователь ${userId})`,
                 session.currentFootprint,
                 { points: this.extractPointsFromAnalysis(analysis), _source: 'new_analysis' }
@@ -814,7 +848,7 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
                 transformationInfo
             );
             transformationConsistent = transComparison.consistent;
-           
+
             if (!transformationConsistent) {
                 console.log('⚠️ Трансформации не согласованы перед сравнением отпечатков');
             }
@@ -1056,11 +1090,6 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
         };
     }
 
-    // 🔥 ВСЕ ДИАГНОСТИЧЕСКИЕ МЕТОДЫ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ
-    // debugCoordinateSystems, compareFootprintsWithDiagnostics,
-    // validateSystemConsistency, checkDataConsistency,
-    // analyzeComparisonResults, makeFinalDecision, checkDirectories
-
     // 🔥 ВСЕ ГЕТТЕРЫ И УТИЛИТЫ БЕЗ ИЗМЕНЕНИЙ
     getVectorSuperModel(userId) {
         return this.vectorSuperModels.get(userId);
@@ -1192,7 +1221,8 @@ this.transformationValidator = new LegacyCoordinates.TransformationValidator(thi
             loadedModels: this.loadedModels.size,
             vectorModels: this.vectorSuperModels.size,
             templateStats: templateStats,
-            coordinateDiagnostics: this.config.enableCoordinateDiagnostics
+            coordinateDiagnostics: this.config.enableCoordinateDiagnostics,
+            coordinateSystem: 'Новая единая система (v2.0)'
         };
     }
 
