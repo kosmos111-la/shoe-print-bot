@@ -128,22 +128,32 @@ class AlignmentSystem {
         const errors = [];
        
         for (let i = 0; i < points.length; i++) {
-            const dx = points[i].x - reference[i].x;
-            const dy = points[i].y - reference[i].y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-           
-            totalError += distance;
-            errors.push({ index: i, distance });
-           
-            if (distance > threshold) {
-                return {
-                    valid: false,
-                    error: `Точка ${i} слишком далеко: ${distance.toFixed(1)}px`,
-                    maxError: distance,
-                    averageError: totalError / (i + 1)
-                };
-            }
-        }
+    const dx = points[i].x - reference[i].x;
+    const dy = points[i].y - reference[i].y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    totalError += distance;
+    errors.push({ index: i, distance });
+
+    if (distance > threshold) {
+        // Не возвращаем сразу, а собираем все ошибки
+        return {
+            valid: false,
+            error: `Точка ${i} слишком далеко: ${distance.toFixed(1)}px`,
+            maxError: distance,
+            averageError: totalError / (i + 1),
+            allErrors: errors // Добавляем все ошибки
+        };
+    }
+}
+
+const avgError = totalError / points.length;
+return {
+    valid: true,
+    averageError: avgError,
+    maxError: Math.max(...errors.map(e => e.distance)),
+    errors
+};
        
         const avgError = totalError / points.length;
         return {
