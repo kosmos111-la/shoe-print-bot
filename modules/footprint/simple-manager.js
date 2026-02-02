@@ -6,6 +6,9 @@ const path = require('path');
 const CoordinateSystem = require('./core/coordinate-system');
 const LegacySupport = require('./legacy-support/coordinate-facade');
 
+// 🔥 НОВАЯ УНИФИЦИРОВАННАЯ СИСТЕМА ВЫРАВНИВАНИЯ (заменяет 5 старых модулей)
+const AlignmentSystem = require('./core/alignment-system');
+
 // 🔥 ОСТАЛЬНЫЕ МОДУЛИ
 const FootprintComparisonEngine = require('./core/comparison/footprint-comparison-engine');
 const TemplateCoordination = require('./core/comparison/template-coordination');
@@ -14,16 +17,11 @@ const VisualizationManager = require('./core/visualization/visualization-manager
 const GeometryUtils = require('./core/utils/geometry-utils');
 const LogManager = require('./core/log-manager');
 const SimpleGraph = require('./simple-graph');
-const SimpleAligner = require('./alignment/simple-aligner');
-const CoordinateSystemConverter = require('./alignment/coordinate-system-converter');
-const CoordinateValidator = require('./alignment/coordinate-validator');
-const TransformationDebugger = require('./alignment/transformation-debugger');
-const ImprovedAligner = require('./alignment/improved-aligner');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
-        console.log('🔥 SimpleFootprintManager создан с НОВОЙ системой координат');
-       
+        console.log('🔥 SimpleFootprintManager создан с НОВОЙ системой координат и выравнивания');
+
         // 🔥 НАСТРОЙКИ
         const {
             dbPath = './data/footprints',
@@ -39,6 +37,7 @@ class SimpleFootprintManager {
             templateMatchThreshold = 80,
             minTemplateConfirmations = 1,
             enableCoordinateDiagnostics = true,
+            alignmentMethod = 'procrustes', // 🔥 Новая опция: метод выравнивания
             ...otherOptions
         } = options;
 
@@ -49,23 +48,24 @@ class SimpleFootprintManager {
             debug,
             usePointTracker,
             enableVectorSuperModel,
-            enableMergeVisualization: enableMergeVisualization !== false, // 🔥 ВАЖНО: по умолчанию true
-            enableTemplateVisualization: enableTemplateVisualization !== false, // 🔥 ВАЖНО: по умолчанию true
+            enableMergeVisualization: enableMergeVisualization !== false,
+            enableTemplateVisualization: enableTemplateVisualization !== false,
             topologySimilarityThreshold,
             minPointsForFootprint,
             templateMatchThreshold,
             minTemplateConfirmations,
             enableCoordinateDiagnostics,
+            alignmentMethod, // 🔥 Сохраняем метод выравнивания
             ...otherOptions
         };
 
-        console.log(`🎯 Настройки визуализации: merge=${this.config.enableMergeVisualization}, template=${this.config.enableTemplateVisualization}`);
+        console.log(`🎯 Настройки: метод выравнивания=${this.config.alignmentMethod}`);
 
         // 🔥 НОВАЯ ЕДИНАЯ СИСТЕМА КООРДИНАТ
         this.coordinateSystem = CoordinateSystem;
         this.coordinateManager = new LegacySupport.CoordinateManager(this);
         this.transformationValidator = new LegacySupport.TransformationValidator(this);
-       
+
         // 🔥 ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
         this.coordinateSystemConstants = CoordinateSystem.CONSTANTS;
         this.CoordinateSystemConstants = {
@@ -86,18 +86,50 @@ class SimpleFootprintManager {
         this.rotationProcessor = new RotationInvariance({ debug: this.config.debug });
         this.mirrorDetector = new MirrorDetection({ debug: this.config.debug });
 
-        // 🔥 ALIGNMENT МОДУЛИ
-        this.aligner = new SimpleAligner({
-            debug: this.config.debug,
-            visualizationDir: path.join(this.config.dbPath, 'visualizations/alignments')
-        });
-        this.coordinateConverter = new CoordinateSystemConverter({ debug: this.config.debug });
-        this.coordinateValidator = new CoordinateValidator({ debug: this.config.debug });
-        this.transformationDebugger = new TransformationDebugger({ debug: this.config.debug });
-        this.improvedAligner = new ImprovedAligner({
-            debug: this.config.debug,
-            visualizationsDir: path.join(this.config.dbPath, 'visualizations/alignments')
-        });
+        // 🔥 НОВАЯ УНИФИЦИРОВАННАЯ СИСТЕМА ВЫРАВНИВАНИЯ (заменяет 5 старых модулей)
+        this.alignmentSystem = AlignmentSystem;
+
+        // 🔥 ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ - создаем псевдо-модули
+        this.simpleAligner = {
+            align: (points, reference, options = {}) =>
+                AlignmentSystem.alignPoints(points, reference, {
+                    method: 'simple',
+                    ...options
+                })
+        };
+
+        this.improvedAligner = {
+            align: (points, reference, options = {}) =>
+                AlignmentSystem.alignPoints(points, reference, {
+                    method: this.config.alignmentMethod || 'procrustes',
+                    ...options
+                })
+        };
+
+        this.coordinateSystemConverter = {
+            convert: (points, fromSystem, toSystem) =>
+                AlignmentSystem.convertCoordinates(points, fromSystem, toSystem),
+            convertToCanonical: (points) => points, // В единой системе конвертация не нужна
+            convertFromCanonical: (points) => points
+        };
+
+        this.coordinateValidator = {
+            validate: (points, options = {}) =>
+                CoordinateSystem.validate(points, options),
+            validateAlignment: (points, reference, threshold = 10) =>
+                AlignmentSystem.validateAlignment(points, reference, threshold)
+        };
+
+        this.transformationDebugger = {
+            debug: (points1, points2, transformation) => ({
+                input1: points1.length,
+                input2: points2.length,
+                transformation: transformation || 'none',
+                system: 'unified_alignment_system'
+            }),
+            logTransformation: (name, data) =>
+                console.log(`[TransformationDebugger] ${name}:`, data)
+        };
 
         // 🔥 ОСНОВНЫЕ МОДУЛИ
         this.comparisonEngine = new FootprintComparisonEngine(this);
@@ -118,30 +150,30 @@ class SimpleFootprintManager {
                     console.log(`🎨 Визуализация отпечатка для ${userId} (заглушка)`);
                     const timestamp = new Date().getTime();
                     const vizPath = path.join(this.config.dbPath, 'visualizations', `footprint_${userId}_${timestamp}.png`);
-                   
+
                     // Создаем заглушку файла
                     if (!fs.existsSync(path.dirname(vizPath))) {
                         fs.mkdirSync(path.dirname(vizPath), { recursive: true });
                     }
-                   
+
                     console.log(`📁 Создана заглушка: ${vizPath}`);
                     return { path: vizPath, success: true, isStub: true };
                 },
-               
+
                 visualizeVectorSuperModel: async (userId, vectorModel) => {
                     console.log(`🎨 Визуализация шаблона для ${userId} (заглушка)`);
                     const timestamp = new Date().getTime();
                     const templatePath = path.join(this.config.dbPath, 'visualizations/templates', `template_${userId}_${timestamp}.png`);
-                   
+
                     // Создаем заглушку файла
                     if (!fs.existsSync(path.dirname(templatePath))) {
                         fs.mkdirSync(path.dirname(templatePath), { recursive: true });
                     }
-                   
+
                     console.log(`📁 Создана заглушка шаблона: ${templatePath}`);
                     return { template: templatePath, success: true, isStub: true, stats: { cells: 0 } };
                 },
-               
+
                 debugVisualizations: (userId) => {
                     console.log(`🔍 Debug визуализаций для ${userId}`);
                     return { status: 'stub' };
@@ -151,70 +183,71 @@ class SimpleFootprintManager {
 
         // 🔥 MERGE VISUALIZER - ЗАГРУЖАЕМ ВСЕГДА!
         try {
-    const MergeVisualizer = require('./merge-visualizer');
-    this.mergeVisualizer = new MergeVisualizer({
-        outputDir: path.join(this.config.dbPath, 'visualizations'),
-        debug: this.config.debug
-    });
-    console.log('✅ MergeVisualizer загружен');
-} catch (error) {
-    console.log(`❌ Ошибка загрузки MergeVisualizer: ${error.message}`);
-    this.mergeVisualizer = {
-        createMergeVisualization: () => ({ path: null }),
-        addVisualization: () => 1,
-        getCount: () => 0
-    };
-}
+            const MergeVisualizer = require('./merge-visualizer');
+            this.mergeVisualizer = new MergeVisualizer({
+                outputDir: path.join(this.config.dbPath, 'visualizations'),
+                debug: this.config.debug
+            });
+            console.log('✅ MergeVisualizer загружен');
+        } catch (error) {
+            console.log(`❌ Ошибка загрузки MergeVisualizer: ${error.message}`);
+            this.mergeVisualizer = {
+                createMergeVisualization: () => ({ path: null }),
+                addVisualization: () => 1,
+                getCount: () => 0
+            };
+        }
 
-// 🔥 ИСПРАВЛЕНИЕ SIMPLE-MATCHER
-try {
-    const SimpleMatcher = require('./simple-matcher');
-    console.log('🎯 Загружаю SimpleMatcher...');
-   
-    // Попробуем разные варианты конструктора
-    try {
-        this.matcher = new SimpleMatcher({
-            debug: this.config.debug,
-            similarityThreshold: this.config.topologySimilarityThreshold
-        });
-        console.log('✅ SimpleMatcher инициализирован с параметрами');
-    } catch (paramError) {
-        // Попробуем без параметров
-        console.log('🔄 Пробую SimpleMatcher без параметров...');
+        // 🔥 ИСПРАВЛЕНИЕ SIMPLE-MATCHER
         try {
-            this.matcher = new SimpleMatcher();
-            console.log('✅ SimpleMatcher инициализирован без параметров');
-        } catch (noParamError) {
-            // Создаем заглушку
-            console.log(`⚠️ SimpleMatcher не смог инициализироваться: ${noParamError.message}`);
+            const SimpleMatcher = require('./simple-matcher');
+            console.log('🎯 Загружаю SimpleMatcher...');
+
+            // Попробуем разные варианты конструктора
+            try {
+                this.matcher = new SimpleMatcher({
+                    debug: this.config.debug,
+                    similarityThreshold: this.config.topologySimilarityThreshold
+                });
+                console.log('✅ SimpleMatcher инициализирован с параметрами');
+            } catch (paramError) {
+                // Попробуем без параметров
+                console.log('🔄 Пробую SimpleMatcher без параметров...');
+                try {
+                    this.matcher = new SimpleMatcher();
+                    console.log('✅ SimpleMatcher инициализирован без параметров');
+                } catch (noParamError) {
+                    // Создаем заглушку
+                    console.log(`⚠️ SimpleMatcher не смог инициализироваться: ${noParamError.message}`);
+                    this.matcher = {
+                        compare: () => ({
+                            similarity: 0.5,
+                            matches: [],
+                            error: 'matcher in fallback mode'
+                        }),
+                        match: (fp1, fp2) => ({
+                            similarity: Math.random() * 0.3 + 0.4,
+                            matchedPoints: []
+                        })
+                    };
+                }
+            }
+        } catch (requireError) {
+            console.log(`❌ Файл SimpleMatcher не найден: ${requireError.message}`);
             this.matcher = {
                 compare: () => ({
                     similarity: 0.5,
                     matches: [],
-                    error: 'matcher in fallback mode'
+                    error: 'matcher not available'
                 }),
-                match: (fp1, fp2) => ({
-                    similarity: Math.random() * 0.3 + 0.4, // случайное сходство 0.4-0.7
-                    matchedPoints: []
+                match: () => ({
+                    similarity: 0.5,
+                    matchedPoints: [],
+                    error: 'matcher module missing'
                 })
             };
         }
-    }
-} catch (requireError) {
-    console.log(`❌ Файл SimpleMatcher не найден: ${requireError.message}`);
-    this.matcher = {
-        compare: () => ({
-            similarity: 0.5,
-            matches: [],
-            error: 'matcher not available'
-        }),
-        match: () => ({
-            similarity: 0.5,
-            matchedPoints: [],
-            error: 'matcher module missing'
-        })
-    };
-}
+
         // 🔥 СТРУКТУРЫ ДАННЫХ
         this.userSessions = new Map();
         this.loadedModels = new Map();
@@ -224,7 +257,8 @@ try {
             totalModels: 0,
             totalPhotosProcessed: 0,
             totalTemplateConfirmations: 0,
-            lastActivity: new Date()
+            lastActivity: new Date(),
+            alignmentSystem: 'unified_v1.0'
         };
 
         // 🔥 ПОРОГИ РЕШЕНИЙ
@@ -267,6 +301,18 @@ try {
 
     getBounds(points) {
         return this.coordinateSystem.getBounds(points);
+    }
+
+    // 🔥 НОВЫЕ МЕТОДЫ СИСТЕМЫ ВЫРАВНИВАНИЯ
+    alignPoints(points, reference, options = {}) {
+        return this.alignmentSystem.alignPoints(points, reference, {
+            method: this.config.alignmentMethod,
+            ...options
+        });
+    }
+
+    validateAlignment(points, reference, threshold = 10) {
+        return this.alignmentSystem.validateAlignment(points, reference, threshold);
     }
 
     // 🔥 Legacy методы для обратной совместимости
@@ -328,26 +374,28 @@ try {
             userId: userId,
             timestamp: new Date(),
             coordinateSystem: 'new_unified',
+            alignmentSystem: 'unified_v1.0',
             status: 'active',
-            modules: ['CoordinateSystem', 'LegacySupport'],
+            modules: ['CoordinateSystem', 'AlignmentSystem', 'LegacySupport'],
             visualization: {
                 enabled: this.config.enableMergeVisualization,
                 templateEnabled: this.config.enableTemplateVisualization,
                 manager: !!this.visualizationManager
-            }
+            },
+            alignmentMethod: this.config.alignmentMethod
         };
     }
 
     compareSystems(obj1, obj2, options = {}) {
         const points1 = this.extractPointsFromObject(obj1);
         const points2 = this.extractPointsFromObject(obj2);
-       
+
         if (points1.length === 0 || points2.length === 0) {
             return { comparable: false, error: 'Недостаточно точек для сравнения' };
         }
-       
+
         const comparison = this.coordinateManager.comparePoints(points1, points2, options);
-       
+
         return {
             comparable: true,
             similarity: comparison.similarity || 0,
@@ -428,13 +476,13 @@ try {
     // 🔥 МЕТОДЫ ВИЗУАЛИЗАЦИИ - ИСПРАВЛЕННЫЕ!
     async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
         console.log(`🎨 ВЫЗОВ ВИЗУАЛИЗАЦИИ отпечатка для ${userId}`);
-       
+
         // Проверяем, включена ли визуализация
         if (!this.config.enableMergeVisualization) {
             console.log('⚠️ Визуализация отключена в настройках');
             return { path: null, success: false, reason: 'disabled' };
         }
-       
+
         try {
             if (this.visualizationManager && this.visualizationManager.visualizeSingleFootprintConfirmations) {
                 const result = await this.visualizationManager.visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo);
@@ -453,13 +501,13 @@ try {
 
     async visualizeVectorSuperModel(userId, vectorModel) {
         console.log(`🎨 ВЫЗОВ ВИЗУАЛИЗАЦИИ шаблона для ${userId}`);
-       
+
         // Проверяем, включена ли визуализация шаблонов
         if (!this.config.enableTemplateVisualization) {
             console.log('⚠️ Визуализация шаблонов отключена в настройках');
             return { template: null, success: false, reason: 'disabled' };
         }
-       
+
         try {
             if (this.visualizationManager && this.visualizationManager.visualizeVectorSuperModel) {
                 const result = await this.visualizationManager.visualizeVectorSuperModel(userId, vectorModel);
@@ -500,7 +548,7 @@ try {
         if (Array.isArray(obj)) {
             return obj.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
         }
-       
+
         if (obj && obj.graph && obj.graph.nodes) {
             const points = [];
             for (const [, node] of obj.graph.nodes) {
@@ -510,11 +558,11 @@ try {
             }
             return points;
         }
-       
+
         if (obj && obj.points) {
             return Array.isArray(obj.points) ? obj.points : [];
         }
-       
+
         return [];
     }
 
@@ -575,7 +623,7 @@ try {
 
             const transformed = this.coordinateSystem.transform(testPoints);
             const center = this.calculateCenter(testPoints);
-           
+
             console.log(`     ✅ CoordinateSystem активен`);
             console.log(`     • Трансформация: ${transformed.length} точек`);
             console.log(`     • Центр: (${center.x}, ${center.y})`);
@@ -583,8 +631,37 @@ try {
             console.log(`     ❌ CoordinateSystem: ${error.message}`);
         }
 
-        // 2. Проверка визуализации
-        console.log('  2. Проверка визуализации...');
+        // 2. Проверка системы выравнивания
+        console.log('  2. Проверка системы выравнивания...');
+        try {
+            const testPoints = [
+                { x: 100, y: 100 },
+                { x: 200, y: 100 },
+                { x: 150, y: 200 }
+            ];
+
+            const reference = [
+                { x: 120, y: 110 },
+                { x: 220, y: 110 },
+                { x: 170, y: 210 }
+            ];
+
+            const aligned = this.alignPoints(testPoints, reference, { method: 'simple' });
+            console.log(`     ✅ AlignmentSystem активен`);
+            console.log(`     • Метод выравнивания: ${this.config.alignmentMethod}`);
+            console.log(`     • Выровнено: ${aligned.length} точек`);
+
+            const validation = this.validateAlignment(aligned, reference, 20);
+            console.log(`     • Валидация: ${validation.valid ? '✅ OK' : '❌ FAIL'}`);
+            if (validation.valid) {
+                console.log(`     • Средняя ошибка: ${validation.averageError.toFixed(2)}px`);
+            }
+        } catch (error) {
+            console.log(`     ❌ AlignmentSystem: ${error.message}`);
+        }
+
+        // 3. Проверка визуализации
+        console.log('  3. Проверка визуализации...');
         console.log(`     • Визуализация включена: ${this.config.enableMergeVisualization ? '✅' : '❌'}`);
         console.log(`     • Визуализация шаблонов: ${this.config.enableTemplateVisualization ? '✅' : '❌'}`);
         console.log(`     • VisualizationManager: ${this.visualizationManager ? '✅' : '❌'}`);
@@ -595,6 +672,7 @@ try {
     logModuleStatus() {
         const modules = [
             ['coordinateSystem', this.coordinateSystem],
+            ['alignmentSystem (unified)', this.alignmentSystem],
             ['coordinateManager (legacy)', this.coordinateManager],
             ['transformationValidator', this.transformationValidator],
             ['comparisonEngine', this.comparisonEngine],
@@ -603,7 +681,10 @@ try {
             ['geometryUtils', this.geometryUtils],
             ['visualizationManager', this.visualizationManager],
             ['mergeVisualizer', this.mergeVisualizer],
-            ['matcher', this.matcher]
+            ['matcher', this.matcher],
+            ['simpleAligner (compat)', this.simpleAligner],
+            ['improvedAligner (compat)', this.improvedAligner],
+            ['coordinateValidator (compat)', this.coordinateValidator]
         ];
 
         console.log(`🔍 ПРОВЕРКА МОДУЛЕЙ:`);
@@ -705,7 +786,7 @@ try {
 
     async processFirstPhoto(session, userId, analysis, photoInfo, graph, transformationInfo, bot, chatId) {
         console.log(`👣 Первое фото: создаю отпечаток и ВИЗУАЛИЗАЦИЮ`);
-       
+
         const SimpleFootprint = require('./simple-footprint');
         session.currentFootprint = new SimpleFootprint({
             userId: userId,
@@ -715,7 +796,7 @@ try {
 
         session.currentFootprint.metadata.normalizationInfo = transformationInfo;
         session.currentFootprint.setManager(this);
-       
+
         // Применяем каноническую трансформацию если метод есть
         if (session.currentFootprint.forceCanonicalTransformation) {
             session.currentFootprint.forceCanonicalTransformation(this);
@@ -759,7 +840,7 @@ try {
 
         if (bot && chatId) {
             console.log(`🤖 Бот доступен, создаю визуализации...`);
-           
+
             try {
                 // 1. Визуализация отпечатка
                 if (this.config.enableMergeVisualization) {
@@ -769,7 +850,7 @@ try {
                         userId,
                         transformationInfo
                     );
-                   
+
                     if (firstPhotoViz && firstPhotoViz.path) {
                         hasVisualization = true;
                         vizPath = firstPhotoViz.path;
@@ -785,7 +866,7 @@ try {
                 if (this.config.enableTemplateVisualization) {
                     console.log(`🎨 Создаю визуализацию шаблона...`);
                     const templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
-                   
+
                     if (templateVizResult && templateVizResult.template) {
                         hasTemplateViz = true;
                         templatePath = templateVizResult.template;
@@ -819,9 +900,9 @@ try {
                             caption: cleanMarkdown(caption),
                             parse_mode: 'HTML'
                         });
-                       
+
                         console.log('✅ Визуализация отправлена в Telegram');
-                       
+
                     } catch (error) {
                         console.log(`❌ Ошибка отправки в Telegram: ${error.message}`);
                     }
@@ -851,9 +932,9 @@ try {
                             caption: cleanMarkdown(templateCaption),
                             parse_mode: 'HTML'
                         });
-                       
+
                         console.log('✅ Визуализация шаблона отправлена в Telegram');
-                       
+
                     } catch (error) {
                         console.log(`❌ Ошибка отправки шаблона в Telegram: ${error.message}`);
                     }
@@ -894,7 +975,7 @@ try {
         }
 
         const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
-                                         (session.currentFootprint.getTransformation ? session.currentFootprint.getTransformation() : null);
+                                          (session.currentFootprint.getTransformation ? session.currentFootprint.getTransformation() : null);
 
         // Создание временного отпечатка
         const SimpleFootprint = require('./simple-footprint');
@@ -941,7 +1022,7 @@ try {
                                   existingTransformationInfo, similarity, comparisonResult,
                                   tempResult, bot, chatId) {
         console.log(`✅ Следы совпали (${similarity.toFixed(3)}) - создаю ВИЗУАЛИЗАЦИЮ`);
-       
+
         const nodesAdded = tempResult?.added || 0;
 
         // Работа с шаблоном
@@ -984,7 +1065,7 @@ try {
 
         if (bot && chatId) {
             console.log(`🤖 Бот доступен, создаю визуализации подтверждений...`);
-           
+
             try {
                 // 1. Визуализация подтверждений
                 if (this.config.enableMergeVisualization) {
@@ -998,7 +1079,7 @@ try {
                             comparisonResult: comparisonResult
                         }
                     );
-                   
+
                     if (clusterVizResult && clusterVizResult.path) {
                         hasVisualization = true;
                         clusterVizPath = clusterVizResult.path;
@@ -1012,7 +1093,7 @@ try {
                 if (this.config.enableTemplateVisualization && vectorModel) {
                     console.log(`🎨 Создаю визуализацию шаблона...`);
                     const templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
-                   
+
                     if (templateVizResult && templateVizResult.template) {
                         templateVizPath = templateVizResult.template;
                         console.log(`✅ Путь к шаблону: ${templateVizPath}`);
@@ -1048,10 +1129,10 @@ try {
                             caption: cleanMarkdown(caption),
                             parse_mode: 'HTML'
                         });
-                       
+
                         telegramSent = true;
                         console.log('✅ Визуализация подтверждений отправлена в Telegram');
-                       
+
                     } catch (error) {
                         console.log(`❌ Ошибка отправки подтверждений в Telegram: ${error.message}`);
                     }
@@ -1080,10 +1161,10 @@ try {
                             caption: cleanMarkdown(templateCaption),
                             parse_mode: 'HTML'
                         });
-                       
+
                         templateSent = true;
                         console.log('✅ Визуализация шаблона отправлена в Telegram');
-                       
+
                     } catch (error) {
                         console.log(`❌ Ошибка отправки шаблона в Telegram: ${error.message}`);
                     }
@@ -1251,6 +1332,8 @@ try {
             templateStats: templateStats,
             coordinateDiagnostics: this.config.enableCoordinateDiagnostics,
             coordinateSystem: 'Новая единая система (v2.0)',
+            alignmentSystem: 'Унифицированная (v1.0)',
+            alignmentMethod: this.config.alignmentMethod,
             visualization: {
                 enabled: this.config.enableMergeVisualization,
                 templateEnabled: this.config.enableTemplateVisualization
@@ -1304,11 +1387,11 @@ try {
     getMergeVisualizationCount() {
         return this.mergeVisualizer?.getCount ? this.mergeVisualizer.getCount() : 0;
     }
-   
+
     addMergeVisualization(userId, vizInfo) {
         return this.mergeVisualizer?.addVisualization ? this.mergeVisualizer.addVisualization(userId, vizInfo) : 1;
     }
-   
+
     getLinesOfCode() { return 5000; }
 }
 
