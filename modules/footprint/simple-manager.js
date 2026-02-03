@@ -67,22 +67,26 @@ class SimpleFootprintManager {
         this.transformationValidator = new LegacySupport.TransformationValidator(this);
 
         // 🔥 ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
-        // 🔥 ИСПРАВЛЕНО: Убираем MIN_MAX, используем DEFAULT_RANGE
+        // 🔥 ИСПРАВЛЕНО: Правильно определяем константы
         this.coordinateSystemConstants = {
             CENTER: { x: 500, y: 500 },
             BOUNDS: { minX: 0, minY: 0, maxX: 1000, maxY: 1000 },
-            DEFAULT_RANGE: { min: 0, max: 1000 }
+            DEFAULT_RANGE: { min: 0, max: 1000 },
+            MIN_MAX: { min: 0, max: 1000 } // 🔥 ДОБАВЛЕНО для обратной совместимости
         };
-       
+
         this.CoordinateSystemConstants = {
             CENTER: this.coordinateSystemConstants.CENTER,
             BOUNDS: this.coordinateSystemConstants.BOUNDS,
             CANONICAL_CENTER: this.coordinateSystemConstants.CENTER,
+            MIN_MAX: this.coordinateSystemConstants.MIN_MAX, // 🔥 ДОБАВЛЕНО
+            DEFAULT_RANGE: this.coordinateSystemConstants.DEFAULT_RANGE, // 🔥 ДОБАВЛЕНО
             getSystemInfo: () => ({
                 name: 'Единая система координат следов',
                 version: '2.0',
                 center: this.coordinateSystemConstants.CENTER,
-                bounds: this.coordinateSystemConstants.BOUNDS
+                bounds: this.coordinateSystemConstants.BOUNDS,
+                range: this.coordinateSystemConstants.DEFAULT_RANGE
             })
         };
 
@@ -458,7 +462,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 Вспомогательный метод для нормализации массива точек
+    // 🔥 Вспомогательный метод для нормализации массива точек - ИСПРАВЛЕННЫЙ
     normalizePointsArray(points, footprint) {
         try {
             // 1. Трансформируем в единую систему координат
@@ -468,9 +472,9 @@ class SimpleFootprintManager {
             });
 
             // 2. Нормализуем точки (центрирование, масштабирование)
-            // 🔥 ИСПРАВЛЕНО: Используем DEFAULT_RANGE вместо MIN_MAX
-            const range = this.coordinateSystemConstants.DEFAULT_RANGE;
-           
+            // 🔥 ИСПРАВЛЕНО: Используем DEFAULT_RANGE или MIN_MAX из констант
+            const range = this.coordinateSystemConstants.MIN_MAX || this.coordinateSystemConstants.DEFAULT_RANGE || { min: 0, max: 1000 };
+
             const normalizedPoints = this.coordinateSystem.normalize(transformed, {
                 method: 'min_max',
                 range: range,
@@ -512,6 +516,7 @@ class SimpleFootprintManager {
 
         } catch (error) {
             console.error(`❌ Ошибка в normalizePointsArray: ${error.message}`);
+            console.error(error.stack);
             // В случае ошибки возвращаем исходные точки
             if (footprint.updatePoints) {
                 footprint.updatePoints(points);
@@ -535,7 +540,7 @@ class SimpleFootprintManager {
                 console.log('⚠️ Один или оба отпечатка не содержат точек');
                 console.log(`   Отпечаток 1: ${points1.length} точек`);
                 console.log(`   Отпечаток 2: ${points2.length} точек`);
-               
+
                 return {
                     similar: false,
                     similarity: 0,
@@ -605,6 +610,7 @@ class SimpleFootprintManager {
 
         } catch (error) {
             console.error(`❌ Ошибка сравнения: ${error.message}`);
+            console.error(error.stack);
             return {
                 similar: false,
                 similarity: 0,
@@ -787,6 +793,7 @@ class SimpleFootprintManager {
             }
         } catch (error) {
             console.log(`❌ Ошибка визуализации: ${error.message}`);
+            console.error(error.stack);
             return { path: null, success: false, reason: 'error', error: error.message };
         }
     }
@@ -811,6 +818,7 @@ class SimpleFootprintManager {
             }
         } catch (error) {
             console.log(`❌ Ошибка визуализации шаблона: ${error.message}`);
+            console.error(error.stack);
             return { template: null, success: false, reason: 'error', error: error.message };
         }
     }
@@ -924,7 +932,7 @@ class SimpleFootprintManager {
                 debug: this.config.debug
             });
             return result.points || [];
-           
+
         } catch (error) {
             console.log(`⚠️ Ошибка извлечения точек из отпечатка: ${error.message}`);
             return [];
@@ -990,7 +998,7 @@ class SimpleFootprintManager {
                 points: [{ x: 100, y: 100 }, { x: 200, y: 100 }, { x: 150, y: 200 }],
                 getPoints: function() { return this.points; }
             };
-           
+
             const testFootprint2 = {
                 points: [{ x: 110, y: 110 }, { x: 210, y: 110 }, { x: 160, y: 210 }],
                 getPoints: function() { return this.points; }
@@ -1021,8 +1029,20 @@ class SimpleFootprintManager {
             console.log(`     ❌ Метод normalizeFootprint: ${error.message}`);
         }
 
-        // 5. Проверка визуализации
-        console.log('  5. Проверка визуализации...');
+        // 5. Проверка констант координатной системы
+        console.log('  5. Проверка констант координатной системы...');
+        try {
+            console.log(`     ✅ Константы системы координат:`);
+            console.log(`     • CENTER: (${this.coordinateSystemConstants.CENTER.x}, ${this.coordinateSystemConstants.CENTER.y})`);
+            console.log(`     • BOUNDS: ${this.coordinateSystemConstants.BOUNDS.minX}-${this.coordinateSystemConstants.BOUNDS.maxX}, ${this.coordinateSystemConstants.BOUNDS.minY}-${this.coordinateSystemConstants.BOUNDS.maxY}`);
+            console.log(`     • DEFAULT_RANGE: ${this.coordinateSystemConstants.DEFAULT_RANGE.min}-${this.coordinateSystemConstants.DEFAULT_RANGE.max}`);
+            console.log(`     • MIN_MAX: ${this.coordinateSystemConstants.MIN_MAX.min}-${this.coordinateSystemConstants.MIN_MAX.max}`);
+        } catch (error) {
+            console.log(`     ❌ Константы системы координат: ${error.message}`);
+        }
+
+        // 6. Проверка визуализации
+        console.log('  6. Проверка визуализации...');
         console.log(`     • Визуализация включена: ${this.config.enableMergeVisualization ? '✅' : '❌'}`);
         console.log(`     • Визуализация шаблонов: ${this.config.enableTemplateVisualization ? '✅' : '❌'}`);
         console.log(`     • VisualizationManager: ${this.visualizationManager ? '✅' : '❌'}`);
@@ -1143,6 +1163,7 @@ class SimpleFootprintManager {
 
         } catch (error) {
             console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
+            console.error(error.stack);
             return { success: false, error: error.message, nodesAdded: 0 };
         }
     }
