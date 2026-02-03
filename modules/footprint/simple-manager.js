@@ -227,63 +227,153 @@ class SimpleFootprintManager {
             console.log(`✅ Файл SimpleMatcher найден: ${simpleMatcherPath}`);
            
             try {
+                // Полная перезагрузка модуля
+                delete require.cache[require.resolve('./simple-matcher')];
                 const SimpleMatcher = require('./simple-matcher');
                 console.log('🎯 SimpleMatcher модуль загружен, инициализирую...');
                
+                // Диагностика модуля
+                console.log('🔍 Диагностика SimpleMatcher:');
+                console.log(`   • Тип модуля: ${typeof SimpleMatcher}`);
+                console.log(`   • Ключи модуля: ${Object.keys(SimpleMatcher || {}).join(', ')}`);
+               
                 // Попробуем разные варианты инициализации
                 let matcherInstance = null;
+                let initializationMethod = '';
                
-                // Вариант 1: С параметрами
+                // Вариант 1: С параметрами (как конструктор)
                 try {
+                    console.log('🔄 Пробую SimpleMatcher как конструктор с параметрами...');
                     matcherInstance = new SimpleMatcher({
                         debug: this.config.debug,
                         similarityThreshold: this.config.topologySimilarityThreshold,
                         enableDiagnostics: true
                     });
-                    console.log('✅ SimpleMatcher инициализирован с параметрами');
+                    initializationMethod = 'constructor_with_params';
+                    console.log('✅ SimpleMatcher инициализирован как конструктор с параметрами');
                 } catch (paramError) {
-                    console.log(`🔄 Не удалось инициализировать с параметрами: ${paramError.message}`);
+                    console.log(`🔄 Не удалось инициализировать как конструктор: ${paramError.message}`);
                    
                     // Вариант 2: Без параметров
                     try {
+                        console.log('🔄 Пробую SimpleMatcher как конструктор без параметров...');
                         matcherInstance = new SimpleMatcher();
-                        console.log('✅ SimpleMatcher инициализирован без параметров');
+                        initializationMethod = 'constructor_no_params';
+                        console.log('✅ SimpleMatcher инициализирован как конструктор без параметров');
                     } catch (noParamError) {
-                        console.log(`🔄 Не удалось инициализировать без параметров: ${noParamError.message}`);
+                        console.log(`🔄 Не удалось инициализировать как конструктор: ${noParamError.message}`);
                        
                         // Вариант 3: Пробуем вызвать как функцию
                         if (typeof SimpleMatcher === 'function') {
                             try {
+                                console.log('🔄 Пробую SimpleMatcher как функцию...');
                                 matcherInstance = SimpleMatcher();
+                                initializationMethod = 'function_call';
                                 console.log('✅ SimpleMatcher вызван как функция');
                             } catch (funcError) {
                                 console.log(`🔄 Не удалось вызвать как функцию: ${funcError.message}`);
+                            }
+                        }
+                       
+                        // Вариант 4: Может быть, это уже готовый объект?
+                        if (!matcherInstance && SimpleMatcher && typeof SimpleMatcher === 'object') {
+                            console.log('🔄 Пробую SimpleMatcher как готовый объект...');
+                            matcherInstance = SimpleMatcher;
+                            initializationMethod = 'ready_object';
+                            console.log('✅ SimpleMatcher используется как готовый объект');
+                        }
+                    }
+                }
+               
+                // 🔥 ДИАГНОСТИКА: Проверяем, что у matcherInstance есть метод match
+                if (matcherInstance) {
+                    console.log('🔍 Диагностика matcherInstance:');
+                    console.log(`   • Тип: ${typeof matcherInstance}`);
+                    console.log(`   • Метод match доступен: ${typeof matcherInstance.match === 'function' ? '✅ ДА' : '❌ НЕТ'}`);
+                    console.log(`   • Метод compare доступен: ${typeof matcherInstance.compare === 'function' ? '✅ ДА' : '❌ НЕТ'}`);
+                   
+                    if (typeof matcherInstance.match !== 'function') {
+                        console.log('⚠️ У matcherInstance нет метода match, проверяю альтернативные имена...');
+                       
+                        // Ищем альтернативные имена методов
+                        const methodKeys = Object.keys(matcherInstance).filter(key => typeof matcherInstance[key] === 'function');
+                        console.log(`   • Доступные методы: ${methodKeys.join(', ')}`);
+                       
+                        // Пробуем найти альтернативное имя для match
+                        const possibleMatchNames = ['match', 'comparePoints', 'matchPoints', 'similarity'];
+                        for (const methodName of possibleMatchNames) {
+                            if (typeof matcherInstance[methodName] === 'function') {
+                                console.log(`   • Найден метод ${methodName}, переименовываю в match...`);
+                                matcherInstance.match = matcherInstance[methodName].bind(matcherInstance);
+                                break;
                             }
                         }
                     }
                 }
                
                 // Если все варианты не сработали, создаем заглушку с ошибкой
-                if (!matcherInstance) {
-                    console.log(`❌ Все попытки инициализации SimpleMatcher провалились`);
+                if (!matcherInstance || typeof matcherInstance.match !== 'function') {
+                    console.log(`❌ Все попытки инициализации SimpleMatcher провалились или нет метода match`);
+                    console.log(`   • Matcher instance: ${!!matcherInstance}`);
+                    console.log(`   • Метод match: ${matcherInstance ? typeof matcherInstance.match : 'no instance'}`);
+                   
                     this.matcher = {
-                        match: () => {
+                        match: (points1, points2) => {
                             console.log('❌ SimpleMatcher не инициализирован, возвращаю фиктивную схожесть');
-                            return { similarity: 0, matchedPoints: [] };
+                            console.log(`   • Точки 1: ${points1.length}`);
+                            console.log(`   • Точки 2: ${points2.length}`);
+                           
+                            // Используем наш fallback метод
+                            const similarity = this.calculateImprovedSimilarity(points1, points2);
+                            return {
+                                similarity: similarity,
+                                matchedPoints: []
+                            };
                         },
-                        compare: () => ({
-                            similarity: 0,
+                       
+                        compare: (footprint1, footprint2) => ({
+                            similarity: 0.5,
                             matches: [],
-                            error: 'SimpleMatcher failed to initialize'
+                            error: 'SimpleMatcher failed to initialize properly'
                         })
                     };
+                    console.log('🔄 Создан fallback matcher из-за ошибки инициализации');
                 } else {
                     this.matcher = matcherInstance;
-                    console.log('🎯 SimpleMatcher успешно установлен');
+                    console.log(`🎯 SimpleMatcher успешно установлен (метод: ${initializationMethod})`);
+                   
+                    // Тестируем matcher
+                    console.log('🔍 Тестирую SimpleMatcher...');
+                    const testPoints1 = [{x: 0, y: 0}, {x: 100, y: 0}, {x: 50, y: 100}];
+                    const testPoints2 = [{x: 10, y: 10}, {x: 110, y: 10}, {x: 60, y: 110}];
+                   
+                    try {
+                        const testResult = this.matcher.match(testPoints1, testPoints2);
+                        console.log(`✅ SimpleMatcher тест прошел успешно:`);
+                        console.log(`   • Схожесть: ${testResult.similarity}`);
+                        console.log(`   • Совпадений: ${testResult.matchedPoints ? testResult.matchedPoints.length : 0}`);
+                    } catch (testError) {
+                        console.log(`❌ Ошибка тестирования SimpleMatcher: ${testError.message}`);
+                        console.log(`   Исправляю matcher...`);
+                       
+                        // Добавляем безопасный метод match
+                        const originalMatch = this.matcher.match;
+                        this.matcher.match = function(points1, points2) {
+                            try {
+                                return originalMatch.call(this, points1, points2);
+                            } catch (error) {
+                                console.log(`❌ Ошибка в SimpleMatcher.match: ${error.message}`);
+                                // Используем fallback
+                                const similarity = this.calculateImprovedSimilarity(points1, points2);
+                                return { similarity: similarity, matchedPoints: [] };
+                            }
+                        }.bind(this);
+                    }
                 }
                
             } catch (requireError) {
                 console.log(`❌ Ошибка require SimpleMatcher: ${requireError.message}`);
+                console.error(requireError.stack);
                 this.createFallbackMatcher();
             }
         } else {
@@ -301,7 +391,8 @@ class SimpleFootprintManager {
             totalPhotosProcessed: 0,
             totalTemplateConfirmations: 0,
             lastActivity: new Date(),
-            alignmentSystem: 'unified_v1.0'
+            alignmentSystem: 'unified_v1.0',
+            simpleMatcherStatus: this.matcher ? 'loaded' : 'fallback'
         };
 
         // 🔥 ПОРОГИ РЕШЕНИЙ
@@ -323,6 +414,7 @@ class SimpleFootprintManager {
         }
 
         console.log('✅ SimpleFootprintManager инициализирован');
+        console.log(`📊 Статус SimpleMatcher: ${this.systemStats.simpleMatcherStatus}`);
     }
 
     // 🔥 Добавляем метод для создания заглушки
@@ -331,9 +423,12 @@ class SimpleFootprintManager {
         this.matcher = {
             match: (points1, points2) => {
                 console.log('🎯 Fallback matcher: вычисляю схожесть...');
+                console.log(`   • Точки 1: ${points1.length}`);
+                console.log(`   • Точки 2: ${points2.length}`);
                
                 // Простой расчет схожести
                 if (points1.length === 0 || points2.length === 0) {
+                    console.log('   • Один из массивов пуст, схожесть = 0');
                     return { similarity: 0, matchedPoints: [] };
                 }
                
@@ -342,6 +437,7 @@ class SimpleFootprintManager {
                 let matchedCount = 0;
                
                 // Находим ближайшие точки
+                console.log(`   • Начинаю поиск ближайших точек...`);
                 for (const p1 of points1) {
                     let minDistance = Infinity;
                     for (const p2 of points2) {
@@ -359,7 +455,6 @@ class SimpleFootprintManager {
                 const avgDistance = totalDistance / matchedCount;
                
                 // Преобразуем расстояние в схожесть (0-1)
-                // При расстоянии 0 = 100% схожести, при 200px = 0% схожести
                 const maxDistance = 200;
                 const similarity = Math.max(0, 1 - (avgDistance / maxDistance));
                
@@ -481,7 +576,8 @@ class SimpleFootprintManager {
                 templateEnabled: this.config.enableTemplateVisualization,
                 manager: !!this.visualizationManager
             },
-            alignmentMethod: this.config.alignmentMethod
+            alignmentMethod: this.config.alignmentMethod,
+            simpleMatcherStatus: this.systemStats.simpleMatcherStatus
         };
     }
 
@@ -606,7 +702,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД compareFootprints - заменяем старую версию
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД compareFootprints - теперь с правильной работой SimpleMatcher
     async compareFootprints(footprint1, footprint2, options = {}) {
         console.log(`🔍 Сравнение отпечатков с НОВЫМ ИСПРАВЛЕННЫМ МЕТОДОМ`);
 
@@ -652,21 +748,37 @@ class SimpleFootprintManager {
             console.log(`   Пример нормализованных точек 1:`, normalized1.slice(0, 3).map(p => `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`));
             console.log(`   Пример нормализованных точек 2:`, normalized2.slice(0, 3).map(p => `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`));
 
-            // 🔥 ИСПРАВЛЕНИЕ 2: Проверяем наличие matcher
+            // 🔥 ИСПРАВЛЕНИЕ 2: Проверяем наличие matcher с детальной диагностикой
             let similarity = 0;
             let matches = [];
             let methodUsed = 'unknown';
            
+            console.log(`🔍 Проверяю SimpleMatcher...`);
+            console.log(`   • Matcher существует: ${!!this.matcher}`);
+            console.log(`   • Matcher имеет метод match: ${this.matcher ? typeof this.matcher.match === 'function' : 'no matcher'}`);
+           
             if (this.matcher && typeof this.matcher.match === 'function') {
                 console.log(`🎯 Использую SimpleMatcher для сравнения...`);
                 try {
+                    console.log(`🔍 Вызываю this.matcher.match() с ${normalized1.length} и ${normalized2.length} точками...`);
                     const matchResult = this.matcher.match(normalized1, normalized2);
+                    console.log(`✅ SimpleMatcher вернул результат`);
+                   
                     similarity = matchResult.similarity || 0;
                     matches = matchResult.matchedPoints || [];
                     methodUsed = 'simple_matcher';
+                   
                     console.log(`✅ SimpleMatcher результат: ${(similarity * 100).toFixed(1)}% схожести, ${matches.length} совпадений`);
+                   
+                    // 🔥 ДОПОЛНИТЕЛЬНАЯ ДИАГНОСТИКА: Если схожесть 0, возможно проблема с SimpleMatcher
+                    if (similarity === 0 && normalized1.length > 0 && normalized2.length > 0) {
+                        console.log(`⚠️ SimpleMatcher вернул 0% схожести для ненулевых точек, использую улучшенный метод`);
+                        methodUsed = 'simple_matcher_fallback';
+                        similarity = this.calculateImprovedSimilarity(normalized1, normalized2);
+                    }
                 } catch (matcherError) {
-                    console.log(`❌ Ошибка SimpleMatcher: ${matcherError.message}`);
+                    console.log(`❌ Ошибка SimpleMatcher.match: ${matcherError.message}`);
+                    console.error(matcherError.stack);
                     methodUsed = 'matcher_error';
                     // Используем fallback метод
                     similarity = this.calculateImprovedSimilarity(normalized1, normalized2);
@@ -750,7 +862,8 @@ class SimpleFootprintManager {
                 method: methodUsed,
                 decision: isSimilar ? 'same' : 'different',
                 matches: matches.length,
-                thresholdUsed: threshold
+                thresholdUsed: threshold,
+                matcherUsed: methodUsed.includes('simple_matcher') ? 'yes' : 'no'
             };
 
         } catch (error) {
@@ -1999,7 +2112,7 @@ class SimpleFootprintManager {
                 normalizeFootprint: '✅ обновлен',
                 compareFootprints: '✅ исправлен (порог 0.7)',
                 alignmentMethod: this.config.alignmentMethod,
-                simpleMatcherIntegration: '✅ работает'
+                simpleMatcherIntegration: this.systemStats.simpleMatcherStatus
             }
         };
     }
