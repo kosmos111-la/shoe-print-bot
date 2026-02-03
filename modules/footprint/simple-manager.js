@@ -67,11 +67,10 @@ class SimpleFootprintManager {
         this.transformationValidator = new LegacySupport.TransformationValidator(this);
 
         // 🔥 ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
-        // 🔥 ИСПРАВЛЕНО: Убираем CONSTANTS.MIN_MAX - его нет в CoordinateNormalizer
+        // 🔥 ИСПРАВЛЕНО: Убираем MIN_MAX, используем DEFAULT_RANGE
         this.coordinateSystemConstants = {
             CENTER: { x: 500, y: 500 },
             BOUNDS: { minX: 0, minY: 0, maxX: 1000, maxY: 1000 },
-            // MIN_MAX удален, используем DEFAULT_RANGE из CoordinateNormalizer
             DEFAULT_RANGE: { min: 0, max: 1000 }
         };
        
