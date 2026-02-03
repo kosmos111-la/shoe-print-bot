@@ -1909,4 +1909,5 @@ class SimpleFootprintManager {
     getLinesOfCode() { return 5000; }
 }
 
+
 module.exports = SimpleFootprintManager;
