@@ -472,12 +472,14 @@ class SimpleFootprintManager {
             });
 
             // 2. Нормализуем точки (центрирование, масштабирование)
-            // 🔥 ИСПРАВЛЕНО: Используем DEFAULT_RANGE или MIN_MAX из констант
-            const range = this.coordinateSystemConstants.MIN_MAX || this.coordinateSystemConstants.DEFAULT_RANGE || { min: 0, max: 1000 };
+            // 🔥 ИСПРАВЛЕНО: Передаем range правильно
+            const range = this.coordinateSystemConstants.MIN_MAX ||
+                         this.coordinateSystemConstants.DEFAULT_RANGE ||
+                         { min: 0, max: 1000 };
 
             const normalizedPoints = this.coordinateSystem.normalize(transformed, {
                 method: 'min_max',
-                range: range,
+                range: range, // 🔥 ПРАВИЛЬНО: передаем range в options
                 preserveAspectRatio: true
             });
 
