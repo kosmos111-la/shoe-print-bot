@@ -18,29 +18,36 @@ class CoordinateNormalizer {
      * @param {Object} options - Опции нормализации
      */
     static normalize(points, options = {}) {
+        // 🔥 ИСПРАВЛЕНО: Безопасное получение range из options
         const defaultOptions = {
             method: this.NORMALIZATION_METHODS.MIN_MAX,
             range: this.DEFAULT_RANGE,
             preserveAspectRatio: true
         };
-       
+
         const opts = { ...defaultOptions, ...options };
        
-        console.log(`[CoordinateNormalizer] Нормализация ${points.length} точек методом ${opts.method}`);
-       
+        // 🔥 ИСПРАВЛЕНО: Проверяем, что range корректен
+        if (!opts.range || typeof opts.range.min === 'undefined' || typeof opts.range.max === 'undefined') {
+            console.warn('[CoordinateNormalizer] Некорректный range, использую DEFAULT_RANGE');
+            opts.range = this.DEFAULT_RANGE;
+        }
+
+        console.log(`[CoordinateNormalizer] Нормализация ${points.length} точек методом ${opts.method}, range: ${opts.range.min}-${opts.range.max}`);
+
         // Копируем для безопасности
         const normalized = points.map(p => ({ ...p }));
-       
+
         switch (opts.method) {
             case this.NORMALIZATION_METHODS.MIN_MAX:
                 return this._normalizeMinMax(normalized, opts.range, opts.preserveAspectRatio);
-               
+
             case this.NORMALIZATION_METHODS.Z_SCORE:
                 return this._normalizeZScore(normalized);
-               
+
             case this.NORMALIZATION_METHODS.UNIT:
                 return this._normalizeUnit(normalized);
-               
+
             default:
                 console.warn(`Неизвестный метод нормализации: ${opts.method}, использую min_max`);
                 return this._normalizeMinMax(normalized, opts.range, opts.preserveAspectRatio);
@@ -52,20 +59,26 @@ class CoordinateNormalizer {
      */
     static _normalizeMinMax(points, range, preserveAspectRatio) {
         if (points.length === 0) return points;
-       
+
+        // 🔥 ИСПРАВЛЕНО: Проверяем range
+        if (!range || typeof range.min === 'undefined' || typeof range.max === 'undefined') {
+            console.warn('[CoordinateNormalizer] Некорректный range в _normalizeMinMax, использую DEFAULT_RANGE');
+            range = this.DEFAULT_RANGE;
+        }
+
         // Находим границы
         const bounds = this._getBounds(points);
-       
+
         // Вычисляем масштабы
         const scaleX = (range.max - range.min) / (bounds.maxX - bounds.minX || 1);
         const scaleY = (range.max - range.min) / (bounds.maxY - bounds.minY || 1);
-       
+
         // Сохраняем соотношение сторон если нужно
         const scale = preserveAspectRatio ? Math.min(scaleX, scaleY) : {
             x: scaleX,
             y: scaleY
         };
-       
+
         // Применяем нормализацию
         points.forEach(point => {
             if (preserveAspectRatio) {
@@ -76,7 +89,7 @@ class CoordinateNormalizer {
                 point.y = range.min + (point.y - bounds.minY) * scale.y;
             }
         });
-       
+
         return points;
     }
 
@@ -85,26 +98,26 @@ class CoordinateNormalizer {
      */
     static _normalizeZScore(points) {
         if (points.length === 0) return points;
-       
+
         // Вычисляем среднее
         const meanX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
         const meanY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
-       
+
         // Вычисляем стандартное отклонение
         const stdX = Math.sqrt(
             points.reduce((sum, p) => sum + Math.pow(p.x - meanX, 2), 0) / points.length
         ) || 1;
-           
+
         const stdY = Math.sqrt(
             points.reduce((sum, p) => sum + Math.pow(p.y - meanY, 2), 0) / points.length
         ) || 1;
-       
+
         // Нормализуем
         points.forEach(point => {
             point.x = (point.x - meanX) / stdX;
             point.y = (point.y - meanY) / stdY;
         });
-       
+
         return points;
     }
 
@@ -122,12 +135,12 @@ class CoordinateNormalizer {
         if (points.length === 0) {
             return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
         }
-       
+
         let minX = points[0].x;
         let maxX = points[0].x;
         let minY = points[0].y;
         let maxY = points[0].y;
-       
+
         for (let i = 1; i < points.length; i++) {
             const p = points[i];
             minX = Math.min(minX, p.x);
@@ -135,7 +148,7 @@ class CoordinateNormalizer {
             minY = Math.min(minY, p.y);
             maxY = Math.max(maxY, p.y);
         }
-       
+
         return { minX, maxX, minY, maxY };
     }
 
@@ -145,11 +158,11 @@ class CoordinateNormalizer {
     static normalizePoints(points) {
         return this.normalize(points);
     }
-   
+
     static standardize(points) {
         return this.normalize(points, { method: this.NORMALIZATION_METHODS.Z_SCORE });
     }
-   
+
     static normalizeToRange(points, min, max) {
         return this.normalize(points, {
             method: this.NORMALIZATION_METHODS.MIN_MAX,
