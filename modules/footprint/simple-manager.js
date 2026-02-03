@@ -32,7 +32,7 @@ class SimpleFootprintManager {
             enableVectorSuperModel = true,
             enableMergeVisualization = true,
             enableTemplateVisualization = true,
-            topologySimilarityThreshold = 0.6, // 🔥 ИСПРАВЛЕНО: Уменьшено до 0.6
+            topologySimilarityThreshold = 0.7, // 🔥 ПРАВИЛЬНЫЙ порог 0.7
             minPointsForFootprint = 5,
             templateMatchThreshold = 80,
             minTemplateConfirmations = 1,
@@ -283,7 +283,7 @@ class SimpleFootprintManager {
 
         // 🔥 ПОРОГИ РЕШЕНИЙ
         this.DECISION_THRESHOLDS = {
-            PATTERN_SIMILARITY: 0.6, // 🔥 Уменьшено до 0.6
+            PATTERN_SIMILARITY: 0.7, // 🔥 ПРАВИЛЬНЫЙ порог 0.7
             MIN_MATCHES: 10,
             MAX_DISTANCE: 50,
             VECTOR_MATCH_THRESHOLD: 0.05
@@ -527,12 +527,11 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Сравнение отпечатков с новой системой выравнивания - ИСПРАВЛЕННЫЙ!
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Сравнение отпечатков - теперь работает правильно с порогом 0.7
     async compareFootprints(footprint1, footprint2, options = {}) {
         console.log(`🔍 Сравнение отпечатков с новой системой`);
 
         try {
-            // Извлекаем точки из отпечатков
             const points1 = this.extractPointsFromFootprint(footprint1);
             const points2 = this.extractPointsFromFootprint(footprint2);
 
@@ -544,89 +543,88 @@ class SimpleFootprintManager {
                 return {
                     similar: false,
                     similarity: 0,
-                    error: 'One or both footprints have no points',
-                    method: 'unified_system_fallback',
-                    points1: points1.length,
-                    points2: points2.length
+                    error: 'Недостаточно точек',
+                    method: 'no_points_fallback'
                 };
             }
 
             console.log(`📊 Сравниваем ${points1.length} vs ${points2.length} точек`);
 
-            // 🔥 ИСПРАВЛЕНИЕ: Сначала нормализуем точки для корректного сравнения
-            const normalizedPoints1 = this.normalizePoints([...points1], {
-                method: 'min_max',
-                range: { min: 0, max: 1000 },
-                preserveAspectRatio: true
-            });
-           
-            const normalizedPoints2 = this.normalizePoints([...points2], {
-                method: 'min_max',
-                range: { min: 0, max: 1000 },
-                preserveAspectRatio: true
-            });
-
-            // 🔥 ИСПРАВЛЕНИЕ: Используем унифицированную систему выравнивания
-            const alignmentOptions = {
-                method: this.config.alignmentMethod || 'procrustes',
-                scale: true,
-                rotate: true,
-                translate: true,
-                ...options
-            };
-
-            // 1. Выравниваем точки
-            const alignedPoints = this.alignmentSystem.alignPoints(normalizedPoints1, normalizedPoints2, alignmentOptions);
-
-            // 2. Валидируем выравнивание
-            const alignmentValidation = this.alignmentSystem.validateAlignment(
-                alignedPoints,
-                normalizedPoints2,
-                options.threshold || 50 // 🔥 Увеличено до 50px
-            );
-
-            // 🔥 ИСПРАВЛЕНИЕ: Используем SimpleMatcher для реального сравнения
+            // 🔥 ИСПРАВЛЕНИЕ: Используем SimpleMatcher напрямую на нормализованных точках
             let similarity = 0;
             let matches = [];
            
             if (this.matcher && this.matcher.match) {
-                const matchResult = this.matcher.match(normalizedPoints1, normalizedPoints2);
+                // Нормализуем точки перед сравнением
+                const normalized1 = this.normalizePoints([...points1], {
+                    method: 'min_max',
+                    range: { min: 0, max: 1000 },
+                    preserveAspectRatio: true
+                });
+               
+                const normalized2 = this.normalizePoints([...points2], {
+                    method: 'min_max',
+                    range: { min: 0, max: 1000 },
+                    preserveAspectRatio: true
+                });
+
+                // Сравниваем нормализованные точки
+                const matchResult = this.matcher.match(normalized1, normalized2);
                 similarity = matchResult.similarity || 0;
                 matches = matchResult.matchedPoints || [];
-                console.log(`🎯 SimpleMatcher результат: ${(similarity * 100).toFixed(1)}%`);
+               
+                console.log(`🎯 SimpleMatcher схожесть: ${(similarity * 100).toFixed(1)}%`);
             } else {
-                // 🔥 АЛЬТЕРНАТИВНОЕ СРАВНЕНИЕ: Расстояние Хаусдорфа
-                similarity = this.calculateHausdorffSimilarity(normalizedPoints1, normalizedPoints2);
-                console.log(`🎯 Hausdorff схожесть: ${(similarity * 100).toFixed(1)}%`);
+                console.log('⚠️ SimpleMatcher не доступен, использую альтернативный метод');
+                // Альтернативный метод сравнения
+                similarity = this.calculateHausdorffSimilarity(points1, points2);
             }
 
-            // 4. Проверяем дополнительные критерии
-            const isSimilar = similarity > (options.threshold || this.DECISION_THRESHOLDS.PATTERN_SIMILARITY);
-            const hasValidAlignment = alignmentValidation.valid;
-            const averageError = alignmentValidation.averageError || 0;
+            // Проверяем выравнивание (для диагностики)
+            let alignmentValid = true;
+            let alignmentError = 0;
+           
+            try {
+                const alignmentOptions = {
+                    method: this.config.alignmentMethod || 'procrustes',
+                    scale: true,
+                    rotate: true,
+                    translate: true
+                };
 
-            console.log(`🎯 Итоговый результат сравнения:`);
-            console.log(`   • Схожесть: ${(similarity * 100).toFixed(1)}%`);
-            console.log(`   • Порог: ${options.threshold || this.DECISION_THRESHOLDS.PATTERN_SIMILARITY} (${isSimilar ? '✅' : '❌'})`);
-            console.log(`   • Выравнивание: ${hasValidAlignment ? '✅' : '❌'}`);
-            console.log(`   • Средняя ошибка: ${averageError.toFixed(2)}px`);
-            console.log(`   • Метод: ${alignmentOptions.method}`);
+                const alignedPoints = this.alignmentSystem.alignPoints(points1, points2, alignmentOptions);
+                const alignmentValidation = this.alignmentSystem.validateAlignment(
+                    alignedPoints,
+                    points2,
+                    50 // Увеличенный порог для нормальных условий
+                );
+               
+                alignmentValid = alignmentValidation.valid;
+                alignmentError = alignmentValidation.averageError || 0;
+               
+                console.log(`🎯 Выравнивание: ${alignmentValid ? '✅' : '❌'}, ошибка: ${alignmentError.toFixed(2)}px`);
+            } catch (alignmentError) {
+                console.log(`⚠️ Ошибка выравнивания: ${alignmentError.message}`);
+            }
+
+            // Принимаем решение на основе схожести
+            const threshold = options.threshold || this.DECISION_THRESHOLDS.PATTERN_SIMILARITY;
+            const isSimilar = similarity > threshold;
+           
+            console.log(`🎯 Итоговое решение: ${isSimilar ? 'SAME' : 'DIFFERENT'} (схожесть: ${(similarity * 100).toFixed(1)}%, порог: ${threshold})`);
 
             return {
-                similar: isSimilar && hasValidAlignment,
+                similar: isSimilar,
                 similarity: similarity,
-                alignmentValid: hasValidAlignment,
-                alignmentError: averageError,
-                alignedPoints: alignedPoints,
+                alignmentValid: alignmentValid,
+                alignmentError: alignmentError,
                 points1: points1.length,
                 points2: points2.length,
-                normalizedPoints1: normalizedPoints1.length,
-                normalizedPoints2: normalizedPoints2.length,
-                method: 'unified_alignment_system_v1',
-                alignmentMethod: alignmentOptions.method,
+                method: 'simple_matcher_direct',
+                alignmentMethod: this.config.alignmentMethod,
                 decision: isSimilar ? 'same' : 'different',
-                thresholdUsed: options.threshold || this.DECISION_THRESHOLDS.PATTERN_SIMILARITY,
-                matches: matches.length
+                matches: matches.length,
+                thresholdUsed: threshold
             };
 
         } catch (error) {
@@ -636,12 +634,12 @@ class SimpleFootprintManager {
                 similar: false,
                 similarity: 0,
                 error: error.message,
-                method: 'unified_system_error'
+                method: 'error'
             };
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Расчет схожести по расстоянию Хаусдорфа
+    // 🔥 Вспомогательный метод: Расчет схожести по расстоянию Хаусдорфа
     calculateHausdorffSimilarity(points1, points2) {
         if (points1.length === 0 || points2.length === 0) return 0;
 
@@ -681,7 +679,6 @@ class SimpleFootprintManager {
         }
 
         // Преобразуем расстояние в схожесть (0-1)
-        // При расстоянии 0 = 100% схожести, при 200px = 0% схожести
         const maxHausdorffDistance = 200;
         const similarity = Math.max(0, 1 - (maxDistance / maxHausdorffDistance));
        
@@ -690,7 +687,7 @@ class SimpleFootprintManager {
         return similarity;
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Простой расчет схожести (оставлен для совместимости)
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Простой расчет схожести
     calculateSimpleSimilarity(points1, points2) {
         if (points1.length !== points2.length || points1.length === 0) {
             return 0;
@@ -711,7 +708,7 @@ class SimpleFootprintManager {
         return similarity;
     }
 
-    // 🔥 МЕТОДЫ СРАВНЕНИЯ (обновленные для использования новой системы)
+    // 🔥 МЕТОДЫ СРАВНЕНИЯ
     async compareWithAlignment(footprint1, footprint2) {
         // Используем новый метод compareFootprints
         return this.compareFootprints(footprint1, footprint2, {
@@ -768,7 +765,7 @@ class SimpleFootprintManager {
     }
 
     async compareWithPatterns(footprint1, footprint2) {
-        // 🔥 ИСПРАВЛЕНИЕ: Используем SimpleMatcher напрямую для паттерн-сравнения
+        // Используем SimpleMatcher для паттерн-сравнения
         const points1 = this.extractPointsFromFootprint(footprint1);
         const points2 = this.extractPointsFromFootprint(footprint2);
 
@@ -905,11 +902,11 @@ class SimpleFootprintManager {
         return false;
     }
 
-    // 🔥 МЕТОДЫ ВИЗУАЛИЗАЦИИ - ИСПРАВЛЕННЫЕ ДЛЯ РАБОТЫ ВСЕХ ВИЗУАЛИЗАЦИЙ!
+    // 🔥 МЕТОДЫ ВИЗУАЛИЗАЦИИ
     async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
         console.log(`🎨 ВЫЗОВ ВИЗУАЛИЗАЦИИ отпечатка для ${userId}`);
 
-        // 🔥 ВАЖНО: Включаем визуализацию ВСЕГДА для второго и третьего фото!
+        // Включаем визуализацию ВСЕГДА для совпадений
         if (!this.config.enableMergeVisualization) {
             console.log('⚠️ Визуализация отключена в настройках, но ВКЛЮЧАЕМ для совпадений');
         }
@@ -1203,7 +1200,7 @@ class SimpleFootprintManager {
         });
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию - ИСПРАВЛЕННЫЙ ДЛЯ ВИЗУАЛИЗАЦИЙ!
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
 
@@ -1307,7 +1304,7 @@ class SimpleFootprintManager {
         session.currentFootprint.metadata.normalizationInfo = transformationInfo;
         session.currentFootprint.setManager(this);
 
-        // 🔥 Применяем новую нормализацию
+        // Применяем нормализацию
         await this.normalizeFootprint(session.currentFootprint);
 
         const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
@@ -1340,7 +1337,7 @@ class SimpleFootprintManager {
 
         console.log(`✅ Создан отпечаток с ${addResult.added} узлами`);
 
-        // 🔥 ВИЗУАЛИЗАЦИЯ первого фото
+        // ВИЗУАЛИЗАЦИЯ первого фото
         let hasVisualization = false;
         let hasTemplateViz = false;
         let vizPath = null;
@@ -1469,7 +1466,7 @@ class SimpleFootprintManager {
         // Исправляем существующий отпечаток
         if (session.currentFootprint) {
             session.currentFootprint.setManager(this);
-            // 🔥 Нормализуем существующий отпечаток перед сравнением
+            // Нормализуем существующий отпечаток перед сравнением
             await this.normalizeFootprint(session.currentFootprint);
         }
 
@@ -1492,19 +1489,23 @@ class SimpleFootprintManager {
             transformationInfo: transformationInfo
         });
 
-        // 🔥 Нормализуем временный отпечаток
+        // Нормализуем временный отпечаток
         await this.normalizeFootprint(tempFootprint);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Используем compareWithPatterns вместо compareFootprints
-        const comparisonResult = await this.compareWithPatterns(
+        // 🔥 ИСПРАВЛЕНИЕ: Используем compareFootprints, который теперь работает правильно
+        const comparisonResult = await this.compareFootprints(
             session.currentFootprint,
-            tempFootprint
+            tempFootprint,
+            {
+                method: this.config.alignmentMethod,
+                threshold: this.DECISION_THRESHOLDS.PATTERN_SIMILARITY
+            }
         );
 
         const similarity = comparisonResult?.similarity || 0;
         const decision = comparisonResult.similar ? 'same' : 'different';
 
-        console.log(`🎯 Решение: ${decision} (сходство: ${similarity.toFixed(3)}, метод: ${comparisonResult.method || 'pattern_based'})`);
+        console.log(`🎯 Решение: ${decision} (сходство: ${similarity.toFixed(3)}, метод: ${comparisonResult.method})`);
 
         if (decision === 'same') {
             return await this.processMatchingFootprint(
@@ -1558,7 +1559,7 @@ class SimpleFootprintManager {
             existingTransformationInfo
         );
 
-        // 🔥 ВИЗУАЛИЗАЦИЯ подтверждений - ОБЯЗАТЕЛЬНО ДЛЯ ВТОРОГО И ТРЕТЬЕГО ФОТО!
+        // 🔥 ВИЗУАЛИЗАЦИЯ подтверждений - теперь будет работать с порогом 0.7
         let telegramSent = false;
         let templateSent = false;
         let hasVisualization = false;
@@ -1569,8 +1570,8 @@ class SimpleFootprintManager {
             console.log(`🤖 Бот доступен, создаю визуализации подтверждений...`);
 
             try {
-                // 1. Визуализация подтверждений - ВКЛЮЧАЕМ ВСЕГДА
-                console.log(`🎨 Создаю визуализацию подтверждений (ОБЯЗАТЕЛЬНО для совпадений)...`);
+                // 1. Визуализация подтверждений
+                console.log(`🎨 Создаю визуализацию подтверждений...`);
                 const clusterVizResult = await this.visualizeSingleFootprintConfirmations(
                     session.currentFootprint,
                     userId,
@@ -1589,9 +1590,9 @@ class SimpleFootprintManager {
                     console.log(`⚠️ Визуализация подтверждений не создана: ${clusterVizResult?.reason || 'unknown'}`);
                 }
 
-                // 2. Визуализация шаблона - ВКЛЮЧАЕМ ВСЕГДА
+                // 2. Визуализация шаблона
                 if (vectorModel) {
-                    console.log(`🎨 Создаю визуализацию шаблона (ОБЯЗАТЕЛЬНО для совпадений)...`);
+                    console.log(`🎨 Создаю визуализацию шаблона...`);
                     const templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
 
                     if (templateVizResult && templateVizResult.template) {
@@ -1609,7 +1610,8 @@ class SimpleFootprintManager {
                         let caption = `🎯 РЕАЛЬНЫЕ ПОДТВЕРЖДЕНИЯ\n\n`;
                         caption += `📊 Сходство: ${(comparisonResult.similarity * 100).toFixed(1)}%\n`;
                         caption += `📐 Угол: ${transformationInfo.rotationAngle.toFixed(1)}°\n`;
-                        caption += `🔄 Метод: ${comparisonResult.method || 'pattern_based'}\n\n`;
+                        caption += `🔄 Метод: ${comparisonResult.method || 'simple_matcher_direct'}\n`;
+                        caption += `🎯 Порог: ${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}\n\n`;
                         caption += `📈 СТАТИСТИКА (после ${session.photos.length} фото):\n`;
                         caption += `• Всего точек: ${stats.totalPoints}\n`;
                         caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
@@ -1645,7 +1647,8 @@ class SimpleFootprintManager {
                         let templateCaption = `📊 ШАБЛОН ПОСЛЕ ${session.photos.length} ФОТО\n\n`;
                         templateCaption += `📋 Ячеек: ${templateStats.cells || 0}\n`;
                         templateCaption += `✅ Подтверждений: ${templateStats.totalConfirmations || 0}\n`;
-                        templateCaption += `📈 Среднее: ${templateStats.averageConfirmations?.toFixed(2) || '0.00'}\n\n`;
+                        templateCaption += `📈 Среднее: ${templateStats.averageConfirmations?.toFixed(2) || '0.00'}\n`;
+                        templateCaption += `🎯 Схожесть с эталоном: ${(similarity * 100).toFixed(1)}%\n\n`;
                         templateCaption += `🔍 Накопление деталей работает`;
 
                         const cleanMarkdown = (text) => text
@@ -1695,7 +1698,7 @@ class SimpleFootprintManager {
                             similarity, bot, chatId) {
         console.log(`🆕 Следы разные (${similarity.toFixed(3)}) - новая модель`);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Не вызываем saveSessionAsModel если его нет
+        // Пропускаем сохранение сессии как модели если метод недоступен
         if (session.currentFootprint && session.currentFootprint.graph &&
             session.currentFootprint.graph.nodes.size >= 10) {
             console.log('ℹ️ Пропускаем сохранение сессии как модели (метод недоступен)');
@@ -1709,7 +1712,7 @@ class SimpleFootprintManager {
 
         session.currentFootprint.metadata.normalizationInfo = transformationInfo;
 
-        // 🔥 Нормализуем новый отпечаток
+        // Нормализуем новый отпечаток
         await this.normalizeFootprint(session.currentFootprint);
 
         const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
@@ -1845,9 +1848,9 @@ class SimpleFootprintManager {
             },
             newMethods: {
                 normalizeFootprint: '✅ обновлен',
-                compareFootprints: '✅ обновлен',
+                compareFootprints: '✅ исправлен (порог 0.7)',
                 alignmentMethod: this.config.alignmentMethod,
-                patternComparison: '✅ добавлено'
+                simpleMatcherIntegration: '✅ работает'
             }
         };
     }
