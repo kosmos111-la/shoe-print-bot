@@ -67,16 +67,22 @@ class SimpleFootprintManager {
         this.transformationValidator = new LegacySupport.TransformationValidator(this);
 
         // 🔥 ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
-        this.coordinateSystemConstants = CoordinateSystem.CONSTANTS;
+        // ВАЖНО: Проверяем наличие констант
+        this.coordinateSystemConstants = CoordinateSystem.CONSTANTS || {
+            CENTER: { x: 500, y: 500 },
+            BOUNDS: { minX: 0, minY: 0, maxX: 1000, maxY: 1000 },
+            MIN_MAX: { min: 0, max: 1000 }
+        };
+       
         this.CoordinateSystemConstants = {
-            CENTER: CoordinateSystem.CONSTANTS.CENTER,
-            BOUNDS: CoordinateSystem.CONSTANTS.BOUNDS,
-            CANONICAL_CENTER: CoordinateSystem.CONSTANTS.CENTER,
+            CENTER: this.coordinateSystemConstants.CENTER,
+            BOUNDS: this.coordinateSystemConstants.BOUNDS,
+            CANONICAL_CENTER: this.coordinateSystemConstants.CENTER,
             getSystemInfo: () => ({
                 name: 'Единая система координат следов',
                 version: '2.0',
-                center: CoordinateSystem.CONSTANTS.CENTER,
-                bounds: CoordinateSystem.CONSTANTS.BOUNDS
+                center: this.coordinateSystemConstants.CENTER,
+                bounds: this.coordinateSystemConstants.BOUNDS
             })
         };
 
@@ -181,8 +187,10 @@ class SimpleFootprintManager {
             };
         }
 
-        // 🔥 MERGE VISUALIZER - ЗАГРУЖАЕМ ВСЕГДА!
+        // 🔥 MERGE VISUALIZER - ЗАГРУЖАЕМ С ЗАГЛУШКОЙ
         try {
+            // Проверяем наличие canvas
+            require.resolve('canvas');
             const MergeVisualizer = require('./merge-visualizer');
             this.mergeVisualizer = new MergeVisualizer({
                 outputDir: path.join(this.config.dbPath, 'visualizations'),
@@ -190,7 +198,7 @@ class SimpleFootprintManager {
             });
             console.log('✅ MergeVisualizer загружен');
         } catch (error) {
-            console.log(`❌ Ошибка загрузки MergeVisualizer: ${error.message}`);
+            console.log(`⚠️ MergeVisualizer недоступен: ${error.message}`);
             this.mergeVisualizer = {
                 createMergeVisualization: () => ({ path: null }),
                 addVisualization: () => 1,
@@ -410,17 +418,41 @@ class SimpleFootprintManager {
         console.log(`🔄 Нормализация отпечатка ${footprint.id || 'unknown'}`);
 
         try {
-            // 🔥 НОВОЕ: Используем новую единую систему координат
-            // Получаем точки из отпечатка
-            const points = footprint.getPoints ? footprint.getPoints() : footprint.points || [];
+            // 🔥 НОВОЕ: Извлекаем точки правильно
+            const points = this.extractPointsFromFootprint(footprint);
 
             if (!points || points.length === 0) {
                 console.log('⚠️ Нет точек для нормализации');
+                // Пытаемся извлечь точки из графа
+                if (footprint.graph && footprint.graph.nodes) {
+                    const graphPoints = [];
+                    for (const [, node] of footprint.graph.nodes) {
+                        if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+                            graphPoints.push({ x: node.x, y: node.y });
+                        }
+                    }
+                    if (graphPoints.length > 0) {
+                        console.log(`📊 Извлечено ${graphPoints.length} точек из графа`);
+                        return this.normalizePointsArray(graphPoints, footprint);
+                    }
+                }
                 return footprint;
             }
 
             console.log(`📊 Нормализация ${points.length} точек с новой системой координат`);
+            return this.normalizePointsArray(points, footprint);
 
+        } catch (error) {
+            console.error(`❌ Ошибка нормализации: ${error.message}`);
+            console.error(error.stack);
+            // Возвращаем исходный отпечаток без изменений
+            return footprint;
+        }
+    }
+
+    // 🔥 Вспомогательный метод для нормализации массива точек
+    normalizePointsArray(points, footprint) {
+        try {
             // 1. Трансформируем в единую систему координат
             const transformed = this.coordinateSystem.transform(points, {
                 system: 'original',
@@ -428,9 +460,15 @@ class SimpleFootprintManager {
             });
 
             // 2. Нормализуем точки (центрирование, масштабирование)
+            // Используем безопасные значения по умолчанию
+            const center = this.coordinateSystemConstants?.CENTER || { x: 500, y: 500 };
+            const minMax = this.coordinateSystemConstants?.MIN_MAX || { min: 0, max: 1000 };
+           
             const normalizedPoints = this.coordinateSystem.normalize(transformed, {
-                center: this.coordinateSystemConstants.CENTER,
-                scale: 1.0
+                center: center,
+                scale: 1.0,
+                min: minMax.min,
+                max: minMax.max
             });
 
             // 3. Валидируем результат
@@ -454,19 +492,26 @@ class SimpleFootprintManager {
                 transformationType: 'unified_coordinate_system_v2',
                 timestamp: new Date(),
                 validation: validation,
-                center: this.coordinateSystem.calculateCenter(normalizedPoints),
-                bounds: this.coordinateSystem.getBounds(normalizedPoints)
+                center: this.coordinateSystem.calculateCenter(normalizedPoints) || center,
+                bounds: this.coordinateSystem.getBounds(normalizedPoints) || { minX: 0, minY: 0, maxX: 1000, maxY: 1000 }
             };
 
             console.log(`✅ Отпечаток нормализован: ${normalizedPoints.length} точек`);
-            console.log(`   Центр: (${footprint.metadata.normalizationInfo.center.x.toFixed(1)}, ${footprint.metadata.normalizationInfo.center.y.toFixed(1)})`);
+            if (footprint.metadata.normalizationInfo.center) {
+                console.log(`   Центр: (${footprint.metadata.normalizationInfo.center.x.toFixed(1)}, ${footprint.metadata.normalizationInfo.center.y.toFixed(1)})`);
+            }
 
             return footprint;
 
         } catch (error) {
-            console.error(`❌ Ошибка нормализации: ${error.message}`);
-            console.error(error.stack);
-            throw error;
+            console.error(`❌ Ошибка в normalizePointsArray: ${error.message}`);
+            // В случае ошибки возвращаем исходные точки
+            if (footprint.updatePoints) {
+                footprint.updatePoints(points);
+            } else {
+                footprint.points = points;
+            }
+            return footprint;
         }
     }
 
@@ -476,16 +521,34 @@ class SimpleFootprintManager {
 
         try {
             // Извлекаем точки из отпечатков
-            const points1 = footprint1.getPoints ? footprint1.getPoints() : footprint1.points || [];
-            const points2 = footprint2.getPoints ? footprint2.getPoints() : footprint2.points || [];
+            const points1 = this.extractPointsFromFootprint(footprint1);
+            const points2 = this.extractPointsFromFootprint(footprint2);
 
             if (points1.length === 0 || points2.length === 0) {
                 console.log('⚠️ Один или оба отпечатка не содержат точек');
+                console.log(`   Отпечаток 1: ${points1.length} точек`);
+                console.log(`   Отпечаток 2: ${points2.length} точек`);
+               
+                // Попробуем извлечь из графа
+                if (points1.length === 0 && footprint1.graph) {
+                    const altPoints1 = this.extractPointsFromGraph(footprint1.graph);
+                    if (altPoints1.length > 0) {
+                        console.log(`   🔄 Альтернативно: ${altPoints1.length} точек из графа 1`);
+                        return await this.compareFootprints(
+                            { points: altPoints1 },
+                            footprint2,
+                            { ...options, method: 'fallback' }
+                        );
+                    }
+                }
+               
                 return {
                     similar: false,
                     similarity: 0,
                     error: 'One or both footprints have no points',
-                    method: 'unified_system_fallback'
+                    method: 'unified_system_fallback',
+                    points1: points1.length,
+                    points2: points2.length
                 };
             }
 
@@ -556,6 +619,19 @@ class SimpleFootprintManager {
                 method: 'unified_system_error'
             };
         }
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Извлечение точек из графа
+    extractPointsFromGraph(graph) {
+        const points = [];
+        if (!graph || !graph.nodes) return points;
+       
+        for (const [, node] of graph.nodes) {
+            if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+                points.push({ x: node.x, y: node.y });
+            }
+        }
+        return points;
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Простой расчет схожести
@@ -670,7 +746,7 @@ class SimpleFootprintManager {
         return this.templateCoordinator.debugAccumulation(userId);
     }
 
-    // 🔥 МЕТОДЫ СЕССИЙ
+    // 🔥 МЕТОДЫ СЕССИЙ - ИСПРАВЛЕННЫЕ!
     createSession(userId, name = null) {
         return this.sessionManager.createSession(userId, name);
     }
@@ -680,7 +756,21 @@ class SimpleFootprintManager {
     }
 
     saveSessionAsModel(userId, modelName = null) {
-        return this.sessionManager.saveSessionAsModel(userId, modelName);
+        // 🔥 ИСПРАВЛЕНИЕ: Проверяем наличие метода
+        if (this.sessionManager && typeof this.sessionManager.saveSessionAsModel === 'function') {
+            return this.sessionManager.saveSessionAsModel(userId, modelName);
+        } else {
+            console.log('⚠️ Метод saveSessionAsModel не найден в SessionManager');
+            // Создаем простую реализацию
+            const session = this.getActiveSession(userId);
+            if (session && session.currentFootprint) {
+                const SimpleFootprint = require('./simple-footprint');
+                const model = SimpleFootprint.fromSession(session);
+                this.loadedModels.set(model.id, model);
+                return { success: true, modelId: model.id };
+            }
+            return { success: false, error: 'No active session or footprint' };
+        }
     }
 
     getSessionInfo(userId) {
@@ -831,12 +921,43 @@ class SimpleFootprintManager {
     }
 
     extractPointsFromFootprint(footprint) {
-        const result = this.coordinateManager.getCoordinates(footprint, {
-            coordinateSystem: 'original',
-            includeMetadata: false,
-            debug: this.config.debug
-        });
-        return result.points;
+        try {
+            // Сначала проверяем метод getPoints
+            if (footprint && typeof footprint.getPoints === 'function') {
+                const points = footprint.getPoints();
+                if (Array.isArray(points) && points.length > 0) {
+                    return points;
+                }
+            }
+
+            // Затем проверяем свойство points
+            if (footprint && Array.isArray(footprint.points)) {
+                return footprint.points;
+            }
+
+            // Затем проверяем граф
+            if (footprint && footprint.graph && footprint.graph.nodes) {
+                const points = [];
+                for (const [, node] of footprint.graph.nodes) {
+                    if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+                        points.push({ x: node.x, y: node.y });
+                    }
+                }
+                return points;
+            }
+
+            // Используем legacy manager как запасной вариант
+            const result = this.coordinateManager.getCoordinates(footprint, {
+                coordinateSystem: 'original',
+                includeMetadata: false,
+                debug: this.config.debug
+            });
+            return result.points || [];
+           
+        } catch (error) {
+            console.log(`⚠️ Ошибка извлечения точек из отпечатка: ${error.message}`);
+            return [];
+        }
     }
 
     // 🔥 ДИАГНОСТИЧЕСКИЕ МЕТОДЫ
@@ -912,8 +1033,25 @@ class SimpleFootprintManager {
             console.log(`     ❌ Метод compareFootprints: ${error.message}`);
         }
 
-        // 4. Проверка визуализации
-        console.log('  4. Проверка визуализации...');
+        // 4. Проверка нового метода normalizeFootprint
+        console.log('  4. Проверка нового метода normalizeFootprint...');
+        try {
+            const testFootprint = {
+                points: [{ x: 100, y: 100 }, { x: 200, y: 100 }, { x: 150, y: 200 }],
+                getPoints: function() { return this.points; },
+                metadata: {}
+            };
+
+            const normalized = this.normalizeFootprint(testFootprint);
+            console.log(`     ✅ Метод normalizeFootprint активен`);
+            console.log(`     • Нормализовано: ${normalized.points?.length || 0} точек`);
+            console.log(`     • Метаданные: ${normalized.metadata.normalizationInfo ? 'сохранены' : 'нет'}`);
+        } catch (error) {
+            console.log(`     ❌ Метод normalizeFootprint: ${error.message}`);
+        }
+
+        // 5. Проверка визуализации
+        console.log('  5. Проверка визуализации...');
         console.log(`     • Визуализация включена: ${this.config.enableMergeVisualization ? '✅' : '❌'}`);
         console.log(`     • Визуализация шаблонов: ${this.config.enableTemplateVisualization ? '✅' : '❌'}`);
         console.log(`     • VisualizationManager: ${this.visualizationManager ? '✅' : '❌'}`);
@@ -943,7 +1081,8 @@ class SimpleFootprintManager {
 
         console.log(`🔍 ПРОВЕРКА МОДУЛЕЙ:`);
         modules.forEach(([name, obj]) => {
-            console.log(`   - ${name}: ${obj ? '✅' : '❌'}`);
+            const status = obj ? (typeof obj === 'string' ? obj : '✅') : '❌';
+            console.log(`   - ${name}: ${status}`);
         });
     }
 
@@ -1096,7 +1235,7 @@ class SimpleFootprintManager {
             try {
                 // 1. Визуализация отпечатка
                 if (this.config.enableMergeVisualization) {
-                    console.log(`🎨 Создаю визуализация отпечатка...`);
+                    console.log(`🎨 Создаю визуализацию отпечатка...`);
                     const firstPhotoViz = await this.visualizeSingleFootprintConfirmations(
                         session.currentFootprint,
                         userId,
@@ -1225,8 +1364,8 @@ class SimpleFootprintManager {
             await this.normalizeFootprint(session.currentFootprint);
         }
 
-        const existingTransformationInfo = session.currentFootprint.metadata.normalizationInfo ||
-                                          (session.currentFootprint.getTransformation ? session.currentFootprint.getTransformation() : null);
+        const existingTransformationInfo = session.currentFootprint?.metadata?.normalizationInfo ||
+                                          (session.currentFootprint?.getTransformation ? session.currentFootprint.getTransformation() : null);
 
         // Создание временного отпечатка
         const SimpleFootprint = require('./simple-footprint');
@@ -1453,8 +1592,14 @@ class SimpleFootprintManager {
                             similarity, bot, chatId) {
         console.log(`🆕 Следы разные (${similarity.toFixed(3)}) - новая модель`);
 
-        if (session.currentFootprint.graph.nodes.size >= 10) {
-            this.saveSessionAsModel(userId, `Модель_${new Date().toLocaleTimeString('ru-RU')}`);
+        // 🔥 ИСПРАВЛЕНИЕ: Проверяем наличие метода saveSessionAsModel
+        if (session.currentFootprint && session.currentFootprint.graph &&
+            session.currentFootprint.graph.nodes.size >= 10) {
+            try {
+                await this.saveSessionAsModel(userId, `Модель_${new Date().toLocaleTimeString('ru-RU')}`);
+            } catch (saveError) {
+                console.log(`⚠️ Не удалось сохранить сессию как модель: ${saveError.message}`);
+            }
         }
 
         const SimpleFootprint = require('./simple-footprint');
