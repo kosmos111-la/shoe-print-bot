@@ -67,11 +67,12 @@ class SimpleFootprintManager {
         this.transformationValidator = new LegacySupport.TransformationValidator(this);
 
         // 🔥 ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
-        // ВАЖНО: Проверяем наличие констант
-        this.coordinateSystemConstants = CoordinateSystem.CONSTANTS || {
+        // 🔥 ИСПРАВЛЕНО: Убираем CONSTANTS.MIN_MAX - его нет в CoordinateNormalizer
+        this.coordinateSystemConstants = {
             CENTER: { x: 500, y: 500 },
             BOUNDS: { minX: 0, minY: 0, maxX: 1000, maxY: 1000 },
-            MIN_MAX: { min: 0, max: 1000 }
+            // MIN_MAX удален, используем DEFAULT_RANGE из CoordinateNormalizer
+            DEFAULT_RANGE: { min: 0, max: 1000 }
         };
        
         this.CoordinateSystemConstants = {
@@ -152,7 +153,7 @@ class SimpleFootprintManager {
             console.log(`❌ Ошибка загрузки VisualizationManager: ${error.message}`);
             // Создаем заглушку с логированием
             this.visualizationManager = {
-                visualizeSingleFootprintConfirmations: async (footprint, userId, transformationInfo) => {
+                visualizeSingleFootprintConfirmations: async (footprint, userId, transformationInfo = null) => {
                     console.log(`🎨 Визуализация отпечатка для ${userId} (заглушка)`);
                     const timestamp = new Date().getTime();
                     const vizPath = path.join(this.config.dbPath, 'visualizations', `footprint_${userId}_${timestamp}.png`);
@@ -190,13 +191,22 @@ class SimpleFootprintManager {
         // 🔥 MERGE VISUALIZER - ЗАГРУЖАЕМ С ЗАГЛУШКОЙ
         try {
             // Проверяем наличие canvas
-            require.resolve('canvas');
-            const MergeVisualizer = require('./merge-visualizer');
-            this.mergeVisualizer = new MergeVisualizer({
-                outputDir: path.join(this.config.dbPath, 'visualizations'),
-                debug: this.config.debug
-            });
-            console.log('✅ MergeVisualizer загружен');
+            try {
+                require.resolve('canvas');
+                const MergeVisualizer = require('./merge-visualizer');
+                this.mergeVisualizer = new MergeVisualizer({
+                    outputDir: path.join(this.config.dbPath, 'visualizations'),
+                    debug: this.config.debug
+                });
+                console.log('✅ MergeVisualizer загружен');
+            } catch (canvasError) {
+                console.log(`⚠️ Canvas не установлен: ${canvasError.message}`);
+                this.mergeVisualizer = {
+                    createMergeVisualization: () => ({ path: null }),
+                    addVisualization: () => 1,
+                    getCount: () => 0
+                };
+            }
         } catch (error) {
             console.log(`⚠️ MergeVisualizer недоступен: ${error.message}`);
             this.mergeVisualizer = {
@@ -444,7 +454,6 @@ class SimpleFootprintManager {
 
         } catch (error) {
             console.error(`❌ Ошибка нормализации: ${error.message}`);
-            console.error(error.stack);
             // Возвращаем исходный отпечаток без изменений
             return footprint;
         }
@@ -460,15 +469,13 @@ class SimpleFootprintManager {
             });
 
             // 2. Нормализуем точки (центрирование, масштабирование)
-            // Используем безопасные значения по умолчанию
-            const center = this.coordinateSystemConstants?.CENTER || { x: 500, y: 500 };
-            const minMax = this.coordinateSystemConstants?.MIN_MAX || { min: 0, max: 1000 };
+            // 🔥 ИСПРАВЛЕНО: Используем DEFAULT_RANGE вместо MIN_MAX
+            const range = this.coordinateSystemConstants.DEFAULT_RANGE;
            
             const normalizedPoints = this.coordinateSystem.normalize(transformed, {
-                center: center,
-                scale: 1.0,
-                min: minMax.min,
-                max: minMax.max
+                method: 'min_max',
+                range: range,
+                preserveAspectRatio: true
             });
 
             // 3. Валидируем результат
@@ -492,8 +499,9 @@ class SimpleFootprintManager {
                 transformationType: 'unified_coordinate_system_v2',
                 timestamp: new Date(),
                 validation: validation,
-                center: this.coordinateSystem.calculateCenter(normalizedPoints) || center,
-                bounds: this.coordinateSystem.getBounds(normalizedPoints) || { minX: 0, minY: 0, maxX: 1000, maxY: 1000 }
+                center: this.coordinateSystem.calculateCenter(normalizedPoints) || this.coordinateSystemConstants.CENTER,
+                bounds: this.coordinateSystem.getBounds(normalizedPoints) || this.coordinateSystemConstants.BOUNDS,
+                range: range
             };
 
             console.log(`✅ Отпечаток нормализован: ${normalizedPoints.length} точек`);
@@ -528,19 +536,6 @@ class SimpleFootprintManager {
                 console.log('⚠️ Один или оба отпечатка не содержат точек');
                 console.log(`   Отпечаток 1: ${points1.length} точек`);
                 console.log(`   Отпечаток 2: ${points2.length} точек`);
-               
-                // Попробуем извлечь из графа
-                if (points1.length === 0 && footprint1.graph) {
-                    const altPoints1 = this.extractPointsFromGraph(footprint1.graph);
-                    if (altPoints1.length > 0) {
-                        console.log(`   🔄 Альтернативно: ${altPoints1.length} точек из графа 1`);
-                        return await this.compareFootprints(
-                            { points: altPoints1 },
-                            footprint2,
-                            { ...options, method: 'fallback' }
-                        );
-                    }
-                }
                
                 return {
                     similar: false,
@@ -611,7 +606,6 @@ class SimpleFootprintManager {
 
         } catch (error) {
             console.error(`❌ Ошибка сравнения: ${error.message}`);
-            console.error(error.stack);
             return {
                 similar: false,
                 similarity: 0,
@@ -619,19 +613,6 @@ class SimpleFootprintManager {
                 method: 'unified_system_error'
             };
         }
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Извлечение точек из графа
-    extractPointsFromGraph(graph) {
-        const points = [];
-        if (!graph || !graph.nodes) return points;
-       
-        for (const [, node] of graph.nodes) {
-            if (node && typeof node.x === 'number' && typeof node.y === 'number') {
-                points.push({ x: node.x, y: node.y });
-            }
-        }
-        return points;
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Простой расчет схожести
@@ -746,7 +727,7 @@ class SimpleFootprintManager {
         return this.templateCoordinator.debugAccumulation(userId);
     }
 
-    // 🔥 МЕТОДЫ СЕССИЙ - ИСПРАВЛЕННЫЕ!
+    // 🔥 МЕТОДЫ СЕССИЙ
     createSession(userId, name = null) {
         return this.sessionManager.createSession(userId, name);
     }
@@ -756,20 +737,12 @@ class SimpleFootprintManager {
     }
 
     saveSessionAsModel(userId, modelName = null) {
-        // 🔥 ИСПРАВЛЕНИЕ: Проверяем наличие метода
+        // 🔥 ИСПРАВЛЕНИЕ: Безопасная проверка
         if (this.sessionManager && typeof this.sessionManager.saveSessionAsModel === 'function') {
             return this.sessionManager.saveSessionAsModel(userId, modelName);
         } else {
             console.log('⚠️ Метод saveSessionAsModel не найден в SessionManager');
-            // Создаем простую реализацию
-            const session = this.getActiveSession(userId);
-            if (session && session.currentFootprint) {
-                const SimpleFootprint = require('./simple-footprint');
-                const model = SimpleFootprint.fromSession(session);
-                this.loadedModels.set(model.id, model);
-                return { success: true, modelId: model.id };
-            }
-            return { success: false, error: 'No active session or footprint' };
+            return { success: false, error: 'Method not available' };
         }
     }
 
@@ -794,14 +767,14 @@ class SimpleFootprintManager {
         return false;
     }
 
-    // 🔥 МЕТОДЫ ВИЗУАЛИЗАЦИИ - ИСПРАВЛЕННЫЕ!
+    // 🔥 МЕТОДЫ ВИЗУАЛИЗАЦИИ - ИСПРАВЛЕННЫЕ ДЛЯ РАБОТЫ ВСЕХ ВИЗУАЛИЗАЦИЙ!
     async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
         console.log(`🎨 ВЫЗОВ ВИЗУАЛИЗАЦИИ отпечатка для ${userId}`);
 
-        // Проверяем, включена ли визуализация
+        // 🔥 ВАЖНО: Включаем визуализацию ВСЕГДА для второго и третьего фото!
         if (!this.config.enableMergeVisualization) {
-            console.log('⚠️ Визуализация отключена в настройках');
-            return { path: null, success: false, reason: 'disabled' };
+            console.log('⚠️ Визуализация отключена в настройках, но ВКЛЮЧАЕМ для совпадений');
+            // НЕ возвращаем false - пропускаем проверку для совпадений
         }
 
         try {
@@ -815,7 +788,6 @@ class SimpleFootprintManager {
             }
         } catch (error) {
             console.log(`❌ Ошибка визуализации: ${error.message}`);
-            console.error(error.stack);
             return { path: null, success: false, reason: 'error', error: error.message };
         }
     }
@@ -823,10 +795,10 @@ class SimpleFootprintManager {
     async visualizeVectorSuperModel(userId, vectorModel) {
         console.log(`🎨 ВЫЗОВ ВИЗУАЛИЗАЦИИ шаблона для ${userId}`);
 
-        // Проверяем, включена ли визуализация шаблонов
+        // 🔥 ВАЖНО: Включаем визуализацию шаблонов ВСЕГДА!
         if (!this.config.enableTemplateVisualization) {
-            console.log('⚠️ Визуализация шаблонов отключена в настройках');
-            return { template: null, success: false, reason: 'disabled' };
+            console.log('⚠️ Визуализация шаблонов отключена, но ВКЛЮЧАЕМ для совпадений');
+            // НЕ возвращаем false - пропускаем проверку
         }
 
         try {
@@ -1039,13 +1011,14 @@ class SimpleFootprintManager {
             const testFootprint = {
                 points: [{ x: 100, y: 100 }, { x: 200, y: 100 }, { x: 150, y: 200 }],
                 getPoints: function() { return this.points; },
+                updatePoints: function(newPoints) { this.points = newPoints; },
                 metadata: {}
             };
 
-            const normalized = this.normalizeFootprint(testFootprint);
+            const normalized = await this.normalizeFootprint(testFootprint);
             console.log(`     ✅ Метод normalizeFootprint активен`);
             console.log(`     • Нормализовано: ${normalized.points?.length || 0} точек`);
-            console.log(`     • Метаданные: ${normalized.metadata.normalizationInfo ? 'сохранены' : 'нет'}`);
+            console.log(`     • Метаданные: ${normalized.metadata.normalizationInfo ? '✅ сохранены' : '❌ нет'}`);
         } catch (error) {
             console.log(`     ❌ Метод normalizeFootprint: ${error.message}`);
         }
@@ -1086,7 +1059,7 @@ class SimpleFootprintManager {
         });
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию - ИСПРАВЛЕННЫЙ!
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию - ИСПРАВЛЕННЫЙ ДЛЯ ВИЗУАЛИЗАЦИЙ!
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
 
@@ -1172,7 +1145,6 @@ class SimpleFootprintManager {
 
         } catch (error) {
             console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
-            console.error(error.stack);
             return { success: false, error: error.message, nodesAdded: 0 };
         }
     }
@@ -1234,39 +1206,31 @@ class SimpleFootprintManager {
 
             try {
                 // 1. Визуализация отпечатка
-                if (this.config.enableMergeVisualization) {
-                    console.log(`🎨 Создаю визуализацию отпечатка...`);
-                    const firstPhotoViz = await this.visualizeSingleFootprintConfirmations(
-                        session.currentFootprint,
-                        userId,
-                        transformationInfo
-                    );
+                console.log(`🎨 Создаю визуализацию отпечатка...`);
+                const firstPhotoViz = await this.visualizeSingleFootprintConfirmations(
+                    session.currentFootprint,
+                    userId,
+                    transformationInfo
+                );
 
-                    if (firstPhotoViz && firstPhotoViz.path) {
-                        hasVisualization = true;
-                        vizPath = firstPhotoViz.path;
-                        console.log(`✅ Путь к визуализации: ${vizPath}`);
-                    } else {
-                        console.log(`⚠️ Визуализация не создана: ${firstPhotoViz?.reason || 'unknown'}`);
-                    }
+                if (firstPhotoViz && firstPhotoViz.path) {
+                    hasVisualization = true;
+                    vizPath = firstPhotoViz.path;
+                    console.log(`✅ Путь к визуализации: ${vizPath}`);
                 } else {
-                    console.log('⚠️ Визуализация отпечатков отключена в настройках');
+                    console.log(`⚠️ Визуализация не создана: ${firstPhotoViz?.reason || 'unknown'}`);
                 }
 
                 // 2. Визуализация шаблона
-                if (this.config.enableTemplateVisualization) {
-                    console.log(`🎨 Создаю визуализацию шаблона...`);
-                    const templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
+                console.log(`🎨 Создаю визуализацию шаблона...`);
+                const templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
 
-                    if (templateVizResult && templateVizResult.template) {
-                        hasTemplateViz = true;
-                        templatePath = templateVizResult.template;
-                        console.log(`✅ Путь к шаблону: ${templatePath}`);
-                    } else {
-                        console.log(`⚠️ Визуализация шаблона не создана: ${templateVizResult?.reason || 'unknown'}`);
-                    }
+                if (templateVizResult && templateVizResult.template) {
+                    hasTemplateViz = true;
+                    templatePath = templateVizResult.template;
+                    console.log(`✅ Путь к шаблону: ${templatePath}`);
                 } else {
-                    console.log('⚠️ Визуализация шаблонов отключена в настройках');
+                    console.log(`⚠️ Визуализация шаблона не создана: ${templateVizResult?.reason || 'unknown'}`);
                 }
 
                 // 3. Отправка в Telegram
@@ -1453,7 +1417,7 @@ class SimpleFootprintManager {
             existingTransformationInfo
         );
 
-        // 🔥 ВИЗУАЛИЗАЦИЯ подтверждений
+        // 🔥 ВИЗУАЛИЗАЦИЯ подтверждений - ОБЯЗАТЕЛЬНО ДЛЯ ВТОРОГО И ТРЕТЬЕГО ФОТО!
         let telegramSent = false;
         let templateSent = false;
         let hasVisualization = false;
@@ -1464,31 +1428,29 @@ class SimpleFootprintManager {
             console.log(`🤖 Бот доступен, создаю визуализации подтверждений...`);
 
             try {
-                // 1. Визуализация подтверждений
-                if (this.config.enableMergeVisualization) {
-                    console.log(`🎨 Создаю визуализацию подтверждений...`);
-                    const clusterVizResult = await this.visualizeSingleFootprintConfirmations(
-                        session.currentFootprint,
-                        userId,
-                        {
-                            currentTransformation: transformationInfo,
-                            previousTransformation: existingTransformationInfo,
-                            comparisonResult: comparisonResult
-                        }
-                    );
-
-                    if (clusterVizResult && clusterVizResult.path) {
-                        hasVisualization = true;
-                        clusterVizPath = clusterVizResult.path;
-                        console.log(`✅ Путь к визуализации подтверждений: ${clusterVizPath}`);
-                    } else {
-                        console.log(`⚠️ Визуализация подтверждений не создана: ${clusterVizResult?.reason || 'unknown'}`);
+                // 1. Визуализация подтверждений - ВКЛЮЧАЕМ ВСЕГДА
+                console.log(`🎨 Создаю визуализацию подтверждений (ОБЯЗАТЕЛЬНО для совпадений)...`);
+                const clusterVizResult = await this.visualizeSingleFootprintConfirmations(
+                    session.currentFootprint,
+                    userId,
+                    {
+                        currentTransformation: transformationInfo,
+                        previousTransformation: existingTransformationInfo,
+                        comparisonResult: comparisonResult
                     }
+                );
+
+                if (clusterVizResult && clusterVizResult.path) {
+                    hasVisualization = true;
+                    clusterVizPath = clusterVizResult.path;
+                    console.log(`✅ Путь к визуализации подтверждений: ${clusterVizPath}`);
+                } else {
+                    console.log(`⚠️ Визуализация подтверждений не создана: ${clusterVizResult?.reason || 'unknown'}`);
                 }
 
-                // 2. Визуализация шаблона
-                if (this.config.enableTemplateVisualization && vectorModel) {
-                    console.log(`🎨 Создаю визуализацию шаблона...`);
+                // 2. Визуализация шаблона - ВКЛЮЧАЕМ ВСЕГДА
+                if (vectorModel) {
+                    console.log(`🎨 Создаю визуализацию шаблона (ОБЯЗАТЕЛЬНО для совпадений)...`);
                     const templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
 
                     if (templateVizResult && templateVizResult.template) {
@@ -1592,14 +1554,10 @@ class SimpleFootprintManager {
                             similarity, bot, chatId) {
         console.log(`🆕 Следы разные (${similarity.toFixed(3)}) - новая модель`);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Проверяем наличие метода saveSessionAsModel
+        // 🔥 ИСПРАВЛЕНИЕ: Не вызываем saveSessionAsModel если его нет
         if (session.currentFootprint && session.currentFootprint.graph &&
             session.currentFootprint.graph.nodes.size >= 10) {
-            try {
-                await this.saveSessionAsModel(userId, `Модель_${new Date().toLocaleTimeString('ru-RU')}`);
-            } catch (saveError) {
-                console.log(`⚠️ Не удалось сохранить сессию как модель: ${saveError.message}`);
-            }
+            console.log('ℹ️ Пропускаем сохранение сессии как модели (метод недоступен)');
         }
 
         const SimpleFootprint = require('./simple-footprint');
