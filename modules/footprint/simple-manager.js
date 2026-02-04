@@ -723,6 +723,10 @@ class SimpleFootprintManager {
             hasTemplateViz: hasTemplateViz,
             vizPath: vizPath,
             templatePath: templatePath,
+            // 🔥 ДОБАВЛЯЕМ ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+            visualizationPath: vizPath,
+            imagePath: vizPath,
+            path: vizPath,
             coordinateDiagnostics: this.config.enableCoordinateDiagnostics,
             systemUsed: this.config.useNewSystem ? 'new' : 'legacy'
         };
@@ -865,6 +869,10 @@ class SimpleFootprintManager {
                     if (vizResult && vizResult.path) {
                         result.hasVisualization = true;
                         result.vizPath = vizResult.path;
+                        // 🔥 ДОБАВЛЯЕМ ДЛЯ СОВМЕСТИМОСТИ
+                        result.visualizationPath = vizResult.path;
+                        result.imagePath = vizResult.path;
+                        result.path = vizResult.path;
                         console.log(`✅ Создана визуализация: ${vizResult.path}`);
                     }
                 } catch (error) {
@@ -881,7 +889,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: обработка совпадающих следов (добавлен vizPath)
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: обработка совпадающих следов (добавлены все пути для совместимости)
     async processMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
                                   existingTransformationInfo, similarity, comparisonResult,
                                   tempResult, bot, chatId) {
@@ -975,8 +983,8 @@ class SimpleFootprintManager {
         // Статистика
         const stats = this.calculateConfirmationStats(session.currentFootprint);
 
-        // 🔥 ИСПРАВЛЕНИЕ: Возвращаем vizPath в результатах
-        return {
+        // 🔥 ИСПРАВЛЕНИЕ: Возвращаем все возможные пути для совместимости со старым кодом
+        const result = {
             success: true,
             similarity: similarity,
             decision: 'same',
@@ -990,9 +998,24 @@ class SimpleFootprintManager {
             totalPhotos: session.photos.length,
             systemUsed: this.config.useNewSystem ? 'new' : 'legacy',
             comparisonMethod: comparisonResult.method,
-            vizPath: vizPath, // 🔥 ДОБАВЛЕНО - ЯВНО ВОЗВРАЩАЕМ ПУТЬ
-            templatePath: templatePath
+           
+            // 🔥 ВАЖНО: Возвращаем путь к визуализации во всех возможных вариантах для совместимости
+            vizPath: vizPath,
+            visualizationPath: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+            imagePath: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ
+            path: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ
+           
+            templatePath: templatePath,
+            hasMergeVisualization: hasVisualization // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
         };
+
+        console.log(`📤 Возвращаем результат с визуализацией: ${vizPath}`);
+        console.log(`   • vizPath: ${result.vizPath}`);
+        console.log(`   • visualizationPath: ${result.visualizationPath}`);
+        console.log(`   • imagePath: ${result.imagePath}`);
+        console.log(`   • path: ${result.path}`);
+
+        return result;
     }
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: отправка совпадений в Telegram
@@ -1226,6 +1249,9 @@ class SimpleFootprintManager {
                 similarity: result.similarity,
                 decision: result.decision,
                 vizPath: result.vizPath,
+                visualizationPath: result.visualizationPath,
+                imagePath: result.imagePath,
+                path: result.path,
                 hasVisualization: !!result.vizPath,
                 nodesAdded: result.nodesAdded
             });
