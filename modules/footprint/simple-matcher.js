@@ -27,7 +27,9 @@ class SimpleMatcher {
             // Дополнительные настройки
             enableDetailedMatch: options.enableDetailedMatch !== false,
             enableInvariantComparison: options.enableInvariantComparison !== false,
-            debug: options.debug || false
+            debug: options.debug || false,
+            enableDiagnostics: options.enableDiagnostics || false,
+            similarityThreshold: options.similarityThreshold || 0.7
         };
 
         // 🔥 ИСПРАВЛЕНИЕ: ВКЛЮЧАЕМ RotationInvariance БЕЗ РЕКУРСИИ
@@ -46,6 +48,200 @@ class SimpleMatcher {
 
         this.matchHistory = [];
         console.log('🎯 SimpleMatcher с безопасной инициализацией');
+    }
+
+    // 🔥 ДОБАВЛЕН МЕТОД ДЛЯ СРАВНЕНИЯ МАССИВОВ ТОЧЕК (нужен для simple-manager)
+    match(points1, points2, options = {}) {
+        console.log(`🎯 SimpleMatcher.match вызван с ${points1?.length || 0} и ${points2?.length || 0} точками`);
+       
+        if (!points1 || !points2 || points1.length === 0 || points2.length === 0) {
+            return { similarity: 0, matchedPoints: [], error: 'Нет точек для сравнения' };
+        }
+
+        try {
+            // Создаем простые графы из точек
+            const graph1 = this.createSimpleGraphFromPoints(points1, 'temp1');
+            const graph2 = this.createSimpleGraphFromPoints(points2, 'temp2');
+           
+            // Используем compareGraphs для сравнения
+            const result = this.compareGraphs(graph1, graph2, {
+                matchType: 'points_comparison',
+                ...options
+            });
+
+            // 🔥 ВАЖНО: Создаем matchedPoints на основе схожести
+            const matchedPoints = [];
+            if (result.similarity > 0.5 && points1.length > 0 && points2.length > 0) {
+                // Создаем пары совпавших точек (упрощенная версия)
+                const matchCount = Math.min(points1.length, points2.length, Math.floor(result.similarity * Math.min(points1.length, points2.length)));
+               
+                for (let i = 0; i < matchCount; i++) {
+                    matchedPoints.push({
+                        point1: points1[i % points1.length],
+                        point2: points2[i % points2.length],
+                        distance: Math.sqrt(
+                            Math.pow(points1[i % points1.length].x - points2[i % points2.length].x, 2) +
+                            Math.pow(points1[i % points1.length].y - points2[i % points2.length].y, 2)
+                        ),
+                        similarity: 1 - Math.min(1, Math.sqrt(
+                            Math.pow(points1[i % points1.length].x - points2[i % points2.length].x, 2) +
+                            Math.pow(points1[i % points1.length].y - points2[i % points2.length].y, 2)
+                        ) / 200)
+                    });
+                }
+            }
+
+            return {
+                similarity: result.similarity || 0,
+                matchedPoints: matchedPoints,
+                decision: result.decision,
+                method: result.method || 'simple_matcher_compare'
+            };
+
+        } catch (error) {
+            console.error(`❌ Ошибка в SimpleMatcher.match: ${error.message}`);
+            console.error(error.stack);
+           
+            // Fallback: простая схожесть на основе расстояний
+            const similarity = this.calculateSimplePointSimilarity(points1, points2);
+           
+            return {
+                similarity: similarity,
+                matchedPoints: [],
+                error: `Ошибка сравнения: ${error.message}`,
+                method: 'fallback_simple_distance'
+            };
+        }
+    }
+
+    // 🔥 Вспомогательный метод для создания простого графа из точек
+    createSimpleGraphFromPoints(points, name = 'temp') {
+        const graph = {
+            name: name,
+            nodes: new Map(),
+            edges: new Map(),
+            id: `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        };
+
+        // Добавляем узлы
+        points.forEach((point, index) => {
+            const nodeId = `node_${index}`;
+            graph.nodes.set(nodeId, {
+                id: nodeId,
+                x: point.x || 0,
+                y: point.y || 0,
+                originalPoint: point
+            });
+        });
+
+        // Создаем простые ребра (ближайшие соседи)
+        if (graph.nodes.size > 1) {
+            const nodesArray = Array.from(graph.nodes.values());
+            let edgeId = 0;
+           
+            // Для каждого узла соединяем с ближайшим соседом
+            for (let i = 0; i < nodesArray.length; i++) {
+                let minDistance = Infinity;
+                let closestIndex = -1;
+               
+                for (let j = 0; j < nodesArray.length; j++) {
+                    if (i === j) continue;
+                   
+                    const dx = nodesArray[i].x - nodesArray[j].x;
+                    const dy = nodesArray[i].y - nodesArray[j].y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                   
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closestIndex = j;
+                    }
+                }
+               
+                if (closestIndex !== -1) {
+                    const edge = {
+                        id: `edge_${edgeId++}`,
+                        from: nodesArray[i].id,
+                        to: nodesArray[closestIndex].id,
+                        length: minDistance
+                    };
+                    graph.edges.set(edge.id, edge);
+                }
+            }
+        }
+
+        return graph;
+    }
+
+    // 🔥 Простой расчет схожести точек (fallback)
+    calculateSimplePointSimilarity(points1, points2) {
+        if (points1.length === 0 || points2.length === 0) return 0;
+       
+        // Используем Хаусдорфово расстояние для оценки
+        let maxMinDistance = 0;
+       
+        // Для каждой точки в points1 находим ближайшую в points2
+        for (const p1 of points1) {
+            let minDistance = Infinity;
+            for (const p2 of points2) {
+                const dx = p1.x - p2.x;
+                const dy = p1.y - p2.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                }
+            }
+            if (minDistance > maxMinDistance) {
+                maxMinDistance = minDistance;
+            }
+        }
+       
+        // Преобразуем расстояние в схожесть
+        const maxDistance = 200; // Максимальное ожидаемое расстояние
+        const similarity = Math.max(0, 1 - (maxMinDistance / maxDistance));
+       
+        console.log(`📊 Простая схожесть точек: ${(similarity * 100).toFixed(1)}% (расстояние: ${maxMinDistance.toFixed(1)}px)`);
+        return similarity;
+    }
+
+    // 🔥 Метод для сравнения графов (основной)
+    compare(footprint1, footprint2, options = {}) {
+        console.log(`🔍 SimpleMatcher.compare вызван для сравнения следов`);
+       
+        try {
+            // Извлекаем графы из следов
+            const graph1 = footprint1.graph || this.createSimpleGraphFromPoints(
+                footprint1.points || [],
+                footprint1.id || 'footprint1'
+            );
+           
+            const graph2 = footprint2.graph || this.createSimpleGraphFromPoints(
+                footprint2.points || [],
+                footprint2.id || 'footprint2'
+            );
+           
+            // Используем основной метод сравнения
+            const result = this.compareGraphs(graph1, graph2, {
+                compareType: 'footprint_comparison',
+                ...options
+            });
+           
+            return {
+                similarity: result.similarity || 0,
+                matches: result.matchedPoints || [],
+                decision: result.decision,
+                reason: result.reason,
+                method: result.method
+            };
+           
+        } catch (error) {
+            console.error(`❌ Ошибка в SimpleMatcher.compare: ${error.message}`);
+            return {
+                similarity: 0,
+                matches: [],
+                error: `Ошибка сравнения: ${error.message}`,
+                method: 'error'
+            };
+        }
     }
 
     // 🔥 НОВЫЙ МЕТОД: безопасная загрузка RotationInvariance
@@ -171,7 +367,7 @@ class SimpleMatcher {
             similarity += distributionScore * 0.4;
 
             similarity = Math.max(0, Math.min(1, similarity));
-           
+
             // 🔥 ИСПРАВЛЕНИЕ: Гарантируем что similarity не NaN
             if (isNaN(similarity)) {
                 similarity = 0;
