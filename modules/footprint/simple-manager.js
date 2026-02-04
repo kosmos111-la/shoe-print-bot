@@ -388,114 +388,110 @@ class SimpleFootprintManager {
         return similarity;
     }
 
-    // 🔥 ОБНОВЛЕННАЯ диагностика для новой системы
-runInitialDiagnostics() {
-    console.log('\n🔍 ЗАПУСК НАЧАЛЬНОЙ ДИАГНОСТИКИ НОВОЙ СИСТЕМЫ...');
+    // 🔥 ОБНОВЛЕННАЯ диагностика для новой системы (БЕЗ await в конструкторе)
+    runInitialDiagnostics() {
+        console.log('\n🔍 ЗАПУСК НАЧАЛЬНОЙ ДИАГНОСТИКИ НОВОЙ СИСТЕМЫ...');
 
-    // 1. Проверка новой системы координат
-    console.log('  1. Проверка новой системы координат...');
-    try {
-        const testPoints = [
-            { x: 100, y: 100, id: 'test1', confidence: 0.8 },
-            { x: 200, y: 200, id: 'test2', confidence: 0.7 },
-            { x: 300, y: 300, id: 'test3', confidence: 0.9 }
-        ];
+        // 1. Проверка новой системы координат
+        console.log('  1. Проверка новой системы координат...');
+        try {
+            const testPoints = [
+                { x: 100, y: 100, id: 'test1', confidence: 0.8 },
+                { x: 200, y: 200, id: 'test2', confidence: 0.7 },
+                { x: 300, y: 300, id: 'test3', confidence: 0.9 }
+            ];
 
-        const transformed = this.coordinateSystem.transform(testPoints);
-        const normalized = this.coordinateSystem.normalize(testPoints);
-        const validation = this.coordinateSystem.validate(testPoints);
+            const transformed = this.coordinateSystem.transform(testPoints);
+            const normalized = this.coordinateSystem.normalize(testPoints);
+            const validation = this.coordinateSystem.validate(testPoints);
 
-        console.log(`     ✅ CoordinateSystem активен`);
-        console.log(`     • Трансформация: ${transformed.length} точек`);
-        console.log(`     • Нормализация: ${normalized.length} точек`);
-        console.log(`     • Валидация: ${validation.validCount}/${validation.total} валидных`);
-    } catch (error) {
-        console.log(`     ❌ CoordinateSystem: ${error.message}`);
-    }
-
-    // 2. Проверка унифицированной системы выравнивания
-    console.log('  2. Проверка унифицированной системы выравнивания...');
-    try {
-        const testPoints = [
-            { x: 100, y: 100 },
-            { x: 200, y: 100 },
-            { x: 150, y: 200 }
-        ];
-
-        const reference = [
-            { x: 120, y: 110 },
-            { x: 220, y: 110 },
-            { x: 170, y: 210 }
-        ];
-
-        const aligned = this.alignmentSystem.alignPoints(testPoints, reference, { method: 'simple' });
-        console.log(`     ✅ AlignmentSystem активен`);
-        console.log(`     • Метод выравнивания: ${this.config.alignmentMethod}`);
-        console.log(`     • Выровнено: ${aligned.length} точек`);
-
-        const validation = this.alignmentSystem.validateAlignment(aligned, reference, 20);
-        console.log(`     • Валидация: ${validation.valid ? '✅ OK' : '❌ FAIL'}`);
-        if (validation.valid) {
-            console.log(`     • Средняя ошибка: ${validation.averageError.toFixed(2)}px`);
+            console.log(`     ✅ CoordinateSystem активен`);
+            console.log(`     • Трансформация: ${transformed.length} точек`);
+            console.log(`     • Нормализация: ${normalized.length} точек`);
+            console.log(`     • Валидация: ${validation.validCount}/${validation.total} валидных`);
+        } catch (error) {
+            console.log(`     ❌ CoordinateSystem: ${error.message}`);
         }
-    } catch (error) {
-        console.log(`     ❌ AlignmentSystem: ${error.message}`);
+
+        // 2. Проверка унифицированной системы выравнивания
+        console.log('  2. Проверка унифицированной системы выравнивания...');
+        try {
+            const testPoints = [
+                { x: 100, y: 100 },
+                { x: 200, y: 100 },
+                { x: 150, y: 200 }
+            ];
+
+            const reference = [
+                { x: 120, y: 110 },
+                { x: 220, y: 110 },
+                { x: 170, y: 210 }
+            ];
+
+            const aligned = this.alignmentSystem.alignPoints(testPoints, reference, { method: 'simple' });
+            console.log(`     ✅ AlignmentSystem активен`);
+            console.log(`     • Метод выравнивания: ${this.config.alignmentMethod}`);
+            console.log(`     • Выровнено: ${aligned.length} точек`);
+
+            const validation = this.alignmentSystem.validateAlignment(aligned, reference, 20);
+            console.log(`     • Валидация: ${validation.valid ? '✅ OK' : '❌ FAIL'}`);
+            if (validation.valid) {
+                console.log(`     • Средняя ошибка: ${validation.averageError.toFixed(2)}px`);
+            }
+        } catch (error) {
+            console.log(`     ❌ AlignmentSystem: ${error.message}`);
+        }
+
+        // 3. Проверка нового метода normalizeFootprint
+        console.log('  3. Проверка нового метода normalizeFootprint...');
+        try {
+            const testFootprint = {
+                id: 'test-footprint',
+                points: [{ x: 100, y: 100 }, { x: 200, y: 200 }, { x: 300, y: 300 }],
+                getPoints: function() { return this.points; },
+                updatePoints: function(newPoints) { this.points = newPoints; },
+                metadata: {}
+            };
+
+            console.log(`     ✅ Метод normalizeFootprint доступен`);
+            console.log(`     • Функция: ${typeof this.normalizeFootprint === 'function' ? '✅' : '❌'}`);
+            console.log(`     • Асинхронный: ${this.normalizeFootprint.constructor.name === 'AsyncFunction' ? '✅' : '❌'}`);
+        } catch (error) {
+            console.log(`     ❌ Метод normalizeFootprint: ${error.message}`);
+        }
+
+        // 4. Проверка нового метода compareFootprints
+        console.log('  4. Проверка нового метода compareFootprints...');
+        try {
+            const testFootprint1 = {
+                points: [{ x: 100, y: 100 }, { x: 200, y: 100 }, { x: 150, y: 200 }],
+                getPoints: function() { return this.points; }
+            };
+
+            const testFootprint2 = {
+                points: [{ x: 110, y: 110 }, { x: 210, y: 110 }, { x: 160, y: 210 }],
+                getPoints: function() { return this.points; }
+            };
+
+            console.log(`     ✅ Метод compareFootprints доступен`);
+            console.log(`     • Функция: ${typeof this.compareFootprints === 'function' ? '✅' : '❌'}`);
+            console.log(`     • Асинхронный: ${this.compareFootprints.constructor.name === 'AsyncFunction' ? '✅' : '❌'}`);
+           
+            console.log(`     • Метод выравнивания: ${this.config.alignmentMethod}`);
+            console.log(`     • Используется новая система: ${this.config.useNewSystem ? '✅ ДА' : '❌ НЕТ'}`);
+        } catch (error) {
+            console.log(`     ❌ Метод compareFootprints: ${error.message}`);
+        }
+
+        // 5. Проверка слоев совместимости
+        console.log('  5. Проверка слоев совместимости...');
+        console.log(`     • simpleAligner: ${this.simpleAligner ? '✅' : '❌'}`);
+        console.log(`     • improvedAligner: ${this.improvedAligner ? '✅' : '❌'}`);
+        console.log(`     • coordinateValidator: ${this.coordinateValidator ? '✅' : '❌'}`);
+        console.log(`     • Используется новая система: ${this.config.useNewSystem ? '✅' : '❌'}`);
+
+        console.log('\n✅ Начальная диагностика новой системы завершена\n');
     }
-
-    // 3. Проверка нового метода normalizeFootprint
-    console.log('  3. Проверка нового метода normalizeFootprint...');
-    try {
-        const testFootprint = {
-            id: 'test-footprint',
-            points: [{ x: 100, y: 100 }, { x: 200, y: 200 }, { x: 300, y: 300 }],
-            getPoints: function() { return this.points; },
-            updatePoints: function(newPoints) { this.points = newPoints; },
-            metadata: {}
-        };
-
-        // 🔥 ИСПРАВЛЕНО: не используем await в sync методе
-        // Вместо этого просто проверяем что метод существует
-        console.log(`     ✅ Метод normalizeFootprint доступен`);
-        console.log(`     • Функция: ${typeof this.normalizeFootprint === 'function' ? '✅' : '❌'}`);
-        console.log(`     • Асинхронный: ${this.normalizeFootprint.constructor.name === 'AsyncFunction' ? '✅' : '❌'}`);
-    } catch (error) {
-        console.log(`     ❌ Метод normalizeFootprint: ${error.message}`);
-    }
-
-    // 4. Проверка нового метода compareFootprints
-    console.log('  4. Проверка нового метода compareFootprints...');
-    try {
-        const testFootprint1 = {
-            points: [{ x: 100, y: 100 }, { x: 200, y: 100 }, { x: 150, y: 200 }],
-            getPoints: function() { return this.points; }
-        };
-
-        const testFootprint2 = {
-            points: [{ x: 110, y: 110 }, { x: 210, y: 110 }, { x: 160, y: 210 }],
-            getPoints: function() { return this.points; }
-        };
-
-        // 🔥 ИСПРАВЛЕНО: не используем await, просто проверяем метод
-        console.log(`     ✅ Метод compareFootprints доступен`);
-        console.log(`     • Функция: ${typeof this.compareFootprints === 'function' ? '✅' : '❌'}`);
-        console.log(`     • Асинхронный: ${this.compareFootprints.constructor.name === 'AsyncFunction' ? '✅' : '❌'}`);
-       
-        // Проверяем синхронно доступные параметры
-        console.log(`     • Метод выравнивания: ${this.config.alignmentMethod}`);
-        console.log(`     • Используется новая система: ${this.config.useNewSystem ? '✅ ДА' : '❌ НЕТ'}`);
-    } catch (error) {
-        console.log(`     ❌ Метод compareFootprints: ${error.message}`);
-    }
-
-    // 5. Проверка слоев совместимости
-    console.log('  5. Проверка слоев совместимости...');
-    console.log(`     • simpleAligner: ${this.simpleAligner ? '✅' : '❌'}`);
-    console.log(`     • improvedAligner: ${this.improvedAligner ? '✅' : '❌'}`);
-    console.log(`     • coordinateValidator: ${this.coordinateValidator ? '✅' : '❌'}`);
-    console.log(`     • Используется новая система: ${this.config.useNewSystem ? '✅' : '❌'}`);
-
-    console.log('\n✅ Начальная диагностика новой системы завершена\n');
-}
 
     // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка модулей
     logModuleStatus() {
@@ -782,33 +778,62 @@ runInitialDiagnostics() {
         return this.coordinateSystem.enforceCanonical(transformation, systemName);
     }
 
-    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ (только сигнатуры)
-    updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo = null) {
-        return this.templateCoordinator.updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo);
+    // 🔥 ОБНОВЛЕННЫЕ МЕТОДЫ СЕССИЙ (исправленные)
+    saveSessionAsModel(userId, modelName = null) {
+        try {
+            const session = this.getActiveSession(userId);
+            if (!session || !session.currentFootprint) {
+                return { success: false, error: 'Нет активной сессии или отпечатка' };
+            }
+
+            const footprint = session.currentFootprint;
+            const name = modelName || `Модель_${new Date().toLocaleTimeString('ru-RU')}`;
+
+            // Сохраняем модель в файл
+            const modelsDir = path.join(this.config.dbPath, 'models');
+            if (!fs.existsSync(modelsDir)) {
+                fs.mkdirSync(modelsDir, { recursive: true });
+            }
+
+            const modelData = {
+                id: footprint.id,
+                userId: footprint.userId,
+                name: name,
+                timestamp: new Date(),
+                graph: footprint.graph ? {
+                    nodes: Array.from(footprint.graph.nodes.entries()),
+                    edges: footprint.graph.edges || []
+                } : null,
+                points: footprint.points || [],
+                metadata: footprint.metadata || {},
+                transformation: footprint.transformation || null
+            };
+
+            const filename = `model_${footprint.id}_${Date.now()}.json`;
+            const filePath = path.join(modelsDir, filename);
+           
+            fs.writeFileSync(filePath, JSON.stringify(modelData, null, 2));
+
+            // Добавляем в загруженные модели
+            this.loadedModels.set(footprint.id, footprint);
+            this.systemStats.totalModels++;
+
+            console.log(`💾 Сессия сохранена как модель: ${name} (${filename})`);
+            return { success: true, modelName: name, filePath, footprintId: footprint.id };
+
+        } catch (error) {
+            console.error(`❌ Ошибка сохранения сессии как модели: ${error.message}`);
+            return { success: false, error: error.message };
+        }
     }
 
-    updateConfirmationsDirectly(footprint1, footprint2) {
-        return this.templateCoordinator.updateConfirmationsDirectly(footprint1, footprint2);
-    }
-
-    updateConfirmationsFromMatches(footprint1, footprint2, matches) {
-        return this.templateCoordinator.updateConfirmationsFromMatches(footprint1, footprint2, matches);
-    }
-
-    debugAccumulation(userId) {
-        return this.templateCoordinator.debugAccumulation(userId);
-    }
-
+    // 🔥 МЕТОДЫ СЕССИЙ (через sessionManager)
     createSession(userId, name = null) {
         return this.sessionManager.createSession(userId, name);
     }
 
     getActiveSession(userId) {
         return this.sessionManager.getActiveSession(userId);
-    }
-
-    saveSessionAsModel(userId, modelName = null) {
-        return this.sessionManager.saveSessionAsModel(userId, modelName);
     }
 
     getSessionInfo(userId) {
@@ -1457,13 +1482,23 @@ runInitialDiagnostics() {
         };
     }
 
-    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка нового следа
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка нового следа (ИСПРАВЛЕННАЯ)
     async processNewFootprint(session, userId, analysis, photoInfo, finalGraph, transformationInfo,
                             similarity, bot, chatId) {
         console.log(`🆕 Следы разные (${similarity.toFixed(3)}) - новая модель`);
 
-        if (session.currentFootprint.graph.nodes.size >= 10) {
-            this.saveSessionAsModel(userId, `Модель_${new Date().toLocaleTimeString('ru-RU')}`);
+        // 🔥 ИСПРАВЛЕНИЕ: Проверяем, есть ли метод saveSessionAsModel
+        if (session.currentFootprint && session.currentFootprint.graph &&
+            session.currentFootprint.graph.nodes && session.currentFootprint.graph.nodes.size >= 10) {
+           
+            console.log(`💾 Сохраняю текущую сессию как модель (${session.currentFootprint.graph.nodes.size} узлов)`);
+           
+            try {
+                // Используем встроенный метод сохранения
+                await this.saveSessionAsModel(userId, `Модель_${new Date().toLocaleTimeString('ru-RU')}`);
+            } catch (error) {
+                console.log(`⚠️ Не удалось сохранить сессию как модель: ${error.message}`);
+            }
         }
 
         const SimpleFootprint = require('./simple-footprint');
@@ -1668,6 +1703,23 @@ runInitialDiagnostics() {
     getLinesOfCode() {
         const lines = [1200, 500, 200, 150, 150, 800, 600, 700, 400];
         return lines.reduce((sum, lines) => sum + lines, 0);
+    }
+
+    // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ ИЗ КООРДИНАЦИИ ШАБЛОНОВ
+    updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo = null) {
+        return this.templateCoordinator.updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo);
+    }
+
+    updateConfirmationsDirectly(footprint1, footprint2) {
+        return this.templateCoordinator.updateConfirmationsDirectly(footprint1, footprint2);
+    }
+
+    updateConfirmationsFromMatches(footprint1, footprint2, matches) {
+        return this.templateCoordinator.updateConfirmationsFromMatches(footprint1, footprint2, matches);
+    }
+
+    debugAccumulation(userId) {
+        return this.templateCoordinator.debugAccumulation(userId);
     }
 }
 
