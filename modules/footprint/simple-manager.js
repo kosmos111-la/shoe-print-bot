@@ -231,6 +231,7 @@ class SimpleFootprintManager {
                 // Создаем директорию если нужно
                 const dir = path.dirname(vizPath);
                 if (!fs.existsSync(dir)) {
+                    console.log(`📁 Создаю директорию для заглушки: ${dir}`);
                     fs.mkdirSync(dir, { recursive: true });
                 }
 
@@ -253,6 +254,7 @@ class SimpleFootprintManager {
                 // Создаем директорию если нужно
                 const dir = path.dirname(templatePath);
                 if (!fs.existsSync(dir)) {
+                    console.log(`📁 Создаю директорию для шаблона: ${dir}`);
                     fs.mkdirSync(dir, { recursive: true });
                 }
 
@@ -612,6 +614,30 @@ class SimpleFootprintManager {
         return [];
     }
 
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ensureDirectories - добавляем недостающие директории
+    ensureDirectories() {
+        const dirs = [
+            this.config.dbPath,
+            path.join(this.config.dbPath, 'models'),
+            path.join(this.config.dbPath, 'sessions'),
+            path.join(this.config.dbPath, 'visualizations'),
+            path.join(this.config.dbPath, 'visualizations/templates'),
+            path.join(this.config.dbPath, 'visualizations/alignments'),
+            path.join(this.config.dbPath, 'visualizations/clusters'), // 🔥 ВАЖНО!
+            path.join(this.config.dbPath, 'visualizations/merges'),
+            path.join(this.config.dbPath, 'reports'),
+            path.join(this.config.dbPath, 'diagnostic_reports'),
+            path.join(this.config.dbPath, 'logs')
+        ];
+
+        dirs.forEach(dir => {
+            if (!fs.existsSync(dir)) {
+                console.log(`📁 Создаю директорию: ${dir}`);
+                fs.mkdirSync(dir, { recursive: true });
+            }
+        });
+    }
+
     // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка первого фото
     async processFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
@@ -727,6 +753,9 @@ class SimpleFootprintManager {
             visualizationPath: vizPath,
             imagePath: vizPath,
             path: vizPath,
+            filePath: vizPath,
+            hasMergeVisualization: hasVisualization,
+            visualizationCreated: !!vizPath,
             coordinateDiagnostics: this.config.enableCoordinateDiagnostics,
             systemUsed: this.config.useNewSystem ? 'new' : 'legacy'
         };
@@ -873,6 +902,8 @@ class SimpleFootprintManager {
                         result.visualizationPath = vizResult.path;
                         result.imagePath = vizResult.path;
                         result.path = vizResult.path;
+                        result.filePath = vizResult.path;
+                        result.visualizationCreated = true;
                         console.log(`✅ Создана визуализация: ${vizResult.path}`);
                     }
                 } catch (error) {
@@ -889,13 +920,16 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: обработка совпадающих следов (добавлены все пути для совместимости)
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: обработка совпадающих следов (добавлены все пути и проверка директорий)
     async processMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
                                   existingTransformationInfo, similarity, comparisonResult,
                                   tempResult, bot, chatId) {
         console.log(`✅ Следы совпали (${similarity.toFixed(3)}) - создаю ВИЗУАЛИЗАЦИЮ`);
 
         const nodesAdded = tempResult?.added || 0;
+       
+        // 🔥 ВАЖНО: Проверяем директории перед созданием визуализации
+        this.ensureDirectories();
 
         // Работа с шаблоном
         let vectorModel = this.vectorSuperModels.get(userId);
@@ -925,6 +959,7 @@ class SimpleFootprintManager {
         let hasTemplateViz = false;
         let vizPath = null;
         let templatePath = null;
+        let visualizationCreated = false;
 
         // 1. Визуализация подтверждений
         if (this.config.enableMergeVisualization) {
@@ -942,8 +977,17 @@ class SimpleFootprintManager {
 
                 if (vizResult && vizResult.path) {
                     hasVisualization = true;
-                    vizPath = vizResult.path; // 🔥 СОХРАНЯЕМ ПУТЬ ДЛЯ ВОЗВРАТА
+                    vizPath = vizResult.path;
+                    visualizationCreated = true;
                     console.log(`✅ Путь к визуализации: ${vizPath}`);
+                   
+                    // 🔥 ПРОВЕРЯЕМ СУЩЕСТВОВАНИЕ ФАЙЛА
+                    if (fs.existsSync(vizPath)) {
+                        const stats = fs.statSync(vizPath);
+                        console.log(`📊 Размер файла: ${stats.size} байт`);
+                    } else {
+                        console.log(`⚠️ Файл не создан: ${vizPath}`);
+                    }
                 }
             } catch (error) {
                 console.log(`⚠️ Ошибка визуализации: ${error.message}`);
@@ -1004,16 +1048,19 @@ class SimpleFootprintManager {
             visualizationPath: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
             imagePath: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ
             path: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ
+            filePath: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ
            
             templatePath: templatePath,
-            hasMergeVisualization: hasVisualization // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+            hasMergeVisualization: hasVisualization, // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+            visualizationCreated: visualizationCreated // 🔥 ДОБАВЛЕНО
         };
 
-        console.log(`📤 Возвращаем результат с визуализацией: ${vizPath}`);
-        console.log(`   • vizPath: ${result.vizPath}`);
-        console.log(`   • visualizationPath: ${result.visualizationPath}`);
-        console.log(`   • imagePath: ${result.imagePath}`);
-        console.log(`   • path: ${result.path}`);
+        console.log(`📤 Возвращаем результат визуализации:`, {
+            vizPath: result.vizPath,
+            hasVisualization: result.hasVisualization,
+            visualizationCreated: result.visualizationCreated,
+            fileExists: result.vizPath ? fs.existsSync(result.vizPath) : false
+        });
 
         return result;
     }
@@ -1082,71 +1129,16 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ОБНОВЛЕННАЯ диагностика для новой системы
-    runInitialDiagnostics() {
-        console.log('\n🔍 ЗАПУСК НАЧАЛЬНОЙ ДИАГНОСТИКИ НОВОЙ СИСТЕМЫ...');
-
-        // 1. Проверка новой системы координат
-        console.log('  1. Проверка новой системы координат...');
-        try {
-            const testPoints = [
-                { x: 100, y: 100, id: 'test1', confidence: 0.8 },
-                { x: 200, y: 200, id: 'test2', confidence: 0.7 },
-                { x: 300, y: 300, id: 'test3', confidence: 0.9 }
-            ];
-
-            console.log(`     ✅ CoordinateSystem доступен`);
-            console.log(`     • Доступны методы: transform, normalize, validate`);
-        } catch (error) {
-            console.log(`     ❌ CoordinateSystem: ${error.message}`);
-        }
-
-        // 2. Проверка унифицированной системы выравнивания
-        console.log('  2. Проверка унифицированной системы выравнивания...');
-        try {
-            console.log(`     ✅ AlignmentSystem доступен`);
-            console.log(`     • Метод выравнивания: ${this.config.alignmentMethod}`);
-            console.log(`     • Используется новая система: ${this.config.useNewSystem ? '✅ ДА' : '❌ НЕТ'}`);
-        } catch (error) {
-            console.log(`     ❌ AlignmentSystem: ${error.message}`);
-        }
-
-        // 3. Проверка визуализации
-        console.log('  3. Проверка визуализации...');
-        console.log(`     • VisualizationManager: ${this.visualizationManager ? '✅' : '❌'}`);
-        console.log(`     • Визуализация включена: ${this.config.enableMergeVisualization ? '✅' : '❌'}`);
-        console.log(`     • Визуализация шаблонов: ${this.config.enableTemplateVisualization ? '✅' : '❌'}`);
-
-        // 4. Проверка SimpleMatcher
-        console.log('  4. Проверка SimpleMatcher...');
-        console.log(`     • SimpleMatcher: ${this.matcher ? '✅' : '❌'}`);
-        console.log(`     • Метод match доступен: ${this.matcher && this.matcher.match ? '✅' : '❌'}`);
-
-        console.log('\n✅ Начальная диагностика новой системы завершена\n');
-    }
-
-    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка модулей
-    logModuleStatus() {
-        const modules = [
-            ['coordinateSystem', this.coordinateSystem],
-            ['alignmentSystem (unified)', this.alignmentSystem],
-            ['visualizationManager', this.visualizationManager],
-            ['matcher', this.matcher],
-            ['НОВЫЙ normalizeFootprint', '✅ добавлен (упрощенный)'],
-            ['НОВЫЙ compareFootprints', '✅ добавлен (с гарантией схожести)'],
-            ['Слои совместимости:', '✅ созданы'],
-            ['Используется новая система:', this.config.useNewSystem ? '✅ ДА' : '❌ НЕТ']
-        ];
-
-        console.log(`🔍 ПРОВЕРКА МОДУЛЕЙ (исправленная версия):`);
-        modules.forEach(([name, obj]) => {
-            console.log(`   - ${name}: ${obj ? '✅' : '❌'}`);
-        });
-    }
-
-    // 🔥 ИСПРАВЛЕННЫЕ МЕТОДЫ ВИЗУАЛИЗАЦИИ (гарантируют создание визуализации)
+    // 🔥 ИСПРАВЛЕННЫЕ МЕТОДЫ ВИЗУАЛИЗАЦИИ (гарантируют создание визуализации и проверяют директории)
     async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
         console.log(`🎨 ВЫЗОВ ВИЗУАЛИЗАЦИИ отпечатка для ${userId}`);
+
+        // 🔥 ПРОВЕРЯЕМ ДИРЕКТОРИЮ ПЕРЕД СОЗДАНИЕМ
+        const vizDir = path.join(this.config.dbPath, 'visualizations', 'clusters');
+        if (!fs.existsSync(vizDir)) {
+            console.log(`📁 Создаю директорию для визуализаций: ${vizDir}`);
+            fs.mkdirSync(vizDir, { recursive: true });
+        }
 
         // Проверяем, включена ли визуализация
         if (!this.config.enableMergeVisualization) {
@@ -1160,6 +1152,15 @@ class SimpleFootprintManager {
 
                 if (result && result.path) {
                     console.log(`✅ Визуализация создана: ${result.path}`);
+                   
+                    // 🔥 ПРОВЕРЯЕМ, ЧТО ФАЙЛ ДЕЙСТВИТЕЛЬНО СОЗДАН
+                    if (fs.existsSync(result.path)) {
+                        const stats = fs.statSync(result.path);
+                        console.log(`📊 Размер файла визуализации: ${stats.size} байт`);
+                    } else {
+                        console.log(`⚠️ Файл визуализации не найден по пути: ${result.path}`);
+                    }
+                   
                     return result;
                 } else {
                     console.log('⚠️ VisualizationManager вернул пустой результат');
@@ -1180,6 +1181,13 @@ class SimpleFootprintManager {
 
     async visualizeVectorSuperModel(userId, vectorModel) {
         console.log(`🎨 ВЫЗОВ ВИЗУАЛИЗАЦИИ шаблона для ${userId}`);
+
+        // 🔥 ПРОВЕРЯЕМ ДИРЕКТОРИЮ ПЕРЕД СОЗДАНИЕМ
+        const templateDir = path.join(this.config.dbPath, 'visualizations', 'templates');
+        if (!fs.existsSync(templateDir)) {
+            console.log(`📁 Создаю директорию для шаблонов: ${templateDir}`);
+            fs.mkdirSync(templateDir, { recursive: true });
+        }
 
         // Проверяем, включена ли визуализация шаблонов
         if (!this.config.enableTemplateVisualization) {
@@ -1252,8 +1260,11 @@ class SimpleFootprintManager {
                 visualizationPath: result.visualizationPath,
                 imagePath: result.imagePath,
                 path: result.path,
+                filePath: result.filePath,
                 hasVisualization: !!result.vizPath,
-                nodesAdded: result.nodesAdded
+                visualizationCreated: result.visualizationCreated,
+                nodesAdded: result.nodesAdded,
+                fileExists: result.vizPath ? fs.existsSync(result.vizPath) : false
             });
 
             return result;
@@ -1263,6 +1274,49 @@ class SimpleFootprintManager {
             console.error(error.stack);
             return { success: false, error: error.message, nodesAdded: 0 };
         }
+    }
+
+    // 🔥 ОБНОВЛЕННАЯ диагностика для новой системы
+    runInitialDiagnostics() {
+        console.log('\n🔍 ЗАПУСК НАЧАЛЬНОЙ ДИАГНОСТИКИ НОВОЙ СИСТЕМЫ...');
+
+        // 1. Проверка новой системы координат
+        console.log('  1. Проверка новой системы координат...');
+        try {
+            const testPoints = [
+                { x: 100, y: 100, id: 'test1', confidence: 0.8 },
+                { x: 200, y: 200, id: 'test2', confidence: 0.7 },
+                { x: 300, y: 300, id: 'test3', confidence: 0.9 }
+            ];
+
+            console.log(`     ✅ CoordinateSystem доступен`);
+            console.log(`     • Доступны методы: transform, normalize, validate`);
+        } catch (error) {
+            console.log(`     ❌ CoordinateSystem: ${error.message}`);
+        }
+
+        // 2. Проверка унифицированной системы выравнивания
+        console.log('  2. Проверка унифицированной системы выравнивания...');
+        try {
+            console.log(`     ✅ AlignmentSystem доступен`);
+            console.log(`     • Метод выравнивания: ${this.config.alignmentMethod}`);
+            console.log(`     • Используется новая система: ${this.config.useNewSystem ? '✅ ДА' : '❌ НЕТ'}`);
+        } catch (error) {
+            console.log(`     ❌ AlignmentSystem: ${error.message}`);
+        }
+
+        // 3. Проверка визуализации
+        console.log('  3. Проверка визуализации...');
+        console.log(`     • VisualizationManager: ${this.visualizationManager ? '✅' : '❌'}`);
+        console.log(`     • Визуализация включена: ${this.config.enableMergeVisualization ? '✅' : '❌'}`);
+        console.log(`     • Визуализация шаблонов: ${this.config.enableTemplateVisualization ? '✅' : '❌'}`);
+
+        // 4. Проверка SimpleMatcher
+        console.log('  4. Проверка SimpleMatcher...');
+        console.log(`     • SimpleMatcher: ${this.matcher ? '✅' : '❌'}`);
+        console.log(`     • Метод match доступен: ${this.matcher && this.matcher.match ? '✅' : '❌'}`);
+
+        console.log('\n✅ Начальная диагностика новой системы завершена\n');
     }
 
     // 🔥 БЕЗОПАСНЫЕ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
@@ -1413,27 +1467,6 @@ class SimpleFootprintManager {
             confirmed0,
             totalPoints: confirmed2 + confirmed1 + confirmed0
         };
-    }
-
-    ensureDirectories() {
-        const dirs = [
-            this.config.dbPath,
-            path.join(this.config.dbPath, 'models'),
-            path.join(this.config.dbPath, 'sessions'),
-            path.join(this.config.dbPath, 'visualizations'),
-            path.join(this.config.dbPath, 'visualizations/templates'),
-            path.join(this.config.dbPath, 'visualizations/alignments'),
-            path.join(this.config.dbPath, 'visualizations/clusters'),
-            path.join(this.config.dbPath, 'reports'),
-            path.join(this.config.dbPath, 'diagnostic_reports'),
-            path.join(this.config.dbPath, 'logs')
-        ];
-
-        dirs.forEach(dir => {
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
-            }
-        });
     }
 
     loadExistingModels() {
@@ -1626,6 +1659,25 @@ class SimpleFootprintManager {
 
     debugAccumulation(userId) {
         return this.templateCoordinator.debugAccumulation(userId);
+    }
+
+    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: проверка модулей
+    logModuleStatus() {
+        const modules = [
+            ['coordinateSystem', this.coordinateSystem],
+            ['alignmentSystem (unified)', this.alignmentSystem],
+            ['visualizationManager', this.visualizationManager],
+            ['matcher', this.matcher],
+            ['НОВЫЙ normalizeFootprint', '✅ добавлен (упрощенный)'],
+            ['НОВЫЙ compareFootprints', '✅ добавлен (с гарантией схожести)'],
+            ['Слои совместимости:', '✅ созданы'],
+            ['Используется новая система:', this.config.useNewSystem ? '✅ ДА' : '❌ НЕТ']
+        ];
+
+        console.log(`🔍 ПРОВЕРКА МОДУЛЕЙ (исправленная версия):`);
+        modules.forEach(([name, obj]) => {
+            console.log(`   - ${name}: ${obj ? '✅' : '❌'}`);
+        });
     }
 
     // 🔥 МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ
