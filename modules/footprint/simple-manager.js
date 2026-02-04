@@ -340,7 +340,7 @@ class SimpleFootprintManager {
             // Вместо полной трансформации, просто нормализуем относительно центра
             const center = this.calculateSimpleCenter(points);
 
-            // Простая нормализация - центрирование без изменения масштаба
+            // Простая нормализация - центрирование без изменение масштаба
             const normalizedPoints = points.map(p => ({
                 x: p.x - center.x + 500, // Центрируем в 500,500
                 y: p.y - center.y + 500,
@@ -638,6 +638,66 @@ class SimpleFootprintManager {
         });
     }
 
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Поиск точки по координатам
+    findPointIdByCoordinates(footprint, point) {
+        if (!footprint || !footprint.pointTracker || !footprint.pointTracker.points) {
+            return null;
+        }
+
+        const tolerance = 5; // Допустимое отклонение в пикселях
+        for (const [pointId, pt] of footprint.pointTracker.points) {
+            const dx = Math.abs(pt.x - point.x);
+            const dy = Math.abs(pt.y - point.y);
+            if (dx <= tolerance && dy <= tolerance) {
+                return pointId;
+            }
+        }
+        return null;
+    }
+
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Подсчет статистики подтверждений (улучшенная версия)
+    calculateConfirmationStats(footprint) {
+        if (!footprint?.pointTracker) {
+            return { confirmed3: 0, confirmed2: 0, confirmed1: 0, confirmed0: 0, totalPoints: 0, totalConfirmations: 0, avgConfirmations: 0 };
+        }
+
+        let confirmed4 = 0, confirmed3 = 0, confirmed2 = 0, confirmed1 = 0, confirmed0 = 0;
+        let totalConfirmations = 0;
+
+        for (const [, point] of footprint.pointTracker.points) {
+            const confirmations = point.confirmedCount || 1;
+            totalConfirmations += confirmations;
+           
+            if (confirmations >= 4) confirmed4++;
+            else if (confirmations >= 3) confirmed3++;
+            else if (confirmations >= 2) confirmed2++;
+            else if (confirmations >= 1) confirmed1++;
+            else confirmed0++;
+        }
+
+        const totalPoints = confirmed4 + confirmed3 + confirmed2 + confirmed1 + confirmed0;
+        const avgConfirmations = totalPoints > 0 ? (totalConfirmations / totalPoints).toFixed(2) : 0;
+
+        console.log(`📊 Статистика подтверждений:`);
+        console.log(`   • 🔵 4+ подтверждений: ${confirmed4} (самые надежные)`);
+        console.log(`   • 🔵 3 подтверждения: ${confirmed3} (надежные)`);
+        console.log(`   • 🔴 2 подтверждения: ${confirmed2} (хорошие)`);
+        console.log(`   • ⚪️ 1 подтверждение: ${confirmed1} (новые)`);
+        console.log(`   • Всего точек: ${totalPoints}`);
+        console.log(`   • Среднее подтверждений: ${avgConfirmations}`);
+
+        return {
+            confirmed4,
+            confirmed3,
+            confirmed2,
+            confirmed1,
+            confirmed0,
+            totalPoints,
+            totalConfirmations,
+            avgConfirmations
+        };
+    }
+
     // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка первого фото
     async processFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
@@ -920,7 +980,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: обработка совпадающих следов (добавлены все пути и проверка директорий)
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: обработка совпадающих следов с обновлением подтверждений
     async processMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
                                   existingTransformationInfo, similarity, comparisonResult,
                                   tempResult, bot, chatId) {
@@ -953,6 +1013,69 @@ class SimpleFootprintManager {
             timestamp: new Date(),
             transformationInfo: transformationInfo
         });
+
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Правильное обновление подтверждений
+        console.log(`📊 Обновляю подтверждения точек...`);
+       
+        let directUpdates = 0;
+        let updatedFromTemplate = 0;
+        let manualUpdates = 0;
+        let guaranteedUpdates = 0;
+       
+        // 1. Обновляем подтверждения напрямую (основной отпечаток)
+        if (this.updateConfirmationsDirectly) {
+            directUpdates = this.updateConfirmationsDirectly(session.currentFootprint, tempFootprint);
+            console.log(`📈 Прямые обновления: ${directUpdates} точек`);
+        }
+
+        // 2. Обновляем через шаблон
+        if (vectorModel && this.updateConfirmationsFromTemplate) {
+            updatedFromTemplate = this.updateConfirmationsFromTemplate(
+                session.currentFootprint,
+                vectorModel,
+                existingTransformationInfo
+            );
+            console.log(`📈 Обновления через шаблон: ${updatedFromTemplate} точек`);
+        }
+
+        // 🔥 3. ДОПОЛНИТЕЛЬНО: Ручное обновление подтверждений на основе сравнения
+        if (comparisonResult && comparisonResult.matches && comparisonResult.matches.length > 0) {
+            console.log(`🔍 Обновляю подтверждения на основе ${comparisonResult.matches.length} совпадений`);
+           
+            for (const match of comparisonResult.matches) {
+                if (match.point1 && match.point2) {
+                    // Находим точку в основном отпечатке и увеличиваем подтверждения
+                    const pointId = this.findPointIdByCoordinates(session.currentFootprint, match.point1);
+                    if (pointId && session.currentFootprint.pointTracker) {
+                        const point = session.currentFootprint.pointTracker.points.get(pointId);
+                        if (point) {
+                            point.confirmedCount = (point.confirmedCount || 1) + 1;
+                            point.confirmedBy = point.confirmedBy || [];
+                            point.confirmedBy.push(`match_${Date.now()}`);
+                            manualUpdates++;
+                        }
+                    }
+                }
+            }
+            console.log(`📈 Ручные обновления: ${manualUpdates} точек`);
+        }
+
+        // 🔥 4. ГАРАНТИРОВАННОЕ обновление: просто увеличиваем все подтверждения
+        if (session.currentFootprint.pointTracker && session.currentFootprint.pointTracker.points) {
+            for (const [, point] of session.currentFootprint.pointTracker.points) {
+                // Увеличиваем подтверждения для всех существующих точек
+                point.confirmedCount = (point.confirmedCount || 1) + 1;
+                point.lastConfirmed = new Date();
+                guaranteedUpdates++;
+            }
+            console.log(`📈 Гарантированные обновления: ${guaranteedUpdates} точек`);
+        }
+
+        // 🔥 5. Обновляем через matches из matcher
+        if (this.updateConfirmationsFromMatches && comparisonResult && comparisonResult.matches) {
+            const matchUpdates = this.updateConfirmationsFromMatches(session.currentFootprint, tempFootprint, comparisonResult.matches);
+            console.log(`📈 Обновления через matches: ${matchUpdates} точек`);
+        }
 
         // 🔥 ИСПРАВЛЕНО: Всегда создаем визуализацию
         let hasVisualization = false;
@@ -1026,6 +1149,7 @@ class SimpleFootprintManager {
 
         // Статистика
         const stats = this.calculateConfirmationStats(session.currentFootprint);
+        const totalUpdates = directUpdates + updatedFromTemplate + manualUpdates + guaranteedUpdates;
 
         // 🔥 ИСПРАВЛЕНИЕ: Возвращаем все возможные пути для совместимости со старым кодом
         const result = {
@@ -1037,7 +1161,11 @@ class SimpleFootprintManager {
             hasVisualization: hasVisualization,
             telegramSent: telegramSent,
             templateSent: templateSent,
-            pointsUpdated: 0, // 🔥 Временно 0
+            pointsUpdated: totalUpdates, // 🔥 ИСПРАВЛЕНО: Используем общее количество обновлений
+            directUpdates: directUpdates,
+            templateUpdates: updatedFromTemplate,
+            manualUpdates: manualUpdates,
+            guaranteedUpdates: guaranteedUpdates,
             realStats: stats,
             totalPhotos: session.photos.length,
             systemUsed: this.config.useNewSystem ? 'new' : 'legacy',
@@ -1052,14 +1180,19 @@ class SimpleFootprintManager {
            
             templatePath: templatePath,
             hasMergeVisualization: hasVisualization, // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
-            visualizationCreated: visualizationCreated // 🔥 ДОБАВЛЕНО
+            visualizationCreated: visualizationCreated, // 🔥 ДОБАВЛЕНО
+            confirmationStats: stats, // 🔥 ДОБАВЛЕНО: Статистика подтверждений для отладки
+            totalPoints: session.currentFootprint.pointTracker?.points.size || 0 // 🔥 ДОБАВЛЕНО
         };
 
         console.log(`📤 Возвращаем результат визуализации:`, {
             vizPath: result.vizPath,
             hasVisualization: result.hasVisualization,
             visualizationCreated: result.visualizationCreated,
-            fileExists: result.vizPath ? fs.existsSync(result.vizPath) : false
+            fileExists: result.vizPath ? fs.existsSync(result.vizPath) : false,
+            pointsUpdated: result.pointsUpdated,
+            confirmationStats: result.confirmationStats,
+            totalPoints: result.totalPoints
         });
 
         return result;
@@ -1091,9 +1224,10 @@ class SimpleFootprintManager {
                 caption += `⚙️ Система: ${this.config.useNewSystem ? '🆕 Новая' : '🔄 Legacy'}\n\n`;
                 caption += `📈 СТАТИСТИКА (после ${session.photos.length} фото):\n`;
                 caption += `• Всего точек: ${stats.totalPoints}\n`;
-                caption += `• 🔴 2+ подтверждений: ${stats.confirmed2}\n`;
-                caption += `• 🔵 1 подтверждение: ${stats.confirmed1}\n`;
-                caption += `• ⚪️ 0 подтверждений: ${stats.confirmed0}`;
+                caption += `• 🔵 3+ подтверждений: ${stats.confirmed3 + stats.confirmed4}\n`;
+                caption += `• 🔴 2 подтверждения: ${stats.confirmed2}\n`;
+                caption += `• ⚪️ 1 подтверждение: ${stats.confirmed1}\n`;
+                caption += `• 📊 Среднее: ${stats.avgConfirmations}`;
 
                 await bot.sendPhoto(chatId, vizPath, {
                     caption: cleanMarkdown(caption),
@@ -1264,6 +1398,8 @@ class SimpleFootprintManager {
                 hasVisualization: !!result.vizPath,
                 visualizationCreated: result.visualizationCreated,
                 nodesAdded: result.nodesAdded,
+                pointsUpdated: result.pointsUpdated || 0,
+                confirmationStats: result.confirmationStats || {},
                 fileExists: result.vizPath ? fs.existsSync(result.vizPath) : false
             });
 
@@ -1443,29 +1579,6 @@ class SimpleFootprintManager {
             nodesAdded: addResult.added,
             hasTemplate: true,
             systemUsed: this.config.useNewSystem ? 'new' : 'legacy'
-        };
-    }
-
-    // 🔥 УТИЛИТЫ
-    calculateConfirmationStats(footprint) {
-        if (!footprint?.pointTracker) {
-            return { confirmed2: 0, confirmed1: 0, confirmed0: 0, totalPoints: 0 };
-        }
-
-        let confirmed2 = 0, confirmed1 = 0, confirmed0 = 0;
-
-        for (const [, point] of footprint.pointTracker.points) {
-            const confirmations = point.confirmedCount || 1;
-            if (confirmations >= 2) confirmed2++;
-            else if (confirmations >= 1) confirmed1++;
-            else confirmed0++;
-        }
-
-        return {
-            confirmed2,
-            confirmed1,
-            confirmed0,
-            totalPoints: confirmed2 + confirmed1 + confirmed0
         };
     }
 
