@@ -667,7 +667,7 @@ class SimpleFootprintManager {
         for (const [, point] of footprint.pointTracker.points) {
             const confirmations = point.confirmedCount || 1;
             totalConfirmations += confirmations;
-           
+
             if (confirmations >= 4) confirmed4++;
             else if (confirmations >= 3) confirmed3++;
             else if (confirmations >= 2) confirmed2++;
@@ -991,6 +991,22 @@ class SimpleFootprintManager {
         // 🔥 ВАЖНО: Проверяем директории перед созданием визуализации
         this.ensureDirectories();
 
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: УДАЛЯЕМ "ГАРАНТИРОВАННОЕ" ОБНОВЛЕНИЕ ВСЕХ ТОЧЕК
+        // ❌ УДАЛЯЕМ ЭТОТ КОД - он обновляет ВСЕ точки неправильно!
+        // 🔥 ЗАМЕНЯЕМ на правильную логику обновления только совпавших точек
+        console.log(`🎯 Обновляю подтверждения на основе схожести ${similarity.toFixed(3)}:`);
+       
+        // Вычисляем сколько точек должно получить подтверждение
+        const points1Count = session.currentFootprint.pointTracker?.points.size || 0;
+        const points2Count = tempFootprint.pointTracker?.points.size || 0;
+        const expectedMatches = Math.floor(Math.min(
+            points1Count,
+            points2Count,
+            similarity * Math.min(points1Count, points2Count)
+        ));
+
+        console.log(`   • Ожидается совпадений: ~${expectedMatches} точек`);
+
         // Работа с шаблоном
         let vectorModel = this.vectorSuperModels.get(userId);
         if (!vectorModel) {
@@ -1014,18 +1030,18 @@ class SimpleFootprintManager {
             transformationInfo: transformationInfo
         });
 
-        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Правильное обновление подтверждений
+        // 🔥 ИСПРАВЛЕННАЯ ЛОГИКА: Правильное обновление подтверждений
         console.log(`📊 Обновляю подтверждения точек...`);
-       
+
         let directUpdates = 0;
         let updatedFromTemplate = 0;
         let manualUpdates = 0;
-        let guaranteedUpdates = 0;
-       
-        // 1. Обновляем подтверждения напрямую (основной отпечаток)
+        let matchBasedUpdates = 0;
+
+        // 1. Обновляем подтверждения напрямую (основной отпечаток) - ИСПРАВЛЕННЫЙ МЕТОД
         if (this.updateConfirmationsDirectly) {
             directUpdates = this.updateConfirmationsDirectly(session.currentFootprint, tempFootprint);
-            console.log(`📈 Прямые обновления: ${directUpdates} точек`);
+            console.log(`📈 Прямые обновления: ${directUpdates} точек (только совпавшие)`);
         }
 
         // 2. Обновляем через шаблон
@@ -1038,9 +1054,15 @@ class SimpleFootprintManager {
             console.log(`📈 Обновления через шаблон: ${updatedFromTemplate} точек`);
         }
 
-        // 🔥 3. ДОПОЛНИТЕЛЬНО: Ручное обновление подтверждений на основе сравнения
+        // 3. Обновляем через matches из comparisonResult
+        if (this.updateConfirmationsFromMatches && comparisonResult && comparisonResult.matches) {
+            matchBasedUpdates = this.updateConfirmationsFromMatches(session.currentFootprint, tempFootprint, comparisonResult.matches);
+            console.log(`📈 Обновления через matches: ${matchBasedUpdates} точек`);
+        }
+
+        // 4. 🔥 ИСПРАВЛЕНИЕ: Дополнительное обновление на основе comparisonResult
         if (comparisonResult && comparisonResult.matches && comparisonResult.matches.length > 0) {
-            console.log(`🔍 Обновляю подтверждения на основе ${comparisonResult.matches.length} совпадений`);
+            console.log(`🔍 Обновляю подтверждения на основе ${comparisonResult.matches.length} совпадений из comparisonResult`);
            
             for (const match of comparisonResult.matches) {
                 if (match.point1 && match.point2) {
@@ -1049,33 +1071,24 @@ class SimpleFootprintManager {
                     if (pointId && session.currentFootprint.pointTracker) {
                         const point = session.currentFootprint.pointTracker.points.get(pointId);
                         if (point) {
-                            point.confirmedCount = (point.confirmedCount || 1) + 1;
-                            point.confirmedBy = point.confirmedBy || [];
-                            point.confirmedBy.push(`match_${Date.now()}`);
-                            manualUpdates++;
+                            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Увеличиваем только если это совпавшая точка
+                            const oldCount = point.confirmedCount || 1;
+                            const newCount = Math.max(oldCount, 2); // Минимум 2 подтверждения для совпавших точек
+                           
+                            if (newCount > oldCount) {
+                                point.confirmedCount = newCount;
+                                point.confirmedBy = point.confirmedBy || [];
+                                point.confirmedBy.push(`comparison_match_${Date.now()}`);
+                                manualUpdates++;
+                            }
                         }
                     }
                 }
             }
-            console.log(`📈 Ручные обновления: ${manualUpdates} точек`);
+            console.log(`📈 Ручные обновления из comparisonResult: ${manualUpdates} точек`);
         }
 
-        // 🔥 4. ГАРАНТИРОВАННОЕ обновление: просто увеличиваем все подтверждения
-        if (session.currentFootprint.pointTracker && session.currentFootprint.pointTracker.points) {
-            for (const [, point] of session.currentFootprint.pointTracker.points) {
-                // Увеличиваем подтверждения для всех существующих точек
-                point.confirmedCount = (point.confirmedCount || 1) + 1;
-                point.lastConfirmed = new Date();
-                guaranteedUpdates++;
-            }
-            console.log(`📈 Гарантированные обновления: ${guaranteedUpdates} точек`);
-        }
-
-        // 🔥 5. Обновляем через matches из matcher
-        if (this.updateConfirmationsFromMatches && comparisonResult && comparisonResult.matches) {
-            const matchUpdates = this.updateConfirmationsFromMatches(session.currentFootprint, tempFootprint, comparisonResult.matches);
-            console.log(`📈 Обновления через matches: ${matchUpdates} точек`);
-        }
+        console.log(`📊 Итоговые обновления: ${directUpdates + updatedFromTemplate + matchBasedUpdates + manualUpdates} точек`);
 
         // 🔥 ИСПРАВЛЕНО: Всегда создаем визуализацию
         let hasVisualization = false;
@@ -1103,7 +1116,7 @@ class SimpleFootprintManager {
                     vizPath = vizResult.path;
                     visualizationCreated = true;
                     console.log(`✅ Путь к визуализации: ${vizPath}`);
-                   
+
                     // 🔥 ПРОВЕРЯЕМ СУЩЕСТВОВАНИЕ ФАЙЛА
                     if (fs.existsSync(vizPath)) {
                         const stats = fs.statSync(vizPath);
@@ -1149,7 +1162,7 @@ class SimpleFootprintManager {
 
         // Статистика
         const stats = this.calculateConfirmationStats(session.currentFootprint);
-        const totalUpdates = directUpdates + updatedFromTemplate + manualUpdates + guaranteedUpdates;
+        const totalUpdates = directUpdates + updatedFromTemplate + matchBasedUpdates + manualUpdates;
 
         // 🔥 ИСПРАВЛЕНИЕ: Возвращаем все возможные пути для совместимости со старым кодом
         const result = {
@@ -1165,19 +1178,20 @@ class SimpleFootprintManager {
             directUpdates: directUpdates,
             templateUpdates: updatedFromTemplate,
             manualUpdates: manualUpdates,
-            guaranteedUpdates: guaranteedUpdates,
+            matchBasedUpdates: matchBasedUpdates,
+            expectedMatches: expectedMatches, // 🔥 ДОБАВЛЕНО: Ожидаемые совпадения
             realStats: stats,
             totalPhotos: session.photos.length,
             systemUsed: this.config.useNewSystem ? 'new' : 'legacy',
             comparisonMethod: comparisonResult.method,
-           
+
             // 🔥 ВАЖНО: Возвращаем путь к визуализации во всех возможных вариантах для совместимости
             vizPath: vizPath,
             visualizationPath: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
             imagePath: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ
             path: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ
             filePath: vizPath, // 🔥 ДОБАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ
-           
+
             templatePath: templatePath,
             hasMergeVisualization: hasVisualization, // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
             visualizationCreated: visualizationCreated, // 🔥 ДОБАВЛЕНО
@@ -1191,6 +1205,8 @@ class SimpleFootprintManager {
             visualizationCreated: result.visualizationCreated,
             fileExists: result.vizPath ? fs.existsSync(result.vizPath) : false,
             pointsUpdated: result.pointsUpdated,
+            expectedMatches: result.expectedMatches,
+            directUpdates: result.directUpdates,
             confirmationStats: result.confirmationStats,
             totalPoints: result.totalPoints
         });
@@ -1286,7 +1302,7 @@ class SimpleFootprintManager {
 
                 if (result && result.path) {
                     console.log(`✅ Визуализация создана: ${result.path}`);
-                   
+
                     // 🔥 ПРОВЕРЯЕМ, ЧТО ФАЙЛ ДЕЙСТВИТЕЛЬНО СОЗДАН
                     if (fs.existsSync(result.path)) {
                         const stats = fs.statSync(result.path);
@@ -1294,7 +1310,7 @@ class SimpleFootprintManager {
                     } else {
                         console.log(`⚠️ Файл визуализации не найден по пути: ${result.path}`);
                     }
-                   
+
                     return result;
                 } else {
                     console.log('⚠️ VisualizationManager вернул пустой результат');
@@ -1314,7 +1330,7 @@ class SimpleFootprintManager {
     }
 
     async visualizeVectorSuperModel(userId, vectorModel) {
-        console.log(`🎨 ВЫЗОВ ВИЗУАЛИЗАЦИИ шаблона для ${userId}`);
+        console.log(`🎨 ВИЗУАЛИЗАЦИЯ шаблона для ${userId}`);
 
         // 🔥 ПРОВЕРЯЕМ ДИРЕКТОРИЮ ПЕРЕД СОЗДАНИЕМ
         const templateDir = path.join(this.config.dbPath, 'visualizations', 'templates');
@@ -1762,8 +1778,106 @@ class SimpleFootprintManager {
         return this.templateCoordinator.updateConfirmationsFromTemplate(footprint, vectorModel, transformationInfo);
     }
 
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Обновление подтверждений напрямую между двумя следами
     updateConfirmationsDirectly(footprint1, footprint2) {
-        return this.templateCoordinator.updateConfirmationsDirectly(footprint1, footprint2);
+        console.log(`\n🔄 Прямое обновление подтверждений между двумя следами...`);
+
+        try {
+            // 🔥 ИСПРАВЛЕНИЕ: Берем точки только из pointTracker
+            if (!footprint1.pointTracker || !footprint1.pointTracker.points) {
+                console.log(`❌ Нет pointTracker в ${footprint1.name}`);
+                return 0;
+            }
+
+            if (!footprint2.pointTracker || !footprint2.pointTracker.points) {
+                console.log(`❌ Нет pointTracker в ${footprint2.name}`);
+                return 0;
+            }
+
+            // Берем реальные точки из трекеров
+            const points1 = Array.from(footprint1.pointTracker.points.values());
+            const points2 = Array.from(footprint2.pointTracker.points.values());
+
+            console.log(`🔍 Сравниваю ${points1.length} и ${points2.length} точек из трекеров`);
+
+            let updatedCount = 0;
+            const threshold = 25; // Порог расстояния для совпадения
+
+            // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Обновляем только совпавшие точки
+            const matches = [];
+
+            for (const point1 of points1) {
+                let bestMatch = null;
+                let minDistance = Infinity;
+
+                for (const point2 of points2) {
+                    const distance = Math.sqrt(
+                        Math.pow(point2.x - point1.x, 2) +
+                        Math.pow(point2.y - point1.y, 2)
+                    );
+
+                    if (distance < minDistance && distance < threshold) {
+                        minDistance = distance;
+                        bestMatch = {
+                            point1: point1,
+                            point2: point2,
+                            distance: distance
+                        };
+                    }
+                }
+
+                if (bestMatch) {
+                    matches.push(bestMatch);
+                }
+            }
+
+            console.log(`📊 Найдено ${matches.length} совпадений (<${threshold}px)`);
+
+            // 🔥 ИСПРАВЛЕНИЕ: Обновляем ТОЛЬКО совпавшие точки
+            for (const match of matches) {
+                // Обновляем точку в первом следе
+                const pointId1 = match.point1.id || `pt_${match.point1.x}_${match.point1.y}`;
+                const pointData1 = footprint1.pointTracker.points.get(pointId1);
+
+                if (pointData1) {
+                    const oldCount1 = pointData1.confirmedCount || 1;
+                    const newCount1 = Math.max(oldCount1, 2); // Минимум 2 подтверждения
+
+                    if (newCount1 > oldCount1) {
+                        pointData1.confirmedCount = newCount1;
+                        pointData1.lastConfirmed = new Date();
+                        pointData1.confirmedBy = pointData1.confirmedBy || [];
+                        pointData1.confirmedBy.push(`match_with_${footprint2.id}`);
+                        updatedCount++;
+                        console.log(`   • ${pointId1}: ${oldCount1} → ${newCount1} подтверждений`);
+                    }
+                }
+
+                // Обновляем точку во втором следе
+                const pointId2 = match.point2.id || `pt_${match.point2.x}_${match.point2.y}`;
+                const pointData2 = footprint2.pointTracker.points.get(pointId2);
+
+                if (pointData2) {
+                    const oldCount2 = pointData2.confirmedCount || 1;
+                    const newCount2 = Math.max(oldCount2, 2);
+
+                    if (newCount2 > oldCount2) {
+                        pointData2.confirmedCount = newCount2;
+                        pointData2.lastConfirmed = new Date();
+                        pointData2.confirmedBy = pointData2.confirmedBy || [];
+                        pointData2.confirmedBy.push(`match_with_${footprint1.id}`);
+                        updatedCount++;
+                    }
+                }
+            }
+
+            console.log(`✅ Обновлено ${updatedCount} точек (только совпавшие!)`);
+            return updatedCount;
+
+        } catch (error) {
+            console.log(`❌ Ошибка в updateConfirmationsDirectly: ${error.message}`);
+            return 0;
+        }
     }
 
     updateConfirmationsFromMatches(footprint1, footprint2, matches) {
