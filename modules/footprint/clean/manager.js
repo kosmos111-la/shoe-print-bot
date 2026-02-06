@@ -1,5 +1,5 @@
-// modules/footprint/clean/manager.js
-// 🎯 ПРОСТОЙ МЕНЕДЖЕР: СОХРАНЕНИЕ, СРАВНЕНИЕ, ВИЗУАЛИЗАЦИЯ
+// modules/footprint/clean/manager.js - ОБНОВЛЕННЫЙ
+// 🎯 МЕНЕДЖЕР С ГИБРИДНЫМ АЛГОРИТМОМ
 
 const fs = require('fs');
 const path = require('path');
@@ -8,8 +8,8 @@ class CleanFootprintManager {
     constructor(options = {}) {
         this.config = {
             dbPath: options.dbPath || './data/footprints/clean',
-            similarityThreshold: options.similarityThreshold || 0.6, // 60%
-            minPoints: options.minPoints || 20, // Увеличено для топологии
+            similarityThreshold: options.similarityThreshold || 0.6,
+            minPoints: options.minPoints || 20, // 🔥 Увеличили для топологии
             debug: options.debug || true
         };
 
@@ -17,18 +17,18 @@ class CleanFootprintManager {
         this.CleanFootprint = require('./footprint-model');
         this.SimpleCoordinateSystem = require('./coordinate-system');
 
-        // 🔥 ЗАГРУЗИМ ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ
+        // 🔥 ЗАГРУЗИМ ГИБРИДНЫЙ АЛГОРИТМ
         try {
-            this.TopologyAlgorithm = require('./topology-algorithm');
-            console.log('✅ Топологический алгоритм загружен');
+            this.HybridAlgorithm = require('./hybrid-algorithm');
+            console.log('✅ Гибридный алгоритм загружен');
         } catch (error) {
-            console.log('⚠️ Топологический алгоритм не найден, используем простой');
-            this.TopologyAlgorithm = null;
+            console.log('⚠️ Гибридный алгоритм не найден');
+            this.HybridAlgorithm = null;
         }
 
         // Хранилище
-        this.footprints = new Map(); // userId -> CleanFootprint
-        this.users = new Map();      // userId -> { info }
+        this.footprints = new Map();
+        this.users = new Map();
 
         // Статистика
         this.stats = {
@@ -45,7 +45,7 @@ class CleanFootprintManager {
         console.log('🚀 Чистый менеджер отпечатков создан');
         console.log(`   • Порог схожести: ${this.config.similarityThreshold * 100}%`);
         console.log(`   • Минимально точек: ${this.config.minPoints}`);
-        console.log(`   • Топологический алгоритм: ${this.TopologyAlgorithm ? '✅' : '❌'}`);
+        console.log(`   • Гибридный алгоритм: ${this.HybridAlgorithm ? '✅' : '❌'}`);
     }
 
     /**
@@ -64,14 +64,7 @@ class CleanFootprintManager {
             }
 
             // Подготавливаем точки
-            const preparedPoints = points.map((point, index) => ({
-                id: point.id || `photo_pt_${Date.now()}_${index}`,
-                x: point.x,
-                y: point.y,
-                confidence: point.confidence || 0.5,
-                source: photoInfo.source || 'unknown'
-            }));
-
+            const preparedPoints = this.preparePoints(points, photoInfo);
             console.log(`📊 Подготовлено ${preparedPoints.length} точек`);
 
             // Проверяем, есть ли уже отпечаток у пользователя
@@ -80,90 +73,10 @@ class CleanFootprintManager {
 
             if (!footprint) {
                 // Первое фото - создаём новый отпечаток
-                console.log(`👣 Первое фото - создаю новый отпечаток`);
-                footprint = new this.CleanFootprint({
-                    userId: userId,
-                    name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
-                    points: preparedPoints
-                });
-
-                // Устанавливаем подтверждения для первой точки
-                preparedPoints.forEach(point => {
-                    footprint.confirmations.set(point.id, {
-                        count: 1,
-                        lastConfirmed: new Date(),
-                        photoIds: [photoId]
-                    });
-                });
-
-                this.footprints.set(userId, footprint);
-                this.stats.totalFootprints++;
-
-                console.log(`✅ Создан новый отпечаток с ${preparedPoints.length} точками`);
-
-                return {
-                    success: true,
-                    isNew: true,
-                    pointsAdded: preparedPoints.length,
-                    footprintId: footprint.id,
-                    message: 'Создан новый отпечаток'
-                };
-
+                return this.createNewFootprint(userId, preparedPoints, photoId);
             } else {
                 // Последующие фото - сравниваем
-                console.log(`🔍 Проверяю совпадение с существующим отпечатком...`);
-
-                const comparison = await this.compareFootprints(
-                    footprint,
-                    { points: preparedPoints }
-                );
-
-                console.log(`📊 Результат сравнения: ${comparison.similarity.toFixed(3)} (порог: ${this.config.similarityThreshold})`);
-
-                if (comparison.similarity >= this.config.similarityThreshold) {
-                    // СОВПАДЕНИЕ - обновляем подтверждения
-                    const result = footprint.addPhoto(preparedPoints, photoId);
-
-                    // Сохраняем
-                    this.saveFootprint(userId);
-
-                    console.log(`✅ Фото совпало! Добавлено подтверждений: ${result.matches}`);
-
-                    return {
-                        success: true,
-                        isNew: false,
-                        similarity: comparison.similarity,
-                        matches: result.matches,
-                        newPoints: result.newPoints,
-                        message: `След совпал (${(comparison.similarity * 100).toFixed(1)}%)`
-                    };
-
-                } else {
-                    // НЕ СОВПАЛО - создаём новый отпечаток
-                    console.log(`🆕 След не совпал - создаю новый отпечаток`);
-
-                    const newFootprint = new this.CleanFootprint({
-                        userId: userId,
-                        name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`,
-                        points: preparedPoints
-                    });
-
-                    // Заменяем старый отпечаток (можно хранить историю, но упрощаем)
-                    this.footprints.set(userId, newFootprint);
-
-                    // Сохраняем старый отпечаток в архив
-                    this.archiveFootprint(footprint);
-
-                    console.log(`✅ Создан новый отпечаток (старый сохранён в архив)`);
-
-                    return {
-                        success: true,
-                        isNew: true,
-                        similarity: comparison.similarity,
-                        pointsAdded: preparedPoints.length,
-                        message: 'Создан новый отпечаток (следы разные)'
-                    };
-                }
+                return await this.compareAndUpdate(footprint, preparedPoints, photoId);
             }
 
         } catch (error) {
@@ -176,7 +89,132 @@ class CleanFootprintManager {
     }
 
     /**
-     * Сравнить два отпечатка (используем топологический алгоритм)
+     * Подготовить точки для обработки
+     */
+    preparePoints(points, photoInfo) {
+        return points.map((point, index) => {
+            // 🔥 КЛЮЧЕВОЕ: Убедимся, что у точек есть оригинальные ID
+            // В реальных данных от Робофло их может не быть
+            let originalId;
+           
+            if (point.originalId) {
+                originalId = point.originalId;
+            } else if (point.id) {
+                originalId = point.id;
+            } else if (point.detection_id) {
+                originalId = point.detection_id;
+            } else {
+                // Генерируем уникальный ID на основе координат и фото
+                originalId = `pt_${photoInfo.id || 'photo'}_${point.x}_${point.y}`;
+            }
+           
+            return {
+                id: point.id || `photo_pt_${Date.now()}_${index}`,
+                originalId: originalId,
+                x: point.x,
+                y: point.y,
+                confidence: point.confidence || 0.5,
+                source: photoInfo.source || 'robokit'
+            };
+        });
+    }
+
+    /**
+     * Создать новый отпечаток
+     */
+    createNewFootprint(userId, points, photoId) {
+        console.log(`👣 Первое фото - создаю новый отпечаток`);
+       
+        const footprint = new this.CleanFootprint({
+            userId: userId,
+            name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
+            points: points
+        });
+
+        // Устанавливаем подтверждения для первой точки
+        points.forEach(point => {
+            footprint.confirmations.set(point.id, {
+                count: 1,
+                lastConfirmed: new Date(),
+                photoIds: [photoId]
+            });
+        });
+
+        this.footprints.set(userId, footprint);
+        this.stats.totalFootprints++;
+
+        console.log(`✅ Создан новый отпечаток с ${points.length} точками`);
+
+        return {
+            success: true,
+            isNew: true,
+            pointsAdded: points.length,
+            footprintId: footprint.id,
+            message: 'Создан новый отпечаток'
+        };
+    }
+
+    /**
+     * Сравнить и обновить отпечаток
+     */
+    async compareAndUpdate(footprint, photoPoints, photoId) {
+        console.log(`🔍 Проверяю совпадение с существующим отпечатком...`);
+
+        const comparison = await this.compareFootprints(
+            footprint,
+            { points: photoPoints }
+        );
+
+        console.log(`📊 Результат сравнения: ${comparison.similarity.toFixed(3)} (порог: ${this.config.similarityThreshold})`);
+
+        if (comparison.similarity >= this.config.similarityThreshold) {
+            // СОВПАДЕНИЕ - обновляем подтверждения
+            const result = footprint.addPhoto(photoPoints, photoId);
+
+            // Сохраняем
+            this.saveFootprint(footprint.userId);
+
+            console.log(`✅ Фото совпало! Добавлено подтверждений: ${result.matches}`);
+
+            return {
+                success: true,
+                isNew: false,
+                similarity: comparison.similarity,
+                matches: result.matches,
+                newPoints: result.newPoints,
+                message: `След совпал (${(comparison.similarity * 100).toFixed(1)}%)`
+            };
+
+        } else {
+            // НЕ СОВПАЛО - создаём новый отпечаток
+            console.log(`🆕 След не совпал - создаю новый отпечаток`);
+
+            const newFootprint = new this.CleanFootprint({
+                userId: footprint.userId,
+                name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`,
+                points: photoPoints
+            });
+
+            // Заменяем старый отпечаток
+            this.footprints.set(footprint.userId, newFootprint);
+
+            // Сохраняем старый отпечаток в архив
+            this.archiveFootprint(footprint);
+
+            console.log(`✅ Создан новый отпечаток (старый сохранён в архив)`);
+
+            return {
+                success: true,
+                isNew: true,
+                similarity: comparison.similarity,
+                pointsAdded: photoPoints.length,
+                message: 'Создан новый отпечаток (следы разные)'
+            };
+        }
+    }
+
+    /**
+     * Сравнить два отпечатка (используем гибридный алгоритм)
      */
     async compareFootprints(footprint1, footprint2) {
         this.stats.totalComparisons++;
@@ -186,7 +224,7 @@ class CleanFootprintManager {
             const points1 = footprint1.getComparisonPoints();
             const points2 = footprint2.getComparisonPoints
                 ? footprint2.getComparisonPoints()
-                : (footprint2.points || []);
+                : this.SimpleCoordinateSystem.normalize(footprint2.points || []);
 
             if (points1.length === 0 || points2.length === 0) {
                 console.log('⚠️ Нет точек для сравнения');
@@ -199,50 +237,32 @@ class CleanFootprintManager {
 
             let similarity;
             let method;
-            let resultDetails;
+            let result;
 
-            // 🔥 ИСПОЛЬЗУЕМ ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ
-            if (this.TopologyAlgorithm) {
-                const topologyAlgo = new this.TopologyAlgorithm({
+            // 🔥 ИСПОЛЬЗУЕМ ГИБРИДНЫЙ АЛГОРИТМ
+            if (this.HybridAlgorithm) {
+                const hybridAlgo = new this.HybridAlgorithm({
                     debug: this.config.debug,
-                    minPoints: Math.max(20, Math.min(points1.length, points2.length) * 0.3),
+                    minPoints: 20,
                     similarityThreshold: this.config.similarityThreshold,
-                    neighborsCount: Math.min(10, Math.min(points1.length, points2.length) - 1),
-                    rotationStep: 15,
-                    pointMatchThreshold: 20
+                    fixedNeighbors: [-3, -2, -1, 1, 2, 3]
                 });
 
-                // Сравниваем точки напрямую
-                const result = topologyAlgo.comparePoints(
-                    points1,
-                    points2,
-                    `Отпечаток ${footprint1.userId || '1'}`,
-                    `Отпечаток ${footprint2.userId || '2'}`
-                );
+                // Создаём гибридные отпечатки
+                const fp1 = hybridAlgo.createFootprint(points1, 'fp1');
+                const fp2 = hybridAlgo.createFootprint(points2, 'fp2');
 
+                // Сравниваем
+                result = hybridAlgo.compareFootprints(fp1, fp2);
                 similarity = result.similarity;
-                method = 'topology';
-                resultDetails = result;
+                method = 'hybrid';
 
-                console.log(`🎯 Топологический алгоритм: ${(result.similarity * 100).toFixed(1)}% схожести`);
-                console.log(`   Найдено совпадений: ${result.stats?.matchedPoints || 0} из ${Math.min(points1.length, points2.length)}`);
+                console.log(`🎯 Гибридный алгоритм: ${(similarity * 100).toFixed(1)}% схожести`);
 
             } else {
                 // Фаллбэк: простое сравнение по центрам
-                const center1 = this.SimpleCoordinateSystem.calculateCenter(points1);
-                const center2 = this.SimpleCoordinateSystem.calculateCenter(points2);
-
-                const distance = Math.sqrt(
-                    Math.pow(center2.x - center1.x, 2) +
-                    Math.pow(center2.y - center1.y, 2)
-                );
-
-                // Преобразуем расстояние в схожесть (0-100px = 1.0-0.0)
-                const maxDistance = 100;
-                similarity = Math.max(0, 1 - (distance / maxDistance));
+                similarity = this.fallbackComparison(points1, points2);
                 method = 'simple_center_distance';
-
-                console.log(`📏 Простое сравнение: расстояние ${distance.toFixed(1)}px, схожесть ${similarity.toFixed(3)}`);
             }
 
             // Принимаем решение
@@ -265,12 +285,12 @@ class CleanFootprintManager {
                 method: method,
                 points1: points1.length,
                 points2: points2.length,
-                details: resultDetails
+                matches: result?.matches || [],
+                stats: result?.stats || {}
             };
 
         } catch (error) {
             console.error(`❌ Ошибка сравнения: ${error.message}`);
-            console.error(error.stack);
             return {
                 similarity: 0,
                 decision: 'different',
@@ -281,117 +301,30 @@ class CleanFootprintManager {
     }
 
     /**
-     * Специализированный метод для топологического анализа
+     * Простое сравнение по центрам (фаллбэк)
      */
-    async analyzeTopology(userId, newPoints, options = {}) {
-        console.log(`\n🔬 Топологический анализ для пользователя ${userId}`);
+    fallbackComparison(points1, points2) {
+        const center1 = this.SimpleCoordinateSystem.calculateCenter(points1);
+        const center2 = this.SimpleCoordinateSystem.calculateCenter(points2);
 
-        const footprint = this.footprints.get(userId);
-        if (!footprint) {
-            return {
-                success: false,
-                error: 'Отпечаток не найден'
-            };
-        }
+        const distance = Math.sqrt(
+            Math.pow(center2.x - center1.x, 2) +
+            Math.pow(center2.y - center1.y, 2)
+        );
 
-        if (!this.TopologyAlgorithm) {
-            return {
-                success: false,
-                error: 'Топологический алгоритм не загружен'
-            };
-        }
+        // Преобразуем расстояние в схожесть
+        const maxDistance = 100;
+        const similarity = Math.max(0, 1 - (distance / maxDistance));
 
-        try {
-            const points1 = footprint.getComparisonPoints();
-            const points2 = newPoints || [];
+        console.log(`📏 Простое сравнение: расстояние ${distance.toFixed(1)}px, схожесть ${similarity.toFixed(3)}`);
 
-            if (points1.length < 20 || points2.length < 20) {
-                return {
-                    success: false,
-                    error: `Недостаточно точек: ${points1.length} и ${points2.length} (минимум 20)`
-                };
-            }
-
-            const topologyAlgo = new this.TopologyAlgorithm({
-                debug: true,
-                minPoints: options.minPoints || 20,
-                similarityThreshold: options.similarityThreshold || 0.5,
-                neighborsCount: options.neighborsCount || 8,
-                rotationStep: options.rotationStep || 10,
-                pointMatchThreshold: options.pointMatchThreshold || 15
-            });
-
-            // Создаем топологические отпечатки
-            const fp1 = topologyAlgo.createFootprint(points1, `Существующий (${points1.length} точек)`);
-            const fp2 = topologyAlgo.createFootprint(points2, `Новый (${points2.length} точек)`);
-
-            // Сравниваем
-            const result = topologyAlgo.compareFootprints(fp1, fp2);
-
-            // Детальный анализ
-            const analysis = {
-                topologyResult: result,
-                footprint1: {
-                    points: points1.length,
-                    descriptors: fp1.descriptors?.length || 0
-                },
-                footprint2: {
-                    points: points2.length,
-                    descriptors: fp2.descriptors?.length || 0
-                },
-                timestamp: new Date().toISOString()
-            };
-
-            // Генерируем визуализацию, если нужно
-            if (options.generateVisualization) {
-                await this.generateTopologyVisualization(analysis, userId);
-            }
-
-            return {
-                success: true,
-                analysis: analysis,
-                decision: result.decision,
-                similarity: result.similarity,
-                matchedPoints: result.stats?.matchedPoints || 0
-            };
-
-        } catch (error) {
-            console.error(`❌ Ошибка топологического анализа: ${error.message}`);
-            return {
-                success: false,
-                error: error.message
-            };
-        }
+        return similarity;
     }
 
-    /**
-     * Генерация визуализации топологического анализа
-     */
-    async generateTopologyVisualization(analysis, userId) {
-        try {
-            const visDir = path.join(this.config.dbPath, 'visualizations', userId.toString());
-            if (!fs.existsSync(visDir)) {
-                fs.mkdirSync(visDir, { recursive: true });
-            }
+    // Остальные методы менеджера остаются без изменений...
+    // saveFootprint, archiveFootprint, loadExistingData, ensureDirectories,
+    // getStats, getFootprint, clearUserData
 
-            const fileName = `topology_${Date.now()}.json`;
-            const filePath = path.join(visDir, fileName);
-
-            // Сохраняем анализ для последующей визуализации
-            fs.writeFileSync(filePath, JSON.stringify(analysis, null, 2));
-
-            console.log(`📊 Визуализация сохранена: ${filePath}`);
-
-            return filePath;
-        } catch (error) {
-            console.error(`❌ Ошибка генерации визуализации: ${error.message}`);
-            return null;
-        }
-    }
-
-    /**
-     * Сохранить отпечаток пользователя
-     */
     saveFootprint(userId) {
         const footprint = this.footprints.get(userId);
         if (!footprint) return false;
@@ -410,9 +343,6 @@ class CleanFootprintManager {
         return true;
     }
 
-    /**
-     * Архивировать старый отпечаток
-     */
     archiveFootprint(footprint) {
         const archiveDir = path.join(this.config.dbPath, 'archive');
         if (!fs.existsSync(archiveDir)) {
@@ -428,9 +358,6 @@ class CleanFootprintManager {
         return true;
     }
 
-    /**
-     * Загрузить существующие данные
-     */
     loadExistingData() {
         const usersDir = path.join(this.config.dbPath, 'users');
         if (!fs.existsSync(usersDir)) {
@@ -475,9 +402,6 @@ class CleanFootprintManager {
         console.log(`📂 Загружено ${loadedCount} отпечатков`);
     }
 
-    /**
-     * Создать необходимые директории
-     */
     ensureDirectories() {
         const dirs = [
             this.config.dbPath,
@@ -495,9 +419,6 @@ class CleanFootprintManager {
         });
     }
 
-    /**
-     * Получить статистику системы
-     */
     getStats() {
         const footprintsInfo = [];
         for (const [userId, footprint] of this.footprints) {
@@ -517,24 +438,14 @@ class CleanFootprintManager {
             config: {
                 similarityThreshold: this.config.similarityThreshold,
                 minPoints: this.config.minPoints
-            },
-            algorithm: {
-                topology: this.TopologyAlgorithm ? 'available' : 'unavailable',
-                minPointsForTopology: 20
             }
         };
     }
 
-    /**
-     * Получить отпечаток пользователя
-     */
     getFootprint(userId) {
         return this.footprints.get(userId);
     }
 
-    /**
-     * Очистить данные пользователя
-     */
     clearUserData(userId) {
         if (this.footprints.has(userId)) {
             this.footprints.delete(userId);
@@ -548,34 +459,6 @@ class CleanFootprintManager {
             return true;
         }
         return false;
-    }
-
-    /**
-     * Тест топологического алгоритма
-     */
-    async runTopologyTest() {
-        console.log('\n🧪 ЗАПУСК ТЕСТА ТОПОЛОГИЧЕСКОГО АЛГОРИТМА');
-        console.log('='.repeat(60));
-
-        if (!this.TopologyAlgorithm) {
-            console.log('❌ Топологический алгоритм не загружен');
-            return { success: false, error: 'Algorithm not loaded' };
-        }
-
-        try {
-            const TopologyAlgorithm = require('./topology-algorithm');
-            const test = require('./test-topology-algorithm');
-           
-            console.log('✅ Тестовые модули загружены');
-           
-            // Запускаем тест из файла
-            await test.testTopologyAlgorithm();
-           
-            return { success: true, message: 'Тест выполнен' };
-        } catch (error) {
-            console.error(`❌ Ошибка теста: ${error.message}`);
-            return { success: false, error: error.message };
-        }
     }
 }
 
