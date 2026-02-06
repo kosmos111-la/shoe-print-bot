@@ -128,35 +128,3 @@ async function testTopologyAlgorithm() {
 }
 
 testTopologyAlgorithm().catch(console.error);
-```
-
-🚀 ИНТЕГРАЦИЯ С МЕНЕДЖЕРОМ:
-
-Обновим менеджер для использования нового алгоритма:
-
-```javascript
-// В modules/footprint/clean/manager.js заменяем загрузку алгоритма:
-
-// 🔥 ЗАГРУЗИМ ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ
-try {
-    this.TopologyAlgorithm = require('./topology-algorithm');
-    console.log('✅ Топологический алгоритм загружен');
-} catch (error) {
-    console.log('⚠️ Топологический алгоритм не найден');
-    this.TopologyAlgorithm = null;
-}
-
-// В методе compareFootprints:
-if (this.TopologyAlgorithm) {
-    const topologyAlgo = new this.TopologyAlgorithm({
-        debug: this.config.debug,
-        minPoints: 20,
-        similarityThreshold: this.config.similarityThreshold,
-        neighborsCount: 8
-    });
-   
-    const result = topologyAlgo.comparePoints(points1, points2);
-    similarity = result.similarity;
-    method = 'topology';
-    console.log(`🎯 Топологический алгоритм: ${(result.similarity * 100).toFixed(1)}% схожести`);
-}
