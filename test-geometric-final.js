@@ -566,9 +566,3 @@ module.exports = {
     TestData,
     GeometricTestSuite
 };
-```
-
-🚀 ЗАПУСК:
-
-```bash
-node test-geometric-final.js
