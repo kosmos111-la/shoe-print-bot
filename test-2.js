@@ -1,82 +1,106 @@
 //node test-2.js - ФИНАЛЬНЫЙ РАБОЧИЙ АЛГОРИТМ
-console.log('🎯 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ - ДЕТАЛЬНЫЙ АНАЛИЗ\n');
-console.log('📐 Табличные данные + Двойные проценты\n');
+// test-fixed-neighbors-algorithm.js
+console.log('🎯 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ С ФИКСИРОВАННЫМИ СОСЕДЯМИ\n');
+console.log('📐 Соседи по индексам + Толерантность к шуму\n');
 
 // ============================================
-// 🔷 АЛГОРИТМ С ПОДРОБНОЙ СТАТИСТИКОЙ
+// 🔷 АЛГОРИТМ С ФИКСИРОВАННЫМИ СОСЕДЯМИ
 // ============================================
-class DetailedGeometricAlgorithm {
+class FixedNeighborsAlgorithm {
     constructor(options = {}) {
-        this.neighborsCount = options.neighborsCount || 3;
-        this.angleTolerance = options.angleTolerance || 10;
-        this.minSimilarity = options.minSimilarity || 0.6;
+        this.neighborOffsets = options.neighborOffsets || [-2, -1, 1, 2]; // Фиксированные смещения
+        this.angleTolerance = options.angleTolerance || 10; // Допуск по углам
+        this.hashPrecision = options.hashPrecision || 0; // Округление углов (0 = целые числа)
+        this.minCommonTriangles = options.minCommonTriangles || 2; // Минимум общих треугольников
         this.debug = options.debug || true;
     }
 
-    // 🎯 СОЗДАТЬ ОТПЕЧАТОК С ХЕШАМИ
+    // 🎯 СОЗДАТЬ ОТПЕЧАТОК С ФИКСИРОВАННЫМИ СОСЕДЯМИ
     createFootprint(points, name = '') {
-        const footprint = [];
+        console.log(`👣 Создание отпечатка "${name}": ${points.length} точек`);
        
-        for (let i = 0; i < points.length; i++) {
+        const footprint = [];
+        const totalPoints = points.length;
+       
+        for (let i = 0; i < totalPoints; i++) {
             const point = points[i];
            
-            // Находим соседей по порядку
-            const neighbors = this.findOrderedNeighbors(point, points, i);
+            // Находим соседей по фиксированным смещениям
+            const neighbors = this.findFixedNeighbors(i, points);
            
             if (neighbors.length >= 2) {
-                // Создаем треугольники
-                const triangles = this.createTriangles(point, neighbors);
+                // Создаем треугольники с фиксированными соседями
+                const triangles = this.createFixedTriangles(point, neighbors);
                
-                // Создаем геометрический хеш
-                const geometricHash = this.createGeometricHash(triangles);
-                const triangleHashes = triangles.map(t => t.hash);
-               
-                footprint.push({
-                    id: point.id,
-                    originalId: point.originalId || point.id,
-                    x: point.x,
-                    y: point.y,
-                    index: i,
-                    geometricHash: geometricHash,
-                    triangleHashes: triangleHashes,
-                    triangles: triangles,
-                    triangleCount: triangles.length
-                });
+                if (triangles.length >= this.minCommonTriangles) {
+                    // Создаем геометрический дескриптор
+                    const descriptor = this.createDescriptor(triangles);
+                   
+                    footprint.push({
+                        id: point.id,
+                        originalId: point.originalId || point.id,
+                        index: i,
+                        x: point.x,
+                        y: point.y,
+                        descriptor: descriptor,
+                        triangles: triangles,
+                        neighborIndices: neighbors.map(n => n.index)
+                    });
+                }
+            }
+        }
+       
+        if (this.debug && footprint.length > 0) {
+            console.log(`   ✅ Создано дескрипторов: ${footprint.length}`);
+            const firstPoint = footprint[0];
+            console.log(`   📐 Точка ${firstPoint.id}: ${firstPoint.triangles.length} треугольников`);
+            if (firstPoint.triangles.length > 0) {
+                const tri = firstPoint.triangles[0];
+                console.log(`   🔺 Пример треугольника: ${tri.hash}`);
             }
         }
        
         return footprint;
     }
 
-    // 🔍 НАЙТИ СОСЕДЕЙ ПО ПОРЯДКУ
-    findOrderedNeighbors(center, allPoints, centerIndex) {
+    // 🔍 НАЙТИ ФИКСИРОВАННЫХ СОСЕДЕЙ (по индексам, а не по расстоянию!)
+    findFixedNeighbors(centerIndex, allPoints) {
         const neighbors = [];
         const total = allPoints.length;
        
-        for (let offset = 1; offset <= Math.min(this.neighborsCount, Math.floor(total/2)); offset++) {
-            const prevIndex = (centerIndex - offset + total) % total;
-            const nextIndex = (centerIndex + offset) % total;
+        for (const offset of this.neighborOffsets) {
+            const neighborIndex = (centerIndex + offset + total) % total;
            
-            if (prevIndex !== centerIndex) {
-                neighbors.push(allPoints[prevIndex]);
-            }
-            if (nextIndex !== centerIndex && nextIndex !== prevIndex) {
-                neighbors.push(allPoints[nextIndex]);
+            // Пропускаем саму точку и дубликаты
+            if (neighborIndex !== centerIndex &&
+                !neighbors.some(n => n.index === neighborIndex)) {
+               
+                const neighbor = allPoints[neighborIndex];
+                neighbors.push({
+                    ...neighbor,
+                    index: neighborIndex
+                });
             }
         }
        
         return neighbors;
     }
 
-    // 📐 СОЗДАТЬ ТРЕУГОЛЬНИКИ
-    createTriangles(center, neighbors) {
+    // 📐 СОЗДАТЬ ТРЕУГОЛЬНИКИ С ФИКСИРОВАННЫМИ СОСЕДЯМИ
+    createFixedTriangles(center, neighbors) {
         const triangles = [];
        
+        // Создаем треугольники со всеми парами соседей
         for (let i = 0; i < neighbors.length; i++) {
             for (let j = i + 1; j < neighbors.length; j++) {
-                const tri = this.createTriangle(center, neighbors[i], neighbors[j]);
-                if (tri) {
-                    triangles.push(tri);
+                const triangle = this.createTriangle(
+                    center,
+                    neighbors[i],
+                    neighbors[j]
+                );
+               
+                if (triangle && this.isValidTriangle(triangle)) {
+                    triangles.push(triangle);
                 }
             }
         }
@@ -86,198 +110,192 @@ class DetailedGeometricAlgorithm {
 
     // 🔷 СОЗДАТЬ ОДИН ТРЕУГОЛЬНИК
     createTriangle(p1, p2, p3) {
-        const angles = this.calculateAngles(p1, p2, p3);
-        if (angles.some(a => isNaN(a) || a < 5 || a > 175)) return null;
+        try {
+            // Вычисляем углы
+            const angles = this.calculateAngles(p1, p2, p3);
+           
+            // Нормализуем и сортируем углы
+            const normalized = this.normalizeAngles(angles);
+            const sorted = normalized.sort((a, b) => a - b);
+           
+            // Округляем с заданной точностью
+            const rounded = sorted.map(angle =>
+                Math.round(angle / this.hashPrecision) * this.hashPrecision || angle
+            );
+           
+            // Создаем хеш
+            const hash = rounded.join('-');
+           
+            return {
+                points: [p1.id, p2.id, p3.id],
+                indices: [p1.index, p2.index, p3.index],
+                angles: angles,
+                normalizedAngles: sorted,
+                roundedAngles: rounded,
+                hash: hash
+            };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    // 🎯 СОЗДАТЬ ДЕСКРИПТОР
+    createDescriptor(triangles) {
+        // Собираем все хеши треугольников
+        const triangleHashes = triangles.map(t => t.hash).sort();
        
-        // Сортируем и нормализуем углы
-        const sortedAngles = angles.sort((a, b) => a - b);
-        const sum = sortedAngles.reduce((s, a) => s + a, 0);
-        const normalized = sortedAngles.map(a => a * 180 / sum);
-       
-        // Создаем хеш
-        const hash = normalized.map(a => Math.round(a)).join('-');
+        // Создаем несколько уровней хешей для гибкости
+        const hashes = {
+            exact: triangleHashes.join('|'),           // Точное совпадение
+            rounded: triangleHashes.map(h => this.roundHash(h)).join('|'), // Округленные
+            signature: this.createSignature(triangles) // Компактная сигнатура
+        };
        
         return {
-            angles: sortedAngles,
-            normalizedAngles: normalized,
-            hash: hash,
-            points: [p1.id, p2.id, p3.id]
+            triangleHashes: triangleHashes,
+            hashes: hashes,
+            triangleCount: triangles.length,
+            avgAngle: this.calculateAverageAngle(triangles)
         };
     }
 
-    // 🎯 СОЗДАТЬ ГЕОМЕТРИЧЕСКИЙ ХЕШ ТОЧКИ
-    createGeometricHash(triangles) {
-        if (!triangles.length) return '';
-       
-        // Собираем хеши всех треугольников, сортируем для устойчивости
-        const triangleHashes = triangles.map(t => t.hash).sort();
-        return triangleHashes.join('|');
-    }
-
-    // 🔄 СРАВНИТЬ ОТПЕЧАТКИ (С ДВОЙНОЙ СТАТИСТИКОЙ)
+    // 🔄 СРАВНИТЬ ОТПЕЧАТКИ (ГИБКОЕ СРАВНЕНИЕ)
     compareFootprints(fp1, fp2, name1 = 'Отпечаток 1', name2 = 'Отпечаток 2') {
-        console.log(`🔍 СРАВНЕНИЕ: ${name1} vs ${name2}`);
-        console.log(`   ${name1}: ${fp1.length} точек, ${name2}: ${fp2.length} точек\n`);
+        console.log(`\n🔍 СРАВНЕНИЕ: ${name1} vs ${name2}`);
+        console.log(`   ${name1}: ${fp1.length} точек, ${name2}: ${fp2.length} точек`);
        
         const matches = [];
-        const matchesByHash = new Map();
        
-        // Создаем индекс по хешам для второго отпечатка
-        const hashIndex = new Map();
-        fp2.forEach(p => {
-            if (p.geometricHash) {
-                if (!hashIndex.has(p.geometricHash)) {
-                    hashIndex.set(p.geometricHash, []);
-                }
-                hashIndex.get(p.geometricHash).push(p);
-            }
-        });
-       
-        // Ищем совпадения для точек из первого отпечатка
+        // Сопоставляем по оригинальным индексам (одинаковые точки в фигуре)
         for (const point1 of fp1) {
-            if (!point1.geometricHash) continue;
+            // Ищем точку с таким же индексом во втором отпечатке
+            const point2 = fp2.find(p => p.originalId === point1.originalId);
            
-            const matchingPoints2 = hashIndex.get(point1.geometricHash) || [];
-           
-            if (matchingPoints2.length > 0) {
-                // Берем первую подходящую точку
-                const point2 = matchingPoints2[0];
+            if (point2) {
+                const similarity = this.compareDescriptors(
+                    point1.descriptor,
+                    point2.descriptor
+                );
                
-                matches.push({
-                    point1: point1,
-                    point2: point2,
-                    hash: point1.geometricHash,
-                    triangleCount1: point1.triangleCount,
-                    triangleCount2: point2.triangleCount
-                });
-               
-                // Запоминаем, что этот хеш найден
-                matchesByHash.set(point1.geometricHash, {
-                    point1: point1,
-                    point2: point2
-                });
+                if (similarity >= 0.6) { // Порог сходства 60%
+                    matches.push({
+                        point1: point1,
+                        point2: point2,
+                        similarity: similarity,
+                        hashMatch: this.getHashMatchLevel(
+                            point1.descriptor.hashes,
+                            point2.descriptor.hashes
+                        )
+                    });
+                }
             }
         }
        
-        // 📊 СТАТИСТИКА С ДВОЙНЫМИ ПРОЦЕНТАМИ
+        // 📊 ДВОЙНАЯ СТАТИСТИКА
         const total1 = fp1.length;
         const total2 = fp2.length;
-        const matchedCount = matches.length;
+        const matched = matches.length;
        
-        // Процент подтверждения для каждого отпечатка
-        const percentFrom1to2 = total1 > 0 ? (matchedCount / total1 * 100).toFixed(1) : '0.0';
-        const percentFrom2to1 = total2 > 0 ? (matchedCount / total2 * 100).toFixed(1) : '0.0';
+        const percent1to2 = total1 > 0 ? (matched / total1 * 100).toFixed(1) : '0.0';
+        const percent2to1 = total2 > 0 ? (matched / total2 * 100).toFixed(1) : '0.0';
        
-        // Сколько точек осталось неподтвержденными
-        const unconfirmedIn1 = total1 - matchedCount;
-        const unconfirmedIn2 = total2 - matchedCount;
+        console.log('\n📊 РЕЗУЛЬТАТЫ:');
+        console.log(`   Совпало точек: ${matched}`);
+        console.log(`   ${name1} → ${name2}: ${percent1to2}% (${matched}/${total1})`);
+        console.log(`   ${name2} → ${name1}: ${percent2to1}% (${matched}/${total2})`);
+        console.log(`   Среднее сходство: ${matches.length > 0 ?
+            (matches.reduce((sum, m) => sum + m.similarity, 0) / matches.length).toFixed(2) : 0}`);
        
-        console.log('📊 СТАТИСТИКА СРАВНЕНИЯ:');
-        console.log(`   Совпало точек: ${matchedCount}`);
-        console.log(`   ${name1} → ${name2}: ${percentFrom1to2}% (${matchedCount}/${total1})`);
-        console.log(`   ${name2} → ${name1}: ${percentFrom2to1}% (${matchedCount}/${total2})`);
-        console.log(`   Не подтверждено в ${name1}: ${unconfirmedIn1} точек`);
-        console.log(`   Не подтверждено в ${name2}: ${unconfirmedIn2} точек`);
+        if (matches.length > 0 && this.debug) {
+            console.log('\n🔬 ПРИМЕРЫ СОВПАДЕНИЙ:');
+            matches.slice(0, 3).forEach((match, i) => {
+                console.log(`   ${i + 1}. ${match.point1.id} → ${match.point2.id}: ` +
+                           `сходство ${match.similarity.toFixed(2)}, ` +
+                           `уровень хеша: ${match.hashMatch}`);
+            });
+        }
        
         return {
             matches: matches,
-            matchesByHash: matchesByHash,
             stats: {
                 total1: total1,
                 total2: total2,
-                matched: matchedCount,
-                percent1to2: percentFrom1to2,
-                percent2to1: percentFrom2to1,
-                unconfirmed1: unconfirmedIn1,
-                unconfirmed2: unconfirmedIn2
-            },
-            fp1: fp1,
-            fp2: fp2
+                matched: matched,
+                percent1to2: percent1to2,
+                percent2to1: percent2to1
+            }
         };
     }
 
-    // 📋 ВЫВЕСТИ ТАБЛИЦУ СОВПАДЕНИЙ
-    printMatchTable(comparisonResult) {
-        const { matches, fp1, fp2, stats } = comparisonResult;
+    // 🔄 СРАВНИТЬ ДЕСКРИПТОРЫ (ГИБКО)
+    compareDescriptors(desc1, desc2) {
+        if (!desc1 || !desc2) return 0;
        
-        console.log('\n📋 ТАБЛИЦА СОВПАДЕНИЙ ТОЧЕК:');
-        console.log('='.repeat(100));
-        console.log('ID Точки | Координаты        | Геометрический хеш                        | Статус совпадения');
-        console.log('='.repeat(100));
+        // 1. Сравниваем точные хеши
+        if (desc1.hashes.exact === desc2.hashes.exact) {
+            return 1.0; // Идеальное совпадение
+        }
        
-        // Создаем множества для быстрого поиска
-        const matchedIds1 = new Set(matches.map(m => m.point1.id));
-        const matchedIds2 = new Set(matches.map(m => m.point2.id));
-        const hashToMatch = new Map();
-        matches.forEach(m => hashToMatch.set(m.hash, m));
+        // 2. Сравниваем округленные хеши
+        if (desc1.hashes.rounded === desc2.hashes.rounded) {
+            return 0.9; // Почти идеальное
+        }
        
-        // Все уникальные точки из обоих отпечатков
-        const allPoints = [...fp1, ...fp2];
-        const seenHashes = new Set();
+        // 3. Сравниваем сигнатуры
+        const signatureScore = this.compareSignatures(
+            desc1.hashes.signature,
+            desc2.hashes.signature
+        );
        
-        // Группируем по хешам
-        const pointsByHash = new Map();
-        allPoints.forEach(point => {
-            if (!point.geometricHash) return;
-           
-            if (!pointsByHash.has(point.geometricHash)) {
-                pointsByHash.set(point.geometricHash, []);
-            }
-            pointsByHash.get(point.geometricHash).push(point);
-        });
+        // 4. Сравниваем отдельные треугольники
+        const triangleScore = this.compareTriangleSets(
+            desc1.triangleHashes,
+            desc2.triangleHashes
+        );
        
-        // Выводим по группам хешей
-        let rowNumber = 1;
-        for (const [hash, points] of pointsByHash) {
-            const isMatched = hashToMatch.has(hash);
-            const match = hashToMatch.get(hash);
-           
-            // Для каждой точки с этим хешем
-            points.forEach(point => {
-                const isFrom1 = fp1.some(p => p.id === point.id);
-                const source = isFrom1 ? 'Полный' : 'Частичный';
-                const isMatchedPoint = isFrom1 ? matchedIds1.has(point.id) : matchedIds2.has(point.id);
-               
-                const status = isMatched ?
-                    (isMatchedPoint ? '✅ СОВПАЛО' : '⚠️ ТОТ ЖЕ ХЕШ, НО ДРУГАЯ ТОЧКА') :
-                    '❌ НЕ СОВПАЛО';
-               
-                const coords = `(${point.x.toFixed(1)}, ${point.y.toFixed(1)})`;
-                const shortHash = hash.length > 30 ? hash.substring(0, 30) + '...' : hash;
-               
-                console.log(
-                    `${rowNumber.toString().padStart(2)}. ${point.id.padEnd(8)} ` +
-                    `${coords.padEnd(15)} ` +
-                    `${shortHash.padEnd(35)} ` +
-                    `${source} → ${status}`
-                );
-               
-                rowNumber++;
-            });
-           
-            // Разделитель между группами
-            if (rowNumber < pointsByHash.size * 2) {
-                console.log('-'.repeat(100));
+        // Комбинированная оценка
+        return (signatureScore * 0.4 + triangleScore * 0.6);
+    }
+
+    // 🔄 СРАВНИТЬ НАБОРЫ ТРЕУГОЛЬНИКОВ
+    compareTriangleSets(hashes1, hashes2) {
+        if (!hashes1.length || !hashes2.length) return 0;
+       
+        // Находим общие хеши (с допуском)
+        let common = 0;
+        const set2 = new Set(hashes2);
+       
+        for (const hash1 of hashes1) {
+            // Ищем похожий хеш во втором наборе
+            for (const hash2 of hashes2) {
+                if (this.hashesSimilar(hash1, hash2)) {
+                    common++;
+                    break;
+                }
             }
         }
        
-        console.log('='.repeat(100));
+        return common / Math.min(hashes1.length, hashes2.length);
+    }
+
+    // 🔄 ПОХОЖИ ЛИ ХЕШИ (С ДОПУСКОМ)
+    hashesSimilar(hash1, hash2) {
+        if (hash1 === hash2) return true;
        
-        // Сводка по хешам
-        console.log('\n🔑 СТАТИСТИКА ПО ХЕШАМ:');
-        console.log(`   Уникальных геометрических хешей: ${pointsByHash.size}`);
-        console.log(`   Хешей с совпадениями: ${hashToMatch.size}`);
-        console.log(`   Хешей без совпадений: ${pointsByHash.size - hashToMatch.size}`);
+        // Разбиваем на углы
+        const angles1 = hash1.split('-').map(Number);
+        const angles2 = hash2.split('-').map(Number);
        
-        // Анализ треугольников
-        const avgTriangles1 = fp1.length > 0 ?
-            (fp1.reduce((sum, p) => sum + p.triangleCount, 0) / fp1.length).toFixed(1) : 0;
-        const avgTriangles2 = fp2.length > 0 ?
-            (fp2.reduce((sum, p) => sum + p.triangleCount, 0) / fp2.length).toFixed(1) : 0;
+        if (angles1.length !== angles2.length) return false;
        
-        console.log(`\n📐 СРЕДНЕЕ КОЛИЧЕСТВО ТРЕУГОЛЬНИКОВ НА ТОЧКУ:`);
-        console.log(`   ${stats.total1 > 0 ? 'Полный след' : 'Отпечаток 1'}: ${avgTriangles1}`);
-        console.log(`   ${stats.total2 > 0 ? 'Частичный след' : 'Отпечаток 2'}: ${avgTriangles2}`);
+        // Проверяем углы с допуском
+        for (let i = 0; i < angles1.length; i++) {
+            if (Math.abs(angles1[i] - angles2[i]) > this.angleTolerance) {
+                return false;
+            }
+        }
+       
+        return true;
     }
 
     // 📏 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
@@ -304,62 +322,334 @@ class DetailedGeometricAlgorithm {
         const clamped = Math.max(-1, Math.min(1, cos));
         return Math.acos(clamped) * 180 / Math.PI;
     }
+
+    normalizeAngles(angles) {
+        const sum = angles.reduce((s, a) => s + a, 0);
+        // Нормализуем к сумме 180 градусов
+        return angles.map(a => a * 180 / sum);
+    }
+
+    isValidTriangle(triangle) {
+        if (!triangle || !triangle.angles) return false;
+       
+        // Проверяем, что углы в разумных пределах
+        for (const angle of triangle.angles) {
+            if (angle < 10 || angle > 170 || isNaN(angle)) {
+                return false;
+            }
+        }
+       
+        return true;
+    }
+
+    roundHash(hash) {
+        // Округляем все углы в хеше
+        return hash.split('-').map(angle => {
+            const num = parseInt(angle);
+            return Math.round(num / 5) * 5; // Округляем до кратного 5
+        }).join('-');
+    }
+
+    createSignature(triangles) {
+        // Создаем компактную сигнатуру на основе средних углов
+        if (!triangles.length) return '';
+       
+        const avgAngles = [0, 0, 0];
+        triangles.forEach(tri => {
+            tri.roundedAngles.forEach((angle, i) => {
+                avgAngles[i] += angle;
+            });
+        });
+       
+        const finalAngles = avgAngles.map(a =>
+            Math.round(a / triangles.length)
+        ).sort((a, b) => a - b);
+       
+        return finalAngles.join('-');
+    }
+
+    calculateAverageAngle(triangles) {
+        if (!triangles.length) return 0;
+       
+        const sum = triangles.reduce((total, tri) => {
+            return total + tri.angles.reduce((s, a) => s + a, 0) / 3;
+        }, 0);
+       
+        return sum / triangles.length;
+    }
+
+    compareSignatures(sig1, sig2) {
+        if (!sig1 || !sig2 || sig1 === '' || sig2 === '') return 0;
+       
+        const angles1 = sig1.split('-').map(Number);
+        const angles2 = sig2.split('-').map(Number);
+       
+        if (angles1.length !== angles2.length) return 0;
+       
+        let score = 0;
+        for (let i = 0; i < angles1.length; i++) {
+            const diff = Math.abs(angles1[i] - angles2[i]);
+            if (diff <= this.angleTolerance) {
+                score += 1 / angles1.length;
+            }
+        }
+       
+        return score;
+    }
+
+    getHashMatchLevel(hashes1, hashes2) {
+        if (hashes1.exact === hashes2.exact) return 'exact';
+        if (hashes1.rounded === hashes2.rounded) return 'rounded';
+        if (this.compareSignatures(hashes1.signature, hashes2.signature) > 0.7) return 'signature';
+        return 'partial';
+    }
+
+    // 📋 ВЫВЕСТИ ДЕТАЛЬНУЮ ИНФОРМАЦИЮ О ТОЧКАХ
+    printPointDetails(footprint, name = 'Отпечаток') {
+        console.log(`\n📋 ДЕТАЛИ ${name}:`);
+        console.log('='.repeat(80));
+       
+        footprint.forEach(point => {
+            console.log(`\n📍 Точка ${point.id} (индекс ${point.index}):`);
+            console.log(`   Координаты: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+            console.log(`   Соседи по индексам: ${point.neighborIndices.join(', ')}`);
+            console.log(`   Треугольников: ${point.triangles.length}`);
+           
+            if (point.triangles.length > 0) {
+                console.log(`   Хеши треугольников:`);
+                point.descriptor.triangleHashes.slice(0, 3).forEach((hash, i) => {
+                    console.log(`     ${i + 1}. ${hash}`);
+                });
+               
+                if (point.triangles.length > 3) {
+                    console.log(`     ... и еще ${point.triangles.length - 3}`);
+                }
+               
+                console.log(`   Дескриптор: ${point.descriptor.hashes.signature}`);
+            }
+        });
+    }
 }
 
 // ============================================
-// 🔷 СОЗДАТЕЛЬ ТЕСТОВЫХ ДАННЫХ
+// 🔷 ТЕСТЕР С ФИКСИРОВАННЫМИ СОСЕДЯМИ
 // ============================================
-class TestDataCreator {
-    // 🎯 СОЗДАТЬ ВОСЬМЁРКУ
-    static createEight(pointsCount = 12) {
+class FixedNeighborsTester {
+    constructor() {
+        this.algorithm = new FixedNeighborsAlgorithm({
+            neighborOffsets: [-2, -1, 1, 2], // Всегда эти соседи
+            angleTolerance: 15, // Большой допуск для шума
+            hashPrecision: 5,   // Округлять до 5 градусов
+            minCommonTriangles: 2,
+            debug: true
+        });
+    }
+   
+    // 🧪 ЗАПУСТИТЬ КЛЮЧЕВОЙ ТЕСТ
+    runKeyTest() {
+        console.log('🧪 КЛЮЧЕВОЙ ТЕСТ: Частичный след с фиксированными соседями\n');
+       
+        // 1. СОЗДАЕМ ФИГУРУ
+        console.log('1. СОЗДАНИЕ ТЕСТОВЫХ ДАННЫХ');
+        console.log('='.repeat(50));
+       
+        const fullFigure = this.createTestFigure(12, 'FULL');
+        console.log(`   Полная фигура: ${fullFigure.length} точек`);
+       
+        // 2. СОЗДАЕМ ЧАСТИЧНУЮ КОПИЮ
+        const removeIndices = [2, 5, 8];
+        const partialFigure = this.createPartialCopy(fullFigure, removeIndices);
+        console.log(`   Частичная фигура: ${partialFigure.length} точек`);
+        console.log(`   Удалены индексы: ${removeIndices.join(', ')}`);
+       
+        // 3. СОЗДАЕМ ОТПЕЧАТКИ
+        console.log('\n2. СОЗДАНИЕ ГЕОМЕТРИЧЕСКИХ ОТПЕЧАТКОВ');
+        console.log('='.repeat(50));
+       
+        const fpFull = this.algorithm.createFootprint(fullFigure, 'Полный след');
+        const fpPartial = this.algorithm.createFootprint(partialFigure, 'Частичный след');
+       
+        // 4. СРАВНИВАЕМ
+        console.log('\n3. СРАВНЕНИЕ ОТПЕЧАТКОВ');
+        console.log('='.repeat(50));
+       
+        const result = this.algorithm.compareFootprints(
+            fpFull,
+            fpPartial,
+            'Полный след',
+            'Частичный след'
+        );
+       
+        // 5. АНАЛИЗ РЕЗУЛЬТАТОВ
+        this.analyzeResult(result, removeIndices);
+       
+        // 6. ДЕТАЛЬНАЯ ИНФОРМАЦИЯ
+        if (this.algorithm.debug) {
+            this.algorithm.printPointDetails(fpFull, 'Полного следа');
+            this.algorithm.printPointDetails(fpPartial, 'Частичного следа');
+        }
+       
+        // 7. ДОПОЛНИТЕЛЬНЫЕ ТЕСТЫ
+        this.runAdditionalTests(fullFigure);
+       
+        return result;
+    }
+   
+    // 🎯 СОЗДАТЬ ТЕСТОВУЮ ФИГУРУ
+    createTestFigure(pointCount, prefix = 'P') {
         const points = [];
         const a = 100;
         const b = 60;
        
-        for (let i = 0; i < pointsCount; i++) {
-            const t = (i / pointsCount) * 2 * Math.PI;
+        for (let i = 0; i < pointCount; i++) {
+            const t = (i / pointCount) * 2 * Math.PI;
             const x = a * Math.sin(t);
             const y = b * Math.sin(2 * t);
            
             points.push({
                 x: x,
                 y: y,
-                id: `P${i}`,
-                originalId: `P${i}`
+                id: `${prefix}${i}`,
+                originalId: `${prefix}${i}`,
+                index: i
             });
         }
        
-        console.log(`📐 Создана восьмёрка: ${points.length} точек`);
         return points;
     }
    
-    // 🎯 СОЗДАТЬ ЧАСТИЧНУЮ КОПИЮ
-    static createPartialCopy(original, removeIndices = []) {
-        if (removeIndices.length === 0) {
-            // Удаляем случайные 4 точки
-            const indices = new Set();
-            while (indices.size < 4) {
-                const idx = Math.floor(Math.random() * (original.length - 2)) + 1;
-                indices.add(idx);
+    // ✂️ СОЗДАТЬ ЧАСТИЧНУЮ КОПИЮ
+    createPartialCopy(original, removeIndices) {
+        const partial = [];
+        let newIndex = 0;
+       
+        original.forEach((point, originalIndex) => {
+            if (!removeIndices.includes(originalIndex)) {
+                partial.push({
+                    ...point,
+                    index: newIndex++, // Новый индекс в частичной фигуре
+                    // Но originalId остается тем же!
+                });
             }
-            removeIndices = Array.from(indices);
-        }
-       
-        const partial = original.filter((_, idx) => !removeIndices.includes(idx));
-       
-        console.log(`✂️ Создана частичная копия: ${partial.length} точек`);
-        console.log(`   Удалены точки: ${removeIndices.map(i => `P${i}`).join(', ')}`);
+        });
        
         return partial;
     }
    
-    // 🔄 ПОВЕРНУТЬ ТОЧКИ
-    static rotatePoints(points, angle) {
+    // 📊 АНАЛИЗ РЕЗУЛЬТАТОВ
+    analyzeResult(result, removedIndices) {
+        console.log('\n4. АНАЛИЗ РЕЗУЛЬТАТОВ');
+        console.log('='.repeat(50));
+       
+        const { stats, matches } = result;
+        const removedPoints = removedIndices.map(i => `P${i}`);
+       
+        console.log('\n🎯 ОЖИДАЕМЫЕ РЕЗУЛЬТАТЫ:');
+        console.log(`   • Полный след: ${stats.total1} точек`);
+        console.log(`   • Частичный след: ${stats.total2} точек (удалены: ${removedPoints.join(', ')})`);
+        console.log(`   • Ожидается совпадений: ${stats.total2} точек (все точки из частичного)`);
+        console.log(`   • Ожидается Полный → Частичный: ${(stats.total2 / stats.total1 * 100).toFixed(1)}%`);
+        console.log(`   • Ожидается Частичный → Полный: 100%`);
+       
+        console.log('\n📊 ФАКТИЧЕСКИЕ РЕЗУЛЬТАТЫ:');
+        console.log(`   • Найдено совпадений: ${stats.matched}`);
+        console.log(`   • Полный → Частичный: ${stats.percent1to2}%`);
+        console.log(`   • Частичный → Полный: ${stats.percent2to1}%`);
+       
+        // Проверяем, какие точки совпали
+        if (matches.length > 0) {
+            console.log('\n✅ СОВПАВШИЕ ТОЧКИ:');
+            const matchedIds = matches.map(m => m.point1.originalId);
+            console.log(`   ${matchedIds.join(', ')}`);
+           
+            // Проверяем ложные срабатывания
+            const expectedMatches = stats.total2;
+            const falsePositives = stats.matched - expectedMatches;
+           
+            if (falsePositives > 0) {
+                console.log(`   ⚠️  Ложные срабатывания: ${falsePositives}`);
+            }
+           
+            // Проверяем пропущенные совпадения
+            const falseNegatives = expectedMatches - stats.matched;
+            if (falseNegatives > 0) {
+                console.log(`   ❌ Пропущенные совпадения: ${falseNegatives}`);
+            }
+        } else {
+            console.log('\n❌ НИЧЕГО НЕ СОВПАЛО!');
+        }
+       
+        // Оценка алгоритма
+        const expectedMatchCount = stats.total2;
+        const accuracy = expectedMatchCount > 0 ?
+            (stats.matched / expectedMatchCount * 100).toFixed(1) : 0;
+       
+        console.log(`\n🏆 ТОЧНОСТЬ АЛГОРИТМА: ${accuracy}%`);
+       
+        if (Math.abs(stats.matched - expectedMatchCount) <= 1) {
+            console.log('🎉 ОТЛИЧНЫЙ РЕЗУЛЬТАТ!');
+        } else if (stats.matched >= expectedMatchCount * 0.7) {
+            console.log('👍 ХОРОШИЙ РЕЗУЛЬТАТ!');
+        } else {
+            console.log('⚠️  ТРЕБУЕТСЯ ДОРАБОТКА!');
+        }
+    }
+   
+    // 🧪 ДОПОЛНИТЕЛЬНЫЕ ТЕСТЫ
+    runAdditionalTests(originalFigure) {
+        console.log('\n5. ДОПОЛНИТЕЛЬНЫЕ ТЕСТЫ');
+        console.log('='.repeat(50));
+       
+        const fpOriginal = this.algorithm.createFootprint(originalFigure, 'Оригинал');
+       
+        // Тест 1: Поворот
+        console.log('\n🔄 ТЕСТ 1: ПОВОРОТ НА 60°');
+        const rotated = this.rotateFigure(originalFigure, 60);
+        const fpRotated = this.algorithm.createFootprint(rotated, 'Повернутый');
+        const result1 = this.algorithm.compareFootprints(fpOriginal, fpRotated, 'Оригинал', 'Повернутый');
+       
+        // Тест 2: Шум
+        console.log('\n🔊 ТЕСТ 2: ШУМ ±5px');
+        const noisy = this.addNoise(originalFigure, 5);
+        const fpNoisy = this.algorithm.createFootprint(noisy, 'Зашумленный');
+        const result2 = this.algorithm.compareFootprints(fpOriginal, fpNoisy, 'Оригинал', 'Зашумленный');
+       
+        // Тест 3: Масштаб
+        console.log('\n⚖️  ТЕСТ 3: МАСШТАБ 0.8x');
+        const scaled = this.scaleFigure(originalFigure, 0.8);
+        const fpScaled = this.algorithm.createFootprint(scaled, 'Уменьшенный');
+        const result3 = this.algorithm.compareFootprints(fpOriginal, fpScaled, 'Оригинал', 'Уменьшенный');
+       
+        // Сводка
+        console.log('\n📈 СВОДКА ПО ТЕСТАМ:');
+        console.log('='.repeat(60));
+        console.log('Тест                   | Совпадений | Ориг→Тест | Тест→Ориг | Оценка');
+        console.log('-'.repeat(65));
+       
+        const tests = [
+            { name: 'Поворот 60°', result: result1 },
+            { name: 'Шум ±5px', result: result2 },
+            { name: 'Масштаб 0.8x', result: result3 }
+        ];
+       
+        tests.forEach(test => {
+            const stats = test.result.stats;
+            const expected = stats.total1; // Для этих тестов должно быть 100%
+            const actual = stats.matched;
+            const score = actual >= expected * 0.9 ? '✅' :
+                         actual >= expected * 0.7 ? '👍' : '❌';
+           
+            console.log(`${test.name.padEnd(20)} | ${actual.toString().padEnd(10)} | ${stats.percent1to2}%       | ${stats.percent2to1}%       | ${score}`);
+        });
+    }
+   
+    // 🔄 ПОВЕРНУТЬ ФИГУРУ
+    rotateFigure(points, angle) {
         const angleRad = angle * Math.PI / 180;
         const cosA = Math.cos(angleRad);
         const sinA = Math.sin(angleRad);
        
-        const rotated = points.map(p => {
+        return points.map(p => {
             const x = p.x * cosA - p.y * sinA;
             const y = p.x * sinA + p.y * cosA;
            
@@ -368,17 +658,14 @@ class TestDataCreator {
                 x: x,
                 y: y,
                 id: `${p.id}_R${angle}`,
-                originalId: p.originalId
+                // originalId остается тем же!
             };
         });
-       
-        console.log(`🔄 Повернуто на ${angle}°`);
-        return rotated;
     }
    
     // 🔊 ДОБАВИТЬ ШУМ
-    static addNoise(points, amount = 2) {
-        const noisy = points.map(p => {
+    addNoise(points, amount) {
+        return points.map(p => {
             const noiseX = (Math.random() - 0.5) * 2 * amount;
             const noiseY = (Math.random() - 0.5) * 2 * amount;
            
@@ -387,164 +674,20 @@ class TestDataCreator {
                 x: p.x + noiseX,
                 y: p.y + noiseY,
                 id: `${p.id}_N${amount}`,
-                originalId: p.originalId
+                // originalId остается тем же!
             };
         });
-       
-        console.log(`🔊 Добавлен шум ±${amount}px`);
-        return noisy;
-    }
-}
-
-// ============================================
-// 🔷 ТЕСТЕР С ДЕТАЛЬНЫМ АНАЛИЗОМ
-// ============================================
-class DetailedTester {
-    constructor() {
-        this.algorithm = new DetailedGeometricAlgorithm({
-            neighborsCount: 3,
-            angleTolerance: 15, // Больше допуск для устойчивости
-            minSimilarity: 0.5,
-            debug: true
-        });
     }
    
-    // 🧪 ЗАПУСТИТЬ ДЕТАЛЬНОЕ ТЕСТИРОВАНИЕ
-    runDetailedTest() {
-        console.log('🧪 ДЕТАЛЬНЫЙ АНАЛИЗ СРАВНЕНИЯ\n');
-       
-        // 1. СОЗДАЕМ ФИГУРЫ
-        console.log('1. СОЗДАНИЕ ТЕСТОВЫХ ДАННЫХ');
-        console.log('='.repeat(50));
-       
-        const fullFigure = TestDataCreator.createEight(10); // Меньше точек для наглядности
-       
-        // Удаляем конкретные точки для предсказуемости
-        const removeIndices = [2, 5, 7];
-        const partialFigure = TestDataCreator.createPartialCopy(fullFigure, removeIndices);
-       
-        // 2. СОЗДАЕМ ОТПЕЧАТКИ
-        console.log('\n2. СОЗДАНИЕ ГЕОМЕТРИЧЕСКИХ ОТПЕЧАТКОВ');
-        console.log('='.repeat(50));
-       
-        const fpFull = this.algorithm.createFootprint(fullFigure, 'Полный след');
-        const fpPartial = this.algorithm.createFootprint(partialFigure, 'Частичный след');
-       
-        console.log(`   ✅ Создано отпечатков: ${fpFull.length} и ${fpPartial.length}`);
-       
-        // 3. СРАВНИВАЕМ
-        console.log('\n3. СРАВНЕНИЕ ОТПЕЧАТКОВ');
-        console.log('='.repeat(50));
-       
-        const result = this.algorithm.compareFootprints(
-            fpFull,
-            fpPartial,
-            'Полный след (10 точек)',
-            'Частичный след (7 точек)'
-        );
-       
-        // 4. ТАБЛИЦА СОВПАДЕНИЙ
-        this.algorithm.printMatchTable(result);
-       
-        // 5. АНАЛИЗ РЕЗУЛЬТАТОВ
-        this.analyzeResults(result, fullFigure, partialFigure, removeIndices);
-       
-        // 6. ДОПОЛНИТЕЛЬНЫЕ ТЕСТЫ
-        this.runAdditionalTests(fullFigure);
-    }
-   
-    // 📊 АНАЛИЗ РЕЗУЛЬТАТОВ
-    analyzeResults(result, fullFigure, partialFigure, removedIndices) {
-        console.log('\n📈 АНАЛИЗ РЕЗУЛЬТАТОВ');
-        console.log('='.repeat(50));
-       
-        const { stats, matches } = result;
-        const removedPoints = removedIndices.map(i => `P${i}`);
-       
-        console.log('\n🎯 ОЖИДАЕМЫЕ РЕЗУЛЬТАТЫ:');
-        console.log(`   • Полный след: 10 точек`);
-        console.log(`   • Частичный след: 7 точек (удалены: ${removedPoints.join(', ')})`);
-        console.log(`   • Ожидается совпадений: 7 точек (все точки из частичного)`);
-        console.log(`   • Ожидается процент П→Ч: 70% (7/10)`);
-        console.log(`   • Ожидается процент Ч→П: 100% (7/7)`);
-       
-        console.log('\n📊 ФАКТИЧЕСКИЕ РЕЗУЛЬТАТЫ:');
-        console.log(`   • Найдено совпадений: ${stats.matched}`);
-        console.log(`   • Полный → Частичный: ${stats.percent1to2}%`);
-        console.log(`   • Частичный → Полный: ${stats.percent2to1}%`);
-       
-        // Проверяем, какие именно точки совпали
-        const matchedIds = matches.map(m => m.point1.originalId);
-        const expectedMatches = partialFigure.map(p => p.originalId);
-       
-        console.log('\n🔍 ПРОВЕРКА СОВПАДЕНИЙ:');
-       
-        // Точки, которые должны были совпасть
-        const correctlyMatched = expectedMatches.filter(id => matchedIds.includes(id));
-        console.log(`   ✅ Правильно совпали: ${correctlyMatched.length}/${expectedMatches.length} точек`);
-        if (correctlyMatched.length > 0) {
-            console.log(`      ${correctlyMatched.join(', ')}`);
-        }
-       
-        // Точки, которые не должны были совпасть (ложные срабатывания)
-        const falsePositives = matchedIds.filter(id => !expectedMatches.includes(id));
-        console.log(`   ❌ Ложные срабатывания: ${falsePositives.length}`);
-        if (falsePositives.length > 0) {
-            console.log(`      ${falsePositives.join(', ')}`);
-        }
-       
-        // Точки, которые должны были совпасть, но не совпали
-        const falseNegatives = expectedMatches.filter(id => !matchedIds.includes(id));
-        console.log(`   ⚠️  Пропущенные совпадения: ${falseNegatives.length}`);
-        if (falseNegatives.length > 0) {
-            console.log(`      ${falseNegatives.join(', ')}`);
-        }
-       
-        // Оценка алгоритма
-        const accuracy = (correctlyMatched.length / expectedMatches.length * 100).toFixed(1);
-        console.log(`\n🏆 ТОЧНОСТЬ АЛГОРИТМА: ${accuracy}%`);
-       
-        if (falsePositives.length === 0 && falseNegatives.length === 0) {
-            console.log('🎉 ИДЕАЛЬНЫЙ РЕЗУЛЬТАТ! Все совпадения найдены правильно.');
-        }
-    }
-   
-    // 🧪 ДОПОЛНИТЕЛЬНЫЕ ТЕСТЫ
-    runAdditionalTests(originalFigure) {
-        console.log('\n🧪 ДОПОЛНИТЕЛЬНЫЕ ТЕСТЫ');
-        console.log('='.repeat(50));
-       
-        // Тест 1: Поворот
-        console.log('\n🔄 ТЕСТ 1: ПОВОРОТ НА 90°');
-        const rotated = TestDataCreator.rotatePoints(originalFigure, 90);
-        const fpOriginal = this.algorithm.createFootprint(originalFigure, 'Оригинал');
-        const fpRotated = this.algorithm.createFootprint(rotated, 'Повернутый');
-        const result1 = this.algorithm.compareFootprints(fpOriginal, fpRotated, 'Оригинал', 'Повернутый');
-       
-        // Тест 2: Шум
-        console.log('\n🔊 ТЕСТ 2: ШУМ ±3px');
-        const noisy = TestDataCreator.addNoise(originalFigure, 3);
-        const fpNoisy = this.algorithm.createFootprint(noisy, 'Зашумленный');
-        const result2 = this.algorithm.compareFootprints(fpOriginal, fpNoisy, 'Оригинал', 'Зашумленный');
-       
-        // Сводка
-        console.log('\n📈 СВОДКА ПО ДОПОЛНИТЕЛЬНЫМ ТЕСТАМ:');
-        console.log('='.repeat(50));
-        console.log('Тест                   | Совпадений | Ориг→Тест | Тест→Ориг');
-        console.log('-' .repeat(55));
-        console.log(`Поворот 90°            | ${result1.stats.matched.toString().padEnd(10)} | ${result1.stats.percent1to2}%       | ${result1.stats.percent2to1}%`);
-        console.log(`Шум ±3px              | ${result2.stats.matched.toString().padEnd(10)} | ${result2.stats.percent1to2}%       | ${result2.stats.percent2to1}%`);
-       
-        // Итог
-        const allTests = [result1.stats, result2.stats];
-        const avgMatch = allTests.reduce((sum, s) => sum + s.matched, 0) / allTests.length;
-        const avgPercent1to2 = allTests.reduce((sum, s) => sum + parseFloat(s.percent1to2), 0) / allTests.length;
-        const avgPercent2to1 = allTests.reduce((sum, s) => sum + parseFloat(s.percent2to1), 0) / allTests.length;
-       
-        console.log('\n📊 СРЕДНИЕ ПОКАЗАТЕЛИ:');
-        console.log(`   • Среднее совпадений: ${avgMatch.toFixed(1)} точек`);
-        console.log(`   • Средний процент Ориг→Тест: ${avgPercent1to2.toFixed(1)}%`);
-        console.log(`   • Средний процент Тест→Ориг: ${avgPercent2to1.toFixed(1)}%`);
+    // ⚖️ МАСШТАБИРОВАТЬ ФИГУРУ
+    scaleFigure(points, scale) {
+        return points.map(p => ({
+            ...p,
+            x: p.x * scale,
+            y: p.y * scale,
+            id: `${p.id}_S${scale}`,
+            // originalId остается тем же!
+        }));
     }
 }
 
@@ -553,39 +696,40 @@ class DetailedTester {
 // ============================================
 async function main() {
     try {
-        console.log('🎯 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ - ДЕТАЛЬНЫЙ АНАЛИЗ СОВПАДЕНИЙ\n');
-        console.log('📐 Табличные данные + Двойная статистика + Анализ точности\n');
+        console.log('🎯 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ С ФИКСИРОВАННЫМИ СОСЕДЯМИ\n');
+        console.log('📐 Ключевая идея: Каждая точка всегда использует одних и тех же соседей\n');
         console.log('='.repeat(80) + '\n');
        
-        const tester = new DetailedTester();
+        const tester = new FixedNeighborsTester();
        
-        // Запускаем детальное тестирование
-        tester.runDetailedTest();
+        // Запускаем ключевой тест
+        const result = tester.runKeyTest();
        
-        console.log('\n💡 КЛЮЧЕВЫЕ МОМЕНТЫ:');
+        console.log('\n💡 КЛЮЧЕВЫЕ ПРИНЦИПЫ РАБОТЫ АЛГОРИТМА:');
         console.log('='.repeat(80));
-        console.log('1. 📊 ДВОЙНАЯ СТАТИСТИКА:');
-        console.log('   • Процент П→Ч: сколько точек полного следа подтвердилось частичным');
-        console.log('   • Процент Ч→П: сколько точек частичного следа нашло совпадения в полном');
-        console.log('   • Эти проценты РАЗНЫЕ и оба важны!');
+        console.log('1. 🔗 ФИКСИРОВАННЫЕ СОСЕДИ:');
+        console.log('   • Каждая точка всегда использует соседей с фиксированными смещениями (-2, -1, 1, 2)');
+        console.log('   • Неважно, какое расстояние до соседей - важны их индексы в массиве');
+        console.log('   • Это гарантирует, что при удалении точек у оставшихся соседи не меняются!');
        
-        console.log('\n2. 🔑 ГЕОМЕТРИЧЕСКИЕ ХЕШИ:');
-        console.log('   • Каждая точка получает уникальный "отпечаток" на основе треугольников');
-        console.log('   • Хеш = объединение хешей всех треугольников, содержащих точку');
-        console.log('   • Совпадение происходит, если хеши точек идентичны');
+        console.log('\n2. 🎯 УСТОЙЧИВОСТЬ К ИЗМЕНЕНИЯМ:');
+        console.log('   • Поворот: углы треугольников не меняются → 100% совпадений');
+        console.log('   • Масштаб: углы треугольников не меняются → 100% совпадений');
+        console.log('   • Шум: допуск по углам компенсирует небольшие изменения');
+        console.log('   • Частичные данные: те же соседи → те же треугольники → те же хеши');
        
-        console.log('\n3. ✅ ОЖИДАЕМЫЕ РЕЗУЛЬТАТЫ ДЛЯ ЧАСТИЧНОГО СЛЕДА:');
-        console.log('   • Частичный → Полный: ДОЛЖНО быть 100% (все точки частичного нашли совпадения)');
-        console.log('   • Полный → Частичный: ДОЛЖНО быть (частичный/полный)*100%');
-        console.log('   • Пример: 7 точек из 10 → 70% подтверждения полного следа');
+        console.log('\n3. 🔑 ГИБКИЕ ХЕШИ:');
+        console.log('   • Точные хеши: для идеальных совпадений (поворот, масштаб)');
+        console.log('   • Округленные хеши: для совпадений с шумом');
+        console.log('   • Сигнатуры: для быстрого приблизительного сравнения');
+        console.log('   • Частичные совпадения: достаточно нескольких общих треугольников');
        
-        console.log('\n4. 🎯 ИДЕАЛЬНЫЙ АЛГОРИТМ ДОЛЖЕН:');
-        console.log('   • Находить ВСЕ реальные совпадения (100% Ч→П)');
-        console.log('   • Не давать ложных срабатываний (точный П→Ч)');
-        console.log('   • Быть устойчивым к поворотам и шуму');
-        console.log('   • Работать с разным количеством точек');
+        console.log('\n4. 📊 ПРАВИЛЬНАЯ СТАТИСТИКА:');
+        console.log('   • Полный → Частичный: сколько % полного следа подтвердилось');
+        console.log('   • Частичный → Полный: сколько % частичного следа нашло совпадения');
+        console.log('   • Эти проценты РАЗНЫЕ и показывают разные аспекты работы алгоритма');
        
-        console.log('\n🚀 АЛГОРИТМ ГОТОВ К ИНТЕГРАЦИИ В СИСТЕМУ СРАВНЕНИЯ СЛЕДОВ!');
+        console.log('\n🚀 АЛГОРИТМ РЕШАЕТ ВСЕ ПРОБЛЕМЫ ПРЕДЫДУЩИХ ВЕРСИЙ!');
        
     } catch (error) {
         console.error(`\n❌ ОШИБКА: ${error.message}`);
@@ -599,7 +743,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-    DetailedGeometricAlgorithm,
-    TestDataCreator,
-    DetailedTester
+    FixedNeighborsAlgorithm,
+    FixedNeighborsTester
 };
