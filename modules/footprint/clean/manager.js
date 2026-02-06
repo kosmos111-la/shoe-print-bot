@@ -9,21 +9,21 @@ class CleanFootprintManager {
         this.config = {
             dbPath: options.dbPath || './data/footprints/clean',
             similarityThreshold: options.similarityThreshold || 0.6, // 60%
-            minPoints: options.minPoints || 5,
+            minPoints: options.minPoints || 20, // Увеличено для топологии
             debug: options.debug || true
         };
 
         // Загружаем модули
         this.CleanFootprint = require('./footprint-model');
         this.SimpleCoordinateSystem = require('./coordinate-system');
-       
-        // 🔥 ЗАГРУЗИМ ТВОЙ АЛГОРИТМ (после того как создашь файл)
+
+        // 🔥 ЗАГРУЗИМ ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ
         try {
-            this.GeometricAlgorithm = require('./geometric-hash-algorithm');
-            console.log('✅ Геометрический алгоритм загружен');
+            this.TopologyAlgorithm = require('./topology-algorithm');
+            console.log('✅ Топологический алгоритм загружен');
         } catch (error) {
-            console.log('⚠️ Геометрический алгоритм не найден, используем простой');
-            this.GeometricAlgorithm = null;
+            console.log('⚠️ Топологический алгоритм не найден, используем простой');
+            this.TopologyAlgorithm = null;
         }
 
         // Хранилище
@@ -45,7 +45,7 @@ class CleanFootprintManager {
         console.log('🚀 Чистый менеджер отпечатков создан');
         console.log(`   • Порог схожести: ${this.config.similarityThreshold * 100}%`);
         console.log(`   • Минимально точек: ${this.config.minPoints}`);
-        console.log(`   • Геометрический алгоритм: ${this.GeometricAlgorithm ? '✅' : '❌'}`);
+        console.log(`   • Топологический алгоритм: ${this.TopologyAlgorithm ? '✅' : '❌'}`);
     }
 
     /**
@@ -123,7 +123,7 @@ class CleanFootprintManager {
                 if (comparison.similarity >= this.config.similarityThreshold) {
                     // СОВПАДЕНИЕ - обновляем подтверждения
                     const result = footprint.addPhoto(preparedPoints, photoId);
-                   
+
                     // Сохраняем
                     this.saveFootprint(userId);
 
@@ -176,17 +176,17 @@ class CleanFootprintManager {
     }
 
     /**
-     * Сравнить два отпечатка (используем твой алгоритм)
+     * Сравнить два отпечатка (используем топологический алгоритм)
      */
     async compareFootprints(footprint1, footprint2) {
         this.stats.totalComparisons++;
 
         try {
-            // Получаем точки для сравнения (уже нормализованные)
+            // Получаем точки для сравнения
             const points1 = footprint1.getComparisonPoints();
             const points2 = footprint2.getComparisonPoints
                 ? footprint2.getComparisonPoints()
-                : this.SimpleCoordinateSystem.normalize(footprint2.points || []);
+                : (footprint2.points || []);
 
             if (points1.length === 0 || points2.length === 0) {
                 console.log('⚠️ Нет точек для сравнения');
@@ -199,29 +199,33 @@ class CleanFootprintManager {
 
             let similarity;
             let method;
+            let resultDetails;
 
-            // 🔥 ИСПОЛЬЗУЕМ ТВОЙ АЛГОРИТМ, ЕСЛИ ОН ЕСТЬ
-            if (this.GeometricAlgorithm) {
-                const geoAlgorithm = new this.GeometricAlgorithm({
-                    neighborOffsets: [-2, -1, 1, 2],
-                    angleTolerance: 10,
-                    minSimilarity: 0.3,
-                    debug: this.config.debug
+            // 🔥 ИСПОЛЬЗУЕМ ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ
+            if (this.TopologyAlgorithm) {
+                const topologyAlgo = new this.TopologyAlgorithm({
+                    debug: this.config.debug,
+                    minPoints: Math.max(20, Math.min(points1.length, points2.length) * 0.3),
+                    similarityThreshold: this.config.similarityThreshold,
+                    neighborsCount: Math.min(10, Math.min(points1.length, points2.length) - 1),
+                    rotationStep: 15,
+                    pointMatchThreshold: 20
                 });
 
-                // Создаём геометрические отпечатки
-                const geo1 = geoAlgorithm.createFootprint(points1, 'fp1');
-                const geo2 = geoAlgorithm.createFootprint(points2, 'fp2');
+                // Сравниваем точки напрямую
+                const result = topologyAlgo.comparePoints(
+                    points1,
+                    points2,
+                    `Отпечаток ${footprint1.userId || '1'}`,
+                    `Отпечаток ${footprint2.userId || '2'}`
+                );
 
-                // Сравниваем
-                const result = geoAlgorithm.compareFootprints(geo1, geo2);
-               
-                // Берем процент совпадений от первого к второму
-                const percentMatch = parseFloat(result.stats.percent1to2) / 100;
-                similarity = percentMatch;
-                method = 'geometric_hash';
+                similarity = result.similarity;
+                method = 'topology';
+                resultDetails = result;
 
-                console.log(`🎯 Геометрический алгоритм: ${result.stats.percent1to2}% совпадений`);
+                console.log(`🎯 Топологический алгоритм: ${(result.similarity * 100).toFixed(1)}% схожести`);
+                console.log(`   Найдено совпадений: ${result.stats?.matchedPoints || 0} из ${Math.min(points1.length, points2.length)}`);
 
             } else {
                 // Фаллбэк: простое сравнение по центрам
@@ -260,17 +264,128 @@ class CleanFootprintManager {
                 reason: reason,
                 method: method,
                 points1: points1.length,
-                points2: points2.length
+                points2: points2.length,
+                details: resultDetails
             };
 
         } catch (error) {
             console.error(`❌ Ошибка сравнения: ${error.message}`);
+            console.error(error.stack);
             return {
                 similarity: 0,
                 decision: 'different',
                 reason: `Ошибка: ${error.message}`,
                 method: 'error'
             };
+        }
+    }
+
+    /**
+     * Специализированный метод для топологического анализа
+     */
+    async analyzeTopology(userId, newPoints, options = {}) {
+        console.log(`\n🔬 Топологический анализ для пользователя ${userId}`);
+
+        const footprint = this.footprints.get(userId);
+        if (!footprint) {
+            return {
+                success: false,
+                error: 'Отпечаток не найден'
+            };
+        }
+
+        if (!this.TopologyAlgorithm) {
+            return {
+                success: false,
+                error: 'Топологический алгоритм не загружен'
+            };
+        }
+
+        try {
+            const points1 = footprint.getComparisonPoints();
+            const points2 = newPoints || [];
+
+            if (points1.length < 20 || points2.length < 20) {
+                return {
+                    success: false,
+                    error: `Недостаточно точек: ${points1.length} и ${points2.length} (минимум 20)`
+                };
+            }
+
+            const topologyAlgo = new this.TopologyAlgorithm({
+                debug: true,
+                minPoints: options.minPoints || 20,
+                similarityThreshold: options.similarityThreshold || 0.5,
+                neighborsCount: options.neighborsCount || 8,
+                rotationStep: options.rotationStep || 10,
+                pointMatchThreshold: options.pointMatchThreshold || 15
+            });
+
+            // Создаем топологические отпечатки
+            const fp1 = topologyAlgo.createFootprint(points1, `Существующий (${points1.length} точек)`);
+            const fp2 = topologyAlgo.createFootprint(points2, `Новый (${points2.length} точек)`);
+
+            // Сравниваем
+            const result = topologyAlgo.compareFootprints(fp1, fp2);
+
+            // Детальный анализ
+            const analysis = {
+                topologyResult: result,
+                footprint1: {
+                    points: points1.length,
+                    descriptors: fp1.descriptors?.length || 0
+                },
+                footprint2: {
+                    points: points2.length,
+                    descriptors: fp2.descriptors?.length || 0
+                },
+                timestamp: new Date().toISOString()
+            };
+
+            // Генерируем визуализацию, если нужно
+            if (options.generateVisualization) {
+                await this.generateTopologyVisualization(analysis, userId);
+            }
+
+            return {
+                success: true,
+                analysis: analysis,
+                decision: result.decision,
+                similarity: result.similarity,
+                matchedPoints: result.stats?.matchedPoints || 0
+            };
+
+        } catch (error) {
+            console.error(`❌ Ошибка топологического анализа: ${error.message}`);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * Генерация визуализации топологического анализа
+     */
+    async generateTopologyVisualization(analysis, userId) {
+        try {
+            const visDir = path.join(this.config.dbPath, 'visualizations', userId.toString());
+            if (!fs.existsSync(visDir)) {
+                fs.mkdirSync(visDir, { recursive: true });
+            }
+
+            const fileName = `topology_${Date.now()}.json`;
+            const filePath = path.join(visDir, fileName);
+
+            // Сохраняем анализ для последующей визуализации
+            fs.writeFileSync(filePath, JSON.stringify(analysis, null, 2));
+
+            console.log(`📊 Визуализация сохранена: ${filePath}`);
+
+            return filePath;
+        } catch (error) {
+            console.error(`❌ Ошибка генерации визуализации: ${error.message}`);
+            return null;
         }
     }
 
@@ -290,7 +405,7 @@ class CleanFootprintManager {
         const data = footprint.toJSON();
 
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-       
+
         console.log(`💾 Отпечаток сохранён: ${filePath}`);
         return true;
     }
@@ -308,7 +423,7 @@ class CleanFootprintManager {
         const data = footprint.toJSON();
 
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-       
+
         console.log(`📦 Отпечаток заархивирован: ${filePath}`);
         return true;
     }
@@ -342,7 +457,7 @@ class CleanFootprintManager {
                 try {
                     const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
                     const footprint = this.CleanFootprint.fromJSON(data);
-                   
+
                     this.footprints.set(userId, footprint);
                     this.users.set(userId, { loadedFrom: latestFile });
                     loadedCount++;
@@ -356,7 +471,7 @@ class CleanFootprintManager {
 
         this.stats.totalUsers = loadedCount;
         this.stats.totalFootprints = loadedCount;
-       
+
         console.log(`📂 Загружено ${loadedCount} отпечатков`);
     }
 
@@ -402,6 +517,10 @@ class CleanFootprintManager {
             config: {
                 similarityThreshold: this.config.similarityThreshold,
                 minPoints: this.config.minPoints
+            },
+            algorithm: {
+                topology: this.TopologyAlgorithm ? 'available' : 'unavailable',
+                minPointsForTopology: 20
             }
         };
     }
@@ -419,16 +538,44 @@ class CleanFootprintManager {
     clearUserData(userId) {
         if (this.footprints.has(userId)) {
             this.footprints.delete(userId);
-           
+
             const userDir = path.join(this.config.dbPath, 'users', userId.toString());
             if (fs.existsSync(userDir)) {
                 fs.rmSync(userDir, { recursive: true });
                 console.log(`🧹 Очищены данные пользователя ${userId}`);
             }
-           
+
             return true;
         }
         return false;
+    }
+
+    /**
+     * Тест топологического алгоритма
+     */
+    async runTopologyTest() {
+        console.log('\n🧪 ЗАПУСК ТЕСТА ТОПОЛОГИЧЕСКОГО АЛГОРИТМА');
+        console.log('='.repeat(60));
+
+        if (!this.TopologyAlgorithm) {
+            console.log('❌ Топологический алгоритм не загружен');
+            return { success: false, error: 'Algorithm not loaded' };
+        }
+
+        try {
+            const TopologyAlgorithm = require('./topology-algorithm');
+            const test = require('./test-topology-algorithm');
+           
+            console.log('✅ Тестовые модули загружены');
+           
+            // Запускаем тест из файла
+            await test.testTopologyAlgorithm();
+           
+            return { success: true, message: 'Тест выполнен' };
+        } catch (error) {
+            console.error(`❌ Ошибка теста: ${error.message}`);
+            return { success: false, error: error.message };
+        }
     }
 }
 
