@@ -1,7 +1,7 @@
-// modules/footprint/clean/hybrid-algorithm.js
-// 🎯 ГИБРИДНЫЙ АЛГОРИТМ: Триангуляция + Локальные паттерны
+// modules/footprint/clean/hybrid-algorithm.js - ИСПРАВЛЕННЫЙ
+// 🎯 ГИБРИДНЫЙ АЛГОРИТМ, ИНВАРИАНТНЫЙ К ПОВОРОТУ
 
-console.log('🎯 ГИБРИДНЫЙ АЛГОРИТМ - Триангуляция + Топология\n');
+console.log('🎯 ГИБРИДНЫЙ АЛГОРИТМ - ИНВАРИАНТНЫЙ К ПОВОРОТУ\n');
 
 class HybridAlgorithm {
     constructor(options = {}) {
@@ -15,46 +15,45 @@ class HybridAlgorithm {
         this.minPoints = options.minPoints || 20;
         this.minMatchedPoints = options.minMatchedPoints || 10;
        
-        // 🔥 КЛЮЧЕВОЕ: Используем локальные дескрипторы для сравнения
-        this.useLocalDescriptors = true;
-        this.neighborsForMatching = 5; // Для поиска соответствий
+        // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Используем относительные углы
+        this.useRelativeAngles = true;
+        this.neighborsForMatching = 5;
+       
+        // 🔥 НОВЫЙ ПАРАМЕТР: Толерантность при поиске поворота
+        this.rotationSearchStep = options.rotationSearchStep || 15; // градусов
        
         this.debug = options.debug !== false;
     }
 
     // ============================================
-    // 🎯 СОЗДАНИЕ ОТПЕЧАТКА С ФИКСИРОВАННЫМИ СОСЕДЯМИ
+    // 🎯 СОЗДАНИЕ ОТПЕЧАТКА (ИНВАРИАНТНОГО К ПОВОРОТУ)
     // ============================================
    
     createFootprint(points, name = '') {
         if (this.debug) {
-            console.log(`🎯 Создаю гибридный отпечаток "${name}" из ${points.length} точек`);
+            console.log(`🎯 Создаю отпечаток "${name}" из ${points.length} точек`);
         }
        
         const footprint = [];
         const totalPoints = points.length;
        
-        // Подготавливаем точки с индексами
-        const indexedPoints = points.map((p, idx) => ({
-            ...p,
-            index: idx,
-            originalId: p.originalId || `pt_${idx}`
-        }));
+        // 1. Нормализуем точки (центрируем)
+        const normalizedPoints = this.normalizePoints(points);
        
-        // 🔥 ФАЗА 1: Триангуляция с фиксированными соседями
+        // 2. Для каждой точки создаем инвариантные дескрипторы
         for (let i = 0; i < totalPoints; i++) {
-            const point = indexedPoints[i];
-            const neighbors = this.findFixedNeighbors(i, indexedPoints);
+            const point = normalizedPoints[i];
+           
+            // 🔥 ФИКСИРОВАННЫЕ СОСЕДИ (по индексам в исходном порядке!)
+            const neighbors = this.findFixedNeighbors(i, normalizedPoints);
            
             if (neighbors.length >= 2) {
+                // 📐 ГЕОМЕТРИЧЕСКИЙ ДЕСКРИПТОР (углы треугольников)
                 const triangles = this.createTriangles(point, neighbors);
                
                 if (triangles.length > 0) {
-                    // Создаем геометрический дескриптор
-                    const geoDescriptor = this.createGeometricDescriptor(triangles);
-                   
-                    // 🔥 ФАЗА 2: Локальный топологический дескриптор
-                    const localDescriptor = this.createLocalDescriptor(point, indexedPoints, i);
+                    // 🎯 ЛОКАЛЬНЫЙ ДЕСКРИПТОР (инвариантный к повороту)
+                    const localDescriptor = this.createRotationInvariantDescriptor(point, normalizedPoints, i);
                    
                     footprint.push({
                         id: point.id || `pt_${i}`,
@@ -62,11 +61,11 @@ class HybridAlgorithm {
                         index: i,
                         x: point.x,
                         y: point.y,
-                        // Геометрические данные (триангуляция)
-                        geoDescriptor: geoDescriptor,
+                        // Геометрические данные
+                        geoDescriptor: this.createGeometricDescriptor(triangles),
                         triangles: triangles,
                         triangleCount: triangles.length,
-                        // Топологические данные (локальные отношения)
+                        // Локальные данные (инвариантные)
                         localDescriptor: localDescriptor,
                         neighborIndices: neighbors.map(n => n.index)
                     });
@@ -74,154 +73,229 @@ class HybridAlgorithm {
             }
         }
        
-        if (this.debug) {
+        if (this.debug && footprint.length > 0) {
             console.log(`✅ Создан отпечаток: ${footprint.length} точек`);
-            if (footprint.length > 0) {
-                const firstPoint = footprint[0];
-                console.log(`   Точка ${firstPoint.originalId}: ${firstPoint.triangleCount} треугольников, ` +
-                          `локальный хеш: ${firstPoint.localDescriptor.hash}`);
-            }
         }
        
         return footprint;
     }
    
     // ============================================
-    // 🔄 УМНОЕ СРАВНЕНИЕ: Используем оба подхода
+    // 🔄 СРАВНЕНИЕ С ПОИСКОМ НАИЛУЧШЕГО ПОВОРОТА
     // ============================================
    
     compareFootprints(fp1, fp2, name1 = 'Отпечаток 1', name2 = 'Отпечаток 2') {
         if (this.debug) {
-            console.log(`\n🔍 ГИБРИДНОЕ СРАВНЕНИЕ: ${name1} (${fp1.length}) vs ${name2} (${fp2.length})`);
+            console.log(`\n🔍 СРАВНЕНИЕ: ${name1} (${fp1.length}) vs ${name2} (${fp2.length})`);
         }
        
         if (fp1.length < this.minPoints || fp2.length < this.minPoints) {
             return {
                 similarity: 0,
                 decision: 'different',
-                matches: [],
-                stats: { total1: fp1.length, total2: fp2.length, matched: 0 }
+                matches: []
             };
         }
        
-        // 🔥 КЛЮЧЕВАЯ ИДЕЯ: Используем локальные дескрипторы для поиска соответствий
-        const matches = this.findMatchesUsingLocalDescriptors(fp1, fp2);
-        const matched = matches.length;
+        // 🔥 КЛЮЧЕВОЕ: Ищем наилучший поворот для соответствия
+        const bestMatch = this.findBestRotationMatch(fp1, fp2);
        
-        // Вычисляем схожесть на основе геометрических дескрипторов
-        let totalSimilarity = 0;
-        let comparedPairs = 0;
-       
-        for (const match of matches) {
-            const similarity = this.compareGeometricDescriptors(
-                match.point1.geoDescriptor,
-                match.point2.geoDescriptor
-            );
-            totalSimilarity += similarity;
-            comparedPairs++;
-        }
-       
-        const avgSimilarity = comparedPairs > 0 ? totalSimilarity / comparedPairs : 0;
-       
-        // Процент совпавших точек
-        const pointSimilarity = matched / Math.min(fp1.length, fp2.length);
-       
-        // 🔥 КОМБИНИРОВАННАЯ ОЦЕНКА
-        const finalSimilarity = (avgSimilarity * 0.7 + pointSimilarity * 0.3);
-       
-        const decision = (matched >= this.minMatchedPoints && finalSimilarity >= this.similarityThreshold)
-            ? 'same'
-            : 'different';
+        const similarity = bestMatch.score;
+        const decision = (bestMatch.matchedPoints >= this.minMatchedPoints &&
+                         similarity >= this.similarityThreshold)
+                         ? 'same' : 'different';
        
         if (this.debug) {
             console.log(`📊 РЕЗУЛЬТАТ:`);
-            console.log(`   Найдено соответствий: ${matched}`);
-            console.log(`   Средняя геометрическая схожесть: ${(avgSimilarity * 100).toFixed(1)}%`);
-            console.log(`   Процент совпавших точек: ${(pointSimilarity * 100).toFixed(1)}%`);
-            console.log(`   Итоговая схожесть: ${(finalSimilarity * 100).toFixed(1)}%`);
+            console.log(`   Наилучший угол поворота: ${bestMatch.bestRotation.toFixed(1)}°`);
+            console.log(`   Найдено соответствий: ${bestMatch.matchedPoints}`);
+            console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}%`);
             console.log(`   Решение: ${decision} (порог: ${this.similarityThreshold * 100}%)`);
            
-            if (matches.length > 0) {
+            if (bestMatch.matches.length > 0) {
                 console.log(`\n🔬 ПРИМЕРЫ СОВПАДЕНИЙ:`);
-                matches.slice(0, 3).forEach((match, idx) => {
-                    const geoSimilarity = this.compareGeometricDescriptors(
-                        match.point1.geoDescriptor,
-                        match.point2.geoDescriptor
-                    );
-                    console.log(`   ${idx + 1}. ${match.point1.originalId} ↔ ${match.point2.originalId}: ` +
-                              `геометрия: ${geoSimilarity.toFixed(3)}, локально: ${match.localSimilarity.toFixed(3)}`);
+                bestMatch.matches.slice(0, 3).forEach((match, idx) => {
+                    console.log(`   ${idx + 1}. ${match.point1.originalId} ↔ ${match.point2.originalId}`);
                 });
             }
         }
        
         return {
-            similarity: finalSimilarity,
+            similarity: similarity,
             decision: decision,
-            matches: matches,
+            matches: bestMatch.matches,
+            bestRotation: bestMatch.bestRotation,
             stats: {
-                total1: fp1.length,
-                total2: fp2.length,
-                matched: matched,
-                avgGeometricSimilarity: avgSimilarity,
-                pointSimilarity: pointSimilarity,
-                finalSimilarity: finalSimilarity
+                matchedPoints: bestMatch.matchedPoints,
+                bestRotation: bestMatch.bestRotation,
+                score: bestMatch.score
             }
         };
     }
    
     // ============================================
-    // 🔍 ПОИСК СООТВЕТСТВИЙ ПО ЛОКАЛЬНЫМ ДЕСКРИПТОРАМ
+    // 🔍 ПОИСК НАИЛУЧШЕГО ПОВОРОТА ДЛЯ СОВПАДЕНИЯ
     // ============================================
    
-    findMatchesUsingLocalDescriptors(fp1, fp2) {
+    findBestRotationMatch(fp1, fp2) {
+        let bestScore = 0;
+        let bestRotation = 0;
+        let bestMatches = [];
+        let bestMatchedPoints = 0;
+       
+        // Перебираем возможные углы поворота
+        for (let rotation = 0; rotation < 360; rotation += this.rotationSearchStep) {
+            const rotationRad = rotation * Math.PI / 180;
+           
+            // Поворачиваем локальные дескрипторы второго отпечатка
+            const rotatedDescriptors = this.rotateDescriptors(fp2, rotationRad);
+           
+            // Сравниваем дескрипторы
+            const matches = this.matchDescriptors(fp1, rotatedDescriptors);
+           
+            // Вычисляем схожесть
+            const matchedPoints = matches.length;
+            const maxPossible = Math.min(fp1.length, fp2.length);
+            const score = maxPossible > 0 ? matchedPoints / maxPossible : 0;
+           
+            if (score > bestScore) {
+                bestScore = score;
+                bestRotation = rotation;
+                bestMatches = matches;
+                bestMatchedPoints = matchedPoints;
+            }
+           
+            // Если нашли отличное совпадение - можно остановиться
+            if (bestScore > 0.9) break;
+        }
+       
+        return {
+            score: bestScore,
+            bestRotation: bestRotation,
+            matches: bestMatches,
+            matchedPoints: bestMatchedPoints
+        };
+    }
+   
+    // ============================================
+    // 🎯 СОЗДАНИЕ ИНВАРИАНТНЫХ ДЕСКРИПТОРОВ
+    // ============================================
+   
+    createRotationInvariantDescriptor(centerPoint, allPoints, centerIndex) {
+        // Находим K ближайших соседей
+        const neighbors = this.findNearestNeighbors(centerPoint, allPoints, centerIndex);
+       
+        if (neighbors.length < 2) {
+            return {
+                hash: 'insufficient_neighbors',
+                angles: [],
+                ratios: []
+            };
+        }
+       
+        // 🔥 КЛЮЧЕВОЕ: Вычисляем ОТНОСИТЕЛЬНЫЕ углы между соседями
+        // Эти углы НЕ МЕНЯЮТСЯ при повороте всей фигуры!
+       
+        const vectors = [];
+        for (const neighbor of neighbors) {
+            const dx = neighbor.x - centerPoint.x;
+            const dy = neighbor.y - centerPoint.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx);
+           
+            vectors.push({
+                dx, dy, distance, angle
+            });
+        }
+       
+        // Сортируем векторы по углу (относительная ориентация)
+        vectors.sort((a, b) => a.angle - b.angle);
+       
+        // Вычисляем относительные углы между последовательными векторами
+        const relativeAngles = [];
+        for (let i = 0; i < vectors.length; i++) {
+            const nextIdx = (i + 1) % vectors.length;
+            let angleDiff = vectors[nextIdx].angle - vectors[i].angle;
+            if (angleDiff < 0) angleDiff += 2 * Math.PI;
+           
+            relativeAngles.push({
+                angle: angleDiff * 180 / Math.PI, // в градусах
+                distance1: vectors[i].distance,
+                distance2: vectors[nextIdx].distance
+            });
+        }
+       
+        // Сортируем углы для инвариантности к начальной точке
+        const sortedAngles = relativeAngles.map(a => a.angle).sort((a, b) => a - b);
+        const sortedRatios = relativeAngles.map(a => {
+            if (a.distance2 > 0) return a.distance1 / a.distance2;
+            return 1;
+        }).sort((a, b) => a - b);
+       
+        // Создаем хеш на основе относительных углов
+        const angleHash = sortedAngles.map(a => Math.round(a / 5) * 5).join('-');
+        const ratioHash = sortedRatios.map(r => Math.round(r * 100) / 100).join('-');
+       
+        return {
+            hash: `A${angleHash}_R${ratioHash}`,
+            angles: sortedAngles,
+            ratios: sortedRatios,
+            vectors: vectors
+        };
+    }
+   
+    // ============================================
+    // 🔄 СРАВНЕНИЕ ДЕСКРИПТОРОВ
+    // ============================================
+   
+    matchDescriptors(fp1, descriptors2) {
         const matches = [];
         const used2 = new Set();
        
-        // Создаем карту локальных хешей для быстрого поиска
+        // Создаем карту хешей для быстрого поиска
         const hashMap = new Map();
-        fp2.forEach((point, idx) => {
-            const hash = point.localDescriptor.hash;
+        descriptors2.forEach((desc, idx) => {
+            const hash = desc.localDescriptor.hash;
             if (!hashMap.has(hash)) {
                 hashMap.set(hash, []);
             }
-            hashMap.get(hash).push({ point, idx });
+            hashMap.get(hash).push({ desc, idx });
         });
        
-        // Ищем соответствия для точек из fp1
+        // Ищем соответствия
         for (const point1 of fp1) {
             const hash = point1.localDescriptor.hash;
            
-            if (hashMap.has(hash)) {
+            if (hashMap.has(hash) && hash !== 'insufficient_neighbors') {
                 const candidates = hashMap.get(hash);
-                let bestMatch = null;
+                let bestCandidate = null;
                 let bestSimilarity = 0;
                
-                // Ищем лучшего кандидата
                 for (const candidate of candidates) {
                     if (used2.has(candidate.idx)) continue;
                    
-                    const localSimilarity = this.compareLocalDescriptors(
+                    const similarity = this.compareLocalDescriptors(
                         point1.localDescriptor,
-                        candidate.point.localDescriptor
+                        candidate.desc.localDescriptor
                     );
                    
-                    if (localSimilarity > bestSimilarity && localSimilarity > 0.7) {
-                        bestSimilarity = localSimilarity;
-                        bestMatch = candidate;
+                    if (similarity > bestSimilarity && similarity > 0.7) {
+                        bestSimilarity = similarity;
+                        bestCandidate = candidate;
                     }
                 }
                
-                if (bestMatch) {
+                if (bestCandidate) {
                     matches.push({
                         point1: point1,
-                        point2: bestMatch.point,
-                        localSimilarity: bestSimilarity
+                        point2: bestCandidate.desc,
+                        similarity: bestSimilarity
                     });
-                    used2.add(bestMatch.idx);
+                    used2.add(bestCandidate.idx);
                    
-                    // Удаляем использованный дескриптор
+                    // Удаляем использованный
                     const candidatesList = hashMap.get(hash);
-                    const index = candidatesList.indexOf(bestMatch);
+                    const index = candidatesList.indexOf(bestCandidate);
                     if (index > -1) {
                         candidatesList.splice(index, 1);
                     }
@@ -235,9 +309,104 @@ class HybridAlgorithm {
         return matches;
     }
    
+    compareLocalDescriptors(desc1, desc2) {
+        if (!desc1 || !desc2 || desc1.hash === 'insufficient_neighbors' || desc2.hash === 'insufficient_neighbors') {
+            return 0;
+        }
+       
+        // Быстрая проверка по хешу
+        if (desc1.hash === desc2.hash) return 1.0;
+       
+        // Сравниваем углы
+        let angleMatch = 0;
+        for (const angle1 of desc1.angles) {
+            for (const angle2 of desc2.angles) {
+                if (Math.abs(angle1 - angle2) < 10) { // 10° допуск
+                    angleMatch++;
+                    break;
+                }
+            }
+        }
+       
+        const angleScore = desc1.angles.length > 0 ?
+            angleMatch / Math.min(desc1.angles.length, desc2.angles.length) : 0;
+       
+        // Сравниваем отношения расстояний
+        let ratioMatch = 0;
+        for (const ratio1 of desc1.ratios) {
+            for (const ratio2 of desc2.ratios) {
+                if (Math.abs(ratio1 - ratio2) < 0.2) { // 20% допуск
+                    ratioMatch++;
+                    break;
+                }
+            }
+        }
+       
+        const ratioScore = desc1.ratios.length > 0 ?
+            ratioMatch / Math.min(desc1.ratios.length, desc2.ratios.length) : 0;
+       
+        return (angleScore * 0.6 + ratioScore * 0.4);
+    }
+   
+    rotateDescriptors(descriptors, rotationRad) {
+        return descriptors.map(desc => {
+            // Поворачиваем векторы в локальном дескрипторе
+            const rotatedVectors = desc.localDescriptor.vectors?.map(vec => ({
+                ...vec,
+                angle: vec.angle + rotationRad
+            })) || [];
+           
+            // Пересчитываем относительные углы
+            if (rotatedVectors.length > 0) {
+                rotatedVectors.sort((a, b) => a.angle - b.angle);
+               
+                const relativeAngles = [];
+                for (let i = 0; i < rotatedVectors.length; i++) {
+                    const nextIdx = (i + 1) % rotatedVectors.length;
+                    let angleDiff = rotatedVectors[nextIdx].angle - rotatedVectors[i].angle;
+                    if (angleDiff < 0) angleDiff += 2 * Math.PI;
+                   
+                    relativeAngles.push(angleDiff * 180 / Math.PI);
+                }
+               
+                const sortedAngles = relativeAngles.sort((a, b) => a - b);
+                const angleHash = sortedAngles.map(a => Math.round(a / 5) * 5).join('-');
+               
+                return {
+                    ...desc,
+                    localDescriptor: {
+                        ...desc.localDescriptor,
+                        hash: `A${angleHash}_R${desc.localDescriptor.ratios.join('-')}`,
+                        angles: sortedAngles
+                    }
+                };
+            }
+           
+            return desc;
+        });
+    }
+   
     // ============================================
-    // 📐 МЕТОДЫ ТРИАНГУЛЯЦИИ (твои, исправленные)
+    // 📏 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (без изменений)
     // ============================================
+   
+    normalizePoints(points) {
+        const center = { x: 0, y: 0 };
+        points.forEach(p => {
+            center.x += p.x;
+            center.y += p.y;
+        });
+        center.x /= points.length;
+        center.y /= points.length;
+       
+        return points.map((p, idx) => ({
+            ...p,
+            x: p.x - center.x,
+            y: p.y - center.y,
+            index: idx,
+            originalId: p.originalId || `pt_${idx}`
+        }));
+    }
    
     findFixedNeighbors(centerIndex, allPoints) {
         const neighbors = [];
@@ -256,6 +425,27 @@ class HybridAlgorithm {
         }
        
         return neighbors;
+    }
+   
+    findNearestNeighbors(centerPoint, allPoints, centerIndex) {
+        const distances = [];
+       
+        for (let i = 0; i < allPoints.length; i++) {
+            if (i === centerIndex) continue;
+           
+            const distance = this.calculateDistance(centerPoint, allPoints[i]);
+            distances.push({
+                point: allPoints[i],
+                distance: distance,
+                index: i
+            });
+        }
+       
+        distances.sort((a, b) => a.distance - b.distance);
+       
+        return distances
+            .slice(0, this.neighborsForMatching)
+            .map(d => d.point);
     }
    
     createTriangles(center, neighbors) {
@@ -316,187 +506,9 @@ class HybridAlgorithm {
                 signature: this.createSignature(triangles)
             },
             triangleHashes: triangleHashes,
-            triangleCount: triangles.length,
-            avgAngle: this.calculateAverageAngle(triangles)
+            triangleCount: triangles.length
         };
     }
-   
-    // ============================================
-    // 🎯 МЕТОДЫ ЛОКАЛЬНЫХ ДЕСКРИПТОРОВ
-    // ============================================
-   
-    createLocalDescriptor(centerPoint, allPoints, centerIndex) {
-        // Находим K ближайших соседей (по расстоянию, а не по индексам!)
-        const neighbors = this.findNearestNeighbors(centerPoint, allPoints, centerIndex);
-       
-        if (neighbors.length < 2) {
-            return {
-                hash: 'insufficient_neighbors',
-                features: []
-            };
-        }
-       
-        // Вычисляем признаки
-        const features = [];
-       
-        // 1. Относительные расстояния и углы
-        const vectors = [];
-        for (const neighbor of neighbors) {
-            const dx = neighbor.x - centerPoint.x;
-            const dy = neighbor.y - centerPoint.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-           
-            vectors.push({
-                dx, dy, distance, angle: (angle + 360) % 360
-            });
-           
-            features.push({
-                type: 'distance',
-                value: Math.round(distance / 10) * 10 // Округляем до 10px
-            });
-        }
-       
-        // 2. Углы между векторами (отсортированные)
-        for (let i = 0; i < vectors.length; i++) {
-            for (let j = i + 1; j < vectors.length; j++) {
-                let angleDiff = Math.abs(vectors[i].angle - vectors[j].angle);
-                angleDiff = angleDiff > 180 ? 360 - angleDiff : angleDiff;
-               
-                features.push({
-                    type: 'angle_between',
-                    value: Math.round(angleDiff / 5) * 5 // Округляем до 5°
-                });
-            }
-        }
-       
-        // 3. Создаем хеш
-        const hash = this.createLocalHash(features);
-       
-        return {
-            hash: hash,
-            features: features,
-            vectors: vectors,
-            neighborCount: neighbors.length
-        };
-    }
-   
-    findNearestNeighbors(centerPoint, allPoints, centerIndex) {
-        const distances = [];
-       
-        for (let i = 0; i < allPoints.length; i++) {
-            if (i === centerIndex) continue;
-           
-            const distance = this.calculateDistance(centerPoint, allPoints[i]);
-            distances.push({
-                point: allPoints[i],
-                distance: distance,
-                index: i
-            });
-        }
-       
-        // Сортируем по расстоянию и берем ближайших
-        distances.sort((a, b) => a.distance - b.distance);
-       
-        return distances
-            .slice(0, this.neighborsForMatching)
-            .map(d => d.point);
-    }
-   
-    createLocalHash(features) {
-        // Группируем и сортируем признаки для стабильного хеша
-        const distances = features.filter(f => f.type === 'distance')
-            .map(f => f.value)
-            .sort((a, b) => a - b);
-       
-        const angles = features.filter(f => f.type === 'angle_between')
-            .map(f => f.value)
-            .sort((a, b) => a - b);
-       
-        // Создаем компактный хеш
-        const distHash = distances.map(d => Math.round(d / 20)).join('-');
-        const angleHash = angles.map(a => Math.round(a / 10)).join('-');
-       
-        return `D${distHash}_A${angleHash}`;
-    }
-   
-    // ============================================
-    // 🔄 МЕТОДЫ СРАВНЕНИЯ
-    // ============================================
-   
-    compareGeometricDescriptors(desc1, desc2) {
-        if (!desc1 || !desc2) return 0;
-       
-        // 1. Проверка точных хешей
-        if (desc1.hashes.exact === desc2.hashes.exact) return 1.0;
-       
-        // 2. Проверка округленных хешей
-        if (desc1.hashes.rounded === desc2.hashes.rounded) return 0.9;
-       
-        // 3. Сравнение сигнатур
-        const signatureScore = this.compareSignatures(
-            desc1.hashes.signature,
-            desc2.hashes.signature
-        );
-       
-        // 4. Сравнение наборов треугольников
-        const triangleScore = this.compareTriangleSets(
-            desc1.triangleHashes,
-            desc2.triangleHashes
-        );
-       
-        // Комбинированная оценка
-        return (signatureScore * 0.4 + triangleScore * 0.6);
-    }
-   
-    compareLocalDescriptors(desc1, desc2) {
-        if (!desc1 || !desc2 || desc1.hash === 'insufficient_neighbors' || desc2.hash === 'insufficient_neighbors') {
-            return 0;
-        }
-       
-        // Быстрая проверка по хешу
-        if (desc1.hash === desc2.hash) return 1.0;
-       
-        // Подробное сравнение признаков
-        let matchingFeatures = 0;
-        let totalFeatures = 0;
-       
-        // Сравниваем расстояния
-        const distances1 = desc1.features.filter(f => f.type === 'distance');
-        const distances2 = desc2.features.filter(f => f.type === 'distance');
-       
-        for (const dist1 of distances1) {
-            for (const dist2 of distances2) {
-                if (Math.abs(dist1.value - dist2.value) <= 20) { // 20px допуск
-                    matchingFeatures++;
-                    break;
-                }
-            }
-        }
-       
-        totalFeatures += Math.min(distances1.length, distances2.length);
-       
-        // Сравниваем углы
-        const angles1 = desc1.features.filter(f => f.type === 'angle_between');
-        const angles2 = desc2.features.filter(f => f.type === 'angle_between');
-       
-        for (const angle1 of angles1) {
-            for (const angle2 of angles2) {
-                if (Math.abs(angle1.value - angle2.value) <= 15) { // 15° допуск
-                    matchingFeatures++;
-                    break;
-                }
-            }
-        }
-       
-        totalFeatures += Math.min(angles1.length, angles2.length);
-       
-        return totalFeatures > 0 ? matchingFeatures / totalFeatures : 0;
-    }
-   
-    // ============================================
-    // 📏 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    // ============================================
    
     calculateAngles(p1, p2, p3) {
         const a = this.calculateDistance(p2, p3);
@@ -550,72 +562,6 @@ class HybridAlgorithm {
         return avgAngles.map(a =>
             Math.round(a / triangles.length)
         ).sort((a, b) => a - b).join('-');
-    }
-   
-    calculateAverageAngle(triangles) {
-        if (!triangles.length) return 0;
-       
-        let total = 0;
-        triangles.forEach(tri => {
-            tri.angles.forEach(angle => {
-                total += angle;
-            });
-        });
-       
-        return total / (triangles.length * 3);
-    }
-   
-    compareSignatures(sig1, sig2) {
-        if (!sig1 || !sig2) return 0;
-        if (sig1 === sig2) return 1.0;
-       
-        const parts1 = sig1.split('-').map(Number);
-        const parts2 = sig2.split('-').map(Number);
-       
-        if (parts1.length !== parts2.length) return 0;
-       
-        let totalDiff = 0;
-        for (let i = 0; i < parts1.length; i++) {
-            totalDiff += Math.abs(parts1[i] - parts2[i]);
-        }
-       
-        const avgDiff = totalDiff / parts1.length;
-        return Math.max(0, 1 - (avgDiff / 90));
-    }
-   
-    compareTriangleSets(hashes1, hashes2) {
-        if (!hashes1 || !hashes2 || hashes1.length === 0 || hashes2.length === 0) {
-            return 0;
-        }
-       
-        let common = 0;
-        for (const hash1 of hashes1) {
-            for (const hash2 of hashes2) {
-                if (this.hashesSimilar(hash1, hash2)) {
-                    common++;
-                    break;
-                }
-            }
-        }
-       
-        return common / Math.min(hashes1.length, hashes2.length);
-    }
-   
-    hashesSimilar(hash1, hash2) {
-        if (hash1 === hash2) return true;
-       
-        const angles1 = hash1.split('-').map(Number);
-        const angles2 = hash2.split('-').map(Number);
-       
-        if (angles1.length !== angles2.length) return false;
-       
-        for (let i = 0; i < angles1.length; i++) {
-            if (Math.abs(angles1[i] - angles2[i]) > this.angleTolerance) {
-                return false;
-            }
-        }
-       
-        return true;
     }
    
     isValidTriangle(triangle) {
