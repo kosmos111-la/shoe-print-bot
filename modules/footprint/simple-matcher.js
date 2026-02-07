@@ -1,11 +1,11 @@
 // modules/footprint/simple-matcher.js
-// 🔥 ПРОСТОЙ ОБЕРТКА ДЛЯ ГЕОМЕТРИЧЕСКОГО АЛГОРИТМА
+// 🔥 ПРОСТАЯ ОБЕРТКА ДЛЯ ГЕОМЕТРИЧЕСКОГО АЛГОРИТМА - ТОЛЬКО ВЕКТОРНЫЕ ОПЕРАЦИИ
 
 class SimpleMatcher {
     constructor(options = {}) {
-        console.log('🎯 SimpleMatcher заменен на обертку для GeometricHashAlgorithm');
+        console.log('🎯 SimpleMatcher - ВЕКТОРНАЯ обертка для GeometricHashAlgorithm');
 
-        // 🔥 ЗАГРУЖАЕМ ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ ИЗ CLEAN ПАПКИ
+        // 🔥 ЗАГРУЖАЕМ ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ
         try {
             const GeometricHashAlgorithm = require('./clean/vector-algorithm');
             this.geometricAlgorithm = new GeometricHashAlgorithm({
@@ -14,10 +14,9 @@ class SimpleMatcher {
                 minSimilarity: options.sameThreshold || 0.6,
                 debug: options.debug || false
             });
-            console.log('✅ Геометрический алгоритм загружен из clean папки');
+            console.log('✅ Геометрический алгоритм загружен (ВЕКТОРНЫЙ)');
         } catch (error) {
             console.log(`⚠️ Не удалось загрузить геометрический алгоритм: ${error.message}`);
-            // Фаллбэк
             this.geometricAlgorithm = null;
         }
 
@@ -27,21 +26,21 @@ class SimpleMatcher {
         };
     }
 
-    // 🔥 ОСНОВНОЙ МЕТОД ДЛЯ СРАВНЕНИЯ МАССИВОВ ТОЧЕК
+    // 🔥 ОСНОВНОЙ МЕТОД ДЛЯ СРАВНЕНИЯ ВЕКТОРНЫХ ТОЧЕК
     match(points1, points2, options = {}) {
-        console.log(`🎯 SimpleMatcher.match вызван с ${points1?.length || 0} и ${points2?.length || 0} точками`);
+        console.log(`🎯 SimpleMatcher.match (ВЕКТОРНЫЙ) с ${points1?.length || 0} и ${points2?.length || 0} точками`);
 
         if (!points1 || !points2 || points1.length === 0 || points2.length === 0) {
             return {
                 similarity: 0,
                 matches: [],
-                error: 'Нет точек для сравнения',
+                error: 'Нет ВЕКТОРНЫХ точек для сравнения',
                 decision: 'different'
             };
         }
 
         try {
-            // Если геометрический алгоритм доступен, используем его
+            // 🔥 ИСПОЛЬЗУЕМ ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ (ВЕКТОРНЫЙ)
             if (this.geometricAlgorithm) {
                 const geo1 = this.geometricAlgorithm.createFootprint(points1, 'points1');
                 const geo2 = this.geometricAlgorithm.createFootprint(points2, 'points2');
@@ -59,98 +58,69 @@ class SimpleMatcher {
                     distance: match.distance
                 }));
 
-                console.log(`📊 Геометрическое сравнение: ${(similarity * 100).toFixed(1)}% схожести`);
+                console.log(`📊 ВЕКТОРНОЕ сравнение: ${(similarity * 100).toFixed(1)}% схожести`);
 
                 return {
                     similarity: similarity,
                     matches: matches,
                     matchedPoints: matches,
                     decision: decision,
-                    method: 'geometric_hash',
+                    method: 'geometric_hash_vector',
                     confidence: similarity,
                     isSame: decision === 'same',
-                    reason: `Геометрическое сходство: ${(similarity * 100).toFixed(1)}%`
+                    reason: `ВЕКТОРНОЕ сходство: ${(similarity * 100).toFixed(1)}%`
                 };
             } else {
-                // Fallback: простое сравнение
-                return this.fallbackComparison(points1, points2);
+                // Fallback: простое ВЕКТОРНОЕ сравнение
+                return this.vectorFallbackComparison(points1, points2);
             }
 
         } catch (error) {
-            console.error(`❌ Ошибка в SimpleMatcher.match: ${error.message}`);
-            return this.fallbackComparison(points1, points2);
+            console.error(`❌ Ошибка в SimpleMatcher.match (ВЕКТОРНЫЙ): ${error.message}`);
+            return this.vectorFallbackComparison(points1, points2);
         }
     }
 
     // 🔥 МЕТОД ДЛЯ СРАВНЕНИЯ ОТПЕЧАТКОВ (для совместимости)
     compare(footprint1, footprint2, options = {}) {
-        console.log(`🔍 SimpleMatcher.compare для следов`);
+        console.log(`🔍 SimpleMatcher.compare для следов (ВЕКТОРНЫЙ)`);
 
         try {
-            // Извлекаем точки
-            const points1 = this.extractPoints(footprint1);
-            const points2 = this.extractPoints(footprint2);
+            // Извлекаем ВЕКТОРНЫЕ точки
+            const points1 = this.extractVectorPoints(footprint1);
+            const points2 = this.extractVectorPoints(footprint2);
 
             return this.match(points1, points2, options);
         } catch (error) {
-            console.error(`❌ Ошибка в SimpleMatcher.compare: ${error.message}`);
+            console.error(`❌ Ошибка в SimpleMatcher.compare (ВЕКТОРНЫЙ): ${error.message}`);
             return {
                 similarity: 0.5,
                 matches: [],
                 decision: 'similar',
-                error: `Ошибка сравнения: ${error.message}`,
+                error: `Ошибка ВЕКТОРНОГО сравнения: ${error.message}`,
                 method: 'error_fallback'
             };
         }
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    extractPoints(footprint) {
-        const points = [];
-
-        // Извлекаем точки любым способом
-        if (footprint.points && Array.isArray(footprint.points)) {
-            return footprint.points;
-        } else if (footprint.graph && footprint.graph.nodes) {
-            for (const [, node] of footprint.graph.nodes) {
-                if (node && typeof node.x === 'number' && typeof node.y === 'number') {
-                    points.push({
-                        x: node.x,
-                        y: node.y,
-                        id: node.id || 'unknown'
-                    });
-                }
-            }
-            return points;
-        } else if (footprint.getPoints) {
-            try {
-                return footprint.getPoints();
-            } catch (e) {
-                return [];
-            }
-        }
-
-        return points;
-    }
-
-    fallbackComparison(points1, points2) {
-        // Простой расчет схожести на основе расстояний
+    // 🔥 ВЕКТОРНЫЙ ФОЛЛБЭК: Простое сравнение
+    vectorFallbackComparison(points1, points2) {
         if (points1.length === 0 || points2.length === 0) return 0;
 
-        // Находим центры
-        const center1 = this.calculateCenter(points1);
-        const center2 = this.calculateCenter(points2);
+        // Находим центры ВЕКТОРНЫХ точек
+        const center1 = this.calculateVectorCenter(points1);
+        const center2 = this.calculateVectorCenter(points2);
 
         const dx = center2.x - center1.x;
         const dy = center2.y - center1.y;
         const centerDistance = Math.sqrt(dx * dx + dy * dy);
 
-        // Сравниваем распределение точек
-        const spread1 = this.calculateSpread(points1);
-        const spread2 = this.calculateSpread(points2);
+        // Сравниваем распределение ВЕКТОРНЫХ точек
+        const spread1 = this.calculateVectorSpread(points1);
+        const spread2 = this.calculateVectorSpread(points2);
         const spreadRatio = Math.min(spread1, spread2) / Math.max(spread1, spread2);
 
-        // Сравниваем количество точек
+        // Сравниваем количество ВЕКТОРНЫХ точек
         const countRatio = Math.min(points1.length, points2.length) / Math.max(points1.length, points2.length);
 
         // Вычисляем схожесть
@@ -164,20 +134,59 @@ class SimpleMatcher {
 
         const decision = similarity > 0.6 ? 'same' : 'different';
 
-        console.log(`📊 Простое сравнение: ${(similarity * 100).toFixed(1)}% схожести`);
+        console.log(`📊 Простое ВЕКТОРНОЕ сравнение: ${(similarity * 100).toFixed(1)}% схожести`);
 
         return {
             similarity: similarity,
             matches: [],
             matchedPoints: [],
             decision: decision,
-            method: 'simple_distance_comparison',
+            method: 'simple_vector_distance_comparison',
             confidence: similarity,
             isSame: decision === 'same'
         };
     }
 
-    calculateCenter(points) {
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (ВЕКТОРНЫЕ)
+
+    extractVectorPoints(footprint) {
+        const points = [];
+
+        // Извлекаем ВЕКТОРНЫЕ точки любым способом
+        if (footprint.points && Array.isArray(footprint.points)) {
+            return footprint.points.filter(p =>
+                p && typeof p.x === 'number' && typeof p.y === 'number' &&
+                !isNaN(p.x) && !isNaN(p.y)
+            );
+        } else if (footprint.graph && footprint.graph.nodes) {
+            for (const [, node] of footprint.graph.nodes) {
+                if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+                    points.push({
+                        x: node.x,
+                        y: node.y,
+                        id: node.id || 'unknown'
+                    });
+                }
+            }
+            return points;
+        } else if (footprint.getPoints) {
+            try {
+                const extracted = footprint.getPoints();
+                if (Array.isArray(extracted)) {
+                    return extracted.filter(p =>
+                        p && typeof p.x === 'number' && typeof p.y === 'number' &&
+                        !isNaN(p.x) && !isNaN(p.y)
+                    );
+                }
+            } catch (e) {
+                return [];
+            }
+        }
+
+        return points;
+    }
+
+    calculateVectorCenter(points) {
         if (points.length === 0) return { x: 0, y: 0 };
 
         const sumX = points.reduce((sum, p) => sum + p.x, 0);
@@ -189,10 +198,10 @@ class SimpleMatcher {
         };
     }
 
-    calculateSpread(points) {
+    calculateVectorSpread(points) {
         if (points.length < 2) return 0;
 
-        const center = this.calculateCenter(points);
+        const center = this.calculateVectorCenter(points);
         const distances = points.map(p => {
             const dx = p.x - center.x;
             const dy = p.y - center.y;
@@ -202,10 +211,11 @@ class SimpleMatcher {
         return distances.reduce((sum, d) => sum + d, 0) / distances.length;
     }
 
-    // 🔥 МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ
+    // 🔥 МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ (ВЕКТОРНЫЕ)
+
     compareGraphs(graph1, graph2, context = {}) {
-        const points1 = this.extractPointsFromGraph(graph1);
-        const points2 = this.extractPointsFromGraph(graph2);
+        const points1 = this.extractVectorPointsFromGraph(graph1);
+        const points2 = this.extractVectorPointsFromGraph(graph2);
 
         const result = this.match(points1, points2, context);
 
@@ -221,7 +231,7 @@ class SimpleMatcher {
         };
     }
 
-    extractPointsFromGraph(graph) {
+    extractVectorPointsFromGraph(graph) {
         const points = [];
         if (!graph || !graph.nodes) return points;
 
@@ -238,7 +248,7 @@ class SimpleMatcher {
         return points;
     }
 
-    // 🔥 Другие методы для совместимости
+    // 🔥 Другие методы для совместимости (ВЕКТОРНЫЕ)
     alignAndCompare(graph1, graph2, options = {}) {
         return this.compareGraphs(graph1, graph2, options);
     }
@@ -258,7 +268,7 @@ class SimpleMatcher {
     }
 
     findMostSimilar(targetGraph, graphList, maxResults = 5) {
-        console.log(`🔎 Ищу похожие графы для "${targetGraph.name}" среди ${graphList.length} кандидатов...`);
+        console.log(`🔎 Ищу похожие ВЕКТОРНЫЕ графы для "${targetGraph.name}" среди ${graphList.length} кандидатов...`);
 
         const comparisons = [];
 
@@ -284,7 +294,7 @@ class SimpleMatcher {
 
         const bestMatches = comparisons.slice(0, maxResults);
 
-        console.log(`✅ Найдено ${bestMatches.length} похожих графов`);
+        console.log(`✅ Найдено ${bestMatches.length} похожих ВЕКТОРНЫХ графов`);
 
         return {
             targetGraph: targetGraph.name,
@@ -301,7 +311,7 @@ class SimpleMatcher {
     // 🔥 Простые методы логирования
     getStats() {
         return {
-            algorithm: this.geometricAlgorithm ? 'geometric_hash' : 'simple_fallback',
+            algorithm: this.geometricAlgorithm ? 'geometric_hash_vector' : 'simple_vector_fallback',
             geometricAvailable: !!this.geometricAlgorithm,
             config: this.config
         };
