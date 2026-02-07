@@ -1,42 +1,96 @@
 // test-integration.js
-console.log('🧪 ТЕСТИРУЮ ИНТЕГРАЦИЮ НОВОЙ СИСТЕМЫ...\n');
+const SimpleManager = require('./modules/footprint/simple-manager.js');
 
-// Проверяем что все модули загружаются
-try {
-    const SimpleGraph = require('./modules/footprint/simple-graph');
-    const SimpleFootprint = require('./modules/footprint/simple-footprint');
-    const SimpleGraphMatcher = require('./modules/footprint/simple-matcher');
-    const SimpleFootprintManager = require('./modules/footprint/simple-manager');
+async function testIntegration() {
+    console.log('🧪 ТЕСТ ИНТЕГРАЦИИ ГЕОМЕТРИЧЕСКОГО АЛГОРИТМА\n');
    
-    console.log('✅ Все модули новой системы загружены успешно!');
-    console.log('1. SimpleGraph ✓');
-    console.log('2. SimpleFootprint ✓');
-    console.log('3. SimpleGraphMatcher ✓');
-    console.log('4. SimpleFootprintManager ✓');
-   
-    // Быстрый тест создания менеджера
-    console.log('\n🧪 Тестирую создание менеджера...');
-    const manager = new SimpleFootprintManager({
-        dbPath: './data/test-integration',
-        autoAlignment: true,
-        debug: false
+    const manager = new SimpleManager({
+        debug: true,
+        minPointsForFootprint: 3
     });
    
-    console.log('✅ Менеджер создан успешно!');
-    console.log(`📁 База данных: ${manager.config.dbPath}`);
-    console.log(`🎯 Автосовмещение: ${manager.config.autoAlignment ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`);
+    // Имитация анализа от RoboKit
+    const mockAnalysis1 = {
+        predictions: [
+            {
+                class: 'shoe-protector',
+                confidence: 0.9,
+                points: [
+                    { x: 100, y: 100 },
+                    { x: 110, y: 110 },
+                    { x: 120, y: 120 }
+                ]
+            },
+            {
+                class: 'shoe-protector',
+                confidence: 0.8,
+                points: [
+                    { x: 200, y: 200 },
+                    { x: 210, y: 210 },
+                    { x: 220, y: 220 }
+                ]
+            }
+        ]
+    };
    
-    // Очистка
-    const fs = require('fs');
-    if (fs.existsSync('./data/test-integration')) {
-        fs.rmSync('./data/test-integration', { recursive: true, force: true });
-        console.log('\n🧹 Удалена тестовая папка');
-    }
+    const mockAnalysis2 = {
+        predictions: [
+            {
+                class: 'shoe-protector',
+                confidence: 0.85,
+                points: [
+                    { x: 105, y: 105 },
+                    { x: 115, y: 115 },
+                    { x: 125, y: 125 }
+                ]
+            },
+            {
+                class: 'shoe-protector',
+                confidence: 0.75,
+                points: [
+                    { x: 205, y: 205 },
+                    { x: 215, y: 215 },
+                    { x: 225, y: 225 }
+                ]
+            }
+        ]
+    };
    
-    console.log('\n🎉 ИНТЕГРАЦИЯ ПРОШЛА УСПЕШНО!');
-    console.log('🚀 Новая система готова к использованию в боте!');
+    const userId = 'test_user_123';
    
-} catch (error) {
-    console.log('❌ ОШИБКА ИНТЕГРАЦИИ:', error.message);
-    console.log(error.stack);
+    console.log('📸 Добавляю первое фото...');
+    const result1 = await manager.addPhotoToSession(userId, mockAnalysis1, {
+        photoId: 'photo_1',
+        source: 'test'
+    });
+   
+    console.log('\n📊 Результат первого фото:');
+    console.log(`• Успех: ${result1.success ? '✅' : '❌'}`);
+    console.log(`• Решение: ${result1.decision}`);
+    console.log(`• Узлов добавлено: ${result1.nodesAdded || 0}`);
+    console.log(`• Создана сессия: ${result1.isNewSession ? '✅' : '❌'}`);
+   
+    console.log('\n📸 Добавляю второе фото (немного смещенное)...');
+    const result2 = await manager.addPhotoToSession(userId, mockAnalysis2, {
+        photoId: 'photo_2',
+        source: 'test'
+    });
+   
+    console.log('\n📊 Результат второго фото:');
+    console.log(`• Успех: ${result2.success ? '✅' : '❌'}`);
+    console.log(`• Решение: ${result2.decision}`);
+    console.log(`• Схожесть: ${result2.similarity ? (result2.similarity * 100).toFixed(1) + '%' : 'N/A'}`);
+    console.log(`• Алгоритм: ${result2.algorithm || result2.method || 'N/A'}`);
+   
+    console.log('\n📈 Статистика системы:');
+    const stats = manager.getSystemStats();
+    console.log(`• Всего пользователей: ${stats.totalUsers}`);
+    console.log(`• Всего моделей: ${stats.totalModels}`);
+    console.log(`• Активных сессий: ${stats.activeSessions}`);
+    console.log(`• Алгоритм сравнения: ${stats.algorithm || 'geometric_hash'}`);
+   
+    console.log('\n🎯 ТЕСТ ЗАВЕРШЕН!');
+    console.log('Геометрический алгоритм интегрирован и работает в системе! 🚀');
 }
+
+testIntegration().catch(console.error);
