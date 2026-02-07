@@ -3,8 +3,8 @@
 
 console.log('🧪 ТЕСТ ГЕОМЕТРИЧЕСКОГО АЛГОРИТМА (ВЕКТОРНЫЙ)\n');
 
-// 1. ИМПОРТИРУЕМ АЛГОРИТМ
-const GeometricHashAlgorithm = require('./modules/footprint/core/comparison/geometric-hash-algorithm');
+// 1. ИМПОРТИРУЕМ АЛГОРИТМ ИЗ ПРАВИЛЬНОГО МЕСТА
+const GeometricHashAlgorithm = require('./modules/footprint/clean/geometric-hash-algorithm');
 
 // 2. СОЗДАЕМ АЛГОРИТМ
 const algorithm = new GeometricHashAlgorithm({
@@ -15,7 +15,7 @@ const algorithm = new GeometricHashAlgorithm({
     useNormalization: true
 });
 
-console.log('✅ Алгоритм создан');
+console.log('✅ Алгоритм создан из clean папки');
 
 // 3. ТЕСТ 1: ИДЕНТИЧНЫЕ ТОЧКИ (ВЕКТОРНЫЕ)
 console.log('\n🧪 ТЕСТ 1: Идентичные векторные точки');
