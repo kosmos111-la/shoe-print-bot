@@ -1,5 +1,5 @@
-// modules/footprint/clean/manager.js - ОБНОВЛЕННЫЙ
-// 🎯 МЕНЕДЖЕР С ГИБРИДНЫМ АЛГОРИТМОМ
+// modules/footprint/clean/manager.js
+// 🎯 ВЕКТОРНЫЙ МЕНЕДЖЕР ОТПЕЧАТКОВ
 
 const fs = require('fs');
 const path = require('path');
@@ -9,7 +9,7 @@ class CleanFootprintManager {
         this.config = {
             dbPath: options.dbPath || './data/footprints/clean',
             similarityThreshold: options.similarityThreshold || 0.6,
-            minPoints: options.minPoints || 20, // 🔥 Увеличили для топологии
+            minPoints: options.minPoints || 15,
             debug: options.debug || true
         };
 
@@ -17,13 +17,13 @@ class CleanFootprintManager {
         this.CleanFootprint = require('./footprint-model');
         this.SimpleCoordinateSystem = require('./coordinate-system');
 
-        // 🔥 ЗАГРУЗИМ ГИБРИДНЫЙ АЛГОРИТМ
+        // 🔥 ЗАГРУЖАЕМ ВЕКТОРНЫЙ АЛГОРИТМ
         try {
-            this.HybridAlgorithm = require('./hybrid-algorithm');
-            console.log('✅ Гибридный алгоритм загружен');
+            this.VectorAlgorithm = require('./vector-algorithm');
+            console.log('✅ Векторный алгоритм загружен');
         } catch (error) {
-            console.log('⚠️ Гибридный алгоритм не найден');
-            this.HybridAlgorithm = null;
+            console.log('⚠️ Векторный алгоритм не найден');
+            this.VectorAlgorithm = null;
         }
 
         // Хранилище
@@ -42,20 +42,21 @@ class CleanFootprintManager {
         this.ensureDirectories();
         this.loadExistingData();
 
-        console.log('🚀 Чистый менеджер отпечатков создан');
+        console.log('🚀 Векторный менеджер отпечатков создан');
         console.log(`   • Порог схожести: ${this.config.similarityThreshold * 100}%`);
         console.log(`   • Минимально точек: ${this.config.minPoints}`);
-        console.log(`   • Гибридный алгоритм: ${this.HybridAlgorithm ? '✅' : '❌'}`);
+        console.log(`   • Векторный алгоритм: ${this.VectorAlgorithm ? '✅' : '❌'}`);
     }
 
-    /**
-     * ОСНОВНОЙ МЕТОД: Добавить фото для пользователя
-     */
+    // ============================================
+    // 🎯 ОСНОВНОЙ МЕТОД: ДОБАВИТЬ ФОТО
+    // ============================================
+   
     async addPhoto(userId, points, photoInfo = {}) {
         console.log(`\n📸 Добавляю фото для пользователя ${userId}`);
 
         try {
-            // Валидация точек
+            // Валидация
             if (!points || points.length < this.config.minPoints) {
                 return {
                     success: false,
@@ -63,24 +64,24 @@ class CleanFootprintManager {
                 };
             }
 
-            // Подготавливаем точки
-            const preparedPoints = this.preparePoints(points, photoInfo);
-            console.log(`📊 Подготовлено ${preparedPoints.length} точек`);
+            // 🔥 ПОДГОТАВЛИВАЕМ ВЕКТОРНЫЕ ТОЧКИ
+            const vectorPoints = this.prepareVectorPoints(points, photoInfo);
+            console.log(`📊 Подготовлено ${vectorPoints.length} векторных точек`);
 
-            // Проверяем, есть ли уже отпечаток у пользователя
+            // Проверяем отпечаток
             let footprint = this.footprints.get(userId);
             const photoId = photoInfo.id || `photo_${Date.now()}`;
 
             if (!footprint) {
-                // Первое фото - создаём новый отпечаток
-                return this.createNewFootprint(userId, preparedPoints, photoId);
+                // Первое фото
+                return this.createNewVectorFootprint(userId, vectorPoints, photoId);
             } else {
-                // Последующие фото - сравниваем
-                return await this.compareAndUpdate(footprint, preparedPoints, photoId);
+                // Сравниваем
+                return await this.compareAndUpdateVector(footprint, vectorPoints, photoId);
             }
 
         } catch (error) {
-            console.error(`❌ Ошибка добавления фото: ${error.message}`);
+            console.error(`❌ Ошибка: ${error.message}`);
             return {
                 success: false,
                 error: error.message
@@ -88,50 +89,57 @@ class CleanFootprintManager {
         }
     }
 
-    /**
-     * Подготовить точки для обработки
-     */
-    preparePoints(points, photoInfo) {
+    // ============================================
+    // 🔥 ПОДГОТОВКА ВЕКТОРНЫХ ТОЧЕК
+    // ============================================
+   
+    prepareVectorPoints(points, photoInfo) {
         return points.map((point, index) => {
-            // 🔥 КЛЮЧЕВОЕ: Убедимся, что у точек есть оригинальные ID
-            // В реальных данных от Робофло их может не быть
-            let originalId;
+            // 🔥 СОЗДАЕМ ГЕОМЕТРИЧЕСКИЙ ID (на основе углов, а не координат!)
+            let geometricId;
            
             if (point.originalId) {
-                originalId = point.originalId;
-            } else if (point.id) {
-                originalId = point.id;
-            } else if (point.detection_id) {
-                originalId = point.detection_id;
+                geometricId = point.originalId;
+            } else if (point.geometricHash) {
+                geometricId = point.geometricHash;
             } else {
-                // Генерируем уникальный ID на основе координат и фото
-                originalId = `pt_${photoInfo.id || 'photo'}_${point.x}_${point.y}`;
+                // Временный ID - будет заменен векторным алгоритмом
+                geometricId = `photo_${photoInfo.id || 'tmp'}_${index}`;
             }
            
             return {
-                id: point.id || `photo_pt_${Date.now()}_${index}`,
-                originalId: originalId,
+                id: point.id || `vec_pt_${Date.now()}_${index}`,
+                originalId: geometricId,
                 x: point.x,
                 y: point.y,
                 confidence: point.confidence || 0.5,
-                source: photoInfo.source || 'robokit'
+                source: photoInfo.source || 'robokit',
+                // Сохраняем оригинальные данные для возможного пересчета
+                originalData: {
+                    x: point.x,
+                    y: point.y,
+                    width: point.width,
+                    height: point.height,
+                    class: point.class
+                }
             };
         });
     }
 
-    /**
-     * Создать новый отпечаток
-     */
-    createNewFootprint(userId, points, photoId) {
-        console.log(`👣 Первое фото - создаю новый отпечаток`);
+    // ============================================
+    // 🏗️ СОЗДАНИЕ НОВОГО ВЕКТОРНОГО ОТПЕЧАТКА
+    // ============================================
+   
+    createNewVectorFootprint(userId, points, photoId) {
+        console.log(`👣 Первое фото - создаю векторный отпечаток`);
        
         const footprint = new this.CleanFootprint({
             userId: userId,
-            name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
+            name: `Векторный_отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
             points: points
         });
 
-        // Устанавливаем подтверждения для первой точки
+        // Добавляем подтверждения
         points.forEach(point => {
             footprint.confirmations.set(point.id, {
                 count: 1,
@@ -143,51 +151,50 @@ class CleanFootprintManager {
         this.footprints.set(userId, footprint);
         this.stats.totalFootprints++;
 
-        console.log(`✅ Создан новый отпечаток с ${points.length} точками`);
+        console.log(`✅ Создан векторный отпечаток с ${points.length} точками`);
 
         return {
             success: true,
             isNew: true,
             pointsAdded: points.length,
             footprintId: footprint.id,
-            message: 'Создан новый отпечаток'
+            message: 'Создан новый векторный отпечаток'
         };
     }
 
-    /**
-     * Сравнить и обновить отпечаток
-     */
-    async compareAndUpdate(footprint, photoPoints, photoId) {
-        console.log(`🔍 Проверяю совпадение с существующим отпечатком...`);
+    // ============================================
+    // 🔄 СРАВНЕНИЕ И ОБНОВЛЕНИЕ
+    // ============================================
+   
+    async compareAndUpdateVector(footprint, photoPoints, photoId) {
+        console.log(`🔍 Векторное сравнение с существующим отпечатком...`);
 
         const comparison = await this.compareFootprints(
             footprint,
             { points: photoPoints }
         );
 
-        console.log(`📊 Результат сравнения: ${comparison.similarity.toFixed(3)} (порог: ${this.config.similarityThreshold})`);
+        console.log(`📊 Векторная схожесть: ${comparison.similarity.toFixed(3)} (порог: ${this.config.similarityThreshold})`);
 
         if (comparison.similarity >= this.config.similarityThreshold) {
-            // СОВПАДЕНИЕ - обновляем подтверждения
+            // СОВПАДЕНИЕ
             const result = footprint.addPhoto(photoPoints, photoId);
-
-            // Сохраняем
             this.saveFootprint(footprint.userId);
 
-            console.log(`✅ Фото совпало! Добавлено подтверждений: ${result.matches}`);
-
+            console.log(`✅ Векторное совпадение! Совпало точек: ${comparison.stats?.totalMatches || 0}`);
+           
             return {
                 success: true,
                 isNew: false,
                 similarity: comparison.similarity,
-                matches: result.matches,
+                matches: comparison.matches?.length || 0,
                 newPoints: result.newPoints,
-                message: `След совпал (${(comparison.similarity * 100).toFixed(1)}%)`
+                message: `Векторное совпадение (${(comparison.similarity * 100).toFixed(1)}%)`
             };
 
         } else {
-            // НЕ СОВПАЛО - создаём новый отпечаток
-            console.log(`🆕 След не совпал - создаю новый отпечаток`);
+            // НЕ СОВПАЛО
+            console.log(`🆕 Векторные следы разные - создаю новый отпечаток`);
 
             const newFootprint = new this.CleanFootprint({
                 userId: footprint.userId,
@@ -195,114 +202,95 @@ class CleanFootprintManager {
                 points: photoPoints
             });
 
-            // Заменяем старый отпечаток
             this.footprints.set(footprint.userId, newFootprint);
-
-            // Сохраняем старый отпечаток в архив
             this.archiveFootprint(footprint);
 
-            console.log(`✅ Создан новый отпечаток (старый сохранён в архив)`);
+            console.log(`✅ Создан новый векторный отпечаток`);
 
             return {
                 success: true,
                 isNew: true,
                 similarity: comparison.similarity,
                 pointsAdded: photoPoints.length,
-                message: 'Создан новый отпечаток (следы разные)'
+                message: 'Создан новый отпечаток (векторные следы разные)'
             };
         }
     }
 
-    /**
-     * Сравнить два отпечатка (используем гибридный алгоритм)
-     */
+    // ============================================
+    // 🔍 ВЕКТОРНОЕ СРАВНЕНИЕ ОТПЕЧАТКОВ
+    // ============================================
+   
     async compareFootprints(footprint1, footprint2) {
         this.stats.totalComparisons++;
 
         try {
-            // Получаем точки для сравнения
+            // Получаем точки
             const points1 = footprint1.getComparisonPoints();
             const points2 = footprint2.getComparisonPoints
                 ? footprint2.getComparisonPoints()
                 : this.SimpleCoordinateSystem.normalize(footprint2.points || []);
 
-            if (points1.length === 0 || points2.length === 0) {
-                console.log('⚠️ Нет точек для сравнения');
+            if (points1.length < 3 || points2.length < 3) {
+                console.log('⚠️ Недостаточно точек для векторного сравнения');
                 return {
                     similarity: 0,
-                    decision: 'different',
-                    reason: 'Нет точек'
+                    decision: 'different'
                 };
             }
 
             let similarity;
             let method;
-            let result;
 
-            // 🔥 ИСПОЛЬЗУЕМ ГИБРИДНЫЙ АЛГОРИТМ
-            if (this.HybridAlgorithm) {
-                const hybridAlgo = new this.HybridAlgorithm({
+            // 🔥 ИСПОЛЬЗУЕМ ВЕКТОРНЫЙ АЛГОРИТМ
+            if (this.VectorAlgorithm) {
+                const vectorAlgo = new this.VectorAlgorithm({
                     debug: this.config.debug,
-                    minPoints: 20,
-                    similarityThreshold: this.config.similarityThreshold,
-                    fixedNeighbors: [-3, -2, -1, 1, 2, 3]
+                    minSimilarity: this.config.similarityThreshold,
+                    neighborDepth: 2
                 });
 
-                // Создаём гибридные отпечатки
-                const fp1 = hybridAlgo.createFootprint(points1, 'fp1');
-                const fp2 = hybridAlgo.createFootprint(points2, 'fp2');
-
-                // Сравниваем
-                result = hybridAlgo.compareFootprints(fp1, fp2);
+                const result = vectorAlgo.comparePoints(points1, points2, 'Отпечаток 1', 'Отпечаток 2');
                 similarity = result.similarity;
-                method = 'hybrid';
-
-                console.log(`🎯 Гибридный алгоритм: ${(similarity * 100).toFixed(1)}% схожести`);
+                method = 'vector';
+               
+                console.log(`🎯 Векторный алгоритм: ${(similarity * 100).toFixed(1)}% схожести`);
 
             } else {
-                // Фаллбэк: простое сравнение по центрам
+                // Фаллбэк
                 similarity = this.fallbackComparison(points1, points2);
-                method = 'simple_center_distance';
+                method = 'simple';
             }
 
-            // Принимаем решение
-            let decision, reason;
-            if (similarity >= this.config.similarityThreshold) {
-                decision = 'same';
-                reason = `Схожесть ${(similarity * 100).toFixed(1)}% ≥ ${this.config.similarityThreshold * 100}%`;
+            // Решение
+            const decision = similarity >= this.config.similarityThreshold ? 'same' : 'different';
+           
+            if (decision === 'same') {
                 this.stats.successfulComparisons++;
-            } else {
-                decision = 'different';
-                reason = `Схожесть ${(similarity * 100).toFixed(1)}% < ${this.config.similarityThreshold * 100}%`;
             }
 
-            console.log(`🎯 Решение: ${decision} (${reason})`);
+            console.log(`🎯 Решение: ${decision}`);
 
             return {
                 similarity: similarity,
                 decision: decision,
-                reason: reason,
-                method: method,
-                points1: points1.length,
-                points2: points2.length,
-                matches: result?.matches || [],
-                stats: result?.stats || {}
+                method: method
             };
 
         } catch (error) {
-            console.error(`❌ Ошибка сравнения: ${error.message}`);
+            console.error(`❌ Ошибка векторного сравнения: ${error.message}`);
             return {
                 similarity: 0,
                 decision: 'different',
-                reason: `Ошибка: ${error.message}`,
-                method: 'error'
+                error: error.message
             };
         }
     }
 
-    /**
-     * Простое сравнение по центрам (фаллбэк)
-     */
+    // ============================================
+    // 📏 ФАЛЛБЭК-СРАВНЕНИЕ
+    // ============================================
+   
     fallbackComparison(points1, points2) {
         const center1 = this.SimpleCoordinateSystem.calculateCenter(points1);
         const center2 = this.SimpleCoordinateSystem.calculateCenter(points2);
@@ -312,7 +300,6 @@ class CleanFootprintManager {
             Math.pow(center2.y - center1.y, 2)
         );
 
-        // Преобразуем расстояние в схожесть
         const maxDistance = 100;
         const similarity = Math.max(0, 1 - (distance / maxDistance));
 
@@ -321,10 +308,10 @@ class CleanFootprintManager {
         return similarity;
     }
 
-    // Остальные методы менеджера остаются без изменений...
-    // saveFootprint, archiveFootprint, loadExistingData, ensureDirectories,
-    // getStats, getFootprint, clearUserData
-
+    // ============================================
+    // 💾 МЕТОДЫ СОХРАНЕНИЯ/ЗАГРУЗКИ (без изменений)
+    // ============================================
+   
     saveFootprint(userId) {
         const footprint = this.footprints.get(userId);
         if (!footprint) return false;
@@ -338,8 +325,8 @@ class CleanFootprintManager {
         const data = footprint.toJSON();
 
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-
-        console.log(`💾 Отпечаток сохранён: ${filePath}`);
+        console.log(`💾 Векторный отпечаток сохранён: ${filePath}`);
+       
         return true;
     }
 
@@ -353,8 +340,8 @@ class CleanFootprintManager {
         const data = footprint.toJSON();
 
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-
         console.log(`📦 Отпечаток заархивирован: ${filePath}`);
+       
         return true;
     }
 
@@ -389,7 +376,7 @@ class CleanFootprintManager {
                     this.users.set(userId, { loadedFrom: latestFile });
                     loadedCount++;
 
-                    console.log(`📂 Загружен отпечаток пользователя ${userId}: ${footprint.originalPoints.length} точек`);
+                    console.log(`📂 Загружен векторный отпечаток ${userId}: ${footprint.originalPoints.length} точек`);
                 } catch (error) {
                     console.log(`⚠️ Ошибка загрузки ${filePath}: ${error.message}`);
                 }
@@ -398,8 +385,7 @@ class CleanFootprintManager {
 
         this.stats.totalUsers = loadedCount;
         this.stats.totalFootprints = loadedCount;
-
-        console.log(`📂 Загружено ${loadedCount} отпечатков`);
+        console.log(`📂 Загружено ${loadedCount} векторных отпечатков`);
     }
 
     ensureDirectories() {
@@ -453,7 +439,7 @@ class CleanFootprintManager {
             const userDir = path.join(this.config.dbPath, 'users', userId.toString());
             if (fs.existsSync(userDir)) {
                 fs.rmSync(userDir, { recursive: true });
-                console.log(`🧹 Очищены данные пользователя ${userId}`);
+                console.log(`🧹 Очищены векторные данные пользователя ${userId}`);
             }
 
             return true;
