@@ -1,5 +1,5 @@
 // modules/footprint/core/comparison/template-coordination.js
-// 🔥 УПРОЩЁННАЯ ВЕРСИЯ (только 2 метода)
+// 🔥 УПРОЩЁННАЯ ВЕРСИЯ (только 2 метода) - РАБОТАЕМ ТОЛЬКО В ВЕКТОРЕ
 
 class TemplateCoordination {
     constructor(manager) {
@@ -7,11 +7,12 @@ class TemplateCoordination {
         this.config = manager.config;
     }
 
-    // 🔥 МЕТОД 1: Прямое обновление подтверждений между следами
+    // 🔥 МЕТОД 1: Прямое обновление подтверждений между следами (ВЕКТОРНЫЙ)
     updateConfirmationsDirectly(footprint1, footprint2) {
-        console.log(`\n🔄 Прямое обновление подтверждений между двумя следами...`);
+        console.log(`\n🔄 Прямое обновление подтверждений (ВЕКТОРНЫЙ МЕТОД)...`);
 
         try {
+            // 🔥 ИСПОЛЬЗУЕМ ТОЛЬКО ВЕКТОРНЫЕ ДАННЫЕ (без растровых трансформаций)
             if (!footprint1.pointTracker || !footprint1.pointTracker.points) {
                 console.log(`❌ Нет pointTracker в ${footprint1.name}`);
                 return 0;
@@ -22,21 +23,24 @@ class TemplateCoordination {
                 return 0;
             }
 
-            const points1 = Array.from(footprint1.pointTracker.points.values());
-            const points2 = Array.from(footprint2.pointTracker.points.values());
+            // 🔥 БЕРЕМ ОРИГИНАЛЬНЫЕ ТОЧКИ БЕЗ ТРАНСФОРМАЦИЙ
+            const points1 = this.getOriginalPoints(footprint1.pointTracker);
+            const points2 = this.getOriginalPoints(footprint2.pointTracker);
 
-            console.log(`🔍 Сравниваю ${points1.length} и ${points2.length} точек из трекеров`);
+            console.log(`🔍 Сравниваю ${points1.length} и ${points2.length} ВЕКТОРНЫХ точек`);
 
             let updatedCount = 0;
-            const threshold = 25;
+            const threshold = 25; // Порог в пикселях
 
             const matches = [];
 
+            // 🔥 ПРОСТОЕ ВЕКТОРНОЕ СРАВНЕНИЕ (без трансформаций)
             for (const point1 of points1) {
                 let bestMatch = null;
                 let minDistance = Infinity;
 
                 for (const point2 of points2) {
+                    // 🔥 ЕВКЛИДОВО РАССТОЯНИЕ В ВЕКТОРНОМ ПРОСТРАНСТВЕ
                     const distance = Math.sqrt(
                         Math.pow(point2.x - point1.x, 2) +
                         Math.pow(point2.y - point1.y, 2)
@@ -59,41 +63,13 @@ class TemplateCoordination {
 
             console.log(`📊 Найдено ${matches.length} совпадений (<${threshold}px)`);
 
+            // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ ТОЛЬКО ДЛЯ СОВПАВШИХ ТОЧЕК
             for (const match of matches) {
-                const pointId1 = match.point1.id || `pt_${match.point1.x}_${match.point1.y}`;
-                const pointData1 = footprint1.pointTracker.points.get(pointId1);
-               
-                if (pointData1) {
-                    const oldCount1 = pointData1.confirmedCount || 1;
-                    const newCount1 = Math.max(oldCount1, 2);
-
-                    if (newCount1 > oldCount1) {
-                        pointData1.confirmedCount = newCount1;
-                        pointData1.lastConfirmed = new Date();
-                        pointData1.confirmedBy = pointData1.confirmedBy || [];
-                        pointData1.confirmedBy.push(`match_with_${footprint2.id}`);
-                        updatedCount++;
-                    }
-                }
-
-                const pointId2 = match.point2.id || `pt_${match.point2.x}_${match.point2.y}`;
-                const pointData2 = footprint2.pointTracker.points.get(pointId2);
-               
-                if (pointData2) {
-                    const oldCount2 = pointData2.confirmedCount || 1;
-                    const newCount2 = Math.max(oldCount2, 2);
-
-                    if (newCount2 > oldCount2) {
-                        pointData2.confirmedCount = newCount2;
-                        pointData2.lastConfirmed = new Date();
-                        pointData2.confirmedBy = pointData2.confirmedBy || [];
-                        pointData2.confirmedBy.push(`match_with_${footprint1.id}`);
-                        updatedCount++;
-                    }
-                }
+                updatedCount += this.updatePointConfirmation(footprint1, match.point1, match.distance, footprint2.id);
+                updatedCount += this.updatePointConfirmation(footprint2, match.point2, match.distance, footprint1.id);
             }
 
-            console.log(`✅ Обновлено ${updatedCount} точек (только совпавшие!)`);
+            console.log(`✅ Обновлено ${updatedCount} точек (ВЕКТОРНЫЙ МЕТОД)`);
             return updatedCount;
 
         } catch (error) {
@@ -102,7 +78,56 @@ class TemplateCoordination {
         }
     }
 
-    // 🔥 МЕТОД 2: Дебаг накопления
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Получить оригинальные точки (без трансформаций)
+    getOriginalPoints(tracker) {
+        const points = [];
+       
+        if (!tracker || !tracker.points) return points;
+
+        for (const [id, pointData] of tracker.points) {
+            // 🔥 БЕРЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ИЛИ ТЕКУЩИЕ (без трансформаций)
+            const originalCoords = pointData.originalCoordinates || { x: pointData.x, y: pointData.y };
+           
+            points.push({
+                id: id,
+                x: originalCoords.x || pointData.x || 0,
+                y: originalCoords.y || pointData.y || 0,
+                confidence: pointData.rating || pointData.confidence || 0.5,
+                confirmedCount: pointData.confirmedCount || 1,
+                pointData: pointData
+            });
+        }
+
+        return points;
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Обновить подтверждение точки
+    updatePointConfirmation(footprint, point, distance, matchedWithId) {
+        if (!footprint.pointTracker) return 0;
+
+        const pointData = footprint.pointTracker.points.get(point.id);
+        if (!pointData) return 0;
+
+        const oldCount = pointData.confirmedCount || 1;
+       
+        // 🔥 КАЧЕСТВО СОВПАДЕНИЯ ОБРАТНО ПРОПОРЦИОНАЛЬНО РАССТОЯНИЮ
+        const matchQuality = Math.max(0, 1 - distance / 50);
+        const additionalConfirmations = matchQuality > 0.8 ? 2 : 1;
+       
+        const newCount = Math.max(oldCount, oldCount + additionalConfirmations);
+
+        if (newCount > oldCount) {
+            pointData.confirmedCount = newCount;
+            pointData.lastConfirmed = new Date();
+            pointData.confirmedBy = pointData.confirmedBy || [];
+            pointData.confirmedBy.push(`vector_match_with_${matchedWithId}`);
+            return 1;
+        }
+
+        return 0;
+    }
+
+    // 🔥 МЕТОД 2: Дебаг накопления (ВЕКТОРНЫЙ)
     debugAccumulation(userId) {
         const vectorModel = this.manager.vectorSuperModels.get(userId);
         if (!vectorModel || !vectorModel.templateBuilder) {
@@ -112,24 +137,50 @@ class TemplateCoordination {
 
         const templateData = vectorModel.templateBuilder.getVisualizationData();
 
-        console.log('\n🔍 ДЕБАГ НАКОПЛЕНИЯ ДЕТАЛЕЙ:');
+        console.log('\n🔍 ДЕБАГ НАКОПЛЕНИЯ ДЕТАЛЕЙ (ВЕКТОРНЫЙ):');
         console.log(`Шаблон: ${templateData.name}`);
         console.log(`Всего ячеек: ${templateData.stats.totalCells}`);
         console.log(`Всего подтверждений: ${templateData.stats.totalConfirmations}`);
 
+        // 🔥 ПРОВЕРЯЕМ, ЧТО РАБОТАЕМ С ВЕКТОРНЫМИ ДАННЫМИ
         const cells = templateData.cells || [];
-        const byStatus = {};
+        const vectorCells = cells.filter(cell =>
+            typeof cell.x === 'number' && typeof cell.y === 'number' &&
+            !isNaN(cell.x) && !isNaN(cell.y)
+        );
 
-        cells.forEach(cell => {
-            const status = cell.status || 'unknown';
-            byStatus[status] = (byStatus[status] || 0) + 1;
-        });
+        console.log(`✅ Векторных ячеек: ${vectorCells.length}/${cells.length}`);
 
-        console.log('\n📊 РАСПРЕДЕЛЕНИЕ ПО СТАТУСАМ:');
-        Object.entries(byStatus).forEach(([status, count]) => {
-            const percent = ((count / cells.length) * 100).toFixed(1);
-            console.log(`   ${status}: ${count} (${percent}%)`);
-        });
+        if (vectorCells.length > 0) {
+            // Показываем примеры координат
+            console.log('\n📐 Примеры векторных координат:');
+            vectorCells.slice(0, 3).forEach((cell, i) => {
+                console.log(`   Ячейка ${i + 1}: (${cell.x.toFixed(1)}, ${cell.y.toFixed(1)})`);
+            });
+        }
+    }
+
+    // 🔥 ДОПОЛНИТЕЛЬНЫЙ МЕТОД: Быстрая проверка векторной целостности
+    checkVectorIntegrity(footprint) {
+        if (!footprint || !footprint.pointTracker) {
+            return { valid: false, reason: 'Нет трекера точек' };
+        }
+
+        const points = this.getOriginalPoints(footprint.pointTracker);
+        const validPoints = points.filter(p =>
+            typeof p.x === 'number' && typeof p.y === 'number' &&
+            !isNaN(p.x) && !isNaN(p.y)
+        );
+
+        const integrity = validPoints.length / Math.max(1, points.length);
+
+        return {
+            valid: integrity > 0.9,
+            integrity: integrity,
+            totalPoints: points.length,
+            validPoints: validPoints.length,
+            invalidPoints: points.length - validPoints.length
+        };
     }
 }
 
