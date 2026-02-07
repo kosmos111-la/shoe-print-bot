@@ -1,43 +1,24 @@
 // test-simple-manager.js
 const SimpleFootprintManager = require('./modules/footprint/simple-manager');
 
-console.log('=== ТЕСТ SIMPLE-MANAGER С НОВОЙ СИСТЕМОЙ ===\n');
+const manager = new SimpleFootprintManager({
+    debug: true,
+    enableMergeVisualization: false // Отключаем визуализацию для теста
+});
 
-try {
-    const manager = new SimpleFootprintManager();
-    console.log('✅ SimpleFootprintManager создан');
-   
-    // Проверяем, что все модули инициализированы
-    console.log('\n1. Проверка модулей:');
-    const modules = [
-        'coordinateSystem', 'coordinateManager', 'sessionManager',
-        'visualizationManager', 'geometryUtils', 'simpleMatcher'
-    ];
-   
-    modules.forEach(module => {
-        const exists = manager[module] !== undefined;
-        console.log(`   ${exists ? '✅' : '❌'} ${module}`);
-    });
-   
-    // Проверяем координатную систему
-    console.log('\n2. Проверка координатной системы:');
-    const points = [{x: 100, y: 100}, {x: 200, y: 200}];
-   
-    try {
-        const transformed = manager.coordinateSystem.transformPoints(points);
-        console.log(`   ✅ Трансформация работает: ${transformed.length} точек`);
-       
-        const center = manager.coordinateSystem.calculateCenter(points);
-        console.log(`   ✅ Центр: (${center.x}, ${center.y})`);
-       
-        console.log(`   ✅ Константы: центр в (${manager.coordinateSystem.CONSTANTS.CENTER.x}, ${manager.coordinateSystem.CONSTANTS.CENTER.y})`);
-    } catch (error) {
-        console.log(`   ❌ Ошибка: ${error.message}`);
-    }
-   
-    console.log('\n=== ТЕСТ УСПЕШНО ЗАВЕРШЁН ===');
-   
-} catch (error) {
-    console.log(`❌ Критическая ошибка: ${error.message}`);
-    console.log(error.stack);
-}
+console.log('✅ SimpleFootprintManager создан');
+
+// Проверяем векторный тест
+const testPoints = [
+    { x: 0, y: 0, id: 't1' },
+    { x: 100, y: 0, id: 't2' },
+    { x: 0, y: 100, id: 't3' }
+];
+
+const vectorTest = manager.quickVectorTest({ pointTracker: { points: new Map([
+    ['t1', { x: 0, y: 0, rating: 0.8, confirmedCount: 1 }],
+    ['t2', { x: 100, y: 0, rating: 0.9, confirmedCount: 1 }],
+    ['t3', { x: 0, y: 100, rating: 0.7, confirmedCount: 1 }]
+]) } });
+
+console.log('Векторный тест:', vectorTest);
