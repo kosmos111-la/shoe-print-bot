@@ -1,293 +1,223 @@
-// modules/footprint/clean/geometric-hash-algorithm.js - ПОЛНОСТЬЮ ИСПРАВЛЕННЫЙ
+// modules/footprint/core/comparison/geometric-hash-algorithm.js
+console.log('🔷 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ - ВЕКТОРНЫЙ ПОДХОД\n');
 
-console.log('🎯 ГЕОМЕТРИЧЕСКИЙ ХЕШ-АЛГОРИТМ - ИСПРАВЛЕННЫЙ ВАРИАНТ\n');
-
+/**
+* 🎯 ГЕОМЕТРИЧЕСКИЙ ХЕШ-АЛГОРИТМ
+* Сравнивает точки по геометрическим отношениям, а не по координатам
+*/
 class GeometricHashAlgorithm {
+    /**
+     * КОНСТРУКТОР
+     * @param {Object} options - Параметры алгоритма
+     */
     constructor(options = {}) {
-        // 🔗 ФИКСИРОВАННЫЕ СОСЕДИ
+        // 🔗 ФИКСИРОВАННЫЕ СОСЕДИ (ключевая идея!)
         this.neighborOffsets = options.neighborOffsets || [-2, -1, 1, 2];
        
-        // 📐 ПАРАМЕТРЫ СРАВНЕНИЯ
-        this.angleTolerance = options.angleTolerance || 15;
-        this.hashPrecision = options.hashPrecision || 5;
-        this.minSimilarity = options.minSimilarity || 0.6; // 🔥 Повысили до 60%
-        this.minTriangles = options.minTriangles || 2;
-        this.similarityThreshold = 0.6; // Порог для решения
+        // 📐 ДОПУСКИ (работают с углами, не с координатами!)
+        this.angleTolerance = options.angleTolerance || 10;     // ±10 градусов
+        this.hashPrecision = options.hashPrecision || 5;        // округление до 5°
+        this.minSimilarity = options.minSimilarity || 0.6;      // 60% сходства
+        this.minTriangles = options.minTriangles || 2;          // минимум 2 треугольника
+        this.useNormalization = options.useNormalization !== false; // Нормализация точек
        
-        // 🔥 НОВЫЕ ПАРАМЕТРЫ
-        this.minMatchedPoints = options.minMatchedPoints || 3; // Минимум совпавших точек
-        this.maxMatchDistance = options.maxMatchDistance || 0.7; // Макс расстояние между точками
-       
-        this.debug = options.debug !== false;
+        this.debug = options.debug || false;
+        this.stats = {
+            footprintsCreated: 0,
+            comparisonsMade: 0,
+            matchesFound: 0
+        };
     }
 
     // ============================================
-    // 🎯 СОЗДАНИЕ ГЕОМЕТРИЧЕСКОГО ОТПЕЧАТКА (ОСТАЁТСЯ ПРАВИЛЬНЫМ)
+    // 🎯 ОСНОВНОЙ ИНТЕРФЕЙС
     // ============================================
-   
+
+    /**
+     * СОЗДАТЬ ГЕОМЕТРИЧЕСКИЙ ОТПЕЧАТОК
+     * @param {Array} points - Массив точек [{x, y, id, originalId?}]
+     * @param {string} name - Имя для отладки
+     * @returns {Array} Геометрические дескрипторы
+     */
     createFootprint(points, name = '') {
         if (this.debug) {
-            console.log(`🎯 Создаю геометрический отпечаток "${name}" из ${points.length} точек`);
+            console.log(`👣 Создание геометрического отпечатка "${name}": ${points.length} точек`);
         }
-
+       
+        this.stats.footprintsCreated++;
+       
+        // Нормализуем точки если нужно
+        const normalizedPoints = this.useNormalization
+            ? this.normalizePoints(points)
+            : points.map((p, idx) => ({
+                ...p,
+                originalIndex: idx,
+                normalized: false
+            }));
+       
         const footprint = [];
-        const totalPoints = points.length;
-
-        // Подготавливаем точки с индексами
-        const indexedPoints = points.map((p, idx) => ({
-            ...p,
-            index: idx,
-            originalId: p.originalId || `pt_${idx}`
-        }));
-
-        for (let i = 0; i < totalPoints; i++) {
-            const point = indexedPoints[i];
+       
+        for (let i = 0; i < normalizedPoints.length; i++) {
+            const point = normalizedPoints[i];
+            const descriptor = this.createPointDescriptor(point, normalizedPoints, i);
            
-            // Находим фиксированных соседей
-            const neighbors = this.findFixedNeighbors(i, indexedPoints);
-           
-            if (neighbors.length >= 2) {
-                // Создаем треугольники
-                const triangles = this.createFixedTriangles(point, neighbors);
-               
-                if (triangles.length >= this.minTriangles) {
-                    // Создаем дескриптор
-                    const descriptor = this.createDescriptor(triangles);
-                   
-                    footprint.push({
-                        id: point.id || `pt_${i}`,
-                        originalId: point.originalId,
-                        index: i,
-                        x: point.x,
-                        y: point.y,
-                        descriptor: descriptor,
-                        triangles: triangles,
-                        neighborIndices: neighbors.map(n => n.index),
-                        triangleCount: triangles.length
-                    });
-                }
+            if (descriptor) {
+                footprint.push(descriptor);
             }
         }
-
+       
         if (this.debug && footprint.length > 0) {
-            console.log(`✅ Создан отпечаток: ${footprint.length} точек`);
+            console.log(`   ✅ Создано дескрипторов: ${footprint.length}`);
         }
-
+       
         return footprint;
     }
 
-    // ============================================
-    // 🔄 СРАВНЕНИЕ ОТПЕЧАТКОВ - ПОЛНОСТЬЮ ПЕРЕПИСАННЫЙ МЕТОД!
-    // ============================================
-   
-    compareFootprints(fp1, fp2, name1 = 'Отпечаток 1', name2 = 'Отпечаток 2') {
-        if (this.debug) {
-            console.log(`\n🔍 СРАВНЕНИЕ: ${name1} (${fp1.length} точек) vs ${name2} (${fp2.length} точек)`);
-        }
-
-        // 🔥 ПРАВИЛЬНЫЙ ПОДХОД: Сравниваем геометрические дескрипторы
-        // 1. Создаем матрицу схожести между всеми точками
-        const similarityMatrix = [];
+    /**
+     * СРАВНИТЬ ДВА ОТПЕЧАТКА
+     * @param {Array} fp1 - Первый отпечаток
+     * @param {Array} fp2 - Второй отпечаток
+     * @param {Object} options - Опции сравнения
+     * @returns {Object} Результат сравнения
+     */
+    compareFootprints(fp1, fp2, options = {}) {
+        this.stats.comparisonsMade++;
        
-        for (let i = 0; i < fp1.length; i++) {
-            similarityMatrix[i] = [];
-            for (let j = 0; j < fp2.length; j++) {
-                const similarity = this.compareDescriptors(
-                    fp1[i].descriptor,
-                    fp2[j].descriptor
-                );
-                similarityMatrix[i][j] = similarity;
-            }
-        }
-
-        // 2. Находим наилучшие соответствия (жадный алгоритм)
+        const minSimilarity = options.minSimilarity || this.minSimilarity;
         const matches = [];
-        const used1 = new Set();
-        const used2 = new Set();
+        const hashMap = new Map();
        
-        // Сортируем все возможные пары по убыванию схожести
-        const allPairs = [];
-        for (let i = 0; i < fp1.length; i++) {
-            for (let j = 0; j < fp2.length; j++) {
-                if (similarityMatrix[i][j] >= this.minSimilarity) {
-                    allPairs.push({
-                        i, j,
-                        similarity: similarityMatrix[i][j]
-                    });
+        // Создаем индекс хешей для второго отпечатка
+        fp2.forEach(point => {
+            if (point.geometricHash) {
+                if (!hashMap.has(point.geometricHash)) {
+                    hashMap.set(point.geometricHash, []);
                 }
+                hashMap.get(point.geometricHash).push(point);
             }
-        }
+        });
        
-        // Сортируем по убыванию схожести
-        allPairs.sort((a, b) => b.similarity - a.similarity);
-       
-        // Берем наилучшие непересекающиеся пары
-        for (const pair of allPairs) {
-            if (!used1.has(pair.i) && !used2.has(pair.j)) {
-                matches.push({
-                    point1: fp1[pair.i],
-                    point2: fp2[pair.j],
-                    similarity: pair.similarity
-                });
-                used1.add(pair.i);
-                used2.add(pair.j);
-            }
-        }
-
-        // 3. Вычисляем статистику ПРАВИЛЬНО
-        const matched = matches.length;
-        const total1 = fp1.length;
-        const total2 = fp2.length;
-       
-        // 🔥 ПРАВИЛЬНЫЕ ПРОЦЕНТЫ: сколько точек из первого нашли пару во втором
-        const percent1to2 = total1 > 0 ? (matched / total1) * 100 : 0;
-        const percent2to1 = total2 > 0 ? (matched / total2) * 100 : 0;
-       
-        // 🔥 КЛЮЧЕВОЙ МОМЕНТ: схожесть = процент совпавших точек из первого следа
-        const similarity = percent1to2 / 100;
-
-        if (this.debug) {
-            console.log(`📊 РЕЗУЛЬТАТЫ:`);
-            console.log(`   Найдено пар: ${matched}`);
-            console.log(`   ${name1} → ${name2}: ${percent1to2.toFixed(1)}% (${matched}/${total1})`);
-            console.log(`   ${name2} → ${name1}: ${percent2to1.toFixed(1)}% (${matched}/${total2})`);
-            console.log(`   Общая схожесть: ${similarity.toFixed(3)}`);
-            console.log(`   Порог для решения: ${this.similarityThreshold}`);
+        // Ищем совпадения по хешам
+        fp1.forEach(point1 => {
+            if (!point1.geometricHash) return;
            
-            if (matches.length > 0) {
-                console.log(`\n🔬 ЛУЧШИЕ СОВПАДЕНИЯ:`);
-                matches.slice(0, 3).forEach((match, idx) => {
-                    console.log(`   ${idx + 1}. ${match.point1.originalId} ↔ ${match.point2.originalId}: ${match.similarity.toFixed(3)}`);
-                });
-            }
-        }
-
-        // 4. Принимаем решение
-        const decision = (matched >= this.minMatchedPoints && similarity >= this.similarityThreshold)
-            ? 'same'
-            : 'different';
-
-        return {
-            matches: matches,
-            similarity: similarity,
-            decision: decision,
-            stats: {
-                total1: total1,
-                total2: total2,
-                matched: matched,
-                percent1to2: percent1to2.toFixed(1),
-                percent2to1: percent2to1.toFixed(1)
-            }
-        };
-    }
-   
-    // ============================================
-    // 🔄 СРАВНЕНИЕ ДЕСКРИПТОРОВ - ИСПРАВЛЕННЫЙ
-    // ============================================
-   
-    compareDescriptors(desc1, desc2) {
-        if (!desc1 || !desc2) return 0;
-       
-        // 1. Проверяем точное совпадение хешей
-        if (desc1.hashes.exact === desc2.hashes.exact) {
-            return 1.0;
-        }
-       
-        // 2. Проверяем округленные хеши
-        if (desc1.hashes.rounded === desc2.hashes.rounded) {
-            return 0.9;
-        }
-       
-        // 3. Сравниваем сигнатуры
-        const signatureScore = this.compareSignatures(
-            desc1.hashes.signature,
-            desc2.hashes.signature
-        );
-       
-        // 4. Сравниваем наборы треугольников
-        const triangleScore = this.compareTriangleHashes(
-            desc1.triangleHashes,
-            desc2.triangleHashes
-        );
-       
-        // 5. Учитываем количество треугольников
-        const countScore = 1 - Math.abs(desc1.triangleCount - desc2.triangleCount) /
-            Math.max(desc1.triangleCount, desc2.triangleCount);
-       
-        // 🔥 ВЕСОВЫЕ КОЭФФИЦИЕНТЫ (настроены эмпирически)
-        const finalScore =
-            signatureScore * 0.3 +
-            triangleScore * 0.5 +
-            countScore * 0.2;
-       
-        // 🔥 ОГРАНИЧИВАЕМ от 0 до 1
-        return Math.max(0, Math.min(1, finalScore));
-    }
-   
-    compareSignatures(sig1, sig2) {
-        if (!sig1 || !sig2 || sig1 === '' || sig2 === '') return 0;
-        if (sig1 === sig2) return 1.0;
-       
-        const angles1 = sig1.split('-').map(Number);
-        const angles2 = sig2.split('-').map(Number);
-       
-        if (angles1.length !== angles2.length) return 0;
-       
-        let totalDiff = 0;
-        for (let i = 0; i < angles1.length; i++) {
-            totalDiff += Math.abs(angles1[i] - angles2[i]);
-        }
-       
-        const avgDiff = totalDiff / angles1.length;
-        // Преобразуем разницу в оценку от 0 до 1
-        return Math.max(0, 1 - (avgDiff / 90)); // 90° - максимальная средняя разница
-    }
-   
-    compareTriangleHashes(hashes1, hashes2) {
-        if (!hashes1 || !hashes2 || hashes1.length === 0 || hashes2.length === 0) {
-            return 0;
-        }
-       
-        // Находим общие хеши (с допуском)
-        const set2 = new Set(hashes2);
-        let common = 0;
-       
-        for (const hash1 of hashes1) {
-            // Ищем похожий хеш во втором наборе
-            for (const hash2 of hashes2) {
-                if (this.hashesSimilar(hash1, hash2)) {
-                    common++;
+            const matchingPoints = hashMap.get(point1.geometricHash) || [];
+           
+            for (const point2 of matchingPoints) {
+                // Дополнительная проверка сходства
+                const similarity = this.calculatePointSimilarity(point1, point2);
+               
+                if (similarity >= minSimilarity) {
+                    matches.push({
+                        point1: point1,
+                        point2: point2,
+                        similarity: similarity,
+                        distance: this.calculateDistance(point1, point2),
+                        hash: point1.geometricHash
+                    });
                     break;
                 }
             }
-        }
+        });
        
-        // Нормализуем по меньшему набору
-        const minCount = Math.min(hashes1.length, hashes2.length);
-        return minCount > 0 ? common / minCount : 0;
+        this.stats.matchesFound += matches.length;
+       
+        return this.createComparisonResult(fp1, fp2, matches, options);
     }
-   
-    hashesSimilar(hash1, hash2) {
-        if (hash1 === hash2) return true;
+
+    /**
+     * ОБНОВИТЬ ПОДТВЕРЖДЕНИЯ ТОЧЕК
+     * @param {Array} points1 - Точки первого отпечатка
+     * @param {Array} points2 - Точки второго отпечатка
+     * @param {Array} matches - Совпадения
+     * @returns {number} Количество обновленных точек
+     */
+    updatePointConfirmations(points1, points2, matches) {
+        let updatedCount = 0;
+        const matchedIds = new Set();
        
-        const angles1 = hash1.split('-').map(Number);
-        const angles2 = hash2.split('-').map(Number);
-       
-        if (angles1.length !== angles2.length) return false;
-       
-        for (let i = 0; i < angles1.length; i++) {
-            if (Math.abs(angles1[i] - angles2[i]) > this.angleTolerance) {
-                return false;
+        // Для каждой пары совпадений обновляем подтверждения
+        matches.forEach(match => {
+            const point1 = points1.find(p => p.id === match.point1.id);
+            const point2 = points2.find(p => p.id === match.point2.id);
+           
+            if (point1 && point2) {
+                // Обновляем подтверждения
+                if (point1.confirmedCount) {
+                    point1.confirmedCount++;
+                    point1.confirmedBy = point1.confirmedBy || [];
+                    point1.confirmedBy.push(`geo_match_${match.point2.id}`);
+                    point1.lastConfirmed = new Date();
+                }
+               
+                if (point2.confirmedCount) {
+                    point2.confirmedCount++;
+                    point2.confirmedBy = point2.confirmedBy || [];
+                    point2.confirmedBy.push(`geo_match_${match.point1.id}`);
+                    point2.lastConfirmed = new Date();
+                }
+               
+                matchedIds.add(point1.id);
+                matchedIds.add(point2.id);
+                updatedCount++;
             }
-        }
+        });
        
-        return true;
+        return updatedCount;
     }
 
     // ============================================
-    // 📏 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (остаются без изменений)
+    // 🔧 ВНУТРЕННИЕ МЕТОДЫ
     // ============================================
-   
+
+    /**
+     * СОЗДАТЬ ДЕСКРИПТОР ТОЧКИ
+     */
+    createPointDescriptor(centerPoint, allPoints, centerIndex) {
+        // Находим фиксированных соседей
+        const neighbors = this.findFixedNeighbors(centerIndex, allPoints);
+       
+        if (neighbors.length < 2) return null;
+       
+        // Создаем треугольники
+        const triangles = this.createTriangles(centerPoint, neighbors);
+       
+        if (triangles.length < this.minTriangles) return null;
+       
+        // Создаем геометрический хеш
+        const geometricHash = this.createGeometricHash(triangles);
+        const triangleHashes = triangles.map(t => t.hash);
+       
+        return {
+            // Идентификаторы
+            id: centerPoint.id,
+            originalId: centerPoint.originalId || centerPoint.id,
+            originalIndex: centerPoint.originalIndex || centerIndex,
+           
+            // Координаты (векторные!)
+            x: centerPoint.x,
+            y: centerPoint.y,
+           
+            // Геометрическая информация
+            geometricHash: geometricHash,
+            triangleHashes: triangleHashes,
+            triangles: triangles,
+            triangleCount: triangles.length,
+           
+            // Метаданные
+            neighborCount: neighbors.length,
+            normalized: centerPoint.normalized || false,
+           
+            // Для совместимости с системой
+            confirmedCount: centerPoint.confirmedCount || 1,
+            confirmedBy: centerPoint.confirmedBy || ['geometric_initial'],
+            lastConfirmed: centerPoint.lastConfirmed || new Date()
+        };
+    }
+
+    /**
+     * НАЙТИ ФИКСИРОВАННЫХ СОСЕДЕЙ
+     */
     findFixedNeighbors(centerIndex, allPoints) {
         const neighbors = [];
         const total = allPoints.length;
@@ -299,25 +229,23 @@ class GeometricHashAlgorithm {
                 const neighbor = allPoints[neighborIndex];
                 neighbors.push({
                     ...neighbor,
-                    relativeIndex: offset
+                    relativeOffset: offset
                 });
             }
         }
        
         return neighbors;
     }
-   
-    createFixedTriangles(center, neighbors) {
+
+    /**
+     * СОЗДАТЬ ТРЕУГОЛЬНИКИ
+     */
+    createTriangles(center, neighbors) {
         const triangles = [];
        
         for (let i = 0; i < neighbors.length; i++) {
             for (let j = i + 1; j < neighbors.length; j++) {
-                const triangle = this.createTriangle(
-                    center,
-                    neighbors[i],
-                    neighbors[j]
-                );
-               
+                const triangle = this.createTriangle(center, neighbors[i], neighbors[j]);
                 if (triangle && this.isValidTriangle(triangle)) {
                     triangles.push(triangle);
                 }
@@ -326,13 +254,17 @@ class GeometricHashAlgorithm {
        
         return triangles;
     }
-   
+
+    /**
+     * СОЗДАТЬ ОДИН ТРЕУГОЛЬНИК
+     */
     createTriangle(p1, p2, p3) {
         try {
-            const angles = this.calculateAngles(p1, p2, p3);
+            const angles = this.calculateTriangleAngles(p1, p2, p3);
             const normalized = this.normalizeAngles(angles);
             const sorted = normalized.sort((a, b) => a - b);
            
+            // Округляем с заданной точностью
             const rounded = sorted.map(angle => {
                 if (this.hashPrecision > 0) {
                     return Math.round(angle / this.hashPrecision) * this.hashPrecision;
@@ -340,11 +272,16 @@ class GeometricHashAlgorithm {
                 return Math.round(angle);
             });
            
+            // Создаем хеш
             const hash = rounded.join('-');
            
             return {
-                points: [p1.originalId, p2.originalId, p3.originalId],
-                indices: [p1.index, p2.index, p3.index],
+                points: [p1.id, p2.id, p3.id],
+                indices: [
+                    p1.originalIndex || 0,
+                    p2.originalIndex || 0,
+                    p3.originalIndex || 0
+                ],
                 angles: angles,
                 normalizedAngles: sorted,
                 roundedAngles: rounded,
@@ -354,26 +291,118 @@ class GeometricHashAlgorithm {
             return null;
         }
     }
-   
-    createDescriptor(triangles) {
+
+    /**
+     * СОЗДАТЬ ГЕОМЕТРИЧЕСКИЙ ХЕШ ТОЧКИ
+     */
+    createGeometricHash(triangles) {
         const triangleHashes = triangles.map(t => t.hash).sort();
+        return triangleHashes.join('|');
+    }
+
+    /**
+     * ВЫЧИСЛИТЬ СХОДСТВО ТОЧЕК
+     */
+    calculatePointSimilarity(point1, point2) {
+        if (!point1.geometricHash || !point2.geometricHash) return 0;
+       
+        // Если хеши совпадают - 100% сходство
+        if (point1.geometricHash === point2.geometricHash) return 1.0;
+       
+        // Сравниваем наборы треугольников
+        const set1 = new Set(point1.triangleHashes);
+        const set2 = new Set(point2.triangleHashes);
+       
+        const intersection = [...set1].filter(h => set2.has(h)).length;
+        const union = new Set([...set1, ...set2]).size;
+       
+        return union > 0 ? intersection / union : 0;
+    }
+
+    /**
+     * НОРМАЛИЗОВАТЬ ТОЧКИ
+     */
+    normalizePoints(points) {
+        if (points.length < 3) return points;
+       
+        // Центрирование
+        const centerX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+        const centerY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+       
+        const centered = points.map((p, idx) => ({
+            ...p,
+            x: p.x - centerX,
+            y: p.y - centerY,
+            originalIndex: idx,
+            normalized: true
+        }));
+       
+        // Масштабирование к единичному радиусу
+        const maxDist = Math.max(...centered.map(p =>
+            Math.sqrt(p.x * p.x + p.y * p.y)
+        ));
+       
+        if (maxDist > 0.001) {
+            const scale = 1.0 / maxDist;
+            return centered.map(p => ({
+                ...p,
+                x: p.x * scale,
+                y: p.y * scale
+            }));
+        }
+       
+        return centered;
+    }
+
+    /**
+     * ВЫЧИСЛИТЬ РЕЗУЛЬТАТ СРАВНЕНИЯ
+     */
+    createComparisonResult(fp1, fp2, matches, options) {
+        const total1 = fp1.length;
+        const total2 = fp2.length;
+        const matched = matches.length;
+       
+        // Двойная статистика
+        const percent1to2 = total1 > 0 ? (matched / total1 * 100).toFixed(1) : '0.0';
+        const percent2to1 = total2 > 0 ? (matched / total2 * 100).toFixed(1) : '0.0';
+       
+        // Среднее сходство
+        const avgSimilarity = matches.length > 0
+            ? (matches.reduce((sum, m) => sum + m.similarity, 0) / matches.length).toFixed(3)
+            : 0;
        
         return {
-            hashes: {
-                exact: triangleHashes.join('|'),
-                rounded: this.createRoundedHash(triangleHashes),
-                signature: this.createSignature(triangles)
+            matches: matches,
+            stats: {
+                totalPoints1: total1,
+                totalPoints2: total2,
+                matchedPoints: matched,
+                percent1to2: percent1to2,
+                percent2to1: percent2to1,
+                avgSimilarity: avgSimilarity,
+                unconfirmed1: total1 - matched,
+                unconfirmed2: total2 - matched
             },
-            triangleHashes: triangleHashes,
-            triangleCount: triangles.length,
-            avgAngle: this.calculateAverageAngle(triangles)
+            metadata: {
+                algorithm: 'geometric-hash',
+                timestamp: new Date(),
+                options: {
+                    angleTolerance: this.angleTolerance,
+                    minSimilarity: options.minSimilarity || this.minSimilarity,
+                    normalization: this.useNormalization
+                }
+            }
         };
     }
-   
-    calculateAngles(p1, p2, p3) {
-        const a = this.vectorDistance(p2, p3);
-        const b = this.vectorDistance(p1, p3);
-        const c = this.vectorDistance(p1, p2);
+
+    // ============================================
+    // 📏 МАТЕМАТИЧЕСКИЕ ФУНКЦИИ
+    // ============================================
+
+    calculateTriangleAngles(p1, p2, p3) {
+        const a = this.calculateDistance(p2, p3);
+        const b = this.calculateDistance(p1, p3);
+        const c = this.calculateDistance(p1, p2);
        
         const angleA = this.cosineLawAngle(b, c, a);
         const angleB = this.cosineLawAngle(a, c, b);
@@ -381,62 +410,24 @@ class GeometricHashAlgorithm {
        
         return [angleA, angleB, angleC];
     }
-   
-    vectorDistance(p1, p2) {
+
+    calculateDistance(p1, p2) {
         const dx = p1.x - p2.x;
         const dy = p1.y - p2.y;
         return Math.sqrt(dx * dx + dy * dy);
     }
-   
+
     cosineLawAngle(side1, side2, opposite) {
         const cos = (side1 * side1 + side2 * side2 - opposite * opposite) / (2 * side1 * side2);
         const clamped = Math.max(-1, Math.min(1, cos));
         return Math.acos(clamped) * 180 / Math.PI;
     }
-   
+
     normalizeAngles(angles) {
         const sum = angles.reduce((s, a) => s + a, 0);
-        if (sum === 0) return angles;
         return angles.map(a => a * 180 / sum);
     }
-   
-    createRoundedHash(triangleHashes) {
-        return triangleHashes.map(hash => {
-            return hash.split('-').map(angle => {
-                const num = parseInt(angle);
-                return Math.round(num / 10) * 10;
-            }).join('-');
-        }).sort().join('|');
-    }
-   
-    createSignature(triangles) {
-        if (!triangles.length) return '';
-       
-        const avgAngles = [0, 0, 0];
-        triangles.forEach(tri => {
-            tri.roundedAngles.forEach((angle, i) => {
-                avgAngles[i] += angle;
-            });
-        });
-       
-        return avgAngles.map(a =>
-            Math.round(a / triangles.length)
-        ).sort((a, b) => a - b).join('-');
-    }
-   
-    calculateAverageAngle(triangles) {
-        if (!triangles.length) return 0;
-       
-        let total = 0;
-        triangles.forEach(tri => {
-            tri.angles.forEach(angle => {
-                total += angle;
-            });
-        });
-       
-        return total / (triangles.length * 3);
-    }
-   
+
     isValidTriangle(triangle) {
         if (!triangle || !triangle.angles) return false;
        
@@ -448,17 +439,23 @@ class GeometricHashAlgorithm {
        
         return true;
     }
-   
-    // 🔥 НОВЫЙ МЕТОД: Прямое сравнение точек
-    comparePoints(points1, points2, name1 = 'След 1', name2 = 'След 2') {
-        console.log(`\n🔍 ПРЯМОЕ СРАВНЕНИЕ: ${name1} vs ${name2}`);
-       
-        // Создаем геометрические отпечатки
-        const geo1 = this.createFootprint(points1, name1);
-        const geo2 = this.createFootprint(points2, name2);
-       
-        // Сравниваем
-        return this.compareFootprints(geo1, geo2, name1, name2);
+
+    /**
+     * ПОЛУЧИТЬ СТАТИСТИКУ АЛГОРИТМА
+     */
+    getStats() {
+        return { ...this.stats };
+    }
+
+    /**
+     * СБРОСИТЬ СТАТИСТИКУ
+     */
+    resetStats() {
+        this.stats = {
+            footprintsCreated: 0,
+            comparisonsMade: 0,
+            matchesFound: 0
+        };
     }
 }
 
