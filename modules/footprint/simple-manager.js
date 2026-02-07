@@ -195,7 +195,7 @@ class SimpleFootprintManager {
             for (const [id, point] of footprint.pointTracker.points) {
                 // 🔥 ИСПОЛЬЗУЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ИЛИ ТЕКУЩИЕ
                 const originalCoords = point.originalCoordinates || { x: point.x, y: point.y };
-               
+
                 points.push({
                     id: id,
                     x: originalCoords.x || point.x,
@@ -552,8 +552,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (остаются)
-
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: processMatchingFootprint с передачей информации о совпадениях
     async processMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
                                   existingTransformationInfo, similarity, comparisonResult,
                                   tempResult, bot, chatId) {
@@ -584,13 +583,16 @@ class SimpleFootprintManager {
             transformationInfo: transformationInfo
         });
 
-        // Создаем ВЕКТОРНУЮ визуализацию
+        // Создаем ВЕКТОРНУЮ визуализацию с передачей информации о совпадениях
         let hasVisualization = false;
         let vizPath = null;
 
         if (this.config.enableMergeVisualization && this.visualizationManager) {
             console.log(`🎨 Создаю ВЕКТОРНУЮ визуализацию подтверждений...`);
             try {
+                // Получаем статистику из шаблона
+                const templateInfo = vectorModel.getTemplateStats();
+
                 const vizResult = await this.visualizationManager.visualizeSingleFootprintConfirmations(
                     session.currentFootprint,
                     userId,
@@ -598,6 +600,14 @@ class SimpleFootprintManager {
                         currentTransformation: transformationInfo,
                         previousTransformation: existingTransformationInfo,
                         comparisonResult: comparisonResult
+                    },
+                    {
+                        matchInfo: {  // 🔥 ПЕРЕДАЕМ ИНФОРМАЦИЮ О СОВПАДЕНИЯХ
+                            totalConfirmations: templateInfo?.cells?.total || 0,
+                            confirmedCells: templateInfo?.cells?.confirmed || 0,
+                            averageConfirmations: templateInfo?.cells?.avgConfirmations || 1,
+                            totalGraphs: templateInfo?.alignmentStats?.totalGraphs || 0
+                        }
                     }
                 );
 
