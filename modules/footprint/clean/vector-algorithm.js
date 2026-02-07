@@ -28,7 +28,7 @@ class VectorAlgorithm {
             if (this.debug) {
                 console.log(`⚠️ Слишком мало точек для векторного анализа: ${points.length}`);
             }
-            // 🔥 ИСПРАВЛЕНИЕ: возвращаем простые дескрипторы вместо пустого массива
+            // 🔥 ИСПРАВЛЕНИЕ: возвращаем простые дескрипторы
             return this.createSimpleFootprint(points, name);
         }
 
@@ -174,7 +174,7 @@ class VectorAlgorithm {
         // Простой паспорт для точек без треугольников
         const nearest = this.findNearestNeighbors(centerPoint, allPoints, centerIndex, 2);
        
-        const vectorId = `SIMPLE_${centerIndex}_`;
+        let vectorId = `SIMPLE_${centerIndex}_`;
         if (nearest.length > 0) {
             nearest.forEach((neighbor, idx) => {
                 const dx = neighbor.x - centerPoint.x;
@@ -258,6 +258,197 @@ class VectorAlgorithm {
     }
 
     // ============================================
+    // 🔗 УРОВЕНЬ 2: ОТНОШЕНИЯ С СОСЕДЯМИ (ДОБАВЛЕНО!)
+    // ============================================
+
+    analyzeNeighborRelations(centerPoint, allPoints, centerIndex) {
+        const relations = [];
+        const nearestNeighbors = this.findNearestNeighbors(centerPoint, allPoints, centerIndex, 4);
+
+        for (const neighbor of nearestNeighbors) {
+            const relation = this.analyzeSingleRelation(centerPoint, neighbor, allPoints);
+            if (relation) {
+                relations.push(relation);
+            }
+        }
+
+        return relations;
+    }
+
+    analyzeSingleRelation(pointA, pointB, allPoints) {
+        try {
+            // Находим общих соседей
+            const commonNeighbors = this.findCommonNeighbors(pointA, pointB, allPoints);
+
+            // Анализируем геометрические отношения
+            const distance = this.vectorDistance(pointA, pointB);
+            const anglesWithCommon = [];
+
+            for (const common of commonNeighbors) {
+                const angle = this.calculateAngleBetweenVectors(
+                    { x: pointB.x - pointA.x, y: pointB.y - pointA.y },
+                    { x: common.x - pointA.x, y: common.y - pointA.y }
+                );
+                anglesWithCommon.push(angle);
+            }
+
+            // Средний угол с общими соседями
+            const avgAngle = anglesWithCommon.length > 0 ?
+                anglesWithCommon.reduce((sum, a) => sum + a, 0) / anglesWithCommon.length : 0;
+
+            return {
+                neighborIndex: pointB.index,
+                distance: distance,
+                commonNeighbors: commonNeighbors.length,
+                avgAngleWithCommon: avgAngle,
+                relationHash: `D${Math.round(distance/10)}_C${commonNeighbors.length}_A${Math.round(avgAngle/5)*5}`
+            };
+        } catch (error) {
+            if (this.debug) console.log(`⚠️ Ошибка анализа отношения: ${error.message}`);
+            return null;
+        }
+    }
+
+    findCommonNeighbors(pointA, pointB, allPoints) {
+        try {
+            const neighborsA = this.findNearestNeighbors(pointA, allPoints, pointA.index, 5);
+            const neighborsB = this.findNearestNeighbors(pointB, allPoints, pointB.index, 5);
+
+            const common = [];
+            const neighborSetB = new Set(neighborsB.map(n => n.index));
+
+            for (const neighborA of neighborsA) {
+                if (neighborSetB.has(neighborA.index) &&
+                    neighborA.index !== pointA.index &&
+                    neighborA.index !== pointB.index) {
+                    common.push(neighborA);
+                }
+            }
+
+            return common;
+        } catch (error) {
+            return [];
+        }
+    }
+
+    calculateAngleBetweenVectors(v1, v2) {
+        try {
+            const dot = v1.x * v2.x + v1.y * v2.y;
+            const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+            const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+
+            if (mag1 === 0 || mag2 === 0) return 0;
+
+            const cos = dot / (mag1 * mag2);
+            const clamped = Math.max(-1, Math.min(1, cos));
+            return Math.acos(clamped) * 180 / Math.PI;
+        } catch (error) {
+            return 0;
+        }
+    }
+
+    // ============================================
+    // 🏛️ УРОВЕНЬ 3: СТРУКТУРНАЯ РОЛЬ (ДОБАВЛЕНО!)
+    // ============================================
+
+    determineStructuralRole(centerPoint, allPoints, centerIndex, triangles, neighborRelations) {
+        try {
+            // Анализируем положение точки в структуре
+
+            // 1. Центральность (сколько треугольников проходит через точку)
+            const centrality = triangles.length;
+
+            // 2. Плотность соседей
+            const neighborDensity = neighborRelations.length > 0 ?
+                neighborRelations.reduce((sum, r) => sum + (r.commonNeighbors || 0), 0) / neighborRelations.length : 0;
+
+            // 3. Распределение расстояний до соседей
+            const distances = neighborRelations.map(r => r.distance || 0);
+            const avgDistance = distances.length > 0 ?
+                distances.reduce((sum, d) => sum + d, 0) / distances.length : 0;
+            const distanceVariance = distances.length > 0 ?
+                distances.reduce((sum, d) => sum + Math.pow(d - avgDistance, 2), 0) / distances.length : 0;
+
+            // Определяем роль на основе параметров
+            let role = 'standard';
+
+            if (centrality > 8 && neighborDensity > 2) {
+                role = 'hub'; // Центральная точка, много связей
+            } else if (centrality < 3 && neighborDensity < 1) {
+                role = 'peripheral'; // Периферийная точка
+            } else if (distanceVariance > avgDistance * 0.5) {
+                role = 'connector'; // Соединяет разные группы
+            } else if (triangles.some(t => t.angles && t.angles.some(a => a < 30 || a > 150))) {
+                role = 'boundary'; // На границе (острые/тупые углы)
+            }
+
+            return {
+                type: role,
+                centrality: centrality,
+                neighborDensity: neighborDensity,
+                avgDistance: avgDistance,
+                distanceVariance: distanceVariance,
+                roleHash: `${role}_C${centrality}_D${Math.round(neighborDensity)}`
+            };
+        } catch (error) {
+            if (this.debug) console.log(`⚠️ Ошибка определения структурной роли: ${error.message}`);
+            return {
+                type: 'error',
+                centrality: 0,
+                neighborDensity: 0,
+                avgDistance: 0,
+                distanceVariance: 0,
+                roleHash: 'error'
+            };
+        }
+    }
+
+    // ============================================
+    // 🆔 СОЗДАНИЕ ВЕКТОРНЫХ ИДЕНТИФИКАТОРОВ
+    // ============================================
+
+    createVectorId(triangles, neighborRelations, structuralRole) {
+        try {
+            // Собираем геометрические признаки
+
+            // 1. Хеши треугольников (отсортированные)
+            const triangleHashes = triangles.map(t => t.hash || '').filter(h => h).sort();
+            const triangleHash = triangleHashes.length > 0 ?
+                triangleHashes.map(h => h.split('-').map(a => Math.round(parseInt(a)/5)*5).join('-')).join('|') : 'NO_TRI';
+
+            // 2. Хеши отношений с соседями
+            const relationHashes = neighborRelations.map(r => r.relationHash || '').filter(h => h).sort();
+            const relationHash = relationHashes.length > 0 ? relationHashes.join('|') : 'NO_REL';
+
+            // 3. Структурная роль
+            const roleHash = structuralRole.roleHash || 'NO_ROLE';
+
+            // 🔥 ГЕОМЕТРИЧЕСКИЙ ВЕКТОРНЫЙ ID
+            return `VEC_T${triangleHash.substring(0, 20)}_R${relationHash.substring(0, 15)}_S${roleHash}`;
+        } catch (error) {
+            return `ERROR_${Date.now()}`;
+        }
+    }
+
+    createGeometricSignature(triangles, neighborRelations) {
+        try {
+            // Средние углы треугольников
+            const avgAngles = triangles.length > 0 ?
+                [0, 0, 0].map((_, idx) =>
+                    triangles.reduce((sum, t) => sum + (t.normalizedAngles?.[idx] || 0), 0) / triangles.length
+                ) : [0, 0, 0];
+
+            // Среднее количество общих соседей
+            const avgCommonNeighbors = neighborRelations.length > 0 ?
+                neighborRelations.reduce((sum, r) => sum + (r.commonNeighbors || 0), 0) / neighborRelations.length : 0;
+
+            return `A${avgAngles.map(a => Math.round(a)).join('-')}_C${Math.round(avgCommonNeighbors)}`;
+        } catch (error) {
+            return 'ERROR_SIG';
+        }
+    }
+
+    // ============================================
     // 🔄 СРАВНЕНИЕ ВЕКТОРНЫХ ОТПЕЧАТКОВ
     // ============================================
 
@@ -267,21 +458,8 @@ class VectorAlgorithm {
         }
 
         if (fp1.length === 0 || fp2.length === 0) {
-            return {
-                similar: false,
-                similarity: 0,
-                decision: 'different',
-                matches: [],
-                stats: {
-                    level1Matches: 0,
-                    level2Matches: 0,
-                    level3Matches: 0,
-                    totalMatches: 0,
-                    percent1to2: '0.0',
-                    percent2to1: '0.0',
-                    avgSimilarity: 0
-                }
-            };
+            if (this.debug) console.log('⚠️ Один из отпечатков пуст');
+            return this.createEmptyComparisonResult();
         }
 
         try {
@@ -302,57 +480,64 @@ class VectorAlgorithm {
             const decision = isSame ? 'same' : 'different';
 
             // Статистика для совместимости
-            const percent1to2 = fp1.length > 0 ? (matchedPoints / fp1.length * 100).toFixed(1) : '0.0';
-            const percent2to1 = fp2.length > 0 ? (matchedPoints / fp2.length * 100).toFixed(1) : '0.0';
-
-            const avgSimilarity = combinedMatches.length > 0 ?
-                (combinedMatches.reduce((sum, m) => sum + (m.similarity || 0), 0) / combinedMatches.length).toFixed(3) : 0;
-
+            const result = this.createComparisonResult(fp1, fp2, combinedMatches, similarity, isSame, decision);
+           
             if (this.debug) {
                 console.log(`📊 РЕЗУЛЬТАТ:`);
-                console.log(`   Уровень 1: ${level1Matches.length} совпадений`);
-                console.log(`   Уровень 2: ${level2Matches.length} совпадений`);
-                console.log(`   Уровень 3: ${level3Matches.length} совпадений`);
-                console.log(`   Общих совпадений: ${matchedPoints}`);
+                console.log(`   Совпадения: ${matchedPoints}/${maxPossible}`);
                 console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}% (порог: ${this.minSimilarity * 100}%)`);
                 console.log(`   Решение: ${decision}`);
             }
 
-            return {
-                similar: isSame,
-                similarity: similarity,
-                decision: decision,
-                matches: combinedMatches,
-                stats: {
-                    level1Matches: level1Matches.length,
-                    level2Matches: level2Matches.length,
-                    level3Matches: level3Matches.length,
-                    totalMatches: matchedPoints,
-                    percent1to2: percent1to2,
-                    percent2to1: percent2to1,
-                    avgSimilarity: parseFloat(avgSimilarity),
-                    similarity: similarity
-                }
-            };
+            return result;
 
         } catch (error) {
             console.error(`❌ Ошибка сравнения: ${error.message}`);
-            return {
-                similar: false,
-                similarity: 0,
-                decision: 'different',
-                matches: [],
-                stats: {
-                    level1Matches: 0,
-                    level2Matches: 0,
-                    level3Matches: 0,
-                    totalMatches: 0,
-                    percent1to2: '0.0',
-                    percent2to1: '0.0',
-                    avgSimilarity: 0
-                }
-            };
+            return this.createEmptyComparisonResult();
         }
+    }
+
+    createEmptyComparisonResult() {
+        return {
+            similar: false,
+            similarity: 0,
+            decision: 'different',
+            matches: [],
+            stats: {
+                level1Matches: 0,
+                level2Matches: 0,
+                level3Matches: 0,
+                totalMatches: 0,
+                percent1to2: '0.0',
+                percent2to1: '0.0',
+                avgSimilarity: 0
+            }
+        };
+    }
+
+    createComparisonResult(fp1, fp2, matches, similarity, isSame, decision) {
+        const matchedPoints = matches.length;
+        const percent1to2 = fp1.length > 0 ? (matchedPoints / fp1.length * 100).toFixed(1) : '0.0';
+        const percent2to1 = fp2.length > 0 ? (matchedPoints / fp2.length * 100).toFixed(1) : '0.0';
+
+        const avgSimilarity = matches.length > 0 ?
+            (matches.reduce((sum, m) => sum + (m.similarity || 0), 0) / matches.length).toFixed(3) : 0;
+
+        return {
+            similar: isSame,
+            similarity: similarity,
+            decision: decision,
+            matches: matches,
+            stats: {
+                totalPoints1: fp1.length,
+                totalPoints2: fp2.length,
+                matchedPoints: matchedPoints,
+                percent1to2: percent1to2,
+                percent2to1: percent2to1,
+                avgSimilarity: parseFloat(avgSimilarity),
+                similarity: similarity
+            }
+        };
     }
 
     compareLevel1(fp1, fp2) {
@@ -530,9 +715,7 @@ class VectorAlgorithm {
         return updated;
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (остальные из оригинального файла)
-    // ... остальные методы остаются без изменений ...
-
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     normalizeToVectorSpace(points) {
         // Центрируем
         const center = { x: 0, y: 0 };
@@ -553,51 +736,71 @@ class VectorAlgorithm {
     }
 
     findNearestNeighbors(centerPoint, allPoints, centerIndex, count) {
-        const distances = [];
+        try {
+            const distances = [];
 
-        for (let i = 0; i < allPoints.length; i++) {
-            if (i === centerIndex) continue;
+            for (let i = 0; i < allPoints.length; i++) {
+                if (i === centerIndex) continue;
 
-            const distance = this.vectorDistance(centerPoint, allPoints[i]);
-            distances.push({
-                point: allPoints[i],
-                distance: distance,
-                index: i
-            });
+                const distance = this.vectorDistance(centerPoint, allPoints[i]);
+                distances.push({
+                    point: allPoints[i],
+                    distance: distance,
+                    index: i
+                });
+            }
+
+            distances.sort((a, b) => a.distance - b.distance);
+            return distances.slice(0, count).map(d => d.point);
+        } catch (error) {
+            return [];
         }
-
-        distances.sort((a, b) => a.distance - b.distance);
-        return distances.slice(0, count).map(d => d.point);
     }
 
     vectorDistance(p1, p2) {
-        const dx = p1.x - p2.x;
-        const dy = p1.y - p2.y;
-        return Math.sqrt(dx * dx + dy * dy);
+        try {
+            const dx = p1.x - p2.x;
+            const dy = p1.y - p2.y;
+            return Math.sqrt(dx * dx + dy * dy);
+        } catch (error) {
+            return 9999;
+        }
     }
 
     calculateVectorAngles(p1, p2, p3) {
-        const a = this.vectorDistance(p2, p3);
-        const b = this.vectorDistance(p1, p3);
-        const c = this.vectorDistance(p1, p2);
+        try {
+            const a = this.vectorDistance(p2, p3);
+            const b = this.vectorDistance(p1, p3);
+            const c = this.vectorDistance(p1, p2);
 
-        const angleA = this.cosineLawAngle(b, c, a);
-        const angleB = this.cosineLawAngle(a, c, b);
-        const angleC = this.cosineLawAngle(a, b, c);
+            const angleA = this.cosineLawAngle(b, c, a);
+            const angleB = this.cosineLawAngle(a, c, b);
+            const angleC = this.cosineLawAngle(a, b, c);
 
-        return [angleA, angleB, angleC];
+            return [angleA, angleB, angleC];
+        } catch (error) {
+            return [60, 60, 60]; // Равносторонний треугольник по умолчанию
+        }
     }
 
     cosineLawAngle(side1, side2, opposite) {
-        const cos = (side1 * side1 + side2 * side2 - opposite * opposite) / (2 * side1 * side2);
-        const clamped = Math.max(-1, Math.min(1, cos));
-        return Math.acos(clamped) * 180 / Math.PI;
+        try {
+            const cos = (side1 * side1 + side2 * side2 - opposite * opposite) / (2 * side1 * side2);
+            const clamped = Math.max(-1, Math.min(1, cos));
+            return Math.acos(clamped) * 180 / Math.PI;
+        } catch (error) {
+            return 60;
+        }
     }
 
     normalizeAngles(angles) {
-        const sum = angles.reduce((s, a) => s + a, 0);
-        if (sum === 0) return angles;
-        return angles.map(a => a * 180 / sum);
+        try {
+            const sum = angles.reduce((s, a) => s + a, 0);
+            if (sum === 0) return angles;
+            return angles.map(a => a * 180 / sum);
+        } catch (error) {
+            return angles;
+        }
     }
 
     isValidTriangle(triangle) {
@@ -615,17 +818,27 @@ class VectorAlgorithm {
     compareTriangles(triangles1, triangles2) {
         if (triangles1.length === 0 || triangles2.length === 0) return 0;
 
-        const hashes1 = new Set(triangles1.map(t => t.geometricHash || t.hash));
-        const hashes2 = new Set(triangles2.map(t => t.geometricHash || t.hash));
+        const hashes1 = new Set(triangles1.map(t => t.geometricHash || t.hash || ''));
+        const hashes2 = new Set(triangles2.map(t => t.geometricHash || t.hash || ''));
 
         let common = 0;
         for (const hash1 of hashes1) {
-            if (hashes2.has(hash1)) {
+            if (hash1 && hashes2.has(hash1)) {
                 common++;
             }
         }
 
         return common / Math.min(triangles1.length, triangles2.length);
+    }
+
+    // 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ СТАТИСТИКИ
+    getStats() {
+        return {
+            algorithm: 'vector_algorithm',
+            minSimilarity: this.minSimilarity,
+            neighborDepth: this.neighborDepth,
+            debug: this.debug
+        };
     }
 }
 
