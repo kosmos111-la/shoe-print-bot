@@ -1,10 +1,19 @@
 // modules/footprint/simple-manager.js
-// 🔥 ИНТЕГРИРОВАН ГЕОМЕТРИЧЕСКИЙ ХЕШ-АЛГОРИТМ
+// 🔥 ИНТЕГРИРОВАН ГЕОМЕТРИЧЕСКИЙ ХЕШ-АЛГОРИТМ ИЗ CLEAN ПАПКИ
 const fs = require('fs');
 const path = require('path');
 
-// 🔥 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ
-const GeometricHashAlgorithm = require('./core/comparison/geometric-hash-algorithm');
+// 🔥 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ ИЗ ПАПКИ CLEAN
+let GeometricHashAlgorithm;
+try {
+    // Пробуем загрузить из папки clean
+    GeometricHashAlgorithm = require('./clean/vector-algorithm');
+    console.log('✅ Геометрический алгоритм загружен из папки clean');
+} catch (error) {
+    console.log(`⚠️ Не удалось загрузить геометрический алгоритм: ${error.message}`);
+    // Фаллбэк
+    GeometricHashAlgorithm = require('./fallback-algorithm');
+}
 
 // 🔥 Legacy фасад ТОЛЬКО для обратной совместимости
 const LegacySupport = require('./legacy-support/coordinate-facade');
@@ -36,12 +45,6 @@ class SimpleFootprintManager {
             templateMatchThreshold = 80,
             minTemplateConfirmations = 1,
             enableCoordinateDiagnostics = true,
-            geometricAlgorithm = {
-                neighborOffsets: [-2, -1, 1, 2],
-                angleTolerance: 10,
-                minSimilarity: 0.6,
-                debug: true
-            },
             ...otherOptions
         } = options;
 
@@ -62,12 +65,13 @@ class SimpleFootprintManager {
             ...otherOptions
         };
 
-        // 🔥 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ
+        // 🔥 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ (настройки из clean папки)
         this.geometricAlgorithm = new GeometricHashAlgorithm({
             neighborOffsets: [-2, -1, 1, 2],
             angleTolerance: 10,
-            minSimilarity: this.DECISION_THRESHOLDS.PATTERN_SIMILARITY,
-            debug: this.config.debug
+            minSimilarity: 0.6, // 60% = ОДНА обувь
+            debug: this.config.debug,
+            useNormalization: true // Используем нормализацию
         });
 
         console.log('✅ Геометрический алгоритм инициализирован');
@@ -96,9 +100,6 @@ class SimpleFootprintManager {
         }
 
         this.geometryUtils = new GeometryUtils(this);
-
-        // 🔥 Удаляем старый matcher, используем геометрический алгоритм вместо него
-        console.log('✅ SimpleMatcher заменен на GeometricHashAlgorithm');
 
         // 🔥 СТРУКТУРЫ ДАННЫХ
         this.userSessions = new Map();
@@ -353,6 +354,50 @@ class SimpleFootprintManager {
         }
     }
 
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию
+    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
+        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
+
+        try {
+            if (!analysis?.predictions) {
+                return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
+            }
+
+            // Извлечение точек
+            const points = this.extractPointsFromAnalysis(analysis);
+            if (points.length < this.config.minPointsForFootprint) {
+                return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
+            }
+
+            // Создание и нормализация графа
+            const { finalGraph, transformationInfo } = this.createAndNormalizeGraph(points, userId, photoInfo);
+
+            // Работа с сессиями
+            const session = this.getOrCreateSession(userId);
+            this.updateSessionData(session, points, transformationInfo);
+
+            // Обработка фото
+            let result;
+            if (!session.currentFootprint) {
+                result = await this.processFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
+            } else {
+                result = await this.processSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
+            }
+
+            console.log(`📊 ИТОГОВЫЙ РЕЗУЛЬТАТ:`, {
+                similarity: result.similarity,
+                decision: result.decision,
+                algorithm: 'geometric_hash'
+            });
+
+            return result;
+
+        } catch (error) {
+            console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
+            return { success: false, error: error.message, nodesAdded: 0 };
+        }
+    }
+
     // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка первого фото
     async processFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
         console.log(`👣 Первое фото: создаю отпечаток и шаблон`);
@@ -395,9 +440,7 @@ class SimpleFootprintManager {
 
         // Создаем визуализацию
         let hasVisualization = false;
-        let hasTemplateViz = false;
         let vizPath = null;
-        let templatePath = null;
 
         if (this.config.enableMergeVisualization) {
             console.log(`🎨 Создаю визуализацию для первого фото...`);
@@ -419,27 +462,11 @@ class SimpleFootprintManager {
             }
         }
 
-        if (this.config.enableTemplateVisualization) {
-            console.log(`🎨 Создаю визуализацию шаблона...`);
-
-            try {
-                const templateVizResult = await this.visualizeVectorSuperModel(userId, vectorModel);
-
-                if (templateVizResult && templateVizResult.template) {
-                    hasTemplateViz = true;
-                    templatePath = templateVizResult.template;
-                    console.log(`✅ Путь к шаблону: ${templatePath}`);
-                }
-            } catch (templateError) {
-                console.log(`⚠️ Ошибка визуализации шаблона: ${templateError.message}`);
-            }
-        }
-
         // Отправка в Telegram
         if (bot && chatId) {
             await this.sendFirstPhotoTelegram(
                 session, userId, transformationInfo, vectorModel, addResult,
-                vizPath, templatePath, bot, chatId
+                vizPath, bot, chatId
             );
         }
 
@@ -453,9 +480,7 @@ class SimpleFootprintManager {
             sessionId: session.id,
             hasTemplate: true,
             hasVisualization: hasVisualization,
-            hasTemplateViz: hasTemplateViz,
             vizPath: vizPath,
-            templatePath: templatePath,
             visualizationPath: vizPath,
             imagePath: vizPath,
             path: vizPath,
@@ -467,7 +492,7 @@ class SimpleFootprintManager {
 
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: отправка первого фото в Telegram
     async sendFirstPhotoTelegram(session, userId, transformationInfo, vectorModel, addResult,
-                               vizPath, templatePath, bot, chatId) {
+                               vizPath, bot, chatId) {
         console.log(`🤖 Отправляю в Telegram...`);
 
         const cleanMarkdown = (text) => text
@@ -500,28 +525,6 @@ class SimpleFootprintManager {
             }
         } else {
             console.log('⚠️ Нет файла визуализации для отправки');
-        }
-
-        // 2. Отправка шаблона
-        if (templatePath && fs.existsSync(templatePath)) {
-            try {
-                const templateData = vectorModel.templateBuilder?.getVisualizationData();
-                const stats = templateData?.stats || {};
-
-                let templateCaption = `📊 ШАБЛОН СОЗДАН\n\n`;
-                templateCaption += `📋 Ячеек: ${stats.cells || 0}\n`;
-                templateCaption += `✅ Готов к накоплению деталей`;
-                templateCaption += `\n\nАлгоритм: 🎯 Геометрический хеш`;
-
-                await bot.sendPhoto(chatId, templatePath, {
-                    caption: cleanMarkdown(templateCaption),
-                    parse_mode: 'HTML'
-                });
-
-                console.log('✅ Визуализация шаблона отправлена');
-            } catch (error) {
-                console.log('❌ Ошибка отправки шаблона:', error.message);
-            }
         }
     }
 
@@ -610,22 +613,6 @@ class SimpleFootprintManager {
             transformationInfo: transformationInfo
         });
 
-        // Обновляем подтверждения с помощью геометрического алгоритма
-        console.log(`📊 Обновляю подтверждения через геометрический алгоритм...`);
-
-        // Извлекаем точки
-        const points1 = this.extractPointsInUnifiedSystem(session.currentFootprint);
-        const points2 = this.extractPointsInUnifiedSystem(tempFootprint);
-
-        // Используем геометрический алгоритм для обновления подтверждений
-        const updatedCount = this.geometricAlgorithm.updatePointConfirmations(
-            points1,
-            points2,
-            comparisonResult.matches || []
-        );
-
-        console.log(`📈 Обновлено точек: ${updatedCount}`);
-
         // Создаем визуализацию
         let hasVisualization = false;
         let vizPath = null;
@@ -671,7 +658,7 @@ class SimpleFootprintManager {
             message: `✅ След добавлен! Сходство: ${(similarity * 100).toFixed(1)}%`,
             hasVisualization: hasVisualization,
             telegramSent: telegramSent,
-            pointsUpdated: updatedCount,
+            pointsUpdated: comparisonResult.matches?.length || 0,
             vizPath: vizPath,
             visualizationPath: vizPath,
             imagePath: vizPath,
@@ -713,50 +700,6 @@ class SimpleFootprintManager {
             } catch (error) {
                 console.log('❌ Ошибка отправки визуализации:', error.message);
             }
-        }
-    }
-
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию
-    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId}`);
-
-        try {
-            if (!analysis?.predictions) {
-                return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
-            }
-
-            // Извлечение точек
-            const points = this.extractPointsFromAnalysis(analysis);
-            if (points.length < this.config.minPointsForFootprint) {
-                return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
-            }
-
-            // Создание и нормализация графа
-            const { finalGraph, transformationInfo } = this.createAndNormalizeGraph(points, userId, photoInfo);
-
-            // Работа с сессиями
-            const session = this.getOrCreateSession(userId);
-            this.updateSessionData(session, points, transformationInfo);
-
-            // Обработка фото
-            let result;
-            if (!session.currentFootprint) {
-                result = await this.processFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
-            } else {
-                result = await this.processSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
-            }
-
-            console.log(`📊 ИТОГОВЫЙ РЕЗУЛЬТАТ:`, {
-                similarity: result.similarity,
-                decision: result.decision,
-                algorithm: result.algorithm || 'geometric_hash'
-            });
-
-            return result;
-
-        } catch (error) {
-            console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
-            return { success: false, error: error.message, nodesAdded: 0 };
         }
     }
 
@@ -821,7 +764,7 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (без изменений, но упрощены)
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     createAndNormalizeGraph(points, userId, photoInfo) {
         const graph = new SimpleGraph(`Временный_${Date.now()}`);
         graph.buildFromPoints(points);
