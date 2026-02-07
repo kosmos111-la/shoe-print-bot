@@ -5,18 +5,19 @@ class SimpleMatcher {
     constructor(options = {}) {
         console.log('🎯 SimpleMatcher заменен на обертку для GeometricHashAlgorithm');
 
-        // 🔥 ЗАГРУЖАЕМ ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ
+        // 🔥 ЗАГРУЖАЕМ ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ ИЗ CLEAN ПАПКИ
         try {
-            const GeometricHashAlgorithm = require('./core/comparison/geometric-hash-algorithm');
+            const GeometricHashAlgorithm = require('./clean/vector-algorithm');
             this.geometricAlgorithm = new GeometricHashAlgorithm({
                 neighborOffsets: [-2, -1, 1, 2],
                 angleTolerance: 10,
                 minSimilarity: options.sameThreshold || 0.6,
                 debug: options.debug || false
             });
-            console.log('✅ Геометрический алгоритм загружен в SimpleMatcher');
+            console.log('✅ Геометрический алгоритм загружен из clean папки');
         } catch (error) {
             console.log(`⚠️ Не удалось загрузить геометрический алгоритм: ${error.message}`);
+            // Фаллбэк
             this.geometricAlgorithm = null;
         }
 
