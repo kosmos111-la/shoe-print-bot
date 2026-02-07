@@ -1,5 +1,5 @@
 // modules/footprint/core/visualization/visualization-manager.js
-// 🔥 МЕНЕДЖЕР ВИЗУАЛИЗАЦИЙ
+// 🔥 ИСПРАВЛЕННЫЙ МЕНЕДЖЕР ВИЗУАЛИЗАЦИЙ - С УЧЕТОМ СОВПАДЕНИЙ
 
 const path = require('path');
 const fs = require('fs');
@@ -10,7 +10,7 @@ class VisualizationManager {
         this.config = manager.config;
     }
 
-    // 🔥 ВАЖНЫЙ МЕТОД: Визуализация подтверждений ОДНОГО следа
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Визуализация подтверждений с учетом совпадений
     async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
         console.log(`🎨 Визуализация подтверждений для "${footprint.name}"...`);
 
@@ -21,18 +21,36 @@ class VisualizationManager {
                 debug: this.config.debug
             });
 
+            // 🔥 ПОЛУЧАЕМ ИНФОРМАЦИЮ О СОВПАДЕНИЯХ ИЗ МЕНЕДЖЕРА
+            const vectorModel = this.manager.getVectorSuperModel(userId);
+            let matchInfo = null;
+           
+            if (vectorModel && vectorModel.templateBuilder) {
+                // Получаем статистику совпадений из шаблона
+                const templateInfo = vectorModel.templateBuilder.getInfo();
+                matchInfo = {
+                    totalConfirmations: templateInfo.stats?.totalConfirmations || 0,
+                    confirmedCells: templateInfo.stats?.confirmedCells || 0,
+                    averageConfirmations: templateInfo.stats?.averageConfirmations || 0,
+                    totalGraphs: templateInfo.stats?.totalGraphs || 0
+                };
+               
+                console.log(`📊 Данные о совпадениях из шаблона:`, matchInfo);
+            }
+
+            // 🔥 ПЕРЕДАЕМ ИНФОРМАЦИЮ О СОВПАДЕНИЯХ
             const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
                 footprint,
                 {
                     filename: `real_confirmations_${userId}_${Date.now()}.png`,
-                    transformationInfo: transformationInfo
+                    transformationInfo: transformationInfo,
+                    matchInfo: matchInfo // 🔥 ПЕРЕДАЕМ ДАННЫЕ О СОВПАДЕНИЯХ
                 }
             );
 
             if (vizResult && vizResult.path) {
                 console.log(`✅ Визуализация создана: ${vizResult.path}`);
 
-                // Проверяем существование файла
                 if (fs.existsSync(vizResult.path)) {
                     const stats = fs.statSync(vizResult.path);
                     console.log(`📊 Размер файла: ${stats.size} байт`);
@@ -52,7 +70,36 @@ class VisualizationManager {
         }
     }
 
-    // 🔥 ВИЗУАЛИЗАЦИЯ ШАБЛОНА
+    // 🔥 НОВЫЙ МЕТОД: Визуализация сравнения двух следов
+    async visualizeFootprintComparison(footprint1, footprint2, userId, comparisonResult) {
+        console.log(`🎨 Визуализация сравнения "${footprint1.name}" vs "${footprint2.name}"...`);
+
+        try {
+            const ClusterVisualizer = require('../../visualizations/cluster-visualizer');
+            const visualizer = new ClusterVisualizer({
+                outputDir: path.join(this.config.dbPath, 'visualizations/comparisons'),
+                debug: this.config.debug
+            });
+
+            const vizResult = await visualizer.visualizeComparison(
+                footprint1,
+                footprint2,
+                {
+                    filename: `comparison_${footprint1.id}_${footprint2.id}_${Date.now()}.png`,
+                    comparisonResult: comparisonResult,
+                    showMatches: true
+                }
+            );
+
+            return vizResult;
+
+        } catch (error) {
+            console.log('❌ Ошибка визуализации сравнения:', error.message);
+            return null;
+        }
+    }
+
+    // 🔥 ИСПРАВЛЕННАЯ ВИЗУАЛИЗАЦИЯ ШАБЛОНА
     async visualizeVectorSuperModel(userId, vectorModel) {
         console.log(`🎨 Создаю визуализацию ШАБЛОНА...`);
 
@@ -116,6 +163,7 @@ class VisualizationManager {
             path.join(this.config.dbPath, 'visualizations'),
             path.join(this.config.dbPath, 'visualizations/clusters'),
             path.join(this.config.dbPath, 'visualizations/templates'),
+            path.join(this.config.dbPath, 'visualizations/comparisons'),
             path.join(this.config.dbPath, 'visualizations/alignments')
         ];
 
