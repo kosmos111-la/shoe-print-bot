@@ -1,114 +1,139 @@
-// test-geometric.js
+// node test-geometric.js
 const SimpleManager = require('./modules/footprint/simple-manager.js');
-const manager = new SimpleManager({ debug: true });
+const manager = new SimpleManager({ debug: false }); // Уменьшим вывод
 
-// Тестовые точки (БОЛЬШЕ точек!)
-const points1 = [
+console.log('🎯 ТЕСТ РАЗНЫХ СЛУЧАЕВ ГЕОМЕТРИЧЕСКОГО АЛГОРИТМА\n');
+
+// Тест 1: Идентичные точки
+console.log('🔬 ТЕСТ 1: ИДЕНТИЧНЫЕ ТОЧКИ');
+const identicalPoints = [
     { x: 100, y: 100, id: 'p1' },
     { x: 200, y: 200, id: 'p2' },
     { x: 300, y: 300, id: 'p3' },
     { x: 150, y: 150, id: 'p4' },
-    { x: 250, y: 250, id: 'p5' },
-    { x: 120, y: 180, id: 'p6' },
-    { x: 180, y: 120, id: 'p7' },
-    { x: 220, y: 280, id: 'p8' },
-    { x: 280, y: 220, id: 'p9' },
-    { x: 130, y: 270, id: 'p10' }
+    { x: 250, y: 250, id: 'p5' }
 ];
 
-const points2 = [
-    { x: 105, y: 105, id: 'p1' },
-    { x: 205, y: 205, id: 'p2' },
-    { x: 305, y: 305, id: 'p3' },
-    { x: 155, y: 155, id: 'p4' },
-    { x: 255, y: 255, id: 'p5' },
-    { x: 125, y: 185, id: 'p6' },
-    { x: 185, y: 125, id: 'p7' },
-    { x: 225, y: 285, id: 'p8' },
-    { x: 285, y: 225, id: 'p9' },
-    { x: 135, y: 275, id: 'p10' }
+const result1 = manager.geometricAlgorithm.comparePoints(
+    identicalPoints,
+    identicalPoints,
+    'Идентичные 1',
+    'Идентичные 2'
+);
+console.log(`• Схожесть: ${(result1.similarity * 100).toFixed(1)}%`);
+console.log(`• Решение: ${result1.decision === 'same' ? '✅ ОДНА обувь' : '❌ РАЗНАЯ обувь'}`);
+console.log(`• Совпадений: ${result1.matches?.length || 0}\n`);
+
+// Тест 2: Немного смещенные точки
+console.log('🔬 ТЕСТ 2: СМЕЩЕННЫЕ ТОЧКИ (+10px)');
+const shiftedPoints = identicalPoints.map(p => ({
+    ...p,
+    x: p.x + 10,
+    y: p.y + 10
+}));
+
+const result2 = manager.geometricAlgorithm.comparePoints(
+    identicalPoints,
+    shiftedPoints,
+    'Оригинал',
+    'Смещенные'
+);
+console.log(`• Схожесть: ${(result2.similarity * 100).toFixed(1)}%`);
+console.log(`• Решение: ${result2.decision === 'same' ? '✅ ОДНА обувь' : '❌ РАЗНАЯ обувь'}`);
+console.log(`• Совпадений: ${result2.matches?.length || 0}\n`);
+
+// Тест 3: Совершенно разные точки
+console.log('🔬 ТЕСТ 3: РАЗНЫЕ ТОЧКИ');
+const differentPoints = [
+    { x: 500, y: 500, id: 'p1' },
+    { x: 600, y: 600, id: 'p2' },
+    { x: 700, y: 700, id: 'p3' },
+    { x: 550, y: 550, id: 'p4' },
+    { x: 650, y: 650, id: 'p5' }
 ];
 
-async function test() {
-    console.log('\n🎯 ТЕСТ ГЕОМЕТРИЧЕСКОГО АЛГОРИТМА\n');
-   
-    console.log(`📊 Создаю отпечатки из ${points1.length} и ${points2.length} точек`);
-   
-    // Создаем отпечатки напрямую через алгоритм
-    const geo1 = manager.geometricAlgorithm.createFootprint(points1, 'test1');
-    const geo2 = manager.geometricAlgorithm.createFootprint(points2, 'test2');
-   
-    console.log(`✅ Создано отпечатков: ${geo1.length} и ${geo2.length} точек`);
-   
-    if (geo1.length === 0 || geo2.length === 0) {
-        console.log('❌ Ошибка: пустые отпечатки!');
-        console.log('Проверьте метод createFootprint в vector-algorithm.js');
-        return;
+const result3 = manager.geometricAlgorithm.comparePoints(
+    identicalPoints,
+    differentPoints,
+    'Оригинал',
+    'Разные'
+);
+console.log(`• Схожесть: ${(result3.similarity * 100).toFixed(1)}%`);
+console.log(`• Решение: ${result3.decision === 'same' ? '✅ ОДНА обувь' : '❌ РАЗНАЯ обувь'}`);
+console.log(`• Совпадений: ${result3.matches?.length || 0}\n`);
+
+// Тест 4: Тест через менеджер с разными точками
+console.log('🔬 ТЕСТ 4: ЧЕРЕЗ МЕНЕДЖЕР (разные точки)');
+const SimpleFootprint = require('./modules/footprint/simple-footprint');
+
+const footprint1 = new SimpleFootprint({ userId: 'test', name: 'Тест1' });
+const footprint2 = new SimpleFootprint({ userId: 'test', name: 'Тест2' });
+
+// Добавляем разные точки
+identicalPoints.forEach(p => {
+    if (footprint1.pointTracker) {
+        footprint1.pointTracker.points.set(p.id, {
+            id: p.id,
+            x: p.x,
+            y: p.y,
+            confidence: 0.8,
+            confirmedCount: 1
+        });
     }
-   
-    // Сравниваем
-    const result = manager.geometricAlgorithm.compareFootprints(geo1, geo2, 'Отпечаток 1', 'Отпечаток 2');
-   
-    console.log('\n🎯 РЕЗУЛЬТАТ:');
-    console.log(`• Схожесть: ${(result.similarity * 100).toFixed(1)}%`);
-    console.log(`• Решение: ${result.decision === 'same' ? '✅ ОДНА обувь' : '❌ РАЗНАЯ обувь'}`);
-   
-    if (result.stats) {
-        console.log(`• Совпадения уровня 1: ${result.stats.level1Matches || 0}`);
-        console.log(`• Совпадения уровня 2: ${result.stats.level2Matches || 0}`);
-        console.log(`• Совпадения уровня 3: ${result.stats.level3Matches || 0}`);
-        console.log(`• Всего совпадений: ${result.stats.totalMatches || 0}`);
+});
+
+differentPoints.forEach(p => {
+    if (footprint2.pointTracker) {
+        footprint2.pointTracker.points.set(p.id, {
+            id: p.id,
+            x: p.x,
+            y: p.y,
+            confidence: 0.8,
+            confirmedCount: 1
+        });
     }
-   
-    // Тест через менеджер
-    console.log('\n🔍 ТЕСТ ЧЕРЕЗ МЕНЕДЖЕР:');
-   
-    // Создаем простые отпечатки
-    const SimpleFootprint = require('./modules/footprint/simple-footprint');
-    const footprint1 = new SimpleFootprint({
-        userId: 'test',
-        name: 'Тест1'
-    });
-   
-    const footprint2 = new SimpleFootprint({
-        userId: 'test',
-        name: 'Тест2'
-    });
-   
-    // Добавляем точки
-    points1.forEach((p, i) => {
-        if (footprint1.pointTracker) {
-            footprint1.pointTracker.points.set(p.id, {
-                id: p.id,
-                x: p.x,
-                y: p.y,
-                confidence: 0.8,
-                confirmedCount: 1
-            });
+});
+
+manager.compareFootprints(footprint1, footprint2)
+    .then(result => {
+        console.log(`• Схожесть: ${(result.similarity * 100).toFixed(1)}%`);
+        console.log(`• Решение: ${result.decision === 'same' ? '✅ ОДНА обувь' : '❌ РАЗНАЯ обувь'}`);
+        console.log(`• Метод: ${result.method}`);
+       
+        if (result.stats) {
+            console.log(`• Совпадение fp1→fp2: ${result.stats.percent1to2}%`);
+            console.log(`• Совпадение fp2→fp1: ${result.stats.percent2to1}%`);
         }
-    });
+    })
+    .catch(err => console.error('Ошибка:', err));
+
+// Тест 5: Проверка порогов
+console.log('\n🔬 ТЕСТ 5: ПРОВЕРКА ПОРОГОВ');
+console.log('Текущий порог: 60% (0.6)');
+console.log('Ожидаемое поведение:');
+console.log('- >60% = ОДНА обувь');
+console.log('- <60% = РАЗНАЯ обувь');
+
+const testThresholds = [0.2, 0.4, 0.6, 0.8, 1.0];
+testThresholds.forEach(threshold => {
+    const testPoints = identicalPoints.map((p, i) => ({
+        ...p,
+        x: p.x + (i * 50 * (1 - threshold)) // Чем меньше схожесть, тем больше смещение
+    }));
    
-    points2.forEach((p, i) => {
-        if (footprint2.pointTracker) {
-            footprint2.pointTracker.points.set(p.id, {
-                id: p.id,
-                x: p.x,
-                y: p.y,
-                confidence: 0.8,
-                confirmedCount: 1
-            });
-        }
-    });
+    const result = manager.geometricAlgorithm.comparePoints(
+        identicalPoints,
+        testPoints,
+        'Оригинал',
+        `Тест ${(threshold * 100).toFixed(0)}%`
+    );
    
-    console.log(`📊 Отпечатки созданы: ${footprint1.pointTracker?.points.size || 0} и ${footprint2.pointTracker?.points.size || 0} точек`);
-   
-    // Сравниваем через менеджер
-    const managerResult = await manager.compareFootprints(footprint1, footprint2);
-   
-    console.log(`\n🎯 РЕЗУЛЬТАТ МЕНЕДЖЕРА:`);
-    console.log(`• Схожесть: ${(managerResult.similarity * 100).toFixed(1)}%`);
-    console.log(`• Решение: ${managerResult.decision === 'same' ? '✅ ОДНА обувь' : '❌ РАЗНАЯ обувь'}`);
-    console.log(`• Метод: ${managerResult.method}`);
+    console.log(`\nПорог ${(threshold * 100).toFixed(0)}%:`);
+    console.log(`  • Фактическая схожесть: ${(result.similarity * 100).toFixed(1)}%`);
+    console.log(`  • Решение: ${result.decision === 'same' ? '✅ ОДНА' : '❌ РАЗНАЯ'}`);
+    console.log(`  • Ожидалось: ${threshold >= 0.6 ? '✅ ОДНА' : '❌ РАЗНАЯ'}`);
+    console.log(`  • Статус: ${(result.decision === 'same') === (threshold >= 0.6) ? '✅ ПРАВИЛЬНО' : '❌ ОШИБКА'}`);
+});
 }
 
 test();
