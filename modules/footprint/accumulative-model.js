@@ -15,15 +15,15 @@ class AccumulativeModel {
     // 🔥 ДОБАВЛЯЕМ СЛЕД (ВЕКТОРНЫЙ ОТПЕЧАТОК ИЗ vector-algorithm.js)
     addFootprint(footprint, footprintId) {
         console.log(`➕ Добавляю след ${footprintId} с ${footprint.length} точками`);
-       
+
         const passportHashes = new Set();
-       
+
         footprint.forEach(point => {
             const geoHash = point.geometricHash || point.vectorId;
             if (!geoHash) return;
-           
+
             passportHashes.add(geoHash);
-           
+
             // 🔥 НАКОПЛЕНИЕ: добавляем или обновляем геометрический паспорт
             if (this.geometricPassports.has(geoHash)) {
                 // Уже есть - увеличиваем подтверждения
@@ -42,20 +42,20 @@ class AccumulativeModel {
                 });
             }
         });
-       
+
         // Сохраняем связь след -> геометрические паспорты
         this.footprints.set(footprintId, passportHashes);
-       
+
         // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
         this.updateStats();
-       
+
         console.log(`✅ Добавлено. Уникальных геометрических паспортов: ${this.geometricPassports.size}`);
     }
 
     updateStats() {
         this.confirmationStats.totalPassports = this.geometricPassports.size;
         this.confirmationStats.byConfirmations = { '1': 0, '2': 0, '3+': 0 };
-       
+
         for (const passport of this.geometricPassports.values()) {
             const confirmations = passport.confirmations || 1;
             if (confirmations >= 3) {
@@ -71,12 +71,12 @@ class AccumulativeModel {
     // 🔥 ПОЛУЧИТЬ ВСЕ ТОЧКИ ДЛЯ ВИЗУАЛИЗАЦИИ
     getVisualizationData() {
         const points = [];
-       
+
         for (const passport of this.geometricPassports.values()) {
             if (!passport.examplePoint) continue;
-           
+
             const confirmations = passport.confirmations || 1;
-           
+
             // 🔥 ЦВЕТ ПО КОЛИЧЕСТВУ ПОДТВЕРЖДЕНИЙ
             let color, size;
             if (confirmations >= 3) {
@@ -89,7 +89,7 @@ class AccumulativeModel {
                 color = '#2196F3'; // 🔵 Синий: 1 подтверждение
                 size = 5;
             }
-           
+
             points.push({
                 id: passport.geometricHash,
                 x: passport.examplePoint.x || 0,
@@ -101,7 +101,7 @@ class AccumulativeModel {
                 geometricHash: passport.geometricHash
             });
         }
-       
+
         return {
             points: points,
             stats: this.confirmationStats,
@@ -110,3 +110,5 @@ class AccumulativeModel {
         };
     }
 }
+
+module.exports = AccumulativeModel;
