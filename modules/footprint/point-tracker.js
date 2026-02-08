@@ -1,5 +1,5 @@
 // modules/footprint/point-tracker.js
-// 🔥 ИСПРАВЛЕННЫЙ - БЕЗ СПАМА В ЛОГАХ + ГЕОМЕТРИЧЕСКИЕ ХЕШИ
+// 🔥 УПРОЩЕННЫЙ - ДЛЯ СОВМЕСТИМОСТИ С АККУМУЛЯТОРОМ
 
 const crypto = require('crypto');
 
@@ -13,28 +13,17 @@ class PointTracker {
             maxRating: options.maxRating || 1.0,
             confirmationThreshold: options.confirmationThreshold || 0.7,
 
-            // 🔥 ОТКЛЮЧЕН СПАМ В ЛОГАХ
+            // 🔥 МИНИМАЛЬНЫЙ ЛОГГИНГ
             debug: options.debug || false,
 
-            enableClustering: false,
-            clusterRadius: options.clusterRadius || 30,
-            minClusterSize: 1,
-            adaptiveDistance: options.adaptiveDistance !== false,
-            baseDistanceThreshold: options.baseDistanceThreshold || 15,
-
-            // Настройки обработки точек
-            directUpdateThreshold: options.directUpdateThreshold || 15,
-            forceUpdateOnMerge: false,
-            honestConfirmations: true,
-            maxConfirmationsPerPhoto: 1,
-
-            pointMergeDistance: options.pointMergeDistance || 10,
-            newPointThreshold: options.newPointThreshold || 8,
-            exactMatchMode: options.exactMatchMode !== false
+            // Простые настройки
+            pointMergeDistance: options.pointMergeDistance || 15,
+            newPointThreshold: options.newPointThreshold || 10,
+            exactMatchMode: false // 🔥 ОТКЛЮЧАЕМ ТОЧНЫЕ СОВПАДЕНИЯ
         };
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: БЕЗ СПАМА О СОЗДАНИИ КАЖДОЙ ТОЧКИ
+    // 🔥 УПРОЩЕННЫЙ МЕТОД: ОБРАБОТКА НОВЫХ ТОЧЕК
     processNewPoints(newPoints, sourceInfo = {}) {
         console.log(`🎯 Обработка ${newPoints.length} точек...`);
 
@@ -50,43 +39,59 @@ class PointTracker {
         const photoHash = sourceInfo.photoId ||
                          crypto.createHash('md5').update(JSON.stringify(newPoints)).digest('hex').substring(0, 8);
 
-        // 🔥 ОБРАБОТКА БЕЗ ДЕТАЛЬНОГО ЛОГГИРОВАНИЯ
+        // 🔥 ПРОСТАЯ ОБРАБОТКА
         newPoints.forEach((point, index) => {
+            // Пытаемся найти ближайшую точку
             const nearest = this.findNearestPoint(point, this.config.pointMergeDistance);
 
             if (nearest) {
-                // Проверяем, не подтверждена ли уже эта точка этим фото
-                const pointData = this.points.get(nearest.id);
-                if (pointData && pointData.confirmedPhotos && pointData.confirmedPhotos.has(photoHash)) {
-                    results.skipped++;
-                    return; // Пропускаем дубликат
-                }
+                // 🔥 ПРОВЕРЯЕМ, ЕСТЬ ЛИ ГЕОМЕТРИЧЕСКИЙ ХЕШ
+                if (point.geometricHash && nearest.point.geometricHash === point.geometricHash) {
+                    // ГЕОМЕТРИЧЕСКОЕ СОВПАДЕНИЕ - обновляем
+                    const updateSuccess = this._updatePointSimple(
+                        nearest.id,
+                        point,
+                        {
+                            ...sourceInfo,
+                            photoId: photoHash,
+                            distance: nearest.distance,
+                            geometricMatch: true
+                        }
+                    );
 
-                const updateSuccess = this._updatePointHonest(
-                    nearest.id,
-                    point,
-                    {
-                        ...sourceInfo,
-                        confirmationType: 'direct',
-                        photoId: photoHash,
-                        pointIndex: index,
-                        distance: nearest.distance
+                    if (updateSuccess) {
+                        results.updated++;
+                        results.merged++;
+                    } else {
+                        results.skipped++;
                     }
-                );
-
-                if (updateSuccess) {
-                    results.updated++;
-                    results.merged++;
                 } else {
-                    results.skipped++;
+                    // Пространственное совпадение
+                    const updateSuccess = this._updatePointSimple(
+                        nearest.id,
+                        point,
+                        {
+                            ...sourceInfo,
+                            photoId: photoHash,
+                            distance: nearest.distance
+                        }
+                    );
+
+                    if (updateSuccess) {
+                        results.updated++;
+                        results.merged++;
+                    } else {
+                        results.skipped++;
+                    }
                 }
             } else {
+                // 🔥 НОВАЯ ТОЧКА
                 const distanceToNearest = this._getDistanceToNearestExistingPoint(point);
 
                 if (distanceToNearest < this.config.newPointThreshold) {
                     results.skipped++;
                 } else {
-                    const newPointId = this._createNewPoint(point, {
+                    const newPointId = this._createNewPointSimple(point, {
                         ...sourceInfo,
                         photoId: photoHash,
                         pointIndex: index
@@ -115,6 +120,12 @@ class PointTracker {
                 if (point) {
                     point.confirmedCount = (point.confirmedCount || 1) + 1;
                     point.lastSeen = new Date();
+                   
+                    // 🔥 ОБНОВЛЯЕМ ГЕОМЕТРИЧЕСКИЙ ХЕШ ЕСЛИ ЕСТЬ
+                    if (match.point2 && match.point2.geometricHash && !point.geometricHash) {
+                        point.geometricHash = match.point2.geometricHash;
+                    }
+                   
                     updated++;
                 }
             }
@@ -126,6 +137,8 @@ class PointTracker {
 
     // 🔥 НОВЫЙ МЕТОД: Найти точку по геометрическому хешу
     findPointByGeometricHash(geometricHash) {
+        if (!geometricHash) return null;
+
         for (const [id, point] of this.points) {
             if (point.geometricHash === geometricHash) {
                 return point;
@@ -134,8 +147,8 @@ class PointTracker {
         return null;
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ТИХОЕ СОЗДАНИЕ ТОЧКИ
-    _createNewPoint(point, sourceInfo = {}) {
+    // 🔥 УПРОЩЕННЫЙ МЕТОД: СОЗДАНИЕ ТОЧКИ
+    _createNewPointSimple(point, sourceInfo = {}) {
         const newPointId = `pt_${this.nextId++}`;
 
         const pointData = {
@@ -164,24 +177,24 @@ class PointTracker {
 
         this.points.set(newPointId, pointData);
 
-        // 🔥 ТИХИЙ ЛОГ (только при дебаге)
+        // 🔥 МИНИМАЛЬНЫЙ ЛОГ
         if (this.config.debug) {
-            console.log(`✅ Создана точка ${newPointId} на (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+            console.log(`✅ Создана точка ${newPointId}`);
         }
 
         return newPointId;
     }
 
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ТИХОЕ ОБНОВЛЕНИЕ
-    _updatePointHonest(pointId, newPoint, sourceInfo = {}) {
+    // 🔥 УПРОЩЕННЫЙ МЕТОД: ОБНОВЛЕНИЕ ТОЧКИ
+    _updatePointSimple(pointId, newPoint, sourceInfo = {}) {
         const pointData = this.points.get(pointId);
         if (!pointData) return false;
 
         const photoHash = sourceInfo.photoId || 'unknown';
 
-        // 🔥 ПРОВЕРКА БЕЗ СПАМА
+        // 🔥 ПРОВЕРЯЕМ, НЕ БЫЛО ЛИ УЖЕ ЭТОГО ФОТО
         if (pointData.confirmedPhotos && pointData.confirmedPhotos.has(photoHash)) {
-            return false; // Просто возвращаем false без спама
+            return false;
         }
 
         // Увеличиваем количество подтверждений
@@ -190,12 +203,14 @@ class PointTracker {
         if (!pointData.confirmedPhotos) pointData.confirmedPhotos = new Set();
         pointData.confirmedPhotos.add(photoHash);
 
-        // Обновляем координаты с весом
-        const updateDistance = sourceInfo.distance || 0;
-        const weight = Math.max(0.1, Math.min(0.9, 1.0 - (updateDistance / 20)));
+        // 🔥 ОБНОВЛЯЕМ КООРДИНАТЫ ТОЛЬКО ПРИ ГЕОМЕТРИЧЕСКОМ СОВПАДЕНИИ
+        if (sourceInfo.geometricMatch) {
+            const updateDistance = sourceInfo.distance || 0;
+            const weight = Math.max(0.1, Math.min(0.9, 1.0 - (updateDistance / 20)));
 
-        pointData.x = pointData.x * (1 - weight) + newPoint.x * weight;
-        pointData.y = pointData.y * (1 - weight) + newPoint.y * weight;
+            pointData.x = pointData.x * (1 - weight) + newPoint.x * weight;
+            pointData.y = pointData.y * (1 - weight) + newPoint.y * weight;
+        }
 
         // Обновляем рейтинг
         pointData.rating = this.calculateUpdatedRating(
@@ -210,34 +225,16 @@ class PointTracker {
 
         pointData.lastSeen = new Date();
 
-        // 🔥 ТИХИЙ ЛОГ (только при дебаге)
+        // 🔥 МИНИМАЛЬНЫЙ ЛОГ
         if (this.config.debug) {
-            console.log(`🔄 Точка ${pointId}: подтверждений=${pointData.confirmedCount}`);
+            console.log(`🔄 Точка ${pointId}: ${pointData.confirmedCount} подтверждений`);
         }
 
         return true;
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Найти точку по ID
-    _findPointById(pointId) {
-        if (!pointId) return null;
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 
-        // Прямой поиск
-        if (this.points.has(pointId)) {
-            return { id: pointId, data: this.points.get(pointId) };
-        }
-
-        // Поиск по originalId
-        for (const [id, pointData] of this.points) {
-            if (pointData.originalId === pointId || pointData.id === pointId) {
-                return { id, data: pointData };
-            }
-        }
-
-        return null;
-    }
-
-    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ
     findNearestPoint(point, maxDistance = 15) {
         let nearest = null;
         let minDistance = Infinity;
@@ -282,10 +279,6 @@ class PointTracker {
         const decayedRating = currentRating * this.config.ratingDecay;
         const updatedRating = decayedRating + (newConfidence * (1 - this.config.ratingDecay));
         return Math.min(this.config.maxRating, Math.max(this.config.minRating, updatedRating));
-    }
-
-    getHonestStats() {
-        return this.getStats();
     }
 
     getStats() {
@@ -334,6 +327,43 @@ class PointTracker {
         return photoSet.size;
     }
 
+    // 🔥 МЕТОД: Получить все точки с геометрическими хешами
+    getPointsWithGeometricHashes() {
+        const points = [];
+       
+        for (const [id, point] of this.points) {
+            if (point.geometricHash) {
+                points.push({
+                    id: id,
+                    x: point.x,
+                    y: point.y,
+                    confidence: point.confidence || 0.5,
+                    geometricHash: point.geometricHash,
+                    confirmations: point.confirmedCount || 1,
+                    source: 'point_tracker'
+                });
+            }
+        }
+       
+        return points;
+    }
+
+    // 🔥 МЕТОД: Добавить геометрические хеши к точкам
+    addGeometricHashesToPoints(geometricHashesMap) {
+        let updated = 0;
+       
+        for (const [pointId, geometricHash] of Object.entries(geometricHashesMap)) {
+            const point = this.points.get(pointId);
+            if (point && !point.geometricHash) {
+                point.geometricHash = geometricHash;
+                updated++;
+            }
+        }
+       
+        console.log(`✅ Добавлено ${updated} геометрических хешей к точкам`);
+        return updated;
+    }
+
     toJSON() {
         const pointsArray = Array.from(this.points.entries()).map(([id, point]) => {
             const serializedPoint = { ...point };
@@ -347,7 +377,7 @@ class PointTracker {
             points: pointsArray,
             nextId: this.nextId,
             config: this.config,
-            _version: '4.0-clean-logs',
+            _version: '4.1-simple-accumulator',
             _savedAt: new Date().toISOString()
         };
         return data;
