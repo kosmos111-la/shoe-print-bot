@@ -1,5 +1,6 @@
 // modules/footprint/simple-manager.js
 // 🔥 ИНТЕГРИРОВАН ГЕОМЕТРИЧЕСКИЙ ХЕШ-АЛГОРИТМ - ТОЛЬКО ВЕКТОРНЫЕ ОПЕРАЦИИ
+// 🔥 ДОБАВЛЕНО ОБНОВЛЕНИЕ ПОДТВЕРЖДЕНИЙ ИЗ ГЕОМЕТРИЧЕСКИХ СОВПАДЕНИЙ
 
 const fs = require('fs');
 const path = require('path');
@@ -324,7 +325,6 @@ class SimpleFootprintManager {
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (остаются без изменений, но могут быть оптимизированы)
-
     createAndNormalizeGraph(points, userId, photoInfo) {
         const graph = new SimpleGraph(`Временный_${Date.now()}`);
         graph.buildFromPoints(points);
@@ -538,6 +538,22 @@ class SimpleFootprintManager {
         console.log(`   Требуется: >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
         console.log(`   Решение: ${decision}`);
 
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ В POINT TRACKER
+        if (comparisonResult.matches && comparisonResult.matches.length > 0) {
+            console.log(`🔄 Обновляю подтверждения точек из геометрических совпадений...`);
+
+            const updatedCount = session.currentFootprint.pointTracker.updateFromGeometricMatches(
+                comparisonResult.matches,
+                {
+                    photoId: photoInfo.photoId || `geo_match_${Date.now()}`,
+                    similarity: comparisonResult.similarity,
+                    timestamp: new Date()
+                }
+            );
+
+            console.log(`✅ Обновлено ${updatedCount} точек с подтверждениями`);
+        }
+
         if (decision === 'same') {
             return await this.processMatchingFootprint(
                 session, userId, tempFootprint, finalGraph, transformationInfo,
@@ -741,7 +757,6 @@ class SimpleFootprintManager {
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ФАЙЛОВОЙ СИСТЕМЫ
-
     ensureDirectories() {
         const dirs = [
             this.config.dbPath,
@@ -875,7 +890,6 @@ class SimpleFootprintManager {
     }
 
     // 🔥 МЕТОДЫ СЕССИЙ
-
     getActiveSession(userId) {
         return this.sessionManager.getActiveSession(userId);
     }
@@ -909,7 +923,6 @@ class SimpleFootprintManager {
     }
 
     // 🔥 TELEGRAM МЕТОДЫ (если нужны)
-
     async sendFirstPhotoTelegram(session, userId, transformationInfo, vectorModel, addResult,
                                vizPath, bot, chatId) {
         console.log(`🤖 Отправляю в Telegram (ВЕКТОРНЫЙ)...`);
