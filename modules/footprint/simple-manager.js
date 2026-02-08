@@ -1,230 +1,28 @@
 // modules/footprint/simple-manager.js
-// 🔥 АККУМУЛЯЦИОННАЯ МОДЕЛЬ - СОБИРАЕМ ВСЕ ТОЧКИ
+// 🔥 ИЗМЕНЕННЫЙ ДЛЯ ИСПОЛЬЗОВАНИЯ АККУМУЛЯЦИОННОЙ МОДЕЛИ
 
 const fs = require('fs');
 const path = require('path');
 
-// 🔥 КЛАСС АККУМУЛЯТОРА
-class AccumulativeFootprint {
-    constructor(userId) {
-        this.userId = userId;
-        this.id = `accum_${userId}_${Date.now()}`;
-        this.name = `Аккумуляторный след ${userId}`;
-       
-        // 🔥 ХРАНИМ ВСЕ ТОЧКИ ИЗ ВСЕХ ФОТО
-        this.allPoints = new Map(); // pointId -> {x, y, seenInPhotos: [], confirmedCount, confidence}
-        this.photos = []; // История всех фото
-       
-        // Статистика
-        this.stats = {
-            totalPhotos: 0,
-            totalPoints: 0,
-            confirmed3: 0, // 3+ фото
-            confirmed2: 0, // 2 фото
-            confirmed1: 0, // 1 фото
-            createdAt: new Date(),
-            lastUpdated: new Date()
-        };
-       
-        console.log(`🏗️ Создан AccumulativeFootprint для пользователя ${userId}`);
-    }
-   
-    // 🔥 ГЕНЕРИРУЕМ ID ТОЧКИ НА ОСНОВЕ КООРДИНАТ
-    getPointId(point) {
-        // Округляем координаты для группировки близких точек
-        const gridSize = 5; // 5px сетка
-        const gridX = Math.round(point.x / gridSize) * gridSize;
-        const gridY = Math.round(point.y / gridSize) * gridSize;
-        return `pt_${gridX}_${gridY}`;
-    }
-   
-    // 🔥 ДОБАВЛЯЕМ ФОТО С ТОЧКАМИ
-    addPhoto(points, photoInfo = {}) {
-        const photoId = photoInfo.photoId || `photo_${Date.now()}`;
-        console.log(`📸 Добавляю фото ${photoId} с ${points.length} точками`);
-       
-        let newPoints = 0;
-        let confirmedPoints = 0;
-       
-        points.forEach((point, index) => {
-            const pointId = this.getPointId(point);
-           
-            if (!this.allPoints.has(pointId)) {
-                // 🔥 НОВАЯ ТОЧКА
-                this.allPoints.set(pointId, {
-                    id: pointId,
-                    x: point.x,
-                    y: point.y,
-                    originalX: point.x,
-                    originalY: point.y,
-                    confidence: point.confidence || 0.5,
-                    seenInPhotos: [photoId],
-                    confirmedCount: 1,
-                    firstSeen: new Date(),
-                    lastSeen: new Date(),
-                    sources: [photoInfo.source || 'unknown'],
-                    isNew: true
-                });
-                newPoints++;
-            } else {
-                // 🔥 СУЩЕСТВУЮЩАЯ ТОЧКА - ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ
-                const existing = this.allPoints.get(pointId);
-               
-                // Проверяем, не было ли уже этого фото
-                if (!existing.seenInPhotos.includes(photoId)) {
-                    existing.seenInPhotos.push(photoId);
-                    existing.confirmedCount++;
-                    existing.lastSeen = new Date();
-                    existing.confidence = Math.min(1.0, existing.confidence + 0.1);
-                   
-                    if (photoInfo.source && !existing.sources.includes(photoInfo.source)) {
-                        existing.sources.push(photoInfo.source);
-                    }
-                   
-                    confirmedPoints++;
-                }
-            }
-        });
-       
-        // Сохраняем информацию о фото
-        this.photos.push({
-            id: photoId,
-            timestamp: new Date(),
-            pointsCount: points.length,
-            newPoints: newPoints,
-            confirmedPoints: confirmedPoints,
-            info: photoInfo
-        });
-       
-        // Обновляем статистику
-        this.stats.totalPhotos++;
-        this.stats.lastUpdated = new Date();
-        this.updateStats();
-       
-        console.log(`✅ Добавлено: ${newPoints} новых, ${confirmedPoints} подтверждено точек`);
-        return { newPoints, confirmedPoints, photoId };
-    }
-   
-    // 🔥 ОБНОВЛЯЕМ СТАТИСТИКУ
-    updateStats() {
-        this.stats.totalPoints = this.allPoints.size;
-       
-        let confirmed3 = 0, confirmed2 = 0, confirmed1 = 0;
-       
-        for (const point of this.allPoints.values()) {
-            if (point.confirmedCount >= 3) {
-                confirmed3++;
-            } else if (point.confirmedCount >= 2) {
-                confirmed2++;
-            } else {
-                confirmed1++;
-            }
+// 🔥 ИМПОРТ АККУМУЛЯЦИОННОЙ МОДЕЛИ
+let AccumulativeModel;
+try {
+    AccumulativeModel = require('./accumulative-model');
+    console.log('✅ Аккумуляционная модель загружена');
+} catch (error) {
+    console.log(`⚠️ Не удалось загрузить аккумуляционную модель: ${error.message}`);
+    // Фоллбэк класс
+    AccumulativeModel = class {
+        constructor(options = {}) {
+            this.id = `accum_${Date.now()}`;
+            this.geometricPassports = new Map();
+            this.footprints = new Map();
+            this.confirmationStats = {
+                totalPassports: 0,
+                byConfirmations: { '1': 0, '2': 0, '3+': 0 }
+            };
         }
-       
-        this.stats.confirmed3 = confirmed3;
-        this.stats.confirmed2 = confirmed2;
-        this.stats.confirmed1 = confirmed1;
-       
-        console.log(`📊 Аккумулятор: ${this.stats.totalPoints} точек (${confirmed3}🔴/${confirmed2}🟠/${confirmed1}🔵)`);
-    }
-   
-    // 🔥 ПОЛУЧАЕМ ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ
-    getVisualizationData() {
-        const points = [];
-       
-        for (const point of this.allPoints.values()) {
-            // Определяем цвет по подтверждениям
-            let color, size, status;
-           
-            if (point.confirmedCount >= 3) {
-                color = '#FF0000'; // 🔴
-                size = 10;
-                status = 'high_confidence';
-            } else if (point.confirmedCount >= 2) {
-                color = '#FF6B00'; // 🟠
-                size = 7;
-                status = 'medium_confidence';
-            } else {
-                color = '#2196F3'; // 🔵
-                size = 5;
-                status = 'low_confidence';
-            }
-           
-            points.push({
-                id: point.id,
-                x: point.x,
-                y: point.y,
-                color: color,
-                size: size,
-                confirmations: point.confirmedCount,
-                confidence: point.confidence,
-                status: status,
-                firstSeen: point.firstSeen,
-                lastSeen: point.lastSeen,
-                photoCount: point.seenInPhotos.length,
-                isNew: point.isNew || false
-            });
-        }
-       
-        return {
-            id: this.id,
-            userId: this.userId,
-            name: this.name,
-            points: points,
-            stats: this.stats,
-            photos: this.photos,
-            totalPoints: this.stats.totalPoints,
-            visualizationType: 'accumulative'
-        };
-    }
-   
-    // 🔥 ГЕОМЕТРИЧЕСКОЕ СРАВНЕНИЕ С ДРУГИМ АККУМУЛЯТОРОМ
-    compareWith(otherAccumulator) {
-        const myPoints = this.getVisualizationData().points;
-        const otherPoints = otherAccumulator.getVisualizationData().points;
-       
-        const SIMILARITY_THRESHOLD = 30; // 30px
-       
-        let matches = 0;
-        let totalCompared = Math.min(myPoints.length, otherPoints.length);
-       
-        // Простое сравнение по расстоянию
-        for (const myPoint of myPoints) {
-            for (const otherPoint of otherPoints) {
-                const distance = Math.sqrt(
-                    Math.pow(otherPoint.x - myPoint.x, 2) +
-                    Math.pow(otherPoint.y - myPoint.y, 2)
-                );
-               
-                if (distance < SIMILARITY_THRESHOLD) {
-                    matches++;
-                    break;
-                }
-            }
-        }
-       
-        const similarity = totalCompared > 0 ? matches / totalCompared : 0;
-       
-        return {
-            similarity: similarity,
-            matches: matches,
-            totalCompared: totalCompared,
-            decision: similarity > 0.6 ? 'same' : 'different'
-        };
-    }
-   
-    // 🔥 ИНФОРМАЦИЯ ОБ АККУМУЛЯТОРЕ
-    getInfo() {
-        return {
-            id: this.id,
-            userId: this.userId,
-            name: this.name,
-            stats: this.stats,
-            photosCount: this.photos.length,
-            lastPhoto: this.photos.length > 0 ? this.photos[this.photos.length - 1].timestamp : null,
-            createdAt: this.stats.createdAt
-        };
-    }
+    };
 }
 
 // 🔥 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ
@@ -240,7 +38,7 @@ try {
 class SimpleFootprintManager {
     constructor(options = {}) {
         console.log('🚀 SimpleFootprintManager создан с АККУМУЛЯЦИОННОЙ МОДЕЛЬЮ');
-       
+
         // 🔥 НАСТРОЙКИ
         const {
             dbPath = './data/footprints',
@@ -252,7 +50,7 @@ class SimpleFootprintManager {
             minPointsForPhoto = 5,
             ...otherOptions
         } = options;
-       
+
         this.config = {
             dbPath,
             autoSave,
@@ -263,7 +61,10 @@ class SimpleFootprintManager {
             minPointsForPhoto,
             ...otherOptions
         };
-       
+
+        // 🔥 АККУМУЛЯТОРЫ ДЛЯ КАЖДОГО ПОЛЬЗОВАТЕЛЯ
+        this.accumulativeModels = new Map(); // userId -> AccumulativeModel
+
         // 🔥 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ
         if (GeometricHashAlgorithm) {
             this.geometricAlgorithm = new GeometricHashAlgorithm({
@@ -271,13 +72,10 @@ class SimpleFootprintManager {
                 debug: this.config.debug
             });
         }
-       
-        // 🔥 АККУМУЛЯТОРЫ ДЛЯ КАЖДОГО ПОЛЬЗОВАТЕЛЯ
-        this.accumulators = new Map(); // userId -> AccumulativeFootprint
-       
+
         // 🔥 СЕССИИ (для совместимости)
         this.sessions = new Map();
-       
+
         // 🔥 ВИЗУАЛИЗАЦИЯ
         if (this.config.enableVisualization) {
             try {
@@ -292,28 +90,331 @@ class SimpleFootprintManager {
                 this.visualizer = null;
             }
         }
-       
+
         // Статистика системы
         this.systemStats = {
             totalUsers: 0,
             totalPhotos: 0,
             totalAccumulators: 0,
-            algorithm: 'accumulative_model_v1.0',
+            algorithm: 'geometric_hash_accumulative_v1.0',
             createdAt: new Date()
         };
-       
+
         this.ensureDirectories();
         console.log('✅ SimpleFootprintManager с аккумуляционной моделью инициализирован');
     }
-   
-    // 🔥 ГЛАВНЫЙ МЕТОД: ДОБАВЛЕНИЕ ФОТО
-    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 АККУМУЛЯЦИОННОЕ ДОБАВЛЕНИЕ ФОТО для ${userId}`);
-       
+
+    // 🔥 ИЗМЕНЕННЫЙ МЕТОД: ОБРАБОТКА СОВПАВШИХ СЛЕДОВ
+    async processMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
+                                  existingTransformationInfo, similarity, comparisonResult,
+                                  tempResult, bot, chatId) {
+        console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+
+        try {
+            // 1. Создаем или получаем аккумуляционную модель
+            let accumModel = this.accumulativeModels.get(userId);
+            if (!accumModel) {
+                accumModel = new AccumulativeModel();
+                this.accumulativeModels.set(userId, accumModel);
+                this.systemStats.totalAccumulators++;
+
+                // 🔥 ДОБАВЛЯЕМ ПЕРВЫЙ СЛЕД В МОДЕЛЬ (если есть)
+                if (session.currentFootprint) {
+                    const vectorFootprint1 = this.createGeometricFootprint(
+                        this.extractVectorPoints(session.currentFootprint),
+                        'first'
+                    );
+                    if (vectorFootprint1 && vectorFootprint1.length > 0) {
+                        accumModel.addFootprint(vectorFootprint1, session.currentFootprint.id);
+                        console.log(`✅ Первый след добавлен в аккумулятор: ${vectorFootprint1.length} точек`);
+                    }
+                }
+            }
+
+            // 2. 🔥 ДОБАВЛЯЕМ ТЕКУЩИЙ СЛЕД В АККУМУЛЯЦИОННУЮ МОДЕЛЬ
+            const vectorFootprint2 = this.createGeometricFootprint(
+                this.extractVectorPoints(tempFootprint),
+                'current'
+            );
+
+            if (vectorFootprint2 && vectorFootprint2.length > 0) {
+                accumModel.addFootprint(vectorFootprint2, tempFootprint.id);
+                console.log(`✅ Текущий след добавлен в аккумулятор: ${vectorFootprint2.length} точек`);
+            }
+
+            // 3. 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ В POINT TRACKER (для совместимости)
+            if (comparisonResult && comparisonResult.matches && comparisonResult.matches.length > 0) {
+                const tracker = session.currentFootprint?.pointTracker;
+                if (tracker && tracker.updateConfirmationsFromGeometricMatches) {
+                    tracker.updateConfirmationsFromGeometricMatches(
+                        comparisonResult.matches,
+                        { photoId: `geo_${Date.now()}`, similarity: similarity }
+                    );
+                }
+            }
+
+            // 4. 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ ИЗ АККУМУЛЯЦИОННОЙ МОДЕЛИ
+            const vizData = accumModel.getVisualizationData();
+
+            console.log(`📊 АККУМУЛЯЦИОННАЯ СТАТИСТИКА:`);
+            console.log(`   Всего уникальных геометрических паспортов: ${vizData.stats.totalPassports}`);
+            console.log(`   🔴 3+ подтверждений: ${vizData.stats.byConfirmations['3+']}`);
+            console.log(`   🟠 2 подтверждения: ${vizData.stats.byConfirmations['2']}`);
+            console.log(`   🔵 1 подтверждение: ${vizData.stats.byConfirmations['1']}`);
+
+            // 5. СОЗДАЕМ ВИЗУАЛИЗАЦИЮ
+            let vizPath = null;
+            if (this.visualizer) {
+                vizPath = await this.createAccumulativeVisualization(
+                    vizData,
+                    userId,
+                    session.currentFootprint,
+                    comparisonResult
+                );
+            }
+
+            // 6. ОТПРАВКА В TELEGRAM
+            let telegramResponse = null;
+            if (bot && chatId && vizPath) {
+                telegramResponse = await this.sendAccumulativeResultsToTelegram(
+                    accumModel,
+                    vizData,
+                    similarity,
+                    comparisonResult,
+                    bot,
+                    chatId
+                );
+            }
+
+            // 7. СОХРАНЕНИЕ АККУМУЛЯТОРНОЙ МОДЕЛИ
+            if (this.config.autoSave) {
+                await this.saveAccumulativeModel(userId);
+            }
+
+            // 8. ФОРМИРУЕМ РЕЗУЛЬТАТ
+            const result = {
+                success: true,
+                similarity: similarity,
+                decision: 'same',
+                accumulativeStats: vizData.stats,
+                vizPath: vizPath,
+                message: `✅ След добавлен! Уникальных геометрических паспортов: ${vizData.stats.totalPassports}`,
+                telegramSent: !!telegramResponse
+            };
+
+            return result;
+
+        } catch (error) {
+            console.error(`❌ Ошибка в processMatchingFootprint: ${error.message}`);
+            return {
+                success: false,
+                error: error.message,
+                decision: 'error'
+            };
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: СОЗДАНИЕ ГЕОМЕТРИЧЕСКОГО СЛЕДА
+    createGeometricFootprint(points, source = 'unknown') {
+        if (!this.geometricAlgorithm || !points || points.length === 0) {
+            return null;
+        }
+
+        try {
+            const footprint = this.geometricAlgorithm.createFootprint(points, source);
+            return footprint || null;
+        } catch (error) {
+            console.log(`⚠️ Ошибка создания геометрического следа: ${error.message}`);
+            return null;
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: СОЗДАНИЕ ВИЗУАЛИЗАЦИИ АККУМУЛЯТОРА
+    async createAccumulativeVisualization(vizData, userId, footprint = null, comparisonResult = null) {
+        if (!this.visualizer || !vizData) {
+            console.log('⚠️ Визуализатор не доступен или нет данных');
+            return null;
+        }
+
+        try {
+            const result = await this.visualizer.visualizeAccumulativeModel(
+                vizData,
+                footprint || { id: `fp_${userId}`, name: `Аккумулятор ${userId}` },
+                {
+                    comparisonResult: comparisonResult,
+                    showStats: true,
+                    showLegend: true,
+                    filename: `accum_${userId}_${Date.now()}.png`
+                }
+            );
+
+            console.log(`✅ Визуализация аккумулятора создана: ${result?.path || 'нет пути'}`);
+            return result?.path || null;
+
+        } catch (error) {
+            console.log(`⚠️ Ошибка создания визуализации аккумулятора: ${error.message}`);
+            return null;
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ОТПРАВКА РЕЗУЛЬТАТОВ В TELEGRAM
+    async sendAccumulativeResultsToTelegram(accumModel, vizData, similarity, comparisonResult, bot, chatId) {
+        try {
+            if (!bot || !chatId || !vizData.stats) {
+                return null;
+            }
+
+            const stats = vizData.stats;
+
+            let caption = `🎯 АККУМУЛЯЦИОННАЯ МОДЕЛЬ\n\n`;
+            caption += `📊 Всего уникальных геометрических паспортов: ${stats.totalPassports}\n`;
+            caption += `🔴 3+ подтверждений: ${stats.byConfirmations['3+'] || 0}\n`;
+            caption += `🟠 2 подтверждения: ${stats.byConfirmations['2'] || 0}\n`;
+            caption += `🔵 1 подтверждение: ${stats.byConfirmations['1'] || 0}\n\n`;
+
+            caption += `🎯 Геометрическое сходство: ${(similarity * 100).toFixed(1)}%\n`;
+            caption += `🤔 Решение: ${comparisonResult?.decision === 'same' ? 'ОДНА обувь ✅' : 'Разная обувь'}\n\n`;
+
+            caption += `💾 Аккумулятор: ${accumModel.id.slice(0, 8)}`;
+            caption += `\n📈 Метод: Геометрические паспорта (инвариантные)`;
+
+            // Очистка Markdown
+            const cleanMarkdown = (text) => text
+                .replace(/\*\*/g, '')
+                .replace(/\*/g, '')
+                .replace(/__/g, '')
+                .replace(/_/g, '')
+                .replace(/`/g, '');
+
+            // Если есть путь к визуализации - отправляем фото
+            if (vizData._vizPath && fs.existsSync(vizData._vizPath)) {
+                await bot.sendPhoto(chatId, vizData._vizPath, {
+                    caption: cleanMarkdown(caption),
+                    parse_mode: 'HTML'
+                });
+                console.log('✅ Результаты аккумулятора отправлены в Telegram');
+                return { success: true, caption: caption };
+            } else {
+                // Иначе отправляем только текст
+                await bot.sendMessage(chatId, cleanMarkdown(caption), {
+                    parse_mode: 'HTML'
+                });
+                return { success: true, textOnly: true };
+            }
+
+        } catch (error) {
+            console.log(`❌ Ошибка отправки в Telegram: ${error.message}`);
+            return null;
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: СОХРАНЕНИЕ АККУМУЛЯТОРНОЙ МОДЕЛИ
+    async saveAccumulativeModel(userId) {
+        try {
+            const accumModel = this.accumulativeModels.get(userId);
+            if (!accumModel) {
+                console.log(`⚠️ Нет аккумуляционной модели для сохранения: ${userId}`);
+                return false;
+            }
+
+            const accumulatorsDir = path.join(this.config.dbPath, 'accumulative_models');
+            if (!fs.existsSync(accumulatorsDir)) {
+                fs.mkdirSync(accumulatorsDir, { recursive: true });
+            }
+
+            const data = {
+                id: accumModel.id,
+                userId: userId,
+                geometricPassports: Array.from(accumModel.geometricPassports.entries()),
+                footprints: Array.from(accumModel.footprints.entries()),
+                confirmationStats: accumModel.confirmationStats,
+                _version: '1.0-geometric-passports',
+                _savedAt: new Date().toISOString()
+            };
+
+            const filename = `accum_model_${userId}_${Date.now()}.json`;
+            const filePath = path.join(accumulatorsDir, filename);
+
+            fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+
+            console.log(`💾 Аккумуляционная модель сохранена: ${filePath}`);
+            return { success: true, filePath };
+
+        } catch (error) {
+            console.log(`⚠️ Ошибка сохранения аккумуляционной модели: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ЗАГРУЗКА АККУМУЛЯТОРНОЙ МОДЕЛИ
+    async loadAccumulativeModel(userId) {
+        try {
+            const accumulatorsDir = path.join(this.config.dbPath, 'accumulative_models');
+            if (!fs.existsSync(accumulatorsDir)) {
+                console.log(`📂 Нет директории аккумуляционных моделей`);
+                return false;
+            }
+
+            const files = fs.readdirSync(accumulatorsDir)
+                .filter(f => f.includes(userId.toString()) && f.endsWith('.json'))
+                .sort()
+                .reverse();
+
+            if (files.length === 0) {
+                console.log(`📂 Нет сохраненных аккумуляционных моделей для ${userId}`);
+                return false;
+            }
+
+            const latestFile = files[0];
+            const filePath = path.join(accumulatorsDir, latestFile);
+            const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+            // Создаем аккумуляционную модель
+            const accumModel = new AccumulativeModel();
+            accumModel.id = data.id || accumModel.id;
+
+            // Восстанавливаем геометрические паспорты
+            if (Array.isArray(data.geometricPassports)) {
+                for (const [hash, passportData] of data.geometricPassports) {
+                    accumModel.geometricPassports.set(hash, passportData);
+                }
+            }
+
+            // Восстанавливаем следы
+            if (Array.isArray(data.footprints)) {
+                for (const [footprintId, hashSet] of data.footprints) {
+                    accumModel.footprints.set(footprintId, new Set(hashSet));
+                }
+            }
+
+            // Восстанавливаем статистику
+            if (data.confirmationStats) {
+                accumModel.confirmationStats = data.confirmationStats;
+            }
+
+            // Обновляем статистику
+            accumModel.updateStats();
+
+            // Сохраняем в менеджере
+            this.accumulativeModels.set(userId, accumModel);
+
+            console.log(`📂 Загружена аккумуляционная модель для ${userId}: ${accumModel.geometricPassports.size} геометрических паспортов`);
+            return accumModel;
+
+        } catch (error) {
+            console.log(`⚠️ Ошибка загрузки аккумуляционной модели: ${error.message}`);
+            return false;
+        }
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: ДОБАВЛЕНИЕ ФОТО С ГЕОМЕТРИЧЕСКИМИ ПАСПОРТАМИ
+    async addPhotoWithGeometricPassports(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
+        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО С ГЕОМЕТРИЧЕСКИМИ ПАСПОРТАМИ для ${userId}`);
+
         try {
             // 1. Извлекаем точки из анализа
             const points = this.extractPointsFromAnalysis(analysis);
-           
+
             if (points.length < this.config.minPointsForPhoto) {
                 console.log(`⚠️ Слишком мало точек: ${points.length}`);
                 return {
@@ -322,96 +423,102 @@ class SimpleFootprintManager {
                     nodesAdded: 0
                 };
             }
-           
+
             console.log(`📊 Извлечено ${points.length} точек из анализа`);
-           
-            // 2. Получаем или создаем аккумулятор
-            let accumulator = this.accumulators.get(userId);
-            if (!accumulator) {
-                accumulator = new AccumulativeFootprint(userId);
-                this.accumulators.set(userId, accumulator);
+
+            // 2. Создаем геометрический след
+            const geometricFootprint = this.createGeometricFootprint(points, `photo_${Date.now()}`);
+            if (!geometricFootprint || geometricFootprint.length === 0) {
+                console.log(`⚠️ Не удалось создать геометрический след`);
+                return {
+                    success: false,
+                    error: 'Не удалось создать геометрический след',
+                    nodesAdded: 0
+                };
+            }
+
+            // 3. Получаем или создаем аккумуляционную модель
+            let accumModel = this.accumulativeModels.get(userId);
+            if (!accumModel) {
+                accumModel = new AccumulativeModel();
+                this.accumulativeModels.set(userId, accumModel);
                 this.systemStats.totalAccumulators++;
-                console.log(`✅ Создан новый аккумулятор для ${userId}`);
+                console.log(`✅ Создана новая аккумуляционная модель для ${userId}`);
             }
-           
-            // 3. Добавляем точки в аккумулятор
-            const addResult = accumulator.addPhoto(points, {
-                ...photoInfo,
-                source: 'telegram_bot',
-                analysisType: 'shoe_protector',
-                timestamp: new Date()
-            });
-           
-            // 4. ГЕОМЕТРИЧЕСКОЕ СРАВНЕНИЕ (если уже есть фото)
+
+            // 4. Добавляем геометрический след в аккумулятор
+            const footprintId = `footprint_${Date.now()}`;
+            accumModel.addFootprint(geometricFootprint, footprintId);
+
+            // 5. СРАВНЕНИЕ С СУЩЕСТВУЮЩИМИ ПАСПОРТАМИ (если уже есть данные)
             let comparisonResult = null;
-            if (accumulator.stats.totalPhotos > 1) {
-                comparisonResult = await this.performGeometricComparison(points, accumulator);
-            }
-           
-            // 5. ВИЗУАЛИЗАЦИЯ АККУМУЛЯТОРА
-            let visualizationResult = null;
-            if (this.visualizer) {
-                visualizationResult = await this.visualizeAccumulativeFootprint(
-                    accumulator,
-                    comparisonResult,
-                    photoInfo
+            if (accumModel.geometricPassports.size > geometricFootprint.length) {
+                comparisonResult = await this.compareWithExistingPassports(
+                    geometricFootprint,
+                    accumModel,
+                    points
                 );
             }
-           
-            // 6. ОБНОВЛЯЕМ СТАТИСТИКУ
-            this.systemStats.totalPhotos++;
-            if (this.systemStats.totalUsers === 0) {
-                this.systemStats.totalUsers = this.accumulators.size;
+
+            // 6. ВИЗУАЛИЗАЦИЯ
+            const vizData = accumModel.getVisualizationData();
+            let visualizationResult = null;
+            if (this.visualizer) {
+                visualizationResult = await this.createAccumulativeVisualization(
+                    vizData,
+                    userId,
+                    null,
+                    comparisonResult
+                );
+                vizData._vizPath = visualizationResult;
             }
-           
-            // 7. ОТПРАВКА В TELEGRAM (если нужно)
+
+            // 7. ОТПРАВКА В TELEGRAM
             let telegramResponse = null;
             if (bot && chatId && visualizationResult) {
-                telegramResponse = await this.sendAccumulativeVisualizationToTelegram(
-                    accumulator,
-                    visualizationResult,
+                telegramResponse = await this.sendAccumulativeResultsToTelegram(
+                    accumModel,
+                    { ...vizData, _vizPath: visualizationResult },
+                    comparisonResult?.similarity || 0,
                     comparisonResult,
-                    addResult,
                     bot,
                     chatId
                 );
             }
-           
-            // 8. СОХРАНЕНИЕ (если включено)
+
+            // 8. СОХРАНЕНИЕ
             if (this.config.autoSave) {
-                await this.saveAccumulator(userId);
+                await this.saveAccumulativeModel(userId);
             }
-           
+
             // 9. ФОРМИРУЕМ ОТВЕТ
             const result = {
                 success: true,
                 userId: userId,
-                accumulatorId: accumulator.id,
-                pointsAdded: addResult.newPoints,
-                pointsConfirmed: addResult.confirmedPoints,
-                totalPoints: accumulator.stats.totalPoints,
-                totalPhotos: accumulator.stats.totalPhotos,
-                stats: accumulator.stats,
-                visualization: visualizationResult,
+                accumulativeModelId: accumModel.id,
+                geometricPassportsAdded: geometricFootprint.length,
+                totalPassports: accumModel.geometricPassports.size,
+                stats: accumModel.confirmationStats,
                 comparison: comparisonResult,
+                visualization: visualizationResult,
                 telegramSent: !!telegramResponse,
-                method: 'accumulative'
+                method: 'geometric_passports'
             };
-           
-            console.log(`✅ Фото добавлено в аккумулятор:`);
-            console.log(`   Всего точек: ${accumulator.stats.totalPoints}`);
-            console.log(`   🔴 3+ подтверждений: ${accumulator.stats.confirmed3}`);
-            console.log(`   🟠 2 подтверждения: ${accumulator.stats.confirmed2}`);
-            console.log(`   🔵 1 подтверждение: ${accumulator.stats.confirmed1}`);
-           
+
+            console.log(`✅ Фото добавлено с геометрическими паспортами:`);
+            console.log(`   Всего геометрических паспортов: ${accumModel.confirmationStats.totalPassports}`);
+            console.log(`   🔴 3+ подтверждений: ${accumModel.confirmationStats.byConfirmations['3+']}`);
+            console.log(`   🟠 2 подтверждения: ${accumModel.confirmationStats.byConfirmations['2']}`);
+            console.log(`   🔵 1 подтверждение: ${accumModel.confirmationStats.byConfirmations['1']}`);
+
             if (comparisonResult) {
                 console.log(`   🎯 Геометрическое сходство: ${(comparisonResult.similarity * 100).toFixed(1)}%`);
             }
-           
+
             return result;
-           
+
         } catch (error) {
-            console.error(`❌ Ошибка в addPhotoToSession: ${error.message}`);
+            console.error(`❌ Ошибка в addPhotoWithGeometricPassports: ${error.message}`);
             return {
                 success: false,
                 error: error.message,
@@ -419,98 +526,99 @@ class SimpleFootprintManager {
             };
         }
     }
-   
-    // 🔥 ГЕОМЕТРИЧЕСКОЕ СРАВНЕНИЕ
-    async performGeometricComparison(newPoints, accumulator) {
-        if (!this.geometricAlgorithm || newPoints.length < 3) {
-            console.log('⚠️ Недостаточно точек или нет алгоритма для сравнения');
+
+    // 🔥 НОВЫЙ МЕТОД: СРАВНЕНИЕ С СУЩЕСТВУЮЩИМИ ПАСПОРТАМИ
+    async compareWithExistingPassports(newGeometricFootprint, accumModel, originalPoints) {
+        if (!this.geometricAlgorithm || !newGeometricFootprint || newGeometricFootprint.length === 0) {
             return null;
         }
-       
+
         try {
-            // Получаем точки из аккумулятора (только с 2+ подтверждениями)
-            const accumPoints = [];
-            for (const point of accumulator.allPoints.values()) {
-                if (point.confirmedCount >= 2) {
-                    accumPoints.push({
-                        x: point.x,
-                        y: point.y,
-                        confidence: point.confidence,
-                        id: point.id
+            // Собираем существующие паспорта в формат для сравнения
+            const existingPassports = [];
+            for (const [hash, passport] of accumModel.geometricPassports) {
+                if (passport.examplePoint) {
+                    existingPassports.push({
+                        ...passport.examplePoint,
+                        geometricHash: hash,
+                        confirmations: passport.confirmations || 1
                     });
                 }
             }
-           
-            if (accumPoints.length < 3) {
-                console.log('⚠️ В аккумуляторе мало подтвержденных точек');
+
+            if (existingPassports.length === 0) {
                 return null;
             }
-           
-            console.log(`🔍 Геометрическое сравнение: ${newPoints.length} новых vs ${accumPoints.length} подтвержденных`);
-           
+
+            console.log(`🔍 Сравниваю ${newGeometricFootprint.length} новых с ${existingPassports.length} существующими паспортами`);
+
+            // Используем геометрический алгоритм для сравнения
             const result = this.geometricAlgorithm.comparePoints(
-                newPoints,
-                accumPoints,
+                newGeometricFootprint,
+                existingPassports,
                 'Новое фото',
-                'Аккумулятор'
+                'Аккумулятор паспортов'
             );
-           
+
             return {
-                similarity: result.similarity,
-                decision: result.decision,
+                similarity: result.similarity || 0,
+                decision: result.decision || 'unknown',
                 matches: result.matches || [],
                 stats: result.stats || {},
-                method: 'geometric_hash'
+                method: 'geometric_passport_comparison'
             };
-           
+
         } catch (error) {
-            console.log(`⚠️ Ошибка геометрического сравнения: ${error.message}`);
+            console.log(`⚠️ Ошибка сравнения паспортов: ${error.message}`);
             return null;
         }
     }
-   
-    // 🔥 ВИЗУАЛИЗАЦИЯ АККУМУЛЯТОРА
-    async visualizeAccumulativeFootprint(accumulator, comparisonResult = null, photoInfo = {}) {
-        if (!this.visualizer) {
-            console.log('⚠️ Визуализатор не доступен');
-            return null;
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (без изменений)
+    extractVectorPoints(footprint) {
+        if (!footprint) return [];
+
+        const points = [];
+
+        // Извлекаем точки из pointTracker
+        if (footprint.pointTracker && footprint.pointTracker.points) {
+            for (const [id, point] of footprint.pointTracker.points) {
+                points.push({
+                    id: id,
+                    x: point.x,
+                    y: point.y,
+                    confidence: point.confidence || point.rating || 0.5,
+                    confirmedCount: point.confirmedCount || 1,
+                    source: 'point_tracker'
+                });
+            }
         }
-       
-        try {
-            console.log(`🎨 Визуализация аккумуляторного следа...`);
-           
-            const data = accumulator.getVisualizationData();
-           
-            const result = await this.visualizer.visualizeAccumulativeFootprint(
-                data,
-                {
-                    comparisonResult: comparisonResult,
-                    photoInfo: photoInfo,
-                    showStats: true,
-                    showLegend: true,
-                    filename: `accumulative_${accumulator.userId}_${Date.now()}.png`
-                }
-            );
-           
-            console.log(`✅ Визуализация создана: ${result?.path || 'нет пути'}`);
-            return result;
-           
-        } catch (error) {
-            console.log(`⚠️ Ошибка визуализации: ${error.message}`);
-            return null;
+
+        // Извлекаем точки напрямую
+        if (footprint.points && Array.isArray(footprint.points)) {
+            footprint.points.forEach((point, index) => {
+                points.push({
+                    id: point.id || `pt_${index}`,
+                    x: point.x,
+                    y: point.y,
+                    confidence: point.confidence || 0.5,
+                    source: 'direct'
+                });
+            });
         }
+
+        return points;
     }
-   
-    // 🔥 ИЗВЛЕЧЕНИЕ ТОЧЕК ИЗ АНАЛИЗА
+
     extractPointsFromAnalysis(analysis) {
         const points = [];
         const predictions = analysis.predictions || [];
-       
+
         for (const pred of predictions) {
             if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
                 const xs = pred.points.map(p => p.x);
                 const ys = pred.points.map(p => p.y);
-               
+
                 points.push({
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
                     y: (Math.min(...ys) + Math.max(...ys)) / 2,
@@ -522,213 +630,23 @@ class SimpleFootprintManager {
                 });
             }
         }
-       
+
         return points.filter(p =>
             p && typeof p.x === 'number' && typeof p.y === 'number' &&
             !isNaN(p.x) && !isNaN(p.y)
         );
     }
-   
-    // 🔥 ОТПРАВКА В TELEGRAM
-    async sendAccumulativeVisualizationToTelegram(accumulator, visualizationResult,
-                                                  comparisonResult, addResult, bot, chatId) {
-        try {
-            if (!visualizationResult || !visualizationResult.path || !fs.existsSync(visualizationResult.path)) {
-                console.log('⚠️ Нет файла визуализации для отправки');
-                return null;
-            }
-           
-            const stats = accumulator.stats;
-           
-            let caption = `🎯 АККУМУЛЯТОРНЫЙ СЛЕД\n\n`;
-            caption += `📊 Всего точек: ${stats.totalPoints}\n`;
-            caption += `🔴 3+ подтверждений: ${stats.confirmed3}\n`;
-            caption += `🟠 2 подтверждения: ${stats.confirmed2}\n`;
-            caption += `🔵 1 подтверждение: ${stats.confirmed1}\n`;
-            caption += `📸 Всего фото: ${stats.totalPhotos}\n\n`;
-           
-            if (comparisonResult) {
-                caption += `🎯 Геометрическое сходство: ${(comparisonResult.similarity * 100).toFixed(1)}%\n`;
-                caption += `🤔 Решение: ${comparisonResult.decision === 'same' ? 'ОДНА обувь ✅' : 'Разная обувь'}\n\n`;
-            }
-           
-            caption += `📈 Добавлено: ${addResult.newPoints} новых, ${addResult.confirmedPoints} подтверждено\n`;
-            caption += `💾 Аккумулятор: ${accumulator.id.slice(0, 8)}`;
-           
-            // Очистка Markdown
-            const cleanMarkdown = (text) => text
-                .replace(/\*\*/g, '')
-                .replace(/\*/g, '')
-                .replace(/__/g, '')
-                .replace(/_/g, '')
-                .replace(/`/g, '');
-           
-            await bot.sendPhoto(chatId, visualizationResult.path, {
-                caption: cleanMarkdown(caption),
-                parse_mode: 'HTML'
-            });
-           
-            console.log('✅ Визуализация отправлена в Telegram');
-            return { success: true, caption: caption };
-           
-        } catch (error) {
-            console.log(`❌ Ошибка отправки в Telegram: ${error.message}`);
-            return null;
-        }
-    }
-   
-    // 🔥 СОХРАНЕНИЕ АККУМУЛЯТОРА
-    async saveAccumulator(userId) {
-        try {
-            const accumulator = this.accumulators.get(userId);
-            if (!accumulator) {
-                console.log(`⚠️ Нет аккумулятора для сохранения: ${userId}`);
-                return false;
-            }
-           
-            const accumulatorsDir = path.join(this.config.dbPath, 'accumulators');
-            if (!fs.existsSync(accumulatorsDir)) {
-                fs.mkdirSync(accumulatorsDir, { recursive: true });
-            }
-           
-            const data = {
-                id: accumulator.id,
-                userId: accumulator.userId,
-                name: accumulator.name,
-                allPoints: Array.from(accumulator.allPoints.entries()),
-                photos: accumulator.photos,
-                stats: accumulator.stats,
-                _version: '1.0-accumulative',
-                _savedAt: new Date().toISOString()
-            };
-           
-            const filename = `accumulator_${userId}_${Date.now()}.json`;
-            const filePath = path.join(accumulatorsDir, filename);
-           
-            fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-           
-            console.log(`💾 Аккумулятор сохранен: ${filePath}`);
-            return { success: true, filePath };
-           
-        } catch (error) {
-            console.log(`⚠️ Ошибка сохранения аккумулятора: ${error.message}`);
-            return { success: false, error: error.message };
-        }
-    }
-   
-    // 🔥 ЗАГРУЗКА АККУМУЛЯТОРА
-    async loadAccumulator(userId) {
-        try {
-            const accumulatorsDir = path.join(this.config.dbPath, 'accumulators');
-            if (!fs.existsSync(accumulatorsDir)) {
-                console.log(`📂 Нет директории аккумуляторов`);
-                return false;
-            }
-           
-            const files = fs.readdirSync(accumulatorsDir)
-                .filter(f => f.includes(userId.toString()) && f.endsWith('.json'))
-                .sort()
-                .reverse();
-           
-            if (files.length === 0) {
-                console.log(`📂 Нет сохраненных аккумуляторов для ${userId}`);
-                return false;
-            }
-           
-            const latestFile = files[0];
-            const filePath = path.join(accumulatorsDir, latestFile);
-            const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-           
-            // Создаем аккумулятор
-            const accumulator = new AccumulativeFootprint(userId);
-            accumulator.id = data.id || accumulator.id;
-            accumulator.name = data.name || accumulator.name;
-           
-            // Восстанавливаем точки
-            if (Array.isArray(data.allPoints)) {
-                for (const [pointId, pointData] of data.allPoints) {
-                    accumulator.allPoints.set(pointId, pointData);
-                }
-            }
-           
-            // Восстанавливаем фото
-            if (Array.isArray(data.photos)) {
-                accumulator.photos = data.photos;
-            }
-           
-            // Восстанавливаем статистику
-            if (data.stats) {
-                accumulator.stats = data.stats;
-                // Восстанавливаем даты
-                if (typeof accumulator.stats.createdAt === 'string') {
-                    accumulator.stats.createdAt = new Date(accumulator.stats.createdAt);
-                }
-                if (typeof accumulator.stats.lastUpdated === 'string') {
-                    accumulator.stats.lastUpdated = new Date(accumulator.stats.lastUpdated);
-                }
-            }
-           
-            // Обновляем статистику
-            accumulator.updateStats();
-           
-            // Сохраняем в менеджере
-            this.accumulators.set(userId, accumulator);
-           
-            console.log(`📂 Загружен аккумулятор для ${userId}: ${accumulator.stats.totalPoints} точек`);
-            return accumulator;
-           
-        } catch (error) {
-            console.log(`⚠️ Ошибка загрузки аккумулятора: ${error.message}`);
-            return false;
-        }
-    }
-   
-    // 🔥 ПОЛУЧЕНИЕ ИНФОРМАЦИИ ОБ АККУМУЛЯТОРЕ
-    getAccumulatorInfo(userId) {
-        const accumulator = this.accumulators.get(userId);
-        if (!accumulator) {
-            return { exists: false, message: 'Аккумулятор не найден' };
-        }
-       
-        return {
-            exists: true,
-            info: accumulator.getInfo(),
-            stats: accumulator.stats,
-            canVisualize: true
-        };
-    }
-   
-    // 🔥 ПОЛУЧЕНИЕ СИСТЕМНОЙ СТАТИСТИКИ
-    getSystemStats() {
-        return {
-            ...this.systemStats,
-            activeAccumulators: this.accumulators.size,
-            algorithm: 'Аккумуляционная модель v1.0'
-        };
-    }
-   
-    // 🔥 СОЗДАНИЕ ДИРЕКТОРИЙ
-    ensureDirectories() {
-        const dirs = [
-            this.config.dbPath,
-            path.join(this.config.dbPath, 'accumulators'),
-            path.join(this.config.dbPath, 'visualizations', 'accumulative'),
-            path.join(this.config.dbPath, 'reports')
-        ];
-       
-        dirs.forEach(dir => {
-            if (!fs.existsSync(dir)) {
-                console.log(`📁 Создаю директорию: ${dir}`);
-                fs.mkdirSync(dir, { recursive: true });
-            }
-        });
-    }
-   
+
     // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
+        // Используем новый метод с геометрическими паспортами
+        return this.addPhotoWithGeometricPassports(userId, analysis, photoInfo, bot, chatId);
+    }
+
     getActiveSession(userId) {
         return this.sessions.get(userId) || null;
     }
-   
+
     createSession(userId, name = null) {
         const session = {
             id: `session_${Date.now()}`,
@@ -738,41 +656,53 @@ class SimpleFootprintManager {
             lastActivity: new Date(),
             photos: []
         };
-       
+
         this.sessions.set(userId, session);
         return session;
     }
-   
-    // 🔥 ТЕСТОВЫЙ МЕТОД: ГЕНЕРАЦИЯ ТЕСТОВОГО АККУМУЛЯТОРА
-    generateTestAccumulator(userId, pointCount = 50) {
-        const accumulator = new AccumulativeFootprint(userId);
-       
-        // Генерируем тестовые точки
-        for (let i = 0; i < pointCount; i++) {
-            const point = {
-                x: Math.random() * 800 + 100,
-                y: Math.random() * 600 + 100,
-                confidence: 0.5 + Math.random() * 0.5
-            };
-           
-            const pointId = accumulator.getPointId(point);
-            accumulator.allPoints.set(pointId, {
-                id: pointId,
-                x: point.x,
-                y: point.y,
-                confidence: point.confidence,
-                seenInPhotos: [`test_photo_${Math.floor(Math.random() * 3) + 1}`],
-                confirmedCount: Math.floor(Math.random() * 3) + 1,
-                firstSeen: new Date(),
-                lastSeen: new Date()
-            });
+
+    // 🔥 МЕТОДЫ ДЛЯ РАБОТЫ С АККУМУЛЯТОРАМИ
+    getAccumulativeModelInfo(userId) {
+        const accumModel = this.accumulativeModels.get(userId);
+        if (!accumModel) {
+            return { exists: false, message: 'Аккумуляционная модель не найдена' };
         }
-       
-        accumulator.updateStats();
-        this.accumulators.set(userId, accumulator);
-       
-        console.log(`🧪 Создан тестовый аккумулятор: ${accumulator.stats.totalPoints} точек`);
-        return accumulator;
+
+        const stats = accumModel.confirmationStats;
+
+        return {
+            exists: true,
+            id: accumModel.id,
+            userId: userId,
+            totalPassports: stats.totalPassports,
+            confirmations: stats.byConfirmations,
+            footprintsCount: accumModel.footprints.size,
+            canVisualize: true
+        };
+    }
+
+    getSystemStats() {
+        return {
+            ...this.systemStats,
+            activeAccumulativeModels: this.accumulativeModels.size,
+            algorithm: 'Геометрические паспорта v1.0'
+        };
+    }
+
+    ensureDirectories() {
+        const dirs = [
+            this.config.dbPath,
+            path.join(this.config.dbPath, 'accumulative_models'),
+            path.join(this.config.dbPath, 'visualizations', 'accumulative'),
+            path.join(this.config.dbPath, 'reports')
+        ];
+
+        dirs.forEach(dir => {
+            if (!fs.existsSync(dir)) {
+                console.log(`📁 Создаю директорию: ${dir}`);
+                fs.mkdirSync(dir, { recursive: true });
+            }
+        });
     }
 }
 
