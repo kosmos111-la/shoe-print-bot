@@ -1,8 +1,9 @@
 // modules/footprint/simple-manager.js
-// 🔥 ПЕРЕРАБОТАН ДЛЯ РАБОТЫ С АККУМУЛЯТОРОМ ГЕОМЕТРИЧЕСКИХ ХЕШЕЙ
+// 🔥 ИСПРАВЛЕННЫЙ - СОЗДАЕМ ГЕОМЕТРИЧЕСКИЕ ХЕШИ ИЗ КООРДИНАТ
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // 🔥 ИМПОРТ АККУМУЛЯТОРА
 let GeometricAccumulator;
@@ -29,15 +30,6 @@ try {
     };
 }
 
-// 🔥 ВЕКТОРНЫЙ АЛГОРИТМ
-let VectorAlgorithm;
-try {
-    VectorAlgorithm = require('./clean/vector-algorithm');
-    console.log('✅ VectorAlgorithm загружен');
-} catch (error) {
-    console.log(`⚠️ Не удалось загрузить векторный алгоритм: ${error.message}`);
-}
-
 // 🔥 ОСНОВНОЙ КЛАСС МЕНЕДЖЕРА
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -51,7 +43,7 @@ class SimpleFootprintManager {
             enableAccumulator = true,
             enableVisualization = true,
             similarityThreshold = 0.6,
-            minPointsForPhoto = 3, // 🔥 УМЕНЬШИЛИ ДЛЯ ТЕСТОВ
+            minPointsForPhoto = 3,
             ...otherOptions
         } = options;
 
@@ -68,14 +60,6 @@ class SimpleFootprintManager {
 
         // 🔥 АККУМУЛЯТОРЫ ДЛЯ КАЖДОГО ПОЛЬЗОВАТЕЛЯ
         this.accumulators = new Map(); // userId -> GeometricAccumulator
-
-        // 🔥 ВЕКТОРНЫЙ АЛГОРИТМ
-        if (VectorAlgorithm) {
-            this.vectorAlgorithm = new VectorAlgorithm({
-                minSimilarity: this.config.similarityThreshold,
-                debug: this.config.debug
-            });
-        }
 
         // 🔥 СЕССИИ (для совместимости)
         this.sessions = new Map();
@@ -113,8 +97,8 @@ class SimpleFootprintManager {
         console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО В АККУМУЛЯТОР для ${userId}`);
 
         try {
-            // 1. Извлекаем точки из анализа
-            const points = this.extractPointsFromAnalysis(analysis);
+            // 1. Извлекаем точки из анализа И СОЗДАЕМ ГЕОМЕТРИЧЕСКИЕ ХЕШИ
+            const points = this.extractPointsWithGeometricHashes(analysis);
 
             if (points.length < this.config.minPointsForPhoto) {
                 console.log(`⚠️ Слишком мало точек: ${points.length}`);
@@ -125,7 +109,7 @@ class SimpleFootprintManager {
                 };
             }
 
-            console.log(`📊 Извлечено ${points.length} точек из анализа`);
+            console.log(`📊 Извлечено ${points.length} точек с геометрическими хешами`);
 
             // 2. Получаем или создаем аккумулятор
             let accumulator = this.accumulators.get(userId);
@@ -136,18 +120,21 @@ class SimpleFootprintManager {
                 console.log(`✅ Создан новый аккумулятор для ${userId}`);
             }
 
-            // 3. 🔥 ДОБАВЛЯЕМ ТОЧКИ В АККУМУЛЯТОР (ПРОСТОЕ ДОБАВЛЕНИЕ)
+            // 3. 🔥 ДОБАВЛЯЕМ ТОЧКИ В АККУМУЛЯТОР
             const footprintId = photoInfo.photoId || `photo_${Date.now()}`;
             const addResult = accumulator.addFootprintWithGeometricHashes(points, footprintId);
 
             // 4. 🔥 ГЕОМЕТРИЧЕСКОЕ СРАВНЕНИЕ (если уже есть следы)
             let comparisonResult = null;
+            let similarity = 0;
+           
             if (accumulator.footprintHashes.size > 1) {
                 const footprints = Array.from(accumulator.footprintHashes.keys());
                 const lastFootprint = footprints[footprints.length - 2]; // Предыдущий след
                
                 comparisonResult = accumulator.compareFootprints(lastFootprint, footprintId);
-                console.log(`🎯 Сравнение с предыдущим следом: ${(comparisonResult.similarity * 100).toFixed(1)}%`);
+                similarity = comparisonResult.similarity || 0;
+                console.log(`🎯 Сравнение с предыдущим следом: ${(similarity * 100).toFixed(1)}%`);
             }
 
             // 5. 🔥 СОЗДАЕМ ВИЗУАЛИЗАЦИЮ АККУМУЛЯТОРА
@@ -174,6 +161,7 @@ class SimpleFootprintManager {
                 telegramResponse = await this.sendAccumulatorResultsToTelegram(
                     accumulator,
                     vizData,
+                    similarity,
                     comparisonResult,
                     addResult,
                     bot,
@@ -193,7 +181,7 @@ class SimpleFootprintManager {
                 this.systemStats.totalUsers = this.accumulators.size;
             }
 
-            // 9. ФОРМИРУЕМ ОТВЕТ
+            // 9. ФОРМИРУЕМ ОТВЕТ (для совместимости со старым кодом)
             const result = {
                 success: true,
                 userId: userId,
@@ -202,11 +190,16 @@ class SimpleFootprintManager {
                 pointsConfirmed: addResult.existingPoints,
                 totalPoints: addResult.totalPoints,
                 stats: addResult.stats,
-                comparison: comparisonResult,
+                similarity: similarity,
+                decision: comparisonResult?.decision || 'new_footprint',
                 visualization: visualizationResult,
                 telegramSent: !!telegramResponse,
                 method: 'geometric_accumulator',
-                message: `✅ Фото добавлено в аккумулятор. Уникальных точек: ${addResult.totalPoints}`
+                message: `✅ Фото добавлено в аккумулятор. Уникальных точек: ${addResult.totalPoints}`,
+                // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ:
+                nodesAdded: addResult.newPoints,
+                hasMergeVisualization: false,
+                mergeMethod: 'geometric_accumulation'
             };
 
             console.log(`\n📊 АККУМУЛЯТОРНАЯ СТАТИСТИКА:`);
@@ -233,44 +226,89 @@ class SimpleFootprintManager {
         }
     }
 
-    // 🔥 МЕТОД: Обработка совпавших следов (для совместимости)
-    async processMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
-                                  existingTransformationInfo, similarity, comparisonResult,
-                                  tempResult, bot, chatId) {
-        console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
-       
-        // Просто используем аккумулятор вместо сложной логики
-        const analysis = {
-            predictions: this.extractPredictionsFromFootprint(tempFootprint)
-        };
-       
-        const photoInfo = {
-            photoId: tempFootprint.id || `match_${Date.now()}`,
-            source: 'footprint_match',
-            timestamp: new Date()
-        };
-       
-        return this.addPhotoToAccumulator(userId, analysis, photoInfo, bot, chatId);
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Извлечение точек с геометрическими хешами
+    extractPointsWithGeometricHashes(analysis) {
+        const points = [];
+        const predictions = analysis.predictions || [];
+
+        for (const pred of predictions) {
+            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
+                const xs = pred.points.map(p => p.x);
+                const ys = pred.points.map(p => p.y);
+
+                // Центральная точка стельки
+                const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+                const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+
+                // 🔥 СОЗДАЕМ ГЕОМЕТРИЧЕСКИЙ ХЕШ НА ОСНОВЕ КООРДИНАТ
+                // Используем округление до 5px для группировки близких точек
+                const gridSize = 5;
+                const gridX = Math.round(centerX / gridSize) * gridSize;
+                const gridY = Math.round(centerY / gridSize) * gridSize;
+               
+                // Хеш на основе сетки и формы
+                const width = Math.max(...xs) - Math.min(...xs);
+                const height = Math.max(...ys) - Math.min(...ys);
+                const aspectRatio = width / height;
+               
+                // Создаем уникальный хеш
+                const geoHash = this.createGeometricHash({
+                    gridX,
+                    gridY,
+                    width: Math.round(width / gridSize),
+                    height: Math.round(height / gridSize),
+                    aspectRatio: Math.round(aspectRatio * 100) / 100
+                });
+
+                const point = {
+                    x: centerX,
+                    y: centerY,
+                    confidence: pred.confidence || 0.5,
+                    geometricHash: geoHash,
+                    originalPoints: pred.points,
+                    class: pred.class,
+                    width: width,
+                    height: height,
+                    aspectRatio: aspectRatio,
+                    _source: 'analysis',
+                    _timestamp: new Date()
+                };
+
+                points.push(point);
+            }
+        }
+
+        // Фильтруем некорректные точки
+        return points.filter(p =>
+            p && typeof p.x === 'number' && typeof p.y === 'number' &&
+            !isNaN(p.x) && !isNaN(p.y) &&
+            p.geometricHash && p.geometricHash.length > 5
+        );
     }
 
-    // 🔥 МЕТОД: Создание геометрических хешей через векторный алгоритм
-    createGeometricHashes(points, sourceId = 'unknown') {
-        if (!this.vectorAlgorithm || !points || points.length === 0) {
-            console.log(`⚠️ Нет векторного алгоритма или точек для создания хешей`);
-            return points; // Возвращаем как есть
-        }
-       
+    // 🔥 МЕТОД: Создание геометрического хеша
+    createGeometricHash(data) {
         try {
-            const vectorFootprint = this.vectorAlgorithm.createFootprint(points, sourceId);
-            return vectorFootprint || points;
+            // Создаем строку данных для хеширования
+            const dataString = JSON.stringify({
+                x: Math.round(data.gridX),
+                y: Math.round(data.gridY),
+                w: Math.round(data.width),
+                h: Math.round(data.height),
+                ar: Math.round(data.aspectRatio * 100)
+            });
+           
+            // Создаем MD5 хеш
+            const hash = crypto.createHash('md5').update(dataString).digest('hex');
+            return `geo_${hash.substring(0, 16)}`;
         } catch (error) {
-            console.log(`⚠️ Ошибка создания геометрических хешей: ${error.message}`);
-            return points;
+            // Фоллбэк: случайный хеш
+            return `geo_fallback_${Math.random().toString(36).substring(2, 15)}`;
         }
     }
 
     // 🔥 МЕТОД: Отправка результатов в Telegram
-    async sendAccumulatorResultsToTelegram(accumulator, vizData, comparisonResult, addResult, bot, chatId, vizPath = null) {
+    async sendAccumulatorResultsToTelegram(accumulator, vizData, similarity, comparisonResult, addResult, bot, chatId, vizPath = null) {
         try {
             if (!bot || !chatId) {
                 return null;
@@ -286,13 +324,13 @@ class SimpleFootprintManager {
             caption += `📈 Всего следов: ${accumulator.footprintHashes.size}\n\n`;
 
             if (comparisonResult) {
-                caption += `🎯 Геометрическое сходство: ${(comparisonResult.similarity * 100).toFixed(1)}%\n`;
+                caption += `🎯 Геометрическое сходство: ${(similarity * 100).toFixed(1)}%\n`;
                 caption += `🤔 Решение: ${comparisonResult.decision === 'same' ? 'ОДНА обувь ✅' : 'Разная обувь'}\n\n`;
             }
 
             caption += `📈 Добавлено: ${addResult.newPoints || 0} новых, ${addResult.existingPoints || 0} подтверждено\n`;
             caption += `💾 Аккумулятор: ${accumulator.id.slice(0, 8)}`;
-            caption += `\n⚡ Метод: Геометрическая аккумуляция (без трансформаций)`;
+            caption += `\n⚡ Метод: Геометрическая аккумуляция`;
 
             // Очистка Markdown
             const cleanMarkdown = (text) => text
@@ -402,54 +440,50 @@ class SimpleFootprintManager {
         };
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-
-    extractPointsFromAnalysis(analysis) {
-        const points = [];
-        const predictions = analysis.predictions || [];
-
-        for (const pred of predictions) {
-            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
-                const xs = pred.points.map(p => p.x);
-                const ys = pred.points.map(p => p.y);
-
-                // Центральная точка стельки
-                const centerPoint = {
-                    x: (Math.min(...xs) + Math.max(...xs)) / 2,
-                    y: (Math.min(...ys) + Math.max(...ys)) / 2,
-                    confidence: pred.confidence || 0.5,
-                    originalPoints: pred.points,
-                    class: pred.class,
-                    _source: 'analysis',
-                    _timestamp: new Date()
-                };
-
-                // 🔥 СОЗДАЕМ ГЕОМЕТРИЧЕСКИЙ ХЕШ ПРЯМО ЗДЕСЬ
-                const geoHash = this.createGeometricHash(centerPoint);
-                centerPoint.geometricHash = geoHash;
-                centerPoint.id = geoHash.substring(0, 12);
-
-                points.push(centerPoint);
-            }
-        }
-
-        return points.filter(p =>
-            p && typeof p.x === 'number' && typeof p.y === 'number' &&
-            !isNaN(p.x) && !isNaN(p.y)
-        );
-    }
-
-    // 🔥 Простой метод создания геометрического хеша
-    createGeometricHash(point) {
-        if (!point || point.x === undefined || point.y === undefined) {
-            return `hash_${Math.random().toString(36).substring(2, 15)}`;
+    // 🔥 МЕТОД ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
+        // 🔥 ИСПРАВЛЕНИЕ: В логах видно, что вызывается addPhotoToSession
+        // Этот метод должен вызвать addPhotoToAccumulator
+        console.log(`👣 ВЫЗЫВАЮ SimpleFootprintManager.addPhotoToSession...`);
+       
+        // Извлекаем точки shoe-protector
+        const protectorCount = analysis.predictions?.filter(p => p.class === 'shoe-protector').length || 0;
+        console.log(`👣 Достаточно протекторов: ${protectorCount}`);
+       
+        if (protectorCount < this.config.minPointsForPhoto) {
+            console.log(`⚠️ Недостаточно протекторов: ${protectorCount}`);
+            return {
+                success: false,
+                error: `Недостаточно протекторов: ${protectorCount}`,
+                nodesAdded: 0
+            };
         }
        
-        // Простой хеш на основе координат и времени
-        const data = `${point.x.toFixed(2)}_${point.y.toFixed(2)}_${Date.now()}_${Math.random()}`;
-        const hash = require('crypto').createHash('md5').update(data).digest('hex');
-        return `geo_${hash}`;
+        // Используем новый метод с аккумулятором
+        return this.addPhotoToAccumulator(userId, analysis, photoInfo, bot, chatId);
     }
+
+    // 🔥 МЕТОД: Обработка совпавших следов (для совместимости)
+    async processMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
+                                  existingTransformationInfo, similarity, comparisonResult,
+                                  tempResult, bot, chatId) {
+        console.log(`✅ Следы совпали (${similarity.toFixed(3)})`);
+       
+        // Создаем фиктивный анализ из следов
+        const analysis = {
+            predictions: this.extractPredictionsFromFootprint(tempFootprint)
+        };
+       
+        const photoInfo = {
+            photoId: tempFootprint.id || `match_${Date.now()}`,
+            source: 'footprint_match',
+            timestamp: new Date()
+        };
+       
+        return this.addPhotoToAccumulator(userId, analysis, photoInfo, bot, chatId);
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 
     extractPredictionsFromFootprint(footprint) {
         const predictions = [];
@@ -470,12 +504,6 @@ class SimpleFootprintManager {
         }
        
         return predictions;
-    }
-
-    // 🔥 Методы для совместимости со старым кодом
-    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        // Используем новый метод с аккумулятором
-        return this.addPhotoToAccumulator(userId, analysis, photoInfo, bot, chatId);
     }
 
     getActiveSession(userId) {
@@ -526,13 +554,13 @@ class SimpleFootprintManager {
     createTestAccumulator(userId, pointCount = 50) {
         const accumulator = new GeometricAccumulator(userId);
        
-        // Создаем тестовые точки
+        // Создаем тестовые точки с геометрическими хешами
         for (let i = 0; i < pointCount; i++) {
             const point = {
                 x: Math.random() * 800 + 100,
                 y: Math.random() * 600 + 100,
                 confidence: 0.5 + Math.random() * 0.5,
-                geometricHash: `test_geo_${i}_${Math.random().toString(36).substring(2, 10)}`
+                geometricHash: `test_geo_${i}_${crypto.randomBytes(4).toString('hex')}`
             };
            
             const points = [point];
