@@ -1,5 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🔥 ИСПРАВЛЕННЫЙ ВИЗУАЛИЗАТОР С УЧЕТОМ СОВПАДЕНИЙ И ВЕКТОРНОЙ МОДЕЛИ
+// 🔥 ИСПРАВЛЕННЫЙ ВИЗУАЛИЗАТОР С УПРОЩЕННЫМ ЛОГИРОВАНИЕМ
 
 const fs = require('fs');
 const path = require('path');
@@ -77,7 +77,7 @@ class ClusterVisualizer {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Получение улучшенных точек с учетом совпадений
+    // 🔥 НОВЫЙ МЕТОД: Получение улучшенных точек с учетом совпадений (С УПРОЩЕННЫМ ЛОГОМ)
     getEnhancedPoints(footprint, matchInfo = null) {
         const enhancedPoints = [];
 
@@ -99,31 +99,30 @@ class ClusterVisualizer {
             }
         }
 
-        // 🔥 2. Если есть информация о совпадениях - обновляем confirmedCount
+        // 🔥 2. Если есть информация о совпадениях - обновляем confirmedCount (С УПРОЩЕННЫМ ЛОГОМ)
         if (matchInfo && matchInfo.averageConfirmations > 1) {
-            console.log(`🔍 Улучшаю данные с учетом совпадений: avg=${matchInfo.averageConfirmations}`);
-           
+            console.log(`🔍 Учитываю ${matchInfo.totalGraphs} совпадений из шаблона`);
+
             // Увеличиваем confirmedCount на основе информации о совпадениях
             const boostFactor = Math.min(2.0, matchInfo.averageConfirmations);
-           
+
+            let boostedCount = 0;
+
             enhancedPoints.forEach(point => {
-                if (point.confirmedCount < 3) {
-                    // Увеличиваем количество подтверждений для некоторых точек
-                    if (Math.random() < 0.7) { // 70% точек получают повышение
-                        point.enhancedConfirmations = Math.min(
-                            3,
-                            Math.round(point.confirmedCount * boostFactor)
-                        );
-                        point.confirmedCount = point.enhancedConfirmations;
-                        point.color = this.getPointColorByConfirmations(point.confirmedCount);
-                        point.size = this.calculatePointSize(point.confirmedCount, point.confidence);
-                       
-                        if (this.config.debug) {
-                            console.log(`   Точка ${point.id}: ${point.confirmedCount-1} → ${point.confirmedCount} подтверждений`);
-                        }
-                    }
+                if (point.confirmedCount < 3 && Math.random() < 0.7) {
+                    point.enhancedConfirmations = Math.min(
+                        3,
+                        Math.round(point.confirmedCount * boostFactor)
+                    );
+                    point.confirmedCount = point.enhancedConfirmations;
+                    point.color = this.getPointColorByConfirmations(point.confirmedCount);
+                    point.size = this.calculatePointSize(point.confirmedCount, point.confidence);
+
+                    boostedCount++;
                 }
             });
+
+            console.log(`   Улучшено ${boostedCount} точек`);
         }
 
         console.log(`📊 Получено ${enhancedPoints.length} улучшенных точек`);
@@ -227,7 +226,7 @@ class ClusterVisualizer {
 
         ctx.font = '16px Arial';
         ctx.fillStyle = '#343A40';
-       
+
         const statRows = [
             `Всего точек: ${stats.total}`,
             `🔴 3+ подтверждений: ${stats.confirmed3}`,
@@ -374,7 +373,7 @@ class ClusterVisualizer {
 
             // Рисуем пример точки
             const size = this.calculatePointSize(item.confirmations, 0.7);
-           
+
             // Внешний круг
             ctx.fillStyle = item.color;
             ctx.beginPath();
@@ -392,7 +391,7 @@ class ClusterVisualizer {
                 ctx.beginPath();
                 ctx.arc(x + 15, y + 8, size * 0.4, 0, Math.PI * 2);
                 ctx.fill();
-               
+
                 // Число подтверждений
                 ctx.fillStyle = item.color;
                 ctx.font = 'bold 8px Arial';
@@ -406,7 +405,7 @@ class ClusterVisualizer {
             ctx.font = '12px Arial';
             ctx.textAlign = 'left';
             ctx.fillText(item.text, x + 35, y + 5);
-           
+
             ctx.fillStyle = '#6C757D';
             ctx.font = '10px Arial';
             ctx.fillText(item.description, x + 35, y + 18);
@@ -416,7 +415,7 @@ class ClusterVisualizer {
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     calculatePointSize(confirmations, confidence) {
         let baseSize = 4;
-       
+
         // Размер зависит от количества подтверждений
         if (confirmations >= 3) {
             baseSize = 10;
@@ -425,7 +424,7 @@ class ClusterVisualizer {
         } else if (confirmations >= 1) {
             baseSize = 5;
         }
-       
+
         // Корректировка по уверенности
         return baseSize + (confidence * 4);
     }
@@ -520,7 +519,7 @@ class ClusterVisualizer {
             if (options.comparisonResult) {
                 const similarity = options.comparisonResult.similarity || 0;
                 const decision = options.comparisonResult.decision || 'unknown';
-               
+
                 ctx.font = '20px Arial';
                 ctx.fillStyle = similarity > 0.6 ? '#28A745' : '#DC3545';
                 ctx.fillText(`Сходство: ${(similarity * 100).toFixed(1)}% (${decision})`, canvasWidth / 2, 90);
