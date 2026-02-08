@@ -1,5 +1,5 @@
 // modules/footprint/accumulator.js
-// 🔥 ИСПРАВЛЕННЫЙ - ФИКС ОШИБКИ seenInFootprints.add is not a function
+// 🔥 ПОЛНОСТЬЮ ИСПРАВЛЕННЫЙ - ФИКС ОШИБКИ ПРИ ЗАГРУЗКЕ ИЗ ФАЙЛА
 
 const fs = require('fs');
 const path = require('path');
@@ -61,10 +61,8 @@ class GeometricAccumulator {
                 data.confirmations = (data.confirmations || 1) + 1;
                 data.lastSeen = new Date();
                
-                // 🔥 ИСПРАВЛЕНИЕ: Проверяем и инициализируем seenInFootprints
-                if (!data.seenInFootprints) {
-                    data.seenInFootprints = new Set();
-                }
+                // 🔥 ГАРАНТИРУЕМ, что seenInFootprints - это Set
+                this.ensureSeenInFootprintsIsSet(data);
                 data.seenInFootprints.add(footprintId);
                
                 // 🔥 ОБНОВЛЯЕМ ПРИМЕРНЫЕ КООРДИНАТЫ (среднее)
@@ -82,7 +80,7 @@ class GeometricAccumulator {
                     confirmations: 1,
                     firstSeen: new Date(),
                     lastSeen: new Date(),
-                    seenInFootprints: new Set([footprintId]) // 🔥 ИНИЦИАЛИЗИРУЕМ Set
+                    seenInFootprints: new Set([footprintId]) // 🔥 ВСЕГДА Set
                 });
                
                 // Сохраняем примерные координаты для визуализации
@@ -139,10 +137,8 @@ class GeometricAccumulator {
                 data.confirmations = (data.confirmations || 1) + 1;
                 data.lastSeen = new Date();
                
-                // 🔥 ИСПРАВЛЕНИЕ: Проверяем и инициализируем seenInFootprints
-                if (!data.seenInFootprints) {
-                    data.seenInFootprints = new Set();
-                }
+                // 🔥 ГАРАНТИРУЕМ, что seenInFootprints - это Set
+                this.ensureSeenInFootprintsIsSet(data);
                 data.seenInFootprints.add(footprintId);
                
                 existingPointsConfirmed++;
@@ -162,7 +158,7 @@ class GeometricAccumulator {
                     confirmations: 1,
                     firstSeen: new Date(),
                     lastSeen: new Date(),
-                    seenInFootprints: new Set([footprintId]) // 🔥 ИНИЦИАЛИЗИРУЕМ Set
+                    seenInFootprints: new Set([footprintId]) // 🔥 ВСЕГДА Set
                 });
                
                 // Сохраняем примерные координаты
@@ -197,6 +193,19 @@ class GeometricAccumulator {
         };
     }
    
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Гарантируем, что seenInFootprints - это Set
+    ensureSeenInFootprintsIsSet(pointData) {
+        if (!pointData.seenInFootprints) {
+            pointData.seenInFootprints = new Set();
+        } else if (Array.isArray(pointData.seenInFootprints)) {
+            // Если это массив (после загрузки из файла) - преобразуем в Set
+            pointData.seenInFootprints = new Set(pointData.seenInFootprints);
+        } else if (!(pointData.seenInFootprints instanceof Set)) {
+            // Если это что-то другое - создаем новый Set
+            pointData.seenInFootprints = new Set();
+        }
+    }
+   
     // 🔥 Получить данные для визуализации
     getVisualizationData() {
         const points = [];
@@ -222,6 +231,9 @@ class GeometricAccumulator {
                 label = 'low';
             }
            
+            // 🔥 ГАРАНТИРУЕМ, что seenInFootprints - это Set
+            this.ensureSeenInFootprintsIsSet(pointData);
+           
             points.push({
                 id: geoHash.substring(0, 12),
                 geometricHash: geoHash,
@@ -234,7 +246,7 @@ class GeometricAccumulator {
                 firstSeen: pointData.firstSeen,
                 lastSeen: pointData.lastSeen,
                 label: label,
-                seenIn: Array.from(pointData.seenInFootprints || []),
+                seenIn: Array.from(pointData.seenInFootprints),
                 isNew: confirmations === 1
             });
         }
@@ -323,16 +335,20 @@ class GeometricAccumulator {
                 footprintHashes: Array.from(this.footprintHashes.entries()),
                 pointExamples: Array.from(this.pointExamples.entries()),
                 stats: this.stats,
-                _version: '1.0-geometric-accumulator',
+                _version: '1.1-geometric-accumulator-fixed',
                 _savedAt: new Date().toISOString()
             };
            
             // Преобразуем Set в Array для сериализации
             data.geometricPoints = data.geometricPoints.map(([hash, pointData]) => {
-                if (pointData.seenInFootprints && pointData.seenInFootprints instanceof Set) {
-                    pointData.seenInFootprints = Array.from(pointData.seenInFootprints);
+                // 🔥 ГАРАНТИРУЕМ, что seenInFootprints - это Set перед преобразованием
+                this.ensureSeenInFootprintsIsSet(pointData);
+               
+                const serializedPoint = { ...pointData };
+                if (serializedPoint.seenInFootprints instanceof Set) {
+                    serializedPoint.seenInFootprints = Array.from(serializedPoint.seenInFootprints);
                 }
-                return [hash, pointData];
+                return [hash, serializedPoint];
             });
            
             data.footprintHashes = data.footprintHashes.map(([id, hashSet]) => {
@@ -366,7 +382,7 @@ class GeometricAccumulator {
             // Восстанавливаем геометрические точки
             if (Array.isArray(data.geometricPoints)) {
                 data.geometricPoints.forEach(([hash, pointData]) => {
-                    // 🔥 ИСПРАВЛЕНИЕ: Преобразуем массив обратно в Set
+                    // 🔥 ВОССТАНАВЛИВАЕМ seenInFootprints как Set
                     if (pointData.seenInFootprints && Array.isArray(pointData.seenInFootprints)) {
                         pointData.seenInFootprints = new Set(pointData.seenInFootprints);
                     }
@@ -400,6 +416,11 @@ class GeometricAccumulator {
                 }
             }
            
+            // 🔥 ПРОХОДИМ ПО ВСЕМ ТОЧКАМ И ГАРАНТИРУЕМ, что seenInFootprints - это Set
+            for (const pointData of accumulator.geometricPoints.values()) {
+                accumulator.ensureSeenInFootprintsIsSet(pointData);
+            }
+           
             // Обновляем статистику
             accumulator.updateStats();
            
@@ -412,5 +433,18 @@ class GeometricAccumulator {
         }
     }
 }
+
+// 🔥 ДОБАВЛЯЕМ СТАТИЧЕСКИЙ МЕТОД В КЛАСС
+GeometricAccumulator.prototype.ensureSeenInFootprintsIsSet = function(pointData) {
+    if (!pointData.seenInFootprints) {
+        pointData.seenInFootprints = new Set();
+    } else if (Array.isArray(pointData.seenInFootprints)) {
+        // Если это массив (после загрузки из файла) - преобразуем в Set
+        pointData.seenInFootprints = new Set(pointData.seenInFootprints);
+    } else if (!(pointData.seenInFootprints instanceof Set)) {
+        // Если это что-то другое - создаем новый Set
+        pointData.seenInFootprints = new Set();
+    }
+};
 
 module.exports = GeometricAccumulator;
