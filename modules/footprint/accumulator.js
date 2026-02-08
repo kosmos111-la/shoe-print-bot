@@ -8,6 +8,7 @@ class GeometricAccumulator {
     constructor(userId, options = {}) {
         this.userId = userId;
         this.id = `accum_${userId}_${Date.now()}`;
+        this.name = `Аккумулятор геометрических точек ${userId}`;
        
         // 🔥 ХРАНИМ ТОЛЬКО ГЕОМЕТРИЧЕСКИЕ ХЕШИ
         this.geometricPoints = new Map(); // geometricHash -> {confirmations, firstSeen, etc}
@@ -20,7 +21,8 @@ class GeometricAccumulator {
             totalUniquePoints: 0,
             byConfirmations: { '1': 0, '2': 0, '3+': 0 },
             totalFootprints: 0,
-            createdAt: new Date()
+            createdAt: new Date(),
+            lastUpdated: new Date()
         };
        
         console.log(`🎯 Создан GeometricAccumulator для пользователя ${userId}`);
@@ -33,9 +35,9 @@ class GeometricAccumulator {
         // 1. Создаем векторный отпечаток (уже инвариантный!)
         const vectorFootprint = vectorAlgorithm.createFootprint(footprintPoints, footprintId);
        
-        if (!vectorFootprint || !Array.isArray(vectorFootprint)) {
-            console.log(`⚠️ Не удалось создать векторный отпечаток`);
-            return { newPoints: 0, totalPoints: this.geometricPoints.size };
+        if (!vectorFootprint || vectorFootprint.length === 0) {
+            console.log(`⚠️ Не удалось создать векторный отпечаток для ${footprintId}`);
+            return { newPoints: 0, totalPoints: this.geometricPoints.size, stats: this.getStats() };
         }
        
         console.log(`📊 Векторный отпечаток создан: ${vectorFootprint.length} точек`);
@@ -45,8 +47,11 @@ class GeometricAccumulator {
        
         // 2. АККУМУЛЯЦИЯ: добавляем каждый геометрический хеш
         vectorFootprint.forEach(point => {
-            const geoHash = point.geometricHash || point.vectorId;
-            if (!geoHash) return;
+            const geoHash = point.geometricHash || point.vectorId || point.id;
+            if (!geoHash) {
+                console.log(`⚠️ Точка без геометрического хеша:`, point);
+                return;
+            }
            
             newHashes.add(geoHash);
            
@@ -58,11 +63,12 @@ class GeometricAccumulator {
                 data.seenInFootprints.add(footprintId);
                
                 // 🔥 ОБНОВЛЯЕМ ПРИМЕРНЫЕ КООРДИНАТЫ (среднее)
-                if (this.pointExamples.has(geoHash) && point.x && point.y) {
+                if (this.pointExamples.has(geoHash) && point.x !== undefined && point.y !== undefined) {
                     const example = this.pointExamples.get(geoHash);
                     const weight = 1 / data.confirmations;
                     example.x = example.x * (1 - weight) + point.x * weight;
                     example.y = example.y * (1 - weight) + point.y * weight;
+                    example.confidence = Math.max(example.confidence || 0.5, point.confidence || 0.5);
                 }
             } else {
                 // НОВЫЙ геометрический хеш
@@ -75,20 +81,13 @@ class GeometricAccumulator {
                 });
                
                 // Сохраняем примерные координаты для визуализации
-                if (point.x && point.y) {
+                if (point.x !== undefined && point.y !== undefined) {
                     this.pointExamples.set(geoHash, {
                         x: point.x,
                         y: point.y,
                         confidence: point.confidence || 0.5,
-                        sourceFootprint: footprintId
-                    });
-                } else {
-                    // Если нет координат - задаем случайные для визуализации
-                    this.pointExamples.set(geoHash, {
-                        x: 300 + Math.random() * 400,
-                        y: 200 + Math.random() * 300,
-                        confidence: point.confidence || 0.5,
-                        sourceFootprint: footprintId
+                        sourceFootprint: footprintId,
+                        lastUpdated: new Date()
                     });
                 }
                
@@ -112,63 +111,20 @@ class GeometricAccumulator {
         };
     }
    
-    // 🔥 Получить данные для визуализации
-    getVisualizationData() {
-        const points = [];
-       
-        for (const [geoHash, pointData] of this.geometricPoints) {
-            const example = this.pointExamples.get(geoHash);
-            if (!example) continue;
-           
-            const confirmations = pointData.confirmations || 1;
-           
-            // 🔥 ЦВЕТ ПО ПОДТВЕРЖДЕНИЯМ
-            let color, size;
-            if (confirmations >= 3) {
-                color = '#FF0000'; // 🔴 Красный: 3+ подтверждений
-                size = 10;
-            } else if (confirmations >= 2) {
-                color = '#FF6B00'; // 🟠 Оранжевый: 2 подтверждения
-                size = 7;
-            } else {
-                color = '#2196F3'; // 🔵 Синий: 1 подтверждение
-                size = 5;
-            }
-           
-            points.push({
-                id: geoHash.substring(0, 12),
-                geometricHash: geoHash,
-                x: example.x || 500,
-                y: example.y || 500,
-                color: color,
-                size: size,
-                confirmations: confirmations,
-                confidence: example.confidence || 0.5,
-                firstSeen: pointData.firstSeen,
-                seenIn: Array.from(pointData.seenInFootprints || []),
-                isNew: confirmations === 1
-            });
-        }
-       
-        return {
-            points: points,
-            stats: this.stats,
-            totalFootprints: this.footprintHashes.size,
-            userId: this.userId,
-            id: this.id
-        };
-    }
-   
-    // 🔥 Простое добавление точек (без векторного алгоритма)
-    addPointsDirectly(points, footprintId) {
-        console.log(`➕ Добавляю ${points.length} точек напрямую в аккумулятор...`);
+    // 🔥 Простой метод добавления точек с геометрическими хешами
+    addFootprintWithGeometricHashes(points, footprintId) {
+        console.log(`➕ Добавляю след ${footprintId} с ${points.length} точками...`);
        
         const newHashes = new Set();
         let newPointsAdded = 0;
+        let existingPointsConfirmed = 0;
        
-        points.forEach((point, index) => {
-            // Создаем простой геометрический хеш из координат
-            const geoHash = this.generateGeometricHash(point);
+        points.forEach(point => {
+            const geoHash = point.geometricHash || point.id;
+            if (!geoHash) {
+                console.log(`⚠️ Точка без геометрического хеша:`, point);
+                return;
+            }
            
             newHashes.add(geoHash);
            
@@ -179,16 +135,18 @@ class GeometricAccumulator {
                 data.lastSeen = new Date();
                 if (!data.seenInFootprints) data.seenInFootprints = new Set();
                 data.seenInFootprints.add(footprintId);
+                existingPointsConfirmed++;
                
-                // Обновляем координаты
-                if (this.pointExamples.has(geoHash) && point.x && point.y) {
+                // Обновляем примерные координаты
+                if (this.pointExamples.has(geoHash) && point.x !== undefined && point.y !== undefined) {
                     const example = this.pointExamples.get(geoHash);
                     const weight = 1 / data.confirmations;
                     example.x = example.x * (1 - weight) + point.x * weight;
                     example.y = example.y * (1 - weight) + point.y * weight;
+                    example.confidence = Math.max(example.confidence || 0.5, point.confidence || 0.5);
                 }
             } else {
-                // НОВАЯ точка
+                // НОВЫЙ геометрический хеш
                 this.geometricPoints.set(geoHash, {
                     geometricHash: geoHash,
                     confirmations: 1,
@@ -198,46 +156,102 @@ class GeometricAccumulator {
                 });
                
                 // Сохраняем примерные координаты
-                this.pointExamples.set(geoHash, {
-                    x: point.x || 300 + Math.random() * 400,
-                    y: point.y || 200 + Math.random() * 300,
-                    confidence: point.confidence || 0.5,
-                    sourceFootprint: footprintId
-                });
+                if (point.x !== undefined && point.y !== undefined) {
+                    this.pointExamples.set(geoHash, {
+                        x: point.x,
+                        y: point.y,
+                        confidence: point.confidence || 0.5,
+                        sourceFootprint: footprintId,
+                        lastUpdated: new Date()
+                    });
+                }
                
                 newPointsAdded++;
             }
         });
        
-        // Сохраняем связь
+        // Сохраняем связь след -> геометрические хеши
         this.footprintHashes.set(footprintId, newHashes);
        
         // Обновляем статистику
         this.updateStats();
        
-        console.log(`✅ Добавлено: +${newPointsAdded} новых, всего: ${this.geometricPoints.size}`);
+        console.log(`✅ Аккумулятор: +${newPointsAdded} новых, ${existingPointsConfirmed} подтверждено`);
+        console.log(`📊 Всего уникальных точек: ${this.geometricPoints.size}`);
        
-        return newPointsAdded;
+        return {
+            newPoints: newPointsAdded,
+            existingPoints: existingPointsConfirmed,
+            totalPoints: this.geometricPoints.size,
+            stats: this.getStats()
+        };
     }
    
-    // 🔥 Генерация геометрического хеша
-    generateGeometricHash(point) {
-        // Простой хеш из координат и углов
-        const gridSize = 10; // 10px сетка
-        const gridX = Math.round((point.x || 0) / gridSize);
-        const gridY = Math.round((point.y || 0) / gridSize);
+    // 🔥 Получить данные для визуализации
+    getVisualizationData() {
+        const points = [];
        
-        // Добавляем информацию об углах, если есть
-        const angles = point.angles || [];
-        const angleHash = angles.length > 0 ?
-            angles.map(a => Math.round(a * 10)).join('_') : '0';
+        for (const [geoHash, pointData] of this.geometricPoints) {
+            const example = this.pointExamples.get(geoHash);
+           
+            const confirmations = pointData.confirmations || 1;
+           
+            // 🔥 ЦВЕТ ПО ПОДТВЕРЖДЕНИЯМ
+            let color, size, label;
+            if (confirmations >= 3) {
+                color = '#FF0000'; // 🔴 Красный: 3+ подтверждений
+                size = 10;
+                label = 'high';
+            } else if (confirmations >= 2) {
+                color = '#FF6B00'; // 🟠 Оранжевый: 2 подтверждения
+                size = 7;
+                label = 'medium';
+            } else {
+                color = '#2196F3'; // 🔵 Синий: 1 подтверждение
+                size = 5;
+                label = 'low';
+            }
+           
+            points.push({
+                id: geoHash.substring(0, 12),
+                geometricHash: geoHash,
+                x: example?.x || Math.random() * 700 + 100,
+                y: example?.y || Math.random() * 500 + 100,
+                color: color,
+                size: size,
+                confirmations: confirmations,
+                confidence: example?.confidence || 0.5,
+                firstSeen: pointData.firstSeen,
+                lastSeen: pointData.lastSeen,
+                label: label,
+                seenIn: Array.from(pointData.seenInFootprints || []),
+                isNew: confirmations === 1
+            });
+        }
        
-        return `geo_${gridX}_${gridY}_${angleHash}`;
+        return {
+            id: this.id,
+            userId: this.userId,
+            name: this.name,
+            points: points,
+            stats: this.stats,
+            totalFootprints: this.footprintHashes.size,
+            visualizationType: 'geometric_accumulator'
+        };
+    }
+   
+    // 🔥 Получить статистику
+    getStats() {
+        return {
+            ...this.stats,
+            lastUpdated: new Date()
+        };
     }
    
     updateStats() {
         this.stats.totalUniquePoints = this.geometricPoints.size;
         this.stats.totalFootprints = this.footprintHashes.size;
+        this.stats.lastUpdated = new Date();
        
         // Сбрасываем счетчики
         this.stats.byConfirmations = { '1': 0, '2': 0, '3+': 0 };
@@ -254,13 +268,6 @@ class GeometricAccumulator {
         }
     }
    
-    getStats() {
-        return {
-            ...this.stats,
-            lastUpdated: new Date()
-        };
-    }
-   
     // 🔥 Сравнение двух следов через аккумулятор
     compareFootprints(footprintId1, footprintId2) {
         const hashes1 = this.footprintHashes.get(footprintId1) || new Set();
@@ -269,78 +276,62 @@ class GeometricAccumulator {
         // Находим общие геометрические хеши
         const common = new Set([...hashes1].filter(x => hashes2.has(x)));
        
-        const similarity = hashes1.size > 0 ? common.size / Math.max(hashes1.size, hashes2.size) : 0;
+        const totalPossible = Math.max(hashes1.size, hashes2.size);
+        const similarity = totalPossible > 0 ? common.size / totalPossible : 0;
        
         return {
             footprint1: { totalPoints: hashes1.size },
             footprint2: { totalPoints: hashes2.size },
             commonPoints: common.size,
             similarity: similarity,
-            isSame: similarity > 0.6 // 60% порог
+            isSame: similarity > 0.6, // 60% порог
+            decision: similarity > 0.6 ? 'same' : 'different'
         };
     }
    
-    // 🔥 Сравнение с новыми точками
-    compareWithNewPoints(newPoints, vectorAlgorithm = null) {
-        let newHashes = new Set();
-       
-        if (vectorAlgorithm) {
-            // Используем векторный алгоритм
-            const vectorFootprint = vectorAlgorithm.createFootprint(newPoints, 'compare');
-            if (vectorFootprint) {
-                vectorFootprint.forEach(point => {
-                    const geoHash = point.geometricHash || point.vectorId;
-                    if (geoHash) newHashes.add(geoHash);
-                });
-            }
-        } else {
-            // Простой метод
-            newPoints.forEach(point => {
-                const geoHash = this.generateGeometricHash(point);
-                newHashes.add(geoHash);
-            });
-        }
-       
-        // Находим общие хеши
-        const existingHashes = new Set(this.geometricPoints.keys());
-        const common = new Set([...newHashes].filter(x => existingHashes.has(x)));
-       
-        const similarity = newHashes.size > 0 ? common.size / newHashes.size : 0;
-       
+    // 🔥 Получить информацию об аккумуляторе
+    getInfo() {
         return {
-            newPoints: newHashes.size,
-            existingPoints: existingHashes.size,
-            commonPoints: common.size,
-            similarity: similarity,
-            isSame: similarity > 0.6
+            id: this.id,
+            userId: this.userId,
+            name: this.name,
+            stats: this.stats,
+            footprintsCount: this.footprintHashes.size,
+            createdAt: this.stats.createdAt,
+            lastUpdated: this.stats.lastUpdated
         };
     }
    
     // 🔥 Сохранение аккумулятора
-    save(outputDir) {
+    saveToFile(filePath) {
         try {
-            if (!fs.existsSync(outputDir)) {
-                fs.mkdirSync(outputDir, { recursive: true });
-            }
-           
             const data = {
                 id: this.id,
                 userId: this.userId,
+                name: this.name,
                 geometricPoints: Array.from(this.geometricPoints.entries()),
                 footprintHashes: Array.from(this.footprintHashes.entries()),
                 pointExamples: Array.from(this.pointExamples.entries()),
                 stats: this.stats,
-                _version: '1.0-simple-accumulator',
+                _version: '1.0-geometric-accumulator',
                 _savedAt: new Date().toISOString()
             };
            
-            const filename = `accumulator_${this.userId}_${Date.now()}.json`;
-            const filePath = path.join(outputDir, filename);
+            // Преобразуем Set в Array для сериализации
+            data.geometricPoints = data.geometricPoints.map(([hash, pointData]) => {
+                if (pointData.seenInFootprints && pointData.seenInFootprints instanceof Set) {
+                    pointData.seenInFootprints = Array.from(pointData.seenInFootprints);
+                }
+                return [hash, pointData];
+            });
+           
+            data.footprintHashes = data.footprintHashes.map(([id, hashSet]) => {
+                return [id, Array.from(hashSet)];
+            });
            
             fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-           
             console.log(`💾 Аккумулятор сохранен: ${filePath}`);
-            return { success: true, path: filePath };
+            return { success: true, filePath };
            
         } catch (error) {
             console.error(`❌ Ошибка сохранения аккумулятора: ${error.message}`);
@@ -348,8 +339,8 @@ class GeometricAccumulator {
         }
     }
    
-    // 🔥 Загрузка аккумулятора
-    static load(filePath, userId) {
+    // 🔥 Загрузка аккумулятора из файла
+    static loadFromFile(filePath, userId) {
         try {
             if (!fs.existsSync(filePath)) {
                 console.log(`⚠️ Файл не найден: ${filePath}`);
@@ -357,28 +348,29 @@ class GeometricAccumulator {
             }
            
             const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-           
             const accumulator = new GeometricAccumulator(userId || data.userId);
+           
             accumulator.id = data.id || accumulator.id;
+            accumulator.name = data.name || accumulator.name;
            
             // Восстанавливаем геометрические точки
             if (Array.isArray(data.geometricPoints)) {
                 data.geometricPoints.forEach(([hash, pointData]) => {
-                    accumulator.geometricPoints.set(hash, {
-                        ...pointData,
-                        seenInFootprints: new Set(pointData.seenInFootprints || [])
-                    });
+                    if (pointData.seenInFootprints && Array.isArray(pointData.seenInFootprints)) {
+                        pointData.seenInFootprints = new Set(pointData.seenInFootprints);
+                    }
+                    accumulator.geometricPoints.set(hash, pointData);
                 });
             }
            
-            // Восстанавливаем следы
+            // Восстанавливаем связи следов
             if (Array.isArray(data.footprintHashes)) {
-                data.footprintHashes.forEach(([footprintId, hashes]) => {
-                    accumulator.footprintHashes.set(footprintId, new Set(hashes || []));
+                data.footprintHashes.forEach(([id, hashArray]) => {
+                    accumulator.footprintHashes.set(id, new Set(hashArray));
                 });
             }
            
-            // Восстанавливаем примеры
+            // Восстанавливаем примеры точек
             if (Array.isArray(data.pointExamples)) {
                 data.pointExamples.forEach(([hash, example]) => {
                     accumulator.pointExamples.set(hash, example);
@@ -388,8 +380,16 @@ class GeometricAccumulator {
             // Восстанавливаем статистику
             if (data.stats) {
                 accumulator.stats = data.stats;
+                // Восстанавливаем даты
+                if (typeof accumulator.stats.createdAt === 'string') {
+                    accumulator.stats.createdAt = new Date(accumulator.stats.createdAt);
+                }
+                if (typeof accumulator.stats.lastUpdated === 'string') {
+                    accumulator.stats.lastUpdated = new Date(accumulator.stats.lastUpdated);
+                }
             }
            
+            // Обновляем статистику
             accumulator.updateStats();
            
             console.log(`📂 Загружен аккумулятор: ${accumulator.geometricPoints.size} точек`);
