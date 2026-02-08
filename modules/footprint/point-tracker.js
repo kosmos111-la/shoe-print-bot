@@ -1,5 +1,5 @@
 // modules/footprint/point-tracker.js
-// 🔥 ИСПРАВЛЕННЫЙ - БЕЗ СПАМА В ЛОГАХ
+// 🔥 ИСПРАВЛЕННЫЙ - БЕЗ СПАМА В ЛОГАХ + ГЕОМЕТРИЧЕСКИЕ ХЕШИ
 
 const crypto = require('crypto');
 
@@ -12,22 +12,22 @@ class PointTracker {
             minRating: options.minRating || 0.1,
             maxRating: options.maxRating || 1.0,
             confirmationThreshold: options.confirmationThreshold || 0.7,
-           
+
             // 🔥 ОТКЛЮЧЕН СПАМ В ЛОГАХ
             debug: options.debug || false,
-           
+
             enableClustering: false,
             clusterRadius: options.clusterRadius || 30,
             minClusterSize: 1,
             adaptiveDistance: options.adaptiveDistance !== false,
             baseDistanceThreshold: options.baseDistanceThreshold || 15,
-           
+
             // Настройки обработки точек
             directUpdateThreshold: options.directUpdateThreshold || 15,
             forceUpdateOnMerge: false,
             honestConfirmations: true,
             maxConfirmationsPerPhoto: 1,
-           
+
             pointMergeDistance: options.pointMergeDistance || 10,
             newPointThreshold: options.newPointThreshold || 8,
             exactMatchMode: options.exactMatchMode !== false
@@ -103,6 +103,37 @@ class PointTracker {
         return results;
     }
 
+    // 🔥 НОВЫЙ МЕТОД: Обновить подтверждения из геометрических совпадений
+    updateConfirmationsFromGeometricMatches(matches, sourceInfo = {}) {
+        console.log(`🔄 Обновляю подтверждения из ${matches.length} геометрических совпадений`);
+
+        let updated = 0;
+
+        matches.forEach(match => {
+            if (match.point1 && match.point1.geometricHash) {
+                const point = this.findPointByGeometricHash(match.point1.geometricHash);
+                if (point) {
+                    point.confirmedCount = (point.confirmedCount || 1) + 1;
+                    point.lastSeen = new Date();
+                    updated++;
+                }
+            }
+        });
+
+        console.log(`✅ Обновлено ${updated} подтверждений`);
+        return updated;
+    }
+
+    // 🔥 НОВЫЙ МЕТОД: Найти точку по геометрическому хешу
+    findPointByGeometricHash(geometricHash) {
+        for (const [id, point] of this.points) {
+            if (point.geometricHash === geometricHash) {
+                return point;
+            }
+        }
+        return null;
+    }
+
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ТИХОЕ СОЗДАНИЕ ТОЧКИ
     _createNewPoint(point, sourceInfo = {}) {
         const newPointId = `pt_${this.nextId++}`;
@@ -126,13 +157,18 @@ class PointTracker {
             confirmedPhotos: new Set([sourceInfo.photoId || 'unknown'])
         };
 
+        // 🔥 СОХРАНЯЕМ ГЕОМЕТРИЧЕСКИЙ ХЕШ ЕСЛИ ЕСТЬ
+        if (point.geometricHash) {
+            pointData.geometricHash = point.geometricHash;
+        }
+
         this.points.set(newPointId, pointData);
-       
+
         // 🔥 ТИХИЙ ЛОГ (только при дебаге)
         if (this.config.debug) {
             console.log(`✅ Создана точка ${newPointId} на (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
         }
-       
+
         return newPointId;
     }
 
@@ -167,6 +203,11 @@ class PointTracker {
             newPoint.confidence || 0.5
         );
 
+        // 🔥 ОБНОВЛЯЕМ ГЕОМЕТРИЧЕСКИЙ ХЕШ ЕСЛИ ЕСТЬ
+        if (newPoint.geometricHash && !pointData.geometricHash) {
+            pointData.geometricHash = newPoint.geometricHash;
+        }
+
         pointData.lastSeen = new Date();
 
         // 🔥 ТИХИЙ ЛОГ (только при дебаге)
@@ -177,83 +218,22 @@ class PointTracker {
         return true;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: ОБНОВИТЬ ПОДТВЕРЖДЕНИЯ ИЗ ГЕОМЕТРИЧЕСКОГО СРАВНЕНИЯ
-    updateFromGeometricMatches(matches, sourceInfo = {}) {
-        if (!matches || matches.length === 0) {
-            console.log('📊 Нет совпадений для обновления подтверждений');
-            return 0;
-        }
-
-        console.log(`🔄 Обновляю подтверждения из ${matches.length} геометрических совпадений...`);
-
-        let updatedCount = 0;
-        const photoHash = sourceInfo.photoId || 'geometric_match';
-
-        matches.forEach(match => {
-            const point1 = this._findPointById(match.point1?.id || match.point1?.originalId);
-            const point2 = this._findPointById(match.point2?.id || match.point2?.originalId);
-
-            // Обновляем первую точку
-            if (point1 && point1.id) {
-                const pointData = this.points.get(point1.id);
-                if (pointData) {
-                    if (!pointData.confirmedPhotos || !pointData.confirmedPhotos.has(photoHash)) {
-                        pointData.confirmedCount = (pointData.confirmedCount || 1) + 1;
-                       
-                        if (!pointData.confirmedPhotos) pointData.confirmedPhotos = new Set();
-                        pointData.confirmedPhotos.add(photoHash);
-                       
-                        pointData.rating = Math.min(1.0, pointData.rating + 0.1);
-                        pointData.lastSeen = new Date();
-                       
-                        updatedCount++;
-                       
-                        if (this.config.debug) {
-                            console.log(`   ${point1.id}: ${pointData.confirmedCount} подтверждений (геометрическое совпадение)`);
-                        }
-                    }
-                }
-            }
-
-            // Обновляем вторую точку
-            if (point2 && point2.id) {
-                const pointData = this.points.get(point2.id);
-                if (pointData) {
-                    if (!pointData.confirmedPhotos || !pointData.confirmedPhotos.has(photoHash)) {
-                        pointData.confirmedCount = (pointData.confirmedCount || 1) + 1;
-                       
-                        if (!pointData.confirmedPhotos) pointData.confirmedPhotos = new Set();
-                        pointData.confirmedPhotos.add(photoHash);
-                       
-                        pointData.rating = Math.min(1.0, pointData.rating + 0.1);
-                        pointData.lastSeen = new Date();
-                       
-                        updatedCount++;
-                    }
-                }
-            }
-        });
-
-        console.log(`✅ Обновлено ${updatedCount} точек из геометрических совпадений`);
-        return updatedCount;
-    }
-
     // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Найти точку по ID
     _findPointById(pointId) {
         if (!pointId) return null;
-       
+
         // Прямой поиск
         if (this.points.has(pointId)) {
             return { id: pointId, data: this.points.get(pointId) };
         }
-       
+
         // Поиск по originalId
         for (const [id, pointData] of this.points) {
             if (pointData.originalId === pointId || pointData.id === pointId) {
                 return { id, data: pointData };
             }
         }
-       
+
         return null;
     }
 
@@ -384,13 +364,13 @@ class PointTracker {
             });
         }
         tracker.nextId = data.nextId || 1;
-       
+
         // Восстанавливаем даты
         for (const pt of tracker.points.values()) {
             if (typeof pt.firstSeen === 'string') pt.firstSeen = new Date(pt.firstSeen);
             if (typeof pt.lastSeen === 'string') pt.lastSeen = new Date(pt.lastSeen);
         }
-       
+
         console.log(`✅ Загружен PointTracker, ${tracker.points.size} точек`);
         return tracker;
     }
