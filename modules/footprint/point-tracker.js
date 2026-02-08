@@ -1,80 +1,48 @@
-// modules/footprint/point-tracker.js - ВЕРСИЯ С МЕТОДОМ getHonestStats()
+// modules/footprint/point-tracker.js
+// 🔥 ИСПРАВЛЕННЫЙ - БЕЗ СПАМА В ЛОГАХ
 
 const crypto = require('crypto');
 
 class PointTracker {
     constructor(options = {}) {
-        this.points = new Map(); // id -> { point, history, rating }
+        this.points = new Map();
         this.nextId = 1;
         this.config = {
             ratingDecay: options.ratingDecay || 0.97,
             minRating: options.minRating || 0.1,
             maxRating: options.maxRating || 1.0,
             confirmationThreshold: options.confirmationThreshold || 0.7,
-
-            // 🔥 ОТКЛЮЧЕНА КЛАСТЕРИЗАЦИЯ
+           
+            // 🔥 ОТКЛЮЧЕН СПАМ В ЛОГАХ
+            debug: options.debug || false,
+           
             enableClustering: false,
             clusterRadius: options.clusterRadius || 30,
             minClusterSize: 1,
             adaptiveDistance: options.adaptiveDistance !== false,
             baseDistanceThreshold: options.baseDistanceThreshold || 15,
-            bonusForClusters: false,
-
+           
             // Настройки обработки точек
             directUpdateThreshold: options.directUpdateThreshold || 15,
             forceUpdateOnMerge: false,
             honestConfirmations: true,
             maxConfirmationsPerPhoto: 1,
-          
+           
             pointMergeDistance: options.pointMergeDistance || 10,
             newPointThreshold: options.newPointThreshold || 8,
             exactMatchMode: options.exactMatchMode !== false
         };
     }
 
-    // 🔥 ВОССТАНОВЛЕННЫЙ МЕТОД ДЛЯ СОВМЕСТИМОСТИ
-    getHonestStats() {
-        return this.getStats(); // Просто возвращаем обычную статистику
-    }
-
-    // 🔥 ДОБАВЛЕН МЕТОД ДЛЯ СОВМЕСТИМОСТИ С VISUALIZER
-    getHonestVisualizationData() {
-        const stats = this.getStats();
-        const visualizationData = {
-            confirmationsInfo: {
-                totalPoints: stats.totalPoints,
-                confirmed2: stats.pointsByConfirmations['2'] || 0,
-                confirmed1: stats.pointsByConfirmations['1'] || 0,
-                confirmed0: 0 // В этой версии нет точек с 0 подтверждениями
-            },
-            points: []
-        };
-
-        // Добавляем информацию о точках
-        for (const [id, point] of this.points) {
-            visualizationData.points.push({
-                id,
-                x: point.x,
-                y: point.y,
-                confirmedCount: point.confirmedCount || 0,
-                confidence: point.rating || 0.5,
-                clusterData: point.clusterData || null
-            });
-        }
-
-        return visualizationData;
-    }
-
-    // 🔥 ПЕРЕПИСАННЫЙ ГЛАВНЫЙ МЕТОД
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: БЕЗ СПАМА О СОЗДАНИИ КАЖДОЙ ТОЧКИ
     processNewPoints(newPoints, sourceInfo = {}) {
-        console.log(`🎯 Обработка ${newPoints.length} точек (БЕЗ кластеризации)...`);
+        console.log(`🎯 Обработка ${newPoints.length} точек...`);
 
         const results = {
             added: 0,
             updated: 0,
             merged: 0,
             skipped: 0,
-            clusters: 0,
             points: [],
             photoId: sourceInfo.photoId || 'unknown'
         };
@@ -82,11 +50,18 @@ class PointTracker {
         const photoHash = sourceInfo.photoId ||
                          crypto.createHash('md5').update(JSON.stringify(newPoints)).digest('hex').substring(0, 8);
 
-        // 🔥 ШАГ 1: Прямая обработка КАЖДОЙ точки
+        // 🔥 ОБРАБОТКА БЕЗ ДЕТАЛЬНОГО ЛОГГИРОВАНИЯ
         newPoints.forEach((point, index) => {
             const nearest = this.findNearestPoint(point, this.config.pointMergeDistance);
 
             if (nearest) {
+                // Проверяем, не подтверждена ли уже эта точка этим фото
+                const pointData = this.points.get(nearest.id);
+                if (pointData && pointData.confirmedPhotos && pointData.confirmedPhotos.has(photoHash)) {
+                    results.skipped++;
+                    return; // Пропускаем дубликат
+                }
+
                 const updateSuccess = this._updatePointHonest(
                     nearest.id,
                     point,
@@ -102,18 +77,12 @@ class PointTracker {
                 if (updateSuccess) {
                     results.updated++;
                     results.merged++;
-                    results.points.push({
-                        id: nearest.id,
-                        action: 'direct_update',
-                        distance: nearest.distance,
-                        photoId: photoHash
-                    });
                 } else {
                     results.skipped++;
                 }
             } else {
                 const distanceToNearest = this._getDistanceToNearestExistingPoint(point);
-              
+
                 if (distanceToNearest < this.config.newPointThreshold) {
                     results.skipped++;
                 } else {
@@ -122,14 +91,8 @@ class PointTracker {
                         photoId: photoHash,
                         pointIndex: index
                     });
-                  
+
                     results.added++;
-                    results.points.push({
-                        id: newPointId,
-                        action: 'new_point',
-                        distanceToNearest: distanceToNearest,
-                        photoId: photoHash
-                    });
                 }
             }
         });
@@ -140,27 +103,10 @@ class PointTracker {
         return results;
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД
-    _getDistanceToNearestExistingPoint(point) {
-        let minDistance = Infinity;
-      
-        for (const [, pt] of this.points) {
-            const dx = pt.x - point.x;
-            const dy = pt.y - point.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-          
-            if (distance < minDistance) {
-                minDistance = distance;
-            }
-        }
-      
-        return minDistance === Infinity ? 1000 : minDistance;
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ТИХОЕ СОЗДАНИЕ ТОЧКИ
     _createNewPoint(point, sourceInfo = {}) {
         const newPointId = `pt_${this.nextId++}`;
-      
+
         const pointData = {
             id: newPointId,
             x: point.x,
@@ -172,83 +118,146 @@ class PointTracker {
                 source: sourceInfo,
                 confidence: point.confidence || 0.5,
                 action: 'created',
-                confirmationType: 'new',
-                photoCount: 1
+                confirmationType: 'new'
             }],
             confirmedCount: 1,
-            clusterConfirmations: [{
-                timestamp: new Date(),
-                source: sourceInfo.source || 'unknown',
-                photoId: sourceInfo.photoId,
-                clusterSize: 1,
-                confirmationIndex: 0
-            }],
             lastSeen: new Date(),
             firstSeen: new Date(),
-            confirmedPhotos: new Set([sourceInfo.photoId || 'unknown']),
-            clusterOrigin: false
+            confirmedPhotos: new Set([sourceInfo.photoId || 'unknown'])
         };
 
         this.points.set(newPointId, pointData);
-        console.log(`✅ Создана точка ${newPointId} на (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+       
+        // 🔥 ТИХИЙ ЛОГ (только при дебаге)
+        if (this.config.debug) {
+            console.log(`✅ Создана точка ${newPointId} на (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+        }
+       
         return newPointId;
     }
 
-    // 🔥 ОБНОВЛЕНИЕ ТОЧКИ
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: ТИХОЕ ОБНОВЛЕНИЕ
     _updatePointHonest(pointId, newPoint, sourceInfo = {}) {
         const pointData = this.points.get(pointId);
         if (!pointData) return false;
 
         const photoHash = sourceInfo.photoId || 'unknown';
-      
+
+        // 🔥 ПРОВЕРКА БЕЗ СПАМА
         if (pointData.confirmedPhotos && pointData.confirmedPhotos.has(photoHash)) {
-            console.log(`⚠️ Точка ${pointId} уже подтверждена фото ${photoHash}, пропускаем`);
-            return false;
+            return false; // Просто возвращаем false без спама
         }
 
+        // Увеличиваем количество подтверждений
         pointData.confirmedCount = (pointData.confirmedCount || 1) + 1;
-      
+
         if (!pointData.confirmedPhotos) pointData.confirmedPhotos = new Set();
         pointData.confirmedPhotos.add(photoHash);
 
-        if (!pointData.clusterConfirmations) pointData.clusterConfirmations = [];
-        pointData.clusterConfirmations.push({
-            timestamp: new Date(),
-            source: sourceInfo.source || 'unknown',
-            photoId: photoHash,
-            clusterSize: 1,
-            confirmationIndex: pointData.confirmedCount - 1,
-            distance: sourceInfo.distance || 0
-        });
-
+        // Обновляем координаты с весом
         const updateDistance = sourceInfo.distance || 0;
         const weight = Math.max(0.1, Math.min(0.9, 1.0 - (updateDistance / 20)));
-      
+
         pointData.x = pointData.x * (1 - weight) + newPoint.x * weight;
         pointData.y = pointData.y * (1 - weight) + newPoint.y * weight;
-      
+
+        // Обновляем рейтинг
         pointData.rating = this.calculateUpdatedRating(
             pointData.rating,
             newPoint.confidence || 0.5
         );
-      
+
         pointData.lastSeen = new Date();
-        pointData.history.push({
-            timestamp: new Date(),
-            source: sourceInfo,
-            confidence: newPoint.confidence || 0.5,
-            action: 'confirmed',
-            confirmationType: 'honest',
-            photoCount: 1,
-            currentConfirmations: pointData.confirmedCount,
-            updateWeight: weight,
-            distance: updateDistance
-        });
+
+        // 🔥 ТИХИЙ ЛОГ (только при дебаге)
+        if (this.config.debug) {
+            console.log(`🔄 Точка ${pointId}: подтверждений=${pointData.confirmedCount}`);
+        }
 
         return true;
     }
 
-    // 🔥 ПОИСК БЛИЖАЙШЕЙ ТОЧКИ
+    // 🔥 НОВЫЙ МЕТОД: ОБНОВИТЬ ПОДТВЕРЖДЕНИЯ ИЗ ГЕОМЕТРИЧЕСКОГО СРАВНЕНИЯ
+    updateFromGeometricMatches(matches, sourceInfo = {}) {
+        if (!matches || matches.length === 0) {
+            console.log('📊 Нет совпадений для обновления подтверждений');
+            return 0;
+        }
+
+        console.log(`🔄 Обновляю подтверждения из ${matches.length} геометрических совпадений...`);
+
+        let updatedCount = 0;
+        const photoHash = sourceInfo.photoId || 'geometric_match';
+
+        matches.forEach(match => {
+            const point1 = this._findPointById(match.point1?.id || match.point1?.originalId);
+            const point2 = this._findPointById(match.point2?.id || match.point2?.originalId);
+
+            // Обновляем первую точку
+            if (point1 && point1.id) {
+                const pointData = this.points.get(point1.id);
+                if (pointData) {
+                    if (!pointData.confirmedPhotos || !pointData.confirmedPhotos.has(photoHash)) {
+                        pointData.confirmedCount = (pointData.confirmedCount || 1) + 1;
+                       
+                        if (!pointData.confirmedPhotos) pointData.confirmedPhotos = new Set();
+                        pointData.confirmedPhotos.add(photoHash);
+                       
+                        pointData.rating = Math.min(1.0, pointData.rating + 0.1);
+                        pointData.lastSeen = new Date();
+                       
+                        updatedCount++;
+                       
+                        if (this.config.debug) {
+                            console.log(`   ${point1.id}: ${pointData.confirmedCount} подтверждений (геометрическое совпадение)`);
+                        }
+                    }
+                }
+            }
+
+            // Обновляем вторую точку
+            if (point2 && point2.id) {
+                const pointData = this.points.get(point2.id);
+                if (pointData) {
+                    if (!pointData.confirmedPhotos || !pointData.confirmedPhotos.has(photoHash)) {
+                        pointData.confirmedCount = (pointData.confirmedCount || 1) + 1;
+                       
+                        if (!pointData.confirmedPhotos) pointData.confirmedPhotos = new Set();
+                        pointData.confirmedPhotos.add(photoHash);
+                       
+                        pointData.rating = Math.min(1.0, pointData.rating + 0.1);
+                        pointData.lastSeen = new Date();
+                       
+                        updatedCount++;
+                    }
+                }
+            }
+        });
+
+        console.log(`✅ Обновлено ${updatedCount} точек из геометрических совпадений`);
+        return updatedCount;
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Найти точку по ID
+    _findPointById(pointId) {
+        if (!pointId) return null;
+       
+        // Прямой поиск
+        if (this.points.has(pointId)) {
+            return { id: pointId, data: this.points.get(pointId) };
+        }
+       
+        // Поиск по originalId
+        for (const [id, pointData] of this.points) {
+            if (pointData.originalId === pointId || pointData.id === pointId) {
+                return { id, data: pointData };
+            }
+        }
+       
+        return null;
+    }
+
+    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ
     findNearestPoint(point, maxDistance = 15) {
         let nearest = null;
         let minDistance = Infinity;
@@ -273,45 +282,20 @@ class PointTracker {
         } : null;
     }
 
-    // 🔥 МЕТОД КЛАСТЕРИЗАЦИИ (для совместимости)
-    clusterPoints(points, eps = 20, minPts = 2) {
-        if (!this.config.enableClustering) {
-            return points.map(point => ({
-                points: [point],
-                center: point
-            }));
-        }
-      
-        if (points.length === 0) return [];
-        // ... (старая логика кластеризации)
-        return [];
-    }
+    _getDistanceToNearestExistingPoint(point) {
+        let minDistance = Infinity;
 
-    calculateClusterCenter(clusterPoints) {
-        if (!clusterPoints || clusterPoints.length === 0) {
-            return { x: 0, y: 0 };
-        }
-        const sumX = clusterPoints.reduce((sum, p) => sum + p.x, 0);
-        const sumY = clusterPoints.reduce((sum, p) => sum + p.y, 0);
-        return {
-            x: sumX / clusterPoints.length,
-            y: sumY / clusterPoints.length
-        };
-    }
+        for (const [, pt] of this.points) {
+            const dx = pt.x - point.x;
+            const dy = pt.y - point.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
 
-    findSinglePoints(allPoints, clusters) {
-        if (!this.config.enableClustering) return allPoints;
-        const clusteredPoints = new Set();
-        clusters.forEach(cluster => {
-            cluster.points.forEach(point => {
-                const index = allPoints.findIndex(p =>
-                    Math.abs(p.x - point.x) < 0.1 &&
-                    Math.abs(p.y - point.y) < 0.1
-                );
-                if (index !== -1) clusteredPoints.add(index);
-            });
-        });
-        return allPoints.filter((_, index) => !clusteredPoints.has(index));
+            if (distance < minDistance) {
+                minDistance = distance;
+            }
+        }
+
+        return minDistance === Infinity ? 1000 : minDistance;
     }
 
     calculateUpdatedRating(currentRating, newConfidence) {
@@ -320,22 +304,22 @@ class PointTracker {
         return Math.min(this.config.maxRating, Math.max(this.config.minRating, updatedRating));
     }
 
-    // 🔥 ОСНОВНОЙ МЕТОД СТАТИСТИКИ
+    getHonestStats() {
+        return this.getStats();
+    }
+
     getStats() {
         const stats = {
             totalPoints: this.points.size,
             highConfidencePoints: 0,
             avgRating: 0,
             avgConfirmations: 0,
-            recentlyUpdated: 0,
             uniquePhotos: this.getUniquePhotoCount(),
             pointsByConfirmations: { '1': 0, '2': 0, '3': 0, '4+': 0 }
         };
 
         let totalRating = 0;
         let totalConfirmations = 0;
-        const now = new Date();
-        const oneDayAgo = now - (24 * 60 * 60 * 1000);
 
         for (const pt of this.points.values()) {
             totalRating += pt.rating;
@@ -343,10 +327,6 @@ class PointTracker {
 
             if (pt.rating >= this.config.confirmationThreshold) {
                 stats.highConfidencePoints++;
-            }
-
-            if (pt.lastSeen > oneDayAgo) {
-                stats.recentlyUpdated++;
             }
 
             const confirmations = pt.confirmedCount || 1;
@@ -374,128 +354,6 @@ class PointTracker {
         return photoSet.size;
     }
 
-    getAllPoints(options = {}) {
-        const { minRating = 0, minConfirmations = 0, maxAgeDays = Infinity } = options;
-        const points = [];
-        const now = new Date();
-        const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
-
-        for (const [id, pt] of this.points) {
-            if (pt.rating < minRating) continue;
-            if (pt.confirmedCount < minConfirmations) continue;
-            const age = now - pt.lastSeen;
-            if (age > maxAgeMs) continue;
-
-            points.push({
-                id,
-                x: pt.x,
-                y: pt.y,
-                confidence: pt.rating,
-                confirmedCount: pt.confirmedCount,
-                uniquePhotos: pt.confirmedPhotos ? pt.confirmedPhotos.size : 1,
-                lastSeen: pt.lastSeen,
-                firstSeen: pt.firstSeen,
-                type: 'tracked',
-                source: 'point_tracker'
-            });
-        }
-
-        return points;
-    }
-
-    getPointsForTemplateMatching() {
-        const templatePoints = [];
-        for (const [id, pt] of this.points) {
-            templatePoints.push({
-                id: id,
-                x: Math.round(pt.x * 100) / 100,
-                y: Math.round(pt.y * 100) / 100,
-                confidence: pt.rating,
-                confirmations: pt.confirmedCount || 1,
-                source: 'tracker'
-            });
-        }
-        console.log(`📋 Подготовлено ${templatePoints.length} точек для сравнения с шаблоном`);
-        return templatePoints;
-    }
-
-    compareWithTemplate(templatePoints, tolerance = 10) {
-        const matches = [];
-        const unmatchedTemplate = [];
-        const unmatchedTracker = [];
-      
-        const trackerPoints = this.getPointsForTemplateMatching();
-      
-        templatePoints.forEach(templatePoint => {
-            let matched = false;
-            for (const trackerPoint of trackerPoints) {
-                const distance = Math.sqrt(
-                    Math.pow(templatePoint.x - trackerPoint.x, 2) +
-                    Math.pow(templatePoint.y - trackerPoint.y, 2)
-                );
-                if (distance <= tolerance) {
-                    matches.push({
-                        template: templatePoint,
-                        tracker: trackerPoint,
-                        distance: distance,
-                        matchQuality: 1.0 - (distance / tolerance)
-                    });
-                    matched = true;
-                    break;
-                }
-            }
-            if (!matched) unmatchedTemplate.push(templatePoint);
-        });
-      
-        trackerPoints.forEach(trackerPoint => {
-            let matched = false;
-            for (const templatePoint of templatePoints) {
-                const distance = Math.sqrt(
-                    Math.pow(trackerPoint.x - templatePoint.x, 2) +
-                    Math.pow(trackerPoint.y - templatePoint.y, 2)
-                );
-                if (distance <= tolerance) {
-                    matched = true;
-                    break;
-                }
-            }
-            if (!matched) unmatchedTracker.push(trackerPoint);
-        });
-      
-        const stats = {
-            totalTemplatePoints: templatePoints.length,
-            totalTrackerPoints: trackerPoints.length,
-            matches: matches.length,
-            unmatchedTemplate: unmatchedTemplate.length,
-            unmatchedTracker: unmatchedTracker.length,
-            matchRate: templatePoints.length > 0 ? (matches.length / templatePoints.length) * 100 : 0,
-            coverageRate: trackerPoints.length > 0 ? (matches.length / trackerPoints.length) * 100 : 0
-        };
-      
-        console.log(`\n🔄 СРАВНЕНИЕ С ШАБЛОНОМ:`);
-        console.log(`├─ Шаблон: ${stats.totalTemplatePoints} точек`);
-        console.log(`├─ Трекер: ${stats.totalTrackerPoints} точек`);
-        console.log(`├─ Совпадений: ${stats.matches} (${stats.matchRate.toFixed(1)}%)`);
-        console.log(`├─ Не совпало в шаблоне: ${stats.unmatchedTemplate}`);
-        console.log(`└─ Лишние в трекере: ${stats.unmatchedTracker}`);
-      
-        return { matches, unmatchedTemplate, unmatchedTracker, stats };
-    }
-
-    visualize() {
-        const stats = this.getStats();
-        console.log(`\n🎯 POINT TRACKER (БЕЗ кластеризации):`);
-        console.log(`├─ Всего точек: ${stats.totalPoints}`);
-        console.log(`├─ Уникальных фото: ${stats.uniquePhotos}`);
-        console.log(`├─ Средний рейтинг: ${stats.avgRating.toFixed(3)}`);
-        console.log(`├─ Среднее подтверждений: ${stats.avgConfirmations.toFixed(2)}`);
-        console.log(`\n📊 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ:`);
-        console.log(`├─ 1 подтверждение: ${stats.pointsByConfirmations['1']}`);
-        console.log(`├─ 2 подтверждения: ${stats.pointsByConfirmations['2']}`);
-        console.log(`├─ 3 подтверждения: ${stats.pointsByConfirmations['3']}`);
-        console.log(`└─ 4+ подтверждений: ${stats.pointsByConfirmations['4+']}`);
-    }
-
     toJSON() {
         const pointsArray = Array.from(this.points.entries()).map(([id, point]) => {
             const serializedPoint = { ...point };
@@ -509,7 +367,7 @@ class PointTracker {
             points: pointsArray,
             nextId: this.nextId,
             config: this.config,
-            _version: '3.1-with-honeststats',
+            _version: '4.0-clean-logs',
             _savedAt: new Date().toISOString()
         };
         return data;
@@ -526,10 +384,13 @@ class PointTracker {
             });
         }
         tracker.nextId = data.nextId || 1;
+       
+        // Восстанавливаем даты
         for (const pt of tracker.points.values()) {
             if (typeof pt.firstSeen === 'string') pt.firstSeen = new Date(pt.firstSeen);
             if (typeof pt.lastSeen === 'string') pt.lastSeen = new Date(pt.lastSeen);
         }
+       
         console.log(`✅ Загружен PointTracker, ${tracker.points.size} точек`);
         return tracker;
     }
