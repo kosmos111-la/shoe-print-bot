@@ -13,7 +13,7 @@ class VectorSuperModel {
             // 🔥 ВНУТРЕННИЙ ПОРОГ ДЛЯ ТОЧНОГО СРАВНЕНИЯ
             matchThreshold: 0.05, // Для точного сравнения точек
 
-            // 🔥 ВНЕШНИЙ ПОРОГ ДЛЯ РЕШЕНИЙ (СИНХРОНИЗИРОВАННЫЙ С simple-manager.js)
+            // 🔥 ВНЕШНИЙ ПОРОГ ДЛЯ РЕШЕНИЙ (СИНХРОННЫЙ С simple-manager.js)
             decisionThreshold: 0.6, // 60% - как в simple-manager.js
 
             minConfirmationsForHighConfidence: 2,
@@ -92,7 +92,7 @@ class VectorSuperModel {
 
     // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Добавить граф с проверкой порогов
     addGraph(graph, graphId, metadata = {}) {
-        console.log(`🔄 Добавляю граф ${graphId} с ГАРАНТИЕЙ КАНОНИЧСКОЙ СИСТЕМЫ...`);
+        console.log(`🔄 Добавляю граф ${graphId} с ГАРАНТИЕЙ КАНОНИЧЕСКОЙ СИСТЕМЫ...`);
 
         // 🔥 КРИТИЧНОЕ ИСПРАВЛЕНИЕ: РЕАЛЬНАЯ коррекция через director
         if (this.manager?.coordinateDirector) {
@@ -413,20 +413,29 @@ class VectorSuperModel {
         };
     }
 
-    // 🔥 МЕТОД ИЗ ИНСТРУКЦИИ: getTemplateStats (строго по инструкции)
+    // 🔥 НОВЫЙ МЕТОД: ПОЛУЧИТЬ СТАТИСТИКУ ШАБЛОНА
     getTemplateStats() {
         if (!this.templateBuilder) return null;
 
         const templateInfo = this.templateBuilder.getInfo();
+        const zones = this.templateBuilder.calculateZones ?
+            this.templateBuilder.calculateZones() : {};
 
         return {
+            templateId: this.templateBuilder.id,
             cells: {
-                total: templateInfo.templateCells || 0,
-                confirmed: templateInfo.stats?.confirmedCells || 0,
-                avgConfirmations: templateInfo.stats?.averageConfirmations || 0
+                total: templateInfo.templateCells,
+                confirmed: templateInfo.stats.confirmedCells,
+                highConfidence: templateInfo.stats.highConfidenceCells,
+                avgConfirmations: templateInfo.stats.avgConfirmations?.toFixed(2) || '0.00'
             },
+            referenceGraphId: this.templateBuilder.referenceGraphId,
+            referenceGraphQuality: this.templateBuilder.referenceGraphQuality,
+            zones: zones,
             alignmentStats: {
-                totalGraphs: templateInfo.stats?.totalGraphs || 0
+                totalGraphs: templateInfo.stats.totalGraphs,
+                transformations: this.templateBuilder.graphTransformations?.size || 0,
+                avgError: templateInfo.stats.alignmentError?.toFixed(3) || '0.000'
             }
         };
     }
