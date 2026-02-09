@@ -521,88 +521,103 @@ class AccumulativeModel {
 
     // 🔥 ОБЪЕДИНЕНИЕ С СУЩЕСТВУЮЩИМ СЛЕДОМ
     mergeFootprint(footprintData, matches, similarity) {
-        console.log(`✅ Следы совпали (${(similarity * 100).toFixed(1)}%), объединяю...`);
-       
-        // 1. Обновляем подтверждения для совпавших точек
-        let confirmedCount = 0;
-        let updatedCount = 0;
-       
-        matches.forEach(match => {
+    console.log(`✅ Следы совпали (${(similarity * 100).toFixed(1)}%), объединяю...`);
+   
+    // 1. Собираем все vectorId из нового следа
+    const newPointIds = new Set();
+    footprintData.vectorFootprint.forEach(point => {
+        if (point.vectorId) {
+            newPointIds.add(point.vectorId);
+        }
+    });
+   
+    // 2. Обновляем подтверждения для совпавших точек
+    let confirmedCount = 0;
+   
+    matches.forEach(match => {
+        if (match.point1?.vectorId && match.point2?.vectorId) {
             // Ищем точку в allPoints по vectorId
             for (const [pointId, pointData] of this.allPoints) {
-                if (pointData.vectorId === match.point1?.vectorId) {
+                if (pointData.vectorId === match.point1.vectorId) {
                     // Увеличиваем счетчик подтверждений
                     pointData.seenInFootprints.add(footprintData.id);
                     pointData.confirmationCount = pointData.seenInFootprints.size;
                     pointData.lastSeen = new Date();
                    
-                    // Обновляем цвет в зависимости от подтверждений
+                    // Обновляем цвет
                     if (pointData.confirmationCount >= 3) {
-                        pointData.color = 'red'; // 🔴 3+ подтверждений
+                        pointData.color = 'red'; // 🔴
                     } else if (pointData.confirmationCount === 2) {
-                        pointData.color = 'orange'; // 🟠 2 подтверждения
-                    } else {
-                        pointData.color = 'blue'; // 🔵 1 подтверждение
+                        pointData.color = 'orange'; // 🟠
                     }
                    
                     confirmedCount++;
+                    newPointIds.delete(pointData.vectorId); // Убираем из новых
                     break;
                 }
             }
-        });
-       
-        // 2. Добавляем НОВЫЕ точки из этого следа (которые не совпали)
-        let newPointsAdded = 0;
-       
-        footprintData.vectorFootprint.forEach(point => {
-            // Проверяем, есть ли уже эта точка
-            let pointExists = false;
+        }
+    });
+   
+    // 3. Добавляем НОВЫЕ точки (которые не совпали)
+    let newPointsAdded = 0;
+   
+    footprintData.vectorFootprint.forEach(point => {
+        if (newPointIds.has(point.vectorId)) {
+            // Это новая точка (не было в предыдущих следах)
+            const pointId = `pt_${this.nextPointId++}`;
            
-            for (const pointData of this.allPoints.values()) {
-                if (pointData.vectorId === point.vectorId) {
-                    pointExists = true;
-                    break;
-                }
-            }
+            this.allPoints.set(pointId, {
+                id: pointId,
+                x: point.x,
+                y: point.y,
+                confidence: point.confidence || 0.5,
+                seenInFootprints: new Set([footprintData.id]),
+                confirmationCount: 1,
+                firstSeen: new Date(),
+                lastSeen: new Date(),
+                vectorId: point.vectorId,
+                color: 'blue' // 🔵 Новые точки - синие
+            });
            
-            // Если точки нет - добавляем как новую (confirmationCount = 1)
-            if (!pointExists) {
-                const pointId = `pt_${this.nextPointId++}`;
-               
-                this.allPoints.set(pointId, {
-                    id: pointId,
-                    x: point.x,
-                    y: point.y,
-                    confidence: point.confidence || 0.5,
-                    seenInFootprints: new Set([footprintData.id]),
-                    confirmationCount: 1,
-                    firstSeen: new Date(),
-                    lastSeen: new Date(),
-                    vectorId: point.vectorId,
-                    color: 'blue' // 🔵 Новые точки - синие
-                });
-               
-                newPointsAdded++;
-            }
-        });
-       
-        // Сохраняем след
-        this.footprints.push(footprintData);
-       
-        console.log(`📈 Результат объединения:`);
-        console.log(`   • Подтверждено точек: ${confirmedCount}`);
-        console.log(`   • Добавлено новых точек: ${newPointsAdded}`);
-        console.log(`   • Всего точек в модели: ${this.allPoints.size}`);
-       
-        return {
-            isFirstFootprint: false,
-            similarity: similarity,
-            decision: 'same',
-            pointsConfirmed: confirmedCount,
-            pointsAdded: newPointsAdded,
-            totalPoints: this.allPoints.size
-        };
+            newPointsAdded++;
+        }
+    });
+   
+    // Сохраняем след
+    this.footprints.push(footprintData);
+   
+    console.log(`📈 Результат объединения:`);
+    console.log(`   • Подтверждено существующих точек: ${confirmedCount}`);
+    console.log(`   • Добавлено новых точек: ${newPointsAdded}`);
+    console.log(`   • Всего уникальных точек в модели: ${this.allPoints.size}`);
+   
+    // Статистика по подтверждениям
+    let confirmed1 = 0, confirmed2 = 0, confirmed3 = 0;
+    for (const pointData of this.allPoints.values()) {
+        if (pointData.confirmationCount >= 3) confirmed3++;
+        else if (pointData.confirmationCount === 2) confirmed2++;
+        else confirmed1++;
     }
+   
+    console.log(`   • 🔴 3+ подтверждений: ${confirmed3}`);
+    console.log(`   • 🟠 2 подтверждения: ${confirmed2}`);
+    console.log(`   • 🔵 1 подтверждение: ${confirmed1}`);
+   
+    return {
+        isFirstFootprint: false,
+        similarity: similarity,
+        decision: 'same',
+        pointsConfirmed: confirmedCount,
+        pointsAdded: newPointsAdded,
+        totalPoints: this.allPoints.size,
+        stats: {
+            confirmed3: confirmed3,
+            confirmed2: confirmed2,
+            confirmed1: confirmed1
+        }
+    };
+}
 
     // 🔥 НОВЫЙ СЛЕД (другая обувь)
     addAsNewFootprint(footprintData) {
