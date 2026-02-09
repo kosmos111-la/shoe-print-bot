@@ -357,67 +357,89 @@ class SimpleFootprintManager {
 
     // 🔥 МЕТОД: Сохранение аккумулятора
     async saveAccumulator(userId) {
-        try {
-            const accumulator = this.accumulators.get(userId);
-            if (!accumulator) {
-                console.log(`⚠️ Нет аккумулятора для сохранения: ${userId}`);
-                return false;
-            }
-
-            const accumulatorsDir = path.join(this.config.dbPath, 'accumulators');
-            if (!fs.existsSync(accumulatorsDir)) {
-                fs.mkdirSync(accumulatorsDir, { recursive: true });
-            }
-
-            const filename = `accumulator_${userId}_${Date.now()}.json`;
-            const filePath = path.join(accumulatorsDir, filename);
-
-            const saveResult = accumulator.saveToFile(filePath);
-            return saveResult;
-
-        } catch (error) {
-            console.log(`⚠️ Ошибка сохранения аккумулятора: ${error.message}`);
-            return { success: false, error: error.message };
+    try {
+        const accumulator = this.accumulators.get(userId);
+        if (!accumulator) {
+            console.log(`⚠️ Нет аккумулятора для сохранения: ${userId}`);
+            return false;
         }
-    }
 
-    // 🔥 МЕТОД: Загрузка аккумулятора
-    async loadAccumulator(userId) {
-        try {
-            const accumulatorsDir = path.join(this.config.dbPath, 'accumulators');
-            if (!fs.existsSync(accumulatorsDir)) {
-                console.log(`📂 Нет директории аккумуляторов`);
-                return false;
-            }
+        const accumulatorsDir = path.join(this.config.dbPath, 'accumulators');
+        if (!fs.existsSync(accumulatorsDir)) {
+            fs.mkdirSync(accumulatorsDir, { recursive: true });
+        }
 
-            const files = fs.readdirSync(accumulatorsDir)
-                .filter(f => f.includes(userId.toString()) && f.endsWith('.json'))
-                .sort()
-                .reverse();
-
-            if (files.length === 0) {
-                console.log(`📂 Нет сохраненных аккумуляторов для ${userId}`);
-                return false;
-            }
-
-            const latestFile = files[0];
-            const filePath = path.join(accumulatorsDir, latestFile);
+        // 🔥 ИСПРАВЛЕНИЕ: Удаляем старые файлы этого пользователя
+        const oldFiles = fs.readdirSync(accumulatorsDir)
+            .filter(f => f.includes(userId.toString()) && f.endsWith('.json'));
            
+        // Оставляем только 5 последних файлов
+        if (oldFiles.length > 5) {
+            const filesToDelete = oldFiles.slice(0, oldFiles.length - 5);
+            filesToDelete.forEach(file => {
+                const filePath = path.join(accumulatorsDir, file);
+                fs.unlinkSync(filePath);
+                console.log(`🗑️ Удален старый файл: ${file}`);
+            });
+        }
+
+        const filename = `accumulator_${userId}_${Date.now()}.json`;
+        const filePath = path.join(accumulatorsDir, filename);
+
+        const saveResult = accumulator.saveToFile(filePath);
+        return saveResult;
+
+    } catch (error) {
+        console.log(`⚠️ Ошибка сохранения аккумулятора: ${error.message}`);
+        return { success: false, error: error.message };
+    }
+}
+
+// 🔥 ИСПРАВЛЯЕМ МЕТОД loadAccumulator:
+async loadAccumulator(userId) {
+    try {
+        const accumulatorsDir = path.join(this.config.dbPath, 'accumulators');
+        if (!fs.existsSync(accumulatorsDir)) {
+            console.log(`📂 Нет директории аккумуляторов, создаем новую`);
+            return false;
+        }
+
+        const files = fs.readdirSync(accumulatorsDir)
+            .filter(f => f.includes(userId.toString()) && f.endsWith('.json'))
+            .sort()
+            .reverse();
+
+        if (files.length === 0) {
+            console.log(`📂 Нет сохраненных аккумуляторов для ${userId}, создаем новый`);
+            return false;
+        }
+
+        const latestFile = files[0];
+        const filePath = path.join(accumulatorsDir, latestFile);
+       
+        console.log(`📂 Загружаю аккумулятор из файла: ${latestFile}`);
+       
+        try {
             const accumulator = GeometricAccumulator.loadFromFile(filePath, userId);
            
             if (accumulator) {
                 this.accumulators.set(userId, accumulator);
-                console.log(`📂 Загружен аккумулятор для ${userId}: ${accumulator.geometricPoints.size} точек`);
+                console.log(`✅ Загружен аккумулятор для ${userId}: ${accumulator.geometricPoints.size} точек`);
                 return accumulator;
+            } else {
+                console.log(`❌ Не удалось загрузить аккумулятор из файла, создаем новый`);
+                return false;
             }
-
-            return false;
-
-        } catch (error) {
-            console.log(`⚠️ Ошибка загрузки аккумулятора: ${error.message}`);
+        } catch (loadError) {
+            console.log(`❌ Ошибка при загрузке файла: ${loadError.message}`);
             return false;
         }
+
+    } catch (error) {
+        console.log(`⚠️ Ошибка загрузки аккумулятора: ${error.message}`);
+        return false;
     }
+}
 
     // 🔥 МЕТОД: Получить информацию об аккумуляторе
     getAccumulatorInfo(userId) {
