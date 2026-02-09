@@ -1,5 +1,6 @@
 // modules/footprint/simple-manager.js
 // 🔥 ВЕКТОРНАЯ СИСТЕМА С АККУМУЛЯТИВНЫМ ПОДТВЕРЖДЕНИЕМ
+// 🔥 ДОБАВЛЕНЫ МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ С ОСНОВНЫМ БОТОМ
 
 const fs = require('fs');
 const path = require('path');
@@ -51,6 +52,10 @@ class SimpleFootprintManager {
         // 🔥 АККУМУЛЯТИВНАЯ МОДЕЛЬ (ГЛАВНОЕ ХРАНИЛИЩЕ)
         this.accumulativeModels = new Map(); // userId -> AccumulativeModel
 
+        // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+        this.userSessions = new Map(); // userId -> session
+        this.loadedModels = new Map();
+
         // СТАТИСТИКА
         this.systemStats = {
             totalUsers: 0,
@@ -97,6 +102,40 @@ class SimpleFootprintManager {
                 this.vectorAlgorithm
             );
 
+            // 🔥 ДЛЯ СОВМЕСТИМОСТИ: создаем сессию
+            let session = this.userSessions.get(userId);
+            if (!session) {
+                session = {
+                    id: `${userId}_${Date.now()}`,
+                    userId: userId,
+                    photos: [],
+                    footprints: [],
+                    currentFootprint: null,
+                    lastActivity: new Date(),
+                    metadata: {}
+                };
+                this.userSessions.set(userId, session);
+            }
+           
+            // Обновляем сессию
+            session.lastActivity = new Date();
+            session.photos.push({
+                id: `photo_${Date.now()}`,
+                timestamp: new Date(),
+                pointsCount: points.length,
+                photoInfo: photoInfo
+            });
+           
+            // Для совместимости создаем упрощенный отпечаток
+            const SimpleFootprint = require('./simple-footprint');
+            const tempFootprint = new SimpleFootprint({
+                userId: userId,
+                name: `Temp_${Date.now()}`
+            });
+           
+            tempFootprint.addAnalysis(analysis, photoInfo);
+            session.currentFootprint = tempFootprint;
+
             // Обновляем статистику
             this.systemStats.totalPhotosProcessed++;
             this.systemStats.totalUsers = this.accumulativeModels.size;
@@ -117,13 +156,66 @@ class SimpleFootprintManager {
                 ...result,
                 visualization: visualizationResult,
                 accumulativeModelId: accumulativeModel.id,
-                totalPointsInModel: accumulativeModel.getAllPoints().length
+                totalPointsInModel: accumulativeModel.getAllPoints().length,
+                sessionId: session.id, // 🔥 ДОБАВИЛИ ДЛЯ СОВМЕСТИМОСТИ
+                totalNodes: tempFootprint.graph.nodes.size // 🔥 ДЛЯ СОВМЕСТИМОСТИ
             };
 
         } catch (error) {
             console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
             return { success: false, error: error.message, nodesAdded: 0 };
         }
+    }
+
+    // 🔥 МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ С ОСНОВНЫМ БОТОМ
+    getActiveSession(userId) {
+        return this.userSessions.get(userId) || null;
+    }
+   
+    getSessionInfo(userId) {
+        const session = this.userSessions.get(userId);
+        if (!session) return null;
+       
+        return {
+            id: session.id,
+            userId: session.userId,
+            photos: session.photos.length,
+            lastActivity: session.lastActivity,
+            currentFootprint: session.currentFootprint ? {
+                id: session.currentFootprint.id,
+                name: session.currentFootprint.name,
+                nodeCount: session.currentFootprint.graph?.nodes?.size || 0
+            } : null
+        };
+    }
+   
+    hasSession(userId) {
+        return this.userSessions.has(userId);
+    }
+   
+    createSession(userId, name = null) {
+        const session = {
+            id: `${userId}_${Date.now()}`,
+            userId: userId,
+            name: name || `Сессия_${new Date().toLocaleTimeString('ru-RU')}`,
+            photos: [],
+            footprints: [],
+            currentFootprint: null,
+            lastActivity: new Date(),
+            metadata: {}
+        };
+       
+        this.userSessions.set(userId, session);
+        return session;
+    }
+   
+    updateLastActivity(userId) {
+        const session = this.userSessions.get(userId);
+        if (session) {
+            session.lastActivity = new Date();
+            return true;
+        }
+        return false;
     }
 
     // 🔥 ИЗВЛЕЧЕНИЕ ВЕКТОРНЫХ ТОЧЕК
@@ -247,6 +339,7 @@ class SimpleFootprintManager {
         return {
             ...this.systemStats,
             activeModels: this.accumulativeModels.size,
+            activeSessions: this.userSessions.size, // 🔥 ДЛЯ СОВМЕСТИМОСТИ
             modelStats: modelStats,
             algorithm: 'Векторная аккумулятивная система'
         };
