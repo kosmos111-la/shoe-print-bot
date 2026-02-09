@@ -1,44 +1,34 @@
 // modules/footprint/clean/vector-algorithm.js
-// 🎯 МНОГОУРОВНЕВЫЕ ГЕОМЕТРИЧЕСКИЕ ХЭШИ
+// 🎯 ИСПРАВЛЕННЫЙ ВЕКТОРНЫЙ АЛГОРИТМ
 
 class VectorAlgorithm {
     constructor(options = {}) {
-        this.neighborDepth = options.neighborDepth || 3; // Берем 3 уровня соседей
+        this.neighborDepth = options.neighborDepth || 2;
         this.angleTolerance = options.angleTolerance || 5;
-        this.hashPrecision = options.hashPrecision || 2; // Более точное округление
+        this.hashPrecision = options.hashPrecision || 1; // Более точное округление
         this.minSimilarity = options.minSimilarity || 0.6;
         this.debug = options.debug !== false;
     }
 
-    // 🔥 СОЗДАНИЕ ВЕКТОРНОГО ОТПЕЧАТКА С МНОГОУРОВНЕВЫМИ ХЭШАМИ
+    // 🔥 СОЗДАНИЕ ВЕКТОРНОГО ОТПЕЧАТКА
     createFootprint(points, name = '') {
-        console.log(`🎯 Создаю многоуровневый отпечаток "${name}" из ${points.length} точек`);
+        console.log(`🎯 Создаю отпечаток "${name}" из ${points.length} точек`);
 
         if (points.length < 5) {
-            console.log(`⚠️ Слишком мало точек для многоуровневого анализа: ${points.length}`);
             return this.createSimpleFootprint(points, name);
         }
 
-        // 1. Центрируем и нормализуем масштаб
-        const normalizedPoints = this.normalizeScale(points);
+        // 1. Нормализуем точки
+        const normalizedPoints = this.normalizeAndCenter(points);
 
-        // 2. Создаем многоуровневые геометрические хэши
+        // 2. Создаем геометрические хэши
         const vectorFootprint = [];
 
         for (let i = 0; i < normalizedPoints.length; i++) {
             const point = normalizedPoints[i];
            
-            // 🔥 УРОВЕНЬ 1: Локальные треугольники (3 ближайших соседа)
-            const triangles = this.createLocalTriangles(point, normalizedPoints, i);
-           
-            // 🔥 УРОВЕНЬ 2: Отношения между треугольниками
-            const triangleRelations = this.analyzeTriangleRelations(triangles);
-           
-            // 🔥 УРОВЕНЬ 3: Структура соседей (2-й уровень)
-            const neighborStructure = this.analyzeNeighborStructure(point, normalizedPoints, i);
-           
-            // 🔥 ФИНАЛЬНЫЙ МНОГОУРОВНЕВЫЙ ХЭШ
-            const multiLevelHash = this.createMultiLevelHash(triangles, triangleRelations, neighborStructure);
+            // 🔥 СОЗДАЕМ ГЕОМЕТРИЧЕСКИЙ ХЭШ
+            const geometricHash = this.createGeometricHash(point, normalizedPoints, i);
            
             vectorFootprint.push({
                 originalId: point.id || `pt_${i}`,
@@ -47,291 +37,219 @@ class VectorAlgorithm {
                 confidence: point.confidence || 0.5,
                 index: i,
                
-                // 🔥 МНОГОУРОВНЕВЫЕ ДАННЫЕ
-                triangles: triangles,
-                triangleRelations: triangleRelations,
-                neighborStructure: neighborStructure,
+                // 🔥 ГЕОМЕТРИЧЕСКИЙ ХЭШ
+                vectorId: geometricHash,
+                geometricHash: geometricHash,
                
-                // 🔥 ХЭШИ
-                vectorId: multiLevelHash,
-                geometricHash: multiLevelHash,
-                level1Hash: this.createLevel1Hash(triangles),
-                level2Hash: this.createLevel2Hash(triangleRelations),
-                level3Hash: this.createLevel3Hash(neighborStructure),
+                // Для отладки
+                _originalX: point.originalX,
+                _originalY: point.originalY,
                
                 confirmedCount: 1
             });
         }
 
-        console.log(`✅ Создан многоуровневый отпечаток: ${vectorFootprint.length} точек`);
-        console.log(`   Пример хэша: ${vectorFootprint[0]?.vectorId?.substring(0, 60)}...`);
+        console.log(`✅ Создан отпечаток: ${vectorFootprint.length} точек`);
+        console.log(`   Пример хэша: ${vectorFootprint[0]?.vectorId?.substring(0, 40)}...`);
 
         return vectorFootprint;
     }
 
-    // 🔥 УРОВЕНЬ 1: Локальные треугольники
-    createLocalTriangles(centerPoint, allPoints, centerIndex) {
-        const triangles = [];
-       
-        // Находим 4 ближайших соседа
-        const nearestNeighbors = this.findNearestNeighbors(centerPoint, allPoints, centerIndex, 4);
-       
-        if (nearestNeighbors.length < 3) return triangles;
-       
-        // Создаем треугольники со всеми комбинациями из 3 соседей
-        for (let i = 0; i < nearestNeighbors.length - 2; i++) {
-            for (let j = i + 1; j < nearestNeighbors.length - 1; j++) {
-                for (let k = j + 1; k < nearestNeighbors.length; k++) {
-                    const triangle = this.createGeometricTriangle(
-                        centerPoint,
-                        nearestNeighbors[i],
-                        nearestNeighbors[j],
-                        nearestNeighbors[k]
-                    );
-                   
-                    if (triangle && this.isValidTriangle(triangle)) {
-                        triangles.push(triangle);
-                    }
-                }
-            }
-        }
-       
-        return triangles.slice(0, 3); // Берем максимум 3 лучших треугольника
-    }
-
-    // 🔥 УРОВЕНЬ 2: Отношения между треугольниками
-    analyzeTriangleRelations(triangles) {
-        if (triangles.length < 2) return [];
-       
-        const relations = [];
-       
-        for (let i = 0; i < triangles.length - 1; i++) {
-            for (let j = i + 1; j < triangles.length; j++) {
-                const relation = this.compareTriangles(triangles[i], triangles[j]);
-                if (relation) {
-                    relations.push(relation);
-                }
-            }
-        }
-       
-        return relations;
-    }
-
-    // 🔥 УРОВЕНЬ 3: Структура соседей (2-й уровень)
-    analyzeNeighborStructure(centerPoint, allPoints, centerIndex) {
-        const structure = {
-            firstLevel: [],
-            secondLevel: []
-        };
-       
-        // Уровень 1: ближайшие соседи
-        const firstLevel = this.findNearestNeighbors(centerPoint, allPoints, centerIndex, 4);
-        structure.firstLevel = firstLevel.map((neighbor, idx) => ({
-            distance: Math.round(this.vectorDistance(centerPoint, neighbor)),
-            angle: Math.round(Math.atan2(neighbor.y - centerPoint.y, neighbor.x - centerPoint.x) * 180 / Math.PI / 5) * 5,
-            index: neighbor.index
-        }));
-       
-        // Уровень 2: соседи соседей
-        for (const neighbor of firstLevel) {
-            const secondLevel = this.findNearestNeighbors(neighbor, allPoints, neighbor.index, 3);
+    // 🔥 СОЗДАНИЕ ГЕОМЕТРИЧЕСКОГО ХЭША
+    createGeometricHash(centerPoint, allPoints, centerIndex) {
+        try {
+            // Находим 3 ближайших соседа
+            const nearestNeighbors = this.findNearestNeighbors(centerPoint, allPoints, centerIndex, 3);
            
-            for (const secondNeighbor of secondLevel) {
-                if (secondNeighbor.index !== centerIndex) {
-                    structure.secondLevel.push({
-                        viaNeighbor: neighbor.index,
-                        distance: Math.round(this.vectorDistance(centerPoint, secondNeighbor)),
-                        angle: Math.round(Math.atan2(secondNeighbor.y - centerPoint.y, secondNeighbor.x - centerPoint.x) * 180 / Math.PI / 5) * 5
-                    });
+            if (nearestNeighbors.length < 2) {
+                return `SIMPLE_${centerIndex}_N${nearestNeighbors.length}`;
+            }
+           
+            // Создаем треугольники
+            const triangleHashes = [];
+           
+            // Треугольник с 2 ближайшими соседями
+            if (nearestNeighbors.length >= 2) {
+                const triangle1 = this.calculateTriangle(
+                    centerPoint,
+                    nearestNeighbors[0],
+                    nearestNeighbors[1]
+                );
+                if (triangle1 && this.isValidTriangle(triangle1)) {
+                    triangleHashes.push(triangle1.hash);
                 }
             }
-        }
-       
-        return structure;
-    }
-
-    // 🔥 СОЗДАНИЕ МНОГОУРОВНЕВОГО ХЭША
-    createMultiLevelHash(triangles, triangleRelations, neighborStructure) {
-        const level1 = this.createLevel1Hash(triangles);
-        const level2 = this.createLevel2Hash(triangleRelations);
-        const level3 = this.createLevel3Hash(neighborStructure);
-       
-        // Комбинируем все уровни
-        return `ML_${level1.substring(0, 20)}_${level2.substring(0, 15)}_${level3.substring(0, 15)}`;
-    }
-
-    createLevel1Hash(triangles) {
-        if (triangles.length === 0) return "NO_TRI";
-       
-        const triangleHashes = triangles.map(t => t.hash || "").filter(h => h);
-        triangleHashes.sort();
-       
-        return `L1_${triangleHashes.join('|').replace(/-/g, '_')}`;
-    }
-
-    createLevel2Hash(triangleRelations) {
-        if (triangleRelations.length === 0) return "NO_REL";
-       
-        const relationHashes = triangleRelations.map(r => r.hash || "").filter(h => h);
-        relationHashes.sort();
-       
-        return `L2_${relationHashes.join('|')}`;
-    }
-
-    createLevel3Hash(neighborStructure) {
-        const firstLevelStr = neighborStructure.firstLevel.map(n =>
-            `D${n.distance}A${n.angle}`
-        ).join('');
-       
-        const secondLevelStr = neighborStructure.secondLevel.map(n =>
-            `V${n.viaNeighbor}D${n.distance}A${n.angle}`
-        ).join('');
-       
-        return `L3_${firstLevelStr.substring(0, 10)}_${secondLevelStr.substring(0, 10)}`;
-    }
-
-    // 🔥 ГЕОМЕТРИЧЕСКИЙ ТРЕУГОЛЬНИК
-    createGeometricTriangle(p1, p2, p3, p4) {
-        // Берем 3 точки для треугольника
-        const points = [p2, p3, p4];
-        const triangles = [];
-       
-        for (let i = 0; i < points.length - 2; i++) {
-            for (let j = i + 1; j < points.length - 1; j++) {
-                for (let k = j + 1; k < points.length; k++) {
-                    const triangle = this.calculateTriangle(p1, points[i], points[j], points[k]);
-                    if (triangle) triangles.push(triangle);
+           
+            // Треугольник с 1 и 3 соседями
+            if (nearestNeighbors.length >= 3) {
+                const triangle2 = this.calculateTriangle(
+                    centerPoint,
+                    nearestNeighbors[0],
+                    nearestNeighbors[2]
+                );
+                if (triangle2 && this.isValidTriangle(triangle2)) {
+                    triangleHashes.push(triangle2.hash);
                 }
             }
+           
+            // Создаем отношения с соседями
+            const neighborRelations = [];
+           
+            for (const neighbor of nearestNeighbors) {
+                const distance = this.vectorDistance(centerPoint, neighbor);
+                const angle = Math.atan2(neighbor.y - centerPoint.y, neighbor.x - centerPoint.x) * 180 / Math.PI;
+               
+                neighborRelations.push({
+                    distance: Math.round(distance),
+                    angle: Math.round(angle / 5) * 5
+                });
+            }
+           
+            // Сортируем и создаем хэш
+            neighborRelations.sort((a, b) => a.distance - b.distance);
+           
+            const relationsHash = neighborRelations.map(r =>
+                `D${r.distance}_A${r.angle}`
+            ).join('|');
+           
+            const trianglesHash = triangleHashes.length > 0 ?
+                triangleHashes.join('_') : 'NO_TRI';
+           
+            // 🔥 ФИНАЛЬНЫЙ ХЭШ
+            return `VEC_${trianglesHash.substring(0, 30)}_${relationsHash.substring(0, 40)}`;
+           
+        } catch (error) {
+            console.log(`⚠️ Ошибка создания хэша: ${error.message}`);
+            return `ERROR_${centerIndex}`;
         }
-       
-        if (triangles.length === 0) return null;
-       
-        // Берем самый "равносторонний" треугольник
-        triangles.sort((a, b) => {
-            const aUniform = this.calculateUniformity(a.angles);
-            const bUniform = this.calculateUniformity(b.angles);
-            return bUniform - aUniform;
-        });
-       
-        return triangles[0];
     }
 
-    calculateTriangle(p1, p2, p3, p4) {
-        const a = this.vectorDistance(p2, p3);
-        const b = this.vectorDistance(p1, p3);
-        const c = this.vectorDistance(p1, p2);
-       
-        const angleA = this.cosineLawAngle(b, c, a);
-        const angleB = this.cosineLawAngle(a, c, b);
-        const angleC = this.cosineLawAngle(a, b, c);
-       
-        const angles = [angleA, angleB, angleC].sort((x, y) => x - y);
-       
-        const rounded = angles.map(angle =>
-            Math.round(angle / this.hashPrecision) * this.hashPrecision
-        );
-       
-        return {
-            angles: angles,
-            roundedAngles: rounded,
-            hash: rounded.join('-'),
-            uniformity: this.calculateUniformity(angles)
-        };
-    }
-
-    compareTriangles(t1, t2) {
-        if (!t1 || !t2) return null;
-       
-        // Сравниваем углы
-        const angleDiff = t1.roundedAngles.map((a, i) =>
-            Math.abs(a - (t2.roundedAngles[i] || 0))
-        ).reduce((sum, diff) => sum + diff, 0);
-       
-        const similarity = 1 - (angleDiff / (180 * 3));
-       
-        return {
-            triangle1: t1.hash,
-            triangle2: t2.hash,
-            similarity: similarity,
-            hash: `T${t1.hash.substring(0, 5)}_${t2.hash.substring(0, 5)}_S${Math.round(similarity * 100)}`
-        };
-    }
-
-    // 🔥 СРАВНЕНИЕ ОТПЕЧАТКОВ
+    // 🔥 СРАВНЕНИЕ ОТПЕЧАТКОВ (ИСПРАВЛЕННОЕ)
     compareFootprints(fp1, fp2, name1 = 'Отпечаток 1', name2 = 'Отпечаток 2') {
-        console.log(`\n🔍 МНОГОУРОВНЕВОЕ СРАВНЕНИЕ: ${name1} (${fp1.length}) vs ${name2} (${fp2.length})`);
+        console.log(`\n🔍 СРАВНЕНИЕ: ${name1} (${fp1.length}) vs ${name2} (${fp2.length})`);
 
         if (fp1.length === 0 || fp2.length === 0) {
             return this.createEmptyComparisonResult();
         }
 
         try {
-            // 🔥 МНОГОУРОВНЕВОЕ СРАВНЕНИЕ
+            // 🔥 ИСПРАВЛЕНИЕ: Используем Map для предотвращения множественных совпадений
             const matches = [];
+            const usedPoints1 = new Set();
+            const usedPoints2 = new Set();
            
-            // Уровень 1: Точное совпадение многоуровневых хэшей
-            for (const point1 of fp1) {
-                for (const point2 of fp2) {
+            // 🔥 ПЕРВЫЙ ПРОХОД: Точные совпадения
+            for (let i = 0; i < fp1.length; i++) {
+                if (usedPoints1.has(i)) continue;
+               
+                const point1 = fp1[i];
+                let bestMatch = null;
+                let bestSimilarity = 0;
+               
+                for (let j = 0; j < fp2.length; j++) {
+                    if (usedPoints2.has(j)) continue;
+                   
+                    const point2 = fp2[j];
+                   
+                    // Точное совпадение хэшей
                     if (point1.vectorId && point2.vectorId && point1.vectorId === point2.vectorId) {
-                        matches.push({
-                            point1: point1,
-                            point2: point2,
-                            similarity: 1.0,
-                            matchLevel: 'exact_multi_level',
-                            confidence: 1.0
-                        });
-                        continue;
+                        bestMatch = { index: j, point: point2, similarity: 1.0 };
+                        bestSimilarity = 1.0;
+                        break; // Нашли точное совпадение, выходим
                     }
                    
-                    // Уровень 2: Совпадение по level1Hash (локальные треугольники)
-                    if (point1.level1Hash && point2.level1Hash && point1.level1Hash === point2.level1Hash) {
-                        matches.push({
-                            point1: point1,
-                            point2: point2,
-                            similarity: 0.9,
-                            matchLevel: 'level1_triangles',
-                            confidence: 0.9
-                        });
-                        continue;
-                    }
-                   
-                    // Уровень 3: Частичное совпадение хэшей
+                    // Частичное совпадение (первые 20 символов)
                     if (point1.vectorId && point2.vectorId) {
-                        const similarity = this.compareHashes(point1.vectorId, point2.vectorId);
-                        if (similarity > 0.7) {
-                            matches.push({
-                                point1: point1,
-                                point2: point2,
-                                similarity: similarity,
-                                matchLevel: 'partial_hash',
-                                confidence: similarity
-                            });
+                        const minLen = Math.min(point1.vectorId.length, point2.vectorId.length);
+                        const compareLen = Math.min(20, minLen);
+                       
+                        let common = 0;
+                        for (let k = 0; k < compareLen; k++) {
+                            if (point1.vectorId[k] === point2.vectorId[k]) common++;
+                        }
+                       
+                        const similarity = common / compareLen;
+                        if (similarity > 0.8 && similarity > bestSimilarity) {
+                            bestSimilarity = similarity;
+                            bestMatch = { index: j, point: point2, similarity: similarity };
                         }
                     }
                 }
+               
+                if (bestMatch && bestSimilarity > 0.8) {
+                    matches.push({
+                        point1: point1,
+                        point2: bestMatch.point,
+                        similarity: bestSimilarity,
+                        matchLevel: bestSimilarity === 1.0 ? 'exact' : 'partial'
+                    });
+                   
+                    usedPoints1.add(i);
+                    usedPoints2.add(bestMatch.index);
+                }
             }
            
-            // Вычисляем схожесть
+            // 🔥 ВТОРОЙ ПРОХОД: Совпадение по координатам (близкие точки)
+            const coordinateMatches = [];
+           
+            for (let i = 0; i < fp1.length; i++) {
+                if (usedPoints1.has(i)) continue;
+               
+                const point1 = fp1[i];
+                let bestDistance = Infinity;
+                let bestPoint2 = null;
+               
+                for (let j = 0; j < fp2.length; j++) {
+                    if (usedPoints2.has(j)) continue;
+                   
+                    const point2 = fp2[j];
+                    const distance = this.vectorDistance(point1, point2);
+                   
+                    if (distance < bestDistance && distance < 30) { // 30px порог
+                        bestDistance = distance;
+                        bestPoint2 = point2;
+                    }
+                }
+               
+                if (bestPoint2) {
+                    const similarity = Math.max(0, 1 - (bestDistance / 50));
+                    coordinateMatches.push({
+                        point1: point1,
+                        point2: bestPoint2,
+                        similarity: similarity,
+                        matchLevel: 'coordinate'
+                    });
+                   
+                    usedPoints1.add(i);
+                    // Не отмечаем usedPoints2, чтобы одна точка могла быть близка к нескольким
+                }
+            }
+           
+            // Добавляем координатные совпадения (ограничиваем количество)
+            const maxCoordinateMatches = Math.min(10, coordinateMatches.length);
+            for (let i = 0; i < maxCoordinateMatches; i++) {
+                matches.push(coordinateMatches[i]);
+            }
+           
+            // 🔥 ИСПРАВЛЕНИЕ: Правильный расчет процентов
             const matchedPoints = matches.length;
-            const maxPossible = Math.min(fp1.length, fp2.length);
-            const similarity = maxPossible > 0 ? matchedPoints / maxPossible : 0;
+            const similarity = matchedPoints / Math.min(fp1.length, fp2.length);
+           
+            // 🔥 ДЕБАГ ИНФОРМАЦИЯ
+            const exactMatches = matches.filter(m => m.matchLevel === 'exact').length;
+            const partialMatches = matches.filter(m => m.matchLevel === 'partial').length;
+            const coordMatches = matches.filter(m => m.matchLevel === 'coordinate').length;
+           
+            console.log(`📊 РЕЗУЛЬТАТ СРАВНЕНИЯ:`);
+            console.log(`   Точные совпадения: ${exactMatches}`);
+            console.log(`   Частичные совпадения: ${partialMatches}`);
+            console.log(`   Совпадения по координатам: ${coordMatches}`);
+            console.log(`   Всего совпадений: ${matchedPoints}/${Math.min(fp1.length, fp2.length)}`);
+            console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}% (порог: ${this.minSimilarity * 100}%)`);
            
             const isSame = similarity >= this.minSimilarity;
             const decision = isSame ? 'same' : 'different';
-           
-            console.log(`📊 РЕЗУЛЬТАТ МНОГОУРОВНЕВОГО СРАВНЕНИЯ:`);
-            console.log(`   Совпадения: ${matchedPoints}/${maxPossible}`);
-            console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}% (порог: ${this.minSimilarity * 100}%)`);
             console.log(`   Решение: ${decision}`);
-           
-            if (matches.length > 0) {
-                const matchLevels = {};
-                matches.forEach(m => {
-                    matchLevels[m.matchLevel] = (matchLevels[m.matchLevel] || 0) + 1;
-                });
-                console.log(`   Уровни совпадений:`, matchLevels);
-            }
            
             return {
                 similar: isSame,
@@ -342,6 +260,9 @@ class VectorAlgorithm {
                     totalPoints1: fp1.length,
                     totalPoints2: fp2.length,
                     matchedPoints: matchedPoints,
+                    exactMatches: exactMatches,
+                    partialMatches: partialMatches,
+                    coordinateMatches: coordMatches,
                     percent1to2: fp1.length > 0 ? (matchedPoints / fp1.length * 100).toFixed(1) : '0.0',
                     percent2to1: fp2.length > 0 ? (matchedPoints / fp2.length * 100).toFixed(1) : '0.0',
                     similarity: similarity
@@ -355,31 +276,39 @@ class VectorAlgorithm {
     }
 
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    normalizeScale(points) {
+    normalizeAndCenter(points) {
         if (points.length < 3) return points.map((p, idx) => ({ ...p, index: idx }));
        
-        // Находим границы
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-       
+        // Центрируем
+        let sumX = 0, sumY = 0;
         points.forEach(p => {
-            minX = Math.min(minX, p.x);
-            maxX = Math.max(maxX, p.x);
-            minY = Math.min(minY, p.y);
-            maxY = Math.max(maxY, p.y);
+            sumX += p.x;
+            sumY += p.y;
         });
        
-        const width = maxX - minX;
-        const height = maxY - minY;
-        const scale = 100 / Math.max(width, height); // Нормализуем к 100px
+        const centerX = sumX / points.length;
+        const centerY = sumY / points.length;
+       
+        // Находим максимальное расстояние от центра
+        let maxDistance = 0;
+        points.forEach(p => {
+            const distance = Math.sqrt(
+                Math.pow(p.x - centerX, 2) +
+                Math.pow(p.y - centerY, 2)
+            );
+            maxDistance = Math.max(maxDistance, distance);
+        });
+       
+        // Нормализуем к радиусу 100
+        const scale = maxDistance > 0 ? 100 / maxDistance : 1;
        
         return points.map((p, idx) => ({
             ...p,
-            x: (p.x - minX) * scale,
-            y: (p.y - minY) * scale,
-            index: idx,
             originalX: p.x,
-            originalY: p.y
+            originalY: p.y,
+            x: (p.x - centerX) * scale,
+            y: (p.y - centerY) * scale,
+            index: idx
         }));
     }
 
@@ -401,6 +330,35 @@ class VectorAlgorithm {
         return distances.slice(0, count).map(d => d.point);
     }
 
+    calculateTriangle(p1, p2, p3) {
+        try {
+            const a = this.vectorDistance(p2, p3);
+            const b = this.vectorDistance(p1, p3);
+            const c = this.vectorDistance(p1, p2);
+           
+            const angleA = this.cosineLawAngle(b, c, a);
+            const angleB = this.cosineLawAngle(a, c, b);
+            const angleC = this.cosineLawAngle(a, b, c);
+           
+            // Сортируем углы
+            const angles = [angleA, angleB, angleC].sort((x, y) => x - y);
+           
+            // Округляем
+            const rounded = angles.map(angle =>
+                Math.round(angle / this.hashPrecision) * this.hashPrecision
+            );
+           
+            return {
+                angles: angles,
+                roundedAngles: rounded,
+                hash: rounded.join('-')
+            };
+           
+        } catch (error) {
+            return null;
+        }
+    }
+
     vectorDistance(p1, p2) {
         const dx = p1.x - p2.x;
         const dy = p1.y - p2.y;
@@ -417,45 +375,23 @@ class VectorAlgorithm {
         }
     }
 
-    calculateUniformity(angles) {
-        if (angles.length < 3) return 0;
-       
-        const sum = angles.reduce((s, a) => s + a, 0);
-        const avg = sum / angles.length;
-       
-        const variance = angles.reduce((v, a) => v + Math.pow(a - avg, 2), 0) / angles.length;
-       
-        // Максимальная равномерность: углы 60°, 60°, 60°
-        const maxVariance = Math.pow(60, 2) * 3 / 3;
-       
-        return Math.max(0, 1 - (variance / maxVariance));
-    }
-
-    compareHashes(hash1, hash2) {
-        if (!hash1 || !hash2) return 0;
-       
-        const minLength = Math.min(hash1.length, hash2.length);
-        let commonChars = 0;
-       
-        for (let i = 0; i < Math.min(50, minLength); i++) {
-            if (hash1[i] === hash2[i]) {
-                commonChars++;
-            }
-        }
-       
-        return commonChars / Math.min(50, minLength);
-    }
-
     isValidTriangle(triangle) {
         if (!triangle || !triangle.angles) return false;
        
+        // Проверяем углы
         for (const angle of triangle.angles) {
-            if (angle < 15 || angle > 165 || isNaN(angle)) {
+            if (angle < 20 || angle > 160 || isNaN(angle)) {
                 return false;
             }
         }
        
-        return triangle.uniformity > 0.3;
+        // Проверяем что не все углы одинаковые (слишком равносторонний)
+        const [a1, a2, a3] = triangle.angles;
+        if (Math.abs(a1 - a2) < 5 && Math.abs(a2 - a3) < 5) {
+            return false; // Слишком равносторонний
+        }
+       
+        return true;
     }
 
     createEmptyComparisonResult() {
@@ -475,13 +411,14 @@ class VectorAlgorithm {
         };
     }
 
-    // 🔥 ПРОСТОЙ ВАРИАНТ ДЛЯ МАЛОГО КОЛИЧЕСТВА ТОЧЕК
     createSimpleFootprint(points, name = '') {
         const footprint = [];
        
         for (let i = 0; i < points.length; i++) {
             const point = points[i];
-            const simpleHash = `SIMPLE_X${Math.round(point.x/5)}_Y${Math.round(point.y/5)}_I${i}`;
+           
+            // Простой хэш на основе координат
+            const simpleHash = `SIMPLE_X${Math.round(point.x/10)}_Y${Math.round(point.y/10)}_I${i}`;
            
             footprint.push({
                 originalId: point.id || `pt_${i}`,
@@ -490,7 +427,6 @@ class VectorAlgorithm {
                 confidence: point.confidence || 0.5,
                 vectorId: simpleHash,
                 geometricHash: simpleHash,
-                level1Hash: simpleHash,
                 confirmedCount: 1
             });
         }
