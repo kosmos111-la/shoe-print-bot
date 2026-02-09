@@ -98,42 +98,62 @@ class ClusterVisualizer {
 
     // 🔥 РИСОВАНИЕ ТОЧЕК
     drawAccumulativePoints(ctx, points, canvasWidth, canvasHeight) {
-        const centerX = canvasWidth / 2;
-        const centerY = canvasHeight * 0.6;
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight * 0.6;
 
-        if (points.length === 0) {
-            ctx.fillStyle = '#6C757D';
-            ctx.font = '16px Arial';
-            ctx.fillText('Нет данных для отображения', centerX, centerY);
-            return;
+    if (points.length === 0) {
+        ctx.fillStyle = '#6C757D';
+        ctx.font = '16px Arial';
+        ctx.fillText('Нет данных для отображения', centerX, centerY);
+        return;
+    }
+
+    // Находим границы
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    points.forEach(point => {
+        minX = Math.min(minX, point.x);
+        maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y);
+        maxY = Math.max(maxY, point.y);
+    });
+
+    const width = Math.max(1, maxX - minX);
+    const height = Math.max(1, maxY - minY);
+
+    // Масштабирование
+    const scaleX = (canvasWidth * 0.7) / width;
+    const scaleY = (canvasHeight * 0.5) / height;
+    const scale = Math.min(scaleX, scaleY, 3);
+
+    // 🔥 ВАЖНО: Сначала рисуем точки с 1 подтверждением (синие)
+    const pointsByConfirmation = {};
+   
+    points.forEach(point => {
+        const conf = point.confirmations || 1;
+        if (!pointsByConfirmation[conf]) {
+            pointsByConfirmation[conf] = [];
         }
+        pointsByConfirmation[conf].push(point);
+    });
 
-        // Находим границы
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-
-        points.forEach(point => {
-            minX = Math.min(minX, point.x);
-            maxX = Math.max(maxX, point.x);
-            minY = Math.min(minY, point.y);
-            maxY = Math.max(maxY, point.y);
-        });
-
-        const width = Math.max(1, maxX - minX);
-        const height = Math.max(1, maxY - minY);
-
-        // Масштабирование
-        const scaleX = (canvasWidth * 0.7) / width;
-        const scaleY = (canvasHeight * 0.5) / height;
-        const scale = Math.min(scaleX, scaleY, 3);
-
-        // Рисуем каждую точку
-        points.forEach(point => {
+    // 🔥 РИСУЕМ В ПРАВИЛЬНОМ ПОРЯДКЕ:
+    // 1. Сначала синие (1 подтверждение)
+    // 2. Затем оранжевые (2 подтверждения)
+    // 3. Затем красные (3+ подтверждения)
+   
+    const drawOrder = [1, 2, 3];
+   
+    drawOrder.forEach(conf => {
+        const pointsToDraw = pointsByConfirmation[conf] || [];
+       
+        pointsToDraw.forEach(point => {
             const x = centerX + (point.x - (minX + maxX) / 2) * scale;
             const y = centerY + (point.y - (minY + maxY) / 2) * scale;
 
             // Определяем цвет и размер
-            const color = point.color || this.getColorByConfirmations(point.confirmations || 1);
+            const color = this.getColorByConfirmations(point.confirmations || 1);
             const size = this.getSizeByConfirmations(point.confirmations || 1);
 
             // Рисуем точку
@@ -156,7 +176,8 @@ class ClusterVisualizer {
                 ctx.fillText(point.confirmations.toString(), x, y);
             }
         });
-    }
+    });
+}
 
     // 🔥 ЛЕГЕНДА
     drawAccumulativeLegend(ctx, canvasWidth, canvasHeight) {
