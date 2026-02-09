@@ -1,12 +1,12 @@
 // modules/footprint/simple-manager.js
-// 🎯 ГИБРИД: Векторные паспорта + Старый API для совместимости
+// 🎯 ГИБРИД: Векторные паспорта + Правильная метрика сходства
 
 const fs = require('fs');
 const path = require('path');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
-        console.log('🚀 SimpleFootprintManager создан (ГИБРИД: векторы + совместимость)');
+        console.log('🚀 SimpleFootprintManager создан (ГИБРИД: правильная метрика сходства)');
 
         // 🔥 НАСТРОЙКИ
         this.config = {
@@ -14,7 +14,7 @@ class SimpleFootprintManager {
             autoSave: options.autoSave !== false,
             debug: options.debug || false,
             minPointsForFootprint: options.minPointsForFootprint || 3,
-            geometricSimilarityThreshold: options.geometricSimilarityThreshold || 0.6,
+            geometricSimilarityThreshold: options.geometricSimilarityThreshold || 0.7, // 70% = одна обувь
             enableVisualization: options.enableVisualization !== false,
             ...options
         };
@@ -28,7 +28,12 @@ class SimpleFootprintManager {
             console.log(`❌ Не удалось загрузить векторный алгоритм: ${error.message}`);
             // Фаллбэк
             VectorAlgorithm = class {
-                createGeometricPassports(points) { return points.map(p => ({ hash: `fallback_${p.id}` })); }
+                createGeometricPassports(points) {
+                    return points.map((p, idx) => ({
+                        geometricHash: `fallback_${p.id || idx}`,
+                        coordinates: { x: p.x, y: p.y }
+                    }));
+                }
                 comparePassports() { return { similarity: 0, isSame: false }; }
             };
         }
@@ -37,7 +42,7 @@ class SimpleFootprintManager {
             neighborCount: 3,
             anglePrecision: 5,
             distancePrecision: 10,
-            minSimilarity: this.config.geometricSimilarityThreshold,
+            minSimilarity: 0.9, // Высокий порог для точного совпадения
             debug: this.config.debug
         });
 
@@ -50,16 +55,23 @@ class SimpleFootprintManager {
             console.log(`❌ Не удалось загрузить PointTracker: ${error.message}`);
             // Фаллбэк
             PointTracker = class {
-                processGeometricPassports() { return { added: 0, confirmed: 0 }; }
+                constructor() {
+                    this.passports = new Map();
+                    this.points = new Map();
+                }
+                processGeometricPassports() { return { added: 0, confirmed: 0, total: 0, similarity: 0 }; }
                 getStats() { return { totalPassports: 0 }; }
                 getAllPoints() { return []; }
+                getPassportsForVisualization() { return []; }
+                toJSON() { return {}; }
             };
         }
 
         // 🔥 СТРУКТУРЫ ДАННЫХ
         this.pointTracker = new PointTracker({
             minPassportConfirmations: 2,
-            debug: this.config.debug
+            debug: this.config.debug,
+            passportSimilarityThreshold: 0.95 // Очень высокий порог
         });
 
         this.userSessions = new Map(); // userId -> { session }
@@ -68,7 +80,7 @@ class SimpleFootprintManager {
         this.graph = {
             nodes: new Map(),
             edges: new Map(),
-            name: 'Гибридная система'
+            name: 'Геометрические паспорта'
         };
        
         // 🔥 ВИЗУАЛИЗАЦИЯ
@@ -91,14 +103,14 @@ class SimpleFootprintManager {
             totalFootprints: 0,
             totalPassports: 0,
             totalPhotosProcessed: 0,
-            algorithm: 'geometric_passports_hybrid',
+            algorithm: 'geometric_passports_exact_match',
             lastActivity: new Date()
         };
 
         // 🔥 СОЗДАЕМ ДИРЕКТОРИИ
         this.ensureDirectories();
 
-        console.log('✅ SimpleFootprintManager инициализирован (гибридный)');
+        console.log('✅ SimpleFootprintManager инициализирован (правильная метрика)');
     }
 
     // ============================================
@@ -107,16 +119,16 @@ class SimpleFootprintManager {
 
     /**
      * СТАРЫЙ МЕТОД: Получить активную сессию
-     * (нужен для main.js)
      */
     getActiveSession(userId) {
-        console.log(`[Совместимость] getActiveSession для ${userId}`);
+        if (this.config.debug) {
+            console.log(`[Совместимость] getActiveSession для ${userId}`);
+        }
         return this.getOrCreateSession(userId.toString());
     }
 
     /**
      * СТАРЫЙ МЕТОД: Добавить фото в сессию
-     * (главный метод, который вызывает main.js)
      */
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
         console.log(`[Совместимость] addPhotoToSession для ${userId}`);
@@ -139,7 +151,7 @@ class SimpleFootprintManager {
             const passports = this.vectorAlgorithm.createGeometricPassports(points, `user_${userId}`);
             console.log(`🎯 Создано ${passports.length} геометрических паспортов`);
 
-            // 3. Обрабатываем через трекер
+            // 3. Обрабатываем через трекер (ИЩЕМ СУЩЕСТВУЮЩИЕ, ПОДТВЕРЖДАЕМ ИХ)
             const trackerResult = this.pointTracker.processGeometricPassports(passports, {
                 userId: userId.toString(),
                 photoId: photoInfo.photoId || `photo_${Date.now()}`,
@@ -158,37 +170,39 @@ class SimpleFootprintManager {
                 trackerResult: trackerResult
             });
 
-            // 5. Создаем визуализацию если включена
+            // 5. ВЫЧИСЛЯЕМ ПРАВИЛЬНОЕ СХОДСТВО
+            const similarity = this.calculateCorrectSimilarity(trackerResult, session);
+            const isSameFootprint = similarity >= this.config.geometricSimilarityThreshold;
+
+            // 6. Создаем визуализацию если включена
             let visualizationResult = null;
             if (this.config.enableVisualization && this.visualizer) {
                 visualizationResult = await this.createVisualization(session, trackerResult, photoInfo);
             }
 
-            // 6. Вычисляем схожесть
-            const similarity = this.calculateSimilarity(trackerResult);
-            const isSameFootprint = similarity >= this.config.geometricSimilarityThreshold;
-
             // 7. Формируем результат в СТАРОМ формате
             const result = {
                 success: true,
-                isNewSession: !this.userSessions.has(userId.toString()),
+                isNewSession: session.photos.length === 1,
                 similarity: similarity,
                 decision: isSameFootprint ? 'same' : 'different',
-                nodesAdded: trackerResult.added,
+                nodesAdded: trackerResult.confirmed, // 🔥 ВАЖНО: nodesAdded = подтвержденные, а не добавленные!
                 totalNodes: this.pointTracker.points.size,
                 sessionId: session.userId,
                 hasTemplate: true,
                 hasVisualization: !!visualizationResult,
                 vizPath: visualizationResult?.path,
-                algorithm: 'geometric_passports_hybrid',
-                message: this.generateMessage(trackerResult, similarity, isSameFootprint),
+                algorithm: 'geometric_passports_exact_match',
+                message: this.generateCorrectMessage(trackerResult, similarity, isSameFootprint, session),
                 trackerResult: trackerResult,
                 pointsCount: points.length,
-                passportsCount: passports.length
+                passportsCount: passports.length,
+                existingPassportsBefore: this.pointTracker.passports.size - trackerResult.added
             };
 
             console.log(`✅ Гибридный анализ: ${result.message}`);
-            console.log(`📊 Сходство: ${(similarity * 100).toFixed(1)}%`);
+            console.log(`📊 Сходство: ${(similarity * 100).toFixed(1)}% (порог: ${this.config.geometricSimilarityThreshold * 100}%)`);
+            console.log(`📈 Статистика: подтверждено ${trackerResult.confirmed}, добавлено ${trackerResult.added}`);
 
             // 8. Отправляем визуализацию в Telegram если есть бот
             if (bot && chatId && visualizationResult?.path) {
@@ -212,6 +226,47 @@ class SimpleFootprintManager {
                 error: error.message,
                 nodesAdded: 0
             };
+        }
+    }
+
+    /**
+     * ВЫЧИСЛИТЬ ПРАВИЛЬНОЕ СХОДСТВО
+     */
+    calculateCorrectSimilarity(trackerResult, session) {
+        // Если это первое фото в сессии
+        if (session.photos.length <= 1) {
+            return 0;
+        }
+
+        const existingBefore = this.pointTracker.passports.size - trackerResult.added;
+       
+        if (existingBefore === 0) {
+            return 0; // Первый след в системе
+        }
+
+        // 🔥 ПРАВИЛЬНАЯ ФОРМУЛА:
+        // Сходство = подтвержденные существующие паспорта / существовавшие до этого
+        const similarity = trackerResult.confirmed / existingBefore;
+       
+        return Math.min(1, similarity); // Ограничиваем 100%
+    }
+
+    /**
+     * СОЗДАТЬ ПРАВИЛЬНОЕ СООБЩЕНИЕ
+     */
+    generateCorrectMessage(trackerResult, similarity, isSameFootprint, session) {
+        const { added, confirmed, total } = trackerResult;
+       
+        if (session.photos.length === 1) {
+            return `👣 Первый след: создано ${total} геометрических паспортов`;
+        }
+       
+        if (isSameFootprint) {
+            return `✅ Та же обувь! Подтверждено ${confirmed} существующих паттернов (сходство: ${(similarity * 100).toFixed(1)}%)`;
+        } else if (confirmed > 0) {
+            return `🔄 Частичное совпадение: подтверждено ${confirmed} паттернов, добавлено ${added} новых (сходство: ${(similarity * 100).toFixed(1)}%)`;
+        } else {
+            return `🆕 Новая обувь: добавлено ${added} новых геометрических паттернов`;
         }
     }
 
@@ -252,7 +307,7 @@ class SimpleFootprintManager {
     // ============================================
 
     /**
-     * НОВЫЙ МЕТОД: Добавить анализ фото (векторная версия)
+     * НОВЫЙ МЕТОД: Добавить анализ фото
      */
     async addPhotoAnalysis(userId, analysis, photoInfo = {}) {
         console.log(`📸 Векторный анализ для пользователя ${userId}`);
@@ -282,7 +337,7 @@ class SimpleFootprintManager {
                 passportsCount: passports.length
             });
 
-            const similarity = this.calculateSimilarity(trackerResult);
+            const similarity = this.calculateCorrectSimilarity(trackerResult, session);
             const isSameFootprint = similarity >= this.config.geometricSimilarityThreshold;
 
             return {
@@ -294,7 +349,7 @@ class SimpleFootprintManager {
                 similarity: similarity,
                 isSameFootprint: isSameFootprint,
                 decision: isSameFootprint ? 'same_footprint' : 'new_footprint',
-                message: this.generateMessage(trackerResult, similarity, isSameFootprint)
+                message: this.generateCorrectMessage(trackerResult, similarity, isSameFootprint, session)
             };
 
         } catch (error) {
@@ -401,7 +456,8 @@ class SimpleFootprintManager {
                 {
                     width: 1200,
                     height: 800,
-                    filename: `user_${session.userId}_${Date.now()}.png`
+                    filename: `user_${session.userId}_${Date.now()}.png`,
+                    showPatternInfo: true
                 }
             );
 
@@ -445,35 +501,9 @@ class SimpleFootprintManager {
         return Array.from(patternMap.values()).map(pattern => ({
             type: pattern.type,
             confirmations: pattern.confirmations,
-            passportCount: pattern.passports.length
+            passportCount: pattern.passports.length,
+            isHighConfidence: pattern.confirmations >= 3
         }));
-    }
-
-    /**
-     * Вычислить схожесть
-     */
-    calculateSimilarity(trackerResult) {
-        const { added, confirmed } = trackerResult;
-        const total = added + confirmed;
-       
-        if (total === 0) return 0;
-       
-        return confirmed / total;
-    }
-
-    /**
-     * Создать сообщение
-     */
-    generateMessage(trackerResult, similarity, isSameFootprint) {
-        const { added, confirmed } = trackerResult;
-       
-        if (isSameFootprint) {
-            return `✅ Та же обувь! Подтверждено ${confirmed} геометрических паттернов (сходство: ${(similarity * 100).toFixed(1)}%)`;
-        } else if (added > 0) {
-            return `🆕 Новые паттерны! Добавлено ${added} новых геометрических паттернов`;
-        } else {
-            return `⚠️ Мало совпадений. Подтверждено ${confirmed} паттернов`;
-        }
     }
 
     /**
@@ -488,7 +518,9 @@ class SimpleFootprintManager {
 
             const caption = `🎯 ${result.message}\n` +
                           `📊 Сходство: ${(result.similarity * 100).toFixed(1)}%\n` +
-                          `🔷 Паттернов: ${result.passportsCount}\n` +
+                          `🔷 Паспортов: ${result.passportsCount}\n` +
+                          `✅ Подтверждено: ${result.trackerResult?.confirmed || 0}\n` +
+                          `🆕 Добавлено: ${result.trackerResult?.added || 0}\n` +
                           `🎯 Алгоритм: ${result.algorithm}`;
 
             await bot.sendPhoto(chatId, vizPath, {
@@ -548,7 +580,7 @@ class SimpleFootprintManager {
             lastActivity: this.systemStats.lastActivity.toLocaleString('ru-RU'),
             users: userStats,
             tracker: trackerStats,
-            algorithm: 'geometric_passports_hybrid'
+            algorithm: 'geometric_passports_exact_match'
         };
     }
 
@@ -616,20 +648,30 @@ class SimpleFootprintManager {
             const passports1 = this.vectorAlgorithm.createGeometricPassports(points1, 'set1');
             const passports2 = this.vectorAlgorithm.createGeometricPassports(points2, 'set2');
            
-            const result = this.vectorAlgorithm.comparePassports(
-                passports1,
-                passports2,
-                { minSimilarity: options.minSimilarity || this.config.geometricSimilarityThreshold }
-            );
+            // Используем трекер для правильного подсчета
+            const tempTracker = new (require('./point-tracker'))({
+                minPassportConfirmations: 2,
+                debug: this.config.debug
+            });
            
-            console.log(`📊 Результат: ${(result.similarity * 100).toFixed(1)}% сходства`);
+            // Добавляем первый набор
+            tempTracker.processGeometricPassports(passports1, { sourceId: 'set1' });
+           
+            // Пытаемся подтвердить вторым набором
+            const result = tempTracker.processGeometricPassports(passports2, { sourceId: 'set2' });
+           
+            const similarity = result.similarity;
+            const isSame = similarity >= (options.minSimilarity || this.config.geometricSimilarityThreshold);
+           
+            console.log(`📊 Результат: ${(similarity * 100).toFixed(1)}% сходства`);
            
             return {
-                similarity: result.similarity,
-                isSame: result.isSame,
-                decision: result.isSame ? 'same' : 'different',
-                matches: result.matches?.length || 0,
-                algorithm: 'geometric_passports_hybrid'
+                similarity: similarity,
+                isSame: isSame,
+                decision: isSame ? 'same' : 'different',
+                confirmed: result.confirmed,
+                added: result.added,
+                algorithm: 'geometric_passports_exact_match'
             };
            
         } catch (error) {
@@ -649,11 +691,13 @@ class SimpleFootprintManager {
         const stats = this.getStats();
         const trackerStats = this.pointTracker.getStats();
        
-        console.log(`\n📊 ГИБРИДНАЯ СИСТЕМА (векторные паспорта):`);
+        console.log(`\n📊 ГИБРИДНАЯ СИСТЕМА (векторные паспорта, точные совпадения):`);
         console.log(`├─ Пользователей: ${stats.users?.length || 0}`);
         console.log(`├─ Всего фото: ${stats.totalPhotosProcessed}`);
         console.log(`├─ Всего паспортов: ${trackerStats.totalPassports}`);
         console.log(`├─ Подтвержденных паспортов: ${trackerStats.confirmedPassports}`);
+        console.log(`├─ Среднее подтверждений: ${trackerStats.passportDetails?.avgConfirmations?.toFixed(2) || '0.00'}`);
+        console.log(`├─ Порог сходства: ${this.config.geometricSimilarityThreshold * 100}%`);
         console.log(`└─ Алгоритм: ${stats.algorithm}`);
     }
 }
