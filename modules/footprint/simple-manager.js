@@ -520,22 +520,27 @@ class AccumulativeModel {
     }
 
     // 🔥 ОБЪЕДИНЕНИЕ С СУЩЕСТВУЮЩИМ СЛЕДОМ
-    mergeFootprint(footprintData, matches, similarity) {
+mergeFootprint(footprintData, matches, similarity) {
     console.log(`✅ Следы совпали (${(similarity * 100).toFixed(1)}%), объединяю...`);
    
+    // 🔥 ИСПРАВЛЕНИЕ: Берем только реальные совпадения
+    const realMatches = matches.filter(m => m.similarity > 0.8);
+   
+    console.log(`📊 Реальных совпадений: ${realMatches.length}/${matches.length}`);
+   
     // 1. Собираем все vectorId из нового следа
-    const newPointIds = new Set();
+    const newPointMap = new Map(); // vectorId -> point
     footprintData.vectorFootprint.forEach(point => {
         if (point.vectorId) {
-            newPointIds.add(point.vectorId);
+            newPointMap.set(point.vectorId, point);
         }
     });
    
     // 2. Обновляем подтверждения для совпавших точек
     let confirmedCount = 0;
    
-    matches.forEach(match => {
-        if (match.point1?.vectorId && match.point2?.vectorId) {
+    realMatches.forEach(match => {
+        if (match.point1?.vectorId) {
             // Ищем точку в allPoints по vectorId
             for (const [pointId, pointData] of this.allPoints) {
                 if (pointData.vectorId === match.point1.vectorId) {
@@ -552,7 +557,7 @@ class AccumulativeModel {
                     }
                    
                     confirmedCount++;
-                    newPointIds.delete(pointData.vectorId); // Убираем из новых
+                    newPointMap.delete(pointData.vectorId); // Убираем из новых
                     break;
                 }
             }
@@ -562,35 +567,28 @@ class AccumulativeModel {
     // 3. Добавляем НОВЫЕ точки (которые не совпали)
     let newPointsAdded = 0;
    
-    footprintData.vectorFootprint.forEach(point => {
-        if (newPointIds.has(point.vectorId)) {
-            // Это новая точка (не было в предыдущих следах)
-            const pointId = `pt_${this.nextPointId++}`;
-           
-            this.allPoints.set(pointId, {
-                id: pointId,
-                x: point.x,
-                y: point.y,
-                confidence: point.confidence || 0.5,
-                seenInFootprints: new Set([footprintData.id]),
-                confirmationCount: 1,
-                firstSeen: new Date(),
-                lastSeen: new Date(),
-                vectorId: point.vectorId,
-                color: 'blue' // 🔵 Новые точки - синие
-            });
-           
-            newPointsAdded++;
-        }
-    });
+    for (const [vectorId, point] of newPointMap) {
+        // Это новая точка (не было в предыдущих следах)
+        const pointId = `pt_${this.nextPointId++}`;
+       
+        this.allPoints.set(pointId, {
+            id: pointId,
+            x: point.x,
+            y: point.y,
+            confidence: point.confidence || 0.5,
+            seenInFootprints: new Set([footprintData.id]),
+            confirmationCount: 1,
+            firstSeen: new Date(),
+            lastSeen: new Date(),
+            vectorId: point.vectorId,
+            color: 'blue' // 🔵 Новые точки - синие
+        });
+       
+        newPointsAdded++;
+    }
    
     // Сохраняем след
     this.footprints.push(footprintData);
-   
-    console.log(`📈 Результат объединения:`);
-    console.log(`   • Подтверждено существующих точек: ${confirmedCount}`);
-    console.log(`   • Добавлено новых точек: ${newPointsAdded}`);
-    console.log(`   • Всего уникальных точек в модели: ${this.allPoints.size}`);
    
     // Статистика по подтверждениям
     let confirmed1 = 0, confirmed2 = 0, confirmed3 = 0;
@@ -600,6 +598,10 @@ class AccumulativeModel {
         else confirmed1++;
     }
    
+    console.log(`📈 Результат объединения:`);
+    console.log(`   • Подтверждено существующих точек: ${confirmedCount}`);
+    console.log(`   • Добавлено новых точек: ${newPointsAdded}`);
+    console.log(`   • Всего уникальных точек в модели: ${this.allPoints.size}`);
     console.log(`   • 🔴 3+ подтверждений: ${confirmed3}`);
     console.log(`   • 🟠 2 подтверждения: ${confirmed2}`);
     console.log(`   • 🔵 1 подтверждение: ${confirmed1}`);
