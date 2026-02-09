@@ -181,32 +181,6 @@ class SimpleFootprint {
         return this.transformation;
     }
 
-// 🔥 НОВЫЙ МЕТОД: Получить улучшенную статистику с учетом геометрических совпадений
-    getEnhancedConfirmationStats() {
-        const baseStats = this.getConfirmationStats();
-
-        // Проверяем, есть ли менеджер с векторной моделью
-        const vectorModel = this._manager?.getVectorSuperModel(this.userId);
-
-        if (vectorModel) {
-            const templateStats = vectorModel.getTemplateStats();
-
-            return {
-                ...baseStats,
-                templateStats: {
-                    totalCells: templateStats?.cells?.total || 0,
-                    confirmedCells: templateStats?.cells?.confirmed || 0,
-                    avgConfirmations: templateStats?.cells?.avgConfirmations || 0,
-                    totalGraphs: templateStats?.alignmentStats?.totalGraphs || 0
-                },
-                enhanced: true,
-                algorithm: 'geometric_with_template'
-            };
-        }
-
-        return baseStats;
-    }
-  
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Честное добавление анализа с сохранением трансформации
     addAnalysisHonest(analysis, sourceInfo = {}) {
         console.log(`📥 Честное добавление анализа с сохранением трансформации`);
