@@ -1,12 +1,13 @@
 // modules/footprint/clean/vector-algorithm.js
-// 🎯 УПРОЩЕННЫЙ ВЕКТОРНЫЙ АЛГОРИТМ С ГЕОМЕТРИЧЕСКИМИ ПАСПОРТАМИ
+// 🎯 ВЕКТОРНЫЙ АЛГОРИТМ ИЗ ТВОЕГО ФАЙЛА (упрощенный)
 
-console.log('🎯 УПРОЩЕННЫЙ ВЕКТОРНЫЙ АЛГОРИТМ С ПАСПОРТАМИ\n');
+console.log('🎯 УПРОЩЕННЫЙ ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ (паспорта)\n');
 
 class VectorAlgorithm {
     constructor(options = {}) {
-        // 🔥 ОСНОВНЫЕ ПАРАМЕТРЫ
-        this.neighborCount = options.neighborCount || 4;       // 4 ближайших соседа
+        // 🔥 КЛЮЧЕВЫЕ ПАРАМЕТРЫ
+        this.neighborCount = options.neighborCount || 3;       // 3 ближайших соседа (для треугольников)
+        this.angleTolerance = options.angleTolerance || 10;    // 10° допуск
         this.minSimilarity = options.minSimilarity || 0.6;     // 60% порог
         this.debug = options.debug !== false;
 
@@ -14,98 +15,172 @@ class VectorAlgorithm {
     }
 
     // ============================================
-    // 🎯 СОЗДАНИЕ УПРОЩЕННОГО ВЕКТОРНОГО ОТПЕЧАТКА
+    // 🎯 СОЗДАНИЕ ГЕОМЕТРИЧЕСКОГО ПАСПОРТА (упрощенный)
     // ============================================
 
     createFootprint(points, name = '') {
         if (this.debug) {
-            console.log(`🎯 Создаю упрощенный отпечаток "${name}" из ${points.length} точек`);
+            console.log(`🎯 Создаю геометрические паспорта "${name}" из ${points.length} точек`);
         }
 
         const vectorFootprint = [];
 
-        for (let i = 0; i < points.length; i++) {
-            const point = points[i];
+        // 🔥 ВАЖНО: НОРМАЛИЗУЕМ ТОЧКИ (центрируем)
+        const normalizedPoints = this.normalizePoints(points);
+
+        for (let i = 0; i < normalizedPoints.length; i++) {
+            const point = normalizedPoints[i];
            
-            // 🔥 СОЗДАЕМ УПРОЩЕННЫЙ ПАСПОРТ
-            const passport = this.createSimplePassport(point, points, i);
+            // 🔥 СОЗДАЕМ ГЕОМЕТРИЧЕСКИЙ ПАСПОРТ (упрощенный)
+            const passport = this.createGeometricPassport(point, normalizedPoints, i);
            
             vectorFootprint.push({
                 originalId: point.id || `pt_${i}`,
-                x: point.x,
+                x: point.x,        // Оригинальные координаты
                 y: point.y,
+                nx: point.nx,      // Нормализованные координаты
+                ny: point.ny,
                 confidence: point.confidence || 0.5,
                 index: i,
                
-                // 🔥 УПРОЩЕННЫЙ ПАСПОРТ
+                // 🔥 ГЕОМЕТРИЧЕСКИЙ ПАСПОРТ
                 vectorId: passport.vectorId,
                 geometricHash: passport.vectorId,
                
                 // Для сравнения
-                distances: passport.distances,
-                angles: passport.angles,
+                triangles: passport.triangles,
+                neighborCount: passport.neighborCount,
                
                 confirmedCount: 1
             });
         }
 
         if (this.debug && vectorFootprint.length > 0) {
-            console.log(`✅ Создано ${vectorFootprint.length} упрощенных паспортов`);
-            const sample = vectorFootprint[0];
-            console.log(`   Пример паспорта: ${sample.vectorId.substring(0, 50)}...`);
+            console.log(`✅ Создано ${vectorFootprint.length} геометрических паспортов`);
         }
 
         return vectorFootprint;
     }
 
-    // 🔥 СОЗДАНИЕ УПРОЩЕННОГО ПАСПОРТА
-    createSimplePassport(centerPoint, allPoints, centerIndex) {
+    // 🔥 НОРМАЛИЗАЦИЯ ТОЧЕК (центрирование)
+    normalizePoints(points) {
+        if (points.length < 3) return points.map(p => ({ ...p, nx: p.x, ny: p.y }));
+
+        // Находим центр
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+
+        points.forEach(p => {
+            minX = Math.min(minX, p.x);
+            maxX = Math.max(maxX, p.x);
+            minY = Math.min(minY, p.y);
+            maxY = Math.max(maxY, p.y);
+        });
+
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+
+        // Центрируем относительно центра
+        return points.map((p, idx) => ({
+            ...p,
+            nx: p.x - centerX,  // Нормализованная X
+            ny: p.y - centerY,  // Нормализованная Y
+            originalIndex: idx
+        }));
+    }
+
+    // 🔥 СОЗДАНИЕ ГЕОМЕТРИЧЕСКОГО ПАСПОРТА
+    createGeometricPassport(centerPoint, allPoints, centerIndex) {
         // Находим ближайших соседей
         const neighbors = this.findNearestNeighbors(centerPoint, allPoints, centerIndex, this.neighborCount);
        
-        if (neighbors.length === 0) {
+        if (neighbors.length < 2) {
             return {
-                vectorId: `ISOLATED_${centerIndex}`,
-                distances: [],
-                angles: []
+                vectorId: `SIMPLE_${centerIndex}_N0`,
+                triangles: [],
+                neighborCount: 0
             };
         }
 
-        // Создаем векторный ID на основе расстояний и углов
-        let vectorId = `PASSPORT_${centerIndex}_N${neighbors.length}_`;
-        const distances = [];
-        const angles = [];
+        // 🔥 СОЗДАЕМ ТРЕУГОЛЬНИКИ (геометрические отношения)
+        const triangles = [];
+       
+        // Создаем треугольники с парами соседей
+        for (let i = 0; i < neighbors.length; i++) {
+            for (let j = i + 1; j < neighbors.length; j++) {
+                const triangle = this.createTriangle(
+                    centerPoint,
+                    neighbors[i],
+                    neighbors[j]
+                );
+               
+                if (triangle) {
+                    triangles.push(triangle);
+                }
+            }
+        }
 
-        neighbors.forEach((neighbor, idx) => {
-            const dx = neighbor.x - centerPoint.x;
-            const dy = neighbor.y - centerPoint.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-            const normalizedAngle = ((angle % 360) + 360) % 360;
-           
-            // Округляем для устойчивости
-            const roundedDistance = Math.round(distance / 5) * 5; // до 5px
-            const roundedAngle = Math.round(normalizedAngle / 15) * 15; // до 15°
-           
-            vectorId += `D${roundedDistance}_A${roundedAngle}_`;
-            distances.push(roundedDistance);
-            angles.push(roundedAngle);
-        });
+        // 🔥 СОЗДАЕМ ВЕКТОРНЫЙ ID НА ОСНОВЕ ТРЕУГОЛЬНИКОВ
+        const vectorId = this.createVectorIdFromTriangles(triangles, neighbors.length);
 
         return {
             vectorId: vectorId,
-            distances: distances,
-            angles: angles
+            triangles: triangles,
+            neighborCount: neighbors.length
         };
     }
 
+    // 🔥 СОЗДАНИЕ ТРЕУГОЛЬНИКА
+    createTriangle(p1, p2, p3) {
+        try {
+            // Вычисляем стороны
+            const a = this.distance(p2, p3);
+            const b = this.distance(p1, p3);
+            const c = this.distance(p1, p2);
+
+            // Вычисляем углы
+            const angleA = this.cosineLawAngle(b, c, a);
+            const angleB = this.cosineLawAngle(a, c, b);
+            const angleC = this.cosineLawAngle(a, b, c);
+
+            // Сортируем углы для инвариантности
+            const sortedAngles = [angleA, angleB, angleC].sort((x, y) => x - y);
+
+            // Округляем
+            const roundedAngles = sortedAngles.map(angle => Math.round(angle / 5) * 5);
+
+            return {
+                angles: sortedAngles,
+                roundedAngles: roundedAngles,
+                hash: roundedAngles.join('-')
+            };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    // 🔥 СОЗДАНИЕ ВЕКТОРНОГО ID ИЗ ТРЕУГОЛЬНИКОВ
+    createVectorIdFromTriangles(triangles, neighborCount) {
+        if (triangles.length === 0) {
+            return `SIMPLE_N${neighborCount}`;
+        }
+
+        // Собираем хэши треугольников
+        const triangleHashes = triangles.map(t => t.hash).filter(h => h).sort();
+       
+        // Берем первые 2 треугольника (самые стабильные)
+        const mainHashes = triangleHashes.slice(0, 2);
+       
+        return `TRI_${neighborCount}_${mainHashes.join('|')}`.slice(0, 100);
+    }
+
     // ============================================
-    // 🔄 СРАВНЕНИЕ С ПАСПОРТАМИ
+    // 🔄 СРАВНЕНИЕ ГЕОМЕТРИЧЕСКИХ ПАСПОРТОВ
     // ============================================
 
     compareFootprints(fp1, fp2, name1 = 'Отпечаток 1', name2 = 'Отпечаток 2') {
         if (this.debug) {
-            console.log(`\n🔍 СРАВНЕНИЕ ПАСПОРТОВ: ${name1} (${fp1.length}) vs ${name2} (${fp2.length})`);
+            console.log(`\n🔍 СРАВНЕНИЕ ГЕОМЕТРИЧЕСКИХ ПАСПОРТОВ: ${name1} (${fp1.length}) vs ${name2} (${fp2.length})`);
         }
 
         if (fp1.length === 0 || fp2.length === 0) {
@@ -113,17 +188,17 @@ class VectorAlgorithm {
         }
 
         try {
-            // 🔥 ПРОСТОЕ СРАВНЕНИЕ ПО ПАСПОРТАМ
+            // 🔥 СРАВНЕНИЕ ПО ВЕКТОРНЫМ ID (геометрические паспорта)
             const matches = [];
             const used2 = new Set();
 
-            // Создаем Map для быстрого поиска
+            // Map для быстрого поиска
             const fp2Map = new Map();
             fp2.forEach((point, index) => {
                 fp2Map.set(point.vectorId, { point, index });
             });
 
-            // Ищем точные совпадения по vectorId
+            // 1. Ищем точные совпадения
             for (const point1 of fp1) {
                 const exactMatch = fp2Map.get(point1.vectorId);
                
@@ -139,12 +214,6 @@ class VectorAlgorithm {
                 }
             }
 
-            // Если точных совпадений мало, ищем похожие
-            if (matches.length < Math.min(fp1.length, fp2.length) * 0.3) {
-                const similarMatches = this.findSimilarPassports(fp1, fp2, used2);
-                matches.push(...similarMatches);
-            }
-
             const matchedPoints = matches.length;
             const maxPossible = Math.min(fp1.length, fp2.length);
             const similarity = maxPossible > 0 ? matchedPoints / maxPossible : 0;
@@ -154,16 +223,9 @@ class VectorAlgorithm {
 
             if (this.debug) {
                 console.log(`📊 РЕЗУЛЬТАТ:`);
-                console.log(`   Совпадения: ${matchedPoints}/${maxPossible}`);
+                console.log(`   Точные совпадения паспортов: ${matchedPoints}/${maxPossible}`);
                 console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}% (порог: ${this.minSimilarity * 100}%)`);
                 console.log(`   Решение: ${decision}`);
-               
-                if (matches.length > 0) {
-                    const exact = matches.filter(m => m.matchType === 'exact_passport').length;
-                    const similar = matches.filter(m => m.matchType === 'similar_passport').length;
-                    console.log(`   Точные совпадения: ${exact}`);
-                    console.log(`   Похожие совпадения: ${similar}`);
-                }
             }
 
             return {
@@ -187,82 +249,6 @@ class VectorAlgorithm {
         }
     }
 
-    // 🔥 ПОИСК ПОХОЖИХ ПАСПОРТОВ
-    findSimilarPassports(fp1, fp2, used2) {
-        const similarMatches = [];
-
-        for (const point1 of fp1) {
-            if (similarMatches.length >= Math.min(fp1.length, fp2.length) * 0.7) {
-                break; // Достаточно совпадений
-            }
-
-            let bestMatch = null;
-            let bestSimilarity = 0;
-
-            for (let i = 0; i < fp2.length; i++) {
-                if (used2.has(i)) continue;
-
-                const point2 = fp2[i];
-                const similarity = this.comparePassports(point1, point2);
-               
-                if (similarity > bestSimilarity && similarity > 0.7) {
-                    bestSimilarity = similarity;
-                    bestMatch = { point: point2, index: i, similarity: similarity };
-                }
-            }
-
-            if (bestMatch) {
-                similarMatches.push({
-                    point1: point1,
-                    point2: bestMatch.point,
-                    similarity: bestMatch.similarity,
-                    matchType: 'similar_passport',
-                    confidence: bestMatch.similarity
-                });
-                used2.add(bestMatch.index);
-            }
-        }
-
-        return similarMatches;
-    }
-
-    // 🔥 СРАВНЕНИЕ ДВУХ ПАСПОРТОВ
-    comparePassports(point1, point2) {
-        // Сравниваем расстояния
-        const distSim = this.compareArrays(point1.distances || [], point2.distances || []);
-       
-        // Сравниваем углы
-        const angleSim = this.compareArrays(point1.angles || [], point2.angles || []);
-       
-        // Средняя схожесть
-        return (distSim + angleSim) / 2;
-    }
-
-    // 🔥 СРАВНЕНИЕ МАССИВОВ ЧИСЕЛ
-    compareArrays(arr1, arr2) {
-        if (arr1.length === 0 || arr2.length === 0) return 0;
-       
-        const maxLength = Math.max(arr1.length, arr2.length);
-        let matches = 0;
-       
-        for (let i = 0; i < Math.min(arr1.length, arr2.length); i++) {
-            const diff = Math.abs(arr1[i] - arr2[i]);
-           
-            // Для расстояний (допуск 10px)
-            if (i < Math.min(arr1.length, arr2.length)) {
-                if (diff <= 10) matches++;
-            }
-           
-            // Для углов (допуск 30°)
-            else {
-                const angleDiff = Math.min(diff, 360 - diff);
-                if (angleDiff <= 30) matches++;
-            }
-        }
-       
-        return matches / maxLength;
-    }
-
     // ============================================
     // 🔧 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     // ============================================
@@ -273,8 +259,8 @@ class VectorAlgorithm {
         for (let i = 0; i < allPoints.length; i++) {
             if (i === centerIndex) continue;
 
-            const dx = allPoints[i].x - centerPoint.x;
-            const dy = allPoints[i].y - centerPoint.y;
+            const dx = allPoints[i].nx - centerPoint.nx;
+            const dy = allPoints[i].ny - centerPoint.ny;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             distances.push({
@@ -286,6 +272,18 @@ class VectorAlgorithm {
 
         distances.sort((a, b) => a.distance - b.distance);
         return distances.slice(0, count).map(d => d.point);
+    }
+
+    distance(p1, p2) {
+        const dx = p1.nx - p2.nx;
+        const dy = p1.ny - p2.ny;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    cosineLawAngle(side1, side2, opposite) {
+        const cos = (side1 * side1 + side2 * side2 - opposite * opposite) / (2 * side1 * side2);
+        const clamped = Math.max(-1, Math.min(1, cos));
+        return Math.acos(clamped) * 180 / Math.PI;
     }
 
     createEmptyComparisonResult() {
