@@ -1,5 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🔥 ВИЗУАЛИЗАЦИЯ АККУМУЛЯТИВНОЙ МОДЕЛИ
+// 🔥 ВИЗУАЛИЗАЦИЯ С ПРАВИЛЬНЫМ ПОРЯДКОМ ТОЧЕК
 
 const fs = require('fs');
 const path = require('path');
@@ -11,17 +11,16 @@ class ClusterVisualizer {
             ...options
         };
 
-        // Создаем директорию
         if (!fs.existsSync(this.config.outputDir)) {
             fs.mkdirSync(this.config.outputDir, { recursive: true });
         }
 
-        console.log('🎨 ClusterVisualizer создан (аккумулятивная модель)');
+        console.log('🎨 ClusterVisualizer создан (с правильным порядком точек)');
     }
 
-    // 🔥 ВИЗУАЛИЗАЦИЯ АККУМУЛЯТИВНОЙ МОДЕЛИ
+    // 🔥 ВИЗУАЛИЗАЦИЯ С СОРТИРОВКОЙ ПО ПОДТВЕРЖДЕНИЯМ
     async visualizeAccumulativeModel(data, options = {}) {
-        console.log('🎨 Визуализация аккумулятивной модели...');
+        console.log('🎨 Визуализация с сортировкой по подтверждениям...');
 
         try {
             const canvas = require('canvas');
@@ -31,6 +30,20 @@ class ClusterVisualizer {
                 console.log('⚠️ Нет точек для визуализации');
                 return this.createTextReport(data, options);
             }
+
+            // 🔥 ВАЖНО: СОРТИРУЕМ ТОЧКИ ПО КОЛИЧЕСТВУ ПОДТВЕРЖДЕНИЙ (от большего к меньшему)
+            const sortedPoints = [...points].sort((a, b) => {
+                // Сначала точки с большим количеством подтверждений
+                if (b.confirmations !== a.confirmations) {
+                    return b.confirmations - a.confirmations;
+                }
+                // Затем по уверенности
+                return (b.confidence || 0) - (a.confidence || 0);
+            });
+
+            console.log(`📊 Точки отсортированы: ${sortedPoints.length} точек`);
+            console.log(`   Макс подтверждений: ${sortedPoints[0]?.confirmations || 0}`);
+            console.log(`   Мин подтверждений: ${sortedPoints[sortedPoints.length - 1]?.confirmations || 0}`);
 
             // Создаем canvas
             const canvasWidth = options.width || 900;
@@ -53,22 +66,31 @@ class ClusterVisualizer {
             ctx.font = '16px Arial';
             ctx.fillStyle = '#495057';
             ctx.textAlign = 'left';
-            ctx.fillText(`📊 Всего точек: ${totalPoints}`, 50, 80);
-            ctx.fillText(`📸 Следов: ${totalFootprints}`, 50, 105);
+            ctx.fillText(`📊 Всего уникальных точек: ${totalPoints}`, 50, 80);
+            ctx.fillText(`📸 Следов в модели: ${totalFootprints}`, 50, 105);
 
             if (stats) {
+                ctx.fillStyle = '#FF0000'; // 🔴
                 ctx.fillText(`🔴 3+ подтверждений: ${stats.confirmed3 || 0}`, 50, 130);
+                ctx.fillStyle = '#FF6B00'; // 🟠
                 ctx.fillText(`🟠 2 подтверждения: ${stats.confirmed2 || 0}`, 50, 155);
+                ctx.fillStyle = '#2196F3'; // 🔵
                 ctx.fillText(`🔵 1 подтверждение: ${stats.confirmed1 || 0}`, 50, 180);
             }
 
-            // 4. РИСУЕМ ТОЧКИ
-            this.drawAccumulativePoints(ctx, points, canvasWidth, canvasHeight);
+            // 4. РИСУЕМ ТОЧКИ В ПРАВИЛЬНОМ ПОРЯДКЕ
+            this.drawSortedPoints(ctx, sortedPoints, canvasWidth, canvasHeight);
 
             // 5. ЛЕГЕНДА
             this.drawAccumulativeLegend(ctx, canvasWidth, canvasHeight);
 
-            // 6. СОХРАНЯЕМ
+            // 6. ИНФОРМАЦИЯ
+            ctx.fillStyle = '#6C757D';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Векторная система | ${new Date().toLocaleString('ru-RU')}`, canvasWidth / 2, canvasHeight - 10);
+
+            // 7. СОХРАНЯЕМ
             const filename = options.filename || `accumulative_${Date.now()}.png`;
             const outputPath = path.join(this.config.outputDir, filename);
 
@@ -83,7 +105,8 @@ class ClusterVisualizer {
                     resolve({
                         path: outputPath,
                         stats: stats,
-                        success: true
+                        success: true,
+                        note: `Точки отсортированы: ${sortedPoints.length}`
                     });
                 });
 
@@ -96,59 +119,39 @@ class ClusterVisualizer {
         }
     }
 
-    // 🔥 РИСОВАНИЕ ТОЧЕК
-    drawAccumulativePoints(ctx, points, canvasWidth, canvasHeight) {
-    const centerX = canvasWidth / 2;
-    const centerY = canvasHeight * 0.6;
+    // 🔥 РИСОВАНИЕ ОТСОРТИРОВАННЫХ ТОЧЕК
+    drawSortedPoints(ctx, sortedPoints, canvasWidth, canvasHeight) {
+        const centerX = canvasWidth / 2;
+        const centerY = canvasHeight * 0.6;
 
-    if (points.length === 0) {
-        ctx.fillStyle = '#6C757D';
-        ctx.font = '16px Arial';
-        ctx.fillText('Нет данных для отображения', centerX, centerY);
-        return;
-    }
-
-    // Находим границы
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-
-    points.forEach(point => {
-        minX = Math.min(minX, point.x);
-        maxX = Math.max(maxX, point.x);
-        minY = Math.min(minY, point.y);
-        maxY = Math.max(maxY, point.y);
-    });
-
-    const width = Math.max(1, maxX - minX);
-    const height = Math.max(1, maxY - minY);
-
-    // Масштабирование
-    const scaleX = (canvasWidth * 0.7) / width;
-    const scaleY = (canvasHeight * 0.5) / height;
-    const scale = Math.min(scaleX, scaleY, 3);
-
-    // 🔥 ВАЖНО: Сначала рисуем точки с 1 подтверждением (синие)
-    const pointsByConfirmation = {};
-   
-    points.forEach(point => {
-        const conf = point.confirmations || 1;
-        if (!pointsByConfirmation[conf]) {
-            pointsByConfirmation[conf] = [];
+        if (sortedPoints.length === 0) {
+            ctx.fillStyle = '#6C757D';
+            ctx.font = '16px Arial';
+            ctx.fillText('Нет данных для отображения', centerX, centerY);
+            return;
         }
-        pointsByConfirmation[conf].push(point);
-    });
 
-    // 🔥 РИСУЕМ В ПРАВИЛЬНОМ ПОРЯДКЕ:
-    // 1. Сначала синие (1 подтверждение)
-    // 2. Затем оранжевые (2 подтверждения)
-    // 3. Затем красные (3+ подтверждения)
-   
-    const drawOrder = [1, 2, 3];
-   
-    drawOrder.forEach(conf => {
-        const pointsToDraw = pointsByConfirmation[conf] || [];
-       
-        pointsToDraw.forEach(point => {
+        // Находим границы
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+
+        sortedPoints.forEach(point => {
+            minX = Math.min(minX, point.x);
+            maxX = Math.max(maxX, point.x);
+            minY = Math.min(minY, point.y);
+            maxY = Math.max(maxY, point.y);
+        });
+
+        const width = Math.max(1, maxX - minX);
+        const height = Math.max(1, maxY - minY);
+
+        // Масштабирование
+        const scaleX = (canvasWidth * 0.7) / width;
+        const scaleY = (canvasHeight * 0.5) / height;
+        const scale = Math.min(scaleX, scaleY, 3);
+
+        // 🔥 ВАЖНО: Рисуем в порядке сортировки (от красных к синим)
+        sortedPoints.forEach(point => {
             const x = centerX + (point.x - (minX + maxX) / 2) * scale;
             const y = centerY + (point.y - (minY + maxY) / 2) * scale;
 
@@ -162,7 +165,7 @@ class ClusterVisualizer {
             ctx.arc(x, y, size, 0, Math.PI * 2);
             ctx.fill();
 
-            // Обводка
+            // Белая обводка для контраста
             ctx.strokeStyle = '#FFFFFF';
             ctx.lineWidth = 1;
             ctx.stroke();
@@ -170,23 +173,27 @@ class ClusterVisualizer {
             // Число подтверждений для точек с 2+
             if (point.confirmations >= 2) {
                 ctx.fillStyle = '#FFFFFF';
-                ctx.font = 'bold 10px Arial';
+                ctx.font = 'bold 9px Arial';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(point.confirmations.toString(), x, y);
             }
         });
-    });
-}
+    }
 
     // 🔥 ЛЕГЕНДА
     drawAccumulativeLegend(ctx, canvasWidth, canvasHeight) {
         const legendY = canvasHeight - 120;
         const startX = canvasWidth * 0.1;
 
-        // Фон
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        // Фон легенды
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
         ctx.fillRect(startX - 10, legendY - 20, canvasWidth * 0.8, 100);
+
+        // Рамка
+        ctx.strokeStyle = '#DEE2E6';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(startX - 10, legendY - 20, canvasWidth * 0.8, 100);
 
         // Заголовок
         ctx.fillStyle = '#212529';
@@ -205,7 +212,7 @@ class ClusterVisualizer {
             const x = startX + index * 250;
             const y = legendY + 25;
 
-            // Точка-пример
+            // Пример точки
             const size = this.getSizeByConfirmations(item.confirmations);
             ctx.fillStyle = item.color;
             ctx.beginPath();
@@ -229,13 +236,14 @@ class ClusterVisualizer {
         });
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    // 🔥 ЦВЕТ ПО ПОДТВЕРЖДЕНИЯМ
     getColorByConfirmations(confirmations) {
         if (confirmations >= 3) return '#FF0000'; // 🔴
         if (confirmations === 2) return '#FF6B00'; // 🟠
         return '#2196F3'; // 🔵
     }
 
+    // 🔥 РАЗМЕР ПО ПОДТВЕРЖДЕНИЯМ
     getSizeByConfirmations(confirmations) {
         if (confirmations >= 3) return 10;
         if (confirmations === 2) return 7;
@@ -262,21 +270,24 @@ class ClusterVisualizer {
         }
 
         if (points && points.length > 0) {
-            report += `📍 ПРИМЕРЫ ТОЧЕК (первые 5):\n`;
-            points.slice(0, 5).forEach((point, i) => {
+            // Сортируем для отчета
+            const sorted = [...points].sort((a, b) => b.confirmations - a.confirmations);
+           
+            report += `📍 ПРИМЕРЫ ТОЧЕК (топ-5):\n`;
+            sorted.slice(0, 5).forEach((point, i) => {
                 report += `${i + 1}. (${point.x.toFixed(1)}, ${point.y.toFixed(1)}) - ${point.confirmations} подтверждений\n`;
             });
         }
 
         report += `\n══════════════════════════\n`;
-        report += `ВЕКТОРНАЯ АККУМУЛЯТИВНАЯ СИСТЕМА\n`;
+        report += `ВЕКТОРНАЯ СИСТЕМА С СОРТИРОВКОЙ ТОЧЕК\n`;
 
         fs.writeFileSync(outputPath, report, 'utf8');
 
         return {
             path: outputPath,
             success: true,
-            note: 'Текстовый отчет'
+            note: 'Текстовый отчет с сортировкой точек'
         };
     }
 
@@ -284,7 +295,6 @@ class ClusterVisualizer {
     async visualizeSingleFootprintConfirmations(footprint, options = {}) {
         console.log('🎨 Совместимость: визуализация одного следа');
        
-        // Преобразуем в формат аккумулятивной модели
         const points = [];
         if (footprint.pointTracker?.points) {
             for (const [, point] of footprint.pointTracker.points) {
@@ -292,9 +302,7 @@ class ClusterVisualizer {
                     x: point.x,
                     y: point.y,
                     confirmations: point.confirmedCount || 1,
-                    confidence: point.rating || 0.5,
-                    color: point.confirmedCount >= 3 ? 'red' :
-                           point.confirmedCount === 2 ? 'orange' : 'blue'
+                    confidence: point.rating || 0.5
                 });
             }
         }
