@@ -1,409 +1,214 @@
 // modules/footprint/simple-manager.js
-// 🔥 ИНТЕГРИРОВАН ГЕОМЕТРИЧЕСКИЙ ХЕШ-АЛГОРИТМ - ТОЛЬКО ВЕКТОРНЫЕ ОПЕРАЦИИ
+// 🔥 УПРОЩЕННЫЙ МЕНЕДЖЕР С ГЕОМЕТРИЧЕСКИМИ ПАСПОРТАМИ
 
 const fs = require('fs');
 const path = require('path');
 
-// 🔥 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ ИЗ ПАПКИ CLEAN
-let GeometricHashAlgorithm;
-try {
-    GeometricHashAlgorithm = require('./clean/vector-algorithm');
-    console.log('✅ Геометрический алгоритм загружен из папки clean');
-} catch (error) {
-    console.log(`⚠️ Не удалось загрузить геометрический алгоритм: ${error.message}`);
-    // Фаллбэк
-    GeometricHashAlgorithm = require('./fallback-algorithm');
-}
-
-// 🔥 ОСТАЛЬНЫЕ МОДУЛИ (ТОЛЬКО НУЖНЫЕ)
-const TemplateCoordination = require('./core/comparison/template-coordination');
-const SessionManager = require('./core/session/session-manager');
-const GeometryUtils = require('./core/utils/geometry-utils');
-const LogManager = require('./core/log-manager');
-const SimpleGraph = require('./simple-graph');
-
 class SimpleFootprintManager {
     constructor(options = {}) {
-        console.log('🚀 SimpleFootprintManager создан с ГЕОМЕТРИЧЕСКИМ АЛГОРИТМОМ (ВЕКТОРНЫЙ)');
+        console.log('🚀 SimpleFootprintManager создан (геометрические паспорта)');
 
         // 🔥 НАСТРОЙКИ
-        const {
-            dbPath = './data/footprints',
-            autoAlignment = true,
-            autoSave = true,
-            debug = false,
-            usePointTracker = true,
-            enableVectorSuperModel = true,
-            enableMergeVisualization = true,
-            enableTemplateVisualization = true,
-            topologySimilarityThreshold = 0.7,
-            minPointsForFootprint = 5,
-            templateMatchThreshold = 80,
-            minTemplateConfirmations = 1,
-            enableCoordinateDiagnostics = true,
-            ...otherOptions
-        } = options;
-
         this.config = {
-            dbPath,
-            autoAlignment,
-            autoSave,
-            debug,
-            usePointTracker,
-            enableVectorSuperModel,
-            enableMergeVisualization,
-            enableTemplateVisualization,
-            topologySimilarityThreshold,
-            minPointsForFootprint,
-            templateMatchThreshold,
-            minTemplateConfirmations,
-            enableCoordinateDiagnostics,
-            ...otherOptions
+            dbPath: options.dbPath || './data/footprints',
+            autoSave: options.autoSave !== false,
+            debug: options.debug || false,
+            minPointsForFootprint: options.minPointsForFootprint || 3,
+            geometricSimilarityThreshold: options.geometricSimilarityThreshold || 0.6,
+            enableVisualization: options.enableVisualization !== false,
+            ...options
         };
 
-        // 🔥 ГЕОМЕТРИЧЕСКИЙ АЛГОРИТМ (ОСНОВНОЙ ДВИЖОК)
-        this.geometricAlgorithm = new GeometricHashAlgorithm({
-            neighborOffsets: [-2, -1, 1, 2],
-            angleTolerance: 10,
-            minSimilarity: 0.6, // 60% = ОДНА обувь
-            debug: this.config.debug,
-            useNormalization: true // Используем нормализацию
+        // 🔥 ЗАГРУЖАЕМ ВЕКТОРНЫЙ АЛГОРИТМ
+        let VectorAlgorithm;
+        try {
+            VectorAlgorithm = require('./clean/vector-algorithm');
+            console.log('✅ Векторный алгоритм загружен');
+        } catch (error) {
+            console.log(`❌ Не удалось загрузить векторный алгоритм: ${error.message}`);
+            // Фаллбэк
+            VectorAlgorithm = class {
+                createGeometricPassports(points) { return points.map(p => ({ hash: `fallback_${p.id}` })); }
+                comparePassports() { return { similarity: 0, isSame: false }; }
+            };
+        }
+
+        this.vectorAlgorithm = new VectorAlgorithm({
+            neighborCount: 3,
+            anglePrecision: 5,
+            distancePrecision: 10,
+            minSimilarity: this.config.geometricSimilarityThreshold,
+            debug: this.config.debug
         });
 
-        console.log('✅ Геометрический алгоритм инициализирован');
-
-        // 🔥 МОДУЛИ (ТОЛЬКО ВЕКТОРНЫЕ)
-        const RotationInvariance = require('./rotation-invariance');
-        const MirrorDetection = require('./mirror-detection');
-        this.rotationProcessor = new RotationInvariance({ debug: this.config.debug });
-        this.mirrorDetector = new MirrorDetection({ debug: this.config.debug });
-
-        // 🔥 Основные модули
-        this.templateCoordinator = new TemplateCoordination(this);
-        this.sessionManager = new SessionManager(this);
-        this.geometryUtils = new GeometryUtils(this);
-
-        // 🔥 Визуализация (если нужна)
-        if (this.config.enableMergeVisualization || this.config.enableTemplateVisualization) {
-            try {
-                const VisualizationManager = require('./core/visualization/visualization-manager');
-                this.visualizationManager = new VisualizationManager(this);
-                console.log('✅ VisualizationManager инициализирован');
-            } catch (error) {
-                console.log(`⚠️ Визуализация не доступна: ${error.message}`);
-                this.visualizationManager = null;
-            }
-        } else {
-            this.visualizationManager = null;
+        // 🔥 ЗАГРУЖАЕМ ТРЕКЕР ПАСПОРТОВ
+        let PointTracker;
+        try {
+            PointTracker = require('./point-tracker');
+            console.log('✅ PointTracker загружен');
+        } catch (error) {
+            console.log(`❌ Не удалось загрузить PointTracker: ${error.message}`);
+            // Фаллбэк
+            PointTracker = class {
+                processGeometricPassports() { return { added: 0, confirmed: 0 }; }
+                getStats() { return { totalPassports: 0 }; }
+            };
         }
 
         // 🔥 СТРУКТУРЫ ДАННЫХ
-        this.userSessions = new Map();
-        this.loadedModels = new Map();
-        this.vectorSuperModels = new Map();
+        this.pointTracker = new PointTracker({
+            minPassportConfirmations: 2,
+            debug: this.config.debug
+        });
+
+        this.userSessions = new Map(); // userId -> { session }
+        this.footprints = new Map(); // footprintId -> footprint
+       
+        // 🔥 ВИЗУАЛИЗАЦИЯ
+        let ClusterVisualizer;
+        try {
+            ClusterVisualizer = require('./visualizations/cluster-visualizer');
+            this.visualizer = new ClusterVisualizer({
+                debug: this.config.debug,
+                outputDir: path.join(this.config.dbPath, 'visualizations')
+            });
+            console.log('✅ Визуализатор загружен');
+        } catch (error) {
+            console.log(`⚠️ Визуализация не доступна: ${error.message}`);
+            this.visualizer = null;
+        }
+
+        // 🔥 СТАТИСТИКА
         this.systemStats = {
             totalUsers: 0,
-            totalModels: 0,
+            totalFootprints: 0,
+            totalPassports: 0,
             totalPhotosProcessed: 0,
-            totalTemplateConfirmations: 0,
-            lastActivity: new Date(),
-            comparisonAlgorithm: 'geometric_hash_v1.0_vector'
+            algorithm: 'geometric_passports_v1.0',
+            lastActivity: new Date()
         };
 
+        // 🔥 СОЗДАЕМ ДИРЕКТОРИИ
         this.ensureDirectories();
-        this.loadExistingModels();
 
-        // 🔥 ПОРОГИ РЕШЕНИЙ (для геометрического алгоритма)
-        this.DECISION_THRESHOLDS = {
-            PATTERN_SIMILARITY: 0.6, // 60% схожести = ОДНА обувь
-            MIN_MATCHES: 10,
-            MAX_DISTANCE: 50,
-            VECTOR_MATCH_THRESHOLD: 0.05
-        };
-
-        console.log(`🎯 Геометрические пороги: сходство >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
-
-        // 🔥 Логирование
-        this.log = new LogManager(this);
-        if (options.logLevel) this.log.setLevel(options.logLevel);
-
-        console.log('✅ SimpleFootprintManager инициализирован с геометрическим алгоритмом (ВЕКТОРНЫЙ)');
+        console.log('✅ SimpleFootprintManager инициализирован');
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: СРАВНЕНИЕ ОТПЕЧАТКОВ С ГЕОМЕТРИЧЕСКИМ АЛГОРИТМОМ (ВЕКТОРНЫЙ)
-    async compareFootprints(footprint1, footprint2, options = {}) {
-        console.log(`🔍 Сравнение следов с ГЕОМЕТРИЧЕСКИМ алгоритмом (ВЕКТОРНЫЙ)`);
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавить анализ фото
+    async addPhotoAnalysis(userId, analysis, photoInfo = {}) {
+        console.log(`\n📸 Добавляю анализ фото для пользователя ${userId}`);
 
         try {
-            // 1. Извлекаем ВЕКТОРНЫЕ точки (без растровых трансформаций)
-            const points1 = this.extractVectorPoints(footprint1);
-            const points2 = this.extractVectorPoints(footprint2);
-
-            if (points1.length < 3 || points2.length < 3) {
-                console.log('⚠️ Слишком мало точек для сравнения');
+            // 1. Извлекаем точки из анализа
+            const points = this.extractPointsFromAnalysis(analysis);
+           
+            if (points.length < this.config.minPointsForFootprint) {
                 return {
-                    similar: false,
-                    similarity: 0,
-                    decision: 'different'
+                    success: false,
+                    error: `Слишком мало точек: ${points.length} (минимум ${this.config.minPointsForFootprint})`
                 };
             }
 
-            console.log(`📊 Сравниваем ${points1.length} vs ${points2.length} ВЕКТОРНЫХ точек`);
+            console.log(`📊 Извлечено ${points.length} точек`);
 
-            // 2. Используем ГЕОМЕТРИЧЕСКИЙ алгоритм (ВЕКТОРНЫЙ)
-            const geo1 = this.geometricAlgorithm.createFootprint(points1, 'fp1');
-            const geo2 = this.geometricAlgorithm.createFootprint(points2, 'fp2');
+            // 2. Создаем геометрические паспорта
+            const passports = this.vectorAlgorithm.createGeometricPassports(points, `user_${userId}`);
+           
+            console.log(`🎯 Создано ${passports.length} геометрических паспортов`);
 
-            const result = this.geometricAlgorithm.compareFootprints(geo1, geo2);
-
-            // 3. Простое решение на основе процентов
-            const similarity = result.stats.percent1to2 / 100;
-            const isSame = similarity > (options.threshold || this.DECISION_THRESHOLDS.PATTERN_SIMILARITY);
-
-            console.log(`🎯 Геометрический результат (ВЕКТОРНЫЙ):`);
-            console.log(`   • Совпадение fp1→fp2: ${result.stats.percent1to2}%`);
-            console.log(`   • Совпадение fp2→fp1: ${result.stats.percent2to1}%`);
-            console.log(`   • Среднее: ${similarity.toFixed(3)}`);
-            console.log(`   • Решение: ${isSame ? '✅ ОДНА обувь' : '❌ РАЗНАЯ обувь'}`);
-
-            return {
-                similar: isSame,
-                similarity: similarity,
-                decision: isSame ? 'same' : 'different',
-                matches: result.matches || [],
-                stats: result.stats,
-                method: 'geometric_hash_algorithm_vector'
-            };
-
-        } catch (error) {
-            console.error(`❌ Ошибка геометрического сравнения: ${error.message}`);
-            return {
-                similar: false,
-                similarity: 0,
-                error: error.message,
-                decision: 'different'
-            };
-        }
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Извлечь ВЕКТОРНЫЕ точки (без трансформаций)
-    extractVectorPoints(footprint) {
-        const points = [];
-
-        // 🔥 БЕРЕМ ОРИГИНАЛЬНЫЕ ТОЧКИ ИЗ ТРЕКЕРА (без трансформаций)
-        if (footprint.pointTracker && footprint.pointTracker.points) {
-            for (const [id, point] of footprint.pointTracker.points) {
-                // 🔥 ИСПОЛЬЗУЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ИЛИ ТЕКУЩИЕ
-                const originalCoords = point.originalCoordinates || { x: point.x, y: point.y };
-               
-                points.push({
-                    id: id,
-                    x: originalCoords.x || point.x,
-                    y: originalCoords.y || point.y,
-                    confidence: point.rating || 0.5,
-                    confirmedCount: point.confirmedCount || 1
-                });
-            }
-        }
-
-        // 🔥 ЕСЛИ НЕТ ТРЕКЕРА, ИЩЕМ ДРУГИЕ ИСТОЧНИКИ
-        if (points.length === 0 && footprint.graph && footprint.graph.nodes) {
-            for (const [id, node] of footprint.graph.nodes) {
-                points.push({
-                    id: id,
-                    x: node.x,
-                    y: node.y,
-                    confidence: node.confidence || 0.5
-                });
-            }
-        }
-
-        console.log(`📊 Извлечено ${points.length} ВЕКТОРНЫХ точек`);
-
-        // 🔥 ВАЖНО: НЕ ЦЕНТРИРУЕМ И НЕ ТРАНСФОРМИРУЕМ - оставляем как есть
-        // Геометрический алгоритм сам обработает
-        return points;
-    }
-
-    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Нормализация отпечатка (ВЕКТОРНАЯ)
-    async normalizeFootprint(footprint, options = {}) {
-        console.log(`🔄 ВЕКТОРНАЯ нормализация отпечатка ${footprint.id || 'unknown'}`);
-
-        try {
-            // Извлекаем ВЕКТОРНЫЕ точки
-            const points = this.extractVectorPoints(footprint);
-
-            if (!points || points.length === 0) {
-                console.log('⚠️ Нет точек для нормализации');
-                return footprint;
-            }
-
-            console.log(`📊 ВЕКТОРНАЯ нормализация ${points.length} точек`);
-
-            // 🔥 ВЕКТОРНАЯ НОРМАЛИЗАЦИЯ (без искажений)
-            const normalizedPoints = points.map(p => ({
-                ...p,
-                // 🔥 СОХРАНЯЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ
-                originalX: p.x,
-                originalY: p.y,
-                // 🔥 МОЖЕМ ДОБАВИТЬ ФЛАГ НОРМАЛИЗАЦИИ
-                normalized: true,
-                // 🔥 НЕ МЕНЯЕМ КООРДИНАТЫ - геометрический алгоритм работает с любыми
-                _normalizationMethod: 'vector_preserve'
-            }));
-
-            // Обновляем отпечаток
-            if (footprint.updatePoints) {
-                footprint.updatePoints(normalizedPoints);
-            } else {
-                footprint.points = normalizedPoints;
-            }
-
-            // Сохраняем информацию о ВЕКТОРНОЙ трансформации
-            footprint.metadata = footprint.metadata || {};
-            footprint.metadata.normalizationInfo = {
-                originalPoints: points.length,
-                normalizedPoints: normalizedPoints.length,
-                transformationType: 'vector_preserve',
+            // 3. Обрабатываем паспорта через трекер
+            const trackerResult = this.pointTracker.processGeometricPassports(passports, {
+                userId: userId,
+                photoId: photoInfo.photoId || `photo_${Date.now()}`,
                 timestamp: new Date(),
-                note: 'Векторная нормализация без искажений'
+                ...photoInfo
+            });
+
+            // 4. Получаем или создаем сессию
+            const session = this.getOrCreateSession(userId);
+            session.lastActivity = new Date();
+            session.photos.push({
+                id: photoInfo.photoId || `photo_${Date.now()}`,
+                timestamp: new Date(),
+                pointsCount: points.length,
+                passportsCount: passports.length,
+                trackerResult: trackerResult
+            });
+
+            // 5. Создаем визуализацию если включена
+            let visualizationResult = null;
+            if (this.config.enableVisualization && this.visualizer) {
+                visualizationResult = await this.createVisualization(session, trackerResult, photoInfo);
+            }
+
+            // 6. Обновляем статистику
+            this.updateSystemStats();
+
+            // 7. Сохраняем если нужно
+            if (this.config.autoSave) {
+                this.saveSession(userId);
+            }
+
+            // 8. Формируем результат
+            const similarity = this.calculateSimilarity(trackerResult);
+            const isSameFootprint = similarity >= this.config.geometricSimilarityThreshold;
+           
+            const result = {
+                success: true,
+                userId: userId,
+                points: points.length,
+                passports: passports.length,
+                trackerResult: trackerResult,
+                similarity: similarity,
+                isSameFootprint: isSameFootprint,
+                decision: isSameFootprint ? 'same_footprint' : 'new_footprint',
+                visualization: visualizationResult,
+                message: this.generateMessage(trackerResult, similarity, isSameFootprint)
             };
 
-            console.log(`✅ Отпечаток нормализован (ВЕКТОРНО): ${normalizedPoints.length} точек`);
-
-            return footprint;
-
-        } catch (error) {
-            console.error(`❌ Ошибка векторной нормализации: ${error.message}`);
-            return footprint;
-        }
-    }
-
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ОБНОВЛЁННЫЙ)
-    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО в сессию пользователя ${userId} (ВЕКТОРНЫЙ)`);
-
-        try {
-            if (!analysis?.predictions) {
-                return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
-            }
-
-            // Извлечение ВЕКТОРНЫХ точек
-            const points = this.extractPointsFromAnalysis(analysis);
-            if (points.length < this.config.minPointsForFootprint) {
-                return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
-            }
-
-            // Создание и ВЕКТОРНАЯ нормализация графа
-            const { finalGraph, transformationInfo } = this.createAndNormalizeGraph(points, userId, photoInfo);
-
-            // Работа с сессиями
-            const session = this.getOrCreateSession(userId);
-            this.updateSessionData(session, points, transformationInfo);
-
-            // Обработка фото
-            let result;
-            if (!session.currentFootprint) {
-                result = await this.processFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
-            } else {
-                result = await this.processSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId);
-            }
-
-            console.log(`📊 ИТОГОВЫЙ РЕЗУЛЬТАТ (ВЕКТОРНЫЙ):`, {
-                similarity: result.similarity,
-                decision: result.decision,
-                algorithm: 'geometric_hash_vector'
-            });
+            console.log(`✅ Анализ добавлен: ${result.message}`);
+            console.log(`📊 Сходство: ${(similarity * 100).toFixed(1)}%`);
 
             return result;
 
         } catch (error) {
-            console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
-            return { success: false, error: error.message, nodesAdded: 0 };
+            console.error(`❌ Ошибка добавления фото: ${error.message}`);
+            return {
+                success: false,
+                error: error.message,
+                userId: userId
+            };
         }
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (остаются без изменений, но могут быть оптимизированы)
-
-    createAndNormalizeGraph(points, userId, photoInfo) {
-        const graph = new SimpleGraph(`Временный_${Date.now()}`);
-        graph.buildFromPoints(points);
-
-        // 🔥 ВЕКТОРНАЯ нормализация
-        const normalized = this.rotationProcessor.normalizeToCanonical(graph, {
-            userId: userId,
-            photoInfo: photoInfo,
-            autoRotate: true
-        });
-
-        const transformationInfo = {
-            ...normalized.transformation,
-            rotationAngle: normalized.rotationAngle,
-            isMirrored: normalized.isMirrored,
-            corrected: false,
-            timestamp: new Date(),
-            footType: normalized.footType,
-            photoId: photoInfo.photoId || `photo_${Date.now()}`,
-            note: 'Векторная нормализация'
-        };
-
-        const corrected = this.mirrorDetector.autoCorrectMirroring(normalized.graph, 'right');
-        if (corrected.correctionApplied) {
-            transformationInfo.corrected = true;
-            transformationInfo.correctionType = corrected.correctionType;
-        }
-
-        const finalGraph = corrected.graph;
-        finalGraph.transformation = transformationInfo;
-
-        return { finalGraph, transformationInfo };
-    }
-
-    getOrCreateSession(userId) {
-        let session = this.sessionManager.getActiveSession(userId);
-        if (!session) {
-            session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-        }
-        return session;
-    }
-
-    updateSessionData(session, points, transformationInfo) {
-        session.lastActivity = new Date();
-
-        if (!session.metadata.normalizationHistory) {
-            session.metadata.normalizationHistory = [];
-        }
-        session.metadata.normalizationHistory.push(transformationInfo);
-        session.metadata.lastTransformation = transformationInfo;
-
-        session.photos.push({
-            id: `photo_${Date.now()}`,
-            timestamp: new Date(),
-            pointsCount: points.length,
-            transformationInfo: transformationInfo
-        });
-    }
-
+    // 🔥 ИЗВЛЕЧЕНИЕ ТОЧЕК ИЗ АНАЛИЗА
     extractPointsFromAnalysis(analysis) {
         const points = [];
-        const predictions = analysis.predictions || [];
+       
+        if (!analysis || !analysis.predictions) {
+            console.log('⚠️ Анализ не содержит predictions');
+            return points;
+        }
 
-        for (const pred of predictions) {
+        const predictions = analysis.predictions || [];
+       
+        predictions.forEach((pred, index) => {
             if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
+                // Берем центр bounding box или первого точки
                 const xs = pred.points.map(p => p.x);
                 const ys = pred.points.map(p => p.y);
-
+               
                 points.push({
+                    id: `pt_${index}_${Date.now()}`,
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
                     y: (Math.min(...ys) + Math.max(...ys)) / 2,
                     confidence: pred.confidence || 0.5,
                     originalPoints: pred.points,
-                    class: pred.class,
-                    _source: 'analysis',
-                    _timestamp: new Date()
+                    source: 'analysis',
+                    timestamp: new Date()
                 });
             }
-        }
+        });
 
         return points.filter(p =>
             p && typeof p.x === 'number' && typeof p.y === 'number' &&
@@ -411,586 +216,366 @@ class SimpleFootprintManager {
         );
     }
 
-    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка первого фото
-    async processFirstPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
-        console.log(`👣 Первое фото: создаю отпечаток и шаблон (ВЕКТОРНЫЙ)`);
-
-        const SimpleFootprint = require('./simple-footprint');
-        session.currentFootprint = new SimpleFootprint({
-            userId: userId,
-            name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
-            transformation: transformationInfo
-        });
-
-        session.currentFootprint.metadata.normalizationInfo = transformationInfo;
-        session.currentFootprint.setManager(this);
-
-        const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
-            ...photoInfo,
-            normalizedGraph: finalGraph,
-            photoId: photoInfo.photoId || `photo_${Date.now()}`,
-            source: photoInfo.source || 'telegram_bot',
-            transformationInfo: transformationInfo
-        });
-
-        // Создание ВЕКТОРНОГО шаблона
-        const VectorSuperModel = require('./vector-super-model');
-        const vectorModel = new VectorSuperModel({
-            name: `Шаблон_${String(userId).slice(0, 6)}`,
-            enablePCA: false,
-            cellSize: 25,
-            debug: this.config.debug
-        });
-
-        vectorModel.addGraph(finalGraph, session.currentFootprint.id, {
-            isFirst: true,
-            transformationInfo: transformationInfo
-        });
-
-        this.vectorSuperModels.set(userId, vectorModel);
-
-        console.log(`✅ Создан ВЕКТОРНЫЙ отпечаток с ${addResult.added} узлами`);
-
-        // Создаем визуализацию (если включено)
-        let hasVisualization = false;
-        let vizPath = null;
-
-        if (this.config.enableMergeVisualization && this.visualizationManager) {
-            console.log(`🎨 Создаю ВЕКТОРНУЮ визуализацию для первого фото...`);
-
-            try {
-                const vizResult = await this.visualizationManager.visualizeSingleFootprintConfirmations(
-                    session.currentFootprint,
-                    userId,
-                    transformationInfo
-                );
-
-                if (vizResult && vizResult.path) {
-                    hasVisualization = true;
-                    vizPath = vizResult.path;
-                    console.log(`✅ Путь к ВЕКТОРНОЙ визуализации: ${vizPath}`);
+    // 🔥 ПОЛУЧИТЬ ИЛИ СОЗДАТЬ СЕССИЮ
+    getOrCreateSession(userId) {
+        if (!this.userSessions.has(userId)) {
+            const session = {
+                userId: userId,
+                createdAt: new Date(),
+                lastActivity: new Date(),
+                photos: [],
+                footprints: [],
+                statistics: {
+                    totalPhotos: 0,
+                    totalPoints: 0,
+                    totalPassports: 0,
+                    confirmedPatterns: 0
                 }
-            } catch (vizError) {
-                console.log(`⚠️ Ошибка векторной визуализации: ${vizError.message}`);
-            }
+            };
+           
+            this.userSessions.set(userId, session);
+            this.systemStats.totalUsers++;
+           
+            console.log(`🆕 Создана сессия для пользователя ${userId}`);
         }
-
-        // Отправка в Telegram (если нужно)
-        if (bot && chatId) {
-            await this.sendFirstPhotoTelegram(
-                session, userId, transformationInfo, vectorModel, addResult,
-                vizPath, bot, chatId
-            );
-        }
-
-        return {
-            success: true,
-            isNewSession: true,
-            similarity: 0,
-            decision: 'new',
-            nodesAdded: addResult.added,
-            totalNodes: session.currentFootprint.graph.nodes.size,
-            sessionId: session.id,
-            hasTemplate: true,
-            hasVisualization: hasVisualization,
-            vizPath: vizPath,
-            algorithm: 'geometric_hash_vector'
-        };
+       
+        return this.userSessions.get(userId);
     }
 
-    // 🔥 БЕЗОПАСНОЕ УЛУЧШЕНИЕ: обработка последующих фото
-    async processSubsequentPhoto(session, userId, analysis, photoInfo, finalGraph, transformationInfo, bot, chatId) {
-        console.log(`🔍 Проверяю совпадение с существующим отпечатком (ВЕКТОРНЫЙ)`);
-
-        const existingTransformationInfo = session.currentFootprint?.metadata?.normalizationInfo ||
-                                          (session.currentFootprint?.getTransformation ? session.currentFootprint.getTransformation() : null);
-
-        // Создание временного отпечатка для сравнения
-        const SimpleFootprint = require('./simple-footprint');
-        const tempFootprint = new SimpleFootprint({
-            userId: userId,
-            name: `Temp_${Date.now()}`
-        });
-
-        tempFootprint.metadata.normalizationInfo = transformationInfo;
-        const tempResult = tempFootprint.addAnalysisHonest(analysis, {
-            ...photoInfo,
-            normalizedGraph: finalGraph,
-            photoId: photoInfo.photoId || `photo_${Date.now()}_temp`,
-            source: photoInfo.source || 'telegram_bot_temp',
-            transformationInfo: transformationInfo
-        });
-
-        // 🔥 ИСПРАВЛЕНО: Используем геометрический алгоритм для сравнения (ВЕКТОРНЫЙ)
-        const comparisonResult = await this.compareFootprints(
-            session.currentFootprint,
-            tempFootprint,
-            {
-                threshold: this.DECISION_THRESHOLDS.PATTERN_SIMILARITY
+    // 🔥 СОЗДАТЬ ВИЗУАЛИЗАЦИЮ
+    async createVisualization(session, trackerResult, photoInfo) {
+        try {
+            if (!this.visualizer) return null;
+           
+            // Получаем все точки для визуализации
+            const points = this.pointTracker.getAllPoints();
+           
+            if (points.length === 0) {
+                console.log('⚠️ Нет точек для визуализации');
+                return null;
             }
-        );
 
-        const similarity = comparisonResult?.similarity || 0;
-        const decision = comparisonResult.similar ? 'same' : 'different';
-
-        console.log(`🎯 ГЕОМЕТРИЧЕСКОЕ РЕШЕНИЕ (ВЕКТОРНЫЙ):`);
-        console.log(`   Similarity: ${similarity.toFixed(3)}`);
-        console.log(`   Требуется: >${this.DECISION_THRESHOLDS.PATTERN_SIMILARITY}`);
-        console.log(`   Решение: ${decision}`);
-
-        if (decision === 'same') {
-            return await this.processMatchingFootprint(
-                session, userId, tempFootprint, finalGraph, transformationInfo,
-                existingTransformationInfo, similarity, comparisonResult,
-                tempResult, bot, chatId
-            );
-        } else {
-            return await this.processNewFootprint(
-                session, userId, analysis, photoInfo, finalGraph, transformationInfo,
-                similarity, bot, chatId
-            );
-        }
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (остаются)
-
-    async processMatchingFootprint(session, userId, tempFootprint, finalGraph, transformationInfo,
-                                  existingTransformationInfo, similarity, comparisonResult,
-                                  tempResult, bot, chatId) {
-        console.log(`✅ Следы совпали (ВЕКТОРНЫЙ) (${similarity.toFixed(3)})`);
-
-        const nodesAdded = tempResult?.added || 0;
-
-        // Работа с ВЕКТОРНЫМ шаблоном
-        let vectorModel = this.vectorSuperModels.get(userId);
-        if (!vectorModel) {
-            const VectorSuperModel = require('./vector-super-model');
-            vectorModel = new VectorSuperModel({
-                name: `Шаблон_${String(userId).slice(0, 6)}`,
-                enablePCA: false,
-                cellSize: 25,
-                debug: this.config.debug
-            });
-            this.vectorSuperModels.set(userId, vectorModel);
-            vectorModel.addGraph(session.currentFootprint.graph, session.currentFootprint.id, {
-                isFirst: true,
-                transformationInfo: existingTransformationInfo
-            });
-        }
-
-        vectorModel.addGraph(finalGraph, tempFootprint.id, {
-            similarity: similarity,
-            timestamp: new Date(),
-            transformationInfo: transformationInfo
-        });
-
-        // Создаем ВЕКТОРНУЮ визуализацию
-        let hasVisualization = false;
-        let vizPath = null;
-
-        if (this.config.enableMergeVisualization && this.visualizationManager) {
-            console.log(`🎨 Создаю ВЕКТОРНУЮ визуализацию подтверждений...`);
-            try {
-                const vizResult = await this.visualizationManager.visualizeSingleFootprintConfirmations(
-                    session.currentFootprint,
-                    userId,
-                    {
-                        currentTransformation: transformationInfo,
-                        previousTransformation: existingTransformationInfo,
-                        comparisonResult: comparisonResult
-                    }
-                );
-
-                if (vizResult && vizResult.path) {
-                    hasVisualization = true;
-                    vizPath = vizResult.path;
-                    console.log(`✅ ВЕКТОРНАЯ визуализация создана: ${vizPath}`);
+            // Создаем фейковый footprint для визуализации
+            const fakeFootprint = {
+                id: `viz_${session.userId}_${Date.now()}`,
+                name: `Визуализация_${session.userId}`,
+                pointTracker: this.pointTracker,
+                getTransformation: () => ({ rotationAngle: 0, isMirrored: false }),
+                metadata: {
+                    userId: session.userId,
+                    timestamp: new Date(),
+                    photoInfo: photoInfo
                 }
-            } catch (error) {
-                console.log(`⚠️ Ошибка векторной визуализации: ${error.message}`);
-            }
-        }
-
-        // Отправка в Telegram
-        let telegramSent = false;
-        if (bot && chatId) {
-            await this.sendMatchTelegram(
-                session, userId, transformationInfo, existingTransformationInfo,
-                comparisonResult, vectorModel, vizPath, bot, chatId
-            );
-            telegramSent = true;
-        }
-
-        return {
-            success: true,
-            similarity: similarity,
-            decision: 'same',
-            nodesAdded: nodesAdded,
-            message: `✅ След добавлен! ВЕКТОРНОЕ сходство: ${(similarity * 100).toFixed(1)}%`,
-            hasVisualization: hasVisualization,
-            telegramSent: telegramSent,
-            pointsUpdated: comparisonResult.matches?.length || 0,
-            vizPath: vizPath,
-            algorithm: 'geometric_hash_vector'
-        };
-    }
-
-    async processNewFootprint(session, userId, analysis, photoInfo, finalGraph, transformationInfo,
-                            similarity, bot, chatId) {
-        console.log(`🆕 Следы разные (ВЕКТОРНЫЙ) (${similarity.toFixed(3)}) - новая модель`);
-
-        // Сохраняем текущую сессию как модель если нужно
-        if (session.currentFootprint && session.currentFootprint.graph &&
-            session.currentFootprint.graph.nodes && session.currentFootprint.graph.nodes.size >= 10) {
-
-            console.log(`💾 Сохраняю текущую сессию как ВЕКТОРНУЮ модель`);
-
-            try {
-                await this.saveSessionAsModel(userId, `ВЕКТОРНАЯ_Модель_${new Date().toLocaleTimeString('ru-RU')}`);
-            } catch (error) {
-                console.log(`⚠️ Не удалось сохранить сессию: ${error.message}`);
-            }
-        }
-
-        const SimpleFootprint = require('./simple-footprint');
-        session.currentFootprint = new SimpleFootprint({
-            userId: userId,
-            name: `Отпечаток_${new Date().toLocaleTimeString('ru-RU')}`
-        });
-
-        session.currentFootprint.metadata.normalizationInfo = transformationInfo;
-
-        const addResult = session.currentFootprint.addAnalysisHonest(analysis, {
-            ...photoInfo,
-            normalizedGraph: finalGraph,
-            photoId: photoInfo.photoId || `photo_${Date.now()}`,
-            source: photoInfo.source || 'telegram_bot',
-            transformationInfo: transformationInfo
-        });
-
-        // Новый ВЕКТОРНЫЙ шаблон
-        const VectorSuperModel = require('./vector-super-model');
-        const vectorModel = new VectorSuperModel({
-            name: `Шаблон_${String(userId).slice(0, 6)}_new`,
-            enablePCA: false,
-            cellSize: 25,
-            debug: this.config.debug
-        });
-
-        vectorModel.addGraph(finalGraph, session.currentFootprint.id, {
-            isFirst: true,
-            transformationInfo: transformationInfo
-        });
-
-        this.vectorSuperModels.set(userId, vectorModel);
-
-        return {
-            success: true,
-            similarity: similarity,
-            decision: 'different',
-            isNewModel: true,
-            nodesAdded: addResult.added,
-            hasTemplate: true,
-            algorithm: 'geometric_hash_vector'
-        };
-    }
-
-    // 🔥 МЕТОДЫ ВИЗУАЛИЗАЦИИ (если нужны)
-    async visualizeSingleFootprintConfirmations(footprint, userId, transformationInfo = null) {
-        if (!this.visualizationManager) {
-            console.log('⚠️ Визуализация отключена');
-            return { path: null, success: false, reason: 'disabled' };
-        }
-
-        console.log(`🎨 ВЕКТОРНАЯ визуализация отпечатка для ${userId}`);
-
-        try {
-            return await this.visualizationManager.visualizeSingleFootprintConfirmations(
-                footprint, userId, transformationInfo
-            );
-        } catch (error) {
-            console.log(`❌ Ошибка векторной визуализации: ${error.message}`);
-            return { path: null, success: false, reason: error.message };
-        }
-    }
-
-    async visualizeVectorSuperModel(userId, vectorModel) {
-        if (!this.visualizationManager) {
-            console.log('⚠️ Визуализация шаблонов отключена');
-            return { template: null, success: false, reason: 'disabled' };
-        }
-
-        console.log(`🎨 ВЕКТОРНАЯ визуализация шаблона для ${userId}`);
-
-        try {
-            return await this.visualizationManager.visualizeVectorSuperModel(userId, vectorModel);
-        } catch (error) {
-            console.log(`❌ Ошибка векторной визуализации шаблона: ${error.message}`);
-            return { template: null, success: false, reason: error.message };
-        }
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ФАЙЛОВОЙ СИСТЕМЫ
-
-    ensureDirectories() {
-        const dirs = [
-            this.config.dbPath,
-            path.join(this.config.dbPath, 'models'),
-            path.join(this.config.dbPath, 'sessions'),
-            path.join(this.config.dbPath, 'visualizations'),
-            path.join(this.config.dbPath, 'visualizations/templates'),
-            path.join(this.config.dbPath, 'visualizations/clusters'),
-            path.join(this.config.dbPath, 'reports'),
-            path.join(this.config.dbPath, 'logs')
-        ];
-
-        dirs.forEach(dir => {
-            if (!fs.existsSync(dir)) {
-                console.log(`📁 Создаю директорию: ${dir}`);
-                fs.mkdirSync(dir, { recursive: true });
-            }
-        });
-    }
-
-    loadExistingModels() {
-        const modelsDir = path.join(this.config.dbPath, 'models');
-        if (!fs.existsSync(modelsDir)) {
-            fs.mkdirSync(modelsDir, { recursive: true });
-            return;
-        }
-
-        const files = fs.readdirSync(modelsDir).filter(f => f.endsWith('.json'));
-        let loadedCount = 0;
-
-        files.slice(0, 100).forEach(file => {
-            try {
-                const filePath = path.join(modelsDir, file);
-                const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-                const SimpleFootprint = require('./simple-footprint');
-                const footprint = SimpleFootprint.fromJSON(data);
-                this.loadedModels.set(footprint.id, footprint);
-                loadedCount++;
-            } catch (error) {
-                console.log(`⚠️ Ошибка загрузки модели ${file}:`, error.message);
-            }
-        });
-
-        this.systemStats.totalModels = loadedCount;
-    }
-
-    saveSessionAsModel(userId, modelName = null) {
-        try {
-            const session = this.getActiveSession(userId);
-            if (!session || !session.currentFootprint) {
-                return { success: false, error: 'Нет активной сессии или отпечатка' };
-            }
-
-            const footprint = session.currentFootprint;
-            const name = modelName || `ВЕКТОРНАЯ_Модель_${new Date().toLocaleTimeString('ru-RU')}`;
-
-            const modelsDir = path.join(this.config.dbPath, 'models');
-            if (!fs.existsSync(modelsDir)) {
-                fs.mkdirSync(modelsDir, { recursive: true });
-            }
-
-            const modelData = {
-                id: footprint.id,
-                userId: footprint.userId,
-                name: name,
-                timestamp: new Date(),
-                graph: footprint.graph ? {
-                    nodes: Array.from(footprint.graph.nodes.entries()),
-                    edges: footprint.graph.edges || []
-                } : null,
-                points: footprint.points || [],
-                metadata: footprint.metadata || {},
-                transformation: footprint.transformation || null,
-                _vectorModel: true
             };
 
-            const filename = `vector_model_${footprint.id}_${Date.now()}.json`;
-            const filePath = path.join(modelsDir, filename);
+            // Создаем визуализацию
+            const vizResult = await this.visualizer.visualizeSingleFootprintConfirmations(
+                fakeFootprint,
+                { width: 1200, height: 800, filename: `user_${session.userId}_${Date.now()}.png` }
+            );
 
-            fs.writeFileSync(filePath, JSON.stringify(modelData, null, 2));
+            console.log(`🎨 Визуализация создана: ${vizResult?.path || 'нет пути'}`);
+           
+            // Сохраняем в сессии
+            session.lastVisualization = {
+                path: vizResult?.path,
+                timestamp: new Date(),
+                pointsCount: points.length
+            };
 
-            this.loadedModels.set(footprint.id, footprint);
-            this.systemStats.totalModels++;
-
-            console.log(`💾 Сессия сохранена как ВЕКТОРНАЯ модель: ${name} (${filename})`);
-            return { success: true, modelName: name, filePath, footprintId: footprint.id };
+            return vizResult;
 
         } catch (error) {
-            console.error(`❌ Ошибка сохранения сессии: ${error.message}`);
-            return { success: false, error: error.message };
+            console.log(`⚠️ Ошибка визуализации: ${error.message}`);
+            return null;
         }
     }
 
-    getSystemStats() {
-        const templateStats = [];
-        for (const [userId, vectorModel] of this.vectorSuperModels) {
-            const templateData = vectorModel.templateBuilder?.getVisualizationData();
-            const stats = templateData?.stats || {};
-            templateStats.push({
-                userId,
-                cells: templateData?.cells?.length || 0,
-                totalConfirmations: stats.totalConfirmations || 0,
-                averageConfirmations: stats.averageConfirmations?.toFixed(2) || '0.00'
-            });
+    // 🔥 ВЫЧИСЛИТЬ СХОДСТВО
+    calculateSimilarity(trackerResult) {
+        const { added, confirmed } = trackerResult;
+        const total = added + confirmed;
+       
+        if (total === 0) return 0;
+       
+        // Чем больше подтверждений, тем выше сходство
+        return confirmed / total;
+    }
+
+    // 🔥 СОЗДАТЬ СООБЩЕНИЕ
+    generateMessage(trackerResult, similarity, isSameFootprint) {
+        const { added, confirmed } = trackerResult;
+       
+        if (isSameFootprint) {
+            return `✅ Та же обувь! Подтверждено ${confirmed} паттернов (сходство: ${(similarity * 100).toFixed(1)}%)`;
+        } else if (added > 0) {
+            return `🆕 Новые паттерны! Добавлено ${added} новых геометрических паттернов`;
+        } else {
+            return `⚠️ Мало совпадений. Подтверждено ${confirmed} паттернов`;
         }
+    }
+
+    // 🔥 ОБНОВИТЬ СИСТЕМНУЮ СТАТИСТИКУ
+    updateSystemStats() {
+        const trackerStats = this.pointTracker.getStats();
+       
+        this.systemStats.totalPassports = trackerStats.totalPassports;
+        this.systemStats.totalFootprints = this.userSessions.size;
+        this.systemStats.totalPhotosProcessed = Array.from(this.userSessions.values())
+            .reduce((sum, session) => sum + session.photos.length, 0);
+        this.systemStats.lastActivity = new Date();
+    }
+
+    // 🔥 ПОЛУЧИТЬ СТАТИСТИКУ
+    getStats() {
+        const userStats = Array.from(this.userSessions.entries()).map(([userId, session]) => ({
+            userId: userId,
+            photos: session.photos.length,
+            lastActivity: session.lastActivity,
+            footprints: session.footprints.length
+        }));
+
+        const trackerStats = this.pointTracker.getStats();
+       
+        // Анализ паттернов
+        const patternStats = {
+            equilateral_triangles: this.pointTracker.findPassportsByPattern('equilateral_triangle').length,
+            right_triangles: this.pointTracker.findPassportsByPattern('right_triangle').length,
+            dense_clusters: this.pointTracker.findPassportsByPattern('dense_cluster').length,
+            linear_patterns: this.pointTracker.findPassportsByPattern('linear_pattern').length,
+            complex_patterns: this.pointTracker.findPassportsByPattern('complex_pattern').length
+        };
 
         return {
             ...this.systemStats,
-            activeSessions: this.userSessions.size,
-            loadedModels: this.loadedModels.size,
-            vectorModels: this.vectorSuperModels.size,
-            templateStats: templateStats,
-            algorithm: 'Геометрический хеш-алгоритм (ВЕКТОРНЫЙ)'
+            lastActivity: this.systemStats.lastActivity.toLocaleString('ru-RU'),
+            users: userStats,
+            tracker: trackerStats,
+            patterns: patternStats,
+            pointsByConfirmations: trackerStats.pointsByConfirmations,
+            algorithm: 'geometric_passports'
         };
     }
 
-    getVectorSuperModel(userId) {
-        return this.vectorSuperModels.get(userId);
-    }
-
-    clearVectorSuperModel(userId) {
-        if (this.vectorSuperModels.has(userId)) {
-            this.vectorSuperModels.delete(userId);
-            if (this.userSessions.has(userId)) {
-                this.userSessions.delete(userId);
+    // 🔥 СРАВНИТЬ ДВА НАБОРА ТОЧЕК
+    async comparePoints(points1, points2, options = {}) {
+        console.log(`🔍 Сравниваю ${points1.length} vs ${points2.length} точек`);
+       
+        try {
+            // Создаем паспорта
+            const passports1 = this.vectorAlgorithm.createGeometricPassports(points1, 'set1');
+            const passports2 = this.vectorAlgorithm.createGeometricPassports(points2, 'set2');
+           
+            // Сравниваем паспорта
+            const result = this.vectorAlgorithm.comparePassports(
+                passports1,
+                passports2,
+                {
+                    minSimilarity: options.minSimilarity || this.config.geometricSimilarityThreshold
+                }
+            );
+           
+            // Обрабатываем через трекер для обновления подтверждений
+            if (result.isSame) {
+                this.pointTracker.processGeometricPassports(passports1, { sourceId: 'comparison_set1' });
+                this.pointTracker.processGeometricPassports(passports2, { sourceId: 'comparison_set2' });
             }
-            console.log(`🧹 Очищен ВЕКТОРНЫЙ шаблон для пользователя ${userId}`);
-            return { success: true, message: 'ВЕКТОРНЫЙ шаблон очищен' };
+           
+            console.log(`📊 Результат сравнения: ${(result.similarity * 100).toFixed(1)}% сходства`);
+            console.log(`🎯 Решение: ${result.isSame ? '✅ ОДНА ОБУВЬ' : '❌ РАЗНАЯ ОБУВЬ'}`);
+           
+            return {
+                similarity: result.similarity,
+                isSame: result.isSame,
+                decision: result.isSame ? 'same' : 'different',
+                matches: result.matches?.length || 0,
+                stats: result.stats,
+                algorithm: 'geometric_passports'
+            };
+           
+        } catch (error) {
+            console.error(`❌ Ошибка сравнения: ${error.message}`);
+            return {
+                similarity: 0,
+                isSame: false,
+                decision: 'error',
+                error: error.message
+            };
         }
-        return { success: false, message: 'ВЕКТОРНЫЙ шаблон не найден' };
     }
 
-    // 🔥 МЕТОДЫ СЕССИЙ
-
-    getActiveSession(userId) {
-        return this.sessionManager.getActiveSession(userId);
+    // 🔥 СОХРАНИТЬ СЕССИЮ
+    saveSession(userId) {
+        try {
+            const session = this.userSessions.get(userId);
+            if (!session) return false;
+           
+            const sessionsDir = path.join(this.config.dbPath, 'sessions');
+            if (!fs.existsSync(sessionsDir)) {
+                fs.mkdirSync(sessionsDir, { recursive: true });
+            }
+           
+            const filename = `session_${userId}_${Date.now()}.json`;
+            const filepath = path.join(sessionsDir, filename);
+           
+            const data = {
+                userId: userId,
+                session: session,
+                pointTracker: this.pointTracker.toJSON(),
+                savedAt: new Date().toISOString()
+            };
+           
+            fs.writeFileSync(filepath, JSON.stringify(data, null, 2));
+           
+            console.log(`💾 Сессия сохранена: ${filepath}`);
+            return true;
+           
+        } catch (error) {
+            console.log(`⚠️ Ошибка сохранения сессии: ${error.message}`);
+            return false;
+        }
     }
 
-    createSession(userId, name = null) {
-        return this.sessionManager.createSession(userId, name);
+    // 🔥 ЗАГРУЗИТЬ СЕССИЮ
+    loadSession(userId, filepath = null) {
+        try {
+            let targetFile = filepath;
+           
+            if (!targetFile) {
+                // Ищем последнюю сессию пользователя
+                const sessionsDir = path.join(this.config.dbPath, 'sessions');
+                if (!fs.existsSync(sessionsDir)) return false;
+               
+                const files = fs.readdirSync(sessionsDir)
+                    .filter(f => f.includes(`session_${userId}`) && f.endsWith('.json'))
+                    .sort()
+                    .reverse();
+               
+                if (files.length === 0) return false;
+               
+                targetFile = path.join(sessionsDir, files[0]);
+            }
+           
+            const data = JSON.parse(fs.readFileSync(targetFile, 'utf8'));
+           
+            // Восстанавливаем сессию
+            this.userSessions.set(userId, data.session);
+           
+            // Восстанавливаем трекер
+            this.pointTracker = PointTracker.fromJSON(data.pointTracker);
+           
+            console.log(`📂 Сессия загружена: ${targetFile}`);
+            return true;
+           
+        } catch (error) {
+            console.log(`⚠️ Ошибка загрузки сессии: ${error.message}`);
+            return false;
+        }
     }
 
-    getSessionInfo(userId) {
-        return this.sessionManager.getSessionInfo(userId);
-    }
-
-    hasSession(userId) {
-        return this.sessionManager.hasSession(userId);
-    }
-
-    updateLastActivity(userId) {
-        const session = this.getActiveSession(userId);
-        if (session) {
-            session.lastActivity = new Date();
+    // 🔥 ОЧИСТИТЬ ДАННЫЕ ПОЛЬЗОВАТЕЛЯ
+    clearUserData(userId) {
+        if (this.userSessions.has(userId)) {
+            this.userSessions.delete(userId);
+            console.log(`🧹 Данные пользователя ${userId} очищены`);
             return true;
         }
         return false;
     }
 
-    debugVisualizations(userId) {
-        if (this.visualizationManager) {
-            return this.visualizationManager.debugVisualizations(userId);
-        }
-        return { status: 'disabled', message: 'Visualization manager disabled' };
-    }
-
-    // 🔥 TELEGRAM МЕТОДЫ (если нужны)
-
-    async sendFirstPhotoTelegram(session, userId, transformationInfo, vectorModel, addResult,
-                               vizPath, bot, chatId) {
-        console.log(`🤖 Отправляю в Telegram (ВЕКТОРНЫЙ)...`);
-
-        const cleanMarkdown = (text) => text
-            .replace(/\*\*/g, '')
-            .replace(/\*/g, '')
-            .replace(/__/g, '')
-            .replace(/_/g, '')
-            .replace(/`/g, '')
-            .replace(/\[/g, '(')
-            .replace(/\]/g, ')');
-
-        if (vizPath && fs.existsSync(vizPath)) {
-            try {
-                let caption = `👣 ПЕРВЫЙ СЛЕД СОЗДАН (ВЕКТОРНЫЙ)\n\n`;
-                caption += `📊 Извлечено: ${addResult.added} ВЕКТОРНЫХ точек\n`;
-                caption += `📐 Угол: ${transformationInfo.rotationAngle?.toFixed(1) || 0}°\n`;
-                caption += `🦶 Тип: ${transformationInfo.footType || 'unknown'}\n\n`;
-                caption += `✅ Создан ВЕКТОРНЫЙ шаблон для накопления деталей`;
-                caption += `\n\nАлгоритм: 🎯 Геометрический хеш (ВЕКТОРНЫЙ)`;
-
-                await bot.sendPhoto(chatId, vizPath, {
-                    caption: cleanMarkdown(caption),
-                    parse_mode: 'HTML'
-                });
-
-                console.log('✅ ВЕКТОРНАЯ визуализация первого следа отправлена');
-            } catch (error) {
-                console.log('❌ Ошибка отправки векторной визуализации:', error.message);
-            }
-        } else {
-            console.log('⚠️ Нет файла ВЕКТОРНОЙ визуализации для отправки');
-        }
-    }
-
-    async sendMatchTelegram(session, userId, transformationInfo, existingTransformationInfo,
-                          comparisonResult, vectorModel, vizPath, bot, chatId) {
-        console.log(`🤖 Отправляю ВЕКТОРНЫЕ подтверждения в Telegram...`);
-
-        const cleanMarkdown = (text) => text
-            .replace(/\*\*/g, '')
-            .replace(/\*/g, '')
-            .replace(/__/g, '')
-            .replace(/_/g, '')
-            .replace(/`/g, '')
-            .replace(/\[/g, '(')
-            .replace(/\]/g, ')');
-
-        if (vizPath && fs.existsSync(vizPath)) {
-            try {
-                let caption = `🎯 ВЕКТОРНОЕ СОВПАДЕНИЕ\n\n`;
-                caption += `📊 Сходство: ${(comparisonResult.similarity * 100).toFixed(1)}%\n`;
-                caption += `📐 Угол: ${transformationInfo.rotationAngle?.toFixed(1) || 0}°\n`;
-                caption += `🔄 Метод: ${comparisonResult.method || 'geometric_hash_vector'}\n`;
-                caption += `📈 Совпало ВЕКТОРНЫХ точек: ${comparisonResult.matches?.length || 0}\n\n`;
-                caption += `✅ ОДНА И ТА ЖЕ ОБУВЬ (ВЕКТОРНОЕ ПОДТВЕРЖДЕНИЕ)`;
-
-                await bot.sendPhoto(chatId, vizPath, {
-                    caption: cleanMarkdown(caption),
-                    parse_mode: 'HTML'
-                });
-
-                console.log('✅ ВЕКТОРНАЯ визуализация подтверждений отправлена');
-            } catch (error) {
-                console.log('❌ Ошибка отправки векторной визуализации:', error.message);
-            }
-        }
-    }
-
-    // 🔥 НОВЫЙ МЕТОД: Быстрый тест векторной целостности
-    quickVectorTest(footprint) {
-        console.log(`🔍 Быстрый тест векторной целостности...`);
-
-        const points = this.extractVectorPoints(footprint);
-        const validPoints = points.filter(p =>
-            typeof p.x === 'number' && typeof p.y === 'number' &&
-            !isNaN(p.x) && !isNaN(p.y)
-        );
-
-        const integrity = validPoints.length / Math.max(1, points.length);
-
-        return {
-            totalPoints: points.length,
-            validPoints: validPoints.length,
-            integrity: integrity,
-            status: integrity > 0.95 ? '✅ ОТЛИЧНО' : integrity > 0.8 ? '⚠️ ХОРОШО' : '❌ ПЛОХО',
-            sample: validPoints.length > 0 ?
-                `Первая точка: (${validPoints[0].x.toFixed(1)}, ${validPoints[0].y.toFixed(1)})` :
-                'Нет валидных точек'
+    // 🔥 ЭКСПОРТ ДАННЫХ
+    exportData(options = {}) {
+        const data = {
+            systemStats: this.systemStats,
+            userSessions: Array.from(this.userSessions.entries()),
+            pointTracker: this.pointTracker.toJSON(),
+            config: this.config,
+            exportedAt: new Date().toISOString(),
+            version: '1.0'
         };
+       
+        if (options.includePassports) {
+            data.passports = this.pointTracker.getPassportsForVisualization();
+        }
+       
+        if (options.includePoints) {
+            data.points = this.pointTracker.getAllPoints();
+        }
+       
+        return data;
+    }
+
+    // 🔥 СОЗДАТЬ ОТЧЕТ
+    generateReport() {
+        const stats = this.getStats();
+        const trackerStats = this.pointTracker.getStats();
+       
+        const report = `
+🏗️ ОТЧЕТ СИСТЕМЫ ГЕОМЕТРИЧЕСКИХ ПАСПОРТОВ
+══════════════════════════════════════════
+
+📊 СИСТЕМНАЯ СТАТИСТИКА:
+• Всего пользователей: ${stats.users?.length || 0}
+• Всего фото обработано: ${stats.totalPhotosProcessed}
+• Всего паспортов: ${stats.tracker?.totalPassports || 0}
+• Подтвержденных паспортов: ${stats.tracker?.confirmedPassports || 0}
+
+🎯 ГЕОМЕТРИЧЕСКИЕ ПАТТЕРНЫ:
+• Равносторонние треугольники: ${stats.patterns?.equilateral_triangles || 0}
+• Прямоугольные треугольники: ${stats.patterns?.right_triangles || 0}
+• Плотные кластеры: ${stats.patterns?.dense_clusters || 0}
+• Линейные паттерны: ${stats.patterns?.linear_patterns || 0}
+• Сложные паттерны: ${stats.patterns?.complex_patterns || 0}
+
+📈 ПОДТВЕРЖДЕНИЯ ТОЧЕК:
+• 1 подтверждение: ${stats.pointsByConfirmations?.['1'] || 0}
+• 2 подтверждения: ${stats.pointsByConfirmations?.['2'] || 0}
+• 3+ подтверждений: ${stats.pointsByConfirmations?.['3+'] || 0}
+
+🔧 АЛГОРИТМ: ${stats.algorithm}
+📅 Последняя активность: ${stats.lastActivity}
+
+══════════════════════════════════════════
+Отчет создан: ${new Date().toLocaleString('ru-RU')}
+        `.trim();
+       
+        return report;
+    }
+
+    // 🔥 СОХРАНИТЬ ОТЧЕТ
+    saveReport(filename = null) {
+        const report = this.generateReport();
+        const reportsDir = path.join(this.config.dbPath, 'reports');
+       
+        if (!fs.existsSync(reportsDir)) {
+            fs.mkdirSync(reportsDir, { recursive: true });
+        }
+       
+        const targetFile = filename || `report_${Date.now()}.txt`;
+        const filepath = path.join(reportsDir, targetFile);
+       
+        fs.writeFileSync(filepath, report, 'utf8');
+       
+        console.log(`📄 Отчет сохранен: ${filepath}`);
+        return filepath;
+    }
+
+    // 🔥 СОЗДАТЬ ДИРЕКТОРИИ
+    ensureDirectories() {
+        const dirs = [
+            this.config.dbPath,
+            path.join(this.config.dbPath, 'sessions'),
+            path.join(this.config.dbPath, 'visualizations'),
+            path.join(this.config.dbPath, 'reports'),
+            path.join(this.config.dbPath, 'logs')
+        ];
+       
+        dirs.forEach(dir => {
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+                console.log(`📁 Создана директория: ${dir}`);
+            }
+        });
     }
 }
 
