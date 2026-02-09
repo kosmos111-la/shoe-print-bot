@@ -1,536 +1,569 @@
-// modules/footprint/point-tracker.js - ВЕРСИЯ С МЕТОДОМ getHonestStats()
-
-const crypto = require('crypto');
+// modules/footprint/point-tracker.js
+// 🔥 ТРЕКЕР ГЕОМЕТРИЧЕСКИХ ПАСПОРТОВ ВМЕСТО КООРДИНАТ
 
 class PointTracker {
     constructor(options = {}) {
-        this.points = new Map(); // id -> { point, history, rating }
-        this.nextId = 1;
+        // 🔥 ХРАНИМ ПАСПОРТА ВМЕСТО КООРДИНАТ
+        this.passports = new Map(); // geometricHash -> { passport, confirmations, sources }
+       
+        // 🔥 ХРАНИМ ТОЧКИ ДЛЯ ВИЗУАЛИЗАЦИИ
+        this.points = new Map(); // pointId -> { coordinates, passportHash, confirmations }
+       
+        // 🔥 НАСТРОЙКИ
         this.config = {
-            ratingDecay: options.ratingDecay || 0.97,
-            minRating: options.minRating || 0.1,
-            maxRating: options.maxRating || 1.0,
-            confirmationThreshold: options.confirmationThreshold || 0.7,
-
-            // 🔥 ОТКЛЮЧЕНА КЛАСТЕРИЗАЦИЯ
-            enableClustering: false,
-            clusterRadius: options.clusterRadius || 30,
-            minClusterSize: 1,
-            adaptiveDistance: options.adaptiveDistance !== false,
-            baseDistanceThreshold: options.baseDistanceThreshold || 15,
-            bonusForClusters: false,
-
-            // Настройки обработки точек
-            directUpdateThreshold: options.directUpdateThreshold || 15,
-            forceUpdateOnMerge: false,
-            honestConfirmations: true,
-            maxConfirmationsPerPhoto: 1,
-          
-            pointMergeDistance: options.pointMergeDistance || 10,
-            newPointThreshold: options.newPointThreshold || 8,
-            exactMatchMode: options.exactMatchMode !== false
-        };
-    }
-
-    // 🔥 ВОССТАНОВЛЕННЫЙ МЕТОД ДЛЯ СОВМЕСТИМОСТИ
-    getHonestStats() {
-        return this.getStats(); // Просто возвращаем обычную статистику
-    }
-
-    // 🔥 ДОБАВЛЕН МЕТОД ДЛЯ СОВМЕСТИМОСТИ С VISUALIZER
-    getHonestVisualizationData() {
-        const stats = this.getStats();
-        const visualizationData = {
-            confirmationsInfo: {
-                totalPoints: stats.totalPoints,
-                confirmed2: stats.pointsByConfirmations['2'] || 0,
-                confirmed1: stats.pointsByConfirmations['1'] || 0,
-                confirmed0: 0 // В этой версии нет точек с 0 подтверждениями
-            },
-            points: []
+            minPassportConfirmations: options.minPassportConfirmations || 2,
+            maxConfirmationsPerSource: 1, // 1 фото = 1 подтверждение
+            passportSimilarityThreshold: options.passportSimilarityThreshold || 0.8,
+            enableDebug: options.debug || false,
+            preserveCoordinates: options.preserveCoordinates !== false,
+           
+            // 🔥 ГЕОМЕТРИЧЕСКИЕ НАСТРОЙКИ
+            angleTolerance: options.angleTolerance || 5,
+            distanceTolerance: options.distanceTolerance || 0.15,
+            maxNeighbors: options.maxNeighbors || 3
         };
 
-        // Добавляем информацию о точках
-        for (const [id, point] of this.points) {
-            visualizationData.points.push({
-                id,
-                x: point.x,
-                y: point.y,
-                confirmedCount: point.confirmedCount || 0,
-                confidence: point.rating || 0.5,
-                clusterData: point.clusterData || null
-            });
+        this.nextPointId = 1;
+        this.stats = {
+            totalPassports: 0,
+            confirmedPassports: 0,
+            totalPoints: 0,
+            uniqueSources: 0,
+            lastUpdated: new Date()
+        };
+
+        console.log('🎯 PointTracker создан (геометрические паспорта)');
+    }
+
+    // 🔥 ГЛАВНЫЙ МЕТОД: Обработать геометрические паспорта
+    processGeometricPassports(passports, sourceInfo = {}) {
+        if (!passports || passports.length === 0) {
+            console.log('⚠️ Нет паспортов для обработки');
+            return { added: 0, confirmed: 0, updated: 0 };
         }
 
-        return visualizationData;
-    }
-
-    // 🔥 ПЕРЕПИСАННЫЙ ГЛАВНЫЙ МЕТОД
-    processNewPoints(newPoints, sourceInfo = {}) {
-        console.log(`🎯 Обработка ${newPoints.length} точек (БЕЗ кластеризации)...`);
-
+        const sourceId = sourceInfo.sourceId || `source_${Date.now()}`;
         const results = {
             added: 0,
+            confirmed: 0,
             updated: 0,
-            merged: 0,
-            skipped: 0,
-            clusters: 0,
             points: [],
-            photoId: sourceInfo.photoId || 'unknown'
+            sourceId: sourceId
         };
 
-        const photoHash = sourceInfo.photoId ||
-                         crypto.createHash('md5').update(JSON.stringify(newPoints)).digest('hex').substring(0, 8);
+        if (this.config.enableDebug) {
+            console.log(`🎯 Обрабатываю ${passports.length} геометрических паспортов от ${sourceId}`);
+        }
 
-        // 🔥 ШАГ 1: Прямая обработка КАЖДОЙ точки
-        newPoints.forEach((point, index) => {
-            const nearest = this.findNearestPoint(point, this.config.pointMergeDistance);
-
-            if (nearest) {
-                const updateSuccess = this._updatePointHonest(
-                    nearest.id,
-                    point,
-                    {
-                        ...sourceInfo,
-                        confirmationType: 'direct',
-                        photoId: photoHash,
-                        pointIndex: index,
-                        distance: nearest.distance
-                    }
-                );
-
-                if (updateSuccess) {
-                    results.updated++;
-                    results.merged++;
-                    results.points.push({
-                        id: nearest.id,
-                        action: 'direct_update',
-                        distance: nearest.distance,
-                        photoId: photoHash
-                    });
-                } else {
-                    results.skipped++;
-                }
-            } else {
-                const distanceToNearest = this._getDistanceToNearestExistingPoint(point);
-              
-                if (distanceToNearest < this.config.newPointThreshold) {
-                    results.skipped++;
-                } else {
-                    const newPointId = this._createNewPoint(point, {
-                        ...sourceInfo,
-                        photoId: photoHash,
-                        pointIndex: index
-                    });
-                  
-                    results.added++;
-                    results.points.push({
-                        id: newPointId,
-                        action: 'new_point',
-                        distanceToNearest: distanceToNearest,
-                        photoId: photoHash
-                    });
-                }
-            }
+        // Обрабатываем каждый паспорт
+        passports.forEach((passport, index) => {
+            const result = this.processSinglePassport(passport, sourceId, sourceInfo);
+           
+            if (result.added) results.added++;
+            if (result.confirmed) results.confirmed++;
+            if (result.updated) results.updated++;
+           
+            results.points.push(result);
         });
 
-        console.log(`📈 Итог: +${results.added} новых, ${results.updated} обновлено, ${results.skipped} пропущено`);
-        console.log(`📊 Всего точек в трекере: ${this.points.size}`);
+        // Обновляем статистику
+        this.updateStats();
+
+        if (this.config.enableDebug) {
+            console.log(`📊 Итог: +${results.added} новых, ${results.confirmed} подтверждено, ${results.updated} обновлено`);
+            console.log(`📈 Всего паспортов: ${this.passports.size}, точек: ${this.points.size}`);
+        }
 
         return results;
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД
-    _getDistanceToNearestExistingPoint(point) {
-        let minDistance = Infinity;
-      
-        for (const [, pt] of this.points) {
-            const dx = pt.x - point.x;
-            const dy = pt.y - point.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-          
-            if (distance < minDistance) {
-                minDistance = distance;
-            }
-        }
-      
-        return minDistance === Infinity ? 1000 : minDistance;
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД
-    _createNewPoint(point, sourceInfo = {}) {
-        const newPointId = `pt_${this.nextId++}`;
-      
-        const pointData = {
-            id: newPointId,
-            x: point.x,
-            y: point.y,
-            confidence: point.confidence || 0.5,
-            rating: point.confidence || 0.5,
-            history: [{
-                timestamp: new Date(),
-                source: sourceInfo,
-                confidence: point.confidence || 0.5,
-                action: 'created',
-                confirmationType: 'new',
-                photoCount: 1
-            }],
-            confirmedCount: 1,
-            clusterConfirmations: [{
-                timestamp: new Date(),
-                source: sourceInfo.source || 'unknown',
-                photoId: sourceInfo.photoId,
-                clusterSize: 1,
-                confirmationIndex: 0
-            }],
-            lastSeen: new Date(),
-            firstSeen: new Date(),
-            confirmedPhotos: new Set([sourceInfo.photoId || 'unknown']),
-            clusterOrigin: false
+    // 🔥 ОБРАБОТКА ОДНОГО ПАСПОРТА
+    processSinglePassport(passport, sourceId, sourceInfo) {
+        const result = {
+            added: false,
+            confirmed: false,
+            updated: false,
+            passportHash: passport.geometricHash,
+            pointId: null
         };
 
-        this.points.set(newPointId, pointData);
-        console.log(`✅ Создана точка ${newPointId} на (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-        return newPointId;
-    }
-
-    // 🔥 ОБНОВЛЕНИЕ ТОЧКИ
-    _updatePointHonest(pointId, newPoint, sourceInfo = {}) {
-        const pointData = this.points.get(pointId);
-        if (!pointData) return false;
-
-        const photoHash = sourceInfo.photoId || 'unknown';
-      
-        if (pointData.confirmedPhotos && pointData.confirmedPhotos.has(photoHash)) {
-            console.log(`⚠️ Точка ${pointId} уже подтверждена фото ${photoHash}, пропускаем`);
-            return false;
+        // Проверяем валидность паспорта
+        if (!passport.geometricHash) {
+            console.log('⚠️ Паспорт без geometricHash, пропускаю');
+            return result;
         }
 
-        pointData.confirmedCount = (pointData.confirmedCount || 1) + 1;
-      
-        if (!pointData.confirmedPhotos) pointData.confirmedPhotos = new Set();
-        pointData.confirmedPhotos.add(photoHash);
+        const passportHash = passport.geometricHash;
 
-        if (!pointData.clusterConfirmations) pointData.clusterConfirmations = [];
-        pointData.clusterConfirmations.push({
-            timestamp: new Date(),
-            source: sourceInfo.source || 'unknown',
-            photoId: photoHash,
-            clusterSize: 1,
-            confirmationIndex: pointData.confirmedCount - 1,
-            distance: sourceInfo.distance || 0
-        });
-
-        const updateDistance = sourceInfo.distance || 0;
-        const weight = Math.max(0.1, Math.min(0.9, 1.0 - (updateDistance / 20)));
-      
-        pointData.x = pointData.x * (1 - weight) + newPoint.x * weight;
-        pointData.y = pointData.y * (1 - weight) + newPoint.y * weight;
-      
-        pointData.rating = this.calculateUpdatedRating(
-            pointData.rating,
-            newPoint.confidence || 0.5
-        );
-      
-        pointData.lastSeen = new Date();
-        pointData.history.push({
-            timestamp: new Date(),
-            source: sourceInfo,
-            confidence: newPoint.confidence || 0.5,
-            action: 'confirmed',
-            confirmationType: 'honest',
-            photoCount: 1,
-            currentConfirmations: pointData.confirmedCount,
-            updateWeight: weight,
-            distance: updateDistance
-        });
-
-        return true;
+        // 🔥 ШАГ 1: Ищем существующий паспорт
+        const existingPassport = this.findMatchingPassport(passport);
+       
+        if (existingPassport) {
+            // Паспорт уже существует - подтверждаем его
+            return this.confirmExistingPassport(existingPassport, passport, sourceId, sourceInfo);
+        } else {
+            // Новый паспорт
+            return this.addNewPassport(passport, sourceId, sourceInfo);
+        }
     }
 
-    // 🔥 ПОИСК БЛИЖАЙШЕЙ ТОЧКИ
-    findNearestPoint(point, maxDistance = 15) {
-        let nearest = null;
-        let minDistance = Infinity;
-        let nearestId = null;
+    // 🔥 НАЙТИ СОПАДАЮЩИЙ ПАСПОРТ
+    findMatchingPassport(newPassport) {
+        // Прямое совпадение по хешу
+        if (this.passports.has(newPassport.geometricHash)) {
+            return this.passports.get(newPassport.geometricHash);
+        }
 
-        for (const [id, pt] of this.points) {
-            const dx = pt.x - point.x;
-            const dy = pt.y - point.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance < minDistance && distance <= maxDistance) {
-                minDistance = distance;
-                nearest = pt;
-                nearestId = id;
+        // Ищем похожие паспорта по геометрии
+        for (const [hash, existing] of this.passports) {
+            const similarity = this.comparePassports(newPassport, existing.passport);
+           
+            if (similarity >= this.config.passportSimilarityThreshold) {
+                return existing;
             }
         }
 
-        return nearest ? {
-            id: nearestId,
-            point: nearest,
-            distance: minDistance
-        } : null;
+        return null;
     }
 
-    // 🔥 МЕТОД КЛАСТЕРИЗАЦИИ (для совместимости)
-    clusterPoints(points, eps = 20, minPts = 2) {
-        if (!this.config.enableClustering) {
-            return points.map(point => ({
-                points: [point],
-                center: point
-            }));
+    // 🔥 СРАВНИТЬ ДВА ПАСПОРТА
+    comparePassports(passport1, passport2) {
+        let similarity = 0;
+       
+        // Сравниваем углы
+        if (passport1.angles && passport2.angles) {
+            const angleSimilarity = this.compareAngleSets(passport1.angles, passport2.angles);
+            similarity += angleSimilarity * 0.5;
         }
-      
-        if (points.length === 0) return [];
-        // ... (старая логика кластеризации)
-        return [];
+       
+        // Сравниваем расстояния
+        if (passport1.distances && passport2.distances) {
+            const distanceSimilarity = this.compareDistanceSets(passport1.distances, passport2.distances);
+            similarity += distanceSimilarity * 0.3;
+        }
+       
+        // Бонус за совпадение типа паттерна
+        if (passport1.patternType === passport2.patternType) {
+            similarity += 0.2;
+        }
+       
+        return similarity;
     }
 
-    calculateClusterCenter(clusterPoints) {
-        if (!clusterPoints || clusterPoints.length === 0) {
-            return { x: 0, y: 0 };
+    // 🔥 ПОДТВЕРДИТЬ СУЩЕСТВУЮЩИЙ ПАСПОРТ
+    confirmExistingPassport(existingPassportData, newPassport, sourceId, sourceInfo) {
+        const passportHash = existingPassportData.passport.geometricHash;
+       
+        // Проверяем, не подтверждали ли уже этим источником
+        if (existingPassportData.sources.has(sourceId)) {
+            if (this.config.enableDebug) {
+                console.log(`⚠️ Паспорт ${passportHash} уже подтвержден источником ${sourceId}`);
+            }
+            return {
+                added: false,
+                confirmed: false,
+                updated: false,
+                passportHash: passportHash,
+                pointId: existingPassportData.pointId
+            };
         }
-        const sumX = clusterPoints.reduce((sum, p) => sum + p.x, 0);
-        const sumY = clusterPoints.reduce((sum, p) => sum + p.y, 0);
+
+        // Увеличиваем подтверждения
+        existingPassportData.confirmations++;
+        existingPassportData.sources.add(sourceId);
+        existingPassportData.lastSeen = new Date();
+
+        // Обновляем точку если нужно
+        let pointUpdated = false;
+        if (newPassport.coordinates && this.config.preserveCoordinates) {
+            const pointId = existingPassportData.pointId;
+            if (pointId && this.points.has(pointId)) {
+                const point = this.points.get(pointId);
+                point.confirmations = existingPassportData.confirmations;
+                point.lastSeen = new Date();
+               
+                // Уточняем координаты (взвешенное среднее)
+                const weight = 1.0 / existingPassportData.confirmations;
+                point.x = point.x * (1 - weight) + newPassport.coordinates.x * weight;
+                point.y = point.y * (1 - weight) + newPassport.coordinates.y * weight;
+               
+                pointUpdated = true;
+            }
+        }
+
+        if (this.config.enableDebug) {
+            console.log(`✅ Подтвержден паспорт ${passportHash} (${existingPassportData.confirmations} подтверждений)`);
+        }
+
         return {
-            x: sumX / clusterPoints.length,
-            y: sumY / clusterPoints.length
+            added: false,
+            confirmed: true,
+            updated: pointUpdated,
+            passportHash: passportHash,
+            pointId: existingPassportData.pointId
         };
     }
 
-    findSinglePoints(allPoints, clusters) {
-        if (!this.config.enableClustering) return allPoints;
-        const clusteredPoints = new Set();
-        clusters.forEach(cluster => {
-            cluster.points.forEach(point => {
-                const index = allPoints.findIndex(p =>
-                    Math.abs(p.x - point.x) < 0.1 &&
-                    Math.abs(p.y - point.y) < 0.1
-                );
-                if (index !== -1) clusteredPoints.add(index);
-            });
-        });
-        return allPoints.filter((_, index) => !clusteredPoints.has(index));
+    // 🔥 ДОБАВИТЬ НОВЫЙ ПАСПОРТ
+    addNewPassport(passport, sourceId, sourceInfo) {
+        const passportHash = passport.geometricHash;
+       
+        // Создаем точку для визуализации
+        const pointId = this.createPointFromPassport(passport, passportHash);
+       
+        // Создаем запись паспорта
+        const passportData = {
+            passport: passport,
+            confirmations: 1,
+            sources: new Set([sourceId]),
+            pointId: pointId,
+            firstSeen: new Date(),
+            lastSeen: new Date(),
+            metadata: {
+                addedFrom: sourceId,
+                addedAt: new Date(),
+                sourceInfo: sourceInfo
+            }
+        };
+       
+        this.passports.set(passportHash, passportData);
+       
+        if (this.config.enableDebug) {
+            console.log(`🆕 Добавлен новый паспорт ${passportHash} (точка ${pointId})`);
+        }
+
+        return {
+            added: true,
+            confirmed: false,
+            updated: false,
+            passportHash: passportHash,
+            pointId: pointId
+        };
     }
 
-    calculateUpdatedRating(currentRating, newConfidence) {
-        const decayedRating = currentRating * this.config.ratingDecay;
-        const updatedRating = decayedRating + (newConfidence * (1 - this.config.ratingDecay));
-        return Math.min(this.config.maxRating, Math.max(this.config.minRating, updatedRating));
+    // 🔥 СОЗДАТЬ ТОЧКУ ИЗ ПАСПОРТА
+    createPointFromPassport(passport, passportHash) {
+        const pointId = `pt_${this.nextPointId++}`;
+       
+        const pointData = {
+            id: pointId,
+            x: passport.coordinates?.x || 0,
+            y: passport.coordinates?.y || 0,
+            passportHash: passportHash,
+            confirmations: 1,
+            firstSeen: new Date(),
+            lastSeen: new Date(),
+            metadata: {
+                patternType: passport.patternType,
+                neighborCount: passport.neighborCount,
+                angles: passport.angles || [],
+                distances: passport.distances || []
+            }
+        };
+       
+        this.points.set(pointId, pointData);
+       
+        return pointId;
     }
 
-    // 🔥 ОСНОВНОЙ МЕТОД СТАТИСТИКИ
+    // 🔥 СРАВНЕНИЕ НАБОРОВ УГЛОВ
+    compareAngleSets(angles1, angles2) {
+        if (angles1.length === 0 && angles2.length === 0) return 1.0;
+        if (angles1.length === 0 || angles2.length === 0) return 0;
+       
+        // Берем минимальное количество углов для сравнения
+        const minLen = Math.min(angles1.length, angles2.length);
+        let totalDiff = 0;
+       
+        for (let i = 0; i < minLen; i++) {
+            const diff = Math.abs(angles1[i] - angles2[i]);
+            const normalizedDiff = Math.min(1, diff / (this.config.angleTolerance * 2));
+            totalDiff += 1 - normalizedDiff;
+        }
+       
+        return totalDiff / minLen;
+    }
+
+    // 🔥 СРАВНЕНИЕ НАБОРОВ РАССТОЯНИЙ
+    compareDistanceSets(distances1, distances2) {
+        if (distances1.length === 0 && distances2.length === 0) return 1.0;
+        if (distances1.length === 0 || distances2.length === 0) return 0;
+       
+        const minLen = Math.min(distances1.length, distances2.length);
+        let totalDiff = 0;
+       
+        for (let i = 0; i < minLen; i++) {
+            const maxDist = Math.max(distances1[i], distances2[i]);
+            if (maxDist === 0) {
+                totalDiff += 1;
+            } else {
+                const diff = Math.abs(distances1[i] - distances2[i]);
+                const normalizedDiff = Math.min(1, diff / (maxDist * this.config.distanceTolerance));
+                totalDiff += 1 - normalizedDiff;
+            }
+        }
+       
+        return totalDiff / minLen;
+    }
+
+    // 🔥 ОБНОВИТЬ СТАТИСТИКУ
+    updateStats() {
+        this.stats.totalPassports = this.passports.size;
+        this.stats.totalPoints = this.points.size;
+       
+        // Считаем подтвержденные паспорты
+        let confirmedCount = 0;
+        let uniqueSources = new Set();
+       
+        for (const passportData of this.passports.values()) {
+            if (passportData.confirmations >= this.config.minPassportConfirmations) {
+                confirmedCount++;
+            }
+            passportData.sources.forEach(source => uniqueSources.add(source));
+        }
+       
+        this.stats.confirmedPassports = confirmedCount;
+        this.stats.uniqueSources = uniqueSources.size;
+        this.stats.lastUpdated = new Date();
+    }
+
+    // 🔥 ПОЛУЧИТЬ СТАТИСТИКУ
     getStats() {
-        const stats = {
-            totalPoints: this.points.size,
-            highConfidencePoints: 0,
-            avgRating: 0,
-            avgConfirmations: 0,
-            recentlyUpdated: 0,
-            uniquePhotos: this.getUniquePhotoCount(),
-            pointsByConfirmations: { '1': 0, '2': 0, '3': 0, '4+': 0 }
-        };
-
-        let totalRating = 0;
-        let totalConfirmations = 0;
-        const now = new Date();
-        const oneDayAgo = now - (24 * 60 * 60 * 1000);
-
-        for (const pt of this.points.values()) {
-            totalRating += pt.rating;
-            totalConfirmations += pt.confirmedCount || 1;
-
-            if (pt.rating >= this.config.confirmationThreshold) {
-                stats.highConfidencePoints++;
-            }
-
-            if (pt.lastSeen > oneDayAgo) {
-                stats.recentlyUpdated++;
-            }
-
-            const confirmations = pt.confirmedCount || 1;
-            if (confirmations === 1) stats.pointsByConfirmations['1']++;
-            else if (confirmations === 2) stats.pointsByConfirmations['2']++;
-            else if (confirmations === 3) stats.pointsByConfirmations['3']++;
-            else stats.pointsByConfirmations['4+']++;
-        }
-
-        if (this.points.size > 0) {
-            stats.avgRating = totalRating / this.points.size;
-            stats.avgConfirmations = totalConfirmations / this.points.size;
-        }
-
-        return stats;
-    }
-
-    getUniquePhotoCount() {
-        const photoSet = new Set();
+        const pointsByConfirmations = { '1': 0, '2': 0, '3+': 0 };
+       
         for (const point of this.points.values()) {
-            if (point.confirmedPhotos) {
-                point.confirmedPhotos.forEach(photoId => photoSet.add(photoId));
+            if (point.confirmations === 1) {
+                pointsByConfirmations['1']++;
+            } else if (point.confirmations === 2) {
+                pointsByConfirmations['2']++;
+            } else {
+                pointsByConfirmations['3+']++;
             }
         }
-        return photoSet.size;
+       
+        return {
+            ...this.stats,
+            pointsByConfirmations,
+            lastUpdated: this.stats.lastUpdated.toLocaleString('ru-RU')
+        };
     }
 
+    // 🔥 ПОЛУЧИТЬ ВСЕ ТОЧКИ ДЛЯ ВИЗУАЛИЗАЦИИ
     getAllPoints(options = {}) {
-        const { minRating = 0, minConfirmations = 0, maxAgeDays = Infinity } = options;
+        const {
+            minConfirmations = 0,
+            minPassportConfirmations = 0,
+            maxAgeDays = Infinity
+        } = options;
+       
         const points = [];
         const now = new Date();
         const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
-
-        for (const [id, pt] of this.points) {
-            if (pt.rating < minRating) continue;
-            if (pt.confirmedCount < minConfirmations) continue;
-            const age = now - pt.lastSeen;
+       
+        for (const [pointId, point] of this.points) {
+            // Фильтруем по подтверждениям
+            if (point.confirmations < minConfirmations) continue;
+           
+            // Фильтруем по подтверждениям паспорта
+            const passportData = this.passports.get(point.passportHash);
+            if (!passportData || passportData.confirmations < minPassportConfirmations) continue;
+           
+            // Фильтруем по возрасту
+            const age = now - point.lastSeen;
             if (age > maxAgeMs) continue;
-
+           
             points.push({
-                id,
-                x: pt.x,
-                y: pt.y,
-                confidence: pt.rating,
-                confirmedCount: pt.confirmedCount,
-                uniquePhotos: pt.confirmedPhotos ? pt.confirmedPhotos.size : 1,
-                lastSeen: pt.lastSeen,
-                firstSeen: pt.firstSeen,
-                type: 'tracked',
-                source: 'point_tracker'
+                id: pointId,
+                x: point.x,
+                y: point.y,
+                confirmations: point.confirmations,
+                passportHash: point.passportHash,
+                patternType: point.metadata?.patternType || 'unknown',
+                lastSeen: point.lastSeen,
+                firstSeen: point.firstSeen,
+                passportConfirmations: passportData.confirmations,
+                type: 'geometric_passport_point'
             });
         }
-
+       
         return points;
     }
 
-    getPointsForTemplateMatching() {
-        const templatePoints = [];
-        for (const [id, pt] of this.points) {
-            templatePoints.push({
-                id: id,
-                x: Math.round(pt.x * 100) / 100,
-                y: Math.round(pt.y * 100) / 100,
-                confidence: pt.rating,
-                confirmations: pt.confirmedCount || 1,
-                source: 'tracker'
+    // 🔥 ПОЛУЧИТЬ ПАСПОРТЫ ДЛЯ ВИЗУАЛИЗАЦИИ
+    getPassportsForVisualization() {
+        const passports = [];
+       
+        for (const [hash, data] of this.passports) {
+            passports.push({
+                hash: hash,
+                confirmations: data.confirmations,
+                sources: Array.from(data.sources),
+                patternType: data.passport.patternType,
+                pointId: data.pointId,
+                coordinates: this.points.get(data.pointId) || null,
+                firstSeen: data.firstSeen,
+                lastSeen: data.lastSeen
             });
         }
-        console.log(`📋 Подготовлено ${templatePoints.length} точек для сравнения с шаблоном`);
-        return templatePoints;
+       
+        return passports;
     }
 
-    compareWithTemplate(templatePoints, tolerance = 10) {
-        const matches = [];
-        const unmatchedTemplate = [];
-        const unmatchedTracker = [];
-      
-        const trackerPoints = this.getPointsForTemplateMatching();
-      
-        templatePoints.forEach(templatePoint => {
-            let matched = false;
-            for (const trackerPoint of trackerPoints) {
-                const distance = Math.sqrt(
-                    Math.pow(templatePoint.x - trackerPoint.x, 2) +
-                    Math.pow(templatePoint.y - trackerPoint.y, 2)
-                );
-                if (distance <= tolerance) {
-                    matches.push({
-                        template: templatePoint,
-                        tracker: trackerPoint,
-                        distance: distance,
-                        matchQuality: 1.0 - (distance / tolerance)
-                    });
-                    matched = true;
-                    break;
-                }
+    // 🔥 ПОИСК ПАСПОРТОВ ПО ТИПУ ПАТТЕРНА
+    findPassportsByPattern(patternType) {
+        const results = [];
+       
+        for (const [hash, data] of this.passports) {
+            if (data.passport.patternType === patternType) {
+                results.push({
+                    hash: hash,
+                    confirmations: data.confirmations,
+                    pointId: data.pointId,
+                    coordinates: this.points.get(data.pointId)
+                });
             }
-            if (!matched) unmatchedTemplate.push(templatePoint);
-        });
-      
-        trackerPoints.forEach(trackerPoint => {
-            let matched = false;
-            for (const templatePoint of templatePoints) {
-                const distance = Math.sqrt(
-                    Math.pow(trackerPoint.x - templatePoint.x, 2) +
-                    Math.pow(trackerPoint.y - templatePoint.y, 2)
-                );
-                if (distance <= tolerance) {
-                    matched = true;
-                    break;
-                }
-            }
-            if (!matched) unmatchedTracker.push(trackerPoint);
-        });
-      
-        const stats = {
-            totalTemplatePoints: templatePoints.length,
-            totalTrackerPoints: trackerPoints.length,
-            matches: matches.length,
-            unmatchedTemplate: unmatchedTemplate.length,
-            unmatchedTracker: unmatchedTracker.length,
-            matchRate: templatePoints.length > 0 ? (matches.length / templatePoints.length) * 100 : 0,
-            coverageRate: trackerPoints.length > 0 ? (matches.length / trackerPoints.length) * 100 : 0
+        }
+       
+        return results;
+    }
+
+    // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+    getHonestStats() {
+        const stats = this.getStats();
+        return {
+            totalPoints: stats.totalPoints,
+            confirmed2: stats.pointsByConfirmations['2'] + stats.pointsByConfirmations['3+'],
+            confirmed1: stats.pointsByConfirmations['1'],
+            confirmed0: 0,
+            avgConfidence: 0.7
         };
-      
-        console.log(`\n🔄 СРАВНЕНИЕ С ШАБЛОНОМ:`);
-        console.log(`├─ Шаблон: ${stats.totalTemplatePoints} точек`);
-        console.log(`├─ Трекер: ${stats.totalTrackerPoints} точек`);
-        console.log(`├─ Совпадений: ${stats.matches} (${stats.matchRate.toFixed(1)}%)`);
-        console.log(`├─ Не совпало в шаблоне: ${stats.unmatchedTemplate}`);
-        console.log(`└─ Лишние в трекере: ${stats.unmatchedTracker}`);
-      
-        return { matches, unmatchedTemplate, unmatchedTracker, stats };
     }
 
+    // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+    getHonestVisualizationData() {
+        const stats = this.getStats();
+        const points = this.getAllPoints();
+       
+        return {
+            confirmationsInfo: {
+                totalPoints: stats.totalPoints,
+                confirmed2: stats.pointsByConfirmations['2'] + stats.pointsByConfirmations['3+'],
+                confirmed1: stats.pointsByConfirmations['1'],
+                confirmed0: 0
+            },
+            points: points.map(point => ({
+                id: point.id,
+                x: point.x,
+                y: point.y,
+                confirmedCount: point.confirmations,
+                confidence: 0.5 + (point.confirmations * 0.1),
+                passportHash: point.passportHash,
+                patternType: point.patternType
+            }))
+        };
+    }
+
+    // 🔥 ВИЗУАЛИЗАЦИЯ СТАТИСТИКИ
     visualize() {
         const stats = this.getStats();
-        console.log(`\n🎯 POINT TRACKER (БЕЗ кластеризации):`);
+        const passportStats = {
+            equilateral_triangle: this.findPassportsByPattern('equilateral_triangle').length,
+            right_triangle: this.findPassportsByPattern('right_triangle').length,
+            dense_cluster: this.findPassportsByPattern('dense_cluster').length,
+            linear_pattern: this.findPassportsByPattern('linear_pattern').length,
+            complex_pattern: this.findPassportsByPattern('complex_pattern').length
+        };
+       
+        console.log(`\n🎯 POINT TRACKER (геометрические паспорта):`);
+        console.log(`├─ Всего паспортов: ${stats.totalPassports}`);
+        console.log(`├─ Подтвержденных паспортов (≥${this.config.minPassportConfirmations}): ${stats.confirmedPassports}`);
         console.log(`├─ Всего точек: ${stats.totalPoints}`);
-        console.log(`├─ Уникальных фото: ${stats.uniquePhotos}`);
-        console.log(`├─ Средний рейтинг: ${stats.avgRating.toFixed(3)}`);
-        console.log(`├─ Среднее подтверждений: ${stats.avgConfirmations.toFixed(2)}`);
-        console.log(`\n📊 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ:`);
+        console.log(`├─ Уникальных источников: ${stats.uniqueSources}`);
+       
+        console.log(`\n📊 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ ТОЧЕК:`);
         console.log(`├─ 1 подтверждение: ${stats.pointsByConfirmations['1']}`);
         console.log(`├─ 2 подтверждения: ${stats.pointsByConfirmations['2']}`);
-        console.log(`├─ 3 подтверждения: ${stats.pointsByConfirmations['3']}`);
-        console.log(`└─ 4+ подтверждений: ${stats.pointsByConfirmations['4+']}`);
+        console.log(`└─ 3+ подтверждений: ${stats.pointsByConfirmations['3+']}`);
+       
+        console.log(`\n🔷 ТИПЫ ПАТТЕРНОВ:`);
+        Object.entries(passportStats).forEach(([type, count]) => {
+            if (count > 0) {
+                console.log(`├─ ${type}: ${count}`);
+            }
+        });
     }
 
+    // 🔥 JSON СЕРИАЛИЗАЦИЯ
     toJSON() {
-        const pointsArray = Array.from(this.points.entries()).map(([id, point]) => {
-            const serializedPoint = { ...point };
-            if (serializedPoint.confirmedPhotos) {
-                serializedPoint.confirmedPhotos = Array.from(serializedPoint.confirmedPhotos);
-            }
-            return [id, serializedPoint];
+        const passportsArray = Array.from(this.passports.entries()).map(([hash, data]) => {
+            const serialized = {
+                ...data,
+                passport: data.passport,
+                sources: Array.from(data.sources),
+                firstSeen: data.firstSeen.toISOString(),
+                lastSeen: data.lastSeen.toISOString()
+            };
+            return [hash, serialized];
         });
 
-        const data = {
+        const pointsArray = Array.from(this.points.entries()).map(([id, point]) => {
+            const serialized = {
+                ...point,
+                firstSeen: point.firstSeen.toISOString(),
+                lastSeen: point.lastSeen.toISOString()
+            };
+            return [id, serialized];
+        });
+
+        return {
+            passports: passportsArray,
             points: pointsArray,
-            nextId: this.nextId,
             config: this.config,
-            _version: '3.1-with-honeststats',
+            nextPointId: this.nextPointId,
+            stats: {
+                ...this.stats,
+                lastUpdated: this.stats.lastUpdated.toISOString()
+            },
+            _version: '2.0-geometric-passports',
             _savedAt: new Date().toISOString()
         };
-        return data;
     }
 
+    // 🔥 JSON ДЕСЕРИАЛИЗАЦИЯ
     static fromJSON(data) {
         const tracker = new PointTracker(data.config || {});
-        if (Array.isArray(data.points)) {
-            data.points.forEach(([id, pointData]) => {
-                if (Array.isArray(pointData.confirmedPhotos)) {
-                    pointData.confirmedPhotos = new Set(pointData.confirmedPhotos);
-                }
-                tracker.points.set(id, pointData);
+       
+        // Восстанавливаем паспорта
+        if (Array.isArray(data.passports)) {
+            data.passports.forEach(([hash, passportData]) => {
+                tracker.passports.set(hash, {
+                    ...passportData,
+                    sources: new Set(passportData.sources || []),
+                    firstSeen: new Date(passportData.firstSeen),
+                    lastSeen: new Date(passportData.lastSeen)
+                });
             });
         }
-        tracker.nextId = data.nextId || 1;
-        for (const pt of tracker.points.values()) {
-            if (typeof pt.firstSeen === 'string') pt.firstSeen = new Date(pt.firstSeen);
-            if (typeof pt.lastSeen === 'string') pt.lastSeen = new Date(pt.lastSeen);
+       
+        // Восстанавливаем точки
+        if (Array.isArray(data.points)) {
+            data.points.forEach(([id, pointData]) => {
+                tracker.points.set(id, {
+                    ...pointData,
+                    firstSeen: new Date(pointData.firstSeen),
+                    lastSeen: new Date(pointData.lastSeen)
+                });
+            });
         }
-        console.log(`✅ Загружен PointTracker, ${tracker.points.size} точек`);
+       
+        tracker.nextPointId = data.nextPointId || 1;
+       
+        if (data.stats) {
+            tracker.stats = { ...tracker.stats, ...data.stats };
+            tracker.stats.lastUpdated = new Date(data.stats.lastUpdated || Date.now());
+        }
+       
+        console.log(`✅ Загружен PointTracker: ${tracker.passports.size} паспортов, ${tracker.points.size} точек`);
         return tracker;
     }
 }
