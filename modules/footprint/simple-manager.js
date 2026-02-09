@@ -334,6 +334,152 @@ class SimpleFootprintManager {
       return null;
     }
   }
+
+  // 🔥 МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ С СТАРОЙ СИСТЕМОЙ
+ 
+  getActiveSession(userId) {
+    console.log(`🔍 [COMPAT] getActiveSession(${userId}) called`);
+   
+    // Просто возвращаем отпечаток пользователя как сессию
+    const footprint = this.userFootprints.get(userId);
+    if (!footprint) {
+      console.log(`⚠️ Нет активного отпечатка для пользователя ${userId}`);
+      return null;
+    }
+   
+    // Создаем объект сессии для совместимости
+    return {
+      id: `session_${userId}_${footprint.id}`,
+      userId: userId,
+      currentFootprint: footprint,
+      photos: footprint.photoHistory || [],
+      metadata: {
+        createdAt: new Date(),
+        lastActivity: new Date(),
+        footprintId: footprint.id
+      },
+      lastActivity: new Date()
+    };
+  }
+ 
+  getSessionInfo(userId) {
+    const footprint = this.userFootprints.get(userId);
+    if (!footprint) {
+      return { exists: false, message: 'Нет активного отпечатка' };
+    }
+   
+    return {
+      exists: true,
+      sessionId: `session_${userId}_${footprint.id}`,
+      userId: userId,
+      footprintId: footprint.id,
+      totalPhotos: footprint.metadata.totalPhotos || 0,
+      pointsCount: footprint.pointTracker?.points?.size || 0,
+      lastActivity: footprint.metadata.lastUpdated || new Date()
+    };
+  }
+ 
+  hasSession(userId) {
+    return this.userFootprints.has(userId);
+  }
+ 
+  createSession(userId, name = null) {
+    console.log(`🔍 [COMPAT] createSession(${userId}, ${name}) called`);
+   
+    // Если уже есть отпечаток - возвращаем его
+    let footprint = this.userFootprints.get(userId);
+   
+    if (!footprint) {
+      const SimpleFootprint = require('./simple-footprint');
+      footprint = new SimpleFootprint({
+        userId: userId,
+        name: name || `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
+        debug: this.config.debug
+      });
+     
+      this.userFootprints.set(userId, footprint);
+      this.systemStats.totalUsers++;
+    }
+   
+    return {
+      id: `session_${userId}_${footprint.id}`,
+      userId: userId,
+      currentFootprint: footprint,
+      photos: [],
+      metadata: {
+        createdAt: new Date(),
+        name: name || 'Новая сессия'
+      }
+    };
+  }
+ 
+  getOrCreateSession(userId) {
+    return this.createSession(userId);
+  }
+ 
+  updateLastActivity(userId) {
+    const footprint = this.userFootprints.get(userId);
+    if (footprint) {
+      footprint.metadata.lastUpdated = new Date();
+      return true;
+    }
+    return false;
+  }
+ 
+  // 🔥 СРАВНЕНИЕ ОТПЕЧАТКОВ (для совместимости)
+  async compareFootprints(footprint1, footprint2, options = {}) {
+    console.log(`🔍 [COMPAT] compareFootprints() called`);
+   
+    try {
+      // Используем геометрический алгоритм
+      const result = await this.geometricAlgorithm.comparePoints(
+        this.extractPointsForComparison(footprint1),
+        this.extractPointsForComparison(footprint2),
+        footprint1.name || 'След 1',
+        footprint2.name || 'След 2'
+      );
+     
+      return {
+        similar: result.similar,
+        similarity: result.similarity,
+        decision: result.decision,
+        matches: result.matches || [],
+        stats: result.stats || {},
+        method: 'geometric_algorithm'
+      };
+     
+    } catch (error) {
+      console.error(`❌ Ошибка сравнения: ${error.message}`);
+     
+      // Фаллбэк
+      return {
+        similar: false,
+        similarity: 0,
+        decision: 'different',
+        error: error.message,
+        method: 'fallback'
+      };
+    }
+  }
+ 
+  extractPointsForComparison(footprint) {
+    const points = [];
+   
+    if (footprint.pointTracker && footprint.pointTracker.points) {
+      for (const [id, point] of footprint.pointTracker.points) {
+        points.push({
+          id: id,
+          x: point.x,
+          y: point.y,
+          confidence: point.confidence || 0.5,
+          confirmedCount: point.confirmations || 1
+        });
+      }
+    }
+   
+    return points;
+  }
+  
 }
 
 module.exports = SimpleFootprintManager;
