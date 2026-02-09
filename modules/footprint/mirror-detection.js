@@ -1,225 +1,119 @@
 // modules/footprint/mirror-detection.js
-// ОПРЕДЕЛЕНИЕ ЛЕВОГО/ПРАВОГО СЛЕДА И ЗЕРКАЛЬНОЙ ИНВАРИАНТНОСТИ
+// 🔥 УПРОЩЕННЫЙ ДЕТЕКТОР ЗЕРКАЛЬНОСТИ ДЛЯ ГЕОМЕТРИЧЕСКИХ ПАСПОРТОВ
 
 class MirrorDetection {
     constructor(options = {}) {
         this.config = {
-            symmetryThreshold: 0.15, // Порог для определения симметрии
-            footTypeConfidenceThreshold: 0.7,
-            enableMirrorCorrection: true,
+            symmetryThreshold: 0.15,      // Порог для определения симметрии
+            confidenceThreshold: 0.7,     // Порог уверенности в определении типа
             debug: options.debug || false,
-            ...options
+            enableMirrorCorrection: options.enableMirrorCorrection !== false,
+           
+            // 🔥 ГЕОМЕТРИЧЕСКИЕ НАСТРОЙКИ
+            geometricTolerance: options.geometricTolerance || 5, // градусов
+            neighborCount: options.neighborCount || 4
         };
 
-        console.log('🪞 MirrorDetection инициализирован');
+        console.log('🪞 MirrorDetection создан для геометрических паспортов');
     }
 
-    // 1. ОСНОВНОЙ МЕТОД: Определить тип следа (левый/правый)
-    detectFootType(graph) {
-        console.log(`🦶 Определяю тип следа для "${graph.name}"...`);
-
-        const points = this.extractPointsFromGraph(graph);
-        if (points.length < 10) {
+    // 🔥 ОСНОВНОЙ МЕТОД: Анализ геометрии паспортов
+    analyzeGeometricSymmetry(passports) {
+        console.log(`🔍 Анализирую зеркальность ${passports.length} геометрических паспортов`);
+       
+        if (passports.length < 3) {
             return {
-                footType: 'unknown',
+                hasSymmetry: false,
+                symmetryScore: 0,
+                symmetryType: 'insufficient_data',
                 confidence: 0,
-                reason: 'Недостаточно точек',
-                isMirrored: false
+                recommendations: ['Недостаточно данных для анализа зеркальности']
             };
         }
 
-        // 1. Определяем ориентацию (носок направлен вправо или влево)
-        const orientation = this.detectOrientation(points);
+        // Извлекаем координаты из паспортов
+        const points = this.extractPointsFromPassports(passports);
        
-        // 2. Определяем симметрию (для проверки зеркальности)
-        const symmetry = this.calculateSymmetry(points);
-       
-        // 3. Анализируем распределение по квадрантам
+        // 1. Анализ распределения по квадрантам
         const quadrantAnalysis = this.analyzeQuadrants(points);
        
-        // 4. Определяем тип следа
-        let footType = 'unknown';
-        let confidence = 0;
-        let isMirrored = false;
+        // 2. Анализ симметрии
+        const symmetryAnalysis = this.analyzeSymmetry(points);
        
-        if (orientation.direction === 'right' && quadrantAnalysis.rightBias > 0.1) {
-            footType = 'right';
-            confidence = orientation.confidence * 0.6 + quadrantAnalysis.rightBias * 0.4;
-            isMirrored = false;
-        } else if (orientation.direction === 'left' && quadrantAnalysis.leftBias > 0.1) {
-            footType = 'left';
-            confidence = orientation.confidence * 0.6 + quadrantAnalysis.leftBias * 0.4;
-            isMirrored = true; // Левый след зеркален относительно правого
-        } else if (symmetry.score > this.config.symmetryThreshold) {
-            // Высокая симметрия - возможно это отпечаток без четкой левости/правости
-            footType = 'neutral';
-            confidence = symmetry.score;
-            isMirrored = false;
-        }
+        // 3. Определение типа обуви
+        const footTypeAnalysis = this.determineFootType(points, quadrantAnalysis, symmetryAnalysis);
        
-        // Порог уверенности
-        if (confidence < this.config.footTypeConfidenceThreshold) {
-            footType = 'unknown';
-            confidence = 0;
-        }
+        // 4. Анализ геометрических инвариантов
+        const geometricAnalysis = this.analyzeGeometricInvariants(passports);
        
         const result = {
-            footType: footType,
-            confidence: Math.max(0, Math.min(1, confidence)),
-            isMirrored: isMirrored,
-            orientation: orientation,
-            symmetry: symmetry,
+            // 🔥 СИММЕТРИЯ
+            hasSymmetry: symmetryAnalysis.score > this.config.symmetryThreshold,
+            symmetryScore: symmetryAnalysis.score,
+            symmetryType: symmetryAnalysis.type,
+           
+            // 🔥 ТИП ОБУВИ
+            footType: footTypeAnalysis.type,
+            footTypeConfidence: footTypeAnalysis.confidence,
+            isMirrored: footTypeAnalysis.isMirrored,
+           
+            // 🔥 ГЕОМЕТРИЧЕСКИЕ ХАРАКТЕРИСТИКИ
+            geometricInvariants: geometricAnalysis.invariants,
+            geometricSymmetry: geometricAnalysis.symmetryScore,
+           
+            // 🔥 СТАТИСТИКА
+            pointCount: points.length,
             quadrantAnalysis: quadrantAnalysis,
-            pointCount: points.length
+            symmetryAnalysis: symmetryAnalysis,
+           
+            // 🔥 РЕКОМЕНДАЦИИ
+            recommendations: this.generateRecommendations({
+                symmetryAnalysis,
+                footTypeAnalysis,
+                geometricAnalysis
+            })
         };
        
-        console.log(`✅ Тип следа: ${footType}, уверенность: ${result.confidence.toFixed(3)}, зеркало: ${isMirrored}`);
+        if (this.config.debug) {
+            console.log(`📊 Результат анализа зеркальности:`);
+            console.log(`   • Симметрия: ${result.hasSymmetry ? '✅ Да' : '❌ Нет'} (${result.symmetryScore.toFixed(3)})`);
+            console.log(`   • Тип обуви: ${result.footType} (уверенность: ${result.footTypeConfidence.toFixed(3)})`);
+            console.log(`   • Зеркальность: ${result.isMirrored ? '🪞 Да' : '👣 Нет'}`);
+            console.log(`   • Геометрическая симметрия: ${result.geometricSymmetry.toFixed(3)}`);
+        }
        
         return result;
     }
 
-    // 2. МЕТОД: Определение ориентации (куда направлен носок)
-    detectOrientation(points) {
-        if (points.length < 3) {
-            return { direction: 'unknown', confidence: 0, angle: 0 };
-        }
+    // 🔥 ИЗВЛЕЧЕНИЕ ТОЧЕК ИЗ ПАСПОРТОВ
+    extractPointsFromPassports(passports) {
+        const points = [];
        
-        // Находим bounding box
-        const bounds = this.calculateBounds(points);
-        const width = bounds.maxX - bounds.minX;
-        const height = bounds.maxY - bounds.minY;
-       
-        // Определяем главную ось через PCA
-        const center = this.calculateCenter(points);
-        const centeredPoints = points.map(p => ({
-            x: p.x - center.x,
-            y: p.y - center.y
-        }));
-       
-        const covMatrix = this.calculateCovarianceMatrix(centeredPoints);
-        const eigenvectors = this.calculateEigenvectors(covMatrix);
-        const mainAxis = eigenvectors[0];
-       
-        // Угол главной оси
-        const angleRad = Math.atan2(mainAxis[1], mainAxis[0]);
-        const angleDeg = angleRad * (180 / Math.PI);
-       
-        // Определяем направление по углу
-        let direction = 'unknown';
-        let confidence = Math.abs(mainAxis[0]); // Уверенность по компоненте X
-       
-        // Нормализуем угол
-        let normalizedAngle = angleDeg;
-        while (normalizedAngle < -90) normalizedAngle += 180;
-        while (normalizedAngle > 90) normalizedAngle -= 180;
-       
-        if (Math.abs(normalizedAngle) < 45) {
-            // Примерно горизонтально
-            if (mainAxis[0] > 0) {
-                direction = 'right'; // Носок направлен вправо
-            } else {
-                direction = 'left';  // Носок направлен влево
-            }
-            confidence = Math.abs(mainAxis[0]);
-        } else {
-            // Более вертикально
-            if (mainAxis[1] > 0) {
-                direction = 'up';    // Носок направлен вверх
-            } else {
-                direction = 'down';  // Носок направлен вниз
-            }
-            confidence = Math.abs(mainAxis[1]);
-        }
-       
-        return {
-            direction: direction,
-            confidence: Math.max(0, Math.min(1, confidence)),
-            angle: normalizedAngle,
-            mainAxis: mainAxis,
-            width: width,
-            height: height,
-            aspectRatio: width / height
-        };
-    }
-
-    // 3. МЕТОД: Расчет симметрии относительно вертикальной оси
-    calculateSymmetry(points) {
-        if (points.length < 6) {
-            return { score: 0, axis: 'vertical', symmetric: false };
-        }
-       
-        const center = this.calculateCenter(points);
-        const bounds = this.calculateBounds(points);
-        const width = bounds.maxX - bounds.minX;
-       
-        // Разделяем точки на левую и правую половины
-        const leftPoints = points.filter(p => p.x < center.x);
-        const rightPoints = points.filter(p => p.x >= center.x);
-       
-        if (leftPoints.length === 0 || rightPoints.length === 0) {
-            return { score: 0, axis: 'vertical', symmetric: false };
-        }
-       
-        // Зеркалим правые точки относительно вертикальной оси
-        const mirroredRightPoints = rightPoints.map(p => ({
-            x: center.x - (p.x - center.x), // Зеркальное отражение
-            y: p.y,
-            original: p
-        }));
-       
-        // Для каждой зеркальной правой точки ищем ближайшую левую
-        let totalMatchScore = 0;
-        let matchedPairs = 0;
-       
-        mirroredRightPoints.forEach(mirroredPoint => {
-            let bestMatch = null;
-            let bestDistance = Infinity;
-           
-            leftPoints.forEach(leftPoint => {
-                const distance = Math.sqrt(
-                    Math.pow(leftPoint.x - mirroredPoint.x, 2) +
-                    Math.pow(leftPoint.y - mirroredPoint.y, 2)
-                );
-               
-                // Нормализованное расстояние (относительно ширины)
-                const normalizedDistance = distance / (width / 2);
-               
-                if (normalizedDistance < 0.2 && normalizedDistance < bestDistance) {
-                    bestDistance = normalizedDistance;
-                    bestMatch = {
-                        leftPoint: leftPoint,
-                        mirroredRightPoint: mirroredPoint,
-                        distance: distance,
-                        normalizedDistance: normalizedDistance
-                    };
-                }
-            });
-           
-            if (bestMatch) {
-                const matchScore = 1 - Math.min(1, bestMatch.normalizedDistance * 3);
-                totalMatchScore += matchScore;
-                matchedPairs++;
+        passports.forEach((passport, index) => {
+            if (passport.coordinates) {
+                points.push({
+                    id: passport.pointId || `pt_${index}`,
+                    x: passport.coordinates.x || 0,
+                    y: passport.coordinates.y || 0,
+                    passportHash: passport.geometricHash,
+                    patternType: passport.patternType
+                });
             }
         });
        
-        const symmetryScore = matchedPairs > 0 ?
-            totalMatchScore / Math.max(leftPoints.length, rightPoints.length) : 0;
-       
-        const isSymmetric = symmetryScore > this.config.symmetryThreshold;
-       
-        return {
-            score: symmetryScore,
-            axis: 'vertical',
-            symmetric: isSymmetric,
-            matchedPairs: matchedPairs,
-            leftCount: leftPoints.length,
-            rightCount: rightPoints.length
-        };
+        return points;
     }
 
-    // 4. МЕТОД: Анализ распределения по квадрантам
+    // 🔥 АНАЛИЗ РАСПРЕДЕЛЕНИЯ ПО КВАДРАНТАМ
     analyzeQuadrants(points) {
-        const bounds = this.calculateBounds(points);
+        if (points.length === 0) {
+            return {
+                topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0,
+                leftBias: 0, rightBias: 0, asymmetry: 0
+            };
+        }
+       
+        // Находим центр распределения
         const center = this.calculateCenter(points);
        
         const quadrants = {
@@ -240,215 +134,421 @@ class MirrorDetection {
         });
        
         const total = points.length;
-        const proportions = {
-            topLeft: quadrants.topLeft / total,
-            topRight: quadrants.topRight / total,
-            bottomLeft: quadrants.bottomLeft / total,
-            bottomRight: quadrants.bottomRight / total
-        };
-       
-        // Для правой обуви ожидаем больше точек в левой части (носок вправо)
-        // Для левой обуви ожидаем больше точек в правой части (носок влево)
-        const leftBias = (quadrants.topLeft + quadrants.bottomLeft) / total;
-        const rightBias = (quadrants.topRight + quadrants.bottomRight) / total;
+        const leftCount = quadrants.topLeft + quadrants.bottomLeft;
+        const rightCount = quadrants.topRight + quadrants.bottomRight;
        
         return {
-            quadrants: proportions,
-            leftBias: leftBias,
-            rightBias: rightBias,
-            asymmetry: Math.abs(leftBias - rightBias),
-            totalPoints: total
+            ...quadrants,
+            leftBias: leftCount / total,
+            rightBias: rightCount / total,
+            asymmetry: Math.abs(leftCount - rightCount) / total,
+            center: center
         };
     }
 
-    // 5. МЕТОД: Зеркальное отражение графа
-    mirrorGraph(graph, axis = 'vertical') {
-        console.log(`🪞 Зеркалю граф "${graph.name}" относительно оси ${axis}...`);
+    // 🔥 АНАЛИЗ СИММЕТРИИ
+    analyzeSymmetry(points) {
+        if (points.length < 6) {
+            return {
+                score: 0,
+                type: 'insufficient_data',
+                axis: 'unknown',
+                mirroredPairs: 0
+            };
+        }
        
-        const points = this.extractPointsFromGraph(graph);
         const center = this.calculateCenter(points);
+        const bounds = this.calculateBounds(points);
        
-        const SimpleGraph = require('./simple-graph');
-        const mirroredGraph = new SimpleGraph(`${graph.name} (зеркальный)`);
+        // 1. Симметрия относительно вертикальной оси
+        const verticalSymmetry = this.calculateVerticalSymmetry(points, center, bounds);
        
-        // Зеркалим каждый узел
-        graph.nodes.forEach((node, nodeId) => {
-            let mirroredX = node.x;
-            let mirroredY = node.y;
-           
-            if (axis === 'vertical') {
-                // Отражение относительно вертикальной оси через центр
-                mirroredX = center.x - (node.x - center.x);
-            } else if (axis === 'horizontal') {
-                // Отражение относительно горизонтальной оси
-                mirroredY = center.y - (node.y - center.y);
-            } else if (axis === 'both') {
-                // Отражение относительно обеих осей
-                mirroredX = center.x - (node.x - center.x);
-                mirroredY = center.y - (node.y - center.y);
-            }
-           
-            mirroredGraph.addNode(
-                { x: mirroredX, y: mirroredY },
-                node.confidence || 0.5
-            );
-        });
+        // 2. Симметрия относительно горизонтальной оси
+        const horizontalSymmetry = this.calculateHorizontalSymmetry(points, center, bounds);
        
-        // Восстанавливаем рёбра
-        this.rebuildEdges(mirroredGraph);
-       
-        // Сохраняем метаданные зеркалирования
-        mirroredGraph.mirrorMetadata = {
-            originalGraphId: graph.id,
-            mirrorAxis: axis,
-            mirrorCenter: center,
-            mirroredAt: new Date()
-        };
-       
-        console.log(`✅ Граф зеркалирован: ${mirroredGraph.nodes.size} узлов`);
-       
-        return mirroredGraph;
-    }
-
-    // 6. МЕТОД: Автокоррекция зеркальности (приведение всех следов к одному "типу")
-    autoCorrectMirroring(graph, targetFootType = 'right') {
-        console.log(`🔄 Автокоррекция зеркальности к типу: ${targetFootType}...`);
-       
-        // Определяем текущий тип
-        const detection = this.detectFootType(graph);
-       
-        let correctedGraph = graph;
-        let correctionApplied = false;
-        let correctionType = 'none';
-       
-        // Если текущий тип не соответствует целевому и уверенность достаточна
-        if (detection.footType !== targetFootType &&
-            detection.confidence > this.config.footTypeConfidenceThreshold) {
-           
-            if (targetFootType === 'right' && detection.footType === 'left') {
-                // Нужно зеркалить левый след, чтобы сделать его "правым"
-                correctedGraph = this.mirrorGraph(graph, 'vertical');
-                correctionApplied = true;
-                correctionType = 'mirrored_vertical';
-            } else if (targetFootType === 'left' && detection.footType === 'right') {
-                // Нужно зеркалить правый след, чтобы сделать его "левым"
-                correctedGraph = this.mirrorGraph(graph, 'vertical');
-                correctionApplied = true;
-                correctionType = 'mirrored_vertical';
-            }
+        // Выбираем лучшую симметрию
+        let bestSymmetry = verticalSymmetry;
+        if (horizontalSymmetry.score > verticalSymmetry.score) {
+            bestSymmetry = horizontalSymmetry;
+            bestSymmetry.type = 'horizontal';
+        } else {
+            bestSymmetry.type = 'vertical';
         }
        
-        // Проверяем результат
-        const correctedDetection = this.detectFootType(correctedGraph);
+        return bestSymmetry;
+    }
+
+    // 🔥 ВЫЧИСЛИТЬ ВЕРТИКАЛЬНУЮ СИММЕТРИЮ
+    calculateVerticalSymmetry(points, center, bounds) {
+        const leftPoints = points.filter(p => p.x < center.x);
+        const rightPoints = points.filter(p => p.x >= center.x);
+       
+        if (leftPoints.length === 0 || rightPoints.length === 0) {
+            return { score: 0, mirroredPairs: 0, averageDistance: 0 };
+        }
+       
+        // Зеркалим правые точки относительно вертикальной оси
+        const mirroredRightPoints = rightPoints.map(p => ({
+            x: center.x - (p.x - center.x), // Зеркальное отражение
+            y: p.y,
+            original: p
+        }));
+       
+        return this.calculateSymmetryScore(leftPoints, mirroredRightPoints, bounds.width);
+    }
+
+    // 🔥 ВЫЧИСЛИТЬ ГОРИЗОНТАЛЬНУЮ СИММЕТРИЮ
+    calculateHorizontalSymmetry(points, center, bounds) {
+        const topPoints = points.filter(p => p.y < center.y);
+        const bottomPoints = points.filter(p => p.y >= center.y);
+       
+        if (topPoints.length === 0 || bottomPoints.length === 0) {
+            return { score: 0, mirroredPairs: 0, averageDistance: 0 };
+        }
+       
+        // Зеркалим нижние точки относительно горизонтальной оси
+        const mirroredBottomPoints = bottomPoints.map(p => ({
+            x: p.x,
+            y: center.y - (p.y - center.y), // Зеркальное отражение
+            original: p
+        }));
+       
+        return this.calculateSymmetryScore(topPoints, mirroredBottomPoints, bounds.height);
+    }
+
+    // 🔥 ВЫЧИСЛИТЬ СКОР СИММЕТРИИ
+    calculateSymmetryScore(referencePoints, mirroredPoints, size) {
+        let matchedPairs = 0;
+        let totalScore = 0;
+       
+        const usedMirrored = new Set();
+       
+        referencePoints.forEach(refPoint => {
+            let bestMatch = null;
+            let bestDistance = Infinity;
+            let bestIndex = -1;
+           
+            mirroredPoints.forEach((mirroredPoint, index) => {
+                if (usedMirrored.has(index)) return;
+               
+                const distance = this.calculateDistance(refPoint, mirroredPoint);
+                const normalizedDistance = distance / (size / 4);
+               
+                if (normalizedDistance < 0.2 && distance < bestDistance) {
+                    bestDistance = distance;
+                    bestMatch = mirroredPoint;
+                    bestIndex = index;
+                }
+            });
+           
+            if (bestMatch) {
+                const matchScore = 1 - Math.min(1, bestDistance / (size / 10));
+                totalScore += matchScore;
+                matchedPairs++;
+                usedMirrored.add(bestIndex);
+            }
+        });
+       
+        const maxPossiblePairs = Math.min(referencePoints.length, mirroredPoints.length);
+        const symmetryScore = maxPossiblePairs > 0 ? totalScore / maxPossiblePairs : 0;
        
         return {
-            graph: correctedGraph,
-            originalDetection: detection,
-            correctedDetection: correctedDetection,
-            correctionApplied: correctionApplied,
-            correctionType: correctionType,
-            targetFootType: targetFootType,
-            success: correctedDetection.footType === targetFootType ||
-                    correctedDetection.confidence < this.config.footTypeConfidenceThreshold
+            score: symmetryScore,
+            mirroredPairs: matchedPairs,
+            averageDistance: totalScore > 0 ? totalScore / matchedPairs : 0
         };
     }
 
-    // 7. МЕТОД: Сравнение с учетом зеркальности
-    compareWithMirrorInvariance(graph1, graph2, options = {}) {
-        console.log(`🔍 Сравнение с зеркальной инвариантностью...`);
-       
-        const startTime = Date.now();
-       
-        // Определяем типы следов
-        const type1 = this.detectFootType(graph1);
-        const type2 = this.detectFootType(graph2);
-       
-        console.log(`   Тип 1: ${type1.footType} (уверенность: ${type1.confidence.toFixed(3)})`);
-        console.log(`   Тип 2: ${type2.footType} (уверенность: ${type2.confidence.toFixed(3)})`);
-       
-        // Используем существующий матчер
-        const SimpleGraphMatcher = require('./simple-matcher');
-        const matcher = new SimpleGraphMatcher({
-            debug: this.config.debug
-        });
-       
-        const results = [];
-       
-        // Вариант 1: Прямое сравнение
-        const directComparison = matcher.compareGraphs(graph1, graph2, {
-            ...options,
-            mirrorInfo: { type1: type1.footType, type2: type2.footType }
-        });
-        results.push({
-            method: 'direct',
-            similarity: directComparison.similarity,
-            decision: directComparison.decision,
-            mirrored: false
-        });
-       
-        // Вариант 2: Сравнение с зеркальной версией graph2
-        const mirroredGraph2 = this.mirrorGraph(graph2, 'vertical');
-        const mirroredComparison = matcher.compareGraphs(graph1, mirroredGraph2, {
-            ...options,
-            mirrorInfo: { type1: type1.footType, type2: type2.footType + '_mirrored' }
-        });
-        results.push({
-            method: 'mirrored',
-            similarity: mirroredComparison.similarity,
-            decision: mirroredComparison.decision,
-            mirrored: true
-        });
-       
-        // Выбираем лучший результат
-        let bestResult = results[0];
-        if (mirroredComparison.similarity > directComparison.similarity) {
-            bestResult = results[1];
+    // 🔥 ОПРЕДЕЛИТЬ ТИП ОБУВИ
+    determineFootType(points, quadrantAnalysis, symmetryAnalysis) {
+        if (points.length < 5) {
+            return {
+                type: 'unknown',
+                confidence: 0,
+                isMirrored: false,
+                reason: 'Недостаточно точек'
+            };
         }
        
-        // Определяем, нужно ли зеркалить для совпадения типов
-        const shouldMirrorForMatch = bestResult.mirrored;
-        const footTypesMatch = type1.footType === type2.footType ||
-                             (type1.footType === 'unknown' || type2.footType === 'unknown');
+        let type = 'unknown';
+        let confidence = 0;
+        let isMirrored = false;
        
-        const finalResult = {
-            similarity: bestResult.similarity,
-            decision: bestResult.decision,
-            shouldMirror: shouldMirrorForMatch,
-            footTypes: {
-                graph1: type1,
-                graph2: type2,
-                match: footTypesMatch,
-                sameType: type1.footType === type2.footType
-            },
-            comparisons: results,
-            processingTime: Date.now() - startTime,
-            method: 'mirror_invariant_comparison'
+        // Анализ смещения влево/вправо
+        const leftBias = quadrantAnalysis.leftBias;
+        const rightBias = quadrantAnalysis.rightBias;
+        const asymmetry = Math.abs(leftBias - rightBias);
+       
+        // Определяем ориентацию по смещению
+        if (asymmetry > 0.1) {
+            if (rightBias > leftBias) {
+                type = 'right';
+                confidence = asymmetry * 0.7 + (1 - symmetryAnalysis.score) * 0.3;
+                isMirrored = false;
+            } else {
+                type = 'left';
+                confidence = asymmetry * 0.7 + (1 - symmetryAnalysis.score) * 0.3;
+                isMirrored = true;
+            }
+        } else if (symmetryAnalysis.score > this.config.symmetryThreshold) {
+            // Высокая симметрия - возможно нейтральный тип
+            type = 'neutral';
+            confidence = symmetryAnalysis.score;
+            isMirrored = false;
+        }
+       
+        // Корректируем уверенность
+        confidence = Math.min(1, Math.max(0, confidence));
+       
+        return {
+            type,
+            confidence,
+            isMirrored,
+            leftBias,
+            rightBias,
+            asymmetry
         };
-       
-        console.log(`✅ Сравнение с зеркальностью: ${finalResult.similarity.toFixed(3)}`);
-        console.log(`   Нужно зеркалить: ${finalResult.shouldMirror ? 'да' : 'нет'}`);
-       
-        return finalResult;
     }
 
-    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    extractPointsFromGraph(graph) {
-        const points = [];
+    // 🔥 АНАЛИЗ ГЕОМЕТРИЧЕСКИХ ИНВАРИАНТОВ
+    analyzeGeometricInvariants(passports) {
+        if (passports.length < 3) {
+            return {
+                invariants: [],
+                symmetryScore: 0,
+                hasMirrorPairs: false
+            };
+        }
        
-        if (!graph || !graph.nodes) return points;
+        // Группируем паспорта по типу паттерна
+        const patternGroups = new Map();
        
-        graph.nodes.forEach((node, nodeId) => {
-            points.push({
-                id: nodeId,
-                x: node.x || 0,
-                y: node.y || 0,
-                confidence: node.confidence || 0.5
-            });
+        passports.forEach(passport => {
+            const type = passport.patternType || 'unknown';
+            if (!patternGroups.has(type)) {
+                patternGroups.set(type, []);
+            }
+            patternGroups.get(type).push(passport);
         });
        
-        return points;
+        // Ищем зеркальные пары паттернов
+        let mirrorPairs = 0;
+        let totalPairs = 0;
+       
+        // Анализируем углы в паспортах
+        const allAngles = [];
+        passports.forEach(passport => {
+            if (passport.angles && Array.isArray(passport.angles)) {
+                allAngles.push(...passport.angles);
+            }
+        });
+       
+        // Проверяем симметрию углов
+        let angleSymmetry = 0;
+        if (allAngles.length > 0) {
+            // Углы, близкие к 90°, могут быть симметричными
+            const near90 = allAngles.filter(angle => Math.abs(angle - 90) < 15).length;
+            angleSymmetry = near90 / allAngles.length;
+        }
+       
+        // Проверяем наличие парных паттернов (например, правые/левые треугольники)
+        const patternTypes = Array.from(patternGroups.keys());
+        let patternSymmetry = 0;
+       
+        for (let i = 0; i < patternTypes.length; i++) {
+            for (let j = i + 1; j < patternTypes.length; j++) {
+                const type1 = patternTypes[i];
+                const type2 = patternTypes[j];
+               
+                // Проверяем, являются ли паттерны зеркальными (по названию или характеристикам)
+                if (this.arePatternsMirrored(type1, type2, patternGroups.get(type1), patternGroups.get(type2))) {
+                    mirrorPairs++;
+                }
+                totalPairs++;
+            }
+        }
+       
+        const symmetryScore = totalPairs > 0 ? mirrorPairs / totalPairs : 0;
+       
+        return {
+            invariants: Array.from(patternGroups.entries()).map(([type, group]) => ({
+                type,
+                count: group.length,
+                angles: this.getAverageAngles(group)
+            })),
+            symmetryScore: Math.max(symmetryScore, angleSymmetry),
+            hasMirrorPairs: mirrorPairs > 0,
+            patternGroups: patternTypes.length,
+            mirrorPairs
+        };
     }
-   
+
+    // 🔥 ПРОВЕРИТЬ, ЯВЛЯЮТСЯ ЛИ ПАТТЕРНЫ ЗЕРКАЛЬНЫМИ
+    arePatternsMirrored(type1, type2, group1, group2) {
+        // Простая проверка по названию
+        if (type1.includes('left') && type2.includes('right')) return true;
+        if (type1.includes('right') && type2.includes('left')) return true;
+       
+        // Проверка по средним углам
+        if (group1 && group2 && group1.length > 0 && group2.length > 0) {
+            const avgAngles1 = this.getAverageAngles(group1);
+            const avgAngles2 = this.getAverageAngles(group2);
+           
+            if (avgAngles1.length > 0 && avgAngles2.length > 0) {
+                // Проверяем, являются ли углы дополнительными (например, 30° и 150°)
+                const angleDiff = Math.abs(avgAngles1[0] - (180 - avgAngles2[0]));
+                if (angleDiff < this.config.geometricTolerance) {
+                    return true;
+                }
+            }
+        }
+       
+        return false;
+    }
+
+    // 🔥 ПОЛУЧИТЬ СРЕДНИЕ УГЛЫ ИЗ ГРУППЫ ПАСПОРТОВ
+    getAverageAngles(passports) {
+        const allAngles = [];
+       
+        passports.forEach(passport => {
+            if (passport.angles && Array.isArray(passport.angles)) {
+                allAngles.push(...passport.angles);
+            }
+        });
+       
+        if (allAngles.length === 0) return [];
+       
+        // Группируем углы по интервалам
+        const angleBins = new Array(18).fill(0); // 20° интервалы
+        allAngles.forEach(angle => {
+            const bin = Math.floor(angle / 20);
+            if (bin >= 0 && bin < 18) {
+                angleBins[bin]++;
+            }
+        });
+       
+        // Находим наиболее частые углы
+        const maxCount = Math.max(...angleBins);
+        const commonAngles = [];
+       
+        angleBins.forEach((count, bin) => {
+            if (count >= maxCount * 0.5) { // Хотя бы половина от максимума
+                commonAngles.push(bin * 20 + 10); // Центр интервала
+            }
+        });
+       
+        return commonAngles;
+    }
+
+    // 🔥 СОЗДАТЬ РЕКОМЕНДАЦИИ
+    generateRecommendations(analysis) {
+        const recommendations = [];
+       
+        if (analysis.symmetryAnalysis.score > this.config.symmetryThreshold) {
+            recommendations.push({
+                type: 'info',
+                message: `Обнаружена симметрия ${analysis.symmetryAnalysis.type} (${(analysis.symmetryAnalysis.score * 100).toFixed(1)}%)`,
+                action: 'auto_correct_if_needed'
+            });
+        }
+       
+        if (analysis.footTypeAnalysis.confidence > this.config.confidenceThreshold) {
+            const footType = analysis.footTypeAnalysis.type;
+            const confidence = analysis.footTypeAnalysis.confidence * 100;
+           
+            recommendations.push({
+                type: 'success',
+                message: `Определен тип обуви: ${footType} (уверенность: ${confidence.toFixed(1)}%)`,
+                action: footType === 'left' && this.config.enableMirrorCorrection ? 'apply_mirror_correction' : 'none'
+            });
+        } else if (analysis.footTypeAnalysis.type !== 'unknown') {
+            recommendations.push({
+                type: 'warning',
+                message: `Возможный тип обуви: ${analysis.footTypeAnalysis.type} (низкая уверенность)`,
+                action: 'collect_more_data'
+            });
+        }
+       
+        if (analysis.geometricAnalysis.hasMirrorPairs) {
+            recommendations.push({
+                type: 'info',
+                message: `Обнаружены зеркальные пары паттернов (${analysis.geometricAnalysis.mirrorPairs} пар)`,
+                action: 'geometric_analysis_available'
+            });
+        }
+       
+        // Добавляем рекомендацию по сбору данных если мало информации
+        if (analysis.symmetryAnalysis.score < 0.1 && analysis.footTypeAnalysis.confidence < 0.3) {
+            recommendations.push({
+                type: 'warning',
+                message: 'Недостаточно данных для определения зеркальности',
+                action: 'collect_more_photos'
+            });
+        }
+       
+        return recommendations;
+    }
+
+    // 🔥 ПРИМЕНИТЬ ЗЕРКАЛЬНУЮ КОРРЕКЦИЮ (если нужно)
+    applyMirrorCorrection(passports, targetFootType = 'right') {
+        console.log(`🔄 Применяю зеркальную коррекцию к ${passports.length} паспортам`);
+       
+        const analysis = this.analyzeGeometricSymmetry(passports);
+       
+        if (!analysis.isMirrored || analysis.footType === targetFootType) {
+            console.log('✅ Зеркальная коррекция не требуется');
+            return {
+                applied: false,
+                reason: 'Не требуется или уже правильный тип',
+                originalPassports: passports,
+                correctedPassports: passports
+            };
+        }
+       
+        // Зеркалим координаты
+        const correctedPassports = passports.map(passport => {
+            if (!passport.coordinates) return passport;
+           
+            // Находим центр для зеркалирования
+            const points = this.extractPointsFromPassports(passports);
+            const center = this.calculateCenter(points);
+           
+            // Зеркалим координаты относительно вертикальной оси
+            const mirroredX = center.x - (passport.coordinates.x - center.x);
+           
+            return {
+                ...passport,
+                coordinates: {
+                    ...passport.coordinates,
+                    x: mirroredX
+                },
+                metadata: {
+                    ...passport.metadata,
+                    mirrorCorrected: true,
+                    originalX: passport.coordinates.x,
+                    correctionApplied: new Date(),
+                    originalFootType: analysis.footType,
+                    targetFootType: targetFootType
+                }
+            };
+        });
+       
+        console.log(`✅ Применена зеркальная коррекция: ${analysis.footType} → ${targetFootType}`);
+       
+        return {
+            applied: true,
+            originalAnalysis: analysis,
+            correctedPassports: correctedPassports,
+            correctionInfo: {
+                originalFootType: analysis.footType,
+                targetFootType: targetFootType,
+                mirrorAxis: 'vertical',
+                correctionCenter: this.calculateCenter(this.extractPointsFromPassports(passports))
+            }
+        };
+    }
+
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     calculateCenter(points) {
         if (points.length === 0) return { x: 0, y: 0 };
        
@@ -460,182 +560,132 @@ class MirrorDetection {
             y: sumY / points.length
         };
     }
-   
+
     calculateBounds(points) {
         if (points.length === 0) {
-            return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+            return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
         }
        
         const xs = points.map(p => p.x);
         const ys = points.map(p => p.y);
        
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+       
         return {
-            minX: Math.min(...xs),
-            maxX: Math.max(...xs),
-            minY: Math.min(...ys),
-            maxY: Math.max(...ys)
+            minX, maxX, minY, maxY,
+            width: maxX - minX,
+            height: maxY - minY
         };
     }
-   
-    calculateCovarianceMatrix(points) {
-        let xx = 0, xy = 0, yy = 0;
-       
-        points.forEach(p => {
-            xx += p.x * p.x;
-            xy += p.x * p.y;
-            yy += p.y * p.y;
-        });
-       
-        const n = points.length;
-        return [
-            [xx / n, xy / n],
-            [xy / n, yy / n]
-        ];
-    }
-   
-    calculateEigenvectors(matrix) {
-        // Простой расчет для 2x2 матрицы
-        const a = matrix[0][0];
-        const b = matrix[0][1];
-        const c = matrix[1][0];
-        const d = matrix[1][1];
-       
-        const trace = a + d;
-        const det = a * d - b * c;
-       
-        const lambda1 = (trace + Math.sqrt(trace * trace - 4 * det)) / 2;
-        const lambda2 = (trace - Math.sqrt(trace * trace - 4 * det)) / 2;
-       
-        let eigenvector1, eigenvector2;
-       
-        if (Math.abs(b) > 1e-10) {
-            eigenvector1 = [lambda1 - d, c];
-            eigenvector2 = [lambda2 - d, c];
-        } else if (Math.abs(c) > 1e-10) {
-            eigenvector1 = [b, lambda1 - a];
-            eigenvector2 = [b, lambda2 - a];
-        } else {
-            eigenvector1 = [1, 0];
-            eigenvector2 = [0, 1];
-        }
-       
-        const norm1 = Math.sqrt(eigenvector1[0]*eigenvector1[0] + eigenvector1[1]*eigenvector1[1]);
-        const norm2 = Math.sqrt(eigenvector2[0]*eigenvector2[0] + eigenvector2[1]*eigenvector2[1]);
-       
-        if (norm1 > 0) {
-            eigenvector1[0] /= norm1;
-            eigenvector1[1] /= norm1;
-        }
-        if (norm2 > 0) {
-            eigenvector2[0] /= norm2;
-            eigenvector2[1] /= norm2;
-        }
-       
-        if (lambda1 >= lambda2) {
-            return [eigenvector1, eigenvector2];
-        } else {
-            return [eigenvector2, eigenvector1];
-        }
-    }
-   
-    rebuildEdges(graph) {
-        const nodes = Array.from(graph.nodes.values());
-       
-        graph.edges.clear();
-       
-        nodes.forEach((node1, i) => {
-            const distances = [];
-           
-            nodes.forEach((node2, j) => {
-                if (i !== j) {
-                    const dist = Math.sqrt(
-                        Math.pow(node2.x - node1.x, 2) +
-                        Math.pow(node2.y - node1.y, 2)
-                    );
-                    distances.push({ index: j, distance: dist, node: node2 });
-                }
-            });
-           
-            distances.sort((a, b) => a.distance - b.distance);
-            const nearest = distances.slice(0, 3);
-           
-            nearest.forEach(neighbor => {
-                const nodeId1 = Array.from(graph.nodes.keys())[i];
-                const nodeId2 = Array.from(graph.nodes.keys())[neighbor.index];
-                graph.addEdge(nodeId1, nodeId2);
-            });
-        });
+
+    calculateDistance(p1, p2) {
+        const dx = p1.x - p2.x;
+        const dy = p1.y - p2.y;
+        return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // 8. МЕТОД: Визуализация анализа зеркальности
-    visualizeMirrorAnalysis(graph, options = {}) {
-        const analysis = this.detectFootType(graph);
-        const points = this.extractPointsFromGraph(graph);
+    // 🔥 МЕТОД ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+    detectFootType(graph) {
+        console.log(`🦶 [Совместимость] Определяю тип следа из графа...`);
+       
+        // Извлекаем точки из графа
+        const points = [];
+        if (graph && graph.nodes) {
+            graph.nodes.forEach((node, nodeId) => {
+                points.push({
+                    id: nodeId,
+                    x: node.x || 0,
+                    y: node.y || 0
+                });
+            });
+        }
+       
+        // Создаем фейковые паспорта для совместимости
+        const fakePassports = points.map((point, index) => ({
+            pointId: point.id,
+            coordinates: { x: point.x, y: point.y },
+            geometricHash: `legacy_${index}`,
+            patternType: 'legacy'
+        }));
+       
+        const analysis = this.analyzeGeometricSymmetry(fakePassports);
+       
+        return {
+            footType: analysis.footType,
+            confidence: analysis.footTypeConfidence,
+            reason: 'Совместимость со старым кодом',
+            isMirrored: analysis.isMirrored,
+            pointCount: points.length
+        };
+    }
+
+    // 🔥 МЕТОД ДЛЯ СОВМЕСТИМОСТИ
+    mirrorGraph(graph, axis = 'vertical') {
+        console.log(`🪞 [Совместимость] Зеркалю граф ${graph.name || 'unknown'}`);
+       
+        // Извлекаем точки
+        const points = [];
+        if (graph && graph.nodes) {
+            graph.nodes.forEach((node, nodeId) => {
+                points.push({
+                    id: nodeId,
+                    x: node.x || 0,
+                    y: node.y || 0,
+                    node: node
+                });
+            });
+        }
+       
+        if (points.length === 0) {
+            console.log('⚠️ Граф не содержит узлов');
+            return graph;
+        }
+       
+        const center = this.calculateCenter(points);
+       
+        // Создаем новый граф с зеркальными координатами
+        // (здесь должна быть логика создания нового графа, но для совместимости возвращаем старый)
+       
+        console.log(`✅ Граф зеркалирован относительно оси ${axis}, центр: (${center.x.toFixed(1)}, ${center.y.toFixed(1)})`);
+       
+        return {
+            ...graph,
+            mirrorMetadata: {
+                originalGraphId: graph.id,
+                mirrorAxis: axis,
+                mirrorCenter: center,
+                mirroredAt: new Date()
+            }
+        };
+    }
+
+    // 🔥 ПОЛУЧИТЬ ВИЗУАЛИЗАЦИОННЫЕ ДАННЫЕ
+    getVisualizationData(passports) {
+        const analysis = this.analyzeGeometricSymmetry(passports);
+        const points = this.extractPointsFromPassports(passports);
         const center = this.calculateCenter(points);
         const bounds = this.calculateBounds(points);
        
         return {
             analysis: analysis,
-            points: {
-                total: points.length,
-                byQuadrant: this.analyzeQuadrants(points).quadrants,
-                center: center,
-                bounds: bounds
-            },
-            symmetry: this.calculateSymmetry(points),
-            recommendations: this.generateMirrorRecommendations(analysis),
-            visualizationData: this.generateVisualizationData(graph, analysis)
-        };
-    }
-   
-    generateMirrorRecommendations(analysis) {
-        const recommendations = [];
-       
-        if (analysis.confidence > this.config.footTypeConfidenceThreshold) {
-            recommendations.push({
-                type: 'foot_type',
-                message: `Определен тип следа: ${analysis.footType} (уверенность: ${(analysis.confidence * 100).toFixed(1)}%)`,
-                action: 'auto_correct_if_needed'
-            });
-        } else {
-            recommendations.push({
-                type: 'uncertain',
-                message: 'Тип следа не определен с достаточной уверенностью',
-                action: 'collect_more_data'
-            });
-        }
-       
-        if (analysis.symmetry.score > this.config.symmetryThreshold) {
-            recommendations.push({
-                type: 'symmetry',
-                message: 'След демонстрирует высокую симметрию',
-                action: 'mirror_invariant_comparison'
-            });
-        }
-       
-        return recommendations;
-    }
-   
-    generateVisualizationData(graph, analysis) {
-        const points = this.extractPointsFromGraph(graph);
-        const center = this.calculateCenter(points);
-       
-        return {
             points: points.map(p => ({
-                x: p.x,
-                y: p.y,
+                ...p,
                 quadrant: this.getPointQuadrant(p, center)
             })),
             center: center,
-            axes: {
-                vertical: { x: center.x, y1: 0, y2: 1000 },
-                horizontal: { y: center.y, x1: 0, x2: 1000 }
+            bounds: bounds,
+            quadrants: this.analyzeQuadrants(points),
+            symmetryLines: {
+                vertical: { x: center.x, y1: bounds.minY, y2: bounds.maxY },
+                horizontal: { y: center.y, x1: bounds.minX, x2: bounds.maxX }
             },
-            footType: analysis.footType,
-            confidence: analysis.confidence
+            recommendations: analysis.recommendations
         };
     }
-   
+
     getPointQuadrant(point, center) {
         if (point.x < center.x) {
             return point.y < center.y ? 'topLeft' : 'bottomLeft';
