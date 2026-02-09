@@ -50,7 +50,13 @@ class GeometricAccumulator {
                 const data = this.geometricPoints.get(geoHash);
                 data.confirmations = (data.confirmations || 1) + 1;
                 data.lastSeen = new Date();
+               
+                // 🔥 ИСПРАВЛЕНИЕ: Проверяем, что seenInFootprints это Set
+                if (!data.seenInFootprints || !(data.seenInFootprints instanceof Set)) {
+                    data.seenInFootprints = new Set();
+                }
                 data.seenInFootprints.add(footprintId);
+               
                 existingPointsConfirmed++;
                
                 // 🔥 ОБНОВЛЯЕМ ПРИМЕРНЫЕ КООРДИНАТЫ (среднее)
@@ -60,6 +66,7 @@ class GeometricAccumulator {
                     example.x = example.x * (1 - weight) + point.x * weight;
                     example.y = example.y * (1 - weight) + point.y * weight;
                     example.confidence = Math.max(example.confidence || 0.5, point.confidence || 0.5);
+                    example.lastUpdated = new Date();
                 }
             } else {
                 // 🔥 НОВЫЙ геометрический хеш
@@ -68,7 +75,7 @@ class GeometricAccumulator {
                     confirmations: 1,
                     firstSeen: new Date(),
                     lastSeen: new Date(),
-                    seenInFootprints: new Set([footprintId])
+                    seenInFootprints: new Set([footprintId]) // 🔥 ГАРАНТИРУЕМ ЧТО ЭТО Set
                 });
                
                 // Сохраняем примерные координаты для визуализации
@@ -229,18 +236,23 @@ class GeometricAccumulator {
                 footprintHashes: Array.from(this.footprintHashes.entries()),
                 pointExamples: Array.from(this.pointExamples.entries()),
                 stats: this.stats,
-                _version: '1.0-geometric-accumulator',
+                _version: '1.1-geometric-accumulator-fixed',
                 _savedAt: new Date().toISOString()
             };
            
-            // Преобразуем Set в Array для сериализации
+            // 🔥 ИСПРАВЛЕНИЕ: Правильно сериализуем Set в Array
             data.geometricPoints = data.geometricPoints.map(([hash, pointData]) => {
-                if (pointData.seenInFootprints && pointData.seenInFootprints instanceof Set) {
-                    pointData.seenInFootprints = Array.from(pointData.seenInFootprints);
+                const serializedPointData = { ...pointData };
+               
+                // Преобразуем Set в Array
+                if (serializedPointData.seenInFootprints && serializedPointData.seenInFootprints instanceof Set) {
+                    serializedPointData.seenInFootprints = Array.from(serializedPointData.seenInFootprints);
                 }
-                return [hash, pointData];
+               
+                return [hash, serializedPointData];
             });
            
+            // Преобразуем Set в Array для footprintHashes
             data.footprintHashes = data.footprintHashes.map(([id, hashSet]) => {
                 return [id, Array.from(hashSet)];
             });
@@ -255,7 +267,7 @@ class GeometricAccumulator {
         }
     }
    
-    // 🔥 Загрузка аккумулятора из файла
+    // 🔥 Загрузка аккумулятора из файла (ИСПРАВЛЕННЫЙ)
     static loadFromFile(filePath, userId) {
         try {
             if (!fs.existsSync(filePath)) {
@@ -269,21 +281,36 @@ class GeometricAccumulator {
             accumulator.id = data.id || accumulator.id;
             accumulator.name = data.name || accumulator.name;
            
-            // Восстанавливаем геометрические точки
+            // 🔥 ВОССТАНАВЛИВАЕМ ГЕОМЕТРИЧЕСКИЕ ТОЧКИ (ИСПРАВЛЕНО)
             if (Array.isArray(data.geometricPoints)) {
                 data.geometricPoints.forEach(([hash, pointData]) => {
-                    if (pointData.seenInFootprints && Array.isArray(pointData.seenInFootprints)) {
-                        pointData.seenInFootprints = new Set(pointData.seenInFootprints);
+                    // 🔥 ИСПРАВЛЕНИЕ: Гарантируем что seenInFootprints это Set
+                    if (pointData.seenInFootprints) {
+                        if (Array.isArray(pointData.seenInFootprints)) {
+                            pointData.seenInFootprints = new Set(pointData.seenInFootprints);
+                        } else if (!(pointData.seenInFootprints instanceof Set)) {
+                            pointData.seenInFootprints = new Set();
+                        }
+                    } else {
+                        pointData.seenInFootprints = new Set();
                     }
+                   
                     accumulator.geometricPoints.set(hash, pointData);
                 });
             }
            
-            // Восстанавливаем связи следов
+            // 🔥 ВОССТАНАВЛИВАЕМ СВЯЗИ СЛЕДОВ (ИСПРАВЛЕНО)
             if (Array.isArray(data.footprintHashes)) {
                 data.footprintHashes.forEach(([id, hashArray]) => {
-                    accumulator.footprintHashes.set(id, new Set(hashArray));
+                    accumulator.footprintHashes.set(id, new Set(hashArray || []));
                 });
+            } else {
+                // Если старый формат данных
+                for (const [key, value] of Object.entries(data.footprintHashes || {})) {
+                    if (Array.isArray(value)) {
+                        accumulator.footprintHashes.set(key, new Set(value));
+                    }
+                }
             }
            
             // Восстанавливаем примеры точек
@@ -313,8 +340,60 @@ class GeometricAccumulator {
            
         } catch (error) {
             console.error(`❌ Ошибка загрузки аккумулятора: ${error.message}`);
+            console.error('Stack trace:', error.stack);
             return null;
         }
+    }
+   
+    // 🔥 МЕТОД: Получить все геометрические хеши
+    getAllGeometricHashes() {
+        return Array.from(this.geometricPoints.keys());
+    }
+   
+    // 🔥 МЕТОД: Получить точки с определенным количеством подтверждений
+    getPointsByConfirmation(minConfirmations = 2) {
+        const result = [];
+       
+        for (const [geoHash, pointData] of this.geometricPoints) {
+            if (pointData.confirmations >= minConfirmations) {
+                const example = this.pointExamples.get(geoHash);
+                if (example) {
+                    result.push({
+                        geometricHash: geoHash,
+                        x: example.x,
+                        y: example.y,
+                        confirmations: pointData.confirmations,
+                        confidence: example.confidence
+                    });
+                }
+            }
+        }
+       
+        return result;
+    }
+   
+    // 🔥 МЕТОД: Очистка старых данных
+    cleanupOldData(maxAgeDays = 30) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - maxAgeDays);
+       
+        let removedCount = 0;
+       
+        for (const [geoHash, pointData] of this.geometricPoints) {
+            if (pointData.lastSeen < cutoffDate && pointData.confirmations === 1) {
+                // Удаляем точки с 1 подтверждением старше maxAgeDays
+                this.geometricPoints.delete(geoHash);
+                this.pointExamples.delete(geoHash);
+                removedCount++;
+            }
+        }
+       
+        if (removedCount > 0) {
+            console.log(`🧹 Очищено ${removedCount} старых точек`);
+            this.updateStats();
+        }
+       
+        return removedCount;
     }
 }
 
