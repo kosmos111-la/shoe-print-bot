@@ -1,5 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🔥 ВИЗУАЛИЗАТОР АККУМУЛЯТИВНОЙ МОДЕЛИ
+// 🔥 ВИЗУАЛИЗАЦИЯ АККУМУЛЯТИВНОЙ МОДЕЛИ
 
 const fs = require('fs');
 const path = require('path');
@@ -8,18 +8,6 @@ class ClusterVisualizer {
     constructor(options = {}) {
         this.config = {
             outputDir: options.outputDir || './data/footprints/visualizations',
-            canvasWidth: options.canvasWidth || 1200,
-            canvasHeight: options.canvasHeight || 800,
-           
-            // 🔥 ЦВЕТОВАЯ СХЕМА ПО ПОДТВЕРЖДЕНИЯМ
-            pointColors: {
-                confirmed3: '#FF0000',   // 🔴 Красный: 3+ подтверждений
-                confirmed2: '#FF6B00',   // 🟠 Оранжевый: 2 подтверждения
-                confirmed1: '#2196F3',   // 🔵 Синий: 1 подтверждение
-                background: '#FFFFFF'    // Белый фон
-            },
-           
-            debug: options.debug || false,
             ...options
         };
 
@@ -31,100 +19,56 @@ class ClusterVisualizer {
         console.log('🎨 ClusterVisualizer создан (аккумулятивная модель)');
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Визуализация аккумулятивной модели
-    async visualizeAccumulativeModel(modelData, options = {}) {
+    // 🔥 ВИЗУАЛИЗАЦИЯ АККУМУЛЯТИВНОЙ МОДЕЛИ
+    async visualizeAccumulativeModel(data, options = {}) {
         console.log('🎨 Визуализация аккумулятивной модели...');
 
         try {
-            // Проверяем доступность canvas
-            let canvas;
-            try {
-                canvas = require('canvas');
-            } catch (error) {
-                console.log('⚠️ Canvas не доступен, создаю текстовый отчет');
-                return this.createTextReport(modelData, options);
+            const canvas = require('canvas');
+            const { points, totalPoints, totalFootprints, stats } = data;
+
+            if (!points || points.length === 0) {
+                console.log('⚠️ Нет точек для визуализации');
+                return this.createTextReport(data, options);
             }
 
             // Создаем canvas
-            const canvasWidth = options.width || this.config.canvasWidth;
-            const canvasHeight = options.height || this.config.canvasHeight;
+            const canvasWidth = options.width || 900;
+            const canvasHeight = options.height || 700;
 
             const canvasInstance = canvas.createCanvas(canvasWidth, canvasHeight);
             const ctx = canvasInstance.getContext('2d');
 
             // 1. ФОН
-            ctx.fillStyle = '#F8F9FA';
+            ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
             // 2. ЗАГОЛОВОК
             ctx.fillStyle = '#212529';
-            ctx.font = 'bold 28px Arial';
+            ctx.font = 'bold 26px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('👣 АККУМУЛЯТИВНАЯ МОДЕЛЬ СЛЕДА', canvasWidth / 2, 50);
+            ctx.fillText('👣 АККУМУЛЯТИВНАЯ МОДЕЛЬ', canvasWidth / 2, 40);
 
             // 3. СТАТИСТИКА
-            const stats = modelData.stats || {};
-            ctx.font = '18px Arial';
-            ctx.fillStyle = '#495057';
-            ctx.textAlign = 'center';
-            ctx.fillText(
-                `📊 ${modelData.totalFootprints || 0} следов, ${modelData.totalPoints || 0} уникальных точек`,
-                canvasWidth / 2, 90
-            );
-
-            // 4. ЛЕГЕНДА СТАТИСТИКИ
             ctx.font = '16px Arial';
-            ctx.fillStyle = '#343A40';
+            ctx.fillStyle = '#495057';
             ctx.textAlign = 'left';
-           
-            const legendX = 50;
-            let legendY = 140;
-           
-            // 🔴 3+ подтверждений
-            ctx.fillStyle = this.config.pointColors.confirmed3;
-            ctx.beginPath();
-            ctx.arc(legendX, legendY, 8, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#212529';
-            ctx.fillText(`🔴 3+ подтверждений: ${stats.confirmed3 || 0} точек`, legendX + 20, legendY + 5);
-           
-            // 🟠 2 подтверждения
-            ctx.fillStyle = this.config.pointColors.confirmed2;
-            ctx.beginPath();
-            ctx.arc(legendX, legendY + 35, 8, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#212529';
-            ctx.fillText(`🟠 2 подтверждения: ${stats.confirmed2 || 0} точек`, legendX + 20, legendY + 40);
-           
-            // 🔵 1 подтверждение
-            ctx.fillStyle = this.config.pointColors.confirmed1;
-            ctx.beginPath();
-            ctx.arc(legendX, legendY + 70, 8, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#212529';
-            ctx.fillText(`🔵 1 подтверждение: ${stats.confirmed1 || 0} точек`, legendX + 20, legendY + 75);
-           
-            // Среднее подтверждений
-            ctx.fillStyle = '#6C757D';
-            ctx.fillText(
-                `🎯 Среднее подтверждений: ${stats.avgConfirmations?.toFixed(2) || '0.00'}`,
-                legendX, legendY + 110
-            );
+            ctx.fillText(`📊 Всего точек: ${totalPoints}`, 50, 80);
+            ctx.fillText(`📸 Следов: ${totalFootprints}`, 50, 105);
 
-            // 5. РИСУЕМ ТОЧКИ
-            const points = modelData.points || [];
+            if (stats) {
+                ctx.fillText(`🔴 3+ подтверждений: ${stats.confirmed3 || 0}`, 50, 130);
+                ctx.fillText(`🟠 2 подтверждения: ${stats.confirmed2 || 0}`, 50, 155);
+                ctx.fillText(`🔵 1 подтверждение: ${stats.confirmed1 || 0}`, 50, 180);
+            }
+
+            // 4. РИСУЕМ ТОЧКИ
             this.drawAccumulativePoints(ctx, points, canvasWidth, canvasHeight);
 
-            // 6. ИНФОРМАЦИЯ О СИСТЕМЕ
-            ctx.fillStyle = '#ADB5BD';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(
-                `🎯 Векторная аккумулятивная система | ${new Date().toLocaleString('ru-RU')}`,
-                canvasWidth / 2, canvasHeight - 20
-            );
+            // 5. ЛЕГЕНДА
+            this.drawAccumulativeLegend(ctx, canvasWidth, canvasHeight);
 
-            // 7. СОХРАНЯЕМ
+            // 6. СОХРАНЯЕМ
             const filename = options.filename || `accumulative_${Date.now()}.png`;
             const outputPath = path.join(this.config.outputDir, filename);
 
@@ -139,7 +83,6 @@ class ClusterVisualizer {
                     resolve({
                         path: outputPath,
                         stats: stats,
-                        totalPoints: points.length,
                         success: true
                     });
                 });
@@ -148,95 +91,24 @@ class ClusterVisualizer {
             });
 
         } catch (error) {
-            console.error('❌ Ошибка визуализации:', error);
-            return this.createTextReport(modelData, options);
+            console.log('⚠️ Canvas не доступен:', error.message);
+            return this.createTextReport(data, options);
         }
     }
 
-    // 🔥 РИСОВАНИЕ ТОЧЕК АККУМУЛЯТИВНОЙ МОДЕЛИ
+    // 🔥 РИСОВАНИЕ ТОЧЕК
     drawAccumulativePoints(ctx, points, canvasWidth, canvasHeight) {
+        const centerX = canvasWidth / 2;
+        const centerY = canvasHeight * 0.6;
+
         if (points.length === 0) {
             ctx.fillStyle = '#6C757D';
-            ctx.font = '20px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('Нет данных для отображения', canvasWidth / 2, canvasHeight / 2);
+            ctx.font = '16px Arial';
+            ctx.fillText('Нет данных для отображения', centerX, centerY);
             return;
         }
 
-        const centerX = canvasWidth / 2;
-        const centerY = canvasHeight / 2 + 50;
-
         // Находим границы
-        const { minX, maxX, minY, maxY } = this.calculateBounds(points);
-        const width = Math.max(1, maxX - minX);
-        const height = Math.max(1, maxY - minY);
-
-        // Масштабирование
-        const scaleX = (canvasWidth * 0.6) / width;
-        const scaleY = (canvasHeight * 0.5) / height;
-        const scale = Math.min(scaleX, scaleY, 3);
-
-        // Рисуем каждую точку
-        points.forEach(point => {
-            const x = centerX + (point.x - (minX + maxX) / 2) * scale;
-            const y = centerY + (point.y - (minY + maxY) / 2) * scale;
-
-            // Определяем цвет и размер по подтверждениям
-            let color, size;
-           
-            if (point.confirmations >= 3) {
-                color = this.config.pointColors.confirmed3;
-                size = 10 + (point.confidence || 0.5) * 4;
-            } else if (point.confirmations === 2) {
-                color = this.config.pointColors.confirmed2;
-                size = 8 + (point.confidence || 0.5) * 3;
-            } else {
-                color = this.config.pointColors.confirmed1;
-                size = 6 + (point.confidence || 0.5) * 2;
-            }
-
-            // Используем цвет из данных если есть
-            if (point.color === 'red') color = this.config.pointColors.confirmed3;
-            else if (point.color === 'orange') color = this.config.pointColors.confirmed2;
-            else if (point.color === 'blue') color = this.config.pointColors.confirmed1;
-
-            // Рисуем внешний круг
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Обводка для лучшей видимости
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-
-            // Внутренний круг и цифра для точек с 2+ подтверждениями
-            if (point.confirmations >= 2) {
-                ctx.fillStyle = '#FFFFFF';
-                ctx.beginPath();
-                ctx.arc(x, y, size * 0.4, 0, Math.PI * 2);
-                ctx.fill();
-
-                // Цифра подтверждений
-                ctx.fillStyle = color;
-                ctx.font = 'bold 10px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(point.confirmations.toString(), x, y);
-            }
-        });
-
-        // Рисуем сетку координат (опционально)
-        this.drawCoordinateGrid(ctx, centerX, centerY, width * scale, height * scale);
-    }
-
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    calculateBounds(points) {
-        if (points.length === 0) {
-            return { minX: 0, maxX: 100, minY: 0, maxY: 100 };
-        }
-
         let minX = Infinity, maxX = -Infinity;
         let minY = Infinity, maxY = -Infinity;
 
@@ -247,122 +119,177 @@ class ClusterVisualizer {
             maxY = Math.max(maxY, point.y);
         });
 
-        return { minX, maxX, minY, maxY };
+        const width = Math.max(1, maxX - minX);
+        const height = Math.max(1, maxY - minY);
+
+        // Масштабирование
+        const scaleX = (canvasWidth * 0.7) / width;
+        const scaleY = (canvasHeight * 0.5) / height;
+        const scale = Math.min(scaleX, scaleY, 3);
+
+        // Рисуем каждую точку
+        points.forEach(point => {
+            const x = centerX + (point.x - (minX + maxX) / 2) * scale;
+            const y = centerY + (point.y - (minY + maxY) / 2) * scale;
+
+            // Определяем цвет и размер
+            const color = point.color || this.getColorByConfirmations(point.confirmations || 1);
+            const size = this.getSizeByConfirmations(point.confirmations || 1);
+
+            // Рисуем точку
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Обводка
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Число подтверждений для точек с 2+
+            if (point.confirmations >= 2) {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(point.confirmations.toString(), x, y);
+            }
+        });
     }
 
-    drawCoordinateGrid(ctx, centerX, centerY, width, height) {
-        // Тонкая сетка
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
-        ctx.lineWidth = 0.5;
-       
-        // Вертикальные линии
-        for (let x = centerX - width/2; x <= centerX + width/2; x += 50) {
+    // 🔥 ЛЕГЕНДА
+    drawAccumulativeLegend(ctx, canvasWidth, canvasHeight) {
+        const legendY = canvasHeight - 120;
+        const startX = canvasWidth * 0.1;
+
+        // Фон
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(startX - 10, legendY - 20, canvasWidth * 0.8, 100);
+
+        // Заголовок
+        ctx.fillStyle = '#212529';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('📋 ЛЕГЕНДА ПОДТВЕРЖДЕНИЙ', startX, legendY);
+
+        // Элементы
+        const items = [
+            { confirmations: 3, color: '#FF0000', text: '3+ подтверждений', desc: 'Высокая надежность' },
+            { confirmations: 2, color: '#FF6B00', text: '2 подтверждения', desc: 'Средняя надежность' },
+            { confirmations: 1, color: '#2196F3', text: '1 подтверждение', desc: 'Низкая надежность' }
+        ];
+
+        items.forEach((item, index) => {
+            const x = startX + index * 250;
+            const y = legendY + 25;
+
+            // Точка-пример
+            const size = this.getSizeByConfirmations(item.confirmations);
+            ctx.fillStyle = item.color;
             ctx.beginPath();
-            ctx.moveTo(x, centerY - height/2);
-            ctx.lineTo(x, centerY + height/2);
+            ctx.arc(x + 15, y, size, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Обводка
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
             ctx.stroke();
-        }
-       
-        // Горизонтальные линии
-        for (let y = centerY - height/2; y <= centerY + height/2; y += 50) {
-            ctx.beginPath();
-            ctx.moveTo(centerX - width/2, y);
-            ctx.lineTo(centerX + width/2, y);
-            ctx.stroke();
-        }
-       
-        // Центральные оси
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.lineWidth = 1;
-       
-        ctx.beginPath();
-        ctx.moveTo(centerX - width/2, centerY);
-        ctx.lineTo(centerX + width/2, centerY);
-        ctx.stroke();
-       
-        ctx.beginPath();
-        ctx.moveTo(centerX, centerY - height/2);
-        ctx.lineTo(centerX, centerY + height/2);
-        ctx.stroke();
+
+            // Текст
+            ctx.fillStyle = '#495057';
+            ctx.font = '14px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(item.text, x + 35, y - 5);
+
+            ctx.fillStyle = '#6C757D';
+            ctx.font = '12px Arial';
+            ctx.fillText(item.desc, x + 35, y + 12);
+        });
     }
 
-    createTextReport(modelData, options) {
-        const outputPath = path.join(this.config.outputDir, `report_${Date.now()}.txt`);
-       
-        const stats = modelData.stats || {};
-        const report = `
-👣 ОТЧЕТ АККУМУЛЯТИВНОЙ МОДЕЛИ
-═══════════════════════════════════
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    getColorByConfirmations(confirmations) {
+        if (confirmations >= 3) return '#FF0000'; // 🔴
+        if (confirmations === 2) return '#FF6B00'; // 🟠
+        return '#2196F3'; // 🔵
+    }
 
-📋 ИНФОРМАЦИЯ:
-• ID модели: ${modelData.modelId || 'N/A'}
-• Пользователь: ${modelData.userId || 'N/A'}
-• Создана: ${modelData.createdAt?.toLocaleString('ru-RU') || new Date().toLocaleString('ru-RU')}
+    getSizeByConfirmations(confirmations) {
+        if (confirmations >= 3) return 10;
+        if (confirmations === 2) return 7;
+        return 5;
+    }
 
-📊 СТАТИСТИКА:
-• Всего следов: ${modelData.totalFootprints || 0}
-• Всего уникальных точек: ${modelData.totalPoints || 0}
-• 🔴 3+ подтверждений: ${stats.confirmed3 || 0}
-• 🟠 2 подтверждения: ${stats.confirmed2 || 0}
-• 🔵 1 подтверждение: ${stats.confirmed1 || 0}
-• 🎯 Среднее подтверждений: ${stats.avgConfirmations?.toFixed(2) || '0.00'}
+    // 🔥 ТЕКСТОВЫЙ ОТЧЕТ
+    createTextReport(data, options) {
+        const { points, totalPoints, totalFootprints, stats } = data;
+        const filename = options.filename ? options.filename.replace('.png', '.txt') : `report_${Date.now()}.txt`;
+        const outputPath = path.join(this.config.outputDir, filename);
 
-🎯 СИСТЕМА:
-• Векторная аккумулятивная модель
-• 1 след = 1 подтверждение для каждой точки
-• Точки накапливаются из всех следов
-• Цвет указывает степень подтверждения
+        let report = `📊 ОТЧЕТ АККУМУЛЯТИВНОЙ МОДЕЛИ\n`;
+        report += `══════════════════════════\n\n`;
+        report += `📅 Дата: ${new Date().toLocaleString('ru-RU')}\n`;
+        report += `📊 Всего точек: ${totalPoints}\n`;
+        report += `📸 Следов: ${totalFootprints}\n\n`;
 
-🎨 ЦВЕТОВАЯ СХЕМА:
-• 🔴 Красный: 3+ подтверждений (высокая надежность)
-• 🟠 Оранжевый: 2 подтверждения (средняя надежность)
-• 🔵 Синий: 1 подтверждение (низкая надежность)
+        if (stats) {
+            report += `🎯 СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:\n`;
+            report += `├─ 🔴 3+ подтверждений: ${stats.confirmed3 || 0}\n`;
+            report += `├─ 🟠 2 подтверждения: ${stats.confirmed2 || 0}\n`;
+            report += `└─ 🔵 1 подтверждение: ${stats.confirmed1 || 0}\n\n`;
+        }
 
-═══════════════════════════════════
-Отчет создан: ${new Date().toLocaleString('ru-RU')}
-`;
+        if (points && points.length > 0) {
+            report += `📍 ПРИМЕРЫ ТОЧЕК (первые 5):\n`;
+            points.slice(0, 5).forEach((point, i) => {
+                report += `${i + 1}. (${point.x.toFixed(1)}, ${point.y.toFixed(1)}) - ${point.confirmations} подтверждений\n`;
+            });
+        }
+
+        report += `\n══════════════════════════\n`;
+        report += `ВЕКТОРНАЯ АККУМУЛЯТИВНАЯ СИСТЕМА\n`;
 
         fs.writeFileSync(outputPath, report, 'utf8');
 
         return {
             path: outputPath,
-            stats: stats,
-            note: 'Текстовый отчет создан'
+            success: true,
+            note: 'Текстовый отчет'
         };
     }
 
-    // 🔥 ДЛЯ СОВМЕСТИМОСТИ СО СТАРЫМ КОДОМ
+    // 🔥 ДЛЯ СОВМЕСТИМОСТИ
     async visualizeSingleFootprintConfirmations(footprint, options = {}) {
-        console.log('🎨 [Совместимость] Визуализация одного следа...');
+        console.log('🎨 Совместимость: визуализация одного следа');
        
         // Преобразуем в формат аккумулятивной модели
-        const modelData = {
-            modelId: footprint.id,
-            totalFootprints: 1,
-            totalPoints: footprint.pointTracker?.points?.size || 0,
-            points: [],
-            stats: {
-                confirmed1: footprint.pointTracker?.points?.size || 0,
-                confirmed2: 0,
-                confirmed3: 0,
-                avgConfirmations: 1
-            }
-        };
-       
-        // Добавляем точки
+        const points = [];
         if (footprint.pointTracker?.points) {
             for (const [, point] of footprint.pointTracker.points) {
-                modelData.points.push({
+                points.push({
                     x: point.x,
                     y: point.y,
-                    confidence: point.confidence || 0.5,
                     confirmations: point.confirmedCount || 1,
-                    color: 'blue'
+                    confidence: point.rating || 0.5,
+                    color: point.confirmedCount >= 3 ? 'red' :
+                           point.confirmedCount === 2 ? 'orange' : 'blue'
                 });
             }
         }
-       
-        return await this.visualizeAccumulativeModel(modelData, options);
+
+        const data = {
+            points: points,
+            totalPoints: points.length,
+            totalFootprints: 1,
+            stats: {
+                confirmed3: points.filter(p => p.confirmations >= 3).length,
+                confirmed2: points.filter(p => p.confirmations === 2).length,
+                confirmed1: points.filter(p => p.confirmations === 1).length
+            }
+        };
+
+        return this.visualizeAccumulativeModel(data, options);
     }
 }
 
