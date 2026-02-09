@@ -1,25 +1,27 @@
 // modules/footprint/clean/vector-algorithm.js
-// 🎯 ГЕОМЕТРИЧЕСКИЕ ДЕСКРИПТОРЫ (как SIFT но без картинок)
+// 🔥 ПРОСТОЙ ВЕКТОРНЫЙ АЛГОРИТМ ДЛЯ ОБЪЕДИНЕНИЯ СЛЕДОВ
+
+console.log('🎯 ПРОСТОЙ ВЕКТОРНЫЙ АЛГОРИТМ - ГЕОМЕТРИЧЕСКИЕ ОТНОШЕНИЯ\n');
 
 class VectorAlgorithm {
     constructor(options = {}) {
-        this.descriptorSize = options.descriptorSize || 8; // 8-мерный дескриптор
-        this.neighborsForDescriptor = options.neighborsForDescriptor || 8; // 8 соседей для дескриптора
-        this.angleBins = options.angleBins || 8; // 8 направлений (как SIFT)
-        this.distanceBins = options.distanceBins || 4; // 4 расстояния
-        this.minSimilarity = options.minSimilarity || 0.6;
+        // 🔥 КЛЮЧЕВЫЕ ПАРАМЕТРЫ
+        this.neighborCount = options.neighborCount || 5;        // 5 ближайших соседей
+        this.distanceTolerance = options.distanceTolerance || 20; // 20px допуск
+        this.angleTolerance = options.angleTolerance || 15;    // 15° допуск
+        this.minSimilarity = options.minSimilarity || 0.6;     // 60% порог
         this.debug = options.debug !== false;
-       
-        console.log(`🎯 Геометрические дескрипторы: ${this.descriptorSize}D, ${this.neighborsForDescriptor} соседей`);
+
+        console.log(`🎯 Параметры: ${this.neighborCount} соседей, допуск ${this.distanceTolerance}px`);
     }
 
-    // 🔥 СОЗДАНИЕ ГЕОМЕТРИЧЕСКИХ ДЕСКРИПТОРОВ
-    createFootprint(points, name = '') {
-        console.log(`🎯 Создаю геометрические дескрипторы из ${points.length} точек`);
+    // ============================================
+    // 🎯 СОЗДАНИЕ ВЕКТОРНОГО ОТПЕЧАТКА
+    // ============================================
 
-        if (points.length < 5) {
-            console.log(`⚠️ Слишком мало точек: ${points.length}`);
-            return this.createSimpleFootprint(points, name);
+    createFootprint(points, name = '') {
+        if (this.debug) {
+            console.log(`🎯 Создаю векторный отпечаток "${name}" из ${points.length} точек`);
         }
 
         const vectorFootprint = [];
@@ -27,8 +29,8 @@ class VectorAlgorithm {
         for (let i = 0; i < points.length; i++) {
             const point = points[i];
            
-            // 🔥 СОЗДАЕМ ГЕОМЕТРИЧЕСКИЙ ДЕСКРИПТОР
-            const descriptor = this.createGeometricDescriptor(point, points, i);
+            // 🔥 СОЗДАЕМ ПРОСТОЙ ВЕКТОРНЫЙ ID
+            const vectorId = this.createSimpleVectorId(point, i, points);
            
             vectorFootprint.push({
                 originalId: point.id || `pt_${i}`,
@@ -37,250 +39,129 @@ class VectorAlgorithm {
                 confidence: point.confidence || 0.5,
                 index: i,
                
-                // 🔥 ГЕОМЕТРИЧЕСКИЙ ДЕСКРИПТОР
-                descriptor: descriptor.values,
-                descriptorHash: descriptor.hash,
-                vectorId: descriptor.hash,
+                // 🔥 ГЕОМЕТРИЧЕСКИЙ ВЕКТОРНЫЙ ID
+                vectorId: vectorId,
                
-                // Для сравнения
-                dominantAngles: descriptor.dominantAngles,
+                // Для быстрого сравнения
+                geometricHash: vectorId,
                
+                // Статистика
                 confirmedCount: 1
             });
         }
 
-        if (this.debug && vectorFootprint.length > 0) {
-            console.log(`✅ Создано ${vectorFootprint.length} геометрических дескрипторов`);
-            const sample = vectorFootprint[0];
-            console.log(`   Пример дескриптора: ${sample.descriptorHash.substring(0, 50)}...`);
-            console.log(`   Доминирующие углы: ${sample.dominantAngles?.join(', ')}°`);
+        if (this.debug) {
+            console.log(`✅ Создано ${vectorFootprint.length} векторных точек`);
+            if (vectorFootprint.length > 0) {
+                console.log(`   Первый векторный ID: ${vectorFootprint[0].vectorId.substring(0, 40)}...`);
+            }
         }
 
         return vectorFootprint;
     }
 
-    // 🔥 СОЗДАНИЕ ГЕОМЕТРИЧЕСКОГО ДЕСКРИПТОРА
-    createGeometricDescriptor(centerPoint, allPoints, centerIndex) {
-        // Находим соседей
-        const neighbors = this.findNearestNeighbors(centerPoint, allPoints, centerIndex, this.neighborsForDescriptor);
+    // 🔥 ПРОСТОЙ ВЕКТОРНЫЙ ID НА ОСНОВЕ ОТНОСИТЕЛЬНЫХ КООРДИНАТ
+    createSimpleVectorId(point, index, allPoints) {
+        // Находим 5 ближайших соседей
+        const neighbors = this.findNearestNeighbors(point, allPoints, index, this.neighborCount);
        
-        if (neighbors.length < 3) {
-            return this.createSimpleDescriptor(centerPoint, neighbors);
+        if (neighbors.length === 0) {
+            return `ISOLATED_${index}`;
         }
-       
-        // 🔥 1. ВЫЧИСЛЯЕМ ГРАДИЕНТЫ НАПРАВЛЕНИЙ (как в SIFT)
-        const gradients = this.calculateDirectionGradients(centerPoint, neighbors);
-       
-        // 🔥 2. СОЗДАЕМ ГИСТОГРАММУ НАПРАВЛЕНИЙ
-        const angleHistogram = this.createAngleHistogram(gradients, this.angleBins);
-       
-        // 🔥 3. СОЗДАЕМ ГИСТОГРАММУ РАССТОЯНИЙ
-        const distanceHistogram = this.createDistanceHistogram(centerPoint, neighbors, this.distanceBins);
-       
-        // 🔥 4. КОМБИНИРУЕМ В ДЕСКРИПТОР
-        const descriptor = this.combineHistograms(angleHistogram, distanceHistogram);
-       
-        // 🔥 5. НОРМАЛИЗУЕМ И КВАНТУЕМ
-        const normalized = this.normalizeDescriptor(descriptor);
-        const quantized = this.quantizeDescriptor(normalized);
-        const descriptorHash = this.createDescriptorHash(quantized);
-       
-        // Находим доминирующие направления
-        const dominantAngles = this.findDominantAngles(angleHistogram);
-       
-        return {
-            values: quantized,
-            hash: descriptorHash,
-            dominantAngles: dominantAngles,
-            neighborCount: neighbors.length
-        };
-    }
 
-    // 🔥 ВЫЧИСЛЕНИЕ ГРАДИЕНТОВ НАПРАВЛЕНИЙ
-    calculateDirectionGradients(centerPoint, neighbors) {
-        const gradients = [];
+        // Создаем геометрический паттерн на основе относительных координат
+        let vectorString = '';
        
-        for (const neighbor of neighbors) {
-            const dx = neighbor.x - centerPoint.x;
-            const dy = neighbor.y - centerPoint.y;
+        neighbors.forEach((neighbor, neighborIndex) => {
+            const dx = neighbor.x - point.x;
+            const dy = neighbor.y - point.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
             const angle = Math.atan2(dy, dx) * 180 / Math.PI; // -180..180
+            const normalizedAngle = ((angle % 360) + 360) % 360; // 0..360
            
-            // Нормализуем угол к 0..360
-            const normalizedAngle = ((angle % 360) + 360) % 360;
+            // Округляем для устойчивости
+            const roundedDistance = Math.round(distance / 10) * 10; // до 10px
+            const roundedAngle = Math.round(normalizedAngle / 10) * 10; // до 10°
            
-            // Величина градиента = обратное расстояние (близкие соседи важнее)
-            const magnitude = 1 / (distance + 1);
-           
-            gradients.push({
-                angle: normalizedAngle,
-                magnitude: magnitude,
-                distance: distance
-            });
-        }
-       
-        return gradients;
-    }
-
-    // 🔥 ГИСТОГРАММА НАПРАВЛЕНИЙ
-    createAngleHistogram(gradients, bins) {
-        const histogram = new Array(bins).fill(0);
-        const binSize = 360 / bins;
-       
-        for (const grad of gradients) {
-            const bin = Math.min(bins - 1, Math.floor(grad.angle / binSize));
-            histogram[bin] += grad.magnitude;
-        }
-       
-        return histogram;
-    }
-
-    // 🔥 ГИСТОГРАММА РАССТОЯНИЙ
-    createDistanceHistogram(centerPoint, neighbors, bins) {
-        if (neighbors.length === 0) return new Array(bins).fill(0);
-       
-        // Находим максимальное расстояние
-        const maxDistance = Math.max(...neighbors.map(n =>
-            Math.sqrt(Math.pow(n.x - centerPoint.x, 2) + Math.pow(n.y - centerPoint.y, 2))
-        ));
-       
-        if (maxDistance === 0) return new Array(bins).fill(0);
-       
-        const histogram = new Array(bins).fill(0);
-        const binSize = maxDistance / bins;
-       
-        for (const neighbor of neighbors) {
-            const distance = Math.sqrt(
-                Math.pow(neighbor.x - centerPoint.x, 2) +
-                Math.pow(neighbor.y - centerPoint.y, 2)
-            );
-            const bin = Math.min(bins - 1, Math.floor(distance / binSize));
-            histogram[bin] += 1;
-        }
-       
-        return histogram;
-    }
-
-    // 🔥 КОМБИНАЦИЯ ГИСТОГРАММ
-    combineHistograms(angleHistogram, distanceHistogram) {
-        return [...angleHistogram, ...distanceHistogram];
-    }
-
-    // 🔥 НОРМАЛИЗАЦИЯ ДЕСКРИПТОРА
-    normalizeDescriptor(descriptor) {
-        const sum = descriptor.reduce((s, v) => s + v, 0);
-        if (sum === 0) return descriptor;
-       
-        return descriptor.map(v => v / sum);
-    }
-
-    // 🔥 КВАНТОВАНИЕ (для хэша)
-    quantizeDescriptor(descriptor) {
-        // Квантуем до 4 уровней (0, 0.33, 0.66, 1.0)
-        return descriptor.map(v => {
-            if (v < 0.25) return 0;
-            if (v < 0.5) return 1;
-            if (v < 0.75) return 2;
-            return 3;
+            vectorString += `D${roundedDistance}_A${roundedAngle}_`;
         });
+
+        // Добавляем информацию о количестве соседей
+        return `VEC_${neighbors.length}_${vectorString}`.slice(0, 100); // Ограничиваем длину
     }
 
-    // 🔥 СОЗДАНИЕ ХЭША ДЕСКРИПТОРА
-    createDescriptorHash(quantized) {
-        return `DESC_${quantized.join('')}`;
-    }
+    // ============================================
+    // 🔄 СРАВНЕНИЕ ВЕКТОРНЫХ ОТПЕЧАТКОВ
+    // ============================================
 
-    // 🔥 НАХОЖДЕНИЕ ДОМИНИРУЮЩИХ УГЛОВ
-    findDominantAngles(angleHistogram) {
-        const bins = angleHistogram.length;
-        const binSize = 360 / bins;
-       
-        // Находим 2 самых сильных направления
-        const sorted = angleHistogram
-            .map((value, index) => ({ value, angle: index * binSize }))
-            .sort((a, b) => b.value - a.value)
-            .slice(0, 2);
-       
-        return sorted.map(item => Math.round(item.angle));
-    }
-
-    // 🔥 СРАВНЕНИЕ ДЕСКРИПТОРОВ
     compareFootprints(fp1, fp2, name1 = 'Отпечаток 1', name2 = 'Отпечаток 2') {
-        console.log(`\n🔍 СРАВНЕНИЕ ГЕОМЕТРИЧЕСКИХ ДЕСКРИПТОРОВ: ${name1} (${fp1.length}) vs ${name2} (${fp2.length})`);
+        if (this.debug) {
+            console.log(`\n🔍 СРАВНЕНИЕ: ${name1} (${fp1.length}) vs ${name2} (${fp2.length})`);
+        }
 
         if (fp1.length === 0 || fp2.length === 0) {
             return this.createEmptyComparisonResult();
         }
 
         try {
-            // 🔥 ПАРНОЕ СРАВНЕНИЕ (как в SIFT)
+            // 🔥 ПРОСТОЕ СРАВНЕНИЕ ПО ВЕКТОРНЫМ ID
             const matches = [];
             const used2 = new Set();
-           
-            // Для каждой точки из первого следа
+
+            // Создаем Map для быстрого поиска по vectorId
+            const fp2Map = new Map();
+            fp2.forEach((point, index) => {
+                fp2Map.set(point.vectorId, { point, index });
+            });
+
+            // Ищем совпадения
             for (const point1 of fp1) {
-                let bestMatch = null;
-                let bestSimilarity = 0;
+                // 1. Пытаемся найти точное совпадение по vectorId
+                const exactMatch = fp2Map.get(point1.vectorId);
                
-                // Ищем лучшего кандидата во втором следе
-                for (let j = 0; j < fp2.length; j++) {
-                    if (used2.has(j)) continue;
-                   
-                    const point2 = fp2[j];
-                    const similarity = this.compareDescriptors(point1.descriptor, point2.descriptor);
-                   
-                    if (similarity > bestSimilarity && similarity > 0.7) { // 70% порог
-                        bestSimilarity = similarity;
-                        bestMatch = { point: point2, index: j, similarity: similarity };
-                    }
+                if (exactMatch && !used2.has(exactMatch.index)) {
+                    matches.push({
+                        point1: point1,
+                        point2: exactMatch.point,
+                        similarity: 1.0,
+                        matchType: 'exact_vector_id',
+                        confidence: 1.0
+                    });
+                    used2.add(exactMatch.index);
+                    continue;
                 }
-               
-                // Если нашли хорошее совпадение
-                if (bestMatch) {
-                    // 🔥 ПРОВЕРКА ОДНОЗНАЧНОСТИ (ratio test как в SIFT)
-                    let secondBestSimilarity = 0;
-                   
-                    for (let j = 0; j < fp2.length; j++) {
-                        if (j === bestMatch.index) continue;
-                        if (used2.has(j)) continue;
-                       
-                        const similarity = this.compareDescriptors(point1.descriptor, fp2[j].descriptor);
-                        if (similarity > secondBestSimilarity) {
-                            secondBestSimilarity = similarity;
-                        }
-                    }
-                   
-                    // Ratio test: best / secondBest > 1.5
-                    if (secondBestSimilarity === 0 || (bestMatch.similarity / secondBestSimilarity) > 1.5) {
-                        matches.push({
-                            point1: point1,
-                            point2: bestMatch.point,
-                            similarity: bestMatch.similarity,
-                            matchLevel: 'descriptor_match',
-                            ratio: secondBestSimilarity > 0 ? (bestMatch.similarity / secondBestSimilarity).toFixed(2) : 'inf'
-                        });
-                        used2.add(bestMatch.index);
+
+                // 2. Если нет точного совпадения, ищем похожие по расстоянию и координатам
+                if (!used2.has(point1.index) && matches.length < Math.min(fp1.length, fp2.length)) {
+                    const similarMatch = this.findSimilarByGeometry(point1, fp2, used2);
+                    if (similarMatch) {
+                        matches.push(similarMatch);
+                        used2.add(similarMatch.point2.index);
                     }
                 }
             }
-           
+
             const matchedPoints = matches.length;
             const maxPossible = Math.min(fp1.length, fp2.length);
             const similarity = maxPossible > 0 ? matchedPoints / maxPossible : 0;
-           
+
             const isSame = similarity >= this.minSimilarity;
             const decision = isSame ? 'same' : 'different';
-           
-            console.log(`📊 РЕЗУЛЬТАТ:`);
-            console.log(`   Уникальные совпадения дескрипторов: ${matchedPoints}/${maxPossible}`);
-            console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}% (порог: ${this.minSimilarity * 100}%)`);
-            console.log(`   Решение: ${decision}`);
-           
-            if (matches.length > 0) {
-                const avgSimilarity = matches.reduce((sum, m) => sum + m.similarity, 0) / matches.length;
-                console.log(`   Средняя схожесть дескрипторов: ${(avgSimilarity * 100).toFixed(1)}%`);
+
+            if (this.debug) {
+                console.log(`📊 РЕЗУЛЬТАТ:`);
+                console.log(`   Совпадения: ${matchedPoints}/${maxPossible}`);
+                console.log(`   Схожесть: ${(similarity * 100).toFixed(1)}% (порог: ${this.minSimilarity * 100}%)`);
+                console.log(`   Решение: ${decision}`);
+               
+                if (matches.length > 0) {
+                    const exactMatches = matches.filter(m => m.matchType === 'exact_vector_id').length;
+                    const geometryMatches = matches.filter(m => m.matchType === 'geometry').length;
+                    console.log(`   Точные совпадения: ${exactMatches}`);
+                    console.log(`   Геометрические совпадения: ${geometryMatches}`);
+                }
             }
-           
+
             return {
                 similar: isSame,
                 similarity: similarity,
@@ -302,90 +183,125 @@ class VectorAlgorithm {
         }
     }
 
-    // 🔥 СРАВНЕНИЕ ДЕСКРИПТОРОВ (евклидово расстояние)
-    compareDescriptors(desc1, desc2) {
-        if (!desc1 || !desc2 || desc1.length !== desc2.length) return 0;
-       
-        let sumSq = 0;
-        for (let i = 0; i < desc1.length; i++) {
-            const diff = desc1[i] - desc2[i];
-            sumSq += diff * diff;
+    // 🔥 ПОИСК ПОХОЖИХ ТОЧЕК ПО ГЕОМЕТРИИ
+    findSimilarByGeometry(point1, fp2, used2) {
+        let bestMatch = null;
+        let bestSimilarity = 0;
+
+        for (let i = 0; i < fp2.length; i++) {
+            if (used2.has(i)) continue;
+
+            const point2 = fp2[i];
+           
+            // 1. Проверяем расстояние между точками
+            const distance = this.calculateDistance(point1, point2);
+            if (distance > this.distanceTolerance * 3) continue; // Слишком далеко
+           
+            // 2. Проверяем похожесть векторных ID
+            const vectorSimilarity = this.compareVectorIds(point1.vectorId, point2.vectorId);
+           
+            // 3. Проверяем локальную геометрию
+            const geometrySimilarity = this.compareLocalGeometry(point1, point2);
+           
+            // Общая схожесть
+            const totalSimilarity = (vectorSimilarity * 0.4 + geometrySimilarity * 0.6);
+           
+            if (totalSimilarity > bestSimilarity && totalSimilarity > 0.5) {
+                bestSimilarity = totalSimilarity;
+                bestMatch = {
+                    point1: point1,
+                    point2: point2,
+                    similarity: totalSimilarity,
+                    matchType: 'geometry',
+                    confidence: totalSimilarity
+                };
+            }
         }
-       
-        const distance = Math.sqrt(sumSq);
-        const maxDistance = Math.sqrt(desc1.length * 9); // Макс. расстояние для 0-3 значений
-       
-        return Math.max(0, 1 - (distance / maxDistance));
+
+        return bestMatch;
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    // 🔥 СРАВНЕНИЕ ВЕКТОРНЫХ ID
+    compareVectorIds(id1, id2) {
+        if (id1 === id2) return 1.0;
+       
+        // Извлекаем компоненты из ID
+        const parts1 = id1.split('_');
+        const parts2 = id2.split('_');
+       
+        // Проверяем количество соседей
+        if (parts1.length >= 2 && parts2.length >= 2) {
+            const neighbors1 = parseInt(parts1[1]) || 0;
+            const neighbors2 = parseInt(parts2[1]) || 0;
+           
+            if (Math.abs(neighbors1 - neighbors2) > 2) {
+                return 0.3; // Слишком разное количество соседей
+            }
+        }
+       
+        // Сравниваем расстояния и углы
+        let matches = 0;
+        let total = 0;
+       
+        for (let i = 2; i < Math.min(parts1.length, parts2.length); i += 2) {
+            if (i + 1 >= parts1.length || i + 1 >= parts2.length) break;
+           
+            const dist1 = parseInt(parts1[i]?.replace('D', '')) || 0;
+            const angle1 = parseInt(parts1[i + 1]?.replace('A', '')) || 0;
+            const dist2 = parseInt(parts2[i]?.replace('D', '')) || 0;
+            const angle2 = parseInt(parts2[i + 1]?.replace('A', '')) || 0;
+           
+            // Проверяем расстояние (допуск 20px)
+            if (Math.abs(dist1 - dist2) <= 20) matches++;
+           
+            // Проверяем угол (допуск 30°)
+            const angleDiff = Math.abs(((angle1 - angle2 + 180) % 360) - 180);
+            if (angleDiff <= 30) matches++;
+           
+            total += 2;
+        }
+       
+        return total > 0 ? matches / total : 0.5;
+    }
+
+    // 🔥 СРАВНЕНИЕ ЛОКАЛЬНОЙ ГЕОМЕТРИИ
+    compareLocalGeometry(point1, point2) {
+        // Для простоты используем расстояние и примерное положение
+        const distance = this.calculateDistance(point1, point2);
+        const distanceSimilarity = Math.max(0, 1 - distance / (this.distanceTolerance * 2));
+       
+        return distanceSimilarity;
+    }
+
+    // ============================================
+    // 🔧 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    // ============================================
+
     findNearestNeighbors(centerPoint, allPoints, centerIndex, count) {
         const distances = [];
-       
+
         for (let i = 0; i < allPoints.length; i++) {
             if (i === centerIndex) continue;
-           
+
             const dx = allPoints[i].x - centerPoint.x;
             const dy = allPoints[i].y - centerPoint.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-           
+
             distances.push({
                 point: allPoints[i],
                 distance: distance,
                 index: i
             });
         }
-       
+
         distances.sort((a, b) => a.distance - b.distance);
         return distances.slice(0, count).map(d => d.point);
     }
 
-    createSimpleDescriptor(centerPoint, neighbors) {
-        const values = new Array(this.descriptorSize).fill(0);
-       
-        if (neighbors.length > 0) {
-            // Простой дескриптор на основе направления к первому соседу
-            const dx = neighbors[0].x - centerPoint.x;
-            const dy = neighbors[0].y - centerPoint.y;
-            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-            const normalizedAngle = ((angle % 360) + 360) % 360;
-           
-            const bin = Math.min(this.angleBins - 1, Math.floor(normalizedAngle / (360 / this.angleBins)));
-            values[bin] = 1;
-        }
-       
-        const quantized = this.quantizeDescriptor(values);
-        const hash = this.createDescriptorHash(quantized);
-       
-        return {
-            values: quantized,
-            hash: hash,
-            dominantAngles: [],
-            neighborCount: neighbors.length
-        };
-    }
-
-    createSimpleFootprint(points, name = '') {
-        const footprint = [];
-       
-        for (let i = 0; i < points.length; i++) {
-            const point = points[i];
-            const neighbors = this.findNearestNeighbors(point, points, i, 3);
-            const descriptor = this.createSimpleDescriptor(point, neighbors);
-           
-            footprint.push({
-                originalId: point.id || `pt_${i}`,
-                x: point.x,
-                y: point.y,
-                confidence: point.confidence || 0.5,
-                descriptor: descriptor.values,
-                descriptorHash: descriptor.hash,
-                vectorId: descriptor.hash,
-                confirmedCount: 1
-            });
-        }
-       
-        return footprint;
+    calculateDistance(p1, p2) {
+        const dx = p1.x - p2.x;
+        const dy = p1.y - p2.y;
+        return Math.sqrt(dx * dx + dy * dy);
     }
 
     createEmptyComparisonResult() {
@@ -403,6 +319,14 @@ class VectorAlgorithm {
                 similarity: 0
             }
         };
+    }
+
+    // 🔥 МЕТОД ДЛЯ СОВМЕСТИМОСТИ
+    comparePoints(points1, points2, name1 = 'След 1', name2 = 'След 2') {
+        const fp1 = this.createFootprint(points1, name1);
+        const fp2 = this.createFootprint(points2, name2);
+
+        return this.compareFootprints(fp1, fp2, name1, name2);
     }
 }
 
