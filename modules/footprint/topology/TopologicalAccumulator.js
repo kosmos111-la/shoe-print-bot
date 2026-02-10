@@ -3,17 +3,19 @@
 
 class TopologicalAccumulator {
     constructor(options = {}) {
-        this.name = options.name || `Топологическая_модель_${Date.now()}`;
-        this.debug = options.debug || false;
-        this.minMatchesForEnhancement = options.minMatchesForEnhancement || 3;
-        this.similarityThreshold = options.similarityThreshold || 0.6; // 60%
-       
-        // Основные компоненты
-        this.topologyBuilder = new (require('./TopologyBuilder'))({ debug: this.debug });
-        this.fingerprinter = new (require('./TopologicalFingerprint'))({
-            debug: this.debug,
-            iterations: options.wlIterations || 3
-        });
+    this.name = options.name || `Топологическая_модель_${Date.now()}`;
+    this.debug = options.debug || false;
+    this.minMatchesForEnhancement = options.minMatchesForEnhancement || 3;
+    this.similarityThreshold = options.similarityThreshold || 0.6;
+   
+    // Основные компоненты
+    this.topologyBuilder = new (require('./TopologyBuilder'))({ debug: this.debug });
+    this.fingerprinter = new (require('./TopologicalFingerprint'))({
+        debug: this.debug,
+        iterations: options.wlIterations || 3,
+        bucketSize: 3,
+        similarityThreshold: 0.7
+    });
        
         // Хранилище моделей
         this.models = new Map(); // modelId -> { graph, fingerprints, metadata }
