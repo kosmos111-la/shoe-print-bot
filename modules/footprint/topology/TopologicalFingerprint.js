@@ -242,7 +242,9 @@ class TopologicalFingerprint {
     // 🔥 МЕТОД 5: Сравнение графов
     compareGraphs(graph1, fingerprints1, graph2, fingerprints2) {
         console.log(`🔍 Сравниваю графы по ЧИСТОЙ ТОПОЛОГИИ...`);
-       
+ // 🔥 ИСПРАВЛЕНИЕ: Увеличиваем порог структурного сходства
+    const structuralSimilarityThreshold = 0.8; // Было 0.7
+      
         // 1. Создаем обратные мапы
         const sigToNodes1 = new Map();
         const sigToNodes2 = new Map();
@@ -295,7 +297,11 @@ class TopologicalFingerprint {
         }
        
         // 3. Находим структурно похожие узлы
-        const similarMatches = this.findSimilarNodes(fingerprints1, fingerprints2);
+        const similarMatches = this.findSimilarNodes(
+        fingerprints1,
+        fingerprints2,
+        structuralSimilarityThreshold // 🔥 Передаем порог
+    );
        
         // 4. Объединяем совпадения
         const allMatches = [...exactMatches, ...similarMatches];
@@ -334,44 +340,50 @@ class TopologicalFingerprint {
     }
    
     // 🔥 МЕТОД 6: Поиск структурно похожих узлов
-    findSimilarNodes(fingerprints1, fingerprints2) {
-        const similarMatches = [];
+    findSimilarNodes(fingerprints1, fingerprints2, threshold = 0.8) {
+    const similarMatches = [];
+    const usedNodes2 = new Set(); // Чтобы не использовать один узел дважды
+   
+    // Преобразуем в массивы для сравнения
+    const nodes1 = Array.from(fingerprints1.entries());
+    const nodes2 = Array.from(fingerprints2.entries());
+   
+    // Для каждого узла из первого графа ищем похожий во втором
+    for (const [nodeId1, fp1] of nodes1) {
+        let bestMatch = null;
+        let bestSimilarity = 0;
+        let bestNodeId2 = null;
        
-        // Преобразуем в массивы для сравнения
-        const nodes1 = Array.from(fingerprints1.entries());
-        const nodes2 = Array.from(fingerprints2.entries());
-       
-        // Для каждого узла из первого графа ищем похожий во втором
-        for (const [nodeId1, fp1] of nodes1) {
-            let bestMatch = null;
-            let bestSimilarity = 0;
+        for (const [nodeId2, fp2] of nodes2) {
+            if (usedNodes2.has(nodeId2)) continue;
            
-            for (const [nodeId2, fp2] of nodes2) {
-                // Вычисляем структурное сходство
-                const similarity = this.computeStructuralSimilarity(fp1, fp2);
-               
-                if (similarity > bestSimilarity && similarity >= 0.7) {
-                    bestSimilarity = similarity;
-                    bestMatch = {
-                        node1: nodeId1,
-                        node2: nodeId2,
-                        signature1: fp1.signature,
-                        signature2: fp2.signature,
-                        confidence: similarity,
-                        degree: fp1.degree,
-                        type: 'similar',
-                        matchType: 'structural_similarity'
-                    };
-                }
-            }
+            // Вычисляем структурное сходство
+            const similarity = this.computeStructuralSimilarity(fp1, fp2);
            
-            if (bestMatch) {
-                similarMatches.push(bestMatch);
+            if (similarity > bestSimilarity && similarity >= threshold) {
+                bestSimilarity = similarity;
+                bestMatch = {
+                    node1: nodeId1,
+                    node2: nodeId2,
+                    signature1: fp1.signature,
+                    signature2: fp2.signature,
+                    confidence: similarity,
+                    degree: fp1.degree,
+                    type: 'similar',
+                    matchType: 'structural_similarity'
+                };
+                bestNodeId2 = nodeId2;
             }
         }
        
-        return similarMatches;
+        if (bestMatch) {
+            similarMatches.push(bestMatch);
+            usedNodes2.add(bestNodeId2); // Помечаем узел как использованный
+        }
     }
+   
+    return similarMatches;
+}
    
     // 🔥 МЕТОД 7: Вычисление структурного сходства
     computeStructuralSimilarity(fp1, fp2) {
