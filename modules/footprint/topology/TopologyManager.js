@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (интеграция с SimpleFootprintManager)
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
@@ -30,12 +30,12 @@ class TopologyManager {
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
     }
    
-    // 🔥 ГЛАВНЫЙ МЕТОД: Обработка следов из SimpleFootprint
+    // 🔥 ГЛАВНЫЙ МЕТОД: Обработка следов из SimpleFootprint (ИСПРАВЛЕННЫЙ)
     async processFootprint(footprint, analysis, photoInfo = {}) {
-        console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА следа "${footprint.name}"...`);
+        console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoInfo.photoId || 'без ID'}...`);
        
-        // 1. Извлекаем точки из footprint (центры деталей)
-        const points = this.extractPointsFromFootprint(footprint, analysis);
+        // 🔥 ИЗМЕНЕНИЕ 1: Берем точки ТОЛЬКО из текущего фото
+        const points = this.extractPointsFromCurrentPhoto(analysis, photoInfo);
        
         if (points.length < 3) {
             console.log('⚠️ Слишком мало точек для топологии');
@@ -46,7 +46,15 @@ class TopologyManager {
             };
         }
        
-        console.log(`📊 Извлечено ${points.length} точек из следа`);
+        console.log(`📊 Извлечено ${points.length} точек ИЗ ТЕКУЩЕГО ФОТО`);
+       
+        // 🔥 ИЗМЕНЕНИЕ 2: Диагностика точек
+        if (this.debug && points.length > 0) {
+            console.log(`📋 Первые 3 точки текущего фото:`);
+            points.slice(0, 3).forEach((p, i) => {
+                console.log(`   ${i+1}. ${p.id}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+            });
+        }
        
         // 2. Определяем модель для сравнения
         let modelId = this.linkedFootprints.get(footprint.id);
@@ -59,10 +67,11 @@ class TopologyManager {
         // 3. Обрабатываем точки через топологический аккумулятор
         const result = await this.accumulator.processPoints(points, {
             modelId: modelId,
-            source: `footprint_${footprint.id}`,
+            source: `photo_${photoInfo.photoId || Date.now()}`,
             name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
             footprintId: footprint.id,
-            photoInfo: photoInfo
+            photoInfo: photoInfo,
+            photoId: photoInfo.photoId // 🔥 ДОБАВЛЕНО
         });
        
         // 4. Обновляем связь след-модель
@@ -85,8 +94,55 @@ class TopologyManager {
         };
     }
    
-    // Извлечение точек из footprint (совместимость со старой системой)
+    // 🔥 ИЗМЕНЕНИЕ 3: НОВЫЙ МЕТОД - Извлечение точек ТОЛЬКО из текущего фото
+    extractPointsFromCurrentPhoto(analysis, photoInfo = {}) {
+        const points = [];
+       
+        if (!analysis?.predictions) {
+            console.log('⚠️ Нет данных анализа для извлечения точек');
+            return points;
+        }
+       
+        const photoId = photoInfo.photoId || `photo_${Date.now()}`;
+        const predictions = analysis.predictions || [];
+        let protectorCount = 0;
+       
+        predictions.forEach((pred, idx) => {
+            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
+                const xs = pred.points.map(p => p.x);
+                const ys = pred.points.map(p => p.y);
+               
+                points.push({
+                    id: `${photoId}_pt_${protectorCount}`, // 🔥 Уникальный ID для каждого фото
+                    x: (Math.min(...xs) + Math.max(...xs)) / 2,
+                    y: (Math.min(...ys) + Math.max(...ys)) / 2,
+                    confidence: pred.confidence || 0.5,
+                    source: 'current_photo', // 🔥 КЛЮЧЕВОЕ ИЗМЕНЕНИЕ
+                    photoId: photoId,
+                    originalIndex: protectorCount,
+                    originalPoints: pred.points
+                });
+                protectorCount++;
+            }
+        });
+       
+        console.log(`📸 Извлечено ${points.length} точек из ТЕКУЩЕГО ФОТО ${photoId}`);
+       
+        return points;
+    }
+   
+    // 🔥 ИЗМЕНЕНИЕ 4: Старый метод остается для совместимости, но помечен как deprecated
     extractPointsFromFootprint(footprint, analysis = null) {
+        console.log('⚠️ [DEPRECATED] extractPointsFromFootprint() - используйте extractPointsFromCurrentPhoto()');
+       
+        // 🔥 ПРЕДУПРЕЖДЕНИЕ: Этот метод аккумулирует ВСЕ точки
+        // Для сравнения фото используйте extractPointsFromCurrentPhoto()
+       
+        if (analysis?.predictions) {
+            return this.extractPointsFromCurrentPhoto(analysis, { photoId: 'legacy' });
+        }
+       
+        // 🔥 Старая логика для совместимости
         const points = [];
        
         // Вариант 1: Извлечь из PointTracker (честные подтверждения)
@@ -99,48 +155,13 @@ class TopologyManager {
                     confidence: point.rating || point.confidence || 0.5,
                     confirmedCount: point.confirmedCount || 1,
                     source: 'point_tracker',
-                    footprintId: footprint.id
+                    footprintId: footprint.id,
+                    note: '⚠️ АККУМУЛИРОВАННЫЕ ТОЧКИ'
                 });
             }
         }
        
-        // Вариант 2: Извлечь из анализа (если PointTracker пуст)
-        if (points.length === 0 && analysis && analysis.predictions) {
-            const predictions = analysis.predictions || [];
-           
-            predictions.forEach((pred, idx) => {
-                if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
-                    const xs = pred.points.map(p => p.x);
-                    const ys = pred.points.map(p => p.y);
-                   
-                    points.push({
-                        id: `analysis_pt_${idx}`,
-                        x: (Math.min(...xs) + Math.max(...xs)) / 2,
-                        y: (Math.min(...ys) + Math.max(...ys)) / 2,
-                        confidence: pred.confidence || 0.5,
-                        source: 'analysis',
-                        footprintId: footprint.id
-                    });
-                }
-            });
-        }
-       
-        // Вариант 3: Извлечь из графа
-        if (points.length === 0 && footprint.graph && footprint.graph.nodes) {
-            let idx = 0;
-            for (const [nodeId, node] of footprint.graph.nodes) {
-                points.push({
-                    id: nodeId,
-                    x: node.x || 0,
-                    y: node.y || 0,
-                    confidence: node.confidence || 0.5,
-                    source: 'graph',
-                    footprintId: footprint.id
-                });
-                idx++;
-            }
-        }
-       
+        console.log(`⚠️ Используются АККУМУЛИРОВАННЫЕ точки: ${points.length} (может вызвать ошибки сравнения)`);
         return points;
     }
    
@@ -159,13 +180,21 @@ class TopologyManager {
         }
     }
    
-    // 🔥 ИНТЕГРАЦИЯ: Сравнение двух следов через топологию
+    // 🔥 ИНТЕГРАЦИЯ: Сравнение двух следов через топологию (ИСПРАВЛЕННЫЙ)
     async compareFootprints(footprint1, footprint2, options = {}) {
         console.log(`🔍 ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
+       
+        // 🔥 ИЗМЕНЕНИЕ 5: Предупреждение об использовании аккумулированных точек
+        console.log('⚠️ ВНИМАНИЕ: compareFootprints использует ВСЕ точки следов');
+        console.log('   Для сравнения отдельных фото используйте comparePhotoToModel()');
        
         // 1. Извлекаем точки из обоих следов
         const points1 = this.extractPointsFromFootprint(footprint1);
         const points2 = this.extractPointsFromFootprint(footprint2);
+       
+        console.log(`📊 Точки для сравнения:`);
+        console.log(`   ${footprint1.name}: ${points1.length} точек (аккумулированные)`);
+        console.log(`   ${footprint2.name}: ${points2.length} точек (аккумулированные)`);
        
         if (points1.length < 3 || points2.length < 3) {
             console.log('⚠️ Один из следов имеет слишком мало точек');
@@ -201,6 +230,14 @@ class TopologyManager {
         console.log(`   Решение: ${decision.toUpperCase()}`);
         console.log(`   Точных совпадений: ${comparison.exactMatches.length}`);
        
+        // 🔥 ИЗМЕНЕНИЕ 6: Диагностика совпадений
+        if (this.debug && comparison.exactMatches.length > 0) {
+            console.log(`🔍 Примеры совпадений (первые 3):`);
+            comparison.exactMatches.slice(0, 3).forEach((match, i) => {
+                console.log(`   ${i+1}. ${match.node1} ↔ ${match.node2}`);
+            });
+        }
+       
         return {
             similar: isSame,
             similarity: comparison.similarity,
@@ -213,6 +250,85 @@ class TopologyManager {
                 edges1: graph1.edges.size,
                 nodes2: graph2.nodes.size,
                 edges2: graph2.edges.size
+            },
+            warning: 'Использованы аккумулированные точки следов'
+        };
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: Сравнение фото с моделью
+    async comparePhotoToModel(analysis, modelId = null, options = {}) {
+        console.log(`🔍 СРАВНЕНИЕ ФОТО С МОДЕЛЬЮ ${modelId || 'любой'}`);
+       
+        const points = this.extractPointsFromCurrentPhoto(analysis, options.photoInfo || {});
+       
+        if (points.length < 3) {
+            console.log('⚠️ Слишком мало точек на фото для сравнения');
+            return {
+                similar: false,
+                similarity: 0,
+                decision: 'different',
+                reason: 'Недостаточно точек на фото'
+            };
+        }
+       
+        // Строим граф из точек фото
+        const photoGraph = this.builder.buildDelaunayGraph(points, 'current_photo');
+        const photoFingerprints = this.fingerprinter.computeGraphFingerprints(photoGraph);
+       
+        // Если нет modelId, берем текущую модель
+        const targetModelId = modelId || this.accumulator.currentModelId;
+       
+        if (!targetModelId) {
+            console.log('⚠️ Нет модели для сравнения');
+            return {
+                similar: false,
+                similarity: 0,
+                decision: 'different',
+                reason: 'Нет топологической модели для сравнения'
+            };
+        }
+       
+        const model = this.accumulator.models.get(targetModelId);
+        if (!model) {
+            console.log(`⚠️ Модель ${targetModelId} не найдена`);
+            return {
+                similar: false,
+                similarity: 0,
+                decision: 'different',
+                reason: 'Топологическая модель не найдена'
+            };
+        }
+       
+        // Сравниваем
+        const comparison = this.fingerprinter.compareGraphs(
+            model.graph, model.fingerprints,
+            photoGraph, photoFingerprints
+        );
+       
+        const isSame = comparison.similarity >= (options.threshold || this.accumulator.similarityThreshold);
+        const decision = isSame ? 'same' : 'different';
+       
+        console.log(`🎯 СРАВНЕНИЕ ФОТО С МОДЕЛЬЮ ${targetModelId}:`);
+        console.log(`   Фото: ${points.length} точек, ${photoGraph.nodes.size} узлов`);
+        console.log(`   Модель: ${model.graph.nodes.size} узлов`);
+        console.log(`   Сходство: ${(comparison.similarity * 100).toFixed(1)}%`);
+        console.log(`   Решение: ${decision.toUpperCase()}`);
+       
+        return {
+            similar: isSame,
+            similarity: comparison.similarity,
+            decision: decision,
+            exactMatches: comparison.exactMatches,
+            stats: comparison,
+            photoStats: {
+                points: points.length,
+                nodes: photoGraph.nodes.size,
+                edges: photoGraph.edges.size
+            },
+            modelStats: {
+                nodes: model.graph.nodes.size,
+                edges: model.graph.edges.size,
+                modelId: targetModelId
             }
         };
     }
