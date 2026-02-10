@@ -331,32 +331,37 @@ class TopologyManager {
     }
    
     // АККУМУЛЯТИВНАЯ ВИЗУАЛИЗАЦИЯ: Показывает ВСЕ узлы из ВСЕХ следов
-    getAccumulativeVisualizationData(modelId = null) {
-        const targetModelId = modelId || this.accumulator.currentModelId;
+// В TopologyManager.js, метод getAccumulativeVisualizationData:
+
+getAccumulativeVisualizationData(modelId = null) {
+    const targetModelId = modelId || this.accumulator.currentModelId;
+   
+    if (!targetModelId) {
+        console.log('⚠️ Нет активной топологической модели');
+        return null;
+    }
+   
+    const model = this.accumulator.models.get(targetModelId);
+    if (!model) return null;
+   
+    const graph = model.graph;
+    const fingerprints = model.fingerprints;
+   
+    // 🔥 ИСПРАВЛЕНИЕ: Правильно считаем подтверждения
+    const nodeConfirmations = new Map();
+    for (const [nodeId, node] of graph.nodes) {
+        // Используем confirmationCount, а не степень
+        const confirmations = node.confirmationCount ||
+                             (node.addedFrom ? 1 : 0); // Базовое подтверждение
        
-        if (!targetModelId) {
-            console.log('⚠️ Нет активной топологической модели');
-            return null;
-        }
-       
-        const model = this.accumulator.models.get(targetModelId);
-        if (!model) return null;
-       
-        const graph = model.graph;
-        const fingerprints = model.fingerprints;
-       
-        // Подсчитываем подтверждения (из скольких следов узел)
-        const nodeConfirmations = new Map();
-        for (const [nodeId, node] of graph.nodes) {
-            // Пока просто степень узла как мера "важности"
-            // В будущем можно считать из скольких следов пришел узел
-            nodeConfirmations.set(nodeId, {
-                confirmations: node.degree,
-                confidence: node.confidence || 0.5,
-                source: node.addedFrom || 'original',
-                degree: node.degree
-            });
-        }
+        nodeConfirmations.set(nodeId, {
+            confirmations: confirmations,
+            confidence: node.confidence || 0.5,
+            source: node.addedFrom || 'original',
+            degree: node.degree,
+            confirmationCount: confirmations
+        });
+    }
        
         // Группируем узлы по количеству "подтверждений"
         const pointsByConfirmation = {
