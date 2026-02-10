@@ -2471,12 +2471,12 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
 
             // Проверяем, есть ли активная сессия
            // let session = footprintManager.getActiveSession(userId); было
-          const session = footprintManager.sessionManager.getActiveSession(userId);
-            if (!session) {
-                console.log('🔄 Создаю новую сессию...');
-                session = footprintManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-                console.log(`✅ Создана сессия: ${session.id}`);
-            }
+          let session = footprintManager.sessionManager.getActiveSession(userId);
+if (!session) {
+    console.log('🔄 Создаю новую сессию...');
+    session = footprintManager.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
+    console.log(`✅ Создана сессия: ${session.id}`);
+}
 
             // ВСЕГДА вызываем addPhotoToSession
             const result = await footprintManager.addPhotoToSession(
