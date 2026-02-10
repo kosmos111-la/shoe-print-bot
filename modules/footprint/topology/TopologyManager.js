@@ -12,11 +12,13 @@ class TopologyManager {
         this.debug = options.debug || false;
        
         // Основные компоненты
-        this.builder = new TopologyBuilder({ debug: this.debug });
-        this.fingerprinter = new TopologicalFingerprint({
-            debug: this.debug,
-            iterations: options.wlIterations || 3
-        });
+         this.builder = new TopologyBuilder({ debug: this.debug });
+    this.fingerprinter = new TopologicalFingerprint({
+        debug: this.debug,
+        iterations: options.wlIterations || 3,
+        bucketSize: 3, // 🔥 ДОБАВЛЕНО
+        similarityThreshold: 0.7 // 🔥 ДОБАВЛЕНО
+          
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
             debug: this.debug,
