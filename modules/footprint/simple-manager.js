@@ -113,9 +113,31 @@ class SimpleFootprintManager {
         console.log(`\n📸 ФОТО-ОРИЕНТИРОВАННАЯ обработка фото для пользователя ${userId}`);
        
         try {
-            if (!analysis?.predictions) {
-                return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
+        // 🔥 ДИАГНОСТИКА: Проверяем структуру analysis
+        console.log(`🔍 Диагностика структуры анализа:`);
+        console.log(`   analysis есть? ${!!analysis}`);
+        console.log(`   predictions есть? ${!!analysis?.predictions}`);
+        console.log(`   predictions тип: ${typeof analysis?.predictions}`);
+       
+        if (analysis?.predictions && Array.isArray(analysis.predictions)) {
+            console.log(`   predictions длина: ${analysis.predictions.length}`);
+           
+            // 🔥 Логируем первые несколько предсказаний для отладки
+            if (analysis.predictions.length > 0) {
+                console.log(`   Пример первого предсказания:`);
+                console.log(`     class: ${analysis.predictions[0]?.class}`);
+                console.log(`     confidence: ${analysis.predictions[0]?.confidence}`);
+                console.log(`     points есть? ${!!analysis.predictions[0]?.points}`);
+                console.log(`     points длина: ${analysis.predictions[0]?.points?.length || 0}`);
             }
+        }
+       
+        if (!analysis?.predictions) {
+            return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
+        }
+       
+        // 🔥 ИЗМЕНЕНИЕ: Используем правильный метод извлечения точек
+        const points = this.extractPointsFromAnalysis(analysis);
            
             // Извлечение точек из анализа
             const points = this.extractPointsFromAnalysis(analysis);
@@ -405,31 +427,53 @@ class SimpleFootprintManager {
     }
    
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    extractPointsFromAnalysis(analysis) {
-        const points = [];
-        const predictions = analysis.predictions || [];
-       
-        for (const pred of predictions) {
-            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
-                const xs = pred.points.map(p => p.x);
-                const ys = pred.points.map(p => p.y);
-               
-                points.push({
-                    x: (Math.min(...xs) + Math.max(...xs)) / 2,
-                    y: (Math.min(...ys) + Math.max(...ys)) / 2,
-                    confidence: pred.confidence || 0.5,
-                    originalPoints: pred.points,
-                    class: pred.class,
-                    _source: 'analysis'
-                });
-            }
+   extractPointsFromAnalysis(analysis) {
+    console.log(`🔍 Извлечение точек из анализа...`);
+   
+    let predictions = [];
+   
+    // 🔥 ОБНОВЛЕНА ЛОГИКА ИЗВЛЕЧЕНИЯ
+    if (Array.isArray(analysis.predictions)) {
+        predictions = analysis.predictions;
+    } else if (analysis.predictions && typeof analysis.predictions === 'object') {
+        // Может быть объект с массивом внутри
+        if (Array.isArray(analysis.predictions.predictions)) {
+            predictions = analysis.predictions.predictions;
+        } else if (analysis.predictions.data && Array.isArray(analysis.predictions.data)) {
+            predictions = analysis.predictions.data;
+        } else {
+            // Пытаемся преобразовать объект в массив
+            predictions = Object.values(analysis.predictions);
         }
-       
-        return points.filter(p =>
-            p && typeof p.x === 'number' && typeof p.y === 'number' &&
-            !isNaN(p.x) && !isNaN(p.y)
-        );
     }
+   
+    console.log(`📊 Для обработки: ${predictions.length} предсказаний`);
+   
+    const points = [];
+   
+    for (const pred of predictions) {
+        if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
+            const xs = pred.points.map(p => p.x);
+            const ys = pred.points.map(p => p.y);
+           
+            points.push({
+                x: (Math.min(...xs) + Math.max(...xs)) / 2,
+                y: (Math.min(...ys) + Math.max(...ys)) / 2,
+                confidence: pred.confidence || 0.5,
+                originalPoints: pred.points,
+                class: pred.class,
+                _source: 'analysis'
+            });
+        }
+    }
+   
+    console.log(`✅ Извлечено протекторов: ${points.length}`);
+   
+    return points.filter(p =>
+        p && typeof p.x === 'number' && typeof p.y === 'number' &&
+        !isNaN(p.x) && !isNaN(p.y)
+    );
+}
    
     getOrCreateSession(userId) {
         console.log(`⚠️ Используется устаревший getOrCreateSession(), используйте getOrCreatePhotoSession()`);
