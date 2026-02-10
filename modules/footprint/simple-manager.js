@@ -1,36 +1,36 @@
 // modules/footprint/simple-manager.js
-// 🔥 ИНТЕГРИРУЕМ ТОПОЛОГИЧЕСКУЮ СИСТЕМУ
+// 🔥 ИНТЕГРИРУЕМ ТОПОЛОГИЧЕСКУЮ СИСТЕМУ (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 
 const fs = require('fs');
 const path = require('path');
 
-// 🔥 НОВЫЙ ИМПОРТ: Топологический менеджер
+// 🔥 ИСПРАВЛЕННЫЕ ИМПОРТЫ
 const TopologyManager = require('./topology/TopologyManager');
+const SimpleFootprint = require('./simple-footprint'); // 🔥 НОВЫЙ ИМПОРТ
 
 // 🔥 ОСТАЛЬНЫЕ МОДУЛИ (минимальный набор)
 const TemplateCoordination = require('./core/comparison/template-coordination');
 const SessionManager = require('./core/session/session-manager');
 const GeometryUtils = require('./core/utils/geometry-utils');
 const LogManager = require('./core/log-manager');
-const SimpleGraph = require('./simple-graph');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
-        console.log('🚀 SimpleFootprintManager с ТОПОЛОГИЧЕСКОЙ СИСТЕМОЙ');
+        console.log('🚀 SimpleFootprintManager с ФОТО-ОРИЕНТИРОВАННОЙ ТОПОЛОГИЧЕСКОЙ СИСТЕМОЙ');
        
-        // 🔥 НАСТРОЙКИ (с акцентом на топологию)
+        // 🔥 НАСТРОЙКИ
         const {
             dbPath = './data/footprints',
-            autoAlignment = false, // 🔥 ОТКЛЮЧАЕМ автоматическое выравнивание
+            autoAlignment = false,
             autoSave = true,
             debug = false,
-            usePointTracker = true,
-            enableTopology = true, // 🔥 ВКЛЮЧАЕМ топологию
+            usePointTracker = false, // 🔥 ИЗМЕНЕНИЕ: отключаем
+            enableTopology = true,
             enableMergeVisualization = true,
-            topologySimilarityThreshold = 0.6, // 60% для "одинаковые"
+            topologySimilarityThreshold = 0.7, // 70% для "одинаковые"
             minPointsForFootprint = 5,
-            enableCoordinateDiagnostics = false, // 🔥 ОТКЛЮЧАЕМ диагностику координат
-            useLegacyVectorAlgorithm = false, // 🔥 ОТКЛЮЧАЕМ старый векторный алгоритм
+            enableCoordinateDiagnostics = false,
+            useLegacyVectorAlgorithm = false,
             ...otherOptions
         } = options;
        
@@ -40,7 +40,7 @@ class SimpleFootprintManager {
             autoSave,
             debug,
             usePointTracker,
-            enableTopology, // 🔥 КЛЮЧЕВАЯ НАСТРОЙКА
+            enableTopology,
             enableMergeVisualization,
             topologySimilarityThreshold,
             minPointsForFootprint,
@@ -86,7 +86,7 @@ class SimpleFootprintManager {
             totalPhotosProcessed: 0,
             totalTopologicalModels: 0,
             lastActivity: new Date(),
-            comparisonAlgorithm: 'topological_delaunay_wl' // 🔥 НОВЫЙ АЛГОРИТМ
+            comparisonAlgorithm: 'photo_oriented_topological' // 🔥 НОВОЕ
         };
        
         this.ensureDirectories();
@@ -94,23 +94,23 @@ class SimpleFootprintManager {
        
         // 🔥 ПОРОГИ РЕШЕНИЙ ДЛЯ ТОПОЛОГИИ
         this.DECISION_THRESHOLDS = {
-            TOPOLOGY_SIMILARITY: this.config.topologySimilarityThreshold, // 60%
+            TOPOLOGY_SIMILARITY: this.config.topologySimilarityThreshold,
             MIN_MATCHES: 3,
             MIN_POINTS: 3
         };
        
-        console.log(`🎯 Топологические пороги: сходство >${this.DECISION_THRESHOLDS.TOPOLOGY_SIMILARITY}`);
+        console.log(`🎯 Фото-ориентированная топология: сходство >${this.DECISION_THRESHOLDS.TOPOLOGY_SIMILARITY}`);
        
         // 🔥 Логирование
         this.log = new LogManager(this);
         if (options.logLevel) this.log.setLevel(options.logLevel);
        
-        console.log('✅ SimpleFootprintManager инициализирован с ТОПОЛОГИЧЕСКОЙ системой');
+        console.log('✅ SimpleFootprintManager инициализирован с ФОТО-ОРИЕНТИРОВАННОЙ системой');
     }
    
-    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ТОПОЛОГИЧЕСКИЙ)
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ИСПРАВЛЕННЫЙ)
     async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото для пользователя ${userId}`);
+        console.log(`\n📸 ФОТО-ОРИЕНТИРОВАННАЯ обработка фото для пользователя ${userId}`);
        
         try {
             if (!analysis?.predictions) {
@@ -125,43 +125,43 @@ class SimpleFootprintManager {
            
             console.log(`📊 Извлечено ${points.length} точек из анализа`);
            
-            // 🔥 Создание/получение SimpleFootprint
-            const SimpleFootprint = require('./simple-footprint');
-            const session = this.getOrCreateSession(userId);
+            // 🔥 ИЗМЕНЕНИЕ: Создание/получение сессии с фото-ориентированным следом
+            const session = this.getOrCreatePhotoSession(userId);
+            const photoId = photoInfo.photoId || `photo_${Date.now()}`;
            
             let footprint;
             if (!session.currentFootprint) {
-                // Первое фото - создаем новый след
+                // Первое фото - создаем новый фото-ориентированный след
                 footprint = new SimpleFootprint({
                     userId: userId,
                     name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
-                    transformation: null // 🔥 НЕ ИСПОЛЬЗУЕМ ТРАНСФОРМАЦИИ
+                    transformation: null
                 });
                 session.currentFootprint = footprint;
-                console.log(`👣 Создан новый след: "${footprint.name}"`);
+                console.log(`👣 Создан новый ФОТО-ОРИЕНТИРОВАННЫЙ след: "${footprint.name}"`);
             } else {
                 footprint = session.currentFootprint;
                 console.log(`👣 Использую существующий след: "${footprint.name}"`);
             }
            
-            // 🔥 ДОБАВЛЯЕМ АНАЛИЗ В СЛЕД (честные подтверждения)
-            const addResult = footprint.addAnalysisHonest(analysis, {
+            // 🔥 ИЗМЕНЕНИЕ: Добавляем фото с отдельным хранением
+            const addResult = footprint.addPhotoAnalysis(photoId, analysis, {
                 ...photoInfo,
-                photoId: photoInfo.photoId || `photo_${Date.now()}`,
+                photoId: photoId,
                 source: photoInfo.source || 'telegram_bot',
-                transformationInfo: null // 🔥 БЕЗ ТРАНСФОРМАЦИЙ
+                transformationInfo: null
             });
            
-            console.log(`📈 В след добавлено: ${addResult.added} узлов, всего: ${footprint.graph.nodes.size}`);
+            console.log(`📈 Фото ${photoId} добавлено в след: ${addResult.points} точек`);
            
-            // 🔥 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА
+            // 🔥 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА (только текущее фото)
             let topologicalResult = null;
             let decision = 'unknown';
             let similarity = 0;
            
             if (this.config.enableTopology) {
                 topologicalResult = await this.processTopologically(
-                    userId, footprint, analysis, photoInfo
+                    userId, footprint, analysis, { ...photoInfo, photoId }
                 );
                
                 decision = topologicalResult.decision;
@@ -193,36 +193,9 @@ class SimpleFootprintManager {
                                 debug: this.config.debug
                             });
                            
-                            // Создаем временный footprint для визуализации
-                            const tempFootprint = {
-                                id: `viz_${footprint.id}`,
-                                name: `Топология_${footprint.name}`,
-                                pointTracker: {
-                                    points: new Map(
-                                        visualizationData.points.map(p => [p.id, {
-                                            x: p.x,
-                                            y: p.y,
-                                            rating: p.confidence || 0.5,
-                                            confirmedCount: p.vizData?.confirmations || 1,
-                                            color: p.vizData?.color,
-                                            size: p.vizData?.size
-                                        }])
-                                    )
-                                },
-                                getTransformation: () => ({ rotationAngle: 0 })
-                            };
-                           
-                            const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
-                                tempFootprint,
-                                {
-                                    matchInfo: {
-                                        totalConfirmations: visualizationData.stats.totalNodes,
-                                        averageConfirmations: visualizationData.stats.avgDegree || 1,
-                                        totalGraphs: 1
-                                    },
-                                    filename: `topology_${userId}_${Date.now()}.png`
-                                }
-                            );
+                            const vizResult = await visualizer.visualizeTopologicalModel(visualizationData, {
+                                filename: `topology_${userId}_${Date.now()}.png`
+                            });
                            
                             if (vizResult && vizResult.path) {
                                 vizPath = vizResult.path;
@@ -248,8 +221,9 @@ class SimpleFootprintManager {
             const result = {
                 success: true,
                 footprintId: footprint.id,
-                nodesAdded: addResult.added,
-                totalNodes: footprint.graph.nodes.size,
+                photoId: photoId,
+                nodesAdded: addResult.points || 0,
+                totalPhotos: footprint.metadata.totalPhotos,
                 topologicalDecision: decision,
                 topologicalSimilarity: similarity,
                 hasTopology: this.config.enableTopology,
@@ -262,12 +236,14 @@ class SimpleFootprintManager {
                 result.topologicalResult = {
                     modelId: topologicalResult.modelId,
                     exactMatches: topologicalResult.exactMatches || 0,
-                    newNodesAdded: topologicalResult.newNodesAdded || 0
+                    newNodesAdded: topologicalResult.newNodesAdded || 0,
+                    status: topologicalResult.status
                 };
             }
            
             console.log(`📊 ИТОГОВЫЙ РЕЗУЛЬТАТ:`);
-            console.log(`   Узлов в следе: ${result.totalNodes}`);
+            console.log(`   Фото ID: ${photoId}`);
+            console.log(`   Фото в следе: ${result.totalPhotos}`);
             console.log(`   Топологическое решение: ${result.topologicalDecision}`);
             console.log(`   Сходство: ${(result.topologicalSimilarity * 100).toFixed(1)}%`);
            
@@ -280,13 +256,33 @@ class SimpleFootprintManager {
         }
     }
    
-    // 🔥 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА
+    // 🔥 НОВЫЙ МЕТОД: Создание/получение сессии с фото-ориентированным следом
+    getOrCreatePhotoSession(userId) {
+        let session = this.sessionManager.getActiveSession(userId);
+       
+        if (!session) {
+            session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
+           
+            // 🔥 Создаем фото-ориентированный след
+            const footprint = new SimpleFootprint({
+                userId: userId,
+                name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`
+            });
+           
+            session.currentFootprint = footprint;
+            console.log(`🆕 Создана сессия с фото-ориентированным следом для ${userId}`);
+        }
+       
+        return session;
+    }
+   
+    // 🔥 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА (исправленная)
     async processTopologically(userId, footprint, analysis, photoInfo) {
         try {
             // Получаем или создаем TopologyManager для пользователя
             const topologyManager = this.getOrCreateTopologyManager(userId);
            
-            // Обрабатываем след через топологическую систему
+            // 🔥 ИЗМЕНЕНИЕ: Передаем photoInfo с photoId
             const result = await topologyManager.processFootprint(
                 footprint, analysis, photoInfo
             );
@@ -296,7 +292,8 @@ class SimpleFootprintManager {
                 return {
                     decision: 'topology_failed',
                     similarity: 0,
-                    modelId: null
+                    modelId: null,
+                    status: 'failed'
                 };
             }
            
@@ -314,6 +311,7 @@ class SimpleFootprintManager {
                 modelId: result.modelId,
                 exactMatches: result.topologicalResult?.exactMatches || 0,
                 newNodesAdded: result.topologicalResult?.newNodesAdded || 0,
+                status: result.topologicalResult?.status || 'unknown',
                 modelInfo: result.modelInfo
             };
            
@@ -322,7 +320,8 @@ class SimpleFootprintManager {
             return {
                 decision: 'topology_error',
                 similarity: 0,
-                error: error.message
+                error: error.message,
+                status: 'error'
             };
         }
     }
@@ -349,18 +348,16 @@ class SimpleFootprintManager {
         return this.topologyManagers.get(userId);
     }
    
-    // 🔥 СРАВНЕНИЕ СЛЕДОВ (ТОПОЛОГИЧЕСКОЕ)
+    // 🔥 СРАВНЕНИЕ СЛЕДОВ (предупреждение)
     async compareFootprints(footprint1, footprint2, options = {}) {
-        console.log(`🔍 ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ следов`);
+        console.log(`🔍 СРАВНЕНИЕ ФОТО-ОРИЕНТИРОВАННЫХ следов`);
+        console.log(`⚠️ ВНИМАНИЕ: Этот метод сравнивает аккумулированные точки`);
+        console.log(`   Для точного сравнения используйте comparePhotoToModel()`);
        
         try {
-            // Определяем userId (берем из первого следа)
             const userId = footprint1.userId || footprint2.userId || 'default';
-           
-            // Получаем TopologyManager
             const topologyManager = this.getOrCreateTopologyManager(userId);
            
-            // Выполняем топологическое сравнение
             const result = await topologyManager.compareFootprints(
                 footprint1, footprint2, options
             );
@@ -370,7 +367,7 @@ class SimpleFootprintManager {
             return result;
            
         } catch (error) {
-            console.error(`❌ Ошибка топологического сравнения: ${error.message}`);
+            console.error(`❌ Ошибка сравнения: ${error.message}`);
             return {
                 similar: false,
                 similarity: 0,
@@ -381,7 +378,33 @@ class SimpleFootprintManager {
         }
     }
    
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (без изменений)
+    // 🔥 НОВЫЙ МЕТОД: Сравнение фото с моделью
+    async comparePhotoToModel(userId, analysis, options = {}) {
+        console.log(`🔍 СРАВНЕНИЕ ФОТО С МОДЕЛЬЮ для пользователя ${userId}`);
+       
+        try {
+            const topologyManager = this.getOrCreateTopologyManager(userId);
+           
+            const result = await topologyManager.comparePhotoToModel(
+                analysis,
+                options.modelId,
+                options
+            );
+           
+            return result;
+           
+        } catch (error) {
+            console.error(`❌ Ошибка сравнения фото с моделью: ${error.message}`);
+            return {
+                similar: false,
+                similarity: 0,
+                decision: 'different',
+                error: error.message
+            };
+        }
+    }
+   
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     extractPointsFromAnalysis(analysis) {
         const points = [];
         const predictions = analysis.predictions || [];
@@ -409,11 +432,8 @@ class SimpleFootprintManager {
     }
    
     getOrCreateSession(userId) {
-        let session = this.sessionManager.getActiveSession(userId);
-        if (!session) {
-            session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-        }
-        return session;
+        console.log(`⚠️ Используется устаревший getOrCreateSession(), используйте getOrCreatePhotoSession()`);
+        return this.getOrCreatePhotoSession(userId);
     }
    
     // 🔥 ОТПРАВКА В TELEGRAM (топологическая версия)
@@ -432,7 +452,7 @@ class SimpleFootprintManager {
                 .replace(/\]/g, ')');
            
             if (vizPath && fs.existsSync(vizPath)) {
-                let caption = `🎯 ТОПОЛОГИЧЕСКИЙ АНАЛИЗ\n\n`;
+                let caption = `🎯 ФОТО-ОРИЕНТИРОВАННЫЙ ТОПОЛОГИЧЕСКИЙ АНАЛИЗ\n\n`;
                
                 caption += `📊 Решение: ${decision === 'same_footprint' || decision === 'same_footprint_enhanced' ? '✅ ОДНА ОБУВЬ' : '🆕 РАЗНАЯ ОБУВЬ'}\n`;
                 caption += `📈 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
@@ -453,7 +473,7 @@ class SimpleFootprintManager {
                     caption += `└─ Новых узлов добавлено: ${topologicalResult.newNodesAdded || 0}\n`;
                 }
                
-                caption += `\n🏗️ Метод: Триангуляция Делоне + Weisfeiler-Lehman`;
+                caption += `\n🏗️ Метод: Фото-ориентированная триангуляция Делоне + Weisfeiler-Lehman`;
                
                 await bot.sendPhoto(chatId, vizPath, {
                     caption: cleanMarkdown(caption),
@@ -488,11 +508,12 @@ class SimpleFootprintManager {
             loadedModels: this.loadedModels.size,
             topologicalManagers: this.topologyManagers.size,
             topologyStats: topologyStats,
-            algorithm: 'Топологический (Делоне + Weisfeiler-Lehman)',
+            algorithm: 'Фото-ориентированная топология (Делоне + Weisfeiler-Lehman)',
             config: {
                 enableTopology: this.config.enableTopology,
                 topologySimilarityThreshold: this.config.topologySimilarityThreshold,
-                useLegacyVectorAlgorithm: this.config.useLegacyVectorAlgorithm
+                useLegacyVectorAlgorithm: this.config.useLegacyVectorAlgorithm,
+                photoOriented: true // 🔥 НОВОЕ
             }
         };
     }
@@ -504,7 +525,7 @@ class SimpleFootprintManager {
             path.join(this.config.dbPath, 'models'),
             path.join(this.config.dbPath, 'sessions'),
             path.join(this.config.dbPath, 'visualizations'),
-            path.join(this.config.dbPath, 'visualizations/topology'), // 🔥 НОВАЯ ПАПКА
+            path.join(this.config.dbPath, 'visualizations/topology'),
             path.join(this.config.dbPath, 'visualizations/clusters'),
             path.join(this.config.dbPath, 'reports'),
             path.join(this.config.dbPath, 'logs')
@@ -533,7 +554,6 @@ class SimpleFootprintManager {
             try {
                 const filePath = path.join(modelsDir, file);
                 const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-                const SimpleFootprint = require('./simple-footprint');
                 const footprint = SimpleFootprint.fromJSON(data);
                 this.loadedModels.set(footprint.id, footprint);
                 loadedCount++;
@@ -565,225 +585,207 @@ class SimpleFootprintManager {
         return topologyManager.clearUserModels();
     }
 
-// ДОБАВЛЯЕМ В КОНЕЦ КЛАССА SimpleFootprintManager:
-
-// 🔥 СОВМЕСТИМОСТЬ СО СТАРЫМ КОДОМ (main.js)
-// 🔥 ДОБАВЛЯЕМ В КОНЕЦ SimpleFootprintManager.js
-
-// ============================================
-// 🔧 СОВМЕСТИМОСТЬ СО СТАРЫМ main.js
-// ============================================
-
-// 🔥 МЕТОДЫ СЕССИЙ (нужны для main.js)
-getActiveSession(userId) {
-    return this.sessionManager.getActiveSession(userId);
-}
-
-createSession(userId, name = null) {
-    return this.sessionManager.createSession(userId, name);
-}
-
-getSessionInfo(userId) {
-    const session = this.getActiveSession(userId);
-    if (!session) return null;
-   
-    return {
-        id: session.id,
-        userId: session.userId,
-        name: session.name,
-        createdAt: session.createdAt,
-        lastActivity: session.lastActivity,
-        photosCount: session.photos ? session.photos.length : 0,
-        hasFootprint: !!session.currentFootprint,
-        currentFootprintId: session.currentFootprint?.id,
-        footprintStats: session.currentFootprint ? {
-            nodes: session.currentFootprint.graph?.nodes?.size || 0,
-            edges: session.currentFootprint.graph?.edges?.size || 0,
-            confidence: session.currentFootprint.stats?.confidence || 0
-        } : null
-    };
-}
-
-hasSession(userId) {
-    return this.sessionManager.hasSession(userId);
-}
-
-updateLastActivity(userId) {
-    const session = this.getActiveSession(userId);
-    if (session) {
-        session.lastActivity = new Date();
-        return true;
+    // 🔥 СОВМЕСТИМОСТЬ СО СТАРЫМ КОДОМ (main.js)
+    getActiveSession(userId) {
+        return this.sessionManager.getActiveSession(userId);
     }
-    return false;
-}
 
-// 🔥 МЕТОД ДЛЯ ПРОСТОГО ДОБАВЛЕНИЯ АНАЛИЗА (совместимость с main.js)
-async addAnalysisToSession(userId, analysis, photoInfo = {}) {
-    console.log(`👣 [Совместимость] addAnalysisToSession для ${userId}`);
-   
-    try {
-        // Проверяем наличие сессии
-        let session = this.getActiveSession(userId);
-        if (!session) {
-            // Создаем новую сессию
-            session = this.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-            console.log(`🆕 Создана сессия: ${session.id}`);
-        }
-       
-        // Вызываем основной метод
-        const result = await this.addPhotoToSession(userId, analysis, photoInfo);
+    createSession(userId, name = null) {
+        return this.sessionManager.createSession(userId, name);
+    }
+
+    getSessionInfo(userId) {
+        const session = this.getActiveSession(userId);
+        if (!session) return null;
        
         return {
-            success: result.success,
-            nodesAdded: result.nodesAdded || 0,
-            totalNodes: result.totalNodes || 0,
-            similarity: result.topologicalSimilarity || 0,
-            decision: result.topologicalDecision || 'unknown',
-            sessionId: session.id,
-            footprintId: result.footprintId,
-            visualizationPath: result.visualizationPath,
-            error: result.error
-        };
-       
-    } catch (error) {
-        console.log(`❌ Ошибка addAnalysisToSession: ${error.message}`);
-        return { success: false, error: error.message, nodesAdded: 0 };
-    }
-}
-
-// 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ ВИЗУАЛИЗАЦИИ (совместимость с main.js)
-async getVisualizationForSession(userId, options = {}) {
-    console.log(`🎨 [Совместимость] getVisualizationForSession для ${userId}`);
-   
-    try {
-        // Проверяем наличие топологической модели
-        const topologyManager = this.getTopologyManager(userId);
-        if (!topologyManager) {
-            return { success: false, error: 'Нет топологической модели' };
-        }
-       
-        // Получаем данные для визуализации
-        const topologyData = topologyManager.getAccumulativeVisualizationData();
-        if (!topologyData) {
-            return { success: false, error: 'Нет данных для визуализации' };
-        }
-       
-        // Создаем визуализацию
-        const ClusterVisualizer = require('./visualizations/cluster-visualizer');
-        const visualizer = new ClusterVisualizer({
-            outputDir: './data/footprints/visualizations',
-            canvasWidth: 1200,
-            canvasHeight: 800
-        });
-       
-        const vizResult = await visualizer.visualizeTopologicalModel(topologyData, {
-            filename: `session_${userId}_${Date.now()}.png`,
-            ...options
-        });
-       
-        return {
-            success: true,
-            path: vizResult.path,
-            stats: topologyData.stats
-        };
-       
-    } catch (error) {
-        console.log(`❌ Ошибка getVisualizationForSession: ${error.message}`);
-        return { success: false, error: error.message };
-    }
-}
-
-// 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ СТАТИСТИКИ СЕССИИ
-getSessionStats(userId) {
-    const session = this.getActiveSession(userId);
-    const topologyManager = this.getTopologyManager(userId);
-   
-    const baseStats = {
-        sessionId: session?.id || 'none',
-        userId: userId,
-        photosCount: session?.photos?.length || 0,
-        hasFootprint: !!session?.currentFootprint,
-        footprintNodes: session?.currentFootprint?.graph?.nodes?.size || 0
-    };
-   
-    if (topologyManager) {
-        const modelInfo = topologyManager.accumulator.getModelInfo();
-        return {
-            ...baseStats,
-            hasTopology: true,
-            topologyModelId: topologyManager.accumulator.currentModelId,
-            topologyNodes: modelInfo?.stats?.nodes || 0,
-            topologyEdges: modelInfo?.stats?.edges || 0,
-            confirmations: {
-                confirmed3: modelInfo?.stats?.confirmed3 || 0,
-                confirmed2: modelInfo?.stats?.confirmed2 || 0,
-                confirmed1: modelInfo?.stats?.confirmed1 || 0,
-                confirmed0: modelInfo?.stats?.confirmed0 || 0
-            }
-        };
-    }
-   
-    return baseStats;
-}
-
-// 🔥 ОЧИСТКА СЕССИИ
-clearSession(userId) {
-    console.log(`🧹 [Совместимость] Очистка сессии ${userId}`);
-   
-    // Очищаем сессию
-    this.sessionManager.sessions.delete(userId);
-   
-    // Очищаем топологическую модель
-    if (this.topologyManagers.has(userId)) {
-        this.topologyManagers.delete(userId);
-    }
-   
-    // Очищаем userSessions
-    this.userSessions.delete(userId);
-   
-    return { success: true, message: `Сессия ${userId} очищена` };
-}
-
-// 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ ВСЕХ СЕССИЙ
-getAllSessions() {
-    const sessions = [];
-   
-    for (const [userId, session] of this.sessionManager.sessions) {
-        sessions.push({
-            userId,
-            sessionId: session.id,
+            id: session.id,
+            userId: session.userId,
             name: session.name,
-            photosCount: session.photos?.length || 0,
+            createdAt: session.createdAt,
+            lastActivity: session.lastActivity,
+            photosCount: session.photos ? session.photos.length : 0,
             hasFootprint: !!session.currentFootprint,
-            lastActivity: session.lastActivity
-        });
+            currentFootprintId: session.currentFootprint?.id,
+            footprintStats: session.currentFootprint ? {
+                photos: session.currentFootprint.metadata?.totalPhotos || 0,
+                totalPoints: session.currentFootprint.stats?.totalPointsAcrossPhotos || 0,
+                confidence: session.currentFootprint.stats?.confidence || 0
+            } : null
+        };
     }
-   
-    return {
-        total: sessions.length,
-        sessions: sessions
-    };
-}
 
-// 🔥 МЕТОД ДЛЯ ТЕСТИРОВАНИЯ (совместимость с main.js)
-debugVisualizations(userId) {
-    const topologyManager = this.getTopologyManager(userId);
-   
-    if (!topologyManager) {
-        return { status: 'no_topology', message: 'Нет топологической модели' };
+    hasSession(userId) {
+        return this.sessionManager.hasSession(userId);
     }
-   
-    const modelInfo = topologyManager.accumulator.getModelInfo();
-   
-    return {
-        status: 'ok',
-        hasTopology: true,
-        modelId: topologyManager.accumulator.currentModelId,
-        nodes: modelInfo?.stats?.nodes || 0,
-        edges: modelInfo?.stats?.edges || 0
-    };
-}
-  
+
+    updateLastActivity(userId) {
+        const session = this.getActiveSession(userId);
+        if (session) {
+            session.lastActivity = new Date();
+            return true;
+        }
+        return false;
+    }
+
+    // 🔥 МЕТОД ДЛЯ ПРОСТОГО ДОБАВЛЕНИЯ АНАЛИЗА (совместимость с main.js)
+    async addAnalysisToSession(userId, analysis, photoInfo = {}) {
+        console.log(`👣 [Совместимость] addAnalysisToSession для ${userId}`);
+       
+        try {
+            // Вызываем основной метод
+            const result = await this.addPhotoToSession(userId, analysis, photoInfo);
+           
+            return {
+                success: result.success,
+                nodesAdded: result.nodesAdded || 0,
+                totalPhotos: result.totalPhotos || 0,
+                similarity: result.topologicalSimilarity || 0,
+                decision: result.topologicalDecision || 'unknown',
+                footprintId: result.footprintId,
+                visualizationPath: result.visualizationPath,
+                error: result.error
+            };
+           
+        } catch (error) {
+            console.log(`❌ Ошибка addAnalysisToSession: ${error.message}`);
+            return { success: false, error: error.message, nodesAdded: 0 };
+        }
+    }
+
+    // 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ ВИЗУАЛИЗАЦИИ (совместимость с main.js)
+    async getVisualizationForSession(userId, options = {}) {
+        console.log(`🎨 [Совместимость] getVisualizationForSession для ${userId}`);
+       
+        try {
+            // Проверяем наличие топологической модели
+            const topologyManager = this.getTopologyManager(userId);
+            if (!topologyManager) {
+                return { success: false, error: 'Нет топологической модели' };
+            }
+           
+            // Получаем данные для визуализации
+            const topologyData = topologyManager.getAccumulativeVisualizationData();
+            if (!topologyData) {
+                return { success: false, error: 'Нет данных для визуализации' };
+            }
+           
+            // Создаем визуализацию
+            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
+            const visualizer = new ClusterVisualizer({
+                outputDir: './data/footprints/visualizations',
+                canvasWidth: 1200,
+                canvasHeight: 800
+            });
+           
+            const vizResult = await visualizer.visualizeTopologicalModel(topologyData, {
+                filename: `session_${userId}_${Date.now()}.png`,
+                ...options
+            });
+           
+            return {
+                success: true,
+                path: vizResult.path,
+                stats: topologyData.stats
+            };
+           
+        } catch (error) {
+            console.log(`❌ Ошибка getVisualizationForSession: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ СТАТИСТИКИ СЕССИИ
+    getSessionStats(userId) {
+        const session = this.getActiveSession(userId);
+        const topologyManager = this.getTopologyManager(userId);
+       
+        const baseStats = {
+            sessionId: session?.id || 'none',
+            userId: userId,
+            photosCount: session?.photos?.length || 0,
+            hasFootprint: !!session?.currentFootprint,
+            footprintPhotos: session?.currentFootprint?.metadata?.totalPhotos || 0
+        };
+       
+        if (topologyManager) {
+            const modelInfo = topologyManager.accumulator.getModelInfo();
+            return {
+                ...baseStats,
+                hasTopology: true,
+                topologyModelId: topologyManager.accumulator.currentModelId,
+                topologyNodes: modelInfo?.stats?.nodes || 0,
+                topologyEdges: modelInfo?.stats?.edges || 0,
+                confirmations: {
+                    confirmed3: modelInfo?.stats?.confirmed3 || 0,
+                    confirmed2: modelInfo?.stats?.confirmed2 || 0,
+                    confirmed1: modelInfo?.stats?.confirmed1 || 0,
+                    confirmed0: modelInfo?.stats?.confirmed0 || 0
+                }
+            };
+        }
+       
+        return baseStats;
+    }
+
+    // 🔥 ОЧИСТКА СЕССИИ
+    clearSession(userId) {
+        console.log(`🧹 [Совместимость] Очистка сессии ${userId}`);
+       
+        // Очищаем сессию
+        this.sessionManager.sessions.delete(userId);
+       
+        // Очищаем топологическую модель
+        if (this.topologyManagers.has(userId)) {
+            this.topologyManagers.delete(userId);
+        }
+       
+        // Очищаем userSessions
+        this.userSessions.delete(userId);
+       
+        return { success: true, message: `Сессия ${userId} очищена` };
+    }
+
+    // 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ ВСЕХ СЕССИЙ
+    getAllSessions() {
+        const sessions = [];
+       
+        for (const [userId, session] of this.sessionManager.sessions) {
+            sessions.push({
+                userId,
+                sessionId: session.id,
+                name: session.name,
+                photosCount: session.photos?.length || 0,
+                hasFootprint: !!session.currentFootprint,
+                lastActivity: session.lastActivity
+            });
+        }
+       
+        return {
+            total: sessions.length,
+            sessions: sessions
+        };
+    }
+
+    // 🔥 МЕТОД ДЛЯ ТЕСТИРОВАНИЯ (совместимость с main.js)
+    debugVisualizations(userId) {
+        const topologyManager = this.getTopologyManager(userId);
+       
+        if (!topologyManager) {
+            return { status: 'no_topology', message: 'Нет топологической модели' };
+        }
+       
+        const modelInfo = topologyManager.accumulator.getModelInfo();
+       
+        return {
+            status: 'ok',
+            hasTopology: true,
+            modelId: topologyManager.accumulator.currentModelId,
+            nodes: modelInfo?.stats?.nodes || 0,
+            edges: modelInfo?.stats?.edges || 0,
+            photoOriented: true
+        };
+    }
 }
 
 module.exports = SimpleFootprintManager;
