@@ -113,31 +113,32 @@ class SimpleFootprintManager {
         console.log(`\n📸 ФОТО-ОРИЕНТИРОВАННАЯ обработка фото для пользователя ${userId}`);
        
         try {
-        // 🔥 ДИАГНОСТИКА: Проверяем структуру analysis
-        console.log(`🔍 Диагностика структуры анализа:`);
-        console.log(`   analysis есть? ${!!analysis}`);
-        console.log(`   predictions есть? ${!!analysis?.predictions}`);
-        console.log(`   predictions тип: ${typeof analysis?.predictions}`);
-       
-        if (analysis?.predictions && Array.isArray(analysis.predictions)) {
-            console.log(`   predictions длина: ${analysis.predictions.length}`);
+            // 🔥 ДИАГНОСТИКА: Проверяем структуру analysis
+            console.log(`🔍 Диагностика структуры анализа:`);
+            console.log(`   analysis есть? ${!!analysis}`);
+            console.log(`   predictions есть? ${!!analysis?.predictions}`);
+            console.log(`   predictions тип: ${typeof analysis?.predictions}`);
            
-            // 🔥 Логируем первые несколько предсказаний для отладки
-            if (analysis.predictions.length > 0) {
-                console.log(`   Пример первого предсказания:`);
-                console.log(`     class: ${analysis.predictions[0]?.class}`);
-                console.log(`     confidence: ${analysis.predictions[0]?.confidence}`);
-                console.log(`     points есть? ${!!analysis.predictions[0]?.points}`);
-                console.log(`     points длина: ${analysis.predictions[0]?.points?.length || 0}`);
+            if (analysis?.predictions && Array.isArray(analysis.predictions)) {
+                console.log(`   predictions длина: ${analysis.predictions.length}`);
+               
+                // 🔥 Логируем первые несколько предсказаний для отладки
+                if (analysis.predictions.length > 0) {
+                    const firstPred = analysis.predictions[0];
+                    console.log(`   Пример первого предсказания:`);
+                    console.log(`     class: ${firstPred?.class}`);
+                    console.log(`     confidence: ${firstPred?.confidence}`);
+                    console.log(`     points есть? ${!!firstPred?.points}`);
+                    console.log(`     points длина: ${firstPred?.points?.length || 0}`);
+                }
+            } else if (analysis?.predictions && typeof analysis.predictions === 'object') {
+                console.log(`   predictions является объектом`);
+                console.log(`   keys: ${Object.keys(analysis.predictions).join(', ')}`);
             }
-        }
-       
-        if (!analysis?.predictions) {
-            return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
-        }
-       
-        // 🔥 ИЗМЕНЕНИЕ: Используем правильный метод извлечения точек
-        const points = this.extractPointsFromAnalysis(analysis);
+           
+            if (!analysis?.predictions) {
+                return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
+            }
            
             // Извлечение точек из анализа
             const points = this.extractPointsFromAnalysis(analysis);
@@ -164,6 +165,7 @@ class SimpleFootprintManager {
             } else {
                 footprint = session.currentFootprint;
                 console.log(`👣 Использую существующий след: "${footprint.name}"`);
+                console.log(`   Уже содержит фото: ${footprint.metadata.totalPhotos}`);
             }
            
             // 🔥 ИЗМЕНЕНИЕ: Добавляем фото с отдельным хранением
@@ -174,7 +176,17 @@ class SimpleFootprintManager {
                 transformationInfo: null
             });
            
+            if (!addResult.success) {
+                console.log(`❌ Ошибка добавления фото: ${addResult.error}`);
+                return {
+                    success: false,
+                    error: addResult.error,
+                    nodesAdded: 0
+                };
+            }
+           
             console.log(`📈 Фото ${photoId} добавлено в след: ${addResult.points} точек`);
+            console.log(`   Всего фото в следе: ${addResult.totalPhotos}`);
            
             // 🔥 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА (только текущее фото)
             let topologicalResult = null;
@@ -276,6 +288,115 @@ class SimpleFootprintManager {
             console.error(error);
             return { success: false, error: error.message, nodesAdded: 0 };
         }
+    }
+   
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Извлечение точек из анализа
+    extractPointsFromAnalysis(analysis) {
+        console.log(`🔍 Извлечение точек из анализа...`);
+       
+        let predictions = [];
+       
+        // 🔥 ОБНОВЛЕННАЯ ЛОГИКА ИЗВЛЕЧЕНИЯ
+        if (Array.isArray(analysis.predictions)) {
+            predictions = analysis.predictions;
+            console.log(`📊 Найден массив predictions: ${predictions.length} элементов`);
+        } else if (analysis.predictions && typeof analysis.predictions === 'object') {
+            // Может быть объект с массивом внутри
+            if (Array.isArray(analysis.predictions.predictions)) {
+                predictions = analysis.predictions.predictions;
+                console.log(`📊 Найден predictions.predictions: ${predictions.length} элементов`);
+            } else if (analysis.predictions.data && Array.isArray(analysis.predictions.data)) {
+                predictions = analysis.predictions.data;
+                console.log(`📊 Найден predictions.data: ${predictions.length} элементов`);
+            } else {
+                // Пытаемся преобразовать объект в массив
+                predictions = Object.values(analysis.predictions);
+                console.log(`📊 Преобразован объект в массив: ${predictions.length} элементов`);
+            }
+        } else {
+            console.log(`❌ Неизвестный формат predictions:`, typeof analysis.predictions);
+            return [];
+        }
+       
+        console.log(`📊 Для обработки: ${predictions.length} предсказаний`);
+       
+        const points = [];
+        let protectorCount = 0;
+        let otherCount = 0;
+       
+        for (let i = 0; i < predictions.length; i++) {
+            const pred = predictions[i];
+           
+            // 🔥 ДИАГНОСТИКА: Логируем первые несколько предсказаний
+            if (i < 2 && protectorCount === 0) {
+                console.log(`   Предсказание ${i}: class="${pred?.class}", confidence=${pred?.confidence}`);
+            }
+           
+            if (!pred || typeof pred !== 'object') {
+                console.log(`⚠️ Предсказание ${i} не является объектом:`, typeof pred);
+                continue;
+            }
+           
+            // Проверяем класс протектора
+            const isProtector = pred.class === 'shoe-protector' ||
+                               (pred.class && pred.class.toLowerCase().includes('protector'));
+           
+            if (isProtector && pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
+                const center = this.calculateCenter(pred.points);
+                points.push({
+                    x: center.x,
+                    y: center.y,
+                    confidence: pred.confidence || 0.5,
+                    originalPoints: pred.points,
+                    class: pred.class,
+                    originalIndex: i
+                });
+                protectorCount++;
+            } else if (pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
+                // Если не протектор, но есть точки - тоже учитываем
+                const center = this.calculateCenter(pred.points);
+                points.push({
+                    x: center.x,
+                    y: center.y,
+                    confidence: pred.confidence || 0.5,
+                    originalPoints: pred.points,
+                    class: pred.class || 'unknown',
+                    originalIndex: i,
+                    note: 'not_protector'
+                });
+                otherCount++;
+            }
+        }
+       
+        console.log(`✅ Извлечено точек: ${points.length} (протекторы: ${protectorCount}, другие: ${otherCount})`);
+       
+        // Если не нашли протекторов, но нашли другие точки
+        if (protectorCount === 0 && points.length > 0) {
+            console.log(`⚠️ Не найдено протекторов, но найдено ${points.length} других точек`);
+            console.log(`   Использую все точки с confidence > 0.3`);
+           
+            // Фильтруем по confidence
+            return points.filter(p => (p.confidence || 0) > 0.3);
+        }
+       
+        return points.filter(p =>
+            p && typeof p.x === 'number' && typeof p.y === 'number' &&
+            !isNaN(p.x) && !isNaN(p.y)
+        );
+    }
+   
+    calculateCenter(points) {
+        if (!points || !Array.isArray(points) || points.length === 0) {
+            return { x: 0, y: 0 };
+        }
+       
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+       
+        return {
+            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+            y: (Math.min(...ys) + Math.max(...ys)) / 2
+        };
     }
    
     // 🔥 НОВЫЙ МЕТОД: Создание/получение сессии с фото-ориентированным следом
@@ -425,55 +546,6 @@ class SimpleFootprintManager {
             };
         }
     }
-   
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-   extractPointsFromAnalysis(analysis) {
-    console.log(`🔍 Извлечение точек из анализа...`);
-   
-    let predictions = [];
-   
-    // 🔥 ОБНОВЛЕНА ЛОГИКА ИЗВЛЕЧЕНИЯ
-    if (Array.isArray(analysis.predictions)) {
-        predictions = analysis.predictions;
-    } else if (analysis.predictions && typeof analysis.predictions === 'object') {
-        // Может быть объект с массивом внутри
-        if (Array.isArray(analysis.predictions.predictions)) {
-            predictions = analysis.predictions.predictions;
-        } else if (analysis.predictions.data && Array.isArray(analysis.predictions.data)) {
-            predictions = analysis.predictions.data;
-        } else {
-            // Пытаемся преобразовать объект в массив
-            predictions = Object.values(analysis.predictions);
-        }
-    }
-   
-    console.log(`📊 Для обработки: ${predictions.length} предсказаний`);
-   
-    const points = [];
-   
-    for (const pred of predictions) {
-        if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
-            const xs = pred.points.map(p => p.x);
-            const ys = pred.points.map(p => p.y);
-           
-            points.push({
-                x: (Math.min(...xs) + Math.max(...xs)) / 2,
-                y: (Math.min(...ys) + Math.max(...ys)) / 2,
-                confidence: pred.confidence || 0.5,
-                originalPoints: pred.points,
-                class: pred.class,
-                _source: 'analysis'
-            });
-        }
-    }
-   
-    console.log(`✅ Извлечено протекторов: ${points.length}`);
-   
-    return points.filter(p =>
-        p && typeof p.x === 'number' && typeof p.y === 'number' &&
-        !isNaN(p.x) && !isNaN(p.y)
-    );
-}
    
     getOrCreateSession(userId) {
         console.log(`⚠️ Используется устаревший getOrCreateSession(), используйте getOrCreatePhotoSession()`);
