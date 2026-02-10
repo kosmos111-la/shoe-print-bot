@@ -149,7 +149,7 @@ class TopologicalFingerprint {
         return finalSignatures;
     }
    
-    // 🔥 МЕТОД 2: Построение карты соседей
+    // 🔥 МЕТОД 2: Построение карта соседей
     buildNeighborMap(nodes, edges) {
         const neighborMap = new Map();
        
@@ -434,7 +434,7 @@ class TopologicalFingerprint {
         return similarMatches;
     }
    
-    // 🔥 МЕТОД 7: Вычисление структурного сходства
+    // 🔥 МЕТОД 7: Вычисление структурного сходство
     computeStructuralSimilarity(fp1, fp2) {
         let similarity = 0;
        
