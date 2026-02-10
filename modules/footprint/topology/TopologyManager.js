@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (ИСПРАВЛЕННАЯ СИНТАКСИС)
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (ФИНАЛЬНАЯ ВЕРСИЯ)
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
@@ -17,12 +17,12 @@ class TopologyManager {
             debug: this.debug,
             iterations: options.wlIterations || 3,
             bucketSize: 3,
-            similarityThreshold: 0.7
+            similarityThreshold: 0.8
         });
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
             debug: this.debug,
-            similarityThreshold: options.similarityThreshold || 0.6,
+            similarityThreshold: options.similarityThreshold || 0.7,
             minMatchesForEnhancement: options.minMatchesForEnhancement || 3
         });
        
@@ -330,38 +330,53 @@ class TopologyManager {
         };
     }
    
-    // АККУМУЛЯТИВНАЯ ВИЗУАЛИЗАЦИЯ: Показывает ВСЕ узлы из ВСЕХ следов
-// В TopologyManager.js, метод getAccumulativeVisualizationData:
-
-getAccumulativeVisualizationData(modelId = null) {
-    const targetModelId = modelId || this.accumulator.currentModelId;
-   
-    if (!targetModelId) {
-        console.log('⚠️ Нет активной топологической модели');
-        return null;
-    }
-   
-    const model = this.accumulator.models.get(targetModelId);
-    if (!model) return null;
-   
-    const graph = model.graph;
-    const fingerprints = model.fingerprints;
-   
-    // 🔥 ИСПРАВЛЕНИЕ: Правильно считаем подтверждения
-    const nodeConfirmations = new Map();
-    for (const [nodeId, node] of graph.nodes) {
-        // Используем confirmationCount, а не степень
-        const confirmations = node.confirmationCount ||
-                             (node.addedFrom ? 1 : 0); // Базовое подтверждение
+    // 🔥 АККУМУЛЯТИВНАЯ ВИЗУАЛИЗАЦИЯ: Показывает ВСЕ узлы из ВСЕХ следов (ИСПРАВЛЕННАЯ)
+    getAccumulativeVisualizationData(modelId = null) {
+        const targetModelId = modelId || this.accumulator.currentModelId;
        
-        nodeConfirmations.set(nodeId, {
-            confirmations: confirmations,
-            confidence: node.confidence || 0.5,
-            source: node.addedFrom || 'original',
-            degree: node.degree,
-            confirmationCount: confirmations
+        if (!targetModelId) {
+            console.log('⚠️ Нет активной топологической модели');
+            return null;
+        }
+       
+        const model = this.accumulator.models.get(targetModelId);
+        if (!model) return null;
+       
+        const graph = model.graph;
+        const fingerprints = model.fingerprints;
+       
+        // 🔥 ИСПРАВЛЕНИЕ 1: Правильно считаем подтверждения
+        const nodeConfirmations = new Map();
+        for (const [nodeId, node] of graph.nodes) {
+            // Используем confirmationCount из модели
+            const confirmations = node.confirmationCount ||
+                                 (node.addedFrom ? 1 : 0);
+           
+            nodeConfirmations.set(nodeId, {
+                confirmations: confirmations,
+                confidence: node.confidence || 0.5,
+                source: node.addedFrom || 'original',
+                degree: node.degree,
+                confirmationCount: confirmations
+            });
+           
+            // 🔥 ДЛЯ ОТЛАДКИ: Логируем узлы с подтверждениями
+            if (this.debug && confirmations > 1) {
+                console.log(`   Узел ${nodeId}: ${confirmations} подтверждений`);
+            }
+        }
+       
+        // 🔥 ИСПРАВЛЕНИЕ 2: Сортируем узлы по времени добавления
+        const sortedNodes = Array.from(graph.nodes.values()).sort((a, b) => {
+            const timeA = a.addedAt ? a.addedAt.getTime() : 0;
+            const timeB = b.addedAt ? b.addedAt.getTime() : 0;
+            return timeA - timeB; // Старые сначала
         });
-    }
+       
+        // 🔥 ИСПРАВЛЕНИЕ 3: Диагностика
+        console.log(`📊 Визуализация модели ${targetModelId}:`);
+        console.log(`   Всего узлов: ${graph.nodes.size}`);
+        console.log(`   Узлов с confirmationCount: ${Array.from(graph.nodes.values()).filter(n => n.confirmationCount).length}`);
        
         // Группируем узлы по количеству "подтверждений"
         const pointsByConfirmation = {
@@ -371,47 +386,67 @@ getAccumulativeVisualizationData(modelId = null) {
             confirmed0: []  // 0 подтверждений (предсказанные)
         };
        
-        for (const [nodeId, node] of graph.nodes) {
-            const info = nodeConfirmations.get(nodeId);
-            const confirmations = info.confirmations;
+        // 🔥 ИСПРАВЛЕНИЕ 4: Правильная группировка
+        for (const node of sortedNodes) {
+            const info = nodeConfirmations.get(node.id);
+            const confirmations = info ? info.confirmations : 0;
            
             // Определяем цвет по "подтверждениям"
             let color, size, confirmationLevel;
            
             if (confirmations >= 3) {
-                color = '#FF0000';
+                color = '#FF0000'; // 🔴 Красный
                 size = 8 + (node.confidence || 0.5) * 6;
                 confirmationLevel = 'confirmed3';
                 pointsByConfirmation.confirmed3.push(node);
             } else if (confirmations >= 2) {
-                color = '#FF6B00';
+                color = '#FF6B00'; // 🟠 Оранжевый
                 size = 6 + (node.confidence || 0.5) * 4;
                 confirmationLevel = 'confirmed2';
                 pointsByConfirmation.confirmed2.push(node);
             } else if (confirmations >= 1) {
-                color = '#2196F3';
+                color = '#2196F3'; // 🔵 Синий
                 size = 5 + (node.confidence || 0.5) * 3;
                 confirmationLevel = 'confirmed1';
                 pointsByConfirmation.confirmed1.push(node);
             } else {
-                color = '#BDBDBD';
+                color = '#BDBDBD'; // ⚪ Серый
                 size = 4;
                 confirmationLevel = 'confirmed0';
                 pointsByConfirmation.confirmed0.push(node);
             }
            
-            // Добавляем информацию для визуализации
+            // 🔥 ИСПРАВЛЕНИЕ 5: Добавляем полную информацию для визуализации
             node.vizData = {
                 color: color,
                 size: size,
                 confirmationLevel: confirmationLevel,
                 confirmations: confirmations,
                 degree: node.degree,
-                source: info.source
+                source: info ? info.source : 'unknown',
+                addedAt: node.addedAt,
+                confirmationCount: node.confirmationCount,
+                id: node.id // 🔥 ВАЖНО: Сохраняем ID
             };
+           
+            // Сохраняем координаты (они нужны для визуализации)
+            if (!node.x || !node.y) {
+                // Если у узла нет координат, пытаемся восстановить
+                if (node.originalData) {
+                    node.x = node.originalData.x;
+                    node.y = node.originalData.y;
+                } else {
+                    // Генерируем случайные координаты для визуализации
+                    node.x = Math.random() * 100;
+                    node.y = Math.random() * 100;
+                    if (this.debug) {
+                        console.log(`⚠️ У узла ${node.id} нет координат, используем случайные`);
+                    }
+                }
+            }
         }
        
-        // Статистика
+        // 🔥 ИСПРАВЛЕНИЕ 6: Статистика с деталями
         const stats = {
             totalNodes: graph.nodes.size,
             totalEdges: graph.edges.size,
@@ -421,8 +456,30 @@ getAccumulativeVisualizationData(modelId = null) {
             confirmed1: pointsByConfirmation.confirmed1.length,
             confirmed0: pointsByConfirmation.confirmed0.length,
             uniquenessRatio: fingerprints ?
-                this.fingerprinter.getFingerprintInfo(fingerprints).uniquenessRatio : 0
+                this.fingerprinter.getFingerprintInfo(fingerprints).uniquenessRatio : 0,
+           
+            // 🔥 ДОПОЛНИТЕЛЬНАЯ СТАТИСТИКА
+            nodesBySource: {},
+            confirmationDistribution: {
+                '3+': pointsByConfirmation.confirmed3.length,
+                '2': pointsByConfirmation.confirmed2.length,
+                '1': pointsByConfirmation.confirmed1.length,
+                '0': pointsByConfirmation.confirmed0.length
+            }
         };
+       
+        // Считаем узлы по источникам
+        for (const node of graph.nodes.values()) {
+            const source = node.addedFrom || 'original';
+            stats.nodesBySource[source] = (stats.nodesBySource[source] || 0) + 1;
+        }
+       
+        console.log(`📊 Статистика модели для визуализации:`);
+        console.log(`   Всего узлов: ${stats.totalNodes}`);
+        console.log(`   🔴 3+ подтверждений: ${stats.confirmed3}`);
+        console.log(`   🟠 2 подтверждения: ${stats.confirmed2}`);
+        console.log(`   🔵 1 подтверждение: ${stats.confirmed1}`);
+        console.log(`   ⚪ Новые узлы: ${stats.confirmed0}`);
        
         return {
             modelId: targetModelId,
