@@ -1,477 +1,568 @@
 // modules/footprint/simple-manager.js
-// 🔥 ВЕКТОРНАЯ СИСТЕМА С НАСТРОЕННЫМ ПОРОГОМ
+// 🔥 ИНТЕГРИРУЕМ ТОПОЛОГИЧЕСКУЮ СИСТЕМУ
 
 const fs = require('fs');
 const path = require('path');
 
-// 🔥 УПРОЩЕННЫЙ ВЕКТОРНЫЙ АЛГОРИТМ
-let VectorAlgorithm;
-try {
-    VectorAlgorithm = require('./clean/vector-algorithm');
-    console.log('✅ Упрощенный векторный алгоритм загружен');
-} catch (error) {
-    console.log(`⚠️ Ошибка загрузки: ${error.message}`);
-    // Фаллбэк
-    VectorAlgorithm = class {
-        compareFootprints() { return { similar: false, similarity: 0, matches: [] }; }
-    };
-}
+// 🔥 НОВЫЙ ИМПОРТ: Топологический менеджер
+const TopologyManager = require('./topology/TopologyManager');
+
+// 🔥 ОСТАЛЬНЫЕ МОДУЛИ (минимальный набор)
+const TemplateCoordination = require('./core/comparison/template-coordination');
+const SessionManager = require('./core/session/session-manager');
+const GeometryUtils = require('./core/utils/geometry-utils');
+const LogManager = require('./core/log-manager');
+const SimpleGraph = require('./simple-graph');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
-        console.log('🚀 SimpleFootprintManager создан (УПРОЩЕННАЯ векторная система)');
-
-        // 🔥 ВАЖНО: Устанавливаем порог 57% (немного ниже 57.9%)
+        console.log('🚀 SimpleFootprintManager с ТОПОЛОГИЧЕСКОЙ СИСТЕМОЙ');
+       
+        // 🔥 НАСТРОЙКИ (с акцентом на топологию)
+        const {
+            dbPath = './data/footprints',
+            autoAlignment = false, // 🔥 ОТКЛЮЧАЕМ автоматическое выравнивание
+            autoSave = true,
+            debug = false,
+            usePointTracker = true,
+            enableTopology = true, // 🔥 ВКЛЮЧАЕМ топологию
+            enableMergeVisualization = true,
+            topologySimilarityThreshold = 0.6, // 60% для "одинаковые"
+            minPointsForFootprint = 5,
+            enableCoordinateDiagnostics = false, // 🔥 ОТКЛЮЧАЕМ диагностику координат
+            useLegacyVectorAlgorithm = false, // 🔥 ОТКЛЮЧАЕМ старый векторный алгоритм
+            ...otherOptions
+        } = options;
+       
         this.config = {
-            dbPath: options.dbPath || './data/footprints',
-            similarityThreshold: 0.57, // 57% вместо 60%
-            minPoints: options.minPoints || 5,
-            debug: options.debug || false
+            dbPath,
+            autoAlignment,
+            autoSave,
+            debug,
+            usePointTracker,
+            enableTopology, // 🔥 КЛЮЧЕВАЯ НАСТРОЙКА
+            enableMergeVisualization,
+            topologySimilarityThreshold,
+            minPointsForFootprint,
+            enableCoordinateDiagnostics,
+            useLegacyVectorAlgorithm,
+            ...otherOptions
         };
-
-        console.log(`🎯 ПОРОГ СРАВНЕНИЯ: ${this.config.similarityThreshold * 100}%`);
-
-        // 🔥 АЛГОРИТМ
-        this.vectorAlgorithm = new VectorAlgorithm({
-            minSimilarity: this.config.similarityThreshold,
-            debug: this.config.debug
-        });
-
-        // 🔥 ХРАНИЛИЩЕ
-        this.userModels = new Map();
-        this.sessions = new Map();
-
-        console.log('✅ SimpleFootprintManager готов');
-    }
-
-    // 🔥 ГЛАВНЫЙ МЕТОД
-    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
-        console.log(`\n📸 ДОБАВЛЕНИЕ ФОТО для ${userId}`);
-
-        try {
-            // Извлекаем точки
-            const points = this.extractPoints(analysis);
-            if (points.length < this.config.minPoints) {
-                return { success: false, error: `Мало точек: ${points.length}` };
+       
+        // 🔥 ТОПОЛОГИЧЕСКИЙ МЕНЕДЖЕР (ОСНОВНОЙ ДВИЖОК)
+        this.topologyManagers = new Map(); // userId -> TopologyManager
+       
+        // 🔥 СТАРЫЕ МОДУЛИ (для совместимости)
+        const RotationInvariance = require('./rotation-invariance');
+        const MirrorDetection = require('./mirror-detection');
+        this.rotationProcessor = new RotationInvariance({ debug: false });
+        this.mirrorDetector = new MirrorDetection({ debug: false });
+       
+        // 🔥 Основные модули
+        this.templateCoordinator = new TemplateCoordination(this);
+        this.sessionManager = new SessionManager(this);
+        this.geometryUtils = new GeometryUtils(this);
+       
+        // 🔥 Визуализация
+        if (this.config.enableMergeVisualization) {
+            try {
+                const VisualizationManager = require('./core/visualization/visualization-manager');
+                this.visualizationManager = new VisualizationManager(this);
+                console.log('✅ VisualizationManager инициализирован');
+            } catch (error) {
+                console.log(`⚠️ Визуализация не доступна: ${error.message}`);
+                this.visualizationManager = null;
             }
-
-            // Получаем модель пользователя
-            let model = this.userModels.get(userId);
-            if (!model) {
-                model = this._createUserModel(userId);
-                this.userModels.set(userId, model);
-                console.log(`🆕 Создана новая модель для ${userId}`);
-            }
-
-            // Обрабатываем
-            const result = await this.processFootprint(model, points, photoInfo);
-
-            // Создаем сессию для совместимости
-            let session = this.sessions.get(userId);
-            if (!session) {
-                session = this._createNewSession(userId);
-                this.sessions.set(userId, session);
-            }
-
-            // Визуализация
-            let vizResult = null;
-            if (bot && chatId) {
-                vizResult = await this.visualizeAndSend(model, result, bot, chatId);
-            }
-
-            return {
-                success: true,
-                ...result,
-                sessionId: session.id,
-                visualization: vizResult,
-                nodesAdded: result.pointsAdded || 0 // 🔥 ДЛЯ СОВМЕСТИМОСТИ
-            };
-
-        } catch (error) {
-            console.log(`❌ Ошибка: ${error.message}`);
-            return { success: false, error: error.message };
-        }
-    }
-
-    // 🔥 ОБРАБОТКА СЛЕДА
-    async processFootprint(model, points, photoInfo) {
-        console.log(`🔄 Обработка ${points.length} точек`);
-
-        // Создаем векторный отпечаток
-        const vectorPrint = this.vectorAlgorithm.createFootprint(points, `fp_${Date.now()}`);
-
-        const footprint = {
-            id: `fp_${Date.now()}`,
-            points: points,
-            vectorPrint: vectorPrint,
-            timestamp: new Date(),
-            photoInfo: photoInfo
-        };
-
-        model.footprints.push(footprint);
-
-        // Если это первый след
-        if (model.footprints.length === 1) {
-            return this.handleFirstFootprint(model, footprint);
-        }
-
-        // Сравниваем с предыдущими
-        return this.handleComparison(model, footprint);
-    }
-
-    // 🔥 ПЕРВЫЙ СЛЕД
-    handleFirstFootprint(model, footprint) {
-        console.log(`👣 Первый след (${footprint.vectorPrint.length} точек)`);
-
-        // Добавляем все точки как неподтвержденные
-        footprint.vectorPrint.forEach(point => {
-            const pointId = `pt_${model.nextId++}`;
-            model.points.set(pointId, {
-                id: pointId,
-                x: point.x,
-                y: point.y,
-                confidence: point.confidence,
-                confirmations: 1,
-                seenIn: [footprint.id],
-                color: 'blue',
-                vectorId: point.vectorId
-            });
-        });
-
-        return {
-            isFirst: true,
-            pointsAdded: footprint.vectorPrint.length,
-            totalPoints: model.points.size,
-            decision: 'new',
-            similarity: 0
-        };
-    }
-
-    // 🔥 СРАВНЕНИЕ
-    handleComparison(model, newFootprint) {
-        console.log(`🔍 Сравниваю с ${model.footprints.length - 1} существующими`);
-
-        let bestSimilarity = 0;
-        let bestMatches = [];
-
-        // Сравниваем со всеми существующими
-        for (const existing of model.footprints.slice(0, -1)) {
-            const comparison = this.vectorAlgorithm.compareFootprints(
-                existing.vectorPrint,
-                newFootprint.vectorPrint,
-                'Существующий',
-                'Новый'
-            );
-
-            if (comparison.similarity > bestSimilarity) {
-                bestSimilarity = comparison.similarity;
-                bestMatches = comparison.matches || [];
-            }
-        }
-
-        console.log(`📊 Лучшее сходство: ${(bestSimilarity * 100).toFixed(1)}%`);
-        console.log(`🎯 Требуется: ${(this.config.similarityThreshold * 100).toFixed(1)}%`);
-
-        if (bestSimilarity >= this.config.similarityThreshold) {
-            return this.mergeFootprint(model, newFootprint, bestMatches, bestSimilarity);
         } else {
-            return this.addNewFootprint(model, newFootprint);
+            this.visualizationManager = null;
         }
+       
+        // 🔥 СТРУКТУРЫ ДАННЫХ
+        this.userSessions = new Map();
+        this.loadedModels = new Map();
+        this.systemStats = {
+            totalUsers: 0,
+            totalModels: 0,
+            totalPhotosProcessed: 0,
+            totalTopologicalModels: 0,
+            lastActivity: new Date(),
+            comparisonAlgorithm: 'topological_delaunay_wl' // 🔥 НОВЫЙ АЛГОРИТМ
+        };
+       
+        this.ensureDirectories();
+        this.loadExistingModels();
+       
+        // 🔥 ПОРОГИ РЕШЕНИЙ ДЛЯ ТОПОЛОГИИ
+        this.DECISION_THRESHOLDS = {
+            TOPOLOGY_SIMILARITY: this.config.topologySimilarityThreshold, // 60%
+            MIN_MATCHES: 3,
+            MIN_POINTS: 3
+        };
+       
+        console.log(`🎯 Топологические пороги: сходство >${this.DECISION_THRESHOLDS.TOPOLOGY_SIMILARITY}`);
+       
+        // 🔥 Логирование
+        this.log = new LogManager(this);
+        if (options.logLevel) this.log.setLevel(options.logLevel);
+       
+        console.log('✅ SimpleFootprintManager инициализирован с ТОПОЛОГИЧЕСКОЙ системой');
     }
-
-    // 🔥 ОБЪЕДИНЕНИЕ (совпадающие следы)
-    mergeFootprint(model, footprint, matches, similarity) {
-        console.log(`✅ ОБЪЕДИНЯЮ следы (${(similarity * 100).toFixed(1)}% сходство)`);
-
-        // 1. Обновляем существующие точки
-        let confirmedCount = 0;
-        matches.forEach(match => {
-            if (match.point1?.vectorId) {
-                // Ищем точку по vectorId
-                for (const [pointId, pointData] of model.points) {
-                    if (pointData.vectorId === match.point1.vectorId) {
-                        pointData.seenIn.push(footprint.id);
-                        pointData.confirmations = pointData.seenIn.length;
-                        pointData.lastSeen = new Date();
-
-                        // Обновляем цвет
-                        if (pointData.confirmations >= 3) {
-                            pointData.color = 'red';
-                        } else if (pointData.confirmations === 2) {
-                            pointData.color = 'orange';
-                        }
-
-                        confirmedCount++;
-                        break;
-                    }
-                }
+   
+    // 🔥 ГЛАВНЫЙ МЕТОД: Добавление фото в сессию (ТОПОЛОГИЧЕСКИЙ)
+    async addPhotoToSession(userId, analysis, photoInfo = {}, bot = null, chatId = null) {
+        console.log(`\n📸 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото для пользователя ${userId}`);
+       
+        try {
+            if (!analysis?.predictions) {
+                return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
             }
-        });
-
-        // 2. Добавляем абсолютно новые точки
-        let newCount = 0;
-        footprint.vectorPrint.forEach(point => {
-            // Проверяем, есть ли уже такая точка
-            let exists = false;
-            for (const pointData of model.points.values()) {
-                if (pointData.vectorId === point.vectorId) {
-                    exists = true;
-                    break;
-                }
+           
+            // Извлечение точек из анализа
+            const points = this.extractPointsFromAnalysis(analysis);
+            if (points.length < this.config.minPointsForFootprint) {
+                return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
             }
-
-            if (!exists) {
-                const pointId = `pt_${model.nextId++}`;
-                model.points.set(pointId, {
-                    id: pointId,
-                    x: point.x,
-                    y: point.y,
-                    confidence: point.confidence,
-                    confirmations: 1,
-                    seenIn: [footprint.id],
-                    color: 'blue',
-                    vectorId: point.vectorId
+           
+            console.log(`📊 Извлечено ${points.length} точек из анализа`);
+           
+            // 🔥 Создание/получение SimpleFootprint
+            const SimpleFootprint = require('./simple-footprint');
+            const session = this.getOrCreateSession(userId);
+           
+            let footprint;
+            if (!session.currentFootprint) {
+                // Первое фото - создаем новый след
+                footprint = new SimpleFootprint({
+                    userId: userId,
+                    name: `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`,
+                    transformation: null // 🔥 НЕ ИСПОЛЬЗУЕМ ТРАНСФОРМАЦИИ
                 });
-                newCount++;
+                session.currentFootprint = footprint;
+                console.log(`👣 Создан новый след: "${footprint.name}"`);
+            } else {
+                footprint = session.currentFootprint;
+                console.log(`👣 Использую существующий след: "${footprint.name}"`);
             }
-        });
-
-        // Статистика
-        const stats = this.calculateStats(model);
-
-        console.log(`📈 РЕЗУЛЬТАТ ОБЪЕДИНЕНИЯ:`);
-        console.log(`   Подтверждено: ${confirmedCount} точек`);
-        console.log(`   Новых: ${newCount} точек`);
-        console.log(`   Всего: ${model.points.size} точек`);
-        console.log(`   🔴 3+: ${stats.confirmed3}`);
-        console.log(`   🟠 2: ${stats.confirmed2}`);
-        console.log(`   🔵 1: ${stats.confirmed1}`);
-
-        return {
-            isFirst: false,
-            similarity: similarity,
-            decision: 'same',
-            pointsConfirmed: confirmedCount,
-            pointsAdded: newCount,
-            totalPoints: model.points.size,
-            stats: stats
-        };
-    }
-
-    // 🔥 НОВЫЙ СЛЕД (другая обувь)
-    addNewFootprint(model, footprint) {
-        console.log(`🆕 Новая обувь (недостаточное сходство)`);
-
-        // Просто добавляем точки как новые
-        let newCount = 0;
-        footprint.vectorPrint.forEach(point => {
-            const pointId = `pt_${model.nextId++}`;
-            model.points.set(pointId, {
-                id: pointId,
-                x: point.x,
-                y: point.y,
-                confidence: point.confidence,
-                confirmations: 1,
-                seenIn: [footprint.id],
-                color: 'blue',
-                vectorId: point.vectorId
+           
+            // 🔥 ДОБАВЛЯЕМ АНАЛИЗ В СЛЕД (честные подтверждения)
+            const addResult = footprint.addAnalysisHonest(analysis, {
+                ...photoInfo,
+                photoId: photoInfo.photoId || `photo_${Date.now()}`,
+                source: photoInfo.source || 'telegram_bot',
+                transformationInfo: null // 🔥 БЕЗ ТРАНСФОРМАЦИЙ
             });
-            newCount++;
-        });
-
-        return {
-            isFirst: false,
-            similarity: 0,
-            decision: 'different',
-            pointsAdded: newCount,
-            totalPoints: model.points.size
-        };
-    }
-
-    // 🔥 РАСЧЕТ СТАТИСТИКИ
-    calculateStats(model) {
-        let confirmed3 = 0, confirmed2 = 0, confirmed1 = 0;
-
-        for (const pointData of model.points.values()) {
-            if (pointData.confirmations >= 3) confirmed3++;
-            else if (pointData.confirmations === 2) confirmed2++;
-            else confirmed1++;
+           
+            console.log(`📈 В след добавлено: ${addResult.added} узлов, всего: ${footprint.graph.nodes.size}`);
+           
+            // 🔥 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА
+            let topologicalResult = null;
+            let decision = 'unknown';
+            let similarity = 0;
+           
+            if (this.config.enableTopology) {
+                topologicalResult = await this.processTopologically(
+                    userId, footprint, analysis, photoInfo
+                );
+               
+                decision = topologicalResult.decision;
+                similarity = topologicalResult.similarity || 0;
+               
+                console.log(`🎯 ТОПОЛОГИЧЕСКОЕ РЕШЕНИЕ: ${decision} (${(similarity * 100).toFixed(1)}%)`);
+            }
+           
+            // 🔥 ВИЗУАЛИЗАЦИЯ (если включена)
+            let visualizationData = null;
+            let vizPath = null;
+           
+            if (this.config.enableMergeVisualization && this.visualizationManager) {
+                try {
+                    // Получаем данные для визуализации из топологической модели
+                    const topologyManager = this.getTopologyManager(userId);
+                    if (topologyManager) {
+                        visualizationData = topologyManager.getAccumulativeVisualizationData();
+                       
+                        if (visualizationData) {
+                            console.log(`🎨 Готовлю топологическую визуализацию...`);
+                           
+                            // Создаем визуализацию через ClusterVisualizer
+                            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
+                            const visualizer = new ClusterVisualizer({
+                                outputDir: './data/footprints/visualizations/topology',
+                                canvasWidth: 1200,
+                                canvasHeight: 800,
+                                debug: this.config.debug
+                            });
+                           
+                            // Создаем временный footprint для визуализации
+                            const tempFootprint = {
+                                id: `viz_${footprint.id}`,
+                                name: `Топология_${footprint.name}`,
+                                pointTracker: {
+                                    points: new Map(
+                                        visualizationData.points.map(p => [p.id, {
+                                            x: p.x,
+                                            y: p.y,
+                                            rating: p.confidence || 0.5,
+                                            confirmedCount: p.vizData?.confirmations || 1,
+                                            color: p.vizData?.color,
+                                            size: p.vizData?.size
+                                        }])
+                                    )
+                                },
+                                getTransformation: () => ({ rotationAngle: 0 })
+                            };
+                           
+                            const vizResult = await visualizer.visualizeSingleFootprintConfirmations(
+                                tempFootprint,
+                                {
+                                    matchInfo: {
+                                        totalConfirmations: visualizationData.stats.totalNodes,
+                                        averageConfirmations: visualizationData.stats.avgDegree || 1,
+                                        totalGraphs: 1
+                                    },
+                                    filename: `topology_${userId}_${Date.now()}.png`
+                                }
+                            );
+                           
+                            if (vizResult && vizResult.path) {
+                                vizPath = vizResult.path;
+                                console.log(`✅ Топологическая визуализация создана: ${vizPath}`);
+                            }
+                        }
+                    }
+                } catch (vizError) {
+                    console.log(`⚠️ Ошибка топологической визуализации: ${vizError.message}`);
+                }
+            }
+           
+            // 🔥 ОТПРАВКА В TELEGRAM (если нужно)
+            let telegramSent = false;
+            if (bot && chatId && vizPath) {
+                telegramSent = await this.sendTopologyTelegram(
+                    userId, decision, similarity, visualizationData,
+                    vizPath, bot, chatId, topologicalResult
+                );
+            }
+           
+            // 🔥 ФОРМИРУЕМ РЕЗУЛЬТАТ
+            const result = {
+                success: true,
+                footprintId: footprint.id,
+                nodesAdded: addResult.added,
+                totalNodes: footprint.graph.nodes.size,
+                topologicalDecision: decision,
+                topologicalSimilarity: similarity,
+                hasTopology: this.config.enableTopology,
+                visualizationPath: vizPath,
+                telegramSent: telegramSent
+            };
+           
+            // Добавляем информацию о топологической обработке
+            if (topologicalResult) {
+                result.topologicalResult = {
+                    modelId: topologicalResult.modelId,
+                    exactMatches: topologicalResult.exactMatches || 0,
+                    newNodesAdded: topologicalResult.newNodesAdded || 0
+                };
+            }
+           
+            console.log(`📊 ИТОГОВЫЙ РЕЗУЛЬТАТ:`);
+            console.log(`   Узлов в следе: ${result.totalNodes}`);
+            console.log(`   Топологическое решение: ${result.topologicalDecision}`);
+            console.log(`   Сходство: ${(result.topologicalSimilarity * 100).toFixed(1)}%`);
+           
+            return result;
+           
+        } catch (error) {
+            console.log(`❌ Ошибка в addPhotoToSession: ${error.message}`);
+            console.error(error);
+            return { success: false, error: error.message, nodesAdded: 0 };
         }
-
-        return { confirmed3, confirmed2, confirmed1 };
     }
-
-    // 🔥 ИЗВЛЕЧЕНИЕ ТОЧЕК
-    extractPoints(analysis) {
+   
+    // 🔥 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА
+    async processTopologically(userId, footprint, analysis, photoInfo) {
+        try {
+            // Получаем или создаем TopologyManager для пользователя
+            const topologyManager = this.getOrCreateTopologyManager(userId);
+           
+            // Обрабатываем след через топологическую систему
+            const result = await topologyManager.processFootprint(
+                footprint, analysis, photoInfo
+            );
+           
+            if (!result.success) {
+                console.log(`⚠️ Топологическая обработка не удалась: ${result.error}`);
+                return {
+                    decision: 'topology_failed',
+                    similarity: 0,
+                    modelId: null
+                };
+            }
+           
+            // Обновляем статистику
+            if (result.topologicalResult?.status === 'created') {
+                this.systemStats.totalTopologicalModels++;
+            }
+           
+            this.systemStats.totalPhotosProcessed++;
+            this.systemStats.lastActivity = new Date();
+           
+            return {
+                decision: result.decision,
+                similarity: result.similarity || 0,
+                modelId: result.modelId,
+                exactMatches: result.topologicalResult?.exactMatches || 0,
+                newNodesAdded: result.topologicalResult?.newNodesAdded || 0,
+                modelInfo: result.modelInfo
+            };
+           
+        } catch (error) {
+            console.log(`❌ Ошибка топологической обработки: ${error.message}`);
+            return {
+                decision: 'topology_error',
+                similarity: 0,
+                error: error.message
+            };
+        }
+    }
+   
+    // 🔥 ПОЛУЧИТЬ ИЛИ СОЗДАТЬ TOPOLOGY MANAGER
+    getOrCreateTopologyManager(userId) {
+        if (!this.topologyManagers.has(userId)) {
+            const topologyManager = new TopologyManager({
+                userId: userId,
+                name: `Топология_пользователя_${userId}`,
+                debug: this.config.debug,
+                similarityThreshold: this.config.topologySimilarityThreshold
+            });
+           
+            this.topologyManagers.set(userId, topologyManager);
+            console.log(`🎯 Создан TopologyManager для пользователя ${userId}`);
+        }
+       
+        return this.topologyManagers.get(userId);
+    }
+   
+    // 🔥 ПОЛУЧИТЬ TOPOLOGY MANAGER
+    getTopologyManager(userId) {
+        return this.topologyManagers.get(userId);
+    }
+   
+    // 🔥 СРАВНЕНИЕ СЛЕДОВ (ТОПОЛОГИЧЕСКОЕ)
+    async compareFootprints(footprint1, footprint2, options = {}) {
+        console.log(`🔍 ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ следов`);
+       
+        try {
+            // Определяем userId (берем из первого следа)
+            const userId = footprint1.userId || footprint2.userId || 'default';
+           
+            // Получаем TopologyManager
+            const topologyManager = this.getOrCreateTopologyManager(userId);
+           
+            // Выполняем топологическое сравнение
+            const result = await topologyManager.compareFootprints(
+                footprint1, footprint2, options
+            );
+           
+            console.log(`🎯 РЕЗУЛЬТАТ: ${result.decision.toUpperCase()} (${(result.similarity * 100).toFixed(1)}%)`);
+           
+            return result;
+           
+        } catch (error) {
+            console.error(`❌ Ошибка топологического сравнения: ${error.message}`);
+            return {
+                similar: false,
+                similarity: 0,
+                decision: 'different',
+                error: error.message,
+                method: 'topology_error'
+            };
+        }
+    }
+   
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (без изменений)
+    extractPointsFromAnalysis(analysis) {
         const points = [];
         const predictions = analysis.predictions || [];
-
+       
         for (const pred of predictions) {
-            if (pred.class === 'shoe-protector' && pred.points?.length > 0) {
+            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
                 const xs = pred.points.map(p => p.x);
                 const ys = pred.points.map(p => p.y);
-
+               
                 points.push({
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
                     y: (Math.min(...ys) + Math.max(...ys)) / 2,
-                    confidence: pred.confidence || 0.5
+                    confidence: pred.confidence || 0.5,
+                    originalPoints: pred.points,
+                    class: pred.class,
+                    _source: 'analysis'
                 });
             }
         }
-
+       
         return points.filter(p =>
-            p && typeof p.x === 'number' && typeof p.y === 'number' && !isNaN(p.x) && !isNaN(p.y)
+            p && typeof p.x === 'number' && typeof p.y === 'number' &&
+            !isNaN(p.x) && !isNaN(p.y)
         );
     }
-
-    // 🔥 ВИЗУАЛИЗАЦИЯ
-    async visualizeAndSend(model, result, bot, chatId) {
+   
+    getOrCreateSession(userId) {
+        let session = this.sessionManager.getActiveSession(userId);
+        if (!session) {
+            session = this.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
+        }
+        return session;
+    }
+   
+    // 🔥 ОТПРАВКА В TELEGRAM (топологическая версия)
+    async sendTopologyTelegram(userId, decision, similarity, visualizationData,
+                              vizPath, bot, chatId, topologicalResult) {
+        console.log(`🤖 Отправляю топологический результат в Telegram...`);
+       
         try {
-            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
-            const visualizer = new ClusterVisualizer();
-
-            const vizData = this.getVisualizationData(model);
-            const vizResult = await visualizer.visualizeAccumulativeModel(vizData, {
-                filename: `accum_${model.userId}_${Date.now()}.png`
-            });
-
-            if (vizResult?.path && fs.existsSync(vizResult.path)) {
-                const caption = this.createCaption(result, model);
-                await bot.sendPhoto(chatId, vizResult.path, {
-                    caption: this.cleanMarkdown(caption),
+            const cleanMarkdown = (text) => text
+                .replace(/\*\*/g, '')
+                .replace(/\*/g, '')
+                .replace(/__/g, '')
+                .replace(/_/g, '')
+                .replace(/`/g, '')
+                .replace(/\[/g, '(')
+                .replace(/\]/g, ')');
+           
+            if (vizPath && fs.existsSync(vizPath)) {
+                let caption = `🎯 ТОПОЛОГИЧЕСКИЙ АНАЛИЗ\n\n`;
+               
+                caption += `📊 Решение: ${decision === 'same_footprint' || decision === 'same_footprint_enhanced' ? '✅ ОДНА ОБУВЬ' : '🆕 РАЗНАЯ ОБУВЬ'}\n`;
+                caption += `📈 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
+               
+                if (visualizationData && visualizationData.stats) {
+                    caption += `\n📊 ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ:\n`;
+                    caption += `├─ Узлов: ${visualizationData.stats.totalNodes}\n`;
+                    caption += `├─ Рёбер: ${visualizationData.stats.totalEdges}\n`;
+                    caption += `├─ 🔴 3+ подтверждений: ${visualizationData.stats.confirmed3}\n`;
+                    caption += `├─ 🟠 2 подтверждения: ${visualizationData.stats.confirmed2}\n`;
+                    caption += `├─ 🔵 1 подтверждение: ${visualizationData.stats.confirmed1}\n`;
+                    caption += `└─ ⚪ Новые узлы: ${visualizationData.stats.confirmed0}\n`;
+                }
+               
+                if (topologicalResult) {
+                    caption += `\n🔍 СОВПАДЕНИЯ:\n`;
+                    caption += `├─ Точных совпадений: ${topologicalResult.exactMatches || 0}\n`;
+                    caption += `└─ Новых узлов добавлено: ${topologicalResult.newNodesAdded || 0}\n`;
+                }
+               
+                caption += `\n🏗️ Метод: Триангуляция Делоне + Weisfeiler-Lehman`;
+               
+                await bot.sendPhoto(chatId, vizPath, {
+                    caption: cleanMarkdown(caption),
                     parse_mode: 'HTML'
                 });
-                return vizResult;
+               
+                console.log('✅ Топологическая визуализация отправлена в Telegram');
+                return true;
             }
         } catch (error) {
-            console.log(`⚠️ Ошибка визуализации: ${error.message}`);
+            console.log('❌ Ошибка отправки в Telegram:', error.message);
         }
-        return null;
+       
+        return false;
     }
-
-    // 🔥 ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ
-    getVisualizationData(model) {
-        const points = [];
-        for (const pointData of model.points.values()) {
-            points.push({
-                x: pointData.x,
-                y: pointData.y,
-                confirmations: pointData.confirmations,
-                color: pointData.color,
-                confidence: pointData.confidence
+   
+    // 🔥 СТАТИСТИКА СИСТЕМЫ (обновленная)
+    getSystemStats() {
+        const topologyStats = [];
+        for (const [userId, manager] of this.topologyManagers) {
+            const modelsInfo = manager.getUserModelsInfo();
+            topologyStats.push({
+                userId,
+                models: modelsInfo.models?.total || 0,
+                totalNodes: modelsInfo.models?.totalNodes || 0
             });
         }
-
-        const stats = this.calculateStats(model);
-
-        return {
-            points: points,
-            totalPoints: points.length,
-            totalFootprints: model.footprints.length,
-            stats: stats,
-            modelId: model.id
-        };
-    }
-
-    // 🔥 ПОДПИСЬ ДЛЯ ТЕЛЕГРАМ
-    createCaption(result, model) {
-        let caption = '';
        
-        if (result.isFirst) {
-            caption = `👣 ПЕРВЫЙ СЛЕД СОЗДАН\n${result.pointsAdded} точек добавлено\n`;
-            caption += `🆔 Модель: ${model.id.slice(0, 8)}`;
-        } else if (result.decision === 'same') {
-            caption = `✅ ОДНА ОБУВЬ\nСходство: ${(result.similarity * 100).toFixed(1)}%\n`;
-            caption += `📈 Подтверждено: ${result.pointsConfirmed} точек\n`;
-            caption += `➕ Новых: ${result.pointsAdded} точек\n`;
-            caption += `📊 Всего: ${result.totalPoints} точек\n`;
-           
-            if (result.stats) {
-                caption += `🔴 3+: ${result.stats.confirmed3} | `;
-                caption += `🟠 2: ${result.stats.confirmed2} | `;
-                caption += `🔵 1: ${result.stats.confirmed1}`;
+        return {
+            ...this.systemStats,
+            activeSessions: this.userSessions.size,
+            loadedModels: this.loadedModels.size,
+            topologicalManagers: this.topologyManagers.size,
+            topologyStats: topologyStats,
+            algorithm: 'Топологический (Делоне + Weisfeiler-Lehman)',
+            config: {
+                enableTopology: this.config.enableTopology,
+                topologySimilarityThreshold: this.config.topologySimilarityThreshold,
+                useLegacyVectorAlgorithm: this.config.useLegacyVectorAlgorithm
             }
-        } else {
-            caption = `🆕 НОВАЯ ОБУВЬ\nДобавлено: ${result.pointsAdded} точек\n`;
-            caption += `📊 Всего моделей: ${model.footprints.length}`;
-        }
-
-        return caption;
-    }
-
-    cleanMarkdown(text) {
-        return text.replace(/[_\*\[\]\(\)~`>#\+\-=|{}.!]/g, '\\$&');
-    }
-
-    // 🔥 СОЗДАНИЕ МОДЕЛИ ПОЛЬЗОВАТЕЛЯ
-    _createUserModel(userId) {
-        return {
-            id: `model_${userId}_${Date.now()}`,
-            userId: userId,
-            footprints: [],
-            points: new Map(),
-            nextId: 1,
-            createdAt: new Date()
         };
     }
-
-    // 🔥 СОЗДАНИЕ НОВОЙ СЕССИИ
-    _createNewSession(userId, name = null) {
-        const session = {
-            id: `${userId}_${Date.now()}`,
-            userId: userId,
-            photos: [],
-            lastActivity: new Date()
-        };
+   
+    // 🔥 ОСТАЛЬНЫЕ МЕТОДЫ (для совместимости)
+    ensureDirectories() {
+        const dirs = [
+            this.config.dbPath,
+            path.join(this.config.dbPath, 'models'),
+            path.join(this.config.dbPath, 'sessions'),
+            path.join(this.config.dbPath, 'visualizations'),
+            path.join(this.config.dbPath, 'visualizations/topology'), // 🔥 НОВАЯ ПАПКА
+            path.join(this.config.dbPath, 'visualizations/clusters'),
+            path.join(this.config.dbPath, 'reports'),
+            path.join(this.config.dbPath, 'logs')
+        ];
        
-        if (name) {
-            session.name = name;
+        dirs.forEach(dir => {
+            if (!fs.existsSync(dir)) {
+                console.log(`📁 Создаю директорию: ${dir}`);
+                fs.mkdirSync(dir, { recursive: true });
+            }
+        });
+    }
+   
+    loadExistingModels() {
+        const modelsDir = path.join(this.config.dbPath, 'models');
+        if (!fs.existsSync(modelsDir)) {
+            fs.mkdirSync(modelsDir, { recursive: true });
+            return;
         }
        
-        return session;
-    }
-
-    // 🔥 МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ
-    getActiveSession(userId) {
-        return this.sessions.get(userId) || null;
-    }
-
-    getSessionInfo(userId) {
-        const session = this.sessions.get(userId);
-        if (!session) return null;
+        // Загрузка существующих моделей (для совместимости)
+        const files = fs.readdirSync(modelsDir).filter(f => f.endsWith('.json'));
+        let loadedCount = 0;
        
-        return {
-            id: session.id,
-            userId: session.userId,
-            photos: session.photos.length,
-            lastActivity: session.lastActivity,
-            name: session.name || `Сессия_${session.id.slice(-6)}`
-        };
-    }
-
-    hasSession(userId) {
-        return this.sessions.has(userId);
-    }
-
-    createSession(userId, name = null) {
-        if (this.sessions.has(userId)) {
-            return this.sessions.get(userId);
-        }
-
-        const session = this._createNewSession(userId, name);
-        this.sessions.set(userId, session);
+        files.slice(0, 50).forEach(file => {
+            try {
+                const filePath = path.join(modelsDir, file);
+                const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                const SimpleFootprint = require('./simple-footprint');
+                const footprint = SimpleFootprint.fromJSON(data);
+                this.loadedModels.set(footprint.id, footprint);
+                loadedCount++;
+            } catch (error) {
+                console.log(`⚠️ Ошибка загрузки модели ${file}:`, error.message);
+            }
+        });
        
-        console.log(`✅ Создана сессия: ${session.id} для ${userId}`);
-        return session;
+        this.systemStats.totalModels = loadedCount;
     }
-
-    updateLastActivity(userId) {
-        const session = this.sessions.get(userId);
-        if (session) {
-            session.lastActivity = new Date();
-            return true;
+   
+    // 🔥 НОВЫЙ МЕТОД: Получить топологические данные для визуализации
+    getTopologyVisualizationData(userId) {
+        const topologyManager = this.getTopologyManager(userId);
+        if (!topologyManager) {
+            return null;
         }
-        return false;
+       
+        return topologyManager.getAccumulativeVisualizationData();
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: Очистить топологические модели пользователя
+    clearUserTopology(userId) {
+        const topologyManager = this.getTopologyManager(userId);
+        if (!topologyManager) {
+            return { success: false, message: 'Топологический менеджер не найден' };
+        }
+       
+        return topologyManager.clearUserModels();
     }
 }
 
