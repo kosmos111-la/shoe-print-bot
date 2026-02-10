@@ -9,11 +9,13 @@ class PointTracker {
             debug: options.debug || false,
             maxConfirmations: options.maxConfirmations || 10
         };
+       
+        console.log('🎯 Упрощенный PointTracker создан (только для совместимости)');
     }
 
     // 🔥 ПРОСТАЯ ОБРАБОТКА (для совместимости)
     processNewPoints(newPoints, sourceInfo = {}) {
-        console.log(`🎯 Обработка ${newPoints.length} точек (упрощенная)`);
+        console.log(`🎯 [Совместимость] Обработка ${newPoints.length} точек (упрощенная)`);
        
         const results = {
             added: 0,
@@ -22,11 +24,10 @@ class PointTracker {
             skipped: 0
         };
 
-        // 🔥 В АККУМУЛЯТИВНОЙ МОДЕЛИ ЭТОТ КЛАСС НЕ ИСПОЛЬЗУЕТСЯ
+        // 🔥 В ФОТО-ОРИЕНТИРОВАННОЙ МОДЕЛИ ЭТОТ КЛАСС НЕ ИСПОЛЬЗУЕТСЯ ДЛЯ СРАВНЕНИЯ
         // Оставляем для совместимости со старым кодом
        
         newPoints.forEach(point => {
-            // Простая логика - всегда добавляем как новую
             const pointId = `pt_${this.nextId++}`;
            
             this.points.set(pointId, {
@@ -35,12 +36,15 @@ class PointTracker {
                 y: point.y,
                 confidence: point.confidence || 0.5,
                 confirmedCount: 1,
-                lastSeen: new Date()
+                lastSeen: new Date(),
+                source: sourceInfo.photoId || 'unknown',
+                note: '⚠️ ТОЧКА ИЗ УПРОЩЕННОГО TRACKER (не для сравнения)'
             });
            
             results.added++;
         });
 
+        console.log(`✅ Добавлено ${results.added} точек (только для совместимости)`);
         return results;
     }
 
@@ -49,7 +53,8 @@ class PointTracker {
         return {
             totalPoints: this.points.size,
             avgConfirmations: 1,
-            highConfidencePoints: 0
+            highConfidencePoints: 0,
+            note: 'Упрощенный трекер - не для топологического сравнения'
         };
     }
 
@@ -59,7 +64,8 @@ class PointTracker {
         return {
             points: pointsArray,
             nextId: this.nextId,
-            _version: 'simple_v1.0'
+            _version: 'simple_v1.0_compat',
+            _note: 'Точки только для совместимости'
         };
     }
 
