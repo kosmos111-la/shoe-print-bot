@@ -568,7 +568,7 @@ class SimpleFootprintManager {
 // ДОБАВЛЯЕМ В КОНЕЦ КЛАССА SimpleFootprintManager:
 
 // 🔥 СОВМЕСТИМОСТЬ СО СТАРЫМ КОДОМ (main.js)
-/ 🔥 ДОБАВЛЯЕМ В КОНЕЦ SimpleFootprintManager.js
+// 🔥 ДОБАВЛЯЕМ В КОНЕЦ SimpleFootprintManager.js
 
 // ============================================
 // 🔧 СОВМЕСТИМОСТЬ СО СТАРЫМ main.js
