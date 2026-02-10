@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (ФИНАЛЬНАЯ ВЕРСИЯ)
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (ИСПРАВЛЕННАЯ СИНТАКСИС)
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
@@ -10,35 +10,35 @@ class TopologyManager {
         this.userId = options.userId || 'default';
         this.name = options.name || `Топология_${this.userId}`;
         this.debug = options.debug || false;
-       
+      
         // Основные компоненты
         this.builder = new TopologyBuilder({ debug: this.debug });
         this.fingerprinter = new TopologicalFingerprint({
             debug: this.debug,
             iterations: options.wlIterations || 3,
             bucketSize: 3,
-            similarityThreshold: 0.8
+            similarityThreshold: 0.7
         });
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
             debug: this.debug,
-            similarityThreshold: options.similarityThreshold || 0.7,
+            similarityThreshold: options.similarityThreshold || 0.6,
             minMatchesForEnhancement: options.minMatchesForEnhancement || 3
         });
-       
+      
         // Связь с существующей системой
         this.linkedFootprints = new Map(); // footprintId -> topologicalModelId
-       
+      
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
     }
-   
+  
     // 🔥 ГЛАВНЫЙ МЕТОД: Обработка следов из SimpleFootprint
     async processFootprint(footprint, analysis, photoInfo = {}) {
         console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoInfo.photoId || 'без ID'}...`);
-       
+      
         // Извлекаем точки ТОЛЬКО из текущего фото
         const points = this.extractPointsFromCurrentPhoto(analysis, photoInfo);
-       
+      
         if (points.length < 3) {
             console.log('⚠️ Слишком мало точек для топологии');
             return {
@@ -47,9 +47,9 @@ class TopologyManager {
                 points: points.length
             };
         }
-       
+      
         console.log(`📊 Извлечено ${points.length} точек ИЗ ТЕКУЩЕГО ФОТО`);
-       
+      
         // Диагностика точек
         if (this.debug && points.length > 0) {
             console.log(`📋 Первые 3 точки текущего фото:`);
@@ -57,7 +57,7 @@ class TopologyManager {
                 console.log(`   ${i+1}. ${p.id}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
             });
         }
-       
+      
         // Определяем модель для сравнения
         let modelId = this.linkedFootprints.get(footprint.id);
         if (!modelId && this.accumulator.currentModelId) {
@@ -65,7 +65,7 @@ class TopologyManager {
             this.linkedFootprints.set(footprint.id, modelId);
             console.log(`🔗 Связал след ${footprint.id} с моделью ${modelId}`);
         }
-       
+      
         // Обрабатываем точки через топологический аккумулятор
         const result = await this.accumulator.processPoints(points, {
             modelId: modelId,
@@ -75,16 +75,16 @@ class TopologyManager {
             photoInfo: photoInfo,
             photoId: photoInfo.photoId
         });
-       
+      
         // Обновляем связь след-модель
         if (result.modelId && result.modelId !== modelId) {
             this.linkedFootprints.set(footprint.id, result.modelId);
             console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
         }
-       
+      
         // Получаем обновленную информацию о модели
         const modelInfo = this.accumulator.getModelInfo(result.modelId);
-       
+      
         return {
             success: true,
             topologicalResult: result,
@@ -95,25 +95,25 @@ class TopologyManager {
             decision: this.getDecisionFromResult(result)
         };
     }
-   
+  
     // Извлечение точек ТОЛЬКО из текущего фото
     extractPointsFromCurrentPhoto(analysis, photoInfo = {}) {
         const points = [];
-       
+      
         if (!analysis?.predictions) {
             console.log('⚠️ Нет данных анализа для извлечения точек');
             return points;
         }
-       
+      
         const photoId = photoInfo.photoId || `photo_${Date.now()}`;
         const predictions = analysis.predictions || [];
         let protectorCount = 0;
-       
+      
         predictions.forEach((pred, idx) => {
             if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
                 const xs = pred.points.map(p => p.x);
                 const ys = pred.points.map(p => p.y);
-               
+              
                 points.push({
                     id: `${photoId}_pt_${protectorCount}`,
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
@@ -122,27 +122,32 @@ class TopologyManager {
                     source: 'current_photo',
                     photoId: photoId,
                     originalIndex: protectorCount,
-                    originalPoints: pred.points
+                    originalPoints: pred.points,
+                    metadata: {
+                        x: (Math.min(...xs) + Math.max(...xs)) / 2,
+                        y: (Math.min(...ys) + Math.max(...ys)) / 2,
+                        confidence: pred.confidence || 0.5
+                    }
                 });
                 protectorCount++;
             }
         });
-       
+      
         console.log(`📸 Извлечено ${points.length} точек из ТЕКУЩЕГО ФОТО ${photoId}`);
-       
+      
         return points;
     }
-   
+  
     // Старый метод для совместимости
     extractPointsFromFootprint(footprint, analysis = null) {
         console.log('⚠️ [DEPRECATED] extractPointsFromFootprint() - используйте extractPointsFromCurrentPhoto()');
-       
+      
         if (analysis?.predictions) {
             return this.extractPointsFromCurrentPhoto(analysis, { photoId: 'legacy' });
         }
-       
+      
         const points = [];
-       
+      
         // Вариант 1: Извлечь из PointTracker
         if (footprint.pointTracker && footprint.pointTracker.points) {
             for (const [id, point] of footprint.pointTracker.points) {
@@ -158,15 +163,15 @@ class TopologyManager {
                 });
             }
         }
-       
+      
         console.log(`⚠️ Используются АККУМУЛИРОВАННЫЕ точки: ${points.length} (может вызвать ошибки сравнения)`);
         return points;
     }
-   
+  
     // Получение решения из результата топологической обработки
     getDecisionFromResult(result) {
         if (!result) return 'unknown';
-       
+      
         if (result.status === 'created') {
             return 'new_footprint';
         } else if (result.status === 'enhanced') {
@@ -177,22 +182,22 @@ class TopologyManager {
             return 'different_footprint';
         }
     }
-   
+  
     // Сравнение двух следов через топологию
     async compareFootprints(footprint1, footprint2, options = {}) {
         console.log(`🔍 ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
-       
+      
         console.log('⚠️ ВНИМАНИЕ: compareFootprints использует ВСЕ точки следов');
         console.log('   Для сравнения отдельных фото используйте comparePhotoToModel()');
-       
+      
         // Извлекаем точки из обоих следов
         const points1 = this.extractPointsFromFootprint(footprint1);
         const points2 = this.extractPointsFromFootprint(footprint2);
-       
+      
         console.log(`📊 Точки для сравнения:`);
         console.log(`   ${footprint1.name}: ${points1.length} точек (аккумулированные)`);
         console.log(`   ${footprint2.name}: ${points2.length} точек (аккумулированные)`);
-       
+      
         if (points1.length < 3 || points2.length < 3) {
             console.log('⚠️ Один из следов имеет слишком мало точек');
             return {
@@ -202,31 +207,31 @@ class TopologyManager {
                 reason: 'Недостаточно точек для сравнения'
             };
         }
-       
+      
         // Строим графы Делоне
         const graph1 = this.builder.buildDelaunayGraph(points1, footprint1.name);
         const graph2 = this.builder.buildDelaunayGraph(points2, footprint2.name);
-       
+      
         // Вычисляем WL-подписи
         const fingerprints1 = this.fingerprinter.computeGraphFingerprints(graph1);
         const fingerprints2 = this.fingerprinter.computeGraphFingerprints(graph2);
-       
+      
         // Сравниваем по подписям
         const comparison = this.fingerprinter.compareGraphs(
             graph1, fingerprints1,
             graph2, fingerprints2
         );
-       
+      
         // Принимаем решение
         const isSame = comparison.similarity >= (options.threshold || 0.6);
         const decision = isSame ? 'same' : 'different';
-       
+      
         console.log(`🎯 ТОПОЛОГИЧЕСКОЕ РЕШЕНИЕ:`);
         console.log(`   Сходство: ${(comparison.similarity * 100).toFixed(1)}%`);
         console.log(`   Порог: ${(options.threshold || 0.6) * 100}%`);
         console.log(`   Решение: ${decision.toUpperCase()}`);
         console.log(`   Точных совпадений: ${comparison.exactMatches?.length || 0}`);
-       
+      
         // Диагностика совпадений
         if (this.debug && comparison.exactMatches && comparison.exactMatches.length > 0) {
             console.log(`🔍 Примеры совпадений (первые 3):`);
@@ -234,7 +239,7 @@ class TopologyManager {
                 console.log(`   ${i+1}. ${match.node1} ↔ ${match.node2}`);
             });
         }
-       
+      
         return {
             similar: isSame,
             similarity: comparison.similarity,
@@ -251,13 +256,13 @@ class TopologyManager {
             warning: 'Использованы аккумулированные точки следов'
         };
     }
-   
+  
     // Сравнение фото с моделью
     async comparePhotoToModel(analysis, modelId = null, options = {}) {
         console.log(`🔍 СРАВНЕНИЕ ФОТО С МОДЕЛЬЮ ${modelId || 'любой'}`);
-       
+      
         const points = this.extractPointsFromCurrentPhoto(analysis, options.photoInfo || {});
-       
+      
         if (points.length < 3) {
             console.log('⚠️ Слишком мало точек на фото для сравнения');
             return {
@@ -267,14 +272,14 @@ class TopologyManager {
                 reason: 'Недостаточно точек на фото'
             };
         }
-       
+      
         // Строим граф из точек фото
         const photoGraph = this.builder.buildDelaunayGraph(points, 'current_photo');
         const photoFingerprints = this.fingerprinter.computeGraphFingerprints(photoGraph);
-       
+      
         // Если нет modelId, берем текущую модель
         const targetModelId = modelId || this.accumulator.currentModelId;
-       
+      
         if (!targetModelId) {
             console.log('⚠️ Нет модели для сравнения');
             return {
@@ -284,7 +289,7 @@ class TopologyManager {
                 reason: 'Нет топологической модели для сравнения'
             };
         }
-       
+      
         const model = this.accumulator.models.get(targetModelId);
         if (!model) {
             console.log(`⚠️ Модель ${targetModelId} не найдена`);
@@ -295,22 +300,22 @@ class TopologyManager {
                 reason: 'Топологическая модель не найдена'
             };
         }
-       
+      
         // Сравниваем
         const comparison = this.fingerprinter.compareGraphs(
             model.graph, model.fingerprints,
             photoGraph, photoFingerprints
         );
-       
+      
         const isSame = comparison.similarity >= (options.threshold || this.accumulator.similarityThreshold);
         const decision = isSame ? 'same' : 'different';
-       
+      
         console.log(`🎯 СРАВНЕНИЕ ФОТО С МОДЕЛЬЮ ${targetModelId}:`);
         console.log(`   Фото: ${points.length} точек, ${photoGraph.nodes.size} узлов`);
         console.log(`   Модель: ${model.graph.nodes.size} узлов`);
         console.log(`   Сходство: ${(comparison.similarity * 100).toFixed(1)}%`);
         console.log(`   Решение: ${decision.toUpperCase()}`);
-       
+      
         return {
             similar: isSame,
             similarity: comparison.similarity,
@@ -329,56 +334,71 @@ class TopologyManager {
             }
         };
     }
-   
-    // 🔥 АККУМУЛЯТИВНАЯ ВИЗУАЛИЗАЦИЯ: Показывает ВСЕ узлы из ВСЕХ следов (ИСПРАВЛЕННАЯ)
+  
+    // АККУМУЛЯТИВНАЯ ВИЗУАЛИЗАЦИЯ: Показывает ВСЕ узлы из ВСЕХ следов
     getAccumulativeVisualizationData(modelId = null) {
         const targetModelId = modelId || this.accumulator.currentModelId;
-       
+      
         if (!targetModelId) {
             console.log('⚠️ Нет активной топологической модели');
             return null;
         }
-       
+      
         const model = this.accumulator.models.get(targetModelId);
         if (!model) return null;
-       
+      
         const graph = model.graph;
         const fingerprints = model.fingerprints;
-       
-        // 🔥 ИСПРАВЛЕНИЕ 1: Правильно считаем подтверждения
-        const nodeConfirmations = new Map();
-        for (const [nodeId, node] of graph.nodes) {
-            // Используем confirmationCount из модели
-            const confirmations = node.confirmationCount ||
-                                 (node.addedFrom ? 1 : 0);
-           
-            nodeConfirmations.set(nodeId, {
-                confirmations: confirmations,
-                confidence: node.confidence || 0.5,
-                source: node.addedFrom || 'original',
-                degree: node.degree,
-                confirmationCount: confirmations
-            });
-           
-            // 🔥 ДЛЯ ОТЛАДКИ: Логируем узлы с подтверждениями
-            if (this.debug && confirmations > 1) {
-                console.log(`   Узел ${nodeId}: ${confirmations} подтверждений`);
-            }
-        }
-       
-        // 🔥 ИСПРАВЛЕНИЕ 2: Сортируем узлы по времени добавления
-        const sortedNodes = Array.from(graph.nodes.values()).sort((a, b) => {
-            const timeA = a.addedAt ? a.addedAt.getTime() : 0;
-            const timeB = b.addedAt ? b.addedAt.getTime() : 0;
-            return timeA - timeB; // Старые сначала
-        });
-       
-        // 🔥 ИСПРАВЛЕНИЕ 3: Диагностика
+      
+        // 🔥 ИСПРАВЛЕНИЕ 1: Правильный подсчет confirmationCount
         console.log(`📊 Визуализация модели ${targetModelId}:`);
         console.log(`   Всего узлов: ${graph.nodes.size}`);
-        console.log(`   Узлов с confirmationCount: ${Array.from(graph.nodes.values()).filter(n => n.confirmationCount).length}`);
+      
+        let nodesWithConfirmations = 0;
+        const confirmationStats = { 0: 0, 1: 0, 2: 0, 3: 0 };
        
-        // Группируем узлы по количеству "подтверждений"
+        // Собираем информацию об узлах
+        const nodeInfoArray = [];
+        for (const [nodeId, node] of graph.nodes) {
+            // 🔥 ИСПРАВЛЕНИЕ: confirmationCount или 1 для новых
+            const confirmations = node.confirmationCount ||
+                                 (node.addedAt ? 1 : 0); // Новые узлы получают 1
+           
+            confirmationStats[confirmations] = (confirmationStats[confirmations] || 0) + 1;
+            if (confirmations > 0) nodesWithConfirmations++;
+           
+            // 🔥 ИСПРАВЛЕНИЕ 2: Гарантируем наличие координат
+            if (!node.x || !node.y) {
+                // Пытаемся найти координаты в metadata
+                if (node.metadata?.x && node.metadata?.y) {
+                    node.x = node.metadata.x;
+                    node.y = node.metadata.y;
+                } else if (node.originalData?.x && node.originalData?.y) {
+                    node.x = node.originalData.x;
+                    node.y = node.originalData.y;
+                } else {
+                    // Создаем случайные координаты для визуализации
+                    node.x = Math.random() * 800 + 100;
+                    node.y = Math.random() * 500 + 100;
+                    console.log(`⚠️ Узел ${nodeId} не имеет координат, созданы случайные`);
+                }
+            }
+           
+            nodeInfoArray.push({
+                id: nodeId,
+                node: node,
+                confirmations: confirmations
+            });
+        }
+       
+        console.log(`   Узлов с confirmationCount: ${nodesWithConfirmations}`);
+        console.log(`📊 Статистика подтверждений:`);
+        console.log(`   0 подтверждений: ${confirmationStats[0] || 0}`);
+        console.log(`   1 подтверждение: ${confirmationStats[1] || 0}`);
+        console.log(`   2 подтверждения: ${confirmationStats[2] || 0}`);
+        console.log(`   3+ подтверждений: ${confirmationStats[3] || 0}`);
+       
+        // 🔥 ИСПРАВЛЕНИЕ 3: Правильная группировка по подтверждениям
         const pointsByConfirmation = {
             confirmed3: [], // 3+ подтверждений (высокая надежность)
             confirmed2: [], // 2 подтверждения (средняя надежность)
@@ -386,67 +406,49 @@ class TopologyManager {
             confirmed0: []  // 0 подтверждений (предсказанные)
         };
        
-        // 🔥 ИСПРАВЛЕНИЕ 4: Правильная группировка
-        for (const node of sortedNodes) {
-            const info = nodeConfirmations.get(node.id);
-            const confirmations = info ? info.confirmations : 0;
+        for (const info of nodeInfoArray) {
+            const node = info.node;
+            const confirmations = info.confirmations;
            
-            // Определяем цвет по "подтверждениям"
+            // Определяем цвет и размер по количеству подтверждений
             let color, size, confirmationLevel;
            
             if (confirmations >= 3) {
-                color = '#FF0000'; // 🔴 Красный
+                color = '#FF0000'; // 🔴
                 size = 8 + (node.confidence || 0.5) * 6;
                 confirmationLevel = 'confirmed3';
                 pointsByConfirmation.confirmed3.push(node);
             } else if (confirmations >= 2) {
-                color = '#FF6B00'; // 🟠 Оранжевый
+                color = '#FF6B00'; // 🟠
                 size = 6 + (node.confidence || 0.5) * 4;
                 confirmationLevel = 'confirmed2';
                 pointsByConfirmation.confirmed2.push(node);
             } else if (confirmations >= 1) {
-                color = '#2196F3'; // 🔵 Синий
+                color = '#2196F3'; // 🔵
                 size = 5 + (node.confidence || 0.5) * 3;
                 confirmationLevel = 'confirmed1';
                 pointsByConfirmation.confirmed1.push(node);
             } else {
-                color = '#BDBDBD'; // ⚪ Серый
+                color = '#BDBDBD'; // ⚪
                 size = 4;
                 confirmationLevel = 'confirmed0';
                 pointsByConfirmation.confirmed0.push(node);
             }
            
-            // 🔥 ИСПРАВЛЕНИЕ 5: Добавляем полную информацию для визуализации
+            // Добавляем информацию для визуализации
             node.vizData = {
                 color: color,
                 size: size,
                 confirmationLevel: confirmationLevel,
                 confirmations: confirmations,
                 degree: node.degree,
-                source: info ? info.source : 'unknown',
-                addedAt: node.addedAt,
-                confirmationCount: node.confirmationCount,
-                id: node.id // 🔥 ВАЖНО: Сохраняем ID
+                source: node.addedFrom || 'original',
+                confirmationCount: confirmations,
+                id: info.id
             };
-           
-            // Сохраняем координаты (они нужны для визуализации)
-            if (!node.x || !node.y) {
-                // Если у узла нет координат, пытаемся восстановить
-                if (node.originalData) {
-                    node.x = node.originalData.x;
-                    node.y = node.originalData.y;
-                } else {
-                    // Генерируем случайные координаты для визуализации
-                    node.x = Math.random() * 100;
-                    node.y = Math.random() * 100;
-                    if (this.debug) {
-                        console.log(`⚠️ У узла ${node.id} нет координат, используем случайные`);
-                    }
-                }
-            }
         }
        
-        // 🔥 ИСПРАВЛЕНИЕ 6: Статистика с деталями
+        // Статистика
         const stats = {
             totalNodes: graph.nodes.size,
             totalEdges: graph.edges.size,
@@ -456,30 +458,15 @@ class TopologyManager {
             confirmed1: pointsByConfirmation.confirmed1.length,
             confirmed0: pointsByConfirmation.confirmed0.length,
             uniquenessRatio: fingerprints ?
-                this.fingerprinter.getFingerprintInfo(fingerprints).uniquenessRatio : 0,
-           
-            // 🔥 ДОПОЛНИТЕЛЬНАЯ СТАТИСТИКА
-            nodesBySource: {},
-            confirmationDistribution: {
-                '3+': pointsByConfirmation.confirmed3.length,
-                '2': pointsByConfirmation.confirmed2.length,
-                '1': pointsByConfirmation.confirmed1.length,
-                '0': pointsByConfirmation.confirmed0.length
-            }
+                this.fingerprinter.getFingerprintInfo(fingerprints).uniquenessRatio : 0
         };
-       
-        // Считаем узлы по источникам
-        for (const node of graph.nodes.values()) {
-            const source = node.addedFrom || 'original';
-            stats.nodesBySource[source] = (stats.nodesBySource[source] || 0) + 1;
-        }
        
         console.log(`📊 Статистика модели для визуализации:`);
         console.log(`   Всего узлов: ${stats.totalNodes}`);
         console.log(`   🔴 3+ подтверждений: ${stats.confirmed3}`);
         console.log(`   🟠 2 подтверждения: ${stats.confirmed2}`);
         console.log(`   🔵 1 подтверждение: ${stats.confirmed1}`);
-        console.log(`   ⚪ Новые узлы: ${stats.confirmed0}`);
+        console.log(`   ⚪️ Новые узлы: ${stats.confirmed0}`);
        
         return {
             modelId: targetModelId,
@@ -493,30 +480,30 @@ class TopologyManager {
             visualizationMethod: 'topological_accumulative'
         };
     }
-   
+  
     // Получить информацию о всех моделях пользователя
     getUserModelsInfo() {
         return this.accumulator.getStats();
     }
-   
+  
     // Очистить все модели пользователя
     clearUserModels() {
         this.accumulator.models.clear();
         this.accumulator.currentModelId = null;
         this.linkedFootprints.clear();
-       
+      
         console.log(`🧹 Очищены все топологические модели пользователя ${this.userId}`);
         return { success: true, message: 'Топологические модели очищены' };
     }
-   
+  
     // Экспорт моделей пользователя
     exportUserModels() {
         const models = [];
-       
+      
         for (const [modelId, model] of this.accumulator.models) {
             models.push(this.accumulator.exportModel(modelId));
         }
-       
+      
         return {
             userId: this.userId,
             models: models,
@@ -525,30 +512,30 @@ class TopologyManager {
             version: '1.0-topological'
         };
     }
-   
+  
     // Импорт моделей пользователя
     importUserModels(data) {
         if (!data || !data.models || !Array.isArray(data.models)) {
             return { success: false, error: 'Неверный формат данных' };
         }
-       
+      
         let importedCount = 0;
-       
+      
         for (const modelData of data.models) {
             if (this.accumulator.importModel(modelData)) {
                 importedCount++;
             }
         }
-       
+      
         // Восстанавливаем связи след-модель
         if (data.linkedFootprints && Array.isArray(data.linkedFootprints)) {
             data.linkedFootprints.forEach(([footprintId, modelId]) => {
                 this.linkedFootprints.set(footprintId, modelId);
             });
         }
-       
+      
         console.log(`📥 Импортировано ${importedCount} топологических моделей для пользователя ${this.userId}`);
-       
+      
         return {
             success: true,
             importedCount: importedCount,
