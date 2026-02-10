@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (ИСПРАВЛЕННАЯ СИНТАКСИС)
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
@@ -12,13 +12,13 @@ class TopologyManager {
         this.debug = options.debug || false;
        
         // Основные компоненты
-         this.builder = new TopologyBuilder({ debug: this.debug });
-    this.fingerprinter = new TopologicalFingerprint({
-        debug: this.debug,
-        iterations: options.wlIterations || 3,
-        bucketSize: 3, // 🔥 ДОБАВЛЕНО
-        similarityThreshold: 0.7 // 🔥 ДОБАВЛЕНО
-          
+        this.builder = new TopologyBuilder({ debug: this.debug });
+        this.fingerprinter = new TopologicalFingerprint({
+            debug: this.debug,
+            iterations: options.wlIterations || 3,
+            bucketSize: 3,
+            similarityThreshold: 0.7
+        });
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
             debug: this.debug,
@@ -32,11 +32,11 @@ class TopologyManager {
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
     }
    
-    // 🔥 ГЛАВНЫЙ МЕТОД: Обработка следов из SimpleFootprint (ИСПРАВЛЕННЫЙ)
+    // 🔥 ГЛАВНЫЙ МЕТОД: Обработка следов из SimpleFootprint
     async processFootprint(footprint, analysis, photoInfo = {}) {
         console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoInfo.photoId || 'без ID'}...`);
        
-        // 🔥 ИЗМЕНЕНИЕ 1: Берем точки ТОЛЬКО из текущего фото
+        // Извлекаем точки ТОЛЬКО из текущего фото
         const points = this.extractPointsFromCurrentPhoto(analysis, photoInfo);
        
         if (points.length < 3) {
@@ -50,7 +50,7 @@ class TopologyManager {
        
         console.log(`📊 Извлечено ${points.length} точек ИЗ ТЕКУЩЕГО ФОТО`);
        
-        // 🔥 ИЗМЕНЕНИЕ 2: Диагностика точек
+        // Диагностика точек
         if (this.debug && points.length > 0) {
             console.log(`📋 Первые 3 точки текущего фото:`);
             points.slice(0, 3).forEach((p, i) => {
@@ -58,7 +58,7 @@ class TopologyManager {
             });
         }
        
-        // 2. Определяем модель для сравнения
+        // Определяем модель для сравнения
         let modelId = this.linkedFootprints.get(footprint.id);
         if (!modelId && this.accumulator.currentModelId) {
             modelId = this.accumulator.currentModelId;
@@ -66,23 +66,23 @@ class TopologyManager {
             console.log(`🔗 Связал след ${footprint.id} с моделью ${modelId}`);
         }
        
-        // 3. Обрабатываем точки через топологический аккумулятор
+        // Обрабатываем точки через топологический аккумулятор
         const result = await this.accumulator.processPoints(points, {
             modelId: modelId,
             source: `photo_${photoInfo.photoId || Date.now()}`,
             name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
             footprintId: footprint.id,
             photoInfo: photoInfo,
-            photoId: photoInfo.photoId // 🔥 ДОБАВЛЕНО
+            photoId: photoInfo.photoId
         });
        
-        // 4. Обновляем связь след-модель
+        // Обновляем связь след-модель
         if (result.modelId && result.modelId !== modelId) {
             this.linkedFootprints.set(footprint.id, result.modelId);
             console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
         }
        
-        // 5. Получаем обновленную информацию о модели
+        // Получаем обновленную информацию о модели
         const modelInfo = this.accumulator.getModelInfo(result.modelId);
        
         return {
@@ -96,7 +96,7 @@ class TopologyManager {
         };
     }
    
-    // 🔥 ИЗМЕНЕНИЕ 3: НОВЫЙ МЕТОД - Извлечение точек ТОЛЬКО из текущего фото
+    // Извлечение точек ТОЛЬКО из текущего фото
     extractPointsFromCurrentPhoto(analysis, photoInfo = {}) {
         const points = [];
        
@@ -115,11 +115,11 @@ class TopologyManager {
                 const ys = pred.points.map(p => p.y);
                
                 points.push({
-                    id: `${photoId}_pt_${protectorCount}`, // 🔥 Уникальный ID для каждого фото
+                    id: `${photoId}_pt_${protectorCount}`,
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
                     y: (Math.min(...ys) + Math.max(...ys)) / 2,
                     confidence: pred.confidence || 0.5,
-                    source: 'current_photo', // 🔥 КЛЮЧЕВОЕ ИЗМЕНЕНИЕ
+                    source: 'current_photo',
                     photoId: photoId,
                     originalIndex: protectorCount,
                     originalPoints: pred.points
@@ -133,21 +133,17 @@ class TopologyManager {
         return points;
     }
    
-    // 🔥 ИЗМЕНЕНИЕ 4: Старый метод остается для совместимости, но помечен как deprecated
+    // Старый метод для совместимости
     extractPointsFromFootprint(footprint, analysis = null) {
         console.log('⚠️ [DEPRECATED] extractPointsFromFootprint() - используйте extractPointsFromCurrentPhoto()');
-       
-        // 🔥 ПРЕДУПРЕЖДЕНИЕ: Этот метод аккумулирует ВСЕ точки
-        // Для сравнения фото используйте extractPointsFromCurrentPhoto()
        
         if (analysis?.predictions) {
             return this.extractPointsFromCurrentPhoto(analysis, { photoId: 'legacy' });
         }
        
-        // 🔥 Старая логика для совместимости
         const points = [];
        
-        // Вариант 1: Извлечь из PointTracker (честные подтверждения)
+        // Вариант 1: Извлечь из PointTracker
         if (footprint.pointTracker && footprint.pointTracker.points) {
             for (const [id, point] of footprint.pointTracker.points) {
                 points.push({
@@ -182,15 +178,14 @@ class TopologyManager {
         }
     }
    
-    // 🔥 ИНТЕГРАЦИЯ: Сравнение двух следов через топологию (ИСПРАВЛЕННЫЙ)
+    // Сравнение двух следов через топологию
     async compareFootprints(footprint1, footprint2, options = {}) {
         console.log(`🔍 ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
        
-        // 🔥 ИЗМЕНЕНИЕ 5: Предупреждение об использовании аккумулированных точек
         console.log('⚠️ ВНИМАНИЕ: compareFootprints использует ВСЕ точки следов');
         console.log('   Для сравнения отдельных фото используйте comparePhotoToModel()');
        
-        // 1. Извлекаем точки из обоих следов
+        // Извлекаем точки из обоих следов
         const points1 = this.extractPointsFromFootprint(footprint1);
         const points2 = this.extractPointsFromFootprint(footprint2);
        
@@ -208,21 +203,21 @@ class TopologyManager {
             };
         }
        
-        // 2. Строим графы Делоне
+        // Строим графы Делоне
         const graph1 = this.builder.buildDelaunayGraph(points1, footprint1.name);
         const graph2 = this.builder.buildDelaunayGraph(points2, footprint2.name);
        
-        // 3. Вычисляем WL-подписи
+        // Вычисляем WL-подписи
         const fingerprints1 = this.fingerprinter.computeGraphFingerprints(graph1);
         const fingerprints2 = this.fingerprinter.computeGraphFingerprints(graph2);
        
-        // 4. Сравниваем по подписям
+        // Сравниваем по подписям
         const comparison = this.fingerprinter.compareGraphs(
             graph1, fingerprints1,
             graph2, fingerprints2
         );
        
-        // 5. Принимаем решение
+        // Принимаем решение
         const isSame = comparison.similarity >= (options.threshold || 0.6);
         const decision = isSame ? 'same' : 'different';
        
@@ -230,10 +225,10 @@ class TopologyManager {
         console.log(`   Сходство: ${(comparison.similarity * 100).toFixed(1)}%`);
         console.log(`   Порог: ${(options.threshold || 0.6) * 100}%`);
         console.log(`   Решение: ${decision.toUpperCase()}`);
-        console.log(`   Точных совпадений: ${comparison.exactMatches.length}`);
+        console.log(`   Точных совпадений: ${comparison.exactMatches?.length || 0}`);
        
-        // 🔥 ИЗМЕНЕНИЕ 6: Диагностика совпадений
-        if (this.debug && comparison.exactMatches.length > 0) {
+        // Диагностика совпадений
+        if (this.debug && comparison.exactMatches && comparison.exactMatches.length > 0) {
             console.log(`🔍 Примеры совпадений (первые 3):`);
             comparison.exactMatches.slice(0, 3).forEach((match, i) => {
                 console.log(`   ${i+1}. ${match.node1} ↔ ${match.node2}`);
@@ -244,7 +239,7 @@ class TopologyManager {
             similar: isSame,
             similarity: comparison.similarity,
             decision: decision,
-            exactMatches: comparison.exactMatches,
+            exactMatches: comparison.exactMatches || [],
             stats: comparison,
             method: 'topological_delaunay_wl',
             graphs: {
@@ -257,7 +252,7 @@ class TopologyManager {
         };
     }
    
-    // 🔥 НОВЫЙ МЕТОД: Сравнение фото с моделью
+    // Сравнение фото с моделью
     async comparePhotoToModel(analysis, modelId = null, options = {}) {
         console.log(`🔍 СРАВНЕНИЕ ФОТО С МОДЕЛЬЮ ${modelId || 'любой'}`);
        
@@ -320,7 +315,7 @@ class TopologyManager {
             similar: isSame,
             similarity: comparison.similarity,
             decision: decision,
-            exactMatches: comparison.exactMatches,
+            exactMatches: comparison.exactMatches || [],
             stats: comparison,
             photoStats: {
                 points: points.length,
@@ -335,7 +330,7 @@ class TopologyManager {
         };
     }
    
-    // 🔥 АККУМУЛЯТИВНАЯ ВИЗУАЛИЗАЦИЯ: Показывает ВСЕ узлы из ВСЕХ следов
+    // АККУМУЛЯТИВНАЯ ВИЗУАЛИЗАЦИЯ: Показывает ВСЕ узлы из ВСЕХ следов
     getAccumulativeVisualizationData(modelId = null) {
         const targetModelId = modelId || this.accumulator.currentModelId;
        
@@ -356,7 +351,7 @@ class TopologyManager {
             // Пока просто степень узла как мера "важности"
             // В будущем можно считать из скольких следов пришел узел
             nodeConfirmations.set(nodeId, {
-                confirmations: node.degree, // временно используем степень
+                confirmations: node.degree,
                 confidence: node.confidence || 0.5,
                 source: node.addedFrom || 'original',
                 degree: node.degree
@@ -379,22 +374,22 @@ class TopologyManager {
             let color, size, confirmationLevel;
            
             if (confirmations >= 3) {
-                color = '#FF0000'; // 🔴 Красный
+                color = '#FF0000';
                 size = 8 + (node.confidence || 0.5) * 6;
                 confirmationLevel = 'confirmed3';
                 pointsByConfirmation.confirmed3.push(node);
             } else if (confirmations >= 2) {
-                color = '#FF6B00'; // 🟠 Оранжевый
+                color = '#FF6B00';
                 size = 6 + (node.confidence || 0.5) * 4;
                 confirmationLevel = 'confirmed2';
                 pointsByConfirmation.confirmed2.push(node);
             } else if (confirmations >= 1) {
-                color = '#2196F3'; // 🔵 Синий
+                color = '#2196F3';
                 size = 5 + (node.confidence || 0.5) * 3;
                 confirmationLevel = 'confirmed1';
                 pointsByConfirmation.confirmed1.push(node);
             } else {
-                color = '#BDBDBD'; // ⚪ Серый
+                color = '#BDBDBD';
                 size = 4;
                 confirmationLevel = 'confirmed0';
                 pointsByConfirmation.confirmed0.push(node);
