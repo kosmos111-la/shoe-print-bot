@@ -568,18 +568,22 @@ class SimpleFootprintManager {
 // ДОБАВЛЯЕМ В КОНЕЦ КЛАССА SimpleFootprintManager:
 
 // 🔥 СОВМЕСТИМОСТЬ СО СТАРЫМ КОДОМ (main.js)
+/ 🔥 ДОБАВЛЯЕМ В КОНЕЦ SimpleFootprintManager.js
+
+// ============================================
+// 🔧 СОВМЕСТИМОСТЬ СО СТАРЫМ main.js
+// ============================================
+
+// 🔥 МЕТОДЫ СЕССИЙ (нужны для main.js)
 getActiveSession(userId) {
-    // Метод для совместимости со старым кодом
     return this.sessionManager.getActiveSession(userId);
 }
 
-createNewSession(userId, sessionName = null) {
-    // Метод для совместимости со старым кодом
-    return this.sessionManager.createSession(userId, sessionName);
+createSession(userId, name = null) {
+    return this.sessionManager.createSession(userId, name);
 }
 
 getSessionInfo(userId) {
-    // Метод для совместимости со старым кодом
     const session = this.getActiveSession(userId);
     if (!session) return null;
    
@@ -592,27 +596,38 @@ getSessionInfo(userId) {
         photosCount: session.photos ? session.photos.length : 0,
         hasFootprint: !!session.currentFootprint,
         currentFootprintId: session.currentFootprint?.id,
-        // 🔥 Добавляем топологическую информацию
-        hasTopology: this.topologyManagers.has(userId),
-        topologyModelId: this.getTopologyManager(userId)?.accumulator?.currentModelId
+        footprintStats: session.currentFootprint ? {
+            nodes: session.currentFootprint.graph?.nodes?.size || 0,
+            edges: session.currentFootprint.graph?.edges?.size || 0,
+            confidence: session.currentFootprint.stats?.confidence || 0
+        } : null
     };
 }
 
-// 🔥 МЕТОД ДЛЯ ПРОСТОГО ДОБАВЛЕНИЯ АНАЛИЗА (совместимость)
+hasSession(userId) {
+    return this.sessionManager.hasSession(userId);
+}
+
+updateLastActivity(userId) {
+    const session = this.getActiveSession(userId);
+    if (session) {
+        session.lastActivity = new Date();
+        return true;
+    }
+    return false;
+}
+
+// 🔥 МЕТОД ДЛЯ ПРОСТОГО ДОБАВЛЕНИЯ АНАЛИЗА (совместимость с main.js)
 async addAnalysisToSession(userId, analysis, photoInfo = {}) {
-    console.log(`👣 [Совместимость] Добавление анализа в сессию ${userId}`);
+    console.log(`👣 [Совместимость] addAnalysisToSession для ${userId}`);
    
     try {
-        // Получаем или создаем сессию
+        // Проверяем наличие сессии
         let session = this.getActiveSession(userId);
         if (!session) {
-            session = this.createNewSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
-            console.log(`🆕 Создана новая сессия: ${session.id}`);
-        }
-       
-        // Проверяем наличие анализа
-        if (!analysis?.predictions) {
-            return { success: false, error: 'Нет данных анализа', nodesAdded: 0 };
+            // Создаем новую сессию
+            session = this.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
+            console.log(`🆕 Создана сессия: ${session.id}`);
         }
        
         // Вызываем основной метод
@@ -626,7 +641,8 @@ async addAnalysisToSession(userId, analysis, photoInfo = {}) {
             decision: result.topologicalDecision || 'unknown',
             sessionId: session.id,
             footprintId: result.footprintId,
-            visualizationPath: result.visualizationPath
+            visualizationPath: result.visualizationPath,
+            error: result.error
         };
        
     } catch (error) {
@@ -635,30 +651,29 @@ async addAnalysisToSession(userId, analysis, photoInfo = {}) {
     }
 }
 
-// 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ ВИЗУАЛИЗАЦИИ (совместимость)
+// 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ ВИЗУАЛИЗАЦИИ (совместимость с main.js)
 async getVisualizationForSession(userId, options = {}) {
-    console.log(`🎨 [Совместимость] Получение визуализации для сессии ${userId}`);
+    console.log(`🎨 [Совместимость] getVisualizationForSession для ${userId}`);
    
     try {
         // Проверяем наличие топологической модели
         const topologyManager = this.getTopologyManager(userId);
         if (!topologyManager) {
-            return { success: false, error: 'Нет топологической модели', path: null };
+            return { success: false, error: 'Нет топологической модели' };
         }
        
         // Получаем данные для визуализации
         const topologyData = topologyManager.getAccumulativeVisualizationData();
         if (!topologyData) {
-            return { success: false, error: 'Нет данных для визуализации', path: null };
+            return { success: false, error: 'Нет данных для визуализации' };
         }
        
         // Создаем визуализацию
         const ClusterVisualizer = require('./visualizations/cluster-visualizer');
         const visualizer = new ClusterVisualizer({
-            outputDir: './data/footprints/visualizations/topology',
+            outputDir: './data/footprints/visualizations',
             canvasWidth: 1200,
-            canvasHeight: 800,
-            debug: this.config.debug
+            canvasHeight: 800
         });
        
         const vizResult = await visualizer.visualizeTopologicalModel(topologyData, {
@@ -669,17 +684,16 @@ async getVisualizationForSession(userId, options = {}) {
         return {
             success: true,
             path: vizResult.path,
-            stats: topologyData.stats,
-            topological: true
+            stats: topologyData.stats
         };
        
     } catch (error) {
         console.log(`❌ Ошибка getVisualizationForSession: ${error.message}`);
-        return { success: false, error: error.message, path: null };
+        return { success: false, error: error.message };
     }
 }
 
-// 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ СТАТИСТИКИ (совместимость)
+// 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ СТАТИСТИКИ СЕССИИ
 getSessionStats(userId) {
     const session = this.getActiveSession(userId);
     const topologyManager = this.getTopologyManager(userId);
@@ -709,32 +723,65 @@ getSessionStats(userId) {
         };
     }
    
-    return {
-        ...baseStats,
-        hasTopology: false
-    };
+    return baseStats;
 }
 
-// 🔥 МЕТОД ДЛЯ ОЧИСТКИ СЕССИИ (совместимость)
+// 🔥 ОЧИСТКА СЕССИИ
 clearSession(userId) {
-    console.log(`🧹 [Совместимость] Очистка сессии пользователя ${userId}`);
+    console.log(`🧹 [Совместимость] Очистка сессии ${userId}`);
    
     // Очищаем сессию
-    if (this.userSessions.has(userId)) {
-        this.userSessions.delete(userId);
-    }
+    this.sessionManager.sessions.delete(userId);
    
     // Очищаем топологическую модель
     if (this.topologyManagers.has(userId)) {
         this.topologyManagers.delete(userId);
     }
    
-    // Очищаем в sessionManager
-    if (this.sessionManager.sessions.has(userId)) {
-        this.sessionManager.sessions.delete(userId);
+    // Очищаем userSessions
+    this.userSessions.delete(userId);
+   
+    return { success: true, message: `Сессия ${userId} очищена` };
+}
+
+// 🔥 МЕТОД ДЛЯ ПОЛУЧЕНИЯ ВСЕХ СЕССИЙ
+getAllSessions() {
+    const sessions = [];
+   
+    for (const [userId, session] of this.sessionManager.sessions) {
+        sessions.push({
+            userId,
+            sessionId: session.id,
+            name: session.name,
+            photosCount: session.photos?.length || 0,
+            hasFootprint: !!session.currentFootprint,
+            lastActivity: session.lastActivity
+        });
     }
    
-    return { success: true, message: `Сессия пользователя ${userId} очищена` };
+    return {
+        total: sessions.length,
+        sessions: sessions
+    };
+}
+
+// 🔥 МЕТОД ДЛЯ ТЕСТИРОВАНИЯ (совместимость с main.js)
+debugVisualizations(userId) {
+    const topologyManager = this.getTopologyManager(userId);
+   
+    if (!topologyManager) {
+        return { status: 'no_topology', message: 'Нет топологической модели' };
+    }
+   
+    const modelInfo = topologyManager.accumulator.getModelInfo();
+   
+    return {
+        status: 'ok',
+        hasTopology: true,
+        modelId: topologyManager.accumulator.currentModelId,
+        nodes: modelInfo?.stats?.nodes || 0,
+        edges: modelInfo?.stats?.edges || 0
+    };
 }
   
 }
