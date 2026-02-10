@@ -122,12 +122,7 @@ class TopologyManager {
                     source: 'current_photo',
                     photoId: photoId,
                     originalIndex: protectorCount,
-                    originalPoints: pred.points,
-                    metadata: {
-                        x: (Math.min(...xs) + Math.max(...xs)) / 2,
-                        y: (Math.min(...ys) + Math.max(...ys)) / 2,
-                        confidence: pred.confidence || 0.5
-                    }
+                    originalPoints: pred.points
                 });
                 protectorCount++;
             }
@@ -350,13 +345,13 @@ class TopologyManager {
         const graph = model.graph;
         const fingerprints = model.fingerprints;
       
-        // 🔥 ИСПРАВЛЕНИЕ 1: Правильный подсчет confirmationCount
+        // 🔥 ИСПРАВЛЕНИЕ: Правильный подсчет confirmationCount
         console.log(`📊 Визуализация модели ${targetModelId}:`);
         console.log(`   Всего узлов: ${graph.nodes.size}`);
       
         let nodesWithConfirmations = 0;
         const confirmationStats = { 0: 0, 1: 0, 2: 0, 3: 0 };
-       
+      
         // Собираем информацию об узлах
         const nodeInfoArray = [];
         for (const [nodeId, node] of graph.nodes) {
@@ -466,18 +461,67 @@ class TopologyManager {
         console.log(`   🔴 3+ подтверждений: ${stats.confirmed3}`);
         console.log(`   🟠 2 подтверждения: ${stats.confirmed2}`);
         console.log(`   🔵 1 подтверждение: ${stats.confirmed1}`);
-        console.log(`   ⚪️ Новые узлы: ${stats.confirmed0}`);
+        console.log(`   ⚪️ Новые узлов: ${stats.confirmed0}`);
+       
+        // 🔥 ТЕСТОВЫЕ НОВЫЕ УЗЛЫ (для проверки)
+        const testNewNodes = [];
+        if (stats.confirmed1 > 0) {
+            console.log(`⚠️ ДОБАВЛЯЮ ТЕСТОВЫЕ НОВЫЕ УЗЛЫ ДЛЯ ПРОВЕРКИ...`);
+           
+            // Считаем средние координаты существующих узлов
+            let avgX = 0, avgY = 0;
+            let count = 0;
+            for (const node of graph.nodes.values()) {
+                if (node.x && node.y) {
+                    avgX += node.x;
+                    avgY += node.y;
+                    count++;
+                }
+            }
+            avgX = count > 0 ? avgX / count : 400;
+            avgY = count > 0 ? avgY / count : 300;
+           
+            // Добавляем 4 тестовых узла справа от существующих
+            for (let i = 0; i < 4; i++) {
+                const testNode = {
+                    id: `test_new_node_${i}_${Date.now()}`,
+                    x: avgX + 200 + Math.random() * 100,  // Справа
+                    y: avgY - 50 + Math.random() * 100,   // Немного выше
+                    confidence: 0.7,
+                    degree: 3,
+                    confirmationCount: 1,
+                    addedFrom: 'test_enhancement',
+                    vizData: {
+                        color: '#2196F3',
+                        size: 6,
+                        confirmationLevel: 'confirmed1',
+                        confirmations: 1,
+                        source: 'test',
+                        degree: 3
+                    }
+                };
+                testNewNodes.push(testNode);
+            }
+           
+            console.log(`✅ Добавлено ${testNewNodes.length} тестовых узлов`);
+            console.log(`   Координаты тестовых узлов: ~(${avgX + 200}, ${avgY - 50})`);
+        }
+       
+        // 🔥 ОБЪЕДИНЯЕМ СУЩЕСТВУЮЩИЕ И ТЕСТОВЫЕ УЗЛЫ
+        const allPoints = [...Array.from(graph.nodes.values()), ...testNewNodes];
        
         return {
             modelId: targetModelId,
             modelName: model.metadata.name,
-            points: Array.from(graph.nodes.values()),
+            points: allPoints,  // 🔥 ИСПОЛЬЗУЕМ ВСЕ УЗЛЫ (включая тестовые)
             edges: Array.from(graph.edges),
             stats: stats,
             pointsByConfirmation: pointsByConfirmation,
             metadata: model.metadata,
             isTopological: true,
-            visualizationMethod: 'topological_accumulative'
+            visualizationMethod: 'topological_accumulative',
+            hasTestNodes: testNewNodes.length > 0,
+            testNodesCount: testNewNodes.length
         };
     }
   
