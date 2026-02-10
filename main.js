@@ -2470,7 +2470,8 @@ if (footprintManager && predictionsForAnalysis && predictionsForAnalysis.length 
             console.log(`👣 Достаточно протекторов: ${shoeProtectors.length}`);
 
             // Проверяем, есть ли активная сессия
-            let session = footprintManager.getActiveSession(userId);
+           // let session = footprintManager.getActiveSession(userId); было
+          const session = footprintManager.sessionManager.getActiveSession(userId);
             if (!session) {
                 console.log('🔄 Создаю новую сессию...');
                 session = footprintManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
