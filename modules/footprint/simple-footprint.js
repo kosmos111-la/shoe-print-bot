@@ -1,5 +1,4 @@
-// modules/footprint/simple-footprint.js (ФОТО-ОРИЕНТИРОВАННАЯ ВЕРСИЯ)
-// 🔥 ХРАНИМ ТОЧКИ ПО ОТДЕЛЬНОСТИ ДЛЯ КАЖДОГО ФОТО
+// modules/footprint/simple-footprint.js (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -13,19 +12,14 @@ class SimpleFootprint {
         this.name = options.name || `Отпечаток_${new Date().toLocaleDateString('ru-RU')}`;
         this.userId = options.userId || null;
        
-        // 🔥 ИЗМЕНЕНИЕ 1: Граф для визуализации (не для сравнения)
         this.graph = options.graph || new SimpleGraph(this.name);
+        this.photoCollections = new Map();
        
-        // 🔥 ИЗМЕНЕНИЕ 2: ХРАНЕНИЕ ТОЧЕК ПО ФОТО
-        this.photoCollections = new Map(); // photoId -> {points, graph, fingerprints, metadata}
-       
-        // 🔥 ИЗМЕНЕНИЕ 3: PointTracker ТОЛЬКО для совместимости
         this.pointTracker = options.pointTracker || new PointTracker({
             debug: false,
             maxConfirmations: 10
         });
        
-        // Метаданные
         this.metadata = {
             created: new Date(),
             lastUpdated: new Date(),
@@ -34,13 +28,12 @@ class SimpleFootprint {
             features: {
                 hasGraph: true,
                 hasPointTracker: true,
-                hasPhotoCollections: true, // 🔥 НОВОЕ
-                photoOriented: true // 🔥 КЛЮЧЕВОЕ ИЗМЕНЕНИЕ
+                hasPhotoCollections: true,
+                photoOriented: true
             },
             ...(options.metadata || {})
         };
        
-        // Статистика
         this.stats = {
             confidence: options.confidence || 0.5,
             photoCount: 0,
@@ -54,9 +47,19 @@ class SimpleFootprint {
         console.log(`👣 Создан ФОТО-ОРИЕНТИРОВАННЫЙ цифровой отпечаток "${this.name}"`);
     }
    
-    // 🔥 НОВЫЙ МЕТОД: Добавление фото с отдельным хранением
+    // 🔥 ИСПРАВЛЕНИЕ: Добавлена проверка типа predictions
     addPhotoAnalysis(photoId, analysis, sourceInfo = {}) {
         console.log(`📸 Добавление фото ${photoId} в отпечаток "${this.name}"`);
+       
+        if (!analysis) {
+            console.log(`❌ Нет данных анализа для фото ${photoId}`);
+            return {
+                success: false,
+                error: 'No analysis data',
+                points: 0,
+                photoId
+            };
+        }
        
         const points = this.extractProtectorPoints(analysis);
        
@@ -65,12 +68,12 @@ class SimpleFootprint {
             return {
                 success: false,
                 error: 'Not enough protectors',
-                points: 0,
+                points: points.length,
                 photoId
             };
         }
        
-        // 🔥 ИЗМЕНЕНИЕ 4: Строим граф Делоне для ЭТОГО ФОТО
+        // Строим граф Делоне для ЭТОГО ФОТО
         const photoGraph = this.buildPhotoGraph(points, photoId);
        
         // Сохраняем данные фото
@@ -90,22 +93,18 @@ class SimpleFootprint {
        
         this.photoCollections.set(photoId, photoData);
        
-        // 🔥 ИЗМЕНЕНИЕ 5: НЕ добавляем точки в общий PointTracker
-        // Только для диагностики сохраняем минимум данных
-        if (this.pointTracker) {
-            // Добавляем первую точку как маркер фото (для совместимости)
-            if (points.length > 0) {
-                const markerPoint = points[0];
-                this.pointTracker.processNewPoints([{
-                    x: markerPoint.x,
-                    y: markerPoint.y,
-                    confidence: markerPoint.confidence || 0.5,
-                    photoId: photoId
-                }], {
-                    ...sourceInfo,
-                    photoId
-                });
-            }
+        // Для совместимости
+        if (this.pointTracker && points.length > 0) {
+            const markerPoint = points[0];
+            this.pointTracker.processNewPoints([{
+                x: markerPoint.x,
+                y: markerPoint.y,
+                confidence: markerPoint.confidence || 0.5,
+                photoId: photoId
+            }], {
+                ...sourceInfo,
+                photoId
+            });
         }
        
         // Сохраняем в историю
@@ -142,11 +141,9 @@ class SimpleFootprint {
         };
     }
    
-    // 🔥 НОВЫЙ МЕТОД: Построение графа для одного фото
     buildPhotoGraph(points, photoId) {
         console.log(`🔨 Строю граф для фото ${photoId} из ${points.length} точек...`);
        
-        // Создаем временный граф для этого фото
         const tempGraph = new SimpleGraph(`photo_${photoId}`);
        
         const graphPoints = points.map((p, idx) => ({
@@ -157,7 +154,7 @@ class SimpleFootprint {
             originalPoints: p.originalPoints
         }));
        
-        const invariants = tempGraph.buildFromPoints(graphPoints.map(p => ({
+        tempGraph.buildFromPoints(graphPoints.map(p => ({
             x: p.x,
             y: p.y,
             confidence: p.confidence,
@@ -169,109 +166,100 @@ class SimpleFootprint {
         return tempGraph;
     }
    
-    // 🔥 СТАРЫЙ МЕТОД для совместимости (помечен как deprecated)
-    addAnalysisHonest(analysis, sourceInfo = {}) {
-        console.log(`⚠️ [DEPRECATED] addAnalysisHonest() - используйте addPhotoAnalysis()`);
-        console.log(`⚠️ Этот метод аккумулирует точки - может нарушить топологическое сравнение`);
+    // 🔥 ИСПРАВЛЕНИЕ: Добавлена проверка типа и логирование
+    extractProtectorPoints(analysis) {
+        console.log(`🔍 Извлечение точек из анализа...`);
        
-        const photoId = sourceInfo.photoId || `photo_${Date.now()}`;
+        let predictions = [];
        
-        // 🔥 Используем новый метод, но с предупреждением
-        const result = this.addPhotoAnalysis(photoId, analysis, sourceInfo);
-       
-        // Для совместимости возвращаем старый формат
-        return {
-            success: result.success,
-            added: result.points || 0,
-            totalNodes: this.graph.nodes.size,
-            confidence: this.stats.confidence,
-            warning: 'Используйте addPhotoAnalysis() для топологического сравнения'
-        };
-    }
-   
-    // 🔥 НОВЫЙ МЕТОД: Получить точки конкретного фото
-    getPhotoPoints(photoId) {
-        const photoData = this.photoCollections.get(photoId);
-        if (!photoData) {
-            console.log(`⚠️ Данные фото ${photoId} не найдены`);
+        // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Проверяем разные форматы данных
+        if (Array.isArray(analysis.predictions)) {
+            predictions = analysis.predictions;
+            console.log(`📊 Найден массив predictions: ${predictions.length} элементов`);
+        } else if (analysis.predictions && typeof analysis.predictions === 'object') {
+            // Может быть объект с массивом внутри
+            if (Array.isArray(analysis.predictions.predictions)) {
+                predictions = analysis.predictions.predictions;
+                console.log(`📊 Найден predictions.predictions: ${predictions.length} элементов`);
+            } else if (analysis.predictions.data && Array.isArray(analysis.predictions.data)) {
+                predictions = analysis.predictions.data;
+                console.log(`📊 Найден predictions.data: ${predictions.length} элементов`);
+            } else {
+                // Пытаемся преобразовать объект в массив
+                predictions = Object.values(analysis.predictions);
+                console.log(`📊 Преобразован объект в массив: ${predictions.length} элементов`);
+            }
+        } else {
+            console.log(`❌ Неизвестный формат predictions:`, typeof analysis.predictions);
             return [];
         }
        
-        return photoData.points;
-    }
-   
-    // 🔥 НОВЫЙ МЕТОД: Получить граф конкретного фото
-    getPhotoGraph(photoId) {
-        const photoData = this.photoCollections.get(photoId);
-        if (!photoData) {
-            console.log(`⚠️ Граф фото ${photoId} не найден`);
-            return null;
-        }
-       
-        return photoData.graph;
-    }
-   
-    // 🔥 НОВЫЙ МЕТОД: Получить все фото
-    getAllPhotos() {
-        const photos = [];
-       
-        for (const [photoId, photoData] of this.photoCollections) {
-            photos.push({
-                id: photoId,
-                points: photoData.points.length,
-                timestamp: photoData.timestamp,
-                source: photoData.sourceInfo
-            });
-        }
-       
-        return photos;
-    }
-   
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (без изменений)
-    extractProtectorPoints(predictions) {
         const points = [];
+        let protectorCount = 0;
+        let otherCount = 0;
        
-        const protectors = predictions.filter(p =>
-            p.class === 'shoe-protector' ||
-            (p.class && p.class.toLowerCase().includes('protector'))
-        );
+        console.log(`🔍 Обрабатываю ${predictions.length} предсказаний...`);
        
-        if (protectors.length === 0 && predictions.length > 0) {
-            console.log('⚠️ Нет класса shoe-protector, использую все точки с confidence > 0.3');
+        for (let i = 0; i < predictions.length; i++) {
+            const pred = predictions[i];
            
-            predictions.forEach((pred, index) => {
-                if ((pred.confidence || 0) > 0.3 && pred.points && pred.points.length > 0) {
-                    const center = this.calculateCenter(pred.points);
-                    points.push({
-                        x: center.x,
-                        y: center.y,
-                        confidence: pred.confidence || 0.5,
-                        originalPoints: pred.points,
-                        class: pred.class,
-                        originalIndex: index
-                    });
-                }
-            });
-        } else {
-            protectors.forEach(protector => {
-                if (protector.points && protector.points.length > 0) {
-                    const center = this.calculateCenter(protector.points);
-                    points.push({
-                        x: center.x,
-                        y: center.y,
-                        confidence: protector.confidence || 0.5,
-                        originalPoints: protector.points,
-                        class: protector.class
-                    });
-                }
-            });
+            // 🔥 ДИАГНОСТИКА: Логируем первые несколько предсказаний
+            if (i < 3 && this.metadata.totalPhotos === 0) {
+                console.log(`   Предсказание ${i}: class="${pred.class}", confidence=${pred.confidence}`);
+            }
+           
+            if (!pred || typeof pred !== 'object') {
+                console.log(`⚠️ Предсказание ${i} не является объектом:`, typeof pred);
+                continue;
+            }
+           
+            // Проверяем класс протектора
+            const isProtector = pred.class === 'shoe-protector' ||
+                               (pred.class && pred.class.toLowerCase().includes('protector'));
+           
+            if (isProtector && pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
+                const center = this.calculateCenter(pred.points);
+                points.push({
+                    x: center.x,
+                    y: center.y,
+                    confidence: pred.confidence || 0.5,
+                    originalPoints: pred.points,
+                    class: pred.class,
+                    originalIndex: i
+                });
+                protectorCount++;
+            } else if (pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
+                // 🔥 ДОБАВЛЕНО: Если не протектор, но есть точки - тоже учитываем
+                const center = this.calculateCenter(pred.points);
+                points.push({
+                    x: center.x,
+                    y: center.y,
+                    confidence: pred.confidence || 0.5,
+                    originalPoints: pred.points,
+                    class: pred.class || 'unknown',
+                    originalIndex: i,
+                    note: 'not_protector'
+                });
+                otherCount++;
+            }
+        }
+       
+        console.log(`✅ Извлечено точек: ${points.length} (протекторы: ${protectorCount}, другие: ${otherCount})`);
+       
+        // Если не нашли протекторов, но нашли другие точки
+        if (protectorCount === 0 && points.length > 0) {
+            console.log(`⚠️ Не найдено протекторов, но найдено ${points.length} других точек`);
+            console.log(`   Использую все точки с confidence > 0.3`);
+           
+            // Фильтруем по confidence
+            return points.filter(p => (p.confidence || 0) > 0.3);
         }
        
         return points;
     }
    
     calculateCenter(points) {
-        if (!points || points.length === 0) {
+        if (!points || !Array.isArray(points) || points.length === 0) {
             return { x: 0, y: 0 };
         }
        
@@ -300,7 +288,59 @@ class SimpleFootprint {
             Math.min(1, totalPoints / 100) * 0.7);
     }
    
-    // 🔥 УПРОЩЕННЫЙ toJSON (с поддержкой фото-коллекций)
+    // 🔥 СТАРЫЙ МЕТОД для совместимости
+    addAnalysisHonest(analysis, sourceInfo = {}) {
+        console.log(`⚠️ [DEPRECATED] addAnalysisHonest() - используйте addPhotoAnalysis()`);
+       
+        const photoId = sourceInfo.photoId || `photo_${Date.now()}`;
+       
+        const result = this.addPhotoAnalysis(photoId, analysis, sourceInfo);
+       
+        return {
+            success: result.success,
+            added: result.points || 0,
+            totalNodes: this.graph.nodes.size,
+            confidence: this.stats.confidence,
+            warning: 'Используйте addPhotoAnalysis() для топологического сравнения'
+        };
+    }
+   
+    // Другие методы остаются без изменений...
+    getPhotoPoints(photoId) {
+        const photoData = this.photoCollections.get(photoId);
+        if (!photoData) {
+            console.log(`⚠️ Данные фото ${photoId} не найдены`);
+            return [];
+        }
+       
+        return photoData.points;
+    }
+   
+    getPhotoGraph(photoId) {
+        const photoData = this.photoCollections.get(photoId);
+        if (!photoData) {
+            console.log(`⚠️ Граф фото ${photoId} не найден`);
+            return null;
+        }
+       
+        return photoData.graph;
+    }
+   
+    getAllPhotos() {
+        const photos = [];
+       
+        for (const [photoId, photoData] of this.photoCollections) {
+            photos.push({
+                id: photoId,
+                points: photoData.points.length,
+                timestamp: photoData.timestamp,
+                source: photoData.sourceInfo
+            });
+        }
+       
+        return photos;
+    }
+   
     toJSON() {
         const photoCollectionsData = {};
        
@@ -319,7 +359,7 @@ class SimpleFootprint {
             name: this.name,
             userId: this.userId,
             graph: this.graph.toJSON(),
-            photoCollections: photoCollectionsData, // 🔥 НОВОЕ
+            photoCollections: photoCollectionsData,
             metadata: {
                 ...this.metadata,
                 created: this.metadata.created.toISOString(),
@@ -328,7 +368,7 @@ class SimpleFootprint {
             stats: this.stats,
             analysisHistory: this.analysisHistory,
             photoHistory: this.photoHistory,
-            _version: '2.3-photo-oriented',
+            _version: '2.3-photo-oriented-fixed',
             _photoCount: this.photoCollections.size,
             _savedAt: new Date().toISOString()
         };
@@ -368,10 +408,8 @@ class SimpleFootprint {
             confidence: data.stats?.confidence
         });
        
-        // 🔥 ВОССТАНАВЛИВАЕМ ФОТО-КОЛЛЕКЦИИ
         if (data.photoCollections && typeof data.photoCollections === 'object') {
             Object.entries(data.photoCollections).forEach(([photoId, photoData]) => {
-                // Восстанавливаем дату
                 if (photoData.timestamp && typeof photoData.timestamp === 'string') {
                     photoData.timestamp = new Date(photoData.timestamp);
                 }
@@ -396,7 +434,6 @@ class SimpleFootprint {
             footprint.stats = { ...footprint.stats, ...data.stats };
         }
        
-        // Обновляем статистику
         footprint.updateStats();
        
         console.log(`✅ Загружен фото-ориентированный отпечаток "${footprint.name}"`);
@@ -405,7 +442,6 @@ class SimpleFootprint {
         return footprint;
     }
    
-    // 🔥 ПРОСТОЙ МЕТОД ДЛЯ ВИЗУАЛИЗАЦИИ
     visualize() {
         console.log(`\n👣 ФОТО-ОРИЕНТИРОВАННЫЙ ОТПЕЧАТОК "${this.name}":`);
         console.log(`├─ ID: ${this.id}`);
@@ -415,7 +451,6 @@ class SimpleFootprint {
         console.log(`├─ Общий граф: ${this.graph.nodes.size} узлов`);
         console.log(`└─ Уверенность: ${Math.round(this.stats.confidence * 100)}%`);
        
-        // Показываем информацию по фото
         if (this.photoCollections.size > 0) {
             console.log(`\n📸 ФОТО В КОЛЛЕКЦИИ:`);
             let count = 0;
