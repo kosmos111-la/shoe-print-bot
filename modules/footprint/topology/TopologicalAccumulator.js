@@ -155,63 +155,93 @@ class TopologicalAccumulator {
     }
    
     // Улучшение существующей модели (достраивание)
-    async enhanceModel(modelId, newGraph, newFingerprints, comparison, options = {}) {
-        console.log(`🔧 ДОСТРАИВАЮ МОДЕЛЬ "${modelId}"...`);
-       
-        const model = this.models.get(modelId);
-        const exactMatches = comparison.exactMatches;
-       
-        if (exactMatches.length < this.minMatchesForEnhancement) {
-            console.log(`⚠️ Мало совпадений для достройки: ${exactMatches.length} < ${this.minMatchesForEnhancement}`);
-            return { newNodesAdded: 0, reason: 'insufficient_matches' };
-        }
-       
-        // Находим узлы, которые нужно добавить
-        const nodesToAdd = this.findNodesToAdd(
-            model.graph,
-            newGraph,
-            newFingerprints,
-            exactMatches
-        );
-       
-        if (nodesToAdd.length === 0) {
-            console.log(`✅ Все узлы уже есть в модели`);
-            return { newNodesAdded: 0, reason: 'all_nodes_exist' };
-        }
-       
-        console.log(`🎯 Найдено ${nodesToAdd.length} новых узлов для добавления`);
-       
-        // Добавляем узлы в модель
-        const addedNodes = this.addNodesToModel(modelId, nodesToAdd, newGraph);
-       
-        // Обновляем подписи модели (необязательно, можно лениво)
-        if (addedNodes.length > 0) {
-            await this.updateModelFingerprints(modelId);
-        }
-       
-        // Обновляем историю
-        model.history.push({
-            action: 'enhanced',
-            timestamp: new Date(),
-            newNodes: addedNodes.length,
-            totalNodes: model.graph.nodes.size,
-            exactMatches: exactMatches.length,
-            similarity: comparison.similarity,
-            source: options.source || 'unknown'
-        });
-       
-        this.stats.totalEnhancements++;
-        this.stats.lastUpdated = new Date();
-       
-        console.log(`✅ МОДЕЛЬ УЛУЧШЕНА: +${addedNodes.length} узлов, всего ${model.graph.nodes.size} узлов`);
-       
-        return {
-            newNodesAdded: addedNodes.length,
-            addedNodes: addedNodes,
-            totalNodes: model.graph.nodes.size,
-            exactMatches: exactMatches.length
-        };
+async enhanceModel(modelId, newGraph, newFingerprints, comparison, options = {}) {
+    console.log(`🔧 ДОСТРАИВАЮ МОДЕЛЬ "${modelId}"...`);
+   
+    const model = this.models.get(modelId);
+   
+    // 🔥 ИСПРАВЛЕНИЕ 1: Используем ВСЕ совпадения, а не только exactMatches
+    const allMatches = comparison.allMatches || comparison.exactMatches || [];
+   
+    console.log(`📊 Использую для достройки: ${allMatches.length} совпадений`);
+   
+    if (allMatches.length < this.minMatchesForEnhancement) {
+        console.log(`⚠️ Мало совпадений для достройки: ${allMatches.length} < ${this.minMatchesForEnhancement}`);
+        return { newNodesAdded: 0, reason: 'insufficient_matches' };
     }
+   
+    // Находим узлы, которые нужно добавить
+    const nodesToAdd = this.findNodesToAdd(
+        model.graph,
+        newGraph,
+        newFingerprints,
+        allMatches // 🔥 Используем все совпадения
+    );
+   
+    if (nodesToAdd.length === 0) {
+        console.log(`✅ Все узлы уже есть в модели`);
+        return { newNodesAdded: 0, reason: 'all_nodes_exist' };
+    }
+   
+    console.log(`🎯 Найдено ${nodesToAdd.length} новых узлов для добавления`);
+   
+    // Добавляем узлы в модель
+    const addedNodes = this.addNodesToModel(modelId, nodesToAdd, newGraph);
+   
+    // Обновляем подписи модели
+    if (addedNodes.length > 0) {
+        await this.updateModelFingerprints(modelId);
+    }
+   
+    // 🔥 ИСПРАВЛЕНИЕ 2: Обновляем подтверждения для совпавших узлов
+    this.updateNodeConfirmations(modelId, allMatches);
+   
+    // Обновляем историю
+    model.history.push({
+        action: 'enhanced',
+        timestamp: new Date(),
+        newNodes: addedNodes.length,
+        totalNodes: model.graph.nodes.size,
+        exactMatches: allMatches.length,
+        similarity: comparison.similarity,
+        source: options.source || 'unknown'
+    });
+   
+    this.stats.totalEnhancements++;
+    this.stats.lastUpdated = new Date();
+   
+    console.log(`✅ МОДЕЛЬ УЛУЧШЕНА: +${addedNodes.length} узлов, всего ${model.graph.nodes.size} узлов`);
+   
+    return {
+        newNodesAdded: addedNodes.length,
+        addedNodes: addedNodes,
+        totalNodes: model.graph.nodes.size,
+        allMatches: allMatches.length
+    };
+}
+
+// 🔥 НОВЫЙ МЕТОД: Обновление подтверждений узлов
+updateNodeConfirmations(modelId, matches) {
+    const model = this.models.get(modelId);
+   
+    for (const match of matches) {
+        const nodeId = match.node1; // Узел из модели
+        if (model.graph.nodes.has(nodeId)) {
+            const node = model.graph.nodes.get(nodeId);
+           
+            // Увеличиваем счетчик подтверждений
+            node.confirmationCount = (node.confirmationCount || 1) + 1;
+            node.lastConfirmed = new Date();
+           
+            // Обновляем уверенность
+            if (match.confidence) {
+                node.confidence = Math.max(node.confidence || 0.5, match.confidence);
+            }
+        }
+    }
+   
+    console.log(`📈 Обновлены подтверждения для ${matches.length} узлов`);
+}
    
     // Находим узлы для добавления в модель
     findNodesToAdd(modelGraph, newGraph, newFingerprints, exactMatches) {
