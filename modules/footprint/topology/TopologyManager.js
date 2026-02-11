@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (С ТРЕУГОЛЬНИКАМИ ДЕЛОНЕ)
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (ИСПРАВЛЕННЫЕ ID)
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
@@ -54,7 +54,7 @@ class TopologyManager {
         if (this.debug && points.length > 0) {
             console.log(`📋 Первые 3 точки текущего фото:`);
             points.slice(0, 3).forEach((p, i) => {
-                console.log(`   ${i+1}. ${p.id}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+                console.log(`   ${i+1}. ${p.id.substring(0, 20)}...: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
             });
         }
        
@@ -96,7 +96,7 @@ class TopologyManager {
         };
     }
    
-    // Извлечение точек ТОЛЬКО из текущего фото
+    // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Извлечение точек с УНИКАЛЬНЫМИ ID
     extractPointsFromCurrentPhoto(analysis, photoInfo = {}) {
         const points = [];
        
@@ -106,6 +106,9 @@ class TopologyManager {
         }
        
         const photoId = photoInfo.photoId || `photo_${Date.now()}`;
+        // 🔥 ГЕНЕРИРУЕМ УНИКАЛЬНЫЙ ID ДЛЯ КАЖДОГО ФОТО
+        const uniquePhotoId = `${photoId}_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+       
         const predictions = analysis.predictions || [];
         let protectorCount = 0;
        
@@ -114,13 +117,15 @@ class TopologyManager {
                 const xs = pred.points.map(p => p.x);
                 const ys = pred.points.map(p => p.y);
                
+                // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Генерируем УНИКАЛЬНЫЙ ID для каждой точки
                 points.push({
-                    id: `${photoId}_pt_${protectorCount}`,
+                    id: `${uniquePhotoId}_pt_${protectorCount}_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
                     y: (Math.min(...ys) + Math.max(...ys)) / 2,
                     confidence: pred.confidence || 0.5,
                     source: 'current_photo',
                     photoId: photoId,
+                    uniquePhotoId: uniquePhotoId, // Сохраняем для отслеживания
                     originalIndex: protectorCount,
                     originalPoints: pred.points
                 });
@@ -129,6 +134,7 @@ class TopologyManager {
         });
        
         console.log(`📸 Извлечено ${points.length} точек из ТЕКУЩЕГО ФОТО ${photoId}`);
+        console.log(`   Уникальный ID фото: ${uniquePhotoId}`);
        
         return points;
     }
@@ -231,7 +237,7 @@ class TopologyManager {
         if (this.debug && comparison.exactMatches && comparison.exactMatches.length > 0) {
             console.log(`🔍 Примеры совпадений (первые 3):`);
             comparison.exactMatches.slice(0, 3).forEach((match, i) => {
-                console.log(`   ${i+1}. ${match.node1} ↔ ${match.node2}`);
+                console.log(`   ${i+1}. ${match.node1.substring(0, 15)}... ↔ ${match.node2.substring(0, 15)}...`);
             });
         }
        
@@ -330,7 +336,7 @@ class TopologyManager {
         };
     }
    
-    // 🔥 ОБНОВЛЕННЫЙ МЕТОД: Визуализация топологической модели
+    // Визуализация топологической модели
     getAccumulativeVisualizationData(modelId = null) {
         const targetModelId = modelId || this.accumulator.currentModelId;
        
@@ -348,37 +354,30 @@ class TopologyManager {
         console.log(`📊 Визуализация модели ${targetModelId}:`);
         console.log(`   Всего узлов: ${graph.nodes.size}`);
        
-        // 🔥 СБОР СТАТИСТИКИ
+        // Сбор статистики
         let nodesWithConfirmations = 0;
         const confirmationStats = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
        
         // Проверяем все узлы на наличие координат
         const nodeInfoArray = [];
         for (const [nodeId, node] of graph.nodes) {
-            // 🔥 ГАРАНТИРУЕМ КООРДИНАТЫ
+            // Гарантируем координаты
             if (!node.x || !node.y) {
-                console.log(`⚠️ Узел ${nodeId} не имеет координат, пытаюсь восстановить...`);
-               
-                // Пытаемся найти координаты
                 if (node.originalData?.x && node.originalData?.y) {
                     node.x = node.originalData.x;
                     node.y = node.originalData.y;
-                    console.log(`   ✓ Восстановлены из originalData: (${node.x}, ${node.y})`);
                 } else if (node.metadata?.x && node.metadata?.y) {
                     node.x = node.metadata.x;
                     node.y = node.metadata.y;
-                    console.log(`   ✓ Восстановлены из metadata: (${node.x}, ${node.y})`);
                 } else {
-                    // Создаем случайные координаты
                     node.x = 400 + Math.random() * 200 - 100;
                     node.y = 300 + Math.random() * 200 - 100;
-                    console.log(`   ⚠️ Созданы случайные координаты: (${node.x}, ${node.y})`);
                 }
             }
            
-            // 🔥 ПОДСЧЕТ ПОДТВЕРЖДЕНИЙ
+            // Подсчет подтверждений
             const confirmations = node.confirmationCount ||
-                                 (node.addedAt ? 1 : 0); // Новые узлы получают 1
+                                 (node.addedAt ? 1 : 0);
            
             confirmationStats[confirmations] = (confirmationStats[confirmations] || 0) + 1;
             if (confirmations > 0) nodesWithConfirmations++;
@@ -397,12 +396,12 @@ class TopologyManager {
         console.log(`   2 подтверждения: ${confirmationStats[2] || 0}`);
         console.log(`   3+ подтверждений: ${confirmationStats[3] + confirmationStats[4] || 0}`);
        
-        // 🔥 ГРУППИРОВКА ПО ПОДТВЕРЖДЕНИЯМ
+        // Группировка по подтверждениям
         const pointsByConfirmation = {
-            confirmed3: [], // 3+ подтверждений (высокая надежность)
-            confirmed2: [], // 2 подтверждения (средняя надежность)
-            confirmed1: [], // 1 подтверждение (низкая надежность)
-            confirmed0: []  // 0 подтверждений (предсказанные)
+            confirmed3: [], // 3+ подтверждений
+            confirmed2: [], // 2 подтверждения
+            confirmed1: [], // 1 подтверждение
+            confirmed0: []  // 0 подтверждений
         };
        
         for (const info of nodeInfoArray) {
@@ -413,22 +412,22 @@ class TopologyManager {
             let color, size, confirmationLevel;
            
             if (confirmations >= 3) {
-                color = '#FF0000'; // 🔴
+                color = '#FF0000';
                 size = 8 + (node.confidence || 0.5) * 6;
                 confirmationLevel = 'confirmed3';
                 pointsByConfirmation.confirmed3.push(node);
             } else if (confirmations >= 2) {
-                color = '#FF6B00'; // 🟠
+                color = '#FF6B00';
                 size = 6 + (node.confidence || 0.5) * 4;
                 confirmationLevel = 'confirmed2';
                 pointsByConfirmation.confirmed2.push(node);
             } else if (confirmations >= 1) {
-                color = '#2196F3'; // 🔵
+                color = '#2196F3';
                 size = 5 + (node.confidence || 0.5) * 3;
                 confirmationLevel = 'confirmed1';
                 pointsByConfirmation.confirmed1.push(node);
             } else {
-                color = '#BDBDBD'; // ⚪
+                color = '#BDBDBD';
                 size = 4;
                 confirmationLevel = 'confirmed0';
                 pointsByConfirmation.confirmed0.push(node);
@@ -476,7 +475,7 @@ class TopologyManager {
             pointsByConfirmation: pointsByConfirmation,
             metadata: model.metadata,
             isTopological: true,
-            visualizationMethod: 'topological_accumulative_with_triangles'
+            visualizationMethod: 'topological_accumulative'
         };
     }
    
@@ -508,7 +507,7 @@ class TopologyManager {
             models: models,
             linkedFootprints: Array.from(this.linkedFootprints.entries()),
             exportedAt: new Date().toISOString(),
-            version: '1.1-topological-with-triangles'
+            version: '1.2-topological-unique-ids'
         };
     }
    
