@@ -4,34 +4,48 @@
 class GeometryMemory {
     constructor(options = {}) {
         this.debug = options.debug || false;
-       
-        // 🔥 ХРАНИЛИЩЕ ГЕОМЕТРИЧЕСКИХ ОТНОШЕНИЙ
-        this.relations = new Map(); // nodeId -> массив отношений
-       
+        this.relations = new Map();
         console.log('📐 GeometryMemory создана (инвариантная геометрия)');
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Запомнить геометрию новой точки
-    rememberNodeGeometry(nodeId, node, neighbors, allNodes) {
-        console.log(`📐 Запоминаю геометрию узла ${nodeId.substring(0, 20)}...`);
-       
+    // 🔥 ЗАПОМНИТЬ ГЕОМЕТРИЮ УЗЛА
+    rememberNodeGeometry(nodeId, node, neighborIds, allNodes) {
+        if (!node || node.x === undefined || node.y === undefined) {
+            console.log(`   ⚠️ Невозможно запомнить геометрию: нет координат`);
+            return [];
+        }
+      
+        if (this.debug) {
+            console.log(`📐 Запоминаю геометрию узла ${nodeId.substring(0, 20)}...`);
+        }
+      
         const relations = [];
-       
-        // 1. 🔥 ОТНОШЕНИЯ С ПАРАМИ СОСЕДЕЙ (между, слева, справа)
+        const neighbors = [];
+      
+        // Получаем объекты соседей
+        neighborIds.forEach(id => {
+            const neighbor = allNodes.get(id);
+            if (neighbor) neighbors.push(neighbor);
+        });
+      
+        // 1. ОТНОШЕНИЯ С ПАРАМИ СОСЕДЕЙ (между)
         for (let i = 0; i < neighbors.length; i++) {
             for (let j = i + 1; j < neighbors.length; j++) {
                 const a = neighbors[i];
                 const b = neighbors[j];
-               
-                const relation = this.calculatePairRelation(nodeId, node, a, b, allNodes);
+              
+                const relation = this.calculatePairRelation(node, a, b);
                 if (relation) {
-                    relations.push(relation);
+                    relations.push({
+                        ...relation,
+                        points: [a.id, b.id]
+                    });
                 }
             }
         }
-       
-        // 2. 🔥 ПРИНАДЛЕЖНОСТЬ К ТРЕУГОЛЬНИКАМ (барицентрические координаты)
-        const triangles = this.findEnclosingTriangles(nodeId, node, allNodes);
+      
+        // 2. ПРИНАДЛЕЖНОСТЬ К ТРЕУГОЛЬНИКАМ
+        const triangles = this.findEnclosingTriangles(node, Array.from(allNodes.values()));
         triangles.forEach(triangle => {
             const barycentric = this.calculateBarycentric(node, triangle);
             relations.push({
@@ -41,30 +55,9 @@ class GeometryMemory {
                 confidence: 0.9
             });
         });
-       
-        // 3. 🔥 ОТНОШЕНИЯ С ТРОЙКАМИ (углы, пропорции)
-        for (let i = 0; i < neighbors.length; i++) {
-            for (let j = i + 1; j < neighbors.length; j++) {
-                for (let k = j + 1; k < neighbors.length; k++) {
-                    const angle = this.calculateAngle(
-                        node,
-                        allNodes.get(neighbors[i]),
-                        allNodes.get(neighbors[j]),
-                        allNodes.get(neighbors[k])
-                    );
-                   
-                    relations.push({
-                        type: 'angle_with_triple',
-                        points: [neighbors[i], neighbors[j], neighbors[k]],
-                        angle: angle,
-                        confidence: 0.8
-                    });
-                }
-            }
-        }
-       
-        // 4. 🔥 ПОЗИЦИЯ В КЛАСТЕРЕ (центр/край/изолирован)
-        const clusterPosition = this.determineClusterPosition(nodeId, neighbors, allNodes);
+      
+        // 3. ПОЗИЦИЯ В КЛАСТЕРЕ
+        const clusterPosition = this.determineClusterPosition(neighbors);
         relations.push({
             type: 'cluster_position',
             position: clusterPosition.type,
@@ -72,230 +65,150 @@ class GeometryMemory {
             borderDistance: clusterPosition.borderDistance,
             confidence: 0.85
         });
-       
-        // 5. 🔥 ОТНОСИТЕЛЬНЫЕ РАССТОЯНИЯ (пропорции)
-        neighbors.forEach(neighborId => {
-            const neighbor = allNodes.get(neighborId);
-            if (neighbor) {
-                // Ищем "эталонное" расстояние среди соседей соседа
-                const referenceDistances = this.findReferenceDistances(neighborId, allNodes);
-                referenceDistances.forEach(refDist => {
-                    const myDist = this.distance(node, neighbor);
-                    const ratio = myDist / refDist.distance;
-                   
-                    relations.push({
-                        type: 'distance_ratio',
-                        from: nodeId,
-                        to: neighborId,
-                        reference: refDist.pair,
-                        ratio: ratio,
-                        confidence: 0.75
-                    });
-                });
-            }
-        });
-       
-        // 6. 🔥 СОХРАНЯЕМ
+      
+        // 4. СОХРАНЯЕМ
         this.relations.set(nodeId, {
             nodeId: nodeId,
             relations: relations,
             recordedAt: new Date(),
-            sourceGraph: allNodes.size
+            originalPosition: { x: node.x, y: node.y },
+            neighborCount: neighbors.length
         });
-       
-        console.log(`   ✅ Запомнено ${relations.length} геометрических отношений`);
+      
+        if (this.debug) {
+            console.log(`   ✅ Запомнено ${relations.length} отношений`);
+        }
+      
         return relations;
     }
 
     // 🔥 РАСЧЁТ ОТНОШЕНИЯ МЕЖДУ ТОЧКОЙ И ПАРОЙ СОСЕДЕЙ
-    calculatePairRelation(nodeId, node, aId, bId, allNodes) {
-        const a = allNodes.get(aId);
-        const b = allNodes.get(bId);
-        if (!a || !b) return null;
-       
-        // Проверяем, лежит ли точка между A и B
-        const isBetween = this.isPointBetween(node, a, b);
+    calculatePairRelation(point, a, b) {
+        if (!point || !a || !b) return null;
+      
+        const isBetween = this.isPointBetween(point, a, b);
         if (isBetween) {
-            // Вычисляем пропорцию (0..1) - насколько близко к A или B
-            const distA = this.distance(node, a);
-            const distB = this.distance(node, b);
+            const distA = this.distance(point, a);
+            const distB = this.distance(point, b);
             const total = distA + distB;
-           
+          
             return {
                 type: 'between',
-                points: [aId, bId],
                 ratio: total > 0 ? distA / total : 0.5,
                 confidence: 0.95
             };
         }
-       
-        // Определяем ориентацию (слева/справа)
-        const orientation = this.orientation(a, b, node);
+      
+        const orientation = this.orientation(a, b, point);
         if (orientation !== 0) {
             return {
                 type: orientation > 0 ? 'left_of' : 'right_of',
-                vector: [aId, bId],
                 confidence: 0.9
             };
         }
-       
+      
         return null;
     }
 
     // 🔥 ПОИСК ТРЕУГОЛЬНИКОВ, СОДЕРЖАЩИХ ТОЧКУ
-    findEnclosingTriangles(nodeId, node, allNodes) {
+    findEnclosingTriangles(point, allNodes) {
         const triangles = [];
-        const nodes = Array.from(allNodes.values());
-       
-        // Ищем все треугольники из имеющихся узлов
-        for (let i = 0; i < nodes.length; i++) {
-            for (let j = i + 1; j < nodes.length; j++) {
-                for (let k = j + 1; k < nodes.length; k++) {
-                    const a = nodes[i];
-                    const b = nodes[j];
-                    const c = nodes[k];
-                   
-                    // Проверяем, что треугольник не содержит искомую точку
-                    if (a.id === nodeId || b.id === nodeId || c.id === nodeId) continue;
-                   
-                    if (this.isPointInTriangle(node, a, b, c)) {
+      
+        for (let i = 0; i < allNodes.length; i++) {
+            for (let j = i + 1; j < allNodes.length; j++) {
+                for (let k = j + 1; k < allNodes.length; k++) {
+                    const a = allNodes[i];
+                    const b = allNodes[j];
+                    const c = allNodes[k];
+                  
+                    if (a.id === point.id || b.id === point.id || c.id === point.id) continue;
+                    if (!a.x || !b.x || !c.x) continue;
+                  
+                    if (this.isPointInTriangle(point, a, b, c)) {
                         triangles.push([a, b, c]);
                     }
                 }
             }
         }
-       
+      
         return triangles;
     }
 
     // 🔥 ОПРЕДЕЛЕНИЕ ПОЗИЦИИ В КЛАСТЕРЕ
-    determineClusterPosition(nodeId, neighbors, allNodes) {
+    determineClusterPosition(neighbors) {
         if (neighbors.length === 0) {
             return { type: 'isolated', borderDistance: 1.0 };
         }
-       
         if (neighbors.length === 1) {
             return { type: 'endpoint', borderDistance: 1.0 };
         }
-       
-        // Проверяем, является ли точка частью границы
-        let borderScore = 0;
-        let missingConnections = 0;
-       
-        for (let i = 0; i < neighbors.length; i++) {
-            for (let j = i + 1; j < neighbors.length; j++) {
-                const a = neighbors[i];
-                const b = neighbors[j];
-                const neighborA = allNodes.get(a);
-                const neighborB = allNodes.get(b);
-               
-                // Проверяем, связаны ли соседи между собой
-                const areConnected = this.areNodesConnected(a, b, allNodes);
-                if (!areConnected) {
-                    missingConnections++;
-                }
-            }
-        }
-       
-        // Если много несвязанных соседей - точка на границе
-        const totalPairs = (neighbors.length * (neighbors.length - 1)) / 2;
-        borderScore = missingConnections / Math.max(1, totalPairs);
-       
-        if (borderScore > 0.6) {
-            return { type: 'border', borderDistance: borderScore };
-        } else if (borderScore < 0.2) {
-            return { type: 'core', borderDistance: borderScore };
+      
+        // Простая эвристика: чем больше соседей, тем ближе к центру
+        if (neighbors.length >= 6) {
+            return { type: 'core', borderDistance: 0.2 };
+        } else if (neighbors.length >= 4) {
+            return { type: 'inner', borderDistance: 0.5 };
         } else {
-            return { type: 'inner', borderDistance: borderScore };
+            return { type: 'border', borderDistance: 0.8 };
         }
-    }
-
-    // 🔥 ПОИСК ЭТАЛОННЫХ РАССТОЯНИЙ
-    findReferenceDistances(nodeId, allNodes) {
-        const references = [];
-        const node = allNodes.get(nodeId);
-        if (!node) return references;
-       
-        const neighbors = this.getNeighbors(nodeId, allNodes);
-       
-        for (let i = 0; i < neighbors.length; i++) {
-            for (let j = i + 1; j < neighbors.length; j++) {
-                const a = allNodes.get(neighbors[i]);
-                const b = allNodes.get(neighbors[j]);
-                if (a && b) {
-                    references.push({
-                        pair: [neighbors[i], neighbors[j]],
-                        distance: this.distance(a, b)
-                    });
-                }
-            }
-        }
-       
-        return references;
     }
 
     // 🔥 ВОССТАНОВЛЕНИЕ ПОЗИЦИИ ПО ГЕОМЕТРИЧЕСКОЙ ПАМЯТИ
     reconstructPosition(nodeId, modelGraph) {
         const memory = this.relations.get(nodeId);
-        if (!memory) return null;
-       
-        console.log(`🔄 Восстанавливаю геометрию узла ${nodeId.substring(0, 20)}...`);
-       
-        let candidates = [];
-       
-        // 1. Пробуем восстановить по отношению 'between'
-        memory.relations.forEach(rel => {
-            if (rel.type === 'between') {
+        if (!memory) {
+            if (this.debug) console.log(`   ⚠️ Нет геометрической памяти для узла`);
+            return null;
+        }
+      
+        if (this.debug) {
+            console.log(`🔄 Восстанавливаю геометрию узла ${nodeId.substring(0, 20)}...`);
+        }
+      
+        // 1. Пробуем восстановить по between
+        for (const rel of memory.relations) {
+            if (rel.type === 'between' && rel.points) {
                 const [aId, bId] = rel.points;
                 const a = modelGraph.nodes.get(aId);
                 const b = modelGraph.nodes.get(bId);
-               
-                if (a && b) {
+              
+                if (a && b && a.x !== undefined && b.x !== undefined) {
                     const x = a.x + (b.x - a.x) * rel.ratio;
                     const y = a.y + (b.y - a.y) * rel.ratio;
-                    candidates.push({
-                        x, y,
-                        confidence: rel.confidence,
-                        method: 'between'
-                    });
+                    return { x, y, method: 'between', confidence: rel.confidence };
                 }
             }
-           
-            // 2. Пробуем восстановить по барицентрическим координатам
-            if (rel.type === 'inside_triangle') {
+          
+            // 2. Пробуем восстановить по треугольнику
+            if (rel.type === 'inside_triangle' && rel.triangle) {
                 const [aId, bId, cId] = rel.triangle;
                 const a = modelGraph.nodes.get(aId);
                 const b = modelGraph.nodes.get(bId);
                 const c = modelGraph.nodes.get(cId);
-               
-                if (a && b && c) {
+              
+                if (a && b && c && a.x && b.x && c.x) {
                     const { alpha, beta, gamma } = rel.coordinates;
                     const x = a.x * alpha + b.x * beta + c.x * gamma;
                     const y = a.y * alpha + b.y * beta + c.y * gamma;
-                    candidates.push({
-                        x, y,
-                        confidence: rel.confidence,
-                        method: 'barycentric'
-                    });
+                    return { x, y, method: 'barycentric', confidence: rel.confidence };
                 }
             }
-        });
-       
-        // Выбираем лучшее восстановление
-        if (candidates.length > 0) {
-            candidates.sort((a, b) => b.confidence - a.confidence);
-            const best = candidates[0];
-           
-            console.log(`   ✅ Восстановлена позиция: (${best.x.toFixed(1)}, ${best.y.toFixed(1)}) via ${best.method}`);
-            return { x: best.x, y: best.y, method: best.method };
         }
-       
-        console.log(`   ⚠️ Не удалось восстановить геометрию`);
+      
+        // 3. Фолбэк - оригинальная позиция
+        if (memory.originalPosition) {
+            return {
+                x: memory.originalPosition.x,
+                y: memory.originalPosition.y,
+                method: 'original_position',
+                confidence: 0.7
+            };
+        }
+      
         return null;
     }
 
-    // 🔥 ГЕОМЕТРИЧЕСКИЕ ПРИМИТИВЫ (инвариантные)
-
+    // 🔥 ГЕОМЕТРИЧЕСКИЕ ПРИМИТИВЫ
     distance(p1, p2) {
         const dx = p1.x - p2.x;
         const dy = p1.y - p2.y;
@@ -307,89 +220,81 @@ class GeometryMemory {
     }
 
     isPointBetween(p, a, b) {
-        // Проверка коллинеарности
         if (Math.abs(this.orientation(a, b, p)) > 1e-10) return false;
-       
-        // Проверка, что точка на отрезке
+      
         const dot = (p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y);
         if (dot < 0) return false;
-       
+      
         const lengthSq = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
         if (dot > lengthSq) return false;
-       
+      
         return true;
     }
 
     isPointInTriangle(p, a, b, c) {
         const area = 0.5 * (-b.y * c.x + a.y * (-b.x + c.x) + a.x * (b.y - c.y) + b.x * c.y);
         const sign = area < 0 ? -1 : 1;
-       
+      
         const s = (a.y * c.x - a.x * c.y + (c.y - a.y) * p.x + (a.x - c.x) * p.y) * sign;
         const t = (a.x * b.y - a.y * b.x + (a.y - b.y) * p.x + (b.x - a.x) * p.y) * sign;
-       
+      
         return s > 0 && t > 0 && (s + t) < 2 * area * sign;
     }
 
     calculateBarycentric(p, triangle) {
         const [a, b, c] = triangle;
-       
+      
         const area = 0.5 * (-b.y * c.x + a.y * (-b.x + c.x) + a.x * (b.y - c.y) + b.x * c.y);
-       
         const areaPBC = 0.5 * (-b.y * c.x + p.y * (-b.x + c.x) + p.x * (b.y - c.y) + b.x * c.y);
         const areaAPC = 0.5 * (-c.y * a.x + p.y * (-c.x + a.x) + p.x * (c.y - a.y) + c.x * a.y);
-       
+      
         const alpha = areaPBC / area;
         const beta = areaAPC / area;
         const gamma = 1 - alpha - beta;
-       
+      
         return { alpha, beta, gamma };
     }
 
-    calculateAngle(center, a, b, c) {
-        // Угол между векторами center->a и center->b
-        const v1 = { x: a.x - center.x, y: a.y - center.y };
-        const v2 = { x: b.x - center.x, y: b.y - center.y };
-       
-        const dot = v1.x * v2.x + v1.y * v2.y;
-        const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
-        const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
-       
-        return Math.acos(dot / (mag1 * mag2)) * (180 / Math.PI);
+    // 🔥 ПОЛУЧИТЬ СОСЕДЕЙ УЗЛА
+    getNeighbors(nodeId, nodesMap) {
+        const neighbors = [];
+        const node = nodesMap.get(nodeId);
+        if (!node || !node.degree) return neighbors;
+      
+        // В реальности нужно получать из графа
+        // Здесь упрощённая заглушка
+        return neighbors;
     }
 
-    areNodesConnected(aId, bId, allNodes) {
-        // Проверяем, есть ли прямое ребро между узлами
-        // В реальности нужно проверять граф, здесь упрощённо
-        return false; // Заглушка
-    }
-
-    getNeighbors(nodeId, allNodes) {
-        // Заглушка - в реальности нужно получать из графа
-        return [];
-    }
-
-    // 🔥 ЭКСПОРТ/ИМПОРТ
+    // 🔥 ЭКСПОРТ
     export() {
         const data = {};
         for (const [nodeId, memory] of this.relations) {
             data[nodeId] = {
                 relations: memory.relations,
-                recordedAt: memory.recordedAt
+                recordedAt: memory.recordedAt,
+                originalPosition: memory.originalPosition,
+                neighborCount: memory.neighborCount
             };
         }
         return data;
     }
 
+    // 🔥 ИМПОРТ
     import(data) {
         if (!data) return;
+        let count = 0;
         for (const [nodeId, memory] of Object.entries(data)) {
             this.relations.set(nodeId, {
                 nodeId,
                 relations: memory.relations,
-                recordedAt: new Date(memory.recordedAt)
+                recordedAt: new Date(memory.recordedAt),
+                originalPosition: memory.originalPosition,
+                neighborCount: memory.neighborCount
             });
+            count++;
         }
-        console.log(`📥 Импортировано ${Object.keys(data).length} геометрических памяток`);
+        console.log(`📥 Импортировано ${count} геометрических памяток`);
     }
 }
 
