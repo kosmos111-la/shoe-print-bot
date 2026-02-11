@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЕЙ + ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЕЙ + ГЛОБАЛЬНАЯ ТРАНСФОРМАЦИЯ + ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
@@ -29,14 +29,12 @@ class TopologyManager {
         this.linkedFootprints = new Map();
        
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
-        console.log(`   🎯 ФИЛОСОФИЯ: Топология + Геометрическая память`);
-        console.log(`   📐 ГЕОМЕТРИЯ: Инвариантные отношения (без пиксельных координат)`);
+        console.log(`   🎯 ГЛОБАЛЬНАЯ ТРАНСФОРМАЦИЯ: активна`);
+        console.log(`   📐 ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ: активна`);
     }
 
     async processFootprint(footprint, analysis, photoInfo = {}) {
-        if (this.debug) {
-            console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoInfo.photoId || 'без ID'}...`);
-        }
+        if (this.debug) console.log(`\n🎯 ОБРАБОТКА фото ${photoInfo.photoId || 'без ID'}...`);
        
         const points = this.extractPointsFromCurrentPhoto(analysis, photoInfo);
        
@@ -81,16 +79,14 @@ class TopologyManager {
             modelId: result.modelId,
             similarity: result.similarity || 0,
             decision: this.getDecisionFromResult(result),
-            philosophy: 'pure_topology_with_geometry_memory'
+            philosophy: 'global_transform + geometry_memory'
         };
     }
 
     extractPointsFromCurrentPhoto(analysis, photoInfo = {}) {
         const points = [];
        
-        if (!analysis?.predictions) {
-            return points;
-        }
+        if (!analysis?.predictions) return points;
        
         const photoId = photoInfo.photoId || `photo_${Date.now()}`;
         const uniquePhotoId = `${photoId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
@@ -117,28 +113,27 @@ class TopologyManager {
                     originalIndex: protectorCount,
                     originalPoints: pred.points,
                    
-                    // 🔥 КЛЮЧЕВОЕ: СОХРАНЯЕМ ДЛЯ ГЕОМЕТРИЧЕСКОЙ ПАМЯТИ
+                    // 🔥 КЛЮЧЕВОЕ: СОХРАНЯЕМ ДЛЯ ТРАНСФОРМАЦИИ
                     _originalX: centerX,
                     _originalY: centerY,
                     _hasOriginalCoordinates: true,
                    
-                    note: 'coordinates_for_geometry_memory'
+                    note: 'coordinates_for_global_transform'
                 });
                 protectorCount++;
             }
         });
        
         console.log(`📸 Извлечено ${points.length} точек из фото ${photoId}`);
-        console.log(`   📐 Оригинальные координаты сохранены для геометрической памяти`);
+        console.log(`   📐 Оригинальные координаты сохранены для трансформации`);
        
         return points;
     }
 
     getAccumulativeVisualizationData(modelId = null) {
         const targetModelId = modelId || this.accumulator.currentModelId;
-       
         if (!targetModelId) {
-            console.log('⚠️ Нет активной топологической модели');
+            console.log('⚠️ Нет активной модели');
             return null;
         }
        
@@ -150,15 +145,17 @@ class TopologyManager {
        
         console.log(`📊 ВИЗУАЛИЗАЦИЯ МОДЕЛИ ${targetModelId}:`);
         console.log(`   Всего узлов: ${graph.nodes.size}`);
+        if (model.globalTransform) {
+            console.log(`   🎯 Глобальная трансформация: угол ${model.globalTransform.angle.toFixed(1)}°, масштаб ${model.globalTransform.scale.toFixed(3)}`);
+        }
        
-        // Подготавливаем данные для визуализации
         const nodeInfoArray = [];
         let nodesWithConfirmations = 0;
-        let nodesWithOriginalCoords = 0;
-        let nodesWithRestoredGeom = 0;
+        let globalTransformNodes = 0;
+        let originalCoordsNodes = 0;
+        let geometryMemoryNodes = 0;
        
         for (const [nodeId, node] of graph.nodes) {
-            // Гарантируем координаты для визуализации
             if (node.x === undefined || node.y === undefined) {
                 if (node.originalData) {
                     node.x = node.originalData.x;
@@ -169,60 +166,34 @@ class TopologyManager {
                 }
             }
            
-            // Гарантируем confirmationCount
-            if (node.confirmationCount === undefined) {
-                node.confirmationCount = 1;
-            }
+            if (node.confirmationCount === undefined) node.confirmationCount = 1;
+            if (node.confirmationCount > 0) nodesWithConfirmations++;
            
-            if (node.confirmationCount > 0) {
-                nodesWithConfirmations++;
-            }
-           
-            // Статистика по геометрической памяти
-            if (node.geometryMethod === 'original_from_photo') {
-                nodesWithOriginalCoords++;
-            } else if (node.geometryMethod === 'between' || node.geometryMethod === 'barycentric') {
-                nodesWithRestoredGeom++;
-            }
+            if (node.geometryMethod?.startsWith('global_')) globalTransformNodes++;
+            else if (node.geometryMethod === 'original_from_photo') originalCoordsNodes++;
+            else if (node.geometryMethod === 'between' || node.geometryMethod === 'barycentric') geometryMemoryNodes++;
            
             const confirmations = node.confirmationCount;
            
-            // Цветовая схема по подтверждениям
             let color, size, level;
-           
-            if (confirmations >= 4) {
-                color = '#FF0000'; // 🔴 Ядра
-                size = 12;
-                level = 'core';
-            } else if (confirmations >= 3) {
-                color = '#FF6B00'; // 🟠 Стабильные
-                size = 10;
-                level = 'stable';
-            } else if (confirmations >= 2) {
-                color = '#FFC107'; // 🟡 Подтверждённые
-                size = 8;
-                level = 'confirmed';
-            } else {
-                color = '#2196F3'; // 🔵 Новые
-                size = 6;
-                level = 'new';
-            }
+            if (confirmations >= 4) { color = '#FF0000'; size = 12; level = 'core'; }
+            else if (confirmations >= 3) { color = '#FF6B00'; size = 10; level = 'stable'; }
+            else if (confirmations >= 2) { color = '#FFC107'; size = 8; level = 'confirmed'; }
+            else { color = '#2196F3'; size = 6; level = 'new'; }
            
             node.vizData = {
-                color: color,
-                size: size,
-                level: level,
-                confirmations: confirmations,
+                color, size, level,
+                confirmations,
                 degree: node.degree,
                 source: node.addedFrom || 'original',
                 geometryMethod: node.geometryMethod || 'original',
+                globalTransform: node.globalTransformApplied,
                 id: nodeId
             };
            
             nodeInfoArray.push({ id: nodeId, node, confirmations });
         }
        
-        // Статистика для визуализации
         const stats = {
             totalNodes: graph.nodes.size,
             totalEdges: graph.edges.size,
@@ -232,20 +203,20 @@ class TopologyManager {
             confirmed2: Array.from(graph.nodes.values()).filter(n => n.confirmationCount === 2).length,
             confirmed1: Array.from(graph.nodes.values()).filter(n => n.confirmationCount === 1).length,
             confirmed0: Array.from(graph.nodes.values()).filter(n => !n.confirmationCount).length,
-            originalGeometry: nodesWithOriginalCoords,
-            restoredGeometry: nodesWithRestoredGeom,
-            uniquenessRatio: fingerprints ?
-                this.fingerprinter.getFingerprintInfo(fingerprints).uniquenessRatio : 0
+            globalTransform: globalTransformNodes,
+            originalGeometry: originalCoordsNodes,
+            geometryMemory: geometryMemoryNodes,
+            uniquenessRatio: fingerprints ? this.fingerprinter.getFingerprintInfo(fingerprints).uniquenessRatio : 0
         };
        
-        console.log(`📊 СТАТИСТИКА ВИЗУАЛИЗАЦИИ:`);
+        console.log(`📊 СТАТИСТИКА:`);
         console.log(`   🔴 Ядра (4+): ${stats.confirmed4}`);
         console.log(`   🟠 Стабильные (3): ${stats.confirmed3}`);
         console.log(`   🟡 Подтверждённые (2): ${stats.confirmed2}`);
         console.log(`   🔵 Новые (1): ${stats.confirmed1}`);
-        console.log(`   ⚪ Затухающие (0): ${stats.confirmed0}`);
-        console.log(`   📍 Оригинальная геометрия: ${stats.originalGeometry}`);
-        console.log(`   📐 Восстановлено геометрией: ${stats.restoredGeometry}`);
+        console.log(`   🎯 Глобальная трансформация: ${stats.globalTransform}`);
+        console.log(`   📍 Оригинальные координаты: ${stats.originalGeometry}`);
+        console.log(`   📐 Геометрическая память: ${stats.geometryMemory}`);
         console.log(`   🔍 Уникальность подписей: ${(stats.uniquenessRatio * 100).toFixed(1)}%`);
        
         return {
@@ -255,9 +226,9 @@ class TopologyManager {
             edges: Array.from(graph.edges),
             stats: stats,
             metadata: model.metadata,
+            globalTransform: model.globalTransform,
             isTopological: true,
-            visualizationMethod: 'topology_with_geometry_memory',
-            philosophy: 'coordinates_for_visualization_only_structural_data_is_primary'
+            visualizationMethod: 'global_transform + geometry_memory'
         };
     }
 
@@ -334,8 +305,8 @@ class TopologyManager {
             models: models,
             linkedFootprints: Array.from(this.linkedFootprints.entries()),
             exportedAt: new Date().toISOString(),
-            version: '3.0-geometric-memory',
-            philosophy: 'pure_topology_with_geometry_memory'
+            version: '4.0-global-transform',
+            philosophy: 'global_transform + geometry_memory'
         };
     }
 
@@ -357,8 +328,7 @@ class TopologyManager {
             });
         }
        
-        console.log(`📥 Импортировано ${importedCount} моделей с геометрической памятью`);
-       
+        console.log(`📥 Импортировано ${importedCount} моделей`);
         return {
             success: true,
             importedCount: importedCount,
