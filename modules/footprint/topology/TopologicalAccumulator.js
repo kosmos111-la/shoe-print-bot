@@ -454,35 +454,34 @@ class TopologicalAccumulator {
     }
   
     // 🔥 ДОБАВЛЕНИЕ СТРУКТУРНЫХ УЗЛОВ В МОДЕЛЬ (ИСПРАВЛЕНО!)
-    addStructuralNodesToModel(modelId, newNodes, newGraph, structuralMapping, options) {
-        const model = this.models.get(modelId);
-        const addedNodes = [];
-      
-        console.log(`🔨 Добавляю ${newNodes.length} узлов с геометрической памятью...`);
-      
-        for (const nodeInfo of newNodes) {
-            const originalNodeId = nodeInfo.nodeId;
-            const sourceNode = newGraph.nodes.get(originalNodeId);
-           
-            // 🔥🔥🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: СНАЧАЛА ПРОВЕРЯЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ!
-            let visualizationPosition;
-           
-            if (model.photoCoordinates && model.photoCoordinates.has(originalNodeId)) {
-                const photoCoord = model.photoCoordinates.get(originalNodeId);
-                visualizationPosition = {
-                    x: photoCoord.x,
-                    y: photoCoord.y,
-                    method: 'original_from_photo'
-                };
-                console.log(`   📍 ИСПОЛЬЗУЮ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ИЗ ФОТО: (${visualizationPosition.x}, ${visualizationPosition.y})`);
-            } else {
-                // ТОЛЬКО ЕСЛИ НЕТ ОРИГИНАЛЬНЫХ КООРДИНАТ - вычисляем через соседей
-                visualizationPosition = this.calculateVisualizationPosition(
-                    nodeInfo.structuralNeighbors,
-                    model.graph
-                );
-                console.log(`   📍 Вычислена визуализационная позиция: (${visualizationPosition.x}, ${visualizationPosition.y}) [${visualizationPosition.method}]`);
-            }
+  addStructuralNodesToModel(modelId, newNodes, newGraph, structuralMapping, options) {
+    const model = this.models.get(modelId);
+    const addedNodes = [];
+   
+    console.log(`🔨 Добавляю ${newNodes.length} узлов с геометрической памятью...`);
+   
+    for (const nodeInfo of newNodes) {
+        const originalNodeId = nodeInfo.nodeId;
+        const sourceNode = newGraph.nodes.get(originalNodeId);
+       
+        // 🔥🔥🔥 ВОТ ЭТОТ БЛОК - КОПИРУЙ ЕГО СЮДА!
+        let visualizationPosition;
+       
+        if (model.photoCoordinates && model.photoCoordinates.has(originalNodeId)) {
+            const photoCoord = model.photoCoordinates.get(originalNodeId);
+            visualizationPosition = {
+                x: photoCoord.x,
+                y: photoCoord.y,
+                method: 'original_from_photo'
+            };
+            console.log(`   📍 ИСПОЛЬЗУЮ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ИЗ ФОТО: (${visualizationPosition.x}, ${visualizationPosition.y})`);
+        } else {
+            visualizationPosition = this.calculateVisualizationPosition(
+                nodeInfo.structuralNeighbors,
+                model.graph
+            );
+            console.log(`   📍 Вычислена визуализационная позиция: (${visualizationPosition.x}, ${visualizationPosition.y}) [${visualizationPosition.method}]`);
+        }
           
             const modelNodeId = `structural_node_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
             nodeInfo.modelNodeId = modelNodeId;
