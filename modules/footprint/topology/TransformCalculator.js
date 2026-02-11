@@ -1,5 +1,5 @@
 // modules/footprint/topology/TransformCalculator.js
-// 🔄 ВЫЧИСЛЕНИЕ ТРАНСФОРМАЦИИ МЕЖДУ ФОТО ПО ОБЩИМ ТОЧКАМ
+// 🔥 ГЛОБАЛЬНАЯ ТРАНСФОРМАЦИЯ МЕЖДУ ФОТО ПО ОБЩИМ ТОЧКАМ
 
 class TransformCalculator {
     constructor(options = {}) {
@@ -10,47 +10,28 @@ class TransformCalculator {
     // 🔥 ГЛАВНЫЙ МЕТОД: Вычислить трансформацию по общим точкам
     computeTransformation(points1, points2) {
         if (points1.length < 2 || points2.length < 2 || points1.length !== points2.length) {
-            console.log(`⚠️ Недостаточно точек для трансформации: ${points1.length}/${points2.length}`);
+            if (this.debug) console.log(`⚠️ Недостаточно точек: ${points1.length}/${points2.length}`);
             return null;
         }
 
-        console.log(`🔄 Вычисляю трансформацию по ${points1.length} общим точкам...`);
+        if (this.debug) console.log(`🔄 Вычисляю трансформацию по ${points1.length} общим точкам...`);
 
-        // 1. ПРОСТАЯ ТРАНСФОРМАЦИЯ (сдвиг + поворот + масштаб)
-        if (points1.length >= 2) {
-            const similarity = this.computeSimilarityTransform(points1, points2);
-            if (similarity) {
-                console.log(`   ✅ Найдена трансформация подобия:`);
-                console.log(`      Угол: ${similarity.angle.toFixed(2)}°`);
-                console.log(`      Масштаб: ${similarity.scale.toFixed(3)}`);
-                console.log(`      Сдвиг: (${similarity.dx.toFixed(1)}, ${similarity.dy.toFixed(1)})`);
-                return similarity;
-            }
+        // Всегда используем подобие (поворот + масштаб + сдвиг) - достаточно для наших задач
+        const transform = this.computeSimilarityTransform(points1, points2);
+       
+        if (transform && this.debug) {
+            console.log(`   ✅ Трансформация подобия:`);
+            console.log(`      Угол: ${transform.angle.toFixed(2)}°`);
+            console.log(`      Масштаб: ${transform.scale.toFixed(3)}`);
+            console.log(`      Сдвиг: (${transform.dx.toFixed(1)}, ${transform.dy.toFixed(1)})`);
+            console.log(`      Ошибка: ${transform.error.toFixed(2)}px`);
+            console.log(`      Уверенность: ${(transform.confidence * 100).toFixed(0)}%`);
         }
 
-        // 2. АФФИННАЯ ТРАНСФОРМАЦИЯ (если >= 3 точек)
-        if (points1.length >= 3) {
-            const affine = this.computeAffineTransform(points1, points2);
-            if (affine) {
-                console.log(`   ✅ Найдена аффинная трансформация`);
-                return affine;
-            }
-        }
-
-        // 3. ПЕРСПЕКТИВНАЯ ТРАНСФОРМАЦИЯ (если >= 4 точек)
-        if (points1.length >= 4) {
-            const perspective = this.computePerspectiveTransform(points1, points2);
-            if (perspective) {
-                console.log(`   ✅ Найдена перспективная трансформация`);
-                return perspective;
-            }
-        }
-
-        console.log(`   ⚠️ Не удалось вычислить трансформацию`);
-        return null;
+        return transform;
     }
 
-    // 🔥 ТРАНСФОРМАЦИЯ ПОДОБИЯ (сдвиг + поворот + масштаб) - 2+ точек
+    // 🔥 ТРАНСФОРМАЦИЯ ПОДОБИЯ (сдвиг + поворот + масштаб)
     computeSimilarityTransform(points1, points2) {
         if (points1.length < 2) return null;
 
@@ -67,7 +48,7 @@ class TransformCalculator {
         cx2 /= points1.length;
         cy2 /= points1.length;
 
-        // Вычисляем масштаб и поворот
+        // Вычисляем масштаб
         let sumNum = 0, sumDen = 0;
         for (let i = 0; i < points1.length; i++) {
             const x1 = points1[i].x - cx1;
@@ -82,33 +63,34 @@ class TransformCalculator {
         const scale = sumNum / Math.max(0.001, sumDen);
        
         // Вычисляем угол поворота
-        let angle = 0;
-        if (points1.length >= 2) {
-            let sumSin = 0, sumCos = 0;
-            for (let i = 0; i < points1.length; i++) {
-                const x1 = points1[i].x - cx1;
-                const y1 = points1[i].y - cy1;
-                const x2 = points2[i].x - cx2;
-                const y2 = points2[i].y - cy2;
-               
-                sumSin += x1 * y2 - y1 * x2;
-                sumCos += x1 * x2 + y1 * y2;
-            }
-            angle = Math.atan2(sumSin, sumCos) * 180 / Math.PI;
+        let sumSin = 0, sumCos = 0;
+        for (let i = 0; i < points1.length; i++) {
+            const x1 = points1[i].x - cx1;
+            const y1 = points1[i].y - cy1;
+            const x2 = points2[i].x - cx2;
+            const y2 = points2[i].y - cy2;
+           
+            sumSin += x1 * y2 - y1 * x2;
+            sumCos += x1 * x2 + y1 * y2;
         }
+        const angle = Math.atan2(sumSin, sumCos) * 180 / Math.PI;
 
-        // Сдвиг
-        const dx = cx2 - scale * (cx1 * Math.cos(angle * Math.PI/180) - cy1 * Math.sin(angle * Math.PI/180));
-        const dy = cy2 - scale * (cx1 * Math.sin(angle * Math.PI/180) + cy1 * Math.cos(angle * Math.PI/180));
+        // Вычисляем сдвиг
+        const rad = angle * Math.PI / 180;
+        const dx = cx2 - scale * (cx1 * Math.cos(rad) - cy1 * Math.sin(rad));
+        const dy = cy2 - scale * (cx1 * Math.sin(rad) + cy1 * Math.cos(rad));
 
         // Оценка качества
         let error = 0;
         for (let i = 0; i < points1.length; i++) {
-            const transformed = this.applySimilarity(points1[i], { angle, scale, dx, dy });
+            const transformed = this.applyTransform(points1[i], { angle, scale, dx, dy, type: 'similarity' });
             const err = Math.hypot(transformed.x - points2[i].x, transformed.y - points2[i].y);
             error += err;
         }
         error /= points1.length;
+
+        // Уверенность: чем меньше ошибка, тем выше уверенность
+        const confidence = Math.max(0, Math.min(1, 1 - error / 50));
 
         return {
             type: 'similarity',
@@ -117,59 +99,16 @@ class TransformCalculator {
             dx,
             dy,
             error,
-            confidence: Math.max(0, 1 - error / 100)
-        };
-    }
-
-    // 🔥 АФФИННАЯ ТРАНСФОРМАЦИЯ (3+ точек)
-    computeAffineTransform(points1, points2) {
-        if (points1.length < 3) return null;
-
-        // Упрощённая аффинная трансформация
-        // В реальности здесь решение системы уравнений методом наименьших квадратов
-        const similarity = this.computeSimilarityTransform(points1, points2);
-        if (!similarity) return null;
-
-        return {
-            type: 'affine',
-            ...similarity,
-            confidence: similarity.confidence * 0.95
-        };
-    }
-
-    // 🔥 ПЕРСПЕКТИВНАЯ ТРАНСФОРМАЦИЯ (4+ точек)
-    computePerspectiveTransform(points1, points2) {
-        if (points1.length < 4) return null;
-
-        // Упрощённая перспективная трансформация
-        const similarity = this.computeSimilarityTransform(points1, points2);
-        if (!similarity) return null;
-
-        return {
-            type: 'perspective',
-            ...similarity,
-            confidence: similarity.confidence * 0.9
+            confidence,
+            center1: { x: cx1, y: cy1 },
+            center2: { x: cx2, y: cy2 }
         };
     }
 
     // 🔥 ПРИМЕНИТЬ ТРАНСФОРМАЦИЮ К ТОЧКЕ
     applyTransform(point, transform) {
-        if (!transform) return point;
+        if (!transform) return { x: point.x, y: point.y };
 
-        switch (transform.type) {
-            case 'similarity':
-                return this.applySimilarity(point, transform);
-            case 'affine':
-                return this.applySimilarity(point, transform); // Упрощённо
-            case 'perspective':
-                return this.applySimilarity(point, transform); // Упрощённо
-            default:
-                return point;
-        }
-    }
-
-    // 🔥 ПРИМЕНИТЬ ТРАНСФОРМАЦИЮ ПОДОБИЯ
-    applySimilarity(point, transform) {
         const rad = transform.angle * Math.PI / 180;
         const x = point.x;
         const y = point.y;
@@ -182,7 +121,7 @@ class TransformCalculator {
 
     // 🔥 ПРИМЕНИТЬ ОБРАТНУЮ ТРАНСФОРМАЦИЮ
     applyInverse(point, transform) {
-        if (!transform) return point;
+        if (!transform) return { x: point.x, y: point.y };
 
         const rad = -transform.angle * Math.PI / 180;
         const x = point.x - transform.dx;
