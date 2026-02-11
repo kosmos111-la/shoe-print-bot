@@ -101,56 +101,63 @@ class TopologyManager {
     }
   
     // 🔥 ИЗВЛЕЧЕНИЕ ТОЧЕК - СОХРАНЯЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ!
-    extractPointsFromCurrentPhoto(analysis, photoInfo = {}) {
-        const points = [];
-      
-        if (!analysis?.predictions) {
-            console.log('⚠️ Нет данных анализа для извлечения точек');
-            return points;
-        }
-      
-        const photoId = photoInfo.photoId || `photo_${Date.now()}`;
-        const uniquePhotoId = `${photoId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-      
-        const predictions = analysis.predictions || [];
-        let protectorCount = 0;
-      
-        predictions.forEach((pred, idx) => {
-            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
-                const xs = pred.points.map(p => p.x);
-                const ys = pred.points.map(p => p.y);
-                const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
-                const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
-              
-                points.push({
-                    id: `${uniquePhotoId}_protector_${protectorCount}`,
-                    x: centerX,
-                    y: centerY,
-                    confidence: pred.confidence || 0.5,
-                    source: 'current_photo',
-                    photoId: photoId,
-                    originalPhotoId: uniquePhotoId,
-                    originalIndex: protectorCount,
-                    originalPoints: pred.points,
-                   
-                    // 🔥 ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ - СОХРАНЯЕМ ОРИГИНАЛ!
-                    _originalX: centerX,
-                    _originalY: centerY,
-                    _originalPoints: pred.points,
-                    _originalConfidence: pred.confidence,
-                    _originalClass: pred.class,
-                   
-                    note: 'geometric_memory_preserved'
-                });
-                protectorCount++;
-            }
-        });
-      
-        console.log(`📸 Извлечено ${points.length} точек из фото ${photoId}`);
-        console.log(`   📐 Оригинальные координаты сохранены для геометрической памяти`);
-      
+extractPointsFromCurrentPhoto(analysis, photoInfo = {}) {
+    const points = [];
+   
+    if (!analysis?.predictions) {
+        console.log('⚠️ Нет данных анализа для извлечения точек');
         return points;
     }
+   
+    const photoId = photoInfo.photoId || `photo_${Date.now()}`;
+    const uniquePhotoId = `${photoId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+   
+    const predictions = analysis.predictions || [];
+    let protectorCount = 0;
+   
+    predictions.forEach((pred, idx) => {
+        if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
+            const xs = pred.points.map(p => p.x);
+            const ys = pred.points.map(p => p.y);
+           
+            const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+            const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+           
+            // 🔥 СОХРАНЯЕМ ВСЮ ГЕОМЕТРИЧЕСКУЮ ИНФОРМАЦИЮ!
+            points.push({
+                id: `${uniquePhotoId}_protector_${protectorCount}`,
+                x: centerX,
+                y: centerY,
+                confidence: pred.confidence || 0.5,
+                source: 'current_photo',
+                photoId: photoId,
+                originalPhotoId: uniquePhotoId,
+                originalIndex: protectorCount,
+                originalPoints: pred.points,
+               
+                // 🔥 ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ - ОРИГИНАЛЬНЫЕ КООРДИНАТЫ!
+                _originalX: centerX,
+                _originalY: centerY,
+                _hasOriginalCoordinates: true,
+                _boundingBox: {
+                    minX: Math.min(...xs),
+                    maxX: Math.max(...xs),
+                    minY: Math.min(...ys),
+                    maxY: Math.max(...ys)
+                },
+                _area: (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys)),
+               
+                note: 'coordinates_for_visualization_only'
+            });
+            protectorCount++;
+        }
+    });
+   
+    console.log(`📸 Извлечено ${points.length} точек из фото ${photoId}`);
+    console.log(`   📐 Оригинальные координаты сохранены для геометрической памяти`);
+   
+    return points;
+}
   
     // 🔥 ВИЗУАЛИЗАЦИЯ С ГЕОМЕТРИЧЕСКОЙ ПАМЯТЬЮ
     getAccumulativeVisualizationData(modelId = null) {
