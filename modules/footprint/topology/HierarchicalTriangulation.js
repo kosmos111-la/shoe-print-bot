@@ -1,5 +1,5 @@
 // modules/footprint/topology/HierarchicalTriangulation.js
-// 🔺 ИЕРАРХИЧЕСКАЯ ТРИАНГУЛЯЦИЯ - ВОССТАНОВЛЕНИЕ ПО ЛЮБЫМ ЯКОРЯМ
+// 🔺 ИЕРАРХИЧЕСКАЯ ТРИАНГУЛЯЦИЯ - ВОССТАНОВЛЕНИЕ ПО БЛИЖАЙШИМ ЯКОРЯМ
 
 const { TrustLevelManager, TRUST_LEVELS } = require('./TrustLevel');
 
@@ -9,74 +9,58 @@ class HierarchicalTriangulation {
         this.trustManager = new TrustLevelManager({ debug: this.debug });
        
         // Хранилище треугольников для каждой точки
-        this.triangleMemory = new Map(); // nodeId -> { triangle, barycentric, anchors }
+        this.triangleMemory = new Map(); // nodeId -> { triangle, barycentric, distances }
        
-        console.log('🔺 HierarchicalTriangulation создана (восстановление по якорям)');
+        console.log('🔺 HierarchicalTriangulation создана (восстановление по ближайшим якорям)');
     }
 
-    // 🔥 ПОЛУЧИТЬ ВСЕ ЯКОРИ - ЛЮБЫЕ ТОЧКИ В МОДЕЛИ!
-    getAnchors(modelGraph) {
-        const anchors = [];
-        for (const [nodeId, node] of modelGraph.nodes) {
-            // 🔥🔥🔥 ЛЮБАЯ ТОЧКА, КОТОРАЯ УЖЕ ЕСТЬ В МОДЕЛИ - ЭТО ЯКОРЬ!
-            // Чем больше подтверждений, тем выше вес
-            const weight = Math.min(1.0, (node.confirmationCount || 1) / 3);
-            anchors.push({
-                id: nodeId,
-                node: node,
-                weight: weight,
-                confirmations: node.confirmationCount || 1
-            });
-        }
-        return anchors;
-    }
-
-    // 🔥 НАЙТИ ТРИ БЛИЖАЙШИХ ЯКОРЯ (НЕ ТОЛЬКО МАЯКИ!)
+    // 🔥🔥🔥 ГЛАВНОЕ ИСПРАВЛЕНИЕ - ИЩЕМ БЛИЖАЙШИЕ ТОЧКИ ПО РАССТОЯНИЮ В ФОТО 2!
     findClosestAnchors(nodeId, node, newGraph, structuralMapping, modelGraph) {
         if (this.debug) {
             console.log(`🔍 Ищу 3 ближайших якоря для ${nodeId.substring(0, 20)}...`);
         }
 
-        // Получаем всех соседей, которые есть в маппинге
-        const neighbors = [];
-        for (const edge of newGraph.edges) {
-            const [nodeA, nodeB] = edge.split('--');
-            if (nodeA === nodeId && structuralMapping.has(nodeB)) {
-                const modelNodeId = structuralMapping.get(nodeB);
-                const modelNode = modelGraph.nodes.get(modelNodeId);
-                if (modelNode) {
-                    const dist = this.distance(node, newGraph.nodes.get(nodeB));
-                    neighbors.push({
-                        id: modelNodeId,
-                        node: modelNode,
-                        distance: dist,
-                        confirmations: modelNode.confirmationCount || 1
-                    });
-                }
-            } else if (nodeB === nodeId && structuralMapping.has(nodeA)) {
-                const modelNodeId = structuralMapping.get(nodeA);
-                const modelNode = modelGraph.nodes.get(modelNodeId);
-                if (modelNode) {
-                    const dist = this.distance(node, newGraph.nodes.get(nodeA));
-                    neighbors.push({
-                        id: modelNodeId,
-                        node: modelNode,
-                        distance: dist,
-                        confirmations: modelNode.confirmationCount || 1
-                    });
-                }
+        const candidates = [];
+       
+        // 🔥🔥🔥 ПРОХОДИМ ПО ВСЕМ СООТВЕТСТВИЯМ В МАППИНГЕ
+        // НЕ ТОЛЬКО ПО СОСЕДЯМ В ГРАФЕ, А ПО ВСЕМ ТОЧКАМ, КОТОРЫЕ СОВПАЛИ!
+        for (const [newId, modelId] of structuralMapping) {
+            const modelNode = modelGraph.nodes.get(modelId);
+            const newNode = newGraph.nodes.get(newId);
+           
+            if (modelNode && newNode) {
+                // Вычисляем РЕАЛЬНОЕ расстояние между точками в ФОТО 2
+                const dist = this.distance(node, newNode);
+               
+                // БЕРЁМ ВСЕХ, даже если они далеко - потом отсортируем
+                candidates.push({
+                    id: modelId,
+                    node: modelNode,
+                    distance: dist,
+                    confirmations: modelNode.confirmationCount || 1,
+                    // Чем больше подтверждений, тем выше приоритет при равных расстояниях
+                    priority: (modelNode.confirmationCount || 1) / 3
+                });
             }
         }
 
-        // 🔥🔥🔥 СОРТИРУЕМ ПО РАССТОЯНИЮ И БЕРЁМ ТРИ БЛИЖАЙШИХ!
-        const closest = neighbors
-            .sort((a, b) => a.distance - b.distance)
+        // 🔥🔥🔥 СОРТИРУЕМ ПО РАССТОЯНИЮ И БЕРЁМ 3 БЛИЖАЙШИХ!
+        const closest = candidates
+            .sort((a, b) => {
+                // Сначала по расстоянию
+                if (Math.abs(a.distance - b.distance) > 0.1) {
+                    return a.distance - b.distance;
+                }
+                // Если расстояния равны - по количеству подтверждений
+                return b.confirmations - a.confirmations;
+            })
             .slice(0, 3);
 
         if (this.debug) {
-            console.log(`   Найдено ${closest.length} ближайших якорей:`);
+            console.log(`   Найдено кандидатов: ${candidates.length}`);
+            console.log(`   Взято ближайших: ${closest.length}`);
             closest.forEach((a, i) => {
-                console.log(`      ${i+1}. ${a.id.substring(0, 15)}... dist=${a.distance.toFixed(1)}, conf=${a.confirmations}`);
+                console.log(`      ${i+1}. dist=${a.distance.toFixed(1)}, conf=${a.confirmations}, id=${a.id.substring(0, 15)}...`);
             });
         }
 
@@ -89,7 +73,7 @@ class HierarchicalTriangulation {
             console.log(`🔺 Запоминаю треугольник для ${nodeId.substring(0, 20)}...`);
         }
 
-        // Находим 3 ближайших якоря
+        // Находим 3 ближайших якоря по РЕАЛЬНОМУ расстоянию в фото 2
         const anchors = this.findClosestAnchors(nodeId, node, newGraph, structuralMapping, modelGraph);
        
         if (anchors.length < 3) {
@@ -115,22 +99,17 @@ class HierarchicalTriangulation {
         // Вычисляем барицентрические координаты
         const bary = this.calculateBarycentric(node, a, b, c);
        
-        // Проверяем валидность координат
-        if (bary.alpha < -0.1 || bary.alpha > 1.1 ||
-            bary.beta < -0.1 || bary.beta > 1.1 ||
-            bary.gamma < -0.1 || bary.gamma > 1.1) {
-            if (this.debug) console.log(`   ⚠️ Барицентрические координаты вне допустимого диапазона`);
-            return null;
-        }
-
-        // Вычисляем уверенность на основе расстояний и подтверждений
+        // Вычисляем уверенность на основе расстояний
         const avgDistance = (anchors[0].distance + anchors[1].distance + anchors[2].distance) / 3;
-        const avgConfirmations = (anchors[0].confirmations + anchors[1].confirmations + anchors[2].confirmations) / 3;
+        const maxDistance = Math.max(anchors[0].distance, anchors[1].distance, anchors[2].distance);
+        const minDistance = Math.min(anchors[0].distance, anchors[1].distance, anchors[2].distance);
        
-        // Чем ближе якоря и чем больше у них подтверждений, тем выше уверенность
+        // Чем ближе якоря и чем равномернее распределены, тем выше уверенность
         const distanceConfidence = Math.max(0, 1 - avgDistance / 200);
-        const confirmationConfidence = Math.min(1, avgConfirmations / 3);
-        const confidence = (distanceConfidence * 0.7 + confirmationConfidence * 0.3);
+        const uniformityConfidence = 1 - (maxDistance - minDistance) / (avgDistance + 1);
+        const confidence = Math.min(0.95, Math.max(0.3,
+            distanceConfidence * 0.7 + uniformityConfidence * 0.3
+        ));
 
         const triangle = {
             anchors: anchors.map(a => a.id),
@@ -138,7 +117,8 @@ class HierarchicalTriangulation {
             distances: anchors.map(a => a.distance),
             confirmations: anchors.map(a => a.confirmations),
             area: area,
-            confidence: Math.min(0.95, Math.max(0.3, confidence)),
+            avgDistance: avgDistance,
+            confidence: confidence,
             recordedAt: Date.now()
         };
 
@@ -149,7 +129,7 @@ class HierarchicalTriangulation {
             console.log(`      Якоря: ${triangle.anchors.map(id => id.substring(0, 10)).join(', ')}`);
             console.log(`      Координаты: (${bary.alpha.toFixed(3)}, ${bary.beta.toFixed(3)}, ${bary.gamma.toFixed(3)})`);
             console.log(`      Расстояния: ${triangle.distances.map(d => d.toFixed(1)).join(', ')}`);
-            console.log(`      Площадь: ${area.toFixed(1)}`);
+            console.log(`      Среднее расстояние: ${avgDistance.toFixed(1)}`);
             console.log(`      Уверенность: ${(confidence * 100).toFixed(0)}%`);
         }
 
@@ -174,42 +154,39 @@ class HierarchicalTriangulation {
         }
 
         const { alpha, beta, gamma } = triangle.barycentric;
-        const x = a.x * alpha + b.x * beta + c.x * gamma;
-        const y = a.y * alpha + b.y * beta + c.y * gamma;
+        let x = a.x * alpha + b.x * beta + c.x * gamma;
+        let y = a.y * alpha + b.y * beta + c.y * gamma;
 
-        // Проверяем, не улетела ли точка слишком далеко
-        const minX = Math.min(a.x, b.x, c.x);
-        const maxX = Math.max(a.x, b.x, c.x);
-        const minY = Math.min(a.y, b.y, c.y);
-        const maxY = Math.max(a.y, b.y, c.y);
+        // 🔥 ВАЖНО: НЕ КОРРЕКТИРУЕМ СЛИШКОМ СИЛЬНО!
+        // Просто проверяем, что точка не улетела в бесконечность
+        if (isNaN(x) || isNaN(y) || !isFinite(x) || !isFinite(y)) {
+            if (this.debug) console.log(`   ⚠️ Некорректные координаты: (${x}, ${y})`);
+            return null;
+        }
+
+        // Мягкая коррекция - только если точка совсем далеко
+        const bounds = this.getTriangleBounds(a, b, c);
+        const padding = Math.max(bounds.width, bounds.height) * 0.5;
        
-        const padding = Math.max(maxX - minX, maxY - minY) * 0.5;
-       
-        let finalX = x;
-        let finalY = y;
-       
-        // Если точка слишком далеко от треугольника - притягиваем обратно
-        if (x < minX - padding) finalX = minX;
-        if (x > maxX + padding) finalX = maxX;
-        if (y < minY - padding) finalY = minY;
-        if (y > maxY + padding) finalY = maxY;
+        if (x < bounds.minX - padding) x = bounds.minX;
+        if (x > bounds.maxX + padding) x = bounds.maxX;
+        if (y < bounds.minY - padding) y = bounds.minY;
+        if (y > bounds.maxY + padding) y = bounds.maxY;
 
         if (this.debug) {
             console.log(`   🔺 Восстановлено по треугольнику:`);
-            console.log(`      Позиция: (${finalX.toFixed(1)}, ${finalY.toFixed(1)})`);
+            console.log(`      Позиция: (${x.toFixed(1)}, ${y.toFixed(1)})`);
             console.log(`      Уверенность: ${(triangle.confidence * 100).toFixed(0)}%`);
-            if (finalX !== x || finalY !== y) {
-                console.log(`      ⚠️ Скорректировано: (${x.toFixed(1)}, ${y.toFixed(1)}) → (${finalX.toFixed(1)}, ${finalY.toFixed(1)})`);
-            }
+            console.log(`      Среднее расстояние в фото 2: ${triangle.avgDistance.toFixed(1)}px`);
         }
 
         return {
-            x: finalX,
-            y: finalY,
+            x,
+            y,
             method: 'hierarchical_triangulation',
             confidence: triangle.confidence,
             anchors: triangle.anchors,
-            distances: triangle.distances
+            avgDistance: triangle.avgDistance
         };
     }
 
@@ -245,8 +222,22 @@ class HierarchicalTriangulation {
         return {
             x, y,
             method: 'two_anchor_projection',
-            confidence: confidence,
+            confidence: Math.min(0.8, Math.max(0.3, confidence)),
             anchors: [anchors[0].id, anchors[1].id]
+        };
+    }
+
+    // 🔥 ПОЛУЧИТЬ ГРАНИЦЫ ТРЕУГОЛЬНИКА
+    getTriangleBounds(a, b, c) {
+        const minX = Math.min(a.x, b.x, c.x);
+        const maxX = Math.max(a.x, b.x, c.x);
+        const minY = Math.min(a.y, b.y, c.y);
+        const maxY = Math.max(a.y, b.y, c.y);
+       
+        return {
+            minX, maxX, minY, maxY,
+            width: maxX - minX,
+            height: maxY - minY
         };
     }
 
@@ -281,6 +272,14 @@ class HierarchicalTriangulation {
         return { alpha, beta, gamma };
     }
 
+    // 🔥 ПРОВЕРИТЬ, ЛЕЖИТ ЛИ ТОЧКА В ТРЕУГОЛЬНИКЕ
+    isPointInTriangle(p, a, b, c) {
+        const bary = this.calculateBarycentric(p, a, b, c);
+        return bary.alpha >= -0.01 && bary.alpha <= 1.01 &&
+               bary.beta >= -0.01 && bary.beta <= 1.01 &&
+               bary.gamma >= -0.01 && bary.gamma <= 1.01;
+    }
+
     // 🔥 ОЧИСТИТЬ СТАРЫЕ ТРЕУГОЛЬНИКИ
     cleanup(maxAge = 30 * 24 * 60 * 60 * 1000) { // 30 дней
         const now = Date.now();
@@ -310,6 +309,7 @@ class HierarchicalTriangulation {
                 distances: triangle.distances,
                 confirmations: triangle.confirmations,
                 area: triangle.area,
+                avgDistance: triangle.avgDistance,
                 confidence: triangle.confidence,
                 recordedAt: triangle.recordedAt
             };
@@ -327,6 +327,7 @@ class HierarchicalTriangulation {
                 distances: triangle.distances,
                 confirmations: triangle.confirmations,
                 area: triangle.area,
+                avgDistance: triangle.avgDistance,
                 confidence: triangle.confidence,
                 recordedAt: triangle.recordedAt
             });
@@ -337,21 +338,19 @@ class HierarchicalTriangulation {
     // 🔥 ПОЛУЧИТЬ СТАТИСТИКУ
     getStats() {
         let total = 0;
-        let avgConfidence = 0;
-        let beaconTriangles = 0;
+        let sumConfidence = 0;
+        let sumDistance = 0;
        
         for (const triangle of this.triangleMemory.values()) {
             total++;
-            avgConfidence += triangle.confidence;
-           
-            const avgConfirmations = triangle.confirmations.reduce((a, b) => a + b, 0) / 3;
-            if (avgConfirmations >= 3) beaconTriangles++;
+            sumConfidence += triangle.confidence;
+            sumDistance += triangle.avgDistance || 0;
         }
        
         return {
             totalTriangles: total,
-            avgConfidence: total > 0 ? avgConfidence / total : 0,
-            beaconTriangles: beaconTriangles,
+            avgConfidence: total > 0 ? sumConfidence / total : 0,
+            avgDistance: total > 0 ? sumDistance / total : 0,
             memorySize: this.triangleMemory.size
         };
     }
