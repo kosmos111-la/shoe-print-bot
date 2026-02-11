@@ -82,11 +82,12 @@ class TransformCalculator {
 
         // Оценка качества
         let error = 0;
-        for (let i = 0; i < points1.length; i++) {
-            const transformed = this.applyTransform(points1[i], { angle, scale, dx, dy, type: 'similarity' });
-            const err = Math.hypot(transformed.x - points2[i].x, transformed.y - points2[i].y);
-            error += err;
-        }
+for (let i = 0; i < points1.length; i++) {
+    // 🔥🔥🔥 ПРИМЕНЯЕМ ТРАНСФОРМАЦИЮ К ТОЧКАМ ИЗ МОДЕЛИ, А НЕ ИЗ ФОТО!
+    const transformed = this.applyTransform(points2[i], { angle, scale, dx, dy, type: 'similarity' });
+    const err = Math.hypot(transformed.x - points1[i].x, transformed.y - points1[i].y);
+    error += err;
+}
         error /= points1.length;
 
         // Уверенность: чем меньше ошибка, тем выше уверенность
