@@ -1,5 +1,6 @@
 // modules/footprint/topology/TopologyManager.js
 // 🎯 УПРАВЛЕНИЕ ЧИСТОЙ ТОПОЛОГИЕЙ С ДИНАМИЧЕСКИМ ДОВЕРИЕМ
+// 🔥 ИСПРАВЛЕНО: НОВЫЕ УЗЛЫ ВИДНЫ В ВИЗУАЛИЗАЦИИ!
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
@@ -34,7 +35,7 @@ class TopologyManager {
             debug: this.debug,
             similarityThreshold: options.similarityThreshold || 0.6,
             minMatchesForEnhancement: options.minMatchesForEnhancement || 3,
-            trustConfig: this.trustConfig  // 🔥 ПЕРЕДАЁМ НАСТРОЙКИ ДОВЕРИЯ
+            trustConfig: this.trustConfig
         });
       
         // Связь с существующей системой
@@ -99,7 +100,7 @@ class TopologyManager {
             similarity: result.similarity || 0,
             decision: this.getDecisionFromResult(result),
             philosophy: 'pure_topology_coordinates_for_visualization_only',
-            trustSystem: 'dynamic_fading_with_resurrection' // 🔥 НОВОЕ
+            trustSystem: 'dynamic_fading_with_resurrection'
         };
     }
   
@@ -148,6 +149,7 @@ class TopologyManager {
     }
   
     // 🔥 ВИЗУАЛИЗАЦИЯ ТОПОЛОГИЧЕСКОЙ МОДЕЛИ (С ДИНАМИЧЕСКИМ ДОВЕРИЕМ)
+    // 🔥 ИСПРАВЛЕНО: НОВЫЕ УЗЛЫ ВСЕГДА ВИДНЫ!
     getAccumulativeVisualizationData(modelId = null) {
         const targetModelId = modelId || this.accumulator.currentModelId;
       
@@ -170,13 +172,11 @@ class TopologyManager {
         let nodesWithConfirmations = 0;
         let hiddenNodes = 0;
         let forgottenNodes = 0;
+        let structuralNodes = 0;
       
         for (const [nodeId, node] of graph.nodes) {
             // 🔥 ИСПРАВЛЕНИЕ 1: ГАРАНТИРУЕМ КООРДИНАТЫ ДЛЯ ВСЕХ УЗЛОВ
-            // 🔥 ВИЗУАЛИЗАЦИОННЫЕ КООРДИНАТЫ МОГУТ БЫТЬ УЖЕ УСТАНОВЛЕНЫ
-            // Если нет координат - создаем визуализационные
             if (node.x === undefined || node.y === undefined) {
-                // Используем координаты из originalData если есть
                 if (node.originalData) {
                     node.x = node.originalData.x;
                     node.y = node.originalData.y;
@@ -184,7 +184,7 @@ class TopologyManager {
                         console.log(`   📍 Использованы оригинальные координаты для узла ${nodeId.substring(0, 20)}...`);
                     }
                 } else {
-                    // Или создаем случайные визуализационные
+                    // Создаем случайные визуализационные координаты
                     node.x = 400 + (Math.random() - 0.5) * 300;
                     node.y = 300 + (Math.random() - 0.5) * 200;
                     if (this.debug) {
@@ -196,9 +196,6 @@ class TopologyManager {
             // 🔥 ГАРАНТИРУЕМ confirmationCount
             if (node.confirmationCount === undefined) {
                 node.confirmationCount = 1;
-                if (this.debug) {
-                    console.log(`   ⚠️ Установлен confirmationCount=1 для узла ${nodeId.substring(0, 20)}...`);
-                }
             }
           
             // 🔥 ГАРАНТИРУЕМ unconfirmedStreak
@@ -206,11 +203,16 @@ class TopologyManager {
                 node.unconfirmedStreak = 0;
             }
           
+            // 🔥 ПОДСЧИТЫВАЕМ СТРУКТУРНЫЕ УЗЛЫ
+            if (node.addedFrom === 'structural_enhancement') {
+                structuralNodes++;
+            }
+          
             // 🔥 ПРОВЕРЯЕМ СТАТУС УЗЛА ПО СИСТЕМЕ ДОВЕРИЯ
             const trustStatus = this.calculateNodeTrustStatus(node);
             node.trustStatus = trustStatus;
           
-            // 🔥 ПОДТВЕРЖДЕНИЯ (главное!)
+            // 🔥 ПОДТВЕРЖДЕНИЯ
             const confirmations = node.confirmationCount || 0;
             if (confirmations > 0 && trustStatus.visible) nodesWithConfirmations++;
             if (!trustStatus.visible) hiddenNodes++;
@@ -225,6 +227,7 @@ class TopologyManager {
         }
       
         console.log(`   Узлов с подтверждениями: ${nodesWithConfirmations}/${graph.nodes.size}`);
+        console.log(`   Структурных узлов (новых): ${structuralNodes}`);
         console.log(`   Скрытых узлов: ${hiddenNodes}`);
         console.log(`   Забытых узлов: ${forgottenNodes}`);
       
@@ -239,68 +242,106 @@ class TopologyManager {
             forgotten: []      // забытые (готовы к удалению)
         };
       
+        // 🔥 ИСПРАВЛЕНИЕ 2: СОЗДАЁМ VIZDATA ДЛЯ ВСЕХ УЗЛОВ, ДАЖЕ ЕСЛИ ИХ НЕТ
         for (const info of nodeInfoArray) {
             const node = info.node;
             const confirmations = info.confirmations;
             const trustStatus = info.trustStatus;
           
-            // 🔥 ДИНАМИЧЕСКАЯ ЦВЕТОВАЯ СХЕМА ПО СИСТЕМЕ ДОВЕРИЯ
-            let color, size, trustLevel;
-          
+            // 🔥 ЗАБЫТЫЕ УЗЛЫ - НЕ ПОКАЗЫВАЕМ
             if (trustStatus.forgotten) {
-                // Забытые узлы - не показываем
                 pointsByTrust.forgotten.push(node);
                 continue;
             }
           
-            if (!trustStatus.visible) {
-                // Скрытые узлы
-                color = '#CCCCCC'; // Светло-серый
-                size = 3;
-                trustLevel = 'hidden';
-                pointsByTrust.hidden.push(node);
-            } else if (confirmations >= 4 && trustStatus.streak === 0) {
-                color = '#FF0000'; // 🔴 Ядра (красный)
-                size = 12 + (node.confidence || 0.5) * 4;
-                trustLevel = 'core';
-                pointsByTrust.core.push(node);
-            } else if (confirmations >= 3 && trustStatus.streak < 2) {
-                color = '#FF6B00'; // 🟠 Стабильные (оранжевый)
-                size = 10 + (node.confidence || 0.5) * 3;
-                trustLevel = 'stable';
-                pointsByTrust.stable.push(node);
-            } else if (confirmations >= 2 && trustStatus.streak < 3) {
-                color = '#FFC107'; // 🟡 Подтверждённые (жёлтый)
-                size = 8 + (node.confidence || 0.5) * 2;
-                trustLevel = 'confirmed';
-                pointsByTrust.confirmed.push(node);
-            } else if (confirmations >= 1 && trustStatus.streak < 4) {
-                color = '#2196F3'; // 🔵 Новые (синий)
-                size = 6 + (node.confidence || 0.5);
-                trustLevel = 'newish';
-                pointsByTrust.newish.push(node);
-            } else {
-                color = '#BDBDBD'; // ⚪ Затухающие (серый)
-                size = 4;
-                trustLevel = 'fading';
-                pointsByTrust.fading.push(node);
+            // 🔥 СОЗДАЁМ VIZData ЕСЛИ ЕГО НЕТ
+            if (!node.vizData) {
+                // Определяем цвет и размер на основе подтверждений и статуса
+                let color, size, trustLevel;
+              
+                if (!trustStatus.visible) {
+                    color = '#CCCCCC';
+                    size = 3;
+                    trustLevel = 'hidden';
+                } else if (confirmations >= 4 && trustStatus.streak === 0) {
+                    color = '#FF0000'; // 🔴 Ядра
+                    size = 12 + (node.confidence || 0.5) * 4;
+                    trustLevel = 'core';
+                } else if (confirmations >= 3 && trustStatus.streak < 2) {
+                    color = '#FF6B00'; // 🟠 Стабильные
+                    size = 10 + (node.confidence || 0.5) * 3;
+                    trustLevel = 'stable';
+                } else if (confirmations >= 2 && trustStatus.streak < 3) {
+                    color = '#FFC107'; // 🟡 Подтверждённые
+                    size = 8 + (node.confidence || 0.5) * 2;
+                    trustLevel = 'confirmed';
+                } else if (confirmations >= 1 && trustStatus.streak < 4) {
+                    color = '#2196F3'; // 🔵 Новые
+                    size = 6 + (node.confidence || 0.5);
+                    trustLevel = 'newish';
+                } else {
+                    color = '#BDBDBD'; // ⚪ Затухающие
+                    size = 4;
+                    trustLevel = 'fading';
+                }
+              
+                node.vizData = {
+                    color: color,
+                    size: size,
+                    trustLevel: trustLevel,
+                    confirmations: confirmations,
+                    unconfirmedStreak: node.unconfirmedStreak || 0,
+                    degree: node.degree || 0,
+                    source: node.addedFrom || 'original',
+                    visible: trustStatus.visible,
+                    id: info.id
+                };
+              
+                if (this.debug && node.addedFrom === 'structural_enhancement') {
+                    console.log(`   🎨 Создана vizData для нового узла ${node.id.substring(0, 20)}...`);
+                    console.log(`      цвет: ${color}, подтверждений: ${confirmations}, видим: ${trustStatus.visible}`);
+                }
             }
           
-            // 🔥 ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ
-            node.vizData = {
-                color: color,
-                size: size,
-                trustLevel: trustLevel,
-                confirmations: confirmations,
-                unconfirmedStreak: node.unconfirmedStreak || 0,
-                degree: node.degree,
-                source: node.addedFrom || 'original',
-                confirmationCount: confirmations,
-                id: info.id,
-                visible: trustStatus.visible,
-                note: 'dynamic_trust_system'
-            };
+            // 🔥 ГРУППИРУЕМ ПО СТАТУСУ
+            if (!trustStatus.visible) {
+                pointsByTrust.hidden.push(node);
+            } else if (confirmations >= 4 && trustStatus.streak === 0) {
+                pointsByTrust.core.push(node);
+            } else if (confirmations >= 3 && trustStatus.streak < 2) {
+                pointsByTrust.stable.push(node);
+            } else if (confirmations >= 2 && trustStatus.streak < 3) {
+                pointsByTrust.confirmed.push(node);
+            } else if (confirmations >= 1 && trustStatus.streak < 4) {
+                pointsByTrust.newish.push(node);
+            } else {
+                pointsByTrust.fading.push(node);
+            }
         }
+      
+        // 🔥 ИСПРАВЛЕНИЕ 3: ВСЕГДА ПОКАЗЫВАЕМ СТРУКТУРНЫЕ УЗЛЫ С КООРДИНАТАМИ!
+        const visibleNodes = Array.from(graph.nodes.values()).filter(node => {
+            // ✅ Узел видим если:
+            // 1. Это структурный узел (добавленный при улучшении) И у него есть координаты
+            const isStructuralNode = node.addedFrom === 'structural_enhancement';
+            const hasCoordinates = node.x !== undefined && node.y !== undefined;
+          
+            // 2. ИЛИ у него есть vizData И visible !== false
+            const hasVizData = node.vizData && node.vizData.visible !== false;
+          
+            // 3. ИЛИ он не забыт и не скрыт системой доверия
+            const notForgotten = !node.trustStatus?.forgotten;
+          
+            return (isStructuralNode && hasCoordinates) || hasVizData || notForgotten;
+        });
+      
+        // 🔥 ДИАГНОСТИКА ВИЗУАЛИЗАЦИИ
+        console.log(`\n🔍 ДИАГНОСТИКА ВИЗУАЛИЗАЦИИ:`);
+        console.log(`   Всего узлов в модели: ${graph.nodes.size}`);
+        console.log(`   Узлов с координатами: ${Array.from(graph.nodes.values()).filter(n => n.x && n.y).length}`);
+        console.log(`   Структурных узлов (новых): ${Array.from(graph.nodes.values()).filter(n => n.addedFrom === 'structural_enhancement').length}`);
+        console.log(`   Узлов с vizData: ${Array.from(graph.nodes.values()).filter(n => n.vizData).length}`);
+        console.log(`   Отобрано для визуализации: ${visibleNodes.length}`);
       
         // 🔥 СТАТИСТИКА ДЛЯ ВИЗУАЛИЗАЦИИ
         const stats = {
@@ -314,12 +355,13 @@ class TopologyManager {
             fading: pointsByTrust.fading.length,
             hidden: pointsByTrust.hidden.length,
             forgotten: pointsByTrust.forgotten.length,
+            structuralNodes: structuralNodes,
             uniquenessRatio: fingerprints ?
                 this.fingerprinter.getFingerprintInfo(fingerprints).uniquenessRatio : 0,
             trustSystem: 'dynamic_with_fading'
         };
       
-        console.log(`📊 Статистика системы доверия:`);
+        console.log(`\n📊 Статистика системы доверия:`);
         console.log(`   Всего узлов: ${stats.totalNodes}`);
         console.log(`   🔴 Ядра (4+): ${stats.core} (непоколебимые)`);
         console.log(`   🟠 Стабильные (3): ${stats.stable} (уверенные)`);
@@ -328,11 +370,7 @@ class TopologyManager {
         console.log(`   ⚪ Затухающие: ${stats.fading} (почти исчезли)`);
         console.log(`   🙈 Скрытые: ${stats.hidden} (не показываем)`);
         console.log(`   💀 Забытые: ${stats.forgotten} (готовы к удалению)`);
-      
-        // 🔥 ПОДГОТАВЛИВАЕМ ТОЛЬКО ВИДИМЫЕ УЗЛЫ ДЛЯ ОТРИСОВКИ
-        const visibleNodes = Array.from(graph.nodes.values()).filter(node => {
-            return node.vizData && node.vizData.visible !== false;
-        });
+        console.log(`   🆕 Структурные узлы: ${stats.structuralNodes} (добавленные при улучшении)`);
       
         return {
             modelId: targetModelId,
@@ -345,7 +383,14 @@ class TopologyManager {
             isTopological: true,
             visualizationMethod: 'pure_topological_with_dynamic_trust',
             philosophy: 'coordinates_for_visualization_only_structural_data_is_primary',
-            trustSystem: 'dynamic_fading'
+            trustSystem: 'dynamic_fading',
+            diagnostics: {
+                totalNodes: graph.nodes.size,
+                visibleNodes: visibleNodes.length,
+                structuralNodes: structuralNodes,
+                hiddenNodes: hiddenNodes,
+                forgottenNodes: forgottenNodes
+            }
         };
     }
   
@@ -374,7 +419,6 @@ class TopologyManager {
         }
       
         if (streak >= this.trustConfig.DEGRADE_AFTER) {
-            // Понижение уровня доверия
             return {
                 visible: true,
                 degraded: true,
@@ -383,7 +427,6 @@ class TopologyManager {
             };
         }
       
-        // Нормальные состояния
         return {
             visible: true,
             forgotten: false,
@@ -394,7 +437,8 @@ class TopologyManager {
   
     // 🔥 ВОСКРЕШЕНИЕ УЗЛА (если "забытая" точка вдруг появилась)
     checkNodeResurrection(oldNode, newNode) {
-        // Если узел был забыт, но снова появился с высокой уверенностью
+        if (!oldNode || !newNode) return false;
+      
         const wasForgotten = oldNode.unconfirmedStreak >= this.trustConfig.FORGET_AFTER;
         const highConfidence = newNode.confidence > 0.8;
         const goodStructure = newNode.fingerprint && oldNode.fingerprint &&
@@ -403,11 +447,11 @@ class TopologyManager {
         if (wasForgotten && (highConfidence || goodStructure)) {
             console.log(`🔥 ВОСКРЕШЕНИЕ узла: ${oldNode.id?.substring(0, 20)}...`);
           
-            // Быстрое восстановление доверия
-            oldNode.confirmationCount = Math.max(1, oldNode.confirmationCount || 1);
+            oldNode.confirmationCount = Math.max(2, (oldNode.confirmationCount || 1) + 1);
             oldNode.unconfirmedStreak = 0;
             oldNode.lastConfirmed = new Date();
             oldNode.resurrectionCount = (oldNode.resurrectionCount || 0) + 1;
+            oldNode.markedForDeletion = false;
           
             return true;
         }
@@ -433,7 +477,6 @@ class TopologyManager {
     async compareFootprints(footprint1, footprint2, options = {}) {
         console.log(`🔍 ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ (ЧИСТАЯ СТРУКТУРА): "${footprint1.name}" vs "${footprint2.name}"`);
       
-        // Извлекаем точки из обоих следов
         const points1 = this.extractPointsFromCurrentPhoto(footprint1.analysis || {}, { photoId: 'footprint1' });
         const points2 = this.extractPointsFromCurrentPhoto(footprint2.analysis || {}, { photoId: 'footprint2' });
       
@@ -446,7 +489,6 @@ class TopologyManager {
             };
         }
       
-        // Строим графы и сравниваем
         const graph1 = this.builder.buildDelaunayGraph(points1, footprint1.name);
         const graph2 = this.builder.buildDelaunayGraph(points2, footprint2.name);
       
@@ -518,14 +560,12 @@ class TopologyManager {
             }
         }
       
-        // Восстанавливаем связи
         if (data.linkedFootprints && Array.isArray(data.linkedFootprints)) {
             data.linkedFootprints.forEach(([footprintId, modelId]) => {
                 this.linkedFootprints.set(footprintId, modelId);
             });
         }
       
-        // Восстанавливаем настройки доверия если есть
         if (data.trustConfig) {
             this.trustConfig = { ...this.trustConfig, ...data.trustConfig };
         }
@@ -562,25 +602,27 @@ class TopologyManager {
                 fading: 0,
                 hidden: 0,
                 forgotten: 0
-            }
+            },
+            structuralNodes: 0
         };
       
         for (const node of model.graph.nodes.values()) {
             stats.total++;
           
-            // По подтверждениям
+            if (node.addedFrom === 'structural_enhancement') {
+                stats.structuralNodes++;
+            }
+          
             const conf = node.confirmationCount || 0;
             if (conf >= 4) stats.byConfirmation['4+']++;
             else stats.byConfirmation[conf] = (stats.byConfirmation[conf] || 0) + 1;
           
-            // По неподтверждениям подряд
             const streak = node.unconfirmedStreak || 0;
             if (streak >= 5) stats.byStreak['5+']++;
             else if (streak >= 3) stats.byStreak['3-4']++;
             else if (streak >= 1) stats.byStreak['1-2']++;
             else stats.byStreak[0]++;
           
-            // По статусу доверия
             const status = this.calculateNodeTrustStatus(node);
             if (status.forgotten) stats.trustStatus.forgotten++;
             else if (!status.visible) stats.trustStatus.hidden++;
