@@ -1,6 +1,5 @@
 // modules/footprint/topology/TopologyBuilder.js
-// 🏗️ СТРОИТЕЛЬ ТОПОЛОГИЧЕСКИХ ГРАФОВ С ТРИАНГУЛЯЦИЕЙ ДЕЛОНЕ
-// 🔥 ИСПРАВЛЕНО: СОХРАНЕНИЕ ОРИГИНАЛЬНЫХ КООРДИНАТ ДЛЯ ГЕОМЕТРИЧЕСКОЙ ПАМЯТИ
+// 🏗️ СТРОИТЕЛЬ ТОПОЛОГИЧЕСКИХ ГРАФОВ С ГЕОМЕТРИЧЕСКОЙ ПАМЯТЬЮ
 
 class TopologyBuilder {
     constructor(options = {}) {
@@ -15,13 +14,12 @@ class TopologyBuilder {
         const nodes = new Map();
         const edges = new Set();
        
-        // 1. Создаем узлы с ПОЛНЫМ сохранением геометрических данных
+        // 1. Создаем узлы с сохранением ВСЕХ геометрических данных
         points.forEach((point, index) => {
-            const nodeId = point.id || `${name}_node_${index}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+            const nodeId = point.id || `${name}_node_${index}`;
            
-            // 🔥 ВАЖНО: Сохраняем ВСЕ геометрические данные!
+            // 🔥 СОХРАНЯЕМ ВСЮ ГЕОМЕТРИЧЕСКУЮ ИНФОРМАЦИЮ
             nodes.set(nodeId, {
-                // Базовая информация
                 id: nodeId,
                 x: point.x,
                 y: point.y,
@@ -29,56 +27,31 @@ class TopologyBuilder {
                 degree: 0,
                 source: point.source || name,
                
-                // 📐 ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ - ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ИЗ ФОТО
-                _originalX: point._originalX !== undefined ? point._originalX : point.x,
-                _originalY: point._originalY !== undefined ? point._originalY : point.y,
-                _originalPoints: point._originalPoints || [],
+                // 🔥 ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ИЗ ФОТО (геометрическая память!)
+                _originalX: point._originalX || point.x,
+                _originalY: point._originalY || point.y,
                 _hasOriginalCoordinates: true,
-                _photoId: point.photoId || point.originalPhotoId || 'unknown',
+                _originalPoints: point.originalPoints || [],
+                _photoId: point.photoId,
+                _originalPhotoId: point.originalPhotoId,
                
-                // 📐 ПОЛНЫЕ ДАННЫЕ ДЛЯ ГЕОМЕТРИЧЕСКОЙ ПАМЯТИ
+                // 🔥 ПОЛНЫЕ ДАННЫЕ ДЛЯ ГЕОМЕТРИИ
                 originalData: {
                     x: point.x,
                     y: point.y,
                     confidence: point.confidence,
                     source: point.source,
                     photoId: point.photoId,
-                    originalPhotoId: point.originalPhotoId,
-                    originalIndex: point.originalIndex,
-                    originalPoints: point.originalPoints || point._originalPoints || [],
-                    note: point.note
-                },
-               
-                // 🔥 ДОПОЛНИТЕЛЬНЫЕ МЕТАДАННЫЕ
-                metadata: {
-                    extractedAt: Date.now(),
-                    sourceType: point.source || 'unknown',
-                    isProtector: true,
-                    polygonPoints: point.originalPoints ? point.originalPoints.length : 0
+                    originalPoints: point.originalPoints
                 }
             });
-           
-            if (this.debug && nodes.size <= 3) {
-                console.log(`   📍 Узел ${nodeId.substring(0, 20)}...`);
-                console.log(`      координаты: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-                console.log(`      оригинал: (${(point._originalX || point.x).toFixed(1)}, ${(point._originalY || point.y).toFixed(1)})`);
-                console.log(`      уверенность: ${(point.confidence || 0.5).toFixed(3)}`);
-            }
         });
        
         if (nodes.size < 3) {
             console.log('⚠️ Слишком мало точек для триангуляции Делоне');
-            return {
-                nodes,
-                edges,
-                triangles: [],
-                metadata: {
-                    source: name,
-                    geometryPreserved: nodes.size
-                }
-            };
+            return { nodes, edges, triangles: [], metadata: { source: name } };
         }
-       
+
         // 2. Строим триангуляцию Делоне
         const triangles = this.computeDelaunayTriangulation(points);
        
@@ -93,7 +66,7 @@ class TopologyBuilder {
             }
         });
        
-        // 4. Добавляем рёбра в граф и обновляем степени
+        // 4. Добавляем рёбра и обновляем степени
         edgeSet.forEach(edge => {
             edges.add(edge);
             const [nodeA, nodeB] = edge.split('--');
@@ -122,9 +95,7 @@ class TopologyBuilder {
             metadata: {
                 source: name,
                 pointsCount: points.length,
-                triangleCount: triangles.length,
-                geometryPreserved: nodes.size,
-                timestamp: Date.now()
+                triangleCount: triangles.length
             }
         };
     }
@@ -133,18 +104,12 @@ class TopologyBuilder {
     computeDelaunayTriangulation(points) {
         if (points.length < 3) return [];
        
-        if (this.debug) {
-            console.log(`🔷 Вычисляю триангуляцию Делоне для ${points.length} точек...`);
-        }
-       
-        // Простая реализация триангуляции Делоне через супертреугольник
         const triangles = [];
        
-        // Создаем супертреугольник, содержащий все точки
+        // Создаем супертреугольник
         const bounds = this.calculateBounds(points);
         const superTriangle = this.createSuperTriangle(bounds);
        
-        // Начинаем с супертреугольника
         let triangulation = [superTriangle];
        
         // Постепенно добавляем точки
@@ -194,24 +159,20 @@ class TopologyBuilder {
             return !this.triangleHasSuperVertex(triangle, superTriangle);
         });
        
-        // Преобразуем в формат с ID
+        // Форматируем треугольники
         const formattedTriangles = triangulation.map(triangle => {
             return triangle.map(vertex => ({
-                id: vertex.id || `node_${vertex.x}_${vertex.y}_${Date.now()}`,
+                id: vertex.id || `node_${vertex.x}_${vertex.y}`,
                 x: vertex.x,
                 y: vertex.y,
                 originalIndex: vertex.originalIndex
             }));
         });
        
-        if (this.debug) {
-            console.log(`   ✅ Триангуляция Делоне: ${formattedTriangles.length} треугольников`);
-        }
-       
         return formattedTriangles;
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ТРИАНГУЛЯЦИИ
+    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     calculateBounds(points) {
         let minX = Infinity, maxX = -Infinity;
         let minY = Infinity, maxY = -Infinity;
@@ -234,21 +195,9 @@ class TopologyBuilder {
         const margin = Math.max(width, height) * 0.5;
        
         return [
-            {
-                x: minX - margin,
-                y: minY - margin,
-                id: `super_A_${Date.now()}`
-            },
-            {
-                x: maxX + margin,
-                y: minY - margin,
-                id: `super_B_${Date.now()}`
-            },
-            {
-                x: minX + width / 2,
-                y: maxY + margin,
-                id: `super_C_${Date.now()}`
-            }
+            { x: minX - margin, y: minY - margin, id: 'super_A' },
+            { x: maxX + margin, y: minY - margin, id: 'super_B' },
+            { x: minX + width / 2, y: maxY + margin, id: 'super_C' }
         ];
     }
 
@@ -278,10 +227,8 @@ class TopologyBuilder {
     triangleHasEdge(triangle, edge) {
         const [v1, v2] = edge;
         const vertices = triangle.map(v => `${v.x},${v.y}`);
-       
         const v1Str = `${v1.x},${v1.y}`;
         const v2Str = `${v2.x},${v2.y}`;
-       
         return vertices.includes(v1Str) && vertices.includes(v2Str);
     }
 
@@ -299,90 +246,43 @@ class TopologyBuilder {
         return [nodeA, nodeB].sort().join('--');
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Получить оригинальные координаты узла
-    getOriginalCoordinates(node) {
-        if (node._originalX !== undefined && node._originalY !== undefined) {
-            return {
-                x: node._originalX,
-                y: node._originalY,
-                source: 'original_saved'
-            };
-        }
-        if (node.originalData && node.originalData.x !== undefined && node.originalData.y !== undefined) {
-            return {
-                x: node.originalData.x,
-                y: node.originalData.y,
-                source: 'original_data'
-            };
-        }
-        if (node.x !== undefined && node.y !== undefined) {
-            return {
-                x: node.x,
-                y: node.y,
-                source: 'current_position'
-            };
+    findTriangleForPoint(point, triangles) {
+        for (const triangle of triangles) {
+            if (this.pointInTriangle(point, triangle)) {
+                return triangle;
+            }
         }
         return null;
     }
 
-    // 🔥 НОВЫЙ МЕТОД: Проверить сохранение геометрии
-    verifyGeometryPreservation(graph) {
-        let originalCount = 0;
-        let totalCount = graph.nodes.size;
+    computeBarycentricCoords(point, triangle) {
+        const [A, B, C] = triangle;
+        const areaABC = this.triangleArea(A, B, C);
+        const areaPBC = this.triangleArea(point, B, C);
+        const areaAPC = this.triangleArea(A, point, C);
+        const areaABP = this.triangleArea(A, B, point);
        
-        for (const node of graph.nodes.values()) {
-            if (node._originalX !== undefined ||
-                (node.originalData && node.originalData.x !== undefined)) {
-                originalCount++;
-            }
-        }
+        const alpha = areaPBC / areaABC;
+        const beta = areaAPC / areaABC;
+        const gamma = areaABP / areaABC;
        
-        console.log(`📐 Проверка геометрической памяти:`);
-        console.log(`   Всего узлов: ${totalCount}`);
-        console.log(`   С оригинальными координатами: ${originalCount} (${((originalCount/totalCount)*100).toFixed(1)}%)`);
-       
-        return {
-            total: totalCount,
-            preserved: originalCount,
-            ratio: originalCount / Math.max(1, totalCount)
-        };
+        return { alpha, beta, gamma };
     }
 
-    // 🔥 ВИЗУАЛИЗАЦИЯ ГРАФА С ГЕОМЕТРИЧЕСКОЙ ДИАГНОСТИКОЙ
+    triangleArea(A, B, C) {
+        return Math.abs(
+            (A.x * (B.y - C.y) + B.x * (C.y - A.y) + C.x * (A.y - B.y)) / 2
+        );
+    }
+
     visualizeGraph(graph, limit = 10) {
         console.log(`\n🔷 ВИЗУАЛИЗАЦИЯ ГРАФА "${graph.metadata?.source || 'unknown'}":`);
-        console.log(`═`.repeat(60));
-       
+        console.log(`═`.repeat(50));
         console.log(`📊 ОБЩАЯ СТАТИСТИКА:`);
         console.log(`   Узлов: ${graph.nodes.size}`);
         console.log(`   Рёбер: ${graph.edges.size}`);
         console.log(`   Треугольников: ${graph.triangles?.length || 0}`);
-        console.log(`   Средняя степень: ${graph.avgDegree?.toFixed(2) || '?'}`);
-       
-        // 🔥 ДИАГНОСТИКА ГЕОМЕТРИЧЕСКОЙ ПАМЯТИ
-        this.verifyGeometryPreservation(graph);
-       
-        if (graph.nodes.size > 0) {
-            console.log(`\n📋 ПЕРВЫЕ ${Math.min(limit, graph.nodes.size)} УЗЛОВ (с геометрией):`);
-            let count = 0;
-            for (const [nodeId, node] of graph.nodes) {
-                if (count++ >= limit) break;
-               
-                const originalCoords = this.getOriginalCoordinates(node);
-                const hasOriginal = originalCoords !== null;
-               
-                console.log(`   ${nodeId.substring(0, 20)}...`);
-                console.log(`      текущие: (${node.x.toFixed(1)}, ${node.y.toFixed(1)})`);
-                if (hasOriginal) {
-                    console.log(`      📐 оригинал: (${originalCoords.x.toFixed(1)}, ${originalCoords.y.toFixed(1)}) [${originalCoords.source}]`);
-                } else {
-                    console.log(`      ⚠️ оригинал: НЕ СОХРАНЁН`);
-                }
-                console.log(`      степень: ${node.degree}, уверенность: ${node.confidence?.toFixed(3) || '?'}`);
-            }
-        }
-       
-        console.log(`═`.repeat(60));
+        console.log(`   📐 С оригинальными координатами: ${Array.from(graph.nodes.values()).filter(n => n._hasOriginalCoordinates).length}`);
     }
 }
 
