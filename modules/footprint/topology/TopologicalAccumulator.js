@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ АККУМУЛЯТИВНАЯ МОДЕЛЬ С ТОПОЛОГИЧЕСКИМ ПЕРЕНОСОМ ЧЕРЕЗ ТРЕУГОЛЬНИКИ ДЕЛОНЕ
+// 🏗️ АККУМУЛЯТИВНАЯ МОДЕЛЬ С ПРАВИЛЬНЫМ МАППИНГОМ И СТРУКТУРНЫМ РАЗМЕЩЕНИЕМ
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -35,14 +35,14 @@ class TopologicalAccumulator {
         console.log(`   Минимум для достройки: ${this.minMatchesForEnhancement} узлов`);
     }
    
-    // Основной метод: обработка нового набора точек
+    // 🔥 ОСНОВНОЙ МЕТОД: Обработка нового набора точек
     async processPoints(points, options = {}) {
         console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
        
         const modelId = options.modelId || this.currentModelId;
         const pointSource = options.source || `source_${Date.now()}`;
        
-        // 1. Строим граф Делоне с треугольниками
+        // 1. Строим граф Делоне
         const graph = this.topologyBuilder.buildDelaunayGraph(points, pointSource);
        
         if (this.debug) {
@@ -61,6 +61,8 @@ class TopologicalAccumulator {
         // 4. Сравниваем с существующей моделью
         console.log(`🔍 СРАВНИВАЮ С МОДЕЛЬЮ "${modelId}"`);
         const existingModel = this.models.get(modelId);
+       
+        // 🔥 СРАВНИВАЕМ ПО ПОДПИСЯМ
         const comparison = this.fingerprinter.compareGraphs(
             existingModel.graph,
             existingModel.fingerprints,
@@ -72,12 +74,20 @@ class TopologicalAccumulator {
         if (comparison.similarity >= this.similarityThreshold) {
             console.log(`✅ СОВПАДЕНИЕ: ${(comparison.similarity * 100).toFixed(1)}% ≥ ${this.similarityThreshold * 100}%`);
            
-            // Улучшаем существующую модель
-            const enhancementResult = await this.enhanceModel(
+            // 🔥 СОЗДАЕМ ПРАВИЛЬНЫЙ МАППИНГ НА ОСНОВЕ ПОДПИСЕЙ
+            const signatureMapping = this.createSignatureBasedMapping(
+                existingModel.fingerprints,
+                fingerprints,
+                comparison.allMatches
+            );
+           
+            // Улучшаем существующую модель с правильным маппингом
+            const enhancementResult = await this.enhanceModelWithCorrectMapping(
                 modelId,
                 graph,
                 fingerprints,
                 comparison,
+                signatureMapping,
                 options
             );
            
@@ -103,7 +113,450 @@ class TopologicalAccumulator {
         }
     }
    
-    // Создание новой топологической модели
+    // 🔥 НОВЫЙ МЕТОД: Создание маппинга на основе подписей (а не ID!)
+    createSignatureBasedMapping(modelFingerprints, newFingerprints, matches) {
+        console.log(`🗺️ Создаю маппинг на основе ${matches?.length || 0} совпадений...`);
+       
+        const mapping = new Map();
+        const usedModelNodes = new Set();
+       
+        if (!matches || matches.length === 0) {
+            console.log('⚠️ Нет совпадений для создания маппинга');
+            return mapping;
+        }
+       
+        // Проходим по всем совпадениям
+        for (const match of matches) {
+            const modelNodeId = match.node1; // Узел в модели
+            const newNodeId = match.node2;   // Узел в новом графе
+           
+            // Получаем подписи
+            const modelFp = modelFingerprints.get(modelNodeId);
+            const newFp = newFingerprints.get(newNodeId);
+           
+            if (modelFp && newFp) {
+                // 🔥 ПРОВЕРЯЕМ, ЧТО ПОДПИСИ ДЕЙСТВИТЕЛЬНО ПОХОЖИ
+                if (modelFp.signature === newFp.signature ||
+                    match.confidence > 0.7) {
+                   
+                    // Проверяем, что узел модели ещё не использован
+                    if (!usedModelNodes.has(modelNodeId)) {
+                        mapping.set(newNodeId, modelNodeId);
+                        usedModelNodes.add(modelNodeId);
+                       
+                        if (this.debug && mapping.size <= 3) {
+                            console.log(`   📍 ${newNodeId.substring(0, 15)}... → ${modelNodeId.substring(0, 15)}...`);
+                            console.log(`      уверенность: ${(match.confidence * 100).toFixed(1)}%`);
+                        }
+                    }
+                }
+            }
+        }
+       
+        console.log(`✅ Создан маппинг: ${mapping.size} соответствий`);
+        return mapping;
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: Улучшение модели с правильным маппингом
+    async enhanceModelWithCorrectMapping(modelId, newGraph, newFingerprints, comparison, mapping, options = {}) {
+        console.log(`🔧 ДОСТРАИВАЮ МОДЕЛЬ "${modelId}" с правильным маппингом...`);
+       
+        const model = this.models.get(modelId);
+       
+        if (mapping.size < this.minMatchesForEnhancement) {
+            console.log(`⚠️ Мало совпадений для достройки: ${mapping.size} < ${this.minMatchesForEnhancement}`);
+            return { newNodesAdded: 0, reason: 'insufficient_matches' };
+        }
+       
+        // 🔥 НАХОДИМ РЕАЛЬНО НОВЫЕ УЗЛЫ (те, которые не имеют соответствий в модели)
+        const trulyNewNodes = this.findTrulyNewNodes(
+            model.graph,
+            newGraph,
+            newFingerprints,
+            mapping
+        );
+       
+        if (trulyNewNodes.length === 0) {
+            console.log(`✅ Все узлы уже есть в модели`);
+            return { newNodesAdded: 0, reason: 'all_nodes_exist' };
+        }
+       
+        console.log(`🎯 Найдено ${trulyNewNodes.length} РЕАЛЬНО НОВЫХ узлов для добавления`);
+       
+        // 🔥 ДОБАВЛЯЕМ НОВЫЕ УЗЛЫ С ПРАВИЛЬНЫМ РАЗМЕЩЕНИЕМ
+        const addedNodes = this.addNewNodesWithStructuralPlacement(
+            modelId,
+            trulyNewNodes,
+            newGraph,
+            mapping
+        );
+       
+        // Обновляем подписи модели
+        if (addedNodes.length > 0) {
+            await this.updateModelFingerprints(modelId);
+        }
+       
+        // 🔥 ОБНОВЛЯЕМ ПОДТВЕРЖДЕНИЯ ТОЛЬКО ДЛЯ СОВПАВШИХ УЗЛОВ
+        this.updateConfirmedNodes(modelId, mapping);
+       
+        // Обновляем историю
+        model.history.push({
+            action: 'enhanced',
+            timestamp: new Date(),
+            newNodes: addedNodes.length,
+            totalNodes: model.graph.nodes.size,
+            exactMatches: mapping.size,
+            similarity: comparison.similarity,
+            source: options.source || 'unknown'
+        });
+       
+        this.stats.totalEnhancements++;
+        this.stats.lastUpdated = new Date();
+       
+        console.log(`✅ МОДЕЛЬ УЛУЧШЕНА: +${addedNodes.length} узлов, всего ${model.graph.nodes.size} узлов`);
+       
+        return {
+            newNodesAdded: addedNodes.length,
+            addedNodes: addedNodes,
+            totalNodes: model.graph.nodes.size,
+            allMatches: mapping.size
+        };
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: Поиск действительно новых узлов
+    findTrulyNewNodes(modelGraph, newGraph, newFingerprints, mapping) {
+        console.log(`🔍 Поиск РЕАЛЬНО НОВЫХ узлов...`);
+       
+        const newNodes = [];
+        const mappedNodeIds = new Set(mapping.keys()); // ID узлов, которые уже имеют соответствия
+       
+        // Рассчитываем границы существующей модели
+        const modelBounds = this.calculateModelBounds(modelGraph);
+       
+        // Проходим по всем узлам нового графа
+        for (const [nodeId, node] of newGraph.nodes) {
+            // Если узел уже имеет соответствие - пропускаем
+            if (mappedNodeIds.has(nodeId)) continue;
+           
+            // 🔥 ПРОВЕРЯЕМ, МОЖЕТ ЭТОТ УЗЕЛ УЖЕ ЕСТЬ В МОДЕЛИ
+            const isAlreadyInModel = this.checkIfNodeInModel(node, modelGraph, newFingerprints.get(nodeId));
+           
+            if (!isAlreadyInModel) {
+                // 🔥 НАХОДИМ ЕГО СТРУКТУРНЫХ СОСЕДЕЙ (тех, что имеют соответствия)
+                const structuralNeighbors = this.findStructuralNeighbors(nodeId, newGraph, mapping);
+               
+                // 🔥 ПРОВЕРЯЕМ, ЧТО УЗЕЛ НАХОДИТСЯ ВНЕ ЗОНЫ МОДЕЛИ
+                const isOutsideModelBounds = !this.isPointInsideBounds(node, modelBounds);
+               
+                if (structuralNeighbors.length >= 2) {
+                    newNodes.push({
+                        nodeId: nodeId,
+                        nodeData: node,
+                        structuralNeighbors: structuralNeighbors,
+                        fingerprint: newFingerprints.get(nodeId),
+                        isOutsideModel: isOutsideModelBounds,
+                        connectionsToMatched: structuralNeighbors.length,
+                        reason: `связан с ${structuralNeighbors.length} совпавшими узлами ${isOutsideModelBounds ? '(ВНЕ ЗОНЫ)' : ''}`
+                    });
+                   
+                    if (this.debug && newNodes.length <= 3) {
+                        console.log(`   ✓ НОВЫЙ узел: ${nodeId.substring(0, 20)}...`);
+                        console.log(`      структурные соседи: ${structuralNeighbors.length}`);
+                        console.log(`      координаты: (${node.x?.toFixed(1) || '?'}, ${node.y?.toFixed(1) || '?'})`);
+                        console.log(`      вне зоны модели: ${isOutsideModelBounds}`);
+                    }
+                }
+            }
+        }
+       
+        // 🔥 ФИЛЬТРУЕМ: В первую очередь добавляем узлы ВНЕ зоны модели
+        const externalNodes = newNodes.filter(n => n.isOutsideModel);
+        const internalNodes = newNodes.filter(n => !n.isOutsideModel);
+       
+        console.log(`📊 РЕЗУЛЬТАТ ПОИСКА:`);
+        console.log(`   Всего новых узлов: ${newNodes.length}`);
+        console.log(`   Вне зоны модели: ${externalNodes.length} (приоритет)`);
+        console.log(`   Внутри зоны модели: ${internalNodes.length}`);
+       
+        // 🔥 ВОЗВРАЩАЕМ СНАЧАЛА УЗЛЫ ВНЕ ЗОНЫ, ПОТОМ ВНУТРИ
+        return [...externalNodes, ...internalNodes];
+    }
+   
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Найти структурных соседей через маппинг
+    findStructuralNeighbors(nodeId, newGraph, mapping) {
+        const neighbors = [];
+       
+        // Находим всех соседей в новом графе
+        for (const edge of newGraph.edges) {
+            const [nodeA, nodeB] = edge.split('--');
+           
+            if (nodeA === nodeId && mapping.has(nodeB)) {
+                neighbors.push(mapping.get(nodeB)); // ID узла в модели
+            } else if (nodeB === nodeId && mapping.has(nodeA)) {
+                neighbors.push(mapping.get(nodeA)); // ID узла в модели
+            }
+        }
+       
+        return neighbors;
+    }
+   
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Проверка, есть ли узел уже в модели
+    checkIfNodeInModel(node, modelGraph, fingerprint) {
+        // 1. Проверка по координатам (с допуском)
+        for (const [modelNodeId, modelNode] of modelGraph.nodes) {
+            if (modelNode.x && modelNode.y && node.x && node.y) {
+                const distance = Math.sqrt(
+                    Math.pow(modelNode.x - node.x, 2) +
+                    Math.pow(modelNode.y - node.y, 2)
+                );
+               
+                // Если очень близко - вероятно, это та же точка
+                if (distance < 15) {
+                    return true;
+                }
+            }
+        }
+       
+        // 2. Проверка по структурной подписи (если есть)
+        if (fingerprint) {
+            for (const [modelNodeId, modelNode] of modelGraph.nodes) {
+                if (modelNode.fingerprint && modelNode.fingerprint.signature === fingerprint.signature) {
+                    return true;
+                }
+            }
+        }
+       
+        return false;
+    }
+   
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Расчет границ модели
+    calculateModelBounds(modelGraph) {
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+       
+        for (const node of modelGraph.nodes.values()) {
+            if (node.x && node.y) {
+                minX = Math.min(minX, node.x);
+                maxX = Math.max(maxX, node.x);
+                minY = Math.min(minY, node.y);
+                maxY = Math.max(maxY, node.y);
+            }
+        }
+       
+        // Добавляем отступ для зоны "внутри модели"
+        const padding = 30;
+        return {
+            minX: minX - padding,
+            maxX: maxX + padding,
+            minY: minY - padding,
+            maxY: maxY + padding,
+            centerX: (minX + maxX) / 2,
+            centerY: (minY + maxY) / 2
+        };
+    }
+   
+    // 🔥 ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Проверка точки внутри границ
+    isPointInsideBounds(point, bounds) {
+        if (!point.x || !point.y) return false;
+       
+        return point.x >= bounds.minX &&
+               point.x <= bounds.maxX &&
+               point.y >= bounds.minY &&
+               point.y <= bounds.maxY;
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: Добавление узлов со структурным размещением
+    addNewNodesWithStructuralPlacement(modelId, newNodes, newGraph, mapping) {
+        const model = this.models.get(modelId);
+        const addedNodes = [];
+       
+        console.log(`🔨 Добавляю ${newNodes.length} новых узлов со структурным размещением...`);
+       
+        for (const nodeInfo of newNodes) {
+            const originalNodeId = nodeInfo.nodeId;
+            const sourceNode = nodeInfo.nodeData;
+           
+            // 🔥 СОЗДАЕМ УНИКАЛЬНЫЙ ID ДЛЯ МОДЕЛИ
+            const modelNodeId = `new_node_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+           
+            // 🔥 ВЫЧИСЛЯЕМ ПОЗИЦИЮ НА ОСНОВЕ СТРУКТУРНЫХ СОСЕДЕЙ
+            const position = this.calculateStructuralPosition(
+                nodeInfo.structuralNeighbors,
+                model.graph,
+                sourceNode,
+                nodeInfo.isOutsideModel
+            );
+           
+            const newNode = {
+                // Основные данные
+                id: modelNodeId,
+                originalId: originalNodeId,
+                x: position.x,
+                y: position.y,
+                confidence: sourceNode.confidence || 0.5,
+                degree: 0,
+               
+                // Метаданные
+                addedFrom: 'enhancement_structural',
+                addedAt: new Date(),
+                structuralNeighbors: nodeInfo.structuralNeighbors,
+                positionMethod: position.method,
+                isOutsideModel: nodeInfo.isOutsideModel,
+               
+                // 🔥 ВАЖНО: confirmationCount = 1 для новых узлов
+                confirmationCount: 1,
+               
+                // Сохраняем оригинальные данные
+                originalData: {
+                    x: sourceNode.x,
+                    y: sourceNode.y,
+                    confidence: sourceNode.confidence,
+                    source: sourceNode.source
+                },
+               
+                // Структурные данные
+                fingerprint: sourceNode.fingerprint,
+                localStructure: sourceNode.fingerprint?.localStructure,
+               
+                // Для отладки
+                isTrulyNew: true,
+                enhancementReason: nodeInfo.reason
+            };
+           
+            console.log(`   + ${modelNodeId}:`);
+            console.log(`      позиция: (${newNode.x.toFixed(1)}, ${newNode.y.toFixed(1)}) [${position.method}]`);
+            console.log(`      структурных соседей: ${nodeInfo.structuralNeighbors.length}`);
+            console.log(`      подтверждений: ${newNode.confirmationCount}`);
+            console.log(`      вне зоны модели: ${nodeInfo.isOutsideModel}`);
+           
+            // Добавляем узел в модель
+            model.graph.nodes.set(modelNodeId, newNode);
+           
+            // 🔥 ДОБАВЛЯЕМ РЁБРА К СТРУКТУРНЫМ СОСЕДЯМ
+            for (const neighborModelId of nodeInfo.structuralNeighbors) {
+                if (model.graph.nodes.has(neighborModelId)) {
+                    const edge = [modelNodeId, neighborModelId].sort().join('--');
+                    model.graph.edges.add(edge);
+                   
+                    // Обновляем степени
+                    newNode.degree++;
+                    model.graph.nodes.get(neighborModelId).degree++;
+                }
+            }
+           
+            addedNodes.push({
+                id: modelNodeId,
+                x: newNode.x,
+                y: newNode.y,
+                confidence: newNode.confidence,
+                positionMethod: position.method,
+                structuralNeighbors: nodeInfo.structuralNeighbors.length,
+                isOutsideModel: nodeInfo.isOutsideModel
+            });
+        }
+       
+        console.log(`✅ Добавлено ${addedNodes.length} новых узлов, всего ${model.graph.nodes.size} узлов`);
+       
+        return addedNodes;
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: Вычисление позиции на основе структурных соседей
+    calculateStructuralPosition(structuralNeighborIds, modelGraph, sourceNode, isOutsideModel) {
+        if (structuralNeighborIds.length === 0) {
+            // Если нет структурных соседей
+            return {
+                x: sourceNode.x || 400 + (Math.random() - 0.5) * 100,
+                y: sourceNode.y || 300 + (Math.random() - 0.5) * 100,
+                method: 'original_coords_no_neighbors'
+            };
+        }
+       
+        // 🔥 СПОСОБ 1: Среднее положение структурных соседей
+        let sumX = 0, sumY = 0, count = 0;
+       
+        for (const neighborId of structuralNeighborIds) {
+            const neighbor = modelGraph.nodes.get(neighborId);
+            if (neighbor && neighbor.x !== undefined && neighbor.y !== undefined) {
+                sumX += neighbor.x;
+                sumY += neighbor.y;
+                count++;
+            }
+        }
+       
+        if (count > 0) {
+            const avgX = sumX / count;
+            const avgY = sumY / count;
+           
+            // 🔥 ЕСЛИ УЗЕЛ ВНЕ ЗОНЫ МОДЕЛИ - РАЗМЕЩАЕМ ВНЕ
+            if (isOutsideModel) {
+                // Вычисляем вектор от центра модели к узлу
+                const bounds = this.calculateModelBounds(modelGraph);
+                const centerX = bounds.centerX;
+                const centerY = bounds.centerY;
+               
+                // Направление от центра к среднему положению соседей
+                const dirX = avgX - centerX;
+                const dirY = avgY - centerY;
+                const distance = Math.sqrt(dirX * dirX + dirY * dirY);
+               
+                // Увеличиваем расстояние от центра
+                const scale = distance > 0 ? 1.5 : 1.0;
+                const newX = centerX + dirX * scale;
+                const newY = centerY + dirY * scale;
+               
+                return {
+                    x: newX,
+                    y: newY,
+                    method: `outside_model_placement_${count}_neighbors`
+                };
+            } else {
+                // 🔥 ЕСЛИ УЗЕЛ ВНУТРИ ЗОНЫ МОДЕЛИ - СЛЕГКА СМЕЩАЕМ
+                const offsetX = (Math.random() - 0.5) * 20;
+                const offsetY = (Math.random() - 0.5) * 20;
+               
+                return {
+                    x: avgX + offsetX,
+                    y: avgY + offsetY,
+                    method: `inside_model_average_${count}_neighbors`
+                };
+            }
+        }
+       
+        // 🔥 СПОСОБ 2: Используем оригинальные координаты
+        return {
+            x: sourceNode.x || 400 + (Math.random() - 0.5) * 100,
+            y: sourceNode.y || 300 + (Math.random() - 0.5) * 100,
+            method: 'original_with_random_offset'
+        };
+    }
+   
+    // 🔥 НОВЫЙ МЕТОД: Обновление подтверждений только для совпавших узлов
+    updateConfirmedNodes(modelId, mapping) {
+        const model = this.models.get(modelId);
+       
+        if (!model || mapping.size === 0) return;
+       
+        let updatedCount = 0;
+       
+        // Обновляем только узлы, которые имеют соответствия
+        for (const [newNodeId, modelNodeId] of mapping) {
+            if (model.graph.nodes.has(modelNodeId)) {
+                const node = model.graph.nodes.get(modelNodeId);
+                const oldCount = node.confirmationCount || 1;
+                node.confirmationCount = oldCount + 1;
+                node.lastConfirmed = new Date();
+                updatedCount++;
+               
+                if (this.debug && updatedCount <= 3) {
+                    console.log(`   📈 Узел ${modelNodeId.substring(0, 15)}...: подтверждений ${oldCount} → ${node.confirmationCount}`);
+                }
+            }
+        }
+       
+        console.log(`📈 Обновлены подтверждения для ${updatedCount} совпавших узлов`);
+    }
+   
+    // 🔥 МЕТОД: Создание новой модели
     createNewModel(graph, fingerprints, originalPoints, options = {}) {
         const modelId = `topo_model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
        
@@ -156,479 +609,7 @@ class TopologicalAccumulator {
         };
     }
    
-    // 🔥 УЛУЧШЕННЫЙ МЕТОД: Улучшение модели с топологическим переносом
-    async enhanceModel(modelId, newGraph, newFingerprints, comparison, options = {}) {
-        console.log(`🔧 ДОСТРАИВАЮ МОДЕЛЬ "${modelId}"...`);
-       
-        const model = this.models.get(modelId);
-       
-        // 🔥 ИСПРАВЛЕНИЕ: Используем ВСЕ совпадения
-        const allMatches = comparison.allMatches || comparison.exactMatches || [];
-       
-        console.log(`📊 Использую для достройки: ${allMatches.length} совпадений`);
-       
-        if (allMatches.length < this.minMatchesForEnhancement) {
-            console.log(`⚠️ Мало совпадений для достройки: ${allMatches.length} < ${this.minMatchesForEnhancement}`);
-            return { newNodesAdded: 0, reason: 'insufficient_matches' };
-        }
-       
-        // 🔥 СОЗДАЕМ МАППИНГ: node2 (новый граф) -> node1 (модель)
-        const mapping = new Map();
-        allMatches.forEach(match => {
-            mapping.set(match.node2, match.node1); // node2 → node1
-        });
-       
-        console.log(`🗺️ Создан маппинг: ${mapping.size} соответствий`);
-       
-        // Находим узлы, которые нужно добавить (С ТРЕУГОЛЬНИКАМИ)
-        const nodesToAdd = this.findNodesToAddWithTriangles(
-            model.graph,
-            newGraph,
-            newFingerprints,
-            allMatches,
-            mapping
-        );
-       
-        if (nodesToAdd.length === 0) {
-            console.log(`✅ Все узлы уже есть в модели`);
-            return { newNodesAdded: 0, reason: 'all_nodes_exist' };
-        }
-       
-        console.log(`🎯 Найдено ${nodesToAdd.length} новых узлов для добавления`);
-       
-        // Добавляем узлы в модель (С ПЕРЕНОСОМ ЧЕРЕЗ ТРЕУГОЛЬНИКИ)
-        const addedNodes = this.addNodesToModelWithTransfer(
-            modelId,
-            nodesToAdd,
-            newGraph,
-            mapping
-        );
-       
-        // Обновляем подписи модели
-        if (addedNodes.length > 0) {
-            await this.updateModelFingerprints(modelId);
-        }
-       
-        // 🔥 ИСПРАВЛЕНИЕ: Обновляем подтверждения для совпавших узлов
-        this.updateNodeConfirmations(modelId, allMatches);
-       
-        // Обновляем историю
-        model.history.push({
-            action: 'enhanced',
-            timestamp: new Date(),
-            newNodes: addedNodes.length,
-            totalNodes: model.graph.nodes.size,
-            exactMatches: allMatches.length,
-            similarity: comparison.similarity,
-            source: options.source || 'unknown'
-        });
-       
-        this.stats.totalEnhancements++;
-        this.stats.lastUpdated = new Date();
-       
-        console.log(`✅ МОДЕЛЬ УЛУЧШЕНА: +${addedNodes.length} узлов, всего ${model.graph.nodes.size} узлов`);
-       
-        return {
-            newNodesAdded: addedNodes.length,
-            addedNodes: addedNodes,
-            totalNodes: model.graph.nodes.size,
-            allMatches: allMatches.length
-        };
-    }
-   
-    // 🔥 НОВЫЙ МЕТОД: Поиск узлов с использованием треугольников
-    findNodesToAddWithTriangles(modelGraph, newGraph, newFingerprints, allMatches, mapping) {
-        console.log(`🔍 Поиск новых узлов с треугольниками Делоне...`);
-       
-        const nodesToAdd = [];
-        const matchedNodeIds = new Set(allMatches.map(m => m.node2));
-       
-        // 🔥 СОБИРАЕМ ТРЕУГОЛЬНИКИ ИЗ НОВОГО ГРАФА
-        const triangles = newGraph.triangles || [];
-        console.log(`   Треугольников в новом графе: ${triangles.length}`);
-       
-        // Создаем карту треугольников для быстрого поиска
-        const triangleMap = new Map(); // nodeId -> [треугольники, содержащие этот узел]
-       
-        for (const triangle of triangles) {
-            const vertexIds = triangle.map(v => v.id);
-            for (const vertexId of vertexIds) {
-                if (!triangleMap.has(vertexId)) {
-                    triangleMap.set(vertexId, []);
-                }
-                triangleMap.get(vertexId).push(triangle);
-            }
-        }
-       
-        // 🔥 ПРОВЕРЯЕМ ВСЕ УЗЛЫ НОВОГО ГРАФА
-        for (const [nodeId, node] of newGraph.nodes) {
-            // Если узел уже совпал - пропускаем
-            if (matchedNodeIds.has(nodeId)) continue;
-           
-            // Если узел уже есть в модели - пропускаем
-            if (modelGraph.nodes.has(nodeId)) continue;
-           
-            // 🔥 ПРОВЕРЯЕМ, ЧТО У УЗЛА ЕСТЬ КООРДИНАТЫ
-            if (!node.x || !node.y) {
-                console.log(`⚠️ Узел ${nodeId} не имеет координат, пропускаем`);
-                continue;
-            }
-           
-            // 🔥 ИЩЕМ ТРЕУГОЛЬНИКИ, СОДЕРЖАЩИЕ ЭТОТ УЗЕЛ
-            const containingTriangles = triangleMap.get(nodeId) || [];
-           
-            if (containingTriangles.length === 0) {
-                console.log(`⚠️ Узел ${nodeId} не входит ни в один треугольник`);
-                continue;
-            }
-           
-            // 🔥 ПРОВЕРЯЕМ, ВСЕ ЛИ ВЕРШИНЫ ТРЕУГОЛЬНИКА ИМЕЮТ СООТВЕТСТВИЯ
-            for (const triangle of containingTriangles) {
-                const vertexIds = triangle.map(v => v.id);
-               
-                // Проверяем, сколько вершин имеют соответствия
-                const mappedVertices = vertexIds.filter(vId => mapping.has(vId));
-               
-                if (mappedVertices.length >= 2) {
-                    // 🔥 УСПЕХ: нашли треугольник, где ≥2 вершин имеют соответствия
-                    console.log(`   ✓ Узел ${nodeId}: найден треугольник с ${mappedVertices.length} соответствиями`);
-                   
-                    // Вычисляем барицентрические координаты
-                    const barycentric = this.topologyBuilder.computeBarycentricCoords(
-                        node,
-                        triangle
-                    );
-                   
-                    if (!barycentric || isNaN(barycentric.alpha)) {
-                        console.log(`⚠️ Не удалось вычислить барицентрические координаты`);
-                        continue;
-                    }
-                   
-                    nodesToAdd.push({
-                        nodeId: nodeId,
-                        nodeData: node,
-                        containingTriangle: triangle,
-                        triangleVertices: vertexIds,
-                        mappedVertices: mappedVertices,
-                        barycentric: barycentric,
-                        connectionsToMatched: mappedVertices.length,
-                        fingerprint: newFingerprints.get(nodeId),
-                        reason: `в треугольнике с ${mappedVertices.length} соответствиями`
-                    });
-                   
-                    break; // Используем первый подходящий треугольник
-                }
-            }
-           
-            // 🔥 ФОЛБЭК: если не нашли треугольник, используем связи с соседями
-            if (nodesToAdd[nodesToAdd.length - 1]?.nodeId !== nodeId) {
-                const connectionsToMatched = this.countConnectionsToMatched(
-                    nodeId,
-                    matchedNodeIds,
-                    newGraph.edges
-                );
-               
-                if (connectionsToMatched >= 2) {
-                    nodesToAdd.push({
-                        nodeId: nodeId,
-                        nodeData: node,
-                        connectionsToMatched: connectionsToMatched,
-                        fingerprint: newFingerprints.get(nodeId),
-                        reason: `connected to ${connectionsToMatched} matched nodes (фолбэк)`
-                    });
-                }
-            }
-        }
-       
-        console.log(`🎯 Найдено ${nodesToAdd.length} новых узлов для добавления`);
-       
-        // 🔥 ДИАГНОСТИКА
-        nodesToAdd.forEach((nodeInfo, idx) => {
-            console.log(`   ${idx + 1}. ${nodeInfo.nodeId}: ${nodeInfo.reason}`);
-            if (nodeInfo.barycentric) {
-                console.log(`      барицентрические: α=${nodeInfo.barycentric.alpha.toFixed(3)}, β=${nodeInfo.barycentric.beta.toFixed(3)}, γ=${nodeInfo.barycentric.gamma.toFixed(3)}`);
-            }
-        });
-       
-        return nodesToAdd;
-    }
-   
-    // 🔥 НОВЫЙ МЕТОД: Добавление узлов с переносом через треугольники
-    addNodesToModelWithTransfer(modelId, nodesToAdd, sourceGraph, mapping) {
-        const model = this.models.get(modelId);
-        const addedNodes = [];
-       
-        console.log(`🔨 Добавляю ${nodesToAdd.length} новых узлов с топологическим переносом...`);
-       
-        for (const nodeInfo of nodesToAdd) {
-            const originalNodeId = nodeInfo.nodeId;
-           
-            // 🔥 СОЗДАЕМ УНИКАЛЬНЫЙ ID ДЛЯ МОДЕЛИ
-            const modelNodeId = `${originalNodeId}_model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-           
-            const sourceNode = nodeInfo.nodeData;
-           
-            let newNode = {
-                // Основные данные
-                id: modelNodeId,
-                originalId: originalNodeId,
-                confidence: sourceNode.confidence || 0.5,
-                degree: sourceNode.degree || 0,
-               
-                // Метаданные
-                addedFrom: sourceGraph.metadata?.source || 'enhancement',
-                photoId: sourceGraph.metadata?.photoId || 'unknown',
-                addedAt: new Date(),
-                connectionsToMatched: nodeInfo.connectionsToMatched,
-               
-                // 🔥 ВАЖНО: confirmationCount = 1 для новых узлов
-                confirmationCount: 1,
-               
-                // Сохраняем оригинальные данные
-                originalData: {
-                    x: sourceNode.x,
-                    y: sourceNode.y,
-                    confidence: sourceNode.confidence,
-                    source: sourceNode.source
-                },
-               
-                // Структурные данные
-                fingerprint: sourceNode.fingerprint,
-                localStructure: sourceNode.fingerprint?.localStructure
-            };
-           
-            // 🔥 ВЫЧИСЛЯЕМ КООРДИНАТЫ ЧЕРЕЗ ТРЕУГОЛЬНИКИ ИЛИ ФОЛБЭК
-            if (nodeInfo.barycentric && nodeInfo.containingTriangle) {
-                // 🔥 СПОСОБ 1: ТОПОЛОГИЧЕСКИЙ ПЕРЕНОС ЧЕРЕЗ ТРЕУГОЛЬНИКИ
-                const transferredCoords = this.transferViaTriangle(
-                    nodeInfo.barycentric,
-                    nodeInfo.containingTriangle,
-                    mapping,
-                    model.graph
-                );
-               
-                if (transferredCoords) {
-                    newNode.x = transferredCoords.x;
-                    newNode.y = transferredCoords.y;
-                    newNode.transferMethod = 'triangle_delaunay';
-                    console.log(`   ✓ ${modelNodeId}: перенос через треугольник → (${newNode.x.toFixed(1)}, ${newNode.y.toFixed(1)})`);
-                } else {
-                    // 🔥 ФОЛБЭК: среднее соседей
-                    const fallbackCoords = this.transferViaNeighbors(
-                        originalNodeId,
-                        sourceGraph,
-                        mapping,
-                        model.graph
-                    );
-                   
-                    if (fallbackCoords) {
-                        newNode.x = fallbackCoords.x;
-                        newNode.y = fallbackCoords.y;
-                        newNode.transferMethod = 'neighbors_average';
-                        console.log(`   ⚠️ ${modelNodeId}: фолбэк через соседей → (${newNode.x.toFixed(1)}, ${newNode.y.toFixed(1)})`);
-                    } else {
-                        // 🔥 ФОЛБЭК 2: случайные координаты
-                        newNode.x = sourceNode.x + Math.random() * 50 - 25;
-                        newNode.y = sourceNode.y + Math.random() * 50 - 25;
-                        newNode.transferMethod = 'random_offset';
-                        console.log(`   ⚠️ ${modelNodeId}: случайные координаты → (${newNode.x.toFixed(1)}, ${newNode.y.toFixed(1)})`);
-                    }
-                }
-            } else {
-                // 🔥 СПОСОБ 2: СРЕДНЕЕ ПОЛОЖЕНИЕ СОСЕДЕЙ
-                const neighborCoords = this.transferViaNeighbors(
-                    originalNodeId,
-                    sourceGraph,
-                    mapping,
-                    model.graph
-                );
-               
-                if (neighborCoords) {
-                    newNode.x = neighborCoords.x;
-                    newNode.y = neighborCoords.y;
-                    newNode.transferMethod = 'neighbors_average';
-                    console.log(`   ✓ ${modelNodeId}: среднее соседей → (${newNode.x.toFixed(1)}, ${newNode.y.toFixed(1)})`);
-                } else {
-                    // 🔥 ФОЛБЭК: оригинальные координаты
-                    newNode.x = sourceNode.x;
-                    newNode.y = sourceNode.y;
-                    newNode.transferMethod = 'original_coords';
-                    console.log(`   ⚠️ ${modelNodeId}: оригинальные координаты → (${newNode.x.toFixed(1)}, ${newNode.y.toFixed(1)})`);
-                }
-            }
-           
-            // Добавляем узел в модель
-            model.graph.nodes.set(modelNodeId, newNode);
-           
-            // Добавляем рёбра
-            let edgesAdded = 0;
-            for (const edge of sourceGraph.edges) {
-                const [nodeA, nodeB] = edge.split('--');
-               
-                // Если этот узел участвует в ребре
-                if (nodeA === originalNodeId || nodeB === originalNodeId) {
-                    const otherNodeId = nodeA === originalNodeId ? nodeB : nodeA;
-                   
-                    // Ищем соответствие другого узла в модели
-                    let otherModelNodeId = null;
-                   
-                    if (mapping.has(otherNodeId)) {
-                        otherModelNodeId = mapping.get(otherNodeId);
-                    } else if (model.graph.nodes.has(otherNodeId)) {
-                        otherModelNodeId = otherNodeId;
-                    }
-                   
-                    // Добавляем ребро, если оба узла есть в модели
-                    if (otherModelNodeId && model.graph.nodes.has(otherModelNodeId)) {
-                        const modelEdge = [modelNodeId, otherModelNodeId].sort().join('--');
-                        model.graph.edges.add(modelEdge);
-                        edgesAdded++;
-                    }
-                }
-            }
-           
-            // Обновляем степени
-            newNode.degree = edgesAdded;
-           
-            addedNodes.push({
-                id: modelNodeId,
-                originalId: originalNodeId,
-                x: newNode.x,
-                y: newNode.y,
-                confidence: newNode.confidence,
-                transferMethod: newNode.transferMethod,
-                addedReason: nodeInfo.reason,
-                edgesAdded: edgesAdded
-            });
-        }
-       
-        // Обновляем степени всех узлов
-        this.updateNodeDegrees(model.graph);
-       
-        console.log(`✅ Добавлено ${addedNodes.length} новых узлов, всего ${model.graph.nodes.size} узлов`);
-       
-        return addedNodes;
-    }
-   
-    // 🔥 МЕТОД 1: Топологический перенос через треугольники
-    transferViaTriangle(barycentric, triangle, mapping, modelGraph) {
-        const { alpha, beta, gamma } = barycentric;
-        const [A, B, C] = triangle;
-       
-        // Ищем соответствия вершин в модели
-        const A_prime = mapping.has(A.id) ? modelGraph.nodes.get(mapping.get(A.id)) : null;
-        const B_prime = mapping.has(B.id) ? modelGraph.nodes.get(mapping.get(B.id)) : null;
-        const C_prime = mapping.has(C.id) ? modelGraph.nodes.get(mapping.get(C.id)) : null;
-       
-        // Проверяем, что все три вершины имеют соответствия
-        if (A_prime && B_prime && C_prime) {
-            const x = alpha * A_prime.x + beta * B_prime.x + gamma * C_prime.x;
-            const y = alpha * A_prime.y + beta * B_prime.y + gamma * C_prime.y;
-            return { x, y };
-        }
-       
-        // Если есть только 2 соответствия
-        if (A_prime && B_prime) {
-            // Проекция на линию A'B'
-            const x = (A_prime.x + B_prime.x) / 2;
-            const y = (A_prime.y + B_prime.y) / 2;
-            return { x, y };
-        }
-       
-        return null;
-    }
-   
-    // 🔥 МЕТОД 2: Перенос через среднее соседей
-    transferViaNeighbors(nodeId, sourceGraph, mapping, modelGraph) {
-        const neighbors = this.getNeighbors(nodeId, sourceGraph.edges);
-        const mappedNeighbors = neighbors.filter(n => mapping.has(n));
-       
-        if (mappedNeighbors.length === 0) return null;
-       
-        let sumX = 0, sumY = 0, count = 0;
-       
-        for (const neighborId of mappedNeighbors) {
-            const modelNodeId = mapping.get(neighborId);
-            const neighborNode = modelGraph.nodes.get(modelNodeId);
-           
-            if (neighborNode && neighborNode.x !== undefined && neighborNode.y !== undefined) {
-                sumX += neighborNode.x;
-                sumY += neighborNode.y;
-                count++;
-            }
-        }
-       
-        if (count === 0) return null;
-       
-        return {
-            x: sumX / count,
-            y: sumY / count
-        };
-    }
-   
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    getNeighbors(nodeId, edges) {
-        const neighbors = new Set();
-       
-        for (const edge of edges) {
-            const [nodeA, nodeB] = edge.split('--');
-            if (nodeA === nodeId) neighbors.add(nodeB);
-            if (nodeB === nodeId) neighbors.add(nodeA);
-        }
-       
-        return Array.from(neighbors);
-    }
-   
-    countConnectionsToMatched(nodeId, matchedNodeIds, edges) {
-        let connections = 0;
-       
-        for (const edge of edges) {
-            const [nodeA, nodeB] = edge.split('--');
-           
-            if (nodeA === nodeId && matchedNodeIds.has(nodeB)) {
-                connections++;
-            } else if (nodeB === nodeId && matchedNodeIds.has(nodeA)) {
-                connections++;
-            }
-        }
-       
-        return connections;
-    }
-   
-    updateNodeConfirmations(modelId, matches) {
-        const model = this.models.get(modelId);
-       
-        if (!model || !matches || matches.length === 0) {
-            console.log(`⚠️ Нет совпадений для обновления подтверждений`);
-            return;
-        }
-       
-        let updatedCount = 0;
-       
-        for (const match of matches) {
-            const nodeId = match.node1; // Узел в модели
-           
-            if (model.graph.nodes.has(nodeId)) {
-                const node = model.graph.nodes.get(nodeId);
-                const oldCount = node.confirmationCount || 1;
-                node.confirmationCount = oldCount + 1;
-                node.lastConfirmed = new Date();
-               
-                if (match.confidence) {
-                    node.confidence = Math.max(node.confidence || 0.5, match.confidence);
-                }
-               
-                updatedCount++;
-               
-                if (this.debug) {
-                    console.log(`   📈 Узел ${nodeId}: подтверждений ${oldCount} → ${node.confirmationCount}`);
-                }
-            }
-        }
-       
-        console.log(`📈 Обновлены подтверждения для ${updatedCount}/${matches.length} узлов`);
-    }
-   
+    // Обновление степеней узлов
     updateNodeDegrees(graph) {
         // Сбрасываем степени
         for (const node of graph.nodes.values()) {
@@ -643,6 +624,7 @@ class TopologicalAccumulator {
         }
     }
    
+    // Обновление WL-подписей
     async updateModelFingerprints(modelId) {
         const model = this.models.get(modelId);
        
@@ -656,6 +638,7 @@ class TopologicalAccumulator {
         return newFingerprints;
     }
    
+    // Получить информацию о модели
     getModelInfo(modelId = null) {
         const targetModelId = modelId || this.currentModelId;
        
@@ -697,6 +680,7 @@ class TopologicalAccumulator {
         };
     }
    
+    // Визуализация модели
     visualizeModel(modelId = null, options = {}) {
         const targetModelId = modelId || this.currentModelId;
        
@@ -731,7 +715,7 @@ class TopologicalAccumulator {
             console.log(`   ${source}: ${count} узлов`);
         });
        
-        // Показываем узлы (ограниченное количество)
+        // Показываем узлы
         const showNodes = options.showNodes || 8;
         console.log(`\n📋 УЗЛЫ (первые ${showNodes}):`);
        
@@ -740,7 +724,11 @@ class TopologicalAccumulator {
             if (count++ >= showNodes) break;
            
             const source = node.addedFrom ? `[${node.addedFrom}]` : '[original]';
-            console.log(`   ${nodeId} ${source}: (${node.x?.toFixed(1) || '?'}, ${node.y?.toFixed(1) || '?'}) | степень: ${node.degree} | подтверждений: ${node.confirmationCount || 1}`);
+            const confirmations = node.confirmationCount || 1;
+            console.log(`   ${nodeId.substring(0, 15)}... ${source}:`);
+            console.log(`      координаты: (${node.x?.toFixed(1) || '?'}, ${node.y?.toFixed(1) || '?'})`);
+            console.log(`      степень: ${node.degree}, подтверждений: ${confirmations}`);
+            if (node.isOutsideModel) console.log(`      📍 ВНЕ ЗОНЫ МОДЕЛИ`);
         }
        
         if (graph.nodes.size > showNodes) {
@@ -758,6 +746,7 @@ class TopologicalAccumulator {
         console.log(`═`.repeat(70));
     }
    
+    // Экспорт модели
     exportModel(modelId = null) {
         const targetModelId = modelId || this.currentModelId;
        
@@ -780,11 +769,12 @@ class TopologicalAccumulator {
             metadata: model.metadata,
             history: model.history,
             stats: this.getModelInfo(targetModelId).stats,
-            _version: '1.1-topological-with-triangles',
+            _version: '1.2-topological-structural-placement',
             _exportedAt: new Date().toISOString()
         };
     }
    
+    // Импорт модели
     importModel(data) {
         if (!data || !data.id || !data.graph) {
             console.log('⚠️ Неверный формат данных для импорта');
@@ -844,6 +834,7 @@ class TopologicalAccumulator {
         }
     }
    
+    // Получить глобальную статистику
     getStats() {
         const modelsInfo = [];
         let totalNodes = 0;
