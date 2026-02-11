@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyBuilder.js
-// 🏗️ СТРОИТЕЛЬ ТОПОЛОГИЧЕСКИХ ГРАФОВ С ГЕОМЕТРИЧЕСКОЙ ПАМЯТЬЮ
+// 🏗️ СТРОИТЕЛЬ ТОПОЛОГИЧЕСКИХ ГРАФОВ
 
 class TopologyBuilder {
     constructor(options = {}) {
@@ -7,19 +7,19 @@ class TopologyBuilder {
         console.log('🔷 TopologyBuilder создан (чистая топология + геометрическая память)');
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Построение графа Делоне с сохранением геометрии
     buildDelaunayGraph(points, name = 'graph') {
-        console.log(`🔷 Строю граф Делоне "${name}" из ${points.length} точек...`);
+        if (this.debug) {
+            console.log(`🔷 Строю граф Делоне "${name}" из ${points.length} точек...`);
+        }
        
         const nodes = new Map();
         const edges = new Set();
        
-        // 1. Создаем узлы с сохранением ВСЕХ геометрических данных
+        // Создаем узлы с сохранением ВСЕХ данных
         points.forEach((point, index) => {
             const nodeId = point.id || `${name}_node_${index}`;
            
-            // 🔥 СОХРАНЯЕМ ВСЮ ГЕОМЕТРИЧЕСКУЮ ИНФОРМАЦИЮ
-            nodes.set(nodeId, {
+            const node = {
                 id: nodeId,
                 x: point.x,
                 y: point.y,
@@ -27,35 +27,25 @@ class TopologyBuilder {
                 degree: 0,
                 source: point.source || name,
                
-                // 🔥 ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ИЗ ФОТО (геометрическая память!)
+                // 🔥 КЛЮЧЕВОЕ: СОХРАНЯЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ИЗ ФОТО
                 _originalX: point._originalX || point.x,
                 _originalY: point._originalY || point.y,
-                _hasOriginalCoordinates: true,
-                _originalPoints: point.originalPoints || [],
-                _photoId: point.photoId,
-                _originalPhotoId: point.originalPhotoId,
+                _hasOriginalCoordinates: !!(point._originalX || point._originalY),
                
-                // 🔥 ПОЛНЫЕ ДАННЫЕ ДЛЯ ГЕОМЕТРИИ
-                originalData: {
-                    x: point.x,
-                    y: point.y,
-                    confidence: point.confidence,
-                    source: point.source,
-                    photoId: point.photoId,
-                    originalPoints: point.originalPoints
-                }
-            });
+                originalData: point
+            };
+           
+            nodes.set(nodeId, node);
         });
        
         if (nodes.size < 3) {
-            console.log('⚠️ Слишком мало точек для триангуляции Делоне');
             return { nodes, edges, triangles: [], metadata: { source: name } };
         }
-
-        // 2. Строим триангуляцию Делоне
+       
+        // Строим триангуляцию Делоне
         const triangles = this.computeDelaunayTriangulation(points);
        
-        // 3. Из треугольников извлекаем рёбра
+        // Из треугольников извлекаем рёбра
         const edgeSet = new Set();
         triangles.forEach(triangle => {
             for (let i = 0; i < 3; i++) {
@@ -66,7 +56,7 @@ class TopologyBuilder {
             }
         });
        
-        // 4. Добавляем рёбра и обновляем степени
+        // Добавляем рёбра в граф
         edgeSet.forEach(edge => {
             edges.add(edge);
             const [nodeA, nodeB] = edge.split('--');
@@ -74,18 +64,18 @@ class TopologyBuilder {
             if (nodes.has(nodeB)) nodes.get(nodeB).degree++;
         });
        
-        // 5. Вычисляем среднюю степень
+        // Вычисляем среднюю степень
         let totalDegree = 0;
-        for (const node of nodes.values()) {
-            totalDegree += node.degree;
-        }
+        for (const node of nodes.values()) totalDegree += node.degree;
         const avgDegree = nodes.size > 0 ? totalDegree / nodes.size : 0;
        
-        console.log(`✅ Граф Делоне построен:`);
-        console.log(`   Узлов: ${nodes.size}`);
-        console.log(`   Рёбер: ${edges.size}`);
-        console.log(`   Треугольников: ${triangles.length}`);
-        console.log(`   📐 Оригинальные координаты сохранены: ${nodes.size}/${nodes.size}`);
+        if (this.debug) {
+            console.log(`✅ Граф Делоне построен:`);
+            console.log(`   Узлов: ${nodes.size}`);
+            console.log(`   Рёбер: ${edges.size}`);
+            console.log(`   Треугольников: ${triangles.length}`);
+            console.log(`   📐 Оригинальные координаты сохранены: ${Array.from(nodes.values()).filter(n => n._hasOriginalCoordinates).length}/${nodes.size}`);
+        }
        
         return {
             nodes,
@@ -100,31 +90,25 @@ class TopologyBuilder {
         };
     }
 
-    // 🔥 ВЫЧИСЛЕНИЕ ТРИАНГУЛЯЦИИ ДЕЛОНЕ
     computeDelaunayTriangulation(points) {
         if (points.length < 3) return [];
        
         const triangles = [];
-       
-        // Создаем супертреугольник
         const bounds = this.calculateBounds(points);
         const superTriangle = this.createSuperTriangle(bounds);
        
         let triangulation = [superTriangle];
        
-        // Постепенно добавляем точки
         for (const point of points) {
             const badTriangles = [];
             const polygon = [];
            
-            // Находим "плохие" треугольники
             for (const triangle of triangulation) {
                 if (this.pointInCircumcircle(point, triangle)) {
                     badTriangles.push(triangle);
                 }
             }
            
-            // Находим границу многоугольника
             for (const triangle of badTriangles) {
                 for (let i = 0; i < 3; i++) {
                     const edge = [triangle[i], triangle[(i + 1) % 3]];
@@ -144,23 +128,19 @@ class TopologyBuilder {
                 }
             }
            
-            // Удаляем плохие треугольники
             triangulation = triangulation.filter(t => !badTriangles.includes(t));
            
-            // Создаем новые треугольники
             for (const edge of polygon) {
                 const newTriangle = [edge[0], edge[1], point];
                 triangulation.push(newTriangle);
             }
         }
        
-        // Удаляем треугольники с вершинами супертреугольника
         triangulation = triangulation.filter(triangle => {
             return !this.triangleHasSuperVertex(triangle, superTriangle);
         });
        
-        // Форматируем треугольники
-        const formattedTriangles = triangulation.map(triangle => {
+        return triangulation.map(triangle => {
             return triangle.map(vertex => ({
                 id: vertex.id || `node_${vertex.x}_${vertex.y}`,
                 x: vertex.x,
@@ -168,11 +148,8 @@ class TopologyBuilder {
                 originalIndex: vertex.originalIndex
             }));
         });
-       
-        return formattedTriangles;
     }
 
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     calculateBounds(points) {
         let minX = Infinity, maxX = -Infinity;
         let minY = Infinity, maxY = -Infinity;
@@ -184,10 +161,7 @@ class TopologyBuilder {
             maxY = Math.max(maxY, point.y);
         }
        
-        const width = maxX - minX;
-        const height = maxY - minY;
-       
-        return { minX, maxX, minY, maxY, width, height };
+        return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
     }
 
     createSuperTriangle(bounds) {
@@ -235,7 +209,6 @@ class TopologyBuilder {
     triangleHasSuperVertex(triangle, superTriangle) {
         const superVertices = superTriangle.map(v => `${v.x},${v.y}`);
         const triangleVertices = triangle.map(v => `${v.x},${v.y}`);
-       
         for (const sv of superVertices) {
             if (triangleVertices.includes(sv)) return true;
         }
@@ -244,45 +217,6 @@ class TopologyBuilder {
 
     createEdgeId(nodeA, nodeB) {
         return [nodeA, nodeB].sort().join('--');
-    }
-
-    findTriangleForPoint(point, triangles) {
-        for (const triangle of triangles) {
-            if (this.pointInTriangle(point, triangle)) {
-                return triangle;
-            }
-        }
-        return null;
-    }
-
-    computeBarycentricCoords(point, triangle) {
-        const [A, B, C] = triangle;
-        const areaABC = this.triangleArea(A, B, C);
-        const areaPBC = this.triangleArea(point, B, C);
-        const areaAPC = this.triangleArea(A, point, C);
-        const areaABP = this.triangleArea(A, B, point);
-       
-        const alpha = areaPBC / areaABC;
-        const beta = areaAPC / areaABC;
-        const gamma = areaABP / areaABC;
-       
-        return { alpha, beta, gamma };
-    }
-
-    triangleArea(A, B, C) {
-        return Math.abs(
-            (A.x * (B.y - C.y) + B.x * (C.y - A.y) + C.x * (A.y - B.y)) / 2
-        );
-    }
-
-    visualizeGraph(graph, limit = 10) {
-        console.log(`\n🔷 ВИЗУАЛИЗАЦИЯ ГРАФА "${graph.metadata?.source || 'unknown'}":`);
-        console.log(`═`.repeat(50));
-        console.log(`📊 ОБЩАЯ СТАТИСТИКА:`);
-        console.log(`   Узлов: ${graph.nodes.size}`);
-        console.log(`   Рёбер: ${graph.edges.size}`);
-        console.log(`   Треугольников: ${graph.triangles?.length || 0}`);
-        console.log(`   📐 С оригинальными координатами: ${Array.from(graph.nodes.values()).filter(n => n._hasOriginalCoordinates).length}`);
     }
 }
 
