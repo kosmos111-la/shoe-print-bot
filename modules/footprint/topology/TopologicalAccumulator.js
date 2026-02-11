@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ ЧИСТАЯ ТОПОЛОГИЯ + ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ
+// 🏗️ ТОПОЛОГИЧЕСКИЙ АККУМУЛЯТОР С ГЕОМЕТРИЧЕСКОЙ ПАМЯТЬЮ
 
 const GeometryMemory = require('./GeometryMemory');
 
@@ -9,15 +9,12 @@ class TopologicalAccumulator {
         this.debug = options.debug || false;
         this.minMatchesForEnhancement = options.minMatchesForEnhancement || 3;
         this.similarityThreshold = options.similarityThreshold || 0.6;
-      
-        // 🔥 СИСТЕМА ДОВЕРИЯ
         this.trustConfig = options.trustConfig || {
             FORGET_AFTER: 10,
             HIDE_AFTER: 5,
             DEGRADE_AFTER: 3,
             PROMOTE_AT: 2,
-            CORE_AT: 4,
-            RESURRECTION_THRESHOLD: 0.9
+            CORE_AT: 4
         };
       
         // Основные компоненты
@@ -30,9 +27,7 @@ class TopologicalAccumulator {
         });
       
         // 🔥 ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ
-        this.geometryMemory = new GeometryMemory({
-            debug: this.debug
-        });
+        this.geometryMemory = new GeometryMemory({ debug: this.debug });
       
         // Хранилище моделей
         this.models = new Map();
@@ -45,7 +40,7 @@ class TopologicalAccumulator {
             totalPointsProcessed: 0,
             totalNodesForgotten: 0,
             totalNodesResurrected: 0,
-            totalGeometryRecords: 0,
+            totalGeometricMemories: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
         };
@@ -65,14 +60,19 @@ class TopologicalAccumulator {
         const modelId = options.modelId || this.currentModelId;
         const pointSource = options.source || `source_${Date.now()}`;
       
+        // Строим граф Делоне
         const graph = this.topologyBuilder.buildDelaunayGraph(points, pointSource);
+      
+        // Вычисляем WL-подписи
         const fingerprints = this.fingerprinter.computeGraphFingerprints(graph);
       
+        // Если нет активной модели - создаём новую
         if (!modelId || !this.models.has(modelId)) {
-            console.log(`🆕 СОЗДАЮ НОВУЮ ТОПОЛОГИЧЕСКУЮ МОДЕЛЬ`);
+            console.log(`🆕 СОЗДАЮ НОВУЮ МОДЕЛЬ`);
             return this.createNewModel(graph, fingerprints, points, options);
         }
       
+        // Сравниваем с существующей моделью
         console.log(`🔍 СРАВНИВАЮ С МОДЕЛЬЮ "${modelId}"`);
         const existingModel = this.models.get(modelId);
       
@@ -84,7 +84,7 @@ class TopologicalAccumulator {
         );
       
         // Применяем систему доверия
-        this.applyTrustSystem(modelId, comparison, graph, fingerprints);
+        this.applyTrustSystem(modelId, comparison);
       
         if (comparison.similarity >= this.similarityThreshold) {
             console.log(`✅ СТРУКТУРНОЕ СОВПАДЕНИЕ: ${(comparison.similarity * 100).toFixed(1)}%`);
@@ -105,7 +105,7 @@ class TopologicalAccumulator {
                 newNodesAdded: enhancementResult.newNodesAdded,
                 totalNodesInModel: this.models.get(modelId).graph.nodes.size,
                 message: `Модель улучшена (+${enhancementResult.newNodesAdded} узлов)`,
-                method: 'topology_with_geometry_memory'
+                method: 'topology_with_geometric_memory'
             };
           
         } else {
@@ -145,17 +145,23 @@ class TopologicalAccumulator {
                 points: originalPoints.length,
                 nodes: graph.nodes.size,
                 edges: graph.edges.size,
-                method: 'topology_with_geometry'
+                method: 'topology_with_geometric_memory'
             }]
         };
       
-        // Инициализация системы доверия
+        // 🔥 ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ ДОВЕРИЯ И ГЕОМЕТРИИ
         for (const node of model.graph.nodes.values()) {
             node.confirmationCount = 1;
             node.unconfirmedStreak = 0;
             node.addedFrom = 'original_creation';
             node.addedAt = new Date();
             node.firstSeen = new Date();
+          
+            // 🔥 СОХРАНЯЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ!
+            if (node._originalX === undefined && node.x !== undefined) {
+                node._originalX = node.x;
+                node._originalY = node.y;
+            }
         }
       
         this.models.set(modelId, model);
@@ -165,8 +171,6 @@ class TopologicalAccumulator {
       
         console.log(`🏗️ СОЗДАНА НОВАЯ МОДЕЛЬ "${modelId}":`);
         console.log(`   Узлов: ${graph.nodes.size} (все с confirmationCount=1)`);
-        console.log(`   Рёбер: ${graph.edges.size}`);
-        console.log(`   Треугольников: ${graph.triangles?.length || 0}`);
         console.log(`   📐 Геометрическая память инициализирована`);
       
         return {
@@ -174,7 +178,8 @@ class TopologicalAccumulator {
             modelId: modelId,
             nodes: graph.nodes.size,
             edges: graph.edges.size,
-            message: `Создана модель с геометрической памятью`
+            avgDegree: graph.avgDegree,
+            message: `Создана новая модель с геометрической памятью`
         };
     }
   
@@ -185,22 +190,16 @@ class TopologicalAccumulator {
         const model = this.models.get(modelId);
         const allMatches = comparison.allMatches || comparison.exactMatches || [];
       
-        console.log(`📊 Структурных совпадений: ${allMatches.length}`);
-      
         if (allMatches.length < this.minMatchesForEnhancement) {
             return { newNodesAdded: 0, reason: 'insufficient_structural_matches' };
         }
       
-        // Создаём структурный маппинг
         const structuralMapping = this.createStructuralMapping(
             model.fingerprints,
             newFingerprints,
             allMatches
         );
       
-        console.log(`🗺️ Создан структурный маппинг: ${structuralMapping.size} соответствий`);
-      
-        // Находим структурно новые узлы
         const structurallyNewNodes = this.findStructurallyNewNodes(
             model.graph,
             newGraph,
@@ -209,163 +208,106 @@ class TopologicalAccumulator {
         );
       
         if (structurallyNewNodes.length === 0) {
-            console.log(`✅ Все структурные узлы уже в модели`);
             return { newNodesAdded: 0, reason: 'all_structural_nodes_exist' };
         }
       
-        console.log(`🎯 Найдено ${structurallyNewNodes.length} СТРУКТУРНО НОВЫХ узлов`);
-      
-        // 🔥 ЗАПОМИНАЕМ ГЕОМЕТРИЮ ДОБАВЛЕНИЯ
-        const geometryInfo = this.captureGeometryBeforeAddition(
-            structurallyNewNodes,
-            newGraph,
-            structuralMapping
-        );
-      
-        // Добавляем структурно новые узлы
+        // 🔥 ДОБАВЛЯЕМ НОВЫЕ УЗЛЫ
         const addedNodes = this.addStructuralNodesToModel(
             modelId,
             structurallyNewNodes,
             newGraph,
             structuralMapping,
-            geometryInfo,
             options
         );
       
-        // 🔥 ЗАПОМИНАЕМ ГЕОМЕТРИЮ ДЛЯ КАЖДОГО НОВОГО УЗЛА
+        // 🔥 ЗАПОМИНАЕМ ГЕОМЕТРИЮ НОВЫХ УЗЛОВ!
         if (addedNodes.length > 0) {
-            this.rememberNewNodesGeometry(
-                structurallyNewNodes,
-                addedNodes,
-                newGraph,
-                modelId
-            );
-            this.stats.totalGeometryRecords += addedNodes.length;
+            this.rememberNewNodesGeometry(structurallyNewNodes, newGraph, modelId, addedNodes);
         }
       
-        // Обновляем подписи
         if (addedNodes.length > 0) {
             await this.updateModelFingerprints(modelId);
         }
       
-        // Увеличиваем подтверждения
         this.increaseStructuralConfirmations(modelId, structuralMapping);
       
-        // Обновляем историю
         model.history.push({
             action: 'enhanced_with_geometry',
             timestamp: new Date(),
             newNodes: addedNodes.length,
             totalNodes: model.graph.nodes.size,
             structuralMatches: structuralMapping.size,
-            geometryRecords: addedNodes.length,
             similarity: comparison.similarity,
-            method: 'topology_with_geometry_memory'
+            source: options.source || 'unknown',
+            method: 'topology_with_geometric_memory'
         });
       
         this.stats.totalEnhancements++;
         this.stats.lastUpdated = new Date();
       
-        console.log(`✅ МОДЕЛЬ УЛУЧШЕНА: +${addedNodes.length} узлов (с геометрией)`);
+        console.log(`✅ МОДЕЛЬ УЛУЧШЕНА: +${addedNodes.length} узлов, всего ${model.graph.nodes.size} узлов`);
       
         return {
             newNodesAdded: addedNodes.length,
             addedNodes: addedNodes,
             totalNodes: model.graph.nodes.size,
-            structuralMatches: structuralMapping.size,
-            geometryRecords: addedNodes.length
+            structuralMatches: structuralMapping.size
         };
     }
   
-    // 🔥 ЗАХВАТ ГЕОМЕТРИИ ПЕРЕД ДОБАВЛЕНИЕМ
-    captureGeometryBeforeAddition(newNodes, newGraph, structuralMapping) {
-        const geometryInfo = new Map();
-      
-        newNodes.forEach(nodeInfo => {
-            const nodeId = nodeInfo.nodeId;
-            const node = newGraph.nodes.get(nodeId);
-            if (!node) return;
-          
-            // Сохраняем оригинальные координаты ТОЛЬКО для геометрических вычислений
-            const originalX = node.x;
-            const originalY = node.y;
-          
-            // Находим соседей, которые уже есть в модели
-            const mappedNeighbors = nodeInfo.structuralNeighbors.map(nId => ({
-                modelId: nId,
-                originalNode: newGraph.nodes.get(
-                    Array.from(structuralMapping.entries())
-                        .find(([k, v]) => v === nId)?.[0]
-                )
-            })).filter(n => n.originalNode);
-          
-            geometryInfo.set(nodeId, {
-                originalX,
-                originalY,
-                mappedNeighbors,
-                neighborCount: nodeInfo.structuralNeighbors.length,
-                degree: nodeInfo.nodeData?.degree || 0
-            });
-        });
-      
-        return geometryInfo;
-    }
-  
     // 🔥 ЗАПОМИНАНИЕ ГЕОМЕТРИИ НОВЫХ УЗЛОВ
-    rememberNewNodesGeometry(newNodes, addedNodes, newGraph, modelId) {
+    rememberNewNodesGeometry(newNodes, newGraph, modelId, addedNodes) {
         console.log(`📐 Запоминаю геометрию ${newNodes.length} новых узлов...`);
       
         const model = this.models.get(modelId);
         if (!model) return;
       
         newNodes.forEach((nodeInfo, index) => {
-            const originalNodeId = nodeInfo.nodeId;
-            const originalNode = newGraph.nodes.get(originalNodeId);
+            const nodeId = nodeInfo.nodeId;
+            const node = newGraph.nodes.get(nodeId);
+            if (!node) return;
+          
             const addedNode = addedNodes[index];
+            if (!addedNode) return;
           
-            if (!originalNode || !addedNode) return;
+            // 🔥 СОЗДАЁМ УЗЕЛ С ОРИГИНАЛЬНЫМИ КООРДИНАТАМИ ИЗ ФОТО!
+            const tempNode = {
+                id: node.id,
+                x: node._originalX || node.x,
+                y: node._originalY || node.y,
+                confidence: node.confidence || node._originalConfidence || 0.5,
+                originalPoints: node._originalPoints || []
+            };
           
-            // Находим ID узла в модели
-            let modelNodeId = null;
-            for (const [nodeId, node] of model.graph.nodes) {
-                if (node.originalId === originalNodeId) {
-                    modelNodeId = nodeId;
-                    break;
-                }
-            }
+            // Запоминаем геометрию
+            const relations = this.geometryMemory.rememberNodeGeometry(
+                nodeId,
+                tempNode,
+                nodeInfo.structuralNeighbors,
+                newGraph.nodes
+            );
           
-            if (modelNodeId) {
-                // 🔥 ЗАПОМИНАЕМ ГЕОМЕТРИЮ В ИСХОДНОМ ГРАФЕ
-                this.geometryMemory.rememberNodeGeometry(
-                    originalNodeId,
-                    originalNode,
-                    nodeInfo.structuralNeighbors,
-                    newGraph.nodes
-                );
-              
-                // 🔥 СОХРАНЯЕМ ССЫЛКУ НА ГЕОМЕТРИЮ В УЗЛЕ МОДЕЛИ
+            // Сохраняем ссылку в модели
+            const modelNodeId = addedNode.id;
+            if (modelNodeId && model.graph.nodes.has(modelNodeId)) {
                 const modelNode = model.graph.nodes.get(modelNodeId);
-                if (modelNode) {
-                    modelNode.geometryMemory = originalNodeId;
-                    modelNode.originalGeometry = {
-                        x: originalNode.x,
-                        y: originalNode.y,
-                        confidence: originalNode.confidence,
-                        neighbors: nodeInfo.structuralNeighbors
-                    };
-                  
-                    if (this.debug) {
-                        console.log(`   ✅ Геометрия сохранена для ${modelNodeId.substring(0, 20)}...`);
-                    }
-                }
+                modelNode.geometryMemory = nodeId;
+              
+                // 🔥 СОХРАНЯЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ!
+                modelNode._originalX = tempNode.x;
+                modelNode._originalY = tempNode.y;
+                modelNode._hasOriginalCoordinates = true;
+                modelNode._geometryRelations = relations?.length || 0;
+              
+                this.stats.totalGeometricMemories++;
             }
         });
       
-        console.log(`   ✅ Запомнено ${newNodes.length} геометрических паттернов`);
+        console.log(`   ✅ Запомнена геометрия ${newNodes.length} узлов`);
     }
   
-    // 🔥 ДОБАВЛЕНИЕ СТРУКТУРНЫХ УЗЛОВ С ГЕОМЕТРИЧЕСКОЙ ПАМЯТЬЮ
-    addStructuralNodesToModel(modelId, newNodes, newGraph, structuralMapping, geometryInfo, options) {
+    // 🔥 ДОБАВЛЕНИЕ СТРУКТУРНЫХ УЗЛОВ
+    addStructuralNodesToModel(modelId, newNodes, newGraph, structuralMapping, options) {
         const model = this.models.get(modelId);
         const addedNodes = [];
       
@@ -373,87 +315,54 @@ class TopologicalAccumulator {
       
         for (const nodeInfo of newNodes) {
             const originalNodeId = nodeInfo.nodeId;
-            const sourceNode = nodeInfo.nodeData;
-            const geometry = geometryInfo.get(originalNodeId);
+            const sourceNode = newGraph.nodes.get(originalNodeId);
+            if (!sourceNode) continue;
           
             const modelNodeId = `structural_node_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
           
-            // 🔥 ВЫЧИСЛЯЕМ ПОЗИЦИЮ С УЧЁТОМ ГЕОМЕТРИЧЕСКОЙ ПАМЯТИ
-            let visualizationPosition;
+            // Визуализационная позиция (фолбэк)
+            const visualizationPosition = this.calculateVisualizationPosition(
+                nodeInfo.structuralNeighbors,
+                model.graph
+            );
           
-            if (geometry) {
-                // Пробуем восстановить по геометрической памяти
-                const reconstructed = this.geometryMemory.reconstructPosition(
-                    originalNodeId,
-                    model.graph
-                );
-              
-                if (reconstructed) {
-                    visualizationPosition = reconstructed;
-                } else {
-                    // Фолбэк - среднее соседей
-                    visualizationPosition = this.calculateVisualizationPosition(
-                        nodeInfo.structuralNeighbors,
-                        model.graph
-                    );
-                }
-            } else {
-                visualizationPosition = this.calculateVisualizationPosition(
-                    nodeInfo.structuralNeighbors,
-                    model.graph
-                );
-            }
+            // 🔥 БЕРЁМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ЕСЛИ ЕСТЬ!
+            const hasOriginalCoords = sourceNode._originalX !== undefined && sourceNode._originalY !== undefined;
+            const posX = hasOriginalCoords ? sourceNode._originalX : visualizationPosition.x;
+            const posY = hasOriginalCoords ? sourceNode._originalY : visualizationPosition.y;
+            const posMethod = hasOriginalCoords ? 'original_from_photo' : visualizationPosition.method;
           
-            // 🔥 СОЗДАЁМ УЗЕЛ С ГЕОМЕТРИЧЕСКОЙ ПАМЯТЬЮ
             const newNode = {
                 id: modelNodeId,
                 originalId: originalNodeId,
                 degree: 0,
               
-                // Система доверия
                 confirmationCount: 1,
                 unconfirmedStreak: 0,
                 addedFrom: 'structural_enhancement',
                 addedAt: new Date(),
                 firstSeen: new Date(),
               
-                // Визуализационные координаты
-                x: visualizationPosition.x,
-                y: visualizationPosition.y,
-                confidence: sourceNode.confidence || 0.5,
+                // 🔥 ВИЗУАЛИЗАЦИОННЫЕ КООРДИНАТЫ
+                x: posX,
+                y: posY,
+                confidence: sourceNode.confidence || sourceNode._originalConfidence || 0.5,
               
-                // Структурная информация
+                // 🔥 ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ - СОХРАНЯЕМ ОРИГИНАЛ!
+                _originalX: sourceNode._originalX || sourceNode.x,
+                _originalY: sourceNode._originalY || sourceNode.y,
+                _originalConfidence: sourceNode._originalConfidence || sourceNode.confidence,
+                _originalPoints: sourceNode._originalPoints || [],
+                _hasOriginalCoordinates: hasOriginalCoords,
+              
                 structuralNeighbors: nodeInfo.structuralNeighbors,
                 structuralNeighborCount: nodeInfo.neighborCount,
                 enhancementReason: nodeInfo.reason,
-                visualizationMethod: visualizationPosition.method,
-              
-                // 🔥 ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ
-                geometryMemory: originalNodeId,
-                originalGeometry: geometry ? {
-                    x: geometry.originalX,
-                    y: geometry.originalY,
-                    neighborCount: geometry.neighborCount,
-                    degree: geometry.degree
-                } : null,
-              
-                reconstructionMethod: visualizationPosition.method,
-              
-                // Оригинальные данные
-                originalData: {
-                    x: sourceNode.x,
-                    y: sourceNode.y,
-                    confidence: sourceNode.confidence,
-                    source: sourceNode.source
-                }
+                visualizationMethod: posMethod
             };
           
-            console.log(`   + ${modelNodeId}:`);
-            console.log(`      визуализация: (${newNode.x.toFixed(1)}, ${newNode.y.toFixed(1)})`);
-            console.log(`      метод: ${newNode.visualizationMethod}`);
-            console.log(`      геометрия: ${geometry ? 'запомнена' : 'нет'}`);
-          
             model.graph.nodes.set(modelNodeId, newNode);
+            nodeInfo.modelNodeId = modelNodeId;
           
             // Добавляем связи
             let edgesAdded = 0;
@@ -462,21 +371,25 @@ class TopologicalAccumulator {
                     const edge = [modelNodeId, neighborModelId].sort().join('--');
                     model.graph.edges.add(edge);
                     edgesAdded++;
-                  
                     newNode.degree++;
                     model.graph.nodes.get(neighborModelId).degree++;
                 }
             }
           
-            console.log(`      связей: ${edgesAdded}`);
+            console.log(`   + ${modelNodeId.substring(0, 20)}...`);
+            console.log(`      📍 позиция: (${posX.toFixed(1)}, ${posY.toFixed(1)}) [${posMethod}]`);
+            console.log(`      🔗 связей: ${edgesAdded}`);
+            console.log(`      📐 оригинальные координаты: ${hasOriginalCoords ? 'да' : 'нет'}`);
           
             addedNodes.push({
                 id: modelNodeId,
-                x: newNode.x,
-                y: newNode.y,
-                modelNodeId: modelNodeId,
-                originalNodeId: originalNodeId,
-                geometryMemory: originalNodeId
+                x: posX,
+                y: posY,
+                confidence: newNode.confidence,
+                structuralNeighbors: newNode.structuralNeighborCount,
+                edgesAdded: edgesAdded,
+                visualizationMethod: posMethod,
+                hasOriginalCoordinates: hasOriginalCoords
             });
         }
       
@@ -485,7 +398,7 @@ class TopologicalAccumulator {
     }
   
     // 🔥 ПРИМЕНЕНИЕ СИСТЕМЫ ДОВЕРИЯ
-    applyTrustSystem(modelId, comparison, newGraph, newFingerprints) {
+    applyTrustSystem(modelId, comparison) {
         const model = this.models.get(modelId);
         if (!model) return;
       
@@ -498,70 +411,43 @@ class TopologicalAccumulator {
             }
         }
       
-        let confirmedCount = 0;
-        let unconfirmedCount = 0;
+        let confirmed = 0, unconfirmed = 0;
       
         for (const [nodeId, node] of model.graph.nodes) {
             if (node.confirmationCount === undefined) node.confirmationCount = 1;
             if (node.unconfirmedStreak === undefined) node.unconfirmedStreak = 0;
           
             if (matchedNodes.has(nodeId)) {
-                node.confirmationCount += 1;
+                node.confirmationCount++;
                 node.unconfirmedStreak = 0;
                 node.lastConfirmed = new Date();
-                confirmedCount++;
+                confirmed++;
             } else {
-                node.unconfirmedStreak += 1;
-                unconfirmedCount++;
-              
-                if (node.unconfirmedStreak >= this.trustConfig.FORGET_AFTER) {
-                    node.markedForDeletion = true;
-                    this.stats.totalNodesForgotten++;
-                }
+                node.unconfirmedStreak++;
+                unconfirmed++;
             }
         }
       
-        if (this.stats.totalNodesForgotten > 0) {
-            this.removeForgottenNodes(modelId);
-        }
-      
-        console.log(`📊 СИСТЕМА ДОВЕРИЯ: +${confirmedCount}, -${unconfirmedCount}`);
+        console.log(`📊 СИСТЕМА ДОВЕРИЯ: +${confirmed}, -${unconfirmed}`);
     }
   
-    // 🔥 УДАЛЕНИЕ ЗАБЫТЫХ УЗЛОВ
-    removeForgottenNodes(modelId) {
+    // 🔥 УВЕЛИЧЕНИЕ ПОДТВЕРЖДЕНИЙ
+    increaseStructuralConfirmations(modelId, structuralMapping) {
         const model = this.models.get(modelId);
-        if (!model) return;
+        if (!model || structuralMapping.size === 0) return;
       
-        const nodesToRemove = [];
+        let increasedCount = 0;
       
-        for (const [nodeId, node] of model.graph.nodes) {
-            if (node.markedForDeletion) {
-                nodesToRemove.push(nodeId);
+        for (const [newNodeId, modelNodeId] of structuralMapping) {
+            if (model.graph.nodes.has(modelNodeId)) {
+                const node = model.graph.nodes.get(modelNodeId);
+                node.confirmationCount += 1;
+                node.unconfirmedStreak = 0;
+                increasedCount++;
             }
         }
       
-        if (nodesToRemove.length > 0) {
-            console.log(`🧹 Удаляю ${nodesToRemove.length} забытых узлов...`);
-          
-            for (const nodeId of nodesToRemove) {
-                model.graph.nodes.delete(nodeId);
-              
-                const edgesToRemove = [];
-                for (const edge of model.graph.edges) {
-                    const [a, b] = edge.split('--');
-                    if (a === nodeId || b === nodeId) {
-                        edgesToRemove.push(edge);
-                    }
-                }
-              
-                for (const edge of edgesToRemove) {
-                    model.graph.edges.delete(edge);
-                }
-            }
-          
-            this.updateNodeDegrees(model.graph);
-        }
+        console.log(`📈 Увеличены подтверждения: ${increasedCount} узлов`);
     }
   
     // 🔥 СОЗДАНИЕ СТРУКТУРНОГО МАППИНГА
@@ -589,6 +475,7 @@ class TopologicalAccumulator {
             }
         }
       
+        console.log(`🗺️ Создан структурный маппинг: ${mapping.size} соответствий`);
         return mapping;
     }
   
@@ -620,10 +507,11 @@ class TopologicalAccumulator {
             }
         }
       
+        console.log(`🎯 Найдено ${newNodes.length} СТРУКТУРНО НОВЫХ узлов`);
         return newNodes;
     }
   
-    // 🔥 ПОИСК СОСЕДЕЙ В НОВОМ ГРАФЕ
+    // 🔥 ПОИСК СТРУКТУРНЫХ СОСЕДЕЙ
     findStructuralNeighborsInNewGraph(nodeId, newGraph, structuralMapping) {
         const structuralNeighbors = [];
       
@@ -662,9 +550,14 @@ class TopologicalAccumulator {
         }
       
         if (count > 0) {
+            const avgX = sumX / count;
+            const avgY = sumY / count;
+            const offsetX = (Math.random() - 0.5) * 30;
+            const offsetY = (Math.random() - 0.5) * 30;
+          
             return {
-                x: sumX / count,
-                y: sumY / count,
+                x: avgX + offsetX,
+                y: avgY + offsetY,
                 method: `average_of_${count}_neighbors`
             };
         }
@@ -672,46 +565,23 @@ class TopologicalAccumulator {
         return {
             x: 400 + (Math.random() - 0.5) * 200,
             y: 300 + (Math.random() - 0.5) * 200,
-            method: 'fallback'
+            method: 'visualization_fallback'
         };
-    }
-  
-    // 🔥 УВЕЛИЧЕНИЕ ПОДТВЕРЖДЕНИЙ
-    increaseStructuralConfirmations(modelId, structuralMapping) {
-        const model = this.models.get(modelId);
-      
-        for (const [newNodeId, modelNodeId] of structuralMapping) {
-            if (model.graph.nodes.has(modelNodeId)) {
-                const node = model.graph.nodes.get(modelNodeId);
-                node.confirmationCount = (node.confirmationCount || 1) + 1;
-                node.unconfirmedStreak = 0;
-                node.lastConfirmed = new Date();
-            }
-        }
     }
   
     // 🔥 ОБНОВЛЕНИЕ ПОДПИСЕЙ
     async updateModelFingerprints(modelId) {
         const model = this.models.get(modelId);
+        console.log(`🔄 Обновляю структурные подписи...`);
+      
         const newFingerprints = this.fingerprinter.computeGraphFingerprints(model.graph);
         model.fingerprints = newFingerprints;
+      
+        console.log(`✅ Подписи обновлены: ${newFingerprints.size} узлов`);
         return newFingerprints;
     }
   
-    // 🔥 ОБНОВЛЕНИЕ СТЕПЕНЕЙ
-    updateNodeDegrees(graph) {
-        for (const node of graph.nodes.values()) {
-            node.degree = 0;
-        }
-      
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
-            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
-        }
-    }
-  
-    // 🔥 ПОЛУЧЕНИЕ ИНФОРМАЦИИ О МОДЕЛИ
+    // 🔥 ИНФОРМАЦИЯ О МОДЕЛИ
     getModelInfo(modelId = null) {
         const targetModelId = modelId || this.currentModelId;
         if (!targetModelId || !this.models.has(targetModelId)) {
@@ -722,17 +592,17 @@ class TopologicalAccumulator {
         const graph = model.graph;
         const fpInfo = this.fingerprinter.getFingerprintInfo(model.fingerprints);
       
-        // Статистика доверия
         const confirmationStats = { 0: 0, 1: 0, 2: 0, 3: 0, '4+': 0 };
-        const geometryStats = { withMemory: 0, withoutMemory: 0 };
+        const geometricStats = { original: 0, reconstructed: 0, pending: 0 };
       
         for (const node of graph.nodes.values()) {
             const count = node.confirmationCount || 0;
             if (count >= 4) confirmationStats['4+']++;
             else confirmationStats[count] = (confirmationStats[count] || 0) + 1;
           
-            if (node.geometryMemory) geometryStats.withMemory++;
-            else geometryStats.withoutMemory++;
+            if (node._originalX && node._originalY) geometricStats.original++;
+            if (node.reconstructionMethod) geometricStats.reconstructed++;
+            if (node.geometryMemory && !node._originalX) geometricStats.pending++;
         }
       
         return {
@@ -746,7 +616,7 @@ class TopologicalAccumulator {
                 uniqueSignatures: fpInfo.uniqueSignatures,
                 uniquenessRatio: fpInfo.uniquenessRatio,
                 confirmationStats: confirmationStats,
-                geometryStats: geometryStats
+                geometricMemory: geometricStats
             },
             metadata: model.metadata,
             history: {
@@ -754,56 +624,20 @@ class TopologicalAccumulator {
                 lastAction: model.history[model.history.length - 1],
                 enhancements: model.history.filter(h => h.action.includes('enhanced')).length
             },
-            trustSystem: {
-                config: this.trustConfig,
-                totalForgotten: this.stats.totalNodesForgotten,
-                totalResurrected: this.stats.totalNodesResurrected,
-                totalGeometryRecords: this.stats.totalGeometryRecords
+            geometricMemory: {
+                total: this.stats.totalGeometricMemories,
+                original: geometricStats.original,
+                reconstructed: geometricStats.reconstructed,
+                pending: geometricStats.pending
             },
             createdAt: model.metadata.createdAt,
             lastUpdated: this.stats.lastUpdated,
-            philosophy: 'pure_topology_with_geometry_memory'
+            philosophy: 'topology_with_geometric_memory',
+            version: '2.2-geometric-memory'
         };
     }
   
-    // 🔥 ВИЗУАЛИЗАЦИЯ МОДЕЛИ (ДИАГНОСТИКА)
-    visualizeModel(modelId = null, options = {}) {
-        const targetModelId = modelId || this.currentModelId;
-        if (!targetModelId || !this.models.has(targetModelId)) {
-            console.log('⚠️ Модель не найдена');
-            return;
-        }
-      
-        const model = this.models.get(targetModelId);
-        const graph = model.graph;
-      
-        console.log(`\n🔷 ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ "${model.metadata.name}":`);
-        console.log(`═`.repeat(70));
-      
-        console.log(`📊 СТРУКТУРА:`);
-        console.log(`   Узлов: ${graph.nodes.size}`);
-        console.log(`   Рёбер: ${graph.edges.size}`);
-        console.log(`   Треугольников: ${model.metadata.triangleCount || 0}`);
-      
-        const stats = this.getModelInfo(targetModelId).stats;
-      
-        console.log(`\n🎯 ДОВЕРИЕ:`);
-        console.log(`   🔴 4+: ${stats.confirmationStats['4+']}`);
-        console.log(`   🟠 3: ${stats.confirmationStats[3]}`);
-        console.log(`   🟡 2: ${stats.confirmationStats[2]}`);
-        console.log(`   🔵 1: ${stats.confirmationStats[1]}`);
-        console.log(`   ⚪ 0: ${stats.confirmationStats[0]}`);
-      
-        console.log(`\n📐 ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ:`);
-        console.log(`   ✅ С памятью: ${stats.geometryStats.withMemory}`);
-        console.log(`   ⚠️ Без памяти: ${stats.geometryStats.withoutMemory}`);
-        console.log(`   📝 Всего записей: ${this.stats.totalGeometryRecords}`);
-      
-        console.log(`\n🎯 ФИЛОСОФИЯ: Топология + Геометрическая память`);
-        console.log(`═`.repeat(70));
-    }
-  
-    // 🔥 ЭКСПОРТ МОДЕЛИ
+    // 🔥 ЭКСПОРТ
     exportModel(modelId = null) {
         const targetModelId = modelId || this.currentModelId;
         if (!targetModelId || !this.models.has(targetModelId)) return null;
@@ -822,15 +656,15 @@ class TopologicalAccumulator {
             fingerprints: Array.from(model.fingerprints.entries()),
             metadata: model.metadata,
             history: model.history,
-            stats: this.getModelInfo(targetModelId).stats,
             geometryMemory: this.geometryMemory.export(),
-            _version: '3.0-geometry-memory',
+            stats: this.getModelInfo(targetModelId).stats,
+            _version: '2.2-geometric-memory',
             _exportedAt: new Date().toISOString(),
-            _philosophy: 'pure_topology_with_geometry_memory'
+            _philosophy: 'topology_with_geometric_memory'
         };
     }
   
-    // 🔥 ИМПОРТ МОДЕЛИ
+    // 🔥 ИМПОРТ
     importModel(data) {
         if (!data || !data.id || !data.graph) return false;
       
@@ -855,15 +689,18 @@ class TopologicalAccumulator {
                 originalPoints: data.originalPoints || []
             };
           
-            // Восстанавливаем систему доверия и геометрию
-            for (const node of graph.nodes.values()) {
-                if (node.confirmationCount === undefined) node.confirmationCount = 1;
-                if (node.unconfirmedStreak === undefined) node.unconfirmedStreak = 0;
-            }
-          
             // Восстанавливаем геометрическую память
             if (data.geometryMemory) {
                 this.geometryMemory.import(data.geometryMemory);
+            }
+          
+            // Восстанавливаем атрибуты узлов
+            for (const node of graph.nodes.values()) {
+                if (node.confirmationCount === undefined) node.confirmationCount = 1;
+                if (node.unconfirmedStreak === undefined) node.unconfirmedStreak = 0;
+                if (node.addedAt && typeof node.addedAt === 'string') {
+                    node.addedAt = new Date(node.addedAt);
+                }
             }
           
             this.models.set(modelId, model);
@@ -890,7 +727,8 @@ class TopologicalAccumulator {
                 name: model.metadata.name,
                 nodes: model.graph.nodes.size,
                 edges: model.graph.edges.size,
-                geometryRecords: info.stats?.geometryStats?.withMemory || 0
+                createdAt: model.metadata.createdAt,
+                geometricMemory: info.stats?.geometricMemory
             });
             totalNodes += model.graph.nodes.size;
             totalEdges += model.graph.edges.size;
@@ -900,20 +738,17 @@ class TopologicalAccumulator {
             system: this.stats,
             models: {
                 total: this.models.size,
-                totalNodes,
-                totalEdges,
+                totalNodes: totalNodes,
+                totalEdges: totalEdges,
                 list: modelsInfo
-            },
-            geometryMemory: {
-                totalRecords: this.geometryMemory.relations.size,
-                activeReferences: this.stats.totalGeometryRecords
             },
             accumulator: {
                 name: this.name,
                 currentModelId: this.currentModelId,
                 similarityThreshold: this.similarityThreshold,
                 minMatchesForEnhancement: this.minMatchesForEnhancement,
-                philosophy: 'pure_topology_with_geometry_memory'
+                geometricMemories: this.stats.totalGeometricMemories,
+                philosophy: 'topology_with_geometric_memory'
             }
         };
     }
