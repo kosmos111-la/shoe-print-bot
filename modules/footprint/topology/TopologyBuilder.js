@@ -18,15 +18,19 @@ class TopologyBuilder {
         points.forEach((point, index) => {
             const nodeId = point.id || `${name}_node_${index}`;
             nodes.set(nodeId, {
-                id: nodeId,
-                x: point.x,
-                y: point.y,
-                confidence: point.confidence || 0.5,
-                degree: 0,
-                source: point.source || name,
-                originalData: point
-            });
-        });
+    id: nodeId,
+    x: point.x,
+    y: point.y,
+    confidence: point.confidence || 0.5,
+    degree: 0,
+    source: point.source || name,
+    originalData: point,  // ✅ СОХРАНЯЕМ ВСЁ!
+   
+    // 🔥 ЯВНО СОХРАНЯЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ
+    _originalX: point._originalX || point.x,
+    _originalY: point._originalY || point.y,
+    _hasOriginalCoordinates: true
+});
        
         if (nodes.size < 3) {
             console.log('⚠️ Слишком мало точек для триангуляции Делоне');
