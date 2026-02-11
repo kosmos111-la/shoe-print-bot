@@ -27,7 +27,7 @@ class TopologyBuilder {
                 degree: 0,
                 source: point.source || name,
                
-                // 🔥 КЛЮЧЕВОЕ: СОХРАНЯЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ ИЗ ФОТО
+                // 🔥 КЛЮЧЕВОЕ: СОХРАНЯЕМ ОРИГИНАЛЬНЫЕ КООРДИНАТЫ
                 _originalX: point._originalX || point.x,
                 _originalY: point._originalY || point.y,
                 _hasOriginalCoordinates: !!(point._originalX || point._originalY),
@@ -74,7 +74,7 @@ class TopologyBuilder {
             console.log(`   Узлов: ${nodes.size}`);
             console.log(`   Рёбер: ${edges.size}`);
             console.log(`   Треугольников: ${triangles.length}`);
-            console.log(`   📐 Оригинальные координаты сохранены: ${Array.from(nodes.values()).filter(n => n._hasOriginalCoordinates).length}/${nodes.size}`);
+            console.log(`   📐 Оригинальные координаты: ${Array.from(nodes.values()).filter(n => n._hasOriginalCoordinates).length}/${nodes.size}`);
         }
        
         return {
