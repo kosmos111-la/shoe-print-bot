@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ ЧИСТАЯ ТОПОЛОГИЯ - ТОЛЬКО ТОЧНЫЕ WL-ПОДПИСИ
+// 🏗️ ЧИСТАЯ ТОПОЛОГИЯ + ИНВАРИАНТНЫЕ WL-ПОДПИСИ
 
 const TriangulationMemory = require('./TriangulationMemory');
 const { TrustLevelManager, TRUST_LEVELS } = require('./TrustLevel');
@@ -18,7 +18,6 @@ class TopologicalAccumulator {
         this.fingerprinter = new (require('./TopologicalFingerprint'))({
             debug: this.debug,
             iterations: options.wlIterations || 3,
-            bucketSize: 3,
             similarityThreshold: 0.7
         });
        
@@ -37,7 +36,8 @@ class TopologicalAccumulator {
         };
        
         console.log(`🏗️ TopologicalAccumulator создан: "${this.name}"`);
-        console.log(`   🔺 ТОЛЬКО ТОЧНЫЕ WL-ПОДПИСИ ДЛЯ МАППИНГА!`);
+        console.log(`   🔺 ИНВАРИАНТНЫЕ WL-ПОДПИСИ`);
+        console.log(`   🎯 Доверие: только точные | Маппинг: все совпадения`);
     }
 
     async processPoints(points, options = {}) {
@@ -64,7 +64,8 @@ class TopologicalAccumulator {
             fingerprints
         );
        
-        this.applyTrustSystem(modelId, comparison);
+        // 🔥🔥🔥 ДОВЕРИЕ - ТОЛЬКО ПО ТОЧНЫМ СОВПАДЕНИЯМ
+        this.applyTrustSystem(modelId, comparison.exactMatches);
        
         if (comparison.similarity >= this.similarityThreshold) {
             console.log(`✅ СТРУКТУРНОЕ СОВПАДЕНИЕ: ${(comparison.similarity * 100).toFixed(1)}%`);
@@ -86,7 +87,7 @@ class TopologicalAccumulator {
                 totalNodesInModel: this.models.get(modelId).graph.nodes.size,
                 triangulatedNodes: enhancementResult.triangulated || 0,
                 message: `Модель улучшена (+${enhancementResult.newNodesAdded} узлов)`,
-                method: 'exact_wl_matches_only'
+                method: 'invariant_wl'
             };
         } else {
             console.log(`🆕 РАЗНЫЕ СТРУКТУРЫ: ${(comparison.similarity * 100).toFixed(1)}%`);
@@ -156,20 +157,20 @@ class TopologicalAccumulator {
        
         const model = this.models.get(modelId);
        
-        // 🔥🔥🔥 ТОЛЬКО ТОЧНЫЕ СОВПАДЕНИЯ! SIMILAR НЕ ИСПОЛЬЗУЕМ!
-        const exactMatches = comparison.exactMatches || [];
+        // 🔥🔥🔥 1. ДЛЯ МАППИНГА - ИСПОЛЬЗУЕМ ВСЕ СОВПАДЕНИЯ!
+        const allMatches = comparison.allMatches || [];
        
-        if (exactMatches.length < this.minMatchesForEnhancement) {
-            console.log(`⚠️ Недостаточно точных совпадений: ${exactMatches.length} < ${this.minMatchesForEnhancement}`);
-            return { newNodesAdded: 0, reason: 'insufficient_exact_matches' };
+        if (allMatches.length < this.minMatchesForEnhancement) {
+            console.log(`⚠️ Недостаточно совпадений: ${allMatches.length} < ${this.minMatchesForEnhancement}`);
+            return { newNodesAdded: 0, reason: 'insufficient_matches' };
         }
        
-        console.log(`🎯 Использую ТОЛЬКО точные WL-подписи: ${exactMatches.length} совпадений`);
+        console.log(`🎯 Использую ВСЕ совпадения для маппинга: ${allMatches.length}`);
        
-        // Создаём маппинг ТОЛЬКО из точных совпадений
-        const structuralMapping = this.createMappingFromExactMatches(exactMatches);
+        // Создаём маппинг из ВСЕХ совпадений
+        const structuralMapping = this.createMappingFromAllMatches(allMatches);
        
-        console.log(`🗺️ Создан маппинг из ТОЧНЫХ WL-подписей: ${structuralMapping.size} соответствий`);
+        console.log(`🗺️ Создан маппинг: ${structuralMapping.size} соответствий`);
        
         this.saveOriginalCoordinates(model, newGraph, structuralMapping);
        
@@ -199,7 +200,8 @@ class TopologicalAccumulator {
             await this.updateModelFingerprints(modelId);
         }
        
-        this.increaseConfirmations(modelId, structuralMapping);
+        // 🔥🔥🔥 УВЕЛИЧИВАЕМ ПОДТВЕРЖДЕНИЯ ТОЛЬКО ПО ТОЧНЫМ!
+        this.increaseConfirmations(modelId, comparison.exactMatches);
        
         const beacons = this.trustManager.getBeacons(model.graph);
         this.stats.totalBeacons = beacons.length;
@@ -213,7 +215,7 @@ class TopologicalAccumulator {
             triangulated: addedNodes.filter(n => n.method === 'triangulation_3point').length,
             beacons: beacons.length,
             similarity: comparison.similarity,
-            exactMatchesUsed: exactMatches.length
+            exactMatches: comparison.exactMatches.length
         });
        
         this.stats.totalEnhancements++;
@@ -223,6 +225,7 @@ class TopologicalAccumulator {
         console.log(`✅ МОДЕЛЬ УЛУЧШЕНА: +${addedNodes.length} узлов, всего ${model.graph.nodes.size} узлов`);
         console.log(`   🔺 По триангуляции: ${addedNodes.filter(n => n.method === 'triangulation_3point').length}`);
         console.log(`   🎯 Маяков в модели: ${beacons.length}`);
+        console.log(`   🎯 Точных совпадений: ${comparison.exactMatches.length}`);
        
         return {
             newNodesAdded: addedNodes.length,
@@ -233,12 +236,12 @@ class TopologicalAccumulator {
         };
     }
 
-    // 🔥🔥🔥 МАППИНГ ТОЛЬКО ИЗ ТОЧНЫХ СОВПАДЕНИЙ
-    createMappingFromExactMatches(exactMatches) {
+    // 🔥🔥🔥 МАППИНГ ИЗ ВСЕХ СОВПАДЕНИЙ
+    createMappingFromAllMatches(matches) {
         const mapping = new Map();
         const usedModelNodes = new Set();
        
-        for (const match of exactMatches) {
+        for (const match of matches) {
             const modelNodeId = match.node1;
             const newNodeId = match.node2;
            
@@ -251,6 +254,61 @@ class TopologicalAccumulator {
         return mapping;
     }
 
+    // 🔥🔥🔥 ПОДТВЕРЖДЕНИЯ ТОЛЬКО ПО ТОЧНЫМ
+    increaseConfirmations(modelId, exactMatches) {
+        const model = this.models.get(modelId);
+        if (!model) return;
+       
+        let count = 0;
+        for (const match of exactMatches) {
+            const node = model.graph.nodes.get(match.node1);
+            if (node) {
+                this.trustManager.promote(node);
+                count++;
+            }
+        }
+       
+        console.log(`📈 Подтверждений (точные): +${count}`);
+    }
+
+    // 🔥🔥🔥 СИСТЕМА ДОВЕРИЯ ТОЛЬКО ПО ТОЧНЫМ
+    applyTrustSystem(modelId, exactMatches) {
+        const model = this.models.get(modelId);
+        if (!model) return;
+       
+        const matchedNodes = new Set();
+       
+        for (const match of exactMatches) {
+            if (match.node1 && model.graph.nodes.has(match.node1)) {
+                matchedNodes.add(match.node1);
+            }
+        }
+       
+        let promoted = 0, demoted = 0, ghosts = 0;
+       
+        for (const [nodeId, node] of model.graph.nodes) {
+            if (matchedNodes.has(nodeId)) {
+                const oldLevel = this.trustManager.getTrustLevel(node).level;
+                const newLevel = this.trustManager.promote(node).level;
+                if (newLevel > oldLevel) promoted++;
+            } else {
+                this.trustManager.demote(node);
+                demoted++;
+            }
+        }
+       
+        const ghostsIds = this.trustManager.cleanupGhosts(model.graph);
+        for (const id of ghostsIds) {
+            model.graph.nodes.delete(id);
+            ghosts++;
+        }
+       
+        if (ghosts > 0) this.stats.totalForgotten += ghosts;
+       
+        console.log(`📊 ДОВЕРИЕ: +${promoted} повышений, -${demoted} понижений, 👻 ${ghosts} призраков`);
+    }
+
+    // 🔥 ТРИАНГУЛЯЦИЯ (БЕЗ ИЗМЕНЕНИЙ)
     addNodesViaTriangulation(modelId, newNodes, newGraph, structuralMapping, options) {
         const model = this.models.get(modelId);
         const addedNodes = [];
@@ -271,7 +329,7 @@ class TopologicalAccumulator {
             }
         }
        
-        console.log(`   🎯 Опорных точек (точные WL): ${anchors.length}`);
+        console.log(`   🎯 Опорных точек: ${anchors.length}`);
        
         for (const nodeInfo of newNodes) {
             const originalNodeId = nodeInfo.nodeId;
@@ -302,17 +360,10 @@ class TopologicalAccumulator {
                 modelAnchors
             );
            
-            if (!triangle) {
-                console.log(`   ⚠️ Не удалось построить треугольник`);
-                continue;
-            }
+            if (!triangle) continue;
            
             const position = this.triangulation.reconstructPosition(originalNodeId, model.graph);
-           
-            if (!position) {
-                console.log(`   ⚠️ Не удалось восстановить позицию`);
-                continue;
-            }
+            if (!position) continue;
            
             const modelNodeId = `structural_node_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
            
@@ -349,10 +400,7 @@ class TopologicalAccumulator {
                 }
             }
            
-            console.log(`   ✅ УСПЕШНО ВОССТАНОВЛЕНО:`);
-            console.log(`      📍 Позиция: (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`);
-            console.log(`      🎯 Уверенность: ${(position.confidence * 100).toFixed(0)}%`);
-            console.log(`      🔗 Связей: ${edgesAdded}`);
+            console.log(`   ✅ Добавлен узел (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`);
            
             addedNodes.push({
                 id: modelNodeId,
@@ -364,7 +412,7 @@ class TopologicalAccumulator {
             });
         }
        
-        console.log(`\n✅ Добавлено ${addedNodes.length} узлов через триангуляцию`);
+        console.log(`\n✅ Добавлено ${addedNodes.length} узлов`);
         return addedNodes;
     }
 
@@ -444,59 +492,6 @@ class TopologicalAccumulator {
         if (saved > 0) console.log(`   📍 Сохранено ${saved} оригинальных координат`);
     }
 
-    applyTrustSystem(modelId, comparison) {
-        const model = this.models.get(modelId);
-        if (!model) return;
-       
-        const matchedNodes = new Set();
-        const exactMatches = comparison.exactMatches || [];
-       
-        for (const match of exactMatches) {
-            if (match.node1 && model.graph.nodes.has(match.node1)) {
-                matchedNodes.add(match.node1);
-            }
-        }
-       
-        let promoted = 0, demoted = 0, ghosts = 0;
-       
-        for (const [nodeId, node] of model.graph.nodes) {
-            if (matchedNodes.has(nodeId)) {
-                const oldLevel = this.trustManager.getTrustLevel(node).level;
-                const newLevel = this.trustManager.promote(node).level;
-                if (newLevel > oldLevel) promoted++;
-            } else {
-                this.trustManager.demote(node);
-                demoted++;
-            }
-        }
-       
-        const ghostsIds = this.trustManager.cleanupGhosts(model.graph);
-        for (const id of ghostsIds) {
-            model.graph.nodes.delete(id);
-            ghosts++;
-        }
-       
-        if (ghosts > 0) this.stats.totalForgotten += ghosts;
-       
-        console.log(`📊 ДОВЕРИЕ: +${promoted} повышений, -${demoted} понижений, 👻 ${ghosts} призраков`);
-    }
-
-    increaseConfirmations(modelId, structuralMapping) {
-        const model = this.models.get(modelId);
-        if (!model) return;
-       
-        let count = 0;
-        for (const [newId, modelId] of structuralMapping) {
-            const node = model.graph.nodes.get(modelId);
-            if (node) {
-                this.trustManager.promote(node);
-                count++;
-            }
-        }
-       
-        console.log(`📈 Подтверждений: +${count}`);
-    }
-
     async updateModelFingerprints(modelId) {
         const model = this.models.get(modelId);
         console.log(`🔄 Обновляю подписи...`);
@@ -516,8 +511,7 @@ class TopologicalAccumulator {
         const graph = model.graph;
         const fpInfo = this.fingerprinter.getFingerprintInfo(model.fingerprints);
        
-        let beacons = 0, stable = 0, confirmed = 0, newNodes = 0, fading = 0, ghosts = 0;
-        let triangulatedNodes = 0;
+        let beacons = 0, stable = 0, confirmed = 0, newNodes = 0;
        
         for (const node of graph.nodes.values()) {
             const level = this.trustManager.getTrustLevel(node);
@@ -525,10 +519,6 @@ class TopologicalAccumulator {
             else if (level.level === TRUST_LEVELS.STABLE) stable++;
             else if (level.level === TRUST_LEVELS.CONFIRMED) confirmed++;
             else if (level.level === TRUST_LEVELS.NEW) newNodes++;
-            else if (level.level === TRUST_LEVELS.FADING) fading++;
-            else if (level.level === TRUST_LEVELS.GHOST) ghosts++;
-           
-            if (node.placementMethod === 'triangulation_3point') triangulatedNodes++;
         }
        
         return {
@@ -540,19 +530,14 @@ class TopologicalAccumulator {
                 avgDegree: graph.avgDegree || 0,
                 uniqueSignatures: fpInfo.uniqueSignatures,
                 uniquenessRatio: fpInfo.uniquenessRatio,
-                beacons: beacons,
-                stable: stable,
-                confirmed: confirmed,
-                new: newNodes,
-                fading: fading,
-                ghosts: ghosts,
-                triangulatedNodes: triangulatedNodes,
-                totalTriangulated: this.stats.totalTriangulated
+                beacons,
+                stable,
+                confirmed,
+                new: newNodes
             },
             metadata: model.metadata,
             createdAt: model.metadata.createdAt,
-            lastUpdated: this.stats.lastUpdated,
-            triangulationMemory: this.triangulation.getStats()
+            lastUpdated: this.stats.lastUpdated
         };
     }
 
@@ -577,7 +562,7 @@ class TopologicalAccumulator {
             photoCoordinates: model.photoCoordinates ? Array.from(model.photoCoordinates.entries()) : [],
             triangulationMemory: this.triangulation.export(),
             stats: this.getModelInfo(targetId).stats,
-            _version: '12.0-exact-matches-only',
+            _version: '13.0-invariant-wl',
             _exportedAt: new Date().toISOString()
         };
     }
@@ -614,12 +599,8 @@ class TopologicalAccumulator {
            
             if (!this.currentModelId) this.currentModelId = modelId;
            
-            console.log(`📥 Импортирована модель "${model.metadata.name}"`);
-            console.log(`   Узлов: ${graph.nodes.size}, Рёбер: ${graph.edges.size}`);
-           
             return true;
         } catch (error) {
-            console.log(`❌ Ошибка импорта: ${error.message}`);
             return false;
         }
     }
@@ -635,8 +616,7 @@ class TopologicalAccumulator {
                 name: model.metadata.name,
                 nodes: model.graph.nodes.size,
                 edges: model.graph.edges.size,
-                beacons: info.stats?.beacons || 0,
-                triangulatedNodes: info.stats?.triangulatedNodes || 0
+                beacons: info.stats?.beacons || 0
             });
             totalNodes += model.graph.nodes.size;
         }
@@ -647,8 +627,7 @@ class TopologicalAccumulator {
                 total: this.models.size,
                 totalNodes,
                 list: models
-            },
-            triangulationMemory: this.triangulation.getStats()
+            }
         };
     }
 }
