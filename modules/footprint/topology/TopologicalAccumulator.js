@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ ЧИСТАЯ ТОПОЛОГИЯ + ТРИАНГУЛЯЦИЯ ПО 3 ТОЧКАМ В МОДЕЛИ
+// 🏗️ ЧИСТАЯ ТОПОЛОГИЯ + ТРИАНГУЛЯЦИЯ ПО 3 ТОЧКАМ ЧЕРЕЗ МАППИНГ
 
 const TriangulationMemory = require('./TriangulationMemory');
 const { TrustLevelManager, TRUST_LEVELS } = require('./TrustLevel');
@@ -40,8 +40,8 @@ class TopologicalAccumulator {
         };
        
         console.log(`🏗️ TopologicalAccumulator создан: "${this.name}"`);
-        console.log(`   🔺 ТРИАНГУЛЯЦИЯ ПО 3 ТОЧКАМ В МОДЕЛИ: активна`);
-        console.log(`   🎯 БАРИЦЕНТРИЧЕСКИЕ КООРДИНАТЫ = 100% точность`);
+        console.log(`   🔺 ТРИАНГУЛЯЦИЯ ПО 3 ТОЧКАМ: активна`);
+        console.log(`   🎯 Поиск в фото2 → маппинг → восстановление в модели`);
     }
 
     async processPoints(points, options = {}) {
@@ -90,7 +90,7 @@ class TopologicalAccumulator {
                 totalNodesInModel: this.models.get(modelId).graph.nodes.size,
                 triangulatedNodes: enhancementResult.triangulated || 0,
                 message: `Модель улучшена (+${enhancementResult.newNodesAdded} узлов)`,
-                method: 'triangulation_3point_in_model'
+                method: 'triangulation_3point'
             };
         } else {
             console.log(`🆕 РАЗНЫЕ СТРУКТУРЫ: ${(comparison.similarity * 100).toFixed(1)}%`);
@@ -136,7 +136,6 @@ class TopologicalAccumulator {
             node.addedFrom = 'original_creation';
             node.addedAt = new Date();
             node.firstSeen = new Date();
-            node.trustLevel = this.trustManager.getTrustLevel(node);
         }
        
         this.models.set(modelId, model);
@@ -190,8 +189,8 @@ class TopologicalAccumulator {
        
         console.log(`🎯 Найдено ${newNodes.length} НОВЫХ узлов`);
        
-        // 🔥🔥🔥 ЕДИНСТВЕННЫЙ МЕТОД - ТРИАНГУЛЯЦИЯ ПО 3 ТОЧКАМ В МОДЕЛИ
-        const addedNodes = this.addNodesViaTriangulationInModel(
+        // 🔥🔥🔥 ЕДИНСТВЕННЫЙ МЕТОД - ТРИАНГУЛЯЦИЯ
+        const addedNodes = this.addNodesViaTriangulation(
             modelId,
             newNodes,
             newGraph,
@@ -224,7 +223,7 @@ class TopologicalAccumulator {
         this.stats.lastUpdated = new Date();
        
         console.log(`✅ МОДЕЛЬ УЛУЧШЕНА: +${addedNodes.length} узлов, всего ${model.graph.nodes.size} узлов`);
-        console.log(`   🔺 По триангуляции в модели: ${addedNodes.filter(n => n.method === 'triangulation_3point').length}`);
+        console.log(`   🔺 По триангуляции: ${addedNodes.filter(n => n.method === 'triangulation_3point').length}`);
         console.log(`   🎯 Маяков в модели: ${beacons.length}`);
        
         return {
@@ -236,28 +235,24 @@ class TopologicalAccumulator {
         };
     }
 
-    // 🔥🔥🔥 ГЛАВНЫЙ МЕТОД - ВОССТАНОВЛЕНИЕ ПО 3 ТОЧКАМ В МОДЕЛИ
-    addNodesViaTriangulationInModel(modelId, newNodes, newGraph, structuralMapping, options) {
+    // 🔥🔥🔥 ГЛАВНЫЙ МЕТОД - ВОССТАНОВЛЕНИЕ ЧЕРЕЗ МАППИНГ
+    addNodesViaTriangulation(modelId, newNodes, newGraph, structuralMapping, options) {
         const model = this.models.get(modelId);
         const addedNodes = [];
        
-        console.log(`🔺 Добавляю ${newNodes.length} узлов через триангуляцию по 3 точкам В МОДЕЛИ...`);
+        console.log(`🔺 Добавляю ${newNodes.length} узлов через триангуляцию...`);
        
-        // Собираем все опорные точки
+        // Собираем все опорные точки с ИХ СООТВЕТСТВИЯМИ
         const anchors = [];
         for (const [newId, modelId] of structuralMapping) {
             const modelNode = model.graph.nodes.get(modelId);
             const newNode = newGraph.nodes.get(newId);
             if (modelNode && newNode) {
                 anchors.push({
-                    id: modelId,
-                    node: modelNode,
-                    newNode: newNode,
-                    // Сохраняем координаты в обоих фото
-                    modelX: modelNode.x,
-                    modelY: modelNode.y,
-                    photo2X: newNode.x,
-                    photo2Y: newNode.y
+                    id: modelId,           // ID в МОДЕЛИ
+                    node: modelNode,       // точка в МОДЕЛИ
+                    newNode: newNode,      // та же точка в ФОТО2
+                    photo2Id: newId        // ID в ФОТО2
                 });
             }
         }
@@ -266,50 +261,50 @@ class TopologicalAccumulator {
        
         for (const nodeInfo of newNodes) {
             const originalNodeId = nodeInfo.nodeId;
-            const sourceNode = newGraph.nodes.get(originalNodeId);
-            if (!sourceNode) continue;
+            const photo2Point = newGraph.nodes.get(originalNodeId);
+            if (!photo2Point) continue;
            
-            console.log(`\n   🔍 Обрабатываю точку ${originalNodeId.substring(0, 20)}...`);
-            console.log(`      Позиция в фото2: (${sourceNode.x.toFixed(1)}, ${sourceNode.y.toFixed(1)})`);
+            console.log(`\n   🔍 Обрабатываю точку в фото2: (${photo2Point.x.toFixed(1)}, ${photo2Point.y.toFixed(1)})`);
            
-            // 🔥🔥🔥 1. НАХОДИМ ТРИ ЛУЧШИЕ ОПОРНЫЕ ТОЧКИ В МОДЕЛИ!
-            const bestAnchors = this.triangulation.findThreeBestAnchorsInModel(
-                sourceNode,
-                originalNodeId,
-                anchors,
-                model.graph
-            );
+            // 1. НАХОДИМ 3 БЛИЖАЙШИЕ ОПОРНЫЕ ТОЧКИ В ФОТО2
+            const closestInPhoto2 = this.triangulation.findThreeClosestAnchorsInPhoto2(photo2Point, anchors);
            
-            if (bestAnchors.length < 3) {
-                console.log(`   ⚠️ Недостаточно опорных точек в модели (${bestAnchors.length}/3)`);
+            if (closestInPhoto2.length < 3) {
+                console.log(`   ⚠️ Недостаточно опорных точек (${closestInPhoto2.length}/3)`);
                 continue;
             }
            
-            console.log(`   ✅ Выбраны 3 опорные точки в модели:`);
-            bestAnchors.forEach((a, i) => {
-                console.log(`      ${i+1}. ID: ${a.id.substring(0, 15)}...`);
-                console.log(`         В модели: (${a.node.x.toFixed(1)}, ${a.node.y.toFixed(1)})`);
-                console.log(`         В фото2: (${a.newNode.x.toFixed(1)}, ${a.newNode.y.toFixed(1)})`);
+            // 2. ПОЛУЧАЕМ ИХ СООТВЕТСТВИЯ В МОДЕЛИ
+            const photo2Anchors = closestInPhoto2.map(a => ({
+                id: a.photo2Id,
+                node: a.newNode
+            }));
+           
+            const modelAnchors = closestInPhoto2.map(a => ({
+                id: a.id,
+                node: a.node
+            }));
+           
+            console.log(`   ✅ Найдены 3 ближайшие опорные точки:`);
+            closestInPhoto2.forEach((a, i) => {
+                console.log(`      ${i+1}. Фото2: (${a.newNode.x.toFixed(1)}, ${a.newNode.y.toFixed(1)})`);
+                console.log(`         Модель: (${a.node.x.toFixed(1)}, ${a.node.y.toFixed(1)})`);
             });
            
-            // 🔥🔥🔥 2. ЗАПОМИНАЕМ ТРЕУГОЛЬНИК!
+            // 3. ЗАПОМИНАЕМ ТРЕУГОЛЬНИК
             const triangle = this.triangulation.rememberTriangle(
                 originalNodeId,
-                sourceNode,
-                bestAnchors[0].id,
-                bestAnchors[1].id,
-                bestAnchors[2].id,
-                bestAnchors[0].node,
-                bestAnchors[1].node,
-                bestAnchors[2].node
+                photo2Point,
+                photo2Anchors,
+                modelAnchors
             );
            
             if (!triangle) {
-                console.log(`   ⚠️ Не удалось построить треугольник в модели`);
+                console.log(`   ⚠️ Не удалось построить треугольник`);
                 continue;
             }
            
-            // 🔥🔥🔥 3. ВОССТАНАВЛИВАЕМ ПОЗИЦИЮ!
+            // 4. ВОССТАНАВЛИВАЕМ ПОЗИЦИЮ В МОДЕЛИ
             const position = this.triangulation.reconstructPosition(originalNodeId, model.graph);
            
             if (!position) {
@@ -317,7 +312,7 @@ class TopologicalAccumulator {
                 continue;
             }
            
-            // Создаём узел в модели
+            // 5. СОЗДАЕМ УЗЕЛ В МОДЕЛИ
             const modelNodeId = `structural_node_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
            
             const newNode = {
@@ -331,26 +326,23 @@ class TopologicalAccumulator {
                 firstSeen: new Date(),
                 x: position.x,
                 y: position.y,
-                confidence: sourceNode.confidence || 0.5,
+                confidence: photo2Point.confidence || 0.5,
                 placementMethod: 'triangulation_3point',
-                placementConfidence: position.confidence || 0.7,
+                placementConfidence: position.confidence,
                 triangulationMemory: true,
-                anchor1: bestAnchors[0].id,
-                anchor2: bestAnchors[1].id,
-                anchor3: bestAnchors[2].id,
-                originalData: {
-                    x: sourceNode._originalX || sourceNode.x,
-                    y: sourceNode._originalY || sourceNode.y,
-                    confidence: sourceNode.confidence,
-                    source: sourceNode.source
-                }
+                anchor1: modelAnchors[0].id,
+                anchor2: modelAnchors[1].id,
+                anchor3: modelAnchors[2].id,
+                photo2Position: { x: photo2Point.x, y: photo2Point.y },
+                photo2Anchors: photo2Anchors.map(a => ({ x: a.node.x, y: a.node.y })),
+                modelAnchors: modelAnchors.map(a => ({ x: a.node.x, y: a.node.y }))
             };
            
             model.graph.nodes.set(modelNodeId, newNode);
            
-            // Добавляем связи с тремя опорными точками
+            // 6. ДОБАВЛЯЕМ СВЯЗИ
             let edgesAdded = 0;
-            for (const anchor of bestAnchors) {
+            for (const anchor of modelAnchors) {
                 if (model.graph.nodes.has(anchor.id)) {
                     const edge = [modelNodeId, anchor.id].sort().join('--');
                     model.graph.edges.add(edge);
@@ -363,11 +355,10 @@ class TopologicalAccumulator {
             const bary = triangle.barycentric;
            
             console.log(`   ✅ УСПЕШНО ВОССТАНОВЛЕНО:`);
-            console.log(`      ID в модели: ${modelNodeId.substring(0, 20)}...`);
-            console.log(`      🔺 Барицентрические координаты: (${bary.alpha.toFixed(3)}, ${bary.beta.toFixed(3)}, ${bary.gamma.toFixed(3)})`);
             console.log(`      📍 Позиция в модели: (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`);
+            console.log(`      🔺 Барицентрические координаты: (${bary.alpha.toFixed(3)}, ${bary.beta.toFixed(3)}, ${bary.gamma.toFixed(3)})`);
             console.log(`      🎯 Уверенность: ${(position.confidence * 100).toFixed(0)}%`);
-            console.log(`      🔗 Добавлено связей: ${edgesAdded}`);
+            console.log(`      🔗 Связей: ${edgesAdded}`);
            
             addedNodes.push({
                 id: modelNodeId,
@@ -375,13 +366,11 @@ class TopologicalAccumulator {
                 y: position.y,
                 method: 'triangulation_3point',
                 confidence: position.confidence,
-                edgesAdded: edgesAdded,
-                barycentric: bary,
-                photo2Y: sourceNode.y
+                edgesAdded: edgesAdded
             });
         }
        
-        console.log(`\n✅ Добавлено ${addedNodes.length} узлов через триангуляцию в модели`);
+        console.log(`\n✅ Добавлено ${addedNodes.length} узлов через триангуляцию`);
         return addedNodes;
     }
 
@@ -617,7 +606,7 @@ class TopologicalAccumulator {
             photoCoordinates: model.photoCoordinates ? Array.from(model.photoCoordinates.entries()) : [],
             triangulationMemory: this.triangulation.export(),
             stats: this.getModelInfo(targetId).stats,
-            _version: '9.0-triangulation-in-model',
+            _version: '10.0-final-triangulation',
             _exportedAt: new Date().toISOString()
         };
     }
