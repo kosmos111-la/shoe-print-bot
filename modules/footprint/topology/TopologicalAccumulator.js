@@ -11,10 +11,7 @@ class TopologicalAccumulator {
         this.minMatchesForEnhancement = options.minMatchesForEnhancement || 3;
         this.similarityThreshold = options.similarityThreshold || 0.6;
        
-        // 🔥 ТРИАНГУЛЯЦИОННАЯ ПАМЯТЬ
         this.triangulation = new TriangulationMemory({ debug: this.debug });
-       
-        // 🔥 УПРАВЛЕНИЕ ДОВЕРИЕМ
         this.trustManager = new TrustLevelManager({ debug: this.debug });
        
         this.topologyBuilder = new (require('./TopologyBuilder'))({ debug: this.debug });
@@ -40,8 +37,7 @@ class TopologicalAccumulator {
         };
        
         console.log(`🏗️ TopologicalAccumulator создан: "${this.name}"`);
-        console.log(`   🔺 ТОЛЬКО ТОЧНЫЕ WL-ПОДПИСИ!`);
-        console.log(`   🎯 Маппинг строится ТОЛЬКО по exactMatches`);
+        console.log(`   🔺 ТОЛЬКО ТОЧНЫЕ WL-ПОДПИСИ ДЛЯ МАППИНГА!`);
     }
 
     async processPoints(points, options = {}) {
@@ -160,7 +156,7 @@ class TopologicalAccumulator {
        
         const model = this.models.get(modelId);
        
-        // 🔥🔥🔥 ТОЛЬКО ТОЧНЫЕ СОВПАДЕНИЯ! БЕЗ SIMILAR!
+        // 🔥🔥🔥 ТОЛЬКО ТОЧНЫЕ СОВПАДЕНИЯ! SIMILAR НЕ ИСПОЛЬЗУЕМ!
         const exactMatches = comparison.exactMatches || [];
        
         if (exactMatches.length < this.minMatchesForEnhancement) {
@@ -171,9 +167,7 @@ class TopologicalAccumulator {
         console.log(`🎯 Использую ТОЛЬКО точные WL-подписи: ${exactMatches.length} совпадений`);
        
         // Создаём маппинг ТОЛЬКО из точных совпадений
-        const structuralMapping = this.createMappingFromExactMatches(
-            exactMatches
-        );
+        const structuralMapping = this.createMappingFromExactMatches(exactMatches);
        
         console.log(`🗺️ Создан маппинг из ТОЧНЫХ WL-подписей: ${structuralMapping.size} соответствий`);
        
@@ -193,7 +187,6 @@ class TopologicalAccumulator {
        
         console.log(`🎯 Найдено ${newNodes.length} НОВЫХ узлов`);
        
-        // 🔥🔥🔥 ТРИАНГУЛЯЦИЯ ПО ТОЧНЫМ СОВПАДЕНИЯМ
         const addedNodes = this.addNodesViaTriangulation(
             modelId,
             newNodes,
@@ -240,7 +233,7 @@ class TopologicalAccumulator {
         };
     }
 
-    // 🔥🔥🔥 НОВЫЙ МЕТОД - ТОЛЬКО ДЛЯ ТОЧНЫХ WL-ПОДПИСЕЙ!
+    // 🔥🔥🔥 МАППИНГ ТОЛЬКО ИЗ ТОЧНЫХ СОВПАДЕНИЙ
     createMappingFromExactMatches(exactMatches) {
         const mapping = new Map();
         const usedModelNodes = new Set();
@@ -249,7 +242,6 @@ class TopologicalAccumulator {
             const modelNodeId = match.node1;
             const newNodeId = match.node2;
            
-            // Точные совпадения уже гарантируют одинаковую подпись
             if (!usedModelNodes.has(modelNodeId)) {
                 mapping.set(newNodeId, modelNodeId);
                 usedModelNodes.add(modelNodeId);
@@ -259,14 +251,12 @@ class TopologicalAccumulator {
         return mapping;
     }
 
-    // 🔥🔥🔥 ТРИАНГУЛЯЦИЯ ПО ТОЧНЫМ WL-ПОДПИСЯМ
     addNodesViaTriangulation(modelId, newNodes, newGraph, structuralMapping, options) {
         const model = this.models.get(modelId);
         const addedNodes = [];
        
         console.log(`🔺 Добавляю ${newNodes.length} узлов через триангуляцию...`);
        
-        // Собираем все опорные точки из ТОЧНЫХ совпадений
         const anchors = [];
         for (const [newId, modelId] of structuralMapping) {
             const modelNode = model.graph.nodes.get(modelId);
@@ -288,7 +278,6 @@ class TopologicalAccumulator {
             const photo2Point = newGraph.nodes.get(originalNodeId);
             if (!photo2Point) continue;
            
-            // Находим 3 ближайшие опорные точки в фото2
             const closestInPhoto2 = this.findThreeClosestAnchors(photo2Point, anchors);
            
             if (closestInPhoto2.length < 3) {
@@ -296,7 +285,6 @@ class TopologicalAccumulator {
                 continue;
             }
            
-            // Получаем их соответствия в модели
             const photo2Anchors = closestInPhoto2.map(a => ({
                 id: a.photo2Id,
                 node: a.newNode
@@ -307,7 +295,6 @@ class TopologicalAccumulator {
                 node: a.node
             }));
            
-            // Запоминаем треугольник
             const triangle = this.triangulation.rememberTriangle(
                 originalNodeId,
                 photo2Point,
@@ -320,7 +307,6 @@ class TopologicalAccumulator {
                 continue;
             }
            
-            // Восстанавливаем позицию в модели
             const position = this.triangulation.reconstructPosition(originalNodeId, model.graph);
            
             if (!position) {
@@ -328,7 +314,6 @@ class TopologicalAccumulator {
                 continue;
             }
            
-            // Создаём узел в модели
             const modelNodeId = `structural_node_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
            
             const newNode = {
@@ -353,7 +338,6 @@ class TopologicalAccumulator {
            
             model.graph.nodes.set(modelNodeId, newNode);
            
-            // Добавляем связи
             let edgesAdded = 0;
             for (const anchor of modelAnchors) {
                 if (model.graph.nodes.has(anchor.id)) {
@@ -384,7 +368,6 @@ class TopologicalAccumulator {
         return addedNodes;
     }
 
-    // 🔥 ПОИСК ТРЁХ БЛИЖАЙШИХ ОПОРНЫХ ТОЧЕК
     findThreeClosestAnchors(point, anchors) {
         if (anchors.length < 3) return [];
        
@@ -394,18 +377,15 @@ class TopologicalAccumulator {
         }));
        
         withDistance.sort((a, b) => a.distance - b.distance);
-       
         return withDistance.slice(0, 3);
     }
 
-    // 🔥 РАССТОЯНИЕ
     distance(p1, p2) {
         const dx = p1.x - p2.x;
         const dy = p1.y - p2.y;
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // 🔥 ПОИСК НОВЫХ УЗЛОВ
     findNewNodes(modelGraph, newGraph, newFingerprints, structuralMapping) {
         console.log(`🔍 Поиск новых узлов...`);
        
@@ -432,7 +412,6 @@ class TopologicalAccumulator {
         return newNodes;
     }
 
-    // 🔥 ПОИСК СОСЕДЕЙ В МАППИНГЕ
     findStructuralNeighbors(nodeId, newGraph, structuralMapping) {
         const neighbors = [];
         for (const edge of newGraph.edges) {
@@ -446,7 +425,6 @@ class TopologicalAccumulator {
         return neighbors;
     }
 
-    // 🔥 СОХРАНЕНИЕ ОРИГИНАЛЬНЫХ КООРДИНАТ
     saveOriginalCoordinates(model, newGraph, structuralMapping) {
         if (!model.photoCoordinates) model.photoCoordinates = new Map();
        
@@ -466,13 +444,11 @@ class TopologicalAccumulator {
         if (saved > 0) console.log(`   📍 Сохранено ${saved} оригинальных координат`);
     }
 
-    // 🔥 ПРИМЕНЕНИЕ СИСТЕМЫ ДОВЕРИЯ
     applyTrustSystem(modelId, comparison) {
         const model = this.models.get(modelId);
         if (!model) return;
        
         const matchedNodes = new Set();
-        // Используем ТОЛЬКО точные совпадения для подтверждения!
         const exactMatches = comparison.exactMatches || [];
        
         for (const match of exactMatches) {
@@ -505,7 +481,6 @@ class TopologicalAccumulator {
         console.log(`📊 ДОВЕРИЕ: +${promoted} повышений, -${demoted} понижений, 👻 ${ghosts} призраков`);
     }
 
-    // 🔥 УВЕЛИЧЕНИЕ ПОДТВЕРЖДЕНИЙ
     increaseConfirmations(modelId, structuralMapping) {
         const model = this.models.get(modelId);
         if (!model) return;
@@ -522,7 +497,6 @@ class TopologicalAccumulator {
         console.log(`📈 Подтверждений: +${count}`);
     }
 
-    // 🔥 ОБНОВЛЕНИЕ ПОДПИСЕЙ
     async updateModelFingerprints(modelId) {
         const model = this.models.get(modelId);
         console.log(`🔄 Обновляю подписи...`);
@@ -534,7 +508,6 @@ class TopologicalAccumulator {
         return newFingerprints;
     }
 
-    // 🔥 ПОЛУЧЕНИЕ ИНФОРМАЦИИ О МОДЕЛИ
     getModelInfo(modelId = null) {
         const targetId = modelId || this.currentModelId;
         if (!targetId || !this.models.has(targetId)) return { error: 'Model not found' };
@@ -583,7 +556,6 @@ class TopologicalAccumulator {
         };
     }
 
-    // 🔥 ЭКСПОРТ
     exportModel(modelId = null) {
         const targetId = modelId || this.currentModelId;
         if (!targetId || !this.models.has(targetId)) return null;
@@ -605,12 +577,11 @@ class TopologicalAccumulator {
             photoCoordinates: model.photoCoordinates ? Array.from(model.photoCoordinates.entries()) : [],
             triangulationMemory: this.triangulation.export(),
             stats: this.getModelInfo(targetId).stats,
-            _version: '11.0-exact-wl-only',
+            _version: '12.0-exact-matches-only',
             _exportedAt: new Date().toISOString()
         };
     }
 
-    // 🔥 ИМПОРТ
     importModel(data) {
         if (!data || !data.id || !data.graph) return false;
        
