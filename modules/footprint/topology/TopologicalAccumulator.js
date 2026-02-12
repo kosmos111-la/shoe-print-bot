@@ -1,357 +1,805 @@
-// modules/footprint/topology/TopologicalFingerprint.js
-// 🎯 ЧИСТАЯ ТОПОЛОГИЯ - ТОЛЬКО КАЧЕСТВЕННЫЕ ПРИЗНАКИ
+// modules/footprint/topology/TopologicalAccumulator.js
+// 🏗️ АККУМУЛЯТИВНАЯ МОДЕЛЬ С ТРИАНГУЛЯЦИОННЫМ ВОССТАНОВЛЕНИЕМ
 
-class TopologicalFingerprint {
+class TopologicalAccumulator {
     constructor(options = {}) {
-        this.iterations = options.iterations || 3;
+        this.name = options.name || `Топологическая_модель_${Date.now()}`;
         this.debug = options.debug || false;
-        this.hashCache = new Map();
-       
-        // 🔥 БАКЕТЫ ДЛЯ СТЕПЕНЕЙ (ВСЕГО 5 ГРУПП)
-        this.degreeBuckets = [
-            [0, 2],   // B0: изолированные и листья
-            [3, 4],   // B1: низкая степень
-            [5, 6],   // B2: средняя степень
-            [7, 10],  // B3: высокая степень
-            [11, 100] // B4: очень высокая степень
-        ];
-       
-        // 🔥 ПОРОГ СХОДСТВА
-        this.structuralSimilarityThreshold = options.structuralSimilarityThreshold || 0.7;
-       
-        console.log('🔷 ЧИСТЫЙ ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ (качественные признаки)');
-        console.log(`   Порог сходства: ${this.structuralSimilarityThreshold}`);
-    }
+        this.minMatchesForEnhancement = options.minMatchesForEnhancement || 3;
+        this.similarityThreshold = options.similarityThreshold || 0.6;
 
-    computeGraphFingerprints(graph) {
-        console.log(`🔷 Вычисляю ТОПОЛОГИЧЕСКИЕ подписи (${graph.nodes.size} узлов)...`);
-       
-        const nodes = graph.nodes;
-        const edges = graph.edges;
-        const neighborMap = this.buildNeighborMap(nodes, edges);
-        const signatures = new Map();
-       
-        // Начальные подписи
-        for (const [nodeId, node] of nodes) {
-            const neighbors = neighborMap.get(nodeId) || [];
-           
-            // 🔥🔥🔥 ТОЛЬКО КАЧЕСТВЕННЫЕ ПРИЗНАКИ!
-            const structuralSignature = this.computeLocalStructure(nodeId, neighbors, neighborMap);
-           
-            signatures.set(nodeId, {
-                current: structuralSignature,
-                degree: neighbors.length,
-                degreeBucket: this.getDegreeBucket(neighbors.length),
-                neighborCount: neighbors.length,
-                localStructure: structuralSignature,
-                neighborIds: neighbors,
-                history: [structuralSignature]
-            });
-        }
-       
-        // 3. Итеративное уточнение (Weisfeiler-Lehman)
-        for (let iter = 0; iter < this.iterations; iter++) {
-            const newSignatures = new Map();
-           
-            for (const [nodeId, node] of nodes) {
-                const neighbors = neighborMap.get(nodeId) || [];
-               
-                // Собираем подписи соседей
-                const neighborSigs = [];
-                for (const neighborId of neighbors) {
-                    const neighborSig = signatures.get(neighborId)?.current || '';
-                    if (neighborSig) neighborSigs.push(neighborSig);
-                }
-               
-                neighborSigs.sort();
-               
-                const currentSig = signatures.get(nodeId).current;
-                const uniqueNeighborSigs = [...new Set(neighborSigs)].join('|');
-                const newSig = this.hashString(`${currentSig}|${uniqueNeighborSigs}`);
-               
-                newSignatures.set(nodeId, {
-                    current: newSig,
-                    degree: node.degree,
-                    degreeBucket: signatures.get(nodeId).degreeBucket,
-                    neighborCount: neighbors.length,
-                    localStructure: signatures.get(nodeId).localStructure,
-                    neighborIds: signatures.get(nodeId).neighborIds,
-                    history: [...signatures.get(nodeId).history, newSig]
-                });
-            }
-           
-            for (const [nodeId, sig] of newSignatures) {
-                signatures.set(nodeId, sig);
-            }
-        }
-       
-        // Финальные подписи
-        const finalSignatures = new Map();
-        for (const [nodeId, sig] of signatures) {
-            finalSignatures.set(nodeId, {
-                signature: sig.current,
-                degree: sig.degree,
-                degreeBucket: sig.degreeBucket,
-                neighborCount: sig.neighborCount,
-                localStructure: sig.localStructure,
-                neighborIds: sig.neighborIds,
-                historyLength: sig.history.length
-            });
-        }
-       
+        // Основные компоненты
+        this.topologyBuilder = new (require('./TopologyBuilder'))({ debug: this.debug });
+        this.fingerprinter = new (require('./TopologicalFingerprint'))({
+            debug: this.debug,
+            iterations: options.wlIterations || 3,
+            bucketSize: 3,
+            similarityThreshold: 0.7
+        });
+
+        // Хранилище моделей
+        this.models = new Map();
+        this.currentModelId = null;
+
         // Статистика
-        const uniqueCount = new Set(Array.from(finalSignatures.values()).map(s => s.signature)).size;
-       
-        console.log(`✅ ТОПОЛОГИЧЕСКИЕ подписи:`);
-        console.log(`   Узлов: ${finalSignatures.size}`);
-        console.log(`   Уникальных подписей: ${uniqueCount} (${(uniqueCount/finalSignatures.size*100).toFixed(1)}%)`);
-       
-        return finalSignatures;
+        this.stats = {
+            totalModels: 0,
+            totalEnhancements: 0,
+            totalPointsProcessed: 0,
+            totalTriangulated: 0,
+            createdAt: new Date(),
+            lastUpdated: new Date()
+        };
+
+        console.log(`🏗️ TopologicalAccumulator создан: "${this.name}"`);
+        console.log(`   Порог совпадения: ${this.similarityThreshold * 100}%`);
+        console.log(`   Минимум для достройки: ${this.minMatchesForEnhancement} узлов`);
     }
 
-    // 🔥🔥🔥 ТОЛЬКО КАЧЕСТВЕННЫЕ ПРИЗНАКИ! БЕЗ ЧИСЕЛ!
-    computeLocalStructure(nodeId, neighbors, neighborMap) {
-        if (neighbors.length === 0) {
-            return 'ISOLATED';
+    // Основной метод: обработка нового набора точек
+    async processPoints(points, options = {}) {
+        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
+
+        const modelId = options.modelId || this.currentModelId;
+        const pointSource = options.source || `source_${Date.now()}`;
+
+        // 1. Строим граф Делоне
+        const graph = this.topologyBuilder.buildDelaunayGraph(points, pointSource);
+
+        if (this.debug) {
+            this.topologyBuilder.visualizeGraph(graph, 5);
         }
 
-        // 1. БАКЕТ СТЕПЕНИ (B0, B1, B2, B3, B4)
-        const degreeBucket = this.getDegreeBucket(neighbors.length);
-       
-        // 2. ЕСТЬ ЛИ ТРЕУГОЛЬНИКИ? (ДА/НЕТ)
-        let hasTriangles = false;
-        for (let i = 0; i < neighbors.length && !hasTriangles; i++) {
-            for (let j = i + 1; j < neighbors.length && !hasTriangles; j++) {
-                const neighborA = neighbors[i];
-                const neighborB = neighbors[j];
-                const neighborsOfA = neighborMap.get(neighborA) || [];
-                if (neighborsOfA.includes(neighborB)) {
-                    hasTriangles = true;
-                }
-            }
+        // 2. Вычисляем WL-подписи
+        const fingerprints = this.fingerprinter.computeGraphFingerprints(graph);
+
+        // 3. Если нет активной модели - создаем новую
+        if (!modelId || !this.models.has(modelId)) {
+            console.log(`🆕 СОЗДАЮ НОВУЮ ТОПОЛОГИЧЕСКУЮ МОДЕЛЬ`);
+            return this.createNewModel(graph, fingerprints, points, options);
         }
 
-        // 3. ЯВЛЯЕТСЯ ЛИ МОСТОМ? (ДА/НЕТ)
-        let isBridge = false;
-        if (neighbors.length === 2) {
-            const [neighborA, neighborB] = neighbors;
-            const neighborsOfA = neighborMap.get(neighborA) || [];
-            const neighborsOfB = neighborMap.get(neighborB) || [];
-            if (!neighborsOfA.includes(neighborB) && !neighborsOfB.includes(neighborA)) {
-                isBridge = true;
-            }
+        // 4. Сравниваем с существующей моделью
+        console.log(`🔍 СРАВНИВАЮ С МОДЕЛЬЮ "${modelId}"`);
+        const existingModel = this.models.get(modelId);
+        const comparison = this.fingerprinter.compareGraphs(
+            existingModel.graph,
+            existingModel.fingerprints,
+            graph,
+            fingerprints
+        );
+
+        // 5. Принимаем решение на основе сходства
+        if (comparison.similarity >= this.similarityThreshold) {
+            console.log(`✅ СОВПАДЕНИЕ: ${(comparison.similarity * 100).toFixed(1)}% ≥ ${this.similarityThreshold * 100}%`);
+
+            // Улучшаем существующую модель
+            const enhancementResult = await this.enhanceModel(
+                modelId,
+                graph,
+                fingerprints,
+                comparison,
+                options
+            );
+
+            return {
+                status: 'enhanced',
+                modelId: modelId,
+                similarity: comparison.similarity,
+                exactMatches: comparison.exactMatches.length,
+                newNodesAdded: enhancementResult.newNodesAdded,
+                totalNodesInModel: this.models.get(modelId).graph.nodes.size,
+                message: `Модель улучшена (+${enhancementResult.newNodesAdded} узлов)`
+            };
+
+        } else {
+            console.log(`🆕 РАЗНЫЕ СЛЕДЫ: ${(comparison.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%`);
+
+            // Создаем новую модель
+            return this.createNewModel(graph, fingerprints, points, {
+                ...options,
+                comparedWith: modelId,
+                similarity: comparison.similarity
+            });
         }
-
-        // 4. ЛИСТ? (ДА/НЕТ)
-        const isLeaf = neighbors.length === 1;
-       
-        // 5. ХАБ? (ДА/НЕТ)
-        const isHub = neighbors.length >= 6;
-       
-        // 6. ЯВЛЯЕТСЯ ЛИ ЧАСТЬЮ КЛИКИ? (ДА/НЕТ)
-        let isClique = false;
-        if (neighbors.length >= 3) {
-            let allConnected = true;
-            for (let i = 0; i < neighbors.length && allConnected; i++) {
-                for (let j = i + 1; j < neighbors.length && allConnected; j++) {
-                    const neighborA = neighbors[i];
-                    const neighborB = neighbors[j];
-                    const neighborsOfA = neighborMap.get(neighborA) || [];
-                    if (!neighborsOfA.includes(neighborB)) {
-                        allConnected = false;
-                    }
-                }
-            }
-            isClique = allConnected;
-        }
-
-        // 🔥 ТОЛЬКО КАЧЕСТВЕННЫЕ ПРИЗНАКИ!
-        const features = [
-            `DEG_${degreeBucket}`,
-            hasTriangles ? 'TRI_YES' : 'TRI_NO',
-            isBridge ? 'BRG_YES' : 'BRG_NO',
-            isLeaf ? 'LFF_YES' : 'LFF_NO',
-            isHub ? 'HUB_YES' : 'HUB_NO',
-            isClique ? 'CLQ_YES' : 'CLQ_NO'
-        ];
-
-        return features.join('_');
     }
 
-    buildNeighborMap(nodes, edges) {
-        const neighborMap = new Map();
-        for (const nodeId of nodes.keys()) neighborMap.set(nodeId, []);
-       
-        for (const edge of edges) {
-            const [nodeA, nodeB] = edge.split('--');
-            if (neighborMap.has(nodeA)) neighborMap.get(nodeA).push(nodeB);
-            if (neighborMap.has(nodeB)) neighborMap.get(nodeB).push(nodeA);
-        }
-       
-        for (const neighbors of neighborMap.values()) neighbors.sort();
-        return neighborMap;
-    }
+    // Создание новой топологической модели
+    createNewModel(graph, fingerprints, originalPoints, options = {}) {
+        const modelId = `topo_model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-    getDegreeBucket(degree) {
-        for (let i = 0; i < this.degreeBuckets.length; i++) {
-            const [min, max] = this.degreeBuckets[i];
-            if (degree >= min && degree <= max) {
-                return `B${i}`;
-            }
-        }
-        return 'B4';
-    }
+        const model = {
+            id: modelId,
+            graph: graph,
+            fingerprints: fingerprints,
+            originalPoints: originalPoints,
+            metadata: {
+                name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
+                createdAt: new Date(),
+                pointsCount: originalPoints.length,
+                nodesCount: graph.nodes.size,
+                edgesCount: graph.edges.size,
+                avgDegree: graph.avgDegree,
+                source: options.source || 'unknown',
+                ...options
+            },
+            history: [{
+                action: 'created',
+                timestamp: new Date(),
+                points: originalPoints.length,
+                nodes: graph.nodes.size,
+                edges: graph.edges.size
+            }]
+        };
 
-    compareGraphs(graph1, fingerprints1, graph2, fingerprints2) {
-        console.log(`🔍 Сравниваю графы по ТОПОЛОГИИ...`);
-       
-        // Точные совпадения подписей
-        const sigToNodes1 = new Map();
-        const sigToNodes2 = new Map();
-       
-        for (const [nodeId, fp] of fingerprints1) {
-            if (!sigToNodes1.has(fp.signature)) sigToNodes1.set(fp.signature, []);
-            sigToNodes1.get(fp.signature).push(nodeId);
+        // Инициализируем confirmationCount для всех узлов
+        for (const node of model.graph.nodes.values()) {
+            node.confirmationCount = 1;
+            node.addedFrom = 'original_creation';
+            node.addedAt = new Date();
         }
-       
-        for (const [nodeId, fp] of fingerprints2) {
-            if (!sigToNodes2.has(fp.signature)) sigToNodes2.set(fp.signature, []);
-            sigToNodes2.get(fp.signature).push(nodeId);
-        }
-       
-        const exactMatches = [];
-        for (const [sig, nodes1] of sigToNodes1) {
-            if (sigToNodes2.has(sig)) {
-                const nodes2 = sigToNodes2.get(sig);
-                for (let i = 0; i < Math.min(nodes1.length, nodes2.length); i++) {
-                    exactMatches.push({
-                        node1: nodes1[i],
-                        node2: nodes2[i],
-                        signature: sig,
-                        confidence: 1.0,
-                        type: 'exact'
-                    });
-                }
-            }
-        }
-       
-        // Похожие совпадения
-        const similarMatches = this.findSimilarNodes(fingerprints1, fingerprints2);
-        const allMatches = [...exactMatches, ...similarMatches];
-       
-        const totalNodes1 = fingerprints1.size;
-        const totalNodes2 = fingerprints2.size;
-        const matchedNodes1 = new Set(allMatches.map(m => m.node1)).size;
-        const matchedNodes2 = new Set(allMatches.map(m => m.node2)).size;
-       
-        const matchRatio1 = matchedNodes1 / Math.max(1, totalNodes1);
-        const matchRatio2 = matchedNodes2 / Math.max(1, totalNodes2);
-        const similarity = (matchRatio1 + matchRatio2) / 2;
-       
-        console.log(`📊 Результат сравнения:`);
-        console.log(`   Узлов в графе 1: ${totalNodes1}`);
-        console.log(`   Узлов в графе 2: ${totalNodes2}`);
-        console.log(`   Точных совпадений: ${exactMatches.length}`);
-        console.log(`   Структурно похожих: ${similarMatches.length}`);
-        console.log(`   Уникальных совпавших узлов в графе 1: ${matchedNodes1}`);
-        console.log(`   Уникальных совпавших узлов в графе 2: ${matchedNodes2}`);
-        console.log(`   Сходство: ${(similarity * 100).toFixed(1)}%`);
-       
+
+        this.models.set(modelId, model);
+        this.currentModelId = modelId;
+        this.stats.totalModels++;
+        this.stats.lastUpdated = new Date();
+
+        console.log(`🏗️ СОЗДАНА НОВАЯ МОДЕЛЬ "${modelId}":`);
+        console.log(`   Узлов: ${graph.nodes.size}`);
+        console.log(`   Рёбер: ${graph.edges.size}`);
+        console.log(`   Средняя степень: ${graph.avgDegree?.toFixed(2) || '?'}`);
+
+        const fpInfo = this.fingerprinter.getFingerprintInfo(fingerprints);
+        console.log(`   Уникальных подписей: ${fpInfo.uniqueSignatures}/${fpInfo.totalNodes}`);
+
         return {
-            similarity,
-            exactMatches,
-            similarMatches,
-            allMatches,
-            matchedNodes1,
-            matchedNodes2,
-            totalNodes1,
-            totalNodes2
+            status: 'created',
+            modelId: modelId,
+            nodes: graph.nodes.size,
+            edges: graph.edges.size,
+            avgDegree: graph.avgDegree,
+            message: `Создана новая топологическая модель`
         };
     }
 
-    findSimilarNodes(fingerprints1, fingerprints2) {
-        const similarMatches = [];
-        const usedNodes2 = new Set();
+    // Улучшение существующей модели (достраивание)
+    async enhanceModel(modelId, newGraph, newFingerprints, comparison, options = {}) {
+        console.log(`🔧 ДОСТРАИВАЮ МОДЕЛЬ "${modelId}"...`);
+
+        const model = this.models.get(modelId);
+
+        // 🔥 ИСПОЛЬЗУЕМ ВСЕ СОВПАДЕНИЯ
+        const allMatches = comparison.allMatches || comparison.exactMatches || [];
+
+        console.log(`📊 Использую для достройки: ${allMatches.length} совпадений`);
+
+        if (allMatches.length < this.minMatchesForEnhancement) {
+            console.log(`⚠️ Мало совпадений для достройки: ${allMatches.length} < ${this.minMatchesForEnhancement}`);
+            return { newNodesAdded: 0, reason: 'insufficient_matches' };
+        }
+
+        // Создаем маппинг: node2 (новое фото) → node1 (модель)
+        const mapping = new Map();
+        for (const match of allMatches) {
+            if (!mapping.has(match.node2)) {
+                mapping.set(match.node2, match.node1);
+            }
+        }
+
+        // Находим узлы для добавления
+        const nodesToAdd = this.findNodesToAdd(
+            model.graph,
+            newGraph,
+            newFingerprints,
+            mapping
+        );
+
+        if (nodesToAdd.length === 0) {
+            console.log(`✅ Все узлы уже есть в модели`);
+            return { newNodesAdded: 0, reason: 'all_nodes_exist' };
+        }
+
+        console.log(`🎯 Найдено ${nodesToAdd.length} новых узлов для добавления`);
+
+        // 🔥🔥🔥 ТРИАНГУЛЯЦИОННОЕ ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ
+        const triangulatedNodes = await this.triangulateNodePositions(
+            nodesToAdd,
+            newGraph,
+            model.graph,
+            mapping
+        );
+
+        // Добавляем узлы в модель
+        const addedNodes = this.addNodesToModel(
+            modelId,
+            triangulatedNodes,
+            newGraph
+        );
+
+        // Обновляем подписи модели
+        if (addedNodes.length > 0) {
+            await this.updateModelFingerprints(modelId);
+        }
+
+        // Обновляем подтверждения для ВСЕХ совпавших узлов
+        this.updateNodeConfirmations(modelId, allMatches);
+
+        // Обновляем историю
+        model.history.push({
+            action: 'enhanced',
+            timestamp: new Date(),
+            newNodes: addedNodes.length,
+            totalNodes: model.graph.nodes.size,
+            exactMatches: allMatches.length,
+            similarity: comparison.similarity,
+            source: options.source || 'unknown',
+            triangulated: triangulatedNodes.filter(n => n.nodeData.triangulated).length
+        });
+
+        this.stats.totalEnhancements++;
+        this.stats.totalTriangulated += triangulatedNodes.filter(n => n.nodeData.triangulated).length;
+        this.stats.lastUpdated = new Date();
+
+        console.log(`✅ МОДЕЛЬ УЛУЧШЕНА: +${addedNodes.length} узлов, всего ${model.graph.nodes.size} узлов`);
+        console.log(`   🔺 По триангуляции: ${triangulatedNodes.filter(n => n.nodeData.triangulated).length}`);
+
+        return {
+            newNodesAdded: addedNodes.length,
+            addedNodes: addedNodes,
+            totalNodes: model.graph.nodes.size,
+            allMatches: allMatches.length,
+            triangulated: triangulatedNodes.filter(n => n.nodeData.triangulated).length
+        };
+    }
+
+    // 🔥🔥🔥 ТРИАНГУЛЯЦИОННОЕ ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+    async triangulateNodePositions(nodesToAdd, newGraph, modelGraph, mapping) {
+        console.log(`🔺 Восстанавливаю позиции ${nodesToAdd.length} узлов...`);
        
-        const nodes1 = Array.from(fingerprints1.entries());
-        const nodes2 = Array.from(fingerprints2.entries());
+        const triangulated = [];
        
-        for (const [nodeId1, fp1] of nodes1) {
-            let bestMatch = null;
-            let bestSimilarity = 0;
-            let bestNodeId2 = null;
+        for (const nodeInfo of nodesToAdd) {
+            const newNodeId = nodeInfo.nodeId;
+            const newNode = newGraph.nodes.get(newNodeId);
+            if (!newNode) {
+                triangulated.push(nodeInfo);
+                continue;
+            }
            
-            for (const [nodeId2, fp2] of nodes2) {
-                if (usedNodes2.has(nodeId2)) continue;
-                if (fp1.degreeBucket !== fp2.degreeBucket) continue;
-               
-                const similarity = this.computeStructuralSimilarity(fp1, fp2);
-                if (similarity > bestSimilarity && similarity >= this.structuralSimilarityThreshold) {
-                    bestSimilarity = similarity;
-                    bestMatch = {
-                        node1: nodeId1,
-                        node2: nodeId2,
-                        confidence: similarity,
-                        degree: fp1.degree,
-                        degreeBucket: fp1.degreeBucket,
-                        type: 'similar'
-                    };
-                    bestNodeId2 = nodeId2;
+            // 1. Находим ВСЕХ соседей в маппинге
+            const candidates = [];
+            for (const edge of newGraph.edges) {
+                const [nodeA, nodeB] = edge.split('--');
+                if (nodeA === newNodeId && mapping.has(nodeB)) {
+                    candidates.push({
+                        id: mapping.get(nodeB),
+                        node: newGraph.nodes.get(nodeB),
+                        dist: this.distance(newNode, newGraph.nodes.get(nodeB))
+                    });
+                } else if (nodeB === newNodeId && mapping.has(nodeA)) {
+                    candidates.push({
+                        id: mapping.get(nodeA),
+                        node: newGraph.nodes.get(nodeA),
+                        dist: this.distance(newNode, newGraph.nodes.get(nodeA))
+                    });
                 }
             }
            
-            if (bestMatch) {
-                similarMatches.push(bestMatch);
-                usedNodes2.add(bestNodeId2);
+            if (candidates.length < 3) {
+                if (this.debug) {
+                    console.log(`   ⚠️ ${newNodeId.substring(0, 20)}... только ${candidates.length} соседей`);
+                }
+                triangulated.push(nodeInfo);
+                continue;
+            }
+           
+            // 2. Сортируем по расстоянию
+            candidates.sort((a, b) => a.dist - b.dist);
+           
+            // 3. Берём топ-6 ближайших и ищем лучший треугольник
+            let bestTriangle = null;
+            let bestScore = -1;
+            const topN = Math.min(6, candidates.length);
+           
+            for (let i = 0; i < topN; i++) {
+                for (let j = i + 1; j < topN; j++) {
+                    for (let k = j + 1; k < topN; k++) {
+                        const a = modelGraph.nodes.get(candidates[i].id);
+                        const b = modelGraph.nodes.get(candidates[j].id);
+                        const c = modelGraph.nodes.get(candidates[k].id);
+                       
+                        if (!a || !b || !c) continue;
+                       
+                        // Площадь треугольника (чем больше, тем лучше)
+                        const area = Math.abs(
+                            (b.x - a.x) * (c.y - a.y) -
+                            (b.y - a.y) * (c.x - a.x)
+                        ) / 2;
+                       
+                        // Равномерность (чем ближе к равностороннему, тем лучше)
+                        const ab = this.distance(a, b);
+                        const bc = this.distance(b, c);
+                        const ca = this.distance(c, a);
+                        const maxSide = Math.max(ab, bc, ca);
+                        const minSide = Math.min(ab, bc, ca);
+                        const uniformity = minSide / (maxSide + 0.0001);
+                       
+                        // Общий балл
+                        const score = area * 0.01 + uniformity * 10;
+                       
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestTriangle = { i, j, k };
+                        }
+                    }
+                }
+            }
+           
+            if (bestTriangle) {
+                const { i, j, k } = bestTriangle;
+               
+                const aId = candidates[i].id;
+                const bId = candidates[j].id;
+                const cId = candidates[k].id;
+               
+                const a = modelGraph.nodes.get(aId);
+                const b = modelGraph.nodes.get(bId);
+                const c = modelGraph.nodes.get(cId);
+               
+                const aNew = candidates[i].node;
+                const bNew = candidates[j].node;
+                const cNew = candidates[k].node;
+               
+                // Вычисляем барицентрические координаты
+                const bary = this.computeBarycentric(newNode, aNew, bNew, cNew);
+               
+                // Восстанавливаем позицию
+                nodeInfo.nodeData.x = a.x * bary.alpha + b.x * bary.beta + c.x * bary.gamma;
+                nodeInfo.nodeData.y = a.y * bary.alpha + b.y * bary.beta + c.y * bary.gamma;
+                nodeInfo.nodeData.triangulated = true;
+               
+                triangulated.push(nodeInfo);
+               
+                if (this.debug) {
+                    console.log(`   🔺 ${newNodeId.substring(0, 20)}... восстановлен (балл: ${bestScore.toFixed(0)})`);
+                    console.log(`      Позиция: (${nodeInfo.nodeData.x.toFixed(1)}, ${nodeInfo.nodeData.y.toFixed(1)})`);
+                }
+            } else {
+                triangulated.push(nodeInfo);
+                if (this.debug) {
+                    console.log(`   ⚠️ ${newNodeId.substring(0, 20)}... не удалось найти хороший треугольник`);
+                }
             }
         }
        
-        return similarMatches;
+        console.log(`   ✅ Восстановлено: ${triangulated.filter(n => n.nodeData.triangulated).length}/${nodesToAdd.length}`);
+        return triangulated;
     }
 
-    computeStructuralSimilarity(fp1, fp2) {
-        // Сравнение качественных признаков
-        const struct1 = fp1.localStructure.split('_');
-        const struct2 = fp2.localStructure.split('_');
-       
-        const set1 = new Set(struct1);
-        const set2 = new Set(struct2);
-       
-        let matches = 0;
-        for (const term of set1) {
-            if (set2.has(term)) matches++;
+    // Находим узлы для добавления в модель
+    findNodesToAdd(modelGraph, newGraph, newFingerprints, mapping) {
+        const nodesToAdd = [];
+        const mappedNodeIds = new Set(mapping.keys());
+
+        for (const [nodeId, node] of newGraph.nodes) {
+            if (mappedNodeIds.has(nodeId)) continue;
+            if (modelGraph.nodes.has(nodeId)) continue;
+
+            const connectionsToMatched = this.countConnectionsToMatched(
+                nodeId,
+                mappedNodeIds,
+                newGraph.edges
+            );
+
+            if (connectionsToMatched >= 2) {
+                nodesToAdd.push({
+                    nodeId: nodeId,
+                    nodeData: {
+                        ...node,
+                        id: nodeId,
+                        x: node.x,
+                        y: node.y,
+                        confidence: node.confidence || 0.5,
+                        connectionsToMatched: connectionsToMatched,
+                        triangulated: false
+                    },
+                    connectionsToMatched: connectionsToMatched,
+                    fingerprint: newFingerprints.get(nodeId),
+                    reason: `connected to ${connectionsToMatched} matched nodes`
+                });
+            }
         }
-       
-        return matches / Math.max(set1.size, set2.size);
+
+        return nodesToAdd;
     }
 
-    hashString(str) {
-        if (this.hashCache.has(str)) return this.hashCache.get(str);
-       
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash;
+    // Считаем связи с совпавшими узлами
+    countConnectionsToMatched(nodeId, matchedNodeIds, edges) {
+        let connections = 0;
+
+        for (const edge of edges) {
+            const [nodeA, nodeB] = edge.split('--');
+
+            if (nodeA === nodeId && matchedNodeIds.has(nodeB)) {
+                connections++;
+            } else if (nodeB === nodeId && matchedNodeIds.has(nodeA)) {
+                connections++;
+            }
         }
-       
-        const result = Math.abs(hash).toString(16).padStart(12, '0');
-        this.hashCache.set(str, result);
-        return result;
+
+        return connections;
     }
 
-    getFingerprintInfo(fingerprints) {
-        const degrees = Array.from(fingerprints.values()).map(fp => fp.degree);
-        const signatures = Array.from(fingerprints.values()).map(fp => fp.signature);
-        const uniqueSignatures = new Set(signatures);
+    // Добавляем узлы в модель
+    addNodesToModel(modelId, nodesToAdd, sourceGraph) {
+        const model = this.models.get(modelId);
+        const addedNodes = [];
+
+        for (const nodeInfo of nodesToAdd) {
+            const nodeId = nodeInfo.nodeId;
+            const nodeData = nodeInfo.nodeData;
+
+            model.graph.nodes.set(nodeId, {
+                ...nodeData,
+                addedFrom: 'structural_enhancement',
+                addedAt: new Date(),
+                confirmationCount: 1,
+                connectionsToMatched: nodeInfo.connectionsToMatched,
+                triangulated: nodeData.triangulated || false
+            });
+
+            for (const edge of sourceGraph.edges) {
+                const [nodeA, nodeB] = edge.split('--');
+               
+                if ((nodeA === nodeId && model.graph.nodes.has(nodeB)) ||
+                    (nodeB === nodeId && model.graph.nodes.has(nodeA))) {
+                    model.graph.edges.add(edge);
+                }
+            }
+
+            addedNodes.push({
+                id: nodeId,
+                x: nodeData.x,
+                y: nodeData.y,
+                connectionsToMatched: nodeInfo.connectionsToMatched,
+                addedReason: nodeInfo.reason,
+                triangulated: nodeData.triangulated || false
+            });
+
+            if (this.debug) {
+                console.log(`   + ${nodeId.substring(0, 20)}... ${nodeInfo.reason} ${nodeData.triangulated ? '🔺' : '📍'}`);
+            }
+        }
+
+        // Обновляем степени узлов
+        this.updateNodeDegrees(model.graph);
+
+        return addedNodes;
+    }
+
+    // Обновляем степени узлов в графе
+    updateNodeDegrees(graph) {
+        // Сбрасываем степени
+        for (const node of graph.nodes.values()) {
+            node.degree = 0;
+        }
+
+        // Пересчитываем
+        for (const edge of graph.edges) {
+            const [nodeA, nodeB] = edge.split('--');
+            if (graph.nodes.has(nodeA)) graph.nodes.get(nodeA).degree++;
+            if (graph.nodes.has(nodeB)) graph.nodes.get(nodeB).degree++;
+        }
+    }
+
+    // Обновление подтверждений узлов
+    updateNodeConfirmations(modelId, matches) {
+        const model = this.models.get(modelId);
+        let updated = 0;
+
+        for (const match of matches) {
+            const nodeId = match.node1; // Узел из модели
+            if (model.graph.nodes.has(nodeId)) {
+                const node = model.graph.nodes.get(nodeId);
+               
+                // Увеличиваем счетчик подтверждений
+                node.confirmationCount = (node.confirmationCount || 1) + 1;
+                node.lastConfirmed = new Date();
+               
+                // Обновляем уверенность
+                if (match.confidence) {
+                    node.confidence = Math.max(node.confidence || 0.5, match.confidence);
+                }
+               
+                updated++;
+            }
+        }
+
+        console.log(`📈 Обновлены подтверждения для ${updated} узлов`);
+    }
+
+    // Обновляем подписи модели
+    async updateModelFingerprints(modelId) {
+        const model = this.models.get(modelId);
        
+        console.log(`🔄 Обновляю WL-подписи для модели ${modelId}...`);
+
+        const newFingerprints = this.fingerprinter.computeGraphFingerprints(model.graph);
+        model.fingerprints = newFingerprints;
+
+        console.log(`✅ Подписи обновлены: ${newFingerprints.size} узлов`);
+       
+        return newFingerprints;
+    }
+
+    // Расстояние между точками
+    distance(p1, p2) {
+        if (!p1 || !p2) return Infinity;
+        const dx = p1.x - p2.x;
+        const dy = p1.y - p2.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Вычисление барицентрических координат
+    computeBarycentric(p, a, b, c) {
+        const v0 = { x: c.x - a.x, y: c.y - a.y };
+        const v1 = { x: b.x - a.x, y: b.y - a.y };
+        const v2 = { x: p.x - a.x, y: p.y - a.y };
+
+        const dot00 = v0.x * v0.x + v0.y * v0.y;
+        const dot01 = v0.x * v1.x + v0.y * v1.y;
+        const dot02 = v0.x * v2.x + v0.y * v2.y;
+        const dot11 = v1.x * v1.x + v1.y * v1.y;
+        const dot12 = v1.x * v2.x + v1.y * v2.y;
+
+        const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+        const beta = (dot11 * dot02 - dot01 * dot12) * invDenom;
+        const gamma = (dot00 * dot12 - dot01 * dot02) * invDenom;
+        const alpha = 1 - beta - gamma;
+
+        return { alpha, beta, gamma };
+    }
+
+    // Получить информацию о модели
+    getModelInfo(modelId = null) {
+        const targetModelId = modelId || this.currentModelId;
+
+        if (!targetModelId || !this.models.has(targetModelId)) {
+            return { error: 'Model not found' };
+        }
+
+        const model = this.models.get(targetModelId);
+        const graph = model.graph;
+        const fpInfo = this.fingerprinter.getFingerprintInfo(model.fingerprints);
+
+        // Статистика по подтверждениям
+        const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
+        const sources = {};
+
+        for (const node of graph.nodes.values()) {
+            const count = node.confirmationCount || 0;
+            if (count >= 4) confirmations['4+']++;
+            else confirmations[count] = (confirmations[count] || 0) + 1;
+
+            const source = node.addedFrom || 'original';
+            sources[source] = (sources[source] || 0) + 1;
+        }
+
         return {
-            totalNodes: fingerprints.size,
-            uniqueSignatures: uniqueSignatures.size,
-            uniquenessRatio: uniqueSignatures.size / Math.max(1, fingerprints.size),
-            avgDegree: degrees.reduce((a, b) => a + b, 0) / degrees.length
+            id: model.id,
+            name: model.metadata.name,
+            stats: {
+                nodes: graph.nodes.size,
+                edges: graph.edges.size,
+                triangles: graph.triangles || 0,
+                avgDegree: graph.avgDegree || 0,
+                uniqueSignatures: fpInfo.uniqueSignatures,
+                uniquenessRatio: fpInfo.uniquenessRatio,
+                confirmed1: confirmations[1] || 0,
+                confirmed2: confirmations[2] || 0,
+                confirmed3: confirmations[3] || 0,
+                confirmed4plus: confirmations['4+'] || 0,
+                triangulated: this.stats.totalTriangulated,
+                nodeSources: sources
+            },
+            metadata: model.metadata,
+            history: {
+                totalActions: model.history.length,
+                lastAction: model.history[model.history.length - 1],
+                enhancements: model.history.filter(h => h.action === 'enhanced').length
+            },
+            createdAt: model.metadata.createdAt,
+            lastUpdated: this.stats.lastUpdated
+        };
+    }
+
+    // Визуализация модели
+    visualizeModel(modelId = null, options = {}) {
+        const targetModelId = modelId || this.currentModelId;
+
+        if (!targetModelId || !this.models.has(targetModelId)) {
+            console.log('⚠️ Модель не найдена');
+            return;
+        }
+
+        const model = this.models.get(targetModelId);
+        const graph = model.graph;
+
+        console.log(`\n🔷 ВИЗУАЛИЗАЦИЯ МОДЕЛИ "${model.metadata.name}":`);
+        console.log(`═`.repeat(70));
+
+        console.log(`📊 ОБЩАЯ ИНФОРМАЦИЯ:`);
+        console.log(`   ID: ${model.id}`);
+        console.log(`   Узлов: ${graph.nodes.size}`);
+        console.log(`   Рёбер: ${graph.edges.size}`);
+        console.log(`   Средняя степень: ${graph.avgDegree?.toFixed(2) || '?'}`);
+        console.log(`   Создана: ${model.metadata.createdAt.toLocaleString('ru-RU')}`);
+
+        // Статистика по подтверждениям
+        const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
+        for (const node of graph.nodes.values()) {
+            const count = node.confirmationCount || 0;
+            if (count >= 4) confirmations['4+']++;
+            else confirmations[count] = (confirmations[count] || 0) + 1;
+        }
+
+        console.log(`\n🎯 ПОДТВЕРЖДЕНИЯ:`);
+        console.log(`   🔴 4+ подтверждений: ${confirmations['4+']} (ядра)`);
+        console.log(`   🟠 3 подтверждения: ${confirmations[3]} (стабильные)`);
+        console.log(`   🟡 2 подтверждения: ${confirmations[2]} (подтверждённые)`);
+        console.log(`   🔵 1 подтверждение: ${confirmations[1]} (новые)`);
+
+        // Показываем узлы
+        const showNodes = options.showNodes || 8;
+        console.log(`\n📋 УЗЛЫ (первые ${showNodes}):`);
+
+        let count = 0;
+        for (const [nodeId, node] of graph.nodes) {
+            if (count++ >= showNodes) break;
+
+            const source = node.addedFrom ? `[${node.addedFrom}]` : '[original]';
+            const tri = node.triangulated ? '🔺' : '  ';
+            console.log(`   ${tri} ${nodeId.substring(0, 20)}... ${source}: (${node.x?.toFixed(1) || '?'}, ${node.y?.toFixed(1) || '?'}) | степень: ${node.degree} | подтверждений: ${node.confirmationCount || 1}`);
+        }
+
+        if (graph.nodes.size > showNodes) {
+            console.log(`   ... и еще ${graph.nodes.size - showNodes} узлов`);
+        }
+
+        // Показываем историю
+        console.log(`\n📜 ИСТОРИЯ (последние 3 действия):`);
+        model.history.slice(-3).forEach((entry, idx) => {
+            console.log(`   ${entry.action === 'created' ? '🆕' : '🔧'} ${entry.action.toUpperCase()}: ${new Date(entry.timestamp).toLocaleTimeString()}`);
+            console.log(`      Узлов: ${entry.nodes || '?'}, Рёбер: ${entry.edges || '?'}`);
+            if (entry.newNodes) console.log(`      +${entry.newNodes} новых узлов`);
+            if (entry.triangulated) console.log(`      🔺 ${entry.triangulated} по триангуляции`);
+        });
+
+        console.log(`═`.repeat(70));
+    }
+
+    // Экспорт модели
+    exportModel(modelId = null) {
+        const targetModelId = modelId || this.currentModelId;
+
+        if (!targetModelId || !this.models.has(targetModelId)) {
+            return null;
+        }
+
+        const model = this.models.get(targetModelId);
+
+        return {
+            id: model.id,
+            name: model.metadata.name,
+            graph: {
+                nodes: Array.from(model.graph.nodes.entries()),
+                edges: Array.from(model.graph.edges),
+                triangles: model.graph.triangles,
+                avgDegree: model.graph.avgDegree
+            },
+            fingerprints: Array.from(model.fingerprints.entries()),
+            metadata: model.metadata,
+            history: model.history,
+            stats: this.getModelInfo(targetModelId).stats,
+            _version: '3.0-triangulation-fixed',
+            _exportedAt: new Date().toISOString()
+        };
+    }
+
+    // Импорт модели
+    importModel(data) {
+        if (!data || !data.id || !data.graph) {
+            console.log('⚠️ Неверный формат данных для импорта');
+            return false;
+        }
+
+        try {
+            const modelId = data.id;
+
+            const graph = {
+                nodes: new Map(data.graph.nodes),
+                edges: new Set(data.graph.edges),
+                triangles: data.graph.triangles,
+                avgDegree: data.graph.avgDegree
+            };
+
+            const fingerprints = new Map(data.fingerprints);
+
+            const model = {
+                id: modelId,
+                graph: graph,
+                fingerprints: fingerprints,
+                metadata: data.metadata || {},
+                history: data.history || [],
+                originalPoints: data.originalPoints || []
+            };
+
+            // Восстанавливаем даты
+            if (model.metadata.createdAt && typeof model.metadata.createdAt === 'string') {
+                model.metadata.createdAt = new Date(model.metadata.createdAt);
+            }
+
+            if (model.history && Array.isArray(model.history)) {
+                model.history.forEach(entry => {
+                    if (entry.timestamp && typeof entry.timestamp === 'string') {
+                        entry.timestamp = new Date(entry.timestamp);
+                    }
+                });
+            }
+
+            this.models.set(modelId, model);
+
+            if (!this.currentModelId) {
+                this.currentModelId = modelId;
+            }
+
+            console.log(`📥 Импортирована топологическая модель "${model.metadata.name}"`);
+            console.log(`   Узлов: ${graph.nodes.size}, Рёбер: ${graph.edges.size}`);
+
+            return true;
+
+        } catch (error) {
+            console.log(`❌ Ошибка импорта модели: ${error.message}`);
+            return false;
+        }
+    }
+
+    // Глобальная статистика
+    getStats() {
+        const modelsInfo = [];
+        let totalNodes = 0;
+        let totalEdges = 0;
+
+        for (const [modelId, model] of this.models) {
+            modelsInfo.push({
+                id: modelId,
+                name: model.metadata.name,
+                nodes: model.graph.nodes.size,
+                edges: model.graph.edges.size,
+                triangulated: this.stats.totalTriangulated,
+                createdAt: model.metadata.createdAt
+            });
+
+            totalNodes += model.graph.nodes.size;
+            totalEdges += model.graph.edges.size;
+        }
+
+        return {
+            system: this.stats,
+            models: {
+                total: this.models.size,
+                totalNodes: totalNodes,
+                totalEdges: totalEdges,
+                list: modelsInfo
+            },
+            accumulator: {
+                name: this.name,
+                currentModelId: this.currentModelId,
+                similarityThreshold: this.similarityThreshold,
+                minMatchesForEnhancement: this.minMatchesForEnhancement
+            }
         };
     }
 }
 
-module.exports = TopologicalFingerprint;
+module.exports = TopologicalAccumulator;
