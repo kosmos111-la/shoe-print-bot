@@ -1,5 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ С ГЕОМЕТРИЧЕСКОЙ ПАМЯТЬЮ
+// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ С ОТРИСОВКОЙ ТРЕУГОЛЬНИКОВ
 
 const fs = require('fs');
 const path = require('path');
@@ -10,428 +10,445 @@ class ClusterVisualizer {
             outputDir: options.outputDir || './data/footprints/visualizations/topology',
             canvasWidth: options.canvasWidth || 1200,
             canvasHeight: options.canvasHeight || 800,
-          
-            // 🔥 ЦВЕТОВАЯ СХЕМА ПО УРОВНЮ ДОВЕРИЯ
-            pointColors: {
-                core: '#FF0000',      // 🔴 4+ подтверждений
-                stable: '#FF6B00',    // 🟠 3 подтверждения
-                confirmed: '#FFC107', // 🟡 2 подтверждения
-                newish: '#2196F3',    // 🔵 1 подтверждение
-                fading: '#BDBDBD',    // ⚪ Затухающие
-                hidden: '#E0E0E0',    // 🙈 Скрытые
-                edgeColor: 'rgba(100, 100, 100, 0.25)',
-                background: '#FFFFFF'
-            },
-          
-            legendPosition: options.legendPosition || 'bottom',
-            showStats: options.showStats !== false,
-            showEdges: options.showEdges !== false,
-            showGeometry: options.showGeometry !== false,
             debug: options.debug || false,
+            showTriangles: options.showTriangles !== false,
+            showAnchors: options.showAnchors !== false,
             ...options
         };
-      
+       
         if (!fs.existsSync(this.config.outputDir)) {
             fs.mkdirSync(this.config.outputDir, { recursive: true });
         }
-      
-        console.log('🎨 ClusterVisualizer создан (режим: ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ)');
+       
+        console.log('🎨 ClusterVisualizer создан (режим: ОТРИСОВКА ТРЕУГОЛЬНИКОВ)');
     }
-  
-    // 🔥 ГЛАВНЫЙ МЕТОД
+
     async visualizeTopologicalModel(topologyData, options = {}) {
-        console.log('\n🎨 ВИЗУАЛИЗАЦИЯ ТОПОЛОГИЧЕСКОЙ МОДЕЛИ...');
-      
+        console.log('🎨 ВИЗУАЛИЗАЦИЯ ТОПОЛОГИЧЕСКОЙ МОДЕЛИ...');
+       
         try {
-            if (!topologyData?.points || topologyData.points.length === 0) {
+            if (!topologyData || !topologyData.points || topologyData.points.length === 0) {
                 return this.createTopologyReport(topologyData, null);
             }
-          
-            // 🔥 ДИАГНОСТИКА ПЕРЕД ВИЗУАЛИЗАЦИЕЙ
-            const allPoints = topologyData.points;
-            const structuralNodes = allPoints.filter(p =>
-                p.addedFrom === 'structural_enhancement' ||
-                p.id?.includes('structural_node')
-            );
-          
-            const originalNodes = allPoints.filter(p =>
-                p.addedFrom !== 'structural_enhancement' &&
-                !p.id?.includes('structural_node')
-            );
-          
-            const nodesWithGeometry = allPoints.filter(p => p.geometryMemory);
-          
-            console.log(`🔍 ДИАГНОСТИКА МОДЕЛИ:`);
-            console.log(`   📍 Всего узлов: ${allPoints.length}`);
-            console.log(`   📐 С геометрической памятью: ${nodesWithGeometry.length}`);
-            console.log(`   🆕 Структурных узлов: ${structuralNodes.length}`);
-            console.log(`   📍 Оригинальных узлов: ${originalNodes.length}`);
-            console.log(`   ✅ С координатами: ${allPoints.filter(p => p.x && p.y).length}`);
-          
-            // Проверяем canvas
+           
             let canvas;
             try {
                 canvas = require('canvas');
             } catch (error) {
-                console.log('⚠️ Canvas не доступен, создаю отчёт');
-                return this.createTopologyReport(topologyData, null);
+                console.log('⚠️ Canvas не доступен, создаю текстовый отчет');
+                return this.createTopologyReport(topologyData, error);
             }
-          
+           
             const canvasWidth = options.width || this.config.canvasWidth;
             const canvasHeight = options.height || this.config.canvasHeight;
-          
+           
             const canvasInstance = canvas.createCanvas(canvasWidth, canvasHeight);
             const ctx = canvasInstance.getContext('2d');
-          
-            // Фон
-            ctx.fillStyle = this.config.pointColors.background;
+           
+            // 1. ФОН
+            ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-          
-            // Заголовок
+           
+            // 2. ЗАГОЛОВОК
             ctx.fillStyle = '#212529';
             ctx.font = 'bold 26px Arial';
             ctx.textAlign = 'center';
             ctx.fillText(`🏗️ ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ`, canvasWidth / 2, 45);
-          
+           
             if (topologyData.modelName) {
                 ctx.font = '18px Arial';
                 ctx.fillStyle = '#495057';
                 ctx.fillText(topologyData.modelName, canvasWidth / 2, 75);
             }
-          
-            ctx.font = '14px Arial';
-            ctx.fillStyle = '#6C757D';
-            ctx.fillText('📐 Геометрическая память • Инвариантные отношения', canvasWidth / 2, 100);
-          
-            // Статистика
+           
+            // 3. СТАТИСТИКА
             if (topologyData.stats) {
                 ctx.font = '16px Arial';
                 ctx.fillStyle = '#343A40';
                 ctx.textAlign = 'left';
-              
+               
                 const stats = topologyData.stats;
                 const statRows = [
-                    `Всего узлов: ${stats.totalNodes} (восст: ${stats.geometryRecovered || 0})`,
+                    `Узлов: ${stats.totalNodes}`,
                     `Рёбер: ${stats.totalEdges || 0}`,
-                    `🔴 Ядра: ${stats.core || 0}`,
-                    `🟠 Стабильные: ${stats.stable || 0}`,
-                    `🟡 Подтверждённые: ${stats.confirmed || 0}`,
-                    `🔵 Новые: ${stats.newish || 0}`,
-                    `⚪ Затухающие: ${stats.fading || 0}`
+                    `🔴 Ядра (4+): ${stats.confirmed4 || stats.core || 0}`,
+                    `🟠 Стабильные (3): ${stats.confirmed3 || stats.stable || 0}`,
+                    `🟡 Подтверждённые (2): ${stats.confirmed2 || stats.confirmed || 0}`,
+                    `🔵 Новые (1): ${stats.confirmed1 || stats.newish || 0}`,
+                    `🎯 Триангуляция: ${stats.triangulatedNodes || 0}`
                 ];
-              
+               
                 statRows.forEach((text, index) => {
-                    ctx.fillText(text, 50, 150 + index * 30);
+                    ctx.fillText(text, 50, 120 + index * 25);
                 });
             }
-          
-            // 🔥 РИСУЕМ РЁБРА
-            if (this.config.showEdges && topologyData.edges) {
-                this.drawTopologyEdges(ctx, topologyData, canvasWidth, canvasHeight);
+           
+            // Вычисляем границы и масштаб
+            const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
+            const { minX, maxX, minY, maxY } = this.calculateBounds(validPoints);
+            const scale = this.calculateScale(minX, maxX, minY, maxY, canvasWidth * 0.7, canvasHeight * 0.5);
+            const centerX = canvasWidth / 2;
+            const centerY = canvasHeight * 0.6;
+           
+            console.log(`📐 Параметры отрисовки:`);
+            console.log(`   Границы: x[${minX.toFixed(1)}-${maxX.toFixed(1)}], y[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
+            console.log(`   Масштаб: ${scale.toFixed(3)}`);
+            console.log(`   Центр: (${centerX}, ${centerY})`);
+           
+            // 4. РИСУЕМ РЁБРА
+            if (topologyData.edges) {
+                this.drawEdges(ctx, topologyData, minX, maxX, minY, maxY, centerX, centerY, scale);
             }
-          
-            // 🔥 РИСУЕМ УЗЛЫ - ВСЕ, БЕЗ ФИЛЬТРАЦИИ!
-            this.drawTopologyNodes(ctx, topologyData, canvasWidth, canvasHeight);
-          
-            // Легенда
-            this.drawTopologyLegend(ctx, canvasWidth, canvasHeight);
-          
-            // Информация
+           
+            // 5. 🔥🔥🔥 РИСУЕМ ТРЕУГОЛЬНИКИ ДЛЯ ОТЛАДКИ
+            if (topologyData.debugTriangles && topologyData.debugTriangles.length > 0) {
+                this.drawDebugTriangles(ctx, topologyData.debugTriangles, minX, maxX, minY, maxY, centerX, centerY, scale);
+            }
+           
+            // 6. РИСУЕМ УЗЛЫ
+            this.drawNodes(ctx, topologyData.points, minX, maxX, minY, maxY, centerX, centerY, scale);
+           
+            // 7. ЛЕГЕНДА
+            this.drawLegend(ctx, canvasWidth, canvasHeight);
+           
+            // 8. ИНФОРМАЦИЯ О СИСТЕМЕ
             ctx.fillStyle = '#ADB5BD';
             ctx.font = '12px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText(`🏗️ Триангуляция Делоне + WL + Геометрическая память | ${new Date().toLocaleString('ru-RU')}`,
+            ctx.fillText(`🏗️ Триангуляция по 3 точкам в модели | ${new Date().toLocaleString('ru-RU')}`,
                         canvasWidth / 2, canvasHeight - 10);
-          
-            // Сохраняем
+           
+            // 9. СОХРАНЯЕМ
             const filename = options.filename || `topology_${Date.now()}.png`;
             const outputPath = path.join(this.config.outputDir, filename);
-          
+           
             return new Promise((resolve, reject) => {
                 const out = fs.createWriteStream(outputPath);
                 const stream = canvasInstance.createPNGStream();
-              
+               
                 stream.pipe(out);
-              
+               
                 out.on('finish', () => {
                     console.log(`✅ Визуализация сохранена: ${outputPath}`);
-                    console.log(`📊 ИТОГ ОТРИСОВКИ:`);
-                    console.log(`   - Всего узлов: ${allPoints.length}`);
-                    console.log(`   - Структурных узлов: ${structuralNodes.length}`);
-                    console.log(`   - С геометрией: ${nodesWithGeometry.length}`);
-                  
                     resolve({
                         path: outputPath,
                         stats: topologyData.stats,
                         success: true,
-                        nodesVisualized: allPoints.length,
-                        geometryRecovered: nodesWithGeometry.length
+                        nodesVisualized: topologyData.points.length
                     });
                 });
-              
+               
                 out.on('error', reject);
             });
-          
+           
         } catch (error) {
             console.error('❌ Ошибка визуализации:', error);
             return this.createTopologyReport(topologyData, error);
         }
     }
-  
-    // 🔥 РИСОВАНИЕ УЗЛОВ - ГЛАВНОЕ ИСПРАВЛЕНИЕ!
-    drawTopologyNodes(ctx, topologyData, canvasWidth, canvasHeight) {
-        // 🔥 БЕРЁМ ВСЕ ТОЧКИ БЕЗ ИСКЛЮЧЕНИЯ
-        const allPoints = topologyData.points.filter(p => p && p.x !== undefined && p.y !== undefined);
-      
-        if (allPoints.length === 0) {
-            console.log('⚠️ Нет точек с координатами');
-            return;
-        }
-      
-        const { minX, maxX, minY, maxY } = this.calculateBounds(allPoints);
-        const scale = this.calculateScale(minX, maxX, minY, maxY, canvasWidth * 0.7, canvasHeight * 0.5);
-        const centerX = canvasWidth / 2;
-        const centerY = canvasHeight * 0.6;
-      
-        console.log(`🖌 ОТРИСОВКА УЗЛОВ:`);
-        console.log(`   Всего узлов: ${allPoints.length}`);
-        console.log(`   Границы: x[${minX.toFixed(1)}-${maxX.toFixed(1)}], y[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
-        console.log(`   Масштаб: ${scale.toFixed(3)}`);
-      
-        // 🔥 РИСУЕМ КАЖДЫЙ УЗЕЛ!
-        let drawnCount = 0;
-        let structuralCount = 0;
-        let geometryCount = 0;
-      
-        allPoints.forEach(point => {
-            const x = centerX + (point.x - (minX + maxX) / 2) * scale;
-            const y = centerY + (point.y - (minY + maxY) / 2) * scale;
-          
-            // 🔥 БЕРЁМ ПАРАМЕТРЫ ПРЯМО ИЗ УЗЛА!
-            const confirmations = point.confirmationCount || 1;
-            const streak = point.unconfirmedStreak || 0;
-            const isStructural = point.addedFrom === 'structural_enhancement' || point.id?.includes('structural_node');
-            const hasGeometry = !!point.geometryMemory;
-          
-            // 🔥 ОПРЕДЕЛЯЕМ ЦВЕТ ПО ПОДТВЕРЖДЕНИЯМ
-            let color;
-            if (streak >= 10) color = this.config.pointColors.hidden;
-            else if (streak >= 5) color = this.config.pointColors.fading;
-            else if (confirmations >= 4) color = this.config.pointColors.core;
-            else if (confirmations >= 3) color = this.config.pointColors.stable;
-            else if (confirmations >= 2) color = this.config.pointColors.confirmed;
-            else color = this.config.pointColors.newish;
-          
-            // 🔥 РАЗМЕР
-            let size = confirmations >= 4 ? 12 :
-                      confirmations >= 3 ? 10 :
-                      confirmations >= 2 ? 8 : 6;
-                     
-            if (isStructural) size = size * 0.9; // чуть меньше
-          
-            // 🔥 РИСУЕМ!
-            ctx.fillStyle = color;
+
+    // 🔥🔥🔥 ОТРИСОВКА ТРЕУГОЛЬНИКОВ ДЛЯ ОТЛАДКИ
+    drawDebugTriangles(ctx, triangles, minX, maxX, minY, maxY, centerX, centerY, scale) {
+        if (!triangles || triangles.length === 0) return;
+       
+        console.log(`🔺 Отрисовка ${triangles.length} отладочных треугольников...`);
+       
+        const avgX = (minX + maxX) / 2;
+        const avgY = (minY + maxY) / 2;
+       
+        triangles.forEach((triangle, idx) => {
+            if (!triangle.anchors || triangle.anchors.length < 3) return;
+           
+            // Рисуем треугольник в модели (фото 1) - КРАСНЫЙ
             ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-          
-            // Обводка
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+           
+            const p1 = triangle.anchors[0];
+            const p2 = triangle.anchors[1];
+            const p3 = triangle.anchors[2];
+           
+            const x1 = centerX + (p1.x - avgX) * scale;
+            const y1 = centerY + (p1.y - avgY) * scale;
+            const x2 = centerX + (p2.x - avgX) * scale;
+            const y2 = centerY + (p2.y - avgY) * scale;
+            const x3 = centerX + (p3.x - avgX) * scale;
+            const y3 = centerY + (p3.y - avgY) * scale;
+           
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.lineTo(x3, y3);
+            ctx.closePath();
             ctx.stroke();
-          
-            // 🔥 МАРКЕР ГЕОМЕТРИЧЕСКОЙ ПАМЯТИ
-            if (hasGeometry && this.config.showGeometry) {
+           
+            // Рисуем точку в фото 2 - СИНЯЯ
+            if (triangle.photo2) {
+                ctx.fillStyle = 'rgba(0, 0, 255, 0.8)';
+                ctx.beginPath();
+                const tx = centerX + (triangle.photo2.x - avgX) * scale;
+                const ty = centerY + (triangle.photo2.y - avgY) * scale;
+                ctx.arc(tx, ty, 8, 0, Math.PI * 2);
+                ctx.fill();
                 ctx.fillStyle = '#000000';
-                ctx.font = 'bold 10px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('📐', x, y - size - 5);
+                ctx.font = 'bold 12px Arial';
+                ctx.fillText('Ф2', tx + 15, ty - 15);
             }
-          
-            // 🔥 ПОДПИСЬ ДЛЯ СТРУКТУРНЫХ УЗЛОВ
-            if (isStructural && !hasGeometry) {
+           
+            // Рисуем восстановленную точку - ФИОЛЕТОВАЯ
+            if (triangle.reconstructed) {
+                ctx.fillStyle = 'rgba(128, 0, 128, 0.8)';
+                ctx.beginPath();
+                const rx = centerX + (triangle.reconstructed.x - avgX) * scale;
+                const ry = centerY + (triangle.reconstructed.y - avgY) * scale;
+                ctx.arc(rx, ry, 8, 0, Math.PI * 2);
+                ctx.fill();
                 ctx.fillStyle = '#000000';
-                ctx.font = '8px Arial';
-                ctx.fillText('+', x, y - size - 2);
+                ctx.font = 'bold 12px Arial';
+                ctx.fillText('М', rx + 15, ry - 15);
             }
-          
-            drawnCount++;
-            if (isStructural) structuralCount++;
-            if (hasGeometry) geometryCount++;
         });
-      
-        console.log(`   ✅ Отрисовано: ${drawnCount} узлов`);
-        console.log(`      🆕 Структурных: ${structuralCount}`);
-        console.log(`      📐 С геометрией: ${geometryCount}`);
+       
+        ctx.setLineDash([]);
     }
-  
-    // 🔥 РИСОВАНИЕ РЁБЕР
-    drawTopologyEdges(ctx, topologyData, canvasWidth, canvasHeight) {
+
+    drawEdges(ctx, topologyData, minX, maxX, minY, maxY, centerX, centerY, scale) {
         const pointsMap = new Map();
         topologyData.points.forEach(point => {
-            if (point && point.id) pointsMap.set(point.id, point);
+            if (point && point.id) {
+                pointsMap.set(point.id, point);
+            }
         });
-      
-        const validPoints = topologyData.points.filter(p => p && p.x && p.y);
-        if (validPoints.length === 0) return;
-      
-        const { minX, maxX, minY, maxY } = this.calculateBounds(validPoints);
-        const scale = this.calculateScale(minX, maxX, minY, maxY, canvasWidth * 0.7, canvasHeight * 0.5);
-        const centerX = canvasWidth / 2;
-        const centerY = canvasHeight * 0.6;
-      
-        ctx.strokeStyle = this.config.pointColors.edgeColor;
-        ctx.lineWidth = 0.8;
-        ctx.globalAlpha = 0.25;
-      
-        let drawnEdges = 0;
+       
+        const avgX = (minX + maxX) / 2;
+        const avgY = (minY + maxY) / 2;
+       
+        ctx.strokeStyle = 'rgba(100, 100, 100, 0.2)';
+        ctx.lineWidth = 1;
+       
         topologyData.edges.forEach(edgeStr => {
-            const [aId, bId] = edgeStr.split('--');
-            const a = pointsMap.get(aId);
-            const b = pointsMap.get(bId);
-          
-            if (a && b && a.x && a.y && b.x && b.y) {
-                const x1 = centerX + (a.x - (minX + maxX) / 2) * scale;
-                const y1 = centerY + (a.y - (minY + maxY) / 2) * scale;
-                const x2 = centerX + (b.x - (minX + maxX) / 2) * scale;
-                const y2 = centerY + (b.y - (minY + maxY) / 2) * scale;
-              
+            const [nodeAId, nodeBId] = edgeStr.split('--');
+            const pointA = pointsMap.get(nodeAId);
+            const pointB = pointsMap.get(nodeBId);
+           
+            if (pointA && pointB) {
+                const x1 = centerX + (pointA.x - avgX) * scale;
+                const y1 = centerY + (pointA.y - avgY) * scale;
+                const x2 = centerX + (pointB.x - avgX) * scale;
+                const y2 = centerY + (pointB.y - avgY) * scale;
+               
                 ctx.beginPath();
                 ctx.moveTo(x1, y1);
                 ctx.lineTo(x2, y2);
                 ctx.stroke();
-                drawnEdges++;
             }
         });
-      
-        ctx.globalAlpha = 1.0;
-        console.log(`   🔗 Рёбер отрисовано: ${drawnEdges}`);
+       
+        console.log(`   🔗 Рёбер отрисовано: ${topologyData.edges.length}`);
     }
-  
-    // 🔥 ЛЕГЕНДА
-    drawTopologyLegend(ctx, canvasWidth, canvasHeight) {
+
+    drawNodes(ctx, points, minX, maxX, minY, maxY, centerX, centerY, scale) {
+        const validPoints = points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
+       
+        const avgX = (minX + maxX) / 2;
+        const avgY = (minY + maxY) / 2;
+       
+        // Сортируем: сначала обычные узлы, потом структурные (чтобы структурные были сверху)
+        const structuralNodes = validPoints.filter(p => p.addedFrom === 'structural_enhancement');
+        const originalNodes = validPoints.filter(p => p.addedFrom !== 'structural_enhancement');
+       
+        console.log(`   🖌 Отрисовка узлов:`);
+        console.log(`      Оригинальных: ${originalNodes.length}`);
+        console.log(`      Структурных: ${structuralNodes.length}`);
+       
+        // Рисуем оригинальные узлы
+        originalNodes.forEach(point => {
+            this.drawNode(ctx, point, avgX, avgY, centerX, centerY, scale, false);
+        });
+       
+        // Рисуем структурные узлы поверх
+        structuralNodes.forEach(point => {
+            this.drawNode(ctx, point, avgX, avgY, centerX, centerY, scale, true);
+        });
+    }
+
+    drawNode(ctx, point, avgX, avgY, centerX, centerY, scale, isStructural) {
+        const x = centerX + (point.x - avgX) * scale;
+        const y = centerY + (point.y - avgY) * scale;
+       
+        const confirmations = point.confirmationCount || 1;
+        let color, size;
+       
+        if (confirmations >= 4) {
+            color = '#FF0000'; // 🔴 Ядро
+            size = 12;
+        } else if (confirmations >= 3) {
+            color = '#FF6B00'; // 🟠 Стабильный
+            size = 10;
+        } else if (confirmations >= 2) {
+            color = '#FFC107'; // 🟡 Подтверждённый
+            size = 8;
+        } else {
+            color = '#2196F3'; // 🔵 Новый
+            size = 6;
+        }
+       
+        // Структурные узлы чуть меньше и с обводкой
+        if (isStructural) {
+            size = size * 0.9;
+        }
+       
+        // Внешний круг
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+       
+        // Обводка
+        ctx.strokeStyle = isStructural ? '#000000' : '#FFFFFF';
+        ctx.lineWidth = isStructural ? 2 : 1.5;
+        ctx.stroke();
+       
+        // Внутренний круг для подтверждений
+        if (confirmations >= 2) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.beginPath();
+            ctx.arc(x, y, size * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+           
+            ctx.fillStyle = color;
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(confirmations.toString(), x, y);
+        }
+       
+        // Плюсик для структурных узлов
+        if (isStructural) {
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('+', x, y - size - 5);
+        }
+    }
+
+    drawLegend(ctx, canvasWidth, canvasHeight) {
         const legendY = canvasHeight - 140;
         const startX = canvasWidth * 0.1;
         const columnWidth = canvasWidth * 0.2;
-      
-        // Фон
+       
+        // Фон легенды
         ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-        ctx.fillRect(startX - 10, legendY - 20, canvasWidth * 0.8, 120);
+        ctx.fillRect(startX - 10, legendY - 20, canvasWidth * 0.8, 130);
+       
         ctx.strokeStyle = '#DEE2E6';
         ctx.lineWidth = 2;
-        ctx.strokeRect(startX - 10, legendY - 20, canvasWidth * 0.8, 120);
-      
+        ctx.strokeRect(startX - 10, legendY - 20, canvasWidth * 0.8, 130);
+       
         // Заголовок
         ctx.fillStyle = '#212529';
         ctx.font = 'bold 16px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText('📋 ЛЕГЕНДА', startX, legendY);
-      
-        // Цвета
+        ctx.fillText('📋 ТОПОЛОГИЧЕСКАЯ ЛЕГЕНДА', startX, legendY);
+       
         const legendItems = [
-            { color: this.config.pointColors.core, text: '🔴 Ядра (4+)', desc: 'Непоколебимые' },
-            { color: this.config.pointColors.stable, text: '🟠 Стабильные (3)', desc: 'Уверенные' },
-            { color: this.config.pointColors.confirmed, text: '🟡 Подтверждённые (2)', desc: 'Рабочие' },
-            { color: this.config.pointColors.newish, text: '🔵 Новые (1)', desc: 'Сомнительные' },
-            { color: this.config.pointColors.fading, text: '⚪ Затухающие', desc: 'Почти исчезли' }
+            { color: '#FF0000', text: '🔴 Ядро (4+)', description: '3+ подтверждений, маяк' },
+            { color: '#FF6B00', text: '🟠 Стабильный (3)', description: '2 подтверждения' },
+            { color: '#FFC107', text: '🟡 Подтверждённый (2)', description: '1 подтверждение' },
+            { color: '#2196F3', text: '🔵 Новый (1)', description: 'Только появился' },
+            { color: '#800080', text: '🟣 Фото 2', description: 'Исходная позиция' },
+            { color: '#FF0000', text: '🔺 Треугольник', description: '3 опорные точки' }
         ];
-      
+       
         legendItems.forEach((item, index) => {
             const x = startX + (index % 3) * columnWidth;
-            const y = legendY + 20 + Math.floor(index / 3) * 40;
-          
-            // Точка
+            const y = legendY + 25 + Math.floor(index / 3) * 35;
+           
             ctx.fillStyle = item.color;
             ctx.beginPath();
-            ctx.arc(x + 15, y + 8, 6, 0, Math.PI * 2);
+            ctx.arc(x + 15, y, 6, 0, Math.PI * 2);
             ctx.fill();
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-          
-            // Текст
+           
             ctx.fillStyle = '#495057';
             ctx.font = '12px Arial';
             ctx.textAlign = 'left';
-            ctx.fillText(item.text, x + 35, y + 5);
+            ctx.fillText(item.text, x + 35, y - 2);
+           
             ctx.fillStyle = '#6C757D';
             ctx.font = '10px Arial';
-            ctx.fillText(item.desc, x + 35, y + 18);
+            ctx.fillText(item.description, x + 35, y + 15);
         });
-      
-        // Геометрическая память
-        ctx.fillStyle = '#212529';
-        ctx.font = '12px Arial';
-        ctx.fillText('📐 Геометрическая память', startX + columnWidth * 2 + 10, legendY + 70);
+       
+        // Дополнительная информация
         ctx.fillStyle = '#6C757D';
-        ctx.font = '10px Arial';
-        ctx.fillText('Инвариантные отношения', startX + columnWidth * 2 + 10, legendY + 85);
+        ctx.font = '11px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('➕ Структурный узел (восстановлен по триангуляции)', canvasWidth / 2, legendY + 100);
     }
-  
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+
     calculateBounds(points) {
-        const valid = points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
-        if (valid.length === 0) return { minX: 0, maxX: 100, minY: 0, maxY: 100 };
-      
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        valid.forEach(p => {
-            minX = Math.min(minX, p.x);
-            maxX = Math.max(maxX, p.x);
-            minY = Math.min(minY, p.y);
-            maxY = Math.max(maxY, p.y);
+        const validPoints = points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
+       
+        if (validPoints.length === 0) {
+            return { minX: 0, maxX: 100, minY: 0, maxY: 100 };
+        }
+       
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+       
+        validPoints.forEach(point => {
+            minX = Math.min(minX, point.x);
+            maxX = Math.max(maxX, point.x);
+            minY = Math.min(minY, point.y);
+            maxY = Math.max(maxY, point.y);
         });
-      
-        // Отступы
-        const pad = Math.max(maxX - minX, maxY - minY) * 0.1;
-        return {
-            minX: minX - pad,
-            maxX: maxX + pad,
-            minY: minY - pad,
-            maxY: maxY + pad
-        };
+       
+        // Добавляем отступы
+        const padding = Math.max(maxX - minX, maxY - minY) * 0.1;
+        minX -= padding;
+        maxX += padding;
+        minY -= padding;
+        maxY += padding;
+       
+        return { minX, maxX, minY, maxY };
     }
-  
+
     calculateScale(minX, maxX, minY, maxY, targetWidth, targetHeight) {
         const width = Math.max(1, maxX - minX);
         const height = Math.max(1, maxY - minY);
-        return Math.min(targetWidth / width, targetHeight / height, 3);
+       
+        const scaleX = targetWidth / width;
+        const scaleY = targetHeight / height;
+       
+        return Math.min(scaleX, scaleY, 3);
     }
-  
-    // 🔥 ТЕКСТОВЫЙ ОТЧЁТ
+
     createTopologyReport(topologyData, error = null) {
         const outputPath = path.join(this.config.outputDir, `topology_report_${Date.now()}.txt`);
-      
-        let report = `🏗️ ОТЧЁТ О ТОПОЛОГИЧЕСКОЙ МОДЕЛИ\n`;
-        report += `═`.repeat(60) + `\n\n`;
-      
-        if (error) report += `❌ ОШИБКА: ${error.message}\n\n`;
-      
-        if (topologyData) {
-            report += `📋 МОДЕЛЬ: ${topologyData.modelName || 'Неизвестная'}\n`;
-            report += `🆔 ID: ${topologyData.modelId || 'N/A'}\n`;
-            report += `📐 Метод: Геометрическая память\n\n`;
-          
-            if (topologyData.stats) {
-                const s = topologyData.stats;
-                report += `📊 СТАТИСТИКА:\n`;
-                report += `• Узлов: ${s.totalNodes}\n`;
-                report += `• Рёбер: ${s.totalEdges || 0}\n`;
-                report += `• 🔴 Ядра: ${s.core || 0}\n`;
-                report += `• 🟠 Стабильные: ${s.stable || 0}\n`;
-                report += `• 🟡 Подтверждённые: ${s.confirmed || 0}\n`;
-                report += `• 🔵 Новые: ${s.newish || 0}\n`;
-                report += `• ⚪ Затухающие: ${s.fading || 0}\n`;
-                report += `• 📐 Восстановлено: ${s.geometryRecovered || 0}\n\n`;
-            }
-          
-            report += `🎯 ФИЛОСОФИЯ:\n`;
-            report += `• Чистая топология (WL-подписи)\n`;
-            report += `• Геометрическая память (инвариантные отношения)\n`;
-            report += `• Динамическое доверие (затухание шума)\n`;
+       
+        let report = `🏗️ ОТЧЕТ О ТОПОЛОГИЧЕСКОЙ МОДЕЛИ\n`;
+        report += `═`.repeat(50) + `\n\n`;
+       
+        if (error) {
+            report += `❌ ОШИБКА: ${error.message}\n\n`;
         }
-      
+       
+        if (topologyData) {
+            report += `📋 ИНФОРМАЦИЯ О МОДЕЛИ:\n`;
+            report += `• Название: ${topologyData.modelName || 'Неизвестная'}\n`;
+            report += `• Узлов: ${topologyData.stats?.totalNodes || 0}\n`;
+            report += `• Рёбер: ${topologyData.stats?.totalEdges || 0}\n`;
+            report += `• Триангуляция: ${topologyData.stats?.triangulatedNodes || 0} узлов\n\n`;
+        }
+       
         fs.writeFileSync(outputPath, report, 'utf8');
-        return { path: outputPath, note: 'Текстовый отчёт', error: error?.message };
+       
+        return {
+            path: outputPath,
+            stats: topologyData?.stats || null,
+            note: 'Текстовый отчет'
+        };
     }
 }
 
