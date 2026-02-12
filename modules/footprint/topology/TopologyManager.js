@@ -11,7 +11,7 @@ class TopologyManager {
         this.debug = options.debug || false;
 
         // 🔥 ТОЛЬКО builder И accumulator! fingerprint ТОЛЬКО В АККУМУЛЯТОРЕ!
-        this.builder = new TopologyBuilder({ debug: this.debug });
+//        this.builder = new TopologyBuilder({ debug: this.debug });
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
             debug: this.debug,
