@@ -15,7 +15,7 @@ class TopologicalFingerprint {
             [7, 100]  // Очень высокая степень
         ];
        
-        // 🔥 НОВЫЙ ПАРАМЕТР: порог для структурного сходства
+        // 🔥 ПОРОГ ДЛЯ СТРУКТУРНОГО СХОДСТВА
         this.structuralSimilarityThreshold = options.structuralSimilarityThreshold || 0.8;
        
         console.log('🔷 ЧИСТЫЙ ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ (без координат)');
@@ -69,14 +69,17 @@ class TopologicalFingerprint {
             for (const [nodeId, node] of nodes) {
                 const neighbors = neighborMap.get(nodeId) || [];
                
+                // Собираем подписи соседей
                 const neighborSigs = [];
                 for (const neighborId of neighbors) {
                     const neighborSig = signatures.get(neighborId)?.current || 'NO_SIG';
                     neighborSigs.push(neighborSig);
                 }
                
+                // 🔥 СОРТИРУЕМ для инвариантности
                 neighborSigs.sort();
                
+                // Комбинируем с текущей подписью
                 const currentSig = signatures.get(nodeId).current;
                 const neighborSigStr = neighborSigs.length > 0 ?
                     neighborSigs.join('|') : 'NO_NEIGHBORS';
@@ -94,6 +97,7 @@ class TopologicalFingerprint {
                 });
             }
            
+            // Обновляем подписи
             for (const [nodeId, sig] of newSignatures) {
                 signatures.set(nodeId, sig);
             }
@@ -107,6 +111,7 @@ class TopologicalFingerprint {
         // 4. Финальные подписи
         const finalSignatures = new Map();
         for (const [nodeId, sig] of signatures) {
+            // 🔥 Используем последние 2 итерации для устойчивости
             const recentHistory = sig.history.slice(-2);
             const finalSig = this.hashString(recentHistory.join('::'));
            
@@ -121,6 +126,7 @@ class TopologicalFingerprint {
             });
         }
        
+        // Статистика
         const uniqueCount = new Set(Array.from(finalSignatures.values()).map(s => s.signature)).size;
         const bucketDistribution = this.calculateDistribution(finalSignatures);
        
@@ -129,6 +135,17 @@ class TopologicalFingerprint {
         console.log(`   Уникальных подписей: ${uniqueCount} (${(uniqueCount/finalSignatures.size*100).toFixed(1)}%)`);
         console.log(`   Распределение по степеням:`, bucketDistribution.degree);
        
+        if (this.debug && finalSignatures.size > 0) {
+            console.log(`\n📊 Примеры подписей (первые 3):`);
+            let count = 0;
+            for (const [nodeId, sig] of finalSignatures) {
+                if (count++ >= 3) break;
+                console.log(`   ${nodeId}: ${sig.signature.substring(0, 20)}...`);
+                console.log(`     Степень: ${sig.degree} (${sig.degreeBucket})`);
+                console.log(`     Соседи: ${sig.neighborCount}`);
+            }
+        }
+       
         return finalSignatures;
     }
    
@@ -136,16 +153,24 @@ class TopologicalFingerprint {
     buildNeighborMap(nodes, edges) {
         const neighborMap = new Map();
        
+        // Инициализируем для всех узлов
         for (const nodeId of nodes.keys()) {
             neighborMap.set(nodeId, []);
         }
        
+        // Заполняем связи
         for (const edge of edges) {
             const [nodeA, nodeB] = edge.split('--');
-            if (neighborMap.has(nodeA)) neighborMap.get(nodeA).push(nodeB);
-            if (neighborMap.has(nodeB)) neighborMap.get(nodeB).push(nodeA);
+           
+            if (neighborMap.has(nodeA)) {
+                neighborMap.get(nodeA).push(nodeB);
+            }
+            if (neighborMap.has(nodeB)) {
+                neighborMap.get(nodeB).push(nodeA);
+            }
         }
        
+        // Сортируем для детерминированности
         for (const neighbors of neighborMap.values()) {
             neighbors.sort();
         }
@@ -227,7 +252,7 @@ class TopologicalFingerprint {
         for (let i = 0; i < this.degreeBuckets.length; i++) {
             const [min, max] = this.degreeBuckets[i];
             if (degree >= min && degree <= max) {
-                return `B${i}`;
+                return `B${i}`; // B0, B1, B2, B3
             }
         }
         return 'B_OTHER';
@@ -237,23 +262,45 @@ class TopologicalFingerprint {
     compareGraphs(graph1, fingerprints1, graph2, fingerprints2) {
         console.log(`🔍 Сравниваю графы по ЧИСТОЙ ТОПОЛОГИИ...`);
        
+        // 1. Создаем обратные мапы
         const sigToNodes1 = new Map();
         const sigToNodes2 = new Map();
        
         for (const [nodeId, fp] of fingerprints1) {
-            if (!sigToNodes1.has(fp.signature)) sigToNodes1.set(fp.signature, []);
-            sigToNodes1.get(fp.signature).push({ nodeId, degree: fp.degree, degreeBucket: fp.degreeBucket });
+            if (!sigToNodes1.has(fp.signature)) {
+                sigToNodes1.set(fp.signature, []);
+            }
+            sigToNodes1.get(fp.signature).push({
+                nodeId,
+                degree: fp.degree,
+                degreeBucket: fp.degreeBucket,
+                neighborCount: fp.neighborCount,
+                localStructure: fp.localStructure,
+                from: 'graph1'
+            });
         }
        
         for (const [nodeId, fp] of fingerprints2) {
-            if (!sigToNodes2.has(fp.signature)) sigToNodes2.set(fp.signature, []);
-            sigToNodes2.get(fp.signature).push({ nodeId, degree: fp.degree, degreeBucket: fp.degreeBucket });
+            if (!sigToNodes2.has(fp.signature)) {
+                sigToNodes2.set(fp.signature, []);
+            }
+            sigToNodes2.get(fp.signature).push({
+                nodeId,
+                degree: fp.degree,
+                degreeBucket: fp.degreeBucket,
+                neighborCount: fp.neighborCount,
+                localStructure: fp.localStructure,
+                from: 'graph2'
+            });
         }
        
+        // 2. Находим точные совпадения
         const exactMatches = [];
         for (const [sig, nodes1] of sigToNodes1) {
             if (sigToNodes2.has(sig)) {
                 const nodes2 = sigToNodes2.get(sig);
+               
+                // Сопоставляем узлы один к одному
                 for (let i = 0; i < Math.min(nodes1.length, nodes2.length); i++) {
                     exactMatches.push({
                         node1: nodes1[i].nodeId,
@@ -261,17 +308,24 @@ class TopologicalFingerprint {
                         signature: sig,
                         confidence: 1.0,
                         degree: nodes1[i].degree,
-                        type: 'exact'
+                        type: 'exact',
+                        matchType: 'topological_identity'
                     });
                 }
             }
         }
        
+        // 3. Находим структурно похожие узлы
         const similarMatches = this.findSimilarNodes(fingerprints1, fingerprints2);
+       
+        // 4. Объединяем совпадения
         const allMatches = [...exactMatches, ...similarMatches];
        
+        // 5. Статистика
         const totalNodes1 = fingerprints1.size;
         const totalNodes2 = fingerprints2.size;
+       
+        // 🔥 ИСПРАВЛЕНИЕ: Считаем покрытие правильно
         const matchedNodes1 = new Set(allMatches.map(m => m.node1)).size;
         const matchedNodes2 = new Set(allMatches.map(m => m.node2)).size;
        
@@ -290,29 +344,36 @@ class TopologicalFingerprint {
         console.log(`   Сходство графа2: ${(matchRatio2 * 100).toFixed(1)}%`);
         console.log(`   Среднее сходство: ${(similarity * 100).toFixed(1)}%`);
        
+        // Детальная диагностика
+        if (this.debug && allMatches.length > 0) {
+            this.printMatchDetails(allMatches, exactMatches, similarMatches);
+        }
+       
         return {
-            similarity,
-            exactMatches,
-            similarMatches,
-            allMatches,
-            matchRatio1,
-            matchRatio2,
-            matchedNodes1,
-            matchedNodes2,
-            totalNodes1,
-            totalNodes2,
+            similarity: similarity,
+            exactMatches: exactMatches,
+            similarMatches: similarMatches,
+            allMatches: allMatches,
+            matchRatio1: matchRatio1,
+            matchRatio2: matchRatio2,
+            matchedNodes1: matchedNodes1,
+            matchedNodes2: matchedNodes2,
+            totalNodes1: totalNodes1,
+            totalNodes2: totalNodes2,
             method: 'pure_topological_structure'
         };
     }
    
-    // 🔥 МЕТОД 6: Поиск структурно похожих узлов
+    // 🔥 МЕТОД 6: Поиск структурно похожих узлов (ПОЛНАЯ ВЕРСИЯ)
     findSimilarNodes(fingerprints1, fingerprints2) {
         const similarMatches = [];
-        const usedNodes2 = new Set();
+        const usedNodes2 = new Set(); // Чтобы не использовать один узел дважды
        
+        // Преобразуем в массивы для сравнения
         const nodes1 = Array.from(fingerprints1.entries());
         const nodes2 = Array.from(fingerprints2.entries());
        
+        // Для каждого узла из первого графа ищем похожий во втором
         for (const [nodeId1, fp1] of nodes1) {
             let bestMatch = null;
             let bestSimilarity = 0;
@@ -320,18 +381,26 @@ class TopologicalFingerprint {
            
             for (const [nodeId2, fp2] of nodes2) {
                 if (usedNodes2.has(nodeId2)) continue;
+               
+                // 🔥 Проверяем базовое сходство перед детальным сравнением
                 if (fp1.degreeBucket !== fp2.degreeBucket) continue;
                
+                // Вычисляем структурное сходство
                 const similarity = this.computeStructuralSimilarity(fp1, fp2);
+               
                 if (similarity > bestSimilarity && similarity >= this.structuralSimilarityThreshold) {
                     bestSimilarity = similarity;
                     bestMatch = {
                         node1: nodeId1,
                         node2: nodeId2,
+                        signature1: fp1.signature,
+                        signature2: fp2.signature,
                         confidence: similarity,
                         degree: fp1.degree,
                         degreeBucket: fp1.degreeBucket,
-                        type: 'similar'
+                        type: 'similar',
+                        matchType: 'structural_similarity',
+                        similarityScore: similarity
                     };
                     bestNodeId2 = nodeId2;
                 }
@@ -339,7 +408,7 @@ class TopologicalFingerprint {
            
             if (bestMatch) {
                 similarMatches.push(bestMatch);
-                usedNodes2.add(bestNodeId2);
+                usedNodes2.add(bestNodeId2); // Помечаем узел как использованный
             }
         }
        
@@ -347,20 +416,62 @@ class TopologicalFingerprint {
         return similarMatches;
     }
    
-    // 🔥 МЕТОД 7: Вычисление структурного сходства
+    // 🔥 МЕТОД 7: Вычисление структурного сходства (ПОЛНАЯ ВЕРСИЯ С ВЕСАМИ)
     computeStructuralSimilarity(fp1, fp2) {
-        const struct1 = fp1.localStructure.split('_');
-        const struct2 = fp2.localStructure.split('_');
+        let similarity = 0;
        
-        const set1 = new Set(struct1);
-        const set2 = new Set(struct2);
+        // 1. Сравнение степени (вес 30%)
+        const degreeDiff = Math.abs(fp1.degree - fp2.degree);
+        const degreeSim = 1.0 - (degreeDiff / Math.max(fp1.degree, fp2.degree, 1));
+        similarity += degreeSim * 0.3;
        
-        let matches = 0;
-        for (const term of set1) {
-            if (set2.has(term)) matches++;
+        // 2. Сравнение группы степени (вес 20%)
+        if (fp1.degreeBucket === fp2.degreeBucket) {
+            similarity += 0.2;
         }
        
-        return matches / Math.max(set1.size, set2.size);
+        // 3. Сравнение количества соседей (вес 15%)
+        const neighborDiff = Math.abs(fp1.neighborCount - fp2.neighborCount);
+        const neighborSim = 1.0 - (neighborDiff / Math.max(fp1.neighborCount, fp2.neighborCount, 1));
+        similarity += neighborSim * 0.15;
+       
+        // 4. Сравнение локальной структуры (вес 35%)
+        if (fp1.localStructure && fp2.localStructure) {
+            const structureSim = this.computeLocalStructureSimilarity(fp1.localStructure, fp2.localStructure);
+            similarity += structureSim * 0.35;
+        }
+       
+        return similarity;
+    }
+   
+    // 🔥 МЕТОД 8: Сравнение локальных структур (ПОЛНАЯ ВЕРСИЯ С БОНУСАМИ)
+    computeLocalStructureSimilarity(struct1, struct2) {
+        const terms1 = struct1.split('_');
+        const terms2 = struct2.split('_');
+       
+        let matches = 0;
+        let total = Math.max(terms1.length, terms2.length);
+       
+        // Создаем множества для быстрого поиска
+        const set1 = new Set(terms1);
+        const set2 = new Set(terms2);
+       
+        // Считаем общие термины
+        for (const term of set1) {
+            if (set2.has(term)) {
+                matches++;
+            }
+        }
+       
+        // Особые случаи: если оба узла являются мостами, листьями или хабами
+        const specialCases = ['BRIDGE', 'CLIQUE', 'LEAF', 'HUB'];
+        for (const special of specialCases) {
+            if (set1.has(special) && set2.has(special)) {
+                matches += 2; // Бонус за особые структурные роли
+            }
+        }
+       
+        return matches / total;
     }
    
     // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
@@ -393,12 +504,15 @@ class TopologicalFingerprint {
                 console.log(`   ${idx+1}. ${match.node1} ↔ ${match.node2}`);
                 console.log(`      Уверенность: ${(match.confidence * 100).toFixed(1)}%`);
                 console.log(`      Степень: ${match.degree} (${match.degreeBucket})`);
+                console.log(`      Сходство: ${(match.similarityScore * 100).toFixed(1)}%`);
             });
         }
     }
    
     hashString(str) {
-        if (this.hashCache.has(str)) return this.hashCache.get(str);
+        if (this.hashCache.has(str)) {
+            return this.hashCache.get(str);
+        }
        
         let hash = 0;
         for (let i = 0; i < str.length; i++) {
@@ -409,12 +523,14 @@ class TopologicalFingerprint {
        
         const result = Math.abs(hash).toString(16).padStart(12, '0');
         this.hashCache.set(str, result);
+       
         return result;
     }
    
     getFingerprintInfo(fingerprints) {
         const degrees = Array.from(fingerprints.values()).map(fp => fp.degree);
         const signatures = Array.from(fingerprints.values()).map(fp => fp.signature);
+       
         const uniqueSignatures = new Set(signatures);
         const distribution = this.calculateDistribution(fingerprints);
        
@@ -430,6 +546,7 @@ class TopologicalFingerprint {
         };
     }
    
+    // 🔥 МЕТОД: Визуализация совпадений
     visualizeMatches(comparisonResult, limit = 10) {
         console.log(`\n🔷 ВИЗУАЛИЗАЦИЯ СОВПАДЕНИЙ:`);
         console.log(`═`.repeat(60));
