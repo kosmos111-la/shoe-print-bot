@@ -172,8 +172,7 @@ class TopologyManager {
         };
 
         for (const [nodeId, node] of graph.nodes) {
-            const confirmations = node.confirmationCount ||
-                                 (node.addedFrom ? 1 : 0);
+            const confirmations = node.confirmationCount || 0;
 
             let color, size, confirmationLevel;
 
