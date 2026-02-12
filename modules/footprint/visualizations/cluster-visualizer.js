@@ -208,7 +208,7 @@ class ClusterVisualizer {
             const vizData = point.vizData || {};
             const color = vizData.color || this.config.pointColors.confirmed0;
             const size = vizData.size || 6;
-            const confirmations = vizData.confirmations || 0;
+            const confirmations = point.confirmationCount || 0;
            
             // Внешний круг
             ctx.fillStyle = color;
