@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ + ТРИАНГУЛЯЦИЯ
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ + ГЕОМЕТРИЧЕСКИЙ КОНТЕКСТ
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
@@ -30,24 +30,37 @@ class TopologyManager {
         this.linkedFootprints = new Map();
 
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
-        console.log(`   🔺 Триангуляция: активна`);
+        console.log(`   📐 Геометрический контекст: активен`);
+        console.log(`   🔺 Голосование по 4 методам восстановления`);
     }
 
+    // 🔥 ГЛАВНЫЙ МЕТОД: Обработка следов из SimpleFootprint
     async processFootprint(footprint, analysis, photoInfo = {}) {
         console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoInfo.photoId || 'без ID'}...`);
 
+        // Извлекаем точки ТОЛЬКО из текущего фото
         const points = this.extractPointsFromCurrentPhoto(analysis, photoInfo);
 
         if (points.length < 3) {
+            console.log('⚠️ Слишком мало точек для топологии');
             return {
                 success: false,
-                error: 'Недостаточно точек',
+                error: 'Недостаточно точек для топологической обработки',
                 points: points.length
             };
         }
 
         console.log(`📊 Извлечено ${points.length} точек ИЗ ТЕКУЩЕГО ФОТО`);
 
+        // Диагностика точек
+        if (this.debug && points.length > 0) {
+            console.log(`📋 Первые 3 точки текущего фото:`);
+            points.slice(0, 3).forEach((p, i) => {
+                console.log(`   ${i+1}. ${p.id}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+            });
+        }
+
+        // Определяем модель для сравнения
         let modelId = this.linkedFootprints.get(footprint.id);
         if (!modelId && this.accumulator.currentModelId) {
             modelId = this.accumulator.currentModelId;
@@ -55,6 +68,7 @@ class TopologyManager {
             console.log(`🔗 Связал след ${footprint.id} с моделью ${modelId}`);
         }
 
+        // Обрабатываем точки через топологический аккумулятор
         const result = await this.accumulator.processPoints(points, {
             modelId: modelId,
             source: `photo_${photoInfo.photoId || Date.now()}`,
@@ -64,11 +78,13 @@ class TopologyManager {
             photoId: photoInfo.photoId
         });
 
+        // Обновляем связь след-модель
         if (result.modelId && result.modelId !== modelId) {
             this.linkedFootprints.set(footprint.id, result.modelId);
             console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
         }
 
+        // Получаем обновленную информацию о модели
         const modelInfo = this.accumulator.getModelInfo(result.modelId);
 
         return {
@@ -82,10 +98,14 @@ class TopologyManager {
         };
     }
 
+    // 🔥 ИЗВЛЕЧЕНИЕ ТОЧЕК ИЗ ТЕКУЩЕГО ФОТО
     extractPointsFromCurrentPhoto(analysis, photoInfo = {}) {
         const points = [];
 
-        if (!analysis?.predictions) return points;
+        if (!analysis?.predictions) {
+            console.log('⚠️ Нет данных анализа для извлечения точек');
+            return points;
+        }
 
         const photoId = photoInfo.photoId || `photo_${Date.now()}`;
         const predictions = analysis.predictions || [];
@@ -114,39 +134,61 @@ class TopologyManager {
         return points;
     }
 
+    // 🔥 ПОЛУЧЕНИЕ РЕШЕНИЯ ИЗ РЕЗУЛЬТАТА
     getDecisionFromResult(result) {
         if (!result) return 'unknown';
-        if (result.status === 'created') return 'new_footprint';
-        if (result.status === 'enhanced') return 'same_footprint_enhanced';
-        if (result.similarity >= 0.6) return 'same_footprint';
-        return 'different_footprint';
+
+        if (result.status === 'created') {
+            return 'new_footprint';
+        } else if (result.status === 'enhanced') {
+            return 'same_footprint_enhanced';
+        } else if (result.similarity >= 0.6) {
+            return 'same_footprint';
+        } else {
+            return 'different_footprint';
+        }
     }
 
-    // 🔥 ВИЗУАЛИЗАЦИЯ С ТРИАНГУЛЯЦИЕЙ
+    // 🔥🔥🔥 ВИЗУАЛИЗАЦИЯ МОДЕЛИ С ГЕОМЕТРИЧЕСКИМ КОНТЕКСТОМ
     getAccumulativeVisualizationData(modelId = null) {
         const targetModelId = modelId || this.accumulator.currentModelId;
-        if (!targetModelId) return null;
+
+        if (!targetModelId) {
+            console.log('⚠️ Нет активной топологической модели');
+            return null;
+        }
 
         const model = this.accumulator.models.get(targetModelId);
         if (!model) return null;
 
         const graph = model.graph;
+        const fingerprints = model.fingerprints;
 
         console.log(`📊 Визуализация модели ${targetModelId}:`);
         console.log(`   Всего узлов: ${graph.nodes.size}`);
 
+        // Статистика по геометрическому контексту
+        const geometryContexts = this.accumulator.geometryContext?.contexts || new Map();
+       
         const nodeInfoArray = [];
         const confirmationStats = { 0: 0, 1: 0, 2: 0, 3: 0 };
         let triangulatedNodes = 0;
+        let geometryContextNodes = 0;
+        let beaconTriangles = 0;
 
         for (const [nodeId, node] of graph.nodes) {
+            // Подсчет подтверждений
             const confirmations = node.confirmationCount ||
                                  (node.addedAt ? 1 : 0);
-
             confirmationStats[confirmations] = (confirmationStats[confirmations] || 0) + 1;
            
-            if (node.addedFrom === 'triangulation') triangulatedNodes++;
+            // Подсчет узлов восстановленных через геометрию
+            if (node.addedFrom === 'geometry_context') {
+                triangulatedNodes++;
+                geometryContextNodes++;
+            }
 
+            // Гарантируем наличие координат
             if (!node.x || !node.y) {
                 if (node.originalData?.x && node.originalData?.y) {
                     node.x = node.originalData.x;
@@ -154,6 +196,7 @@ class TopologyManager {
                 } else {
                     node.x = Math.random() * 800 + 100;
                     node.y = Math.random() * 500 + 100;
+                    console.log(`⚠️ Узел ${nodeId} не имеет координат, созданы случайные`);
                 }
             }
 
@@ -164,30 +207,54 @@ class TopologyManager {
             });
         }
 
+        // Статистика по геометрическим контекстам
+        for (const context of geometryContexts.values()) {
+            if (context.global?.beaconTriangles?.length > 0) {
+                beaconTriangles += context.global.beaconTriangles.length;
+            }
+        }
+
+        console.log(`   Узлов с геометрическим контекстом: ${geometryContexts.size}`);
+        console.log(`   Треугольников с маяками: ${beaconTriangles}`);
+
+        // Группировка по подтверждениям
         const pointsByConfirmation = {
-            confirmed3: [], confirmed2: [], confirmed1: [], confirmed0: []
+            confirmed3: [], // 3+ подтверждений (маяки)
+            confirmed2: [], // 2 подтверждения (стабильные)
+            confirmed1: [], // 1 подтверждение (новые)
+            confirmed0: []  // 0 подтверждений (предсказанные)
         };
 
         for (const info of nodeInfoArray) {
             const node = info.node;
             const confirmations = info.confirmations;
 
+            // Определяем цвет и размер по количеству подтверждений
             let color, size, level;
 
             if (confirmations >= 3) {
-                color = '#FF0000'; size = 10; level = 'confirmed3';
+                color = '#FF0000'; // 🔴 Маяки
+                size = 10 + (node.confidence || 0.5) * 4;
+                level = 'confirmed3';
                 pointsByConfirmation.confirmed3.push(node);
             } else if (confirmations >= 2) {
-                color = '#FF6B00'; size = 8; level = 'confirmed2';
+                color = '#FF6B00'; // 🟠 Стабильные
+                size = 8 + (node.confidence || 0.5) * 3;
+                level = 'confirmed2';
                 pointsByConfirmation.confirmed2.push(node);
             } else if (confirmations >= 1) {
-                color = '#2196F3'; size = 6; level = 'confirmed1';
+                color = '#2196F3'; // 🔵 Новые
+                size = 6 + (node.confidence || 0.5) * 2;
+                level = 'confirmed1';
                 pointsByConfirmation.confirmed1.push(node);
             } else {
-                color = '#BDBDBD'; size = 4; level = 'confirmed0';
+                color = '#BDBDBD'; // ⚪ Предсказанные
+                size = 4;
+                level = 'confirmed0';
                 pointsByConfirmation.confirmed0.push(node);
             }
 
+            // Добавляем информацию для визуализации
             node.vizData = {
                 color: color,
                 size: size,
@@ -195,11 +262,15 @@ class TopologyManager {
                 confirmations: confirmations,
                 degree: node.degree,
                 source: node.addedFrom || 'original',
-                isTriangulated: node.addedFrom === 'triangulation',
+                placementMethod: node.placementMethod || node.addedFrom,
+                placementConfidence: node.placementConfidence || 0.5,
+                isTriangulated: node.addedFrom === 'geometry_context',
+                hasGeometryContext: geometryContexts.has(node.originalId || node.id),
                 id: nodeId
             };
         }
 
+        // Статистика модели
         const stats = {
             totalNodes: graph.nodes.size,
             totalEdges: graph.edges.size,
@@ -209,16 +280,20 @@ class TopologyManager {
             confirmed1: pointsByConfirmation.confirmed1.length,
             confirmed0: pointsByConfirmation.confirmed0.length,
             triangulatedNodes: triangulatedNodes,
-            uniquenessRatio: model.fingerprints ?
-                this.fingerprinter.getFingerprintInfo(model.fingerprints).uniquenessRatio : 0
+            geometryContexts: geometryContexts.size,
+            beaconTriangles: beaconTriangles,
+            uniquenessRatio: fingerprints ?
+                this.fingerprinter.getFingerprintInfo(fingerprints).uniquenessRatio : 0
         };
 
-        console.log(`📊 Статистика:`);
-        console.log(`   🔴 3+ подтверждений: ${stats.confirmed3}`);
-        console.log(`   🟠 2 подтверждения: ${stats.confirmed2}`);
-        console.log(`   🔵 1 подтверждение: ${stats.confirmed1}`);
-        console.log(`   ⚪ Новые узлы: ${stats.confirmed0}`);
-        console.log(`   🔺 Триангуляция: ${stats.triangulatedNodes}`);
+        console.log(`📊 СТАТИСТИКА МОДЕЛИ:`);
+        console.log(`   🔴 Маяки (3+): ${stats.confirmed3}`);
+        console.log(`   🟠 Стабильные (2): ${stats.confirmed2}`);
+        console.log(`   🔵 Новые (1): ${stats.confirmed1}`);
+        console.log(`   ⚪ Предсказанные (0): ${stats.confirmed0}`);
+        console.log(`   📐 Геометрический контекст: ${stats.geometryContexts}`);
+        console.log(`   🔺 Треугольников с маяками: ${stats.beaconTriangles}`);
+        console.log(`   🎯 Уникальность подписей: ${(stats.uniquenessRatio * 100).toFixed(1)}%`);
 
         return {
             modelId: targetModelId,
@@ -228,32 +303,47 @@ class TopologyManager {
             stats: stats,
             pointsByConfirmation: pointsByConfirmation,
             metadata: model.metadata,
+            geometryContexts: {
+                total: geometryContexts.size,
+                withBeacons: beaconTriangles > 0 ? geometryContexts.size : 0
+            },
             isTopological: true,
-            visualizationMethod: 'topology_with_triangulation'
+            visualizationMethod: 'topology_with_geometry_context'
         };
     }
 
+    // 🔥 СРАВНЕНИЕ ДВУХ СЛЕДОВ (ДЛЯ СОВМЕСТИМОСТИ)
     async compareFootprints(footprint1, footprint2, options = {}) {
-        console.log(`🔍 СРАВНЕНИЕ СЛЕДОВ: "${footprint1.name}" vs "${footprint2.name}"`);
+        console.log(`🔍 ТОПОЛОГИЧЕСКОЕ СРАВНЕНИЕ: "${footprint1.name}" vs "${footprint2.name}"`);
 
+        console.log('⚠️ ВНИМАНИЕ: compareFootprints использует ВСЕ точки следов');
+
+        // Извлекаем точки из обоих следов
         const points1 = this.extractPointsFromFootprint(footprint1);
         const points2 = this.extractPointsFromFootprint(footprint2);
+
+        console.log(`📊 Точки для сравнения:`);
+        console.log(`   ${footprint1.name}: ${points1.length} точек`);
+        console.log(`   ${footprint2.name}: ${points2.length} точек`);
 
         if (points1.length < 3 || points2.length < 3) {
             return {
                 similar: false,
                 similarity: 0,
                 decision: 'different',
-                reason: 'Недостаточно точек'
+                reason: 'Недостаточно точек для сравнения'
             };
         }
 
+        // Строим графы Делоне
         const graph1 = this.builder.buildDelaunayGraph(points1, footprint1.name);
         const graph2 = this.builder.buildDelaunayGraph(points2, footprint2.name);
 
+        // Вычисляем WL-подписи
         const fingerprints1 = this.fingerprinter.computeGraphFingerprints(graph1);
         const fingerprints2 = this.fingerprinter.computeGraphFingerprints(graph2);
 
+        // Сравниваем по подписям
         const comparison = this.fingerprinter.compareGraphs(
             graph1, fingerprints1,
             graph2, fingerprints2
@@ -262,16 +352,28 @@ class TopologyManager {
         const isSame = comparison.similarity >= (options.threshold || 0.6);
         const decision = isSame ? 'same' : 'different';
 
+        console.log(`🎯 ТОПОЛОГИЧЕСКОЕ РЕШЕНИЕ:`);
+        console.log(`   Сходство: ${(comparison.similarity * 100).toFixed(1)}%`);
+        console.log(`   Решение: ${decision.toUpperCase()}`);
+        console.log(`   Точных совпадений: ${comparison.exactMatches?.length || 0}`);
+
         return {
             similar: isSame,
             similarity: comparison.similarity,
             decision: decision,
             exactMatches: comparison.exactMatches || [],
             stats: comparison,
-            method: 'topological_comparison'
+            method: 'topological_delaunay_wl',
+            graphs: {
+                nodes1: graph1.nodes.size,
+                edges1: graph1.edges.size,
+                nodes2: graph2.nodes.size,
+                edges2: graph2.edges.size
+            }
         };
     }
 
+    // 🔥 ИЗВЛЕЧЕНИЕ ТОЧЕК ИЗ СЛЕДА (ДЛЯ СОВМЕСТИМОСТИ)
     extractPointsFromFootprint(footprint) {
         const points = [];
 
@@ -282,7 +384,8 @@ class TopologyManager {
                     x: point.x,
                     y: point.y,
                     confidence: point.rating || point.confidence || 0.5,
-                    source: 'footprint'
+                    source: 'footprint',
+                    footprintId: footprint.id
                 });
             }
         }
@@ -290,19 +393,92 @@ class TopologyManager {
         return points;
     }
 
+    // 🔥 СРАВНЕНИЕ ФОТО С МОДЕЛЬЮ
+    async comparePhotoToModel(analysis, modelId = null, options = {}) {
+        console.log(`🔍 СРАВНЕНИЕ ФОТО С МОДЕЛЬЮ ${modelId || 'любой'}`);
+
+        const points = this.extractPointsFromCurrentPhoto(analysis, options.photoInfo || {});
+
+        if (points.length < 3) {
+            return {
+                similar: false,
+                similarity: 0,
+                decision: 'different',
+                reason: 'Недостаточно точек на фото'
+            };
+        }
+
+        const photoGraph = this.builder.buildDelaunayGraph(points, 'current_photo');
+        const photoFingerprints = this.fingerprinter.computeGraphFingerprints(photoGraph);
+
+        const targetModelId = modelId || this.accumulator.currentModelId;
+
+        if (!targetModelId) {
+            return {
+                similar: false,
+                similarity: 0,
+                decision: 'different',
+                reason: 'Нет топологической модели для сравнения'
+            };
+        }
+
+        const model = this.accumulator.models.get(targetModelId);
+        if (!model) {
+            return {
+                similar: false,
+                similarity: 0,
+                decision: 'different',
+                reason: 'Топологическая модель не найдена'
+            };
+        }
+
+        const comparison = this.fingerprinter.compareGraphs(
+            model.graph, model.fingerprints,
+            photoGraph, photoFingerprints
+        );
+
+        const isSame = comparison.similarity >= (options.threshold || this.accumulator.similarityThreshold);
+        const decision = isSame ? 'same' : 'different';
+
+        return {
+            similar: isSame,
+            similarity: comparison.similarity,
+            decision: decision,
+            exactMatches: comparison.exactMatches || [],
+            stats: comparison,
+            photoStats: {
+                points: points.length,
+                nodes: photoGraph.nodes.size,
+                edges: photoGraph.edges.size
+            },
+            modelStats: {
+                nodes: model.graph.nodes.size,
+                edges: model.graph.edges.size,
+                modelId: targetModelId,
+                beacons: this.accumulator.geometryContext?.getBeacons(model.graph).length || 0
+            }
+        };
+    }
+
+    // 🔥 ПОЛУЧИТЬ ИНФОРМАЦИЮ О ВСЕХ МОДЕЛЯХ
     getUserModelsInfo() {
         return this.accumulator.getStats();
     }
 
+    // 🔥 ОЧИСТИТЬ ВСЕ МОДЕЛИ
     clearUserModels() {
         this.accumulator.models.clear();
         this.accumulator.currentModelId = null;
         this.linkedFootprints.clear();
-        return { success: true, message: 'Модели очищены' };
+       
+        console.log(`🧹 Очищены все топологические модели пользователя ${this.userId}`);
+        return { success: true, message: 'Топологические модели очищены' };
     }
 
+    // 🔥 ЭКСПОРТ МОДЕЛЕЙ
     exportUserModels() {
         const models = [];
+
         for (const [modelId, model] of this.accumulator.models) {
             models.push(this.accumulator.exportModel(modelId));
         }
@@ -312,32 +488,61 @@ class TopologyManager {
             models: models,
             linkedFootprints: Array.from(this.linkedFootprints.entries()),
             exportedAt: new Date().toISOString(),
-            version: '2.0-triangulation'
+            version: '3.0-geometry-context',
+            philosophy: 'topology_with_geometry_context'
         };
     }
 
+    // 🔥 ИМПОРТ МОДЕЛЕЙ
     importUserModels(data) {
         if (!data || !data.models || !Array.isArray(data.models)) {
-            return { success: false, error: 'Неверный формат' };
+            return { success: false, error: 'Неверный формат данных' };
         }
 
         let importedCount = 0;
+
         for (const modelData of data.models) {
             if (this.accumulator.importModel(modelData)) {
                 importedCount++;
             }
         }
 
-        if (data.linkedFootprints) {
+        if (data.linkedFootprints && Array.isArray(data.linkedFootprints)) {
             data.linkedFootprints.forEach(([footprintId, modelId]) => {
                 this.linkedFootprints.set(footprintId, modelId);
             });
         }
 
+        console.log(`📥 Импортировано ${importedCount} топологических моделей`);
         return {
             success: true,
             importedCount: importedCount,
             totalModels: this.accumulator.models.size
+        };
+    }
+
+    // 🔥 ПОЛУЧИТЬ ГЕОМЕТРИЧЕСКИЙ КОНТЕКСТ ДЛЯ ОТЛАДКИ
+    getGeometryContextStats(modelId = null) {
+        const targetModelId = modelId || this.accumulator.currentModelId;
+       
+        if (!targetModelId || !this.accumulator.models.has(targetModelId)) {
+            return { error: 'Model not found' };
+        }
+
+        const model = this.accumulator.models.get(targetModelId);
+        const beacons = this.accumulator.geometryContext?.getBeacons(model.graph) || [];
+        const contexts = this.accumulator.geometryContext?.contexts || new Map();
+
+        return {
+            modelId: targetModelId,
+            beacons: beacons.length,
+            contexts: contexts.size,
+            contextsWithBeacons: Array.from(contexts.values()).filter(c =>
+                c.global?.beaconTriangles?.length > 0
+            ).length,
+            beaconTriangles: Array.from(contexts.values()).reduce((sum, c) =>
+                sum + (c.global?.beaconTriangles?.length || 0), 0
+            )
         };
     }
 }
