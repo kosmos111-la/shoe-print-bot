@@ -1,26 +1,20 @@
 // modules/footprint/topology/TopologicalFingerprint.js
-// 🎯 ЧИСТАЯ ТОПОЛОГИЯ - ТОЛЬКО СТРУКТУРА ГРАФА (ПОЛНАЯ ВЕРСИЯ)
+// 🎯 ЧИСТАЯ ТОПОЛОГИЯ - ТОЛЬКО СТРУКТУРА ГРАФА (ФИНАЛЬНАЯ ВЕРСИЯ)
 
 class TopologicalFingerprint {
     constructor(options = {}) {
-    this.iterations = options.iterations || 3;
-    this.debug = options.debug || false;
-    this.hashCache = new Map();
-   
-    // 🔥 РАСШИРЕННЫЕ БАКЕТЫ - теперь разные степени попадают в одну группу!
-    this.degreeBuckets = [
-        [0, 2],   // B0: изолированные и листья (0-2)
-        [3, 5],   // B1: низкая степень (3-5) ✅ расширили
-        [6, 8],   // B2: средняя степень (6-8) ✅ расширили
-        [9, 12],  // B3: высокая степень (9-12) ✅ новые
-        [13, 100] // B4: очень высокая степень (13+) ✅ новые
-    ];
-   
-    this.structuralSimilarityThreshold = options.structuralSimilarityThreshold || 0.8;
-   
-    console.log('🔷 ЧИСТЫЙ ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ (расширенные бакеты)');
-    console.log(`   Порог сходства: ${this.structuralSimilarityThreshold}`);
-}
+        this.iterations = options.iterations || 3;
+        this.debug = options.debug || false;
+        this.hashCache = new Map();
+       
+        // 🔥 ТОЛЬКО ТОПОЛОГИЧЕСКИЕ ПАРАМЕТРЫ
+        this.degreeBuckets = [
+            [0, 2],   // B0: изолированные и листья
+            [3, 5],   // B1: низкая степень
+            [6, 8],   // B2: средняя степень
+            [9, 12],  // B3: высокая степень
+            [13, 100] // B4: очень высокая степень
+        ];
        
         // 🔥 ПОРОГ ДЛЯ СТРУКТУРНОГО СХОДСТВА
         this.structuralSimilarityThreshold = options.structuralSimilarityThreshold || 0.8;
@@ -254,16 +248,16 @@ class TopologicalFingerprint {
         return features.join('_');
     }
    
-    // 🔥 МЕТОД 4: Группировка степеней
+    // 🔥 МЕТОД 4: Группировка степеней (РАСШИРЕННАЯ)
     getDegreeBucket(degree) {
-    for (let i = 0; i < this.degreeBuckets.length; i++) {
-        const [min, max] = this.degreeBuckets[i];
-        if (degree >= min && degree <= max) {
-            return `B${i}`; // B0, B1, B2, B3, B4
+        for (let i = 0; i < this.degreeBuckets.length; i++) {
+            const [min, max] = this.degreeBuckets[i];
+            if (degree >= min && degree <= max) {
+                return `B${i}`; // B0, B1, B2, B3, B4
+            }
         }
+        return 'B4';
     }
-    return 'B4'; // все, что выше 13 - в B4
-}
    
     // 🔥 МЕТОД 5: Сравнение графов (ГЛАВНЫЙ МЕТОД)
     compareGraphs(graph1, fingerprints1, graph2, fingerprints2) {
