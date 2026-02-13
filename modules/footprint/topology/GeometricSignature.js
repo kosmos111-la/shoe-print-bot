@@ -1,41 +1,53 @@
 // modules/footprint/topology/GeometricSignature.js
-// 🎯 ИДЕНТИФИКАЦИЯ ТОЧЕК ПО ПЕРЕСЕЧЕНИЮ СОСЕДЕЙ (БЕЗ ПРИВЯЗКИ К ID)
+// 🎯 ТОПОЛОГИЧЕСКАЯ ПАМЯТЬ - ТОЛЬКО ИНВАРИАНТНЫЕ ПРИЗНАКИ
 
 class GeometricSignature {
     constructor(options = {}) {
         this.debug = options.debug || false;
        
-        // Хранилище сигнатур: modelNodeId -> { neighbors, zone, confidence }
+        // Хранилище сигнатур: modelNodeId -> { degree, triangleCount, roles, zone }
         this.signatures = new Map();
        
-        // Связи "одна точка → много точек" (кластеры)
-        this.clusters = new Map(); // originalNodeId -> [childNodeIds]
+        // Кластеры: modelNodeId -> [childNodeIds]
+        this.clusters = new Map();
        
-        // Кэш для быстрого поиска по пересечению
+        // Индекс по зонам для быстрого поиска
         this.zoneIndex = {
             'HEEL': new Map(),
             'CENTER': new Map(),
             'TOE': new Map()
         };
        
-        console.log('🎯 GeometricSignature создана (идентификация по соседям)');
+        // Статистика
+        this.stats = {
+            totalIdentified: 0,
+            totalClusters: 0,
+            totalClusterMembers: 0
+        };
+       
+        console.log('🎯 GeometricSignature создана (топологическая память)');
+        console.log('   ✅ Признаки: степень, треугольники, роли (инвариантны)');
     }
 
     // 🔥 ЗАПОМНИТЬ ТОЧКУ ПРИ ПЕРВОМ ПОЯВЛЕНИИ
     remember(nodeId, node, neighbors, graph) {
-        // Получаем ID ВСЕХ соседей (не только те, что в маппинге!)
-        const neighborIds = neighbors.map(n => n.id || n);
+        // 1. Степень (количество соседей)
+        const degree = neighbors.length;
        
-        // Сортируем для детерминированности
-        neighborIds.sort();
+        // 2. Количество треугольников среди соседей
+        const triangleCount = this.countTriangles(neighbors, graph);
+       
+        // 3. Роль точки
+        const roles = this.determineRoles(node, neighbors, graph);
        
         const zone = this.getZone(node.y);
        
         const signature = {
             nodeId,
-            neighbors: neighborIds,
-            neighborCount: neighborIds.length,
-            zone: zone,
+            degree,
+            triangleCount,
+            roles,
+            zone,
             firstSeen: Date.now(),
             lastSeen: Date.now(),
             confidence: 1.0,
@@ -43,64 +55,66 @@ class GeometricSignature {
         };
 
         this.signatures.set(nodeId, signature);
-       
-        // Индексируем по зоне для быстрого поиска
         this.zoneIndex[zone].set(nodeId, signature);
 
         if (this.debug) {
-            console.log(`   🎯 Запомнена сигнатура ${nodeId.substring(0, 20)}...`);
-            console.log(`      Соседей: ${neighborIds.length}, зона: ${zone}`);
+            console.log(`   🎯 Запомнена точка ${nodeId.substring(0, 20)}...`);
+            console.log(`      Степень: ${degree}, треугольников: ${triangleCount}`);
+            console.log(`      Роли: ${Object.entries(roles).filter(([_,v]) => v).map(([k]) => k).join(', ')}`);
+            console.log(`      Зона: ${zone}`);
         }
 
         return true;
     }
 
-    // 🔥 НАЙТИ ТОЧКУ ПО ПЕРЕСЕЧЕНИЮ СОСЕДЕЙ (БЕЗ ID!)
-    identify(node, neighbors, modelGraph) {
+    // 🔥 НАЙТИ ТОЧКУ ПО ТОПОЛОГИЧЕСКИМ ПРИЗНАКАМ
+    identify(node, neighbors, graph) {
         const currentNode = {
-            neighbors: neighbors.map(n => n.id || n),
-            zone: this.getZone(node.y)
+            id: node.id,
+            y: node.y,
+            degree: neighbors.length,
+            triangleCount: this.countTriangles(neighbors, graph),
+            roles: this.determineRoles(node, neighbors, graph)
         };
+       
+        const currentZone = this.getZone(node.y);
+       
+        if (this.debug) {
+            console.log(`\n   🔍 Идентификация точки ${node.id.substring(0, 20)}...`);
+            console.log(`      Зона: ${currentZone}`);
+            console.log(`      Текущие признаки: степень=${currentNode.degree}, треугольников=${currentNode.triangleCount}`);
+        }
 
         let bestMatch = null;
         let bestScore = 0;
-        let bestOverlap = 0;
         let candidates = 0;
 
-        // 🔥🔥🔥 Ищем ТОЛЬКО в той же зоне!
-        const zoneSignatures = this.zoneIndex[currentNode.zone];
+        // Ищем ТОЛЬКО в той же зоне
+        const zoneSignatures = this.zoneIndex[currentZone];
        
         for (const [candidateId, sig] of zoneSignatures) {
             candidates++;
            
-            // Вычисляем пересечение множеств соседей
-            const overlap = this.jaccardIndex(
-                new Set(currentNode.neighbors),
-                new Set(sig.neighbors)
+            // Вычисляем сходство
+            const similarity = this.computeTopologicalSimilarity(
+                currentNode,
+                sig
             );
 
-            // Вычисляем уверенность
-            const confidence = this.computeConfidence(
-                overlap,
-                sig.neighborCount,
-                currentNode.neighbors.length
-            );
-
-            if (confidence > bestScore) {
-                bestScore = confidence;
-                bestOverlap = overlap;
+            if (similarity > bestScore) {
+                bestScore = similarity;
                 bestMatch = {
-                    nodeId: candidateId,  // ID из МОДЕЛИ!
-                    confidence: confidence,
-                    overlap: overlap,
-                    expectedNeighbors: sig.neighborCount,
-                    actualNeighbors: currentNode.neighbors.length
+                    nodeId: candidateId,
+                    confidence: similarity,
+                    degree: sig.degree,
+                    triangleCount: sig.triangleCount,
+                    roles: sig.roles
                 };
             }
         }
 
-        if (bestMatch && bestMatch.confidence > 0.3) {
-            // Обновляем статистику
+        // Порог 40% - достаточно для кластеризации
+        if (bestMatch && bestMatch.confidence > 0.4) {
             const sig = this.signatures.get(bestMatch.nodeId);
             if (sig) {
                 sig.lastSeen = Date.now();
@@ -109,67 +123,150 @@ class GeometricSignature {
             }
 
             if (this.debug) {
-                console.log(`   ✅ Идентифицирована точка из зоны ${currentNode.zone}`);
+                console.log(`   ✅ ИДЕНТИФИЦИРОВАНА:`);
                 console.log(`      → Модель: ${bestMatch.nodeId.substring(0, 20)}...`);
-                console.log(`      Пересечение: ${(bestMatch.overlap * 100).toFixed(1)}%`);
                 console.log(`      Уверенность: ${(bestMatch.confidence * 100).toFixed(1)}%`);
                 console.log(`      Просмотрено кандидатов: ${candidates}`);
+               
+                // Детали сравнения
+                console.log(`      Степень: ${currentNode.degree} vs ${bestMatch.degree} (${(Math.min(currentNode.degree, bestMatch.degree) / Math.max(currentNode.degree, bestMatch.degree) * 100).toFixed(0)}%)`);
+                console.log(`      Треугольники: ${currentNode.triangleCount} vs ${bestMatch.triangleCount}`);
+                console.log(`      Роли: ${Object.entries(bestMatch.roles).filter(([_,v]) => v).map(([k]) => k).join(', ')}`);
             }
 
+            // Проверяем, не является ли это кластером
+            if (currentNode.degree < bestMatch.degree * 0.7) {
+                // Текущая точка имеет значительно меньше соседей
+                // Значит, это детализация кластера!
+                this.registerCluster(bestMatch.nodeId, node.id);
+            }
+
+            this.stats.totalIdentified++;
             return bestMatch;
         }
 
-        if (this.debug && candidates > 0) {
-            console.log(`   ❌ НЕ идентифицирована точка из зоны ${currentNode.zone}`);
-            console.log(`      Просмотрено кандидатов: ${candidates}, лучший балл: ${(bestScore * 100).toFixed(1)}%`);
+        if (this.debug) {
+            console.log(`   ❌ НЕ ИДЕНТИФИЦИРОВАНА (лучший балл: ${(bestScore * 100).toFixed(1)}%)`);
         }
 
         return null;
     }
 
-    // 🔥 ВЫЧИСЛИТЬ УВЕРЕННОСТЬ
-    computeConfidence(overlap, expectedNeighbors, actualNeighbors) {
-        // 1. Базовый коэффициент - само пересечение
-        let confidence = overlap * 0.5;
+    // 🔥 ВЫЧИСЛИТЬ ТОПОЛОГИЧЕСКОЕ СХОДСТВО
+    computeTopologicalSimilarity(current, memory) {
+        let score = 0;
+        let totalWeight = 0;
+
+        // 1. Степень (вес 40%) - с учётом возможной детализации
+        const degreeRatio = Math.min(current.degree, memory.degree) /
+                            Math.max(current.degree, memory.degree);
+        score += degreeRatio * 0.4;
+        totalWeight += 0.4;
+
+        // 2. Треугольники (вес 30%) - пропорционально
+        const triangleRatio = Math.min(current.triangleCount, memory.triangleCount) /
+                              Math.max(current.triangleCount, memory.triangleCount, 1);
+        score += triangleRatio * 0.3;
+        totalWeight += 0.3;
+
+        // 3. Роли (вес 30%) - каждая роль даёт вклад
+        let roleScore = 0;
+        let roleCount = 0;
        
-        // 2. Если у нас МЕНЬШЕ соседей, чем ожидалось (детализация кластера)
-        if (actualNeighbors < expectedNeighbors && actualNeighbors > 0) {
-            // Мы видим часть кластера - добавляем бонус
-            const ratio = actualNeighbors / expectedNeighbors;
-            confidence += ratio * 0.3;
+        const roles = ['isBridge', 'isLeaf', 'isHub', 'isClique'];
+        for (const role of roles) {
+            if (current.roles[role] === memory.roles[role]) {
+                roleScore += 1;
+            }
+            roleCount++;
         }
        
-        // 3. Если мы видим МНОГО общих соседей - отлично!
-        if (overlap > 0.3) {
-            confidence += 0.2;
+        score += (roleScore / roleCount) * 0.3;
+        totalWeight += 0.3;
+
+        return score / totalWeight;
+    }
+
+    // 🔥 ПОДСЧЁТ ТРЕУГОЛЬНИКОВ СРЕДИ СОСЕДЕЙ
+    countTriangles(neighbors, graph) {
+        let count = 0;
+       
+        // Создаём множество ID соседей для быстрого поиска
+        const neighborIds = new Set(neighbors.map(n => n.id));
+       
+        // Для каждой пары соседей проверяем, связаны ли они
+        for (let i = 0; i < neighbors.length; i++) {
+            for (let j = i + 1; j < neighbors.length; j++) {
+                const a = neighbors[i];
+                const b = neighbors[j];
+               
+                // Проверяем, есть ли ребро между a и b
+                if (this.areConnected(a, b, graph)) {
+                    count++;
+                }
+            }
         }
        
-        return Math.min(0.95, confidence);
+        return count;
     }
 
-    // 🔥 ОБРАБОТКА КЛАСТЕРА (одна точка → много точек)
-    registerCluster(originalNodeId, childNodeIds) {
-        this.clusters.set(originalNodeId, childNodeIds);
+    // 🔥 ПРОВЕРКА СВЯЗИ МЕЖДУ ДВУМЯ ТОЧКАМИ
+    areConnected(nodeA, nodeB, graph) {
+        const edgeId = [nodeA.id, nodeB.id].sort().join('--');
+        return graph.edges.has(edgeId);
+    }
+
+    // 🔥 ОПРЕДЕЛЕНИЕ РОЛЕЙ ТОЧКИ
+    determineRoles(node, neighbors, graph) {
+        const degree = neighbors.length;
        
-        if (this.debug) {
-            console.log(`   🎯 Зарегистрирован кластер:`);
-            console.log(`      Голова: ${originalNodeId.substring(0, 20)}... → ${childNodeIds.length} точек`);
+        const roles = {
+            isBridge: false,
+            isLeaf: degree === 1,
+            isHub: degree >= 6,
+            isClique: false
+        };
+
+        // Проверка на мост (точка с 2 соседями, которые не связаны)
+        if (degree === 2) {
+            const [a, b] = neighbors;
+            roles.isBridge = !this.areConnected(a, b, graph);
         }
+
+        // Проверка на клику (все соседи связаны между собой)
+        if (degree >= 3) {
+            let allConnected = true;
+            for (let i = 0; i < neighbors.length && allConnected; i++) {
+                for (let j = i + 1; j < neighbors.length && allConnected; j++) {
+                    if (!this.areConnected(neighbors[i], neighbors[j], graph)) {
+                        allConnected = false;
+                    }
+                }
+            }
+            roles.isClique = allConnected;
+        }
+
+        return roles;
     }
 
-    // 🔥 ПОЛУЧИТЬ ДЕТЕЙ КЛАСТЕРА
-    getClusterChildren(originalNodeId) {
-        return this.clusters.get(originalNodeId) || [];
-    }
-
-    // 🔥 ЯВЛЯЕТСЯ ЛИ ТОЧКА ГОЛОВОЙ КЛАСТЕРА?
-    isClusterHead(nodeId) {
-        const sig = this.signatures.get(nodeId);
-        if (!sig) return false;
+    // 🔥 РЕГИСТРАЦИЯ КЛАСТЕРА
+    registerCluster(headNodeId, childNodeId) {
+        if (!this.clusters.has(headNodeId)) {
+            this.clusters.set(headNodeId, []);
+            this.stats.totalClusters++;
+        }
        
-        // Точка с >10 соседями - потенциальная голова кластера
-        // ИЛИ точка, у которой уже есть дети в кластере
-        return sig.neighborCount >= 10 || this.clusters.has(nodeId);
+        const members = this.clusters.get(headNodeId);
+        if (!members.includes(childNodeId)) {
+            members.push(childNodeId);
+            this.stats.totalClusterMembers++;
+           
+            if (this.debug) {
+                console.log(`   🎯 Кластер ${headNodeId.substring(0, 20)}... → +1 точка (всего ${members.length})`);
+            }
+        }
+       
+        return members.length;
     }
 
     // 🔥 ОПРЕДЕЛИТЬ ЗОНУ ПО Y
@@ -179,49 +276,25 @@ class GeometricSignature {
         return 'CENTER';
     }
 
-    // 🔥 ИНДЕКС ЖАККАРА (ПЕРЕСЕЧЕНИЕ / ОБЪЕДИНЕНИЕ)
-    jaccardIndex(setA, setB) {
-        if (setA.size === 0 && setB.size === 0) return 1.0;
-        if (setA.size === 0 || setB.size === 0) return 0.0;
-       
-        const intersection = new Set([...setA].filter(x => setB.has(x)));
-        const union = new Set([...setA, ...setB]);
-       
-        return intersection.size / union.size;
-    }
-
     // 🔥 ПОЛУЧИТЬ СТАТИСТИКУ
     getStats() {
-        let totalClusters = 0;
-        let totalClusterChildren = 0;
-        let totalConfidence = 0;
-       
-        for (const sig of this.signatures.values()) {
-            totalConfidence += sig.confidence;
-        }
-       
-        for (const [head, children] of this.clusters) {
-            totalClusters++;
-            totalClusterChildren += children.length;
-        }
-       
         const zoneStats = {
             HEEL: this.zoneIndex.HEEL.size,
             CENTER: this.zoneIndex.CENTER.size,
             TOE: this.zoneIndex.TOE.size
         };
        
+        let totalClusterMembers = 0;
+        for (const members of this.clusters.values()) {
+            totalClusterMembers += members.length;
+        }
+       
         return {
             totalSignatures: this.signatures.size,
-            totalClusters,
-            totalClusterChildren,
-            avgConfidence: this.signatures.size > 0 ? totalConfidence / this.signatures.size : 0,
-            zoneStats,
-            indexStats: {
-                HEEL: this.zoneIndex.HEEL.size,
-                CENTER: this.zoneIndex.CENTER.size,
-                TOE: this.zoneIndex.TOE.size
-            }
+            totalClusters: this.clusters.size,
+            totalClusterMembers,
+            totalIdentified: this.stats.totalIdentified,
+            zoneStats
         };
     }
 
@@ -233,7 +306,6 @@ class GeometricSignature {
         for (const [nodeId, sig] of this.signatures) {
             if (now - sig.lastSeen > maxAge) {
                 this.signatures.delete(nodeId);
-                // Удаляем из индекса
                 this.zoneIndex[sig.zone].delete(nodeId);
                 removed++;
             }
@@ -246,6 +318,26 @@ class GeometricSignature {
         return removed;
     }
 
+    // 🔥 ОТЛАДОЧНАЯ ИНФОРМАЦИЯ
+    debugInfo() {
+        console.log(`\n📊 СТАТИСТИКА GeometricSignature:`);
+        console.log(`   Всего сигнатур: ${this.signatures.size}`);
+        console.log(`   Кластеров: ${this.clusters.size}`);
+        console.log(`   Идентифицировано всего: ${this.stats.totalIdentified}`);
+       
+        console.log(`\n   Распределение по зонам:`);
+        console.log(`      ПЯТКА: ${this.zoneIndex.HEEL.size} точек`);
+        console.log(`      ЦЕНТР: ${this.zoneIndex.CENTER.size} точек`);
+        console.log(`      НОСОК: ${this.zoneIndex.TOE.size} точек`);
+       
+        if (this.clusters.size > 0) {
+            console.log(`\n   Кластеры:`);
+            for (const [headId, members] of this.clusters) {
+                console.log(`      ${headId.substring(0, 20)}... → ${members.length} точек`);
+            }
+        }
+    }
+
     // 🔥 ЭКСПОРТ
     export() {
         return {
@@ -255,7 +347,8 @@ class GeometricSignature {
                 HEEL: Array.from(this.zoneIndex.HEEL.keys()),
                 CENTER: Array.from(this.zoneIndex.CENTER.keys()),
                 TOE: Array.from(this.zoneIndex.TOE.keys())
-            }
+            },
+            stats: this.stats
         };
     }
 
@@ -274,28 +367,12 @@ class GeometricSignature {
             this.clusters = new Map(data.clusters);
         }
        
-        console.log(`📥 Импортировано ${this.signatures.size} сигнатур, ${this.clusters.size} кластеров`);
-        const stats = this.getStats();
-        console.log(`   Зоны: ПЯТКА=${stats.zoneStats.HEEL}, ЦЕНТР=${stats.zoneStats.CENTER}, НОСОК=${stats.zoneStats.TOE}`);
-    }
-
-    // 🔥 ОТЛАДОЧНЫЙ МЕТОД - показать распределение по зонам
-    debugZones() {
-        console.log(`\n📊 РАСПРЕДЕЛЕНИЕ СИГНАТУР ПО ЗОНАМ:`);
-        console.log(`   ПЯТКА: ${this.zoneIndex.HEEL.size} точек`);
-        console.log(`   ЦЕНТР: ${this.zoneIndex.CENTER.size} точек`);
-        console.log(`   НОСОК: ${this.zoneIndex.TOE.size} точек`);
-       
-        // Показать примеры из каждой зоны
-        for (const zone of ['HEEL', 'CENTER', 'TOE']) {
-            const samples = Array.from(this.zoneIndex[zone].values()).slice(0, 3);
-            if (samples.length > 0) {
-                console.log(`\n   Примеры из ${zone}:`);
-                samples.forEach(sig => {
-                    console.log(`      ${sig.nodeId.substring(0, 20)}... соседей: ${sig.neighborCount}, уверенность: ${(sig.confidence * 100).toFixed(0)}%`);
-                });
-            }
+        if (data.stats) {
+            this.stats = data.stats;
         }
+       
+        console.log(`📥 Импортировано ${this.signatures.size} сигнатур, ${this.clusters.size} кластеров`);
+        this.debugInfo();
     }
 }
 
