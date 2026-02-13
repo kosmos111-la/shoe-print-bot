@@ -1,29 +1,29 @@
 // modules/footprint/topology/SubgraphIsomorphism.js
-// 🔥 ЖЕСТКАЯ ИДЕНТИФИКАЦИЯ: одна точка модели = одна точка в фото (или ничего)
+// 🔥 АДАПТИВНАЯ ГЛУБИНА: сначала depth=2, если нет - depth=1
 
 class SubgraphIsomorphism {
     constructor(options = {}) {
         this.debug = options.debug || false;
-        this.maxDepth = options.maxDepth || 2; // Глубина окрестности
+        this.maxDepth = options.maxDepth || 2; // Максимальная глубина
         this.cache = new Map(); // Кеш результатов проверки
         this.cacheHits = 0;
         this.cacheMisses = 0;
        
-        // 🔥 ЖЕСТКИЕ ПОРОГИ
-        this.minMatchRatio = options.minMatchRatio || 0.9; // Минимум 90% узлов должны совпасть
-        this.requireRootMatch = true; // Корневой узел ОБЯЗАТЕЛЬНО должен совпасть
-        this.maxDegreeDiff = options.maxDegreeDiff || 1; // Максимальная разница в степени (строго)
+        // 🔥 ПОРОГИ ДЛЯ РАЗНОЙ ГЛУБИНЫ
+        this.thresholds = {
+            2: { minMatchRatio: 0.85, maxDegreeDiff: 2, maxSizeDiff: 2 }, // depth=2 - более мягкий
+            1: { minMatchRatio: 0.95, maxDegreeDiff: 1, maxSizeDiff: 1 }  // depth=1 - очень строгий
+        };
        
-        console.log('🔷 SubgraphIsomorphism создан (ЖЕСТКАЯ идентификация)');
-        console.log(`   Глубина: ${this.maxDepth}, кеш активен`);
-        console.log(`   Правило: одна точка = одна точка, совпадение ≥${this.minMatchRatio*100}%`);
+        console.log('🔷 SubgraphIsomorphism создан (АДАПТИВНАЯ глубина)');
+        console.log(`   Глубина: сначала 2, если нет - 1`);
+        console.log(`   Пороги: depth=2 ≥85%, depth=1 ≥95%`);
     }
 
-    // ==================== ОСНОВНОЙ МЕТОД ====================
+    // ==================== ОСНОВНОЙ МЕТОД С АДАПТИВНОЙ ГЛУБИНОЙ ====================
 
-    checkIsomorphism(nodeA, graphA, nodeB, graphB, depth = null) {
-        const checkDepth = depth || this.maxDepth;
-        const cacheKey = `${nodeA.id}|${nodeB.id}|${checkDepth}`;
+    checkIsomorphism(nodeA, graphA, nodeB, graphB) {
+        const cacheKey = `${nodeA.id}|${nodeB.id}`;
        
         // Проверяем кеш
         if (this.cache.has(cacheKey)) {
@@ -33,30 +33,58 @@ class SubgraphIsomorphism {
         this.cacheMisses++;
 
         if (this.debug) {
-            console.log(`\n   🔍 Жесткая проверка изоморфизма:`);
+            console.log(`\n   🔍 Адаптивная проверка изоморфизма:`);
             console.log(`      A: ${nodeA.id.substring(0, 20)}... (степень ${nodeA.degree || '?'})`);
             console.log(`      B: ${nodeB.id.substring(0, 20)}... (степень ${nodeB.degree || '?'})`);
         }
 
+        // ШАГ 1: Пробуем depth = 2 (максимальная глубина)
+        if (this.checkWithDepth(nodeA, graphA, nodeB, graphB, 2)) {
+            if (this.debug) console.log(`   ✅ НАЙДЕНО на глубине 2`);
+            this.cache.set(cacheKey, true);
+            return true;
+        }
+
+        // ШАГ 2: Если не получилось, пробуем depth = 1 (только прямые соседи)
+        if (this.checkWithDepth(nodeA, graphA, nodeB, graphB, 1)) {
+            if (this.debug) console.log(`   ✅ НАЙДЕНО на глубине 1`);
+            this.cache.set(cacheKey, true);
+            return true;
+        }
+
+        // ШАГ 3: Не нашли ни на какой глубине
+        if (this.debug) console.log(`   ❌ НЕ НАЙДЕНО ни на какой глубине`);
+        this.cache.set(cacheKey, false);
+        return false;
+    }
+
+    // ==================== ПРОВЕРКА С ЗАДАННОЙ ГЛУБИНОЙ ====================
+
+    checkWithDepth(nodeA, graphA, nodeB, graphB, depth) {
+        const threshold = this.thresholds[depth];
+        if (!threshold) return false;
+
+        if (this.debug) {
+            console.log(`      Попытка depth=${depth}...`);
+        }
+
         // ШАГ 1: Быстрая проверка степени корня
-        if (Math.abs(nodeA.degree - nodeB.degree) > this.maxDegreeDiff) {
-            if (this.debug) console.log(`   ❌ Степени корня слишком разные: ${nodeA.degree} vs ${nodeB.degree}`);
-            this.cache.set(cacheKey, false);
+        if (Math.abs(nodeA.degree - nodeB.degree) > threshold.maxDegreeDiff) {
+            if (this.debug) console.log(`      ❌ Степени корня слишком разные: ${nodeA.degree} vs ${nodeB.degree}`);
             return false;
         }
 
         // ШАГ 2: Извлекаем подграфы
-        const subgraphA = this.extractSubgraph(nodeA, graphA, checkDepth);
-        const subgraphB = this.extractSubgraph(nodeB, graphB, checkDepth);
+        const subgraphA = this.extractSubgraph(nodeA, graphA, depth);
+        const subgraphB = this.extractSubgraph(nodeB, graphB, depth);
 
         if (this.debug) {
             console.log(`      Подграф A: ${subgraphA.nodes.size} узлов, ${subgraphA.edges.size} рёбер`);
             console.log(`      Подграф B: ${subgraphB.nodes.size} узлов, ${subgraphB.edges.size} рёбер`);
         }
 
-        // ШАГ 3: Жесткие проверки
-        if (!this.strictChecks(subgraphA, subgraphB)) {
-            this.cache.set(cacheKey, false);
+        // ШАГ 3: Проверки для данной глубины
+        if (!this.depthSpecificChecks(subgraphA, subgraphB, threshold)) {
             return false;
         }
 
@@ -64,33 +92,54 @@ class SubgraphIsomorphism {
         const mapping = this.findExactIsomorphism(subgraphA, subgraphB);
        
         if (!mapping) {
-            if (this.debug) console.log(`   ❌ Точного изоморфизма не найдено`);
-            this.cache.set(cacheKey, false);
+            if (this.debug) console.log(`      ❌ Точного изоморфизма не найдено`);
             return false;
         }
 
         // ШАГ 5: Проверка качества совпадения
         const matchQuality = this.checkMappingQuality(mapping, subgraphA, subgraphB);
        
-        // 🔥 ЖЕСТКОЕ УСЛОВИЕ: корневой узел должен совпасть
+        // 🔥 Корневой узел должен совпасть обязательно
         if (!mapping.has(subgraphA.rootId)) {
-            if (this.debug) console.log(`   ❌ Корневой узел не совпал`);
-            this.cache.set(cacheKey, false);
+            if (this.debug) console.log(`      ❌ Корневой узел не совпал`);
             return false;
         }
 
-        // 🔥 Совпадение должно быть высоким
-        if (matchQuality < this.minMatchRatio) {
-            if (this.debug) console.log(`   ❌ Качество совпадения太低: ${(matchQuality*100).toFixed(1)}% < ${this.minMatchRatio*100}%`);
-            this.cache.set(cacheKey, false);
+        if (matchQuality < threshold.minMatchRatio) {
+            if (this.debug) console.log(`      ❌ Качество совпадения: ${(matchQuality*100).toFixed(1)}% < ${threshold.minMatchRatio*100}%`);
             return false;
         }
 
         if (this.debug) {
-            console.log(`   ✅ ТОЧНОЕ СОВПАДЕНИЕ! Качество: ${(matchQuality*100).toFixed(1)}%`);
+            console.log(`      ✅ Качество совпадения: ${(matchQuality*100).toFixed(1)}%`);
         }
        
-        this.cache.set(cacheKey, true);
+        return true;
+    }
+
+    // ==================== ПРОВЕРКИ ДЛЯ КОНКРЕТНОЙ ГЛУБИНЫ ====================
+
+    depthSpecificChecks(subA, subB, threshold) {
+        // 1. Проверка размера
+        const sizeDiff = Math.abs(subA.nodes.size - subB.nodes.size);
+        if (sizeDiff > threshold.maxSizeDiff) {
+            if (this.debug) console.log(`      ❌ Размеры слишком разные: ${subA.nodes.size} vs ${subB.nodes.size}`);
+            return false;
+        }
+       
+        // 2. Проверка распределения степеней
+        const histA = this.getDegreeHistogram(subA);
+        const histB = this.getDegreeHistogram(subB);
+       
+        for (let deg = 0; deg <= 20; deg++) {
+            const countA = histA[deg] || 0;
+            const countB = histB[deg] || 0;
+            if (Math.abs(countA - countB) > 2) { // Допускаем небольшие расхождения
+                if (this.debug) console.log(`      ❌ Разное распределение степеней для deg=${deg}: ${countA} vs ${countB}`);
+                return false;
+            }
+        }
+       
         return true;
     }
 
@@ -166,47 +215,6 @@ class SubgraphIsomorphism {
         };
     }
 
-    // ==================== ЖЕСТКИЕ ПРОВЕРКИ ====================
-
-    strictChecks(subA, subB) {
-        // 1. Размер должен совпадать точно (или почти точно)
-        const sizeDiff = Math.abs(subA.nodes.size - subB.nodes.size);
-        if (sizeDiff > 1) { // Допускаем разницу максимум в 1 узел
-            if (this.debug) console.log(`   ❌ Размеры слишком разные: ${subA.nodes.size} vs ${subB.nodes.size}`);
-            return false;
-        }
-       
-        // 2. Количество рёбер должно совпадать примерно
-        const edgeDiff = Math.abs(subA.edges.size - subB.edges.size);
-        if (edgeDiff > 2) { // Допускаем разницу в 2 ребра
-            if (this.debug) console.log(`   ❌ Рёбер слишком разное количество: ${subA.edges.size} vs ${subB.edges.size}`);
-            return false;
-        }
-       
-        // 3. Распределение степеней должно совпадать (гистограмма)
-        const histA = this.getDegreeHistogram(subA);
-        const histB = this.getDegreeHistogram(subB);
-       
-        for (let deg = 0; deg <= 20; deg++) {
-            const countA = histA[deg] || 0;
-            const countB = histB[deg] || 0;
-            if (Math.abs(countA - countB) > 1) { // Допускаем разницу в 1
-                if (this.debug) console.log(`   ❌ Разное распределение степеней для deg=${deg}: ${countA} vs ${countB}`);
-                return false;
-            }
-        }
-       
-        return true;
-    }
-
-    getDegreeHistogram(subgraph) {
-        const hist = {};
-        for (const node of subgraph.nodes.values()) {
-            hist[node.degree] = (hist[node.degree] || 0) + 1;
-        }
-        return hist;
-    }
-
     // ==================== ТОЧНЫЙ ИЗОМОРФИЗМ ====================
 
     findExactIsomorphism(subA, subB) {
@@ -224,9 +232,9 @@ class SubgraphIsomorphism {
         const rootA = subA.nodes.get(subA.rootId);
         let rootB = null;
        
-        // Ищем корневой узел в B с той же степенью
+        // Ищем корневой узел в B с похожей степенью
         for (const nodeB of nodesB) {
-            if (nodeB.degree === rootA.degree) {
+            if (Math.abs(nodeB.degree - rootA.degree) <= 1) { // Допускаем разницу в 1
                 rootB = nodeB;
                 mapping.set(rootA.id, nodeB.id);
                 usedB.add(nodeB.id);
@@ -235,7 +243,6 @@ class SubgraphIsomorphism {
         }
        
         if (!rootB) {
-            if (this.debug) console.log(`   ❌ Не найден корневой узел в B с той же степенью`);
             return null;
         }
        
@@ -264,8 +271,8 @@ class SubgraphIsomorphism {
             // Пропускаем уже использованные
             if (usedB.has(nodeB.id)) continue;
            
-            // Степени должны совпадать
-            if (nodeA.degree !== nodeB.degree) continue;
+            // Степени должны быть близки
+            if (Math.abs(nodeA.degree - nodeB.degree) > 1) continue;
            
             // Проверяем совместимость с уже сопоставленными соседями
             if (!this.isCompatible(nodeA, nodeB, mapping, subA, subB)) continue;
@@ -353,6 +360,14 @@ class SubgraphIsomorphism {
         return neighbors;
     }
 
+    getDegreeHistogram(subgraph) {
+        const hist = {};
+        for (const node of subgraph.nodes.values()) {
+            hist[node.degree] = (hist[node.degree] || 0) + 1;
+        }
+        return hist;
+    }
+
     // ==================== СТАТИСТИКА ====================
 
     getStats() {
@@ -363,11 +378,7 @@ class SubgraphIsomorphism {
             hitRate: this.cacheHits + this.cacheMisses > 0
                 ? (this.cacheHits / (this.cacheHits + this.cacheMisses) * 100).toFixed(1) + '%'
                 : '0%',
-            thresholds: {
-                minMatchRatio: this.minMatchRatio,
-                maxDegreeDiff: this.maxDegreeDiff,
-                requireRootMatch: this.requireRootMatch
-            }
+            thresholds: this.thresholds
         };
     }
 
