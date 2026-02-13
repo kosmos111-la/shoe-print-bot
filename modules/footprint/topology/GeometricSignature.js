@@ -1,6 +1,5 @@
 // modules/footprint/topology/GeometricSignature.js
-// 🎯 ДВУХУРОВНЕВАЯ ТОПОЛОГИЧЕСКАЯ ИДЕНТИФИКАЦИЯ (WL + Геометрия связей)
-// 🔥 С ИНТЕГРАЦИЕЙ SUBGRAPH ISOMORPHISM ДЛЯ 100% ТОЧНОСТИ
+// 🎯 ДВУХУРОВНЕВАЯ ТОПОЛОГИЧЕСКАЯ ИДЕНТИФИКАЦИЯ + ОПОРНЫЕ ТОЧКИ
 
 const SubgraphIsomorphism = require('./SubgraphIsomorphism');
 
@@ -8,11 +7,14 @@ class GeometricSignature {
     constructor(options = {}) {
         this.debug = options.debug || false;
        
-        // Хранилище сигнатур: modelNodeId -> { wlSignature, degree, triangleCount, roles, neighbors }
+        // Хранилище сигнатур: modelNodeId -> { degree, triangleCount, roles, neighbors }
         this.signatures = new Map();
        
         // Кластеры: modelNodeId -> [childNodeIds]
         this.clusters = new Map();
+       
+        // 🔥 ОПОРНЫЕ ТОЧКИ (надежно идентифицированные)
+        this.anchorPoints = new Map(); // modelNodeId -> { nodeId, confidence, verificationCount }
        
         // Индекс по ролям для быстрого поиска
         this.roleIndex = {
@@ -26,7 +28,7 @@ class GeometricSignature {
         // 🔥 Subgraph Isomorphism для точной идентификации
         this.subgraphChecker = new SubgraphIsomorphism({
             debug: this.debug,
-            maxDepth: 2  // Глубина 2 даёт отличную точность
+            maxDepth: 2
         });
        
         // Статистика
@@ -35,13 +37,15 @@ class GeometricSignature {
             totalCandidates: 0,
             totalRejected: 0,
             totalClusters: 0,
-            totalClusterMembers: 0
+            totalClusterMembers: 0,
+            totalAnchors: 0,
+            verifiedByAnchors: 0
         };
        
-        console.log('🎯 GeometricSignature создана (двухуровневая идентификация)');
+        console.log('🎯 GeometricSignature создана (с опорными точками)');
         console.log('   ✅ Уровень 1: Индекс по ролям (быстрый поиск)');
-        console.log('   ✅ Уровень 2: Subgraph Isomorphism (100% точность)');
-        console.log(`   🔍 SubgraphIsomorphism: глубина ${this.subgraphChecker.maxDepth}, кеш активен`);
+        console.log('   ✅ Уровень 2: Subgraph Isomorphism');
+        console.log('   🔥 Уровень 3: Верификация опорными точками');
     }
 
     // ==================== ОСНОВНАЯ ИДЕНТИФИКАЦИЯ ====================
@@ -53,77 +57,225 @@ class GeometricSignature {
             console.log(`\n   🔍 Идентификация точки ${node.id.substring(0, 20)}...`);
         }
        
-        // ШАГ 1: Быстрый поиск по ролям (для оптимизации)
+        // ШАГ 1: Быстрый поиск по ролям
         const roles = this.determineRoles(node, neighbors, currentGraph);
+        let candidates = this.findCandidatesByRole(roles);
+       
+        if (this.debug) {
+            console.log(`      Кандидатов по ролям: ${candidates.length}`);
+        }
+       
+        if (candidates.length === 0) return null;
+       
+        // ШАГ 2: Оцениваем каждого кандидата
+        const evaluatedCandidates = [];
+       
+        for (const candidate of candidates) {
+            const candidateNode = modelGraph.nodes.get(candidate.nodeId);
+            if (!candidateNode) continue;
+           
+            // Топологическая оценка (Subgraph Isomorphism)
+            const topologyScore = this.evaluateTopology(
+                node, neighbors, currentGraph,
+                candidateNode, modelGraph
+            );
+           
+            // Оценка по опорным точкам (если есть)
+            const anchorScore = this.evaluateAnchors(
+                node, currentGraph,
+                candidateNode, modelGraph
+            );
+           
+            // Комбинированная оценка
+            const finalScore = this.combineScores(topologyScore, anchorScore);
+           
+            if (finalScore > 0) {
+                evaluatedCandidates.push({
+                    nodeId: candidate.nodeId,
+                    topologyScore,
+                    anchorScore,
+                    finalScore,
+                    node: candidateNode
+                });
+            }
+        }
+       
+        // ШАГ 3: Выбираем лучшего
+        if (evaluatedCandidates.length === 0) {
+            this.stats.totalRejected++;
+            return null;
+        }
+       
+        evaluatedCandidates.sort((a, b) => b.finalScore - a.finalScore);
+        const best = evaluatedCandidates[0];
+       
+        // ШАГ 4: Проверяем, достаточно ли хорош лучший кандидат
+        if (best.finalScore < 0.6) {
+            this.stats.totalRejected++;
+            return null;
+        }
+       
+        if (this.debug) {
+            console.log(`   ✅ Лучший кандидат:`);
+            console.log(`      Топология: ${(best.topologyScore * 100).toFixed(1)}%`);
+            console.log(`      Опорные: ${(best.anchorScore * 100).toFixed(1)}%`);
+            console.log(`      Финальный: ${(best.finalScore * 100).toFixed(1)}%`);
+        }
+       
+        // ШАГ 5: Если кандидат очень хороший, делаем его опорной точкой
+        if (best.finalScore > 0.9) {
+            this.addAnchorPoint(best.nodeId, node.id, best.finalScore);
+        }
+       
+        this.stats.totalIdentified++;
+        if (best.anchorScore > 0) {
+            this.stats.verifiedByAnchors++;
+        }
+       
+        return {
+            nodeId: best.nodeId,
+            confidence: best.finalScore,
+            method: best.anchorScore > 0 ? 'verified_by_anchors' : 'topology_only',
+            degree: best.node.degree,
+            roles: this.determineRoles(best.node,
+                this.findNodeNeighbors(best.node.id, modelGraph), modelGraph)
+        };
+    }
+
+    // ==================== ПОИСК КАНДИДАТОВ ПО РОЛЯМ ====================
+
+    findCandidatesByRole(roles) {
         let candidates = [];
        
-        // Ищем кандидатов с похожими ролями
         if (roles.isLeaf) candidates = Array.from(this.roleIndex.LEAF.values());
         else if (roles.isBridge) candidates = Array.from(this.roleIndex.BRIDGE.values());
         else if (roles.isHub) candidates = Array.from(this.roleIndex.HUB.values());
         else if (roles.isClique) candidates = Array.from(this.roleIndex.CLIQUE.values());
         else candidates = Array.from(this.roleIndex.REGULAR.values());
        
-        if (this.debug) {
-            console.log(`      Кандидатов по ролям: ${candidates.length}`);
+        return candidates;
+    }
+
+    // ==================== ТОПОЛОГИЧЕСКАЯ ОЦЕНКА ====================
+
+    evaluateTopology(node, neighbors, currentGraph, candidateNode, modelGraph) {
+        // Пробуем depth=2
+        if (this.subgraphChecker.checkWithDepth(node, currentGraph, candidateNode, modelGraph, 2)) {
+            return 1.0;
         }
        
-        // ШАГ 2: Точная проверка изоморфизма для каждого кандидата
-        for (const candidate of candidates) {
-            const candidateNode = modelGraph.nodes.get(candidate.nodeId);
-            if (!candidateNode) continue;
+        // Пробуем depth=1
+        if (this.subgraphChecker.checkWithDepth(node, currentGraph, candidateNode, modelGraph, 1)) {
+            return 0.9;
+        }
+       
+        // Если не прошло, считаем частичное совпадение
+        const currentNeighbors = neighbors.length;
+        const modelNeighbors = this.findNodeNeighbors(candidateNode.id, modelGraph).length;
+       
+        const degreeSim = Math.min(currentNeighbors, modelNeighbors) /
+                          Math.max(currentNeighbors, modelNeighbors, 1);
+       
+        return degreeSim * 0.5; // Частичная оценка
+    }
+
+    // ==================== ОЦЕНКА ПО ОПОРНЫМ ТОЧКАМ ====================
+
+    evaluateAnchors(node, currentGraph, candidateNode, modelGraph) {
+        if (this.anchorPoints.size < 2) {
+            return 0; // Недостаточно опорных точек
+        }
+       
+        let totalScore = 0;
+        let validAnchors = 0;
+       
+        for (const [modelAnchorId, anchorInfo] of this.anchorPoints) {
+            const modelAnchor = modelGraph.nodes.get(modelAnchorId);
+            const currentAnchor = currentGraph.nodes.get(anchorInfo.nodeId);
            
-            // Проверяем изоморфизм подграфов глубиной 2
-            const isIsomorphic = this.subgraphChecker.checkIsomorphism(
-                node, currentGraph,
-                candidateNode, modelGraph,
-                2  // глубина 2: узел + соседи + соседи соседей
+            if (!modelAnchor || !currentAnchor) continue;
+           
+            // Проверяем связь в модели
+            const connectedInModel = this.areConnected(
+                candidateNode,
+                modelAnchor,
+                modelGraph
             );
            
-            if (isIsomorphic) {
-                if (this.debug) {
-                    console.log(`   ✅ ТОЧНОЕ СОВПАДЕНИЕ: ${candidate.nodeId.substring(0, 20)}...`);
-                   
-                    const stats = this.subgraphChecker.getStats();
-                    console.log(`      Кеш: попаданий ${stats.cacheHits}, промахов ${stats.cacheMisses}`);
-                }
-               
-                // Обновляем статистику
-                const sig = this.signatures.get(candidate.nodeId);
-                if (sig) {
-                    sig.lastSeen = Date.now();
-                    sig.timesSeen = (sig.timesSeen || 0) + 1;
-                    sig.confidence = Math.min(1.0, (sig.confidence || 0.5) + 0.1);
-                }
-               
-                this.stats.totalIdentified++;
-               
-                return {
-                    nodeId: candidate.nodeId,
-                    confidence: 1.0,
-                    method: 'exact_isomorphism',
-                    degree: candidateNode.degree,
-                    roles: this.determineRoles(candidateNode,
-                        this.findNodeNeighbors(candidateNode.id, modelGraph), modelGraph)
-                };
+            // Проверяем связь в текущем графе
+            const connectedInCurrent = this.areConnected(
+                node,
+                currentAnchor,
+                currentGraph
+            );
+           
+            // Сравниваем связи
+            if (connectedInModel && connectedInCurrent) {
+                totalScore += 1.0; // Связаны в обоих графах - отлично
+            } else if (!connectedInModel && !connectedInCurrent) {
+                totalScore += 0.7; // Не связаны в обоих - тоже хорошо
+            } else {
+                totalScore += 0.2; // Расхождение - плохо
             }
+           
+            validAnchors++;
         }
        
-        if (this.debug) {
-            console.log(`   ❌ Точного совпадения не найдено`);
+        return validAnchors > 0 ? totalScore / validAnchors : 0;
+    }
+
+    // ==================== КОМБИНИРОВАНИЕ ОЦЕНОК ====================
+
+    combineScores(topologyScore, anchorScore) {
+        // Если нет опорных точек, используем только топологию
+        if (this.anchorPoints.size < 2) {
+            return topologyScore;
         }
        
-        this.stats.totalRejected++;
-        return null;
+        // Если топология очень хорошая, доверяем ей
+        if (topologyScore > 0.9) {
+            return topologyScore;
+        }
+       
+        // Иначе комбинируем
+        return topologyScore * 0.4 + anchorScore * 0.6;
+    }
+
+    // ==================== УПРАВЛЕНИЕ ОПОРНЫМИ ТОЧКАМИ ====================
+
+    addAnchorPoint(modelNodeId, currentNodeId, confidence) {
+        if (!this.anchorPoints.has(modelNodeId)) {
+            this.anchorPoints.set(modelNodeId, {
+                nodeId: currentNodeId,
+                confidence,
+                verificationCount: 1,
+                addedAt: Date.now()
+            });
+            this.stats.totalAnchors++;
+           
+            if (this.debug) {
+                console.log(`   🔥 Новая опорная точка: ${modelNodeId.substring(0, 20)}...`);
+            }
+        } else {
+            // Увеличиваем счетчик подтверждений
+            const anchor = this.anchorPoints.get(modelNodeId);
+            anchor.verificationCount++;
+            anchor.confidence = Math.min(1.0, anchor.confidence + 0.1);
+        }
+    }
+
+    getAnchorPoints() {
+        return Array.from(this.anchorPoints.entries()).map(([id, info]) => ({
+            modelId: id,
+            nodeId: info.nodeId,
+            confidence: info.confidence
+        }));
     }
 
     // ==================== ЗАПОМИНАНИЕ ТОЧКИ ====================
 
     remember(nodeId, node, neighbors, graph) {
-        // Определяем роли для индексации
         const roles = this.determineRoles(node, neighbors, graph);
-       
-        // Вычисляем степень и треугольники
         const degree = neighbors.length;
         const triangleCount = this.countTriangles(neighbors, graph);
        
@@ -140,7 +292,7 @@ class GeometricSignature {
 
         this.signatures.set(nodeId, signature);
        
-        // Индексируем по ролям для быстрого поиска
+        // Индексируем по ролям
         if (roles.isLeaf) this.roleIndex.LEAF.set(nodeId, signature);
         if (roles.isBridge) this.roleIndex.BRIDGE.set(nodeId, signature);
         if (roles.isHub) this.roleIndex.HUB.set(nodeId, signature);
@@ -152,7 +304,6 @@ class GeometricSignature {
         if (this.debug) {
             console.log(`   🎯 Запомнена точка ${nodeId.substring(0, 20)}...`);
             console.log(`      Степень: ${degree}, треугольников: ${triangleCount}`);
-            console.log(`      Роли: ${Object.entries(roles).filter(([_,v]) => v).map(([k]) => k).join(', ')}`);
         }
 
         return true;
@@ -162,7 +313,6 @@ class GeometricSignature {
 
     countTriangles(neighbors, graph) {
         let count = 0;
-        const neighborIds = new Set(neighbors.map(n => n.id));
        
         for (let i = 0; i < neighbors.length; i++) {
             for (let j = i + 1; j < neighbors.length; j++) {
@@ -251,6 +401,8 @@ class GeometricSignature {
             totalClusterMembers: this.stats.totalClusterMembers,
             totalIdentified: this.stats.totalIdentified,
             totalRejected: this.stats.totalRejected,
+            totalAnchors: this.stats.totalAnchors,
+            verifiedByAnchors: this.stats.verifiedByAnchors,
             roleStats: {
                 LEAF: this.roleIndex.LEAF.size,
                 BRIDGE: this.roleIndex.BRIDGE.size,
@@ -268,6 +420,7 @@ class GeometricSignature {
         return {
             signatures: Array.from(this.signatures.entries()),
             clusters: Array.from(this.clusters.entries()),
+            anchorPoints: Array.from(this.anchorPoints.entries()),
             roleIndex: {
                 LEAF: Array.from(this.roleIndex.LEAF.keys()),
                 BRIDGE: Array.from(this.roleIndex.BRIDGE.keys()),
@@ -275,12 +428,7 @@ class GeometricSignature {
                 CLIQUE: Array.from(this.roleIndex.CLIQUE.keys()),
                 REGULAR: Array.from(this.roleIndex.REGULAR.keys())
             },
-            stats: this.stats,
-            subgraphChecker: this.subgraphChecker ? {
-                cache: Array.from(this.subgraphChecker.cache.entries()),
-                cacheHits: this.subgraphChecker.cacheHits,
-                cacheMisses: this.subgraphChecker.cacheMisses
-            } : null
+            stats: this.stats
         };
     }
 
@@ -303,18 +451,17 @@ class GeometricSignature {
             this.clusters = new Map(data.clusters);
         }
        
+        if (data.anchorPoints) {
+            this.anchorPoints = new Map(data.anchorPoints);
+            this.stats.totalAnchors = this.anchorPoints.size;
+        }
+       
         if (data.stats) {
             this.stats = data.stats;
         }
        
-        if (data.subgraphChecker && this.subgraphChecker) {
-            this.subgraphChecker.cache = new Map(data.subgraphChecker.cache || []);
-            this.subgraphChecker.cacheHits = data.subgraphChecker.cacheHits || 0;
-            this.subgraphChecker.cacheMisses = data.subgraphChecker.cacheMisses || 0;
-        }
-       
         console.log(`📥 Импортировано ${this.signatures.size} сигнатур, ${this.clusters.size} кластеров`);
-        console.log(`   SubgraphIsomorphism: кеш ${this.subgraphChecker.cache.size} записей`);
+        console.log(`   Опорных точек: ${this.anchorPoints.size}`);
     }
 }
 
