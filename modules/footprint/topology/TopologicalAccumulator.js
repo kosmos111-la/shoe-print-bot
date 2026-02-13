@@ -813,6 +813,75 @@ class TopologicalAccumulator {
         };
     }
 
+// 🔥🔥🔥 ДОБАВЬ ЭТОТ МЕТОД В КОНЕЦ КЛАССА (перед exportModel)
+
+visualizeModel(modelId = null, options = {}) {
+    const targetModelId = modelId || this.currentModelId;
+
+    if (!targetModelId || !this.models.has(targetModelId)) {
+        console.log('⚠️ Модель не найдена');
+        return;
+    }
+
+    const model = this.models.get(targetModelId);
+    const graph = model.graph;
+
+    console.log(`\n🔷 ВИЗУАЛИЗАЦИЯ МОДЕЛИ "${model.metadata.name}":`);
+    console.log(`═`.repeat(70));
+
+    console.log(`📊 ОБЩАЯ ИНФОРМАЦИЯ:`);
+    console.log(`   ID: ${model.id}`);
+    console.log(`   Узлов: ${graph.nodes.size}`);
+    console.log(`   Рёбер: ${graph.edges.size}`);
+    console.log(`   Средняя степень: ${graph.avgDegree?.toFixed(2) || '?'}`);
+    console.log(`   Создана: ${model.metadata.createdAt.toLocaleString('ru-RU')}`);
+
+    const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
+    for (const node of graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) confirmations['4+']++;
+        else confirmations[count] = (confirmations[count] || 0) + 1;
+    }
+
+    console.log(`\n🎯 ПОДТВЕРЖДЕНИЯ:`);
+    console.log(`   🔴 4+ подтверждений: ${confirmations['4+']} (ядра)`);
+    console.log(`   🟠 3 подтверждения: ${confirmations[3]} (стабильные)`);
+    console.log(`   🟡 2 подтверждения: ${confirmations[2]} (подтверждённые)`);
+    console.log(`   🔵 1 подтверждение: ${confirmations[1]} (новые)`);
+
+    const showNodes = options.showNodes || 8;
+    console.log(`\n📋 УЗЛЫ (первые ${showNodes}):`);
+
+    let count = 0;
+    for (const [nodeId, node] of graph.nodes) {
+        if (count++ >= showNodes) break;
+
+        const source = node.addedFrom ? `[${node.addedFrom}]` : '[original]';
+        const tri = node.triangulated ? '🔺' : '  ';
+        const zone = node.y > 350 ? 'П' : node.y < 200 ? 'Н' : 'Ц';
+        console.log(
+            `   ${tri} ${nodeId.substring(0, 16)}... ${source}: ` +
+            `(${node.x?.toFixed(1) || '?'}, ${node.y?.toFixed(1) || '?'})${zone} ` +
+            `| ст:${node.degree} | п:${node.confirmationCount || 1}`
+        );
+    }
+
+    if (graph.nodes.size > showNodes) {
+        console.log(`   ... и еще ${graph.nodes.size - showNodes} узлов`);
+    }
+
+    console.log(`\n📜 ИСТОРИЯ (последние 3 действия):`);
+    model.history.slice(-3).forEach((entry, idx) => {
+        console.log(`   ${entry.action === 'created' ? '🆕' : '🔧'} ${entry.action.toUpperCase()}: ${new Date(entry.timestamp).toLocaleTimeString()}`);
+        console.log(`      Узлов: ${entry.nodes || '?'}, Рёбер: ${entry.edges || '?'}`);
+        if (entry.newNodes) console.log(`      +${entry.newNodes} новых узлов`);
+        if (entry.triangulated) console.log(`      🔺 ${entry.triangulated} по триангуляции`);
+        if (entry.mappingAccuracy) console.log(`      🎯 Точность маппинга: ${entry.mappingAccuracy}%`);
+    });
+
+    console.log(`═`.repeat(70));
+}
+  
     exportModel(modelId = null) {
         const targetModelId = modelId || this.currentModelId;
         if (!targetModelId || !this.models.has(targetModelId)) return null;
