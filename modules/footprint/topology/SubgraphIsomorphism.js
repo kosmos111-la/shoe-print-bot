@@ -1,5 +1,5 @@
 // modules/footprint/topology/SubgraphIsomorphism.js
-// 🔥 ТОЧНОЕ СОВПАДЕНИЕ ТОПОЛОГИЧЕСКИХ СТРУКТУР (100% точность)
+// 🔥 ПРОВЕРКА ИЗОМОРФИЗМА ПОДГРАФОВ С ОСЛАБЛЕННЫМИ ПРОВЕРКАМИ ДЛЯ РЕАЛЬНЫХ ДАННЫХ
 
 class SubgraphIsomorphism {
     constructor(options = {}) {
@@ -9,8 +9,15 @@ class SubgraphIsomorphism {
         this.cacheHits = 0;
         this.cacheMisses = 0;
        
+        // Пороги для ослабленных проверок
+        this.maxSizeDiffRatio = options.maxSizeDiffRatio || 0.3; // Максимальная разница в размере (30%)
+        this.maxDegreeDiff = options.maxDegreeDiff || 2; // Максимальная разница в степени корня
+        this.minMatchRatio = options.minMatchRatio || 0.7; // Минимальное совпадение узлов (70%)
+        this.minNeighborJaccard = options.minNeighborJaccard || 0.5; // Минимальное совпадение соседей (50%)
+       
         console.log('🔷 SubgraphIsomorphism создан (проверка изоморфизма подграфов)');
         console.log(`   Глубина: ${this.maxDepth}, кеш активен`);
+        console.log(`   Ослабленные проверки: размер ±30%, степень корня ±2, совпадение узлов ≥70%`);
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
@@ -22,27 +29,40 @@ class SubgraphIsomorphism {
         // Проверяем кеш
         if (this.cache.has(cacheKey)) {
             this.cacheHits++;
+            if (this.debug) console.log(`   🔍 Кеш: ${cacheKey.substring(0, 30)}... → ${this.cache.get(cacheKey)}`);
             return this.cache.get(cacheKey);
         }
         this.cacheMisses++;
+
+        if (this.debug) {
+            console.log(`\n   🔍 Проверка изоморфизма:`);
+            console.log(`      A: ${nodeA.id.substring(0, 20)}... (степень ${nodeA.degree || '?'})`);
+            console.log(`      B: ${nodeB.id.substring(0, 20)}... (степень ${nodeB.degree || '?'})`);
+        }
 
         // ШАГ 1: Извлекаем подграфы
         const subgraphA = this.extractSubgraph(nodeA, graphA, checkDepth);
         const subgraphB = this.extractSubgraph(nodeB, graphB, checkDepth);
 
-        // ШАГ 2: Быстрые проверки (must-match)
-        if (!this.quickChecks(subgraphA, subgraphB)) {
+        if (this.debug) {
+            console.log(`      Подграф A: ${subgraphA.nodes.size} узлов, ${subgraphA.edges.size} рёбер`);
+            console.log(`      Подграф B: ${subgraphB.nodes.size} узлов, ${subgraphB.edges.size} рёбер`);
+        }
+
+        // ШАГ 2: Ослабленные проверки
+        if (!this.relaxedChecks(subgraphA, subgraphB)) {
             this.cache.set(cacheKey, false);
             return false;
         }
 
-        // ШАГ 3: Точная проверка изоморфизма
-        const result = this.checkExactIsomorphism(subgraphA, subgraphB);
+        // ШАГ 3: Поиск соответствия с учетом возможных расхождений
+        const result = this.findRelaxedIsomorphism(subgraphA, subgraphB);
         this.cache.set(cacheKey, result);
        
         if (this.debug && result) {
-            console.log(`   ✅ Изоморфизм: ${nodeA.id.substring(0, 12)}... ↔ ${nodeB.id.substring(0, 12)}...`);
-            console.log(`      Узлов: ${subgraphA.nodes.size}, рёбер: ${subgraphA.edges.size}`);
+            console.log(`   ✅ ИЗОМОРФИЗМ ПОДТВЕРЖДЕН (совпадение ${(result.matchRatio * 100).toFixed(1)}%)`);
+        } else if (this.debug) {
+            console.log(`   ❌ ИЗОМОРФИЗМ НЕ ПОДТВЕРЖДЕН`);
         }
        
         return result;
@@ -124,153 +144,129 @@ class SubgraphIsomorphism {
         };
     }
 
-    // ==================== БЫСТРЫЕ ПРОВЕРКИ ====================
+    // ==================== ОСЛАБЛЕННЫЕ ПРОВЕРКИ ====================
 
-    quickChecks(subA, subB) {
-        // 1. Одинаковое количество узлов
-        if (subA.nodes.size !== subB.nodes.size) {
-            if (this.debug) console.log(`   ❌ Разное количество узлов: ${subA.nodes.size} vs ${subB.nodes.size}`);
+    relaxedChecks(subA, subB) {
+        // 1. Размеры могут отличаться (до maxSizeDiffRatio)
+        const sizeDiff = Math.abs(subA.nodes.size - subB.nodes.size);
+        const maxSize = Math.max(subA.nodes.size, subB.nodes.size);
+        const sizeDiffRatio = sizeDiff / maxSize;
+       
+        if (sizeDiffRatio > this.maxSizeDiffRatio) {
+            if (this.debug) console.log(`   ❌ Слишком большая разница в размере: ${subA.nodes.size} vs ${subB.nodes.size} (${(sizeDiffRatio*100).toFixed(1)}%)`);
             return false;
         }
        
-        // 2. Одинаковое количество рёбер
-        if (subA.edges.size !== subB.edges.size) {
-            if (this.debug) console.log(`   ❌ Разное количество рёбер: ${subA.edges.size} vs ${subB.edges.size}`);
-            return false;
-        }
-       
-        // 3. Одинаковое распределение степеней (мультимножество)
-        const degreesA = Array.from(subA.nodes.values()).map(n => n.degree).sort((a,b) => a-b);
-        const degreesB = Array.from(subB.nodes.values()).map(n => n.degree).sort((a,b) => a-b);
-       
-        for (let i = 0; i < degreesA.length; i++) {
-            if (degreesA[i] !== degreesB[i]) {
-                if (this.debug) console.log(`   ❌ Разное распределение степеней: [${degreesA}] vs [${degreesB}]`);
-                return false;
-            }
-        }
-       
-        // 4. Корневой узел имеет ту же степень
+        // 2. Степень корня может отличаться (до maxDegreeDiff)
         const rootA = subA.nodes.get(subA.rootId);
         const rootB = subB.nodes.get(subB.rootId);
-        if (rootA.degree !== rootB.degree) {
-            if (this.debug) console.log(`   ❌ Разная степень корня: ${rootA.degree} vs ${rootB.degree}`);
+        const degreeDiff = Math.abs(rootA.degree - rootB.degree);
+       
+        if (degreeDiff > this.maxDegreeDiff) {
+            if (this.debug) console.log(`   ❌ Слишком большая разница в степени корня: ${rootA.degree} vs ${rootB.degree} (разница ${degreeDiff})`);
             return false;
+        }
+       
+        // 3. Проверяем распределение степеней (гистограмма)
+        const histA = this.getDegreeHistogram(subA);
+        const histB = this.getDegreeHistogram(subB);
+       
+        // Степени должны быть похожи (допускаем небольшие отклонения)
+        for (let deg = 0; deg <= 20; deg++) {
+            const countA = histA[deg] || 0;
+            const countB = histB[deg] || 0;
+            const diff = Math.abs(countA - countB);
+           
+            if (diff > 2 && countA > 0 && countB > 0) {
+                if (this.debug) console.log(`   ❌ Слишком большая разница для степени ${deg}: ${countA} vs ${countB}`);
+                return false;
+            }
         }
        
         return true;
     }
 
-    // ==================== ТОЧНАЯ ПРОВЕРКА ИЗОМОРФИЗМА ====================
-
-    checkExactIsomorphism(subA, subB) {
-        // Сортируем узлы по степени (эвристика для ускорения)
-        const nodesA = Array.from(subA.nodes.values())
-            .sort((a, b) => b.degree - a.degree || a.id.localeCompare(b.id));
-       
-        const nodesB = Array.from(subB.nodes.values())
-            .sort((a, b) => b.degree - a.degree || a.id.localeCompare(b.id));
-       
-        // Начинаем с отображения корневых узлов
-        const mapping = new Map();
-        mapping.set(subA.rootId, subB.rootId);
-       
-        // Рекурсивный поиск изоморфизма
-        return this.findIsomorphism(nodesA, nodesB, mapping, 1, subA, subB);
+    getDegreeHistogram(subgraph) {
+        const hist = {};
+        for (const node of subgraph.nodes.values()) {
+            hist[node.degree] = (hist[node.degree] || 0) + 1;
+        }
+        return hist;
     }
 
-    findIsomorphism(nodesA, nodesB, mapping, index, subA, subB) {
-        if (index >= nodesA.length) {
-            // Все узлы сопоставлены, проверяем рёбра
-            return this.verifyEdges(mapping, subA, subB);
-        }
+    // ==================== ПОИСК СООТВЕТСТВИЯ ====================
+
+    findRelaxedIsomorphism(subA, subB) {
+        const nodesA = Array.from(subA.nodes.values());
+        const nodesB = Array.from(subB.nodes.values());
        
-        const nodeA = nodesA[index];
+        let matchedCount = 0;
+        const usedB = new Set();
+        const matches = [];
        
-        // Если этот узел уже сопоставлен (корень), пропускаем
-        if (mapping.has(nodeA.id)) {
-            return this.findIsomorphism(nodesA, nodesB, mapping, index + 1, subA, subB);
-        }
-       
-        // Ищем кандидата в B с той же степенью
-        for (const nodeB of nodesB) {
-            // Пропускаем уже сопоставленные
-            if (Array.from(mapping.values()).includes(nodeB.id)) continue;
+        // Жадный алгоритм: для каждого узла из A ищем похожий в B
+        for (const nodeA of nodesA) {
+            let bestMatch = null;
+            let bestScore = 0;
+            let bestNeighborJaccard = 0;
            
-            // Должны совпадать степени
-            if (nodeA.degree !== nodeB.degree) continue;
-           
-            // Проверяем совместимость с уже сопоставленными соседями
-            if (!this.isCompatible(nodeA, nodeB, mapping, subA, subB)) continue;
-           
-            // Пробуем это сопоставление
-            mapping.set(nodeA.id, nodeB.id);
-           
-            if (this.findIsomorphism(nodesA, nodesB, mapping, index + 1, subA, subB)) {
-                return true;
+            for (const nodeB of nodesB) {
+                if (usedB.has(nodeB.id)) continue;
+               
+                // Сравниваем степени (основной признак)
+                const degreeDiff = Math.abs(nodeA.degree - nodeB.degree);
+                if (degreeDiff > 2) continue; // Слишком большая разница
+               
+                // Сравниваем соседей (Jaccard similarity)
+                const neighborsA = new Set(nodeA.neighbors);
+                const neighborsB = new Set(nodeB.neighbors);
+               
+                const intersection = new Set([...neighborsA].filter(x => neighborsB.has(x)));
+                const union = new Set([...neighborsA, ...neighborsB]);
+               
+                const jaccard = union.size > 0 ? intersection.size / union.size : 1;
+               
+                // Комбинированная оценка
+                const degreeScore = 1 - (degreeDiff / Math.max(nodeA.degree, nodeB.degree, 1));
+                const combinedScore = degreeScore * 0.3 + jaccard * 0.7;
+               
+                if (combinedScore > bestScore && jaccard >= this.minNeighborJaccard) {
+                    bestScore = combinedScore;
+                    bestNeighborJaccard = jaccard;
+                    bestMatch = nodeB;
+                }
             }
            
-            // Откатываем
-            mapping.delete(nodeA.id);
-        }
-       
-        return false;
-    }
-
-    isCompatible(nodeA, nodeB, mapping, subA, subB) {
-        // Проверяем всех уже сопоставленных соседей
-        for (const neighborId of nodeA.neighbors) {
-            if (mapping.has(neighborId)) {
-                const mappedNeighbor = mapping.get(neighborId);
+            if (bestMatch) {
+                matchedCount++;
+                usedB.add(bestMatch.id);
+                matches.push({
+                    nodeA: nodeA.id,
+                    nodeB: bestMatch.id,
+                    score: bestScore,
+                    neighborJaccard: bestNeighborJaccard
+                });
                
-                // Должно быть ребро между nodeB и mappedNeighbor в subB
-                const edgeId = [nodeB.id, mappedNeighbor].sort().join('--');
-                if (!subB.edges.has(edgeId)) {
-                    return false;
+                if (this.debug) {
+                    console.log(`      Совпадение: ${nodeA.id.substring(0, 12)}... ↔ ${bestMatch.id.substring(0, 12)}... (Jaccard: ${(bestNeighborJaccard*100).toFixed(1)}%)`);
                 }
             }
         }
-        return true;
-    }
-
-    verifyEdges(mapping, subA, subB) {
-        // Проверяем все рёбра из A
-        for (const edge of subA.edges) {
-            const [a1, a2] = edge.split('--');
-           
-            const b1 = mapping.get(a1);
-            const b2 = mapping.get(a2);
-           
-            if (!b1 || !b2) return false;
-           
-            // Проверяем, есть ли ребро в B
-            const mappedEdge = [b1, b2].sort().join('--');
-            if (!subB.edges.has(mappedEdge)) {
-                return false;
-            }
+       
+        const matchRatio = matchedCount / Math.max(nodesA.length, nodesB.length);
+       
+        if (this.debug) {
+            console.log(`      Совпало узлов: ${matchedCount}/${nodesA.length} (${(matchRatio*100).toFixed(1)}%)`);
         }
        
-        // Проверяем все рёбра из B (обратное отображение)
-        for (const edge of subB.edges) {
-            const [b1, b2] = edge.split('--');
-           
-            // Находим прообразы
-            let a1 = null, a2 = null;
-            for (const [a, b] of mapping) {
-                if (b === b1) a1 = a;
-                if (b === b2) a2 = a;
-            }
-           
-            if (!a1 || !a2) return false;
-           
-            // Проверяем, есть ли ребро в A
-            const originalEdge = [a1, a2].sort().join('--');
-            if (!subA.edges.has(originalEdge)) {
-                return false;
-            }
-        }
-       
-        return true;
+        return {
+            isMatch: matchRatio >= this.minMatchRatio,
+            matchRatio,
+            matchedCount,
+            totalNodesA: nodesA.length,
+            totalNodesB: nodesB.length,
+            matches
+        };
     }
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
@@ -300,7 +296,13 @@ class SubgraphIsomorphism {
             cacheMisses: this.cacheMisses,
             hitRate: this.cacheHits + this.cacheMisses > 0
                 ? (this.cacheHits / (this.cacheHits + this.cacheMisses) * 100).toFixed(1) + '%'
-                : '0%'
+                : '0%',
+            thresholds: {
+                maxSizeDiffRatio: this.maxSizeDiffRatio,
+                maxDegreeDiff: this.maxDegreeDiff,
+                minMatchRatio: this.minMatchRatio,
+                minNeighborJaccard: this.minNeighborJaccard
+            }
         };
     }
 
