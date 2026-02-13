@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalFingerprint.js
-// 🎯 ЧИСТАЯ ТОПОЛОГИЯ + ГЕОМЕТРИЧЕСКИЕ ПРИЗНАКИ (ДЛЯ ТОЧНОГО МАППИНГА)
+// 🎯 ЧИСТАЯ ТОПОЛОГИЯ + ГЕОМЕТРИЧЕСКИЕ ПРИЗНАКИ (ПОЛНАЯ ВЕРСИЯ)
 
 class TopologicalFingerprint {
     constructor(options = {}) {
@@ -17,7 +17,7 @@ class TopologicalFingerprint {
             [13, 100] // B5: экстремально высокая степень
         ];
        
-        // 🔥 ПОРОГ ДЛЯ СТРУКТУРНОГО СХОДСТВА - ПОВЫШАЕМ!
+        // 🔥 ПОРОГ ДЛЯ СТРУКТУРНОГО СХОДСТВА
         this.structuralSimilarityThreshold = options.structuralSimilarityThreshold || 0.85;
        
         console.log('🔷 УСИЛЕННЫЙ ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ (с геометрией)');
@@ -25,27 +25,20 @@ class TopologicalFingerprint {
         console.log(`   Признаки: степень, треугольники, мосты, листья, хабы, клики, положение`);
     }
    
-    // 🔥 МЕТОД 1: Вычисление подписей с ГЕОМЕТРИЧЕСКИМИ признаками
     computeGraphFingerprints(graph) {
         console.log(`🔷 Вычисляю УСИЛЕННЫЕ топологические подписи (${graph.nodes.size} узлов)...`);
        
         const nodes = graph.nodes;
         const edges = graph.edges;
        
-        // 1. Создаем карту соседей
         const neighborMap = this.buildNeighborMap(nodes, edges);
-       
-        // 2. Вычисляем ГЛОБАЛЬНЫЕ статистики по графу
         const globalStats = this.computeGlobalStats(graph);
-       
-        // 3. Инициализируем подписи
         const signatures = new Map();
        
         for (const [nodeId, node] of nodes) {
             const neighbors = neighborMap.get(nodeId) || [];
             const degree = neighbors.length;
            
-            // 🔥🔥🔥 ВЫЧИСЛЯЕМ РАСШИРЕННУЮ СТРУКТУРНУЮ ПОДПИСЬ
             const structuralSignature = this.computeEnhancedLocalStructure(
                 nodeId, neighbors, neighborMap, globalStats
             );
@@ -59,29 +52,19 @@ class TopologicalFingerprint {
                 neighborCount: neighbors.length,
                 localStructure: structuralSignature,
                 neighborIds: neighbors,
-                // 🔥 ГЕОМЕТРИЧЕСКИЕ ПРИЗНАКИ
                 y: node.y,
                 avgNeighborY: this.computeAvgNeighborY(nodeId, neighbors, graph),
                 positionBucket: this.getPositionBucket(node.y),
                 history: [initialSig]
             });
-           
-            if (this.debug && signatures.size <= 3) {
-                console.log(`   Узел ${nodeId}:`);
-                console.log(`     Степень: ${degree} (${this.getDegreeBucket(degree)})`);
-                console.log(`     Позиция: ${this.getPositionBucket(node.y)} (y=${node.y.toFixed(1)})`);
-                console.log(`     Подпись: ${structuralSignature.substring(0, 50)}...`);
-            }
         }
        
-        // 4. Итеративное уточнение (Weisfeiler-Lehman)
         for (let iter = 0; iter < this.iterations; iter++) {
             const newSignatures = new Map();
            
             for (const [nodeId, node] of nodes) {
                 const neighbors = neighborMap.get(nodeId) || [];
                
-                // Собираем подписи соседей + ИХ ГЕОМЕТРИЮ
                 const neighborSigs = [];
                 const neighborY = [];
                
@@ -93,23 +76,19 @@ class TopologicalFingerprint {
                     }
                 }
                
-                // 🔥 СОРТИРУЕМ для инвариантности
                 neighborSigs.sort();
                 neighborY.sort();
                
-                // Статистика по Y соседей
                 const avgNeighborY = neighborY.length > 0
                     ? neighborY.reduce((a, b) => a + b, 0) / neighborY.length
                     : 0;
                 const yBucket = this.getPositionBucket(avgNeighborY);
                
-                // Комбинируем с текущей подписью
                 const currentSig = signatures.get(nodeId).current;
                 const neighborSigStr = neighborSigs.length > 0
                     ? neighborSigs.join('|')
                     : 'NO_NEIGHBORS';
                
-                // 🔥 ДОБАВЛЯЕМ ГЕОМЕТРИЮ СОСЕДЕЙ В ПОДПИСЬ
                 const newSig = this.hashString(
                     `${currentSig}|${neighborSigStr}|Y_${yBucket}`
                 );
@@ -131,14 +110,8 @@ class TopologicalFingerprint {
             for (const [nodeId, sig] of newSignatures) {
                 signatures.set(nodeId, sig);
             }
-           
-            if (this.debug) {
-                const uniqueSigs = new Set(Array.from(signatures.values()).map(s => s.current));
-                console.log(`   Итерация ${iter + 1}: ${uniqueSigs.size} уникальных подписей`);
-            }
         }
        
-        // 5. Финальные подписи
         const finalSignatures = new Map();
         for (const [nodeId, sig] of signatures) {
             const recentHistory = sig.history.slice(-2);
@@ -151,7 +124,6 @@ class TopologicalFingerprint {
                 neighborCount: sig.neighborCount,
                 localStructure: sig.localStructure,
                 neighborIds: sig.neighborIds,
-                // 🔥 ГЕОМЕТРИЯ В ФИНАЛЬНОЙ ПОДПИСИ
                 y: sig.y,
                 avgNeighborY: sig.avgNeighborY,
                 positionBucket: sig.positionBucket,
@@ -159,7 +131,6 @@ class TopologicalFingerprint {
             });
         }
        
-        // Статистика
         const uniqueCount = new Set(Array.from(finalSignatures.values()).map(s => s.signature)).size;
        
         console.log(`✅ УСИЛЕННЫЕ топологические подписи:`);
@@ -169,7 +140,6 @@ class TopologicalFingerprint {
         return finalSignatures;
     }
    
-    // 🔥🔥🔥 ВЫЧИСЛЕНИЕ ГЛОБАЛЬНОЙ СТАТИСТИКИ ГРАФА
     computeGlobalStats(graph) {
         const yCoords = [];
         for (const node of graph.nodes.values()) {
@@ -178,7 +148,6 @@ class TopologicalFingerprint {
        
         yCoords.sort((a, b) => a - b);
        
-        // Квантили для нормализации позиции
         return {
             yMin: yCoords[0] || 0,
             yMax: yCoords[yCoords.length - 1] || 600,
@@ -188,7 +157,6 @@ class TopologicalFingerprint {
         };
     }
    
-    // 🔥🔥🔥 РАСШИРЕННАЯ ЛОКАЛЬНАЯ СТРУКТУРА
     computeEnhancedLocalStructure(nodeId, neighbors, neighborMap, globalStats) {
         if (neighbors.length === 0) {
             return 'ISOLATED';
@@ -196,11 +164,11 @@ class TopologicalFingerprint {
        
         const features = [];
        
-        // 1. СТЕПЕНЬ - точное значение в бакете
+        // 1. СТЕПЕНЬ
         features.push(`DEG_${this.getDegreeBucket(neighbors.length)}`);
-        features.push(`DEG_VAL_${neighbors.length}`); // точное значение для различимости
+        features.push(`DEG_VAL_${neighbors.length}`);
        
-        // 2. ТРЕУГОЛЬНИКИ - количество
+        // 2. ТРЕУГОЛЬНИКИ
         let triangleCount = 0;
         for (let i = 0; i < neighbors.length; i++) {
             for (let j = i + 1; j < neighbors.length; j++) {
@@ -269,14 +237,12 @@ class TopologicalFingerprint {
         return features.join('_');
     }
    
-    // 🔥 ОПРЕДЕЛЕНИЕ ПОЗИЦИИ ПО Y-КООРДИНАТЕ
     getPositionBucket(y) {
-        if (y > 350) return 'HEEL';      // Пятка
-        if (y < 200) return 'TOE';       // Носок
-        return 'CENTER';                 // Центр
+        if (y > 350) return 'HEEL';
+        if (y < 200) return 'TOE';
+        return 'CENTER';
     }
    
-    // 🔥 СРЕДНИЙ Y СОСЕДЕЙ
     computeAvgNeighborY(nodeId, neighbors, graph) {
         if (neighbors.length === 0) return 0;
        
@@ -294,7 +260,6 @@ class TopologicalFingerprint {
         return count > 0 ? sumY / count : 0;
     }
    
-    // 🔥 ГРУППИРОВКА СТЕПЕНЕЙ
     getDegreeBucket(degree) {
         for (let i = 0; i < this.degreeBuckets.length; i++) {
             const [min, max] = this.degreeBuckets[i];
@@ -305,7 +270,6 @@ class TopologicalFingerprint {
         return 'B5';
     }
    
-    // 🔥 ПОСТРОЕНИЕ КАРТЫ СОСЕДЕЙ
     buildNeighborMap(nodes, edges) {
         const neighborMap = new Map();
        
@@ -326,11 +290,9 @@ class TopologicalFingerprint {
         return neighborMap;
     }
    
-    // 🔥🔥🔥 СРАВНЕНИЕ ГРАФОВ С УЧЕТОМ ГЕОМЕТРИИ
     compareGraphs(graph1, fingerprints1, graph2, fingerprints2) {
         console.log(`🔍 Сравниваю графы с УЧЕТОМ ГЕОМЕТРИИ...`);
        
-        // 1. Точные совпадения подписей
         const sigToNodes1 = new Map();
         const sigToNodes2 = new Map();
        
@@ -376,7 +338,6 @@ class TopologicalFingerprint {
             }
         }
        
-        // 2. Похожие совпадения с ГЕОМЕТРИЧЕСКИМ ФИЛЬТРОМ
         const similarMatches = this.findSimilarNodesWithGeometry(fingerprints1, fingerprints2);
         const allMatches = [...exactMatches, ...similarMatches];
        
@@ -401,6 +362,8 @@ class TopologicalFingerprint {
             exactMatches,
             similarMatches,
             allMatches,
+            matchRatio1,
+            matchRatio2,
             matchedNodes1,
             matchedNodes2,
             totalNodes1,
@@ -409,7 +372,6 @@ class TopologicalFingerprint {
         };
     }
    
-    // 🔥🔥🔥 ПОИСК ПОХОЖИХ С ГЕОМЕТРИЧЕСКИМ ФИЛЬТРОМ
     findSimilarNodesWithGeometry(fingerprints1, fingerprints2) {
         const similarMatches = [];
         const usedNodes2 = new Set();
@@ -425,13 +387,10 @@ class TopologicalFingerprint {
             for (const [nodeId2, fp2] of nodes2) {
                 if (usedNodes2.has(nodeId2)) continue;
                
-                // 🔥🔥🔥 ЖЕСТКИЙ ФИЛЬТР ПО ПОЗИЦИИ!
+                // 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ПОЗИЦИИ!
                 if (fp1.positionBucket !== fp2.positionBucket) continue;
-               
-                // 🔥 Проверяем степень
                 if (fp1.degreeBucket !== fp2.degreeBucket) continue;
                
-                // Вычисляем сходство
                 const similarity = this.computeEnhancedSimilarity(fp1, fp2);
                
                 if (similarity > bestSimilarity && similarity >= this.structuralSimilarityThreshold) {
@@ -458,30 +417,25 @@ class TopologicalFingerprint {
         return similarMatches;
     }
    
-    // 🔥🔥🔥 УСИЛЕННОЕ ВЫЧИСЛЕНИЕ СХОДСТВА
     computeEnhancedSimilarity(fp1, fp2) {
         let similarity = 0;
         let totalWeight = 0;
        
-        // 1. Степень (вес 25%)
         const degreeDiff = Math.abs(fp1.degree - fp2.degree);
         const degreeSim = 1.0 - (degreeDiff / Math.max(fp1.degree, fp2.degree, 1));
         similarity += degreeSim * 0.25;
         totalWeight += 0.25;
        
-        // 2. Бакет степени (вес 15%)
         if (fp1.degreeBucket === fp2.degreeBucket) {
             similarity += 0.15;
         }
         totalWeight += 0.15;
        
-        // 3. Количество соседей (вес 15%)
         const neighborDiff = Math.abs(fp1.neighborCount - fp2.neighborCount);
         const neighborSim = 1.0 - (neighborDiff / Math.max(fp1.neighborCount, fp2.neighborCount, 1));
         similarity += neighborSim * 0.15;
         totalWeight += 0.15;
        
-        // 4. Локальная структура (вес 30%)
         if (fp1.localStructure && fp2.localStructure) {
             const structureSim = this.computeLocalStructureSimilarity(
                 fp1.localStructure,
@@ -491,7 +445,6 @@ class TopologicalFingerprint {
         }
         totalWeight += 0.30;
        
-        // 5. Позиция (вес 15%) - уже отфильтровано, но даем бонус
         if (fp1.positionBucket === fp2.positionBucket) {
             similarity += 0.15;
         }
@@ -500,7 +453,6 @@ class TopologicalFingerprint {
         return similarity / totalWeight;
     }
    
-    // 🔥 СРАВНЕНИЕ ЛОКАЛЬНЫХ СТРУКТУР
     computeLocalStructureSimilarity(struct1, struct2) {
         const terms1 = struct1.split('_');
         const terms2 = struct2.split('_');
@@ -513,7 +465,6 @@ class TopologicalFingerprint {
             if (set2.has(term)) matches++;
         }
        
-        // Бонус за особые структурные роли
         const specialCases = ['BRG_YES', 'CLQ_YES', 'LEAF_YES', 'HUB_YES', 'TRI_YES'];
         for (const special of specialCases) {
             if (set1.has(special) && set2.has(special)) {
@@ -524,7 +475,103 @@ class TopologicalFingerprint {
         return matches / Math.max(set1.size, set2.size);
     }
    
-    // 🔥 ХЕШ-ФУНКЦИЯ
+    // 🔥🔥🔥 ВОССТАНОВЛЕННЫЕ МЕТОДЫ!
+   
+    calculateDistribution(fingerprints) {
+        const degreeDist = {};
+        const bucketDist = {};
+       
+        for (const fp of fingerprints.values()) {
+            degreeDist[fp.degree] = (degreeDist[fp.degree] || 0) + 1;
+            bucketDist[fp.degreeBucket] = (bucketDist[fp.degreeBucket] || 0) + 1;
+        }
+       
+        return { degree: degreeDist, bucket: bucketDist };
+    }
+   
+    printMatchDetails(allMatches, exactMatches, similarMatches) {
+        console.log(`\n🔍 ДЕТАЛИ СОВПАДЕНИЙ:`);
+       
+        if (exactMatches.length > 0) {
+            console.log(`✅ ТОЧНЫЕ СОВПАДЕНИЯ (первые 5):`);
+            exactMatches.slice(0, 5).forEach((match, idx) => {
+                console.log(`   ${idx+1}. ${match.node1} ↔ ${match.node2}`);
+                console.log(`      Подпись: ${match.signature?.substring(0, 20) || '...'}`);
+                console.log(`      Позиция: ${match.positionBucket || '?'}`);
+            });
+        }
+       
+        if (similarMatches.length > 0) {
+            console.log(`🔄 СТРУКТУРНО ПОХОЖИЕ (первые 3):`);
+            similarMatches.slice(0, 3).forEach((match, idx) => {
+                console.log(`   ${idx+1}. ${match.node1} ↔ ${match.node2}`);
+                console.log(`      Уверенность: ${(match.confidence * 100).toFixed(1)}%`);
+                console.log(`      Степень: ${match.degree} (${match.degreeBucket})`);
+                console.log(`      Позиция: ${match.positionBucket}`);
+            });
+        }
+    }
+   
+    visualizeMatches(comparisonResult, limit = 10) {
+        console.log(`\n🔷 ВИЗУАЛИЗАЦИЯ СОВПАДЕНИЙ:`);
+        console.log(`═`.repeat(80));
+       
+        const { allMatches, similarity, totalNodes1, totalNodes2, exactMatches, similarMatches } = comparisonResult;
+       
+        console.log(`🎯 СХОДСТВО: ${(similarity * 100).toFixed(1)}%`);
+        console.log(`📊 СТАТИСТИКА:`);
+        console.log(`   Точных совпадений: ${exactMatches.length}`);
+        console.log(`   Структурно похожих: ${similarMatches.length}`);
+        console.log(`   Всего совпадений: ${allMatches.length} / макс(${totalNodes1}, ${totalNodes2})`);
+       
+        if (allMatches.length > 0) {
+            const matchedNodes1 = new Set(allMatches.map(m => m.node1)).size;
+            const matchedNodes2 = new Set(allMatches.map(m => m.node2)).size;
+            console.log(`   Покрытие графа 1: ${((matchedNodes1 / totalNodes1) * 100).toFixed(1)}%`);
+            console.log(`   Покрытие графа 2: ${((matchedNodes2 / totalNodes2) * 100).toFixed(1)}%`);
+        }
+       
+        console.log(`\n🔗 СОВПАДЕНИЯ (первые ${Math.min(limit, allMatches.length)}):`);
+        console.log(`┌─────┬────────────────────┬──────────┬────────────────────┬──────────┬─────────┐`);
+        console.log(`│  #  │       ФОТО2        │ ПОЗИЦИЯ  │      МОДЕЛЬ        │ ПОЗИЦИЯ  │ СОВПАД. │`);
+        console.log(`├─────┼────────────────────┼──────────┼────────────────────┼──────────┼─────────┤`);
+       
+        allMatches.slice(0, limit).forEach((match, idx) => {
+            const type = match.type === 'exact' ? '✅' : '🔄';
+            const pos1 = match.positionBucket || '?';
+            const pos2 = match.positionBucket || '?'; // для exact совпадает
+            console.log(
+                `│ ${(idx+1).toString().padEnd(3)} │ ${match.node1.substring(0, 18).padEnd(18)} │ ${pos1.padEnd(8)} │ ` +
+                `${match.node2.substring(0, 18).padEnd(18)} │ ${pos2.padEnd(8)} │   ${type}   │`
+            );
+        });
+       
+        if (allMatches.length > limit) {
+            console.log(`├─────┼────────────────────┼──────────┼────────────────────┼──────────┼─────────┤`);
+            console.log(`│ ... │       ...          │   ...    │       ...          │   ...    │  ...    │`);
+        }
+       
+        console.log(`└─────┴────────────────────┴──────────┴────────────────────┴──────────┴─────────┘`);
+    }
+   
+    getFingerprintInfo(fingerprints) {
+        const degrees = Array.from(fingerprints.values()).map(fp => fp.degree);
+        const signatures = Array.from(fingerprints.values()).map(fp => fp.signature);
+        const uniqueSignatures = new Set(signatures);
+        const distribution = this.calculateDistribution(fingerprints);
+       
+        return {
+            totalNodes: fingerprints.size,
+            uniqueSignatures: uniqueSignatures.size,
+            uniquenessRatio: uniqueSignatures.size / Math.max(1, fingerprints.size),
+            avgDegree: degrees.reduce((a, b) => a + b, 0) / degrees.length,
+            degreeDistribution: distribution.degree,
+            bucketDistribution: distribution.bucket,
+            maxDegree: Math.max(...degrees),
+            minDegree: Math.min(...degrees)
+        };
+    }
+   
     hashString(str) {
         if (this.hashCache.has(str)) return this.hashCache.get(str);
        
@@ -540,21 +587,7 @@ class TopologicalFingerprint {
         return result;
     }
    
-    // 🔥 ИНФОРМАЦИЯ О ПОДПИСЯХ
-    getFingerprintInfo(fingerprints) {
-        const degrees = Array.from(fingerprints.values()).map(fp => fp.degree);
-        const signatures = Array.from(fingerprints.values()).map(fp => fp.signature);
-        const uniqueSignatures = new Set(signatures);
-       
-        return {
-            totalNodes: fingerprints.size,
-            uniqueSignatures: uniqueSignatures.size,
-            uniquenessRatio: uniqueSignatures.size / Math.max(1, fingerprints.size),
-            avgDegree: degrees.reduce((a, b) => a + b, 0) / degrees.length
-        };
-    }
-   
-    // 🔥 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (ДЛЯ СОВМЕСТИМОСТИ)
+    // Для совместимости
     findSimilarNodes(fingerprints1, fingerprints2) {
         return this.findSimilarNodesWithGeometry(fingerprints1, fingerprints2);
     }
