@@ -241,79 +241,61 @@ class TopologicalAccumulator {
     // ==================== ИДЕНТИФИКАЦИЯ ТОЧЕК ====================
 
     async identifyPoints(model, newGraph) {
-        console.log(`\n📋 ТАБЛИЦА 1: ИДЕНТИФИКАЦИЯ ТОЧЕК (GEOMETRIC SIGNATURE)`);
-        console.log(`┌─────┬────────────────────┬─────────┬─────────┬────────────────────┬─────────┬─────────┬─────────┬─────────┐`);
-        console.log(`│  #  │   ТОЧКА В МОДЕЛИ   │ СОСЕДЕЙ │  ЗОНА   │   ТОЧКА В ФОТО 2   │ СОСЕДЕЙ │  ЗОНА   │ ПЕРЕСЕЧ │ УВЕРЕН  │`);
-        console.log(`├─────┼────────────────────┼─────────┼─────────┼────────────────────┼─────────┼─────────┼─────────┼─────────┤`);
+    console.log(`\n📋 ТАБЛИЦА 1: ИДЕНТИФИКАЦИЯ ТОЧЕК (GEOMETRIC SIGNATURE)`);
+    console.log(`┌─────┬────────────────────┬─────────┬─────────┬────────────────────┬─────────┬─────────┬─────────┐`);
+    console.log(`│  #  │   ТОЧКА В МОДЕЛИ   │ СТЕПЕНЬ │  ЗОНА   │   ТОЧКА В ФОТО 2   │ СТЕПЕНЬ │  ЗОНА   │ УВЕРЕН  │`);
+    console.log(`├─────┼────────────────────┼─────────┼─────────┼────────────────────┼─────────┼─────────┼─────────┤`);
 
-        const identifiedMap = new Map(); // nodeId in newGraph -> nodeId in model
-        const reverseMap = new Map();    // nodeId in model -> [nodeIds in newGraph]
-        let identifiedCount = 0;
-        let clusterCount = 0;
+    const identifiedMap = new Map();
+    const reverseMap = new Map();
+    let identifiedCount = 0;
+    let clusterCount = 0;
 
-        // Ищем соответствия для каждой точки в новом графе
-        for (const [nodeId, node] of newGraph.nodes) {
-            const neighbors = this.findNodeNeighbors(nodeId, newGraph);
-           
-            // Пытаемся идентифицировать точку
-            const match = this.geometricSignature.identify(node, neighbors, model.graph);
-           
-            if (match) {
-                const modelNode = model.graph.nodes.get(match.nodeId);
-                const zone = this.getZone(node.y);
-                const modelZone = this.getZone(modelNode.y);
-                const zoneMatch = zone === modelZone ? '✅' : '❌';
-               
-                identifiedMap.set(nodeId, match.nodeId);
-               
-                if (!reverseMap.has(match.nodeId)) {
-                    reverseMap.set(match.nodeId, []);
-                }
-                reverseMap.get(match.nodeId).push(nodeId);
-               
-                console.log(
-                    `│ ${(identifiedCount+1).toString().padEnd(3)} │ ${match.nodeId.substring(0, 18).padEnd(18)} │ ` +
-                    `${match.expectedNeighbors.toString().padEnd(7)} │ ${modelZone.padEnd(7)} │ ` +
-                    `${nodeId.substring(0, 18).padEnd(18)} │ ` +
-                    `${match.actualNeighbors.toString().padEnd(7)} │ ${zone.padEnd(7)} │ ` +
-                    `${(match.overlap * 100).toFixed(1).padStart(5)}%  │ ` +
-                    `${(match.confidence * 100).toFixed(0).padStart(5)}%  │`
-                );
-               
-                identifiedCount++;
-            }
-        }
-
-        console.log(`└─────┴────────────────────┴─────────┴─────────┴────────────────────┴─────────┴─────────┴─────────┴─────────┘`);
-        console.log(`\n📊 ИТОГ ИДЕНТИФИКАЦИИ:`);
-        console.log(`   ✅ Идентифицировано точек: ${identifiedCount} из ${newGraph.nodes.size}`);
+    for (const [nodeId, node] of newGraph.nodes) {
+        const neighbors = this.findNodeNeighbors(nodeId, newGraph);
        
-        // Анализируем кластеры (одна точка модели → много точек в новом фото)
-        console.log(`\n📋 ОБНАРУЖЕННЫЕ КЛАСТЕРЫ:`);
-        for (const [modelId, childIds] of reverseMap) {
-            if (childIds.length > 1) {
-                clusterCount++;
-                const modelNode = model.graph.nodes.get(modelId);
-                console.log(`   🎯 Кластер ${clusterCount}:`);
-                console.log(`      Модель: ${modelId.substring(0, 20)}... (${modelNode ? this.getZone(modelNode.y) : '?'})`);
-                console.log(`      Детали: ${childIds.length} точек в фото2`);
-                for (const childId of childIds) {
-                    const childNode = newGraph.nodes.get(childId);
-                    console.log(`         - ${childId.substring(0, 20)}... (${this.getZone(childNode.y)})`);
-                }
-               
-                // Регистрируем кластер в GeometricSignature
-                this.geometricSignature.registerCluster(modelId, childIds);
+        // 🔥🔥🔥 ВАЖНО: передаём ОБА графа!
+        const match = this.geometricSignature.identify(
+            node,
+            neighbors,
+            newGraph,      // для текущей структуры
+            model.graph    // для доступа к модели
+        );
+       
+        if (match) {
+            const modelNode = model.graph.nodes.get(match.nodeId);
+            const zone = this.getZone(node.y);
+            const modelZone = this.getZone(modelNode.y);
+           
+            identifiedMap.set(nodeId, match.nodeId);
+           
+            if (!reverseMap.has(match.nodeId)) {
+                reverseMap.set(match.nodeId, []);
             }
+            reverseMap.get(match.nodeId).push(nodeId);
+           
+            console.log(
+                `│ ${(identifiedCount+1).toString().padEnd(3)} │ ${match.nodeId.substring(0, 18).padEnd(18)} │ ` +
+                `${modelNode.degree.toString().padEnd(7)} │ ${modelZone.padEnd(7)} │ ` +
+                `${nodeId.substring(0, 18).padEnd(18)} │ ` +
+                `${node.degree.toString().padEnd(7)} │ ${zone.padEnd(7)} │ ` +
+                `${(match.confidence * 100).toFixed(1).padStart(5)}%  │`
+            );
+           
+            identifiedCount++;
         }
-
-        return {
-            count: identifiedCount,
-            clusters: clusterCount,
-            identifiedMap,
-            reverseMap
-        };
     }
+
+    console.log(`└─────┴────────────────────┴─────────┴─────────┴────────────────────┴─────────┴─────────┴─────────┘`);
+    console.log(`\n📊 ИТОГ ИДЕНТИФИКАЦИИ:`);
+    console.log(`   ✅ Идентифицировано точек: ${identifiedCount} из ${newGraph.nodes.size}`);
+
+    return {
+        count: identifiedCount,
+        identifiedMap,
+        reverseMap
+    };
+}
 
     // ==================== ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ ====================
 
