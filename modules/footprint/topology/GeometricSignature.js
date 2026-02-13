@@ -68,14 +68,17 @@ class GeometricSignature {
     }
 
     // 🔥 НАЙТИ ТОЧКУ ПО ТОПОЛОГИЧЕСКИМ ПРИЗНАКАМ
-    identify(node, neighbors, graph) {
-        const currentNode = {
-            id: node.id,
-            y: node.y,
-            degree: neighbors.length,
-            triangleCount: this.countTriangles(neighbors, graph),
-            roles: this.determineRoles(node, neighbors, graph)
-        };
+    identify(node, neighbors, currentGraph, modelGraph) {
+    // currentGraph - для подсчёта треугольников в новом фото
+    // modelGraph - для доступа к модели (если нужно)
+   
+    const currentNode = {
+        id: node.id,
+        y: node.y,
+        degree: neighbors.length,
+        triangleCount: this.countTriangles(neighbors, currentGraph),  // ✅ используем currentGraph
+        roles: this.determineRoles(node, neighbors, currentGraph)     // ✅ используем currentGraph
+    };
        
         const currentZone = this.getZone(node.y);
        
