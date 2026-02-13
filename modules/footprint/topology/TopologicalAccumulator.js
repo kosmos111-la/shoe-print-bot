@@ -95,8 +95,9 @@ class TopologicalAccumulator {
                 lostPoints: enhancementResult.lostPoints,
                 mappingAccuracy: enhancementResult.mappingAccuracy,
                 restoredFromMemory: enhancementResult.restoredFromMemory,
+                remembered: enhancementResult.remembered,
                 triangulated: enhancementResult.triangulated || 0,
-                message: `Модель улучшена (+${enhancementResult.newNodesAdded} узлов, ${enhancementResult.restoredFromMemory} из памяти)`
+                message: `Модель улучшена (+${enhancementResult.newNodesAdded} узлов, 📎${enhancementResult.restoredFromMemory} из памяти, 📐${enhancementResult.remembered} запомнено, 🔺${enhancementResult.triangulated} триангуляция)`
             };
 
         } else {
@@ -175,10 +176,6 @@ class TopologicalAccumulator {
         const exactMatches = comparison.exactMatches || [];
         const similarMatches = comparison.similarMatches || [];
 
-        // 📊 ТАБЛИЦА 1: ТОЧКИ ИЗ МОДЕЛИ
-        const { foundCount, lostCount } = await this.printModelPointsTable(model, newGraph, allMatches, exactMatches, similarMatches);
-        const mappingAccuracy = model.graph.nodes.size > 0 ? (foundCount / model.graph.nodes.size * 100).toFixed(1) : '0.0';
-
         // 🗺️ СОЗДАЕМ МАППИНГ ДЛЯ ГЕОМЕТРИИ
         const mapping = new Map();
         for (const match of allMatches) {
@@ -187,27 +184,32 @@ class TopologicalAccumulator {
             }
         }
 
-        // 🔥 1. ВОССТАНАВЛИВАЕМ ТОЧКИ ИЗ ПАМЯТИ
+        // 🔥 1. СНАЧАЛА - ЗАПОМИНАЕМ ГЕОМЕТРИЮ ВСЕХ ТОЧЕК, КОТОРЫЕ НАШЛИ СЕБЯ!
+        const rememberedNodes = await this.rememberMatchedNodes(modelId, newGraph, model.graph, mapping, allMatches);
+
+        // 🔥 2. ПОТОМ - ВОССТАНАВЛИВАЕМ ТОЧКИ ИЗ ПАМЯТИ
         const restoredNodes = await this.restoreFromMemory(modelId, newGraph, model.graph, mapping);
 
-        // 🔥 2. ИЩЕМ НОВЫЕ ТОЧКИ
+        // 🔥 3. ИЩЕМ НОВЫЕ ТОЧКИ
         const newNodes = this.findNewNodes(model.graph, newGraph, newFingerprints, mapping);
-
-        // 🔥 3. ЗАПОМИНАЕМ НОВЫЕ ТОЧКИ
-        const rememberedNodes = await this.rememberNewNodes(modelId, newNodes, newGraph, model.graph, mapping);
 
         // 🔥 4. ТРИАНГУЛЯЦИЯ (ДЛЯ ТОЧЕК, КОТОРЫЕ НЕ ЗАПОМНИЛИСЬ)
         const triangulatedNodes = await this.triangulateNodePositions(
-            newNodes.filter(n => !rememberedNodes.some(r => r.nodeId === n.nodeId)),
+            newNodes.filter(n => !rememberedNodes.some(r => r.nodeId === n.nodeId) &&
+                                !restoredNodes.some(r => r.nodeId === n.nodeId)),
             newGraph,
             model.graph,
             mapping
         );
 
-        // 📊 ТАБЛИЦА 2: НОВЫЕ ТОЧКИ
+        // 📋 ТАБЛИЦА 1: ТОЧКИ ИЗ МОДЕЛИ (ПОЛНАЯ!)
+        const { foundCount, lostCount } = await this.printModelPointsTable(model, newGraph, allMatches, exactMatches, similarMatches);
+        const mappingAccuracy = model.graph.nodes.size > 0 ? (foundCount / model.graph.nodes.size * 100).toFixed(1) : '0.0';
+
+        // 📋 ТАБЛИЦА 2: НОВЫЕ ТОЧКИ
         await this.printNewPointsTable(newGraph, mapping, model.graph, [...restoredNodes, ...rememberedNodes, ...triangulatedNodes]);
 
-        // 📊 ТАБЛИЦА 3: СТАТИСТИКА ПО ЗОНАМ
+        // 📋 ТАБЛИЦА 3: СТАТИСТИКА ПО ЗОНАМ
         const zoneStats = this.calculateZoneStats(model, newGraph, allMatches);
         this.printZoneStats(zoneStats, allMatches.length);
 
@@ -255,7 +257,7 @@ class TopologicalAccumulator {
         this.stats.lastUpdated = new Date();
 
         console.log(`\n✅ МОДЕЛЬ УЛУЧШЕНА:`);
-        console.log(`   +${addedNodes.length} узлов (из памяти: ${restoredNodes.length}, запомнено: ${rememberedNodes.length}, триангуляция: ${triangulatedNodes.filter(n => n.nodeData?.triangulated).length})`);
+        console.log(`   +${addedNodes.length} узлов (📎 из памяти: ${restoredNodes.length}, 📐 запомнено: ${rememberedNodes.length}, 🔺 триангуляция: ${triangulatedNodes.filter(n => n.nodeData?.triangulated).length})`);
         console.log(`   Всего узлов: ${model.graph.nodes.size}`);
         console.log(`   🎯 Точность маппинга: ${mappingAccuracy}%`);
         console.log(`   📐 Геометрическая память: ${this.geometryMemory.memory.size} записей`);
@@ -275,8 +277,62 @@ class TopologicalAccumulator {
 
     // ==================== ГЕОМЕТРИЧЕСКАЯ ПАМЯТЬ ====================
 
+    // 🔥🔥🔥 ЗАПОМИНАЕМ ТОЧКИ, КОТОРЫЕ НАШЛИ СЕБЯ!
+    async rememberMatchedNodes(modelId, newGraph, modelGraph, mapping, allMatches) {
+        console.log(`\n📐 Запоминаю геометрию совпавших точек...`);
+       
+        const remembered = [];
+        const matchedNodeIds = new Set();
+
+        for (const match of allMatches) {
+            matchedNodeIds.add(match.node2);
+        }
+
+        for (const nodeId of matchedNodeIds) {
+            const node = newGraph.nodes.get(nodeId);
+            if (!node) continue;
+
+            // Находим соседей для геометрии
+            const neighbors = this.findThreeClosestInGraph(nodeId, newGraph);
+           
+            const success = this.geometryMemory.remember(
+                nodeId,
+                node,
+                neighbors,
+                newGraph,
+                modelGraph,
+                mapping
+            );
+
+            if (success) {
+                remembered.push({
+                    nodeId: nodeId,
+                    nodeData: {
+                        ...node,
+                        id: nodeId,
+                        x: node.x,
+                        y: node.y,
+                        confidence: node.confidence || 0.5,
+                        remembered: true,
+                        triangulated: false
+                    },
+                    reason: `геометрия запомнена`
+                });
+
+                this.stats.totalRemembered++;
+               
+                if (this.debug) {
+                    console.log(`   📐 ${nodeId.substring(0, 20)}... запомнен`);
+                }
+            }
+        }
+
+        console.log(`   ✅ Запомнено: ${remembered.length} узлов`);
+        return remembered;
+    }
+
     async restoreFromMemory(modelId, newGraph, modelGraph, mapping) {
-        console.log(`\n📐 Восстанавливаю точки из геометрической памяти...`);
+        console.log(`\n📎 Восстанавливаю точки из геометрической памяти...`);
        
         const restored = [];
         const memorySize = this.geometryMemory.memory.size;
@@ -306,7 +362,7 @@ class TopologicalAccumulator {
                 this.stats.totalRestored++;
 
                 if (this.debug) {
-                    console.log(`   📍 ${nodeId.substring(0, 20)}... восстановлен`);
+                    console.log(`   📎 ${nodeId.substring(0, 20)}... восстановлен`);
                     console.log(`      Позиция: (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`);
                 }
             }
@@ -314,44 +370,6 @@ class TopologicalAccumulator {
 
         console.log(`   ✅ Восстановлено: ${restored.length} узлов`);
         return restored;
-    }
-
-    async rememberNewNodes(modelId, newNodes, newGraph, modelGraph, mapping) {
-        console.log(`\n📐 Запоминаю геометрию новых точек...`);
-       
-        const remembered = [];
-
-        for (const nodeInfo of newNodes) {
-            const nodeId = nodeInfo.nodeId;
-            const node = newGraph.nodes.get(nodeId);
-           
-            if (!node) continue;
-
-            const success = this.geometryMemory.remember(
-                nodeId,
-                node,
-                nodeInfo.structuralNeighbors || [],
-                newGraph,
-                modelGraph,
-                mapping
-            );
-
-            if (success) {
-                remembered.push({
-                    ...nodeInfo,
-                    nodeData: {
-                        ...nodeInfo.nodeData,
-                        remembered: true,
-                        triangulated: false
-                    }
-                });
-
-                this.stats.totalRemembered++;
-            }
-        }
-
-        console.log(`   ✅ Запомнено: ${remembered.length} узлов`);
-        return remembered;
     }
 
     // ==================== ТРИАНГУЛЯЦИЯ ====================
@@ -371,7 +389,6 @@ class TopologicalAccumulator {
                 continue;
             }
 
-            // Находим ВСЕХ соседей в маппинге
             const candidates = [];
             for (const edge of newGraph.edges) {
                 const [nodeA, nodeB] = edge.split('--');
@@ -399,10 +416,8 @@ class TopologicalAccumulator {
                 continue;
             }
 
-            // Сортируем по расстоянию
             candidates.sort((a, b) => a.dist - b.dist);
 
-            // Берём топ-6 и ищем лучший треугольник
             let bestTriangle = null;
             let bestScore = -1;
             const topN = Math.min(6, candidates.length);
@@ -458,7 +473,6 @@ class TopologicalAccumulator {
                 let x = a.x * bary.alpha + b.x * bary.beta + c.x * bary.gamma;
                 let y = a.y * bary.alpha + b.y * bary.beta + c.y * bary.gamma;
 
-                // Мягкие границы
                 const BOUNDS = { minX: 0, maxX: 800, minY: 0, maxY: 600 };
                 x = Math.max(BOUNDS.minX, Math.min(BOUNDS.maxX, x));
                 y = Math.max(BOUNDS.minY, Math.min(BOUNDS.maxY, y));
@@ -487,16 +501,11 @@ class TopologicalAccumulator {
     findNewNodes(modelGraph, newGraph, newFingerprints, mapping) {
         const nodesToAdd = [];
         const mappedNodeIds = new Set(mapping.keys());
-        const rememberedNodeIds = new Set();
-
-        for (const [nodeId] of this.geometryMemory.memory) {
-            rememberedNodeIds.add(nodeId);
-        }
 
         for (const [nodeId, node] of newGraph.nodes) {
             if (mappedNodeIds.has(nodeId)) continue;
-            if (rememberedNodeIds.has(nodeId)) continue;
             if (modelGraph.nodes.has(nodeId)) continue;
+            if (this.geometryMemory.memory.has(nodeId)) continue;
 
             const connectionsToMatched = this.countConnectionsToMatched(
                 nodeId,
@@ -537,6 +546,25 @@ class TopologicalAccumulator {
             }
         }
         return neighbors;
+    }
+
+    findThreeClosestInGraph(nodeId, graph) {
+        const node = graph.nodes.get(nodeId);
+        if (!node) return [];
+
+        const distances = [];
+        for (const [otherId, otherNode] of graph.nodes) {
+            if (otherId === nodeId) continue;
+            const dx = node.x - otherNode.x;
+            const dy = node.y - otherNode.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            distances.push({ id: otherId, dist });
+        }
+
+        return distances
+            .sort((a, b) => a.dist - b.dist)
+            .slice(0, 3)
+            .map(d => d.id);
     }
 
     countConnectionsToMatched(nodeId, matchedNodeIds, edges) {
@@ -656,7 +684,7 @@ class TopologicalAccumulator {
         return { alpha, beta, gamma };
     }
 
-    // ==================== ДИАГНОСТИКА ====================
+    // ==================== ДИАГНОСТИКА (ПОЛНЫЕ ТАБЛИЦЫ) ====================
 
     async printModelPointsTable(model, newGraph, allMatches, exactMatches, similarMatches) {
         console.log(`\n📋 ТАБЛИЦА 1: ТОЧКИ ИЗ ПЕРВОГО ФОТО (МОДЕЛЬ) - СТАТУС ВО ВТОРОМ ФОТО`);
@@ -671,7 +699,8 @@ class TopologicalAccumulator {
         const modelNodes = Array.from(model.graph.nodes.entries());
         let foundCount = 0, lostCount = 0;
 
-        modelNodes.slice(0, 30).forEach(([nodeId, node], idx) => {
+        // 🔥🔥🔥 ПОЛНАЯ ТАБЛИЦА - БЕЗ .slice()!
+        modelNodes.forEach(([nodeId, node], idx) => {
             const zone = node.y > 350 ? 'ПЯТКА' : node.y < 200 ? 'НОСОК' : 'ЦЕНТР';
             const matchNodeId = matchMap.get(nodeId);
            
@@ -702,10 +731,6 @@ class TopologicalAccumulator {
             }
         });
 
-        if (modelNodes.length > 30) {
-            console.log(`│ ... │       ...          │    ...     │   ...   │       ...          │      ...      │    ...    │`);
-        }
-
         console.log(`└─────┴────────────────────┴─────────────┴─────────┴────────────────────┴─────────────┴─────────┘`);
         console.log(`\n📊 СТАТИСТИКА ТОЧЕК МОДЕЛИ:`);
         console.log(`   ✅ Найдено во втором фото: ${foundCount} из ${modelNodes.length}`);
@@ -733,7 +758,7 @@ class TopologicalAccumulator {
             }
         }
 
-        newPoints.slice(0, 20).forEach(({nodeId, node}, idx) => {
+        newPoints.forEach(({nodeId, node}, idx) => {
             const zone = node.y > 350 ? 'ПЯТКА' : node.y < 200 ? 'НОСОК' : 'ЦЕНТР';
             const modelNode = modelGraph.nodes.get(nodeId);
             const addedNode = addedNodeMap.get(nodeId);
@@ -763,10 +788,6 @@ class TopologicalAccumulator {
                 );
             }
         });
-
-        if (newPoints.length > 20) {
-            console.log(`│ ... │       ...          │    ...     │   ...   │       ...          │      ...      │    ...    │`);
-        }
 
         console.log(`└─────┴────────────────────┴─────────────┴─────────┴────────────────────┴─────────────┴─────────┘`);
     }
@@ -963,7 +984,7 @@ class TopologicalAccumulator {
             history: model.history,
             geometryMemory: this.geometryMemory.export(),
             stats: this.getModelInfo(targetModelId).stats,
-            _version: '7.0-geometry-memory-full',
+            _version: '7.1-geometry-memory-full',
             _exportedAt: new Date().toISOString()
         };
     }
