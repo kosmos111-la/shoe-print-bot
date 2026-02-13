@@ -1,13 +1,13 @@
 // modules/footprint/topology/TopologicalFingerprint.js
-// 🎯 ЧИСТАЯ ТОПОЛОГИЯ + НОРМАЛИЗОВАННАЯ СТЕПЕНЬ (ПОЛНАЯ ВЕРСИЯ)
+// 🎯 WL-ПОДПИСИ ДЛЯ СРАВНЕНИЯ ГРАФОВ (ПОЛНАЯ ВЕРСИЯ)
 
 class TopologicalFingerprint {
     constructor(options = {}) {
-        this.iterations = options.iterations || 3;
+        this.iterations = options.iterations || 2;
         this.debug = options.debug || false;
         this.hashCache = new Map();
        
-        // 🔥 БАКЕТЫ ДЛЯ АБСОЛЮТНОЙ СТЕПЕНИ (РЕЗЕРВ)
+        // 🔥 БАКЕТЫ ДЛЯ АБСОЛЮТНОЙ СТЕПЕНИ (сохранено)
         this.degreeBuckets = [
             [0, 2],   // B0: листья
             [3, 4],   // B1: низкая
@@ -17,16 +17,27 @@ class TopologicalFingerprint {
             [13, 100] // B5: экстремальная
         ];
        
-        // 🔥🔥🔥 ПОРОГ ДЛЯ СТРУКТУРНОГО СХОДСТВА
-        this.structuralSimilarityThreshold = options.structuralSimilarityThreshold || 0.8;
+        // 🔥 Веса для разных признаков
+        this.weights = {
+            role: 0.35,
+            zone: 0.25,
+            triangles: 0.2,
+            degree: 0.1,
+            neighbors: 0.1
+        };
        
-        console.log('🔷 НОРМАЛИЗОВАННЫЙ ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ');
+        // Порог структурного сходства
+        this.structuralSimilarityThreshold = options.structuralSimilarityThreshold || 0.7;
+       
+        console.log('🔷 ТОПОЛОГИЧЕСКИЙ АЛГОРИТМ (WL-подписи)');
         console.log(`   Порог сходства: ${this.structuralSimilarityThreshold}`);
-        console.log(`   Признаки: относительная степень, треугольники, геометрия`);
+        console.log(`   Признаки: роль, зона, треугольники, степень`);
     }
 
+    // ==================== ОСНОВНОЙ МЕТОД ====================
+
     computeGraphFingerprints(graph) {
-        console.log(`🔷 Вычисляю НОРМАЛИЗОВАННЫЕ топологические подписи (${graph.nodes.size} узлов)...`);
+        console.log(`🔷 Вычисляю WL-подписи (${graph.nodes.size} узлов)...`);
        
         const nodes = graph.nodes;
         const edges = graph.edges;
@@ -34,7 +45,7 @@ class TopologicalFingerprint {
         // 1. Создаем карту соседей
         const neighborMap = this.buildNeighborMap(nodes, edges);
        
-        // 🔥🔥🔥 2. ВЫЧИСЛЯЕМ ГЛОБАЛЬНЫЙ МАКСИМУМ СТЕПЕНИ!
+        // 2. Вычисляем максимальную степень (для нормализации)
         let maxDegree = 0;
         for (const node of nodes.values()) {
             const degree = neighborMap.get(node.id)?.length || 0;
@@ -42,291 +53,177 @@ class TopologicalFingerprint {
         }
         console.log(`   📊 Максимальная степень в графе: ${maxDegree}`);
        
-        // 3. Глобальная геометрия
-        const globalStats = this.computeGlobalStats(graph);
-       
-        // 4. Инициализируем подписи
+        // 3. Создаем подписи для всех узлов
         const signatures = new Map();
        
         for (const [nodeId, node] of nodes) {
             const neighbors = neighborMap.get(nodeId) || [];
-            const absoluteDegree = neighbors.length;
+            const degree = neighbors.length;
            
-            // 🔥🔥🔥 5. НОРМАЛИЗОВАННАЯ СТЕПЕНЬ (0..1) → БАКЕТ (0..7)
-            const normalizedDegree = maxDegree > 0 ? absoluteDegree / maxDegree : 0;
+            // 🔥 Роль узла
+            const role = this.getNodeRole(nodeId, neighbors, neighborMap, graph);
+           
+            // 🔥 Зона
+            const zone = this.getZone(node.y);
+           
+            // 🔥 Количество треугольников
+            const triangleCount = this.countTriangles(nodeId, neighbors, neighborMap, graph);
+           
+            // 🔥 Нормализованная степень
+            const normalizedDegree = maxDegree > 0 ? degree / maxDegree : 0;
             const normBucket = Math.min(7, Math.floor(normalizedDegree * 8));
            
-            // 6. Локальная структура с нормализованной степенью
-            const structuralSignature = this.computeNormalizedLocalStructure(
-                nodeId, neighbors, neighborMap, absoluteDegree, normalizedDegree, normBucket
-            );
+            // 🔥 Базовая подпись
+            const baseSignature = `${role}|${zone}|T${triangleCount}|D${Math.min(degree, 10)}`;
            
-            const initialSig = this.hashString(structuralSignature);
+            // 🔥 Итеративное уточнение (WL)
+            let currentSig = this.hashString(baseSignature);
            
-            signatures.set(nodeId, {
-                current: initialSig,
-                degree: absoluteDegree,
-                normalizedDegree: normalizedDegree,
-                normBucket: normBucket,
-                degreeBucket: this.getDegreeBucket(absoluteDegree),
-                neighborCount: neighbors.length,
-                localStructure: structuralSignature,
-                neighborIds: neighbors,
-                y: node.y,
-                avgNeighborY: this.computeAvgNeighborY(nodeId, neighbors, graph),
-                positionBucket: this.getPositionBucket(node.y),
-                history: [initialSig]
-            });
-        }
-       
-        // 7. Итеративное уточнение с нормализованными подписями
-        for (let iter = 0; iter < this.iterations; iter++) {
-            const newSignatures = new Map();
+            // Сохраняем историю для итераций
+            const history = [currentSig];
            
-            for (const [nodeId, node] of nodes) {
-                const neighbors = neighborMap.get(nodeId) || [];
-               
+            for (let iter = 0; iter < this.iterations; iter++) {
+                // Собираем подписи соседей
                 const neighborSigs = [];
-                const neighborNormBuckets = [];
+                const neighborRoles = [];
                
                 for (const neighborId of neighbors) {
-                    const neighborSig = signatures.get(neighborId);
-                    if (neighborSig) {
-                        neighborSigs.push(neighborSig.current);
-                        neighborNormBuckets.push(neighborSig.normBucket);
-                    }
+                    const neighborDegree = neighborMap.get(neighborId)?.length || 0;
+                    const neighborRole = this.getNodeRole(neighborId,
+                        neighborMap.get(neighborId) || [], neighborMap, graph);
+                    const neighborTriangles = this.countTriangles(neighborId,
+                        neighborMap.get(neighborId) || [], neighborMap, graph);
+                   
+                    const neighborSig = `${neighborRole}|T${neighborTriangles}|D${Math.min(neighborDegree, 10)}`;
+                    neighborSigs.push(neighborSig);
+                    neighborRoles.push(neighborRole);
                 }
                
+                // Сортируем для инвариантности
                 neighborSigs.sort();
-                neighborNormBuckets.sort();
+                neighborRoles.sort();
                
-                // Статистика по нормализованным степеням соседей
-                const avgNormBucket = neighborNormBuckets.length > 0
-                    ? neighborNormBuckets.reduce((a, b) => a + b, 0) / neighborNormBuckets.length
-                    : 0;
+                // Статистика по ролям соседей
+                const roleCounts = {};
+                neighborRoles.forEach(r => roleCounts[r] = (roleCounts[r] || 0) + 1);
+                const roleStats = Object.entries(roleCounts)
+                    .sort()
+                    .map(([r, c]) => `${r}${c}`)
+                    .join('');
                
-                const currentSig = signatures.get(nodeId).current;
-                const neighborSigStr = neighborSigs.length > 0
-                    ? neighborSigs.join('|')
-                    : 'NO_NEIGHBORS';
-               
-                // Добавляем нормализованную статистику в подпись
+                // Новая подпись
                 const newSig = this.hashString(
-                    `${currentSig}|${neighborSigStr}|NB_${Math.round(avgNormBucket)}`
+                    `${currentSig}|${neighborSigs.join('|')}|${roleStats}`
                 );
                
-                newSignatures.set(nodeId, {
-                    current: newSig,
-                    degree: node.degree,
-                    normalizedDegree: signatures.get(nodeId).normalizedDegree,
-                    normBucket: signatures.get(nodeId).normBucket,
-                    degreeBucket: signatures.get(nodeId).degreeBucket,
-                    neighborCount: neighbors.length,
-                    localStructure: signatures.get(nodeId).localStructure,
-                    neighborIds: signatures.get(nodeId).neighborIds,
-                    y: signatures.get(nodeId).y,
-                    avgNeighborY: signatures.get(nodeId).avgNeighborY,
-                    positionBucket: signatures.get(nodeId).positionBucket,
-                    history: [...signatures.get(nodeId).history, newSig]
-                });
+                history.push(newSig);
+                currentSig = newSig;
             }
            
-            for (const [nodeId, sig] of newSignatures) {
-                signatures.set(nodeId, sig);
-            }
-        }
-       
-        // 8. Финальные подписи
-        const finalSignatures = new Map();
-        for (const [nodeId, sig] of signatures) {
-            const recentHistory = sig.history.slice(-2);
-            const finalSig = this.hashString(recentHistory.join('::'));
+            // Финальная подпись (последние две итерации)
+            const finalSig = this.hashString(history.slice(-2).join('::'));
            
-            finalSignatures.set(nodeId, {
+            signatures.set(nodeId, {
                 signature: finalSig,
-                degree: sig.degree,
-                normalizedDegree: sig.normalizedDegree,
-                normBucket: sig.normBucket,
-                degreeBucket: sig.degreeBucket,
-                neighborCount: sig.neighborCount,
-                localStructure: sig.localStructure,
-                neighborIds: sig.neighborIds,
-                y: sig.y,
-                avgNeighborY: sig.avgNeighborY,
-                positionBucket: sig.positionBucket,
-                historyLength: sig.history.length
+                baseSignature,
+                role,
+                zone,
+                triangleCount,
+                degree,
+                normalizedDegree,
+                normBucket,
+                degreeBucket: this.getDegreeBucket(degree),
+                neighborCount: neighbors.length,
+                neighborIds: neighbors,
+                history
             });
         }
        
-        const uniqueCount = new Set(Array.from(finalSignatures.values()).map(s => s.signature)).size;
+        // Статистика
+        const uniqueSignatures = new Set();
+        for (const sig of signatures.values()) {
+            uniqueSignatures.add(sig.signature);
+        }
        
-        console.log(`✅ НОРМАЛИЗОВАННЫЕ топологические подписи:`);
-        console.log(`   Узлов: ${finalSignatures.size}`);
-        console.log(`   Уникальных подписей: ${uniqueCount} (${(uniqueCount/finalSignatures.size*100).toFixed(1)}%)`);
-        console.log(`   Диапазон нормализованной степени: 0-1 → бакеты 0-7`);
+        console.log(`✅ WL-подписи вычислены:`);
+        console.log(`   Узлов: ${signatures.size}`);
+        console.log(`   Уникальных подписей: ${uniqueSignatures.size} (${(uniqueSignatures.size/signatures.size*100).toFixed(1)}%)`);
+        console.log(`   Роли: L(лист), B(мост), H(хаб), C(клика), R(обычный)`);
        
-        return finalSignatures;
+        return signatures;
     }
 
-    // 🔥🔥🔥 НОВЫЙ МЕТОД: Локальная структура с НОРМАЛИЗОВАННОЙ степенью
-    computeNormalizedLocalStructure(nodeId, neighbors, neighborMap, absoluteDegree, normalizedDegree, normBucket) {
-        if (neighbors.length === 0) {
-            return 'ISOLATED';
-        }
+    // ==================== ОПРЕДЕЛЕНИЕ РОЛИ ====================
+
+    getNodeRole(nodeId, neighbors, neighborMap, graph) {
+        const degree = neighbors.length;
        
-        const features = [];
+        // Лист
+        if (degree === 1) return 'L';
        
-        // 1. 🔥 НОРМАЛИЗОВАННАЯ СТЕПЕНЬ (ИНВАРИАНТ К РАЗМЕРУ ГРАФА!)
-        features.push(`NORM_B${normBucket}`);
-        features.push(`ABS_DEG_${absoluteDegree}`); // для отладки
+        // Хаб (много связей)
+        if (degree >= 6) return 'H';
        
-        // 2. ТРЕУГОЛЬНИКИ
-        let triangleCount = 0;
-        for (let i = 0; i < neighbors.length; i++) {
-            for (let j = i + 1; j < neighbors.length; j++) {
-                const neighborA = neighbors[i];
-                const neighborB = neighbors[j];
-                const neighborsOfA = neighborMap.get(neighborA) || [];
-                if (neighborsOfA.includes(neighborB)) {
-                    triangleCount++;
-                }
+        // Мост (два соседа, не связанных между собой)
+        if (degree === 2) {
+            const [aId, bId] = neighbors;
+            if (!this.areConnected(aId, bId, graph)) {
+                return 'B';
             }
         }
-        features.push(`TRI_${triangleCount}`);
        
-        // 3. МОСТ
-        let isBridge = false;
-        if (neighbors.length === 2) {
-            const [neighborA, neighborB] = neighbors;
-            const neighborsOfA = neighborMap.get(neighborA) || [];
-            const neighborsOfB = neighborMap.get(neighborB) || [];
-            if (!neighborsOfA.includes(neighborB) && !neighborsOfB.includes(neighborA)) {
-                isBridge = true;
-            }
-        }
-        features.push(isBridge ? 'BRG_YES' : 'BRG_NO');
-       
-        // 4. ЛИСТ
-        features.push(neighbors.length === 1 ? 'LEAF_YES' : 'LEAF_NO');
-       
-        // 5. ХАБ (теперь на основе нормализованной степени!)
-        features.push(normBucket >= 5 ? 'HUB_YES' : 'HUB_NO');
-       
-        // 6. КЛИКА
-        let isClique = false;
-        if (neighbors.length >= 3) {
+        // Клика (все соседи связаны между собой)
+        if (degree >= 3) {
             let allConnected = true;
-            for (let i = 0; i < neighbors.length && allConnected; i++) {
-                for (let j = i + 1; j < neighbors.length && allConnected; j++) {
-                    const neighborA = neighbors[i];
-                    const neighborB = neighbors[j];
-                    const neighborsOfA = neighborMap.get(neighborA) || [];
-                    if (!neighborsOfA.includes(neighborB)) {
+            for (let i = 0; i < neighbors.length; i++) {
+                for (let j = i + 1; j < neighbors.length; j++) {
+                    if (!this.areConnected(neighbors[i], neighbors[j], graph)) {
                         allConnected = false;
+                        break;
                     }
                 }
+                if (!allConnected) break;
             }
-            isClique = allConnected;
-        }
-        features.push(isClique ? 'CLQ_YES' : 'CLQ_NO');
-       
-        // 7. СТАТИСТИКА ПО СОСЕДЯМ (тоже нормализованная!)
-        const neighborDegrees = [];
-        for (const neighborId of neighbors) {
-            const neighborNeighbors = neighborMap.get(neighborId) || [];
-            neighborDegrees.push(neighborNeighbors.length);
+            if (allConnected) return 'C';
         }
        
-        const maxNeighborDegree = Math.max(...neighborDegrees);
-        const minNeighborDegree = Math.min(...neighborDegrees);
-        const avgNeighborDegree = neighborDegrees.reduce((a, b) => a + b, 0) / neighborDegrees.length;
-       
-        features.push(`MAX_ND_${maxNeighborDegree}`);
-        features.push(`MIN_ND_${minNeighborDegree}`);
-        features.push(`AVG_ND_${Math.round(avgNeighborDegree)}`);
-       
-        return features.join('_');
+        // Обычный узел
+        return 'R';
     }
 
-    // 🔥🔥🔥 НОВЫЙ МЕТОД: Сравнение с нормализованной степенью
-    computeNormalizedSimilarity(fp1, fp2) {
-        let similarity = 0;
-        let totalWeight = 0;
-       
-        // 1. НОРМАЛИЗОВАННАЯ СТЕПЕНЬ (вес 30%) - ИНВАРИАНТ!
-        const normBucketDiff = Math.abs(fp1.normBucket - fp2.normBucket);
-        const normSim = 1.0 - (normBucketDiff / 8); // бакеты 0-7
-        similarity += normSim * 0.30;
-        totalWeight += 0.30;
-       
-        // 2. АБСОЛЮТНАЯ СТЕПЕНЬ (вес 10%) - для точных совпадений
-        if (fp1.degreeBucket === fp2.degreeBucket) {
-            similarity += 0.10;
-        }
-        totalWeight += 0.10;
-       
-        // 3. Количество соседей (вес 15%)
-        const neighborDiff = Math.abs(fp1.neighborCount - fp2.neighborCount);
-        const neighborSim = 1.0 - (neighborDiff / Math.max(fp1.neighborCount, fp2.neighborCount, 1));
-        similarity += neighborSim * 0.15;
-        totalWeight += 0.15;
-       
-        // 4. Локальная структура (вес 30%)
-        if (fp1.localStructure && fp2.localStructure) {
-            const structureSim = this.computeLocalStructureSimilarity(
-                fp1.localStructure,
-                fp2.localStructure
-            );
-            similarity += structureSim * 0.30;
-        }
-        totalWeight += 0.30;
-       
-        // 5. Позиция (вес 15%)
-        if (fp1.positionBucket === fp2.positionBucket) {
-            similarity += 0.15;
-        }
-        totalWeight += 0.15;
-       
-        return similarity / totalWeight;
-    }
+    // ==================== ПОДСЧЕТ ТРЕУГОЛЬНИКОВ ====================
 
-    // 🔥 ГЛОБАЛЬНАЯ СТАТИСТИКА
-    computeGlobalStats(graph) {
-        const yCoords = [];
-        for (const node of graph.nodes.values()) {
-            yCoords.push(node.y);
-        }
-        yCoords.sort((a, b) => a - b);
-        return {
-            yMin: yCoords[0] || 0,
-            yMax: yCoords[yCoords.length - 1] || 600,
-            yMedian: yCoords[Math.floor(yCoords.length / 2)] || 300
-        };
-    }
-
-    // 🔥 ПОЗИЦИЯ
-    getPositionBucket(y) {
-        if (y > 350) return 'HEEL';
-        if (y < 200) return 'TOE';
-        return 'CENTER';
-    }
-
-    // 🔥 СРЕДНИЙ Y СОСЕДЕЙ
-    computeAvgNeighborY(nodeId, neighbors, graph) {
-        if (neighbors.length === 0) return 0;
-        let sumY = 0;
+    countTriangles(nodeId, neighbors, neighborMap, graph) {
         let count = 0;
-        for (const neighborId of neighbors) {
-            const neighbor = graph.nodes.get(neighborId);
-            if (neighbor) {
-                sumY += neighbor.y;
-                count++;
+       
+        for (let i = 0; i < neighbors.length; i++) {
+            for (let j = i + 1; j < neighbors.length; j++) {
+                if (this.areConnected(neighbors[i], neighbors[j], graph)) {
+                    count++;
+                }
             }
         }
-        return count > 0 ? sumY / count : 0;
+       
+        return count;
     }
 
-    // 🔥 БАКЕТ АБСОЛЮТНОЙ СТЕПЕНИ
+    // ==================== ПРОВЕРКА СВЯЗИ ====================
+
+    areConnected(nodeAId, nodeBId, graph) {
+        const edgeId = [nodeAId, nodeBId].sort().join('--');
+        return graph.edges.has(edgeId);
+    }
+
+    // ==================== ОПРЕДЕЛЕНИЕ ЗОНЫ ====================
+
+    getZone(y) {
+        if (y > 350) return 'K'; // пятка (heel)
+        if (y < 200) return 'N'; // носок (toe)
+        return 'C'; // центр
+    }
+
+    // ==================== БАКЕТ АБСОЛЮТНОЙ СТЕПЕНИ ====================
+
     getDegreeBucket(degree) {
         for (let i = 0; i < this.degreeBuckets.length; i++) {
             const [min, max] = this.degreeBuckets[i];
@@ -337,68 +234,99 @@ class TopologicalFingerprint {
         return 'B5';
     }
 
-    // 🔥 КАРТА СОСЕДЕЙ
+    // ==================== КАРТА СОСЕДЕЙ ====================
+
     buildNeighborMap(nodes, edges) {
         const neighborMap = new Map();
-        for (const nodeId of nodes.keys()) neighborMap.set(nodeId, []);
+       
+        // Инициализируем
+        for (const nodeId of nodes.keys()) {
+            neighborMap.set(nodeId, []);
+        }
+       
+        // Добавляем связи
         for (const edge of edges) {
             const [nodeA, nodeB] = edge.split('--');
-            if (neighborMap.has(nodeA)) neighborMap.get(nodeA).push(nodeB);
-            if (neighborMap.has(nodeB)) neighborMap.get(nodeB).push(nodeA);
+            if (neighborMap.has(nodeA)) {
+                neighborMap.get(nodeA).push(nodeB);
+            }
+            if (neighborMap.has(nodeB)) {
+                neighborMap.get(nodeB).push(nodeA);
+            }
         }
-        for (const neighbors of neighborMap.values()) neighbors.sort();
+       
+        // Сортируем для консистентности
+        for (const neighbors of neighborMap.values()) {
+            neighbors.sort();
+        }
+       
         return neighborMap;
     }
 
-    // 🔥 СРАВНЕНИЕ ГРАФОВ
+    // ==================== СРАВНЕНИЕ ГРАФОВ ====================
+
     compareGraphs(graph1, fingerprints1, graph2, fingerprints2) {
-        console.log(`🔍 Сравниваю графы с НОРМАЛИЗОВАННОЙ степенью...`);
+        console.log(`\n🔍 Сравниваю графы по WL-подписям...`);
        
+        // Индекс по подписям для быстрого поиска
         const sigToNodes1 = new Map();
         const sigToNodes2 = new Map();
        
         for (const [nodeId, fp] of fingerprints1) {
-            if (!sigToNodes1.has(fp.signature)) sigToNodes1.set(fp.signature, []);
+            if (!sigToNodes1.has(fp.signature)) {
+                sigToNodes1.set(fp.signature, []);
+            }
             sigToNodes1.get(fp.signature).push({
                 nodeId,
+                role: fp.role,
+                zone: fp.zone,
                 degree: fp.degree,
-                normBucket: fp.normBucket,
-                positionBucket: fp.positionBucket
+                normBucket: fp.normBucket
             });
         }
        
         for (const [nodeId, fp] of fingerprints2) {
-            if (!sigToNodes2.has(fp.signature)) sigToNodes2.set(fp.signature, []);
+            if (!sigToNodes2.has(fp.signature)) {
+                sigToNodes2.set(fp.signature, []);
+            }
             sigToNodes2.get(fp.signature).push({
                 nodeId,
+                role: fp.role,
+                zone: fp.zone,
                 degree: fp.degree,
-                normBucket: fp.normBucket,
-                positionBucket: fp.positionBucket
+                normBucket: fp.normBucket
             });
         }
        
+        // Точные совпадения подписей
         const exactMatches = [];
         for (const [sig, nodes1] of sigToNodes1) {
             if (sigToNodes2.has(sig)) {
                 const nodes2 = sigToNodes2.get(sig);
-                for (let i = 0; i < Math.min(nodes1.length, nodes2.length); i++) {
+                const matchCount = Math.min(nodes1.length, nodes2.length);
+               
+                for (let i = 0; i < matchCount; i++) {
                     exactMatches.push({
                         node1: nodes1[i].nodeId,
                         node2: nodes2[i].nodeId,
                         signature: sig,
                         confidence: 1.0,
+                        role: nodes1[i].role,
+                        zone: nodes1[i].zone,
                         degree: nodes1[i].degree,
                         normBucket: nodes1[i].normBucket,
-                        positionBucket: nodes1[i].positionBucket,
                         type: 'exact'
                     });
                 }
             }
         }
        
+        // Поиск структурно похожих
         const similarMatches = this.findSimilarNodes(fingerprints1, fingerprints2);
+       
         const allMatches = [...exactMatches, ...similarMatches];
        
+        // Статистика
         const totalNodes1 = fingerprints1.size;
         const totalNodes2 = fingerprints2.size;
         const matchedNodes1 = new Set(allMatches.map(m => m.node1)).size;
@@ -408,7 +336,7 @@ class TopologicalFingerprint {
         const matchRatio2 = matchedNodes2 / Math.max(1, totalNodes2);
         const similarity = (matchRatio1 + matchRatio2) / 2;
        
-        console.log(`📊 Результат НОРМАЛИЗОВАННОГО сравнения:`);
+        console.log(`📊 Результат сравнения:`);
         console.log(`   Узлов в графе 1: ${totalNodes1}`);
         console.log(`   Узлов в графе 2: ${totalNodes2}`);
         console.log(`   Точных совпадений: ${exactMatches.length}`);
@@ -424,11 +352,12 @@ class TopologicalFingerprint {
             matchedNodes2,
             totalNodes1,
             totalNodes2,
-            method: 'normalized_topological'
+            method: 'wl_signature'
         };
     }
 
-    // 🔥 ПОИСК ПОХОЖИХ
+    // ==================== ПОИСК ПОХОЖИХ УЗЛОВ ====================
+
     findSimilarNodes(fingerprints1, fingerprints2) {
         const similarMatches = [];
         const usedNodes2 = new Set();
@@ -444,11 +373,14 @@ class TopologicalFingerprint {
             for (const [nodeId2, fp2] of nodes2) {
                 if (usedNodes2.has(nodeId2)) continue;
                
-                // 🔥 ЖЁСТКИЙ ФИЛЬТР ПО ГЕОМЕТРИИ
-                if (fp1.positionBucket !== fp2.positionBucket) continue;
+                // 🔥 ЖЕСТКАЯ ФИЛЬТРАЦИЯ ПО ЗОНЕ
+                if (fp1.zone !== fp2.zone) continue;
                
-                // 🔥 НОРМАЛИЗОВАННОЕ СРАВНЕНИЕ!
-                const similarity = this.computeNormalizedSimilarity(fp1, fp2);
+                // 🔥 ФИЛЬТРАЦИЯ ПО РОЛИ
+                if (fp1.role !== fp2.role) continue;
+               
+                // Вычисляем сходство
+                const similarity = this.computeNodeSimilarity(fp1, fp2);
                
                 if (similarity > bestSimilarity && similarity >= this.structuralSimilarityThreshold) {
                     bestSimilarity = similarity;
@@ -456,9 +388,10 @@ class TopologicalFingerprint {
                         node1: nodeId1,
                         node2: nodeId2,
                         confidence: similarity,
+                        role: fp1.role,
+                        zone: fp1.zone,
                         degree: fp1.degree,
                         normBucket: fp1.normBucket,
-                        positionBucket: fp1.positionBucket,
                         type: 'similar'
                     };
                     bestNodeId2 = nodeId2;
@@ -474,39 +407,109 @@ class TopologicalFingerprint {
         return similarMatches;
     }
 
-    // 🔥 СРАВНЕНИЕ ЛОКАЛЬНЫХ СТРУКТУР
-    computeLocalStructureSimilarity(struct1, struct2) {
-        const terms1 = struct1.split('_');
-        const terms2 = struct2.split('_');
+    // ==================== ВЫЧИСЛЕНИЕ СХОДСТВА УЗЛОВ ====================
+
+    computeNodeSimilarity(fp1, fp2) {
+        let score = 0;
+        let totalWeight = 0;
        
-        const set1 = new Set(terms1);
-        const set2 = new Set(terms2);
+        // 1. Роль (вес 35%)
+        if (fp1.role === fp2.role) {
+            score += 0.35;
+        }
+        totalWeight += 0.35;
        
-        let matches = 0;
-        for (const term of set1) {
-            if (set2.has(term)) matches++;
+        // 2. Зона (вес 25%)
+        if (fp1.zone === fp2.zone) {
+            score += 0.25;
+        }
+        totalWeight += 0.25;
+       
+        // 3. Треугольники (вес 20%)
+        const triangleRatio = Math.min(fp1.triangleCount || 0, fp2.triangleCount || 0) /
+                              Math.max(fp1.triangleCount || 1, fp2.triangleCount || 1);
+        score += triangleRatio * 0.2;
+        totalWeight += 0.2;
+       
+        // 4. Степень (вес 10%)
+        const degreeRatio = Math.min(fp1.degree, fp2.degree) /
+                            Math.max(fp1.degree, fp2.degree, 1);
+        score += degreeRatio * 0.1;
+        totalWeight += 0.1;
+       
+        // 5. Нормализованная степень (вес 10%)
+        if (fp1.normBucket !== undefined && fp2.normBucket !== undefined) {
+            const normBucketDiff = Math.abs(fp1.normBucket - fp2.normBucket);
+            const normSim = 1.0 - (normBucketDiff / 8);
+            score += normSim * 0.1;
+            totalWeight += 0.1;
         }
        
-        return matches / Math.max(set1.size, set2.size);
+        return score / totalWeight;
     }
 
-    // 🔥🔥🔥 ВОССТАНОВЛЕННЫЕ ДИАГНОСТИЧЕСКИЕ МЕТОДЫ
+    // ==================== ГЛОБАЛЬНАЯ СТАТИСТИКА ====================
+
+    computeGlobalStats(graph) {
+        const yCoords = [];
+        for (const node of graph.nodes.values()) {
+            yCoords.push(node.y);
+        }
+        yCoords.sort((a, b) => a - b);
+        return {
+            yMin: yCoords[0] || 0,
+            yMax: yCoords[yCoords.length - 1] || 600,
+            yMedian: yCoords[Math.floor(yCoords.length / 2)] || 300
+        };
+    }
+
+    // ==================== ПОЗИЦИЯ ====================
+
+    getPositionBucket(y) {
+        if (y > 350) return 'HEEL';
+        if (y < 200) return 'TOE';
+        return 'CENTER';
+    }
+
+    // ==================== СРЕДНИЙ Y СОСЕДЕЙ ====================
+
+    computeAvgNeighborY(nodeId, neighbors, graph) {
+        if (neighbors.length === 0) return 0;
+        let sumY = 0;
+        let count = 0;
+        for (const neighborId of neighbors) {
+            const neighbor = graph.nodes.get(neighborId);
+            if (neighbor) {
+                sumY += neighbor.y;
+                count++;
+            }
+        }
+        return count > 0 ? sumY / count : 0;
+    }
+
+    // ==================== ДИАГНОСТИКА ====================
 
     calculateDistribution(fingerprints) {
         const degreeDist = {};
         const bucketDist = {};
         const normBucketDist = {};
+        const roleDist = {};
+        const zoneDist = {};
        
         for (const fp of fingerprints.values()) {
             degreeDist[fp.degree] = (degreeDist[fp.degree] || 0) + 1;
             bucketDist[fp.degreeBucket] = (bucketDist[fp.degreeBucket] || 0) + 1;
             normBucketDist[fp.normBucket] = (normBucketDist[fp.normBucket] || 0) + 1;
+            roleDist[fp.role] = (roleDist[fp.role] || 0) + 1;
+            zoneDist[fp.zone] = (zoneDist[fp.zone] || 0) + 1;
         }
        
         return {
             degree: degreeDist,
             bucket: bucketDist,
-            normBucket: normBucketDist
+            normBucket: normBucketDist,
+            role: roleDist,
+            zone: zoneDist
         };
     }
 
@@ -517,6 +520,13 @@ class TopologicalFingerprint {
         const uniqueSignatures = new Set(signatures);
         const distribution = this.calculateDistribution(fingerprints);
        
+        const roles = {};
+        const zones = {};
+        for (const fp of fingerprints.values()) {
+            roles[fp.role] = (roles[fp.role] || 0) + 1;
+            zones[fp.zone] = (zones[fp.zone] || 0) + 1;
+        }
+       
         return {
             totalNodes: fingerprints.size,
             uniqueSignatures: uniqueSignatures.size,
@@ -526,20 +536,22 @@ class TopologicalFingerprint {
             degreeDistribution: distribution.degree,
             bucketDistribution: distribution.bucket,
             normBucketDistribution: distribution.normBucket,
+            roleDistribution: distribution.role,
+            zoneDistribution: distribution.zone,
             maxDegree: Math.max(...degrees),
             minDegree: Math.min(...degrees)
         };
     }
 
-    printMatchDetails(allMatches, exactMatches, similarMatches) {
+    printMatchDetails(exactMatches, similarMatches) {
         console.log(`\n🔍 ДЕТАЛИ СОВПАДЕНИЙ:`);
        
         if (exactMatches.length > 0) {
             console.log(`✅ ТОЧНЫЕ СОВПАДЕНИЯ (первые 5):`);
             exactMatches.slice(0, 5).forEach((match, idx) => {
-                console.log(`   ${idx+1}. ${match.node1} ↔ ${match.node2}`);
+                console.log(`   ${idx+1}. ${match.node1.substring(0, 16)}... ↔ ${match.node2.substring(0, 16)}...`);
                 console.log(`      Подпись: ${match.signature?.substring(0, 20) || '...'}`);
-                console.log(`      Позиция: ${match.positionBucket || '?'}`);
+                console.log(`      Роль: ${match.role}, зона: ${match.zone}`);
                 console.log(`      NormBucket: ${match.normBucket}`);
             });
         }
@@ -547,18 +559,17 @@ class TopologicalFingerprint {
         if (similarMatches.length > 0) {
             console.log(`🔄 СТРУКТУРНО ПОХОЖИЕ (первые 3):`);
             similarMatches.slice(0, 3).forEach((match, idx) => {
-                console.log(`   ${idx+1}. ${match.node1} ↔ ${match.node2}`);
+                console.log(`   ${idx+1}. ${match.node1.substring(0, 16)}... ↔ ${match.node2.substring(0, 16)}...`);
                 console.log(`      Уверенность: ${(match.confidence * 100).toFixed(1)}%`);
-                console.log(`      Степень: ${match.degree}`);
+                console.log(`      Роль: ${match.role}, зона: ${match.zone}`);
                 console.log(`      NormBucket: ${match.normBucket}`);
-                console.log(`      Позиция: ${match.positionBucket}`);
             });
         }
     }
 
     visualizeMatches(comparisonResult, limit = 10) {
         console.log(`\n🔷 ВИЗУАЛИЗАЦИЯ СОВПАДЕНИЙ:`);
-        console.log(`═`.repeat(90));
+        console.log(`═`.repeat(100));
        
         const { allMatches, similarity, totalNodes1, totalNodes2, exactMatches, similarMatches } = comparisonResult;
        
@@ -576,46 +587,61 @@ class TopologicalFingerprint {
         }
        
         console.log(`\n🔗 СОВПАДЕНИЯ (первые ${Math.min(limit, allMatches.length)}):`);
-        console.log(`┌─────┬────────────────────┬─────────┬──────────┬────────────────────┬─────────┬─────────┐`);
-        console.log(`│  #  │       МОДЕЛЬ       │ СТЕПЕНЬ │ NORM_B   │       ФОТО2        │ СТЕПЕНЬ │ NORM_B  │`);
-        console.log(`├─────┼────────────────────┼─────────┼──────────┼────────────────────┼─────────┼─────────┤`);
+        console.log(`┌─────┬────────────────────┬─────────┬──────┬─────────┬────────────────────┬─────────┬──────┬─────────┐`);
+        console.log(`│  #  │       МОДЕЛЬ       │ СТЕПЕНЬ │ РОЛЬ │  ЗОНА   │       ФОТО2        │ СТЕПЕНЬ │ РОЛЬ │  ЗОНА   │`);
+        console.log(`├─────┼────────────────────┼─────────┼──────┼─────────┼────────────────────┼─────────┼──────┼─────────┤`);
        
         allMatches.slice(0, limit).forEach((match, idx) => {
             console.log(
                 `│ ${(idx+1).toString().padEnd(3)} │ ${match.node1.substring(0, 18).padEnd(18)} │ ` +
                 `${(match.degree || '').toString().padEnd(7)} │ ` +
-                `${(match.normBucket || '').toString().padEnd(8)} │ ` +
+                `${(match.role || '').padEnd(4)} │ ` +
+                `${(match.zone || '').padEnd(7)} │ ` +
                 `${match.node2.substring(0, 18).padEnd(18)} │ ` +
                 `${(match.degree || '').toString().padEnd(7)} │ ` +
-                `${(match.normBucket || '').toString().padEnd(7)} │`
+                `${(match.role || '').padEnd(4)} │ ` +
+                `${(match.zone || '').padEnd(7)} │`
             );
         });
        
         if (allMatches.length > limit) {
-            console.log(`├─────┼────────────────────┼─────────┼──────────┼────────────────────┼─────────┼─────────┤`);
-            console.log(`│ ... │       ...          │   ...   │   ...    │       ...          │   ...   │   ...   │`);
+            console.log(`├─────┼────────────────────┼─────────┼──────┼─────────┼────────────────────┼─────────┼──────┼─────────┤`);
+            console.log(`│ ... │        ...         │   ...   │  ..  │   ...   │        ...         │   ...   │  ..  │   ...   │`);
         }
        
-        console.log(`└─────┴────────────────────┴─────────┴──────────┴────────────────────┴─────────┴─────────┘`);
+        console.log(`└─────┴────────────────────┴─────────┴──────┴─────────┴────────────────────┴─────────┴──────┴─────────┘`);
     }
 
-    // 🔥 ХЕШ-ФУНКЦИЯ
+    // ==================== ХЕШ-ФУНКЦИЯ ====================
+
     hashString(str) {
-        if (this.hashCache.has(str)) return this.hashCache.get(str);
+        if (this.hashCache.has(str)) {
+            return this.hashCache.get(str);
+        }
+       
         let hash = 0;
         for (let i = 0; i < str.length; i++) {
             const char = str.charCodeAt(i);
             hash = ((hash << 5) - hash) + char;
             hash = hash & hash;
         }
-        const result = Math.abs(hash).toString(16).padStart(12, '0');
+       
+        const result = Math.abs(hash).toString(36).padStart(8, '0');
         this.hashCache.set(str, result);
         return result;
     }
 
-    // 🔥 ДЛЯ СОВМЕСТИМОСТИ
+    // ==================== ДЛЯ СОВМЕСТИМОСТИ ====================
+
     computeEnhancedSimilarity(fp1, fp2) {
-        return this.computeNormalizedSimilarity(fp1, fp2);
+        return this.computeNodeSimilarity(fp1, fp2);
+    }
+
+    // ==================== ОЧИСТКА КЕША ====================
+
+    clearCache() {
+        this.hashCache.clear();
+        console.log('🧹 Кеш хешей очищен');
     }
 }
 
