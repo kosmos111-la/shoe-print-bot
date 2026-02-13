@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ АККУМУЛЯТИВНАЯ МОДЕЛЬ С GEOMETRIC SIGNATURE (РАБОЧАЯ ВЕРСИЯ)
+// 🏗️ АККУМУЛЯТИВНАЯ МОДЕЛЬ С GEOMETRIC SIGNATURE (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 
 const GeometricSignature = require('./GeometricSignature');
 const GeometryMemory = require('./GeometryMemory');
@@ -208,8 +208,8 @@ class TopologicalAccumulator {
         // 🔥🔥🔥 ШАГ 1: ИДЕНТИФИКАЦИЯ ТОЧЕК
         const identification = await this.identifyPoints(model, newGraph);
        
-        // 🔥🔥🔥 ШАГ 2: ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ
-        const restoration = await this.restorePositions(model, newGraph);
+        // 🔥🔥🔥 ШАГ 2: ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ (теперь с identifiedMap)
+        const restoration = await this.restorePositions(model, newGraph, identification.identifiedMap);
        
         // 🔥🔥🔥 ШАГ 3: ПОИСК НОВЫХ ТОЧЕК
         const newNodes = this.findNewNodes(model, newGraph, identification.identifiedMap);
@@ -282,13 +282,13 @@ class TopologicalAccumulator {
         };
     }
 
-    // ==================== ИДЕНТИФИКАЦИЯ ТОЧЕК (С КООРДИНАТАМИ) ====================
+    // ==================== ИДЕНТИФИКАЦИЯ ТОЧЕК (С КООРДИНАТАМИ ОБОИХ ФОТО) ====================
 
     async identifyPoints(model, newGraph) {
         console.log(`\n📋 ТАБЛИЦА 1: ИДЕНТИФИКАЦИЯ ТОЧЕК (GEOMETRIC SIGNATURE)`);
-        console.log(`┌─────┬──────────────────────┬─────────┬─────────┬──────────────────────┬─────────┬─────────┬────────────────────┐`);
-        console.log(`│  #  │   ТОЧКА В МОДЕЛИ      │ СТЕПЕНЬ │  ЗОНА   │   ТОЧКА В ФОТО 2      │ СТЕПЕНЬ │  ЗОНА   │ КООРДИНАТЫ ФОТО 2  │`);
-        console.log(`├─────┼──────────────────────┼─────────┼─────────┼──────────────────────┼─────────┼─────────┼────────────────────┤`);
+        console.log(`┌─────┬──────────────────────┬─────────┬─────────┬──────────────────────┬─────────┬─────────┬────────────────────┬────────────────────┐`);
+        console.log(`│  #  │   ТОЧКА В МОДЕЛИ      │ СТЕПЕНЬ │  ЗОНА   │   ТОЧКА В ФОТО 2      │ СТЕПЕНЬ │  ЗОНА   │ КООРД. МОДЕЛИ      │ КООРД. ФОТО 2      │`);
+        console.log(`├─────┼──────────────────────┼─────────┼─────────┼──────────────────────┼─────────┼─────────┼────────────────────┼────────────────────┤`);
 
         const identifiedMap = new Map(); // nodeId in newGraph -> nodeId in model
         const reverseMap = new Map();    // nodeId in model -> [nodeIds in newGraph]
@@ -307,6 +307,13 @@ class TopologicalAccumulator {
            
             if (match) {
                 const modelNode = model.graph.nodes.get(match.nodeId);
+               
+                // 🔥🔥🔥 ЗАЩИТА ОТ ПРИЗРАКОВ - если нет в модели, пропускаем
+                if (!modelNode) {
+                    console.log(`   ⚠️ Пропущен призрак: ${match.nodeId} нет в модели`);
+                    continue;
+                }
+               
                 const zone = this.getZone(node.y);
                 const modelZone = this.getZone(modelNode.y);
                
@@ -317,12 +324,13 @@ class TopologicalAccumulator {
                 }
                 reverseMap.get(match.nodeId).push(nodeId);
                
-                // 🔥 ТАБЛИЦА С КООРДИНАТАМИ
+                // 🔥 ТАБЛИЦА С КООРДИНАТАМИ ОБОИХ ФОТО
                 console.log(
                     `│ ${(identifiedCount+1).toString().padEnd(3)} │ ${match.nodeId.substring(0, 20).padEnd(20)} │ ` +
                     `${modelNode.degree.toString().padEnd(7)} │ ${modelZone.padEnd(7)} │ ` +
                     `${nodeId.substring(0, 20).padEnd(20)} │ ` +
                     `${node.degree.toString().padEnd(7)} │ ${zone.padEnd(7)} │ ` +
+                    `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │ ` +
                     `(${node.x.toFixed(1).padStart(6)}, ${node.y.toFixed(1).padStart(6)}) │`
                 );
                
@@ -348,7 +356,7 @@ class TopologicalAccumulator {
             }
         }
 
-        console.log(`└─────┴──────────────────────┴─────────┴─────────┴──────────────────────┴─────────┴─────────┴────────────────────┘`);
+        console.log(`└─────┴──────────────────────┴─────────┴─────────┴──────────────────────┴─────────┴─────────┴────────────────────┴────────────────────┘`);
         console.log(`\n📊 ИТОГ ИДЕНТИФИКАЦИИ:`);
         console.log(`   ✅ Идентифицировано точек: ${identifiedCount} из ${newGraph.nodes.size}`);
 
@@ -378,9 +386,9 @@ class TopologicalAccumulator {
         };
     }
 
-    // ==================== ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ (С ДЕТАЛЯМИ) ====================
+    // ==================== ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ (ИСПРАВЛЕННОЕ) ====================
 
-    async restorePositions(model, newGraph) {
+    async restorePositions(model, newGraph, identifiedMap) {
         console.log(`\n📋 ТАБЛИЦА 2: ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ (GEOMETRY MEMORY)`);
         console.log(`┌─────┬──────────────────────┬─────────────┬─────────┬──────────────────────┬─────────────┬─────────┬─────────┐`);
         console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ОЖИДАЛАСЬ │  ЗОНА   │   ВОССТАНОВЛЕНА      │   РЕАЛЬНО   │  ЗОНА   │ ОШИБКА  │`);
@@ -389,10 +397,13 @@ class TopologicalAccumulator {
         let restoredCount = 0;
         let totalError = 0;
 
-        for (const [nodeId, node] of newGraph.nodes) {
-            const position = this.geometryMemory.reconstruct(nodeId, model.graph);
+        // 🔥🔥🔥 ИСПРАВЛЕНИЕ: идем по identifiedMap, а не по всем nodes
+        for (const [newNodeId, modelNodeId] of identifiedMap) {
+            // Ищем в памяти по modelNodeId (ID из первого фото)
+            const position = this.geometryMemory.reconstruct(modelNodeId, model.graph);
+            const node = newGraph.nodes.get(newNodeId);
            
-            if (position) {
+            if (position && node) {
                 const zone = this.getZone(node.y);
                 const restoredZone = this.getZone(position.y);
                 const error = Math.sqrt(
@@ -401,7 +412,7 @@ class TopologicalAccumulator {
                 );
                
                 console.log(
-                    `│ ${(restoredCount+1).toString().padEnd(3)} │ ${nodeId.substring(0, 20).padEnd(20)} │ ` +
+                    `│ ${(restoredCount+1).toString().padEnd(3)} │ ${newNodeId.substring(0, 20).padEnd(20)} │ ` +
                     `(${node.x.toFixed(1).padStart(6)}, ${node.y.toFixed(1).padStart(6)}) │ ${zone.padEnd(7)} │ ` +
                     `(${position.x.toFixed(1).padStart(6)}, ${position.y.toFixed(1).padStart(6)}) │ ` +
                     `${restoredZone.padEnd(7)} │ ${error.toFixed(1).padStart(6)}px │`
@@ -409,6 +420,9 @@ class TopologicalAccumulator {
                
                 restoredCount++;
                 totalError += error;
+               
+                // Подтверждаем точку в памяти
+                this.geometryMemory.confirm(modelNodeId);
             }
         }
 
@@ -768,7 +782,7 @@ class TopologicalAccumulator {
             geometricSignature: this.geometricSignature.export(),
             geometryMemory: this.geometryMemory.export(),
             stats: this.getModelInfo(targetModelId).stats,
-            _version: '9.0-geometric-signature-final',
+            _version: '9.1-geometric-signature-final',
             _exportedAt: new Date().toISOString()
         };
     }
