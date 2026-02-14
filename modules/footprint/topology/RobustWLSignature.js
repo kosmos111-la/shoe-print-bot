@@ -97,19 +97,31 @@ class RobustWLSignature {
 
     // ==================== ПАРСИНГ ПАТТЕРНА ====================
 
-    parsePattern(sig) {
+ parsePattern(sig) {
     try {
         const parts = sig.split('|');
-        if (parts.length < 6) return null; // теперь ожидаем 6 частей
+        if (parts.length < 6) {
+            console.log(`   ⚠️ Слишком мало частей: ${parts.length}`);
+            return null;
+        }
        
-        const roleDist = parts[4].split('x').map(Number); // было parts[3]
+        // Добавим отладку
+        console.log(`   Парсинг: ${parts.join(' | ')}`);
+        console.log(`   role=${parts[0]}, zone=${parts[1]}, degree=${parts[2]}, density=${parts[3]}, roles=${parts[4]}`);
+       
+        const roleDist = parts[4].split('x').map(Number);
+       
+        if (roleDist.length < 5) {
+            console.log(`   ⚠️ Неправильный формат ролей: ${parts[4]}`);
+            return null;
+        }
        
         return {
             self: {
                 role: parts[0],
-                zone: parts[1], // добавить
-                degree: parseInt(parts[2]), // было parts[1]
-                triangleDensity: parseFloat(parts[3]) // было parts[2]
+                zone: parts[1],
+                degree: parseInt(parts[2]),
+                triangleDensity: parseFloat(parts[3])
             },
             neighborRoles: {
                 L: roleDist[0] || 0,
@@ -120,10 +132,10 @@ class RobustWLSignature {
             }
         };
     } catch (e) {
+        console.log(`   ❌ Ошибка парсинга: ${e.message}`);
         return null;
     }
 }
-
     // ==================== СРАВНЕНИЕ РАСПРЕДЕЛЕНИЙ ====================
 
     compareRoleDistributions(d1, d2) {
