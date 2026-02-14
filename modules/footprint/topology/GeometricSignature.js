@@ -7,24 +7,24 @@ const RobustWLSignature = require('./RobustWLSignature');
 class GeometricSignature {
     constructor(options = {}) {
         this.debug = options.debug || false;
-       
+
         // Хранилище сигнатур
         this.signatures = new Map();
-       
+
         // Кластеры
         this.clusters = new Map();
-       
+
         // 🔥 Паттерновый WL
         this.wlSigner = new RobustWLSignature({
             debug: this.debug,
             iterations: 2
         });
-       
+
         // 🔥 Диагностика
         this.featureExtractor = new FeatureExtractor({
             debug: this.debug
         });
-       
+
         // Бакеты для степеней
         this.degreeBuckets = [
             [0, 2],   // B0: листья
@@ -34,7 +34,7 @@ class GeometricSignature {
             [10, 12], // B4: очень высокая
             [13, 100] // B5: экстремальная
         ];
-       
+
         // Статистика
         this.stats = {
             totalIdentified: 0,
@@ -42,7 +42,7 @@ class GeometricSignature {
             totalClusters: 0,
             totalClusterMembers: 0
         };
-       
+
         console.log('🎯 GeometricSignature создана (паттерновый WL + поиск якорей)');
     }
 
@@ -50,33 +50,33 @@ class GeometricSignature {
 
     extractAllFeatures(node, graph) {
         const neighbors = this.findNodeNeighbors(node.id, graph);
-       
+
         const features = {
             x: node.x,
             y: node.y,
             zone: this.getZone(node.y),
             zoneCode: this.getZoneCode(node.y),
-           
+
             degree: neighbors.length,
             degreeBucket: this.getDegreeBucket(neighbors.length),
             triangleCount: this.countTriangles(neighbors, graph),
             role: this.getNodeRole(node, neighbors, graph),
-           
+
             neighborDegrees: neighbors.map(n => n.degree),
             neighborRoles: neighbors.map(n => this.getNodeRole(n,
                 this.findNodeNeighbors(n.id, graph), graph)),
             neighborTriangles: neighbors.map(n => this.countTriangles(
                 this.findNodeNeighbors(n.id, graph), graph)),
-           
+
             neighborCount: neighbors.length,
             avgNeighborDegree: neighbors.length > 0
                 ? neighbors.reduce((sum, n) => sum + n.degree, 0) / neighbors.length
                 : 0,
             stdNeighborDegree: this.calculateStd(neighbors.map(n => n.degree)),
-           
+
             roleDistribution: this.calculateRoleDistribution(neighbors, graph),
         };
-       
+
         // Углы
         const angles = [];
         for (const neighbor of neighbors) {
@@ -85,7 +85,7 @@ class GeometricSignature {
         }
         features.neighborAngles = angles;
         features.sortedAngles = [...angles].sort((a, b) => a - b);
-       
+
         if (angles.length > 1) {
             const meanAngle = angles.reduce((a, b) => a + b, 0) / angles.length;
             const variance = angles.reduce((a, b) => a + Math.pow(b - meanAngle, 2), 0) / angles.length;
@@ -95,7 +95,7 @@ class GeometricSignature {
             features.angleVariance = 0;
             features.angleMean = 0;
         }
-       
+
         // Расстояния
         const distances = [];
         for (const neighbor of neighbors) {
@@ -106,10 +106,10 @@ class GeometricSignature {
             distances.push(dist);
         }
         features.neighborDistances = distances;
-       
+
         const maxDist = Math.max(...distances, 1);
         features.normalizedDistances = distances.map(d => d / maxDist);
-       
+
         if (distances.length > 0) {
             features.meanDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
             features.minDistance = Math.min(...distances);
@@ -123,7 +123,7 @@ class GeometricSignature {
             features.maxDistance = 0;
             features.distanceStd = 0;
         }
-       
+
         // Геометрия окрестности
         if (neighbors.length > 0) {
             const xs = neighbors.map(n => n.x);
@@ -132,7 +132,7 @@ class GeometricSignature {
             const maxX = Math.max(...xs);
             const minY = Math.min(...ys);
             const maxY = Math.max(...ys);
-           
+
             features.boundingBox = {
                 width: maxX - minX,
                 height: maxY - minY
@@ -144,14 +144,14 @@ class GeometricSignature {
             features.eccentricity = 1;
             features.area = 0;
         }
-       
+
         // Плотность
         const possibleEdges = (neighbors.length * (neighbors.length - 1)) / 2;
         features.density = possibleEdges > 0 ? features.triangleCount / possibleEdges : 0;
-       
+
         // 🔥 ПАТТЕРНОВЫЙ WL (вместо старого)
         features.wlSignature = this.wlSigner.computeSignature(node, graph);
-       
+
         return features;
     }
 
@@ -178,21 +178,21 @@ class GeometricSignature {
     findAnchorPoints(photoNodes, modelGraph) {
         const anchors = [];
         const candidates = [];
-       
+
         for (const [photoId, photoNode] of photoNodes) {
             const photoFeatures = this.extractAllFeatures(photoNode, photoNodes);
-           
+
             for (const [modelId, signature] of this.signatures) {
                 const modelNode = modelGraph.nodes.get(modelId);
                 if (!modelNode) continue;
-               
+
                 if (signature.zone !== photoFeatures.zone) continue;
-               
+
                 const wlScore = this.compareFuzzyWL(
                     signature.wlSignature,
                     photoFeatures.wlSignature
                 );
-               
+
                 if (wlScore > 0.7) {
                     candidates.push({
                         photoId,
@@ -206,36 +206,36 @@ class GeometricSignature {
                 }
             }
         }
-       
+
         for (const candidate of candidates) {
             if (candidate.wlScore < 0.8) continue;
-           
+
             const distScore = this.compareDistanceMean(
                 candidate.photoDist,
                 candidate.modelDist
             );
             if (distScore < 0.7) continue;
-           
+
             const areaScore = this.compareTriangleArea(
                 candidate.photoArea,
                 candidate.modelArea
             );
             if (areaScore < 0.7) continue;
-           
+
             anchors.push({
                 photoId: candidate.photoId,
                 modelId: candidate.modelId,
                 confidence: (candidate.wlScore + distScore + areaScore) / 3
             });
         }
-       
+
         if (this.debug) {
             console.log(`\n🔍 Найдено якорей: ${anchors.length}`);
             anchors.slice(0, 5).forEach((a, i) => {
                 console.log(`   Якорь ${i+1}: ${a.photoId.substring(0,12)}... ↔ ${a.modelId.substring(0,12)}... (conf: ${a.confidence.toFixed(2)})`);
             });
         }
-       
+
         return anchors;
     }
 
@@ -243,17 +243,17 @@ class GeometricSignature {
 
     getNodeRole(node, neighbors, graph) {
         const degree = neighbors.length;
-       
+
         if (degree === 1) return 'L';
         if (degree >= 6) return 'H';
-       
+
         if (degree === 2) {
             const [a, b] = neighbors;
             if (!this.areConnected(a, b, graph)) {
                 return 'B';
             }
         }
-       
+
         if (degree >= 3) {
             let allConnected = true;
             for (let i = 0; i < neighbors.length; i++) {
@@ -267,7 +267,7 @@ class GeometricSignature {
             }
             if (allConnected) return 'C';
         }
-       
+
         return 'R';
     }
 
@@ -288,6 +288,8 @@ class GeometricSignature {
     // ==================== ПРОВЕРКА СВЯЗИ ====================
 
     areConnected(a, b, graph) {
+        // 🔥 ЗАЩИТА: если граф или его рёбра отсутствуют, считаем что связи нет
+        if (!graph || !graph.edges) return false;
         const edgeId = [a.id, b.id].sort().join('--');
         return graph.edges.has(edgeId);
     }
@@ -322,7 +324,9 @@ class GeometricSignature {
 
     findNodeNeighbors(nodeId, graph) {
         const neighbors = [];
-        for (const edge of graph.edges) {
+        // 🔥 ЗАЩИТА: преобразуем рёбра в массив, если они есть
+        const edgesArray = Array.from(graph.edges || []);
+        for (const edge of edgesArray) {
             const [a, b] = edge.split('--');
             if (a === nodeId) {
                 const node = graph.nodes.get(b);
@@ -361,26 +365,26 @@ class GeometricSignature {
 
     identify(node, neighbors, currentGraph, modelGraph) {
         if (!modelGraph) return null;
-       
+
         const currentFeatures = this.extractAllFeatures(node, currentGraph);
-       
+
         if (this.debug) {
             console.log(`\n   🔍 Идентификация точки ${node.id.substring(0, 20)}...`);
         }
-       
+
         const candidates = [];
-       
+
         for (const [candidateId, signature] of this.signatures) {
             const candidateNode = modelGraph.nodes.get(candidateId);
             if (!candidateNode) continue;
-           
+
             if (signature.zone !== currentFeatures.zone) continue;
-           
+
             const wlScore = this.compareFuzzyWL(
                 signature.wlSignature,
                 currentFeatures.wlSignature
             );
-           
+
             if (wlScore > 0.7) {
                 candidates.push({
                     nodeId: candidateId,
@@ -390,23 +394,23 @@ class GeometricSignature {
                 });
             }
         }
-       
+
         if (candidates.length === 0) {
             this.stats.totalRejected++;
             return null;
         }
-       
+
         candidates.sort((a, b) => b.wlScore - a.wlScore);
         const best = candidates[0];
-       
+
         if (this.featureExtractor) {
             const distance = Math.sqrt(
                 Math.pow(node.x - best.node.x, 2) +
                 Math.pow(node.y - best.node.y, 2)
             );
-           
+
             const isCorrect = distance < 50 && currentFeatures.zone === best.signature.zone;
-           
+
             const matchInfo = {
                 modelX: best.node.x,
                 modelY: best.node.y,
@@ -421,18 +425,18 @@ class GeometricSignature {
                 distance: distance,
                 isCorrect: isCorrect
             };
-           
+
             this.featureExtractor.extractFeatures(node, currentGraph, matchInfo);
         }
-       
+
         const sig = this.signatures.get(best.nodeId);
         if (sig) {
             sig.lastSeen = Date.now();
             sig.timesSeen = (sig.timesSeen || 0) + 1;
         }
-       
+
         this.stats.totalIdentified++;
-       
+
         return {
             nodeId: best.nodeId,
             confidence: best.wlScore,
@@ -447,7 +451,7 @@ class GeometricSignature {
 
     remember(nodeId, node, neighbors, graph) {
         const features = this.extractAllFeatures(node, graph);
-       
+
         const signature = {
             nodeId,
             wlSignature: features.wlSignature,
@@ -465,7 +469,7 @@ class GeometricSignature {
         };
 
         this.signatures.set(nodeId, signature);
-       
+
         if (this.debug) {
             console.log(`   🎯 Запомнена точка ${nodeId.substring(0, 20)}...`);
         }
@@ -480,13 +484,13 @@ class GeometricSignature {
             this.clusters.set(headNodeId, []);
             this.stats.totalClusters++;
         }
-       
+
         const members = this.clusters.get(headNodeId);
         if (!members.includes(childNodeId)) {
             members.push(childNodeId);
             this.stats.totalClusterMembers++;
         }
-       
+
         return members.length;
     }
 
@@ -504,15 +508,15 @@ class GeometricSignature {
     getStats() {
         const extractorStats = this.featureExtractor ? this.featureExtractor.getStats() : null;
         const wlStats = this.wlSigner ? this.wlSigner.getStats() : null;
-       
+
         const roleStats = {};
         const zoneStats = {};
-       
+
         for (const sig of this.signatures.values()) {
             roleStats[sig.role] = (roleStats[sig.role] || 0) + 1;
             zoneStats[sig.zone] = (zoneStats[sig.zone] || 0) + 1;
         }
-       
+
         return {
             totalSignatures: this.signatures.size,
             totalClusters: this.clusters.size,
@@ -550,27 +554,27 @@ class GeometricSignature {
         if (data.signatures) {
             this.signatures = new Map(data.signatures);
         }
-       
+
         if (data.clusters) {
             this.clusters = new Map(data.clusters);
         }
-       
+
         if (data.stats) {
             this.stats = data.stats;
         }
-       
+
         if (data.wlSigner && this.wlSigner) {
             this.wlSigner.cache = new Map(data.wlSigner.cache || []);
             this.wlSigner.cacheHits = data.wlSigner.cacheHits || 0;
             this.wlSigner.cacheMisses = data.wlSigner.cacheMisses || 0;
         }
-       
+
         if (data.featureExtractor && this.featureExtractor) {
             this.featureExtractor.featureHistory = data.featureExtractor.history || [];
             this.featureExtractor.featureTable = data.featureExtractor.table || [];
             this.featureExtractor.featureStats = data.featureExtractor.stats;
         }
-       
+
         console.log(`📥 Импортировано ${this.signatures.size} сигнатур, ${this.clusters.size} кластеров`);
     }
 }
