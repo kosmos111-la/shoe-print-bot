@@ -1,8 +1,9 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ АККУМУЛЯТИВНАЯ МОДЕЛЬ С GEOMETRIC SIGNATURE (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+// 🏗️ АККУМУЛЯТИВНАЯ МОДЕЛЬ С РАСПРОСТРАНЕНИЕМ ОТ ЯКОРЕЙ
 
 const GeometricSignature = require('./GeometricSignature');
 const GeometryMemory = require('./GeometryMemory');
+const AnchorPropagator = require('./AnchorPropagator');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -24,6 +25,12 @@ class TopologicalAccumulator {
         // 🔥 НОВАЯ СИСТЕМА - БЕЗ МАППИНГА!
         this.geometricSignature = new GeometricSignature({ debug: this.debug });
         this.geometryMemory = new GeometryMemory({ debug: this.debug });
+       
+        // 🔥 РАСПРОСТРАНЕНИЕ ОТ ЯКОРЕЙ
+        this.anchorPropagator = new AnchorPropagator({
+            debug: this.debug,
+            minAnchors: 3
+        });
 
         // Хранилище моделей
         this.models = new Map();
@@ -38,6 +45,8 @@ class TopologicalAccumulator {
             totalRestored: 0,
             totalClusters: 0,
             totalForgotten: 0,
+            totalAnchors: 0,
+            totalPropagated: 0,
             avgError: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
@@ -47,6 +56,7 @@ class TopologicalAccumulator {
         console.log(`   🔥 WL: только для сравнения следов`);
         console.log(`   🎯 GeometricSignature: идентификация точек`);
         console.log(`   📐 GeometryMemory: восстановление позиций`);
+        console.log(`   ⚓ AnchorPropagator: распространение от якорей (мин. ${this.anchorPropagator.minAnchors})`);
     }
 
     // ==================== ОСНОВНЫЕ МЕТОДЫ ====================
@@ -98,7 +108,9 @@ class TopologicalAccumulator {
                 identified: enhancementResult.identified,
                 restored: enhancementResult.restored,
                 clusters: enhancementResult.clusters,
-                message: `Модель улучшена (🎯${enhancementResult.identified} ид, 📐${enhancementResult.restored} восст, 🔥${enhancementResult.clusters} класт)`
+                anchors: enhancementResult.anchors,
+                propagated: enhancementResult.propagated,
+                message: `Модель улучшена (🎯${enhancementResult.identified} ид, 📐${enhancementResult.restored} восст, 🔥${enhancementResult.clusters} класт, ⚓${enhancementResult.anchors} якорей, ➕${enhancementResult.propagated} распространено)`
             };
 
         } else {
@@ -208,23 +220,51 @@ class TopologicalAccumulator {
         // 🔥🔥🔥 ШАГ 1: ИДЕНТИФИКАЦИЯ ТОЧЕК
         const identification = await this.identifyPoints(model, newGraph);
        
-        // 🔥🔥🔥 ШАГ 2: ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ (теперь с identifiedMap)
+        // 🔥🔥🔥 ШАГ 2: ПОИСК ЯКОРЕЙ
+        const anchors = this.geometricSignature.findAnchorPoints(newGraph.nodes, model.graph);
+        this.stats.totalAnchors = anchors.length;
+       
+        // 🔥🔥🔥 ШАГ 3: РАСПРОСТРАНЕНИЕ ОТ ЯКОРЕЙ
+        let propagatedCount = 0;
+        if (anchors.length >= 3) {
+            console.log(`\n⚓ Найдено ${anchors.length} надежных якорей, распространяем...`);
+           
+            const propagatedMatches = this.anchorPropagator.propagate(
+                newGraph,
+                model.graph,
+                anchors
+            );
+           
+            propagatedCount = propagatedMatches.size - anchors.length;
+            this.stats.totalPropagated += propagatedCount;
+           
+            // Обновляем identifiedMap с учетом распространенных
+            for (const [photoId, modelId] of propagatedMatches) {
+                if (!identification.identifiedMap.has(photoId)) {
+                    identification.identifiedMap.set(photoId, modelId);
+                    identification.count++;
+                }
+            }
+           
+            console.log(`   ✅ Распространено: ${propagatedCount} новых точек`);
+        }
+       
+        // 🔥🔥🔥 ШАГ 4: ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ
         const restoration = await this.restorePositions(model, newGraph, identification.identifiedMap);
        
-        // 🔥🔥🔥 ШАГ 3: ПОИСК НОВЫХ ТОЧЕК
+        // 🔥🔥🔥 ШАГ 5: ПОИСК НОВЫХ ТОЧЕК
         const newNodes = this.findNewNodes(model, newGraph, identification.identifiedMap);
        
-        // 🔥🔥🔥 ШАГ 4: ДОБАВЛЕНИЕ НОВЫХ ТОЧЕК В МОДЕЛЬ
+        // 🔥🔥🔥 ШАГ 6: ДОБАВЛЕНИЕ НОВЫХ ТОЧЕК В МОДЕЛЬ
         const addedNodes = await this.addNewNodes(modelId, newNodes, newGraph, identification.identifiedMap);
        
-        // 🔥🔥🔥 ШАГ 5: ОБНОВЛЕНИЕ СИГНАТУР
+        // 🔥🔥🔥 ШАГ 7: ОБНОВЛЕНИЕ СИГНАТУР
         for (const nodeId of addedNodes) {
             const node = model.graph.nodes.get(nodeId);
             if (node) {
                 const neighbors = this.findNodeNeighbors(nodeId, model.graph);
                 this.geometricSignature.remember(nodeId, node, neighbors, model.graph);
                
-                // Также запоминаем геометрию для новых точек
                 const closest = this.geometryMemory.findThreeClosest(node, model.graph);
                 if (closest.length >= 3) {
                     const bary = this.geometryMemory.computeBarycentric(
@@ -260,6 +300,8 @@ class TopologicalAccumulator {
             identified: identification.count,
             restored: restoration.count,
             clusters: identification.clusterCount,
+            anchors: anchors.length,
+            propagated: propagatedCount,
             totalNodes: model.graph.nodes.size
         });
 
@@ -272,17 +314,19 @@ class TopologicalAccumulator {
         this.stats.lastUpdated = new Date();
 
         // 📊 ФИНАЛЬНАЯ СТАТИСТИКА
-        this.printFinalStats(model, newGraph, identification, restoration, addedNodes);
+        this.printFinalStats(model, newGraph, identification, restoration, addedNodes, anchors.length, propagatedCount);
 
         return {
             newNodesAdded: addedNodes.length,
             identified: identification.count,
             restored: restoration.count,
-            clusters: identification.clusterCount
+            clusters: identification.clusterCount,
+            anchors: anchors.length,
+            propagated: propagatedCount
         };
     }
 
-    // ==================== ИДЕНТИФИКАЦИЯ ТОЧЕК (С КООРДИНАТАМИ ОБОИХ ФОТО) ====================
+    // ==================== ИДЕНТИФИКАЦИЯ ТОЧЕК ====================
 
     async identifyPoints(model, newGraph) {
         console.log(`\n📋 ТАБЛИЦА 1: ИДЕНТИФИКАЦИЯ ТОЧЕК (GEOMETRIC SIGNATURE)`);
@@ -290,8 +334,8 @@ class TopologicalAccumulator {
         console.log(`│  #  │   ТОЧКА В МОДЕЛИ      │ СТЕПЕНЬ │  ЗОНА   │   ТОЧКА В ФОТО 2      │ СТЕПЕНЬ │  ЗОНА   │ КООРД. МОДЕЛИ      │ КООРД. ФОТО 2      │`);
         console.log(`├─────┼──────────────────────┼─────────┼─────────┼──────────────────────┼─────────┼─────────┼────────────────────┼────────────────────┤`);
 
-        const identifiedMap = new Map(); // nodeId in newGraph -> nodeId in model
-        const reverseMap = new Map();    // nodeId in model -> [nodeIds in newGraph]
+        const identifiedMap = new Map();
+        const reverseMap = new Map();
         let identifiedCount = 0;
         let clusterCount = 0;
 
@@ -308,7 +352,6 @@ class TopologicalAccumulator {
             if (match) {
                 const modelNode = model.graph.nodes.get(match.nodeId);
                
-                // 🔥🔥🔥 ЗАЩИТА ОТ ПРИЗРАКОВ - если нет в модели, пропускаем
                 if (!modelNode) {
                     console.log(`   ⚠️ Пропущен призрак: ${match.nodeId} нет в модели`);
                     continue;
@@ -324,7 +367,6 @@ class TopologicalAccumulator {
                 }
                 reverseMap.get(match.nodeId).push(nodeId);
                
-                // 🔥 ТАБЛИЦА С КООРДИНАТАМИ ОБОИХ ФОТО
                 console.log(
                     `│ ${(identifiedCount+1).toString().padEnd(3)} │ ${match.nodeId.substring(0, 20).padEnd(20)} │ ` +
                     `${modelNode.degree.toString().padEnd(7)} │ ${modelZone.padEnd(7)} │ ` +
@@ -336,7 +378,6 @@ class TopologicalAccumulator {
                
                 identifiedCount++;
 
-                // Запоминаем геометрию для восстановления (даже если точка уже есть в модели)
                 const closest = this.geometryMemory.findThreeClosest(node, newGraph);
                 if (closest.length >= 3) {
                     const bary = this.geometryMemory.computeBarycentric(
@@ -360,7 +401,6 @@ class TopologicalAccumulator {
         console.log(`\n📊 ИТОГ ИДЕНТИФИКАЦИИ:`);
         console.log(`   ✅ Идентифицировано точек: ${identifiedCount} из ${newGraph.nodes.size}`);
 
-        // Анализируем кластеры
         console.log(`\n📋 ОБНАРУЖЕННЫЕ КЛАСТЕРЫ:`);
         for (const [modelId, childIds] of reverseMap) {
             if (childIds.length > 1) {
@@ -386,7 +426,7 @@ class TopologicalAccumulator {
         };
     }
 
-    // ==================== ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ (ИСПРАВЛЕННОЕ) ====================
+    // ==================== ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ ====================
 
     async restorePositions(model, newGraph, identifiedMap) {
         console.log(`\n📋 ТАБЛИЦА 2: ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ (GEOMETRY MEMORY)`);
@@ -396,14 +436,13 @@ class TopologicalAccumulator {
 
         let restoredCount = 0;
         let totalError = 0;
+        let validErrors = 0;
 
-        // 🔥🔥🔥 ИСПРАВЛЕНИЕ: идем по identifiedMap, а не по всем nodes
         for (const [newNodeId, modelNodeId] of identifiedMap) {
-            // Ищем в памяти по modelNodeId (ID из первого фото)
             const position = this.geometryMemory.reconstruct(modelNodeId, model.graph);
             const node = newGraph.nodes.get(newNodeId);
            
-            if (position && node) {
+            if (position && node && !isNaN(position.x) && !isNaN(position.y)) {
                 const zone = this.getZone(node.y);
                 const restoredZone = this.getZone(position.y);
                 const error = Math.sqrt(
@@ -420,9 +459,15 @@ class TopologicalAccumulator {
                
                 restoredCount++;
                 totalError += error;
+                validErrors++;
                
-                // Подтверждаем точку в памяти
                 this.geometryMemory.confirm(modelNodeId);
+            } else {
+                console.log(
+                    `│ ${(restoredCount+1).toString().padEnd(3)} │ ${newNodeId.substring(0, 20).padEnd(20)} │ ` +
+                    `(${node.x.toFixed(1).padStart(6)}, ${node.y.toFixed(1).padStart(6)}) │ ${this.getZone(node.y).padEnd(7)} │ ` +
+                    `⚠️ НЕТ В ПАМЯТИ        │             │         │`
+                );
             }
         }
 
@@ -432,7 +477,7 @@ class TopologicalAccumulator {
 
         console.log(`└─────┴──────────────────────┴─────────────┴─────────┴──────────────────────┴─────────────┴─────────┴─────────┘`);
        
-        const avgError = restoredCount > 0 ? totalError / restoredCount : 0;
+        const avgError = validErrors > 0 ? totalError / validErrors : 0;
        
         console.log(`\n📊 ИТОГ ВОССТАНОВЛЕНИЯ:`);
         console.log(`   ✅ Восстановлено позиций: ${restoredCount}`);
@@ -481,7 +526,6 @@ class TopologicalAccumulator {
 
             if (model.graph.nodes.has(nodeId)) continue;
 
-            // Запоминаем геометрию для будущего восстановления
             const closest = this.geometryMemory.findThreeClosest(nodeData, newGraph);
             if (closest.length >= 3) {
                 const bary = this.geometryMemory.computeBarycentric(
@@ -499,7 +543,6 @@ class TopologicalAccumulator {
                 );
             }
 
-            // Добавляем в модель
             model.graph.nodes.set(nodeId, {
                 ...nodeData,
                 addedFrom: 'structural_enhancement',
@@ -507,7 +550,6 @@ class TopologicalAccumulator {
                 confirmationCount: 1
             });
 
-            // Добавляем рёбра
             for (const edge of newGraph.edges) {
                 const [nodeA, nodeB] = edge.split('--');
                 if ((nodeA === nodeId && model.graph.nodes.has(nodeB)) ||
@@ -519,7 +561,6 @@ class TopologicalAccumulator {
             addedNodes.push(nodeId);
         }
 
-        // Обновляем степени
         this.updateNodeDegrees(model.graph);
 
         console.log(`   ✅ Добавлено в модель: ${addedNodes.length} узлов`);
@@ -528,7 +569,7 @@ class TopologicalAccumulator {
 
     // ==================== ИТОГОВАЯ СТАТИСТИКА ====================
 
-    printFinalStats(model, newGraph, identification, restoration, addedNodes) {
+    printFinalStats(model, newGraph, identification, restoration, addedNodes, anchorsCount, propagatedCount) {
         console.log(`\n📊 ИТОГОВАЯ СТАТИСТИКА ОБРАБОТКИ:`);
         console.log(`┌───────────────────────────────────┬─────────────┐`);
         console.log(`│ Параметр                          │ Значение    │`);
@@ -544,6 +585,9 @@ class TopologicalAccumulator {
         console.log(`│   ▸ Одна-к-одной                  │ ${identification.count - identification.clusterCount}         │`);
         console.log(`│   ▸ Одна-ко-многим (кластеры)     │ ${identification.clusterCount}         │`);
         console.log(`├───────────────────────────────────┼─────────────┤`);
+        console.log(`│   ▸ Из них якорей (WL≥0.8)        │ ${anchorsCount}         │`);
+        console.log(`│   ▸ Распространено от якорей      │ ${propagatedCount}         │`);
+        console.log(`├───────────────────────────────────┼─────────────┤`);
         console.log(`│ Восстановлено позиций из памяти   │ ${restoration.count}         │`);
         console.log(`├───────────────────────────────────┼─────────────┤`);
         console.log(`│ Средняя ошибка восстановления     │ ${restoration.avgError.toFixed(2)}px      │`);
@@ -553,7 +597,6 @@ class TopologicalAccumulator {
         console.log(`│ Точки в модели ПОСЛЕ обработки    │ ${model.graph.nodes.size}         │`);
         console.log(`└───────────────────────────────────┴─────────────┘`);
 
-        // Детали по зонам
         const zoneStats = this.calculateZoneStats(model, newGraph, identification.identifiedMap);
         console.log(`\n📊 ДЕТАЛИЗАЦИЯ ПО ЗОНАМ:`);
         console.log(`┌─────────┬─────────────┬─────────────┬─────────────┬─────────────┐`);
@@ -685,6 +728,8 @@ class TopologicalAccumulator {
                 identified: this.stats.totalIdentified,
                 restored: this.stats.totalRestored,
                 clusters: this.stats.totalClusters,
+                anchors: this.stats.totalAnchors,
+                propagated: this.stats.totalPropagated,
                 avgError: this.stats.avgError,
                 memorySignatures: sigStats.totalSignatures,
                 memoryPositions: memStats.totalPositions
@@ -716,6 +761,7 @@ class TopologicalAccumulator {
         console.log(`   Средняя степень: ${graph.avgDegree?.toFixed(2) || '?'}`);
         console.log(`   🎯 GeometricSignature: ${sigStats.totalSignatures} записей, ${sigStats.totalClusters} кластеров`);
         console.log(`   📐 GeometryMemory: ${memStats.totalPositions} позиций`);
+        console.log(`   ⚓ Якорей найдено: ${this.stats.totalAnchors}, распространено: ${this.stats.totalPropagated}`);
 
         const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
         for (const node of graph.nodes.values()) {
@@ -756,6 +802,8 @@ class TopologicalAccumulator {
             if (entry.identified) console.log(`      🎯 ${entry.identified} идентифицировано`);
             if (entry.restored) console.log(`      📐 ${entry.restored} восстановлено`);
             if (entry.clusters) console.log(`      🔥 ${entry.clusters} кластеров`);
+            if (entry.anchors) console.log(`      ⚓ ${entry.anchors} якорей`);
+            if (entry.propagated) console.log(`      ➕ ${entry.propagated} распространено`);
         });
 
         console.log(`═`.repeat(70));
@@ -782,7 +830,7 @@ class TopologicalAccumulator {
             geometricSignature: this.geometricSignature.export(),
             geometryMemory: this.geometryMemory.export(),
             stats: this.getModelInfo(targetModelId).stats,
-            _version: '9.1-geometric-signature-final',
+            _version: '10.0-anchor-propagation',
             _exportedAt: new Date().toISOString()
         };
     }
@@ -837,6 +885,8 @@ class TopologicalAccumulator {
                 edges: model.graph.edges.size,
                 identified: this.stats.totalIdentified,
                 clusters: this.stats.totalClusters,
+                anchors: this.stats.totalAnchors,
+                propagated: this.stats.totalPropagated,
                 createdAt: model.metadata.createdAt
             });
             totalNodes += model.graph.nodes.size;
