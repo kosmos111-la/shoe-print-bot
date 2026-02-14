@@ -141,12 +141,25 @@ class RobustWLSignature {
     // ==================== ОСНОВНОЕ СРАВНЕНИЕ ПАТТЕРНОВ ====================
 
     comparePatterns(sig1, sig2) {
-        if (sig1 === sig2) return 1.0;
-       
-        const p1 = this.parsePattern(sig1);
-        const p2 = this.parsePattern(sig2);
-       
-        if (!p1 || !p2) return 0;
+    console.log(`\n🔍 Сравнение подписей:`);
+    console.log(`   sig1: ${sig1}`);
+    console.log(`   sig2: ${sig2}`);
+   
+    if (sig1 === sig2) return 1.0;
+   
+    const p1 = this.parsePattern(sig1);
+    const p2 = this.parsePattern(sig2);
+   
+    if (!p1 || !p2) {
+        console.log(`   ❌ Не удалось распарсить:`);
+        console.log(`      p1: ${p1 ? 'ok' : 'null'}`);
+        console.log(`      p2: ${p2 ? 'ok' : 'null'}`);
+        return 0;
+    }
+   
+    console.log(`   ✅ Распарсено успешно`);
+    console.log(`   p1: роль=${p1.self.role}, зона=${p1.self.zone}, степень=${p1.self.degree}`);
+    console.log(`   p2: роль=${p2.self.role}, зона=${p2.self.zone}, степень=${p2.self.degree}`);
        
         // Веса
         const weights = {
