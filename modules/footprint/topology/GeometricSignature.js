@@ -339,34 +339,34 @@ class GeometricSignature {
        
         // 🔥 ДИАГНОСТИКА: сохраняем ВСЕ признаки для анализа
         if (this.featureExtractor) {
-            const distance = Math.sqrt(
-                Math.pow(node.x - best.node.x, 2) +
-                Math.pow(node.y - best.node.y, 2)
-            );
-           
-            // Временно помечаем правильные совпадения (для обучения)
-            const isCorrect = distance < 50 && currentFeatures.zone === signature.zone;
-           
-            const matchInfo = {
-                // Координаты модели
-                modelX: best.node.x,
-                modelY: best.node.y,
-                modelZone: signature.zone,
-                modelRole: signature.role,
-                modelTriangles: signature.triangleCount,
-                modelDegree: signature.degree,
-                modelSignature: signature.signature,
-               
-                // Полные признаки текущей точки
-                features: currentFeatures,
-               
-                // Мета
-                distance: distance,
-                isCorrect: isCorrect
-            };
-           
-            this.featureExtractor.extractFeatures(node, currentGraph, matchInfo);
-        }
+    const distance = Math.sqrt(
+        Math.pow(node.x - best.node.x, 2) +
+        Math.pow(node.y - best.node.y, 2)
+    );
+   
+    // Исправлено: используем best.signature, а не signature
+    const isCorrect = distance < 50 && currentFeatures.zone === best.signature.zone;
+   
+    const matchInfo = {
+        // Координаты модели
+        modelX: best.node.x,
+        modelY: best.node.y,
+        modelZone: best.signature.zone,
+        modelRole: best.signature.role,
+        modelTriangles: best.signature.triangleCount,
+        modelDegree: best.signature.degree,
+        modelSignature: best.signature.signature,
+       
+        // Полные признаки текущей точки
+        features: currentFeatures,
+       
+        // Мета
+        distance: distance,
+        isCorrect: isCorrect
+    };
+   
+    this.featureExtractor.extractFeatures(node, currentGraph, matchInfo);
+}
        
         // Обновляем статистику сигнатуры
         const sig = this.signatures.get(best.nodeId);
