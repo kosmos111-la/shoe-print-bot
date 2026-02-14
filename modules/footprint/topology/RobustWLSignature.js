@@ -1,15 +1,15 @@
 // modules/footprint/topology/RobustWLSignature.js
-// 🔥 WEISFEILER-LEHMAN НА ПАТТЕРНАХ (устойчив к удалению точек)
+// 🔥 WEISFEILER-LEHMAN НА ПАТТЕРНАХ (ПОЛНАЯ ВЕРСИЯ)
 
 class RobustWLSignature {
     constructor(options = {}) {
         this.debug = options.debug || false;
         this.iterations = options.iterations || 2;
        
-        // Роли (как и раньше)
+        // Роли
         this.roles = ['L', 'B', 'H', 'C', 'R'];
        
-        // Кеш для ускорения
+        // Кеш
         this.cache = new Map();
         this.cacheHits = 0;
         this.cacheMisses = 0;
@@ -30,48 +30,54 @@ class RobustWLSignature {
 
         const neighbors = this.findNodeNeighbors(node.id, graph);
        
-        // 1. Базовые характеристики узла
-        const nodeRole = this.getNodeRole(node, neighbors, graph);
-        const nodeDegree = neighbors.length;
-        const nodeTriangleCount = this.countTriangles(neighbors, graph);
+        // Базовая подпись
+        let signature = `${this.getNodeRole(node, neighbors, graph)}|${this.getZone(node.y)}|T${this.countTriangles(neighbors, graph)}|D${Math.min(neighbors.length, 10)}`;
        
-        // 2. Статистика окрестности (ПАТТЕРНЫ!)
+        // Итеративное уточнение
+        for (let iter = 0; iter < this.iterations; iter++) {
+            const neighborSigs = [];
+           
+            for (const neighbor of neighbors) {
+                const neighborNeighbors = this.findNodeNeighbors(neighbor.id, graph);
+                const neighborSig = `${this.getNodeRole(neighbor, neighborNeighbors, graph)}|T${this.countTriangles(neighborNeighbors, graph)}|D${Math.min(neighborNeighbors.length, 10)}`;
+                neighborSigs.push(neighborSig);
+            }
+           
+            neighborSigs.sort();
+            signature = this.hashString(signature + '|' + neighborSigs.join('|'));
+        }
+
+        return signature;
+    }
+
+    // ==================== ПАТТЕРНОВЫЙ МЕТОД ====================
+
+    computePatternSignature(node, graph) {
+        const neighbors = this.findNodeNeighbors(node.id, graph);
+       
         const pattern = {
-            // Характеристики самой точки
             self: {
-                role: nodeRole,
-                degree: nodeDegree,
-                degreeBucket: this.getDegreeBucket(nodeDegree),
-                triangleCount: nodeTriangleCount,
-                triangleDensity: nodeDegree > 1 ? nodeTriangleCount / (nodeDegree * (nodeDegree-1) / 2) : 0
+                role: this.getNodeRole(node, neighbors, graph),
+                degree: neighbors.length,
+                degreeBucket: this.getDegreeBucket(neighbors.length),
+                triangleCount: this.countTriangles(neighbors, graph),
+                triangleDensity: neighbors.length > 1
+                    ? this.countTriangles(neighbors, graph) / (neighbors.length * (neighbors.length-1) / 2)
+                    : 0,
+                zone: this.getZone(node.y)
             },
-           
-            // Распределение ролей среди соседей
             neighborRoles: this.getRoleDistribution(neighbors, graph),
-           
-            // Статистика соседей (усредненная)
             neighborStats: this.getNeighborStats(neighbors, graph),
-           
-            // Количество треугольников в окрестности
-            totalTriangles: nodeTriangleCount,
-           
-            // Количество соседей
-            neighborCount: nodeDegree
+            neighborCount: neighbors.length
         };
        
-        // 3. Сериализуем в компактную строку
-        const signature = this.patternToString(pattern);
-       
-        this.cache.set(cacheKey, signature);
-        return signature;
+        return this.patternToString(pattern);
     }
 
     // ==================== СБОР ПАТТЕРНОВ ====================
 
     getRoleDistribution(neighbors, graph) {
-        const dist = {
-            L: 0, B: 0, H: 0, C: 0, R: 0
-        };
+        const dist = { L: 0, B: 0, H: 0, C: 0, R: 0 };
        
         for (const neighbor of neighbors) {
             const neighborNeighbors = this.findNodeNeighbors(neighbor.id, graph);
@@ -84,11 +90,7 @@ class RobustWLSignature {
 
     getNeighborStats(neighbors, graph) {
         if (neighbors.length === 0) {
-            return {
-                avgDegree: 0,
-                avgTriangles: 0,
-                avgDensity: 0
-            };
+            return { avgDegree: 0, avgTriangles: 0, avgDensity: 0 };
         }
        
         let totalDegree = 0;
@@ -102,86 +104,32 @@ class RobustWLSignature {
        
         const avgDegree = totalDegree / neighbors.length;
         const avgTriangles = totalTriangles / neighbors.length;
-        const avgDensity = avgDegree > 1 ?
-            avgTriangles / (avgDegree * (avgDegree - 1) / 2) : 0;
+        const avgDensity = avgDegree > 1 ? avgTriangles / (avgDegree * (avgDegree - 1) / 2) : 0;
        
-        return {
-            avgDegree,
-            avgTriangles,
-            avgDensity
-        };
+        return { avgDegree, avgTriangles, avgDensity };
     }
 
     patternToString(pattern) {
-        // Компактное представление: роль|степень|плотность|LxBxHxCxR|avgDeg|avgTri
         const s = pattern.self;
         const n = pattern.neighborRoles;
-        const ns = pattern.neighborStats;
-       
-        return `${s.role}|${s.degree}|${s.triangleDensity.toFixed(2)}|` +
-               `${n.L}x${n.B}x${n.H}x${n.C}x${n.R}|` +
-               `${ns.avgDegree.toFixed(1)}|${ns.avgTriangles.toFixed(1)}`;
+        return `${s.role}|${s.zone}|${s.degree}|${s.triangleDensity.toFixed(2)}|${n.L}x${n.B}x${n.H}x${n.C}x${n.R}`;
     }
 
-    // ==================== СРАВНЕНИЕ ПАТТЕРНОВ ====================
-
-    comparePatterns(sig1, sig2) {
-        if (sig1 === sig2) return 1.0;
-       
-        // Парсим паттерны
-        const p1 = this.parsePattern(sig1);
-        const p2 = this.parsePattern(sig2);
-       
-        if (!p1 || !p2) return 0;
-       
-        // 1. Сравнение роли (40% веса)
-        let score = 0;
-        if (p1.self.role === p2.self.role) score += 0.4;
-       
-        // 2. Сравнение распределения ролей соседей (30% веса)
-        const roleSim = this.compareRoleDistributions(
-            p1.neighborRoles, p2.neighborRoles
-        );
-        score += roleSim * 0.3;
-       
-        // 3. Сравнение плотности треугольников (20% веса)
-        const densitySim = 1 - Math.abs(p1.self.triangleDensity - p2.self.triangleDensity);
-        score += Math.max(0, densitySim) * 0.2;
-       
-        // 4. Сравнение степени (10% веса)
-        const degreeDiff = Math.abs(p1.self.degree - p2.self.degree);
-        const degreeSim = 1 - (degreeDiff / Math.max(p1.self.degree, p2.self.degree, 1));
-        score += Math.max(0, degreeSim) * 0.1;
-       
-        return score;
-    }
-
-    compareRoleDistributions(d1, d2) {
-        let total = 0;
-        let matches = 0;
-       
-        for (const role of this.roles) {
-            const count1 = d1[role] || 0;
-            const count2 = d2[role] || 0;
-            total += Math.max(count1, count2);
-            matches += Math.min(count1, count2);
-        }
-       
-        return total > 0 ? matches / total : 1;
-    }
+    // ==================== ПАРСИНГ ПАТТЕРНА ====================
 
     parsePattern(sig) {
         try {
             const parts = sig.split('|');
             if (parts.length < 6) return null;
            
-            const roleDist = parts[3].split('x').map(Number);
+            const roleDist = parts[4].split('x').map(Number);
            
             return {
                 self: {
                     role: parts[0],
-                    degree: parseInt(parts[1]),
-                    triangleDensity: parseFloat(parts[2])
+                    zone: parts[1],
+                    degree: parseInt(parts[2]),
+                    triangleDensity: parseFloat(parts[3])
                 },
                 neighborRoles: {
                     L: roleDist[0] || 0,
@@ -189,10 +137,6 @@ class RobustWLSignature {
                     H: roleDist[2] || 0,
                     C: roleDist[3] || 0,
                     R: roleDist[4] || 0
-                },
-                neighborStats: {
-                    avgDegree: parseFloat(parts[4]),
-                    avgTriangles: parseFloat(parts[5])
                 }
             };
         } catch (e) {
@@ -200,7 +144,67 @@ class RobustWLSignature {
         }
     }
 
-    // ==================== СУЩЕСТВУЮЩИЕ МЕТОДЫ ====================
+    // ==================== СРАВНЕНИЕ РАСПРЕДЕЛЕНИЙ ====================
+
+    compareRoleDistributions(d1, d2) {
+        let matches = 0;
+        let total = 0;
+       
+        for (const role of this.roles) {
+            const count1 = d1[role] || 0;
+            const count2 = d2[role] || 0;
+            matches += Math.min(count1, count2);
+            total += Math.max(count1, count2);
+        }
+       
+        return total > 0 ? matches / total : 1;
+    }
+
+    // ==================== ОСНОВНОЕ СРАВНЕНИЕ ПАТТЕРНОВ ====================
+
+    comparePatterns(sig1, sig2) {
+        if (sig1 === sig2) return 1.0;
+       
+        const p1 = this.parsePattern(sig1);
+        const p2 = this.parsePattern(sig2);
+       
+        if (!p1 || !p2) return 0;
+       
+        // Веса
+        const weights = {
+            role: 0.25,
+            zone: 0.20,
+            degree: 0.15,
+            density: 0.15,
+            neighborRoles: 0.25
+        };
+       
+        let score = 0;
+       
+        // 1. Роль узла
+        if (p1.self.role === p2.self.role) score += weights.role;
+       
+        // 2. Зона
+        if (p1.self.zone === p2.self.zone) score += weights.zone;
+       
+        // 3. Степень
+        const degreeRatio = Math.min(p1.self.degree, p2.self.degree) /
+                            Math.max(p1.self.degree, p2.self.degree, 1);
+        score += degreeRatio * weights.degree;
+       
+        // 4. Плотность треугольников
+        const densityDiff = Math.abs(p1.self.triangleDensity - p2.self.triangleDensity);
+        const densitySim = Math.max(0, 1 - densityDiff);
+        score += densitySim * weights.density;
+       
+        // 5. Распределение ролей соседей
+        const roleSim = this.compareRoleDistributions(p1.neighborRoles, p2.neighborRoles);
+        score += roleSim * weights.neighborRoles;
+       
+        return score;
+    }
+
+    // ==================== ОПРЕДЕЛЕНИЕ РОЛИ ====================
 
     getNodeRole(node, neighbors, graph) {
         const degree = neighbors.length;
@@ -210,9 +214,7 @@ class RobustWLSignature {
        
         if (degree === 2) {
             const [a, b] = neighbors;
-            if (!this.areConnected(a, b, graph)) {
-                return 'B';
-            }
+            if (!this.areConnected(a, b, graph)) return 'B';
         }
        
         if (degree >= 3) {
@@ -232,6 +234,8 @@ class RobustWLSignature {
         return 'R';
     }
 
+    // ==================== ПОДСЧЕТ ТРЕУГОЛЬНИКОВ ====================
+
     countTriangles(neighbors, graph) {
         let count = 0;
         for (let i = 0; i < neighbors.length; i++) {
@@ -244,14 +248,22 @@ class RobustWLSignature {
         return count;
     }
 
+    // ==================== ПРОВЕРКА СВЯЗИ ====================
+
     areConnected(a, b, graph) {
+        if (!graph || !graph.edges) return false;
         const edgeId = [a.id, b.id].sort().join('--');
         return graph.edges.has(edgeId);
     }
 
+    // ==================== ПОИСК СОСЕДЕЙ ====================
+
     findNodeNeighbors(nodeId, graph) {
         const neighbors = [];
-        for (const edge of graph.edges) {
+        if (!graph || !graph.edges) return neighbors;
+       
+        const edgesArray = Array.from(graph.edges);
+        for (const edge of edgesArray) {
             const [a, b] = edge.split('--');
             if (a === nodeId) {
                 const node = graph.nodes.get(b);
@@ -265,6 +277,16 @@ class RobustWLSignature {
         return neighbors;
     }
 
+    // ==================== ОПРЕДЕЛЕНИЕ ЗОНЫ ====================
+
+    getZone(y) {
+        if (y > 350) return 'K';
+        if (y < 200) return 'N';
+        return 'C';
+    }
+
+    // ==================== БАКЕТ СТЕПЕНИ ====================
+
     getDegreeBucket(degree) {
         if (degree <= 2) return 'B0';
         if (degree <= 4) return 'B1';
@@ -273,6 +295,20 @@ class RobustWLSignature {
         if (degree <= 12) return 'B4';
         return 'B5';
     }
+
+    // ==================== ХЕШ-ФУНКЦИЯ ====================
+
+    hashString(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+        }
+        return Math.abs(hash).toString(36).padStart(8, '0');
+    }
+
+    // ==================== СТАТИСТИКА ====================
 
     getStats() {
         return {
