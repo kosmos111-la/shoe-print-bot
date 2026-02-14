@@ -1,9 +1,10 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ АККУМУЛЯТИВНАЯ МОДЕЛЬ С РАСПРОСТРАНЕНИЕМ ОТ ЯКОРЕЙ
+// 🏗️ АККУМУЛЯТИВНАЯ МОДЕЛЬ С КВАЗАРНОЙ НАВИГАЦИЕЙ
 
 const GeometricSignature = require('./GeometricSignature');
 const GeometryMemory = require('./GeometryMemory');
 const AnchorPropagator = require('./AnchorPropagator');
+const QuasarNavigation = require('./QuasarNavigation');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -32,6 +33,13 @@ class TopologicalAccumulator {
             minAnchors: 3
         });
 
+        // 🔥 КВАЗАРНАЯ НАВИГАЦИЯ
+        this.quasarNav = new QuasarNavigation({
+            debug: this.debug,
+            minAnchors: 3,
+            similarityThreshold: 0.95
+        });
+
         // Хранилище моделей
         this.models = new Map();
         this.currentModelId = null;
@@ -47,6 +55,7 @@ class TopologicalAccumulator {
             totalForgotten: 0,
             totalAnchors: 0,
             totalPropagated: 0,
+            totalQuasarFound: 0,
             avgError: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
@@ -57,6 +66,7 @@ class TopologicalAccumulator {
         console.log(`   🎯 GeometricSignature: идентификация точек`);
         console.log(`   📐 GeometryMemory: восстановление позиций`);
         console.log(`   ⚓ AnchorPropagator: распространение от якорей (мин. ${this.anchorPropagator.minAnchors})`);
+        console.log(`   🌌 QuasarNavigation: квазарная навигация (мин. 3 якоря, порог 95%)`);
     }
 
     // ==================== ОСНОВНЫЕ МЕТОДЫ ====================
@@ -110,7 +120,8 @@ class TopologicalAccumulator {
                 clusters: enhancementResult.clusters,
                 anchors: enhancementResult.anchors,
                 propagated: enhancementResult.propagated,
-                message: `Модель улучшена (🎯${enhancementResult.identified} ид, 📐${enhancementResult.restored} восст, 🔥${enhancementResult.clusters} класт, ⚓${enhancementResult.anchors} якорей, ➕${enhancementResult.propagated} распространено)`
+                quasarFound: enhancementResult.quasarFound,
+                message: `Модель улучшена (🎯${enhancementResult.identified} ид, 📐${enhancementResult.restored} восст, 🔥${enhancementResult.clusters} класт, ⚓${enhancementResult.anchors} якорей, ➕${enhancementResult.propagated} распр, 🌌${enhancementResult.quasarFound} квазар)`
             };
 
         } else {
@@ -224,10 +235,37 @@ class TopologicalAccumulator {
         const anchors = this.geometricSignature.findAnchorPoints(newGraph.nodes, model.graph);
         this.stats.totalAnchors = anchors.length;
 
-        // 🔥🔥🔥 ШАГ 3: РАСПРОСТРАНЕНИЕ ОТ ЯКОРЕЙ
+        // 🔥🔥🔥 ШАГ 3: КВАЗАРНАЯ НАВИГАЦИЯ
+        let quasarFound = 0;
+        if (anchors.length >= 3) {
+            console.log(`\n🌌 Запускаю квазарную навигацию с ${anchors.length} якорями...`);
+           
+            const quasarMatches = this.quasarNav.findAllMatches(
+                newGraph,
+                model.graph,
+                anchors
+            );
+           
+            for (const [photoId, matchInfo] of quasarMatches) {
+                if (!identification.identifiedMap.has(photoId)) {
+                    identification.identifiedMap.set(photoId, matchInfo.modelId);
+                    identification.count++;
+                    quasarFound++;
+                   
+                    if (this.debug) {
+                        console.log(`      ✨ Найдено квазарами: сходство ${(matchInfo.similarity*100).toFixed(1)}%`);
+                    }
+                }
+            }
+           
+            console.log(`   ✅ Квазарами найдено: ${quasarFound} точек`);
+            this.stats.totalQuasarFound += quasarFound;
+        }
+
+        // 🔥🔥🔥 ШАГ 4: РАСПРОСТРАНЕНИЕ ОТ ЯКОРЕЙ
         let propagatedCount = 0;
         if (anchors.length >= 3) {
-            console.log(`\n⚓ Найдено ${anchors.length} надежных якорей, распространяем...`);
+            console.log(`\n⚓ Запускаю распространение от ${anchors.length} якорей...`);
 
             const propagatedMatches = this.anchorPropagator.propagate(
                 newGraph,
@@ -249,16 +287,16 @@ class TopologicalAccumulator {
             console.log(`   ✅ Распространено: ${propagatedCount} новых точек`);
         }
 
-        // 🔥🔥🔥 ШАГ 4: ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ
+        // 🔥🔥🔥 ШАГ 5: ВОССТАНОВЛЕНИЕ ПОЗИЦИЙ
         const restoration = await this.restorePositions(model, newGraph, identification.identifiedMap);
 
-        // 🔥🔥🔥 ШАГ 5: ПОИСК НОВЫХ ТОЧЕК
+        // 🔥🔥🔥 ШАГ 6: ПОИСК НОВЫХ ТОЧЕК
         const newNodes = this.findNewNodes(model, newGraph, identification.identifiedMap);
 
-        // 🔥🔥🔥 ШАГ 6: ДОБАВЛЕНИЕ НОВЫХ ТОЧЕК В МОДЕЛЬ
+        // 🔥🔥🔥 ШАГ 7: ДОБАВЛЕНИЕ НОВЫХ ТОЧЕК В МОДЕЛЬ
         const addedNodes = await this.addNewNodes(modelId, newNodes, newGraph, identification.identifiedMap);
 
-        // 🔥🔥🔥 ШАГ 7: ОБНОВЛЕНИЕ СИГНАТУР
+        // 🔥🔥🔥 ШАГ 8: ОБНОВЛЕНИЕ СИГНАТУР
         for (const nodeId of addedNodes) {
             const node = model.graph.nodes.get(nodeId);
             if (node) {
@@ -302,6 +340,7 @@ class TopologicalAccumulator {
             clusters: identification.clusterCount,
             anchors: anchors.length,
             propagated: propagatedCount,
+            quasarFound: quasarFound,
             totalNodes: model.graph.nodes.size
         });
 
@@ -314,7 +353,7 @@ class TopologicalAccumulator {
         this.stats.lastUpdated = new Date();
 
         // 📊 ФИНАЛЬНАЯ СТАТИСТИКА
-        this.printFinalStats(model, newGraph, identification, restoration, addedNodes, anchors.length, propagatedCount);
+        this.printFinalStats(model, newGraph, identification, restoration, addedNodes, anchors.length, propagatedCount, quasarFound);
 
         return {
             newNodesAdded: addedNodes.length,
@@ -322,7 +361,8 @@ class TopologicalAccumulator {
             restored: restoration.count,
             clusters: identification.clusterCount,
             anchors: anchors.length,
-            propagated: propagatedCount
+            propagated: propagatedCount,
+            quasarFound: quasarFound
         };
     }
 
@@ -550,8 +590,7 @@ class TopologicalAccumulator {
                 confirmationCount: 1
             });
 
-            // 🔥 Преобразуем Set в массив для итерации
-            const edgesArray = Array.from(newGraph.edges);
+            const edgesArray = Array.from(newGraph.edges || []);
             for (const edge of edgesArray) {
                 const [nodeA, nodeB] = edge.split('--');
                 if ((nodeA === nodeId && model.graph.nodes.has(nodeB)) ||
@@ -571,7 +610,7 @@ class TopologicalAccumulator {
 
     // ==================== ИТОГОВАЯ СТАТИСТИКА ====================
 
-    printFinalStats(model, newGraph, identification, restoration, addedNodes, anchorsCount, propagatedCount) {
+    printFinalStats(model, newGraph, identification, restoration, addedNodes, anchorsCount, propagatedCount, quasarFound) {
         console.log(`\n📊 ИТОГОВАЯ СТАТИСТИКА ОБРАБОТКИ:`);
         console.log(`┌───────────────────────────────────┬─────────────┐`);
         console.log(`│ Параметр                          │ Значение    │`);
@@ -588,6 +627,7 @@ class TopologicalAccumulator {
         console.log(`│   ▸ Одна-ко-многим (кластеры)     │ ${identification.clusterCount}         │`);
         console.log(`├───────────────────────────────────┼─────────────┤`);
         console.log(`│   ▸ Из них якорей (WL≥0.8)        │ ${anchorsCount}         │`);
+        console.log(`│   ▸ Из них квазарами               │ ${quasarFound}         │`);
         console.log(`│   ▸ Распространено от якорей      │ ${propagatedCount}         │`);
         console.log(`├───────────────────────────────────┼─────────────┤`);
         console.log(`│ Восстановлено позиций из памяти   │ ${restoration.count}         │`);
@@ -630,7 +670,6 @@ class TopologicalAccumulator {
 
     findNodeNeighbors(nodeId, graph) {
         const neighbors = [];
-        // 🔥 Преобразуем Set в массив
         const edgesArray = Array.from(graph.edges || []);
         for (const edge of edgesArray) {
             const [nodeA, nodeB] = edge.split('--');
@@ -654,7 +693,6 @@ class TopologicalAccumulator {
 
     updateNodeDegrees(graph) {
         for (const node of graph.nodes.values()) node.degree = 0;
-        // 🔥 Преобразуем Set в массив
         const edgesArray = Array.from(graph.edges || []);
         for (const edge of edgesArray) {
             const [nodeA, nodeB] = edge.split('--');
@@ -699,7 +737,6 @@ class TopologicalAccumulator {
             return;
         }
 
-        // 🔥 ПРЕОБРАЗУЕМ SET В МАССИВ, потом обратно в Set
         const graph = model.graph;
         const edgesArray = Array.from(graph.edges || []);
 
@@ -751,6 +788,7 @@ class TopologicalAccumulator {
                 clusters: this.stats.totalClusters,
                 anchors: this.stats.totalAnchors,
                 propagated: this.stats.totalPropagated,
+                quasarFound: this.stats.totalQuasarFound,
                 avgError: this.stats.avgError,
                 memorySignatures: sigStats.totalSignatures,
                 memoryPositions: memStats.totalPositions
@@ -783,6 +821,7 @@ class TopologicalAccumulator {
         console.log(`   🎯 GeometricSignature: ${sigStats.totalSignatures} записей, ${sigStats.totalClusters} кластеров`);
         console.log(`   📐 GeometryMemory: ${memStats.totalPositions} позиций`);
         console.log(`   ⚓ Якорей найдено: ${this.stats.totalAnchors}, распространено: ${this.stats.totalPropagated}`);
+        console.log(`   🌌 Квазарами найдено: ${this.stats.totalQuasarFound}`);
 
         const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
         for (const node of graph.nodes.values()) {
@@ -825,6 +864,7 @@ class TopologicalAccumulator {
             if (entry.clusters) console.log(`      🔥 ${entry.clusters} кластеров`);
             if (entry.anchors) console.log(`      ⚓ ${entry.anchors} якорей`);
             if (entry.propagated) console.log(`      ➕ ${entry.propagated} распространено`);
+            if (entry.quasarFound) console.log(`      🌌 ${entry.quasarFound} квазарами`);
         });
 
         console.log(`═`.repeat(70));
@@ -851,7 +891,7 @@ class TopologicalAccumulator {
             geometricSignature: this.geometricSignature.export(),
             geometryMemory: this.geometryMemory.export(),
             stats: this.getModelInfo(targetModelId).stats,
-            _version: '10.0-anchor-propagation',
+            _version: '11.0-quasar-navigation',
             _exportedAt: new Date().toISOString()
         };
     }
@@ -908,6 +948,7 @@ class TopologicalAccumulator {
                 clusters: this.stats.totalClusters,
                 anchors: this.stats.totalAnchors,
                 propagated: this.stats.totalPropagated,
+                quasarFound: this.stats.totalQuasarFound,
                 createdAt: model.metadata.createdAt
             });
             totalNodes += model.graph.nodes.size;
@@ -922,7 +963,8 @@ class TopologicalAccumulator {
                 minMatchesForEnhancement: this.minMatchesForEnhancement
             },
             geometricSignature: this.geometricSignature.getStats(),
-            geometryMemory: this.geometryMemory.getStats()
+            geometryMemory: this.geometryMemory.getStats(),
+            quasarNav: this.quasarNav.getStats()
         };
     }
 }
