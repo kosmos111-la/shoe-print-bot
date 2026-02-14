@@ -690,14 +690,14 @@ class TopologicalAccumulator {
     const model = this.models.get(modelId);
     console.log(`🔄 Обновляю WL-подписи...`);
    
-    // 🔥 Проверяем, что граф существует и имеет edges
-    if (!model || !model.graph || !model.graph.edges) {
-        console.log(`   ⚠️ Граф поврежден, пропускаю обновление`);
+    // 🔥 Добавить проверку
+    if (!model || !model.graph) {
+        console.log(`   ⚠️ Модель или граф не найдены`);
         return;
     }
    
-    // 🔥 Преобразуем Set в массив перед использованием
-    const edgesArray = Array.from(model.graph.edges);
+    // 🔥 Преобразовать Set в массив для итерации
+    const edgesArray = Array.from(model.graph.edges || []);
     model.graph.edges = new Set(edgesArray); // обратно в Set если нужно
    
     const newFingerprints = this.fingerprinter.computeGraphFingerprints(model.graph);
