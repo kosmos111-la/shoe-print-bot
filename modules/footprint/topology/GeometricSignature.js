@@ -453,20 +453,20 @@ class GeometricSignature {
         const features = this.extractAllFeatures(node, graph);
 
         const signature = {
-            nodeId,
-            wlSignature: features.wlSignature,
-            role: features.role,
-            zone: features.zone,
-            zoneCode: features.zoneCode,
-            triangleCount: features.triangleCount,
-            degree: features.degree,
-            degreeBucket: features.degreeBucket,
-            meanDistance: features.meanDistance,
-            meanTriangleArea: features.meanTriangleArea,
-            firstSeen: Date.now(),
-            lastSeen: Date.now(),
-            timesSeen: 1
-        };
+    nodeId,
+    wlSignature: features.wlSignature,
+    role: features.role,
+    zone: features.zone,
+    zoneCode: features.zoneCode,
+    triangleCount: features.triangleCount,
+    degree: features.degree,
+    degreeBucket: features.degreeBucket,
+    meanDistance: features.meanDistance,        // 🔥 ДОБАВИТЬ
+    meanTriangleArea: features.meanTriangleArea, // 🔥 ДОБАВИТЬ
+    firstSeen: Date.now(),
+    lastSeen: Date.now(),
+    timesSeen: 1
+};
 
         this.signatures.set(nodeId, signature);
 
