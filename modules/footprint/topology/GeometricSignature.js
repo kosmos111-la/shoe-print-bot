@@ -1,5 +1,5 @@
 // modules/footprint/topology/GeometricSignature.js
-// 🎯 ИДЕНТИФИКАЦИЯ ТОЧЕК + ПОЛНАЯ ДИАГНОСТИКА ВСЕХ ПРИЗНАКОВ
+// 🎯 ИДЕНТИФИКАЦИЯ ТОЧЕК + ПОИСК ЯКОРЕЙ (ПОЛНАЯ ВЕРСИЯ)
 
 const FeatureExtractor = require('./FeatureExtractor');
 
@@ -36,7 +36,7 @@ class GeometricSignature {
             totalClusterMembers: 0
         };
        
-        console.log('🎯 GeometricSignature создана (WL-идентификация + полная диагностика всех признаков)');
+        console.log('🎯 GeometricSignature создана (WL-идентификация + поиск якорей)');
     }
 
     // ==================== ВЫЧИСЛЕНИЕ ВСЕХ ПРИЗНАКОВ ====================
@@ -44,9 +44,8 @@ class GeometricSignature {
     extractAllFeatures(node, graph) {
         const neighbors = this.findNodeNeighbors(node.id, graph);
        
-        // 1. КООРДИНАТЫ (для визуального контроля)
+        // 1. КООРДИНАТЫ
         const features = {
-            // Координаты
             x: node.x,
             y: node.y,
             zone: this.getZone(node.y),
@@ -76,7 +75,7 @@ class GeometricSignature {
             roleDistribution: this.calculateRoleDistribution(neighbors, graph),
         };
        
-        // 2. УГЛЫ между ребрами
+        // 2. УГЛЫ
         const angles = [];
         for (const neighbor of neighbors) {
             const angle = Math.atan2(neighbor.y - node.y, neighbor.x - node.x) * 180 / Math.PI;
@@ -85,7 +84,6 @@ class GeometricSignature {
         features.neighborAngles = angles;
         features.sortedAngles = [...angles].sort((a, b) => a - b);
        
-        // Статистика углов
         if (angles.length > 1) {
             const meanAngle = angles.reduce((a, b) => a + b, 0) / angles.length;
             const variance = angles.reduce((a, b) => a + Math.pow(b - meanAngle, 2), 0) / angles.length;
@@ -100,7 +98,7 @@ class GeometricSignature {
             features.angleMax = 0;
         }
        
-        // Отношения углов (инвариант к перспективе)
+        // Отношения углов
         if (angles.length >= 2) {
             const ratios = [];
             for (let i = 0; i < angles.length - 1; i++) {
@@ -117,7 +115,7 @@ class GeometricSignature {
             features.meanAngleRatio = 0;
         }
        
-        // 3. РАССТОЯНИЯ до соседей
+        // 3. РАССТОЯНИЯ
         const distances = [];
         for (const neighbor of neighbors) {
             const dist = Math.sqrt(
@@ -128,11 +126,9 @@ class GeometricSignature {
         }
         features.neighborDistances = distances;
        
-        // Нормированные расстояния
         const maxDist = Math.max(...distances, 1);
         features.normalizedDistances = distances.map(d => d / maxDist);
        
-        // Статистика расстояний
         if (distances.length > 0) {
             features.meanDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
             features.minDistance = Math.min(...distances);
@@ -147,7 +143,7 @@ class GeometricSignature {
             features.distanceStd = 0;
         }
        
-        // Отношения расстояний (инвариант к масштабу)
+        // Отношения расстояний
         if (distances.length >= 2) {
             const distRatios = [];
             for (let i = 0; i < distances.length - 1; i++) {
@@ -185,11 +181,11 @@ class GeometricSignature {
             features.area = 0;
         }
        
-        // Плотность (отношение реальных ребер к возможным)
+        // Плотность
         const possibleEdges = (neighbors.length * (neighbors.length - 1)) / 2;
         features.density = possibleEdges > 0 ? features.triangleCount / possibleEdges : 0;
        
-        // Радиальность (равномерность распределения соседей)
+        // Радиальность
         if (angles.length > 1) {
             let radialScore = 0;
             for (let i = 0; i < angles.length; i++) {
@@ -203,12 +199,11 @@ class GeometricSignature {
             features.radialness = 1;
         }
        
-        // 5. ТРЕУГОЛЬНИКИ (детально)
+        // 5. ТРЕУГОЛЬНИКИ
         features.triangles = [];
         for (let i = 0; i < neighbors.length; i++) {
             for (let j = i + 1; j < neighbors.length; j++) {
                 if (this.areConnected(neighbors[i], neighbors[j], graph)) {
-                    // Это треугольник node - neighbors[i] - neighbors[j]
                     const angle1 = this.calculateAngle(
                         node, neighbors[i], neighbors[j]
                     );
@@ -245,7 +240,6 @@ class GeometricSignature {
             }
         }
        
-        // Статистика по треугольникам
         if (features.triangles.length > 0) {
             features.meanTriangleArea = features.triangles.reduce((sum, t) => sum + t.area, 0) / features.triangles.length;
             features.meanTrianglePerimeter = features.triangles.reduce((sum, t) => sum + t.perimeter, 0) / features.triangles.length;
@@ -258,7 +252,7 @@ class GeometricSignature {
             features.trianglePerimeters = [];
         }
        
-        // 6. WL-подпись (несколько вариантов)
+        // 6. WL-подписи разной глубины
         features.wlSignature_depth1 = this.computeWLSignature(node, neighbors, graph, 1);
         features.wlSignature_depth2 = this.computeWLSignature(node, neighbors, graph, 2);
         features.wlSignature_depth3 = this.computeWLSignature(node, neighbors, graph, 3);
@@ -288,6 +282,108 @@ class GeometricSignature {
         }
        
         return signature;
+    }
+
+    // ==================== СРАВНЕНИЕ WL (НЕЧЕТКОЕ) ====================
+
+    compareFuzzyWL(sig1, sig2) {
+        if (sig1 === sig2) return 1.0;
+       
+        const parts1 = sig1.split('|');
+        const parts2 = sig2.split('|');
+       
+        let matches = 0;
+        const total = Math.min(parts1.length, parts2.length);
+       
+        for (let i = 0; i < total; i++) {
+            if (parts1[i] === parts2[i]) matches++;
+        }
+       
+        return matches / total;
+    }
+
+    compareDistanceMean(d1, d2) {
+        if (d1 === 0 || d2 === 0) return 0;
+        const ratio = Math.min(d1, d2) / Math.max(d1, d2);
+        return ratio;
+    }
+
+    compareTriangleArea(a1, a2) {
+        if (a1 === 0 || a2 === 0) return 0;
+        const ratio = Math.min(a1, a2) / Math.max(a1, a2);
+        return ratio;
+    }
+
+    // ==================== ПОИСК ЯКОРЕЙ ====================
+
+    findAnchorPoints(photoNodes, modelGraph) {
+        const anchors = [];
+        const candidates = [];
+       
+        // Собираем кандидатов для всех точек фото
+        for (const [photoId, photoNode] of photoNodes) {
+            const photoFeatures = this.extractAllFeatures(photoNode, photoNodes);
+           
+            for (const [modelId, signature] of this.signatures) {
+                const modelNode = modelGraph.nodes.get(modelId);
+                if (!modelNode) continue;
+               
+                // Быстрая фильтрация по зоне
+                if (signature.zone !== photoFeatures.zone) continue;
+               
+                // Нечеткое сравнение WL
+                const wlScore = this.compareFuzzyWL(
+                    signature.signature,
+                    photoFeatures.wlSignature
+                );
+               
+                if (wlScore > 0.7) {
+                    candidates.push({
+                        photoId,
+                        modelId,
+                        photoWL: signature.signature,
+                        modelWL: photoFeatures.wlSignature,
+                        photoDist: photoFeatures.meanDistance,
+                        modelDist: signature.allFeatures?.meanDistance || 0,
+                        photoArea: photoFeatures.meanTriangleArea,
+                        modelArea: signature.allFeatures?.meanTriangleArea || 0,
+                        wlScore
+                    });
+                }
+            }
+        }
+       
+        // Фильтруем кандидатов в якоря
+        for (const candidate of candidates) {
+            if (candidate.wlScore < 0.8) continue;
+           
+            const distScore = this.compareDistanceMean(
+                candidate.photoDist,
+                candidate.modelDist
+            );
+            if (distScore < 0.7) continue;
+           
+            const areaScore = this.compareTriangleArea(
+                candidate.photoArea,
+                candidate.modelArea
+            );
+            if (areaScore < 0.7) continue;
+           
+            anchors.push({
+                photoId: candidate.photoId,
+                modelId: candidate.modelId,
+                confidence: (candidate.wlScore + distScore + areaScore) / 3
+            });
+        }
+       
+        if (this.debug) {
+            console.log(`\n🔍 Найдено якорей: ${anchors.length}`);
+            anchors.slice(0, 5).forEach((a, i) => {
+                console.log(`   Якорь ${i+1}: ${a.photoId.substring(0,12)}... ↔ ${a.modelId.substring(0,12)}... (conf: ${a.confidence.toFixed(2)})`);
+            });
+        }
+       
+        return anchors;
     }
 
     // ==================== ОПРЕДЕЛЕНИЕ РОЛИ ====================
@@ -445,43 +541,32 @@ class GeometricSignature {
     identify(node, neighbors, currentGraph, modelGraph) {
         if (!modelGraph) return null;
        
-        // Извлекаем ВСЕ признаки для текущей точки
         const currentFeatures = this.extractAllFeatures(node, currentGraph);
        
         if (this.debug) {
             console.log(`\n   🔍 Идентификация точки ${node.id.substring(0, 20)}...`);
-            console.log(`      WL: ${currentFeatures.wlSignature}`);
-            console.log(`      Роль: ${currentFeatures.role}, зона: ${currentFeatures.zone}`);
         }
        
-        // Ищем кандидатов
         const candidates = [];
        
         for (const [candidateId, signature] of this.signatures) {
             const candidateNode = modelGraph.nodes.get(candidateId);
             if (!candidateNode) continue;
            
-            // Быстрая фильтрация по зоне
             if (signature.zone !== currentFeatures.zone) continue;
            
-            // Сравниваем подписи
-            if (signature.signature === currentFeatures.wlSignature) {
+            const wlScore = this.compareFuzzyWL(
+                signature.signature,
+                currentFeatures.wlSignature
+            );
+           
+            if (wlScore > 0.7) {
                 candidates.push({
                     nodeId: candidateId,
-                    similarity: 1.0,
+                    wlScore,
                     node: candidateNode,
                     signature
                 });
-            } else {
-                const similarity = this.compareSignatures(signature, currentFeatures);
-                if (similarity > 0.7) {
-                    candidates.push({
-                        nodeId: candidateId,
-                        similarity,
-                        node: candidateNode,
-                        signature
-                    });
-                }
             }
         }
        
@@ -490,25 +575,20 @@ class GeometricSignature {
             return null;
         }
        
-        // Сортируем по убыванию сходства
-        candidates.sort((a, b) => b.similarity - a.similarity);
+        candidates.sort((a, b) => b.wlScore - a.wlScore);
         const best = candidates[0];
        
-        // 🔥 ДИАГНОСТИКА: сохраняем ВСЕ признаки для анализа
         if (this.featureExtractor) {
             const distance = Math.sqrt(
                 Math.pow(node.x - best.node.x, 2) +
                 Math.pow(node.y - best.node.y, 2)
             );
            
-            // Временно помечаем правильные совпадения (для обучения)
             const isCorrect = distance < 50 && currentFeatures.zone === best.signature.zone;
            
-            // Получаем признаки модели (сохраненные при remember)
             const modelFeatures = best.signature.allFeatures || {};
            
             const matchInfo = {
-                // Координаты модели
                 modelX: best.node.x,
                 modelY: best.node.y,
                 modelZone: best.signature.zone,
@@ -516,40 +596,15 @@ class GeometricSignature {
                 modelTriangles: best.signature.triangleCount,
                 modelDegree: best.signature.degree,
                 modelSignature: best.signature.signature,
-               
-                // WL разных глубин
                 modelSignatureDepth1: best.signature.wlSignature_depth1,
                 modelSignatureDepth2: best.signature.wlSignature_depth2,
                 modelSignatureDepth3: best.signature.wlSignature_depth3,
-               
-                // Углы модели
-                modelAngles: modelFeatures.neighborAngles,
                 modelAngleMean: modelFeatures.angleMean,
-                modelAngleVariance: modelFeatures.angleVariance,
-                modelAngleRatios: modelFeatures.angleRatios,
-                modelMeanAngleRatio: modelFeatures.meanAngleRatio,
-               
-                // Расстояния модели
-                modelDistances: modelFeatures.neighborDistances,
                 modelMeanDistance: modelFeatures.meanDistance,
-                modelDistanceRatios: modelFeatures.distanceRatios,
-                modelMeanDistanceRatio: modelFeatures.meanDistanceRatio,
-               
-                // Геометрия модели
                 modelEccentricity: modelFeatures.eccentricity,
                 modelDensity: modelFeatures.density,
-                modelRadialness: modelFeatures.radialness,
-                modelArea: modelFeatures.area,
-               
-                // Треугольники модели
-                modelTriangleCount: best.signature.triangleCount,
                 modelMeanTriangleArea: modelFeatures.meanTriangleArea,
-                modelMeanTrianglePerimeter: modelFeatures.meanTrianglePerimeter,
-               
-                // Полные признаки текущей точки
                 features: currentFeatures,
-               
-                // Мета
                 distance: distance,
                 isCorrect: isCorrect
             };
@@ -557,7 +612,6 @@ class GeometricSignature {
             this.featureExtractor.extractFeatures(node, currentGraph, matchInfo);
         }
        
-        // Обновляем статистику сигнатуры
         const sig = this.signatures.get(best.nodeId);
         if (sig) {
             sig.lastSeen = Date.now();
@@ -566,52 +620,19 @@ class GeometricSignature {
        
         this.stats.totalIdentified++;
        
-        if (this.debug) {
-            console.log(`   ✅ НАЙДЕНО: ${best.nodeId.substring(0, 20)}...`);
-            console.log(`      Сходство: ${(best.similarity * 100).toFixed(1)}%`);
-        }
-       
         return {
             nodeId: best.nodeId,
-            confidence: best.similarity,
-            method: best.similarity === 1.0 ? 'exact_wl' : 'similar_wl',
+            confidence: best.wlScore,
+            method: 'fuzzy_wl',
             degree: best.node.degree,
             role: currentFeatures.role,
             zone: currentFeatures.zone
         };
     }
 
-    // ==================== СРАВНЕНИЕ ПОДПИСЕЙ ====================
-
-    compareSignatures(sig1, features2) {
-        let score = 0;
-       
-        // Роль (35%)
-        if (sig1.role === features2.role) score += 0.35;
-       
-        // Зона (25%)
-        if (sig1.zone === features2.zone) score += 0.25;
-       
-        // Треугольники (20%)
-        const triangleRatio = Math.min(sig1.triangleCount, features2.triangleCount) /
-                              Math.max(sig1.triangleCount, 1);
-        score += triangleRatio * 0.2;
-       
-        // Степень (10%)
-        const degreeRatio = Math.min(sig1.degree, features2.degree) /
-                            Math.max(sig1.degree, 1);
-        score += degreeRatio * 0.1;
-       
-        // Бакет степени (10%)
-        if (sig1.degreeBucket === features2.degreeBucket) score += 0.1;
-       
-        return score;
-    }
-
     // ==================== ЗАПОМИНАНИЕ ТОЧКИ ====================
 
     remember(nodeId, node, neighbors, graph) {
-        // Извлекаем ВСЕ признаки при запоминании
         const features = this.extractAllFeatures(node, graph);
        
         const signature = {
@@ -626,7 +647,7 @@ class GeometricSignature {
             triangleCount: features.triangleCount,
             degree: features.degree,
             degreeBucket: features.degreeBucket,
-            allFeatures: features, // Сохраняем все признаки для будущего анализа
+            allFeatures: features,
             firstSeen: Date.now(),
             lastSeen: Date.now(),
             timesSeen: 1
@@ -636,8 +657,6 @@ class GeometricSignature {
        
         if (this.debug) {
             console.log(`   🎯 Запомнена точка ${nodeId.substring(0, 20)}...`);
-            console.log(`      WL: ${signature.signature}`);
-            console.log(`      Роль: ${signature.role}, зона: ${signature.zone}`);
         }
 
         return true;
@@ -674,7 +693,6 @@ class GeometricSignature {
     getStats() {
         const extractorStats = this.featureExtractor ? this.featureExtractor.getStats() : null;
        
-        // Распределение по ролям
         const roleStats = {};
         const zoneStats = {};
        
@@ -726,22 +744,7 @@ class GeometricSignature {
         if (data.featureExtractor && this.featureExtractor) {
             this.featureExtractor.featureHistory = data.featureExtractor.history || [];
             this.featureExtractor.featureTable = data.featureExtractor.table || [];
-            this.featureExtractor.featureStats = data.featureExtractor.stats || {
-                zone: { correct: 0, false: 0, total: 0 },
-                role: { correct: 0, false: 0, total: 0 },
-                triangleCount: { correct: 0, false: 0, total: 0 },
-                degree: { correct: 0, false: 0, total: 0 },
-                neighborDegrees: { correct: 0, false: 0, total: 0 },
-                neighborRoles: { correct: 0, false: 0, total: 0 },
-                wlSignature: { correct: 0, false: 0, total: 0 },
-                angles: { correct: 0, false: 0, total: 0 },
-                distances: { correct: 0, false: 0, total: 0 },
-                eccentricity: { correct: 0, false: 0, total: 0 },
-                density: { correct: 0, false: 0, total: 0 },
-                radialness: { correct: 0, false: 0, total: 0 },
-                triangleArea: { correct: 0, false: 0, total: 0 },
-                trianglePerimeter: { correct: 0, false: 0, total: 0 }
-            };
+            this.featureExtractor.featureStats = data.featureExtractor.stats;
         }
        
         console.log(`📥 Импортировано ${this.signatures.size} сигнатур, ${this.clusters.size} кластеров`);
