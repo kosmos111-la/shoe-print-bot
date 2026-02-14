@@ -176,68 +176,100 @@ class GeometricSignature {
     // ==================== ПОИСК ЯКОРЕЙ ====================
 
     findAnchorPoints(photoNodes, modelGraph) {
-        const anchors = [];
-        const candidates = [];
+    const anchors = [];
+    const candidates = [];
 
-        for (const [photoId, photoNode] of photoNodes) {
-            const photoFeatures = this.extractAllFeatures(photoNode, photoNodes);
+    for (const [photoId, photoNode] of photoNodes) {
+        const photoFeatures = this.extractAllFeatures(photoNode, photoNodes);
 
-            for (const [modelId, signature] of this.signatures) {
-                const modelNode = modelGraph.nodes.get(modelId);
-                if (!modelNode) continue;
+        for (const [modelId, signature] of this.signatures) {
+            const modelNode = modelGraph.nodes.get(modelId);
+            if (!modelNode) continue;
 
-                if (signature.zone !== photoFeatures.zone) continue;
+            if (signature.zone !== photoFeatures.zone) continue;
 
-                const wlScore = this.compareFuzzyWL(
-                    signature.wlSignature,
-                    photoFeatures.wlSignature
-                );
+            // 🔥 WL СРАВНЕНИЕ ТЕПЕРЬ РАБОТАЕТ!
+            const wlScore = this.compareFuzzyWL(
+                signature.wlSignature,
+                photoFeatures.wlSignature
+            );
 
-                if (wlScore > 0.7) {
-                    candidates.push({
-                        photoId,
-                        modelId,
-                        wlScore,
-                        photoDist: photoFeatures.meanDistance,
-                        modelDist: signature.meanDistance || 0,
-                        photoArea: photoFeatures.meanTriangleArea,
-                        modelArea: signature.meanTriangleArea || 0
-                    });
-                }
+            // Собираем всех кандидатов с WL > 0.5
+            if (wlScore > 0.5) {
+                candidates.push({
+                    photoId,
+                    modelId,
+                    wlScore,
+                    photoDist: photoFeatures.meanDistance,
+                    modelDist: signature.meanDistance || 0,
+                    photoArea: photoFeatures.meanTriangleArea,
+                    modelArea: signature.meanTriangleArea || 0,
+                    photoNode,
+                    modelNode
+                });
             }
         }
-
-        for (const candidate of candidates) {
-            if (candidate.wlScore < 0.5) continue;
-
-            const distScore = this.compareDistanceMean(
-                candidate.photoDist,
-                candidate.modelDist
-            );
-            if (distScore < 0.7) continue;
-
-            const areaScore = this.compareTriangleArea(
-                candidate.photoArea,
-                candidate.modelArea
-            );
-            if (areaScore < 0.7) continue;
-
-            anchors.push({
-                photoId: candidate.photoId,
-                modelId: candidate.modelId,
-                confidence: (candidate.wlScore + distScore + areaScore) / 3
-            });
-        }
-
-        if (this.debug) {
-            console.log(`\n🔍 Найдено якорей: ${anchors.length}`);
-            anchors.slice(0, 5).forEach((a, i) => {
-                console.log(`   Якорь ${i+1}: ${a.photoId.substring(0,12)}... ↔ ${a.modelId.substring(0,12)}... (conf: ${a.confidence.toFixed(2)})`);
-            });
-        }
-
-        return anchors;
     }
+
+    // Сортируем кандидатов по убыванию WL Score
+    candidates.sort((a, b) => b.wlScore - a.wlScore);
+
+    // Отбираем якоря (топ-30 или все с WL > 0.7)
+    const usedPhotos = new Set();
+    const usedModels = new Set();
+
+    for (const candidate of candidates) {
+        // Проверяем, не заняты ли уже эти точки
+        if (usedPhotos.has(candidate.photoId)) continue;
+        if (usedModels.has(candidate.modelId)) continue;
+
+        // Жесткие фильтры для якорей
+        if (candidate.wlScore < 0.7) continue; // Минимальный WL Score
+
+        // Проверка расстояния (среднее расстояние до соседей)
+        const distScore = this.compareDistanceMean(
+            candidate.photoDist,
+            candidate.modelDist
+        );
+        if (distScore < 0.6) continue; // Чуть снизил порог
+
+        // Проверка площади треугольников
+        const areaScore = this.compareTriangleArea(
+            candidate.photoArea,
+            candidate.modelArea
+        );
+        if (areaScore < 0.6) continue; // Чуть снизил порог
+
+        // Всё хорошо - добавляем якорь
+        anchors.push({
+            photoId: candidate.photoId,
+            modelId: candidate.modelId,
+            confidence: (candidate.wlScore + distScore + areaScore) / 3,
+            wlScore: candidate.wlScore,
+            distScore,
+            areaScore
+        });
+
+        usedPhotos.add(candidate.photoId);
+        usedModels.add(candidate.modelId);
+
+        // Хватит 30 якорей
+        if (anchors.length >= 30) break;
+    }
+
+    if (this.debug) {
+        console.log(`\n🔍 Найдено якорей: ${anchors.length}`);
+        anchors.slice(0, 5).forEach((a, i) => {
+            console.log(`   Якорь ${i+1}: ${a.photoId.substring(0,12)}... ↔ ${a.modelId.substring(0,12)}...`);
+            console.log(`      WL: ${(a.wlScore*100).toFixed(1)}%, Dist: ${(a.distScore*100).toFixed(1)}%, Area: ${(a.areaScore*100).toFixed(1)}%`);
+        });
+        if (anchors.length > 5) {
+            console.log(`   ... и еще ${anchors.length - 5} якорей`);
+        }
+    }
+
+    return anchors;
+}
 
     // ==================== ОПРЕДЕЛЕНИЕ РОЛИ ====================
 
