@@ -88,39 +88,41 @@ class RobustWLSignature {
     }
 
     patternToString(pattern) {
-        const s = pattern.self;
-        const n = pattern.neighborRoles;
-        return `${s.role}|${s.zone}|${s.degree}|${s.triangleDensity.toFixed(2)}|${n.L}x${n.B}x${n.H}x${n.C}x${n.R}`;
-    }
+    const s = pattern.self;
+    const n = pattern.neighborRoles;
+    // Было: return `${s.role}|${s.degree}|${s.triangleDensity.toFixed(2)}|${n.L}x${n.B}x${n.H}x${n.C}x${n.R}`;
+    // Стало (добавляем зону):
+    return `${s.role}|${s.zone}|${s.degree}|${s.triangleDensity.toFixed(2)}|${n.L}x${n.B}x${n.H}x${n.C}x${n.R}`;
+}
 
     // ==================== ПАРСИНГ ПАТТЕРНА ====================
 
     parsePattern(sig) {
-        try {
-            const parts = sig.split('|');
-            if (parts.length < 6) return null;
-           
-            const roleDist = parts[4].split('x').map(Number);
-           
-            return {
-                self: {
-                    role: parts[0],
-                    zone: parts[1],
-                    degree: parseInt(parts[2]),
-                    triangleDensity: parseFloat(parts[3])
-                },
-                neighborRoles: {
-                    L: roleDist[0] || 0,
-                    B: roleDist[1] || 0,
-                    H: roleDist[2] || 0,
-                    C: roleDist[3] || 0,
-                    R: roleDist[4] || 0
-                }
-            };
-        } catch (e) {
-            return null;
-        }
+    try {
+        const parts = sig.split('|');
+        if (parts.length < 6) return null; // теперь ожидаем 6 частей
+       
+        const roleDist = parts[4].split('x').map(Number); // было parts[3]
+       
+        return {
+            self: {
+                role: parts[0],
+                zone: parts[1], // добавить
+                degree: parseInt(parts[2]), // было parts[1]
+                triangleDensity: parseFloat(parts[3]) // было parts[2]
+            },
+            neighborRoles: {
+                L: roleDist[0] || 0,
+                B: roleDist[1] || 0,
+                H: roleDist[2] || 0,
+                C: roleDist[3] || 0,
+                R: roleDist[4] || 0
+            }
+        };
+    } catch (e) {
+        return null;
     }
+}
 
     // ==================== СРАВНЕНИЕ РАСПРЕДЕЛЕНИЙ ====================
 
