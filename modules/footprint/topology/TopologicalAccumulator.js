@@ -627,20 +627,22 @@ class TopologicalAccumulator {
     // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
 
     findNodeNeighbors(nodeId, graph) {
-        const neighbors = [];
-        for (const edge of graph.edges) {
-            const [nodeA, nodeB] = edge.split('--');
-            if (nodeA === nodeId) {
-                const node = graph.nodes.get(nodeB);
-                if (node) neighbors.push(node);
-            }
-            if (nodeB === nodeId) {
-                const node = graph.nodes.get(nodeA);
-                if (node) neighbors.push(node);
-            }
+    const neighbors = [];
+    // 🔥 ФИКС: преобразуем Set в массив
+    const edgesArray = Array.from(graph.edges);
+    for (const edge of edgesArray) {
+        const [nodeA, nodeB] = edge.split('--');
+        if (nodeA === nodeId) {
+            const node = graph.nodes.get(nodeB);
+            if (node) neighbors.push(node);
         }
-        return neighbors;
+        if (nodeB === nodeId) {
+            const node = graph.nodes.get(nodeA);
+            if (node) neighbors.push(node);
+        }
     }
+    return neighbors;
+}
 
     getZone(y) {
         if (y > 350) return 'ПЯТКА';
