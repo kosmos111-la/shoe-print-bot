@@ -690,17 +690,23 @@ class TopologicalAccumulator {
     const model = this.models.get(modelId);
     console.log(`🔄 Обновляю WL-подписи...`);
    
-    // 🔥 Добавить проверку
+    // 🔥 ЗАЩИТА
     if (!model || !model.graph) {
         console.log(`   ⚠️ Модель или граф не найдены`);
         return;
     }
    
-    // 🔥 Преобразовать Set в массив для итерации
-    const edgesArray = Array.from(model.graph.edges || []);
-    model.graph.edges = new Set(edgesArray); // обратно в Set если нужно
+    // 🔥 ПРЕОБРАЗУЕМ SET В МАССИВ
+    const graph = model.graph;
+    const edgesArray = Array.from(graph.edges || []);
    
-    const newFingerprints = this.fingerprinter.computeGraphFingerprints(model.graph);
+    // Создаем временный граф для вычислений
+    const tempGraph = {
+        nodes: graph.nodes,
+        edges: new Set(edgesArray) // обратно в Set
+    };
+   
+    const newFingerprints = this.fingerprinter.computeGraphFingerprints(tempGraph);
     model.fingerprints = newFingerprints;
     console.log(`✅ Подписи обновлены: ${newFingerprints.size} узлов`);
     return newFingerprints;
