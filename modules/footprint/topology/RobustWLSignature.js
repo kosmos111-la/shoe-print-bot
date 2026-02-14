@@ -9,7 +9,7 @@ class RobustWLSignature {
         // Роли
         this.roles = ['L', 'B', 'H', 'C', 'R'];
        
-        // Кеш
+        // Кеш для паттернов
         this.cache = new Map();
         this.cacheHits = 0;
         this.cacheMisses = 0;
@@ -18,10 +18,10 @@ class RobustWLSignature {
         console.log(`   Учитываем: распределение ролей, плотность треугольников, степень`);
     }
 
-    // ==================== ОСНОВНОЙ МЕТОД ====================
+    // ==================== ОСНОВНОЙ МЕТОД: ВОЗВРАЩАЕТ ПАТТЕРНОВУЮ СТРОКУ ====================
 
-    computeSignature(node, graph) {
-        const cacheKey = `${node.id}|${this.iterations}`;
+    computePattern(node, graph) {
+        const cacheKey = `${node.id}|pattern|${this.iterations}`;
         if (this.cache.has(cacheKey)) {
             this.cacheHits++;
             return this.cache.get(cacheKey);
@@ -30,31 +30,7 @@ class RobustWLSignature {
 
         const neighbors = this.findNodeNeighbors(node.id, graph);
        
-        // Базовая подпись
-        let signature = `${this.getNodeRole(node, neighbors, graph)}|${this.getZone(node.y)}|T${this.countTriangles(neighbors, graph)}|D${Math.min(neighbors.length, 10)}`;
-       
-        // Итеративное уточнение
-        for (let iter = 0; iter < this.iterations; iter++) {
-            const neighborSigs = [];
-           
-            for (const neighbor of neighbors) {
-                const neighborNeighbors = this.findNodeNeighbors(neighbor.id, graph);
-                const neighborSig = `${this.getNodeRole(neighbor, neighborNeighbors, graph)}|T${this.countTriangles(neighborNeighbors, graph)}|D${Math.min(neighborNeighbors.length, 10)}`;
-                neighborSigs.push(neighborSig);
-            }
-           
-            neighborSigs.sort();
-            signature = this.hashString(signature + '|' + neighborSigs.join('|'));
-        }
-
-        return signature;
-    }
-
-    // ==================== ПАТТЕРНОВЫЙ МЕТОД ====================
-
-    computePatternSignature(node, graph) {
-        const neighbors = this.findNodeNeighbors(node.id, graph);
-       
+        // Паттерн точки
         const pattern = {
             self: {
                 role: this.getNodeRole(node, neighbors, graph),
@@ -71,7 +47,9 @@ class RobustWLSignature {
             neighborCount: neighbors.length
         };
        
-        return this.patternToString(pattern);
+        const signature = this.patternToString(pattern);
+        this.cache.set(cacheKey, signature);
+        return signature;
     }
 
     // ==================== СБОР ПАТТЕРНОВ ====================
@@ -296,7 +274,7 @@ class RobustWLSignature {
         return 'B5';
     }
 
-    // ==================== ХЕШ-ФУНКЦИЯ ====================
+    // ==================== ХЕШ-ФУНКЦИЯ (ДЛЯ СОВМЕСТИМОСТИ) ====================
 
     hashString(str) {
         let hash = 0;
