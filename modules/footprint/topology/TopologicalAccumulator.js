@@ -687,14 +687,24 @@ class TopologicalAccumulator {
     }
 
     async updateModelFingerprints(modelId) {
-        const model = this.models.get(modelId);
-        console.log(`🔄 Обновляю WL-подписи...`);
-        const newFingerprints = this.fingerprinter.computeGraphFingerprints(model.graph);
-        model.fingerprints = newFingerprints;
-        console.log(`✅ Подписи обновлены: ${newFingerprints.size} узлов`);
-        return newFingerprints;
+    const model = this.models.get(modelId);
+    console.log(`🔄 Обновляю WL-подписи...`);
+   
+    // 🔥 Проверяем, что граф существует и имеет edges
+    if (!model || !model.graph || !model.graph.edges) {
+        console.log(`   ⚠️ Граф поврежден, пропускаю обновление`);
+        return;
     }
-
+   
+    // 🔥 Преобразуем Set в массив перед использованием
+    const edgesArray = Array.from(model.graph.edges);
+    model.graph.edges = new Set(edgesArray); // обратно в Set если нужно
+   
+    const newFingerprints = this.fingerprinter.computeGraphFingerprints(model.graph);
+    model.fingerprints = newFingerprints;
+    console.log(`✅ Подписи обновлены: ${newFingerprints.size} узлов`);
+    return newFingerprints;
+}
     // ==================== МЕТОДЫ ДЛЯ ИНФОРМАЦИИ ====================
 
     getModelInfo(modelId = null) {
