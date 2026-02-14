@@ -4,19 +4,18 @@
 class AnchorPropagator {
     constructor(options = {}) {
         this.debug = options.debug || false;
-        this.minAnchors = options.minAnchors || 3; // Минимум якорей для проверки
+        this.minAnchors = options.minAnchors || 3;
        
-        console.log('⚓ AnchorPropagator создан');
+        console.log('⚓️ AnchorPropagator создан');
         console.log(`   Минимальное число якорей для проверки: ${this.minAnchors}`);
     }
    
     propagate(photoGraph, modelGraph, anchors) {
         console.log(`\n🔗 Распространяю уверенность от ${anchors.length} якорей...`);
        
-        const matches = new Map(); // photoId -> modelId
-        const queue = [...anchors]; // Начинаем с якорей
+        const matches = new Map();
+        const queue = [...anchors];
        
-        // Помечаем якоря как найденные
         for (const anchor of anchors) {
             matches.set(anchor.photoId, anchor.modelId);
         }
@@ -29,17 +28,23 @@ class AnchorPropagator {
         }
        
         let iteration = 0;
-        let foundInIteration = 0;
        
-        // BFS-распространение
         while (queue.length > 0) {
             const current = queue.shift();
             iteration++;
            
-            // Находим соседей текущей точки в фото
-            const photoNeighbors = this.findNeighbors(current.photoId, photoGraph);
+            // 🔥 ФИКС: проверяем существование photoGraph и его edges
+            if (!photoGraph || !photoGraph.nodes || !photoGraph.edges) {
+                console.log(`   ⚠️ photoGraph поврежден, пропускаю`);
+                continue;
+            }
            
-            // Находим соседей соответствующей точки в модели
+            if (!modelGraph || !modelGraph.nodes || !modelGraph.edges) {
+                console.log(`   ⚠️ modelGraph поврежден, пропускаю`);
+                continue;
+            }
+           
+            const photoNeighbors = this.findNeighbors(current.photoId, photoGraph);
             const modelNeighbors = this.findNeighbors(current.modelId, modelGraph);
            
             if (this.debug && iteration <= 3) {
@@ -47,11 +52,10 @@ class AnchorPropagator {
                 console.log(`      Соседей в фото: ${photoNeighbors.length}, в модели: ${modelNeighbors.length}`);
             }
            
-            foundInIteration = 0;
+            let foundInIteration = 0;
            
-            // Для каждого соседа в фото ищем соответствие в модели
             for (const photoNeighbor of photoNeighbors) {
-                if (matches.has(photoNeighbor.id)) continue; // уже найдено
+                if (matches.has(photoNeighbor.id)) continue;
                
                 let bestMatch = null;
                 let bestScore = 0;
@@ -59,7 +63,6 @@ class AnchorPropagator {
                 for (const modelNeighbor of modelNeighbors) {
                     if (Array.from(matches.values()).includes(modelNeighbor.id)) continue;
                    
-                    // Проверяем через связи с уже найденными якорями
                     const score = this.checkViaAnchors(
                         photoNeighbor, modelNeighbor,
                         photoGraph, modelGraph,
@@ -72,7 +75,6 @@ class AnchorPropagator {
                     }
                 }
                
-                // Если нашли хорошее соответствие
                 if (bestScore > 0.7) {
                     matches.set(photoNeighbor.id, bestMatch.id);
                     queue.push({
@@ -99,23 +101,19 @@ class AnchorPropagator {
     }
    
     checkViaAnchors(photoNode, modelNode, photoGraph, modelGraph, matches) {
-        // Находим якоря, с которыми связана точка в фото
         const photoAnchors = this.findConnectedAnchors(photoNode.id, photoGraph, matches);
        
-        // Создаем обратное отображение для поиска в модели
         const reverseMatches = new Map();
         for (const [photoId, modelId] of matches) {
             reverseMatches.set(modelId, photoId);
         }
        
-        // Находим якоря, с которыми связана точка в модели
         const modelAnchors = this.findConnectedAnchors(modelNode.id, modelGraph, reverseMatches);
        
         if (photoAnchors.length < this.minAnchors || modelAnchors.length < this.minAnchors) {
             return 0;
         }
        
-        // Считаем, сколько общих якорей (в смысле соответствия)
         let commonAnchors = 0;
         for (const photoAnchor of photoAnchors) {
             const modelAnchorId = matches.get(photoAnchor);
@@ -129,6 +127,9 @@ class AnchorPropagator {
     }
    
     findConnectedAnchors(nodeId, graph, matches) {
+        // 🔥 ФИКС: проверяем существование graph
+        if (!graph || !graph.nodes || !graph.edges) return [];
+       
         const anchors = [];
         const neighbors = this.findNeighbors(nodeId, graph);
        
@@ -143,7 +144,16 @@ class AnchorPropagator {
    
     findNeighbors(nodeId, graph) {
         const neighbors = [];
-        for (const edge of graph.edges) {
+       
+        // 🔥 ФИКС: проверяем существование graph.edges
+        if (!graph || !graph.edges) {
+            return neighbors;
+        }
+       
+        // 🔥 ФИКС: преобразуем Set в массив для итерации
+        const edgesArray = Array.from(graph.edges);
+       
+        for (const edge of edgesArray) {
             const [a, b] = edge.split('--');
             if (a === nodeId) {
                 const node = graph.nodes.get(b);
@@ -154,6 +164,7 @@ class AnchorPropagator {
                 if (node) neighbors.push(node);
             }
         }
+       
         return neighbors;
     }
 }
