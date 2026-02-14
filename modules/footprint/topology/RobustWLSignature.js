@@ -1,114 +1,213 @@
 // modules/footprint/topology/RobustWLSignature.js
-// 🔥 WEISFEILER-LEHMAN С УСТОЙЧИВОСТЬЮ К ИЗМЕНЕНИЯМ
+// 🔥 WEISFEILER-LEHMAN НА ПАТТЕРНАХ (устойчив к удалению точек)
 
 class RobustWLSignature {
     constructor(options = {}) {
-        this.iterations = options.iterations || 2;
         this.debug = options.debug || false;
+        this.iterations = options.iterations || 2;
        
-        // Веса для разных признаков
-        this.weights = {
-            role: 0.35,        // роль узла (очень стабильна)
-            zone: 0.25,         // зона (абсолютно стабильна)
-            triangles: 0.2,     // треугольники (стабильны)
-            degree: 0.1,        // степень (может меняться)
-            neighbors: 0.1      // соседи (для контекста)
-        };
+        // Роли (как и раньше)
+        this.roles = ['L', 'B', 'H', 'C', 'R'];
        
         // Кеш для ускорения
-        this.signatureCache = new Map();
+        this.cache = new Map();
         this.cacheHits = 0;
         this.cacheMisses = 0;
        
-        console.log('🔷 RobustWLSignature создан');
-        console.log(`   Итераций: ${this.iterations}, веса: роль=${this.weights.role}, зона=${this.weights.zone}`);
+        console.log('🔷 RobustWLSignature (паттерновый) создан');
+        console.log(`   Учитываем: распределение ролей, плотность треугольников, степень`);
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     computeSignature(node, graph) {
         const cacheKey = `${node.id}|${this.iterations}`;
-        if (this.signatureCache.has(cacheKey)) {
+        if (this.cache.has(cacheKey)) {
             this.cacheHits++;
-            return this.signatureCache.get(cacheKey);
+            return this.cache.get(cacheKey);
         }
         this.cacheMisses++;
 
-        const neighbors = this.findNeighbors(node.id, graph);
+        const neighbors = this.findNodeNeighbors(node.id, graph);
        
-        // Уровень 0: базовая подпись узла
-        let signature = this.getNodeSignature(node, neighbors, graph);
+        // 1. Базовые характеристики узла
+        const nodeRole = this.getNodeRole(node, neighbors, graph);
+        const nodeDegree = neighbors.length;
+        const nodeTriangleCount = this.countTriangles(neighbors, graph);
        
-        // Итеративное уточнение
-        for (let iter = 0; iter < this.iterations; iter++) {
-            // Собираем подписи соседей
-            const neighborSignatures = [];
-            for (const neighbor of neighbors) {
-                const neighborNeighbors = this.findNeighbors(neighbor.id, graph);
-                const neighborSig = this.getNodeSignature(neighbor, neighborNeighbors, graph);
-                neighborSignatures.push(neighborSig);
-            }
+        // 2. Статистика окрестности (ПАТТЕРНЫ!)
+        const pattern = {
+            // Характеристики самой точки
+            self: {
+                role: nodeRole,
+                degree: nodeDegree,
+                degreeBucket: this.getDegreeBucket(nodeDegree),
+                triangleCount: nodeTriangleCount,
+                triangleDensity: nodeDegree > 1 ? nodeTriangleCount / (nodeDegree * (nodeDegree-1) / 2) : 0
+            },
            
-            // Сортируем для инвариантности
-            neighborSignatures.sort((a, b) => a.localeCompare(b));
+            // Распределение ролей среди соседей
+            neighborRoles: this.getRoleDistribution(neighbors, graph),
            
-            // Новая подпись = старая + подписи соседей
-            signature = this.hashString(signature + '|' + neighborSignatures.join('|'));
-        }
-
-        this.signatureCache.set(cacheKey, signature);
+            // Статистика соседей (усредненная)
+            neighborStats: this.getNeighborStats(neighbors, graph),
+           
+            // Количество треугольников в окрестности
+            totalTriangles: nodeTriangleCount,
+           
+            // Количество соседей
+            neighborCount: nodeDegree
+        };
+       
+        // 3. Сериализуем в компактную строку
+        const signature = this.patternToString(pattern);
+       
+        this.cache.set(cacheKey, signature);
         return signature;
     }
 
-    // ==================== ПОДПИСЬ УЗЛА (БЕЗ ИТЕРАЦИЙ) ====================
+    // ==================== СБОР ПАТТЕРНОВ ====================
 
-    getNodeSignature(node, neighbors, graph) {
-        const features = [];
+    getRoleDistribution(neighbors, graph) {
+        const dist = {
+            L: 0, B: 0, H: 0, C: 0, R: 0
+        };
        
-        // 1. Роль узла (самый важный признак)
-        features.push(this.getNodeRole(node, neighbors, graph));
-       
-        // 2. Зона (второй по важности)
-        features.push(this.getZone(node.y));
-       
-        // 3. Количество треугольников
-        const triangleCount = this.countTriangles(neighbors, graph);
-        features.push(`T${triangleCount}`);
-       
-        // 4. Степень (с ограничением)
-        const degree = Math.min(neighbors.length, 10); // Ограничиваем до 10
-        features.push(`D${degree}`);
-       
-        // 5. Роли соседей (обобщенно)
-        const neighborRoles = {};
         for (const neighbor of neighbors) {
-            const neighborNeighbors = this.findNeighbors(neighbor.id, graph);
+            const neighborNeighbors = this.findNodeNeighbors(neighbor.id, graph);
             const role = this.getNodeRole(neighbor, neighborNeighbors, graph);
-            neighborRoles[role] = (neighborRoles[role] || 0) + 1;
+            dist[role]++;
         }
        
-        // Сортируем роли для инвариантности
-        const sortedRoles = Object.entries(neighborRoles)
-            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-            .map(([role, count]) => `${role}${count}`);
-       
-        features.push(...sortedRoles);
-       
-        return features.join('|');
+        return dist;
     }
 
-    // ==================== ОПРЕДЕЛЕНИЕ РОЛИ ====================
+    getNeighborStats(neighbors, graph) {
+        if (neighbors.length === 0) {
+            return {
+                avgDegree: 0,
+                avgTriangles: 0,
+                avgDensity: 0
+            };
+        }
+       
+        let totalDegree = 0;
+        let totalTriangles = 0;
+       
+        for (const neighbor of neighbors) {
+            const neighborNeighbors = this.findNodeNeighbors(neighbor.id, graph);
+            totalDegree += neighborNeighbors.length;
+            totalTriangles += this.countTriangles(neighborNeighbors, graph);
+        }
+       
+        const avgDegree = totalDegree / neighbors.length;
+        const avgTriangles = totalTriangles / neighbors.length;
+        const avgDensity = avgDegree > 1 ?
+            avgTriangles / (avgDegree * (avgDegree - 1) / 2) : 0;
+       
+        return {
+            avgDegree,
+            avgTriangles,
+            avgDensity
+        };
+    }
+
+    patternToString(pattern) {
+        // Компактное представление: роль|степень|плотность|LxBxHxCxR|avgDeg|avgTri
+        const s = pattern.self;
+        const n = pattern.neighborRoles;
+        const ns = pattern.neighborStats;
+       
+        return `${s.role}|${s.degree}|${s.triangleDensity.toFixed(2)}|` +
+               `${n.L}x${n.B}x${n.H}x${n.C}x${n.R}|` +
+               `${ns.avgDegree.toFixed(1)}|${ns.avgTriangles.toFixed(1)}`;
+    }
+
+    // ==================== СРАВНЕНИЕ ПАТТЕРНОВ ====================
+
+    comparePatterns(sig1, sig2) {
+        if (sig1 === sig2) return 1.0;
+       
+        // Парсим паттерны
+        const p1 = this.parsePattern(sig1);
+        const p2 = this.parsePattern(sig2);
+       
+        if (!p1 || !p2) return 0;
+       
+        // 1. Сравнение роли (40% веса)
+        let score = 0;
+        if (p1.self.role === p2.self.role) score += 0.4;
+       
+        // 2. Сравнение распределения ролей соседей (30% веса)
+        const roleSim = this.compareRoleDistributions(
+            p1.neighborRoles, p2.neighborRoles
+        );
+        score += roleSim * 0.3;
+       
+        // 3. Сравнение плотности треугольников (20% веса)
+        const densitySim = 1 - Math.abs(p1.self.triangleDensity - p2.self.triangleDensity);
+        score += Math.max(0, densitySim) * 0.2;
+       
+        // 4. Сравнение степени (10% веса)
+        const degreeDiff = Math.abs(p1.self.degree - p2.self.degree);
+        const degreeSim = 1 - (degreeDiff / Math.max(p1.self.degree, p2.self.degree, 1));
+        score += Math.max(0, degreeSim) * 0.1;
+       
+        return score;
+    }
+
+    compareRoleDistributions(d1, d2) {
+        let total = 0;
+        let matches = 0;
+       
+        for (const role of this.roles) {
+            const count1 = d1[role] || 0;
+            const count2 = d2[role] || 0;
+            total += Math.max(count1, count2);
+            matches += Math.min(count1, count2);
+        }
+       
+        return total > 0 ? matches / total : 1;
+    }
+
+    parsePattern(sig) {
+        try {
+            const parts = sig.split('|');
+            if (parts.length < 6) return null;
+           
+            const roleDist = parts[3].split('x').map(Number);
+           
+            return {
+                self: {
+                    role: parts[0],
+                    degree: parseInt(parts[1]),
+                    triangleDensity: parseFloat(parts[2])
+                },
+                neighborRoles: {
+                    L: roleDist[0] || 0,
+                    B: roleDist[1] || 0,
+                    H: roleDist[2] || 0,
+                    C: roleDist[3] || 0,
+                    R: roleDist[4] || 0
+                },
+                neighborStats: {
+                    avgDegree: parseFloat(parts[4]),
+                    avgTriangles: parseFloat(parts[5])
+                }
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // ==================== СУЩЕСТВУЮЩИЕ МЕТОДЫ ====================
 
     getNodeRole(node, neighbors, graph) {
         const degree = neighbors.length;
        
-        // Лист
         if (degree === 1) return 'L';
-       
-        // Хаб (много связей)
         if (degree >= 6) return 'H';
        
-        // Мост (два соседа, не связанных между собой)
         if (degree === 2) {
             const [a, b] = neighbors;
             if (!this.areConnected(a, b, graph)) {
@@ -116,7 +215,6 @@ class RobustWLSignature {
             }
         }
        
-        // Клика (все соседи связаны между собой)
         if (degree >= 3) {
             let allConnected = true;
             for (let i = 0; i < neighbors.length; i++) {
@@ -131,11 +229,8 @@ class RobustWLSignature {
             if (allConnected) return 'C';
         }
        
-        // Обычный узел
         return 'R';
     }
-
-    // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
 
     countTriangles(neighbors, graph) {
         let count = 0;
@@ -154,7 +249,7 @@ class RobustWLSignature {
         return graph.edges.has(edgeId);
     }
 
-    findNeighbors(nodeId, graph) {
+    findNodeNeighbors(nodeId, graph) {
         const neighbors = [];
         for (const edge of graph.edges) {
             const [a, b] = edge.split('--');
@@ -170,43 +265,18 @@ class RobustWLSignature {
         return neighbors;
     }
 
-    getZone(y) {
-        if (y > 350) return 'K'; // пятка (heel)
-        if (y < 200) return 'N'; // носок (toe)
-        return 'C'; // центр
+    getDegreeBucket(degree) {
+        if (degree <= 2) return 'B0';
+        if (degree <= 4) return 'B1';
+        if (degree <= 6) return 'B2';
+        if (degree <= 9) return 'B3';
+        if (degree <= 12) return 'B4';
+        return 'B5';
     }
-
-    hashString(str) {
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash;
-        }
-        return Math.abs(hash).toString(36).padStart(8, '0');
-    }
-
-    // ==================== СРАВНЕНИЕ ПОДПИСЕЙ ====================
-
-    compareSignatures(sig1, sig2) {
-        if (sig1 === sig2) return 1.0;
-       
-        // Если подписи разные, но могут быть похожи
-        // Распарсить сложно, поэтому используем расстояние Хэмминга
-        let diff = 0;
-        for (let i = 0; i < Math.min(sig1.length, sig2.length); i++) {
-            if (sig1[i] !== sig2[i]) diff++;
-        }
-       
-        const similarity = 1 - (diff / Math.max(sig1.length, sig2.length));
-        return Math.max(0, similarity);
-    }
-
-    // ==================== СТАТИСТИКА ====================
 
     getStats() {
         return {
-            cacheSize: this.signatureCache.size,
+            cacheSize: this.cache.size,
             cacheHits: this.cacheHits,
             cacheMisses: this.cacheMisses,
             hitRate: this.cacheHits + this.cacheMisses > 0
@@ -216,7 +286,7 @@ class RobustWLSignature {
     }
 
     clearCache() {
-        this.signatureCache.clear();
+        this.cache.clear();
         this.cacheHits = 0;
         this.cacheMisses = 0;
         console.log('🧹 Кеш RobustWLSignature очищен');
