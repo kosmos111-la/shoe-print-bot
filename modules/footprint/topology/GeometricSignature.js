@@ -208,7 +208,7 @@ class GeometricSignature {
         }
 
         for (const candidate of candidates) {
-            if (candidate.wlScore < 0.6) continue;
+            if (candidate.wlScore < 0.5) continue;
 
             const distScore = this.compareDistanceMean(
                 candidate.photoDist,
@@ -385,7 +385,7 @@ class GeometricSignature {
                 currentFeatures.wlSignature
             );
 
-            if (wlScore > 0.6) {
+            if (wlScore > 0.5) {
                 candidates.push({
                     nodeId: candidateId,
                     wlScore,
