@@ -150,7 +150,7 @@ class GeometricSignature {
         features.density = possibleEdges > 0 ? features.triangleCount / possibleEdges : 0;
 
         // 🔥 ПАТТЕРНОВЫЙ WL (вместо старого)
-        features.wlSignature = this.wlSigner.computeSignature(node, graph);
+        features.wlSignature = this.wlSigner.computePattern(node, graph);
 
         return features;
     }
