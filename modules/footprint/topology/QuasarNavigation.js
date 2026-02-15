@@ -129,8 +129,15 @@ class QuasarNavigation {
     // ==================== ПОИСК ПО ВСЕМ ТОЧКАМ ====================
    
     findAllMatches(photoGraph, modelGraph, anchors) {
-        const matches = new Map();
-        const anchorSet = new Set(anchors.map(a => a.photoId));
+    // 🔥 ЗАЩИТА: проверяем, что anchors - массив
+    if (!Array.isArray(anchors)) {
+        console.log('⚠️ anchors не является массивом, преобразую...');
+        anchors = Array.from(anchors || []);
+    }
+   
+    const matches = new Map();
+    const anchorSet = new Set(anchors.map(a => a.photoId));
+      
        
         // Для каждой точки в фото, которая не якорь
         for (const [photoId, photoNode] of photoGraph.nodes) {
