@@ -60,85 +60,74 @@ class TopologicalAccumulator {
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
-    async processPoints(points, options = {}) {
-        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
+async processPoints(points, options = {}) {
+    console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
 
-        const modelId = options.modelId || this.currentModelId;
-        const contours = options.contours || [];
+    const modelId = options.modelId || this.currentModelId;
+    const contours = options.contours || [];
 
-        // 1. Строим граф
-        const graph = this.graphBuilder.buildDelaunayGraph(points, options.source || 'photo');
+    // 1. Строим граф
+    const graph = this.graphBuilder.buildDelaunayGraph(points, options.source || 'photo');
 
-        // 2. Кодируем морфологию (из контуров)
-        const morphologyMap = this.morphologyEncoder.encode(points, contours);
-       
-        // 🔥 ДИАГНОСТИКА: проверяем, что морфология привязана к точкам
-        console.log(`🔍 morphologyMap содержит ${morphologyMap.size} записей`);
-        if (morphologyMap.size > 0) {
-            const firstKey = Array.from(morphologyMap.keys())[0];
-            const firstNodeId = Array.from(graph.nodes.keys())[0];
-            console.log(`   Пример ключа morphologyMap: ${firstKey?.substring(0, 20)}`);
-            console.log(`   Пример nodeId в графе: ${firstNodeId?.substring(0, 20)}`);
-           
-            // Проверяем, есть ли морфология для первого узла
-            const hasMorphForFirst = morphologyMap.has(firstNodeId);
-            console.log(`   morphologyMap.has(firstNodeId): ${hasMorphForFirst}`);
-        }
+    // 2. Кодируем морфологию
+    const morphologyMap = this.morphologyEncoder.encode(points, contours);
 
-        // Если нет существующей модели - создаём новую
-        if (!modelId || !this.models.has(modelId)) {
-            return this.createNewModel(graph, morphologyMap, points, options);
-        }
-
-        const existingModel = this.models.get(modelId);
-        console.log(`🔍 Сравниваю с моделью "${modelId}"`);
-
-        // 3. Ищем общую область (центр)
-        const centerMatches = this.centerMatcher.findCenterMatches(
-            graph,
-            existingModel.graph,
-            morphologyMap,
-            existingModel.morphologyMap
-        );
-
-        if (allMatches.size < this.centerMatcher.minConsistentPairs) {
-            console.log(`⚠️ Недостаточно общих точек в центре (${centerMatches.size} < ${this.centerMatcher.minConsistentPairs})`);
-            console.log(`🆕 Создаю новую модель (центры не совпадают)`);
-            return this.createNewModel(graph, morphologyMap, points, {
-                ...options,
-                comparedWith: modelId,
-                reason: 'center_mismatch'
-            });
-        }
-
-        // 4. Достраиваем остальные точки относительно центра
-        const allMatches = this.relativePositioning.positionPoints(
-            graph,
-            existingModel.graph,
-            centerMatches,
-            morphologyMap,
-            existingModel.morphologyMap
-        );
-
-        // 5. Обновляем модель
-        const updatedModel = await this.enhanceModel(
-            modelId,
-            graph,
-            morphologyMap,
-            allMatches,
-            centerMatches,
-            options
-        );
-
-        return {
-            status: 'enhanced',
-            modelId: modelId,
-            centerMatches: centerMatches.size,
-            totalMatches: allMatches.size,
-            newNodesAdded: updatedModel.newNodesAdded,
-            message: `Модель улучшена (центр: ${centerMatches.size}, всего: ${allMatches.size})`
-        };
+    if (!modelId || !this.models.has(modelId)) {
+        return this.createNewModel(graph, morphologyMap, points, options);
     }
+
+    const existingModel = this.models.get(modelId);
+    console.log(`🔍 Сравниваю с моделью "${modelId}"`);
+
+    // 3. Ищем соответствия ПО ВСЕМУ СЛЕДУ
+    const allMatches = this.centerMatcher.findCenterMatches(
+        graph,
+        existingModel.graph,
+        morphologyMap,
+        existingModel.morphologyMap
+    );
+
+    // 🔥 НОВОЕ: проверяем, есть ли вообще какие-то соответствия
+    if (allMatches.size < this.centerMatcher.minConsistentPairs) {
+        console.log(`⚠️ Недостаточно согласованных точек (${allMatches.size} < ${this.centerMatcher.minConsistentPairs})`);
+        console.log(`🆕 Создаю новую модель`);
+        return this.createNewModel(graph, morphologyMap, points, {
+            ...options,
+            comparedWith: modelId,
+            reason: 'insufficient_matches'
+        });
+    }
+
+    console.log(`✅ Найдено ${allMatches.size} согласованных точек!`);
+
+    // 4. Достраиваем остальные точки относительно найденных соответствий
+    const positionedMatches = await this.relativePositioning.positionPoints(
+        graph,
+        existingModel.graph,
+        allMatches,
+        morphologyMap,
+        existingModel.morphologyMap
+    );
+
+    // 5. Обновляем модель
+    const updatedModel = await this.enhanceModel(
+        modelId,
+        graph,
+        morphologyMap,
+        positionedMatches,
+        allMatches,
+        options
+    );
+
+    return {
+        status: 'enhanced',
+        modelId: modelId,
+        centerMatches: allMatches.size,
+        totalMatches: positionedMatches.size,
+        newNodesAdded: updatedModel.newNodesAdded,
+        message: `Модель улучшена (найдено ${allMatches.size} соответствий, добавлено ${updatedModel.newNodesAdded} новых точек)`
+    };
+}
 
     // ==================== СОЗДАНИЕ НОВОЙ МОДЕЛИ ====================
 
