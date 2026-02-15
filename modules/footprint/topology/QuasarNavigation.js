@@ -15,17 +15,33 @@ class QuasarNavigation {
     // ==================== ВЫЧИСЛЕНИЕ КООРДИНАТ ====================
    
     getCoordinates(point, anchors, graph) {
+        // 🔥 АБСОЛЮТНАЯ ЗАЩИТА: преобразуем anchors в массив
+        const anchorsArray = Array.isArray(anchors) ? anchors : Array.from(anchors || []);
+       
         const distances = [];
        
-        for (const [photoId, modelId] of anchors) {
-            const anchor = graph.nodes.get(photoId);
-            if (!anchor) continue;
+        // Проверяем, что anchorsArray - массив пар [photoId, modelId] или объектов
+        for (const anchor of anchorsArray) {
+            let photoId, modelId;
+           
+            // Поддерживаем разные форматы
+            if (Array.isArray(anchor) && anchor.length >= 2) {
+                [photoId, modelId] = anchor;
+            } else if (anchor && typeof anchor === 'object') {
+                photoId = anchor.photoId;
+                modelId = anchor.modelId;
+            } else {
+                continue; // Пропускаем некорректные якоря
+            }
+           
+            const anchorNode = graph.nodes.get(photoId);
+            if (!anchorNode) continue;
            
             const dist = Math.sqrt(
-                Math.pow(point.x - anchor.x, 2) +
-                Math.pow(point.y - anchor.y, 2)
+                Math.pow(point.x - anchorNode.x, 2) +
+                Math.pow(point.y - anchorNode.y, 2)
             );
-            distances.push({ modelId, dist, anchor });
+            distances.push({ modelId, dist, anchorNode });
         }
        
         if (distances.length < this.minAnchors) {
@@ -54,7 +70,7 @@ class QuasarNavigation {
     // ==================== СРАВНЕНИЕ ТОЧЕК ====================
    
     comparePoints(coords1, coords2) {
-        if (!coords1 || !coords2) return 0;
+        if (!coords1 || !coords2) return { similarity: 0, avgDiff: 1, maxDiff: 1, matchedAnchors: 0 };
        
         let totalDiff = 0;
         let count = 0;
@@ -71,7 +87,7 @@ class QuasarNavigation {
             count++;
         }
        
-        if (count === 0) return 0;
+        if (count === 0) return { similarity: 0, avgDiff: 1, maxDiff: 1, matchedAnchors: 0 };
        
         const avgDiff = totalDiff / count;
         const similarity = 1 - avgDiff; // 1 = идеально, 0 = совсем разные
@@ -92,11 +108,7 @@ class QuasarNavigation {
        
         for (const [nodeId, node] of modelGraph.nodes) {
             // Вычисляем координаты точки модели
-            const nodeCoords = this.getCoordinates(
-                node,
-                anchors.map(a => [a.photoId, a.modelId]),
-                modelGraph
-            );
+            const nodeCoords = this.getCoordinates(node, anchors, modelGraph);
            
             if (!nodeCoords) continue;
            
@@ -128,50 +140,82 @@ class QuasarNavigation {
    
     // ==================== ПОИСК ПО ВСЕМ ТОЧКАМ ====================
    
-    // ==================== ПОИСК ПО ВСЕМ ТОЧКАМ ====================
-
-findAllMatches(photoGraph, modelGraph, anchors) {
-    // 🔥 УЛУЧШЕННАЯ ЗАЩИТА: преобразуем любой итерируемый объект в массив
-    let anchorsArray;
-    if (Array.isArray(anchors)) {
-        anchorsArray = anchors;
-    } else if (anchors && typeof anchors[Symbol.iterator] === 'function') {
-        // Это итерируемый объект (Map, Set, NodeList и т.д.)
-        anchorsArray = Array.from(anchors);
-    } else {
-        console.log('⚠️ anchors не является массивом или итерируемым объектом, создаю пустой массив');
-        anchorsArray = [];
-    }
-   
-    const matches = new Map();
-    // Используем anchorsArray для создания Set
-    const anchorSet = new Set(anchorsArray.map(a => a.photoId));
-   
-    // Для каждой точки в фото, которая не якорь
-    for (const [photoId, photoNode] of photoGraph.nodes) {
-        if (anchorSet.has(photoId)) continue;
+    findAllMatches(photoGraph, modelGraph, anchors) {
+        // 🔥 АБСОЛЮТНАЯ ЗАЩИТА: любой вход → массив
+        let anchorsArray;
        
-        const photoCoords = this.getCoordinates(photoNode, anchorsArray, photoGraph);
-        if (!photoCoords) continue;
-       
-        const match = this.findPointInModel(photoCoords, modelGraph, anchorsArray);
-       
-        if (match.similarity >= this.similarityThreshold) {
-            matches.set(photoId, {
-                modelId: match.nodeId,
-                similarity: match.similarity,
-                avgDiff: match.avgDiff,
-                maxDiff: match.maxDiff
-            });
-           
-            if (this.debug) {
-                console.log(`   ✅ Квазар: ${photoId.substring(0,12)}... ↔ ${match.nodeId.substring(0,12)}... (${(match.similarity*100).toFixed(1)}%)`);
+        if (!anchors) {
+            console.log('⚠️ anchors is null/undefined');
+            anchorsArray = [];
+        } else if (Array.isArray(anchors)) {
+            anchorsArray = anchors;
+            if (this.debug) console.log(`✅ anchors уже массив, длина: ${anchorsArray.length}`);
+        } else if (anchors && typeof anchors[Symbol.iterator] === 'function') {
+            // Это итерируемый объект (Map, Set и т.д.)
+            anchorsArray = Array.from(anchors);
+            if (this.debug) console.log(`🔄 anchors преобразован из итератора в массив, длина: ${anchorsArray.length}`);
+        } else {
+            console.log(`⚠️ anchors неожиданный тип: ${typeof anchors}, пробую преобразовать`);
+            try {
+                anchorsArray = Array.from(anchors);
+            } catch (e) {
+                console.log(`❌ Не удалось преобразовать anchors: ${e.message}`);
+                anchorsArray = [];
             }
         }
+       
+        // 🔥 ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА
+        if (anchorsArray.length > 0 && anchorsArray[0]) {
+            const firstAnchor = anchorsArray[0];
+            let photoId = firstAnchor.photoId || (Array.isArray(firstAnchor) ? firstAnchor[0] : null);
+            let modelId = firstAnchor.modelId || (Array.isArray(firstAnchor) ? firstAnchor[1] : null);
+           
+            if (this.debug) {
+                console.log(`   Пример якоря: photoId=${photoId?.substring(0, 12) || 'unknown'}, modelId=${modelId?.substring(0, 12) || 'unknown'}`);
+            }
+        }
+       
+        const matches = new Map();
+        const anchorSet = new Set();
+       
+        // Строим Set photoId якорей
+        for (const anchor of anchorsArray) {
+            if (Array.isArray(anchor) && anchor.length >= 2) {
+                anchorSet.add(anchor[0]);
+            } else if (anchor && typeof anchor === 'object') {
+                if (anchor.photoId) anchorSet.add(anchor.photoId);
+            }
+        }
+       
+        if (this.debug) console.log(`   AnchorSet содержит ${anchorSet.size} photoId`);
+       
+        // Для каждой точки в фото, которая не якорь
+        for (const [photoId, photoNode] of photoGraph.nodes) {
+            if (anchorSet.has(photoId)) continue;
+           
+            const photoCoords = this.getCoordinates(photoNode, anchorsArray, photoGraph);
+            if (!photoCoords) continue;
+           
+            const match = this.findPointInModel(photoCoords, modelGraph, anchorsArray);
+           
+            if (match.similarity >= this.similarityThreshold) {
+                matches.set(photoId, {
+                    modelId: match.nodeId,
+                    similarity: match.similarity,
+                    avgDiff: match.avgDiff,
+                    maxDiff: match.maxDiff
+                });
+               
+                if (this.debug) {
+                    console.log(`   ✅ Квазар: ${photoId.substring(0,12)}... ↔ ${match.nodeId?.substring(0,12)}... (${(match.similarity*100).toFixed(1)}%)`);
+                }
+            }
+        }
+       
+        if (this.debug) console.log(`   🌌 Квазаром найдено всего: ${matches.size} точек`);
+       
+        return matches;
     }
-   
-    return matches;
-}
    
     // ==================== СТАТИСТИКА ====================
    
