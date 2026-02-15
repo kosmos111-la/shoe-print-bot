@@ -173,7 +173,7 @@ class RobustWLSignature {
     };
 
     let score = 0;
-   // let details = [];
+    let details = [];
 
     if (p1.self.role === p2.self.role) {
         score += weights.role;
