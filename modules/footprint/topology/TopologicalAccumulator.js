@@ -101,7 +101,7 @@ class TopologicalAccumulator {
             existingModel.morphologyMap
         );
 
-        if (centerMatches.size < this.centerMatcher.minConsistentPairs) {
+        if (allMatches.size < this.centerMatcher.minConsistentPairs) {
             console.log(`⚠️ Недостаточно общих точек в центре (${centerMatches.size} < ${this.centerMatcher.minConsistentPairs})`);
             console.log(`🆕 Создаю новую модель (центры не совпадают)`);
             return this.createNewModel(graph, morphologyMap, points, {
