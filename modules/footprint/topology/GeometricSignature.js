@@ -194,21 +194,29 @@ class GeometricSignature {
                 photoFeatures.wlSignature
             );
 
-            // Собираем всех кандидатов с WL > 0.5
-       //   console.log(`WL Score: ${wlScore}`); // Добавить отладку
-            if (wlScore > 0.7) {
-                candidates.push({
-                    photoId,
-                    modelId,
-                    wlScore,
-                    photoDist: photoFeatures.meanDistance,
-                    modelDist: signature.meanDistance || 0,
-                    photoArea: photoFeatures.meanTriangleArea,
-                    modelArea: signature.meanTriangleArea || 0,
-                    photoNode,
-                    modelNode
-                });
-            }
+            // Собираем кандидатов
+if (wlScore > 0.7) {
+    const photoArea = photoFeatures.meanTriangleArea;
+    const modelArea = signature.meanTriangleArea;
+   
+    // Пропускаем, если площадь не определена
+    if (isNaN(photoArea) || isNaN(modelArea)) {
+        if (this.debug) {
+            console.log(`   ⚠️ Пропущен кандидат ${photoId} - нет данных о площади`);
+        }
+        continue;
+    }
+   
+    candidates.push({
+        photoId,
+        modelId,
+        wlScore,
+        photoDist: photoFeatures.meanDistance,
+        modelDist: signature.meanDistance || 0,
+        photoArea: photoArea,
+        modelArea: modelArea
+    });
+}
         }
     }
 
