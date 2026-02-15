@@ -417,7 +417,7 @@ class GeometricSignature {
                 currentFeatures.wlSignature
             );
 
-            if (wlScore > 0.5) {
+            if (wlScore > 0.7) {
                 candidates.push({
                     nodeId: candidateId,
                     wlScore,
