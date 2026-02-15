@@ -7,8 +7,10 @@ class RelativePositioning {
         this.localGroupSignature = options.localGroupSignature;
         this.minPathSimilarity = options.minPathSimilarity || 0.5;
         this.maxPathLengthDiff = options.maxPathLengthDiff || 3;
+        this.confidenceThreshold = options.confidenceThreshold || 0.7; // 🔥 ПОРОГ УВЕРЕННОСТИ
        
         console.log('🧩 RelativePositioning создан');
+        console.log(`   Порог уверенности: ${this.confidenceThreshold * 100}%`);
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
@@ -38,6 +40,7 @@ class RelativePositioning {
 
         // 🔥 3. Пытаемся сопоставить остальные точки
         let matched = 0;
+        let lowConfidence = 0;
         let totalPoints = photoGraph.nodes.size - anchorMatches.size;
 
         // Сортируем точки по расстоянию от ближайшего якоря (ближайшие сначала)
@@ -87,7 +90,7 @@ class RelativePositioning {
                     modelToPhoto
                 );
 
-                if (score > bestScore && score >= this.minPathSimilarity) {
+                if (score > bestScore) {
                     bestScore = score;
                     bestModelId = modelId;
                     bestMatch = {
@@ -98,7 +101,8 @@ class RelativePositioning {
                 }
             }
 
-            if (bestMatch) {
+            // 🔥 ТОЛЬКО ЕСЛИ УВЕРЕННОСТЬ ВЫШЕ ПОРОГА - сопоставляем
+            if (bestMatch && bestScore >= this.confidenceThreshold) {
                 photoToModel.set(photoId, {
                     modelId: bestMatch.modelId,
                     confidence: bestMatch.confidence,
@@ -110,11 +114,18 @@ class RelativePositioning {
                 if (this.debug && matched <= 5) {
                     console.log(`   ✅ Сопоставлено: ${photoId.substring(0,12)}... ↔ ${bestMatch.modelId.substring(0,12)}... (${(bestScore*100).toFixed(0)}%)`);
                 }
+            } else if (bestMatch) {
+                lowConfidence++;
+                if (this.debug && lowConfidence <= 5) {
+                    console.log(`   ⚠️ Низкая уверенность: ${photoId.substring(0,12)}... best=${(bestScore*100).toFixed(0)}% < ${this.confidenceThreshold*100}%`);
+                }
             }
         }
 
-        console.log(`   ✅ Сопоставлено: ${matched}/${totalPoints} точек`);
-        console.log(`   🎯 Всего: ${photoToModel.size}/${photoGraph.nodes.size}`);
+        console.log(`   ✅ Сопоставлено: ${matched}/${totalPoints} точек (уверенность ≥${this.confidenceThreshold*100}%)`);
+        console.log(`   ⚠️ Низкая уверенность: ${lowConfidence} точек (кандидаты на новые)`);
+        console.log(`   🎯 Всего в фото: ${photoGraph.nodes.size} точек`);
+        console.log(`   🎯 Сопоставлено всего: ${photoToModel.size}/${photoGraph.nodes.size}`);
 
         return photoToModel;
     }
@@ -300,7 +311,7 @@ class RelativePositioning {
         // Итоговый score
         const totalScore = distanceScore * 0.4 + pathScore * 0.3 + lengthScore * 0.1 + morphScore * 0.2;
        
-        if (this.debug && totalScore > 0.8) {
+        if (this.debug && totalScore > 0.7) {
             console.log(`      Сравнение ${photoId.substring(0,8)}... ↔ ${modelId.substring(0,8)}... = ${(totalScore*100).toFixed(0)}% (dist:${(distanceScore*100).toFixed(0)}% path:${(pathScore*100).toFixed(0)}% len:${lengthScore} morph:${(morphScore*100).toFixed(0)}%)`);
         }
        
@@ -375,7 +386,8 @@ class RelativePositioning {
     getStats() {
         return {
             minPathSimilarity: this.minPathSimilarity,
-            maxPathLengthDiff: this.maxPathLengthDiff
+            maxPathLengthDiff: this.maxPathLengthDiff,
+            confidenceThreshold: this.confidenceThreshold
         };
     }
 
