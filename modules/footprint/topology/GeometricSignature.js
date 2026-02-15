@@ -215,6 +215,18 @@ class GeometricSignature {
     // Сортируем кандидатов по убыванию WL Score
     candidates.sort((a, b) => b.wlScore - a.wlScore);
 
+     console.log(`\n📊 ОТЛАДКА ПОИСКА ЯКОРЕЙ:`);
+console.log(`   Всего кандидатов: ${candidates.length}`);
+
+if (candidates.length > 0) {
+    console.log(`   Примеры кандидатов (первые 5):`);
+    candidates.slice(0, 5).forEach((c, i) => {
+        console.log(`   ${i+1}. WL: ${c.wlScore.toFixed(3)}, dist: ${c.photoDist?.toFixed(1) || 'NaN'}, area: ${c.photoArea?.toFixed(1) || 'NaN'}`);
+    });
+} else {
+    console.log(`   ❌ НЕТ КАНДИДАТОВ!`);
+}      
+
     // Отбираем якоря (топ-30 или все с WL > 0.7)
     const usedPhotos = new Set();
     const usedModels = new Set();
