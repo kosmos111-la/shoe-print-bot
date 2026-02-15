@@ -196,16 +196,9 @@ class GeometricSignature {
 
             // Собираем кандидатов
 if (wlScore > 0.4) {
-    const photoArea = photoFeatures.meanTriangleArea;
-    const modelArea = signature.meanTriangleArea;
-   
-    // Пропускаем, если площадь не определена
-    if (isNaN(photoArea) || isNaN(modelArea)) {
-        if (this.debug) {
-            console.log(`   ⚠️ Пропущен кандидат ${photoId} - нет данных о площади`);
-        }
-        continue;
-    }
+    // Временно убираем проверку на NaN
+    const photoArea = photoFeatures.meanTriangleArea || 0;
+    const modelArea = signature.meanTriangleArea || 0;
    
     candidates.push({
         photoId,
