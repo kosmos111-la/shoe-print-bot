@@ -1,5 +1,5 @@
 // modules/footprint/topology/CenterMatcher.js
-// 🔥 ПОИСК НАДЁЖНЫХ ТОЧЕК С ЖЁСТКОЙ ФИЛЬТРАЦИЕЙ
+// 🔥 ПОИСК НАДЁЖНЫХ ТОЧЕК (ТОПОЛОГИЧЕСКИЙ, БЕЗ ПИКСЕЛЕЙ)
 
 class CenterMatcher {
     constructor(options = {}) {
@@ -8,25 +8,22 @@ class CenterMatcher {
         this.minMorphologySimilarity = options.minMorphologySimilarity || 0.6;
         this.minConsistentPairs = options.minConsistentPairs || 1;
        
-        // 🔥 ПОРОГИ ДЛЯ НАДЁЖНЫХ ТОЧЕК
-        this.reliableMorphThreshold = 0.95;      // морфология 95%+
-        this.reliableLocalThreshold = 0.85;       // локальное сходство 85%+
-        this.maxDistance = 30;                     // макс. расстояние 30px
-        this.minDistanceRatio = 0.85;               // мин. соотношение расстояний 85%
+        // 🔥 ПОРОГИ ДЛЯ НАДЁЖНЫХ ТОЧЕК (ТОПОЛОГИЧЕСКИЕ)
+        this.reliableMorphThreshold = 0.95;           // морфология 95%+
+        this.reliableLocalThreshold = 0.85;           // локальное сходство 85%+
+        this.minGraphDistanceRatio = 0.7;              // мин. соотношение расстояний в графе 70%
        
         this.localGroupSignature = options.localGroupSignature;
         this.morphologyEncoder = options.morphologyEncoder;
        
         this.centerMatches = new Map();
-        this.consistencyGraph = new Map();
         this.depthUsage = new Map();
         this.zoneStats = { center: 0, toe: 0, heel: 0 };
        
-        console.log('🎯 CenterMatcher с ЖЁСТКИМ отбором надёжных точек создан');
+        console.log('🎯 CenterMatcher с ТОПОЛОГИЧЕСКИМ отбором создан');
         console.log(`   🔥 Морфология ≥ ${this.reliableMorphThreshold * 100}%`);
         console.log(`   🔥 Локальное сходство ≥ ${this.reliableLocalThreshold * 100}%`);
-        console.log(`   🔥 Макс. расстояние: ${this.maxDistance}px`);
-        console.log(`   🔥 Мин. соотношение расстояний: ${this.minDistanceRatio * 100}%`);
+        console.log(`   🔥 Мин. соотношение расстояний в графе: ${this.minGraphDistanceRatio * 100}%`);
     }
 
     findCenterMatches(photoGraph, modelGraph, photoMorphology, modelMorphology) {
@@ -34,7 +31,6 @@ class CenterMatcher {
 
         const candidates = [];
         const photoNodes = Array.from(photoGraph.nodes.entries());
-        const modelNodes = Array.from(modelGraph.nodes.entries());
 
         // Обнуляем статистику
         this.zoneStats = { center: 0, toe: 0, heel: 0 };
@@ -67,11 +63,6 @@ class CenterMatcher {
                     photoMorphology, modelMorphology
                 );
 
-                // 🔥 РАССТОЯНИЕ МЕЖДУ ТОЧКАМИ
-                const dx = photoNode.x - modelNode.x;
-                const dy = photoNode.y - modelNode.y;
-                const distance = Math.sqrt(dx*dx + dy*dy);
-
                 candidates.push({
                     photoId,
                     modelId: candidate.modelId,
@@ -81,7 +72,6 @@ class CenterMatcher {
                     modelZone,
                     localScore: candidate.similarity,
                     morphScore,
-                    distance,
                     depth: candidate.depth
                 });
             }
@@ -93,33 +83,16 @@ class CenterMatcher {
         const filteredCandidates = candidates.filter(c => {
             // 1. Морфология должна быть почти идеальной
             if (c.morphScore < this.reliableMorphThreshold) {
-                if (this.debug && c.morphScore > 0.8) {
-                    console.log(`   ❌ Отсев по морфологии: ${(c.morphScore*100).toFixed(0)}% < ${this.reliableMorphThreshold*100}%`);
-                }
                 return false;
             }
            
             // 2. Локальное сходство высокое
             if (c.localScore < this.reliableLocalThreshold) {
-                if (this.debug && c.localScore > 0.8) {
-                    console.log(`   ❌ Отсев по локальному сходству: ${(c.localScore*100).toFixed(0)}% < ${this.reliableLocalThreshold*100}%`);
-                }
                 return false;
             }
            
             // 3. ЗОНЫ ДОЛЖНЫ СОВПАДАТЬ
             if (c.photoZone !== c.modelZone) {
-                if (this.debug) {
-                    console.log(`   ❌ Отсев по зоне: ${c.photoZone} ≠ ${c.modelZone}`);
-                }
-                return false;
-            }
-           
-            // 4. Расстояние между точками должно быть малым
-            if (c.distance > this.maxDistance) {
-                if (this.debug) {
-                    console.log(`   ❌ Отсев по расстоянию: ${c.distance.toFixed(0)}px > ${this.maxDistance}px`);
-                }
                 return false;
             }
            
@@ -128,52 +101,59 @@ class CenterMatcher {
 
         console.log(`\n📊 ЭТАП 2: После фильтрации осталось ${filteredCandidates.length} кандидатов`);
 
-        // 🔥 ЭТАП 3: ПРОВЕРКА СОГЛАСОВАННОСТИ ГРУППЫ
-        const consistentPairs = [];
+        // 🔥 ЭТАП 3: ПРОВЕРКА СОГЛАСОВАННОСТИ ГРУППЫ (ТОПОЛОГИЧЕСКАЯ)
+        const groups = []; // каждая группа - массив индексов
        
         for (let i = 0; i < filteredCandidates.length; i++) {
-            for (let j = i + 1; j < filteredCandidates.length; j++) {
-                if (this.areConsistent(filteredCandidates[i], filteredCandidates[j])) {
-                    consistentPairs.push([i, j]);
+            let added = false;
+           
+            // Пробуем добавить точку в существующую группу
+            for (const group of groups) {
+                let consistentWithAll = true;
+               
+                for (const j of group) {
+                    if (!this.areConsistent(
+                        filteredCandidates[i],
+                        filteredCandidates[j],
+                        photoGraph,
+                        modelGraph
+                    )) {
+                        consistentWithAll = false;
+                        break;
+                    }
+                }
+               
+                if (consistentWithAll) {
+                    group.push(i);
+                    added = true;
+                    break;
                 }
             }
-        }
-
-        // 🔥 ЭТАП 4: ПОИСК МАКСИМАЛЬНОЙ СОГЛАСОВАННОЙ ГРУППЫ
-        const groups = new Map(); // index -> group
-       
-        for (const [i, j] of consistentPairs) {
-            if (!groups.has(i)) groups.set(i, new Set([i]));
-            if (!groups.has(j)) groups.set(j, new Set([j]));
            
-            const groupI = groups.get(i);
-            const groupJ = groups.get(j);
-           
-            if (groupI !== groupJ) {
-                // Объединяем группы
-                const merged = new Set([...groupI, ...groupJ]);
-                for (const idx of merged) {
-                    groups.set(idx, merged);
-                }
+            // Если не добавили ни в одну группу, создаём новую
+            if (!added) {
+                groups.push([i]);
             }
         }
 
         // Находим самую большую группу
-        let maxGroup = new Set();
-        for (const group of groups.values()) {
-            if (group.size > maxGroup.size) maxGroup = group;
+        let maxGroup = [];
+        for (const group of groups) {
+            if (group.length > maxGroup.length) {
+                maxGroup = group;
+            }
         }
 
-        // Если нет согласованных групп, берём одиночные точки с максимальной уверенностью
-        if (maxGroup.size === 0 && filteredCandidates.length > 0) {
-            filteredCandidates.sort((a, b) => b.morphScore - a.morphScore);
-            maxGroup.add(0); // берём лучшую точку
+        console.log(`\n📊 ЭТАП 3: Найдено ${groups.length} групп, самая большая - ${maxGroup.length} точек`);
+
+        // Если нет групп, берём одиночные точки с максимальной уверенностью
+        if (maxGroup.length === 0 && filteredCandidates.length > 0) {
+            filteredCandidates.sort((a, b) => (b.morphScore + b.localScore) - (a.morphScore + a.localScore));
+            maxGroup = [0];
             console.log(`\n⚠️ Согласованных групп нет, беру лучшую точку`);
         }
 
-        console.log(`\n📊 ЭТАП 3: Найдена согласованная группа из ${maxGroup.size} точек`);
-
-        // 🔥 ЭТАП 5: ФОРМИРОВАНИЕ РЕЗУЛЬТАТА
+        // 🔥 ЭТАП 4: ФОРМИРОВАНИЕ РЕЗУЛЬТАТА
         const result = new Map();
         let count = 0;
        
@@ -182,44 +162,83 @@ class CenterMatcher {
             result.set(c.photoId, {
                 modelId: c.modelId,
                 confidence: (c.morphScore + c.localScore) / 2,
-                distance: c.distance,
-                zone: c.photoZone
+                zone: c.photoZone,
+                depth: c.depth
             });
             count++;
            
             if (this.debug && count <= 10) {
-                console.log(`   ✅ Надёжная точка ${count}: ${c.photoZone} | расстояние: ${c.distance.toFixed(0)}px | морф:${(c.morphScore*100).toFixed(0)}% лок:${(c.localScore*100).toFixed(0)}%`);
+                console.log(`   ✅ Надёжная точка ${count}: ${c.photoZone} | глубина:${c.depth} | морф:${(c.morphScore*100).toFixed(0)}% лок:${(c.localScore*100).toFixed(0)}%`);
             }
         }
 
-        console.log(`\n🎯 ИТОГО: Найдено ${result.size} НАДЁЖНЫХ точек`);
+        console.log(`\n🎯 ИТОГО: Найдено ${result.size} НАДЁЖНЫХ ТОПОЛОГИЧЕСКИХ точек`);
 
         return result;
     }
 
     // ==================== ПРОВЕРКА СОГЛАСОВАННОСТИ ====================
 
-    areConsistent(a, b) {
-        // Расстояние между точками в фото
-        const dxPhoto = a.photoNode.x - b.photoNode.x;
-        const dyPhoto = a.photoNode.y - b.photoNode.y;
-        const distPhoto = Math.sqrt(dxPhoto*dxPhoto + dyPhoto*dyPhoto);
+    areConsistent(a, b, photoGraph, modelGraph) {
+        // 🔥 РАССТОЯНИЕ В ШАГАХ ПО ГРАФУ (НЕ В ПИКСЕЛЯХ!)
+        const photoDist = this.graphDistance(a.photoId, b.photoId, photoGraph);
+        const modelDist = this.graphDistance(a.modelId, b.modelId, modelGraph);
        
-        // Расстояние между точками в модели
-        const dxModel = a.modelNode.x - b.modelNode.x;
-        const dyModel = a.modelNode.y - b.modelNode.y;
-        const distModel = Math.sqrt(dxModel*dxModel + dyModel*dyModel);
+        if (photoDist === Infinity || modelDist === Infinity) return false;
        
-        if (distPhoto === 0 || distModel === 0) return true;
+        // Нормализованное отношение расстояний
+        const minDist = Math.min(photoDist, modelDist);
+        const maxDist = Math.max(photoDist, modelDist);
+        const ratio = minDist / maxDist;
        
-        const ratio = Math.min(distPhoto, distModel) / Math.max(distPhoto, distModel);
-        const consistent = ratio >= this.minDistanceRatio;
+        const consistent = ratio >= this.minGraphDistanceRatio;
        
-        if (this.debug && !consistent && ratio > 0.7) {
-            console.log(`   ❌ Несогласованы: расстояние в фото ${distPhoto.toFixed(0)}px, в модели ${distModel.toFixed(0)}px, ratio ${(ratio*100).toFixed(0)}%`);
+        if (this.debug && !consistent && ratio > 0.5) {
+            console.log(`   ❌ Несогласованы: расстояние в фото ${photoDist} шагов, в модели ${modelDist} шагов, ratio ${(ratio*100).toFixed(0)}%`);
         }
        
         return consistent;
+    }
+
+    graphDistance(nodeA, nodeB, graph) {
+        if (nodeA === nodeB) return 0;
+       
+        const queue = [{ id: nodeA, dist: 0 }];
+        const visited = new Set([nodeA]);
+       
+        while (queue.length > 0) {
+            const { id, dist } = queue.shift();
+           
+            const neighbors = this.findNodeNeighbors(id, graph);
+            for (const neighbor of neighbors) {
+                if (neighbor.id === nodeB) return dist + 1;
+                if (!visited.has(neighbor.id)) {
+                    visited.add(neighbor.id);
+                    queue.push({ id: neighbor.id, dist: dist + 1 });
+                }
+            }
+        }
+       
+        return Infinity;
+    }
+
+    findNodeNeighbors(nodeId, graph) {
+        const neighbors = [];
+        if (!graph?.edges) return neighbors;
+       
+        const edgesArray = Array.from(graph.edges);
+        for (const edge of edgesArray) {
+            const [a, b] = edge.split('--');
+            if (a === nodeId) {
+                const node = graph.nodes.get(b);
+                if (node) neighbors.push(node);
+            }
+            if (b === nodeId) {
+                const node = graph.nodes.get(a);
+                if (node) neighbors.push(node);
+            }
+        }
+        return neighbors;
     }
 
     compareMorphology(photoId, modelId, photoMorph, modelMorph) {
@@ -248,8 +267,7 @@ class CenterMatcher {
             minConsistentPairs: this.minConsistentPairs,
             reliableMorphThreshold: this.reliableMorphThreshold,
             reliableLocalThreshold: this.reliableLocalThreshold,
-            maxDistance: this.maxDistance,
-            minDistanceRatio: this.minDistanceRatio,
+            minGraphDistanceRatio: this.minGraphDistanceRatio,
             depthUsage: Object.fromEntries(this.depthUsage),
             zoneStats: this.zoneStats
         };
@@ -257,7 +275,6 @@ class CenterMatcher {
 
     clear() {
         this.centerMatches.clear();
-        this.consistencyGraph.clear();
         this.depthUsage.clear();
         this.zoneStats = { center: 0, toe: 0, heel: 0 };
     }
