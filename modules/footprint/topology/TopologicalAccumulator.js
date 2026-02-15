@@ -239,32 +239,36 @@ this.stats.totalAnchors = anchors.length;
 let quasarFound = 0;
 if (anchors.length >= 3) {
     console.log(`\n🌌 Запускаю квазарную навигацию с ${anchors.length} якорями...`);
-
-    // !!! ГЛАВНОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ !!!
-    // Преобразуем anchors в массив, если это ещё не массив
+   
+    // 🔥 АБСОЛЮТНАЯ ЗАЩИТА: преобразуем anchors в массив
     const anchorsArray = Array.isArray(anchors) ? anchors : Array.from(anchors);
+   
+    console.log(`   Тип anchors: ${Array.isArray(anchorsArray) ? 'массив ✅' : typeof anchorsArray}`);
+    if (anchorsArray.length > 0) {
+        console.log(`   Первый якорь: ${anchorsArray[0]?.photoId?.substring(0, 12)}... ↔ ${anchorsArray[0]?.modelId?.substring(0, 12)}...`);
+    }
    
     const quasarMatches = this.quasarNav.findAllMatches(
         newGraph,
         model.graph,
-        anchorsArray  // ← передаём гарантированный массив
+        anchorsArray  // ← теперь точно массив
     );
+   
+    for (const [photoId, matchInfo] of quasarMatches) {
+        if (!identification.identifiedMap.has(photoId)) {
+            identification.identifiedMap.set(photoId, matchInfo.modelId);
+            identification.count++;
+            quasarFound++;
            
-            for (const [photoId, matchInfo] of quasarMatches) {
-                if (!identification.identifiedMap.has(photoId)) {
-                    identification.identifiedMap.set(photoId, matchInfo.modelId);
-                    identification.count++;
-                    quasarFound++;
-                   
-                    if (this.debug) {
-                        console.log(`      ✨ Найдено квазарами: сходство ${(matchInfo.similarity*100).toFixed(1)}%`);
-                    }
-                }
+            if (this.debug) {
+                console.log(`      ✨ Найдено квазарами: сходство ${(matchInfo.similarity*100).toFixed(1)}%`);
             }
-           
-            console.log(`   ✅ Квазарами найдено: ${quasarFound} точек`);
-            this.stats.totalQuasarFound += quasarFound;
         }
+    }
+   
+    console.log(`   ✅ Квазарами найдено: ${quasarFound} точек`);
+    this.stats.totalQuasarFound += quasarFound;
+}
 
         // 🔥🔥🔥 ШАГ 4: РАСПРОСТРАНЕНИЕ ОТ ЯКОРЕЙ
         let propagatedCount = 0;
