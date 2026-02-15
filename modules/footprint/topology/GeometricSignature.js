@@ -238,31 +238,31 @@ if (candidates.length > 0) {
      //   if (usedModels.has(candidate.modelId)) continue;
 
         // Жесткие фильтры для якорей
-        if (candidate.wlScore < 0.5) continue; // Минимальный WL Score
+if (candidate.wlScore < 0.5) continue; // Минимальный WL Score
 
-        // Проверка расстояния (среднее расстояние до соседей)
-        const distScore = this.compareDistanceMean(
-            candidate.photoDist,
-            candidate.modelDist
-        );
-        if (distScore < 0.6) continue; // Чуть снизил порог
+// Проверка расстояния (среднее расстояние до соседей)
+const distScore = this.compareDistanceMean(
+    candidate.photoDist,
+    candidate.modelDist
+);
+if (distScore < 0.6) continue; // Чуть снизил порог
 
-        // Проверка площади треугольников
-        const areaScore = this.compareTriangleArea(
-            candidate.photoArea,
-            candidate.modelArea
-        );
-        if (areaScore < 0.6) continue; // Чуть снизил порог
+// ВРЕМЕННО ОТКЛЮЧАЕМ ПРОВЕРКУ ПЛОЩАДИ
+// const areaScore = this.compareTriangleArea(
+//     candidate.photoArea,
+//     candidate.modelArea
+// );
+// if (areaScore < 0.6) continue;
 
-        // Всё хорошо - добавляем якорь
-        anchors.push({
-            photoId: candidate.photoId,
-            modelId: candidate.modelId,
-            confidence: (candidate.wlScore + distScore + areaScore) / 3,
-            wlScore: candidate.wlScore,
-            distScore,
-            areaScore
-        });
+// Всё хорошо - добавляем якорь
+anchors.push({
+    photoId: candidate.photoId,
+    modelId: candidate.modelId,
+    confidence: (candidate.wlScore + distScore) / 2, // убрали areaScore
+    wlScore: candidate.wlScore,
+    distScore
+    // areaScore убрали
+});
 
         usedPhotos.add(candidate.photoId);
         usedModels.add(candidate.modelId);
