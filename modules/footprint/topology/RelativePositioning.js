@@ -9,8 +9,8 @@ class RelativePositioning {
         this.localGroupSignature = options.localGroupSignature;
        
         // Пороги
-        this.minPathSimilarity = options.minPathSimilarity || 0.7; // сходство путей
-        this.maxPathLengthDiff = options.maxPathLengthDiff || 2;   // макс. разница в длине пути
+        this.minPathSimilarity = options.minPathSimilarity || 0.5;  // было 0.7 сходство путей
+        this.maxPathLengthDiff = options.maxPathLengthDiff || 3;    // было 2 макс. разница в длине пути
        
         console.log('🧩 RelativePositioning создан');
         console.log(`   Мин. сходство путей: ${this.minPathSimilarity * 100}%`);
