@@ -147,12 +147,23 @@ class RobustWLSignature {
 
     comparePatterns(sig1, sig2) {
     if (sig1 === sig2) return 1.0;
-   
+
+    console.log(`\n🔍 Сравнение подписей:`);
+    console.log(`   sig1: ${sig1}`);
+    console.log(`   sig2: ${sig2}`);
+
     const p1 = this.parsePattern(sig1);
     const p2 = this.parsePattern(sig2);
-   
-    if (!p1 || !p2) return 0;
-   
+
+    if (!p1 || !p2) {
+        console.log(`   ❌ Не удалось распарсить`);
+        return 0;
+    }
+
+    console.log(`   ✅ Распарсено успешно`);
+    console.log(`   p1: роль=${p1.self.role}, зона=${p1.self.zone}, степень=${p1.self.degree}, плотность=${p1.self.triangleDensity}`);
+    console.log(`   p2: роль=${p2.self.role}, зона=${p2.self.zone}, степень=${p2.self.degree}, плотность=${p2.self.triangleDensity}`);
+
     const weights = {
         role: 0.25,
         zone: 0.20,
@@ -160,23 +171,41 @@ class RobustWLSignature {
         density: 0.15,
         neighborRoles: 0.25
     };
-   
+
     let score = 0;
-   
-    if (p1.self.role === p2.self.role) score += weights.role;
-    if (p1.self.zone === p2.self.zone) score += weights.zone;
-   
+    let details = [];
+
+    if (p1.self.role === p2.self.role) {
+        score += weights.role;
+        details.push(`роль: +${weights.role}`);
+    } else {
+        details.push(`роль: 0`);
+    }
+
+    if (p1.self.zone === p2.self.zone) {
+        score += weights.zone;
+        details.push(`зона: +${weights.zone}`);
+    } else {
+        details.push(`зона: 0`);
+    }
+
     const degreeRatio = Math.min(p1.self.degree, p2.self.degree) /
                         Math.max(p1.self.degree, p2.self.degree, 1);
     score += degreeRatio * weights.degree;
-   
+    details.push(`степень: +${(degreeRatio * weights.degree).toFixed(3)} (ratio=${degreeRatio.toFixed(2)})`);
+
     const densityDiff = Math.abs(p1.self.triangleDensity - p2.self.triangleDensity);
     const densitySim = Math.max(0, 1 - densityDiff);
     score += densitySim * weights.density;
-   
+    details.push(`плотность: +${(densitySim * weights.density).toFixed(3)} (sim=${densitySim.toFixed(2)})`);
+
     const roleSim = this.compareRoleDistributions(p1.neighborRoles, p2.neighborRoles);
     score += roleSim * weights.neighborRoles;
-   
+    details.push(`роли соседей: +${(roleSim * weights.neighborRoles).toFixed(3)} (sim=${roleSim.toFixed(2)})`);
+
+    console.log(`   Детали: ${details.join(', ')}`);
+    console.log(`   ИТОГОВЫЙ SCORE: ${score.toFixed(3)}`);
+
     return score;
 }
 
