@@ -237,31 +237,23 @@ if (candidates.length > 0) {
      //   if (usedPhotos.has(candidate.photoId)) continue;
      //   if (usedModels.has(candidate.modelId)) continue;
 
-        // Жесткие фильтры для якорей
+        /// Жесткие фильтры для якорей
 if (candidate.wlScore < 0.5) continue; // Минимальный WL Score
 
-// Проверка расстояния (среднее расстояние до соседей)
-const distScore = this.compareDistanceMean(
-    candidate.photoDist,
-    candidate.modelDist
-);
-if (distScore < 0.6) continue; // Чуть снизил порог
-
-// ВРЕМЕННО ОТКЛЮЧАЕМ ПРОВЕРКУ ПЛОЩАДИ
-// const areaScore = this.compareTriangleArea(
-//     candidate.photoArea,
-//     candidate.modelArea
+// ВРЕМЕННО ОТКЛЮЧАЕМ ВСЕ ПРОВЕРКИ
+// const distScore = this.compareDistanceMean(
+//     candidate.photoDist,
+//     candidate.modelDist
 // );
-// if (areaScore < 0.6) continue;
+// if (distScore < 0.6) continue;
 
 // Всё хорошо - добавляем якорь
 anchors.push({
     photoId: candidate.photoId,
     modelId: candidate.modelId,
-    confidence: (candidate.wlScore + distScore) / 2, // убрали areaScore
-    wlScore: candidate.wlScore,
-    distScore
-    // areaScore убрали
+    confidence: candidate.wlScore,
+    wlScore: candidate.wlScore
+    // distScore убрали
 });
 
         usedPhotos.add(candidate.photoId);
