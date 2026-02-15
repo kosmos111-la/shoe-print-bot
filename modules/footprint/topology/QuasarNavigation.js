@@ -5,7 +5,7 @@ class QuasarNavigation {
     constructor(options = {}) {
         this.debug = options.debug || false;
         this.minAnchors = options.minAnchors || 3;
-        this.similarityThreshold = options.similarityThreshold || 0.95;
+        this.similarityThreshold = options.similarityThreshold || 0.85; // Понизил для теста
        
         console.log('🌌 QuasarNavigation создан');
         console.log(`   Минимальное число якорей: ${this.minAnchors}`);
@@ -189,6 +189,16 @@ class QuasarNavigation {
        
         if (this.debug) console.log(`   AnchorSet содержит ${anchorSet.size} photoId`);
        
+        // 📊 ТАБЛИЦА КВАЗАРНЫХ СОВПАДЕНИЙ
+        console.log(`\n📋 ТАБЛИЦА 3: КВАЗАРНАЯ НАВИГАЦИЯ (РЕАЛЬНЫЕ КООРДИНАТЫ)`);
+        console.log(`┌─────┬──────────────────────┬─────────────┬─────────┬──────────────────────┬─────────────┬─────────┬─────────┬─────────┐`);
+        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   КООРД.    │  ЗОНА   │   ТОЧКА В МОДЕЛИ     │   КООРД.    │  ЗОНА   │ СХОД.   │ ОШИБКА  │`);
+        console.log(`├─────┼──────────────────────┼─────────────┼─────────┼──────────────────────┼─────────────┼─────────┼─────────┼─────────┤`);
+       
+        let quasarCount = 0;
+        let totalError = 0;
+        let validErrors = 0;
+       
         // Для каждой точки в фото, которая не якорь
         for (const [photoId, photoNode] of photoGraph.nodes) {
             if (anchorSet.has(photoId)) continue;
@@ -199,22 +209,73 @@ class QuasarNavigation {
             const match = this.findPointInModel(photoCoords, modelGraph, anchorsArray);
            
             if (match.similarity >= this.similarityThreshold) {
+                const modelNode = modelGraph.nodes.get(match.nodeId);
+                if (!modelNode) continue;
+               
+                // Вычисляем реальную ошибку в пикселях
+                const error = Math.sqrt(
+                    Math.pow(photoNode.x - modelNode.x, 2) +
+                    Math.pow(photoNode.y - modelNode.y, 2)
+                );
+               
+                totalError += error;
+                validErrors++;
+                quasarCount++;
+               
+                console.log(
+                    `│ ${quasarCount.toString().padEnd(3)} │ ${photoId.substring(0, 20).padEnd(20)} │ ` +
+                    `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
+                    `${this.getZone(photoNode.y).padEnd(7)} │ ` +
+                    `${match.nodeId.substring(0, 20).padEnd(20)} │ ` +
+                    `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │ ` +
+                    `${this.getZone(modelNode.y).padEnd(7)} │ ` +
+                    `${(match.similarity*100).toFixed(1).padStart(5)}% │ ` +
+                    `${error.toFixed(1).padStart(6)}px │`
+                );
+               
                 matches.set(photoId, {
                     modelId: match.nodeId,
                     similarity: match.similarity,
                     avgDiff: match.avgDiff,
-                    maxDiff: match.maxDiff
+                    maxDiff: match.maxDiff,
+                    error: error
                 });
-               
-                if (this.debug) {
-                    console.log(`   ✅ Квазар: ${photoId.substring(0,12)}... ↔ ${match.nodeId?.substring(0,12)}... (${(match.similarity*100).toFixed(1)}%)`);
-                }
             }
         }
        
-        if (this.debug) console.log(`   🌌 Квазаром найдено всего: ${matches.size} точек`);
+        if (quasarCount === 0) {
+            console.log(`│     │                      │             │         │                      │             │         │         │         │`);
+        }
+       
+        console.log(`└─────┴──────────────────────┴─────────────┴─────────┴──────────────────────┴─────────────┴─────────┴─────────┴─────────┘`);
+       
+        const avgError = validErrors > 0 ? totalError / validErrors : 0;
+       
+        console.log(`\n📊 ИТОГ КВАЗАРНОЙ НАВИГАЦИИ:`);
+        console.log(`   ✅ Найдено квазарами: ${quasarCount} точек`);
+        if (validErrors > 0) {
+            console.log(`   📏 Средняя ошибка: ${avgError.toFixed(2)}px`);
+            console.log(`   📊 Распределение ошибок:`);
+           
+            const errors = Array.from(matches.values()).map(m => m.error);
+            const good = errors.filter(e => e < 30).length;
+            const medium = errors.filter(e => e >= 30 && e < 100).length;
+            const bad = errors.filter(e => e >= 100).length;
+           
+            console.log(`      ✅ <30px: ${good} точек`);
+            console.log(`      ⚠️ 30-100px: ${medium} точек`);
+            console.log(`      ❌ >100px: ${bad} точек`);
+        }
        
         return matches;
+    }
+   
+    // ==================== ОПРЕДЕЛЕНИЕ ЗОНЫ ====================
+   
+    getZone(y) {
+        if (y > 350) return 'ПЯТКА';
+        if (y < 200) return 'НОСОК';
+        return 'ЦЕНТР';
     }
    
     // ==================== СТАТИСТИКА ====================
