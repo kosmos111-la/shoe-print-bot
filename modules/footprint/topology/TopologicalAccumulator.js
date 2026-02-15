@@ -59,17 +59,17 @@ class TopologicalAccumulator {
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
-    async processPoints(points, options = {}) {
-        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
-       
-        const modelId = options.modelId || this.currentModelId;
-        const contours = options.contours || []; // контуры от Roboflow
-       
-        // 1. Строим граф
-        const graph = this.graphBuilder.buildDelaunayGraph(points, options.source || 'photo');
-       
-        // 2. Кодируем морфологию (из контуров)
-        const morphologyMap = this.morphologyEncoder.encode(points, contours);
+   async processPoints(points, options = {}) {
+    console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
+   
+    const modelId = options.modelId || this.currentModelId;
+    const contours = options.contours || []; // ЭТО ДОЛЖНЫ ПЕРЕДАТЬ ИЗ Roboflow!
+   
+    // 1. Строим граф
+    const graph = this.graphBuilder.buildDelaunayGraph(points, options.source || 'photo');
+   
+    // 2. Кодируем морфологию (из контуров)
+    const morphologyMap = this.morphologyEncoder.encode(points, contours);
        
         // Если нет существующей модели - создаём новую
         if (!modelId || !this.models.has(modelId)) {
