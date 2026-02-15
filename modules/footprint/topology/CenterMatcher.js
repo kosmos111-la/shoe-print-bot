@@ -1,12 +1,12 @@
 // modules/footprint/topology/CenterMatcher.js
-// 🔥 ПОИСК ОБЩЕЙ ОБЛАСТИ С ДИНАМИЧЕСКОЙ ГЛУБИНОЙ
+// 🔥 ПОИСК ПО ВСЕМУ СЛЕДУ С ДИНАМИЧЕСКОЙ ГЛУБИНОЙ
 
 class CenterMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
         this.minLocalSimilarity = options.minLocalSimilarity || 0.5;
         this.minMorphologySimilarity = options.minMorphologySimilarity || 0.6;
-        this.minConsistentPairs = options.minConsistentPairs || 2;
+        this.minConsistentPairs = options.minConsistentPairs || 1; // ⬅️ ПОНИЖЕНО ДО 1
        
         this.localGroupSignature = options.localGroupSignature;
         this.morphologyEncoder = options.morphologyEncoder;
@@ -14,21 +14,27 @@ class CenterMatcher {
         this.centerMatches = new Map();
         this.consistencyGraph = new Map();
         this.depthUsage = new Map();
+        this.zoneStats = { center: 0, toe: 0, heel: 0 };
        
-        console.log('🎯 CenterMatcher с ДИНАМИЧЕСКОЙ глубиной создан');
+        console.log('🎯 CenterMatcher с ДИНАМИЧЕСКОЙ глубиной и ПОИСКОМ ПО ВСЕМУ СЛЕДУ создан');
     }
 
     findCenterMatches(photoGraph, modelGraph, photoMorphology, modelMorphology) {
-        console.log(`\n🔍 Ищу общую область с динамической глубиной...`);
+        console.log(`\n🔍 Ищу общую область ПО ВСЕМУ СЛЕДУ с динамической глубиной...`);
 
         const candidates = [];
         const photoNodes = Array.from(photoGraph.nodes.entries());
         const modelNodes = Array.from(modelGraph.nodes.entries());
 
-        for (const [photoId, photoNode] of photoNodes) {
-            if (!this.isCenterZone(photoNode)) continue;
+        // Обнуляем статистику
+        this.zoneStats = { center: 0, toe: 0, heel: 0 };
+        this.depthUsage.clear();
 
-            // 🔥 НАХОДИМ ОПТИМАЛЬНУЮ ГЛУБИНУ ДЛЯ ЭТОЙ ТОЧКИ
+        for (const [photoId, photoNode] of photoNodes) {
+            // 🔥 ИЩЕМ ПО ВСЕМ ЗОНАМ, НЕ ТОЛЬКО ЦЕНТР
+            const photoZone = this.getZone(photoNode.y);
+           
+            // 🔥 НАХОДИМ ОПТИМАЛЬНУЮ ГЛУБИНУ
             const depthResult = this.localGroupSignature.findOptimalDepth(
                 photoId,
                 photoGraph,
@@ -37,27 +43,38 @@ class CenterMatcher {
                 photoMorphology
             );
 
-            // Сохраняем статистику по глубинам
+            // Сохраняем статистику
             const depth = depthResult.optimalDepth;
             this.depthUsage.set(depth, (this.depthUsage.get(depth) || 0) + 1);
+            this.zoneStats[photoZone]++;
 
             // Берём лучших кандидатов
             for (const candidate of depthResult.candidates) {
                 const modelNode = modelGraph.nodes.get(candidate.modelId);
-                if (!modelNode || !this.isCenterZone(modelNode)) continue;
+                if (!modelNode) continue;
+
+                const modelZone = this.getZone(modelNode.y);
+               
+                // 🔥 БОНУС ЗА СОВПАДЕНИЕ ЗОНЫ
+                const zoneBonus = (photoZone === modelZone) ? 0.2 : 0;
 
                 const morphScore = this.compareMorphology(
                     photoId, candidate.modelId,
                     photoMorphology, modelMorphology
                 );
 
-                const totalScore = candidate.similarity * 0.7 + morphScore * 0.3;
+                // 🔥 ИТОГОВЫЙ СЧЁТ С УЧЁТОМ ЗОНЫ
+                const totalScore = candidate.similarity * 0.5 +
+                                  morphScore * 0.3 +
+                                  zoneBonus;
 
                 candidates.push({
                     photoId,
                     modelId: candidate.modelId,
                     photoNode,
                     modelNode,
+                    photoZone,
+                    modelZone,
                     localScore: candidate.similarity,
                     morphScore,
                     totalScore,
@@ -66,21 +83,28 @@ class CenterMatcher {
             }
         }
 
-        // Сортируем и строим граф согласованности
+        // Сортируем по убыванию
         candidates.sort((a, b) => b.totalScore - a.totalScore);
-        this.buildConsistencyGraph(candidates.slice(0, 50), photoGraph, modelGraph);
+
+        // 🔥 ДИАГНОСТИКА
+        console.log(`\n📊 СТАТИСТИКА ПО ЗОНАМ:`);
+        console.log(`   Центр: ${this.zoneStats.center} точек`);
+        console.log(`   Носок: ${this.zoneStats.toe} точек`);
+        console.log(`   Пятка: ${this.zoneStats.heel} точек`);
+
+        console.log(`\n📊 ТОП-10 КАНДИДАТОВ:`);
+        candidates.slice(0, 10).forEach((c, i) => {
+            console.log(`   ${i+1}. ${c.photoZone}→${c.modelZone} | глубина:${c.depth} | ` +
+                       `сходство:${(c.totalScore*100).toFixed(0)}% (local:${(c.localScore*100).toFixed(0)}% morph:${(c.morphScore*100).toFixed(0)}%)`);
+        });
+
+        // Строим граф согласованности
+        this.buildConsistencyGraph(candidates.slice(0, 30), photoGraph, modelGraph);
        
         const consistentMatches = this.findMaxConsistentSet();
-        const centerMatches = this.filterByZone(consistentMatches, photoGraph, modelGraph);
+        const finalMatches = this.filterByZone(consistentMatches, photoGraph, modelGraph);
 
-        // Выводим статистику по глубинам
-        console.log(`\n📊 СТАТИСТИКА ИСПОЛЬЗОВАНИЯ ГЛУБИН:`);
-        for (let d = 1; d <= 4; d++) {
-            const count = this.depthUsage.get(d) || 0;
-            console.log(`   Глубина ${d}: использована ${count} раз`);
-        }
-
-        return centerMatches;
+        return finalMatches;
     }
 
     compareMorphology(photoId, modelId, photoMorph, modelMorph) {
@@ -112,16 +136,23 @@ class CenterMatcher {
     }
 
     areConsistent(a, b, photoGraph, modelGraph) {
+        // Расстояние в фото (в шагах по графу)
         const photoDist = this.graphDistance(a.photoId, b.photoId, photoGraph);
         const modelDist = this.graphDistance(a.modelId, b.modelId, modelGraph);
        
         if (photoDist === Infinity || modelDist === Infinity) return false;
        
+        // 🔥 РАЗНЫЕ ЗОНЫ МОГУТ БЫТЬ СОГЛАСОВАНЫ, НО С МЕНЬШИМ ВЕСОМ
         const minDist = Math.min(photoDist, modelDist);
         const maxDist = Math.max(photoDist, modelDist);
         const ratio = minDist / maxDist;
        
-        return ratio >= 0.3; // допускаем разницу в 3 раза
+        // Если зоны совпадают, требуем ratio >= 0.3
+        // Если зоны разные, требуем ratio >= 0.5 (более жёстко)
+        const zoneMatch = (a.photoZone === a.modelZone) && (b.photoZone === b.modelZone);
+        const threshold = zoneMatch ? 0.3 : 0.5;
+       
+        return ratio >= threshold;
     }
 
     graphDistance(nodeA, nodeB, graph) {
@@ -174,6 +205,9 @@ class CenterMatcher {
             if (candidate.size > bestSet.size) bestSet = candidate;
         }
        
+        // 🔥 ДИАГНОСТИКА
+        console.log(`\n🔗 Найдена согласованная группа из ${bestSet.size} точек`);
+       
         return bestSet;
     }
 
@@ -203,20 +237,30 @@ class CenterMatcher {
 
     filterByZone(matches, photoGraph, modelGraph) {
         const result = new Map();
-        // В реальном коде нужно восстановить полные данные
+       
+        // 🔥 ВОССТАНАВЛИВАЕМ ПОЛНУЮ ИНФОРМАЦИЮ
+        // Здесь нужно передать candidates, но пока заглушка
+       
         return result;
     }
 
-    isCenterZone(node) {
-        return node.y >= 200 && node.y <= 350;
+    // ==================== ОПРЕДЕЛЕНИЕ ЗОНЫ ====================
+
+    getZone(y) {
+        if (y > 350) return 'HEEL';  // пятка
+        if (y < 200) return 'TOE';    // носок
+        return 'CENTER';               // центр
     }
+
+    // ==================== СТАТИСТИКА ====================
 
     getStats() {
         return {
             minLocalSimilarity: this.minLocalSimilarity,
             minMorphologySimilarity: this.minMorphologySimilarity,
             minConsistentPairs: this.minConsistentPairs,
-            depthUsage: Object.fromEntries(this.depthUsage)
+            depthUsage: Object.fromEntries(this.depthUsage),
+            zoneStats: this.zoneStats
         };
     }
 
@@ -224,6 +268,7 @@ class CenterMatcher {
         this.centerMatches.clear();
         this.consistencyGraph.clear();
         this.depthUsage.clear();
+        this.zoneStats = { center: 0, toe: 0, heel: 0 };
     }
 }
 
