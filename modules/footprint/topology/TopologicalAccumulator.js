@@ -15,20 +15,20 @@ class TopologicalAccumulator {
         // Компоненты
         this.graphBuilder = new GraphBuilder({ debug: this.debug });
         this.localGroupSignature = new LocalGroupSignature({
-            debug: this.debug,
-            depth: options.localDepth || 2,
-            useMorphology: true
-        });
+    debug: this.debug,
+    depth: options.localDepth || 3,      // было 2
+    useMorphology: true
+});
         this.morphologyEncoder = new MorphologyEncoder({ debug: this.debug });
        
-        this.centerMatcher = new CenterMatcher({
-            debug: this.debug,
-            localGroupSignature: this.localGroupSignature,
-            morphologyEncoder: this.morphologyEncoder,
-            minLocalSimilarity: options.minLocalSimilarity || 0.7,
-            minMorphologySimilarity: options.minMorphologySimilarity || 0.8,
-            minConsistentPairs: options.minConsistentPairs || 3
-        });
+       this.centerMatcher = new CenterMatcher({
+    debug: this.debug,
+    localGroupSignature: this.localGroupSignature,
+    morphologyEncoder: this.morphologyEncoder,
+    minLocalSimilarity: options.minLocalSimilarity || 0.5,      // было 0.7
+    minMorphologySimilarity: options.minMorphologySimilarity || 0.6, // было 0.8
+    minConsistentPairs: options.minConsistentPairs || 2        // было 3
+});
        
         this.relativePositioning = new RelativePositioning({
             debug: this.debug,
