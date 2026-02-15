@@ -195,7 +195,7 @@ class GeometricSignature {
             );
 
             // Собираем всех кандидатов с WL > 0.5
-            if (wlScore > 0.5) {
+            if (wlScore > 0.7) {
                 candidates.push({
                     photoId,
                     modelId,
