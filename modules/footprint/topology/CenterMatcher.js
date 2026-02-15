@@ -6,7 +6,7 @@ class CenterMatcher {
         this.debug = options.debug || false;
         this.minLocalSimilarity = options.minLocalSimilarity || 0.5;
         this.minMorphologySimilarity = options.minMorphologySimilarity || 0.6;
-        this.minConsistentPairs = options.minConsistentPairs || 1; // ⬅️ ПОНИЖЕНО ДО 1
+        this.minConsistentPairs = options.minConsistentPairs || 1;
        
         this.localGroupSignature = options.localGroupSignature;
         this.morphologyEncoder = options.morphologyEncoder;
@@ -15,6 +15,7 @@ class CenterMatcher {
         this.consistencyGraph = new Map();
         this.depthUsage = new Map();
         this.zoneStats = { center: 0, toe: 0, heel: 0 };
+        this.candidatesList = []; // сохраняем кандидатов для восстановления
        
         console.log('🎯 CenterMatcher с ДИНАМИЧЕСКОЙ глубиной и ПОИСКОМ ПО ВСЕМУ СЛЕДУ создан');
     }
@@ -29,12 +30,13 @@ class CenterMatcher {
         // Обнуляем статистику
         this.zoneStats = { center: 0, toe: 0, heel: 0 };
         this.depthUsage.clear();
+        this.candidatesList = [];
 
         for (const [photoId, photoNode] of photoNodes) {
-            // 🔥 ИЩЕМ ПО ВСЕМ ЗОНАМ, НЕ ТОЛЬКО ЦЕНТР
+            // Ищем по всем зонам
             const photoZone = this.getZone(photoNode.y);
            
-            // 🔥 НАХОДИМ ОПТИМАЛЬНУЮ ГЛУБИНУ
+            // Находим оптимальную глубину
             const depthResult = this.localGroupSignature.findOptimalDepth(
                 photoId,
                 photoGraph,
@@ -55,7 +57,7 @@ class CenterMatcher {
 
                 const modelZone = this.getZone(modelNode.y);
                
-                // 🔥 БОНУС ЗА СОВПАДЕНИЕ ЗОНЫ
+                // Бонус за совпадение зоны
                 const zoneBonus = (photoZone === modelZone) ? 0.2 : 0;
 
                 const morphScore = this.compareMorphology(
@@ -63,7 +65,7 @@ class CenterMatcher {
                     photoMorphology, modelMorphology
                 );
 
-                // 🔥 ИТОГОВЫЙ СЧЁТ С УЧЁТОМ ЗОНЫ
+                // Итоговый счёт
                 const totalScore = candidate.similarity * 0.5 +
                                   morphScore * 0.3 +
                                   zoneBonus;
@@ -85,8 +87,9 @@ class CenterMatcher {
 
         // Сортируем по убыванию
         candidates.sort((a, b) => b.totalScore - a.totalScore);
+        this.candidatesList = candidates; // сохраняем для фильтрации
 
-        // 🔥 ДИАГНОСТИКА
+        // Диагностика
         console.log(`\n📊 СТАТИСТИКА ПО ЗОНАМ:`);
         console.log(`   Центр: ${this.zoneStats.center} точек`);
         console.log(`   Носок: ${this.zoneStats.toe} точек`);
@@ -99,12 +102,12 @@ class CenterMatcher {
         });
 
         // Строим граф согласованности
-        this.buildConsistencyGraph(candidates.slice(0, 30), photoGraph, modelGraph);
+        this.buildConsistencyGraph(candidates.slice(0, 50), photoGraph, modelGraph);
        
         const consistentMatches = this.findMaxConsistentSet();
-        const finalMatches = this.filterByZone(consistentMatches, photoGraph, modelGraph);
-
-        return finalMatches;
+       
+        // 🔥 ВОЗВРАЩАЕМ РЕАЛЬНЫЕ СООТВЕТСТВИЯ
+        return this.buildResultMap(consistentMatches, candidates);
     }
 
     compareMorphology(photoId, modelId, photoMorph, modelMorph) {
@@ -142,12 +145,11 @@ class CenterMatcher {
        
         if (photoDist === Infinity || modelDist === Infinity) return false;
        
-        // 🔥 РАЗНЫЕ ЗОНЫ МОГУТ БЫТЬ СОГЛАСОВАНЫ, НО С МЕНЬШИМ ВЕСОМ
         const minDist = Math.min(photoDist, modelDist);
         const maxDist = Math.max(photoDist, modelDist);
         const ratio = minDist / maxDist;
        
-        // Если зоны совпадают, требуем ratio >= 0.3
+        // Если зоны совпадают, допускаем ratio >= 0.3
         // Если зоны разные, требуем ratio >= 0.5 (более жёстко)
         const zoneMatch = (a.photoZone === a.modelZone) && (b.photoZone === b.modelZone);
         const threshold = zoneMatch ? 0.3 : 0.5;
@@ -195,7 +197,7 @@ class CenterMatcher {
     }
 
     findMaxConsistentSet() {
-        if (this.consistencyGraph.size === 0) return new Map();
+        if (this.consistencyGraph.size === 0) return new Set();
        
         let bestSet = new Set();
         const nodes = Array.from(this.consistencyGraph.keys());
@@ -205,7 +207,6 @@ class CenterMatcher {
             if (candidate.size > bestSet.size) bestSet = candidate;
         }
        
-        // 🔥 ДИАГНОСТИКА
         console.log(`\n🔗 Найдена согласованная группа из ${bestSet.size} точек`);
        
         return bestSet;
@@ -235,12 +236,40 @@ class CenterMatcher {
         return currentClique;
     }
 
-    filterByZone(matches, photoGraph, modelGraph) {
+    // ==================== ВОЗВРАТ РЕЗУЛЬТАТОВ ====================
+
+    buildResultMap(consistentSet, candidates) {
         const result = new Map();
        
-        // 🔥 ВОССТАНАВЛИВАЕМ ПОЛНУЮ ИНФОРМАЦИЮ
-        // Здесь нужно передать candidates, но пока заглушка
-       
+        if (consistentSet.size === 0) {
+            console.log(`⚠️ Нет согласованных точек для возврата`);
+            return result;
+        }
+
+        // Создаём карту лучших кандидатов для каждого photoId
+        const bestForPhoto = new Map();
+        for (const candidate of candidates) {
+            if (!bestForPhoto.has(candidate.photoId) ||
+                bestForPhoto.get(candidate.photoId).totalScore < candidate.totalScore) {
+                bestForPhoto.set(candidate.photoId, candidate);
+            }
+        }
+
+        // Для каждого photoId в согласованном множестве берём лучшего кандидата
+        for (const photoId of consistentSet) {
+            const best = bestForPhoto.get(photoId);
+            if (best) {
+                result.set(photoId, {
+                    modelId: best.modelId,
+                    confidence: best.totalScore,
+                    photoZone: best.photoZone,
+                    modelZone: best.modelZone,
+                    depth: best.depth
+                });
+            }
+        }
+
+        console.log(`✅ Возвращаю ${result.size} согласованных точек`);
         return result;
     }
 
@@ -269,6 +298,7 @@ class CenterMatcher {
         this.consistencyGraph.clear();
         this.depthUsage.clear();
         this.zoneStats = { center: 0, toe: 0, heel: 0 };
+        this.candidatesList = [];
     }
 }
 
