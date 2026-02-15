@@ -1,94 +1,121 @@
 // modules/footprint/topology/RelativePositioning.js
-// 🔥 ОТНОСИТЕЛЬНАЯ ПРИВЯЗКА - достраиваем точки относительно центра
+// 🔥 ОТНОСИТЕЛЬНАЯ ПРИВЯЗКА - достраиваем точки относительно найденных соответствий
 
 class RelativePositioning {
     constructor(options = {}) {
         this.debug = options.debug || false;
-       
-        // Компоненты
         this.localGroupSignature = options.localGroupSignature;
-       
-        // Пороги
-        this.minPathSimilarity = options.minPathSimilarity || 0.5;  // было 0.7 сходство путей
-        this.maxPathLengthDiff = options.maxPathLengthDiff || 3;    // было 2 макс. разница в длине пути
+        this.minPathSimilarity = options.minPathSimilarity || 0.5;
+        this.maxPathLengthDiff = options.maxPathLengthDiff || 3;
        
         console.log('🧩 RelativePositioning создан');
-        console.log(`   Мин. сходство путей: ${this.minPathSimilarity * 100}%`);
-        console.log(`   Макс. разница длины: ${this.maxPathLengthDiff}`);
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
-    positionPoints(photoGraph, modelGraph, centerMatches, photoMorphology, modelMorphology) {
-        console.log(`\n🧩 Достраиваю точки относительно центра (${centerMatches.size} опорных)...`);
-       
+    positionPoints(photoGraph, modelGraph, anchorMatches, photoMorphology, modelMorphology) {
+        console.log(`\n🧩 Достраиваю точки относительно ${anchorMatches.size} опорных...`);
+
         const photoToModel = new Map(); // photoId -> { modelId, confidence, path }
         const modelToPhoto = new Map(); // modelId -> photoId
-       
-        // Сначала добавляем опорные точки из центра
-        for (const [photoId, match] of centerMatches) {
+
+        // 🔥 1. Сначала добавляем опорные точки (якоря)
+        for (const [photoId, match] of anchorMatches) {
             photoToModel.set(photoId, {
                 modelId: match.modelId,
                 confidence: 1.0,
-                source: 'center'
+                source: 'anchor'
             });
             modelToPhoto.set(match.modelId, photoId);
         }
+
+        // 🔥 2. Вычисляем пути от опорных точек ко всем остальным
+        const anchorIds = Array.from(anchorMatches.keys());
+        const modelAnchorIds = Array.from(anchorMatches.values()).map(m => m.modelId);
        
-        // Находим все пути от опорных точек к остальным
-        const photoPaths = this.computeAllPaths(photoGraph, Array.from(centerMatches.keys()));
-        const modelPaths = this.computeAllPaths(modelGraph, Array.from(centerMatches.values()).map(m => m.modelId));
-       
-        // Пытаемся сопоставить остальные точки
+        const photoPaths = this.computeAllPaths(photoGraph, anchorIds);
+        const modelPaths = this.computeAllPaths(modelGraph, modelAnchorIds);
+
+        // 🔥 3. Пытаемся сопоставить остальные точки
         let matched = 0;
-        let totalPoints = photoGraph.nodes.size - centerMatches.size;
-       
-        for (const [photoId, photoNode] of photoGraph.nodes) {
-            if (photoToModel.has(photoId)) continue; // уже есть
-           
+        let totalPoints = photoGraph.nodes.size - anchorMatches.size;
+
+        // Сортируем точки по расстоянию от ближайшего якоря (ближайшие сначала)
+        const photoNodes = Array.from(photoGraph.nodes.entries())
+            .filter(([id]) => !photoToModel.has(id))
+            .map(([id, node]) => {
+                const pathInfo = photoPaths.get(id);
+                return {
+                    id,
+                    node,
+                    minDist: pathInfo ? pathInfo.bestDist : Infinity
+                };
+            })
+            .sort((a, b) => a.minDist - b.minDist);
+
+        for (const { id: photoId, node: photoNode, minDist } of photoNodes) {
+            if (minDist === Infinity) {
+                if (this.debug) console.log(`   ⚠️ Точка ${photoId.substring(0,12)}... недостижима от якорей`);
+                continue;
+            }
+
             const photoPathInfo = photoPaths.get(photoId);
             if (!photoPathInfo) continue;
-           
+
             let bestMatch = null;
             let bestScore = 0;
-           
+            let bestModelId = null;
+
+            // Ищем среди всех точек модели, которые ещё не сопоставлены
             for (const [modelId, modelNode] of modelGraph.nodes) {
                 if (modelToPhoto.has(modelId)) continue; // уже занято
-               
+
                 const modelPathInfo = modelPaths.get(modelId);
                 if (!modelPathInfo) continue;
-               
-                // Сравниваем пути от опорных точек
+
+                // Сравниваем пути
                 const score = this.comparePaths(
+                    photoId,
                     photoPathInfo,
+                    modelId,
                     modelPathInfo,
                     photoGraph,
                     modelGraph,
                     photoMorphology,
-                    modelMorphology
+                    modelMorphology,
+                    photoToModel,
+                    modelToPhoto
                 );
-               
+
                 if (score > bestScore && score >= this.minPathSimilarity) {
                     bestScore = score;
-                    bestMatch = modelId;
+                    bestModelId = modelId;
+                    bestMatch = {
+                        modelId,
+                        confidence: score,
+                        pathInfo: photoPathInfo
+                    };
                 }
             }
-           
+
             if (bestMatch) {
                 photoToModel.set(photoId, {
-                    modelId: bestMatch,
-                    confidence: bestScore,
-                    source: 'relative',
-                    pathInfo: photoPathInfo
+                    modelId: bestMatch.modelId,
+                    confidence: bestMatch.confidence,
+                    source: 'relative'
                 });
-                modelToPhoto.set(bestMatch, photoId);
+                modelToPhoto.set(bestMatch.modelId, photoId);
                 matched++;
+               
+                if (this.debug && matched <= 5) {
+                    console.log(`   ✅ Сопоставлено: ${photoId.substring(0,12)}... ↔ ${bestMatch.modelId.substring(0,12)}... (${(bestScore*100).toFixed(0)}%)`);
+                }
             }
         }
-       
+
         console.log(`   ✅ Сопоставлено: ${matched}/${totalPoints} точек`);
         console.log(`   🎯 Всего: ${photoToModel.size}/${photoGraph.nodes.size}`);
-       
+
         return photoToModel;
     }
 
@@ -97,7 +124,7 @@ class RelativePositioning {
     computeAllPaths(graph, anchorIds) {
         const anchorSet = new Set(anchorIds);
         const paths = new Map(); // nodeId -> { distances, paths }
-       
+
         // Для каждой опорной точки запускаем BFS
         for (const anchorId of anchorIds) {
             const distances = this.bfsDistances(anchorId, graph);
@@ -108,7 +135,7 @@ class RelativePositioning {
                 if (!paths.has(nodeId)) {
                     paths.set(nodeId, {
                         toAnchors: [], // расстояния до каждой опорной точки
-                        anchorPaths: new Map(), // пути (последовательности узлов)
+                        anchorPaths: new Map(), // пути
                         bestAnchor: null,
                         bestDist: Infinity
                     });
@@ -118,7 +145,7 @@ class RelativePositioning {
                 info.toAnchors.push({
                     anchorId,
                     distance: dist,
-                    normalizedDist: dist / Math.max(...distances.values()) // нормализация
+                    normalizedDist: dist / (Math.max(...distances.values()) || 1)
                 });
                
                 if (dist < info.bestDist) {
@@ -127,18 +154,17 @@ class RelativePositioning {
                 }
             }
         }
-       
+
         // Для каждой точки находим путь к ближайшему якорю
         for (const [nodeId, info] of paths) {
             if (info.bestAnchor) {
                 const path = this.findPath(info.bestAnchor, nodeId, graph);
                 info.anchorPaths.set(info.bestAnchor, path);
-               
-                // Вычисляем подпись пути
                 info.pathSignature = this.computePathSignature(path, graph);
+                info.pathLength = path.length - 1; // количество шагов
             }
         }
-       
+
         return paths;
     }
 
@@ -168,18 +194,21 @@ class RelativePositioning {
     }
 
     findPath(fromId, toId, graph) {
-        // BFS для поиска кратчайшего пути
+        if (fromId === toId) return [fromId];
+       
         const queue = [{ id: fromId, path: [fromId] }];
         const visited = new Set([fromId]);
        
         while (queue.length > 0) {
             const { id, path } = queue.shift();
            
-            if (id === toId) return path;
-           
             const neighbors = this.findNodeNeighbors(id, graph);
            
             for (const neighbor of neighbors) {
+                if (neighbor.id === toId) {
+                    return [...path, neighbor.id];
+                }
+               
                 if (!visited.has(neighbor.id)) {
                     visited.add(neighbor.id);
                     queue.push({
@@ -190,7 +219,7 @@ class RelativePositioning {
             }
         }
        
-        return [fromId]; // нет пути, возвращаем только старт
+        return [fromId]; // нет пути
     }
 
     computePathSignature(path, graph) {
@@ -203,7 +232,6 @@ class RelativePositioning {
             const node = graph.nodes.get(nodeId);
             if (!node) continue;
            
-            // Роль узла
             const neighbors = this.findNodeNeighbors(nodeId, graph);
             const role = this.getNodeRole(nodeId, neighbors, graph);
            
@@ -215,16 +243,19 @@ class RelativePositioning {
 
     // ==================== СРАВНЕНИЕ ПУТЕЙ ====================
 
-    comparePaths(photoPathInfo, modelPathInfo, photoGraph, modelGraph, photoMorphology, modelMorphology) {
+    comparePaths(photoId, photoPathInfo, modelId, modelPathInfo, photoGraph, modelGraph, photoMorphology, modelMorphology, photoToModel, modelToPhoto) {
         // 1. Сравниваем расстояния до опорных точек
         let distanceScore = 0;
         let pairCount = 0;
        
         for (const photoAnchor of photoPathInfo.toAnchors) {
-            // Ищем соответствующий якорь в модели
-            const modelAnchor = modelPathInfo.toAnchors.find(
-                a => a.anchorId === photoAnchor.anchorId
-            );
+            // Находим соответствующий якорь в модели
+            const photoAnchorId = photoAnchor.anchorId;
+            const modelAnchorId = photoToModel.get(photoAnchorId)?.modelId;
+           
+            if (!modelAnchorId) continue;
+           
+            const modelAnchor = modelPathInfo.toAnchors.find(a => a.anchorId === modelAnchorId);
            
             if (modelAnchor) {
                 const diff = Math.abs(photoAnchor.normalizedDist - modelAnchor.normalizedDist);
@@ -243,7 +274,6 @@ class RelativePositioning {
             const photoPath = photoPathInfo.pathSignature;
             const modelPath = modelPathInfo.pathSignature;
            
-            // Сравниваем строки ролей
             const minLen = Math.min(photoPath.length, modelPath.length);
             let matches = 0;
             for (let i = 0; i < minLen; i++) {
@@ -252,22 +282,45 @@ class RelativePositioning {
             pathScore = matches / Math.max(photoPath.length, modelPath.length);
         }
        
-        // 3. Если есть морфология, используем её для подтверждения
+        // 3. Сравниваем длину пути
+        const lengthDiff = Math.abs(photoPathInfo.pathLength - modelPathInfo.pathLength);
+        const lengthScore = lengthDiff <= this.maxPathLengthDiff ? 1.0 : 0.5;
+       
+        // 4. Морфология (если есть)
         let morphScore = 1.0;
         if (photoMorphology && modelMorphology) {
-            // Найдём ID точек (нужно передавать)
-            // Пока заглушка
+            const photoMorph = photoMorphology.get(photoId);
+            const modelMorph = modelMorphology.get(modelId);
+           
+            if (photoMorph && modelMorph && photoMorph.hasContour && modelMorph.hasContour) {
+                morphScore = this.compareMorphology(photoMorph, modelMorph);
+            }
         }
        
         // Итоговый score
-        return (distanceScore * 0.5 + pathScore * 0.3 + morphScore * 0.2);
+        const totalScore = distanceScore * 0.4 + pathScore * 0.3 + lengthScore * 0.1 + morphScore * 0.2;
+       
+        if (this.debug && totalScore > 0.8) {
+            console.log(`      Сравнение ${photoId.substring(0,8)}... ↔ ${modelId.substring(0,8)}... = ${(totalScore*100).toFixed(0)}% (dist:${(distanceScore*100).toFixed(0)}% path:${(pathScore*100).toFixed(0)}% len:${lengthScore} morph:${(morphScore*100).toFixed(0)}%)`);
+        }
+       
+        return totalScore;
+    }
+
+    compareMorphology(m1, m2) {
+        if (!m1 || !m2) return 0.5;
+       
+        const aspectSim = 1 - Math.min(1, Math.abs(m1.aspectRatio - m2.aspectRatio) / 2);
+        const compactSim = 1 - Math.min(1, Math.abs(m1.compactness - m2.compactness) / 5);
+       
+        return (aspectSim + compactSim) / 2;
     }
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
 
     findNodeNeighbors(nodeId, graph) {
         const neighbors = [];
-        if (!graph || !graph.edges) return neighbors;
+        if (!graph?.edges) return neighbors;
        
         const edgesArray = Array.from(graph.edges);
         for (const edge of edgesArray) {
