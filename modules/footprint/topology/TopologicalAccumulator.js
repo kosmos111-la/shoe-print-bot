@@ -235,6 +235,39 @@ class TopologicalAccumulator {
 const anchors = this.geometricSignature.findAnchorPoints(newGraph.nodes, model.graph);
 this.stats.totalAnchors = anchors.length;
 
+// 🔥🔥🔥 ДИАГНОСТИКА: ПОКАЗЫВАЕМ 30 ЯКОРЕЙ
+console.log(`\n📋 ТАБЛИЦА ЯКОРЕЙ (${anchors.length} пар):`);
+console.log(`┌─────┬──────────────────────┬──────────────────────┬─────────────────────┬─────────────────────┬───────────┐`);
+console.log(`│  #  │   ID В ФОТО 2         │   ID В МОДЕЛИ         │   КООРД. В ФОТО 2   │   КООРД. В МОДЕЛИ   │ РАССТОЯНИЕ│`);
+console.log(`├─────┼──────────────────────┼──────────────────────┼─────────────────────┼─────────────────────┼───────────┤`);
+
+const anchorsArray = Array.isArray(anchors) ? anchors : Array.from(anchors);
+let exactMatches = 0;
+
+anchorsArray.slice(0, 30).forEach((anchor, idx) => {
+    const photoNode = newGraph.nodes.get(anchor.photoId);
+    const modelNode = model.graph.nodes.get(anchor.modelId);
+   
+    if (!photoNode || !modelNode) return;
+   
+    const dx = photoNode.x - modelNode.x;
+    const dy = photoNode.y - modelNode.y;
+    const distance = Math.sqrt(dx*dx + dy*dy);
+   
+    if (distance < 5) exactMatches++;
+   
+    console.log(
+        `│ ${(idx+1).toString().padEnd(3)} │ ${anchor.photoId.substring(0, 20).padEnd(20)} │ ` +
+        `${anchor.modelId.substring(0, 20).padEnd(20)} │ ` +
+        `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
+        `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │ ` +
+        `${distance.toFixed(1).padStart(7)}px │`
+    );
+});
+
+console.log(`└─────┴──────────────────────┴──────────────────────┴─────────────────────┴─────────────────────┴───────────┘`);
+console.log(`\n📊 ТОЧНОСТЬ ЯКОРЕЙ: ${exactMatches}/${anchorsArray.length} совпадают с точностью <5px`);
+
 // 🔥🔥🔥 ШАГ 3: КВАЗАРНАЯ НАВИГАЦИЯ
 let quasarFound = 0;
 if (anchors.length >= 3) {
