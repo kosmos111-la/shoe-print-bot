@@ -220,11 +220,11 @@ class GeometricSignature {
 
     for (const candidate of candidates) {
         // Проверяем, не заняты ли уже эти точки
-        if (usedPhotos.has(candidate.photoId)) continue;
-        if (usedModels.has(candidate.modelId)) continue;
+     //   if (usedPhotos.has(candidate.photoId)) continue;
+     //   if (usedModels.has(candidate.modelId)) continue;
 
         // Жесткие фильтры для якорей
-        if (candidate.wlScore < 0.7) continue; // Минимальный WL Score
+        if (candidate.wlScore < 0.5) continue; // Минимальный WL Score
 
         // Проверка расстояния (среднее расстояние до соседей)
         const distScore = this.compareDistanceMean(
