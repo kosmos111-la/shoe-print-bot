@@ -195,7 +195,7 @@ class GeometricSignature {
             );
 
             // Собираем кандидатов
-if (wlScore > 0.7) {
+if (wlScore > 0.4) {
     const photoArea = photoFeatures.meanTriangleArea;
     const modelArea = signature.meanTriangleArea;
    
@@ -438,7 +438,7 @@ if (candidates.length > 0) {
                 currentFeatures.wlSignature
             );
 
-            if (wlScore > 0.7) {
+            if (wlScore > 0.4) {
                 candidates.push({
                     nodeId: candidateId,
                     wlScore,
