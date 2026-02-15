@@ -201,7 +201,7 @@ class CenterMatcher {
         const ratio = minDist / maxDist;
        
         // Согласованы, если расстояния отличаются не более чем в 2 раза
-        return ratio >= 0.5;
+        return ratio >= 0.3;  // было 0.5 (ещё мягче)
     }
 
     graphDistance(nodeA, nodeB, graph) {
