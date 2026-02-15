@@ -626,7 +626,7 @@ class TopologicalAccumulator {
         console.log(`│   ▸ Одна-к-одной                  │ ${identification.count - identification.clusterCount}         │`);
         console.log(`│   ▸ Одна-ко-многим (кластеры)     │ ${identification.clusterCount}         │`);
         console.log(`├───────────────────────────────────┼─────────────┤`);
-        console.log(`│   ▸ Из них якорей (WL≥0.8)        │ ${anchorsCount}         │`);
+        console.log(`│   ▸ Из них якорей (WL≥0.5)        │ ${anchorsCount}         │`);
         console.log(`│   ▸ Из них квазарами               │ ${quasarFound}         │`);
         console.log(`│   ▸ Распространено от якорей      │ ${propagatedCount}         │`);
         console.log(`├───────────────────────────────────┼─────────────┤`);
