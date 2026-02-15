@@ -232,19 +232,23 @@ class TopologicalAccumulator {
         const identification = await this.identifyPoints(model, newGraph);
 
         // 🔥🔥🔥 ШАГ 2: ПОИСК ЯКОРЕЙ
-        const anchors = this.geometricSignature.findAnchorPoints(newGraph.nodes, model.graph);
-        this.stats.totalAnchors = anchors.length;
+const anchors = this.geometricSignature.findAnchorPoints(newGraph.nodes, model.graph);
+this.stats.totalAnchors = anchors.length;
 
-        // 🔥🔥🔥 ШАГ 3: КВАЗАРНАЯ НАВИГАЦИЯ
-        let quasarFound = 0;
-        if (anchors.length >= 3) {
-            console.log(`\n🌌 Запускаю квазарную навигацию с ${anchors.length} якорями...`);
-           
-            const quasarMatches = this.quasarNav.findAllMatches(
-                newGraph,
-                model.graph,
-                anchors
-            );
+// 🔥🔥🔥 ШАГ 3: КВАЗАРНАЯ НАВИГАЦИЯ
+let quasarFound = 0;
+if (anchors.length >= 3) {
+    console.log(`\n🌌 Запускаю квазарную навигацию с ${anchors.length} якорями...`);
+
+    // !!! ГЛАВНОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ !!!
+    // Преобразуем anchors в массив, если это ещё не массив
+    const anchorsArray = Array.isArray(anchors) ? anchors : Array.from(anchors);
+   
+    const quasarMatches = this.quasarNav.findAllMatches(
+        newGraph,
+        model.graph,
+        anchorsArray  // ← передаём гарантированный массив
+    );
            
             for (const [photoId, matchInfo] of quasarMatches) {
                 if (!identification.identifiedMap.has(photoId)) {
