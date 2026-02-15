@@ -128,42 +128,50 @@ class QuasarNavigation {
    
     // ==================== ПОИСК ПО ВСЕМ ТОЧКАМ ====================
    
-    findAllMatches(photoGraph, modelGraph, anchors) {
-    // 🔥 ЗАЩИТА: проверяем, что anchors - массив
-    if (!Array.isArray(anchors)) {
-        console.log('⚠️ anchors не является массивом, преобразую...');
-        anchors = Array.from(anchors || []);
+    // ==================== ПОИСК ПО ВСЕМ ТОЧКАМ ====================
+
+findAllMatches(photoGraph, modelGraph, anchors) {
+    // 🔥 УЛУЧШЕННАЯ ЗАЩИТА: преобразуем любой итерируемый объект в массив
+    let anchorsArray;
+    if (Array.isArray(anchors)) {
+        anchorsArray = anchors;
+    } else if (anchors && typeof anchors[Symbol.iterator] === 'function') {
+        // Это итерируемый объект (Map, Set, NodeList и т.д.)
+        anchorsArray = Array.from(anchors);
+    } else {
+        console.log('⚠️ anchors не является массивом или итерируемым объектом, создаю пустой массив');
+        anchorsArray = [];
     }
    
     const matches = new Map();
-    const anchorSet = new Set(anchors.map(a => a.photoId));
-      
+    // Используем anchorsArray для создания Set
+    const anchorSet = new Set(anchorsArray.map(a => a.photoId));
+   
+    // Для каждой точки в фото, которая не якорь
+    for (const [photoId, photoNode] of photoGraph.nodes) {
+        if (anchorSet.has(photoId)) continue;
        
-        // Для каждой точки в фото, которая не якорь
-        for (const [photoId, photoNode] of photoGraph.nodes) {
-            if (anchorSet.has(photoId)) continue;
+        const photoCoords = this.getCoordinates(photoNode, anchorsArray, photoGraph);
+        if (!photoCoords) continue;
+       
+        const match = this.findPointInModel(photoCoords, modelGraph, anchorsArray);
+       
+        if (match.similarity >= this.similarityThreshold) {
+            matches.set(photoId, {
+                modelId: match.nodeId,
+                similarity: match.similarity,
+                avgDiff: match.avgDiff,
+                maxDiff: match.maxDiff
+            });
            
-            const photoCoords = this.getCoordinates(photoNode, anchors, photoGraph);
-            if (!photoCoords) continue;
-           
-            const match = this.findPointInModel(photoCoords, modelGraph, anchors);
-           
-            if (match.similarity >= this.similarityThreshold) {
-                matches.set(photoId, {
-                    modelId: match.nodeId,
-                    similarity: match.similarity,
-                    avgDiff: match.avgDiff,
-                    maxDiff: match.maxDiff
-                });
-               
-                if (this.debug) {
-                    console.log(`   ✅ Квазар: ${photoId.substring(0,12)}... ↔ ${match.nodeId.substring(0,12)}... (${(match.similarity*100).toFixed(1)}%)`);
-                }
+            if (this.debug) {
+                console.log(`   ✅ Квазар: ${photoId.substring(0,12)}... ↔ ${match.nodeId.substring(0,12)}... (${(match.similarity*100).toFixed(1)}%)`);
             }
         }
-       
-        return matches;
     }
+   
+    return matches;
+}
    
     // ==================== СТАТИСТИКА ====================
    
