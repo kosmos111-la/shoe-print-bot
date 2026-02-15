@@ -11,35 +11,36 @@ class TopologicalAccumulator {
     constructor(options = {}) {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
         this.debug = options.debug || false;
-       
+
         // Компоненты
         this.graphBuilder = new GraphBuilder({ debug: this.debug });
         this.localGroupSignature = new LocalGroupSignature({
-    debug: this.debug,
-    depth: options.localDepth || 3,      // было 2
-    useMorphology: true
-});
+            debug: this.debug,
+            depth: options.localDepth || 3,
+            useMorphology: true
+        });
         this.morphologyEncoder = new MorphologyEncoder({ debug: this.debug });
-       
-       this.centerMatcher = new CenterMatcher({
-    debug: this.debug,
-    localGroupSignature: this.localGroupSignature,
-    morphologyEncoder: this.morphologyEncoder,
-    minLocalSimilarity: options.minLocalSimilarity || 0.5,      // было 0.7
-    minMorphologySimilarity: options.minMorphologySimilarity || 0.6, // было 0.8
-    minConsistentPairs: options.minConsistentPairs || 2        // было 3
-});
-       
+
+        this.centerMatcher = new CenterMatcher({
+            debug: this.debug,
+            localGroupSignature: this.localGroupSignature,
+            morphologyEncoder: this.morphologyEncoder,
+            minLocalSimilarity: options.minLocalSimilarity || 0.5,
+            minMorphologySimilarity: options.minMorphologySimilarity || 0.6,
+            minConsistentPairs: options.minConsistentPairs || 2
+        });
+
         this.relativePositioning = new RelativePositioning({
             debug: this.debug,
             localGroupSignature: this.localGroupSignature,
-            minPathSimilarity: options.minPathSimilarity || 0.7
+            minPathSimilarity: options.minPathSimilarity || 0.5,
+            maxPathLengthDiff: options.maxPathLengthDiff || 3
         });
-       
+
         // Хранилище моделей
         this.models = new Map();
         this.currentModelId = null;
-       
+
         // Статистика
         this.stats = {
             totalModels: 0,
@@ -49,36 +50,49 @@ class TopologicalAccumulator {
             createdAt: new Date(),
             lastUpdated: new Date()
         };
-       
+
         console.log(`🏗️ УПРОЩЁННЫЙ TopologicalAccumulator создан: "${this.name}"`);
-        console.log(`   🔷 Локальные группы (глубина ${options.localDepth || 2})`);
+        console.log(`   🔷 Локальные группы (глубина ${options.localDepth || 3})`);
         console.log(`   🔷 Морфология фигур`);
-        console.log(`   🎯 Поиск центра (мин. ${options.minConsistentPairs || 3} точек)`);
+        console.log(`   🎯 Поиск центра (мин. ${options.minConsistentPairs || 2} точек)`);
         console.log(`   🧩 Относительная привязка`);
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
-   async processPoints(points, options = {}) {
-    console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
-   
-    const modelId = options.modelId || this.currentModelId;
-    const contours = options.contours || []; // ЭТО ДОЛЖНЫ ПЕРЕДАТЬ ИЗ Roboflow!
-   
-    // 1. Строим граф
-    const graph = this.graphBuilder.buildDelaunayGraph(points, options.source || 'photo');
-   
-    // 2. Кодируем морфологию (из контуров)
-    const morphologyMap = this.morphologyEncoder.encode(points, contours);
+    async processPoints(points, options = {}) {
+        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
+
+        const modelId = options.modelId || this.currentModelId;
+        const contours = options.contours || [];
+
+        // 1. Строим граф
+        const graph = this.graphBuilder.buildDelaunayGraph(points, options.source || 'photo');
+
+        // 2. Кодируем морфологию (из контуров)
+        const morphologyMap = this.morphologyEncoder.encode(points, contours);
        
+        // 🔥 ДИАГНОСТИКА: проверяем, что морфология привязана к точкам
+        console.log(`🔍 morphologyMap содержит ${morphologyMap.size} записей`);
+        if (morphologyMap.size > 0) {
+            const firstKey = Array.from(morphologyMap.keys())[0];
+            const firstNodeId = Array.from(graph.nodes.keys())[0];
+            console.log(`   Пример ключа morphologyMap: ${firstKey?.substring(0, 20)}`);
+            console.log(`   Пример nodeId в графе: ${firstNodeId?.substring(0, 20)}`);
+           
+            // Проверяем, есть ли морфология для первого узла
+            const hasMorphForFirst = morphologyMap.has(firstNodeId);
+            console.log(`   morphologyMap.has(firstNodeId): ${hasMorphForFirst}`);
+        }
+
         // Если нет существующей модели - создаём новую
         if (!modelId || !this.models.has(modelId)) {
             return this.createNewModel(graph, morphologyMap, points, options);
         }
-       
+
         const existingModel = this.models.get(modelId);
         console.log(`🔍 Сравниваю с моделью "${modelId}"`);
-       
+
         // 3. Ищем общую область (центр)
         const centerMatches = this.centerMatcher.findCenterMatches(
             graph,
@@ -86,7 +100,7 @@ class TopologicalAccumulator {
             morphologyMap,
             existingModel.morphologyMap
         );
-       
+
         if (centerMatches.size < this.centerMatcher.minConsistentPairs) {
             console.log(`⚠️ Недостаточно общих точек в центре (${centerMatches.size} < ${this.centerMatcher.minConsistentPairs})`);
             console.log(`🆕 Создаю новую модель (центры не совпадают)`);
@@ -96,7 +110,7 @@ class TopologicalAccumulator {
                 reason: 'center_mismatch'
             });
         }
-       
+
         // 4. Достраиваем остальные точки относительно центра
         const allMatches = this.relativePositioning.positionPoints(
             graph,
@@ -105,7 +119,7 @@ class TopologicalAccumulator {
             morphologyMap,
             existingModel.morphologyMap
         );
-       
+
         // 5. Обновляем модель
         const updatedModel = await this.enhanceModel(
             modelId,
@@ -115,7 +129,7 @@ class TopologicalAccumulator {
             centerMatches,
             options
         );
-       
+
         return {
             status: 'enhanced',
             modelId: modelId,
@@ -130,17 +144,22 @@ class TopologicalAccumulator {
 
     createNewModel(graph, morphologyMap, originalPoints, options = {}) {
         const modelId = `topo_model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-       
-        // Добавляем морфологию к узлам графа
+
+        // 🔥 Добавляем морфологию к узлам графа
+        let morphologyCount = 0;
         for (const [nodeId, node] of graph.nodes) {
             const morph = morphologyMap.get(nodeId);
             if (morph) {
                 node.morphology = morph;
+                node.hasContour = morph.hasContour || false;
+                morphologyCount++;
             }
             node.confirmationCount = 1;
             node.addedFrom = 'original';
         }
-       
+
+        console.log(`✅ Добавлена морфология к ${morphologyCount} узлам`);
+
         const model = {
             id: modelId,
             graph: graph,
@@ -161,21 +180,22 @@ class TopologicalAccumulator {
                 nodes: graph.nodes.size
             }]
         };
-       
+
         this.models.set(modelId, model);
         this.currentModelId = modelId;
         this.stats.totalModels++;
         this.stats.lastUpdated = new Date();
-       
+
         console.log(`🏗️ СОЗДАНА НОВАЯ МОДЕЛЬ "${modelId}":`);
         console.log(`   Узлов: ${graph.nodes.size}`);
-        console.log(`   Точек с морфологией: ${Array.from(morphologyMap.values()).filter(m => m.hasContour).length}`);
-       
+        console.log(`   Точек с морфологией: ${morphologyCount}`);
+
         return {
             status: 'created',
             modelId: modelId,
             nodes: graph.nodes.size,
             edges: graph.edges.size,
+            morphologyCount: morphologyCount,
             message: `Создана новая топологическая модель`
         };
     }
@@ -184,10 +204,11 @@ class TopologicalAccumulator {
 
     async enhanceModel(modelId, newGraph, newMorphology, allMatches, centerMatches, options) {
         const model = this.models.get(modelId);
-       
+
         // Считаем, сколько новых точек добавится
         let newNodesAdded = 0;
-       
+        let morphologyAdded = 0;
+
         // Обновляем подтверждения для существующих точек
         for (const [photoId, match] of allMatches) {
             const modelNode = model.graph.nodes.get(match.modelId);
@@ -196,19 +217,23 @@ class TopologicalAccumulator {
                 modelNode.lastConfirmed = new Date();
             }
         }
-       
+
         // Добавляем новые точки (которых нет в модели)
         for (const [photoId, match] of allMatches) {
             if (!model.graph.nodes.has(match.modelId)) {
                 // Новая точка
                 const photoNode = newGraph.nodes.get(photoId);
                 if (photoNode) {
+                    const morph = newMorphology.get(photoId);
+                    if (morph) morphologyAdded++;
+                   
                     model.graph.nodes.set(match.modelId, {
                         id: match.modelId,
                         x: photoNode.x,
                         y: photoNode.y,
                         degree: photoNode.degree,
-                        morphology: newMorphology.get(photoId),
+                        morphology: morph,
+                        hasContour: morph?.hasContour || false,
                         confirmationCount: 1,
                         addedFrom: 'enhancement',
                         addedAt: new Date()
@@ -217,36 +242,39 @@ class TopologicalAccumulator {
                 }
             }
         }
-       
+
         // Обновляем рёбра
         this.updateEdges(model.graph, newGraph, allMatches);
-       
+
         // Обновляем статистику
         model.metadata.nodesCount = model.graph.nodes.size;
         model.metadata.lastEnhanced = new Date();
-       
+
         model.history.push({
             action: 'enhanced',
             timestamp: new Date(),
             centerMatches: centerMatches.size,
             totalMatches: allMatches.size,
             newNodes: newNodesAdded,
+            morphologyAdded: morphologyAdded,
             totalNodes: model.graph.nodes.size
         });
-       
+
         this.stats.totalEnhancements++;
         this.stats.totalCenterMatches += centerMatches.size;
         this.stats.totalRelativeMatches += allMatches.size - centerMatches.size;
         this.stats.lastUpdated = new Date();
-       
+
         console.log(`\n📊 ИТОГ УЛУЧШЕНИЯ:`);
         console.log(`   Центр: ${centerMatches.size} точек`);
         console.log(`   Всего сопоставлено: ${allMatches.size} точек`);
         console.log(`   Новых добавлено: ${newNodesAdded} точек`);
+        console.log(`   С морфологией: ${morphologyAdded} точек`);
         console.log(`   Теперь в модели: ${model.graph.nodes.size} точек`);
-       
+
         return {
             newNodesAdded,
+            morphologyAdded,
             centerMatches: centerMatches.size,
             totalMatches: allMatches.size
         };
@@ -260,25 +288,25 @@ class TopologicalAccumulator {
         for (const [photoId, match] of matches) {
             modelToPhoto.set(match.modelId, photoId);
         }
-       
+
         // Добавляем новые рёбра
         for (const edge of newGraph.edges) {
             const [photoA, photoB] = edge.split('--');
-           
+
             const modelA = matches.get(photoA)?.modelId;
             const modelB = matches.get(photoB)?.modelId;
-           
+
             if (modelA && modelB && modelGraph.nodes.has(modelA) && modelGraph.nodes.has(modelB)) {
                 const modelEdge = [modelA, modelB].sort().join('--');
                 modelGraph.edges.add(modelEdge);
             }
         }
-       
+
         // Пересчитываем степени
         for (const node of modelGraph.nodes.values()) {
             node.degree = 0;
         }
-       
+
         for (const edge of modelGraph.edges) {
             const [a, b] = edge.split('--');
             if (modelGraph.nodes.has(a)) modelGraph.nodes.get(a).degree++;
@@ -291,10 +319,10 @@ class TopologicalAccumulator {
     getModelInfo(modelId = null) {
         const targetId = modelId || this.currentModelId;
         if (!targetId || !this.models.has(targetId)) return { error: 'Model not found' };
-       
+
         const model = this.models.get(targetId);
         const graph = model.graph;
-       
+
         // Статистика по подтверждениям
         const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
         for (const node of graph.nodes.values()) {
@@ -302,13 +330,13 @@ class TopologicalAccumulator {
             if (count >= 4) confirmations['4+']++;
             else confirmations[count] = (confirmations[count] || 0) + 1;
         }
-       
+
         // Статистика по морфологии
         let withMorphology = 0;
         for (const node of graph.nodes.values()) {
-            if (node.morphology && node.morphology.hasContour) withMorphology++;
+            if (node.morphology && node.hasContour) withMorphology++;
         }
-       
+
         return {
             id: model.id,
             name: model.metadata.name,
@@ -339,7 +367,9 @@ class TopologicalAccumulator {
                 list: Array.from(this.models.keys()).map(id => ({
                     id,
                     name: this.models.get(id).metadata.name,
-                    nodes: this.models.get(id).graph.nodes.size
+                    nodes: this.models.get(id).graph.nodes.size,
+                    withMorphology: Array.from(this.models.get(id).graph.nodes.values())
+                        .filter(n => n.hasContour).length
                 }))
             },
             localGroupSignature: this.localGroupSignature.getStats(),
@@ -357,7 +387,7 @@ class TopologicalAccumulator {
         this.morphologyEncoder.clearCache();
         this.centerMatcher.clear();
         this.relativePositioning.clear();
-       
+
         this.stats = {
             totalModels: 0,
             totalEnhancements: 0,
@@ -366,7 +396,7 @@ class TopologicalAccumulator {
             createdAt: new Date(),
             lastUpdated: new Date()
         };
-       
+
         console.log('🧹 TopologicalAccumulator очищен');
     }
 }
