@@ -195,6 +195,7 @@ class GeometricSignature {
             );
 
             // Собираем всех кандидатов с WL > 0.5
+          console.log(`WL Score: ${wlScore}`); // Добавить отладку
             if (wlScore > 0.7) {
                 candidates.push({
                     photoId,
