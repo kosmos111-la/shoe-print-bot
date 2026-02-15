@@ -191,83 +191,105 @@ async processPoints(points, options = {}) {
 
     // ==================== УЛУЧШЕНИЕ МОДЕЛИ ====================
 
-    async enhanceModel(modelId, newGraph, newMorphology, allMatches, centerMatches, options) {
-        const model = this.models.get(modelId);
-
-        // Считаем, сколько новых точек добавится
-        let newNodesAdded = 0;
-        let morphologyAdded = 0;
-
-        // Обновляем подтверждения для существующих точек
-        for (const [photoId, match] of allMatches) {
-            const modelNode = model.graph.nodes.get(match.modelId);
-            if (modelNode) {
-                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-                modelNode.lastConfirmed = new Date();
-            }
+async enhanceModel(modelId, newGraph, newMorphology, allMatches, anchorMatches, options) {
+    const model = this.models.get(modelId);
+   
+    // Считаем статистику
+    let confirmedExisting = 0;
+    let newNodesAdded = 0;
+    let missingFromModel = 0; // точки, которые есть в модели, но не в новом фото
+   
+    // 🔥 Множества для отслеживания
+    const matchedPhotoIds = new Set();     // какие точки из фото 2 нашли пару
+    const matchedModelIds = new Set();     // какие точки из модели нашли пару
+   
+    // 1. Сначала обрабатываем найденные соответствия
+    for (const [photoId, match] of allMatches) {
+        const modelNode = model.graph.nodes.get(match.modelId);
+        if (modelNode) {
+            // Точка есть в модели - увеличиваем подтверждение
+            modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
+            modelNode.lastConfirmed = new Date();
+            confirmedExisting++;
+           
+            matchedPhotoIds.add(photoId);
+            matchedModelIds.add(match.modelId);
         }
-
-        // Добавляем новые точки (которых нет в модели)
-        for (const [photoId, match] of allMatches) {
-            if (!model.graph.nodes.has(match.modelId)) {
-                // Новая точка
-                const photoNode = newGraph.nodes.get(photoId);
-                if (photoNode) {
-                    const morph = newMorphology.get(photoId);
-                    if (morph) morphologyAdded++;
-                   
-                    model.graph.nodes.set(match.modelId, {
-                        id: match.modelId,
-                        x: photoNode.x,
-                        y: photoNode.y,
-                        degree: photoNode.degree,
-                        morphology: morph,
-                        hasContour: morph?.hasContour || false,
-                        confirmationCount: 1,
-                        addedFrom: 'enhancement',
-                        addedAt: new Date()
-                    });
-                    newNodesAdded++;
-                }
-            }
-        }
-
-        // Обновляем рёбра
-        this.updateEdges(model.graph, newGraph, allMatches);
-
-        // Обновляем статистику
-        model.metadata.nodesCount = model.graph.nodes.size;
-        model.metadata.lastEnhanced = new Date();
-
-        model.history.push({
-            action: 'enhanced',
-            timestamp: new Date(),
-            centerMatches: centerMatches.size,
-            totalMatches: allMatches.size,
-            newNodes: newNodesAdded,
-            morphologyAdded: morphologyAdded,
-            totalNodes: model.graph.nodes.size
-        });
-
-        this.stats.totalEnhancements++;
-        this.stats.totalCenterMatches += centerMatches.size;
-        this.stats.totalRelativeMatches += allMatches.size - centerMatches.size;
-        this.stats.lastUpdated = new Date();
-
-        console.log(`\n📊 ИТОГ УЛУЧШЕНИЯ:`);
-        console.log(`   Центр: ${centerMatches.size} точек`);
-        console.log(`   Всего сопоставлено: ${allMatches.size} точек`);
-        console.log(`   Новых добавлено: ${newNodesAdded} точек`);
-        console.log(`   С морфологией: ${morphologyAdded} точек`);
-        console.log(`   Теперь в модели: ${model.graph.nodes.size} точек`);
-
-        return {
-            newNodesAdded,
-            morphologyAdded,
-            centerMatches: centerMatches.size,
-            totalMatches: allMatches.size
-        };
     }
+   
+    // 2. Добавляем НОВЫЕ точки (есть в фото 2, нет в модели)
+    for (const [photoId, photoNode] of newGraph.nodes) {
+        if (matchedPhotoIds.has(photoId)) continue; // уже сопоставлена
+       
+        // Это новая точка
+        const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
+        model.graph.nodes.set(newNodeId, {
+            id: newNodeId,
+            x: photoNode.x,
+            y: photoNode.y,
+            degree: photoNode.degree,
+            morphology: newMorphology.get(photoId),
+            confirmationCount: 1, // первое появление
+            addedFrom: 'new_point',
+            addedAt: new Date(),
+            originalPhotoId: photoId // для отслеживания
+        });
+        newNodesAdded++;
+       
+        // Запоминаем соответствие для обратной связи
+        matchedPhotoIds.add(photoId);
+    }
+   
+    // 3. Отмечаем ИСЧЕЗНУВШИЕ точки (есть в модели, нет в фото 2)
+    for (const [modelId, modelNode] of model.graph.nodes) {
+        if (matchedModelIds.has(modelId)) continue; // была в новом фото
+       
+        // Точка не подтвердилась в этом фото
+        missingFromModel++;
+        // Можно уменьшить confidence или отметить как "неподтверждённую"
+        modelNode.confirmationCount = modelNode.confirmationCount || 1;
+        // Не удаляем, просто не увеличиваем счётчик
+    }
+   
+    // 4. Обновляем рёбра
+    this.updateEdges(model.graph, newGraph, allMatches);
+   
+    // 5. Обновляем статистику модели
+    model.metadata.nodesCount = model.graph.nodes.size;
+    model.metadata.lastEnhanced = new Date();
+   
+    model.history.push({
+        action: 'enhanced',
+        timestamp: new Date(),
+        anchorMatches: anchorMatches.size,
+        totalMatches: allMatches.size,
+        confirmedExisting,
+        newNodes: newNodesAdded,
+        missingFromModel,
+        totalNodes: model.graph.nodes.size
+    });
+   
+    this.stats.totalEnhancements++;
+    this.stats.totalCenterMatches += anchorMatches.size;
+    this.stats.totalRelativeMatches += allMatches.size - anchorMatches.size;
+    this.stats.lastUpdated = new Date();
+   
+    console.log(`\n📊 ИТОГ УЛУЧШЕНИЯ:`);
+    console.log(`   Якорей: ${anchorMatches.size} точек`);
+    console.log(`   Всего сопоставлено: ${allMatches.size} точек`);
+    console.log(`   Подтверждено существующих: ${confirmedExisting} точек`);
+    console.log(`   🔥 НОВЫХ добавлено: ${newNodesAdded} точек`);
+    console.log(`   ⚰️ Исчезнувших (неподтверждённых): ${missingFromModel} точек`);
+    console.log(`   Теперь в модели: ${model.graph.nodes.size} точек`);
+   
+    return {
+        confirmedExisting,
+        newNodesAdded,
+        missingFromModel,
+        anchorMatches: anchorMatches.size,
+        totalMatches: allMatches.size
+    };
+}
 
     // ==================== ОБНОВЛЕНИЕ РЁБЕР ====================
 
