@@ -62,14 +62,15 @@ class TopologyManager {
         }
 
         // Обрабатываем точки через топологический аккумулятор
-        const result = await this.accumulator.processPoints(points, {
-            modelId: modelId,
-            source: `photo_${photoInfo.photoId || Date.now()}`,
-            name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
-            footprintId: footprint.id,
-            photoInfo: photoInfo,
-            photoId: photoInfo.photoId
-        });
+const result = await this.accumulator.processPoints(points, {
+    modelId: modelId,
+    source: `photo_${photoInfo.photoId || Date.now()}`,
+    name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
+    footprintId: footprint.id,
+    photoInfo: photoInfo,
+    photoId: photoInfo.photoId,
+    contours: contours // 🔥 ПЕРЕДАЁМ КОНТУРЫ
+});
 
         // Обновляем связь след-модель
         if (result.modelId && result.modelId !== modelId) {
