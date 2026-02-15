@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (БЕЗ ДУБЛИРОВАНИЯ FINGERPRINT)
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (С ПОДДЕРЖКОЙ КОНТУРОВ)
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalAccumulator = require('./TopologicalAccumulator');
@@ -11,7 +11,6 @@ class TopologyManager {
         this.debug = options.debug || false;
 
         // 🔥 ТОЛЬКО builder И accumulator! fingerprint ТОЛЬКО В АККУМУЛЯТОРЕ!
-//        this.builder = new TopologyBuilder({ debug: this.debug });
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
             debug: this.debug,
@@ -27,12 +26,34 @@ class TopologyManager {
         console.log(`   🔥 Fingerprint только в аккумуляторе (без дублирования)`);
     }
 
-    // 🔥 ГЛАВНЫЙ МЕТОД: Обработка следов из SimpleFootprint
-    async processFootprint(footprint, analysis, photoInfo = {}) {
+    // ==================== ГЛАВНЫЙ МЕТОД ====================
+
+    async processFootprint(footprint, analysisData, photoInfo = {}) {
         console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoInfo.photoId || 'без ID'}...`);
 
-        // Извлекаем точки ТОЛЬКО из текущего фото
-        const points = this.extractPointsFromCurrentPhoto(analysis, photoInfo);
+        // 🔥 ИЗВЛЕКАЕМ ТОЧКИ И КОНТУРЫ
+        let points = [];
+        let contours = [];
+
+        if (Array.isArray(analysisData)) {
+            // Старый формат - только массив точек
+            points = analysisData;
+            contours = [];
+            console.log(`📦 Получен массив точек (старый формат): ${points.length}`);
+        } else if (analysisData && typeof analysisData === 'object') {
+            // Новый формат - объект с points и/или contours
+            if (analysisData.predictions) {
+                // Это raw анализ от Roboflow
+                const extracted = this.extractPointsFromCurrentPhoto(analysisData, photoInfo);
+                points = extracted.points;
+                contours = extracted.contours;
+            } else {
+                // Это уже обработанные данные
+                points = analysisData.points || [];
+                contours = analysisData.contours || [];
+            }
+            console.log(`📦 Получены точки (${points.length}) и контуры (${contours.length})`);
+        }
 
         if (points.length < 3) {
             console.log('⚠️ Слишком мало точек для топологии');
@@ -49,7 +70,7 @@ class TopologyManager {
         if (this.debug && points.length > 0) {
             console.log(`📋 Первые 3 точки текущего фото:`);
             points.slice(0, 3).forEach((p, i) => {
-                console.log(`   ${i+1}. ${p.id}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+                console.log(`   ${i+1}. ${p.id || 'no-id'}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
             });
         }
 
@@ -61,16 +82,16 @@ class TopologyManager {
             console.log(`🔗 Связал след ${footprint.id} с моделью ${modelId}`);
         }
 
-        // Обрабатываем точки через топологический аккумулятор
-const result = await this.accumulator.processPoints(points, {
-    modelId: modelId,
-    source: `photo_${photoInfo.photoId || Date.now()}`,
-    name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
-    footprintId: footprint.id,
-    photoInfo: photoInfo,
-    photoId: photoInfo.photoId,
-    contours: contours // 🔥 ПЕРЕДАЁМ КОНТУРЫ
-});
+        // 🔥 ПЕРЕДАЁМ ТОЧКИ И КОНТУРЫ В АККУМУЛЯТОР
+        const result = await this.accumulator.processPoints(points, {
+            modelId: modelId,
+            source: `photo_${photoInfo.photoId || Date.now()}`,
+            name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
+            footprintId: footprint.id,
+            photoInfo: photoInfo,
+            photoId: photoInfo.photoId,
+            contours: contours  // 🔥 КОНТУРЫ ПЕРЕДАЮТСЯ СЮДА
+        });
 
         // Обновляем связь след-модель
         if (result.modelId && result.modelId !== modelId) {
@@ -92,13 +113,15 @@ const result = await this.accumulator.processPoints(points, {
         };
     }
 
-    // Извлечение точек ТОЛЬКО из текущего фото
+    // ==================== ИЗВЛЕЧЕНИЕ ТОЧЕК И КОНТУРОВ ====================
+
     extractPointsFromCurrentPhoto(analysis, photoInfo = {}) {
         const points = [];
+        const contours = [];
 
         if (!analysis?.predictions) {
             console.log('⚠️ Нет данных анализа для извлечения точек');
-            return points;
+            return { points, contours };
         }
 
         const photoId = photoInfo.photoId || `photo_${Date.now()}`;
@@ -110,26 +133,40 @@ const result = await this.accumulator.processPoints(points, {
                 const xs = pred.points.map(p => p.x);
                 const ys = pred.points.map(p => p.y);
 
+                const pointId = `${photoId}_pt_${protectorCount}`;
+               
+                // 🔥 СОХРАНЯЕМ КОНТУР
+                contours.push({
+                    id: `${photoId}_contour_${protectorCount}`,
+                    pointId: pointId,
+                    points: pred.points,
+                    class: pred.class,
+                    confidence: pred.confidence || 0.5
+                });
+
+                // 🔥 СОХРАНЯЕМ ТОЧКУ (ЦЕНТР КОНТУРА)
                 points.push({
-                    id: `${photoId}_pt_${protectorCount}`,
+                    id: pointId,
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
                     y: (Math.min(...ys) + Math.max(...ys)) / 2,
                     confidence: pred.confidence || 0.5,
                     source: 'current_photo',
                     photoId: photoId,
                     originalIndex: protectorCount,
-                    originalPoints: pred.points
+                    originalPoints: pred.points,
+                    contourId: `${photoId}_contour_${protectorCount}`
                 });
                 protectorCount++;
             }
         });
 
-        console.log(`📸 Извлечено ${points.length} точек из ТЕКУЩЕГО ФОТО ${photoId}`);
+        console.log(`📸 Извлечено ${points.length} точек и ${contours.length} контуров из ТЕКУЩЕГО ФОТО ${photoId}`);
 
-        return points;
+        return { points, contours };
     }
 
-    // Получение решения из результата топологической обработки
+    // ==================== ПОЛУЧЕНИЕ РЕШЕНИЯ ====================
+
     getDecisionFromResult(result) {
         if (!result) return 'unknown';
 
@@ -144,7 +181,8 @@ const result = await this.accumulator.processPoints(points, {
         }
     }
 
-    // 🔥 ВИЗУАЛИЗАЦИЯ - ИСПОЛЬЗУЕМ fingerprint ИЗ АККУМУЛЯТОРА!
+    // ==================== ВИЗУАЛИЗАЦИЯ ====================
+
     getAccumulativeVisualizationData(modelId = null) {
         const targetModelId = modelId || this.accumulator.currentModelId;
 
@@ -158,10 +196,8 @@ const result = await this.accumulator.processPoints(points, {
 
         const graph = model.graph;
 
-        // 🔥 БЕРЕМ fingerprint ИЗ МОДЕЛИ!
+        // 🔥 БЕРЕМ fingerprint ИЗ МОДЕЛИ
         const fingerprints = model.fingerprints;
-       
-        // 🔥 ИСПОЛЬЗУЕМ fingerprint ИЗ АККУМУЛЯТОРА!
         const fingerprinter = this.accumulator.fingerprinter;
 
         // Группируем узлы по количеству подтверждений
@@ -235,12 +271,12 @@ const result = await this.accumulator.processPoints(points, {
         };
     }
 
-    // Получить информацию о всех моделях пользователя
+    // ==================== ИНФОРМАЦИЯ О МОДЕЛЯХ ====================
+
     getUserModelsInfo() {
         return this.accumulator.getStats();
     }
 
-    // Очистить все модели пользователя
     clearUserModels() {
         this.accumulator.models.clear();
         this.accumulator.currentModelId = null;
@@ -250,7 +286,8 @@ const result = await this.accumulator.processPoints(points, {
         return { success: true, message: 'Топологические модели очищены' };
     }
 
-    // Экспорт моделей пользователя
+    // ==================== ЭКСПОРТ/ИМПОРТ ====================
+
     exportUserModels() {
         const models = [];
 
@@ -267,7 +304,6 @@ const result = await this.accumulator.processPoints(points, {
         };
     }
 
-    // Импорт моделей пользователя
     importUserModels(data) {
         if (!data || !data.models || !Array.isArray(data.models)) {
             return { success: false, error: 'Неверный формат данных' };
