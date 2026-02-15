@@ -141,7 +141,7 @@ class SimpleFootprintManager {
             }
            
             // Извлечение точек из анализа
-            const points = this.extractPointsFromAnalysis(analysis);
+            const { points, contours } = this.extractPointsFromAnalysis(analysis);
             if (points.length < this.config.minPointsForFootprint) {
                 return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
             }
@@ -291,99 +291,81 @@ class SimpleFootprintManager {
     }
    
     // 🔥 ИСПРАВЛЕННЫЙ МЕТОД: Извлечение точек из анализа
-    extractPointsFromAnalysis(analysis) {
-        console.log(`🔍 Извлечение точек из анализа...`);
-       
-        let predictions = [];
-       
-        // 🔥 ОБНОВЛЕННАЯ ЛОГИКА ИЗВЛЕЧЕНИЯ
-        if (Array.isArray(analysis.predictions)) {
-            predictions = analysis.predictions;
-            console.log(`📊 Найден массив predictions: ${predictions.length} элементов`);
-        } else if (analysis.predictions && typeof analysis.predictions === 'object') {
-            // Может быть объект с массивом внутри
-            if (Array.isArray(analysis.predictions.predictions)) {
-                predictions = analysis.predictions.predictions;
-                console.log(`📊 Найден predictions.predictions: ${predictions.length} элементов`);
-            } else if (analysis.predictions.data && Array.isArray(analysis.predictions.data)) {
-                predictions = analysis.predictions.data;
-                console.log(`📊 Найден predictions.data: ${predictions.length} элементов`);
-            } else {
-                // Пытаемся преобразовать объект в массив
-                predictions = Object.values(analysis.predictions);
-                console.log(`📊 Преобразован объект в массив: ${predictions.length} элементов`);
-            }
+extractPointsFromAnalysis(analysis) {
+    console.log(`🔍 Извлечение точек и контуров из анализа...`);
+
+    let predictions = [];
+
+    // 🔥 ЛОГИКА ИЗВЛЕЧЕНИЯ (как у вас)
+    if (Array.isArray(analysis.predictions)) {
+        predictions = analysis.predictions;
+        console.log(`📊 Найден массив predictions: ${predictions.length} элементов`);
+    } else if (analysis.predictions && typeof analysis.predictions === 'object') {
+        if (Array.isArray(analysis.predictions.predictions)) {
+            predictions = analysis.predictions.predictions;
+        } else if (analysis.predictions.data && Array.isArray(analysis.predictions.data)) {
+            predictions = analysis.predictions.data;
         } else {
-            console.log(`❌ Неизвестный формат predictions:`, typeof analysis.predictions);
-            return [];
+            predictions = Object.values(analysis.predictions);
         }
-       
-        console.log(`📊 Для обработки: ${predictions.length} предсказаний`);
-       
-        const points = [];
-        let protectorCount = 0;
-        let otherCount = 0;
-       
-        for (let i = 0; i < predictions.length; i++) {
-            const pred = predictions[i];
+    } else {
+        console.log(`❌ Неизвестный формат predictions`);
+        return { points: [], contours: [] };
+    }
+
+    const points = [];
+    const contours = []; // 🔥 НОВОЕ: массив контуров
+    let protectorCount = 0;
+    let otherCount = 0;
+
+    for (let i = 0; i < predictions.length; i++) {
+        const pred = predictions[i];
+
+        if (!pred || typeof pred !== 'object') continue;
+
+        // Проверяем наличие контура
+        if (pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
            
-            // 🔥 ДИАГНОСТИКА: Логируем первые несколько предсказаний
-            if (i < 2 && protectorCount === 0) {
-                console.log(`   Предсказание ${i}: class="${pred?.class}", confidence=${pred?.confidence}`);
-            }
+            // 🔥 СОХРАНЯЕМ КОНТУР
+            const contourId = `contour_${Date.now()}_${i}`;
+            contours.push({
+                id: contourId,
+                pointId: `pt_${Date.now()}_${i}`, // будет соответствовать точке
+                points: pred.points,
+                class: pred.class,
+                confidence: pred.confidence || 0.5
+            });
+
+            // Вычисляем центр для точки
+            const center = this.calculateCenter(pred.points);
            
-            if (!pred || typeof pred !== 'object') {
-                console.log(`⚠️ Предсказание ${i} не является объектом:`, typeof pred);
-                continue;
-            }
-           
-            // Проверяем класс протектора
             const isProtector = pred.class === 'shoe-protector' ||
                                (pred.class && pred.class.toLowerCase().includes('protector'));
-           
-            if (isProtector && pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
-                const center = this.calculateCenter(pred.points);
-                points.push({
-                    x: center.x,
-                    y: center.y,
-                    confidence: pred.confidence || 0.5,
-                    originalPoints: pred.points,
-                    class: pred.class,
-                    originalIndex: i
-                });
+
+            points.push({
+                id: `pt_${Date.now()}_${i}`,
+                x: center.x,
+                y: center.y,
+                confidence: pred.confidence || 0.5,
+                originalPoints: pred.points,
+                class: pred.class,
+                originalIndex: i,
+                contourId: contourId // связь с контуром
+            });
+
+            if (isProtector) {
                 protectorCount++;
-            } else if (pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
-                // Если не протектор, но есть точки - тоже учитываем
-                const center = this.calculateCenter(pred.points);
-                points.push({
-                    x: center.x,
-                    y: center.y,
-                    confidence: pred.confidence || 0.5,
-                    originalPoints: pred.points,
-                    class: pred.class || 'unknown',
-                    originalIndex: i,
-                    note: 'not_protector'
-                });
+            } else {
                 otherCount++;
             }
         }
-       
-        console.log(`✅ Извлечено точек: ${points.length} (протекторы: ${protectorCount}, другие: ${otherCount})`);
-       
-        // Если не нашли протекторов, но нашли другие точки
-        if (protectorCount === 0 && points.length > 0) {
-            console.log(`⚠️ Не найдено протекторов, но найдено ${points.length} других точек`);
-            console.log(`   Использую все точки с confidence > 0.3`);
-           
-            // Фильтруем по confidence
-            return points.filter(p => (p.confidence || 0) > 0.3);
-        }
-       
-        return points.filter(p =>
-            p && typeof p.x === 'number' && typeof p.y === 'number' &&
-            !isNaN(p.x) && !isNaN(p.y)
-        );
     }
+
+    console.log(`✅ Извлечено точек: ${points.length}, контуров: ${contours.length}`);
+    console.log(`   Протекторы: ${protectorCount}, другие: ${otherCount}`);
+
+    return { points, contours }; // 🔥 ВОЗВРАЩАЕМ ОБА
+}
    
     calculateCenter(points) {
         if (!points || !Array.isArray(points) || points.length === 0) {
