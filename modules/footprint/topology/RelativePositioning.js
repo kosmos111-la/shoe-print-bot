@@ -1,5 +1,5 @@
 // modules/footprint/topology/RelativePositioning.js
-// 🔥 ОТНОСИТЕЛЬНАЯ ПРИВЯЗКА - стабилизация по путям от 3 якорей
+// 🔥 ОТНОСИТЕЛЬНАЯ ПРИВЯЗКА - индивидуальный выбор 3 ближайших якорей
 
 class RelativePositioning {
     constructor(options = {}) {
@@ -130,213 +130,189 @@ class RelativePositioning {
         return photoToModel;
     }
 
-    // ==================== СТАБИЛИЗАЦИЯ ПО ПУТЯМ ОТ 3 ЯКОРЕЙ ====================
+    // ==================== ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ====================
 
-    stabilizeWithThreeAnchors(photoGraph, modelGraph, anchorMatches, allMatches, photoMorphology, modelMorphology) {
-        console.log(`\n📍 СТАБИЛИЗАЦИЯ ТОЧЕК ПО ПУТЯМ ОТ 3 ЯКОРЕЙ...`);
+    iterativeStabilization(photoGraph, modelGraph, initialAnchors, photoMorphology, modelMorphology) {
+        console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК...`);
        
-        // 1. Берём 3 самых удалённых якоря
-        const anchorIds = Array.from(anchorMatches.keys());
-        if (anchorIds.length < 3) {
-            console.log(`⚠️ Меньше 3 якорей (${anchorIds.length}), стабилизация невозможна`);
-            return allMatches;
-        }
+        let currentAnchors = new Map(initialAnchors); // текущие якоря
+        let allMatches = new Map(initialAnchors); // все найденные соответствия
+        let iteration = 0;
+        let newAnchorsAdded = 0;
        
-        // Находим 3 самых удалённых друг от друга якоря
-        let bestTriplet = null;
-        let maxMinDist = 0;
-       
-        for (let i = 0; i < anchorIds.length; i++) {
-            for (let j = i + 1; j < anchorIds.length; j++) {
-                for (let k = j + 1; k < anchorIds.length; k++) {
-                    const a = anchorIds[i];
-                    const b = anchorIds[j];
-                    const c = anchorIds[k];
-                   
-                    const distAB = this.graphDistance(a, b, photoGraph);
-                    const distAC = this.graphDistance(a, c, photoGraph);
-                    const distBC = this.graphDistance(b, c, photoGraph);
-                   
-                    const minDist = Math.min(distAB, distAC, distBC);
-                    if (minDist > maxMinDist) {
-                        maxMinDist = minDist;
-                        bestTriplet = [a, b, c];
-                    }
-                }
-            }
-        }
-       
-        if (!bestTriplet) {
-            console.log(`⚠️ Не удалось выбрать 3 якоря`);
-            return allMatches;
-        }
-       
-        const [anchorA, anchorB, anchorC] = bestTriplet;
-        const modelAnchorA = anchorMatches.get(anchorA).modelId;
-        const modelAnchorB = anchorMatches.get(anchorB).modelId;
-        const modelAnchorC = anchorMatches.get(anchorC).modelId;
-       
-        console.log(`   Выбраны якоря: ${anchorA.substring(0,8)}..., ${anchorB.substring(0,8)}..., ${anchorC.substring(0,8)}...`);
-       
-        // 2. Вычисляем пути от каждого якоря до всех точек
-        const photoPathsA = this.computePathsFromAnchor(anchorA, photoGraph);
-        const photoPathsB = this.computePathsFromAnchor(anchorB, photoGraph);
-        const photoPathsC = this.computePathsFromAnchor(anchorC, photoGraph);
-       
-        const modelPathsA = this.computePathsFromAnchor(modelAnchorA, modelGraph);
-        const modelPathsB = this.computePathsFromAnchor(modelAnchorB, modelGraph);
-        const modelPathsC = this.computePathsFromAnchor(modelAnchorC, modelGraph);
-       
-        // 3. Создаём карту подписей для всех точек фото
-        const photoSignatures = new Map(); // photoId -> { pathA, pathB, pathC, coords }
-       
-        for (const [photoId, photoNode] of photoGraph.nodes) {
-            const pathA = photoPathsA.get(photoId);
-            const pathB = photoPathsB.get(photoId);
-            const pathC = photoPathsC.get(photoId);
-           
-            if (pathA && pathB && pathC) {
-                photoSignatures.set(photoId, {
-                    pathA: pathA.signature,
-                    pathB: pathB.signature,
-                    pathC: pathC.signature,
-                    distA: pathA.dist,
-                    distB: pathB.dist,
-                    distC: pathC.dist,
-                    x: photoNode.x,
-                    y: photoNode.y
-                });
-            }
-        }
-       
-        // 4. Создаём карту подписей для всех точек модели
-        const modelSignatures = new Map(); // modelId -> { pathA, pathB, pathC, coords }
-       
-        for (const [modelId, modelNode] of modelGraph.nodes) {
-            const pathA = modelPathsA.get(modelId);
-            const pathB = modelPathsB.get(modelId);
-            const pathC = modelPathsC.get(modelId);
-           
-            if (pathA && pathB && pathC) {
-                modelSignatures.set(modelId, {
-                    pathA: pathA.signature,
-                    pathB: pathB.signature,
-                    pathC: pathC.signature,
-                    distA: pathA.dist,
-                    distB: pathB.dist,
-                    distC: pathC.dist,
-                    x: modelNode.x,
-                    y: modelNode.y
-                });
-            }
-        }
-       
-        // 5. Стабилизируем каждую точку
-        const stabilizedMatches = new Map();
-        const photoToModel = new Map();
+        // Для обратного отображения
         const modelToPhoto = new Map();
-       
-        // Сначала добавляем существующие якоря
-        for (const [photoId, match] of anchorMatches) {
-            photoToModel.set(photoId, match.modelId);
+        for (const [photoId, match] of initialAnchors) {
             modelToPhoto.set(match.modelId, photoId);
         }
        
-        console.log(`\n📋 ТАБЛИЦА СТАБИЛИЗАЦИИ ПО ПУТЯМ (ВСЕ ТОЧКИ):`);
-        console.log(`┌─────┬──────────────────────┬──────────────────────┬──────────────────────┬──────────────────────┬─────────────────────┬─────────────────────┐`);
-        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ПУТИ A→B→C         │   ТОЧКА В МОДЕЛИ      │   ПУТИ A→B→C         │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
-        console.log(`├─────┼──────────────────────┼──────────────────────┼──────────────────────┼──────────────────────┼─────────────────────┼─────────────────────┤`);
+        console.log(`\n📊 Начальное состояние: ${currentAnchors.size} якорей`);
        
-        let exactMatches = 0;
-        let newPoints = 0;
-        let missingPoints = 0;
-        let count = 0;
-       
-        // Сначала все точки из фото
-        for (const [photoId, photoSig] of photoSignatures) {
-            if (count >= 50) break; // ограничим вывод
-            count++;
+        do {
+            iteration++;
+            newAnchorsAdded = 0;
            
-            // Пропускаем уже сопоставленные (якоря)
-            if (photoToModel.has(photoId)) continue;
+            console.log(`\n=== ИТЕРАЦИЯ ${iteration} ===`);
            
-            // Ищем точку в модели с такими же тремя путями
-            let bestMatch = null;
-           
-            for (const [modelId, modelSig] of modelSignatures) {
-                if (modelToPhoto.has(modelId)) continue; // уже занято
-               
-                if (photoSig.pathA === modelSig.pathA &&
-                    photoSig.pathB === modelSig.pathB &&
-                    photoSig.pathC === modelSig.pathC) {
-                    bestMatch = modelId;
-                    break;
+            // Создаём пространственный индекс для быстрого поиска ближайших якорей
+            const anchorPositions = [];
+            for (const [photoId, match] of currentAnchors) {
+                const node = photoGraph.nodes.get(photoId);
+                if (node) {
+                    anchorPositions.push({
+                        id: photoId,
+                        modelId: match.modelId,
+                        x: node.x,
+                        y: node.y
+                    });
                 }
             }
            
-            if (bestMatch) {
-                // Нашли точку
-                stabilizedMatches.set(photoId, {
-                    modelId: bestMatch,
-                    confidence: 1.0,
-                    source: 'path_stabilized'
-                });
-                photoToModel.set(photoId, bestMatch);
-                modelToPhoto.set(bestMatch, photoId);
-                exactMatches++;
-               
-                const modelSig = modelSignatures.get(bestMatch);
-                console.log(
-                    `│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
-                    `${photoSig.pathA.substring(0,6).padEnd(6)}→${photoSig.pathB.substring(0,6).padEnd(6)}→${photoSig.pathC.substring(0,6).padEnd(6)} │ ` +
-                    `${bestMatch.substring(0,20).padEnd(20)} │ ` +
-                    `${modelSig.pathA.substring(0,6).padEnd(6)}→${modelSig.pathB.substring(0,6).padEnd(6)}→${modelSig.pathC.substring(0,6).padEnd(6)} │ ` +
-                    `(${photoSig.x.toFixed(1).padStart(6)}, ${photoSig.y.toFixed(1).padStart(6)}) │ ` +
-                    `(${modelSig.x.toFixed(1).padStart(6)}, ${modelSig.y.toFixed(1).padStart(6)}) │`
-                );
-            } else {
-                // Новая точка
-                newPoints++;
-                console.log(
-                    `│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
-                    `${photoSig.pathA.substring(0,6).padEnd(6)}→${photoSig.pathB.substring(0,6).padEnd(6)}→${photoSig.pathC.substring(0,6).padEnd(6)} │ ` +
-                    `${'НЕТ В МОДЕЛИ'.padEnd(20)} │ ` +
-                    `${' '.padEnd(20)} │ ` +
-                    `(${photoSig.x.toFixed(1).padStart(6)}, ${photoSig.y.toFixed(1).padStart(6)}) │ ` +
-                    `${' '.padEnd(21)} │`
-                );
-            }
-        }
-       
-        // Теперь точки из модели, которых нет в фото
-        for (const [modelId, modelSig] of modelSignatures) {
-            if (modelToPhoto.has(modelId)) continue; // уже есть в фото
+            // 1. Сначала вычисляем расстояния для всех точек фото
+            const photoCandidates = [];
            
-            missingPoints++;
-            if (count < 50) {
+            for (const [photoId, photoNode] of photoGraph.nodes) {
+                if (allMatches.has(photoId)) continue; // уже сопоставлена
+               
+                // Находим 3 ближайших якоря для этой точки
+                const nearestAnchors = this.findNearestAnchors(photoNode, anchorPositions, 5); // берём 5, потом выберем 3 лучших
+                if (nearestAnchors.length < 3) continue;
+               
+                // Берём 3 ближайших
+                const top3 = nearestAnchors.slice(0, 3);
+               
+                // Вычисляем расстояния до этих 3 якорей
+                const photoDists = top3.map(a =>
+                    this.graphDistance(photoId, a.id, photoGraph)
+                );
+               
+                if (photoDists.includes(Infinity)) continue;
+               
+                photoCandidates.push({
+                    photoId,
+                    photoNode,
+                    anchors: top3,
+                    photoDists
+                });
+            }
+           
+            console.log(`\n📋 ТАБЛИЦА СТАБИЛИЗАЦИИ (итерация ${iteration}):`);
+            console.log(`┌─────┬──────────────────────┬─────────────────────┬──────────────────────┬─────────────────────┐`);
+            console.log(`│  #  │   ТОЧКА В ФОТО 2      │   БЛИЖАЙШИЕ ЯКОРЯ   │   ТОЧКА В МОДЕЛИ      │   КООРД. ФОТО 2     │`);
+            console.log(`│     │                      │   (расстояния)      │                      │                     │`);
+            console.log(`├─────┼──────────────────────┼─────────────────────┼──────────────────────┼─────────────────────┤`);
+           
+            let count = 0;
+            const candidates = [];
+           
+            // Для каждого кандидата ищем соответствие в модели
+            for (const cand of photoCandidates) {
+                const { photoId, photoNode, anchors, photoDists } = cand;
+               
+                // Ищем точку в модели с похожими расстояниями до тех же якорей
+                let bestMatch = null;
+                let bestScore = 0;
+               
+                for (const [modelId, modelNode] of modelGraph.nodes) {
+                    if (modelToPhoto.has(modelId)) continue; // уже занято
+                   
+                    // Вычисляем расстояния от точки модели до тех же якорей
+                    const modelDists = anchors.map(a =>
+                        this.graphDistance(modelId, currentAnchors.get(a.id).modelId, modelGraph)
+                    );
+                   
+                    if (modelDists.includes(Infinity)) continue;
+                   
+                    // Сравниваем расстояния
+                    let totalDiff = 0;
+                    for (let i = 0; i < 3; i++) {
+                        totalDiff += Math.abs(photoDists[i] - modelDists[i]);
+                    }
+                   
+                    const score = Math.max(0, 1 - totalDiff / 6); // допуск до 2 шагов на якорь
+                   
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMatch = modelId;
+                    }
+                }
+               
+                if (bestMatch && bestScore > 0.7) {
+                    candidates.push({
+                        photoId,
+                        modelId: bestMatch,
+                        score: bestScore,
+                        photoNode,
+                        anchors: anchors.map(a => a.id.substring(0,6)).join(',')
+                    });
+                }
+            }
+           
+            // Сортируем кандидатов по убыванию score
+            candidates.sort((a, b) => b.score - a.score);
+           
+            // Добавляем лучших кандидатов как новые якоря
+            for (const cand of candidates) {
+                if (count >= 20) break; // лимит на вывод
                 count++;
+               
+                const modelNode = modelGraph.nodes.get(cand.modelId);
+                if (!modelNode) continue;
+               
+                // Добавляем в matches
+                allMatches.set(cand.photoId, {
+                    modelId: cand.modelId,
+                    confidence: cand.score,
+                    source: 'iterative'
+                });
+               
+                // Добавляем в якоря для следующих итераций
+                currentAnchors.set(cand.photoId, {
+                    modelId: cand.modelId,
+                    confidence: cand.score
+                });
+               
+                modelToPhoto.set(cand.modelId, cand.photoId);
+                newAnchorsAdded++;
+               
                 console.log(
-                    `│ ${count.toString().padEnd(3)} │ ${'НЕТ В ФОТО'.padEnd(20)} │ ` +
-                    `${' '.padEnd(20)} │ ` +
-                    `${modelId.substring(0,20).padEnd(20)} │ ` +
-                    `${modelSig.pathA.substring(0,6).padEnd(6)}→${modelSig.pathB.substring(0,6).padEnd(6)}→${modelSig.pathC.substring(0,6).padEnd(6)} │ ` +
-                    `${' '.padEnd(21)} │ ` +
-                    `(${modelSig.x.toFixed(1).padStart(6)}, ${modelSig.y.toFixed(1).padStart(6)}) │`
+                    `│ ${count.toString().padEnd(3)} │ ${cand.photoId.substring(0,20).padEnd(20)} │ ` +
+                    `${cand.anchors.padEnd(19)} │ ` +
+                    `${cand.modelId.substring(0,20).padEnd(20)} │ ` +
+                    `(${cand.photoNode.x.toFixed(1).padStart(6)}, ${cand.photoNode.y.toFixed(1).padStart(6)}) │`
                 );
             }
-        }
+           
+            console.log(`└─────┴──────────────────────┴─────────────────────┴──────────────────────┴─────────────────────┘`);
+            console.log(`\n📊 Итерация ${iteration}: добавлено ${newAnchorsAdded} новых якорей`);
+           
+        } while (newAnchorsAdded > 0 && currentAnchors.size < photoGraph.nodes.size);
        
-        console.log(`└─────┴──────────────────────┴──────────────────────┴──────────────────────┴──────────────────────┴─────────────────────┴─────────────────────┘`);
-        console.log(`\n📊 СТАТИСТИКА СТАБИЛИЗАЦИИ:`);
-        console.log(`   ✅ Стабилизировано (есть в обоих): ${exactMatches + anchorMatches.size}`);
-        console.log(`   🔥 Новых точек (только в фото 2): ${newPoints}`);
-        console.log(`   ⚰️ Исчезнувших точек (только в модели): ${missingPoints}`);
-        console.log(`   📈 Всего точек в фото 2: ${photoGraph.nodes.size}`);
-        console.log(`   📈 Всего точек в модели: ${modelGraph.nodes.size}`);
+        console.log(`\n🎯 ИТОГ ИТЕРАТИВНОЙ СТАБИЛИЗАЦИИ:`);
+        console.log(`   Всего стабилизировано: ${currentAnchors.size} точек`);
+        console.log(`   Выполнено итераций: ${iteration}`);
        
-        // Объединяем с существующими matches
-        const result = new Map([...allMatches, ...stabilizedMatches]);
-        return result;
+        return allMatches;
+    }
+
+    // ==================== ПОИСК БЛИЖАЙШИХ ЯКОРЕЙ ====================
+
+    findNearestAnchors(point, anchors, count) {
+        // Вычисляем расстояния до всех якорей
+        const distances = anchors.map(anchor => {
+            const dx = point.x - anchor.x;
+            const dy = point.y - anchor.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            return {
+                ...anchor,
+                distance: dist
+            };
+        });
+       
+        // Сортируем по расстоянию и берём первые count
+        return distances
+            .sort((a, b) => a.distance - b.distance)
+            .slice(0, count);
     }
 
     // ==================== ВЫЧИСЛЕНИЕ ПУТЕЙ ====================
