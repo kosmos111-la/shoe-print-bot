@@ -12,7 +12,7 @@ class CenterMatcher {
         this.reliableMorphThreshold = 0.75;           // морфология ≥ 75%
         this.reliableLocalThreshold = 0.70;           // локальное сходство ≥ 70%
         this.minGraphDistanceRatio = 0.5;              // мин. соотношение расстояний 50%
-        this.minTriangleScore = 0.8;                    // мин. совпадение треугольников 70%
+        this.minTriangleScore = 0.95;                    // мин. совпадение треугольников 70%
        
         this.localGroupSignature = options.localGroupSignature;
         this.morphologyEncoder = options.morphologyEncoder;
