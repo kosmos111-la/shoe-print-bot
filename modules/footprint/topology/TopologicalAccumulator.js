@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - быстрый WL + точный анализ
+// 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - с правильным WL-сравнением
 
 const GraphBuilder = require('./GraphBuilder');
 const LocalGroupSignature = require('./LocalGroupSignature');
@@ -21,7 +21,8 @@ class TopologicalAccumulator {
         this.graphBuilder = new GraphBuilder({ debug: this.debug });
         this.fingerprinter = new TopologicalFingerprint({
             debug: this.debug,
-            iterations: options.wlIterations || 3
+            iterations: options.wlIterations || 3,
+            structuralSimilarityThreshold: 0.7
         });
        
         this.localGroupSignature = new LocalGroupSignature({
@@ -82,18 +83,19 @@ class TopologicalAccumulator {
         // 2. Кодируем морфологию
         const morphologyMap = this.morphologyEncoder.encode(points, contours);
 
+        // Вычисляем WL-подписи для нового графа
+        const newFingerprints = this.fingerprinter.computeGraphFingerprints(graph);
+
         // Если нет существующей модели - создаём новую
         if (!modelId || !this.models.has(modelId)) {
-            return this.createNewModel(graph, morphologyMap, points, options);
+            return this.createNewModel(graph, newFingerprints, morphologyMap, points, options);
         }
 
         const existingModel = this.models.get(modelId);
         console.log(`🔍 Сравниваю с моделью "${modelId}"`);
 
-        // 🔥 3. WL-сравнение
+        // 🔥 3. СРАВНЕНИЕ ГРАФОВ (как в старой версии)
         console.log(`\n🔍 Сравниваю графы по WL-подписям...`);
-       
-        const newFingerprints = this.fingerprinter.computeGraphFingerprints(graph);
        
         const comparison = this.fingerprinter.compareGraphs(
             existingModel.graph,
@@ -113,14 +115,17 @@ class TopologicalAccumulator {
         if (comparison.similarity < this.similarityThreshold) {
             console.log(`⚠️ Сходство ниже порога (${(comparison.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
             console.log(`🆕 Создаю новую модель`);
-            return this.createNewModel(graph, morphologyMap, points, {
+            return this.createNewModel(graph, newFingerprints, morphologyMap, points, {
                 ...options,
                 comparedWith: modelId,
                 reason: 'low_similarity'
             });
         }
 
-        // 🔥 4. ПОЛНЫЙ РЕЖИМ - точная идентификация
+        // Сохраняем similarity для результата
+        const globalSimilarity = comparison.similarity;
+
+        // 🔥 4. ЕСЛИ ВКЛЮЧЕН ПОЛНЫЙ РЕЖИМ - запускаем точную идентификацию
         if (!this.fastMode) {
             console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА...`);
            
@@ -131,75 +136,65 @@ class TopologicalAccumulator {
                 existingModel.morphologyMap
             );
 
-            if (centerMatches.size < this.centerMatcher.minConsistentPairs) {
-                console.log(`⚠️ Недостаточно надёжных точек (${centerMatches.size} < ${this.centerMatcher.minConsistentPairs})`);
-                console.log(`⚠️ Пропускаю точную идентификацию`);
-               
+            if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
+                console.log(`✅ Найдено ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК`);
+
+                const allMatches = this.relativePositioning.positionPoints(
+                    graph,
+                    existingModel.graph,
+                    centerMatches,
+                    morphologyMap,
+                    existingModel.morphologyMap
+                );
+
+                const stabilizedMatches = this.relativePositioning.iterativeStabilization(
+                    graph,
+                    existingModel.graph,
+                    centerMatches,
+                    morphologyMap,
+                    existingModel.morphologyMap
+                );
+
+                const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
+
+                this.printFinalTable(graph, existingModel.graph, finalMatches);
+
+                const updatedModel = await this.enhanceModel(
+                    modelId,
+                    graph,
+                    newFingerprints,
+                    morphologyMap,
+                    finalMatches,
+                    centerMatches,
+                    options
+                );
+
                 return {
-                    status: 'enhanced_fast',
+                    status: 'enhanced_full',
                     modelId: modelId,
-                    similarity: comparison.similarity,
-                    exactMatches: comparison.exactMatches.length,
-                    similarMatches: comparison.similarMatches.length,
-                    message: `Модель совпадает (WL: ${(comparison.similarity * 100).toFixed(1)}%)`
+                    similarity: globalSimilarity,
+                    centerMatches: centerMatches.size,
+                    totalMatches: finalMatches.size,
+                    newNodesAdded: updatedModel.newNodesAdded,
+                    message: `Модель улучшена (WL: ${(globalSimilarity * 100).toFixed(1)}%, надёжных: ${centerMatches.size}, новых: ${updatedModel.newNodesAdded})`
                 };
+            } else {
+                console.log(`⚠️ Недостаточно надёжных точек (${centerMatches.size} < ${this.centerMatcher.minConsistentPairs})`);
             }
-
-            console.log(`✅ Найдено ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК`);
-
-            const allMatches = this.relativePositioning.positionPoints(
-                graph,
-                existingModel.graph,
-                centerMatches,
-                morphologyMap,
-                existingModel.morphologyMap
-            );
-
-            const stabilizedMatches = this.relativePositioning.iterativeStabilization(
-                graph,
-                existingModel.graph,
-                centerMatches,
-                morphologyMap,
-                existingModel.morphologyMap
-            );
-
-            const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
-
-            this.printFinalTable(graph, existingModel.graph, finalMatches);
-
-            const updatedModel = await this.enhanceModel(
-                modelId,
-                graph,
-                morphologyMap,
-                finalMatches,
-                centerMatches,
-                options
-            );
-
-            return {
-                status: 'enhanced_full',
-                modelId: modelId,
-                similarity: comparison.similarity,
-                centerMatches: centerMatches.size,
-                totalMatches: finalMatches.size,
-                newNodesAdded: updatedModel.newNodesAdded,
-                reliablePhotoIds: Array.from(centerMatches.keys()),
-                message: `Модель улучшена (WL: ${(comparison.similarity * 100).toFixed(1)}%, надёжных: ${centerMatches.size}, новых: ${updatedModel.newNodesAdded})`
-            };
         }
 
-        // 🔥 5. БЫСТРЫЙ РЕЖИМ
+        // 🔥 5. БЫСТРЫЙ РЕЖИМ или не хватило точек
         return {
             status: 'enhanced_fast',
             modelId: modelId,
-            similarity: comparison.similarity,
+            similarity: globalSimilarity,
             exactMatches: comparison.exactMatches.length,
             similarMatches: comparison.similarMatches.length,
-            message: `Модель совпадает (WL: ${(comparison.similarity * 100).toFixed(1)}%)`
+            message: `Модель совпадает (WL: ${(globalSimilarity * 100).toFixed(1)}%)`
         };
     }
 
-    // ==================== ТАБЛИЦА ====================
+    // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
 
     printFinalTable(newGraph, modelGraph, matches) {
         console.log(`\n📋 ИТОГОВАЯ ТАБЛИЦА СОПОСТАВЛЕНИЯ ВСЕХ ТОЧЕК:`);
@@ -229,9 +224,7 @@ class TopologicalAccumulator {
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
     }
 
-    // ==================== СОЗДАНИЕ НОВОЙ МОДЕЛИ ====================
-
-    createNewModel(graph, morphologyMap, originalPoints, options = {}) {
+    createNewModel(graph, fingerprints, morphologyMap, originalPoints, options = {}) {
         const modelId = `topo_model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
         let morphologyCount = 0;
@@ -245,8 +238,6 @@ class TopologicalAccumulator {
             node.confirmationCount = 1;
             node.addedFrom = 'original';
         }
-
-        const fingerprints = this.fingerprinter.computeGraphFingerprints(graph);
 
         const model = {
             id: modelId,
@@ -290,9 +281,7 @@ class TopologicalAccumulator {
         };
     }
 
-    // ==================== УЛУЧШЕНИЕ МОДЕЛИ ====================
-
-    async enhanceModel(modelId, newGraph, newMorphology, allMatches, anchorMatches, options) {
+    async enhanceModel(modelId, newGraph, newFingerprints, newMorphology, allMatches, anchorMatches, options) {
         const model = this.models.get(modelId);
        
         let confirmedExisting = 0;
@@ -343,7 +332,8 @@ class TopologicalAccumulator {
        
         this.updateEdges(model.graph, newGraph, allMatches);
        
-        model.fingerprints = this.fingerprinter.computeGraphFingerprints(model.graph);
+        // Обновляем WL-подписи модели
+        model.fingerprints = new Map([...model.fingerprints, ...newFingerprints]);
        
         model.metadata.nodesCount = model.graph.nodes.size;
         model.metadata.lastEnhanced = new Date();
@@ -380,8 +370,6 @@ class TopologicalAccumulator {
             totalMatches: allMatches.size
         };
     }
-
-    // ==================== ОБНОВЛЕНИЕ РЁБЕР ====================
 
     updateEdges(modelGraph, newGraph, matches) {
         const modelToPhoto = new Map();
