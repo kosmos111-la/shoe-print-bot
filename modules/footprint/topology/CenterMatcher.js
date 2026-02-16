@@ -193,7 +193,7 @@ class CenterMatcher {
             }
         }
 
-        console.log(`\n🎯 ИТОГО: Найдено ${result.size} НАДЁЖНЫХ ТОПОЛОГИЧЕСКИХ точек`);
+        console.log(`\n🎯 ИТОГО: Найдено ${result.size} АБСОЛЮТНО НАДЁЖНЫХ ТОПОЛОГИЧЕСКИХ ТОЧЕК (треугольники ≥95%)`);
 
         return result;
     }
