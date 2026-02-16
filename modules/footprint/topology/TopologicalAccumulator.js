@@ -109,12 +109,11 @@ const allMatches = this.relativePositioning.positionPoints(
     existingModel.morphologyMap
 );
 
-// 🔥 СТАБИЛИЗАЦИЯ ПО 3 ЯКОРЯМ
-const stabilizedMatches = this.relativePositioning.stabilizeWithThreeAnchors(
+// 🔥 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ
+const stabilizedMatches = this.relativePositioning.iterativeStabilization(
     graph,
     existingModel.graph,
     centerMatches,
-    allMatches,
     morphologyMap,
     existingModel.morphologyMap
 );
