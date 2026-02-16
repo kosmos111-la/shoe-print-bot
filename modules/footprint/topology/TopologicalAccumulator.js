@@ -109,6 +109,42 @@ class TopologicalAccumulator {
             existingModel.morphologyMap
         );
 
+        // 🔥 ВЫВОД ТАБЛИЦЫ СОПОСТАВЛЕНИЯ
+        console.log(`\n📋 ТАБЛИЦА СОПОСТАВЛЕНИЯ ТОЧЕК (первые 30):`);
+        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┬─────────────────────┬─────────────────────┐`);
+        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │ СТАТУС    │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
+        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼───────────┼─────────────────────┼─────────────────────┤`);
+
+        let matchCount = 0;
+        for (const [photoId, match] of allMatches) {
+            if (matchCount >= 30) break;
+           
+            const photoNode = graph.nodes.get(photoId);
+            const modelNode = existingModel.graph.nodes.get(match.modelId);
+           
+            if (!photoNode || !modelNode) continue;
+           
+            const status = match.confidence >= 0.7 ? '✅' : '⚠️';
+            matchCount++;
+           
+            console.log(
+                `│ ${matchCount.toString().padEnd(3)} │ ${photoId.substring(0, 20).padEnd(20)} │ ` +
+                `${match.modelId.substring(0, 20).padEnd(20)} │ ` +
+                `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
+                `${status.padEnd(7)}   │ ` +
+                `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
+                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
+            );
+        }
+        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
+
+        console.log(`\n📊 СТАТИСТИКА СОПОСТАВЛЕНИЙ:`);
+        const highConf = Array.from(allMatches.values()).filter(m => m.confidence >= 0.7).length;
+        const lowConf = allMatches.size - highConf;
+        console.log(`   ✅ Высокая уверенность (≥70%): ${highConf} точек`);
+        console.log(`   ⚠️ Низкая уверенность (<70%): ${lowConf} точек`);
+        console.log(`   📈 Всего сопоставлено: ${allMatches.size} точек`);
+
         // 5. Обновляем модель
         const updatedModel = await this.enhanceModel(
             modelId,
@@ -408,7 +444,27 @@ class TopologicalAccumulator {
 
         const model = this.models.get(targetId);
         const graph = model.graph;
-        const triangles = this.computeTriangles(graph);
+       
+        // 🔥 ТОЛЬКО ТРЕУГОЛЬНИКИ ОТ НАДЁЖНЫХ ТОЧЕК
+        // Получаем ID надёжных точек из истории или центра
+        // Пока для теста берём все точки с confirmationCount >= 2
+        const reliableNodeIds = new Set();
+        for (const [nodeId, node] of graph.nodes) {
+            if (node.confirmationCount >= 2) {
+                reliableNodeIds.add(nodeId);
+            }
+        }
+
+        // Вычисляем только треугольники, где все три точки надёжные
+        const reliableTriangles = [];
+        const allTriangles = this.computeTriangles(graph);
+       
+        for (const triangle of allTriangles) {
+            const [a, b, c] = triangle;
+            if (reliableNodeIds.has(a) && reliableNodeIds.has(b) && reliableNodeIds.has(c)) {
+                reliableTriangles.push(triangle);
+            }
+        }
 
         // Группируем узлы по количеству подтверждений
         const pointsByConfirmation = {
@@ -431,11 +487,11 @@ class TopologicalAccumulator {
             modelName: model.metadata.name,
             points: Array.from(graph.nodes.values()),
             edges: Array.from(graph.edges),
-            triangles: triangles,
+            triangles: reliableTriangles, // 🔥 ТОЛЬКО НАДЁЖНЫЕ ТРЕУГОЛЬНИКИ
             stats: {
                 totalNodes: graph.nodes.size,
                 totalEdges: graph.edges.size,
-                triangles: triangles.length,
+                triangles: reliableTriangles.length,
                 avgDegree: graph.avgDegree || 0,
                 confirmed3: pointsByConfirmation.confirmed3.length,
                 confirmed2: pointsByConfirmation.confirmed2.length,
