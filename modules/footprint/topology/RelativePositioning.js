@@ -7,7 +7,7 @@ class RelativePositioning {
         this.localGroupSignature = options.localGroupSignature;
         this.minPathSimilarity = options.minPathSimilarity || 0.5;
         this.maxPathLengthDiff = options.maxPathLengthDiff || 3;
-        this.confidenceThreshold = options.confidenceThreshold || 0.7; // 🔥 ПОРОГ УВЕРЕННОСТИ
+        this.confidenceThreshold = options.confidenceThreshold || 0.7;
        
         console.log('🧩 RelativePositioning создан');
         console.log(`   Порог уверенности: ${this.confidenceThreshold * 100}%`);
@@ -128,6 +128,152 @@ class RelativePositioning {
         console.log(`   🎯 Сопоставлено всего: ${photoToModel.size}/${photoGraph.nodes.size}`);
 
         return photoToModel;
+    }
+
+    // ==================== СТАБИЛИЗАЦИЯ ТОЧЕК ПО 3 ЯКОРЯМ ====================
+
+    stabilizeWithThreeAnchors(photoGraph, modelGraph, anchorMatches, allMatches, photoMorphology, modelMorphology) {
+        console.log(`\n📍 СТАБИЛИЗАЦИЯ ТОЧЕК ПО 3 ЯКОРЯМ...`);
+       
+        // 1. Берём 3 самых удалённых якоря
+        const anchorIds = Array.from(anchorMatches.keys());
+        if (anchorIds.length < 3) {
+            console.log(`⚠️ Меньше 3 якорей (${anchorIds.length}), стабилизация невозможна`);
+            return allMatches;
+        }
+       
+        // Находим 3 самых удалённых друг от друга якоря
+        let bestTriplet = null;
+        let maxMinDist = 0;
+       
+        for (let i = 0; i < anchorIds.length; i++) {
+            for (let j = i + 1; j < anchorIds.length; j++) {
+                for (let k = j + 1; k < anchorIds.length; k++) {
+                    const a = anchorIds[i];
+                    const b = anchorIds[j];
+                    const c = anchorIds[k];
+                   
+                    const distAB = this.graphDistance(a, b, photoGraph);
+                    const distAC = this.graphDistance(a, c, photoGraph);
+                    const distBC = this.graphDistance(b, c, photoGraph);
+                   
+                    const minDist = Math.min(distAB, distAC, distBC);
+                    if (minDist > maxMinDist) {
+                        maxMinDist = minDist;
+                        bestTriplet = [a, b, c];
+                    }
+                }
+            }
+        }
+       
+        if (!bestTriplet) {
+            console.log(`⚠️ Не удалось выбрать 3 якоря`);
+            return allMatches;
+        }
+       
+        const [anchorA, anchorB, anchorC] = bestTriplet;
+        const modelAnchorA = anchorMatches.get(anchorA).modelId;
+        const modelAnchorB = anchorMatches.get(anchorB).modelId;
+        const modelAnchorC = anchorMatches.get(anchorC).modelId;
+       
+        console.log(`   Выбраны якоря: ${anchorA.substring(0,8)}..., ${anchorB.substring(0,8)}..., ${anchorC.substring(0,8)}...`);
+       
+        // 2. Создаём карту расстояний для всех точек фото
+        const photoDistances = new Map(); // photoId -> [distA, distB, distC]
+       
+        for (const [photoId, photoNode] of photoGraph.nodes) {
+            const distA = this.graphDistance(photoId, anchorA, photoGraph);
+            const distB = this.graphDistance(photoId, anchorB, photoGraph);
+            const distC = this.graphDistance(photoId, anchorC, photoGraph);
+           
+            if (distA !== Infinity && distB !== Infinity && distC !== Infinity) {
+                photoDistances.set(photoId, [distA, distB, distC]);
+            }
+        }
+       
+        // 3. Создаём карту расстояний для всех точек модели
+        const modelDistances = new Map(); // modelId -> [distA, distB, distC]
+       
+        for (const [modelId, modelNode] of modelGraph.nodes) {
+            const distA = this.graphDistance(modelId, modelAnchorA, modelGraph);
+            const distB = this.graphDistance(modelId, modelAnchorB, modelGraph);
+            const distC = this.graphDistance(modelId, modelAnchorC, modelGraph);
+           
+            if (distA !== Infinity && distB !== Infinity && distC !== Infinity) {
+                modelDistances.set(modelId, [distA, distB, distC]);
+            }
+        }
+       
+        // 4. Стабилизируем каждую точку
+        const stabilizedMatches = new Map();
+        let exactMatches = 0;
+        let fuzzyMatches = 0;
+        let noMatches = 0;
+       
+        console.log(`\n📋 ТАБЛИЦА СТАБИЛИЗАЦИИ ПО 3 ЯКОРЯМ:`);
+        console.log(`┌─────┬──────────────────────┬─────────────┬─────────────┬─────────────┬──────────────────────┬─────────┐`);
+        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   РАССТ. ДО │   ЯКОРЕЙ    │             │   ТОЧКА В МОДЕЛИ     │ СТАТУС   │`);
+        console.log(`│     │                      │   A   B   C │             │             │                      │          │`);
+        console.log(`├─────┼──────────────────────┼─────────────┼─────────────┼─────────────┼──────────────────────┼─────────┤`);
+       
+        let count = 0;
+        for (const [photoId, photoNode] of photoGraph.nodes) {
+            if (count >= 30) break;
+            count++;
+           
+            const photoDist = photoDistances.get(photoId);
+            if (!photoDist) {
+                console.log(`│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │     -     -     -    │                 │ ${'нет связи с якорями'.padEnd(20)} │ ❌      │`);
+                noMatches++;
+                continue;
+            }
+           
+            // Ищем точку в модели с такими же расстояниями
+            let bestMatch = null;
+            let bestScore = 0;
+           
+            for (const [modelId, modelDist] of modelDistances) {
+                // Сравниваем расстояния
+                const diffA = Math.abs(photoDist[0] - modelDist[0]);
+                const diffB = Math.abs(photoDist[1] - modelDist[1]);
+                const diffC = Math.abs(photoDist[2] - modelDist[2]);
+               
+                const maxDiff = Math.max(diffA, diffB, diffC);
+                const score = Math.max(0, 1 - maxDiff / 3); // допуск до 3 шагов
+               
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMatch = modelId;
+                }
+            }
+           
+            if (bestMatch && bestScore > 0.8) {
+                stabilizedMatches.set(photoId, {
+                    modelId: bestMatch,
+                    confidence: bestScore,
+                    source: 'stabilized'
+                });
+               
+                const distStr = `${photoDist[0].toString().padStart(2)}   ${photoDist[1].toString().padStart(2)}   ${photoDist[2].toString().padStart(2)}`;
+                console.log(`│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │    ${distStr}    │                 │ ${bestMatch.substring(0,20).padEnd(20)} │ ✅ ${(bestScore*100).toFixed(0)}%   │`);
+               
+                if (bestScore > 0.95) exactMatches++;
+                else fuzzyMatches++;
+            } else {
+                noMatches++;
+                const distStr = `${photoDist[0].toString().padStart(2)}   ${photoDist[1].toString().padStart(2)}   ${photoDist[2].toString().padStart(2)}`;
+                console.log(`│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │    ${distStr}    │                 │ ${'НЕТ СООТВЕТСТВИЯ'.padEnd(20)} │ ❌      │`);
+            }
+        }
+       
+        console.log(`└─────┴──────────────────────┴─────────────┴─────────────┴─────────────┴──────────────────────┴─────────┘`);
+        console.log(`\n📊 СТАТИСТИКА СТАБИЛИЗАЦИИ:`);
+        console.log(`   ✅ Точных совпадений (≥95%): ${exactMatches}`);
+        console.log(`   ⚠️  Приблизительных (80-94%): ${fuzzyMatches}`);
+        console.log(`   ❌ Без пары: ${noMatches}`);
+        console.log(`   📈 Всего обработано: ${photoGraph.nodes.size} точек`);
+       
+        return stabilizedMatches;
     }
 
     // ==================== ВЫЧИСЛЕНИЕ ПУТЕЙ ====================
@@ -346,6 +492,28 @@ class RelativePositioning {
             }
         }
         return neighbors;
+    }
+
+    graphDistance(nodeA, nodeB, graph) {
+        if (nodeA === nodeB) return 0;
+       
+        const queue = [{ id: nodeA, dist: 0 }];
+        const visited = new Set([nodeA]);
+       
+        while (queue.length > 0) {
+            const { id, dist } = queue.shift();
+           
+            const neighbors = this.findNodeNeighbors(id, graph);
+            for (const neighbor of neighbors) {
+                if (neighbor.id === nodeB) return dist + 1;
+                if (!visited.has(neighbor.id)) {
+                    visited.add(neighbor.id);
+                    queue.push({ id: neighbor.id, dist: dist + 1 });
+                }
+            }
+        }
+       
+        return Infinity;
     }
 
     getNodeRole(nodeId, neighbors, graph) {
