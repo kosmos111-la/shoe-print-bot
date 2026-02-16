@@ -1,20 +1,27 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ УПРОЩЁННЫЙ АККУМУЛЯТОР - с поддержкой треугольников для визуализации
+// 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - быстрый WL + точный KNN
 
 const GraphBuilder = require('./GraphBuilder');
 const LocalGroupSignature = require('./LocalGroupSignature');
 const MorphologyEncoder = require('./MorphologyEncoder');
 const CenterMatcher = require('./CenterMatcher');
 const RelativePositioning = require('./RelativePositioning');
+const TopologicalFingerprint = require('./TopologicalFingerprint');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
         this.debug = options.debug || false;
+       
+        // 🔥 РЕЖИМЫ РАБОТЫ
+        this.fastMode = options.fastMode || false; // true = только WL, false = полный анализ
+        this.similarityThreshold = options.similarityThreshold || 0.6;
 
         // Компоненты
-        this.graphBuilder = new GraphBuilder({
-            debug: this.debug
+        this.graphBuilder = new GraphBuilder({ debug: this.debug });
+        this.fingerprinter = new TopologicalFingerprint({
+            debug: this.debug,
+            iterations: options.wlIterations || 3
         });
        
         this.localGroupSignature = new LocalGroupSignature({
@@ -56,12 +63,9 @@ class TopologicalAccumulator {
             lastUpdated: new Date()
         };
 
-        console.log(`🏗️ УПРОЩЁННЫЙ TopologicalAccumulator создан: "${this.name}"`);
-        console.log(`   🔷 Граф Делоне с нормализацией`);
-        console.log(`   🔷 Локальные группы (глубина ${options.localDepth || 3})`);
-        console.log(`   🔷 Морфология фигур`);
-        console.log(`   🎯 Поиск центра (мин. ${options.minConsistentPairs || 1} точек)`);
-        console.log(`   🧩 Относительная привязка (порог ${options.confidenceThreshold || 0.7})`);
+        console.log(`🏗️ ДВУХРЕЖИМНЫЙ TopologicalAccumulator создан: "${this.name}"`);
+        console.log(`   🔥 Режим: ${this.fastMode ? 'БЫСТРЫЙ (только WL)' : 'ПОЛНЫЙ'}`);
+        console.log(`   🔷 Порог сходства: ${this.similarityThreshold * 100}%`);
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
@@ -72,12 +76,13 @@ class TopologicalAccumulator {
         const modelId = options.modelId || this.currentModelId;
         const contours = options.contours || [];
 
-        // 1. Строим граф (Делоне с нормализацией)
+        // 1. Строим граф (всегда Делоне для скорости)
         const graph = this.graphBuilder.buildGraph(points, options.source || 'photo');
 
         // 2. Кодируем морфологию
         const morphologyMap = this.morphologyEncoder.encode(points, contours);
 
+        // Если нет существующей модели - создаём новую
         if (!modelId || !this.models.has(modelId)) {
             return this.createNewModel(graph, morphologyMap, points, options);
         }
@@ -85,121 +90,155 @@ class TopologicalAccumulator {
         const existingModel = this.models.get(modelId);
         console.log(`🔍 Сравниваю с моделью "${modelId}"`);
 
-        // 3. Ищем надёжные точки
-        const centerMatches = this.centerMatcher.findCenterMatches(
-            graph,
+        // 🔥 3. БЫСТРЫЙ РЕЖИМ: WL-сравнение
+        console.log(`\n🔍 Сравниваю графы по WL-подписям...`);
+       
+        // Вычисляем WL-подписи для нового графа
+        const newFingerprints = this.fingerprinter.computeGraphFingerprints(graph);
+       
+        const comparison = this.fingerprinter.compareGraphs(
             existingModel.graph,
-            morphologyMap,
-            existingModel.morphologyMap
+            existingModel.fingerprints,
+            graph,
+            newFingerprints
         );
 
-        if (centerMatches.size < this.centerMatcher.minConsistentPairs) {
-            console.log(`⚠️ Недостаточно надёжных точек (${centerMatches.size} < ${this.centerMatcher.minConsistentPairs})`);
+        console.log(`📊 Результат сравнения:`);
+        console.log(`   Узлов в графе 1: ${comparison.totalNodes1}`);
+        console.log(`   Узлов в графе 2: ${comparison.totalNodes2}`);
+        console.log(`   Точных совпадений: ${comparison.exactMatches.length}`);
+        console.log(`   Структурно похожих: ${comparison.similarMatches.length}`);
+        console.log(`   Сходство: ${(comparison.similarity * 100).toFixed(1)}%`);
+
+        // Если сходство ниже порога - создаём новую модель
+        if (comparison.similarity < this.similarityThreshold) {
+            console.log(`⚠️ Сходство ниже порога (${(comparison.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
             console.log(`🆕 Создаю новую модель`);
             return this.createNewModel(graph, morphologyMap, points, {
                 ...options,
                 comparedWith: modelId,
-                reason: 'insufficient_matches'
+                reason: 'low_similarity'
             });
         }
 
-        console.log(`✅ Найдено ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК (треугольники ≥95%)`);
+        // 🔥 4. ЕСЛИ ВКЛЮЧЕН ПОЛНЫЙ РЕЖИМ - запускаем точную идентификацию
+        if (!this.fastMode) {
+            console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА...`);
+           
+            // 4.1 Ищем надёжные точки
+            const centerMatches = this.centerMatcher.findCenterMatches(
+                graph,
+                existingModel.graph,
+                morphologyMap,
+                existingModel.morphologyMap
+            );
 
-        // 4. Достраиваем остальные точки относительно надёжных
-        const allMatches = this.relativePositioning.positionPoints(
-            graph,
-            existingModel.graph,
-            centerMatches,
-            morphologyMap,
-            existingModel.morphologyMap
-        );
+            if (centerMatches.size < this.centerMatcher.minConsistentPairs) {
+                console.log(`⚠️ Недостаточно надёжных точек (${centerMatches.size} < ${this.centerMatcher.minConsistentPairs})`);
+                console.log(`⚠️ Пропускаю точную идентификацию`);
+               
+                // Возвращаем только WL-результат
+                return {
+                    status: 'enhanced_fast',
+                    modelId: modelId,
+                    similarity: comparison.similarity,
+                    exactMatches: comparison.exactMatches.length,
+                    similarMatches: comparison.similarMatches.length,
+                    message: `Модель совпадает (WL: ${(comparison.similarity * 100).toFixed(1)}%)`
+                };
+            }
 
-        // 🔥 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ
-        const stabilizedMatches = this.relativePositioning.iterativeStabilization(
-            graph,
-            existingModel.graph,
-            centerMatches,
-            morphologyMap,
-            existingModel.morphologyMap
-        );
+            console.log(`✅ Найдено ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК`);
 
-        // Объединяем результаты
-        const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
+            // 4.2 Достраиваем остальные точки
+            const allMatches = this.relativePositioning.positionPoints(
+                graph,
+                existingModel.graph,
+                centerMatches,
+                morphologyMap,
+                existingModel.morphologyMap
+            );
 
-        // 🔥 ИТОГОВАЯ ТАБЛИЦА ВСЕХ ТОЧЕК
+            // 4.3 Итеративная стабилизация
+            const stabilizedMatches = this.relativePositioning.iterativeStabilization(
+                graph,
+                existingModel.graph,
+                centerMatches,
+                morphologyMap,
+                existingModel.morphologyMap
+            );
+
+            const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
+
+            // 4.4 Итоговая таблица
+            this.printFinalTable(graph, existingModel.graph, finalMatches);
+
+            // 4.5 Обновляем модель
+            const updatedModel = await this.enhanceModel(
+                modelId,
+                graph,
+                morphologyMap,
+                finalMatches,
+                centerMatches,
+                options
+            );
+
+            return {
+                status: 'enhanced_full',
+                modelId: modelId,
+                similarity: comparison.similarity,
+                centerMatches: centerMatches.size,
+                totalMatches: finalMatches.size,
+                newNodesAdded: updatedModel.newNodesAdded,
+                message: `Модель улучшена (WL: ${(comparison.similarity * 100).toFixed(1)}%, надёжных: ${centerMatches.size}, новых: ${updatedModel.newNodesAdded})`
+            };
+        }
+
+        // 🔥 5. БЫСТРЫЙ РЕЖИМ - только WL
+        return {
+            status: 'enhanced_fast',
+            modelId: modelId,
+            similarity: comparison.similarity,
+            exactMatches: comparison.exactMatches.length,
+            similarMatches: comparison.similarMatches.length,
+            message: `Модель совпадает (WL: ${(comparison.similarity * 100).toFixed(1)}%)`
+        };
+    }
+
+    // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
+
+    printFinalTable(newGraph, modelGraph, matches) {
         console.log(`\n📋 ИТОГОВАЯ ТАБЛИЦА СОПОСТАВЛЕНИЯ ВСЕХ ТОЧЕК:`);
         console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┬─────────────────────┬─────────────────────┐`);
         console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │ СТАТУС    │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
         console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼───────────┼─────────────────────┼─────────────────────┤`);
 
-        let allPointsCount = 0;
-        const allPhotoIds = Array.from(graph.nodes.keys());
-
-        for (const photoId of allPhotoIds) {
-            if (allPointsCount >= 100) break;
+        let count = 0;
+        for (const [photoId, match] of matches) {
+            if (count >= 30) break;
            
-            const photoNode = graph.nodes.get(photoId);
-            const match = finalMatches.get(photoId);
+            const photoNode = newGraph.nodes.get(photoId);
+            const modelNode = modelGraph.nodes.get(match.modelId);
            
-            if (match) {
-                const modelNode = existingModel.graph.nodes.get(match.modelId);
-                if (!modelNode) continue;
-               
-                allPointsCount++;
-               
-                console.log(
-                    `│ ${allPointsCount.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
-                    `${match.modelId.substring(0,20).padEnd(20)} │ ` +
-                    `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
-                    `${'✅'.padEnd(7)}   │ ` +
-                    `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
-                    `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
-                );
-            } else {
-                allPointsCount++;
-                console.log(
-                    `│ ${allPointsCount.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
-                    `${'НЕТ В МОДЕЛИ'.padEnd(20)} │ ` +
-                    `${'   -   '.padStart(5)}   │ ` +
-                    `${'🔥'.padEnd(7)}   │ ` +
-                    `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
-                    `${' '.padEnd(21)} │`
-                );
-            }
+            if (!photoNode || !modelNode) continue;
+           
+            count++;
+            console.log(
+                `│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
+                `${match.modelId.substring(0,20).padEnd(20)} │ ` +
+                `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
+                `${'✅'.padEnd(7)}   │ ` +
+                `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
+                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
+            );
         }
-
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
-        console.log(`\n📊 Статистика:`);
-        console.log(`   ✅ Сопоставлено: ${finalMatches.size} точек`);
-        console.log(`   🔥 Новых в фото 2: ${graph.nodes.size - finalMatches.size} точек`);
-        console.log(`   ⚰️ Исчезнувших из модели: ${existingModel.graph.nodes.size - finalMatches.size} точек`);
-
-        // 5. Обновляем модель
-        const updatedModel = await this.enhanceModel(
-            modelId,
-            graph,
-            morphologyMap,
-            finalMatches,
-            centerMatches,
-            options
-        );
-
-        return {
-            status: 'enhanced',
-            modelId: modelId,
-            centerMatches: centerMatches.size,
-            totalMatches: finalMatches.size,
-            newNodesAdded: updatedModel.newNodesAdded,
-            reliablePhotoIds: Array.from(centerMatches.keys()),
-            message: `Модель улучшена (надёжных: ${centerMatches.size}, всего: ${finalMatches.size}, новых: ${updatedModel.newNodesAdded})`
-        };
     }
-
-    // ==================== СОЗДАНИЕ НОВОЙ МОДЕЛИ ====================
 
     createNewModel(graph, morphologyMap, originalPoints, options = {}) {
         const modelId = `topo_model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
+        // Добавляем морфологию
         let morphologyCount = 0;
         for (const [nodeId, node] of graph.nodes) {
             const morph = morphologyMap.get(nodeId);
@@ -212,11 +251,13 @@ class TopologicalAccumulator {
             node.addedFrom = 'original';
         }
 
-        console.log(`✅ Добавлена морфология к ${morphologyCount} узлам`);
+        // Вычисляем WL-подписи
+        const fingerprints = this.fingerprinter.computeGraphFingerprints(graph);
 
         const model = {
             id: modelId,
             graph: graph,
+            fingerprints: fingerprints,
             morphologyMap: morphologyMap,
             originalPoints: originalPoints,
             metadata: {
@@ -243,6 +284,7 @@ class TopologicalAccumulator {
         console.log(`🏗️ СОЗДАНА НОВАЯ МОДЕЛЬ "${modelId}":`);
         console.log(`   Узлов: ${graph.nodes.size}`);
         console.log(`   Точек с морфологией: ${morphologyCount}`);
+        console.log(`   WL-подписей: ${fingerprints.size}`);
 
         return {
             status: 'created',
@@ -253,8 +295,6 @@ class TopologicalAccumulator {
             message: `Создана новая топологическая модель`
         };
     }
-
-    // ==================== УЛУЧШЕНИЕ МОДЕЛИ ====================
 
     async enhanceModel(modelId, newGraph, newMorphology, allMatches, anchorMatches, options) {
         const model = this.models.get(modelId);
@@ -307,6 +347,9 @@ class TopologicalAccumulator {
        
         this.updateEdges(model.graph, newGraph, allMatches);
        
+        // Обновляем WL-подписи модели
+        model.fingerprints = this.fingerprinter.computeGraphFingerprints(model.graph);
+       
         model.metadata.nodesCount = model.graph.nodes.size;
         model.metadata.lastEnhanced = new Date();
        
@@ -343,8 +386,6 @@ class TopologicalAccumulator {
         };
     }
 
-    // ==================== ОБНОВЛЕНИЕ РЁБЕР ====================
-
     updateEdges(modelGraph, newGraph, matches) {
         const modelToPhoto = new Map();
         for (const [photoId, match] of matches) {
@@ -374,38 +415,6 @@ class TopologicalAccumulator {
         }
     }
 
-    // ==================== ВЫЧИСЛЕНИЕ ТРЕУГОЛЬНИКОВ ====================
-
-    computeTriangles(graph) {
-        if (!graph || !graph.nodes || !graph.edges) return [];
-       
-        const triangles = [];
-        const nodeIds = Array.from(graph.nodes.keys());
-        const edges = new Set(graph.edges);
-       
-        for (let i = 0; i < nodeIds.length; i++) {
-            for (let j = i + 1; j < nodeIds.length; j++) {
-                for (let k = j + 1; k < nodeIds.length; k++) {
-                    const a = nodeIds[i];
-                    const b = nodeIds[j];
-                    const c = nodeIds[k];
-                   
-                    const ab = [a, b].sort().join('--');
-                    const bc = [b, c].sort().join('--');
-                    const ca = [c, a].sort().join('--');
-                   
-                    if (edges.has(ab) && edges.has(bc) && edges.has(ca)) {
-                        triangles.push([a, b, c]);
-                    }
-                }
-            }
-        }
-       
-        return triangles;
-    }
-
-    // ==================== ИНФОРМАЦИЯ О МОДЕЛИ ====================
-
     getModelInfo(modelId = null) {
         const targetId = modelId || this.currentModelId;
         if (!targetId || !this.models.has(targetId)) return { error: 'Model not found' };
@@ -425,15 +434,12 @@ class TopologicalAccumulator {
             if (node.morphology && node.hasContour) withMorphology++;
         }
 
-        const triangles = this.computeTriangles(graph);
-
         return {
             id: model.id,
             name: model.metadata.name,
             stats: {
                 nodes: graph.nodes.size,
                 edges: graph.edges.size,
-                triangles: triangles.length,
                 withMorphology,
                 confirmed1: confirmations[1] || 0,
                 confirmed2: confirmations[2] || 0,
@@ -443,89 +449,10 @@ class TopologicalAccumulator {
                 relativeMatches: this.stats.totalRelativeMatches
             },
             metadata: model.metadata,
-            triangles: triangles,
             createdAt: model.metadata.createdAt,
             lastUpdated: this.stats.lastUpdated
         };
     }
-
-    // ==================== ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ ====================
-
-    getVisualizationData(modelId = null, reliablePhotoIds = []) {
-        const targetId = modelId || this.currentModelId;
-        if (!targetId || !this.models.has(targetId)) return null;
-
-        const model = this.models.get(targetId);
-        const graph = model.graph;
-       
-        let reliableNodeIds = new Set(reliablePhotoIds);
-       
-        if (reliableNodeIds.size === 0) {
-            for (const [nodeId, node] of graph.nodes) {
-                if (node.confirmationCount >= 2) {
-                    reliableNodeIds.add(nodeId);
-                }
-            }
-        }
-
-        const allTriangles = this.computeTriangles(graph);
-       
-        const reliableTriangles = [];
-        const regularTriangles = [];
-       
-        for (const triangle of allTriangles) {
-            const [a, b, c] = triangle;
-            const isReliable = reliableNodeIds.has(a) && reliableNodeIds.has(b) && reliableNodeIds.has(c);
-           
-            if (isReliable) {
-                reliableTriangles.push(triangle);
-            } else {
-                regularTriangles.push(triangle);
-            }
-        }
-
-        const pointsByConfirmation = {
-            confirmed3: [],
-            confirmed2: [],
-            confirmed1: [],
-            confirmed0: []
-        };
-
-        for (const node of graph.nodes.values()) {
-            const count = node.confirmationCount || 0;
-            if (count >= 3) pointsByConfirmation.confirmed3.push(node);
-            else if (count >= 2) pointsByConfirmation.confirmed2.push(node);
-            else if (count >= 1) pointsByConfirmation.confirmed1.push(node);
-            else pointsByConfirmation.confirmed0.push(node);
-        }
-
-        return {
-            modelId: targetId,
-            modelName: model.metadata.name,
-            points: Array.from(graph.nodes.values()),
-            edges: Array.from(graph.edges),
-            reliableTriangles: reliableTriangles,
-            regularTriangles: regularTriangles,
-            stats: {
-                totalNodes: graph.nodes.size,
-                totalEdges: graph.edges.size,
-                reliableTriangles: reliableTriangles.length,
-                regularTriangles: regularTriangles.length,
-                avgDegree: graph.avgDegree || 0,
-                confirmed3: pointsByConfirmation.confirmed3.length,
-                confirmed2: pointsByConfirmation.confirmed2.length,
-                confirmed1: pointsByConfirmation.confirmed1.length,
-                confirmed0: pointsByConfirmation.confirmed0.length,
-                reliableNodes: reliableNodeIds.size
-            },
-            pointsByConfirmation: pointsByConfirmation,
-            metadata: model.metadata,
-            isTopological: true,
-            reliableNodeIds: Array.from(reliableNodeIds)
-        };
-    }
-
-    // ==================== СТАТИСТИКА ====================
 
     getStats() {
         return {
@@ -535,28 +462,26 @@ class TopologicalAccumulator {
                 list: Array.from(this.models.keys()).map(id => {
                     const model = this.models.get(id);
                     const graph = model.graph;
-                    const triangles = this.computeTriangles(graph);
                     return {
                         id,
                         name: model.metadata.name,
                         nodes: graph.nodes.size,
                         edges: graph.edges.size,
-                        triangles: triangles.length,
                         withMorphology: Array.from(graph.nodes.values()).filter(n => n.hasContour).length
                     };
                 })
             },
+            fingerprinter: this.fingerprinter.getStats(),
             localGroupSignature: this.localGroupSignature.getStats(),
             centerMatcher: this.centerMatcher.getStats(),
             relativePositioning: this.relativePositioning.getStats()
         };
     }
 
-    // ==================== ОЧИСТКА ====================
-
     clear() {
         this.models.clear();
         this.currentModelId = null;
+        this.fingerprinter.clearCache();
         this.localGroupSignature.clearCache();
         this.morphologyEncoder.clearCache();
         this.centerMatcher.clear();
