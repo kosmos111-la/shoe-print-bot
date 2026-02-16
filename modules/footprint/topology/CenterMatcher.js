@@ -29,6 +29,7 @@ class CenterMatcher {
     }
 
     findCenterMatches(photoGraph, modelGraph, photoMorphology, modelMorphology) {
+    console.time('🎯 centerMatcher_total'); // ← добавить
         console.log(`\n🔍 Ищу НАДЁЖНЫЕ точки по всему следу...`);
 
         const candidates = [];
@@ -37,7 +38,7 @@ class CenterMatcher {
         // Обнуляем статистику
         this.zoneStats = { center: 0, toe: 0, heel: 0 };
         this.depthUsage.clear();
-
+ console.time('   step1_candidates'); // ← добавить
         // 🔥 ЭТАП 1: СБОР КАНДИДАТОВ
         for (const [photoId, photoNode] of photoNodes) {
             const photoZone = this.getZone(photoNode.y);
@@ -80,9 +81,11 @@ class CenterMatcher {
         }
 
         console.log(`\n📊 ЭТАП 1: Найдено ${candidates.length} кандидатов`);
+      console.timeEnd('   step1_candidates'); // ← добавить
 
         // 🔥 ЭТАП 2: ФИЛЬТРАЦИЯ ПО ИНДИВИДУАЛЬНЫМ КРИТЕРИЯМ
         const filteredCandidates = candidates.filter(c => {
+          console.time('   step2_filter');
             // 1. Морфология
             if (c.morphScore < this.reliableMorphThreshold) {
                 return false;
@@ -115,10 +118,10 @@ class CenterMatcher {
         });
 
         console.log(`\n📊 ЭТАП 2: После фильтрации осталось ${filteredCandidates.length} кандидатов`);
-
+console.timeEnd('   step2_filter'); // ← добавить
         // 🔥 ЭТАП 3: ГРУППИРОВКА ПО СОГЛАСОВАННОСТИ
         const groups = []; // каждая группа - массив индексов
-       
+       console.time('   step3_grouping'); // ← добавить
         for (let i = 0; i < filteredCandidates.length; i++) {
             let added = false;
            
@@ -194,7 +197,7 @@ class CenterMatcher {
         }
 
         console.log(`\n🎯 ИТОГО: Найдено ${result.size} АБСОЛЮТНО НАДЁЖНЫХ ТОПОЛОГИЧЕСКИХ ТОЧЕК (треугольники ≥95%)`);
-
+ console.timeEnd('🎯 centerMatcher_total'); // ← добавить
         return result;
     }
 
