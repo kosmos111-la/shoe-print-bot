@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (С ПОДДЕРЖКОЙ ТРЕУГОЛЬНИКОВ)
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (С ПОДДЕРЖКОЙ ПЕСОЧНИЦЫ)
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalAccumulator = require('./TopologicalAccumulator');
@@ -9,7 +9,10 @@ class TopologyManager {
         this.userId = options.userId || 'default';
         this.name = options.name || `Топология_${this.userId}`;
         this.debug = options.debug || false;
-
+       
+        // 🔥 РЕЖИМ ПЕСОЧНИЦЫ
+        this.sandboxMode = options.sandboxMode || false;
+       
         // Аккумулятор с поддержкой треугольников
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
@@ -21,8 +24,12 @@ class TopologyManager {
 
         // Связь с существующей системой
         this.linkedFootprints = new Map();
+       
+        // 🔥 ВРЕМЕННЫЕ МОДЕЛИ ДЛЯ ПЕСОЧНИЦЫ (сессия -> модель)
+        this.sandboxModels = new Map();
 
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
+        console.log(`   🔥 Режим: ${this.sandboxMode ? 'ПЕСОЧНИЦА' : 'ПРОДАКШН'}`);
         console.log(`   🔥 Аккумулятор с поддержкой треугольников`);
     }
 
@@ -70,12 +77,28 @@ class TopologyManager {
             });
         }
 
-        // Определяем модель для сравнения
-        let modelId = this.linkedFootprints.get(footprint.id);
-        if (!modelId && this.accumulator.currentModelId) {
-            modelId = this.accumulator.currentModelId;
-            this.linkedFootprints.set(footprint.id, modelId);
-            console.log(`🔗 Связал след ${footprint.id} с моделью ${modelId}`);
+        // 🔥 ОПРЕДЕЛЯЕМ МОДЕЛЬ ДЛЯ СРАВНЕНИЯ (С УЧЁТОМ ПЕСОЧНИЦЫ)
+        let modelId;
+       
+        if (this.sandboxMode) {
+            // В песочнице - берём или создаём временную модель для этой сессии
+            const sessionId = photoInfo.sessionId || 'default_sandbox';
+            modelId = this.sandboxModels.get(sessionId);
+           
+            if (!modelId) {
+                // Создаём новую временную модель
+                modelId = `sandbox_${sessionId}_${Date.now()}`;
+                this.sandboxModels.set(sessionId, modelId);
+                console.log(`🏖️ Создана временная модель для сессии ${sessionId}`);
+            }
+        } else {
+            // В продакшне - используем постоянные модели
+            modelId = this.linkedFootprints.get(footprint.id);
+            if (!modelId && this.accumulator.currentModelId) {
+                modelId = this.accumulator.currentModelId;
+                this.linkedFootprints.set(footprint.id, modelId);
+                console.log(`🔗 Связал след ${footprint.id} с моделью ${modelId}`);
+            }
         }
 
         // Передаём точки и контуры в аккумулятор
@@ -89,8 +112,8 @@ class TopologyManager {
             contours: contours
         });
 
-        // Обновляем связь след-модель
-        if (result.modelId && result.modelId !== modelId) {
+        // Обновляем связь след-модель (только для продакшна)
+        if (!this.sandboxMode && result.modelId && result.modelId !== modelId) {
             this.linkedFootprints.set(footprint.id, result.modelId);
             console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
         }
@@ -105,8 +128,57 @@ class TopologyManager {
             pointsCount: points.length,
             modelId: result.modelId,
             similarity: result.similarity || 0,
-            decision: this.getDecisionFromResult(result)
+            decision: this.getDecisionFromResult(result),
+            sandboxMode: this.sandboxMode
         };
+    }
+
+    // ==================== УПРАВЛЕНИЕ ПЕСОЧНИЦЕЙ ====================
+
+    /**
+     * Начать новую песочницу для сессии
+     */
+    startSandboxSession(sessionId) {
+        console.log(`\n🏖️ ЗАПУСК ПЕСОЧНИЦЫ для сессии ${sessionId}`);
+        this.sandboxModels.delete(sessionId); // очищаем старую, если была
+        return { success: true, sessionId };
+    }
+
+    /**
+     * Завершить песочницу и получить результат
+     */
+    endSandboxSession(sessionId) {
+        const modelId = this.sandboxModels.get(sessionId);
+        if (!modelId) {
+            console.log(`⚠️ Сессия ${sessionId} не найдена в песочнице`);
+            return { success: false, error: 'Session not found' };
+        }
+
+        const modelInfo = this.accumulator.getModelInfo(modelId);
+       
+        // Очищаем временную модель
+        this.sandboxModels.delete(sessionId);
+       
+        console.log(`\n🏖️ ЗАВЕРШЕНИЕ ПЕСОЧНИЦЫ для сессии ${sessionId}`);
+        console.log(`   Итоговая модель: ${modelId}`);
+        console.log(`   Узлов: ${modelInfo.stats?.nodes || 0}`);
+       
+        return {
+            success: true,
+            sessionId,
+            modelId,
+            modelInfo
+        };
+    }
+
+    /**
+     * Очистить все песочницы
+     */
+    clearAllSandboxes() {
+        const count = this.sandboxModels.size;
+        this.sandboxModels.clear();
+        console.log(`🧹 Очищено ${count} песочниц`);
+        return { success: true, cleared: count };
     }
 
     // ==================== ИЗВЛЕЧЕНИЕ ТОЧЕК И КОНТУРОВ ====================
@@ -177,7 +249,7 @@ class TopologyManager {
         }
     }
 
-    // ==================== ВИЗУАЛИЗАЦИЯ С ТРЕУГОЛЬНИКАМИ ====================
+    // ==================== ВИЗУАЛИЗАЦИЯ ====================
 
     getAccumulativeVisualizationData(modelId = null) {
         const targetModelId = modelId || this.accumulator.currentModelId;
@@ -187,7 +259,6 @@ class TopologyManager {
             return null;
         }
 
-        // 🔥 ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД АККУМУЛЯТОРА С ТРЕУГОЛЬНИКАМИ
         return this.accumulator.getVisualizationData(targetModelId);
     }
 
@@ -201,6 +272,7 @@ class TopologyManager {
         this.accumulator.models.clear();
         this.accumulator.currentModelId = null;
         this.linkedFootprints.clear();
+        this.sandboxModels.clear();
 
         console.log(`🧹 Очищены все топологические модели пользователя ${this.userId}`);
         return { success: true, message: 'Топологические модели очищены' };
@@ -237,7 +309,6 @@ class TopologyManager {
             }
         }
 
-        // Восстанавливаем связи след-модель
         if (data.linkedFootprints && Array.isArray(data.linkedFootprints)) {
             data.linkedFootprints.forEach(([footprintId, modelId]) => {
                 this.linkedFootprints.set(footprintId, modelId);
