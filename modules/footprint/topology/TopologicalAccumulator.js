@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ УПРОЩЁННЫЙ АККУМУЛЯТОР - с поддержкой треугольников для визуализации
+// 🏗️ УПРОЩЁННЫЙ АККУМУЛЯТОР - с поддержкой KNN графа
 
 const GraphBuilder = require('./GraphBuilder');
 const LocalGroupSignature = require('./LocalGroupSignature');
@@ -13,12 +13,17 @@ class TopologicalAccumulator {
         this.debug = options.debug || false;
 
         // Компоненты
-        this.graphBuilder = new GraphBuilder({ debug: this.debug });
+        this.graphBuilder = new GraphBuilder({
+            debug: this.debug,
+            k: options.k || 6
+        });
+       
         this.localGroupSignature = new LocalGroupSignature({
             debug: this.debug,
             depth: options.localDepth || 3,
             useMorphology: true
         });
+       
         this.morphologyEncoder = new MorphologyEncoder({ debug: this.debug });
 
         this.centerMatcher = new CenterMatcher({
@@ -53,6 +58,7 @@ class TopologicalAccumulator {
         };
 
         console.log(`🏗️ УПРОЩЁННЫЙ TopologicalAccumulator создан: "${this.name}"`);
+        console.log(`   🔷 KNN-граф (k=${options.k || 6})`);
         console.log(`   🔷 Локальные группы (глубина ${options.localDepth || 3})`);
         console.log(`   🔷 Морфология фигур`);
         console.log(`   🎯 Поиск центра (мин. ${options.minConsistentPairs || 1} точек)`);
@@ -67,8 +73,8 @@ class TopologicalAccumulator {
         const modelId = options.modelId || this.currentModelId;
         const contours = options.contours || [];
 
-        // 1. Строим граф
-        const graph = this.graphBuilder.buildDelaunayGraph(points, options.source || 'photo');
+        // 1. Строим граф (KNN вместо Делоне)
+        const graph = this.graphBuilder.buildGraph(points, options.source || 'photo');
 
         // 2. Кодируем морфологию
         const morphologyMap = this.morphologyEncoder.encode(points, contours);
@@ -131,14 +137,12 @@ class TopologicalAccumulator {
         const allPhotoIds = Array.from(graph.nodes.keys());
 
         for (const photoId of allPhotoIds) {
-    if (allPointsCount >= 100) break; // было 50
-
+            if (allPointsCount >= 100) break;
            
             const photoNode = graph.nodes.get(photoId);
             const match = finalMatches.get(photoId);
            
             if (match) {
-                // Точка сопоставлена
                 const modelNode = existingModel.graph.nodes.get(match.modelId);
                 if (!modelNode) continue;
                
@@ -153,7 +157,6 @@ class TopologicalAccumulator {
                     `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
                 );
             } else {
-                // Новая точка (нет в модели)
                 allPointsCount++;
                 console.log(
                     `│ ${allPointsCount.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
@@ -162,28 +165,6 @@ class TopologicalAccumulator {
                     `${'🔥'.padEnd(7)}   │ ` +
                     `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
                     `${' '.padEnd(21)} │`
-                );
-            }
-        }
-
-        // Добавим точки из модели, которых нет в фото
-        for (const [modelId, modelNode] of existingModel.graph.nodes) {
-            let found = false;
-            for (const match of finalMatches.values()) {
-                if (match.modelId === modelId) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found && allPointsCount < 50) {
-                allPointsCount++;
-                console.log(
-                    `│ ${allPointsCount.toString().padEnd(3)} │ ${'НЕТ В ФОТО'.padEnd(20)} │ ` +
-                    `${modelId.substring(0,20).padEnd(20)} │ ` +
-                    `${'   -   '.padStart(5)}   │ ` +
-                    `${'⚰️'.padEnd(7)}   │ ` +
-                    `${' '.padEnd(21)} │ ` +
-                    `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
                 );
             }
         }
@@ -220,7 +201,6 @@ class TopologicalAccumulator {
     createNewModel(graph, morphologyMap, originalPoints, options = {}) {
         const modelId = `topo_model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-        // Добавляем морфологию к узлам графа
         let morphologyCount = 0;
         for (const [nodeId, node] of graph.nodes) {
             const morph = morphologyMap.get(nodeId);
@@ -280,20 +260,16 @@ class TopologicalAccumulator {
     async enhanceModel(modelId, newGraph, newMorphology, allMatches, anchorMatches, options) {
         const model = this.models.get(modelId);
        
-        // Считаем статистику
         let confirmedExisting = 0;
         let newNodesAdded = 0;
         let missingFromModel = 0;
        
-        // Множества для отслеживания
         const matchedPhotoIds = new Set();
         const matchedModelIds = new Set();
        
-        // 1. Сначала обрабатываем найденные соответствия
         for (const [photoId, match] of allMatches) {
             const modelNode = model.graph.nodes.get(match.modelId);
             if (modelNode) {
-                // Точка есть в модели - увеличиваем подтверждение
                 modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
                 modelNode.lastConfirmed = new Date();
                 confirmedExisting++;
@@ -303,11 +279,9 @@ class TopologicalAccumulator {
             }
         }
        
-        // 2. Добавляем НОВЫЕ точки (есть в фото 2, нет в модели)
         for (const [photoId, photoNode] of newGraph.nodes) {
-            if (matchedPhotoIds.has(photoId)) continue; // уже сопоставлена
+            if (matchedPhotoIds.has(photoId)) continue;
            
-            // Это новая точка
             const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
             model.graph.nodes.set(newNodeId, {
                 id: newNodeId,
@@ -325,7 +299,6 @@ class TopologicalAccumulator {
             matchedPhotoIds.add(photoId);
         }
        
-        // 3. Отмечаем ИСЧЕЗНУВШИЕ точки (есть в модели, нет в фото 2)
         for (const [modelId, modelNode] of model.graph.nodes) {
             if (matchedModelIds.has(modelId)) continue;
            
@@ -333,10 +306,8 @@ class TopologicalAccumulator {
             modelNode.confirmationCount = modelNode.confirmationCount || 1;
         }
        
-        // 4. Обновляем рёбра
         this.updateEdges(model.graph, newGraph, allMatches);
        
-        // 5. Обновляем статистику модели
         model.metadata.nodesCount = model.graph.nodes.size;
         model.metadata.lastEnhanced = new Date();
        
@@ -376,13 +347,11 @@ class TopologicalAccumulator {
     // ==================== ОБНОВЛЕНИЕ РЁБЕР ====================
 
     updateEdges(modelGraph, newGraph, matches) {
-        // Создаём обратное отображение modelId -> photoId
         const modelToPhoto = new Map();
         for (const [photoId, match] of matches) {
             modelToPhoto.set(match.modelId, photoId);
         }
 
-        // Добавляем новые рёбра
         for (const edge of newGraph.edges) {
             const [photoA, photoB] = edge.split('--');
 
@@ -395,7 +364,6 @@ class TopologicalAccumulator {
             }
         }
 
-        // Пересчитываем степени
         for (const node of modelGraph.nodes.values()) {
             node.degree = 0;
         }
@@ -416,7 +384,6 @@ class TopologicalAccumulator {
         const nodeIds = Array.from(graph.nodes.keys());
         const edges = new Set(graph.edges);
        
-        // Для каждой тройки точек проверяем, образуют ли они треугольник
         for (let i = 0; i < nodeIds.length; i++) {
             for (let j = i + 1; j < nodeIds.length; j++) {
                 for (let k = j + 1; k < nodeIds.length; k++) {
@@ -447,7 +414,6 @@ class TopologicalAccumulator {
         const model = this.models.get(targetId);
         const graph = model.graph;
 
-        // Статистика по подтверждениям
         const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
         for (const node of graph.nodes.values()) {
             const count = node.confirmationCount || 0;
@@ -455,13 +421,11 @@ class TopologicalAccumulator {
             else confirmations[count] = (confirmations[count] || 0) + 1;
         }
 
-        // Статистика по морфологии
         let withMorphology = 0;
         for (const node of graph.nodes.values()) {
             if (node.morphology && node.hasContour) withMorphology++;
         }
 
-        // Треугольники для визуализации
         const triangles = this.computeTriangles(graph);
 
         return {
@@ -495,11 +459,9 @@ class TopologicalAccumulator {
         const model = this.models.get(targetId);
         const graph = model.graph;
        
-        // 🔥 ПОЛУЧАЕМ ID НАДЁЖНЫХ ТОЧЕК
         let reliableNodeIds = new Set(reliablePhotoIds);
        
         if (reliableNodeIds.size === 0) {
-            // Запасной вариант: берём точки с 2+ подтверждениями
             for (const [nodeId, node] of graph.nodes) {
                 if (node.confirmationCount >= 2) {
                     reliableNodeIds.add(nodeId);
@@ -507,10 +469,8 @@ class TopologicalAccumulator {
             }
         }
 
-        // Вычисляем все треугольники в графе
         const allTriangles = this.computeTriangles(graph);
        
-        // 🔥 РАЗДЕЛЯЕМ ТРЕУГОЛЬНИКИ НА ДВЕ ГРУППЫ
         const reliableTriangles = [];
         const regularTriangles = [];
        
@@ -525,7 +485,6 @@ class TopologicalAccumulator {
             }
         }
 
-        // Группируем узлы по количеству подтверждений
         const pointsByConfirmation = {
             confirmed3: [],
             confirmed2: [],
