@@ -131,7 +131,8 @@ class TopologicalAccumulator {
         const allPhotoIds = Array.from(graph.nodes.keys());
 
         for (const photoId of allPhotoIds) {
-            if (allPointsCount >= 50) break; // ограничим вывод первыми 50
+    if (allPointsCount >= 100) break; // было 50
+
            
             const photoNode = graph.nodes.get(photoId);
             const match = finalMatches.get(photoId);
