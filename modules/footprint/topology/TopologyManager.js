@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (С ПОДДЕРЖКОЙ КОНТУРОВ)
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (С ПОДДЕРЖКОЙ ТРЕУГОЛЬНИКОВ)
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalAccumulator = require('./TopologicalAccumulator');
@@ -10,7 +10,7 @@ class TopologyManager {
         this.name = options.name || `Топология_${this.userId}`;
         this.debug = options.debug || false;
 
-        // 🔥 ТОЛЬКО builder И accumulator! fingerprint ТОЛЬКО В АККУМУЛЯТОРЕ!
+        // Аккумулятор с поддержкой треугольников
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
             debug: this.debug,
@@ -23,7 +23,7 @@ class TopologyManager {
         this.linkedFootprints = new Map();
 
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
-        console.log(`   🔥 Fingerprint только в аккумуляторе (без дублирования)`);
+        console.log(`   🔥 Аккумулятор с поддержкой треугольников`);
     }
 
     // ==================== ГЛАВНЫЙ МЕТОД ====================
@@ -31,24 +31,20 @@ class TopologyManager {
     async processFootprint(footprint, analysisData, photoInfo = {}) {
         console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoInfo.photoId || 'без ID'}...`);
 
-        // 🔥 ИЗВЛЕКАЕМ ТОЧКИ И КОНТУРЫ
+        // Извлекаем точки и контуры
         let points = [];
         let contours = [];
 
         if (Array.isArray(analysisData)) {
-            // Старый формат - только массив точек
             points = analysisData;
             contours = [];
             console.log(`📦 Получен массив точек (старый формат): ${points.length}`);
         } else if (analysisData && typeof analysisData === 'object') {
-            // Новый формат - объект с points и/или contours
             if (analysisData.predictions) {
-                // Это raw анализ от Roboflow
                 const extracted = this.extractPointsFromCurrentPhoto(analysisData, photoInfo);
                 points = extracted.points;
                 contours = extracted.contours;
             } else {
-                // Это уже обработанные данные
                 points = analysisData.points || [];
                 contours = analysisData.contours || [];
             }
@@ -82,7 +78,7 @@ class TopologyManager {
             console.log(`🔗 Связал след ${footprint.id} с моделью ${modelId}`);
         }
 
-        // 🔥 ПЕРЕДАЁМ ТОЧКИ И КОНТУРЫ В АККУМУЛЯТОР
+        // Передаём точки и контуры в аккумулятор
         const result = await this.accumulator.processPoints(points, {
             modelId: modelId,
             source: `photo_${photoInfo.photoId || Date.now()}`,
@@ -90,7 +86,7 @@ class TopologyManager {
             footprintId: footprint.id,
             photoInfo: photoInfo,
             photoId: photoInfo.photoId,
-            contours: contours  // 🔥 КОНТУРЫ ПЕРЕДАЮТСЯ СЮДА
+            contours: contours
         });
 
         // Обновляем связь след-модель
@@ -135,7 +131,7 @@ class TopologyManager {
 
                 const pointId = `${photoId}_pt_${protectorCount}`;
                
-                // 🔥 СОХРАНЯЕМ КОНТУР
+                // Сохраняем контур
                 contours.push({
                     id: `${photoId}_contour_${protectorCount}`,
                     pointId: pointId,
@@ -144,7 +140,7 @@ class TopologyManager {
                     confidence: pred.confidence || 0.5
                 });
 
-                // 🔥 СОХРАНЯЕМ ТОЧКУ (ЦЕНТР КОНТУРА)
+                // Сохраняем точку (центр контура)
                 points.push({
                     id: pointId,
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
@@ -181,7 +177,7 @@ class TopologyManager {
         }
     }
 
-    // ==================== ВИЗУАЛИЗАЦИЯ ====================
+    // ==================== ВИЗУАЛИЗАЦИЯ С ТРЕУГОЛЬНИКАМИ ====================
 
     getAccumulativeVisualizationData(modelId = null) {
         const targetModelId = modelId || this.accumulator.currentModelId;
@@ -191,84 +187,8 @@ class TopologyManager {
             return null;
         }
 
-        const model = this.accumulator.models.get(targetModelId);
-        if (!model) return null;
-
-        const graph = model.graph;
-
-        // 🔥 БЕРЕМ fingerprint ИЗ МОДЕЛИ
-        const fingerprints = model.fingerprints;
-        const fingerprinter = this.accumulator.fingerprinter;
-
-        // Группируем узлы по количеству подтверждений
-        const pointsByConfirmation = {
-            confirmed3: [], // 3+ подтверждений
-            confirmed2: [], // 2 подтверждения
-            confirmed1: [], // 1 подтверждение
-            confirmed0: []  // 0 подтверждений
-        };
-
-        for (const [nodeId, node] of graph.nodes) {
-            const confirmations = node.confirmationCount || 0;
-
-            let color, size, confirmationLevel;
-
-            if (confirmations >= 3) {
-                color = '#FF0000';
-                size = 8 + (node.confidence || 0.5) * 6;
-                confirmationLevel = 'confirmed3';
-                pointsByConfirmation.confirmed3.push(node);
-            } else if (confirmations >= 2) {
-                color = '#FF6B00';
-                size = 6 + (node.confidence || 0.5) * 4;
-                confirmationLevel = 'confirmed2';
-                pointsByConfirmation.confirmed2.push(node);
-            } else if (confirmations >= 1) {
-                color = '#2196F3';
-                size = 5 + (node.confidence || 0.5) * 3;
-                confirmationLevel = 'confirmed1';
-                pointsByConfirmation.confirmed1.push(node);
-            } else {
-                color = '#BDBDBD';
-                size = 4;
-                confirmationLevel = 'confirmed0';
-                pointsByConfirmation.confirmed0.push(node);
-            }
-
-            node.vizData = {
-                color: color,
-                size: size,
-                confirmationLevel: confirmationLevel,
-                confirmations: confirmations,
-                degree: node.degree,
-                source: node.addedFrom || 'original'
-            };
-        }
-
-        // Статистика
-        const stats = {
-            totalNodes: graph.nodes.size,
-            totalEdges: graph.edges.size,
-            avgDegree: graph.avgDegree || 0,
-            confirmed3: pointsByConfirmation.confirmed3.length,
-            confirmed2: pointsByConfirmation.confirmed2.length,
-            confirmed1: pointsByConfirmation.confirmed1.length,
-            confirmed0: pointsByConfirmation.confirmed0.length,
-            uniquenessRatio: fingerprints && fingerprinter ?
-                fingerprinter.getFingerprintInfo(fingerprints).uniquenessRatio : 0
-        };
-
-        return {
-            modelId: targetModelId,
-            modelName: model.metadata.name,
-            points: Array.from(graph.nodes.values()),
-            edges: Array.from(graph.edges),
-            stats: stats,
-            pointsByConfirmation: pointsByConfirmation,
-            metadata: model.metadata,
-            isTopological: true,
-            visualizationMethod: 'topological_accumulative'
-        };
+        // 🔥 ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД АККУМУЛЯТОРА С ТРЕУГОЛЬНИКАМИ
+        return this.accumulator.getVisualizationData(targetModelId);
     }
 
     // ==================== ИНФОРМАЦИЯ О МОДЕЛЯХ ====================
