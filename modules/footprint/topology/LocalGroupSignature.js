@@ -1,22 +1,18 @@
 // modules/footprint/topology/LocalGroupSignature.js
-// 🔥 ЛОКАЛЬНЫЕ ГРУППЫ С ДИНАМИЧЕСКОЙ ГЛУБИНОЙ
+// 🔥 ЛОКАЛЬНЫЕ ГРУППЫ С ДИНАМИЧЕСКОЙ ГЛУБИНОЙ (тихий режим)
 
 class LocalGroupSignature {
     constructor(options = {}) {
         this.debug = options.debug || false;
-        this.maxDepth = options.maxDepth || 4; // максимальная глубина
-        this.targetCandidates = options.targetCandidates || 2; // желаемое число кандидатов
+        this.maxDepth = options.maxDepth || 4;
+        this.targetCandidates = options.targetCandidates || 2;
         this.useMorphology = options.useMorphology !== false;
        
-        // Роли узлов
         this.roles = ['L', 'B', 'H', 'C', 'R'];
-       
-        // Кеш для ускорения
         this.cache = new Map();
         this.cacheHits = 0;
         this.cacheMisses = 0;
        
-        // Статистика по глубинам
         this.depthStats = {
             1: { used: 0, candidates: [] },
             2: { used: 0, candidates: [] },
@@ -29,8 +25,6 @@ class LocalGroupSignature {
         console.log(`   Целевое число кандидатов: ${this.targetCandidates}`);
     }
 
-    // ==================== ОСНОВНОЙ МЕТОД ====================
-
     computeLocalSignature(nodeId, graph, morphologyMap = null, fixedDepth = null) {
         const depth = fixedDepth || this.maxDepth;
         const cacheKey = `${nodeId}|depth${depth}`;
@@ -41,20 +35,14 @@ class LocalGroupSignature {
         }
         this.cacheMisses++;
 
-        // Получаем локальную группу
         const group = this.extractLocalGroup(nodeId, graph, depth);
        
-        // Роль центральной точки
         const centerRole = this.getNodeRole(nodeId, group.nodes, group.edges);
-       
-        // Зона (для визуализации)
         const centerNode = graph.nodes.get(nodeId);
         const zone = centerNode ? this.getZone(centerNode.y) : 'C';
        
-        // Статистика по группе
         const stats = this.computeGroupStats(group);
        
-        // Морфология
         let morphology = '';
         if (this.useMorphology && morphologyMap && morphologyMap.has(nodeId)) {
             const m = morphologyMap.get(nodeId);
@@ -63,32 +51,24 @@ class LocalGroupSignature {
             morphology = '|0.00|0.00|0';
         }
        
-        // Собираем подпись
         const signature = `${centerRole}|${zone}|${depth}|${stats.triangleDensity.toFixed(2)}|${stats.roleDistStr}${morphology}`;
        
         this.cache.set(cacheKey, signature);
         return signature;
     }
 
-    // ==================== ПОИСК ОПТИМАЛЬНОЙ ГЛУБИНЫ ====================
-
     findOptimalDepth(nodeId, photoGraph, modelGraph, modelNodes, morphologyMap = null) {
-    console.time(`🔍 depth_${nodeId.substring(0,8)}`); // ← добавить
-    const results = [];
+        const results = [];
        
-        // Пробуем разные глубины
-        for (let depth = 2; depth <= this.maxDepth; depth++) {
-        console.time(`   depth${depth}_${nodeId.substring(0,8)}`);
-            // Подпись для точки в фото
+        for (let depth = 2; depth <= this.maxDepth; depth++) { // начинаем с 2, пропускаем 1
             const photoSig = this.computeLocalSignature(nodeId, photoGraph, morphologyMap, depth);
            
-            // Ищем кандидатов в модели
             const candidates = [];
             for (const [modelId, modelNode] of modelNodes) {
                 const modelSig = this.computeLocalSignature(modelId, modelGraph, morphologyMap, depth);
                 const similarity = this.compareSignatures(photoSig, modelSig);
                
-                if (similarity > 0.5) { // минимальный порог
+                if (similarity > 0.5) {
                     candidates.push({
                         modelId,
                         similarity,
@@ -97,31 +77,24 @@ class LocalGroupSignature {
                 }
             }
            
-            // Сортируем по сходству
             candidates.sort((a, b) => b.similarity - a.similarity);
            
             results.push({
                 depth,
-                candidates: candidates.slice(0, 5), // топ-5
+                candidates: candidates.slice(0, 5),
                 candidateCount: candidates.length,
                 bestSimilarity: candidates.length > 0 ? candidates[0].similarity : 0
             });
            
-            // Сохраняем статистику
             this.depthStats[depth].candidates.push(candidates.length);
-           console.timeEnd(`   depth${depth}_${nodeId.substring(0,8)}`); // ← добавить
         }
        
-        // Выбираем оптимальную глубину
-        let bestDepth = 1;
+        let bestDepth = 2;
         let bestScore = 0;
        
         for (const result of results) {
-            // Чем ближе число кандидатов к targetCandidates, тем лучше
             const countScore = 1 - Math.min(1, Math.abs(result.candidateCount - this.targetCandidates) / 10);
-            // Чем выше сходство лучшего кандидата, тем лучше
             const simScore = result.bestSimilarity;
-            // Комбинируем
             const totalScore = countScore * 0.6 + simScore * 0.4;
            
             if (totalScore > bestScore) {
@@ -130,24 +103,14 @@ class LocalGroupSignature {
             }
         }
        
-        // Обновляем статистику использования
         this.depthStats[bestDepth].used++;
        
-        if (this.debug) {
-            console.log(`   📊 Точка ${nodeId.substring(0,12)}... оптимальная глубина: ${bestDepth}`);
-            results.forEach(r => {
-                console.log(`      глубина ${r.depth}: ${r.candidateCount} кандидатов, best=${(r.bestSimilarity*100).toFixed(0)}%`);
-            });
-        }
-       console.timeEnd(`🔍 depth_${nodeId.substring(0,8)}`); // ← добавить
         return {
             optimalDepth: bestDepth,
             candidates: results.find(r => r.depth === bestDepth)?.candidates || [],
             allResults: results
         };
     }
-
-    // ==================== ИЗВЛЕЧЕНИЕ ЛОКАЛЬНОЙ ГРУППЫ ====================
 
     extractLocalGroup(centerId, graph, depth) {
         const nodes = new Map();
@@ -183,7 +146,6 @@ class LocalGroupSignature {
             }
         }
        
-        // Добавляем рёбра между узлами группы
         const nodeIds = Array.from(nodes.keys());
         for (let i = 0; i < nodeIds.length; i++) {
             for (let j = i + 1; j < nodeIds.length; j++) {
@@ -204,13 +166,10 @@ class LocalGroupSignature {
         };
     }
 
-    // ==================== СТАТИСТИКА ГРУППЫ ====================
-
     computeGroupStats(group) {
         const roleCounts = { L: 0, B: 0, H: 0, C: 0, R: 0 };
         let triangleCount = 0;
        
-        // Считаем роли (кроме центра)
         for (const [nodeId, node] of group.nodes) {
             if (nodeId === group.centerId) continue;
            
@@ -219,7 +178,6 @@ class LocalGroupSignature {
             roleCounts[role]++;
         }
        
-        // Считаем треугольники
         const nodeIds = Array.from(group.nodes.keys());
         for (let i = 0; i < nodeIds.length; i++) {
             for (let j = i + 1; j < nodeIds.length; j++) {
@@ -253,8 +211,6 @@ class LocalGroupSignature {
         };
     }
 
-    // ==================== СРАВНЕНИЕ ПОДПИСЕЙ ====================
-
     compareSignatures(sig1, sig2) {
         if (sig1 === sig2) return 1.0;
        
@@ -263,8 +219,6 @@ class LocalGroupSignature {
        
         if (!p1 || !p2) return 0;
        
-        // Веса зависят от глубины
-        const depth = p1.depth || 2;
         const weights = {
             role: 0.20,
             zone: 0.05,
@@ -314,8 +268,6 @@ class LocalGroupSignature {
         return (aspectSim * 0.4 + compactSim * 0.4 + angleSim * 0.2);
     }
 
-    // ==================== ПАРСИНГ ====================
-
     parseSignature(sig) {
         try {
             const parts = sig.split('|');
@@ -360,8 +312,6 @@ class LocalGroupSignature {
         }
     }
 
-    // ==================== ОПРЕДЕЛЕНИЕ РОЛИ ====================
-
     getNodeRole(nodeId, neighbors, graph) {
         const degree = neighbors.length;
        
@@ -389,8 +339,6 @@ class LocalGroupSignature {
        
         return 'R';
     }
-
-    // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
 
     findNodeNeighbors(nodeId, graph) {
         const neighbors = [];
@@ -421,8 +369,6 @@ class LocalGroupSignature {
         if (y < 200) return 'N';
         return 'C';
     }
-
-    // ==================== СТАТИСТИКА ====================
 
     getStats() {
         const stats = {
