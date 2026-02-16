@@ -100,14 +100,27 @@ class TopologicalAccumulator {
 
         console.log(`✅ Найдено ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК (треугольники ≥95%)`);
 
-        // 4. Достраиваем остальные точки относительно надёжных
-        const allMatches = this.relativePositioning.positionPoints(
-            graph,
-            existingModel.graph,
-            centerMatches,
-            morphologyMap,
-            existingModel.morphologyMap
-        );
+       // 4. Достраиваем остальные точки относительно надёжных
+const allMatches = this.relativePositioning.positionPoints(
+    graph,
+    existingModel.graph,
+    centerMatches,
+    morphologyMap,
+    existingModel.morphologyMap
+);
+
+// 🔥 СТАБИЛИЗАЦИЯ ПО 3 ЯКОРЯМ
+const stabilizedMatches = this.relativePositioning.stabilizeWithThreeAnchors(
+    graph,
+    existingModel.graph,
+    centerMatches,
+    allMatches,
+    morphologyMap,
+    existingModel.morphologyMap
+);
+
+// Объединяем результаты (приоритет у стабилизированных)
+const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
 
         // 🔥 ВЫВОД ТАБЛИЦЫ СОПОСТАВЛЕНИЯ С ОТМЕТКОЙ НАДЁЖНЫХ
         console.log(`\n📋 ТАБЛИЦА СОПОСТАВЛЕНИЯ ТОЧЕК (первые 30):`);
