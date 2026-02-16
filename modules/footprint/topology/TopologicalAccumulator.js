@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ УПРОЩЁННЫЙ АККУМУЛЯТОР - с поддержкой KNN графа
+// 🏗️ УПРОЩЁННЫЙ АККУМУЛЯТОР - с поддержкой треугольников для визуализации
 
 const GraphBuilder = require('./GraphBuilder');
 const LocalGroupSignature = require('./LocalGroupSignature');
@@ -14,8 +14,7 @@ class TopologicalAccumulator {
 
         // Компоненты
         this.graphBuilder = new GraphBuilder({
-            debug: this.debug,
-            k: options.k || 6
+            debug: this.debug
         });
        
         this.localGroupSignature = new LocalGroupSignature({
@@ -58,7 +57,7 @@ class TopologicalAccumulator {
         };
 
         console.log(`🏗️ УПРОЩЁННЫЙ TopologicalAccumulator создан: "${this.name}"`);
-        console.log(`   🔷 KNN-граф (k=${options.k || 6})`);
+        console.log(`   🔷 Граф Делоне с нормализацией`);
         console.log(`   🔷 Локальные группы (глубина ${options.localDepth || 3})`);
         console.log(`   🔷 Морфология фигур`);
         console.log(`   🎯 Поиск центра (мин. ${options.minConsistentPairs || 1} точек)`);
@@ -73,7 +72,7 @@ class TopologicalAccumulator {
         const modelId = options.modelId || this.currentModelId;
         const contours = options.contours || [];
 
-        // 1. Строим граф (KNN вместо Делоне)
+        // 1. Строим граф (Делоне с нормализацией)
         const graph = this.graphBuilder.buildGraph(points, options.source || 'photo');
 
         // 2. Кодируем морфологию
