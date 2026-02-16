@@ -1,5 +1,5 @@
 // modules/footprint/topology/RelativePositioning.js
-// 🔥 ОТНОСИТЕЛЬНАЯ ПРИВЯЗКА - индивидуальный выбор 3 ближайших якорей
+// 🔥 ОТНОСИТЕЛЬНАЯ ПРИВЯЗКА - итеративная стабилизация с проверкой уникальности
 
 class RelativePositioning {
     constructor(options = {}) {
@@ -56,6 +56,9 @@ class RelativePositioning {
             })
             .sort((a, b) => a.minDist - b.minDist);
 
+        // 🔥 Временное хранилище кандидатов для проверки уникальности
+        const candidates = [];
+
         for (const { id: photoId, node: photoNode, minDist } of photoNodes) {
             if (minDist === Infinity) {
                 if (this.debug) console.log(`   ⚠️ Точка ${photoId.substring(0,12)}... недостижима от якорей`);
@@ -101,29 +104,56 @@ class RelativePositioning {
                 }
             }
 
-            // 🔥 ТОЛЬКО ЕСЛИ УВЕРЕННОСТЬ ВЫШЕ ПОРОГА - сопоставляем
             if (bestMatch && bestScore >= this.confidenceThreshold) {
-                photoToModel.set(photoId, {
+                // Сохраняем кандидата для последующей проверки уникальности
+                candidates.push({
+                    photoId,
                     modelId: bestMatch.modelId,
-                    confidence: bestMatch.confidence,
+                    score: bestScore,
+                    photoNode,
+                    pathInfo: photoPathInfo
+                });
+            } else if (bestMatch) {
+                lowConfidence++;
+            }
+        }
+
+        // 🔥 4. ПРОВЕРКА УНИКАЛЬНОСТИ - каждая точка модели только один раз
+        // Сортируем кандидатов по убыванию уверенности
+        candidates.sort((a, b) => b.score - a.score);
+
+        // Проходим по кандидатам и назначаем только лучших
+        const usedModelIds = new Set();
+        const finalCandidates = [];
+
+        for (const cand of candidates) {
+            if (!usedModelIds.has(cand.modelId)) {
+                // Эта точка модели ещё не занята - назначаем
+                usedModelIds.add(cand.modelId);
+                finalCandidates.push(cand);
+               
+                photoToModel.set(cand.photoId, {
+                    modelId: cand.modelId,
+                    confidence: cand.score,
                     source: 'relative'
                 });
-                modelToPhoto.set(bestMatch.modelId, photoId);
+                modelToPhoto.set(cand.modelId, cand.photoId);
                 matched++;
                
                 if (this.debug && matched <= 5) {
-                    console.log(`   ✅ Сопоставлено: ${photoId.substring(0,12)}... ↔ ${bestMatch.modelId.substring(0,12)}... (${(bestScore*100).toFixed(0)}%)`);
+                    console.log(`   ✅ Сопоставлено: ${cand.photoId.substring(0,12)}... ↔ ${cand.modelId.substring(0,12)}... (${(cand.score*100).toFixed(0)}%)`);
                 }
-            } else if (bestMatch) {
+            } else {
+                // Конфликт - эта точка модели уже занята лучшим кандидатом
                 lowConfidence++;
-                if (this.debug && lowConfidence <= 5) {
-                    console.log(`   ⚠️ Низкая уверенность: ${photoId.substring(0,12)}... best=${(bestScore*100).toFixed(0)}% < ${this.confidenceThreshold*100}%`);
+                if (this.debug) {
+                    console.log(`   ⚠️ Конфликт: ${cand.photoId.substring(0,12)}... хотел ${cand.modelId.substring(0,12)}... но уже занята (${(cand.score*100).toFixed(0)}%)`);
                 }
             }
         }
 
         console.log(`   ✅ Сопоставлено: ${matched}/${totalPoints} точек (уверенность ≥${this.confidenceThreshold*100}%)`);
-        console.log(`   ⚠️ Низкая уверенность: ${lowConfidence} точек (кандидаты на новые)`);
+        console.log(`   ⚠️ Низкая уверенность/конфликты: ${lowConfidence} точек (кандидаты на новые)`);
         console.log(`   🎯 Всего в фото: ${photoGraph.nodes.size} точек`);
         console.log(`   🎯 Сопоставлено всего: ${photoToModel.size}/${photoGraph.nodes.size}`);
 
@@ -174,8 +204,8 @@ class RelativePositioning {
             for (const [photoId, photoNode] of photoGraph.nodes) {
                 if (allMatches.has(photoId)) continue; // уже сопоставлена
                
-                // Находим 3 ближайших якоря для этой точки
-                const nearestAnchors = this.findNearestAnchors(photoNode, anchorPositions, 5); // берём 5, потом выберем 3 лучших
+                // Находим 5 ближайших якорей для этой точки
+                const nearestAnchors = this.findNearestAnchors(photoNode, anchorPositions, 5);
                 if (nearestAnchors.length < 3) continue;
                
                 // Берём 3 ближайших
@@ -248,39 +278,43 @@ class RelativePositioning {
                 }
             }
            
-            // Сортируем кандидатов по убыванию score
+            // 🔥 ПРОВЕРКА УНИКАЛЬНОСТИ ДЛЯ ИТЕРАТИВНОЙ СТАБИЛИЗАЦИИ
             candidates.sort((a, b) => b.score - a.score);
+            const usedModelIds = new Set();
            
-            // Добавляем лучших кандидатов как новые якоря
             for (const cand of candidates) {
                 if (count >= 20) break; // лимит на вывод
-                count++;
                
-                const modelNode = modelGraph.nodes.get(cand.modelId);
-                if (!modelNode) continue;
-               
-                // Добавляем в matches
-                allMatches.set(cand.photoId, {
-                    modelId: cand.modelId,
-                    confidence: cand.score,
-                    source: 'iterative'
-                });
-               
-                // Добавляем в якоря для следующих итераций
-                currentAnchors.set(cand.photoId, {
-                    modelId: cand.modelId,
-                    confidence: cand.score
-                });
-               
-                modelToPhoto.set(cand.modelId, cand.photoId);
-                newAnchorsAdded++;
-               
-                console.log(
-                    `│ ${count.toString().padEnd(3)} │ ${cand.photoId.substring(0,20).padEnd(20)} │ ` +
-                    `${cand.anchors.padEnd(19)} │ ` +
-                    `${cand.modelId.substring(0,20).padEnd(20)} │ ` +
-                    `(${cand.photoNode.x.toFixed(1).padStart(6)}, ${cand.photoNode.y.toFixed(1).padStart(6)}) │`
-                );
+                if (!usedModelIds.has(cand.modelId)) {
+                    usedModelIds.add(cand.modelId);
+                    count++;
+                   
+                    const modelNode = modelGraph.nodes.get(cand.modelId);
+                    if (!modelNode) continue;
+                   
+                    // Добавляем в matches
+                    allMatches.set(cand.photoId, {
+                        modelId: cand.modelId,
+                        confidence: cand.score,
+                        source: 'iterative'
+                    });
+                   
+                    // Добавляем в якоря для следующих итераций
+                    currentAnchors.set(cand.photoId, {
+                        modelId: cand.modelId,
+                        confidence: cand.score
+                    });
+                   
+                    modelToPhoto.set(cand.modelId, cand.photoId);
+                    newAnchorsAdded++;
+                   
+                    console.log(
+                        `│ ${count.toString().padEnd(3)} │ ${cand.photoId.substring(0,20).padEnd(20)} │ ` +
+                        `${cand.anchors.padEnd(19)} │ ` +
+                        `${cand.modelId.substring(0,20).padEnd(20)} │ ` +
+                        `(${cand.photoNode.x.toFixed(1).padStart(6)}, ${cand.photoNode.y.toFixed(1).padStart(6)}) │`
+                    );
+                }
             }
            
             console.log(`└─────┴──────────────────────┴─────────────────────┴──────────────────────┴─────────────────────┘`);
