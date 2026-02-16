@@ -1,5 +1,5 @@
 // modules/footprint/topology/GraphBuilder.js
-// 🔷 ПОСТРОЕНИЕ ГРАФА ДЕЛОНЕ С НОРМАЛИЗАЦИЕЙ
+// 🔷 ПОСТРОЕНИЕ ГРАФА ДЕЛОНЕ С НОРМАЛИЗАЦИЕЙ (тихий режим)
 
 const GeometryUtils = require('./geometry');
 
@@ -19,11 +19,11 @@ class GraphBuilder {
             return this.buildMinimalGraph(points);
         }
 
-        // 🔥 НОРМАЛИЗУЕМ КООРДИНАТЫ
+        // Нормализуем координаты (только для построения графа)
         const normalizedPoints = this.normalizePoints(points);
        
-        // Строим триангуляцию Делоне
-        const graph = this.buildDelaunayGraph(normalizedPoints);
+        // Строим триангуляцию Делоне на нормализованных координатах
+        const graph = this.buildDelaunayGraph(normalizedPoints, points);
 
         console.log(`✅ Граф Делоне построен: ${graph.nodes.size} узлов, ${graph.edges.size} рёбер`);
 
@@ -33,7 +33,6 @@ class GraphBuilder {
     // ==================== НОРМАЛИЗАЦИЯ ====================
 
     normalizePoints(points) {
-        // Находим границы
         let minX = Infinity, maxX = -Infinity;
         let minY = Infinity, maxY = -Infinity;
        
@@ -48,14 +47,14 @@ class GraphBuilder {
         const height = maxY - minY;
         const maxDim = Math.max(width, height);
        
-        if (maxDim === 0) return points; // все точки совпадают
+        if (maxDim === 0) return points;
        
-        // Нормализуем в диапазон [0, 1]
+        // Нормализуем, но СОХРАНЯЕМ оригинальные координаты
         return points.map((p, idx) => ({
             id: p.id || `pt_${idx}`,
             x: (p.x - minX) / maxDim,
             y: (p.y - minY) / maxDim,
-            originalX: p.x,  // сохраняем для визуализации
+            originalX: p.x,
             originalY: p.y,
             originalIndex: idx,
             confidence: p.confidence || 0.5
@@ -64,15 +63,7 @@ class GraphBuilder {
 
     // ==================== ТРИАНГУЛЯЦИЯ ДЕЛОНЕ ====================
 
-    buildDelaunayGraph(points) {
-        const normalizedPoints = points.map((p, idx) => ({
-            id: p.id,
-            x: p.x,
-            y: p.y,
-            originalIndex: idx,
-            confidence: p.confidence || 0.5
-        }));
-
+    buildDelaunayGraph(normalizedPoints, originalPoints) {
         const superTriangle = this.createSuperTriangle(normalizedPoints);
         const allPoints = [...normalizedPoints, ...superTriangle.points];
 
@@ -102,9 +93,7 @@ class GraphBuilder {
 
             triangles = [...goodTriangles, ...newTriangles];
 
-            if (this.debug && i % 10 === 0) {
-                console.log(`   Добавлена точка ${i+1}/${normalizedPoints.length}, треугольников: ${triangles.length}`);
-            }
+            // Тихий режим - никаких логов на каждые 10 точек
         }
 
         const superIndices = superTriangle.indices;
@@ -112,7 +101,7 @@ class GraphBuilder {
             !triangle.some(vertex => superIndices.includes(vertex))
         );
 
-        const graph = this.trianglesToGraph(triangles, normalizedPoints);
+        const graph = this.trianglesToGraph(triangles, normalizedPoints, originalPoints);
 
         return graph;
     }
@@ -174,16 +163,20 @@ class GraphBuilder {
         return boundary;
     }
 
-    trianglesToGraph(triangles, points) {
+    trianglesToGraph(triangles, normalizedPoints, originalPoints) {
         const nodes = new Map();
         const edges = new Set();
 
-        for (const point of points) {
-            nodes.set(point.id, {
-                id: point.id,
-                x: point.originalX || point.x,  // используем оригинальные координаты для визуализации
-                y: point.originalY || point.y,
-                confidence: point.confidence || 0.5,
+        // Используем ОРИГИНАЛЬНЫЕ координаты для узлов
+        for (let i = 0; i < normalizedPoints.length; i++) {
+            const normPoint = normalizedPoints[i];
+            const origPoint = originalPoints[i];
+           
+            nodes.set(normPoint.id, {
+                id: normPoint.id,
+                x: origPoint.x,  // Оригинальные координаты для визуализации
+                y: origPoint.y,
+                confidence: normPoint.confidence || 0.5,
                 degree: 0
             });
         }
@@ -191,13 +184,13 @@ class GraphBuilder {
         for (const triangle of triangles) {
             const [aIdx, bIdx, cIdx] = triangle;
 
-            if (aIdx >= points.length || bIdx >= points.length || cIdx >= points.length) {
+            if (aIdx >= normalizedPoints.length || bIdx >= normalizedPoints.length || cIdx >= normalizedPoints.length) {
                 continue;
             }
 
-            const a = points[aIdx].id;
-            const b = points[bIdx].id;
-            const c = points[cIdx].id;
+            const a = normalizedPoints[aIdx].id;
+            const b = normalizedPoints[bIdx].id;
+            const c = normalizedPoints[cIdx].id;
 
             const edgesToAdd = [
                 [a, b].sort().join('--'),
@@ -224,11 +217,9 @@ class GraphBuilder {
             edges: edges,
             triangles: triangles.length,
             avgDegree: avgDegree,
-            points: points
+            points: normalizedPoints
         };
     }
-
-    // ==================== МИНИМАЛЬНЫЙ ГРАФ ====================
 
     buildMinimalGraph(points) {
         const nodes = new Map();
