@@ -100,74 +100,105 @@ class TopologicalAccumulator {
 
         console.log(`✅ Найдено ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК (треугольники ≥95%)`);
 
-       // 4. Достраиваем остальные точки относительно надёжных
-const allMatches = this.relativePositioning.positionPoints(
-    graph,
-    existingModel.graph,
-    centerMatches,
-    morphologyMap,
-    existingModel.morphologyMap
-);
+        // 4. Достраиваем остальные точки относительно надёжных
+        const allMatches = this.relativePositioning.positionPoints(
+            graph,
+            existingModel.graph,
+            centerMatches,
+            morphologyMap,
+            existingModel.morphologyMap
+        );
 
-// 🔥 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ
-const stabilizedMatches = this.relativePositioning.iterativeStabilization(
-    graph,
-    existingModel.graph,
-    centerMatches,
-    morphologyMap,
-    existingModel.morphologyMap
-);
+        // 🔥 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ
+        const stabilizedMatches = this.relativePositioning.iterativeStabilization(
+            graph,
+            existingModel.graph,
+            centerMatches,
+            morphologyMap,
+            existingModel.morphologyMap
+        );
 
-// Объединяем результаты (приоритет у стабилизированных)
-const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
+        // Объединяем результаты
+        const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
 
-        // 🔥 ВЫВОД ТАБЛИЦЫ СОПОСТАВЛЕНИЯ С ОТМЕТКОЙ НАДЁЖНЫХ
-        console.log(`\n📋 ТАБЛИЦА СОПОСТАВЛЕНИЯ ТОЧЕК (первые 30):`);
-        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┬─────────────────────┬─────────────────────┬─────────┐`);
-        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │ СТАТУС    │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │ ЯКОРЬ   │`);
-        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼───────────┼─────────────────────┼─────────────────────┼─────────┤`);
+        // 🔥 ИТОГОВАЯ ТАБЛИЦА ВСЕХ ТОЧЕК
+        console.log(`\n📋 ИТОГОВАЯ ТАБЛИЦА СОПОСТАВЛЕНИЯ ВСЕХ ТОЧЕК:`);
+        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┬─────────────────────┬─────────────────────┐`);
+        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │ СТАТУС    │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
+        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼───────────┼─────────────────────┼─────────────────────┤`);
 
-        let matchCount = 0;
-        const reliablePhotoIds = new Set(centerMatches.keys());
-       
-        for (const [photoId, match] of allMatches) {
-            if (matchCount >= 30) break;
+        let allPointsCount = 0;
+        const allPhotoIds = Array.from(graph.nodes.keys());
+
+        for (const photoId of allPhotoIds) {
+            if (allPointsCount >= 50) break; // ограничим вывод первыми 50
            
             const photoNode = graph.nodes.get(photoId);
-            const modelNode = existingModel.graph.nodes.get(match.modelId);
+            const match = finalMatches.get(photoId);
            
-            if (!photoNode || !modelNode) continue;
-           
-            const status = match.confidence >= 0.7 ? '✅' : '⚠️';
-            const isReliable = reliablePhotoIds.has(photoId) ? '🔴' : '⚪';
-            matchCount++;
-           
-            console.log(
-                `│ ${matchCount.toString().padEnd(3)} │ ${photoId.substring(0, 20).padEnd(20)} │ ` +
-                `${match.modelId.substring(0, 20).padEnd(20)} │ ` +
-                `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
-                `${status.padEnd(7)}   │ ` +
-                `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
-                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │ ` +
-                `${isReliable.padEnd(7)} │`
-            );
+            if (match) {
+                // Точка сопоставлена
+                const modelNode = existingModel.graph.nodes.get(match.modelId);
+                if (!modelNode) continue;
+               
+                allPointsCount++;
+               
+                console.log(
+                    `│ ${allPointsCount.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
+                    `${match.modelId.substring(0,20).padEnd(20)} │ ` +
+                    `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
+                    `${'✅'.padEnd(7)}   │ ` +
+                    `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
+                    `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
+                );
+            } else {
+                // Новая точка (нет в модели)
+                allPointsCount++;
+                console.log(
+                    `│ ${allPointsCount.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
+                    `${'НЕТ В МОДЕЛИ'.padEnd(20)} │ ` +
+                    `${'   -   '.padStart(5)}   │ ` +
+                    `${'🔥'.padEnd(7)}   │ ` +
+                    `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
+                    `${' '.padEnd(21)} │`
+                );
+            }
         }
-        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┴─────────┘`);
 
-        console.log(`\n📊 СТАТИСТИКА СОПОСТАВЛЕНИЙ:`);
-        const highConf = Array.from(allMatches.values()).filter(m => m.confidence >= 0.7).length;
-        const lowConf = allMatches.size - highConf;
-        console.log(`   ✅ Высокая уверенность (≥70%): ${highConf} точек`);
-        console.log(`   ⚠️ Низкая уверенность (<70%): ${lowConf} точек`);
-        console.log(`   📈 Всего сопоставлено: ${allMatches.size} точек`);
-        console.log(`   🔴 Надёжных якорей: ${centerMatches.size} точек`);
+        // Добавим точки из модели, которых нет в фото
+        for (const [modelId, modelNode] of existingModel.graph.nodes) {
+            let found = false;
+            for (const match of finalMatches.values()) {
+                if (match.modelId === modelId) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && allPointsCount < 50) {
+                allPointsCount++;
+                console.log(
+                    `│ ${allPointsCount.toString().padEnd(3)} │ ${'НЕТ В ФОТО'.padEnd(20)} │ ` +
+                    `${modelId.substring(0,20).padEnd(20)} │ ` +
+                    `${'   -   '.padStart(5)}   │ ` +
+                    `${'⚰️'.padEnd(7)}   │ ` +
+                    `${' '.padEnd(21)} │ ` +
+                    `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
+                );
+            }
+        }
+
+        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
+        console.log(`\n📊 Статистика:`);
+        console.log(`   ✅ Сопоставлено: ${finalMatches.size} точек`);
+        console.log(`   🔥 Новых в фото 2: ${graph.nodes.size - finalMatches.size} точек`);
+        console.log(`   ⚰️ Исчезнувших из модели: ${existingModel.graph.nodes.size - finalMatches.size} точек`);
 
         // 5. Обновляем модель
         const updatedModel = await this.enhanceModel(
             modelId,
             graph,
             morphologyMap,
-            allMatches,
+            finalMatches,
             centerMatches,
             options
         );
@@ -176,10 +207,10 @@ const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
             status: 'enhanced',
             modelId: modelId,
             centerMatches: centerMatches.size,
-            totalMatches: allMatches.size,
+            totalMatches: finalMatches.size,
             newNodesAdded: updatedModel.newNodesAdded,
-            reliablePhotoIds: Array.from(reliablePhotoIds), // для визуализации
-            message: `Модель улучшена (надёжных: ${centerMatches.size}, всего: ${allMatches.size}, новых: ${updatedModel.newNodesAdded})`
+            reliablePhotoIds: Array.from(centerMatches.keys()),
+            message: `Модель улучшена (надёжных: ${centerMatches.size}, всего: ${finalMatches.size}, новых: ${updatedModel.newNodesAdded})`
         };
     }
 
@@ -464,7 +495,6 @@ const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
         const graph = model.graph;
        
         // 🔥 ПОЛУЧАЕМ ID НАДЁЖНЫХ ТОЧЕК
-        // Если не переданы, берём из confirmationCount >= 2
         let reliableNodeIds = new Set(reliablePhotoIds);
        
         if (reliableNodeIds.size === 0) {
@@ -479,9 +509,7 @@ const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
         // Вычисляем все треугольники в графе
         const allTriangles = this.computeTriangles(graph);
        
-        // 🔥 РАЗДЕЛЯЕМ ТРЕУГОЛЬНИКИ НА ДВЕ ГРУППЫ:
-        // 1. Надёжные (все три точки из reliableNodeIds)
-        // 2. Обычные (остальные)
+        // 🔥 РАЗДЕЛЯЕМ ТРЕУГОЛЬНИКИ НА ДВЕ ГРУППЫ
         const reliableTriangles = [];
         const regularTriangles = [];
        
@@ -517,8 +545,8 @@ const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
             modelName: model.metadata.name,
             points: Array.from(graph.nodes.values()),
             edges: Array.from(graph.edges),
-            reliableTriangles: reliableTriangles,   // 🔥 салатовые (только от надёжных)
-            regularTriangles: regularTriangles,     // 🔥 серые (все остальные)
+            reliableTriangles: reliableTriangles,
+            regularTriangles: regularTriangles,
             stats: {
                 totalNodes: graph.nodes.size,
                 totalEdges: graph.edges.size,
@@ -534,7 +562,7 @@ const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
             pointsByConfirmation: pointsByConfirmation,
             metadata: model.metadata,
             isTopological: true,
-            reliableNodeIds: Array.from(reliableNodeIds) // для отладки
+            reliableNodeIds: Array.from(reliableNodeIds)
         };
     }
 
