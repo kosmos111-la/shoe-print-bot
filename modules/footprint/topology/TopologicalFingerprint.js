@@ -334,7 +334,7 @@ class TopologicalFingerprint {
        
         const matchRatio1 = matchedNodes1 / Math.max(1, totalNodes1);
         const matchRatio2 = matchedNodes2 / Math.max(1, totalNodes2);
-        const similarity = (matchRatio1 + matchRatio2) / 2;
+      const similarity = (matchRatio1 + matchRatio2 * 1.5) / 2.5; // увеличиваем вес похожих
        
         console.log(`📊 Результат сравнения:`);
         console.log(`   Узлов в графе 1: ${totalNodes1}`);
