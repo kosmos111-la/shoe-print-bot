@@ -201,6 +201,7 @@ class RelativePositioning {
     // ==================== ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ====================
 
     iterativeStabilization(photoGraph, modelGraph, initialAnchors, photoMorphology, modelMorphology) {
+      console.time('🔄 iterative_total'); // ← добавить
         console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК...`);
        
         let currentAnchors = new Map(initialAnchors); // текущие якоря
@@ -386,6 +387,7 @@ class RelativePositioning {
         console.log(`   Выполнено итераций: ${iteration}`);
        
         return allMatches;
+      console.timeEnd('🔄 iterative_total'); // ← добавить
     }
 
     // ==================== ПОИСК БЛИЖАЙШИХ ЯКОРЕЙ ====================
