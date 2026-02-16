@@ -1,5 +1,5 @@
 // modules/footprint/topology/RelativePositioning.js
-// 🔥 ОТНОСИТЕЛЬНАЯ ПРИВЯЗКА - достраиваем точки относительно найденных соответствий
+// 🔥 ОТНОСИТЕЛЬНАЯ ПРИВЯЗКА - стабилизация по путям от 3 якорей
 
 class RelativePositioning {
     constructor(options = {}) {
@@ -130,10 +130,10 @@ class RelativePositioning {
         return photoToModel;
     }
 
-    // ==================== СТАБИЛИЗАЦИЯ ТОЧЕК ПО 3 ЯКОРЯМ ====================
+    // ==================== СТАБИЛИЗАЦИЯ ПО ПУТЯМ ОТ 3 ЯКОРЕЙ ====================
 
     stabilizeWithThreeAnchors(photoGraph, modelGraph, anchorMatches, allMatches, photoMorphology, modelMorphology) {
-        console.log(`\n📍 СТАБИЛИЗАЦИЯ ТОЧЕК ПО 3 ЯКОРЯМ...`);
+        console.log(`\n📍 СТАБИЛИЗАЦИЯ ТОЧЕК ПО ПУТЯМ ОТ 3 ЯКОРЕЙ...`);
        
         // 1. Берём 3 самых удалённых якоря
         const anchorIds = Array.from(anchorMatches.keys());
@@ -178,105 +178,207 @@ class RelativePositioning {
        
         console.log(`   Выбраны якоря: ${anchorA.substring(0,8)}..., ${anchorB.substring(0,8)}..., ${anchorC.substring(0,8)}...`);
        
-        // 2. Создаём карту расстояний для всех точек фото
-        const photoDistances = new Map(); // photoId -> [distA, distB, distC]
+        // 2. Вычисляем пути от каждого якоря до всех точек
+        const photoPathsA = this.computePathsFromAnchor(anchorA, photoGraph);
+        const photoPathsB = this.computePathsFromAnchor(anchorB, photoGraph);
+        const photoPathsC = this.computePathsFromAnchor(anchorC, photoGraph);
+       
+        const modelPathsA = this.computePathsFromAnchor(modelAnchorA, modelGraph);
+        const modelPathsB = this.computePathsFromAnchor(modelAnchorB, modelGraph);
+        const modelPathsC = this.computePathsFromAnchor(modelAnchorC, modelGraph);
+       
+        // 3. Создаём карту подписей для всех точек фото
+        const photoSignatures = new Map(); // photoId -> { pathA, pathB, pathC, coords }
        
         for (const [photoId, photoNode] of photoGraph.nodes) {
-            const distA = this.graphDistance(photoId, anchorA, photoGraph);
-            const distB = this.graphDistance(photoId, anchorB, photoGraph);
-            const distC = this.graphDistance(photoId, anchorC, photoGraph);
+            const pathA = photoPathsA.get(photoId);
+            const pathB = photoPathsB.get(photoId);
+            const pathC = photoPathsC.get(photoId);
            
-            if (distA !== Infinity && distB !== Infinity && distC !== Infinity) {
-                photoDistances.set(photoId, [distA, distB, distC]);
+            if (pathA && pathB && pathC) {
+                photoSignatures.set(photoId, {
+                    pathA: pathA.signature,
+                    pathB: pathB.signature,
+                    pathC: pathC.signature,
+                    distA: pathA.dist,
+                    distB: pathB.dist,
+                    distC: pathC.dist,
+                    x: photoNode.x,
+                    y: photoNode.y
+                });
             }
         }
        
-        // 3. Создаём карту расстояний для всех точек модели
-        const modelDistances = new Map(); // modelId -> [distA, distB, distC]
+        // 4. Создаём карту подписей для всех точек модели
+        const modelSignatures = new Map(); // modelId -> { pathA, pathB, pathC, coords }
        
         for (const [modelId, modelNode] of modelGraph.nodes) {
-            const distA = this.graphDistance(modelId, modelAnchorA, modelGraph);
-            const distB = this.graphDistance(modelId, modelAnchorB, modelGraph);
-            const distC = this.graphDistance(modelId, modelAnchorC, modelGraph);
+            const pathA = modelPathsA.get(modelId);
+            const pathB = modelPathsB.get(modelId);
+            const pathC = modelPathsC.get(modelId);
            
-            if (distA !== Infinity && distB !== Infinity && distC !== Infinity) {
-                modelDistances.set(modelId, [distA, distB, distC]);
+            if (pathA && pathB && pathC) {
+                modelSignatures.set(modelId, {
+                    pathA: pathA.signature,
+                    pathB: pathB.signature,
+                    pathC: pathC.signature,
+                    distA: pathA.dist,
+                    distB: pathB.dist,
+                    distC: pathC.dist,
+                    x: modelNode.x,
+                    y: modelNode.y
+                });
             }
         }
        
-        // 4. Стабилизируем каждую точку
+        // 5. Стабилизируем каждую точку
         const stabilizedMatches = new Map();
+        const photoToModel = new Map();
+        const modelToPhoto = new Map();
+       
+        // Сначала добавляем существующие якоря
+        for (const [photoId, match] of anchorMatches) {
+            photoToModel.set(photoId, match.modelId);
+            modelToPhoto.set(match.modelId, photoId);
+        }
+       
+        console.log(`\n📋 ТАБЛИЦА СТАБИЛИЗАЦИИ ПО ПУТЯМ (ВСЕ ТОЧКИ):`);
+        console.log(`┌─────┬──────────────────────┬──────────────────────┬──────────────────────┬──────────────────────┬─────────────────────┬─────────────────────┐`);
+        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ПУТИ A→B→C         │   ТОЧКА В МОДЕЛИ      │   ПУТИ A→B→C         │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
+        console.log(`├─────┼──────────────────────┼──────────────────────┼──────────────────────┼──────────────────────┼─────────────────────┼─────────────────────┤`);
+       
         let exactMatches = 0;
-        let fuzzyMatches = 0;
-        let noMatches = 0;
-       
-        console.log(`\n📋 ТАБЛИЦА СТАБИЛИЗАЦИИ ПО 3 ЯКОРЯМ:`);
-        console.log(`┌─────┬──────────────────────┬─────────────┬─────────────┬─────────────┬──────────────────────┬─────────┐`);
-        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   РАССТ. ДО │   ЯКОРЕЙ    │             │   ТОЧКА В МОДЕЛИ     │ СТАТУС   │`);
-        console.log(`│     │                      │   A   B   C │             │             │                      │          │`);
-        console.log(`├─────┼──────────────────────┼─────────────┼─────────────┼─────────────┼──────────────────────┼─────────┤`);
-       
+        let newPoints = 0;
+        let missingPoints = 0;
         let count = 0;
-        for (const [photoId, photoNode] of photoGraph.nodes) {
-            if (count >= 30) break;
+       
+        // Сначала все точки из фото
+        for (const [photoId, photoSig] of photoSignatures) {
+            if (count >= 50) break; // ограничим вывод
             count++;
            
-            const photoDist = photoDistances.get(photoId);
-            if (!photoDist) {
-                console.log(`│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │     -     -     -    │                 │ ${'нет связи с якорями'.padEnd(20)} │ ❌      │`);
-                noMatches++;
-                continue;
-            }
+            // Пропускаем уже сопоставленные (якоря)
+            if (photoToModel.has(photoId)) continue;
            
-            // Ищем точку в модели с такими же расстояниями
+            // Ищем точку в модели с такими же тремя путями
             let bestMatch = null;
-            let bestScore = 0;
            
-            for (const [modelId, modelDist] of modelDistances) {
-                // Сравниваем расстояния
-                const diffA = Math.abs(photoDist[0] - modelDist[0]);
-                const diffB = Math.abs(photoDist[1] - modelDist[1]);
-                const diffC = Math.abs(photoDist[2] - modelDist[2]);
+            for (const [modelId, modelSig] of modelSignatures) {
+                if (modelToPhoto.has(modelId)) continue; // уже занято
                
-                const maxDiff = Math.max(diffA, diffB, diffC);
-                const score = Math.max(0, 1 - maxDiff / 3); // допуск до 3 шагов
-               
-                if (score > bestScore) {
-                    bestScore = score;
+                if (photoSig.pathA === modelSig.pathA &&
+                    photoSig.pathB === modelSig.pathB &&
+                    photoSig.pathC === modelSig.pathC) {
                     bestMatch = modelId;
+                    break;
                 }
             }
            
-            if (bestMatch && bestScore > 0.8) {
+            if (bestMatch) {
+                // Нашли точку
                 stabilizedMatches.set(photoId, {
                     modelId: bestMatch,
-                    confidence: bestScore,
-                    source: 'stabilized'
+                    confidence: 1.0,
+                    source: 'path_stabilized'
                 });
+                photoToModel.set(photoId, bestMatch);
+                modelToPhoto.set(bestMatch, photoId);
+                exactMatches++;
                
-                const distStr = `${photoDist[0].toString().padStart(2)}   ${photoDist[1].toString().padStart(2)}   ${photoDist[2].toString().padStart(2)}`;
-                console.log(`│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │    ${distStr}    │                 │ ${bestMatch.substring(0,20).padEnd(20)} │ ✅ ${(bestScore*100).toFixed(0)}%   │`);
-               
-                if (bestScore > 0.95) exactMatches++;
-                else fuzzyMatches++;
+                const modelSig = modelSignatures.get(bestMatch);
+                console.log(
+                    `│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
+                    `${photoSig.pathA.substring(0,6).padEnd(6)}→${photoSig.pathB.substring(0,6).padEnd(6)}→${photoSig.pathC.substring(0,6).padEnd(6)} │ ` +
+                    `${bestMatch.substring(0,20).padEnd(20)} │ ` +
+                    `${modelSig.pathA.substring(0,6).padEnd(6)}→${modelSig.pathB.substring(0,6).padEnd(6)}→${modelSig.pathC.substring(0,6).padEnd(6)} │ ` +
+                    `(${photoSig.x.toFixed(1).padStart(6)}, ${photoSig.y.toFixed(1).padStart(6)}) │ ` +
+                    `(${modelSig.x.toFixed(1).padStart(6)}, ${modelSig.y.toFixed(1).padStart(6)}) │`
+                );
             } else {
-                noMatches++;
-                const distStr = `${photoDist[0].toString().padStart(2)}   ${photoDist[1].toString().padStart(2)}   ${photoDist[2].toString().padStart(2)}`;
-                console.log(`│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │    ${distStr}    │                 │ ${'НЕТ СООТВЕТСТВИЯ'.padEnd(20)} │ ❌      │`);
+                // Новая точка
+                newPoints++;
+                console.log(
+                    `│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
+                    `${photoSig.pathA.substring(0,6).padEnd(6)}→${photoSig.pathB.substring(0,6).padEnd(6)}→${photoSig.pathC.substring(0,6).padEnd(6)} │ ` +
+                    `${'НЕТ В МОДЕЛИ'.padEnd(20)} │ ` +
+                    `${' '.padEnd(20)} │ ` +
+                    `(${photoSig.x.toFixed(1).padStart(6)}, ${photoSig.y.toFixed(1).padStart(6)}) │ ` +
+                    `${' '.padEnd(21)} │`
+                );
             }
         }
        
-        console.log(`└─────┴──────────────────────┴─────────────┴─────────────┴─────────────┴──────────────────────┴─────────┘`);
-        console.log(`\n📊 СТАТИСТИКА СТАБИЛИЗАЦИИ:`);
-        console.log(`   ✅ Точных совпадений (≥95%): ${exactMatches}`);
-        console.log(`   ⚠️  Приблизительных (80-94%): ${fuzzyMatches}`);
-        console.log(`   ❌ Без пары: ${noMatches}`);
-        console.log(`   📈 Всего обработано: ${photoGraph.nodes.size} точек`);
+        // Теперь точки из модели, которых нет в фото
+        for (const [modelId, modelSig] of modelSignatures) {
+            if (modelToPhoto.has(modelId)) continue; // уже есть в фото
+           
+            missingPoints++;
+            if (count < 50) {
+                count++;
+                console.log(
+                    `│ ${count.toString().padEnd(3)} │ ${'НЕТ В ФОТО'.padEnd(20)} │ ` +
+                    `${' '.padEnd(20)} │ ` +
+                    `${modelId.substring(0,20).padEnd(20)} │ ` +
+                    `${modelSig.pathA.substring(0,6).padEnd(6)}→${modelSig.pathB.substring(0,6).padEnd(6)}→${modelSig.pathC.substring(0,6).padEnd(6)} │ ` +
+                    `${' '.padEnd(21)} │ ` +
+                    `(${modelSig.x.toFixed(1).padStart(6)}, ${modelSig.y.toFixed(1).padStart(6)}) │`
+                );
+            }
+        }
        
-        return stabilizedMatches;
+        console.log(`└─────┴──────────────────────┴──────────────────────┴──────────────────────┴──────────────────────┴─────────────────────┴─────────────────────┘`);
+        console.log(`\n📊 СТАТИСТИКА СТАБИЛИЗАЦИИ:`);
+        console.log(`   ✅ Стабилизировано (есть в обоих): ${exactMatches + anchorMatches.size}`);
+        console.log(`   🔥 Новых точек (только в фото 2): ${newPoints}`);
+        console.log(`   ⚰️ Исчезнувших точек (только в модели): ${missingPoints}`);
+        console.log(`   📈 Всего точек в фото 2: ${photoGraph.nodes.size}`);
+        console.log(`   📈 Всего точек в модели: ${modelGraph.nodes.size}`);
+       
+        // Объединяем с существующими matches
+        const result = new Map([...allMatches, ...stabilizedMatches]);
+        return result;
     }
 
     // ==================== ВЫЧИСЛЕНИЕ ПУТЕЙ ====================
+
+    computePathsFromAnchor(anchorId, graph) {
+        const paths = new Map();
+        paths.set(anchorId, { dist: 0, signature: 'S' }); // S = start
+       
+        const queue = [{ id: anchorId, path: [anchorId], dist: 0 }];
+        const visited = new Set([anchorId]);
+       
+        while (queue.length > 0) {
+            const { id, path, dist } = queue.shift();
+           
+            const neighbors = this.findNodeNeighbors(id, graph);
+           
+            for (const neighbor of neighbors) {
+                if (!visited.has(neighbor.id)) {
+                    visited.add(neighbor.id);
+                    const newPath = [...path, neighbor.id];
+                    const newDist = dist + 1;
+                   
+                    // Вычисляем подпись пути (последовательность ролей)
+                    const signature = this.computePathSignature(newPath, graph);
+                   
+                    paths.set(neighbor.id, {
+                        dist: newDist,
+                        signature: signature,
+                        path: newPath
+                    });
+                   
+                    queue.push({
+                        id: neighbor.id,
+                        path: newPath,
+                        dist: newDist
+                    });
+                }
+            }
+        }
+       
+        return paths;
+    }
 
     computeAllPaths(graph, anchorIds) {
         const anchorSet = new Set(anchorIds);
@@ -380,9 +482,9 @@ class RelativePositioning {
     }
 
     computePathSignature(path, graph) {
-        if (path.length < 2) return '';
+        if (path.length < 2) return 'S';
        
-        const signatures = [];
+        const roles = [];
        
         for (let i = 0; i < path.length; i++) {
             const nodeId = path[i];
@@ -392,10 +494,10 @@ class RelativePositioning {
             const neighbors = this.findNodeNeighbors(nodeId, graph);
             const role = this.getNodeRole(nodeId, neighbors, graph);
            
-            signatures.push(role);
+            roles.push(role);
         }
        
-        return signatures.join('→');
+        return roles.join('');
     }
 
     // ==================== СРАВНЕНИЕ ПУТЕЙ ====================
