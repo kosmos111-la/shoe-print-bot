@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - с правильным WL-сравнением
+// 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - с глобальным WL в начале
 
 const GraphBuilder = require('./GraphBuilder');
 const LocalGroupSignature = require('./LocalGroupSignature');
@@ -22,7 +22,7 @@ class TopologicalAccumulator {
         this.fingerprinter = new TopologicalFingerprint({
             debug: this.debug,
             iterations: options.wlIterations || 3,
-            structuralSimilarityThreshold: 0.7
+            structuralSimilarityThreshold: 0.5
         });
        
         this.localGroupSignature = new LocalGroupSignature({
@@ -83,7 +83,7 @@ class TopologicalAccumulator {
         // 2. Кодируем морфологию
         const morphologyMap = this.morphologyEncoder.encode(points, contours);
 
-        // Вычисляем WL-подписи для нового графа
+        // 3. Вычисляем WL-подписи для нового графа
         const newFingerprints = this.fingerprinter.computeGraphFingerprints(graph);
 
         // Если нет существующей модели - создаём новую
@@ -94,7 +94,7 @@ class TopologicalAccumulator {
         const existingModel = this.models.get(modelId);
         console.log(`🔍 Сравниваю с моделью "${modelId}"`);
 
-        // 🔥 3. СРАВНЕНИЕ ГРАФОВ (как в старой версии)
+        // 🔥 4. ГЛОБАЛЬНОЕ WL-СРАВНЕНИЕ (как в закрепе)
         console.log(`\n🔍 Сравниваю графы по WL-подписям...`);
        
         const comparison = this.fingerprinter.compareGraphs(
@@ -104,16 +104,18 @@ class TopologicalAccumulator {
             newFingerprints
         );
 
+        const globalSimilarity = comparison.similarity;
+       
         console.log(`📊 Результат сравнения:`);
         console.log(`   Узлов в графе 1: ${comparison.totalNodes1}`);
         console.log(`   Узлов в графе 2: ${comparison.totalNodes2}`);
         console.log(`   Точных совпадений: ${comparison.exactMatches.length}`);
         console.log(`   Структурно похожих: ${comparison.similarMatches.length}`);
-        console.log(`   Сходство: ${(comparison.similarity * 100).toFixed(1)}%`);
+        console.log(`   Сходство: ${(globalSimilarity * 100).toFixed(1)}%`);
 
         // Если сходство ниже порога - создаём новую модель
-        if (comparison.similarity < this.similarityThreshold) {
-            console.log(`⚠️ Сходство ниже порога (${(comparison.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
+        if (globalSimilarity < this.similarityThreshold) {
+            console.log(`⚠️ Сходство ниже порога (${(globalSimilarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
             console.log(`🆕 Создаю новую модель`);
             return this.createNewModel(graph, newFingerprints, morphologyMap, points, {
                 ...options,
@@ -122,10 +124,7 @@ class TopologicalAccumulator {
             });
         }
 
-        // Сохраняем similarity для результата
-        const globalSimilarity = comparison.similarity;
-
-        // 🔥 4. ЕСЛИ ВКЛЮЧЕН ПОЛНЫЙ РЕЖИМ - запускаем точную идентификацию
+        // 🔥 5. ЕСЛИ ВКЛЮЧЕН ПОЛНЫЙ РЕЖИМ - запускаем точную идентификацию
         if (!this.fastMode) {
             console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА...`);
            
@@ -183,7 +182,7 @@ class TopologicalAccumulator {
             }
         }
 
-        // 🔥 5. БЫСТРЫЙ РЕЖИМ или не хватило точек
+        // 🔥 6. БЫСТРЫЙ РЕЖИМ или не хватило точек
         return {
             status: 'enhanced_fast',
             modelId: modelId,
