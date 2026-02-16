@@ -1,3 +1,6 @@
+✅ TopologicalAccumulator.js — ПОЛНАЯ ВЕРСИЯ с поддержкой надёжных треугольников и отметок в таблице
+
+```javascript
 // modules/footprint/topology/TopologicalAccumulator.js
 // 🏗️ УПРОЩЁННЫЙ АККУМУЛЯТОР - с поддержкой треугольников для визуализации
 
@@ -109,13 +112,15 @@ class TopologicalAccumulator {
             existingModel.morphologyMap
         );
 
-        // 🔥 ВЫВОД ТАБЛИЦЫ СОПОСТАВЛЕНИЯ
+        // 🔥 ВЫВОД ТАБЛИЦЫ СОПОСТАВЛЕНИЯ С ОТМЕТКОЙ НАДЁЖНЫХ
         console.log(`\n📋 ТАБЛИЦА СОПОСТАВЛЕНИЯ ТОЧЕК (первые 30):`);
-        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┬─────────────────────┬─────────────────────┐`);
-        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │ СТАТУС    │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
-        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼───────────┼─────────────────────┼─────────────────────┤`);
+        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┬─────────────────────┬─────────────────────┬─────────┐`);
+        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │ СТАТУС    │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │ ЯКОРЬ   │`);
+        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼───────────┼─────────────────────┼─────────────────────┼─────────┤`);
 
         let matchCount = 0;
+        const reliablePhotoIds = new Set(centerMatches.keys());
+       
         for (const [photoId, match] of allMatches) {
             if (matchCount >= 30) break;
            
@@ -125,6 +130,7 @@ class TopologicalAccumulator {
             if (!photoNode || !modelNode) continue;
            
             const status = match.confidence >= 0.7 ? '✅' : '⚠️';
+            const isReliable = reliablePhotoIds.has(photoId) ? '🔴' : '⚪';
             matchCount++;
            
             console.log(
@@ -133,10 +139,11 @@ class TopologicalAccumulator {
                 `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
                 `${status.padEnd(7)}   │ ` +
                 `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
-                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
+                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │ ` +
+                `${isReliable.padEnd(7)} │`
             );
         }
-        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
+        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┴─────────┘`);
 
         console.log(`\n📊 СТАТИСТИКА СОПОСТАВЛЕНИЙ:`);
         const highConf = Array.from(allMatches.values()).filter(m => m.confidence >= 0.7).length;
@@ -144,6 +151,7 @@ class TopologicalAccumulator {
         console.log(`   ✅ Высокая уверенность (≥70%): ${highConf} точек`);
         console.log(`   ⚠️ Низкая уверенность (<70%): ${lowConf} точек`);
         console.log(`   📈 Всего сопоставлено: ${allMatches.size} точек`);
+        console.log(`   🔴 Надёжных якорей: ${centerMatches.size} точек`);
 
         // 5. Обновляем модель
         const updatedModel = await this.enhanceModel(
@@ -161,6 +169,7 @@ class TopologicalAccumulator {
             centerMatches: centerMatches.size,
             totalMatches: allMatches.size,
             newNodesAdded: updatedModel.newNodesAdded,
+            reliablePhotoIds: Array.from(reliablePhotoIds), // для визуализации
             message: `Модель улучшена (надёжных: ${centerMatches.size}, всего: ${allMatches.size}, новых: ${updatedModel.newNodesAdded})`
         };
     }
@@ -438,31 +447,43 @@ class TopologicalAccumulator {
 
     // ==================== ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ ====================
 
-    getVisualizationData(modelId = null) {
+    getVisualizationData(modelId = null, reliablePhotoIds = []) {
         const targetId = modelId || this.currentModelId;
         if (!targetId || !this.models.has(targetId)) return null;
 
         const model = this.models.get(targetId);
         const graph = model.graph;
        
-        // 🔥 ТОЛЬКО ТРЕУГОЛЬНИКИ ОТ НАДЁЖНЫХ ТОЧЕК
-        // Получаем ID надёжных точек из истории или центра
-        // Пока для теста берём все точки с confirmationCount >= 2
-        const reliableNodeIds = new Set();
-        for (const [nodeId, node] of graph.nodes) {
-            if (node.confirmationCount >= 2) {
-                reliableNodeIds.add(nodeId);
+        // 🔥 ПОЛУЧАЕМ ID НАДЁЖНЫХ ТОЧЕК
+        // Если не переданы, берём из confirmationCount >= 2
+        let reliableNodeIds = new Set(reliablePhotoIds);
+       
+        if (reliableNodeIds.size === 0) {
+            // Запасной вариант: берём точки с 2+ подтверждениями
+            for (const [nodeId, node] of graph.nodes) {
+                if (node.confirmationCount >= 2) {
+                    reliableNodeIds.add(nodeId);
+                }
             }
         }
 
-        // Вычисляем только треугольники, где все три точки надёжные
-        const reliableTriangles = [];
+        // Вычисляем все треугольники в графе
         const allTriangles = this.computeTriangles(graph);
+       
+        // 🔥 РАЗДЕЛЯЕМ ТРЕУГОЛЬНИКИ НА ДВЕ ГРУППЫ:
+        // 1. Надёжные (все три точки из reliableNodeIds)
+        // 2. Обычные (остальные)
+        const reliableTriangles = [];
+        const regularTriangles = [];
        
         for (const triangle of allTriangles) {
             const [a, b, c] = triangle;
-            if (reliableNodeIds.has(a) && reliableNodeIds.has(b) && reliableNodeIds.has(c)) {
+            const isReliable = reliableNodeIds.has(a) && reliableNodeIds.has(b) && reliableNodeIds.has(c);
+           
+            if (isReliable) {
                 reliableTriangles.push(triangle);
+            } else {
+                regularTriangles.push(triangle);
             }
         }
 
@@ -487,20 +508,24 @@ class TopologicalAccumulator {
             modelName: model.metadata.name,
             points: Array.from(graph.nodes.values()),
             edges: Array.from(graph.edges),
-            triangles: reliableTriangles, // 🔥 ТОЛЬКО НАДЁЖНЫЕ ТРЕУГОЛЬНИКИ
+            reliableTriangles: reliableTriangles,   // 🔥 салатовые (только от надёжных)
+            regularTriangles: regularTriangles,     // 🔥 серые (все остальные)
             stats: {
                 totalNodes: graph.nodes.size,
                 totalEdges: graph.edges.size,
-                triangles: reliableTriangles.length,
+                reliableTriangles: reliableTriangles.length,
+                regularTriangles: regularTriangles.length,
                 avgDegree: graph.avgDegree || 0,
                 confirmed3: pointsByConfirmation.confirmed3.length,
                 confirmed2: pointsByConfirmation.confirmed2.length,
                 confirmed1: pointsByConfirmation.confirmed1.length,
-                confirmed0: pointsByConfirmation.confirmed0.length
+                confirmed0: pointsByConfirmation.confirmed0.length,
+                reliableNodes: reliableNodeIds.size
             },
             pointsByConfirmation: pointsByConfirmation,
             metadata: model.metadata,
-            isTopological: true
+            isTopological: true,
+            reliableNodeIds: Array.from(reliableNodeIds) // для отладки
         };
     }
 
@@ -555,3 +580,13 @@ class TopologicalAccumulator {
 }
 
 module.exports = TopologicalAccumulator;
+```
+
+🔥 Ключевые изменения:
+
+1. Таблица сопоставления — добавлен столбец "ЯКОРЬ" с 🔴 для надёжных точек, ⚪ для остальных
+2. Визуализация — треугольники разделены на:
+   · reliableTriangles — только от надёжных точек (будут салатовыми)
+   · regularTriangles — все остальные (серые, как обычные рёбра)
+3. Статистика — добавлено количество надёжных узлов и треугольников
+4. В метод getVisualizationData передаётся reliablePhotoIds из результата обработки
