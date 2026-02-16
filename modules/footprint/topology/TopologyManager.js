@@ -1,7 +1,6 @@
 // modules/footprint/topology/TopologyManager.js
 // 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (С ПОДДЕРЖКОЙ ПЕСОЧНИЦЫ)
 
-const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalAccumulator = require('./TopologicalAccumulator');
 
 class TopologyManager {
@@ -9,28 +8,29 @@ class TopologyManager {
         this.userId = options.userId || 'default';
         this.name = options.name || `Топология_${this.userId}`;
         this.debug = options.debug || false;
-       
+
         // 🔥 РЕЖИМ ПЕСОЧНИЦЫ
         this.sandboxMode = options.sandboxMode || false;
-       
-        // Аккумулятор с поддержкой треугольников
+
+        // Аккумулятор с поддержкой KNN
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
             debug: this.debug,
             similarityThreshold: options.similarityThreshold || 0.6,
             minMatchesForEnhancement: options.minMatchesForEnhancement || 3,
-            wlIterations: options.wlIterations || 3
+            wlIterations: options.wlIterations || 3,
+            k: options.k || 6
         });
 
         // Связь с существующей системой
         this.linkedFootprints = new Map();
-       
-        // 🔥 ВРЕМЕННЫЕ МОДЕЛИ ДЛЯ ПЕСОЧНИЦЫ (сессия -> модель)
+
+        // 🔥 ВРЕМЕННЫЕ МОДЕЛИ ДЛЯ ПЕСОЧНИЦЫ
         this.sandboxModels = new Map();
 
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
         console.log(`   🔥 Режим: ${this.sandboxMode ? 'ПЕСОЧНИЦА' : 'ПРОДАКШН'}`);
-        console.log(`   🔥 Аккумулятор с поддержкой треугольников`);
+        console.log(`   🔥 Аккумулятор с KNN (k=${options.k || 6})`);
     }
 
     // ==================== ГЛАВНЫЙ МЕТОД ====================
@@ -38,7 +38,6 @@ class TopologyManager {
     async processFootprint(footprint, analysisData, photoInfo = {}) {
         console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoInfo.photoId || 'без ID'}...`);
 
-        // Извлекаем точки и контуры
         let points = [];
         let contours = [];
 
@@ -69,7 +68,6 @@ class TopologyManager {
 
         console.log(`📊 Извлечено ${points.length} точек ИЗ ТЕКУЩЕГО ФОТО`);
 
-        // Диагностика точек
         if (this.debug && points.length > 0) {
             console.log(`📋 Первые 3 точки текущего фото:`);
             points.slice(0, 3).forEach((p, i) => {
@@ -77,22 +75,19 @@ class TopologyManager {
             });
         }
 
-        // 🔥 ОПРЕДЕЛЯЕМ МОДЕЛЬ ДЛЯ СРАВНЕНИЯ (С УЧЁТОМ ПЕСОЧНИЦЫ)
+        // 🔥 ОПРЕДЕЛЯЕМ МОДЕЛЬ ДЛЯ СРАВНЕНИЯ
         let modelId;
-       
+
         if (this.sandboxMode) {
-            // В песочнице - берём или создаём временную модель для этой сессии
             const sessionId = photoInfo.sessionId || 'default_sandbox';
             modelId = this.sandboxModels.get(sessionId);
-           
+
             if (!modelId) {
-                // Создаём новую временную модель
                 modelId = `sandbox_${sessionId}_${Date.now()}`;
                 this.sandboxModels.set(sessionId, modelId);
                 console.log(`🏖️ Создана временная модель для сессии ${sessionId}`);
             }
         } else {
-            // В продакшне - используем постоянные модели
             modelId = this.linkedFootprints.get(footprint.id);
             if (!modelId && this.accumulator.currentModelId) {
                 modelId = this.accumulator.currentModelId;
@@ -101,7 +96,6 @@ class TopologyManager {
             }
         }
 
-        // Передаём точки и контуры в аккумулятор
         const result = await this.accumulator.processPoints(points, {
             modelId: modelId,
             source: `photo_${photoInfo.photoId || Date.now()}`,
@@ -112,13 +106,11 @@ class TopologyManager {
             contours: contours
         });
 
-        // Обновляем связь след-модель (только для продакшна)
         if (!this.sandboxMode && result.modelId && result.modelId !== modelId) {
             this.linkedFootprints.set(footprint.id, result.modelId);
             console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
         }
 
-        // Получаем обновленную информацию о модели
         const modelInfo = this.accumulator.getModelInfo(result.modelId);
 
         return {
@@ -135,18 +127,12 @@ class TopologyManager {
 
     // ==================== УПРАВЛЕНИЕ ПЕСОЧНИЦЕЙ ====================
 
-    /**
-     * Начать новую песочницу для сессии
-     */
     startSandboxSession(sessionId) {
         console.log(`\n🏖️ ЗАПУСК ПЕСОЧНИЦЫ для сессии ${sessionId}`);
-        this.sandboxModels.delete(sessionId); // очищаем старую, если была
+        this.sandboxModels.delete(sessionId);
         return { success: true, sessionId };
     }
 
-    /**
-     * Завершить песочницу и получить результат
-     */
     endSandboxSession(sessionId) {
         const modelId = this.sandboxModels.get(sessionId);
         if (!modelId) {
@@ -155,14 +141,12 @@ class TopologyManager {
         }
 
         const modelInfo = this.accumulator.getModelInfo(modelId);
-       
-        // Очищаем временную модель
         this.sandboxModels.delete(sessionId);
-       
+
         console.log(`\n🏖️ ЗАВЕРШЕНИЕ ПЕСОЧНИЦЫ для сессии ${sessionId}`);
         console.log(`   Итоговая модель: ${modelId}`);
         console.log(`   Узлов: ${modelInfo.stats?.nodes || 0}`);
-       
+
         return {
             success: true,
             sessionId,
@@ -171,9 +155,6 @@ class TopologyManager {
         };
     }
 
-    /**
-     * Очистить все песочницы
-     */
     clearAllSandboxes() {
         const count = this.sandboxModels.size;
         this.sandboxModels.clear();
@@ -203,7 +184,6 @@ class TopologyManager {
 
                 const pointId = `${photoId}_pt_${protectorCount}`;
                
-                // Сохраняем контур
                 contours.push({
                     id: `${photoId}_contour_${protectorCount}`,
                     pointId: pointId,
@@ -212,7 +192,6 @@ class TopologyManager {
                     confidence: pred.confidence || 0.5
                 });
 
-                // Сохраняем точку (центр контура)
                 points.push({
                     id: pointId,
                     x: (Math.min(...xs) + Math.max(...xs)) / 2,
