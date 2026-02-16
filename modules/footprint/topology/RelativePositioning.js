@@ -1,5 +1,5 @@
 // modules/footprint/topology/RelativePositioning.js
-// 🔥 ОТНОСИТЕЛЬНАЯ ПРИВЯЗКА - итеративная стабилизация с проверкой уникальности
+// 🔥 ОТНОСИТЕЛЬНАЯ ПРИВЯЗКА - с взаимной проверкой кандидатов
 
 class RelativePositioning {
     constructor(options = {}) {
@@ -56,7 +56,7 @@ class RelativePositioning {
             })
             .sort((a, b) => a.minDist - b.minDist);
 
-        // 🔥 Временное хранилище кандидатов для проверки уникальности
+        // 🔥 Временное хранилище кандидатов
         const candidates = [];
 
         for (const { id: photoId, node: photoNode, minDist } of photoNodes) {
@@ -105,7 +105,6 @@ class RelativePositioning {
             }
 
             if (bestMatch && bestScore >= this.confidenceThreshold) {
-                // Сохраняем кандидата для последующей проверки уникальности
                 candidates.push({
                     photoId,
                     modelId: bestMatch.modelId,
@@ -118,37 +117,76 @@ class RelativePositioning {
             }
         }
 
-        // 🔥 4. ПРОВЕРКА УНИКАЛЬНОСТИ - каждая точка модели только один раз
-        // Сортируем кандидатов по убыванию уверенности
-        candidates.sort((a, b) => b.score - a.score);
+        // 🔥 4. ВЗАИМНАЯ ПРОВЕРКА КАНДИДАТОВ
+        // Создаём карты для двунаправленной проверки
+        const photoToCandidate = new Map(); // photoId -> candidate
+        const modelToCandidate = new Map(); // modelId -> candidate
 
-        // Проходим по кандидатам и назначаем только лучших
+        // Сначала собираем всех кандидатов
+        for (const cand of candidates) {
+            photoToCandidate.set(cand.photoId, cand);
+           
+            if (!modelToCandidate.has(cand.modelId)) {
+                modelToCandidate.set(cand.modelId, []);
+            }
+            modelToCandidate.get(cand.modelId).push(cand);
+        }
+
+        // Проверяем взаимность
+        const mutualCandidates = [];
+        const conflictCandidates = [];
+
+        for (const cand of candidates) {
+            // Для этого кандидата смотрим, есть ли у его модели другие претенденты
+            const competitors = modelToCandidate.get(cand.modelId) || [];
+           
+            if (competitors.length === 1) {
+                // У модели только один претендент - проверяем взаимность
+                mutualCandidates.push(cand);
+            } else {
+                // Конфликт - несколько точек хотят одну модель
+                // Сортируем по уверенности и берём лучшего
+                competitors.sort((a, b) => b.score - a.score);
+                const best = competitors[0];
+               
+                if (!conflictCandidates.includes(best)) {
+                    conflictCandidates.push(best);
+                }
+            }
+        }
+
+        // 🔥 5. НАЗНАЧАЕМ ТОЛЬКО ВЗАИМНО ПРОВЕРЕННЫЕ
         const usedModelIds = new Set();
         const finalCandidates = [];
 
-        for (const cand of candidates) {
+        // Сначала назначаем mutual (они безопаснее)
+        for (const cand of mutualCandidates) {
             if (!usedModelIds.has(cand.modelId)) {
-                // Эта точка модели ещё не занята - назначаем
                 usedModelIds.add(cand.modelId);
                 finalCandidates.push(cand);
-               
-                photoToModel.set(cand.photoId, {
-                    modelId: cand.modelId,
-                    confidence: cand.score,
-                    source: 'relative'
-                });
-                modelToPhoto.set(cand.modelId, cand.photoId);
-                matched++;
-               
-                if (this.debug && matched <= 5) {
-                    console.log(`   ✅ Сопоставлено: ${cand.photoId.substring(0,12)}... ↔ ${cand.modelId.substring(0,12)}... (${(cand.score*100).toFixed(0)}%)`);
-                }
-            } else {
-                // Конфликт - эта точка модели уже занята лучшим кандидатом
-                lowConfidence++;
-                if (this.debug) {
-                    console.log(`   ⚠️ Конфликт: ${cand.photoId.substring(0,12)}... хотел ${cand.modelId.substring(0,12)}... но уже занята (${(cand.score*100).toFixed(0)}%)`);
-                }
+            }
+        }
+
+        // Потом назначаем лучших из конфликтующих
+        for (const cand of conflictCandidates) {
+            if (!usedModelIds.has(cand.modelId)) {
+                usedModelIds.add(cand.modelId);
+                finalCandidates.push(cand);
+            }
+        }
+
+        // Назначаем финальных кандидатов
+        for (const cand of finalCandidates) {
+            photoToModel.set(cand.photoId, {
+                modelId: cand.modelId,
+                confidence: cand.score,
+                source: 'relative'
+            });
+            modelToPhoto.set(cand.modelId, cand.photoId);
+            matched++;
+           
+            if (this.debug && matched <= 5) {
+                console.log(`   ✅ Сопоставлено: ${cand.photoId.substring(0,12)}... ↔ ${cand.modelId.substring(0,12)}... (${(cand.score*100).toFixed(0)}%)`);
             }
         }
 
@@ -278,43 +316,64 @@ class RelativePositioning {
                 }
             }
            
-            // 🔥 ПРОВЕРКА УНИКАЛЬНОСТИ ДЛЯ ИТЕРАТИВНОЙ СТАБИЛИЗАЦИИ
+            // 🔥 ВЗАИМНАЯ ПРОВЕРКА ДЛЯ ИТЕРАТИВНОЙ СТАБИЛИЗАЦИИ
             candidates.sort((a, b) => b.score - a.score);
-            const usedModelIds = new Set();
+           
+            // Создаём карты для проверки
+            const iterPhotoToCandidate = new Map();
+            const iterModelToCandidate = new Map();
            
             for (const cand of candidates) {
-                if (count >= 20) break; // лимит на вывод
-               
-                if (!usedModelIds.has(cand.modelId)) {
-                    usedModelIds.add(cand.modelId);
-                    count++;
-                   
-                    const modelNode = modelGraph.nodes.get(cand.modelId);
-                    if (!modelNode) continue;
-                   
-                    // Добавляем в matches
-                    allMatches.set(cand.photoId, {
-                        modelId: cand.modelId,
-                        confidence: cand.score,
-                        source: 'iterative'
-                    });
-                   
-                    // Добавляем в якоря для следующих итераций
-                    currentAnchors.set(cand.photoId, {
-                        modelId: cand.modelId,
-                        confidence: cand.score
-                    });
-                   
-                    modelToPhoto.set(cand.modelId, cand.photoId);
-                    newAnchorsAdded++;
-                   
-                    console.log(
-                        `│ ${count.toString().padEnd(3)} │ ${cand.photoId.substring(0,20).padEnd(20)} │ ` +
-                        `${cand.anchors.padEnd(19)} │ ` +
-                        `${cand.modelId.substring(0,20).padEnd(20)} │ ` +
-                        `(${cand.photoNode.x.toFixed(1).padStart(6)}, ${cand.photoNode.y.toFixed(1).padStart(6)}) │`
-                    );
+                iterPhotoToCandidate.set(cand.photoId, cand);
+                if (!iterModelToCandidate.has(cand.modelId)) {
+                    iterModelToCandidate.set(cand.modelId, []);
                 }
+                iterModelToCandidate.get(cand.modelId).push(cand);
+            }
+           
+            // Выбираем лучших
+            const usedModelIds = new Set();
+            const selectedCandidates = [];
+           
+            for (const cand of candidates) {
+                if (usedModelIds.has(cand.modelId)) continue;
+               
+                const competitors = iterModelToCandidate.get(cand.modelId) || [];
+                competitors.sort((a, b) => b.score - a.score);
+                const best = competitors[0];
+               
+                usedModelIds.add(best.modelId);
+                selectedCandidates.push(best);
+            }
+           
+            // Добавляем выбранных кандидатов
+            for (const cand of selectedCandidates) {
+                if (count >= 20) break;
+                count++;
+               
+                const modelNode = modelGraph.nodes.get(cand.modelId);
+                if (!modelNode) continue;
+               
+                allMatches.set(cand.photoId, {
+                    modelId: cand.modelId,
+                    confidence: cand.score,
+                    source: 'iterative'
+                });
+               
+                currentAnchors.set(cand.photoId, {
+                    modelId: cand.modelId,
+                    confidence: cand.score
+                });
+               
+                modelToPhoto.set(cand.modelId, cand.photoId);
+                newAnchorsAdded++;
+               
+                console.log(
+                    `│ ${count.toString().padEnd(3)} │ ${cand.photoId.substring(0,20).padEnd(20)} │ ` +
+                    `${cand.anchors.padEnd(19)} │ ` +
+                    `${cand.modelId.substring(0,20).padEnd(20)} │ ` +
+                    `(${cand.photoNode.x.toFixed(1).padStart(6)}, ${cand.photoNode.y.toFixed(1).padStart(6)}) │`
+                );
             }
            
             console.log(`└─────┴──────────────────────┴─────────────────────┴──────────────────────┴─────────────────────┘`);
@@ -332,7 +391,6 @@ class RelativePositioning {
     // ==================== ПОИСК БЛИЖАЙШИХ ЯКОРЕЙ ====================
 
     findNearestAnchors(point, anchors, count) {
-        // Вычисляем расстояния до всех якорей
         const distances = anchors.map(anchor => {
             const dx = point.x - anchor.x;
             const dy = point.y - anchor.y;
@@ -343,7 +401,6 @@ class RelativePositioning {
             };
         });
        
-        // Сортируем по расстоянию и берём первые count
         return distances
             .sort((a, b) => a.distance - b.distance)
             .slice(0, count);
@@ -353,7 +410,7 @@ class RelativePositioning {
 
     computePathsFromAnchor(anchorId, graph) {
         const paths = new Map();
-        paths.set(anchorId, { dist: 0, signature: 'S' }); // S = start
+        paths.set(anchorId, { dist: 0, signature: 'S' });
        
         const queue = [{ id: anchorId, path: [anchorId], dist: 0 }];
         const visited = new Set([anchorId]);
@@ -369,7 +426,6 @@ class RelativePositioning {
                     const newPath = [...path, neighbor.id];
                     const newDist = dist + 1;
                    
-                    // Вычисляем подпись пути (последовательность ролей)
                     const signature = this.computePathSignature(newPath, graph);
                    
                     paths.set(neighbor.id, {
@@ -392,9 +448,8 @@ class RelativePositioning {
 
     computeAllPaths(graph, anchorIds) {
         const anchorSet = new Set(anchorIds);
-        const paths = new Map(); // nodeId -> { distances, paths }
+        const paths = new Map();
 
-        // Для каждой опорной точки запускаем BFS
         for (const anchorId of anchorIds) {
             const distances = this.bfsDistances(anchorId, graph);
            
@@ -403,8 +458,8 @@ class RelativePositioning {
                
                 if (!paths.has(nodeId)) {
                     paths.set(nodeId, {
-                        toAnchors: [], // расстояния до каждой опорной точки
-                        anchorPaths: new Map(), // пути
+                        toAnchors: [],
+                        anchorPaths: new Map(),
                         bestAnchor: null,
                         bestDist: Infinity
                     });
@@ -424,13 +479,12 @@ class RelativePositioning {
             }
         }
 
-        // Для каждой точки находим путь к ближайшему якорю
         for (const [nodeId, info] of paths) {
             if (info.bestAnchor) {
                 const path = this.findPath(info.bestAnchor, nodeId, graph);
                 info.anchorPaths.set(info.bestAnchor, path);
                 info.pathSignature = this.computePathSignature(path, graph);
-                info.pathLength = path.length - 1; // количество шагов
+                info.pathLength = path.length - 1;
             }
         }
 
@@ -488,7 +542,7 @@ class RelativePositioning {
             }
         }
        
-        return [fromId]; // нет пути
+        return [fromId];
     }
 
     computePathSignature(path, graph) {
@@ -513,12 +567,10 @@ class RelativePositioning {
     // ==================== СРАВНЕНИЕ ПУТЕЙ ====================
 
     comparePaths(photoId, photoPathInfo, modelId, modelPathInfo, photoGraph, modelGraph, photoMorphology, modelMorphology, photoToModel, modelToPhoto) {
-        // 1. Сравниваем расстояния до опорных точек
         let distanceScore = 0;
         let pairCount = 0;
        
         for (const photoAnchor of photoPathInfo.toAnchors) {
-            // Находим соответствующий якорь в модели
             const photoAnchorId = photoAnchor.anchorId;
             const modelAnchorId = photoToModel.get(photoAnchorId)?.modelId;
            
@@ -537,7 +589,6 @@ class RelativePositioning {
         if (pairCount === 0) return 0;
         distanceScore /= pairCount;
        
-        // 2. Сравниваем подписи путей
         let pathScore = 0;
         if (photoPathInfo.pathSignature && modelPathInfo.pathSignature) {
             const photoPath = photoPathInfo.pathSignature;
@@ -551,11 +602,9 @@ class RelativePositioning {
             pathScore = matches / Math.max(photoPath.length, modelPath.length);
         }
        
-        // 3. Сравниваем длину пути
         const lengthDiff = Math.abs(photoPathInfo.pathLength - modelPathInfo.pathLength);
         const lengthScore = lengthDiff <= this.maxPathLengthDiff ? 1.0 : 0.5;
        
-        // 4. Морфология (если есть)
         let morphScore = 1.0;
         if (photoMorphology && modelMorphology) {
             const photoMorph = photoMorphology.get(photoId);
@@ -566,11 +615,10 @@ class RelativePositioning {
             }
         }
        
-        // Итоговый score
         const totalScore = distanceScore * 0.4 + pathScore * 0.3 + lengthScore * 0.1 + morphScore * 0.2;
        
         if (this.debug && totalScore > 0.7) {
-            console.log(`      Сравнение ${photoId.substring(0,8)}... ↔ ${modelId.substring(0,8)}... = ${(totalScore*100).toFixed(0)}% (dist:${(distanceScore*100).toFixed(0)}% path:${(pathScore*100).toFixed(0)}% len:${lengthScore} morph:${(morphScore*100).toFixed(0)}%)`);
+            console.log(`      Сравнение ${photoId.substring(0,8)}... ↔ ${modelId.substring(0,8)}... = ${(totalScore*100).toFixed(0)}%`);
         }
        
         return totalScore;
