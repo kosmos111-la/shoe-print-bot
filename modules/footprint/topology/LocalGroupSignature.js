@@ -73,10 +73,12 @@ class LocalGroupSignature {
     // ==================== ПОИСК ОПТИМАЛЬНОЙ ГЛУБИНЫ ====================
 
     findOptimalDepth(nodeId, photoGraph, modelGraph, modelNodes, morphologyMap = null) {
-        const results = [];
+    console.time(`🔍 depth_${nodeId.substring(0,8)}`); // ← добавить
+    const results = [];
        
         // Пробуем разные глубины
-        for (let depth = 1; depth <= this.maxDepth; depth++) {
+        for (let depth = 2; depth <= this.maxDepth; depth++) {
+        console.time(`   depth${depth}_${nodeId.substring(0,8)}`);
             // Подпись для точки в фото
             const photoSig = this.computeLocalSignature(nodeId, photoGraph, morphologyMap, depth);
            
@@ -107,6 +109,7 @@ class LocalGroupSignature {
            
             // Сохраняем статистику
             this.depthStats[depth].candidates.push(candidates.length);
+           console.timeEnd(`   depth${depth}_${nodeId.substring(0,8)}`); // ← добавить
         }
        
         // Выбираем оптимальную глубину
@@ -136,7 +139,7 @@ class LocalGroupSignature {
                 console.log(`      глубина ${r.depth}: ${r.candidateCount} кандидатов, best=${(r.bestSimilarity*100).toFixed(0)}%`);
             });
         }
-       
+       console.timeEnd(`🔍 depth_${nodeId.substring(0,8)}`); // ← добавить
         return {
             optimalDepth: bestDepth,
             candidates: results.find(r => r.depth === bestDepth)?.candidates || [],
