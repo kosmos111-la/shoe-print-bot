@@ -12,14 +12,13 @@ class TopologyManager {
         // 🔥 РЕЖИМ ПЕСОЧНИЦЫ
         this.sandboxMode = options.sandboxMode || false;
 
-        // Аккумулятор с поддержкой KNN
+        // Аккумулятор с поддержкой Делоне
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
             debug: this.debug,
             similarityThreshold: options.similarityThreshold || 0.6,
             minMatchesForEnhancement: options.minMatchesForEnhancement || 3,
-            wlIterations: options.wlIterations || 3,
-            k: options.k || 6
+            wlIterations: options.wlIterations || 3
         });
 
         // Связь с существующей системой
@@ -30,7 +29,7 @@ class TopologyManager {
 
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
         console.log(`   🔥 Режим: ${this.sandboxMode ? 'ПЕСОЧНИЦА' : 'ПРОДАКШН'}`);
-        console.log(`   🔥 Аккумулятор с KNN (k=${options.k || 6})`);
+        console.log(`   🔥 Аккумулятор с Делоне + нормализация`);
     }
 
     // ==================== ГЛАВНЫЙ МЕТОД ====================
