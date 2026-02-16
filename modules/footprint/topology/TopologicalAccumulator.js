@@ -1,7 +1,8 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - с глобальным WL в начале
+// 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - Делоне для точек, KNN для WL
 
 const GraphBuilder = require('./GraphBuilder');
+const KNNGraphBuilder = require('./KNNGraphBuilder'); // новый модуль
 const LocalGroupSignature = require('./LocalGroupSignature');
 const MorphologyEncoder = require('./MorphologyEncoder');
 const CenterMatcher = require('./CenterMatcher');
@@ -18,7 +19,12 @@ class TopologicalAccumulator {
         this.similarityThreshold = options.similarityThreshold || 0.6;
 
         // Компоненты
-        this.graphBuilder = new GraphBuilder({ debug: this.debug });
+        this.graphBuilder = new GraphBuilder({ debug: this.debug }); // Делоне
+        this.knnBuilder = new KNNGraphBuilder({
+            debug: this.debug,
+            k: options.k || 8  // KNN для WL
+        });
+       
         this.fingerprinter = new TopologicalFingerprint({
             debug: this.debug,
             iterations: options.wlIterations || 3,
@@ -67,6 +73,7 @@ class TopologicalAccumulator {
         console.log(`🏗️ ДВУХРЕЖИМНЫЙ TopologicalAccumulator создан: "${this.name}"`);
         console.log(`   🔥 Режим: ${this.fastMode ? 'БЫСТРЫЙ (только WL)' : 'ПОЛНЫЙ'}`);
         console.log(`   🔷 Порог сходства: ${this.similarityThreshold * 100}%`);
+        console.log(`   🔷 Делоне для точек, KNN для WL (k=${options.k || 8})`);
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
@@ -77,31 +84,34 @@ class TopologicalAccumulator {
         const modelId = options.modelId || this.currentModelId;
         const contours = options.contours || [];
 
-        // 1. Строим граф
-        const graph = this.graphBuilder.buildGraph(points, options.source || 'photo');
+        // 1. Строим Делоне-граф (для точной идентификации)
+        const exactGraph = this.graphBuilder.buildGraph(points, options.source || 'photo');
 
-        // 2. Кодируем морфологию
+        // 2. Строим KNN-граф (для WL-сравнения)
+        const knnGraph = this.knnBuilder.buildGraph(points, options.source || 'photo_knn');
+
+        // 3. Кодируем морфологию
         const morphologyMap = this.morphologyEncoder.encode(points, contours);
 
-        // 3. Вычисляем WL-подписи для нового графа
-        const newFingerprints = this.fingerprinter.computeGraphFingerprints(graph);
+        // 4. Вычисляем WL-подписи на KNN-графе
+        const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
 
         // Если нет существующей модели - создаём новую
         if (!modelId || !this.models.has(modelId)) {
-            return this.createNewModel(graph, newFingerprints, morphologyMap, points, options);
+            return this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, options);
         }
 
         const existingModel = this.models.get(modelId);
         console.log(`🔍 Сравниваю с моделью "${modelId}"`);
 
-        // 🔥 4. ГЛОБАЛЬНОЕ WL-СРАВНЕНИЕ (как в закрепе)
-        console.log(`\n🔍 Сравниваю графы по WL-подписям...`);
+        // 🔥 5. ГЛОБАЛЬНОЕ WL-СРАВНЕНИЕ НА KNN-ГРАФАХ
+        console.log(`\n🔍 Сравниваю графы по WL-подписям (KNN)...`);
        
         const comparison = this.fingerprinter.compareGraphs(
-            existingModel.graph,
-            existingModel.fingerprints,
-            graph,
-            newFingerprints
+            existingModel.knnGraph,           // KNN-граф модели
+            existingModel.knnFingerprints,    // его подписи
+            knnGraph,                          // KNN-граф нового фото
+            knnFingerprints                     // его подписи
         );
 
         const globalSimilarity = comparison.similarity;
@@ -117,20 +127,20 @@ class TopologicalAccumulator {
         if (globalSimilarity < this.similarityThreshold) {
             console.log(`⚠️ Сходство ниже порога (${(globalSimilarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
             console.log(`🆕 Создаю новую модель`);
-            return this.createNewModel(graph, newFingerprints, morphologyMap, points, {
+            return this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
                 ...options,
                 comparedWith: modelId,
                 reason: 'low_similarity'
             });
         }
 
-        // 🔥 5. ЕСЛИ ВКЛЮЧЕН ПОЛНЫЙ РЕЖИМ - запускаем точную идентификацию
+        // 🔥 6. ЕСЛИ ВКЛЮЧЕН ПОЛНЫЙ РЕЖИМ - запускаем точную идентификацию на Делоне
         if (!this.fastMode) {
-            console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА...`);
+            console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
            
             const centerMatches = this.centerMatcher.findCenterMatches(
-                graph,
-                existingModel.graph,
+                exactGraph,
+                existingModel.graph,           // Делоне-граф модели
                 morphologyMap,
                 existingModel.morphologyMap
             );
@@ -139,7 +149,7 @@ class TopologicalAccumulator {
                 console.log(`✅ Найдено ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК`);
 
                 const allMatches = this.relativePositioning.positionPoints(
-                    graph,
+                    exactGraph,
                     existingModel.graph,
                     centerMatches,
                     morphologyMap,
@@ -147,7 +157,7 @@ class TopologicalAccumulator {
                 );
 
                 const stabilizedMatches = this.relativePositioning.iterativeStabilization(
-                    graph,
+                    exactGraph,
                     existingModel.graph,
                     centerMatches,
                     morphologyMap,
@@ -156,12 +166,13 @@ class TopologicalAccumulator {
 
                 const finalMatches = new Map([...allMatches, ...stabilizedMatches]);
 
-                this.printFinalTable(graph, existingModel.graph, finalMatches);
+                this.printFinalTable(exactGraph, existingModel.graph, finalMatches);
 
                 const updatedModel = await this.enhanceModel(
                     modelId,
-                    graph,
-                    newFingerprints,
+                    exactGraph,
+                    knnGraph,
+                    knnFingerprints,
                     morphologyMap,
                     finalMatches,
                     centerMatches,
@@ -182,7 +193,7 @@ class TopologicalAccumulator {
             }
         }
 
-        // 🔥 6. БЫСТРЫЙ РЕЖИМ или не хватило точек
+        // 🔥 7. БЫСТРЫЙ РЕЖИМ или не хватило точек
         return {
             status: 'enhanced_fast',
             modelId: modelId,
@@ -223,11 +234,11 @@ class TopologicalAccumulator {
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
     }
 
-    createNewModel(graph, fingerprints, morphologyMap, originalPoints, options = {}) {
+    createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
         const modelId = `topo_model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
         let morphologyCount = 0;
-        for (const [nodeId, node] of graph.nodes) {
+        for (const [nodeId, node] of exactGraph.nodes) {
             const morph = morphologyMap.get(nodeId);
             if (morph) {
                 node.morphology = morph;
@@ -240,23 +251,24 @@ class TopologicalAccumulator {
 
         const model = {
             id: modelId,
-            graph: graph,
-            fingerprints: fingerprints,
+            graph: exactGraph,                    // Делоне-граф для точек
+            knnGraph: null,                        // будет заполнено при улучшении
+            knnFingerprints: knnFingerprints,      // WL-подписи на KNN
             morphologyMap: morphologyMap,
             originalPoints: originalPoints,
             metadata: {
                 name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
                 createdAt: new Date(),
                 pointsCount: originalPoints.length,
-                nodesCount: graph.nodes.size,
-                edgesCount: graph.edges.size,
+                nodesCount: exactGraph.nodes.size,
+                edgesCount: exactGraph.edges.size,
                 source: options.source || 'unknown'
             },
             history: [{
                 action: 'created',
                 timestamp: new Date(),
                 points: originalPoints.length,
-                nodes: graph.nodes.size
+                nodes: exactGraph.nodes.size
             }]
         };
 
@@ -266,21 +278,21 @@ class TopologicalAccumulator {
         this.stats.lastUpdated = new Date();
 
         console.log(`🏗️ СОЗДАНА НОВАЯ МОДЕЛЬ "${modelId}":`);
-        console.log(`   Узлов: ${graph.nodes.size}`);
+        console.log(`   Узлов: ${exactGraph.nodes.size}`);
         console.log(`   Точек с морфологией: ${morphologyCount}`);
-        console.log(`   WL-подписей: ${fingerprints.size}`);
+        console.log(`   WL-подписей (KNN): ${knnFingerprints.size}`);
 
         return {
             status: 'created',
             modelId: modelId,
-            nodes: graph.nodes.size,
-            edges: graph.edges.size,
+            nodes: exactGraph.nodes.size,
+            edges: exactGraph.edges.size,
             morphologyCount: morphologyCount,
             message: `Создана новая топологическая модель`
         };
     }
 
-    async enhanceModel(modelId, newGraph, newFingerprints, newMorphology, allMatches, anchorMatches, options) {
+    async enhanceModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, allMatches, anchorMatches, options) {
         const model = this.models.get(modelId);
        
         let confirmedExisting = 0;
@@ -302,7 +314,7 @@ class TopologicalAccumulator {
             }
         }
        
-        for (const [photoId, photoNode] of newGraph.nodes) {
+        for (const [photoId, photoNode] of newExactGraph.nodes) {
             if (matchedPhotoIds.has(photoId)) continue;
            
             const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
@@ -329,10 +341,11 @@ class TopologicalAccumulator {
             modelNode.confirmationCount = modelNode.confirmationCount || 1;
         }
        
-        this.updateEdges(model.graph, newGraph, allMatches);
+        this.updateEdges(model.graph, newExactGraph, allMatches);
        
-        // Обновляем WL-подписи модели
-        model.fingerprints = new Map([...model.fingerprints, ...newFingerprints]);
+        // Обновляем KNN-граф и подписи
+        model.knnGraph = newKNNGraph;
+        model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
        
         model.metadata.nodesCount = model.graph.nodes.size;
         model.metadata.lastEnhanced = new Date();
@@ -436,7 +449,7 @@ class TopologicalAccumulator {
         if (!targetId || !this.models.has(targetId)) return null;
 
         const model = this.models.get(targetId);
-        const graph = model.graph;
+        const graph = model.graph;  // Делоне-граф для визуализации
        
         let reliableNodeIds = new Set(reliablePhotoIds);
        
