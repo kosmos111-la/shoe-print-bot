@@ -1,5 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - МОДЕЛЬ + ФОТО 2 С НОМЕРАМИ ПАР
+// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - МОДЕЛЬ + ФОТО 2 С НОМЕРАМИ ПАР (ИСПРАВЛЕНО)
 
 const fs = require('fs');
 const path = require('path');
@@ -242,7 +242,18 @@ class ClusterVisualizer {
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
 
-            const match = matchMap.get(point.id);
+            // 🔥 Ищем в matchMap по ID точки из фото
+            let match = matchMap.get(point.id);
+           
+            // 🔥 Если не нашли, пробуем найти по ID точки в модели (для обратной совместимости)
+            if (!match) {
+                for (const [photoId, m] of matchMap) {
+                    if (m.modelId === point.id) {
+                        match = m;
+                        break;
+                    }
+                }
+            }
 
             // Цвет
             let color;
