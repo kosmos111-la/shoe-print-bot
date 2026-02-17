@@ -94,49 +94,52 @@ let triangleReject = 0;
 let passed = 0;
 
 const filteredCandidates = candidates.filter(c => {
-    // 1. Морфология
-    if (c.morphScore < this.reliableMorphThreshold) {
-        morphReject++;
-        return false;
-    }
-    
-    // 2. Локальное сходство
-    if (c.localScore < this.reliableLocalThreshold) {
-        localReject++;
-        return false;
-    }
-    
-    // 3. Зоны должны совпадать
-    if (c.photoZone !== c.modelZone) {
-        zoneReject++;
-        if (this.debug && zoneReject <= 10) {
-            console.log(`   ❌ Отсев по зоне: ${c.photoZone} ≠ ${c.modelZone} (морф:${(c.morphScore*100).toFixed(0)}% лок:${(c.localScore*100).toFixed(0)}%)`);
-        }
-        return false;
-    }
-    
-    // 4. Проверка треугольников
-    const triangleScore = this.checkTriangles(
-        c.photoId, c.modelId,
-        photoGraph, modelGraph
-    );
-    
-    if (triangleScore < this.minTriangleScore) {
-        triangleReject++;
-        return false;
-    }
-    
-    passed++;
-    return true;
+    // 1. Морфология
+    if (c.morphScore < this.reliableMorphThreshold) {
+        morphReject++;
+        return false;
+    }
+   
+    // 2. Локальное сходство
+    if (c.localScore < this.reliableLocalThreshold) {
+        localReject++;
+        return false;
+    }
+   
+    // 3. Зоны должны совпадать
+  //  if (c.photoZone !== c.modelZone) {
+  //      zoneReject++;
+  //      if (this.debug && zoneReject <= 10) {
+            // 🔥 ЗАЩИТА ОТ undefined
+  //          const morphStr = c.morphScore ? (c.morphScore * 100).toFixed(0) : '?';
+  //          const localStr = c.localScore ? (c.localScore * 100).toFixed(0) : '?';
+  //          console.log(`   ❌ Отсев по зоне: ${c.photoZone} ≠ ${c.modelZone} (морф:${morphStr}% лок:${localStr}%)`);
+  //      }
+  //      return false;
+  //  }
+   
+    // 4. Проверка треугольников
+    const triangleScore = this.checkTriangles(
+        c.photoId, c.modelId,
+        photoGraph, modelGraph
+    );
+   
+    if (triangleScore < this.minTriangleScore) {
+        triangleReject++;
+        return false;
+    }
+   
+    passed++;
+    return true;
 });
 
 console.log(`\n📊 ДИАГНОСТИКА ФИЛЬТРАЦИИ:`);
-console.log(`   Всего кандидатов: ${candidates.length}`);
-console.log(`   ❌ Отсев по морфологии: ${morphReject}`);
-console.log(`   ❌ Отсев по локальному сходству: ${localReject}`);
-console.log(`   ❌ Отсев по зоне: ${zoneReject}`);
-console.log(`   ❌ Отсев по треугольникам: ${triangleReject}`);
-console.log(`   ✅ Прошло: ${passed}`);
+console.log(`   Всего кандидатов: ${candidates.length}`);
+console.log(`   ❌ Отсев по морфологии: ${morphReject}`);
+console.log(`   ❌ Отсев по локальному сходству: ${localReject}`);
+console.log(`   ❌ Отсев по зоне: ${zoneReject}`);
+console.log(`   ❌ Отсев по треугольникам: ${triangleReject}`);
+console.log(`   ✅ Прошло: ${passed}`);
 
         // 🔥 ЭТАП 3: ГРУППИРОВКА ПО СОГЛАСОВАННОСТИ
         console.time('   step3_grouping');
