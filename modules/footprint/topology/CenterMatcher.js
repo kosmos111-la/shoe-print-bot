@@ -25,7 +25,38 @@ class CenterMatcher {
     }
 
     findCenterMatches(photoGraph, modelGraph, photoMorphology, modelMorphology) {
-        console.log(`\n🔍 Ищу НАДЁЖНЫЕ точки по всему следу...`);
+    console.log(`\n🔍 Ищу НАДЁЖНЫЕ точки по всему следу...`);
+   
+    // 🔥 ДИАГНОСТИКА ВХОДНЫХ ДАННЫХ
+    console.log(`\n📊 ДИАГНОСТИКА ВХОДНЫХ ДАННЫХ:`);
+    console.log(`   photoGraph: ${photoGraph ? 'есть' : 'нет'}`);
+    console.log(`   photoGraph.nodes: ${photoGraph?.nodes?.size || 0} точек`);
+    console.log(`   modelGraph: ${modelGraph ? 'есть' : 'нет'}`);
+    console.log(`   modelGraph.nodes: ${modelGraph?.nodes?.size || 0} точек`);
+    console.log(`   photoMorphology: ${photoMorphology ? 'есть' : 'нет'}`);
+    console.log(`   modelMorphology: ${modelMorphology ? 'есть' : 'нет'}`);
+    console.log(`   localGroupSignature: ${this.localGroupSignature ? 'есть' : 'нет'}`);
+   
+    // Проверяем первую точку
+    const firstPhotoNode = Array.from(photoGraph.nodes.entries())[0];
+    if (firstPhotoNode) {
+        const [firstId, firstNode] = firstPhotoNode;
+        console.log(`\n🔍 Тестовый вызов findOptimalDepth для первой точки:`);
+        try {
+            const testResult = this.localGroupSignature.findOptimalDepth(
+                firstId,
+                photoGraph,
+                modelGraph,
+                modelGraph.nodes,
+                photoMorphology
+            );
+            console.log(`   ✅ findOptimalDepth отработал:`);
+            console.log(`   optimalDepth: ${testResult.optimalDepth}`);
+            console.log(`   candidates: ${testResult.candidates?.length || 0}`);
+        } catch (e) {
+            console.log(`   ❌ Ошибка в findOptimalDepth: ${e.message}`);
+        }
+    }
 
         const candidates = [];
         const photoNodes = Array.from(photoGraph.nodes.entries());
