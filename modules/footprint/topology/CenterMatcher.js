@@ -1,5 +1,5 @@
 // modules/footprint/topology/CenterMatcher.js
-// 🔥 ПОИСК НАДЁЖНЫХ ТОЧЕК С ЗАЩИТОЙ ОТ UNDEFINED
+// 🔥 ПОИСК НАДЁЖНЫХ ТОЧЕК ПО ИЕРАРХИИ (ХАБЫ → МОСТЫ → ОСТАЛЬНЫЕ)
 
 class CenterMatcher {
     constructor(options = {}) {
@@ -8,11 +8,11 @@ class CenterMatcher {
         this.minMorphologySimilarity = options.minMorphologySimilarity || 0.6;
         this.minConsistentPairs = options.minConsistentPairs || 1;
        
-        // 🔥 ПОРОГИ
-        this.reliableMorphThreshold = 0.4;           // было 0.75
-        this.reliableLocalThreshold = 0.65;           // было 0.70
+        // 🔥 МЯГКИЕ ПОРОГИ
+        this.reliableMorphThreshold = 0.40;      // было 0.60
+        this.reliableLocalThreshold = 0.50;       // было 0.65
         this.minGraphDistanceRatio = 0.5;
-        this.minTriangleScore = 0.7;                    // было 0.95
+        this.minTriangleScore = 0.50;             // было 0.70
        
         this.localGroupSignature = options.localGroupSignature;
         this.morphologyEncoder = options.morphologyEncoder;
@@ -21,81 +21,45 @@ class CenterMatcher {
         this.depthUsage = new Map();
         this.zoneStats = { center: 0, toe: 0, heel: 0 };
        
-        console.log('🎯 CenterMatcher (исправленный) создан');
+        console.log('🎯 CenterMatcher (ИЕРАРХИЧЕСКИЙ) создан');
     }
 
     findCenterMatches(photoGraph, modelGraph, photoMorphology, modelMorphology) {
-    console.log(`\n🔍 Ищу НАДЁЖНЫЕ точки по всему следу...`);
-   
-    // 🔥 ДИАГНОСТИКА ВХОДНЫХ ДАННЫХ
-    console.log(`\n📊 ДИАГНОСТИКА ВХОДНЫХ ДАННЫХ:`);
-    console.log(`   photoGraph: ${photoGraph ? 'есть' : 'нет'}`);
-    console.log(`   photoGraph.nodes: ${photoGraph?.nodes?.size || 0} точек`);
-    console.log(`   modelGraph: ${modelGraph ? 'есть' : 'нет'}`);
-    console.log(`   modelGraph.nodes: ${modelGraph?.nodes?.size || 0} точек`);
-    console.log(`   photoMorphology: ${photoMorphology ? 'есть' : 'нет'}`);
-    console.log(`   modelMorphology: ${modelMorphology ? 'есть' : 'нет'}`);
-    console.log(`   localGroupSignature: ${this.localGroupSignature ? 'есть' : 'нет'}`);
-   
-    // Проверяем первую точку
-    const firstPhotoNode = Array.from(photoGraph.nodes.entries())[0];
-    if (firstPhotoNode) {
-        const [firstId, firstNode] = firstPhotoNode;
-        console.log(`\n🔍 Тестовый вызов findOptimalDepth для первой точки:`);
-        try {
-            const testResult = this.localGroupSignature.findOptimalDepth(
-                firstId,
+        console.log(`\n🔍 Ищу НАДЁЖНЫЕ точки по иерархии...`);
+
+        // ========== ЭТАП 1: СБОР КАНДИДАТОВ ==========
+        const candidates = [];
+        const photoNodes = Array.from(photoGraph.nodes.entries());
+
+        for (const [photoId, photoNode] of photoNodes) {
+            const photoZone = this.getZone(photoNode.y);
+           
+            const depthResult = this.localGroupSignature.findOptimalDepth(
+                photoId,
                 photoGraph,
                 modelGraph,
                 modelGraph.nodes,
                 photoMorphology
             );
-            console.log(`   ✅ findOptimalDepth отработал:`);
-            console.log(`   optimalDepth: ${testResult.optimalDepth}`);
-            console.log(`   candidates: ${testResult.candidates?.length || 0}`);
-        } catch (e) {
-            console.log(`   ❌ Ошибка в findOptimalDepth: ${e.message}`);
-        }
-    }
 
-        const candidates = [];
-        const photoNodes = Array.from(photoGraph.nodes.entries());
-
-        this.zoneStats = { center: 0, toe: 0, heel: 0 };
-        this.depthUsage.clear();
-
-        // 🔥 ЭТАП 1: СБОР КАНДИДАТОВ
-        for (const [photoId, photoNode] of photoNodes) {
-    const photoZone = this.getZone(photoNode.y);
-   
-    const depthResult = this.localGroupSignature.findOptimalDepth(
-        photoId,
-        photoGraph,
-        modelGraph,
-        modelGraph.nodes,
-        photoMorphology
-    );
-   
-    // 🔥 ЗАЩИТА
-    if (!depthResult || !depthResult.candidates) {
-        continue;
-    }
-   
-    const depth = depthResult.optimalDepth || 2;
+            const depth = depthResult.optimalDepth || 2;
             this.depthUsage.set(depth, (this.depthUsage.get(depth) || 0) + 1);
             this.zoneStats[photoZone]++;
 
-            for (const candidate of depthResult.candidates) {
+            for (const candidate of depthResult.candidates || []) {
                 const modelNode = modelGraph.nodes.get(candidate.modelId);
                 if (!modelNode) continue;
 
                 const modelZone = this.getZone(modelNode.y);
                
-                // 🔥 ЗАЩИТА: morphScore всегда число
                 const morphScore = this.compareMorphology(
                     photoId, candidate.modelId,
                     photoMorphology, modelMorphology
                 ) || 0.5;
+
+                // 🔥 ОПРЕДЕЛЯЕМ РОЛИ
+                const photoRole = this.getNodeRole(photoId, photoGraph);
+                const modelRole = this.getNodeRole(candidate.modelId, modelGraph);
 
                 candidates.push({
                     photoId,
@@ -104,48 +68,68 @@ class CenterMatcher {
                     modelNode,
                     photoZone,
                     modelZone,
+                    photoRole,
+                    modelRole,
                     localScore: candidate.similarity || 0,
-                    morphScore: morphScore,
-                    depth: candidate.depth || 0
+                    morphScore,
+                    depth
                 });
             }
         }
 
         console.log(`\n📊 ЭТАП 1: Найдено ${candidates.length} кандидатов`);
 
-        // 🔥 ЭТАП 2: ФИЛЬТРАЦИЯ
+        // ========== ЭТАП 2: ГРУППИРОВКА ПО РОЛЯМ ==========
+        const hubs = candidates.filter(c => c.photoRole === 'H' && c.modelRole === 'H');
+        const bridges = candidates.filter(c => c.photoRole === 'B' && c.modelRole === 'B');
+        const cliques = candidates.filter(c => c.photoRole === 'C' && c.modelRole === 'C');
+        const others = candidates.filter(c =>
+            c.photoRole === c.modelRole &&
+            !['H', 'B', 'C'].includes(c.photoRole)
+        );
+
+        console.log(`\n📊 РАСПРЕДЕЛЕНИЕ ПО РОЛЯМ:`);
+        console.log(`   Хабы (H): ${hubs.length}`);
+        console.log(`   Мосты (B): ${bridges.length}`);
+        console.log(`   Клики (C): ${cliques.length}`);
+        console.log(`   Остальные: ${others.length}`);
+
+        // ========== ЭТАП 3: ФИЛЬТРАЦИЯ ==========
         let morphReject = 0;
         let localReject = 0;
         let triangleReject = 0;
         let passed = 0;
 
-        const filteredCandidates = candidates.filter(c => {
-            // 1. Морфология
-            if (c.morphScore < this.reliableMorphThreshold) {
-                morphReject++;
-                return false;
-            }
-           
-            // 2. Локальное сходство
-            if (c.localScore < this.reliableLocalThreshold) {
-                localReject++;
-                return false;
-            }
-           
-            // 4. Проверка треугольников
-            const triangleScore = this.checkTriangles(
-                c.photoId, c.modelId,
-                photoGraph, modelGraph
-            );
-           
-            if (triangleScore < this.minTriangleScore) {
-                triangleReject++;
-                return false;
-            }
-           
-            passed++;
-            return true;
-        });
+        const filterByThresholds = (candidatesList) => {
+            return candidatesList.filter(c => {
+                if (c.morphScore < this.reliableMorphThreshold) {
+                    morphReject++;
+                    return false;
+                }
+                if (c.localScore < this.reliableLocalThreshold) {
+                    localReject++;
+                    return false;
+                }
+               
+                const triangleScore = this.checkTriangles(
+                    c.photoId, c.modelId,
+                    photoGraph, modelGraph
+                );
+               
+                if (triangleScore < this.minTriangleScore) {
+                    triangleReject++;
+                    return false;
+                }
+               
+                passed++;
+                return true;
+            });
+        };
+
+        const filteredHubs = filterByThresholds(hubs);
+        const filteredBridges = filterByThresholds(bridges);
+        const filteredCliques = filterByThresholds(cliques);
+        const filteredOthers = filterByThresholds(others);
 
         console.log(`\n📊 ДИАГНОСТИКА ФИЛЬТРАЦИИ:`);
         console.log(`   Всего кандидатов: ${candidates.length}`);
@@ -154,94 +138,102 @@ class CenterMatcher {
         console.log(`   ❌ Отсев по треугольникам: ${triangleReject}`);
         console.log(`   ✅ Прошло: ${passed}`);
 
-       // 🔥 ЭТАП 3: ГРУППИРОВКА
-const groups = [];
+        // ========== ЭТАП 4: ГРУППИРОВКА ПО СОГЛАСОВАННОСТИ ==========
+        const allFiltered = [
+            ...filteredHubs,
+            ...filteredBridges,
+            ...filteredCliques,
+            ...filteredOthers
+        ];
 
-for (let i = 0; i < filteredCandidates.length; i++) {
-    let added = false;
+        if (allFiltered.length < 3) {
+            console.log(`\n⚠️ Недостаточно кандидатов (${allFiltered.length} < 3)`);
+            return new Map();
+        }
 
-    for (const group of groups) {
-        let consistentWithAll = true;
-
-        for (const j of group) {
-            if (!this.areConsistent(
-                filteredCandidates[i],
-                filteredCandidates[j],
-                photoGraph,
-                modelGraph
-            )) {
-                consistentWithAll = false;
-                break;
+        const groups = [];
+        for (let i = 0; i < allFiltered.length; i++) {
+            let added = false;
+            for (const group of groups) {
+                let consistentWithAll = true;
+                for (const j of group) {
+                    if (!this.areConsistent(
+                        allFiltered[i], allFiltered[j],
+                        photoGraph, modelGraph
+                    )) {
+                        consistentWithAll = false;
+                        break;
+                    }
+                }
+                if (consistentWithAll) {
+                    group.push(i);
+                    added = true;
+                    break;
+                }
             }
+            if (!added) groups.push([i]);
         }
 
-        if (consistentWithAll) {
-            group.push(i);
-            added = true;
-            break;
+        let maxGroup = [];
+        for (const group of groups) {
+            if (group.length > maxGroup.length) maxGroup = group;
         }
-    }
 
-    if (!added) {
-        groups.push([i]);
-    }
-}
+        console.log(`\n📊 ЭТАП 4: Найдено ${groups.length} групп, самая большая - ${maxGroup.length} точек`);
 
-let maxGroup = [];
-for (const group of groups) {
-    if (group.length > maxGroup.length) {
-        maxGroup = group;
-    }
-}
+        if (maxGroup.length < 3) {
+            console.log(`\n⚠️ Недостаточно согласованных точек (${maxGroup.length} < 3)`);
+            return new Map();
+        }
 
-console.log(`\n📊 ЭТАП 3: Найдено ${groups.length} групп, самая большая - ${maxGroup.length} точек`);
-
-// 🔥 НОВАЯ ПРОВЕРКА: для треугольника нужно минимум 3 точки
-if (maxGroup.length < 3) {
-    console.log(`\n⚠️ Недостаточно точек для треугольника (${maxGroup.length} < 3), пропускаю этап`);
-    return new Map(); // возвращаем пустой результат
-}
-
-// Если нет групп, но есть кандидаты - берём лучшую точку (оставляем как запасной вариант)
-if (maxGroup.length === 0 && filteredCandidates.length > 0) {
-    filteredCandidates.sort((a, b) => (b.morphScore + b.localScore) - (a.morphScore + a.localScore));
-    maxGroup = [0];
-    console.log(`\n⚠️ Согласованных групп нет, беру лучшую точку`);
-}
-
-        // 🔥 ЭТАП 4: ФОРМИРОВАНИЕ РЕЗУЛЬТАТА
+        // ========== ЭТАП 5: ФОРМИРОВАНИЕ РЕЗУЛЬТАТА ==========
         const result = new Map();
-        let count = 0;
-       
         for (const idx of maxGroup) {
-            const c = filteredCandidates[idx];
-           
-            const triangleScore = this.checkTriangles(
-                c.photoId, c.modelId,
-                photoGraph, modelGraph
-            );
-           
+            const c = allFiltered[idx];
             result.set(c.photoId, {
                 modelId: c.modelId,
-                confidence: (c.morphScore + c.localScore + triangleScore) / 3,
+                confidence: (c.morphScore + c.localScore) / 2,
+                role: c.photoRole,
                 zone: c.photoZone,
-                depth: c.depth,
-                triangleScore
+                depth: c.depth
             });
-            count++;
-           
-            if (this.debug && count <= 10) {
-                console.log(`   ✅ Надёжная точка ${count}: ${c.photoZone} | глуб:${c.depth} | морф:${(c.morphScore*100).toFixed(0)}% лок:${(c.localScore*100).toFixed(0)}% треуг:${(triangleScore*100).toFixed(0)}%`);
-            }
         }
 
-        console.log(`\n🎯 ИТОГО: Найдено ${result.size} НАДЁЖНЫХ ТОПОЛОГИЧЕСКИХ ТОЧЕК`);
-
+        console.log(`\n🎯 ИТОГО: Найдено ${result.size} НАДЁЖНЫХ ТОЧЕК`);
         return result;
     }
 
-    // ==================== ПРОВЕРКА СОГЛАСОВАННОСТИ ====================
+    // ==================== ОПРЕДЕЛЕНИЕ РОЛИ ====================
+    getNodeRole(nodeId, graph) {
+        const neighbors = this.findNodeNeighbors(nodeId, graph);
+        const degree = neighbors.length;
+       
+        if (degree === 1) return 'L';
+        if (degree >= 6) return 'H';
+       
+        if (degree === 2) {
+            const [a, b] = neighbors;
+            if (!this.areConnected(a.id, b.id, graph)) return 'B';
+        }
+       
+        if (degree >= 3) {
+            let allConnected = true;
+            for (let i = 0; i < neighbors.length; i++) {
+                for (let j = i + 1; j < neighbors.length; j++) {
+                    if (!this.areConnected(neighbors[i].id, neighbors[j].id, graph)) {
+                        allConnected = false;
+                        break;
+                    }
+                }
+                if (!allConnected) break;
+            }
+            if (allConnected) return 'C';
+        }
+       
+        return 'R';
+    }
 
+    // ==================== ПРОВЕРКА СОГЛАСОВАННОСТИ ====================
     areConsistent(a, b, photoGraph, modelGraph) {
         const photoDist = this.graphDistance(a.photoId, b.photoId, photoGraph);
         const modelDist = this.graphDistance(a.modelId, b.modelId, modelGraph);
@@ -250,101 +242,35 @@ if (maxGroup.length === 0 && filteredCandidates.length > 0) {
        
         const minDist = Math.min(photoDist, modelDist);
         const maxDist = Math.max(photoDist, modelDist);
-        const ratio = minDist / maxDist;
-       
-        return ratio >= this.minGraphDistanceRatio;
+        return (minDist / maxDist) >= this.minGraphDistanceRatio;
     }
 
     // ==================== ПРОВЕРКА ТРЕУГОЛЬНИКОВ ====================
-
     checkTriangles(photoId, modelId, photoGraph, modelGraph) {
         const photoNeighbors = this.findNodeNeighbors(photoId, photoGraph);
-        if (photoNeighbors.length < 2) return 1.0;
-       
         const modelNeighbors = this.findNodeNeighbors(modelId, modelGraph);
-        if (modelNeighbors.length < 2) return 1.0;
        
-        let photoTriangles = [];
-        for (let i = 0; i < photoNeighbors.length; i++) {
-            for (let j = i + 1; j < photoNeighbors.length; j++) {
-                const edgeBetween = [photoNeighbors[i].id, photoNeighbors[j].id].sort().join('--');
-                if (photoGraph.edges.has(edgeBetween)) {
-                    photoTriangles.push({
-                        a: photoId,
-                        b: photoNeighbors[i].id,
-                        c: photoNeighbors[j].id
-                    });
-                }
-            }
-        }
+        if (photoNeighbors.length < 2 || modelNeighbors.length < 2) return 0.5;
        
-        let modelTriangles = [];
-        for (let i = 0; i < modelNeighbors.length; i++) {
-            for (let j = i + 1; j < modelNeighbors.length; j++) {
-                const edgeBetween = [modelNeighbors[i].id, modelNeighbors[j].id].sort().join('--');
-                if (modelGraph.edges.has(edgeBetween)) {
-                    modelTriangles.push({
-                        a: modelId,
-                        b: modelNeighbors[i].id,
-                        c: modelNeighbors[j].id
-                    });
-                }
-            }
-        }
-       
-        if (photoTriangles.length === 0 || modelTriangles.length === 0) return 0.5;
-       
+        // Упрощённая проверка: достаточно 30% совпадения
         let matches = 0;
-        for (const pt of photoTriangles) {
-            const p1 = photoGraph.nodes.get(pt.a);
-            const p2 = photoGraph.nodes.get(pt.b);
-            const p3 = photoGraph.nodes.get(pt.c);
-            if (!p1 || !p2 || !p3) continue;
-           
-            const angles = this.computeTriangleAngles(p1, p2, p3);
-           
-            for (const mt of modelTriangles) {
-                const m1 = modelGraph.nodes.get(mt.a);
-                const m2 = modelGraph.nodes.get(mt.b);
-                const m3 = modelGraph.nodes.get(mt.c);
-                if (!m1 || !m2 || !m3) continue;
+        for (let i = 0; i < Math.min(photoNeighbors.length, 5); i++) {
+            for (let j = i + 1; j < Math.min(photoNeighbors.length, 5); j++) {
+                if (i >= modelNeighbors.length || j >= modelNeighbors.length) continue;
+                // Проверяем, есть ли ребро между соседями
+                const photoEdge = [photoNeighbors[i].id, photoNeighbors[j].id].sort().join('--');
+                const modelEdge = [modelNeighbors[i].id, modelNeighbors[j].id].sort().join('--');
                
-                const mAngles = this.computeTriangleAngles(m1, m2, m3);
-               
-                const score = this.compareAngles(angles, mAngles);
-                if (score > 0.9) {
+                if (photoGraph.edges.has(photoEdge) && modelGraph.edges.has(modelEdge)) {
                     matches++;
-                    break;
                 }
             }
         }
        
-        return matches / Math.max(photoTriangles.length, modelTriangles.length);
-    }
-
-    computeTriangleAngles(a, b, c) {
-        const ab = Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
-        const bc = Math.sqrt(Math.pow(b.x - c.x, 2) + Math.pow(b.y - c.y, 2));
-        const ca = Math.sqrt(Math.pow(c.x - a.x, 2) + Math.pow(c.y - a.y, 2));
-       
-        const angleA = Math.acos((ab*ab + ca*ca - bc*bc) / (2 * ab * ca));
-        const angleB = Math.acos((ab*ab + bc*bc - ca*ca) / (2 * ab * bc));
-        const angleC = Math.acos((bc*bc + ca*ca - ab*ab) / (2 * bc * ca));
-       
-        return [angleA, angleB, angleC].sort((x,y) => x - y);
-    }
-
-    compareAngles(angles1, angles2) {
-        let score = 0;
-        for (let i = 0; i < 3; i++) {
-            const diff = Math.abs(angles1[i] - angles2[i]);
-            score += Math.max(0, 1 - diff / 0.5);
-        }
-        return score / 3;
+        return matches / 3; // нормализация
     }
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
-
     graphDistance(nodeA, nodeB, graph) {
         if (nodeA === nodeB) return 0;
        
@@ -353,8 +279,8 @@ if (maxGroup.length === 0 && filteredCandidates.length > 0) {
        
         while (queue.length > 0) {
             const { id, dist } = queue.shift();
-           
             const neighbors = this.findNodeNeighbors(id, graph);
+           
             for (const neighbor of neighbors) {
                 if (neighbor.id === nodeB) return dist + 1;
                 if (!visited.has(neighbor.id)) {
@@ -363,7 +289,6 @@ if (maxGroup.length === 0 && filteredCandidates.length > 0) {
                 }
             }
         }
-       
         return Infinity;
     }
 
@@ -371,8 +296,7 @@ if (maxGroup.length === 0 && filteredCandidates.length > 0) {
         const neighbors = [];
         if (!graph?.edges) return neighbors;
        
-        const edgesArray = Array.from(graph.edges);
-        for (const edge of edgesArray) {
+        for (const edge of graph.edges) {
             const [a, b] = edge.split('--');
             if (a === nodeId) {
                 const node = graph.nodes.get(b);
@@ -386,14 +310,17 @@ if (maxGroup.length === 0 && filteredCandidates.length > 0) {
         return neighbors;
     }
 
+    areConnected(aId, bId, graph) {
+        const edgeId = [aId, bId].sort().join('--');
+        return graph.edges.has(edgeId);
+    }
+
     compareMorphology(photoId, modelId, photoMorph, modelMorph) {
         const pm = photoMorph?.get(photoId);
         const mm = modelMorph?.get(modelId);
-       
         if (!pm || !mm || !pm.hasContour || !mm.hasContour) return 0.5;
        
         const score = this.morphologyEncoder.compare(pm, mm);
-        // 🔥 ЗАЩИТА ОТ UNDEFINED
         return (score !== undefined && !isNaN(score)) ? score : 0.5;
     }
 
@@ -405,9 +332,6 @@ if (maxGroup.length === 0 && filteredCandidates.length > 0) {
 
     getStats() {
         return {
-            minLocalSimilarity: this.minLocalSimilarity,
-            minMorphologySimilarity: this.minMorphologySimilarity,
-            minConsistentPairs: this.minConsistentPairs,
             reliableMorphThreshold: this.reliableMorphThreshold,
             reliableLocalThreshold: this.reliableLocalThreshold,
             minGraphDistanceRatio: this.minGraphDistanceRatio,
