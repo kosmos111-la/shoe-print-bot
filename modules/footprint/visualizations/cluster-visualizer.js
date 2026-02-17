@@ -162,12 +162,14 @@ class ClusterVisualizer {
 
     drawModelPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
         const points = topologyData.points;
-        const matchMap = topologyData.matchMap || new Map(); // photoId -> { modelId, pairNumber }
+        const matchMap = topologyData.matchMap || new Map();
        
         // Создаём обратную карту modelId -> pairNumber
         const modelToPair = new Map();
         for (const [photoId, match] of matchMap) {
-            modelToPair.set(match.modelId, match.pairNumber);
+            if (match && match.modelId) {
+                modelToPair.set(match.modelId, match.pairNumber);
+            }
         }
        
         console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
@@ -175,6 +177,8 @@ class ClusterVisualizer {
         let confirmed2 = 0, confirmed1 = 0, confirmed0 = 0;
 
         for (const point of points) {
+            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+           
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
 
@@ -226,13 +230,15 @@ class ClusterVisualizer {
 
     drawPhotoPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
         const points = topologyData.points;
-        const matchMap = topologyData.matchMap || new Map(); // photoId -> { modelId, pairNumber }
+        const matchMap = topologyData.matchMap || new Map();
        
         console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
 
         let matched = 0, unmatched = 0;
 
         for (const point of points) {
+            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+           
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
 
@@ -284,24 +290,26 @@ class ClusterVisualizer {
         ctx.lineWidth = 1;
         let edgesDrawn = 0;
 
-        topologyData.edges.forEach(edgeStr => {
-            const [nodeAId, nodeBId] = edgeStr.split('--');
-            const pointA = pointsMap.get(nodeAId);
-            const pointB = pointsMap.get(nodeBId);
+        if (topologyData.edges && Array.isArray(topologyData.edges)) {
+            for (const edgeStr of topologyData.edges) {
+                const [nodeAId, nodeBId] = edgeStr.split('--');
+                const pointA = pointsMap.get(nodeAId);
+                const pointB = pointsMap.get(nodeBId);
 
-            if (pointA && pointB) {
-                const x1 = centerX + (pointA.x - avgX) * scale;
-                const y1 = centerY + (pointA.y - avgY) * scale;
-                const x2 = centerX + (pointB.x - avgX) * scale;
-                const y2 = centerY + (pointB.y - avgY) * scale;
+                if (pointA && pointB) {
+                    const x1 = centerX + (pointA.x - avgX) * scale;
+                    const y1 = centerY + (pointA.y - avgY) * scale;
+                    const x2 = centerX + (pointB.x - avgX) * scale;
+                    const y2 = centerY + (pointB.y - avgY) * scale;
 
-                ctx.beginPath();
-                ctx.moveTo(x1, y1);
-                ctx.lineTo(x2, y2);
-                ctx.stroke();
-                edgesDrawn++;
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.stroke();
+                    edgesDrawn++;
+                }
             }
-        });
+        }
 
         console.log(`   🔗 Рёбер отрисовано: ${edgesDrawn}`);
     }
@@ -404,21 +412,3 @@ class ClusterVisualizer {
 }
 
 module.exports = ClusterVisualizer;
-```
-
-🔥 Что нужно добавить в TopologicalAccumulator.js:
-
-```javascript
-// В конце processPoints, перед return, добавить нумерацию пар
-const matchMap = new Map();
-let pairNumber = 1;
-for (const [photoId, match] of finalMatches) {
-    matchMap.set(photoId, {
-        modelId: match.modelId,
-        pairNumber: pairNumber++
-    });
-}
-
-// И передать в визуализацию
-const vizData = this.getVisualizationData(modelId, Array.from(centerMatches.keys()));
-vizData.matchMap = matchMap;
