@@ -206,39 +206,55 @@ class SimpleFootprintManager {
 
             // 🔥 ВИЗУАЛИЗАЦИЯ
             let visualizationData = null;
-            let vizPath = null;
+let vizPath = null;
 
-            if (this.config.enableMergeVisualization && this.visualizationManager) {
-                try {
-                    const topologyManager = this.getTopologyManager(userId);
-                    if (topologyManager) {
-                        visualizationData = topologyManager.getAccumulativeVisualizationData();
+if (this.config.enableMergeVisualization && this.visualizationManager) {
+    try {
+        const topologyManager = this.getTopologyManager(userId);
+        if (topologyManager) {
+            // Получаем базовые данные из топологического менеджера
+            visualizationData = topologyManager.getAccumulativeVisualizationData();
+           
+            // 🔥 ДОБАВЛЯЕМ matchMap ИЗ РЕЗУЛЬТАТА ТОПОЛОГИЧЕСКОЙ ОБРАБОТКИ
+            if (visualizationData && topologicalResult && topologicalResult.matchMap) {
+                visualizationData.matchMap = topologicalResult.matchMap;
+                console.log(`🔍 Добавлен matchMap с ${topologicalResult.matchMap.size} парами для визуализации`);
+            } else {
+                console.log(`⚠️ matchMap не найден в topologicalResult`);
+            }
 
-                        if (visualizationData) {
-                            console.log(`🎨 Готовлю топологическую визуализацию...`);
+            if (visualizationData) {
+                console.log(`🎨 Готовлю топологическую визуализацию...`);
 
-                            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
-                            const visualizer = new ClusterVisualizer({
-                                outputDir: './data/footprints/visualizations/topology',
-                                canvasWidth: 1200,
-                                canvasHeight: 800,
-                                debug: this.config.debug
-                            });
+                const ClusterVisualizer = require('./visualizations/cluster-visualizer');
+                const visualizer = new ClusterVisualizer({
+                    outputDir: './data/footprints/visualizations/topology',
+                    canvasWidth: 1200,
+                    canvasHeight: 800,
+                    debug: this.config.debug
+                });
 
-                            const vizResult = await visualizer.visualizeTopologicalModel(visualizationData, {
-                                filename: `topology_${userId}_${Date.now()}.png`
-                            });
+                const vizResult = await visualizer.visualizeTopologicalModel(visualizationData, {
+                    filename: `topology_${userId}_${Date.now()}.png`
+                });
 
-                            if (vizResult && vizResult.path) {
-                                vizPath = vizResult.path;
-                                console.log(`✅ Топологическая визуализация создана: ${vizPath}`);
-                            }
-                        }
+                if (vizResult && vizResult.path) {
+                    vizPath = vizResult.path;
+                    console.log(`✅ Топологическая визуализация создана: ${vizPath}`);
+                   
+                    // Дополнительная диагностика
+                    if (vizResult.modelPath && vizResult.photoPath) {
+                        console.log(`   📸 Модель: ${vizResult.modelPath}`);
+                        console.log(`   📸 Фото: ${vizResult.photoPath}`);
                     }
-                } catch (vizError) {
-                    console.log(`⚠️ Ошибка топологической визуализации: ${vizError.message}`);
                 }
             }
+        }
+    } catch (vizError) {
+        console.log(`⚠️ Ошибка топологической визуализации: ${vizError.message}`);
+        console.error(vizError); // Для отладки
+    }
+}
 
             // 🔥 ОТПРАВКА В TELEGRAM
             let telegramSent = false;
