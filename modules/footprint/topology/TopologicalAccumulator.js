@@ -2,7 +2,7 @@
 // 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - Делоне для точек, KNN для WL
 
 const GraphBuilder = require('./GraphBuilder');
-const KNNGraphBuilder = require('./KNNGraphBuilder'); // новый модуль
+const KNNGraphBuilder = require('./KNNGraphBuilder');
 const LocalGroupSignature = require('./LocalGroupSignature');
 const MorphologyEncoder = require('./MorphologyEncoder');
 const CenterMatcher = require('./CenterMatcher');
@@ -13,7 +13,7 @@ class TopologicalAccumulator {
     constructor(options = {}) {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
         this.debug = options.debug || false;
-       
+
         // 🔥 РЕЖИМЫ РАБОТЫ
         this.fastMode = options.fastMode || false;
         this.similarityThreshold = options.similarityThreshold || 0.6;
@@ -24,19 +24,19 @@ class TopologicalAccumulator {
             debug: this.debug,
             k: options.k || 8  // KNN для WL
         });
-       
+
         this.fingerprinter = new TopologicalFingerprint({
             debug: this.debug,
             iterations: options.wlIterations || 3,
             structuralSimilarityThreshold: 0.5
         });
-       
+
         this.localGroupSignature = new LocalGroupSignature({
             debug: this.debug,
             depth: options.localDepth || 3,
             useMorphology: true
         });
-       
+
         this.morphologyEncoder = new MorphologyEncoder({ debug: this.debug });
 
         this.centerMatcher = new CenterMatcher({
@@ -106,7 +106,7 @@ class TopologicalAccumulator {
 
         // 🔥 5. ГЛОБАЛЬНОЕ WL-СРАВНЕНИЕ НА KNN-ГРАФАХ
         console.log(`\n🔍 Сравниваю графы по WL-подписям (KNN)...`);
-       
+
         const comparison = this.fingerprinter.compareGraphs(
             existingModel.knnGraph,           // KNN-граф модели
             existingModel.knnFingerprints,    // его подписи
@@ -115,7 +115,7 @@ class TopologicalAccumulator {
         );
 
         const globalSimilarity = comparison.similarity;
-       
+
         console.log(`📊 Результат сравнения:`);
         console.log(`   Узлов в графе 1: ${comparison.totalNodes1}`);
         console.log(`   Узлов в графе 2: ${comparison.totalNodes2}`);
@@ -137,7 +137,7 @@ class TopologicalAccumulator {
         // 🔥 6. ЕСЛИ ВКЛЮЧЕН ПОЛНЫЙ РЕЖИМ - запускаем точную идентификацию на Делоне
         if (!this.fastMode) {
             console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
-           
+
             const centerMatches = this.centerMatcher.findCenterMatches(
                 exactGraph,
                 existingModel.graph,           // Делоне-граф модели
@@ -179,6 +179,16 @@ class TopologicalAccumulator {
                     options
                 );
 
+                // 🔥 СОЗДАЁМ КАРТУ СООТВЕТСТВИЙ С НОМЕРАМИ ДЛЯ ВИЗУАЛИЗАЦИИ
+                const matchMap = new Map();
+                let pairNumber = 1;
+                for (const [photoId, match] of finalMatches) {
+                    matchMap.set(photoId, {
+                        modelId: match.modelId,
+                        pairNumber: pairNumber++
+                    });
+                }
+
                 return {
                     status: 'enhanced_full',
                     modelId: modelId,
@@ -186,6 +196,7 @@ class TopologicalAccumulator {
                     centerMatches: centerMatches.size,
                     totalMatches: finalMatches.size,
                     newNodesAdded: updatedModel.newNodesAdded,
+                    matchMap: matchMap, // ← для визуализации
                     message: `Модель улучшена (WL: ${(globalSimilarity * 100).toFixed(1)}%, надёжных: ${centerMatches.size}, новых: ${updatedModel.newNodesAdded})`
                 };
             } else {
@@ -215,12 +226,12 @@ class TopologicalAccumulator {
         let count = 0;
         for (const [photoId, match] of matches) {
             if (count >= 30) break;
-           
+
             const photoNode = newGraph.nodes.get(photoId);
             const modelNode = modelGraph.nodes.get(match.modelId);
-           
+
             if (!photoNode || !modelNode) continue;
-           
+
             count++;
             console.log(
                 `│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
@@ -294,29 +305,29 @@ class TopologicalAccumulator {
 
     async enhanceModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, allMatches, anchorMatches, options) {
         const model = this.models.get(modelId);
-       
+
         let confirmedExisting = 0;
         let newNodesAdded = 0;
         let missingFromModel = 0;
-       
+
         const matchedPhotoIds = new Set();
         const matchedModelIds = new Set();
-       
+
         for (const [photoId, match] of allMatches) {
             const modelNode = model.graph.nodes.get(match.modelId);
             if (modelNode) {
                 modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
                 modelNode.lastConfirmed = new Date();
                 confirmedExisting++;
-               
+
                 matchedPhotoIds.add(photoId);
                 matchedModelIds.add(match.modelId);
             }
         }
-       
+
         for (const [photoId, photoNode] of newExactGraph.nodes) {
             if (matchedPhotoIds.has(photoId)) continue;
-           
+
             const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
             model.graph.nodes.set(newNodeId, {
                 id: newNodeId,
@@ -330,26 +341,26 @@ class TopologicalAccumulator {
                 originalPhotoId: photoId
             });
             newNodesAdded++;
-           
+
             matchedPhotoIds.add(photoId);
         }
-       
+
         for (const [modelId, modelNode] of model.graph.nodes) {
             if (matchedModelIds.has(modelId)) continue;
-           
+
             missingFromModel++;
             modelNode.confirmationCount = modelNode.confirmationCount || 1;
         }
-       
+
         this.updateEdges(model.graph, newExactGraph, allMatches);
-       
+
         // Обновляем KNN-граф и подписи
         model.knnGraph = newKNNGraph;
         model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
-       
+
         model.metadata.nodesCount = model.graph.nodes.size;
         model.metadata.lastEnhanced = new Date();
-       
+
         model.history.push({
             action: 'enhanced',
             timestamp: new Date(),
@@ -360,12 +371,12 @@ class TopologicalAccumulator {
             missingFromModel,
             totalNodes: model.graph.nodes.size
         });
-       
+
         this.stats.totalEnhancements++;
         this.stats.totalCenterMatches += anchorMatches.size;
         this.stats.totalRelativeMatches += allMatches.size - anchorMatches.size;
         this.stats.lastUpdated = new Date();
-       
+
         console.log(`\n📊 ИТОГ УЛУЧШЕНИЯ:`);
         console.log(`   Якорей: ${anchorMatches.size} точек`);
         console.log(`   Всего сопоставлено: ${allMatches.size} точек`);
@@ -373,7 +384,7 @@ class TopologicalAccumulator {
         console.log(`   🔥 НОВЫХ добавлено: ${newNodesAdded} точек`);
         console.log(`   ⚰️ Исчезнувших (неподтверждённых): ${missingFromModel} точек`);
         console.log(`   Теперь в модели: ${model.graph.nodes.size} точек`);
-       
+
         return {
             confirmedExisting,
             newNodesAdded,
@@ -416,29 +427,29 @@ class TopologicalAccumulator {
 
     computeTriangles(graph) {
         if (!graph || !graph.nodes || !graph.edges) return [];
-       
+
         const triangles = [];
         const nodeIds = Array.from(graph.nodes.keys());
         const edges = new Set(graph.edges);
-       
+
         for (let i = 0; i < nodeIds.length; i++) {
             for (let j = i + 1; j < nodeIds.length; j++) {
                 for (let k = j + 1; k < nodeIds.length; k++) {
                     const a = nodeIds[i];
                     const b = nodeIds[j];
                     const c = nodeIds[k];
-                   
+
                     const ab = [a, b].sort().join('--');
                     const bc = [b, c].sort().join('--');
                     const ca = [c, a].sort().join('--');
-                   
+
                     if (edges.has(ab) && edges.has(bc) && edges.has(ca)) {
                         triangles.push([a, b, c]);
                     }
                 }
             }
         }
-       
+
         return triangles;
     }
 
@@ -450,9 +461,9 @@ class TopologicalAccumulator {
 
         const model = this.models.get(targetId);
         const graph = model.graph;  // Делоне-граф для визуализации
-       
+
         let reliableNodeIds = new Set(reliablePhotoIds);
-       
+
         if (reliableNodeIds.size === 0) {
             for (const [nodeId, node] of graph.nodes) {
                 if (node.confirmationCount >= 2) {
@@ -462,14 +473,14 @@ class TopologicalAccumulator {
         }
 
         const allTriangles = this.computeTriangles(graph);
-       
+
         const reliableTriangles = [];
         const regularTriangles = [];
-       
+
         for (const triangle of allTriangles) {
             const [a, b, c] = triangle;
             const isReliable = reliableNodeIds.has(a) && reliableNodeIds.has(b) && reliableNodeIds.has(c);
-           
+
             if (isReliable) {
                 reliableTriangles.push(triangle);
             } else {
