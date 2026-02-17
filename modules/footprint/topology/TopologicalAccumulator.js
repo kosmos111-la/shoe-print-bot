@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - Делоне для точек, KNN для WL
+// 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - Делоне для точек, KNN для WL (ИСПРАВЛЕНО)
 
 const GraphBuilder = require('./GraphBuilder');
 const KNNGraphBuilder = require('./KNNGraphBuilder');
@@ -53,7 +53,7 @@ class TopologicalAccumulator {
             localGroupSignature: this.localGroupSignature,
             minPathSimilarity: options.minPathSimilarity || 0.5,
             maxPathLengthDiff: options.maxPathLengthDiff || 3,
-            confidenceThreshold: options.confidenceThreshold || 0.7
+            confidenceThreshold: options.confidenceThreshold || 0.8  // 🔥 УВЕЛИЧЕНО ДО 80%
         });
 
         // Хранилище моделей
@@ -66,6 +66,7 @@ class TopologicalAccumulator {
             totalEnhancements: 0,
             totalCenterMatches: 0,
             totalRelativeMatches: 0,
+            totalNodesRemoved: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
         };
@@ -73,6 +74,7 @@ class TopologicalAccumulator {
         console.log(`🏗️ ДВУХРЕЖИМНЫЙ TopologicalAccumulator создан: "${this.name}"`);
         console.log(`   🔥 Режим: ${this.fastMode ? 'БЫСТРЫЙ (только WL)' : 'ПОЛНЫЙ'}`);
         console.log(`   🔷 Порог сходства: ${this.similarityThreshold * 100}%`);
+        console.log(`   🔷 Порог уверенности: ${this.relativePositioning.confidenceThreshold * 100}%`);
         console.log(`   🔷 Делоне для точек, KNN для WL (k=${options.k || 8})`);
     }
 
@@ -179,14 +181,21 @@ class TopologicalAccumulator {
                     options
                 );
 
+                // 🔥 ОЧИЩАЕМ МОДЕЛЬ ОТ НЕПОДТВЕРЖДЁННЫХ ТОЧЕК
+                const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
+                this.stats.totalNodesRemoved += cleanResult.removed;
+
                 // 🔥 СОЗДАЁМ КАРТУ СООТВЕТСТВИЙ С НОМЕРАМИ ДЛЯ ВИЗУАЛИЗАЦИИ
                 const matchMap = new Map();
                 let pairNumber = 1;
                 for (const [photoId, match] of finalMatches) {
-                    matchMap.set(photoId, {
-                        modelId: match.modelId,
-                        pairNumber: pairNumber++
-                    });
+                    // Берём только те, у которых уверенность ≥ 70%
+                    if (match.confidence >= 0.7) {
+                        matchMap.set(photoId, {
+                            modelId: match.modelId,
+                            pairNumber: pairNumber++
+                        });
+                    }
                 }
 
                 return {
@@ -196,8 +205,9 @@ class TopologicalAccumulator {
                     centerMatches: centerMatches.size,
                     totalMatches: finalMatches.size,
                     newNodesAdded: updatedModel.newNodesAdded,
+                    nodesRemoved: cleanResult.removed,
                     matchMap: matchMap, // ← для визуализации
-                    message: `Модель улучшена (WL: ${(globalSimilarity * 100).toFixed(1)}%, надёжных: ${centerMatches.size}, новых: ${updatedModel.newNodesAdded})`
+                    message: `Модель улучшена (WL: ${(globalSimilarity * 100).toFixed(1)}%, надёжных: ${centerMatches.size}, новых: ${updatedModel.newNodesAdded}, удалено: ${cleanResult.removed})`
                 };
             } else {
                 console.log(`⚠️ Недостаточно надёжных точек (${centerMatches.size} < ${this.centerMatcher.minConsistentPairs})`);
@@ -212,6 +222,64 @@ class TopologicalAccumulator {
             exactMatches: comparison.exactMatches.length,
             similarMatches: comparison.similarMatches.length,
             message: `Модель совпадает (WL: ${(globalSimilarity * 100).toFixed(1)}%)`
+        };
+    }
+
+    // ==================== ОЧИСТКА НЕПОДТВЕРЖДЁННЫХ ТОЧЕК ====================
+
+    cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
+        const model = this.models.get(modelId);
+        if (!model) return { removed: 0, remaining: 0 };
+
+        const graph = model.graph;
+        const toRemove = [];
+        const now = Date.now();
+
+        for (const [nodeId, node] of graph.nodes) {
+            // Пропускаем точки из оригинальной модели
+            if (node.addedFrom === 'original') continue;
+           
+            // Точки, добавленные из последнего фото, ещё не могли подтвердиться
+            // Проверяем возраст и количество подтверждений
+            const confirmations = node.confirmationCount || 1;
+            const addedAt = node.addedAt ? node.addedAt.getTime() : now;
+            const age = (now - addedAt) / (1000 * 60 * 60 * 24); // в днях
+
+            if (confirmations < minConfirmations && age > 0.1) { // старше 2.4 часов
+                toRemove.push(nodeId);
+            }
+        }
+
+        // Удаляем неподтверждённые точки
+        toRemove.forEach(nodeId => {
+            graph.nodes.delete(nodeId);
+        });
+
+        // Перестраиваем рёбра (удаляем рёбра с удалёнными узлами)
+        const newEdges = new Set();
+        for (const edge of graph.edges) {
+            const [a, b] = edge.split('--');
+            if (graph.nodes.has(a) && graph.nodes.has(b)) {
+                newEdges.add(edge);
+            }
+        }
+        graph.edges = newEdges;
+
+        // Обновляем степени
+        for (const node of graph.nodes.values()) {
+            node.degree = 0;
+        }
+        for (const edge of graph.edges) {
+            const [a, b] = edge.split('--');
+            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
+            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
+        }
+
+        console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек из модели`);
+       
+        return {
+            removed: toRemove.length,
+            remaining: graph.nodes.size
         };
     }
 
@@ -258,6 +326,7 @@ class TopologicalAccumulator {
             }
             node.confirmationCount = 1;
             node.addedFrom = 'original';
+            node.addedAt = new Date();
         }
 
         const model = {
@@ -325,22 +394,28 @@ class TopologicalAccumulator {
             }
         }
 
+        // 🔥 ПРОВЕРКА НА ДУБЛИКАТЫ ПЕРЕД ДОБАВЛЕНИЕМ
         for (const [photoId, photoNode] of newExactGraph.nodes) {
             if (matchedPhotoIds.has(photoId)) continue;
 
-            const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
-            model.graph.nodes.set(newNodeId, {
-                id: newNodeId,
-                x: photoNode.x,
-                y: photoNode.y,
-                degree: photoNode.degree,
-                morphology: newMorphology.get(photoId),
-                confirmationCount: 1,
-                addedFrom: 'new_point',
-                addedAt: new Date(),
-                originalPhotoId: photoId
-            });
-            newNodesAdded++;
+            // Проверяем, нет ли рядом похожей точки
+            const isDuplicate = this.checkDuplicate(photoNode, model.graph, 20); // радиус 20 пикселей
+           
+            if (!isDuplicate && match.confidence >= 0.7) { // добавляем только с уверенностью ≥70%
+                const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
+                model.graph.nodes.set(newNodeId, {
+                    id: newNodeId,
+                    x: photoNode.x,
+                    y: photoNode.y,
+                    degree: photoNode.degree,
+                    morphology: newMorphology.get(photoId),
+                    confirmationCount: 1,
+                    addedFrom: 'new_point',
+                    addedAt: new Date(),
+                    originalPhotoId: photoId
+                });
+                newNodesAdded++;
+            }
 
             matchedPhotoIds.add(photoId);
         }
@@ -392,6 +467,21 @@ class TopologicalAccumulator {
             anchorMatches: anchorMatches.size,
             totalMatches: allMatches.size
         };
+    }
+
+    // ==================== ПРОВЕРКА НА ДУБЛИКАТЫ ====================
+
+    checkDuplicate(newNode, modelGraph, radius = 20) {
+        for (const [_, existingNode] of modelGraph.nodes) {
+            const dx = Math.abs(newNode.x - existingNode.x);
+            const dy = Math.abs(newNode.y - existingNode.y);
+            const distance = Math.sqrt(dx*dx + dy*dy);
+           
+            if (distance < radius) {
+                return true; // дубликат найден
+            }
+        }
+        return false; // дубликатов нет
     }
 
     updateEdges(modelGraph, newGraph, matches) {
@@ -562,7 +652,8 @@ class TopologicalAccumulator {
                 confirmed3: confirmations[3] || 0,
                 confirmed4plus: confirmations['4+'] || 0,
                 centerMatches: this.stats.totalCenterMatches,
-                relativeMatches: this.stats.totalRelativeMatches
+                relativeMatches: this.stats.totalRelativeMatches,
+                nodesRemoved: this.stats.totalNodesRemoved
             },
             metadata: model.metadata,
             createdAt: model.metadata.createdAt,
@@ -612,6 +703,7 @@ class TopologicalAccumulator {
             totalEnhancements: 0,
             totalCenterMatches: 0,
             totalRelativeMatches: 0,
+            totalNodesRemoved: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
         };
