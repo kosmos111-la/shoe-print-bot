@@ -205,7 +205,7 @@ class SimpleFootprintManager {
             }
 
             // 🔥 ВИЗУАЛИЗАЦИЯ
-            let visualizationData = null;
+let visualizationData = null;
 let vizPath = null;
 
 if (this.config.enableMergeVisualization && this.visualizationManager) {
@@ -234,15 +234,27 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
                 // 🔥 СОЗДАЁМ ТОЧКИ ФОТО ИЗ matchMap
                 const photoPoints = [];
                 for (const [photoId, match] of matchMap) {
-                    // Ищем точку в модели с таким же ID (для координат)
-                    const modelPoint = visualizationData.points.find(p => p.id === match.modelId);
-                    if (modelPoint) {
+                    // Ищем точку в текущем анализе (points)
+                    const photoPoint = points.find(p => p.id === photoId);
+                    if (photoPoint) {
                         photoPoints.push({
                             id: photoId,
-                            x: modelPoint.x,
-                            y: modelPoint.y,
+                            x: photoPoint.x,
+                            y: photoPoint.y,
                             confidence: 1.0
                         });
+                    }
+                    // Если не нашли, пробуем найти в модели
+                    else {
+                        const modelPoint = visualizationData.points.find(p => p.id === match.modelId);
+                        if (modelPoint) {
+                            photoPoints.push({
+                                id: photoId,
+                                x: modelPoint.x,
+                                y: modelPoint.y,
+                                confidence: 1.0
+                            });
+                        }
                     }
                 }
                
@@ -272,8 +284,8 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
                     filename: `topology_${userId}_${Date.now()}.png`
                 });
 
-                if (vizResult && vizResult.path) {
-                    vizPath = vizResult.path;
+                if (vizResult && vizResult.modelPath) {
+                    vizPath = vizResult.modelPath; // или photoPath, в зависимости от того, что нужно отправить
                     console.log(`✅ Топологическая визуализация создана: ${vizPath}`);
 
                     if (vizResult.modelPath && vizResult.photoPath) {
@@ -288,7 +300,6 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
         console.error(vizError);
     }
 }
-
             // 🔥 ОТПРАВКА В TELEGRAM
             let telegramSent = false;
             if (bot && chatId && vizPath) {
