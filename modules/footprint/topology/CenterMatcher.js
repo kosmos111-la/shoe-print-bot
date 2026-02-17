@@ -9,7 +9,7 @@ class CenterMatcher {
         this.minConsistentPairs = options.minConsistentPairs || 1;
        
         // 🔥 ПОРОГИ
-        this.reliableMorphThreshold = 0.60;           // было 0.75
+        this.reliableMorphThreshold = 0.40;           // было 0.75
         this.reliableLocalThreshold = 0.65;           // было 0.70
         this.minGraphDistanceRatio = 0.5;
         this.minTriangleScore = 0.7;                    // было 0.95
