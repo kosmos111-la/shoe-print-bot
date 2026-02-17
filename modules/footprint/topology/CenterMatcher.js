@@ -35,17 +35,22 @@ class CenterMatcher {
 
         // 🔥 ЭТАП 1: СБОР КАНДИДАТОВ
         for (const [photoId, photoNode] of photoNodes) {
-            const photoZone = this.getZone(photoNode.y);
-           
-            const depthResult = this.localGroupSignature.findOptimalDepth(
-                photoId,
-                photoGraph,
-                modelGraph,
-                modelGraph.nodes,
-                photoMorphology
-            );
-
-            const depth = depthResult.optimalDepth;
+    const photoZone = this.getZone(photoNode.y);
+   
+    const depthResult = this.localGroupSignature.findOptimalDepth(
+        photoId,
+        photoGraph,
+        modelGraph,
+        modelGraph.nodes,
+        photoMorphology
+    );
+   
+    // 🔥 ЗАЩИТА
+    if (!depthResult || !depthResult.candidates) {
+        continue;
+    }
+   
+    const depth = depthResult.optimalDepth || 2;
             this.depthUsage.set(depth, (this.depthUsage.get(depth) || 0) + 1);
             this.zoneStats[photoZone]++;
 
