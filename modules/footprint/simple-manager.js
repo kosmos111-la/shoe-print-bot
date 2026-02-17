@@ -458,14 +458,15 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
             this.systemStats.lastActivity = new Date();
 
             return {
-                decision: result.decision,
-                similarity: result.similarity || 0,
-                modelId: result.modelId,
-                exactMatches: result.topologicalResult?.exactMatches || 0,
-                newNodesAdded: result.topologicalResult?.newNodesAdded || 0,
-                status: result.topologicalResult?.status || 'unknown',
-                modelInfo: result.modelInfo
-            };
+    decision: result.decision,
+    similarity: result.similarity || 0,
+    modelId: result.modelId,
+    exactMatches: result.topologicalResult?.exactMatches || 0,
+    newNodesAdded: result.topologicalResult?.newNodesAdded || 0,
+    status: result.topologicalResult?.status || 'unknown',
+    modelInfo: result.modelInfo,
+    matchMap: result.topologicalResult?.matchMap || null  // ← добавляем!
+};
 
         } catch (error) {
             console.log(`❌ Ошибка топологической обработки: ${error.message}`);
