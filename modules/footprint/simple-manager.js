@@ -218,39 +218,42 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
             // 🔥 ИЩЕМ matchMap В РАЗНЫХ МЕСТАХ
             let matchMap = null;
            
-            // Проверка 1: прямой путь (если topologicalResult уже содержит matchMap)
+            // Проверка 1: прямой путь
             if (topologicalResult && topologicalResult.matchMap) {
                 matchMap = topologicalResult.matchMap;
                 console.log(`🔍 matchMap найден напрямую: ${matchMap.size} пар`);
             }
-            // Проверка 2: вложенный путь (через topologicalResult.topologicalResult)
+            // Проверка 2: вложенный путь
             else if (topologicalResult && topologicalResult.topologicalResult && topologicalResult.topologicalResult.matchMap) {
                 matchMap = topologicalResult.topologicalResult.matchMap;
                 console.log(`🔍 matchMap найден во вложенном объекте: ${matchMap.size} пар`);
             }
-            // Проверка 3: в самом topologicalResult (как поле)
-            else if (topologicalResult && topologicalResult.matchMap) {
-                matchMap = topologicalResult.matchMap;
-                console.log(`🔍 matchMap найден как поле: ${matchMap.size} пар`);
-            }
 
             // Если нашли matchMap, добавляем в визуализацию
             if (matchMap && visualizationData) {
+                // 🔥 СОЗДАЁМ ТОЧКИ ФОТО ИЗ matchMap
+                const photoPoints = [];
+                for (const [photoId, match] of matchMap) {
+                    // Ищем точку в модели с таким же ID (для координат)
+                    const modelPoint = visualizationData.points.find(p => p.id === match.modelId);
+                    if (modelPoint) {
+                        photoPoints.push({
+                            id: photoId,
+                            x: modelPoint.x,
+                            y: modelPoint.y,
+                            confidence: 1.0
+                        });
+                    }
+                }
+               
+                visualizationData.photoPoints = photoPoints;
                 visualizationData.matchMap = matchMap;
                 console.log(`✅ matchMap добавлен в визуализацию: ${matchMap.size} пар`);
-               
-                // 🔥 ДОБАВЛЯЕМ ПАРЫ В СТАТИСТИКУ ДЛЯ ОТОБРАЖЕНИЯ
-                if (visualizationData.stats) {
-                    visualizationData.stats.matched = matchMap.size;
-                    visualizationData.stats.newPoints = visualizationData.points.length - matchMap.size;
-                }
+                console.log(`✅ photoPoints создано: ${photoPoints.length} точек`);
             } else {
                 console.log(`⚠️ matchMap не найден нигде`);
                 if (topologicalResult) {
                     console.log(`   Ключи topologicalResult: ${Object.keys(topologicalResult).join(', ')}`);
-                    if (topologicalResult.topologicalResult) {
-                        console.log(`   Ключи topologicalResult.topologicalResult: ${Object.keys(topologicalResult.topologicalResult).join(', ')}`);
-                    }
                 }
             }
 
@@ -273,7 +276,6 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
                     vizPath = vizResult.path;
                     console.log(`✅ Топологическая визуализация создана: ${vizPath}`);
 
-                    // Дополнительная диагностика
                     if (vizResult.modelPath && vizResult.photoPath) {
                         console.log(`   📸 Модель: ${vizResult.modelPath}`);
                         console.log(`   📸 Фото: ${vizResult.photoPath}`);
