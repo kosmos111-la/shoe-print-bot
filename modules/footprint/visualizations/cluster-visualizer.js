@@ -1,5 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - РИСУЕМ ВСЕ ТОЧКИ И ТРЕУГОЛЬНИКИ!
+// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - ЯКОРИ С НОМЕРАМИ
 
 const fs = require('fs');
 const path = require('path');
@@ -20,7 +20,7 @@ class ClusterVisualizer {
             fs.mkdirSync(this.config.outputDir, { recursive: true });
         }
        
-        console.log('🎨 ClusterVisualizer создан (с поддержкой треугольников)');
+        console.log('🎨 ClusterVisualizer (диагностический) создан');
     }
 
     async visualizeTopologicalModel(topologyData, options = {}) {
@@ -78,35 +78,31 @@ class ClusterVisualizer {
             console.log(`📐 Параметры отрисовки:`);
             console.log(`   Границы: x[${minX.toFixed(1)}-${maxX.toFixed(1)}], y[${minY.toFixed(1)}-${maxY.toFixed(1)}]`);
             console.log(`   Масштаб: ${scale.toFixed(3)}`);
-            console.log(`   Центр: (${centerX}, ${centerY})`);
 
-            // 4. РИСУЕМ ТРЕУГОЛЬНИКИ (поверх рёбер, но под точками)
-            if (this.config.showTriangles && topologyData.triangles) {
-                this.drawTriangles(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
-            }
-
-            // 5. РИСУЕМ РЁБРА
+            // 4. РИСУЕМ РЁБРА (фоном)
             if (this.config.showEdges && topologyData.edges) {
                 this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
             }
 
-            // 6. 🔥🔥🔥 РИСУЕМ ВСЕ УЗЛЫ
-            this.drawNodes(ctx, topologyData.points, avgX, avgY, centerX, centerY, scale);
+            // 5. РИСУЕМ ВСЕ УЗЛЫ (кроме якорей)
+            this.drawRegularNodes(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
 
-            // 7. СТАТИСТИКА
-            this.drawStats(ctx, topologyData.stats, canvasWidth);
+            // 6. РИСУЕМ ЯКОРИ С НОМЕРАМИ
+            if (topologyData.reliableNodeIds && topologyData.reliableNodeIds.length > 0) {
+                this.drawAnchors(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
+            }
 
-            // 8. ЛЕГЕНДА
+            // 7. ЛЕГЕНДА
             this.drawLegend(ctx, canvasWidth, canvasHeight);
 
-            // 9. ПОДПИСЬ
+            // 8. ПОДПИСЬ
             ctx.fillStyle = '#ADB5BD';
             ctx.font = '12px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText(`🏗️ Триангуляция Делоне | Weisfeiler-Lehman | Треугольники салатовые | ${new Date().toLocaleString('ru-RU')}`,
+            ctx.fillText(`🏗️ Якоря с номерами | ${new Date().toLocaleString('ru-RU')}`,
                         canvasWidth / 2, canvasHeight - 10);
 
-            // 10. СОХРАНЯЕМ
+            // 9. СОХРАНЯЕМ
             const filename = options.filename || `topology_${Date.now()}.png`;
             const outputPath = path.join(this.config.outputDir, filename);
 
@@ -127,126 +123,124 @@ class ClusterVisualizer {
         }
     }
 
-    // 🔥 НОВЫЙ МЕТОД: РИСОВАНИЕ ТРЕУГОЛЬНИКОВ
-    drawTriangles(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
-        if (!topologyData.triangles || topologyData.triangles.length === 0) return;
+    // ==================== ОТРИСОВКА ЯКОРЕЙ С НОМЕРАМИ ====================
+
+    drawAnchors(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
+        const points = topologyData.points;
+        const reliableIds = new Set(topologyData.reliableNodeIds || []);
        
-        const pointsMap = new Map();
-        topologyData.points.forEach(point => {
-            if (point && point.id) pointsMap.set(point.id, point);
-        });
-
-        ctx.strokeStyle = '#90EE90'; // салатовый
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 3]); // пунктир для отличия от обычных рёбер
-        let trianglesDrawn = 0;
-
-        topologyData.triangles.forEach(triangle => {
-            const [idA, idB, idC] = triangle;
-            const pointA = pointsMap.get(idA);
-            const pointB = pointsMap.get(idB);
-            const pointC = pointsMap.get(idC);
-
-            if (pointA && pointB && pointC) {
-                const x1 = centerX + (pointA.x - avgX) * scale;
-                const y1 = centerY + (pointA.y - avgY) * scale;
-                const x2 = centerX + (pointB.x - avgX) * scale;
-                const y2 = centerY + (pointB.y - avgY) * scale;
-                const x3 = centerX + (pointC.x - avgX) * scale;
-                const y3 = centerY + (pointC.y - avgY) * scale;
-
-                ctx.beginPath();
-                ctx.moveTo(x1, y1);
-                ctx.lineTo(x2, y2);
-                ctx.lineTo(x3, y3);
-                ctx.closePath();
-                ctx.stroke();
-                trianglesDrawn++;
+        // Создаём карту pointId -> индекс для нумерации
+        const anchorIndex = new Map();
+        let idx = 1;
+        for (const point of points) {
+            if (reliableIds.has(point.id)) {
+                anchorIndex.set(point.id, idx++);
             }
-        });
+        }
+       
+        console.log(`   🔴 Отрисовка ${anchorIndex.size} якорей с номерами...`);
 
-        ctx.setLineDash([]); // сброс пунктира
-        console.log(`   🔺 Треугольников отрисовано: ${trianglesDrawn}`);
+        // Формы для разных номеров (для наглядности)
+        const shapes = ['circle', 'square', 'triangle'];
+       
+        for (const point of points) {
+            if (!reliableIds.has(point.id)) continue;
+           
+            const x = centerX + (point.x - avgX) * scale;
+            const y = centerY + (point.y - avgY) * scale;
+            const number = anchorIndex.get(point.id);
+           
+            // Выбираем форму по номеру
+            const shape = shapes[(number - 1) % shapes.length];
+           
+            // Размер и цвет зависят от подтверждения
+            const confirmations = point.confirmationCount || 1;
+            let color, size;
+           
+            if (confirmations >= 3) {
+                color = '#FF0000'; // 🔴 Ядро
+                size = 14;
+            } else if (confirmations >= 2) {
+                color = '#FFC107'; // 🟡 Подтверждённый
+                size = 12;
+            } else {
+                color = '#2196F3'; // 🔵 Новый якорь
+                size = 10;
+            }
+           
+            // Рисуем форму
+            ctx.fillStyle = color;
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 2;
+           
+            switch(shape) {
+                case 'circle':
+                    ctx.beginPath();
+                    ctx.arc(x, y, size/2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                    break;
+                case 'square':
+                    ctx.fillRect(x - size/2, y - size/2, size, size);
+                    ctx.strokeRect(x - size/2, y - size/2, size, size);
+                    break;
+                case 'triangle':
+                    ctx.beginPath();
+                    ctx.moveTo(x, y - size/1.5);
+                    ctx.lineTo(x + size/1.5, y + size/2);
+                    ctx.lineTo(x - size/1.5, y + size/2);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    break;
+            }
+           
+            // Рисуем номер
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(number.toString(), x, y);
+        }
     }
 
-    drawNodes(ctx, points, avgX, avgY, centerX, centerY, scale) {
-        const validPoints = points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
+    // ==================== ОТРИСОВКА ОБЫЧНЫХ УЗЛОВ ====================
+
+    drawRegularNodes(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
+        const points = topologyData.points;
+        const reliableIds = new Set(topologyData.reliableNodeIds || []);
        
-        console.log(`   🖌 Отрисовка ${validPoints.length} узлов...`);
+        const validPoints = points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number' && !reliableIds.has(p.id));
+       
+        console.log(`   🖌 Отрисовка ${validPoints.length} обычных узлов...`);
 
-        const sortedPoints = [...validPoints].sort((a, b) => {
-            const aConf = a.confirmationCount || 0;
-            const bConf = b.confirmationCount || 0;
-            return aConf - bConf;
-        });
-
-        let confirmed2 = 0, confirmed1 = 0, confirmed0 = 0;
-
-        sortedPoints.forEach(point => {
+        for (const point of validPoints) {
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
 
             const confirmations = point.confirmationCount || 0;
-            const isStructural = point.addedFrom === 'structural_enhancement';
-            const isNewStructural = isStructural && confirmations === 1;
-
+           
             let color, size;
            
-            if (confirmations >= 3) {
-                color = '#FF0000'; // 🔴 Ядро (3+)
-                size = 12;
-                confirmed2++;
-            } else if (confirmations >= 2) {
-                color = '#FFC107'; // 🟡 Подтверждённый (2)
-                size = 10;
-                confirmed2++;
+            if (confirmations >= 2) {
+                color = '#FFC107'; // 🟡 Подтверждённый (2+)
+                size = 8;
             } else if (confirmations >= 1) {
                 color = '#2196F3'; // 🔵 Новый (1)
-                size = 8;
-                confirmed1++;
+                size = 6;
             } else {
                 color = '#BDBDBD'; // ⚪ Неподтверждённый (0)
-                size = 6;
-                confirmed0++;
-            }
-
-            if (isStructural) {
-                size = size * 0.9;
+                size = 4;
             }
 
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(x, y, size, 0, Math.PI * 2);
             ctx.fill();
-
-            ctx.strokeStyle = isStructural ? '#000000' : '#FFFFFF';
-            ctx.lineWidth = isStructural ? 2 : 1.5;
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
             ctx.stroke();
-
-            if (confirmations >= 2) {
-                ctx.fillStyle = '#FFFFFF';
-                ctx.beginPath();
-                ctx.arc(x, y, size * 0.4, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.fillStyle = color;
-                ctx.font = 'bold 10px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(confirmations.toString(), x, y);
-            }
-
-            if (isNewStructural) {
-                ctx.fillStyle = '#000000';
-                ctx.font = 'bold 12px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('+', x, y - size - 5);
-            }
-        });
-
-        console.log(`   🎯 Узлов: 2+=${confirmed2}, 1=${confirmed1}, 0=${confirmed0}`);
-        console.log(`   ✅ Отрисовано: ${validPoints.length} узлов`);
+        }
     }
 
     drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
@@ -281,39 +275,16 @@ class ClusterVisualizer {
         console.log(`   🔗 Рёбер отрисовано: ${edgesDrawn}`);
     }
 
-    drawStats(ctx, stats, canvasWidth) {
-        if (!stats) return;
-
-        ctx.font = '14px Arial';
-        ctx.fillStyle = '#343A40';
-        ctx.textAlign = 'left';
-
-        const rows = [
-            `Узлов: ${stats.totalNodes || 0}`,
-            `Рёбер: ${stats.totalEdges || 0}`,
-            `Средняя степень: ${stats.avgDegree?.toFixed(2) || '?'}`,
-            `🔴 3+: ${stats.confirmed3 || 0}`,
-            `🟡 2: ${stats.confirmed2 || 0}`,
-            `🔵 1: ${stats.confirmed1 || 0}`,
-            `⚪ 0: ${stats.confirmed0 || 0}`,
-            `🔺 Треугольников: ${stats.triangles || 0}`
-        ];
-
-        rows.forEach((text, i) => {
-            ctx.fillText(text, 50, 120 + i * 25);
-        });
-    }
-
     drawLegend(ctx, canvasWidth, canvasHeight) {
         const legendY = canvasHeight - 120;
         const startX = canvasWidth * 0.1;
         const columnWidth = canvasWidth * 0.2;
 
         ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-        ctx.fillRect(startX - 10, legendY - 20, canvasWidth * 0.8, 140);
+        ctx.fillRect(startX - 10, legendY - 20, canvasWidth * 0.8, 160);
         ctx.strokeStyle = '#DEE2E6';
         ctx.lineWidth = 2;
-        ctx.strokeRect(startX - 10, legendY - 20, canvasWidth * 0.8, 140);
+        ctx.strokeRect(startX - 10, legendY - 20, canvasWidth * 0.8, 160);
 
         ctx.fillStyle = '#212529';
         ctx.font = 'bold 16px Arial';
@@ -321,39 +292,25 @@ class ClusterVisualizer {
         ctx.fillText('📋 ТОПОЛОГИЧЕСКАЯ ЛЕГЕНДА', startX, legendY);
 
         const items = [
-            { color: '#FF0000', text: '🔴 Ядро (3+)', desc: '3+ подтверждения' },
-            { color: '#FFC107', text: '🟡 Подтверждённый (2)', desc: '2 подтверждения' },
-            { color: '#2196F3', text: '🔵 Новый (1)', desc: '1 подтверждение' },
-            { color: '#BDBDBD', text: '⚪ Неподтверждённый (0)', desc: '0 подтверждений' },
-            { color: '#000000', text: '➕ Новая структурная точка', desc: 'добавлена из фото 2' },
-            { color: '#90EE90', text: '🔺 Треугольники', desc: 'проверка формы (салатовый)' }
+            { color: '#FF0000', text: '🔴 Якорь (3+)', desc: 'форма + номер' },
+            { color: '#FFC107', text: '🟡 Якорь (2)', desc: 'форма + номер' },
+            { color: '#2196F3', text: '🔵 Якорь (1)', desc: 'форма + номер' },
+            { color: '#FFC107', text: '🟡 Обычная (2+)', desc: 'круг' },
+            { color: '#2196F3', text: '🔵 Обычная (1)', desc: 'круг' },
+            { color: '#BDBDBD', text: '⚪ Неподтверждённая', desc: 'круг' }
         ];
 
         items.forEach((item, index) => {
             const x = startX + (index % 3) * columnWidth;
             const y = legendY + 25 + Math.floor(index / 3) * 35;
 
-            if (item.color === '#90EE90') {
-                ctx.strokeStyle = '#90EE90';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 3]);
-                ctx.beginPath();
-                ctx.moveTo(x, y - 5);
-                ctx.lineTo(x + 20, y - 5);
-                ctx.lineTo(x + 10, y - 15);
-                ctx.closePath();
-                ctx.stroke();
-                ctx.setLineDash([]);
-            } else {
-                ctx.fillStyle = item.color;
-                ctx.beginPath();
-                ctx.arc(x + 15, y + 5, 6, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.strokeStyle = item.color === '#000000' ? '#000000' : '#FFFFFF';
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-            }
+            ctx.fillStyle = item.color;
+            ctx.beginPath();
+            ctx.arc(x + 15, y + 5, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.stroke();
 
             ctx.fillStyle = '#495057';
             ctx.font = '12px Arial';
@@ -411,10 +368,7 @@ class ClusterVisualizer {
             report += `• Название: ${topologyData.modelName || 'Неизвестная'}\n`;
             report += `• Узлов: ${topologyData.stats?.totalNodes || 0}\n`;
             report += `• Рёбер: ${topologyData.stats?.totalEdges || 0}\n`;
-            report += `• Треугольников: ${topologyData.stats?.triangles || 0}\n`;
-            report += `• 🟡 2 подтверждения: ${topologyData.stats?.confirmed2 || 0}\n`;
-            report += `• 🔵 1 подтверждение: ${topologyData.stats?.confirmed1 || 0}\n`;
-            report += `• ⚪ 0 подтверждений: ${topologyData.stats?.confirmed0 || 0}\n`;
+            report += `• Якорей: ${topologyData.reliableNodeIds?.length || 0}\n`;
         }
        
         fs.writeFileSync(outputPath, report, 'utf8');
