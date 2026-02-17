@@ -9,7 +9,7 @@ class CenterMatcher {
         this.minConsistentPairs = options.minConsistentPairs || 1;
        
         // 🔥 ПОРОГИ
-        this.reliableMorphThreshold = 0.05;           // было 0.75
+        this.reliableMorphThreshold = 0.4;           // было 0.75
         this.reliableLocalThreshold = 0.65;           // было 0.70
         this.minGraphDistanceRatio = 0.5;
         this.minTriangleScore = 0.7;                    // было 0.95
@@ -154,53 +154,60 @@ class CenterMatcher {
         console.log(`   ❌ Отсев по треугольникам: ${triangleReject}`);
         console.log(`   ✅ Прошло: ${passed}`);
 
-        // 🔥 ЭТАП 3: ГРУППИРОВКА
-        const groups = [];
-       
-        for (let i = 0; i < filteredCandidates.length; i++) {
-            let added = false;
-           
-            for (const group of groups) {
-                let consistentWithAll = true;
-               
-                for (const j of group) {
-                    if (!this.areConsistent(
-                        filteredCandidates[i],
-                        filteredCandidates[j],
-                        photoGraph,
-                        modelGraph
-                    )) {
-                        consistentWithAll = false;
-                        break;
-                    }
-                }
-               
-                if (consistentWithAll) {
-                    group.push(i);
-                    added = true;
-                    break;
-                }
-            }
-           
-            if (!added) {
-                groups.push([i]);
+       // 🔥 ЭТАП 3: ГРУППИРОВКА
+const groups = [];
+
+for (let i = 0; i < filteredCandidates.length; i++) {
+    let added = false;
+
+    for (const group of groups) {
+        let consistentWithAll = true;
+
+        for (const j of group) {
+            if (!this.areConsistent(
+                filteredCandidates[i],
+                filteredCandidates[j],
+                photoGraph,
+                modelGraph
+            )) {
+                consistentWithAll = false;
+                break;
             }
         }
 
-        let maxGroup = [];
-        for (const group of groups) {
-            if (group.length > maxGroup.length) {
-                maxGroup = group;
-            }
+        if (consistentWithAll) {
+            group.push(i);
+            added = true;
+            break;
         }
+    }
 
-        console.log(`\n📊 ЭТАП 3: Найдено ${groups.length} групп, самая большая - ${maxGroup.length} точек`);
+    if (!added) {
+        groups.push([i]);
+    }
+}
 
-        if (maxGroup.length === 0 && filteredCandidates.length > 0) {
-            filteredCandidates.sort((a, b) => (b.morphScore + b.localScore) - (a.morphScore + a.localScore));
-            maxGroup = [0];
-            console.log(`\n⚠️ Согласованных групп нет, беру лучшую точку`);
-        }
+let maxGroup = [];
+for (const group of groups) {
+    if (group.length > maxGroup.length) {
+        maxGroup = group;
+    }
+}
+
+console.log(`\n📊 ЭТАП 3: Найдено ${groups.length} групп, самая большая - ${maxGroup.length} точек`);
+
+// 🔥 НОВАЯ ПРОВЕРКА: для треугольника нужно минимум 3 точки
+if (maxGroup.length < 3) {
+    console.log(`\n⚠️ Недостаточно точек для треугольника (${maxGroup.length} < 3), пропускаю этап`);
+    return new Map(); // возвращаем пустой результат
+}
+
+// Если нет групп, но есть кандидаты - берём лучшую точку (оставляем как запасной вариант)
+if (maxGroup.length === 0 && filteredCandidates.length > 0) {
+    filteredCandidates.sort((a, b) => (b.morphScore + b.localScore) - (a.morphScore + a.localScore));
+    maxGroup = [0];
+    console.log(`\n⚠️ Согласованных групп нет, беру лучшую точку`);
+}
 
         // 🔥 ЭТАП 4: ФОРМИРОВАНИЕ РЕЗУЛЬТАТА
         const result = new Map();
