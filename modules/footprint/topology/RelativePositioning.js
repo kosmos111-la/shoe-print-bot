@@ -3,15 +3,15 @@
 
 class RelativePositioning {
     constructor(options = {}) {
-        this.debug = options.debug || false;
-        this.localGroupSignature = options.localGroupSignature;
-        this.minPathSimilarity = options.minPathSimilarity || 0.5;
-        this.maxPathLengthDiff = options.maxPathLengthDiff || 3;
-        this.confidenceThreshold = options.confidenceThreshold || 0.7;
-       
-        console.log('🧩 RelativePositioning создан');
-        console.log(`   Порог уверенности: ${this.confidenceThreshold * 100}%`);
-    }
+    this.debug = options.debug || false;
+    this.localGroupSignature = options.localGroupSignature;
+    this.minPathSimilarity = options.minPathSimilarity || 0.5;
+    this.maxPathLengthDiff = options.maxPathLengthDiff || 3;
+    this.confidenceThreshold = options.confidenceThreshold || 0.8; // 🔥 80% вместо 70%
+   
+    console.log('🧩 RelativePositioning создан');
+    console.log(`   Порог уверенности: ${this.confidenceThreshold * 100}%`);
+}
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
