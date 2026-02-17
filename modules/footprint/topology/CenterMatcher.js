@@ -392,13 +392,14 @@ console.log(`   ✅ Прошло: ${passed}`);
     }
 
     compareMorphology(photoId, modelId, photoMorph, modelMorph) {
-        const pm = photoMorph?.get(photoId);
-        const mm = modelMorph?.get(modelId);
-
-        if (!pm || !mm || !pm.hasContour || !mm.hasContour) return 0.5;
-
-        return this.morphologyEncoder.compare(pm, mm);
-    }
+    const pm = photoMorph?.get(photoId);
+    const mm = modelMorph?.get(modelId);
+   
+    if (!pm || !mm || !pm.hasContour || !mm.hasContour) return 0.5;
+   
+    const score = this.morphologyEncoder.compare(pm, mm);
+    return score || 0.5;  // ← защита от undefined
+}
 
     // ==================== ОПРЕДЕЛЕНИЕ ЗОНЫ ====================
 
