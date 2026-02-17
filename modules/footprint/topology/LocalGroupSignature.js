@@ -57,60 +57,64 @@ class LocalGroupSignature {
         return signature;
     }
 
-    findOptimalDepth(nodeId, photoGraph, modelGraph, modelNodes, morphologyMap = null) {
-        const results = [];
+    findOptimalDepth(nodeId, photoGraph, modelGraph, modelNodes, morphologyMap = null) findOptimalDepth(nodeId, photoGraph, modelGraph, modelNodes, morphologyMap = null) {
+    const results = [];
+   
+    for (let depth = 2; depth <= this.maxDepth; depth++) {
+        const photoSig = this.computeLocalSignature(nodeId, photoGraph, morphologyMap, depth);
        
-        for (let depth = 2; depth <= this.maxDepth; depth++) { // начинаем с 2, пропускаем 1
-            const photoSig = this.computeLocalSignature(nodeId, photoGraph, morphologyMap, depth);
+        const candidates = [];
+        for (const [modelId, modelNode] of modelNodes) {
+            const modelSig = this.computeLocalSignature(modelId, modelGraph, morphologyMap, depth);
+            const similarity = this.compareSignatures(photoSig, modelSig);
            
-            const candidates = [];
-            for (const [modelId, modelNode] of modelNodes) {
-                const modelSig = this.computeLocalSignature(modelId, modelGraph, morphologyMap, depth);
-                const similarity = this.compareSignatures(photoSig, modelSig);
-               
-                if (similarity > 0.5) {
-                    candidates.push({
-                        modelId,
-                        similarity,
-                        depth
-                    });
-                }
-            }
-           
-            candidates.sort((a, b) => b.similarity - a.similarity);
-           
-            results.push({
-                depth,
-                candidates: candidates.slice(0, 5),
-                candidateCount: candidates.length,
-                bestSimilarity: candidates.length > 0 ? candidates[0].similarity : 0
-            });
-           
-            this.depthStats[depth].candidates.push(candidates.length);
-        }
-       
-        let bestDepth = 2;
-        let bestScore = 0;
-       
-        for (const result of results) {
-            const countScore = 1 - Math.min(1, Math.abs(result.candidateCount - this.targetCandidates) / 10);
-            const simScore = result.bestSimilarity;
-            const totalScore = countScore * 0.6 + simScore * 0.4;
-           
-            if (totalScore > bestScore) {
-                bestScore = totalScore;
-                bestDepth = result.depth;
+            if (similarity > 0.5) {
+                candidates.push({
+                    modelId,
+                    similarity,
+                    depth
+                });
             }
         }
        
-        this.depthStats[bestDepth].used++;
+        candidates.sort((a, b) => b.similarity - a.similarity);
        
-        return {
-            optimalDepth: bestDepth,
-            candidates: results.find(r => r.depth === bestDepth)?.candidates || [],
-            allResults: results
-        };
+        // 🔥 ЗАЩИТА ОТ undefined
+        const bestSimilarity = candidates.length > 0 ? candidates[0].similarity : 0;
+       
+        results.push({
+            depth,
+            candidates: candidates.slice(0, 5),
+            candidateCount: candidates.length,
+            bestSimilarity: bestSimilarity
+        });
+       
+        this.depthStats[depth].candidates.push(candidates.length);
     }
+   
+    let bestDepth = 2;
+    let bestScore = 0;
+   
+    for (const result of results) {
+        // 🔥 ЗАЩИТА ОТ undefined
+        const countScore = 1 - Math.min(1, Math.abs(result.candidateCount - this.targetCandidates) / 10);
+        const simScore = result.bestSimilarity || 0;
+        const totalScore = countScore * 0.6 + simScore * 0.4;
+       
+        if (totalScore > bestScore) {
+            bestScore = totalScore;
+            bestDepth = result.depth;
+        }
+    }
+   
+    this.depthStats[bestDepth].used++;
+   
+    return {
+        optimalDepth: bestDepth,
+        candidates: results.find(r => r.depth === bestDepth)?.candidates || [],
+        allResults: results
+    };
+}
 
     extractLocalGroup(centerId, graph, depth) {
         const nodes = new Map();
