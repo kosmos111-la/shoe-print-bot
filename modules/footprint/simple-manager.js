@@ -214,29 +214,43 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
         if (topologyManager) {
             // Получаем базовые данные из топологического менеджера
             visualizationData = topologyManager.getAccumulativeVisualizationData();
-           
-            // 🔥 ДВЕ ПРОВЕРКИ ДЛЯ matchMap
+
+            // 🔥 ИЩЕМ matchMap В РАЗНЫХ МЕСТАХ
             let matchMap = null;
            
-            // Проверка 1: прямой путь
+            // Проверка 1: прямой путь (если topologicalResult уже содержит matchMap)
             if (topologicalResult && topologicalResult.matchMap) {
                 matchMap = topologicalResult.matchMap;
                 console.log(`🔍 matchMap найден напрямую: ${matchMap.size} пар`);
             }
-            // Проверка 2: вложенный путь
+            // Проверка 2: вложенный путь (через topologicalResult.topologicalResult)
             else if (topologicalResult && topologicalResult.topologicalResult && topologicalResult.topologicalResult.matchMap) {
                 matchMap = topologicalResult.topologicalResult.matchMap;
                 console.log(`🔍 matchMap найден во вложенном объекте: ${matchMap.size} пар`);
             }
-           
+            // Проверка 3: в самом topologicalResult (как поле)
+            else if (topologicalResult && topologicalResult.matchMap) {
+                matchMap = topologicalResult.matchMap;
+                console.log(`🔍 matchMap найден как поле: ${matchMap.size} пар`);
+            }
+
             // Если нашли matchMap, добавляем в визуализацию
             if (matchMap && visualizationData) {
                 visualizationData.matchMap = matchMap;
                 console.log(`✅ matchMap добавлен в визуализацию: ${matchMap.size} пар`);
+               
+                // 🔥 ДОБАВЛЯЕМ ПАРЫ В СТАТИСТИКУ ДЛЯ ОТОБРАЖЕНИЯ
+                if (visualizationData.stats) {
+                    visualizationData.stats.matched = matchMap.size;
+                    visualizationData.stats.newPoints = visualizationData.points.length - matchMap.size;
+                }
             } else {
                 console.log(`⚠️ matchMap не найден нигде`);
                 if (topologicalResult) {
                     console.log(`   Ключи topologicalResult: ${Object.keys(topologicalResult).join(', ')}`);
+                    if (topologicalResult.topologicalResult) {
+                        console.log(`   Ключи topologicalResult.topologicalResult: ${Object.keys(topologicalResult.topologicalResult).join(', ')}`);
+                    }
                 }
             }
 
@@ -258,7 +272,7 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
                 if (vizResult && vizResult.path) {
                     vizPath = vizResult.path;
                     console.log(`✅ Топологическая визуализация создана: ${vizPath}`);
-                   
+
                     // Дополнительная диагностика
                     if (vizResult.modelPath && vizResult.photoPath) {
                         console.log(`   📸 Модель: ${vizResult.modelPath}`);
@@ -269,7 +283,7 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
         }
     } catch (vizError) {
         console.log(`⚠️ Ошибка топологической визуализации: ${vizError.message}`);
-        console.error(vizError); // Для отладки
+        console.error(vizError);
     }
 }
 
