@@ -98,9 +98,9 @@ class CenterMatcher {
             }
 
             // 3. Зоны должны совпадать
-            if (c.photoZone !== c.modelZone) {
-                return false;
-            }
+           // if (c.photoZone !== c.modelZone) {
+           //     return false;
+         //   }
 
             // 4. 🔥 ПРОВЕРКА ТРЕУГОЛЬНИКОВ
             const triangleScore = this.checkTriangles(
