@@ -14,17 +14,17 @@ class ClusterVisualizer {
             showEdges: options.showEdges !== false,
             ...options
         };
-       
+
         if (!fs.existsSync(this.config.outputDir)) {
             fs.mkdirSync(this.config.outputDir, { recursive: true });
         }
-       
+
         console.log('🎨 ClusterVisualizer (с номерами пар) создан');
     }
 
     async visualizeTopologicalModel(topologyData, options = {}) {
         console.log('🎨 Визуализация топологической модели...');
-       
+
         try {
             if (!topologyData || !topologyData.points || topologyData.points.length === 0) {
                 console.log('⚠️ Нет данных для визуализации');
@@ -43,10 +43,10 @@ class ClusterVisualizer {
 
             // ========== ВИЗУАЛИЗАЦИЯ 1: МОДЕЛЬ ==========
             const modelPath = await this.drawModel(topologyData, options);
-           
+
             // ========== ВИЗУАЛИЗАЦИЯ 2: ФОТО 2 ==========
             const photoPath = await this.drawPhoto(topologyData, options);
-           
+
             return {
                 modelPath,
                 photoPath,
@@ -138,11 +138,14 @@ class ClusterVisualizer {
             this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
         }
 
-        // Точки фото с номерами пар
-        this.drawPhotoPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
+        // 🔥 ВАЖНО: Используем photoPoints, если они есть, иначе points
+        const photoPoints = topologyData.photoPoints || topologyData.points;
+        const matchMap = topologyData.matchMap || new Map();
+
+        this.drawPhotoPoints(ctx, photoPoints, matchMap, avgX, avgY, centerX, centerY, scale);
 
         // Статистика
-        this.drawPhotoStats(ctx, topologyData.stats, this.config.canvasWidth);
+        this.drawPhotoStats(ctx, topologyData.stats, this.config.canvasWidth, matchMap.size);
 
         // Сохраняем
         const filename = options.filename ? options.filename.replace('.png', '_photo.png') : `photo_${Date.now()}.png`;
@@ -163,7 +166,7 @@ class ClusterVisualizer {
     drawModelPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
         const points = topologyData.points;
         const matchMap = topologyData.matchMap || new Map();
-       
+
         // Создаём обратную карту modelId -> pairNumber
         const modelToPair = new Map();
         for (const [photoId, match] of matchMap) {
@@ -171,14 +174,14 @@ class ClusterVisualizer {
                 modelToPair.set(match.modelId, match.pairNumber);
             }
         }
-       
+
         console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
 
         let confirmed2 = 0, confirmed1 = 0, confirmed0 = 0;
 
         for (const point of points) {
             if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
-           
+
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
 
@@ -187,7 +190,7 @@ class ClusterVisualizer {
 
             // Цвет и размер
             let color, size;
-           
+
             if (confirmations >= 3) {
                 color = '#FF0000'; // 🔴 Ядро (3+)
                 size = 12;
@@ -228,22 +231,18 @@ class ClusterVisualizer {
         console.log(`   🎯 Модель: 2+=${confirmed2}, 1=${confirmed1}, 0=${confirmed0}`);
     }
 
-    drawPhotoPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
-        const points = topologyData.points;
-        const matchMap = topologyData.matchMap || new Map();
-       
+    drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
         console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
 
         let matched = 0, unmatched = 0;
 
         for (const point of points) {
             if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
-           
+
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
 
             const match = matchMap.get(point.id);
-            const confirmations = point.confirmationCount || 0;
 
             // Цвет
             let color;
@@ -336,7 +335,7 @@ class ClusterVisualizer {
         });
     }
 
-    drawPhotoStats(ctx, stats, canvasWidth) {
+    drawPhotoStats(ctx, stats, canvasWidth, matchedCount) {
         if (!stats) return;
 
         ctx.font = '14px Arial';
@@ -345,8 +344,8 @@ class ClusterVisualizer {
 
         const rows = [
             `Узлов в фото: ${stats.totalNodes || 0}`,
-            `✅ Сопоставлено: ${stats.matched || 0}`,
-            `🟠 Новых: ${stats.newPoints || 0}`
+            `✅ Сопоставлено: ${matchedCount || 0}`,
+            `🟠 Новых: ${(stats.totalNodes || 0) - (matchedCount || 0)}`
         ];
 
         rows.forEach((text, i) => {
@@ -356,7 +355,7 @@ class ClusterVisualizer {
 
     calculateBounds(points) {
         const validPoints = points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
-       
+
         if (validPoints.length === 0) {
             return { minX: 0, maxX: 100, minY: 0, maxY: 100 };
         }
@@ -388,21 +387,21 @@ class ClusterVisualizer {
 
     createTopologyReport(topologyData, error) {
         const outputPath = path.join(this.config.outputDir, `topology_report_${Date.now()}.txt`);
-       
+
         let report = `🏗️ ОТЧЕТ О ТОПОЛОГИЧЕСКОЙ МОДЕЛИ\n`;
         report += `═`.repeat(50) + `\n\n`;
-       
+
         if (error) report += `❌ ОШИБКА: ${error.message}\n\n`;
-       
+
         if (topologyData) {
             report += `📋 ИНФОРМАЦИЯ О МОДЕЛИ:\n`;
             report += `• Название: ${topologyData.modelName || 'Неизвестная'}\n`;
             report += `• Узлов: ${topologyData.stats?.totalNodes || 0}\n`;
             report += `• Рёбер: ${topologyData.stats?.totalEdges || 0}\n`;
         }
-       
+
         fs.writeFileSync(outputPath, report, 'utf8');
-       
+
         return {
             path: outputPath,
             stats: topologyData?.stats,
