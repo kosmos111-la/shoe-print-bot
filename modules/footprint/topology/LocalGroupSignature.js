@@ -8,11 +8,15 @@ class LocalGroupSignature {
         this.targetCandidates = options.targetCandidates || 2;
         this.useMorphology = options.useMorphology !== false;
        
+        // Роли узлов
         this.roles = ['L', 'B', 'H', 'C', 'R'];
+       
+        // Кеш для ускорения
         this.cache = new Map();
         this.cacheHits = 0;
         this.cacheMisses = 0;
        
+        // Статистика по глубинам
         this.depthStats = {
             1: { used: 0, candidates: [] },
             2: { used: 0, candidates: [] },
@@ -25,6 +29,8 @@ class LocalGroupSignature {
         console.log(`   Целевое число кандидатов: ${this.targetCandidates}`);
     }
 
+    // ==================== ОСНОВНОЙ МЕТОД ====================
+
     computeLocalSignature(nodeId, graph, morphologyMap = null, fixedDepth = null) {
         const depth = fixedDepth || this.maxDepth;
         const cacheKey = `${nodeId}|depth${depth}`;
@@ -35,94 +41,115 @@ class LocalGroupSignature {
         }
         this.cacheMisses++;
 
+        // Получаем локальную группу
         const group = this.extractLocalGroup(nodeId, graph, depth);
        
+        // Роль центральной точки
         const centerRole = this.getNodeRole(nodeId, group.nodes, group.edges);
+       
+        // Зона (для визуализации)
         const centerNode = graph.nodes.get(nodeId);
         const zone = centerNode ? this.getZone(centerNode.y) : 'C';
        
+        // Статистика по группе
         const stats = this.computeGroupStats(group);
        
+        // Морфология
         let morphology = '';
         if (this.useMorphology && morphologyMap && morphologyMap.has(nodeId)) {
             const m = morphologyMap.get(nodeId);
-            morphology = `|${m.aspectRatio.toFixed(2)}|${m.compactness.toFixed(2)}|${m.angularity}`;
+            morphology = `|${m.aspectRatio?.toFixed(2) || '0.00'}|${m.compactness?.toFixed(2) || '0.00'}|${m.angularity || 0}`;
         } else {
             morphology = '|0.00|0.00|0';
         }
        
+        // Собираем подпись
         const signature = `${centerRole}|${zone}|${depth}|${stats.triangleDensity.toFixed(2)}|${stats.roleDistStr}${morphology}`;
        
         this.cache.set(cacheKey, signature);
         return signature;
     }
 
-    findOptimalDepth(nodeId, photoGraph, modelGraph, modelNodes, morphologyMap = null) findOptimalDepth(nodeId, photoGraph, modelGraph, modelNodes, morphologyMap = null) {
-    const results = [];
-   
-    for (let depth = 2; depth <= this.maxDepth; depth++) {
-        const photoSig = this.computeLocalSignature(nodeId, photoGraph, morphologyMap, depth);
+    // ==================== ПОИСК ОПТИМАЛЬНОЙ ГЛУБИНЫ ====================
+
+    findOptimalDepth(nodeId, photoGraph, modelGraph, modelNodes, morphologyMap = null) {
+        const results = [];
        
-        const candidates = [];
-        for (const [modelId, modelNode] of modelNodes) {
-            const modelSig = this.computeLocalSignature(modelId, modelGraph, morphologyMap, depth);
-            const similarity = this.compareSignatures(photoSig, modelSig);
+        // Пробуем глубины от 2 до maxDepth (пропускаем глубину 1)
+        for (let depth = 2; depth <= this.maxDepth; depth++) {
+            // Подпись для точки в фото
+            const photoSig = this.computeLocalSignature(nodeId, photoGraph, morphologyMap, depth);
            
-            if (similarity > 0.5) {
-                candidates.push({
-                    modelId,
-                    similarity,
-                    depth
-                });
+            // Ищем кандидатов в модели
+            const candidates = [];
+            for (const [modelId, modelNode] of modelNodes) {
+                const modelSig = this.computeLocalSignature(modelId, modelGraph, morphologyMap, depth);
+                const similarity = this.compareSignatures(photoSig, modelSig);
+               
+                if (similarity > 0.5) {
+                    candidates.push({
+                        modelId,
+                        similarity,
+                        depth
+                    });
+                }
+            }
+           
+            // Сортируем по сходству
+            candidates.sort((a, b) => b.similarity - a.similarity);
+           
+            // 🔥 ЗАЩИТА: bestSimilarity всегда число
+            const bestSimilarity = candidates.length > 0 ? candidates[0].similarity : 0;
+           
+            results.push({
+                depth,
+                candidates: candidates.slice(0, 5), // топ-5
+                candidateCount: candidates.length,
+                bestSimilarity: bestSimilarity
+            });
+           
+            // Сохраняем статистику
+            this.depthStats[depth].candidates.push(candidates.length);
+        }
+       
+        // Выбираем оптимальную глубину
+        let bestDepth = 2;
+        let bestScore = 0;
+       
+        for (const result of results) {
+            // 🔥 ЗАЩИТА: countScore всегда число
+            const countScore = 1 - Math.min(1, Math.abs(result.candidateCount - this.targetCandidates) / 10);
+            const simScore = result.bestSimilarity || 0;
+            // Комбинируем
+            const totalScore = countScore * 0.6 + simScore * 0.4;
+           
+            if (totalScore > bestScore) {
+                bestScore = totalScore;
+                bestDepth = result.depth;
             }
         }
        
-        candidates.sort((a, b) => b.similarity - a.similarity);
+        // Обновляем статистику использования
+        this.depthStats[bestDepth].used++;
        
-        // 🔥 ЗАЩИТА ОТ undefined
-        const bestSimilarity = candidates.length > 0 ? candidates[0].similarity : 0;
-       
-        results.push({
-            depth,
-            candidates: candidates.slice(0, 5),
-            candidateCount: candidates.length,
-            bestSimilarity: bestSimilarity
-        });
-       
-        this.depthStats[depth].candidates.push(candidates.length);
+        return {
+            optimalDepth: bestDepth,
+            candidates: results.find(r => r.depth === bestDepth)?.candidates || [],
+            allResults: results
+        };
     }
-   
-    let bestDepth = 2;
-    let bestScore = 0;
-   
-    for (const result of results) {
-        // 🔥 ЗАЩИТА ОТ undefined
-        const countScore = 1 - Math.min(1, Math.abs(result.candidateCount - this.targetCandidates) / 10);
-        const simScore = result.bestSimilarity || 0;
-        const totalScore = countScore * 0.6 + simScore * 0.4;
-       
-        if (totalScore > bestScore) {
-            bestScore = totalScore;
-            bestDepth = result.depth;
-        }
-    }
-   
-    this.depthStats[bestDepth].used++;
-   
-    return {
-        optimalDepth: bestDepth,
-        candidates: results.find(r => r.depth === bestDepth)?.candidates || [],
-        allResults: results
-    };
-}
+
+    // ==================== ИЗВЛЕЧЕНИЕ ЛОКАЛЬНОЙ ГРУППЫ ====================
 
     extractLocalGroup(centerId, graph, depth) {
         const nodes = new Map();
         const edges = new Set();
        
+        // Очередь для BFS: [nodeId, currentDepth]
         const queue = [{ id: centerId, depth: 0 }];
         const visited = new Set([centerId]);
        
+        // Добавляем центральную точку
         const centerNode = graph.nodes.get(centerId);
         if (centerNode) {
             nodes.set(centerId, { ...centerNode, id: centerId });
@@ -133,6 +160,7 @@ class LocalGroupSignature {
            
             if (currentDepth >= depth) continue;
            
+            // Находим соседей
             const neighbors = this.findNodeNeighbors(currentId, graph);
            
             for (const neighbor of neighbors) {
@@ -141,15 +169,18 @@ class LocalGroupSignature {
                     queue.push({ id: neighbor.id, depth: currentDepth + 1 });
                 }
                
+                // Добавляем узел
                 if (!nodes.has(neighbor.id)) {
                     nodes.set(neighbor.id, { ...neighbor, id: neighbor.id });
                 }
                
+                // Добавляем ребро
                 const edgeId = [currentId, neighbor.id].sort().join('--');
                 edges.add(edgeId);
             }
         }
        
+        // Добавляем рёбра между узлами группы (не только от центра)
         const nodeIds = Array.from(nodes.keys());
         for (let i = 0; i < nodeIds.length; i++) {
             for (let j = i + 1; j < nodeIds.length; j++) {
@@ -170,10 +201,13 @@ class LocalGroupSignature {
         };
     }
 
+    // ==================== СТАТИСТИКА ГРУППЫ ====================
+
     computeGroupStats(group) {
         const roleCounts = { L: 0, B: 0, H: 0, C: 0, R: 0 };
         let triangleCount = 0;
        
+        // Считаем роли (кроме центра)
         for (const [nodeId, node] of group.nodes) {
             if (nodeId === group.centerId) continue;
            
@@ -182,6 +216,7 @@ class LocalGroupSignature {
             roleCounts[role]++;
         }
        
+        // Считаем треугольники в группе
         const nodeIds = Array.from(group.nodes.keys());
         for (let i = 0; i < nodeIds.length; i++) {
             for (let j = i + 1; j < nodeIds.length; j++) {
@@ -201,9 +236,11 @@ class LocalGroupSignature {
             }
         }
        
+        // Плотность треугольников
         const possibleTriangles = group.size >= 3 ? (group.size * (group.size - 1) * (group.size - 2)) / 6 : 0;
         const triangleDensity = possibleTriangles > 0 ? triangleCount / possibleTriangles : 0;
        
+        // Строка распределения ролей
         const roleDistStr = `L${roleCounts.L}B${roleCounts.B}H${roleCounts.H}C${roleCounts.C}R${roleCounts.R}`;
        
         return {
@@ -215,6 +252,8 @@ class LocalGroupSignature {
         };
     }
 
+    // ==================== СРАВНЕНИЕ ПОДПИСЕЙ ====================
+
     compareSignatures(sig1, sig2) {
         if (sig1 === sig2) return 1.0;
        
@@ -223,6 +262,8 @@ class LocalGroupSignature {
        
         if (!p1 || !p2) return 0;
        
+        // Веса зависят от глубины
+        const depth = p1.depth || 2;
         const weights = {
             role: 0.20,
             zone: 0.05,
@@ -272,6 +313,8 @@ class LocalGroupSignature {
         return (aspectSim * 0.4 + compactSim * 0.4 + angleSim * 0.2);
     }
 
+    // ==================== ПАРСИНГ ====================
+
     parseSignature(sig) {
         try {
             const parts = sig.split('|');
@@ -316,17 +359,26 @@ class LocalGroupSignature {
         }
     }
 
+    // ==================== ОПРЕДЕЛЕНИЕ РОЛИ ====================
+
     getNodeRole(nodeId, neighbors, graph) {
         const degree = neighbors.length;
        
+        // Лист
         if (degree === 1) return 'L';
+       
+        // Хаб (много связей)
         if (degree >= 6) return 'H';
        
+        // Мост (два соседа, не связанных между собой)
         if (degree === 2) {
             const [a, b] = neighbors;
-            if (!this.areConnected(a.id, b.id, graph)) return 'B';
+            if (!this.areConnected(a.id, b.id, graph)) {
+                return 'B';
+            }
         }
        
+        // Клика (все соседи связаны между собой)
         if (degree >= 3) {
             let allConnected = true;
             for (let i = 0; i < neighbors.length; i++) {
@@ -341,8 +393,18 @@ class LocalGroupSignature {
             if (allConnected) return 'C';
         }
        
+        // Обычный узел
         return 'R';
     }
+
+    // ==================== ПРОВЕРКА СВЯЗИ ====================
+
+    areConnected(aId, bId, graph) {
+        const edgeId = [aId, bId].sort().join('--');
+        return graph.edges.has(edgeId);
+    }
+
+    // ==================== ПОИСК СОСЕДЕЙ ====================
 
     findNodeNeighbors(nodeId, graph) {
         const neighbors = [];
@@ -363,16 +425,15 @@ class LocalGroupSignature {
         return neighbors;
     }
 
-    areConnected(aId, bId, graph) {
-        const edgeId = [aId, bId].sort().join('--');
-        return graph.edges.has(edgeId);
-    }
+    // ==================== ОПРЕДЕЛЕНИЕ ЗОНЫ ====================
 
     getZone(y) {
         if (y > 350) return 'K';
         if (y < 200) return 'N';
         return 'C';
     }
+
+    // ==================== СТАТИСТИКА ====================
 
     getStats() {
         const stats = {
