@@ -434,52 +434,53 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
     // ==================== ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА ====================
 
     async processTopologically(userId, footprint, analysisData, photoInfo) {
-        try {
-            const topologyManager = this.getOrCreateTopologyManager(userId);
+    try {
+        const topologyManager = this.getOrCreateTopologyManager(userId);
 
-            // 🔥 ПЕРЕДАЁМ В ТОПОЛОГИЧЕСКИЙ МЕНЕДЖЕР
-            const result = await topologyManager.processFootprint(
-                footprint, analysisData, photoInfo
-            );
+        // 🔥 ПЕРЕДАЁМ В ТОПОЛОГИЧЕСКИЙ МЕНЕДЖЕР
+        const result = await topologyManager.processFootprint(
+            footprint, analysisData, photoInfo
+        );
 
-            if (!result.success) {
-                console.log(`⚠️ Топологическая обработка не удалась: ${result.error}`);
-                return {
-                    decision: 'topology_failed',
-                    similarity: 0,
-                    modelId: null,
-                    status: 'failed'
-                };
-            }
-
-            if (result.topologicalResult?.status === 'created') {
-                this.systemStats.totalTopologicalModels++;
-            }
-
-            this.systemStats.totalPhotosProcessed++;
-            this.systemStats.lastActivity = new Date();
-
+        if (!result.success) {
+            console.log(`⚠️ Топологическая обработка не удалась: ${result.error}`);
             return {
-    decision: result.decision,
-    similarity: result.similarity || 0,
-    modelId: result.modelId,
-    exactMatches: result.topologicalResult?.exactMatches || 0,
-    newNodesAdded: result.topologicalResult?.newNodesAdded || 0,
-    status: result.topologicalResult?.status || 'unknown',
-    modelInfo: result.modelInfo,
-    matchMap: result.topologicalResult?.matchMap || null  // ← добавляем!
-};
-
-        } catch (error) {
-            console.log(`❌ Ошибка топологической обработки: ${error.message}`);
-            return {
-                decision: 'topology_error',
+                decision: 'topology_failed',
                 similarity: 0,
-                error: error.message,
-                status: 'error'
+                modelId: null,
+                status: 'failed'
             };
         }
+
+        if (result.topologicalResult?.status === 'created') {
+            this.systemStats.totalTopologicalModels++;
+        }
+
+        this.systemStats.totalPhotosProcessed++;
+        this.systemStats.lastActivity = new Date();
+
+        // 🔥 ВОЗВРАЩАЕМ matchMap ВМЕСТЕ С ОСТАЛЬНЫМИ ДАННЫМИ
+        return {
+            decision: result.decision,
+            similarity: result.similarity || 0,
+            modelId: result.modelId,
+            exactMatches: result.topologicalResult?.exactMatches || 0,
+            newNodesAdded: result.topologicalResult?.newNodesAdded || 0,
+            status: result.topologicalResult?.status || 'unknown',
+            modelInfo: result.modelInfo,
+            matchMap: result.topologicalResult?.matchMap || null  // ← ЭТО ВАЖНО!
+        };
+
+    } catch (error) {
+        console.log(`❌ Ошибка топологической обработки: ${error.message}`);
+        return {
+            decision: 'topology_error',
+            similarity: 0,
+            error: error.message,
+            status: 'error'
+        };
     }
+}
 
     // ==================== УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МЕНЕДЖЕРАМИ ====================
 
