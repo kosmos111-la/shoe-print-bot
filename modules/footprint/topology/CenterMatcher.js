@@ -1,18 +1,34 @@
 // modules/footprint/topology/CenterMatcher.js
-// 🔥 ПОИСК НАДЁЖНЫХ ТОЧЕК ПО ИЕРАРХИИ (ХАБЫ → МОСТЫ → ОСТАЛЬНЫЕ)
+// 🔥 ИЕРАРХИЧЕСКИЙ ПОИСК НАДЁЖНЫХ ТОЧЕК (H → B/C → R → L) + K-PLET + LCS
 
 class CenterMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
         this.minLocalSimilarity = options.minLocalSimilarity || 0.5;
         this.minMorphologySimilarity = options.minMorphologySimilarity || 0.6;
-        this.minConsistentPairs = options.minConsistentPairs || 1;
+        this.minConsistentPairs = options.minConsistentPairs || 3;
+       
+        // 🔥 ПАРАМЕТРЫ K-PLET
+        this.k = options.k || 8;
+        this.quadrants = 4;
        
         // 🔥 МЯГКИЕ ПОРОГИ
-        this.reliableMorphThreshold = 0.40;      // было 0.60
-        this.reliableLocalThreshold = 0.50;       // было 0.65
-        this.minGraphDistanceRatio = 0.5;
-        this.minTriangleScore = 0.50;             // было 0.70
+        this.distThr = options.distThr || 12;
+        this.angleThr = options.angleThr || 20;
+        this.thetaThr = options.thetaThr || 30;
+       
+        // 🔥 ВЕСА ДЛЯ LCS
+        this.trueWeight = 16;
+        this.falseWeight = -16;
+        this.distCoeff = 2;
+        this.angleCoeff = 4;
+        this.thetaCoeff = 6;
+       
+        // 🔥 ПОРОГИ ДЛЯ РОЛЕЙ
+        this.hubThreshold = 6;      // H: степень ≥ 6
+        this.bridgeThreshold = 2;    // B: степень = 2, соседи не связаны
+        this.cliqueThreshold = 3;     // C: степень ≥ 3, все соседи связаны
+        this.highDegreeThreshold = 4; // для обычных узлов с высокой степенью
        
         this.localGroupSignature = options.localGroupSignature;
         this.morphologyEncoder = options.morphologyEncoder;
@@ -21,202 +37,165 @@ class CenterMatcher {
         this.depthUsage = new Map();
         this.zoneStats = { center: 0, toe: 0, heel: 0 };
        
-        console.log('🎯 CenterMatcher (ИЕРАРХИЧЕСКИЙ) создан');
+        console.log('🎯 CenterMatcher (ИЕРАРХИЧЕСКИЙ + K-plet + LCS) создан');
     }
 
+    // ==================== ОСНОВНОЙ МЕТОД ====================
+
     findCenterMatches(photoGraph, modelGraph, photoMorphology, modelMorphology) {
-        console.log(`\n🔍 Ищу НАДЁЖНЫЕ точки по иерархии...`);
+        console.log(`\n🔍 Иерархический поиск якорей (H → B/C → R → L)...`);
 
-        // ========== ЭТАП 1: СБОР КАНДИДАТОВ ==========
-        const candidates = [];
-        const photoNodes = Array.from(photoGraph.nodes.entries());
+        // 1. СТРОИМ K-PLET ДЛЯ ВСЕХ ТОЧЕК
+        const photoKPlets = this.buildAllKPlets(photoGraph, photoMorphology);
+        const modelKPlets = this.buildAllKPlets(modelGraph, modelMorphology);
+       
+        console.log(`\n📊 Построено K-plet: ${photoKPlets.size} для фото, ${modelKPlets.size} для модели`);
 
-        for (const [photoId, photoNode] of photoNodes) {
-            const photoZone = this.getZone(photoNode.y);
-           
-            const depthResult = this.localGroupSignature.findOptimalDepth(
-                photoId,
-                photoGraph,
-                modelGraph,
-                modelGraph.nodes,
-                photoMorphology
-            );
+        // 2. ОПРЕДЕЛЯЕМ РОЛИ ДЛЯ ВСЕХ ТОЧЕК
+        const photoRoles = this.determineAllRoles(photoGraph);
+        const modelRoles = this.determineAllRoles(modelGraph);
+       
+        console.log(`\n📊 Распределение ролей в фото:`);
+        this.printRoleStats(photoRoles);
+        console.log(`\n📊 Распределение ролей в модели:`);
+        this.printRoleStats(modelRoles);
 
-            const depth = depthResult.optimalDepth || 2;
-            this.depthUsage.set(depth, (this.depthUsage.get(depth) || 0) + 1);
-            this.zoneStats[photoZone]++;
-
-            for (const candidate of depthResult.candidates || []) {
-                const modelNode = modelGraph.nodes.get(candidate.modelId);
-                if (!modelNode) continue;
-
-                const modelZone = this.getZone(modelNode.y);
-               
-                const morphScore = this.compareMorphology(
-                    photoId, candidate.modelId,
-                    photoMorphology, modelMorphology
-                ) || 0.5;
-
-                // 🔥 ОПРЕДЕЛЯЕМ РОЛИ
-                const photoRole = this.getNodeRole(photoId, photoGraph);
-                const modelRole = this.getNodeRole(candidate.modelId, modelGraph);
-
-                candidates.push({
-                    photoId,
-                    modelId: candidate.modelId,
-                    photoNode,
-                    modelNode,
-                    photoZone,
-                    modelZone,
-                    photoRole,
-                    modelRole,
-                    localScore: candidate.similarity || 0,
-                    morphScore,
-                    depth
-                });
-            }
+        // 3. ИЕРАРХИЧЕСКИЙ ПОИСК
+        const searchDim = 15;
+       
+        // УРОВЕНЬ 1: ХАБЫ (H)
+        let result = this.searchByRole('H', photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim);
+        if (result.size >= this.minConsistentPairs) {
+            console.log(`\n✅ Найдено ${result.size} якорей на УРОВНЕ 1 (ХАБЫ)`);
+            return result;
         }
-
-        console.log(`\n📊 ЭТАП 1: Найдено ${candidates.length} кандидатов`);
-
-        // ========== ЭТАП 2: ГРУППИРОВКА ПО РОЛЯМ ==========
-        const hubs = candidates.filter(c => c.photoRole === 'H' && c.modelRole === 'H');
-        const bridges = candidates.filter(c => c.photoRole === 'B' && c.modelRole === 'B');
-        const cliques = candidates.filter(c => c.photoRole === 'C' && c.modelRole === 'C');
-        const others = candidates.filter(c =>
-            c.photoRole === c.modelRole &&
-            !['H', 'B', 'C'].includes(c.photoRole)
-        );
-
-        console.log(`\n📊 РАСПРЕДЕЛЕНИЕ ПО РОЛЯМ:`);
-        console.log(`   Хабы (H): ${hubs.length}`);
-        console.log(`   Мосты (B): ${bridges.length}`);
-        console.log(`   Клики (C): ${cliques.length}`);
-        console.log(`   Остальные: ${others.length}`);
-
-        // ========== ЭТАП 3: ФИЛЬТРАЦИЯ ==========
-        let morphReject = 0;
-        let localReject = 0;
-        let triangleReject = 0;
-        let passed = 0;
-
-        const filterByThresholds = (candidatesList) => {
-            return candidatesList.filter(c => {
-                if (c.morphScore < this.reliableMorphThreshold) {
-                    morphReject++;
-                    return false;
-                }
-                if (c.localScore < this.reliableLocalThreshold) {
-                    localReject++;
-                    return false;
-                }
-               
-                const triangleScore = this.checkTriangles(
-                    c.photoId, c.modelId,
-                    photoGraph, modelGraph
-                );
-               
-                if (triangleScore < this.minTriangleScore) {
-                    triangleReject++;
-                    return false;
-                }
-               
-                passed++;
-                return true;
-            });
-        };
-
-        const filteredHubs = filterByThresholds(hubs);
-        const filteredBridges = filterByThresholds(bridges);
-        const filteredCliques = filterByThresholds(cliques);
-        const filteredOthers = filterByThresholds(others);
-
-        console.log(`\n📊 ДИАГНОСТИКА ФИЛЬТРАЦИИ:`);
-        console.log(`   Всего кандидатов: ${candidates.length}`);
-        console.log(`   ❌ Отсев по морфологии: ${morphReject}`);
-        console.log(`   ❌ Отсев по локальному сходству: ${localReject}`);
-        console.log(`   ❌ Отсев по треугольникам: ${triangleReject}`);
-        console.log(`   ✅ Прошло: ${passed}`);
-
-        // ========== ЭТАП 4: ГРУППИРОВКА ПО СОГЛАСОВАННОСТИ ==========
-        const allFiltered = [
-            ...filteredHubs,
-            ...filteredBridges,
-            ...filteredCliques,
-            ...filteredOthers
-        ];
-
-        if (allFiltered.length < 3) {
-            console.log(`\n⚠️ Недостаточно кандидатов (${allFiltered.length} < 3)`);
-            return new Map();
+       
+        // УРОВЕНЬ 2: МОСТЫ (B) и КЛИКИ (C)
+        result = this.searchByRole(['B', 'C'], photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim);
+        if (result.size >= this.minConsistentPairs) {
+            console.log(`\n✅ Найдено ${result.size} якорей на УРОВНЕ 2 (МОСТЫ/КЛИКИ)`);
+            return result;
         }
-
-        const groups = [];
-        for (let i = 0; i < allFiltered.length; i++) {
-            let added = false;
-            for (const group of groups) {
-                let consistentWithAll = true;
-                for (const j of group) {
-                    if (!this.areConsistent(
-                        allFiltered[i], allFiltered[j],
-                        photoGraph, modelGraph
-                    )) {
-                        consistentWithAll = false;
-                        break;
-                    }
-                }
-                if (consistentWithAll) {
-                    group.push(i);
-                    added = true;
-                    break;
-                }
-            }
-            if (!added) groups.push([i]);
+       
+        // УРОВЕНЬ 3: ОБЫЧНЫЕ УЗЛЫ С ВЫСОКОЙ СТЕПЕНЬЮ
+        result = this.searchByRole('R', photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim, true);
+        if (result.size >= this.minConsistentPairs) {
+            console.log(`\n✅ Найдено ${result.size} якорей на УРОВНЕ 3 (ОБЫЧНЫЕ С ВЫСОКОЙ СТЕПЕНЬЮ)`);
+            return result;
         }
-
-        let maxGroup = [];
-        for (const group of groups) {
-            if (group.length > maxGroup.length) maxGroup = group;
-        }
-
-        console.log(`\n📊 ЭТАП 4: Найдено ${groups.length} групп, самая большая - ${maxGroup.length} точек`);
-
-        if (maxGroup.length < 3) {
-            console.log(`\n⚠️ Недостаточно согласованных точек (${maxGroup.length} < 3)`);
-            return new Map();
-        }
-
-        // ========== ЭТАП 5: ФОРМИРОВАНИЕ РЕЗУЛЬТАТА ==========
-        const result = new Map();
-        for (const idx of maxGroup) {
-            const c = allFiltered[idx];
-            result.set(c.photoId, {
-                modelId: c.modelId,
-                confidence: (c.morphScore + c.localScore) / 2,
-                role: c.photoRole,
-                zone: c.photoZone,
-                depth: c.depth
-            });
-        }
-
-        console.log(`\n🎯 ИТОГО: Найдено ${result.size} НАДЁЖНЫХ ТОЧЕК`);
+       
+        // УРОВЕНЬ 4: ВСЕ ОСТАЛЬНЫЕ
+        result = this.searchByRole(null, photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim);
+        console.log(`\n⚠️ Найдено только ${result.size} якорей на УРОВНЕ 4 (ВСЕ)`);
+       
         return result;
     }
 
-    // ==================== ОПРЕДЕЛЕНИЕ РОЛИ ====================
+    // ==================== ИЕРАРХИЧЕСКИЙ ПОИСК ПО РОЛЯМ ====================
+
+    searchByRole(roles, photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim, highDegreeOnly = false) {
+        // Собираем ID точек с нужными ролями
+        let photoIds = [];
+        let modelIds = [];
+       
+        const rolesArray = Array.isArray(roles) ? roles : [roles];
+       
+        for (const [id, role] of photoRoles) {
+            if (roles === null || rolesArray.includes(role)) {
+                if (highDegreeOnly) {
+                    const node = photoGraph.nodes.get(id);
+                    if (node && node.degree >= this.highDegreeThreshold) {
+                        photoIds.push(id);
+                    }
+                } else {
+                    photoIds.push(id);
+                }
+            }
+        }
+       
+        for (const [id, role] of modelRoles) {
+            if (roles === null || rolesArray.includes(role)) {
+                if (highDegreeOnly) {
+                    const node = modelGraph.nodes.get(id);
+                    if (node && node.degree >= this.highDegreeThreshold) {
+                        modelIds.push(id);
+                    }
+                } else {
+                    modelIds.push(id);
+                }
+            }
+        }
+       
+        // Ограничиваем размер поиска
+        photoIds = photoIds.slice(0, searchDim);
+        modelIds = modelIds.slice(0, searchDim);
+       
+        console.log(`\n🔍 Поиск по ролям ${roles}: ${photoIds.length} кандидатов в фото, ${modelIds.length} в модели`);
+       
+        let bestScore = 0;
+        let bestPairs = [];
+       
+        for (const photoId of photoIds) {
+            for (const modelId of modelIds) {
+                const result = this.matchWithDFS(
+                    photoId, modelId,
+                    photoGraph, modelGraph,
+                    photoKPlets, modelKPlets
+                );
+               
+                if (result.score > bestScore) {
+                    bestScore = result.score;
+                    bestPairs = result.pairs;
+                }
+            }
+        }
+       
+        // Формируем результат
+        const result = new Map();
+        let pairNumber = 1;
+       
+        for (const pair of bestPairs) {
+            if (pair.photoId && pair.modelId) {
+                result.set(pair.photoId, {
+                    modelId: pair.modelId,
+                    confidence: pair.score / this.trueWeight,
+                    pairNumber: pairNumber++
+                });
+            }
+        }
+       
+        return result;
+    }
+
+    // ==================== ОПРЕДЕЛЕНИЕ РОЛЕЙ ====================
+
+    determineAllRoles(graph) {
+        const roles = new Map();
+       
+        for (const [nodeId, node] of graph.nodes) {
+            roles.set(nodeId, this.getNodeRole(nodeId, graph));
+        }
+       
+        return roles;
+    }
+
     getNodeRole(nodeId, graph) {
         const neighbors = this.findNodeNeighbors(nodeId, graph);
         const degree = neighbors.length;
        
-        if (degree === 1) return 'L';
-        if (degree >= 6) return 'H';
+        // ХАБ (H)
+        if (degree >= this.hubThreshold) return 'H';
        
+        // МОСТ (B)
         if (degree === 2) {
             const [a, b] = neighbors;
-            if (!this.areConnected(a.id, b.id, graph)) return 'B';
+            if (!this.areConnected(a.id, b.id, graph)) {
+                return 'B';
+            }
         }
        
-        if (degree >= 3) {
+        // КЛИКА (C)
+        if (degree >= this.cliqueThreshold) {
             let allConnected = true;
             for (let i = 0; i < neighbors.length; i++) {
                 for (let j = i + 1; j < neighbors.length; j++) {
@@ -230,66 +209,254 @@ class CenterMatcher {
             if (allConnected) return 'C';
         }
        
+        // ЛИСТ (L)
+        if (degree === 1) return 'L';
+       
+        // ОБЫЧНЫЙ (R)
         return 'R';
     }
 
-    // ==================== ПРОВЕРКА СОГЛАСОВАННОСТИ ====================
-    areConsistent(a, b, photoGraph, modelGraph) {
-        const photoDist = this.graphDistance(a.photoId, b.photoId, photoGraph);
-        const modelDist = this.graphDistance(a.modelId, b.modelId, modelGraph);
-       
-        if (photoDist === Infinity || modelDist === Infinity) return false;
-       
-        const minDist = Math.min(photoDist, modelDist);
-        const maxDist = Math.max(photoDist, modelDist);
-        return (minDist / maxDist) >= this.minGraphDistanceRatio;
-    }
+    // ==================== ПОСТРОЕНИЕ K-PLET ====================
 
-    // ==================== ПРОВЕРКА ТРЕУГОЛЬНИКОВ ====================
-    checkTriangles(photoId, modelId, photoGraph, modelGraph) {
-        const photoNeighbors = this.findNodeNeighbors(photoId, photoGraph);
-        const modelNeighbors = this.findNodeNeighbors(modelId, modelGraph);
+    buildAllKPlets(graph, morphologyMap) {
+        const kplets = new Map();
        
-        if (photoNeighbors.length < 2 || modelNeighbors.length < 2) return 0.5;
-       
-        // Упрощённая проверка: достаточно 30% совпадения
-        let matches = 0;
-        for (let i = 0; i < Math.min(photoNeighbors.length, 5); i++) {
-            for (let j = i + 1; j < Math.min(photoNeighbors.length, 5); j++) {
-                if (i >= modelNeighbors.length || j >= modelNeighbors.length) continue;
-                // Проверяем, есть ли ребро между соседями
-                const photoEdge = [photoNeighbors[i].id, photoNeighbors[j].id].sort().join('--');
-                const modelEdge = [modelNeighbors[i].id, modelNeighbors[j].id].sort().join('--');
-               
-                if (photoGraph.edges.has(photoEdge) && modelGraph.edges.has(modelEdge)) {
-                    matches++;
-                }
-            }
+        for (const [nodeId, node] of graph.nodes) {
+            kplets.set(nodeId, this.buildKPlet(nodeId, graph, morphologyMap));
         }
        
-        return matches / 3; // нормализация
+        return kplets;
     }
 
-    // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
-    graphDistance(nodeA, nodeB, graph) {
-        if (nodeA === nodeB) return 0;
+    buildKPlet(centerId, graph, morphologyMap) {
+        const centerNode = graph.nodes.get(centerId);
+        if (!centerNode) return [];
        
-        const queue = [{ id: nodeA, dist: 0 }];
-        const visited = new Set([nodeA]);
+        const neighbors = this.findAllNeighbors(centerId, graph, 2);
+        const quadrants = [[], [], [], []];
+       
+        for (const neighbor of neighbors) {
+            if (neighbor.id === centerId) continue;
+           
+            const dx = neighbor.x - centerNode.x;
+            const dy = neighbor.y - centerNode.y;
+           
+            const dist = Math.sqrt(dx*dx + dy*dy);
+           
+            let angle = Math.atan2(dy, dx) * 180 / Math.PI;
+            if (angle < 0) angle += 360;
+           
+            const quadrant = Math.floor(angle / 90) % 4;
+           
+            const neighborRole = this.getNodeRole(neighbor.id, graph);
+            const theta = this.roleToAngle(neighborRole);
+           
+            quadrants[quadrant].push({
+                id: neighbor.id,
+                dist: Math.round(dist),
+                angle: Math.round(angle),
+                theta: theta,
+                node: neighbor
+            });
+        }
+       
+        for (let q = 0; q < 4; q++) {
+            quadrants[q].sort((a, b) => a.dist - b.dist);
+        }
+       
+        const kplet = [];
+        let total = 0;
+       
+        while (total < this.k) {
+            let added = 0;
+            for (let q = 0; q < 4; q++) {
+                if (quadrants[q].length > 0) {
+                    kplet.push(quadrants[q].shift());
+                    total++;
+                    added++;
+                    if (total >= this.k) break;
+                }
+            }
+            if (added === 0) break;
+        }
+       
+        return kplet;
+    }
+
+    findAllNeighbors(centerId, graph, depth) {
+        const neighbors = [];
+        const visited = new Set([centerId]);
+        const queue = [{ id: centerId, dist: 0 }];
        
         while (queue.length > 0) {
             const { id, dist } = queue.shift();
-            const neighbors = this.findNodeNeighbors(id, graph);
            
-            for (const neighbor of neighbors) {
-                if (neighbor.id === nodeB) return dist + 1;
+            if (dist > 0) {
+                const node = graph.nodes.get(id);
+                if (node) neighbors.push(node);
+            }
+           
+            if (dist >= depth) continue;
+           
+            const nodeNeighbors = this.findNodeNeighbors(id, graph);
+            for (const neighbor of nodeNeighbors) {
                 if (!visited.has(neighbor.id)) {
                     visited.add(neighbor.id);
                     queue.push({ id: neighbor.id, dist: dist + 1 });
                 }
             }
         }
-        return Infinity;
+       
+        return neighbors;
+    }
+
+    // ==================== LCS СРАВНЕНИЕ ====================
+
+    compareKPlets(kplet1, kplet2, color1, color2) {
+        const m = kplet1.length;
+        const n = kplet2.length;
+       
+        const cost = Array(m + 1).fill().map(() => Array(n + 1).fill(0));
+        const dir = Array(m + 1).fill().map(() => Array(n + 1).fill(0));
+       
+        for (let i = 1; i <= m; i++) {
+            for (let j = 1; j <= n; j++) {
+                const ray1 = kplet1[i-1];
+                const ray2 = kplet2[j-1];
+               
+                let leftUpCost;
+               
+                if (!ray1 || !ray2) {
+                    leftUpCost = cost[i-1][j-1] + this.falseWeight;
+                } else if (color1[ray1.id] !== 0 || color2[ray2.id] !== 0) {
+                    leftUpCost = cost[i-1][j-1] + this.falseWeight;
+                } else {
+                    const distDiff = Math.abs(ray1.dist - ray2.dist);
+                    const angleDiff = this.angleDiff(ray1.angle, ray2.angle);
+                    const thetaDiff = this.angleDiff(ray1.theta, ray2.theta);
+                   
+                    if (distDiff <= this.distThr &&
+                        angleDiff <= this.angleThr &&
+                        thetaDiff <= this.thetaThr) {
+                       
+                        const weight = this.trueWeight -
+                                      distDiff / this.distCoeff -
+                                      angleDiff / this.angleCoeff -
+                                      thetaDiff / this.thetaCoeff;
+                       
+                        leftUpCost = cost[i-1][j-1] + Math.max(0, weight);
+                    } else {
+                        leftUpCost = cost[i-1][j-1] + this.falseWeight;
+                    }
+                }
+               
+                const upCost = cost[i-1][j];
+                const leftCost = cost[i][j-1];
+               
+                if (leftUpCost > upCost && leftUpCost > leftCost) {
+                    cost[i][j] = leftUpCost;
+                    dir[i][j] = 1;
+                } else if (upCost > leftCost) {
+                    cost[i][j] = upCost;
+                    dir[i][j] = 2;
+                } else {
+                    cost[i][j] = leftCost;
+                    dir[i][j] = 3;
+                }
+            }
+        }
+       
+        const pairs = [];
+        let i = m, j = n;
+       
+        while (i > 0 && j > 0) {
+            if (dir[i][j] === 1) {
+                const ray1 = kplet1[i-1];
+                const ray2 = kplet2[j-1];
+               
+                if (ray1 && ray2 && color1[ray1.id] === 0 && color2[ray2.id] === 0) {
+                    pairs.push({
+                        photoId: ray1.id,
+                        modelId: ray2.id,
+                        score: cost[i][j] - cost[i-1][j-1]
+                    });
+                }
+               
+                i--; j--;
+            } else if (dir[i][j] === 2) {
+                i--;
+            } else {
+                j--;
+            }
+        }
+       
+        return {
+            score: cost[m][n],
+            pairs: pairs
+        };
+    }
+
+    // ==================== DFS ОБХОД ====================
+
+    matchWithDFS(startPhotoId, startModelId, photoGraph, modelGraph, photoKPlets, modelKPlets) {
+        const photoColor = {};
+        const modelColor = {};
+       
+        for (const id of photoGraph.nodes.keys()) photoColor[id] = 0;
+        for (const id of modelGraph.nodes.keys()) modelColor[id] = 0;
+       
+        const stack = [];
+        let totalScore = 1;
+        const pairs = [];
+       
+        photoColor[startPhotoId] = 1;
+        modelColor[startModelId] = 1;
+        stack.push({ photoId: startPhotoId, modelId: startModelId });
+        pairs.push({
+            photoId: startPhotoId,
+            modelId: startModelId,
+            score: this.trueWeight
+        });
+       
+        while (stack.length > 0) {
+            const { photoId, modelId } = stack.pop();
+           
+            const photoKplet = photoKPlets.get(photoId) || [];
+            const modelKplet = modelKPlets.get(modelId) || [];
+           
+            const result = this.compareKPlets(photoKplet, modelKplet, photoColor, modelColor);
+           
+            for (const pair of result.pairs) {
+                if (photoColor[pair.photoId] === 0 && modelColor[pair.modelId] === 0) {
+                    photoColor[pair.photoId] = 1;
+                    modelColor[pair.modelId] = 1;
+                    stack.push({ photoId: pair.photoId, modelId: pair.modelId });
+                    pairs.push(pair);
+                    totalScore++;
+                }
+            }
+           
+            photoColor[photoId] = 2;
+            modelColor[modelId] = 2;
+        }
+       
+        return {
+            score: totalScore,
+            pairs: pairs
+        };
+    }
+
+    // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
+
+    roleToAngle(role) {
+        const map = { 'L': 0, 'R': 45, 'C': 90, 'H': 135, 'B': 180 };
+        return map[role] || 0;
+    }
+
+    angleDiff(a1, a2) {
+        let diff = Math.abs(a1 - a2);
+        if (diff > 180) diff = 360 - diff;
+        return diff;
     }
 
     findNodeNeighbors(nodeId, graph) {
@@ -315,29 +482,30 @@ class CenterMatcher {
         return graph.edges.has(edgeId);
     }
 
-    compareMorphology(photoId, modelId, photoMorph, modelMorph) {
-        const pm = photoMorph?.get(photoId);
-        const mm = modelMorph?.get(modelId);
-        if (!pm || !mm || !pm.hasContour || !mm.hasContour) return 0.5;
-       
-        const score = this.morphologyEncoder.compare(pm, mm);
-        return (score !== undefined && !isNaN(score)) ? score : 0.5;
+    printRoleStats(roles) {
+        const stats = { H: 0, B: 0, C: 0, R: 0, L: 0 };
+        for (const role of roles.values()) {
+            stats[role]++;
+        }
+        console.log(`   Хабы (H): ${stats.H}`);
+        console.log(`   Мосты (B): ${stats.B}`);
+        console.log(`   Клики (C): ${stats.C}`);
+        console.log(`   Обычные (R): ${stats.R}`);
+        console.log(`   Листья (L): ${stats.L}`);
     }
 
-    getZone(y) {
-        if (y > 350) return 'HEEL';
-        if (y < 200) return 'TOE';
-        return 'CENTER';
-    }
+    // ==================== СТАТИСТИКА ====================
 
     getStats() {
         return {
-            reliableMorphThreshold: this.reliableMorphThreshold,
-            reliableLocalThreshold: this.reliableLocalThreshold,
-            minGraphDistanceRatio: this.minGraphDistanceRatio,
-            minTriangleScore: this.minTriangleScore,
-            depthUsage: Object.fromEntries(this.depthUsage),
-            zoneStats: this.zoneStats
+            minConsistentPairs: this.minConsistentPairs,
+            k: this.k,
+            distThr: this.distThr,
+            angleThr: this.angleThr,
+            thetaThr: this.thetaThr,
+            hubThreshold: this.hubThreshold,
+            bridgeThreshold: this.bridgeThreshold,
+            cliqueThreshold: this.cliqueThreshold
         };
     }
 
