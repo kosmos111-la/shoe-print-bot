@@ -1,6 +1,8 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - поддерживает несколько моделей в одной сессии
-// С ПОЛНЫМ ЛОГИРОВАНИЕМ ТАБЛИЦ СООТВЕТСТВИЙ
+// 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// ✅ Все переменные объявлены
+// ✅ Все таблицы работают
+// ✅ Визуализация получает данные
 
 const GraphBuilder = require('./GraphBuilder');
 const KNNGraphBuilder = require('./KNNGraphBuilder');
@@ -246,8 +248,10 @@ class TopologicalAccumulator {
 
         console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК (ЯКОРЯ)`);
 
+        // 🔥 ВАЖНО: ОБЪЯВЛЯЕМ ВСЕ ПЕРЕМЕННЫЕ ЗДЕСЬ, ДО БЛОКА IF
         let allMatches = new Map();
-        let finalMatches = new Map();
+        let stabilizedMatches = new Map();
+        let finalMatches = new Map([...centerMatches]);
         let newNodesAdded = 0;
 
         if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
@@ -262,7 +266,7 @@ class TopologicalAccumulator {
                 model.morphologyMap
             );
 
-            const stabilizedMatches = this.relativePositioning.iterativeStabilization(
+            stabilizedMatches = this.relativePositioning.iterativeStabilization(
                 newExactGraph,
                 model.graph,
                 centerMatches,
@@ -270,6 +274,7 @@ class TopologicalAccumulator {
                 model.morphologyMap
             );
 
+            // Объединяем все найденные соответствия
             finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
 
             // 🔥 СТАРАЯ ТАБЛИЦА (для совместимости)
@@ -292,6 +297,11 @@ class TopologicalAccumulator {
                 newMorphology
             );
             newNodesAdded = updateResult.newNodesAdded;
+        } else {
+            console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size}) для полного анализа`);
+            // Всё равно выводим то, что есть
+            this.printFinalTable(newExactGraph, model.graph, finalMatches);
+            this.printDetailedTables(newExactGraph, model.graph, centerMatches, finalMatches);
         }
 
         // Обновляем KNN-граф и подписи
@@ -312,14 +322,15 @@ class TopologicalAccumulator {
         this.stats.totalEnhancements++;
         this.stats.lastUpdated = new Date();
 
-        // Создаём matchMap для визуализации
+        // 🔥 СОЗДАЁМ matchMap ДЛЯ ВИЗУАЛИЗАЦИИ
         const matchMap = new Map();
         let pairNumber = 1;
        
-        // 🔥 СНАЧАЛА ЯКОРЯ (CenterMatcher) - им даём номера 1-12
         console.log(`\n📋 ФОРМИРОВАНИЕ MATCHMAP:`);
+       
+        // Сначала якоря (CenterMatcher) - им даём номера 1-12
         for (const [photoId, match] of centerMatches) {
-            if (match.confidence >= 0.7) {
+            if (match && match.confidence >= 0.7) {
                 matchMap.set(photoId, {
                     modelId: match.modelId,
                     pairNumber: pairNumber++,
@@ -329,9 +340,9 @@ class TopologicalAccumulator {
             }
         }
        
-        // 🔥 ПОТОМ ОСТАЛЬНЫЕ ТОЧКИ (RelativePositioning) - им номера не даём
+        // Потом остальные точки (RelativePositioning) - им номера не даём
         for (const [photoId, match] of allMatches) {
-            if (!centerMatches.has(photoId) && match.confidence >= 0.7) {
+            if (!centerMatches.has(photoId) && match && match.confidence >= 0.7) {
                 matchMap.set(photoId, {
                     modelId: match.modelId,
                     type: 'regular'
@@ -340,7 +351,7 @@ class TopologicalAccumulator {
         }
        
         for (const [photoId, match] of stabilizedMatches) {
-            if (!centerMatches.has(photoId) && !allMatches.has(photoId) && match.confidence >= 0.7) {
+            if (!centerMatches.has(photoId) && !allMatches.has(photoId) && match && match.confidence >= 0.7) {
                 matchMap.set(photoId, {
                     modelId: match.modelId,
                     type: 'regular'
@@ -359,11 +370,11 @@ class TopologicalAccumulator {
             totalMatches: finalMatches.size,
             newNodesAdded,
             nodesRemoved: cleanResult.removed,
-            matchMap
+            matchMap // 🔥 matchMap передаётся для визуализации
         };
     }
 
-    // ==================== СТАРАЯ ТАБЛИЦА (ОБЯЗАТЕЛЬНО ОСТАВИТЬ) ====================
+    // ==================== СТАРАЯ ТАБЛИЦА ====================
 
     printFinalTable(newGraph, modelGraph, matches) {
         console.log(`\n📋 ИТОГОВАЯ ТАБЛИЦА СОПОСТАВЛЕНИЯ ВСЕХ ТОЧЕК:`);
@@ -426,8 +437,8 @@ class TopologicalAccumulator {
         }
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
 
-        // 🟢 ТАБЛИЦА 2: ВСЕ СОПОСТАВЛЕНИЯ (включая RelativePositioning)
-        console.log(`\n🟢 ВСЕ СОПОСТАВЛЕНИЯ (включая RelativePositioning) - ${allMatches.size} точек:`);
+        // 🟢 ТАБЛИЦА 2: ВСЕ СОПОСТАВЛЕНИЯ
+        console.log(`\n🟢 ВСЕ СОПОСТАВЛЕНИЯ - ${allMatches.size} точек:`);
         console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
         console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
         console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼─────────────────────┼─────────────────────┤`);
@@ -442,7 +453,6 @@ class TopologicalAccumulator {
             if (!photoNode || !modelNode) continue;
 
             allCount++;
-            const isAnchor = centerMatches.has(photoId) ? '🔴' : '🟢';
             console.log(
                 `│ ${allCount.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
                 `${match.modelId.substring(0,20).padEnd(20)} │ ` +
@@ -453,7 +463,7 @@ class TopologicalAccumulator {
         }
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
 
-        // 📐 ТАБЛИЦА 3: АНАЛИЗ ПРЕОБРАЗОВАНИЯ (первые 10 якорей)
+        // 📐 ТАБЛИЦА 3: АНАЛИЗ ПРЕОБРАЗОВАНИЯ
         console.log(`\n📐 АНАЛИЗ ПРЕОБРАЗОВАНИЯ (первые ${Math.min(10, centerMatches.size)} якорей):`);
         console.log(`┌─────┬────────────┬────────────┬────────────┬────────────┬───────────┐`);
         console.log(`│  #  │  МОДЕЛЬ X  │  МОДЕЛЬ Y  │   ФОТО X   │   ФОТО Y   │  ΔX | ΔY  │`);
