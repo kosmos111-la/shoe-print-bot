@@ -1872,142 +1872,38 @@ bot.onText(/\/trail_end/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
 
-    if (!sessionManager.hasActiveSession(userId)) {
-        await bot.sendMessage(chatId,
-            `❌ Нет активной сессии для завершения\n` +
-            `Начните: /trail_start`
-        );
+    if (!footprintManager) {
+        await bot.sendMessage(chatId, '❌ Система не инициализирована');
         return;
     }
 
-    // Получаем сессию перед завершением
-    const session = sessionManager.getActiveSession(userId);
+    await bot.sendMessage(chatId, '🔍 Завершаю сессию и анализирую результаты...');
 
-    // 🔍 АНАЛИЗИРУЕМ ВСЮ СЕССИЮ
-    await bot.sendMessage(chatId, `🔍 Анализирую данные сессии (${session.photos.length} фото)...`);
+    // 🔥 ВЫЗЫВАЕМ НОВЫЙ МЕТОД С АВТОМАТИЧЕСКИМ СРАВНЕНИЕМ
+    const result = await footprintManager.endSession(userId, {
+        compare: true,  // сравниваем с базой
+        save: true,     // сохраняем в базу
+        name: `Модель_${new Date().toLocaleDateString('ru-RU')}`,
+        threshold: 0.6
+    });
 
-    const analysis = sessionAnalyzer.analyzeSession(session);
-
-    // Завершаем сессию
-    const report = sessionManager.endSession(userId);
-
-    // 🎯 ФОРМИРУЕМ ПОДРОБНЫЙ ОТЧЕТ
-    let reportMessage = `🏁 **СЕССИЯ ЗАВЕРШЕНА**\n\n`;
-    reportMessage += `📊 **СТАТИСТИКА:**\n`;
-    reportMessage += `• Фото: ${report.totalPhotos}\n`;
-    reportMessage += `• Анализов: ${report.totalAnalyses}\n`;
-    reportMessage += `• Длительность: ${report.duration.toFixed(0)} сек\n\n`;
-
-    // 📸 ОБЗОР КАЖДОГО ФОТО
-    if (session.analysisResults && session.analysisResults.length > 0) {
-        reportMessage += `📸 **ОБЗОР ФОТО:**\n`;
-
-        session.analysisResults.slice(0, 5).forEach((result, index) => {
-            const footprintCount = result.predictions?.filter(p =>
-                p.class === 'Outline-trail').length || 0;
-            const protectorCount = result.predictions?.filter(p =>
-                p.class === 'shoe-protector').length || 0;
-
-            reportMessage += `${index + 1}. Следов: ${footprintCount}, деталей: ${protectorCount}\n`;
-        });
-
-        if (session.analysisResults.length > 5) {
-            reportMessage += `... и еще ${session.analysisResults.length - 5} фото\n`;
-        }
-        reportMessage += `\n`;
-    }
-
-    // 🧑🤝🧑 АНАЛИЗ ЛЮДЕЙ
-    reportMessage += `👥 **АНАЛИЗ ГРУППЫ:**\n`;
-    reportMessage += `• Людей: ${analysis.peopleCount.estimatedCount}\n`;
-
-    if (analysis.peopleCount.estimatedCount > 1) {
-        reportMessage += `• Уверенность: ${(analysis.peopleCount.confidence * 100).toFixed(0)}%\n`;
-    }
-    reportMessage += `\n`;
-
-    // 👟 РЕКОНСТРУКЦИЯ ОБУВИ
-    if (analysis.shoeReconstruction.totalGroups > 0) {
-        reportMessage += `👟 **РЕКОНСТРУКЦИЯ ОБУВИ:**\n`;
-        analysis.shoeReconstruction.reconstructions.forEach((rec, i) => {
-            reportMessage += `${i+1}. Размер ~${rec.estimatedSize}, уверенность: ${(rec.confidence * 100).toFixed(0)}%\n`;
-        });
-        reportMessage += `\n`;
-    }
-
-    // ⚠️ АНОМАЛИИ
-    if (analysis.anomalies && analysis.anomalies.length > 0) {
-        reportMessage += `⚠️ **ОСОБЕННОСТИ:**\n`;
-        analysis.anomalies.slice(0, 3).forEach(anomaly => {
-            reportMessage += `• ${anomaly.message}\n`;
-        });
-        reportMessage += `\n`;
-    }
-
-    // 💡 РЕКОМЕНДАЦИИ
-    reportMessage += `💡 **РЕКОМЕНДАЦИИ:**\n`;
-    if (report.totalPhotos >= 5) {
-        reportMessage += `• Достаточно данных для анализа тропы\n`;
-    } else {
-        reportMessage += `• Мало данных, нужно больше фото для точного анализа\n`;
-    }
-
-    if (analysis.peopleCount.estimatedCount > 1) {
-        reportMessage += `• Обнаружена группа людей\n`;
-    }
-
-    reportMessage += `\n💾 Отчет сохранен`;
-
-    await bot.sendMessage(chatId, reportMessage);
-
-    // 💾 Сохранение в Яндекс.Диск
-    if (yandexDisk && yandexDisk.isAvailable && yandexDisk.isAvailable()) {
-        try {
-            const saveResult = await yandexDisk.saveSessionReport(userId, {
-                ...report,
-                intelligenceAnalysis: analysis
-            });
-
-            if (saveResult.success) {
+    if (result.success) {
+        await bot.sendMessage(chatId, result.message);
+       
+        // Если есть очень похожие модели (>80%)
+        const highSimilarity = result.comparison?.filter(m => m.similarity > 0.8);
+        if (highSimilarity?.length > 0) {
+            setTimeout(async () => {
                 await bot.sendMessage(chatId,
-                    `✅ Полный отчет сохранен в облако\n` +
-                    `📁 ${saveResult.path || 'Яндекс.Диск'}`
+                    `⚠️ **ВНИМАНИЕ!**\n\n` +
+                    `Найдены модели с очень высоким сходством ( >80% ):\n` +
+                    highSimilarity.map(m => `• ${m.name}`).join('\n') + `\n\n` +
+                    `Возможно, это та же обувь, что и в предыдущих сессиях.`
                 );
-            }
-        } catch (error) {
-            console.log('⚠️ Ошибка сохранения отчета:', error.message);
+            }, 1000);
         }
-    }
-
-    // ⭐ Показываем топологию лучшего фото в сессии
-    if (session.analysisResults && session.analysisResults.length > 0) {
-        // Находим лучшее фото для топологической визуализации
-        const bestPhoto = findBestPhotoInSession(session);
-
-        if (bestPhoto && bestPhoto.result.visualizationPaths?.topology) {
-            const topologyPath = bestPhoto.result.visualizationPaths.topology;
-
-            // Проверяем что файл существует
-            if (topologyPath && fs.existsSync(topologyPath)) {
-                try {
-                    await bot.sendPhoto(chatId, topologyPath, {
-                        caption: `🕸️ **Топология лучшего фото** (№${bestPhoto.index + 1})\n` +
-                                 `• Протекторов: ${bestPhoto.protectorCount}\n` +
-                                 '• 🟢 Зеленые точки - центры протекторов\n' +
-                                 '• 🟠 Оранжевые линии - связи\n' +
-                                 '• 🔵 Синий пунктир - контур следа'
-                    });
-
-                    // Очистка файла после отправки
-                    setTimeout(() => {
-                        tempFileManager.removeFile(topologyPath);
-                    }, 1000);
-
-                } catch (photoError) {
-                    console.log('⚠️ Не удалось отправить топологию:', photoError.message);
-                }
-            }
-        }
+    } else {
+        await bot.sendMessage(chatId, `❌ Ошибка: ${result.error}`);
     }
 });
 
