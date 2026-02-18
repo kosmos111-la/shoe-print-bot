@@ -226,89 +226,108 @@ class SimpleFootprintManager {
             }
 
             // 🔥 ВИЗУАЛИЗАЦИЯ
-            let visualizationData = null;
-            let vizPath = null;
+let visualizationData = null;
+let modelVizPath = null;
+let photoVizPath = null;
 
-            if (this.config.enableMergeVisualization && this.visualizationManager) {
-                try {
-                    const topologyManager = this.getTopologyManager(userId);
-                    if (topologyManager) {
-                        visualizationData = topologyManager.getAccumulativeVisualizationData();
+if (this.config.enableMergeVisualization && this.visualizationManager) {
+    try {
+        const topologyManager = this.getTopologyManager(userId);
+        if (topologyManager) {
+            // Получаем данные для визуализации
+            visualizationData = topologyManager.getAccumulativeVisualizationData();
 
-                        // 🔥 ИЩЕМ matchMap В РАЗНЫХ МЕСТАХ
-                        let matchMap = null;
-                      
-                        if (topologicalResult && topologicalResult.matchMap) {
-                            matchMap = topologicalResult.matchMap;
-                            console.log(`🔍 matchMap найден напрямую: ${matchMap.size} пар`);
-                        } else if (topologicalResult && topologicalResult.topologicalResult && topologicalResult.topologicalResult.matchMap) {
-                            matchMap = topologicalResult.topologicalResult.matchMap;
-                            console.log(`🔍 matchMap найден во вложенном объекте: ${matchMap.size} пар`);
-                        }
+            // 🔥 ИЩЕМ matchMap
+            let matchMap = null;
+           
+            if (topologicalResult && topologicalResult.matchMap) {
+                matchMap = topologicalResult.matchMap;
+                console.log(`🔍 matchMap найден напрямую: ${matchMap.size} пар`);
+            } else if (topologicalResult && topologicalResult.topologicalResult && topologicalResult.topologicalResult.matchMap) {
+                matchMap = topologicalResult.topologicalResult.matchMap;
+                console.log(`🔍 matchMap найден во вложенном объекте: ${matchMap.size} пар`);
+            }
 
-                        if (matchMap && visualizationData) {
-                            const photoPoints = [];
-                            for (const [photoId, match] of matchMap) {
-                                const photoPoint = points.find(p => p.id === photoId);
-                                if (photoPoint) {
-                                    photoPoints.push({
-                                        id: photoId,
-                                        x: photoPoint.x,
-                                        y: photoPoint.y,
-                                        confidence: 1.0
-                                    });
-                                } else {
-                                    const modelPoint = visualizationData.points.find(p => p.id === match.modelId);
-                                    if (modelPoint) {
-                                        photoPoints.push({
-                                            id: photoId,
-                                            x: modelPoint.x,
-                                            y: modelPoint.y,
-                                            confidence: 1.0
-                                        });
-                                    }
-                                }
-                            }
-                           
-                            visualizationData.photoPoints = photoPoints;
-                            visualizationData.matchMap = matchMap;
-                            console.log(`✅ matchMap добавлен в визуализацию: ${matchMap.size} пар`);
-                        }
-
-                        if (visualizationData) {
-                            console.log(`🎨 Готовлю топологическую визуализацию...`);
-
-                            const ClusterVisualizer = require('./visualizations/cluster-visualizer');
-                            const visualizer = new ClusterVisualizer({
-                                outputDir: './data/footprints/visualizations/topology',
-                                canvasWidth: 1200,
-                                canvasHeight: 800,
-                                debug: this.config.debug
+            // 🔥 СОЗДАЁМ ДАННЫЕ ДЛЯ ФОТО
+            if (matchMap && visualizationData) {
+                const photoPoints = [];
+                for (const [photoId, match] of matchMap) {
+                    const photoPoint = points.find(p => p.id === photoId);
+                    if (photoPoint) {
+                        photoPoints.push({
+                            id: photoId,
+                            x: photoPoint.x,
+                            y: photoPoint.y,
+                            confidence: 1.0
+                        });
+                    } else {
+                        const modelPoint = visualizationData.points.find(p => p.id === match.modelId);
+                        if (modelPoint) {
+                            photoPoints.push({
+                                id: photoId,
+                                x: modelPoint.x,
+                                y: modelPoint.y,
+                                confidence: 1.0
                             });
-
-                            const vizResult = await visualizer.visualizeTopologicalModel(visualizationData, {
-                                filename: `topology_${userId}_${Date.now()}.png`
-                            });
-
-                            if (vizResult && vizResult.modelPath) {
-                                vizPath = vizResult.modelPath;
-                                console.log(`✅ Топологическая визуализация создана: ${vizPath}`);
-                            }
                         }
                     }
-                } catch (vizError) {
-                    console.log(`⚠️ Ошибка топологической визуализации: ${vizError.message}`);
                 }
+               
+                // 🔥 СОЗДАЁМ ОТДЕЛЬНЫЕ ДАННЫЕ ДЛЯ ФОТО
+                const photoVisualizationData = {
+                    ...visualizationData,
+                    points: photoPoints,
+                    matchMap: matchMap,
+                    isPhotoView: true
+                };
+               
+                visualizationData.photoPoints = photoPoints;
+                visualizationData.matchMap = matchMap;
+               
+                console.log(`✅ matchMap добавлен: ${matchMap.size} пар`);
+                console.log(`✅ photoPoints создано: ${photoPoints.length} точек`);
             }
 
-            // 🔥 ОТПРАВКА В TELEGRAM
-            let telegramSent = false;
-            if (bot && chatId && vizPath) {
-                telegramSent = await this.sendTopologyTelegram(
-                    userId, decision, similarity, visualizationData,
-                    vizPath, bot, chatId, topologicalResult
-                );
+            if (visualizationData) {
+                console.log(`🎨 Готовлю топологическую визуализацию...`);
+
+                const ClusterVisualizer = require('./visualizations/cluster-visualizer');
+                const visualizer = new ClusterVisualizer({
+                    outputDir: './data/footprints/visualizations/topology',
+                    canvasWidth: 1200,
+                    canvasHeight: 800,
+                    debug: this.config.debug
+                });
+
+                // 🔥 СОЗДАЁМ ДВЕ ВИЗУАЛИЗАЦИИ
+                const baseFilename = `topology_${userId}_${Date.now()}`;
+               
+                const vizResult = await visualizer.visualizeTopologicalModel(visualizationData, {
+                    filename: `${baseFilename}.png`
+                });
+
+                if (vizResult && vizResult.modelPath) {
+                    modelVizPath = vizResult.modelPath;
+                    photoVizPath = vizResult.photoPath;
+                   
+                    console.log(`✅ Модель сохранена: ${modelVizPath}`);
+                    console.log(`✅ Фото сохранено: ${photoVizPath}`);
+                }
             }
+        }
+    } catch (vizError) {
+        console.log(`⚠️ Ошибка топологической визуализации: ${vizError.message}`);
+    }
+}
+
+// 🔥 ОТПРАВКА В TELEGRAM - ОТПРАВЛЯЕМ ОБЕ КАРТИНКИ
+let telegramSent = false;
+if (bot && chatId) {
+    telegramSent = await this.sendTopologyTelegram(
+        userId, decision, similarity, visualizationData,
+        modelVizPath, photoVizPath, bot, chatId, topologicalResult
+    );
+}
 
             // 🔥 ФОРМИРУЕМ РЕЗУЛЬТАТ
             const result = {
