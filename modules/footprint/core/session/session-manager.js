@@ -1,5 +1,5 @@
 // modules/footprint/core/session/session-manager.js
-// 🔥 ИСПРАВЛЕНО: Добавлено разделение на постоянные и песочницы
+// 🔥 ИСПРАВЛЕНО: ПОЛНАЯ ИЗОЛЯЦИЯ ПЕСОЧНИЦ
 
 class SessionManager {
     constructor(manager) {
@@ -7,9 +7,9 @@ class SessionManager {
         this.sessions = new Map();
         this.sessionTimeouts = new Map();
 
-        // 🔥 НОВОЕ: разделяем типы сессий
-        this.permanentSessions = new Map(); // userId -> sessionId (база моделей)
-        this.sandboxSessions = new Map();   // userId -> sessionId (текущие сессии)
+        // 🔥 РАЗДЕЛЯЕМ ПОСТОЯННЫЕ И ПЕСОЧНИЦЫ
+        this.permanentSessions = new Map(); // userId -> sessionId (только постоянные)
+        this.sandboxSessions = new Map();   // userId -> sessionId (только песочницы)
 
         console.log('🔄 SessionManager создан');
         console.log('   • Постоянные сессии: отдельно');
@@ -19,6 +19,8 @@ class SessionManager {
     // ========== ПОСТОЯННЫЕ СЕССИИ (ДЛЯ БАЗЫ МОДЕЛЕЙ) ==========
 
     createPermanentSession(userId, name = null) {
+        console.log(`🔄 Создаю ПОСТОЯННУЮ сессию для пользователя ${userId}...`);
+
         const sessionId = `perm_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
         const sessionName = name || `Постоянная_${new Date().toLocaleTimeString('ru-RU')}`;
 
@@ -37,8 +39,10 @@ class SessionManager {
 
         this.sessions.set(sessionId, session);
         this.permanentSessions.set(userId, sessionId);
+
         this.resetSessionTimeout(userId, sessionId);
 
+        console.log(`✅ Создана ПОСТОЯННАЯ сессия: ${sessionId}`);
         return session;
     }
 
@@ -58,6 +62,8 @@ class SessionManager {
     // ========== ПЕСОЧНИЦЫ (ТЕКУЩИЕ СЕССИИ) ==========
 
     createSandboxSession(userId, name = null) {
+        console.log(`🏖️ Создаю ПЕСОЧНИЦУ для пользователя ${userId}...`);
+
         const sessionId = `sandbox_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
         const sessionName = name || `Сессия_${new Date().toLocaleTimeString('ru-RU')}`;
 
@@ -69,7 +75,7 @@ class SessionManager {
             lastActivity: new Date(),
             currentFootprint: null,
             photos: [],
-            topologyManager: null, // 🔥 для хранения менеджера
+            topologyManager: null, // 🔥 для хранения топологического менеджера
             metadata: {
                 type: 'sandbox' // 🔥 ЯВНЫЙ ТИП
             }
@@ -77,8 +83,10 @@ class SessionManager {
 
         this.sessions.set(sessionId, session);
         this.sandboxSessions.set(userId, sessionId);
+
         this.resetSessionTimeout(userId, sessionId);
 
+        console.log(`✅ Создана ПЕСОЧНИЦА: ${sessionId}`);
         return session;
     }
 
@@ -97,6 +105,30 @@ class SessionManager {
 
     // ========== ЗАВЕРШЕНИЕ СЕССИЙ ==========
 
+    endPermanentSession(userId) {
+        const sessionId = this.permanentSessions.get(userId);
+        if (!sessionId) return null;
+
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        session.status = 'completed';
+        session.endTime = new Date();
+
+        const report = this.generateSessionReport(session);
+       
+        this.sessions.delete(sessionId);
+        this.permanentSessions.delete(userId);
+       
+        if (this.sessionTimeouts.has(sessionId)) {
+            clearTimeout(this.sessionTimeouts.get(sessionId));
+            this.sessionTimeouts.delete(sessionId);
+        }
+
+        console.log(`🏁 Постоянная сессия завершена: ${sessionId}`);
+        return report;
+    }
+
     endSandboxSession(userId) {
         const sessionId = this.sandboxSessions.get(userId);
         if (!sessionId) return null;
@@ -114,6 +146,9 @@ class SessionManager {
             model: session.currentFootprint
         };
 
+        session.status = 'completed';
+        session.endTime = new Date();
+
         this.sessions.delete(sessionId);
         this.sandboxSessions.delete(userId);
        
@@ -121,6 +156,10 @@ class SessionManager {
             clearTimeout(this.sessionTimeouts.get(sessionId));
             this.sessionTimeouts.delete(sessionId);
         }
+
+        console.log(`🏁 Песочница завершена: ${sessionId}`);
+        console.log(`   • Фото: ${result.photosCount}`);
+        console.log(`   • Модель: ${result.hasModel ? 'есть' : 'нет'}`);
 
         return result;
     }
@@ -152,6 +191,8 @@ class SessionManager {
         }
 
         const timeout = setTimeout(() => {
+            console.log(`⏰ Сессия ${sessionId} истекла по таймауту`);
+
             const session = this.sessions.get(sessionId);
             if (session) {
                 if (session.metadata.type === 'permanent') {
@@ -165,6 +206,36 @@ class SessionManager {
         }, SESSION_TIMEOUT_MS);
 
         this.sessionTimeouts.set(sessionId, timeout);
+    }
+
+    generateSessionReport(session) {
+        return {
+            sessionId: session.id,
+            type: session.metadata.type,
+            duration: session.endTime ?
+                (session.endTime - session.createdAt) / 1000 :
+                (new Date() - session.createdAt) / 1000,
+            totalPhotos: session.photos.length,
+            hasModel: !!session.currentFootprint,
+            createdAt: session.createdAt,
+            endedAt: session.endTime || new Date()
+        };
+    }
+
+    // ========== СТАТИСТИКА ==========
+
+    getStats() {
+        return {
+            totalSessions: this.sessions.size,
+            permanentSessions: this.permanentSessions.size,
+            sandboxSessions: this.sandboxSessions.size,
+            sessionsByType: {
+                permanent: Array.from(this.sessions.values())
+                    .filter(s => s.metadata?.type === 'permanent').length,
+                sandbox: Array.from(this.sessions.values())
+                    .filter(s => s.metadata?.type === 'sandbox').length
+            }
+        };
     }
 }
 
