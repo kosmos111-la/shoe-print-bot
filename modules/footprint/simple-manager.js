@@ -158,14 +158,18 @@ class SimpleFootprintManager {
                 session = this.sessionManager?.createSandboxSession(userId, sessionName);
                 console.log(`🆕 Создана новая песочница: ${session?.id}`);
                
-                // Если это автоматический запуск (пачка фото) - уведомляем
-                if (isBatch && bot && chatId) {
-                    bot.sendMessage(chatId,
-                        `📦 **АВТОМАТИЧЕСКАЯ ПЕСОЧНИЦА**\n\n` +
-                        `🔄 Сессия создана для обработки пачки фото\n` +
-                        `🔒 Все фото изолированы от базы моделей\n\n` +
-                        `🏁 По окончании: /trail_end`
-                    ).catch(e => {});
+                // 🔥 ВАЖНО: Создаём топологический менеджер СРАЗУ и сохраняем в сессию
+                if (session && this.config.enableTopology) {
+                    const topologyManager = new TopologyManager({
+                        userId: userId,
+                        name: session.name,
+                        debug: this.config.debug,
+                        similarityThreshold: this.config.topologySimilarityThreshold,
+                        sandboxMode: false // false для накопления в рамках одной сессии!
+                    });
+                    session.topologyManager = topologyManager;
+                    this.topologyManagers.set(userId, topologyManager);
+                    console.log(`🎯 Создан TopologyManager для песочницы ${session.id}`);
                 }
             }
 
@@ -186,18 +190,23 @@ class SimpleFootprintManager {
             let similarity = 0;
 
             if (this.config.enableTopology) {
-                // Получаем или создаём топологический менеджер для этой песочницы
+                // 🔥 ПОЛУЧАЕМ ТОПОЛОГИЧЕСКИЙ МЕНЕДЖЕР ИЗ СЕССИИ
                 let topologyManager = session.topologyManager;
+
+                // Если его нет - это первый раз, создаём (страховка)
                 if (!topologyManager) {
+                    console.log(`🎯 Первое фото в сессии, создаю TopologyManager...`);
                     topologyManager = new TopologyManager({
                         userId: userId,
                         name: session.name,
                         debug: this.config.debug,
                         similarityThreshold: this.config.topologySimilarityThreshold,
-                        sandboxMode: true // 🔥 ВАЖНО: режим песочницы!
+                        sandboxMode: false // false для накопления!
                     });
                     session.topologyManager = topologyManager;
                     this.topologyManagers.set(userId, topologyManager);
+                } else {
+                    console.log(`🔄 Использую существующий TopologyManager для сессии`);
                 }
 
                 // 🔥 ПЕРЕДАЁМ И ТОЧКИ, И КОНТУРЫ
