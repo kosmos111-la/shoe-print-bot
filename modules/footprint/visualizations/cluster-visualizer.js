@@ -23,42 +23,42 @@ class ClusterVisualizer {
     }
 
     async visualizeTopologicalModel(topologyData, options = {}) {
-        console.log('🎨 Визуализация топологической модели...');
+    console.log('🎨 Визуализация топологической модели...');
 
+    try {
+        if (!topologyData || !topologyData.points || topologyData.points.length === 0) {
+            console.log('⚠️ Нет данных для визуализации');
+            return this.createTopologyReport(topologyData, null);
+        }
+
+        console.log(`📊 Всего точек в модели: ${topologyData.points.length}`);
+
+        let canvas;
         try {
-            if (!topologyData || !topologyData.points || topologyData.points.length === 0) {
-                console.log('⚠️ Нет данных для визуализации');
-                return this.createTopologyReport(topologyData, null);
-            }
-
-            console.log(`📊 Всего точек в модели: ${topologyData.points.length}`);
-
-            let canvas;
-            try {
-                canvas = require('canvas');
-            } catch (error) {
-                console.log('⚠️ Canvas не доступен, создаю текстовый отчет');
-                return this.createTopologyReport(topologyData, error);
-            }
-
-            // ========== ВИЗУАЛИЗАЦИЯ 1: МОДЕЛЬ ==========
-            const modelPath = await this.drawModel(topologyData, options);
-
-            // ========== ВИЗУАЛИЗАЦИЯ 2: ФОТО 2 ==========
-            const photoPath = await this.drawPhoto(topologyData, options);
-
-            return {
-                modelPath,
-                photoPath,
-                stats: topologyData.stats,
-                success: true
-            };
-
+            canvas = require('canvas');
         } catch (error) {
-            console.error('❌ Ошибка визуализации:', error);
+            console.log('⚠️ Canvas не доступен, создаю текстовый отчет');
             return this.createTopologyReport(topologyData, error);
         }
+
+        // ========== ВИЗУАЛИЗАЦИЯ 1: МОДЕЛЬ ==========
+        const modelPath = await this.drawModel(topologyData, options);
+
+        // ========== ВИЗУАЛИЗАЦИЯ 2: ФОТО ==========
+        const photoPath = await this.drawPhoto(topologyData, options);
+
+        return {
+            modelPath,
+            photoPath,
+            stats: topologyData.stats,
+            success: true
+        };
+
+    } catch (error) {
+        console.error('❌ Ошибка визуализации:', error);
+        return this.createTopologyReport(topologyData, error);
     }
+}
 
     async drawModel(topologyData, options) {
         const canvas = require('canvas').createCanvas(this.config.canvasWidth, this.config.canvasHeight);
