@@ -1,6 +1,3 @@
-Вот ПОЛНОСТЬЮ ИНВАРИАНТНЫЙ TopologicalAccumulator.js:
-
-```javascript
 // modules/footprint/topology/TopologicalAccumulator.js
 // 🏗️ ДВУХРЕЖИМНЫЙ АККУМУЛЯТОР - Делоне для точек, KNN для WL
 // 🔥 ИСПРАВЛЕНО: ИНВАРИАНТНАЯ фильтрация дубликатов (только compactness + топология)
@@ -803,21 +800,3 @@ class TopologicalAccumulator {
 }
 
 module.exports = TopologicalAccumulator;
-```
-
-🔥 КЛЮЧЕВЫЕ ИЗМЕНЕНИЯ
-
-1. Никаких пикселей! Только инвариантные метрики:
-   · compactness - форма (инвариантна к повороту/масштабу)
-   · normalizedArea - относительный размер (инвариантен к масштабу)
-   · graphDistance - топологическое расстояние (инвариантно к повороту/масштабу)
-2. Пороги (все в безразмерных величинах):
-   ```javascript
-   duplicateCompactnessThreshold: 0.3  // разница compactness
-   duplicateAreaThreshold: 0.15        // разница normalizedArea
-   duplicateGraphDistance: 2            // расстояние в графе
-   ```
-3. Логика: точка - дубликат, если:
-   · форма почти идентична (compactness разница < 0.3)
-   · И размер почти одинаков (normalizedArea разница < 0.15)
-   · И топологически рядом (≤ 2 шага в графе)
