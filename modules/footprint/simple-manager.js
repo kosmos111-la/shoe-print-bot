@@ -1108,57 +1108,66 @@ if (bot && chatId) {
     // ==================== ОТПРАВКА В TELEGRAM ====================
 
     async sendTopologyTelegram(userId, decision, similarity, visualizationData,
-                              vizPath, bot, chatId, topologicalResult) {
-        console.log(`🤖 Отправляю топологический результат в Telegram...`);
+                          modelVizPath, photoVizPath, bot, chatId, topologicalResult) {
+    console.log(`🤖 Отправляю топологический результат в Telegram...`);
 
-        try {
-            const cleanMarkdown = (text) => text
-                .replace(/\*\*/g, '')
-                .replace(/\*/g, '')
-                .replace(/__/g, '')
-                .replace(/_/g, '')
-                .replace(/`/g, '')
-                .replace(/\[/g, '(')
-                .replace(/\]/g, ')');
+    try {
+        const cleanMarkdown = (text) => text
+            .replace(/\*\*/g, '')
+            .replace(/\*/g, '')
+            .replace(/__/g, '')
+            .replace(/_/g, '')
+            .replace(/`/g, '')
+            .replace(/\[/g, '(')
+            .replace(/\]/g, ')');
 
-            if (vizPath && fs.existsSync(vizPath)) {
-                let caption = `🎯 ФОТО-ОРИЕНТИРОВАННЫЙ ТОПОЛОГИЧЕСКИЙ АНАЛИЗ\n\n`;
+        // 🔥 ОТПРАВЛЯЕМ МОДЕЛЬ
+        if (modelVizPath && fs.existsSync(modelVizPath)) {
+            let modelCaption = `🏗️ **ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ**\n\n`;
+            modelCaption += `📊 Решение: ${decision === 'same_footprint' || decision === 'same_footprint_enhanced' ? '✅ ОДНА ОБУВЬ' : '🆕 РАЗНАЯ ОБУВЬ'}\n`;
+            modelCaption += `📈 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
 
-                caption += `📊 Решение: ${decision === 'same_footprint' || decision === 'same_footprint_enhanced' ? '✅ ОДНА ОБУВЬ' : '🆕 РАЗНАЯ ОБУВЬ'}\n`;
-                caption += `📈 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
-
-                if (visualizationData && visualizationData.stats) {
-                    caption += `\n📊 ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ:\n`;
-                    caption += `├─ Узлов: ${visualizationData.stats.totalNodes}\n`;
-                    caption += `├─ Рёбер: ${visualizationData.stats.totalEdges}\n`;
-                    caption += `├─ 🔴 3+ подтверждений: ${visualizationData.stats.confirmed3}\n`;
-                    caption += `├─ 🟠 2 подтверждения: ${visualizationData.stats.confirmed2}\n`;
-                    caption += `├─ 🔵 1 подтверждение: ${visualizationData.stats.confirmed1}\n`;
-                    caption += `└─ ⚪ Новые узлы: ${visualizationData.stats.confirmed0}\n`;
-                }
-
-                if (topologicalResult) {
-                    caption += `\n🔍 СОВПАДЕНИЯ:\n`;
-                    caption += `├─ Точных совпадений: ${topologicalResult.exactMatches || 0}\n`;
-                    caption += `└─ Новых узлов добавлено: ${topologicalResult.newNodesAdded || 0}\n`;
-                }
-
-                caption += `\n🏗️ Метод: Фото-ориентированная триангуляция Делоне + Weisfeiler-Lehman`;
-
-                await bot.sendPhoto(chatId, vizPath, {
-                    caption: cleanMarkdown(caption),
-                    parse_mode: 'HTML'
-                });
-
-                console.log('✅ Топологическая визуализация отправлена в Telegram');
-                return true;
+            if (visualizationData && visualizationData.stats) {
+                modelCaption += `\n📊 МОДЕЛЬ:\n`;
+                modelCaption += `├─ Узлов: ${visualizationData.stats.totalNodes}\n`;
+                modelCaption += `├─ Рёбер: ${visualizationData.stats.totalEdges}\n`;
+                modelCaption += `├─ 🔴 3+: ${visualizationData.stats.confirmed3}\n`;
+                modelCaption += `├─ 🟠 2: ${visualizationData.stats.confirmed2}\n`;
+                modelCaption += `├─ 🔵 1: ${visualizationData.stats.confirmed1}\n`;
+                modelCaption += `└─ ⚪ Новые: ${visualizationData.stats.confirmed0}\n`;
             }
-        } catch (error) {
-            console.log('❌ Ошибка отправки в Telegram:', error.message);
+
+            await bot.sendPhoto(chatId, modelVizPath, {
+                caption: cleanMarkdown(modelCaption),
+                parse_mode: 'HTML'
+            });
         }
 
-        return false;
+        // 🔥 ОТПРАВЛЯЕМ ФОТО С НОМЕРАМИ ПАР
+        if (photoVizPath && fs.existsSync(photoVizPath)) {
+            let photoCaption = `📸 **ТЕКУЩЕЕ ФОТО С НОМЕРАМИ ПАР**\n\n`;
+           
+            if (topologicalResult && topologicalResult.matchMap) {
+                photoCaption += `🔍 Найдено соответствий: ${topologicalResult.matchMap.size}\n`;
+                photoCaption += `📌 Номера на точках соответствуют парам в модели\n\n`;
+            }
+           
+            photoCaption += `🎯 Сравните визуально положение точек с номерами на модели`;
+
+            await bot.sendPhoto(chatId, photoVizPath, {
+                caption: cleanMarkdown(photoCaption),
+                parse_mode: 'HTML'
+            });
+        }
+
+        console.log('✅ Топологические визуализации отправлены в Telegram');
+        return true;
+
+    } catch (error) {
+        console.log('❌ Ошибка отправки в Telegram:', error.message);
     }
+    return false;
+}
 }
 
 module.exports = SimpleFootprintManager;
