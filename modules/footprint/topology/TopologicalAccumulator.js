@@ -1,6 +1,6 @@
 // modules/footprint/topology/TopologicalAccumulator.js
 // 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - поддерживает несколько моделей в одной сессии
-// ПОЛНАЯ ВЕРСИЯ со всеми методами
+// С ПОЛНЫМ ЛОГИРОВАНИЕМ ТАБЛИЦ СООТВЕТСТВИЙ
 
 const GraphBuilder = require('./GraphBuilder');
 const KNNGraphBuilder = require('./KNNGraphBuilder');
@@ -20,7 +20,7 @@ class TopologicalAccumulator {
         this.similarityThreshold = options.similarityThreshold || 0.6;
 
         // Компоненты
-        this.graphBuilder = new GraphBuilder({ debug: this.debug }); // Делоне
+        this.graphBuilder = new GraphBuilder({ debug: this.debug });
         this.knnBuilder = new KNNGraphBuilder({
             debug: this.debug,
             k: options.k || 8
@@ -62,15 +62,11 @@ class TopologicalAccumulator {
         this.duplicateAreaThreshold = options.duplicateAreaThreshold || 0.15;
         this.duplicateGraphDistance = options.duplicateGraphDistance || 2;
 
-        // 🔥 ХРАНИЛИЩЕ МОДЕЛЕЙ (теперь может быть несколько)
-        this.models = new Map();           // modelId -> модель
-        this.currentModelId = null;        // текущая активная модель
-       
-        // 🔥 СВЯЗИ МЕЖДУ МОДЕЛЯМИ
-        this.modelRelations = new Map();   // modelId -> { related: [], type: 'same'|'different' }
-       
-        // 🔥 ИСТОРИЯ ФОТО
-        this.photoToModel = new Map();     // photoId -> modelId
+        // 🔥 ХРАНИЛИЩЕ МОДЕЛЕЙ
+        this.models = new Map();
+        this.currentModelId = null;
+        this.modelRelations = new Map();
+        this.photoToModel = new Map();
 
         // Статистика
         this.stats = {
@@ -88,10 +84,6 @@ class TopologicalAccumulator {
         console.log(`🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ TopologicalAccumulator создан: "${this.name}"`);
         console.log(`   🔥 Режим: ${this.fastMode ? 'БЫСТРЫЙ' : 'ПОЛНЫЙ'}`);
         console.log(`   🔷 Порог сходства: ${this.similarityThreshold * 100}%`);
-        console.log(`   🔷 ИНВАРИАНТНЫЕ ПОРОГИ:`);
-        console.log(`      - compactness разница < ${this.duplicateCompactnessThreshold}`);
-        console.log(`      - area разница < ${this.duplicateAreaThreshold}`);
-        console.log(`      - графовое расстояние ≤ ${this.duplicateGraphDistance}`);
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
@@ -101,21 +93,15 @@ class TopologicalAccumulator {
 
         const photoId = options.photoId || `photo_${Date.now()}`;
         const contours = options.contours || [];
-        const modelIdHint = options.modelId; // может быть null
+        const modelIdHint = options.modelId;
 
-        // 1. Строим Делоне-граф (для точной идентификации)
+        // 1. Строим графы
         const exactGraph = this.graphBuilder.buildGraph(points, options.source || 'photo');
-
-        // 2. Строим KNN-граф (для WL-сравнения)
         const knnGraph = this.knnBuilder.buildGraph(points, options.source || 'photo_knn');
-
-        // 3. Кодируем морфологию
         const morphologyMap = this.morphologyEncoder.encode(points, contours);
-
-        // 4. Вычисляем WL-подписи на KNN-графе
         const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
 
-        // 🔥 5. Если это первое фото вообще - создаём первую модель
+        // Если это первое фото вообще - создаём первую модель
         if (this.models.size === 0) {
             console.log(`🆕 Первое фото в сессии, создаю первую модель`);
             const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, options);
@@ -127,7 +113,7 @@ class TopologicalAccumulator {
             };
         }
 
-        // 🔥 6. Сравниваем со ВСЕМИ существующими моделями
+        // Сравниваем со ВСЕМИ существующими моделями
         console.log(`\n🔍 Сравниваю с ${this.models.size} существующими моделями...`);
        
         const comparisons = [];
@@ -151,24 +137,19 @@ class TopologicalAccumulator {
             });
         }
 
-        // 🔥 7. Сортируем по убыванию сходства
         comparisons.sort((a, b) => b.similarity - a.similarity);
         const bestMatch = comparisons[0];
 
         console.log(`\n📊 Лучшее совпадение:`);
         console.log(`   Модель: ${bestMatch.modelId.slice(0, 12)}...`);
         console.log(`   Сходство: ${(bestMatch.similarity * 100).toFixed(1)}%`);
-        console.log(`   Точных совпадений: ${bestMatch.exactMatches}`);
-        console.log(`   Похожих: ${bestMatch.similarMatches}`);
 
-        // 🔥 8. Если сходство выше порога - улучшаем существующую модель
+        // Если сходство выше порога - улучшаем существующую модель
         if (bestMatch.similarity >= this.similarityThreshold) {
             console.log(`\n✅ СОВПАДЕНИЕ! Улучшаю модель ${bestMatch.modelId.slice(0, 12)}...`);
            
-            // Переключаемся на эту модель
             this.switchToModel(bestMatch.modelId);
            
-            // Запускаем полный анализ если нужно
             if (!this.fastMode) {
                 const enhancedResult = await this.enhanceExistingModel(
                     bestMatch.modelId,
@@ -190,7 +171,6 @@ class TopologicalAccumulator {
                     matchedModel: bestMatch.modelId
                 };
             } else {
-                // Быстрый режим - просто обновляем
                 this.photoToModel.set(photoId, bestMatch.modelId);
                
                 return {
@@ -205,7 +185,7 @@ class TopologicalAccumulator {
                 };
             }
         }
-        // 🔥 9. Если сходство ниже порога - создаём НОВУЮ модель (другой след)
+        // Если сходство ниже порога - создаём НОВУЮ модель
         else {
             console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
             console.log(`🆕 Создаю НОВУЮ модель для другого следа...`);
@@ -216,7 +196,6 @@ class TopologicalAccumulator {
                 reason: 'different_footprint'
             });
            
-            // 🔥 Запоминаем, что это разные следы
             this.modelRelations.set(result.modelId, {
                 related: [bestMatch.modelId],
                 type: 'different',
@@ -245,11 +224,304 @@ class TopologicalAccumulator {
         }
     }
 
-    // ==================== УПРАВЛЕНИЕ МОДЕЛЯМИ ====================
+    // ==================== УЛУЧШЕНИЕ СУЩЕСТВУЮЩЕЙ МОДЕЛИ ====================
 
-    /**
-     * Переключиться на другую модель
-     */
+    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
+        const model = this.models.get(modelId);
+        if (!model) {
+            return { error: 'Модель не найдена' };
+        }
+
+        console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
+
+        // Запускаем CenterMatcher для поиска якорей
+        console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
+
+        const centerMatches = this.centerMatcher.findCenterMatches(
+            newExactGraph,
+            model.graph,
+            newMorphology,
+            model.morphologyMap
+        );
+
+        console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК (ЯКОРЯ)`);
+
+        let allMatches = new Map();
+        let finalMatches = new Map();
+        let newNodesAdded = 0;
+
+        if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
+            // RelativePositioning для достраивания остальных точек
+            console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
+           
+            allMatches = this.relativePositioning.positionPoints(
+                newExactGraph,
+                model.graph,
+                centerMatches,
+                newMorphology,
+                model.morphologyMap
+            );
+
+            const stabilizedMatches = this.relativePositioning.iterativeStabilization(
+                newExactGraph,
+                model.graph,
+                centerMatches,
+                newMorphology,
+                model.morphologyMap
+            );
+
+            finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
+
+            // 🔥 ВЫВОДИМ ТАБЛИЦЫ В ЛОГ
+            this.printDetailedTables(
+                newExactGraph,
+                model.graph,
+                centerMatches,
+                finalMatches
+            );
+
+            // Обновляем модель
+            const updateResult = this.updateModelWithMatches(
+                modelId,
+                newExactGraph,
+                finalMatches,
+                centerMatches,
+                newMorphology
+            );
+            newNodesAdded = updateResult.newNodesAdded;
+        }
+
+        // Обновляем KNN-граф и подписи
+        model.knnGraph = newKNNGraph;
+        model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
+        model.metadata.photoCount = (model.metadata.photoCount || 0) + 1;
+        model.metadata.lastEnhanced = new Date();
+
+        model.history.push({
+            action: 'enhanced',
+            timestamp: new Date(),
+            centerMatches: centerMatches.size,
+            totalMatches: finalMatches.size,
+            newNodes: newNodesAdded,
+            totalNodes: model.graph.nodes.size
+        });
+
+        this.stats.totalEnhancements++;
+        this.stats.lastUpdated = new Date();
+
+        // Создаём matchMap для визуализации
+        const matchMap = new Map();
+        let pairNumber = 1;
+       
+        // 🔥 СНАЧАЛА ЯКОРЯ (CenterMatcher) - им даём номера 1-12
+        console.log(`\n📋 ФОРМИРОВАНИЕ MATCHMAP:`);
+        for (const [photoId, match] of centerMatches) {
+            if (match.confidence >= 0.7) {
+                matchMap.set(photoId, {
+                    modelId: match.modelId,
+                    pairNumber: pairNumber++,
+                    type: 'anchor'
+                });
+                console.log(`   🔴 Якорь ${pairNumber-1}: ${photoId.slice(0,12)}... ↔ ${match.modelId.slice(0,12)}...`);
+            }
+        }
+       
+        // 🔥 ПОТОМ ОСТАЛЬНЫЕ ТОЧКИ (RelativePositioning) - им номера не даём
+        for (const [photoId, match] of allMatches) {
+            if (!centerMatches.has(photoId) && match.confidence >= 0.7) {
+                matchMap.set(photoId, {
+                    modelId: match.modelId,
+                    type: 'regular'
+                });
+            }
+        }
+       
+        for (const [photoId, match] of stabilizedMatches) {
+            if (!centerMatches.has(photoId) && !allMatches.has(photoId) && match.confidence >= 0.7) {
+                matchMap.set(photoId, {
+                    modelId: match.modelId,
+                    type: 'regular'
+                });
+            }
+        }
+
+        console.log(`\n📊 ИТОГО: ${centerMatches.size} якорей, ${matchMap.size - centerMatches.size} дополнительных точек`);
+
+        // Очищаем неподтверждённые точки
+        const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
+        this.stats.totalNodesRemoved += cleanResult.removed;
+
+        return {
+            centerMatches: centerMatches.size,
+            totalMatches: finalMatches.size,
+            newNodesAdded,
+            nodesRemoved: cleanResult.removed,
+            matchMap
+        };
+    }
+
+    // ==================== ПЕЧАТЬ ТАБЛИЦ ====================
+
+    printDetailedTables(newGraph, modelGraph, centerMatches, allMatches) {
+        console.log(`\n${'='.repeat(120)}`);
+        console.log(`📊 ДЕТАЛЬНЫЕ ТАБЛИЦЫ СООТВЕТСТВИЙ`);
+        console.log(`${'='.repeat(120)}`);
+
+        // 🔴 ТАБЛИЦА 1: ТОЛЬКО ЯКОРЯ (CenterMatcher)
+        console.log(`\n🔴 ЯКОРЯ (CenterMatcher) - ${centerMatches.size} абсолютно надёжных точек:`);
+        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
+        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
+        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼─────────────────────┼─────────────────────┤`);
+
+        let anchorCount = 0;
+        for (const [photoId, match] of centerMatches) {
+            if (anchorCount >= 20) break;
+
+            const photoNode = newGraph.nodes.get(photoId);
+            const modelNode = modelGraph.nodes.get(match.modelId);
+
+            if (!photoNode || !modelNode) continue;
+
+            anchorCount++;
+            console.log(
+                `│ ${anchorCount.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
+                `${match.modelId.substring(0,20).padEnd(20)} │ ` +
+                `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
+                `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
+                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
+            );
+        }
+        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
+
+        // 🟢 ТАБЛИЦА 2: ВСЕ СОПОСТАВЛЕНИЯ (включая RelativePositioning)
+        console.log(`\n🟢 ВСЕ СОПОСТАВЛЕНИЯ (включая RelativePositioning) - ${allMatches.size} точек:`);
+        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
+        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
+        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼─────────────────────┼─────────────────────┤`);
+
+        let allCount = 0;
+        for (const [photoId, match] of allMatches) {
+            if (allCount >= 30) break;
+
+            const photoNode = newGraph.nodes.get(photoId);
+            const modelNode = modelGraph.nodes.get(match.modelId);
+
+            if (!photoNode || !modelNode) continue;
+
+            allCount++;
+            const isAnchor = centerMatches.has(photoId) ? '🔴' : '🟢';
+            console.log(
+                `│ ${allCount.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
+                `${match.modelId.substring(0,20).padEnd(20)} │ ` +
+                `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
+                `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
+                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
+            );
+        }
+        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
+
+        // 📐 ТАБЛИЦА 3: АНАЛИЗ ПРЕОБРАЗОВАНИЯ (первые 10 якорей)
+        console.log(`\n📐 АНАЛИЗ ПРЕОБРАЗОВАНИЯ (первые ${Math.min(10, centerMatches.size)} якорей):`);
+        console.log(`┌─────┬────────────┬────────────┬────────────┬────────────┬───────────┐`);
+        console.log(`│  #  │  МОДЕЛЬ X  │  МОДЕЛЬ Y  │   ФОТО X   │   ФОТО Y   │  ΔX | ΔY  │`);
+        console.log(`├─────┼────────────┼────────────┼────────────┼────────────┼───────────┤`);
+
+        let transformCount = 0;
+        for (const [photoId, match] of centerMatches) {
+            if (transformCount >= 10) break;
+
+            const photoNode = newGraph.nodes.get(photoId);
+            const modelNode = modelGraph.nodes.get(match.modelId);
+
+            if (!photoNode || !modelNode) continue;
+
+            transformCount++;
+            const dx = photoNode.x - modelNode.x;
+            const dy = photoNode.y - modelNode.y;
+           
+            console.log(
+                `│ ${transformCount.toString().padEnd(3)} │ ` +
+                `${modelNode.x.toFixed(1).padStart(10)} │ ` +
+                `${modelNode.y.toFixed(1).padStart(10)} │ ` +
+                `${photoNode.x.toFixed(1).padStart(10)} │ ` +
+                `${photoNode.y.toFixed(1).padStart(10)} │ ` +
+                `${dx.toFixed(1).padStart(4)}|${dy.toFixed(1).padEnd(4)} │`
+            );
+        }
+        console.log(`└─────┴────────────┴────────────┴────────────┴────────────┴───────────┘`);
+
+        // 💡 ВЫВОД
+        if (centerMatches.size >= 3) {
+            console.log(`\n💡 АНАЛИЗ:`);
+            console.log(`   • Якорей найдено: ${centerMatches.size}`);
+            console.log(`   • Всего сопоставлено: ${allMatches.size}`);
+            console.log(`   • Доля якорей: ${((centerMatches.size/allMatches.size)*100).toFixed(1)}%`);
+           
+            // Проверка на одинаковое преобразование
+            console.log(`   • Проверка поворота:`);
+        }
+    }
+
+    // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
+
+    updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology) {
+        const model = this.models.get(modelId);
+        let confirmedExisting = 0;
+        let newNodesAdded = 0;
+        let duplicatesSkipped = 0;
+
+        const matchedPhotoIds = new Set();
+        const matchedModelIds = new Set();
+
+        // Подтверждаем существующие точки
+        for (const [photoId, match] of matches) {
+            const modelNode = model.graph.nodes.get(match.modelId);
+            if (modelNode) {
+                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
+                modelNode.lastConfirmed = new Date();
+                confirmedExisting++;
+
+                matchedPhotoIds.add(photoId);
+                matchedModelIds.add(match.modelId);
+            }
+        }
+
+        // Добавляем новые точки с проверкой на дубликаты
+        for (const [photoId, photoNode] of newGraph.nodes) {
+            if (matchedPhotoIds.has(photoId)) continue;
+
+            const match = matches.get(photoId);
+            if (!match || match.confidence < 0.7) continue;
+
+            if (this.isDuplicate(photoNode, model.graph, model.morphologyMap)) {
+                duplicatesSkipped++;
+                continue;
+            }
+
+            const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
+            model.graph.nodes.set(newNodeId, {
+                id: newNodeId,
+                x: photoNode.x,
+                y: photoNode.y,
+                degree: photoNode.degree,
+                morphology: newMorphology.get(photoId),
+                confirmationCount: 1,
+                addedFrom: 'new_point',
+                addedAt: new Date(),
+                originalPhotoId: photoId
+            });
+            newNodesAdded++;
+        }
+
+        this.updateEdges(model.graph, newGraph, matches);
+
+        return {
+            confirmedExisting,
+            newNodesAdded,
+            duplicatesSkipped
+        };
+    }
+
     switchToModel(modelId) {
         if (!this.models.has(modelId)) {
             console.log(`❌ Модель ${modelId} не найдена`);
@@ -260,9 +532,6 @@ class TopologicalAccumulator {
         return true;
     }
 
-    /**
-     * Получить ВСЕ модели
-     */
     getAllModels() {
         const models = [];
         for (const [modelId, model] of this.models) {
@@ -280,30 +549,18 @@ class TopologicalAccumulator {
         return models;
     }
 
-    /**
-     * Получить модель по ID
-     */
     getModel(modelId) {
         return this.models.get(modelId) || null;
     }
 
-    /**
-     * Получить текущую модель
-     */
     getCurrentModel() {
         return this.currentModelId ? this.models.get(this.currentModelId) : null;
     }
 
-    /**
-     * Получить ID текущей модели
-     */
     getCurrentModelId() {
         return this.currentModelId;
     }
 
-    /**
-     * Получить статистику по моделям
-     */
     getModelsStats() {
         const stats = {
             total: this.models.size,
@@ -327,9 +584,6 @@ class TopologicalAccumulator {
         return stats;
     }
 
-    /**
-     * Получить отношения между моделями
-     */
     getModelRelations() {
         const relations = [];
         for (const [modelId, rel] of this.modelRelations) {
@@ -343,16 +597,10 @@ class TopologicalAccumulator {
         return relations;
     }
 
-    /**
-     * К какой модели относится фото
-     */
     getModelForPhoto(photoId) {
         return this.photoToModel.get(photoId) || null;
     }
 
-    /**
-     * Все фото для модели
-     */
     getPhotosForModel(modelId) {
         const photos = [];
         for (const [photoId, mid] of this.photoToModel) {
@@ -362,8 +610,6 @@ class TopologicalAccumulator {
         }
         return photos;
     }
-
-    // ==================== СОЗДАНИЕ НОВОЙ МОДЕЛИ ====================
 
     createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
         const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
@@ -425,166 +671,6 @@ class TopologicalAccumulator {
         };
     }
 
-    // ==================== УЛУЧШЕНИЕ СУЩЕСТВУЮЩЕЙ МОДЕЛИ ====================
-
-    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
-        const model = this.models.get(modelId);
-        if (!model) {
-            return { error: 'Модель не найдена' };
-        }
-
-        console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
-
-        // 🔥 ЗАПУСКАЕМ ПОЛНЫЙ АНАЛИЗ
-        console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
-
-        const centerMatches = this.centerMatcher.findCenterMatches(
-            newExactGraph,
-            model.graph,
-            newMorphology,
-            model.morphologyMap
-        );
-
-        let finalMatches = new Map();
-        let newNodesAdded = 0;
-        let matchesForMap = new Map();
-
-        if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
-            console.log(`✅ Найдено ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК`);
-
-            const allMatches = this.relativePositioning.positionPoints(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap
-            );
-
-            const stabilizedMatches = this.relativePositioning.iterativeStabilization(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap
-            );
-
-            finalMatches = new Map([...allMatches, ...stabilizedMatches]);
-            matchesForMap = finalMatches;
-
-            // Обновляем модель
-            const updateResult = this.updateModelWithMatches(
-                modelId,
-                newExactGraph,
-                finalMatches,
-                centerMatches,
-                newMorphology
-            );
-            newNodesAdded = updateResult.newNodesAdded;
-        }
-
-        // Обновляем KNN-граф и подписи
-        model.knnGraph = newKNNGraph;
-        model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
-        model.metadata.photoCount = (model.metadata.photoCount || 0) + 1;
-        model.metadata.lastEnhanced = new Date();
-
-        model.history.push({
-            action: 'enhanced',
-            timestamp: new Date(),
-            centerMatches: centerMatches.size,
-            totalMatches: finalMatches.size,
-            newNodes: newNodesAdded,
-            totalNodes: model.graph.nodes.size
-        });
-
-        this.stats.totalEnhancements++;
-        this.stats.lastUpdated = new Date();
-
-        // Создаём matchMap для визуализации
-        const matchMap = new Map();
-        let pairNumber = 1;
-        for (const [photoId, match] of matchesForMap) {
-            if (match && match.confidence >= 0.7) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    pairNumber: pairNumber++
-                });
-            }
-        }
-
-        // Очищаем неподтверждённые точки
-        const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
-        this.stats.totalNodesRemoved += cleanResult.removed;
-
-        return {
-            centerMatches: centerMatches.size,
-            totalMatches: finalMatches.size,
-            newNodesAdded,
-            nodesRemoved: cleanResult.removed,
-            matchMap
-        };
-    }
-
-    updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology) {
-        const model = this.models.get(modelId);
-        let confirmedExisting = 0;
-        let newNodesAdded = 0;
-        let duplicatesSkipped = 0;
-
-        const matchedPhotoIds = new Set();
-        const matchedModelIds = new Set();
-
-        // Подтверждаем существующие точки
-        for (const [photoId, match] of matches) {
-            const modelNode = model.graph.nodes.get(match.modelId);
-            if (modelNode) {
-                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-                modelNode.lastConfirmed = new Date();
-                confirmedExisting++;
-
-                matchedPhotoIds.add(photoId);
-                matchedModelIds.add(match.modelId);
-            }
-        }
-
-        // Добавляем новые точки с проверкой на дубликаты
-        for (const [photoId, photoNode] of newGraph.nodes) {
-            if (matchedPhotoIds.has(photoId)) continue;
-
-            const match = matches.get(photoId);
-            if (!match || match.confidence < 0.7) continue;
-
-            // Проверка на дубликат
-            if (this.isDuplicate(photoNode, model.graph, model.morphologyMap)) {
-                duplicatesSkipped++;
-                continue;
-            }
-
-            const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
-            model.graph.nodes.set(newNodeId, {
-                id: newNodeId,
-                x: photoNode.x,
-                y: photoNode.y,
-                degree: photoNode.degree,
-                morphology: newMorphology.get(photoId),
-                confirmationCount: 1,
-                addedFrom: 'new_point',
-                addedAt: new Date(),
-                originalPhotoId: photoId
-            });
-            newNodesAdded++;
-        }
-
-        // Обновляем рёбра
-        this.updateEdges(model.graph, newGraph, matches);
-
-        return {
-            confirmedExisting,
-            newNodesAdded,
-            duplicatesSkipped
-        };
-    }
-
     // ==================== ИНВАРИАНТНАЯ ПРОВЕРКА ДУБЛИКАТОВ ====================
 
     isDuplicate(newNode, modelGraph, morphologyMap) {
@@ -597,20 +683,15 @@ class TopologicalAccumulator {
             const existingMorph = morphologyMap.get(existingId);
             if (!existingMorph || !existingMorph.hasContour) continue;
 
-            // Сравниваем compactness (инвариантен!)
             const compactnessDiff = Math.abs(newMorph.compactness - existingMorph.compactness);
             const areaDiff = Math.abs(newMorph.normalizedArea - existingMorph.normalizedArea);
 
-            // Если форма похожа - проверяем топологию
             if (compactnessDiff < this.duplicateCompactnessThreshold &&
                 areaDiff < this.duplicateAreaThreshold) {
                
                 const graphDist = this.graphDistance(newNode.id, existingId, modelGraph);
                
                 if (graphDist <= this.duplicateGraphDistance) {
-                    if (this.debug) {
-                        console.log(`   🚫 Дубликат: compactness diff ${compactnessDiff.toFixed(2)}, graph dist ${graphDist}`);
-                    }
                     return true;
                 }
             }
@@ -618,9 +699,6 @@ class TopologicalAccumulator {
         return false;
     }
 
-    /**
-     * Вычисляет расстояние между узлами в графе (BFS)
-     */
     graphDistance(nodeA, nodeB, graph) {
         if (nodeA === nodeB) return 0;
        
@@ -704,8 +782,6 @@ class TopologicalAccumulator {
             remaining: graph.nodes.size
         };
     }
-
-    // ==================== ОБНОВЛЕНИЕ РЁБЕР ====================
 
     updateEdges(modelGraph, newGraph, matches) {
         for (const edge of newGraph.edges) {
@@ -922,7 +998,6 @@ class TopologicalAccumulator {
         try {
             const modelId = modelData.id;
 
-            // Восстанавливаем граф
             const nodes = new Map(modelData.graph.nodes);
             const edges = new Set(modelData.graph.edges);
             const graph = {
@@ -931,7 +1006,6 @@ class TopologicalAccumulator {
                 avgDegree: modelData.graph.avgDegree
             };
 
-            // Восстанавливаем подписи
             const knnFingerprints = new Map(modelData.knnFingerprints);
             const morphologyMap = new Map(modelData.morphologyMap);
 
