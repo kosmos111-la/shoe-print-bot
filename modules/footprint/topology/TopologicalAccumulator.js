@@ -272,7 +272,10 @@ class TopologicalAccumulator {
 
             finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
 
-            // 🔥 ВЫВОДИМ ТАБЛИЦЫ В ЛОГ
+            // 🔥 СТАРАЯ ТАБЛИЦА (для совместимости)
+            this.printFinalTable(newExactGraph, model.graph, finalMatches);
+           
+            // 🔥 НОВАЯ ДЕТАЛЬНАЯ ТАБЛИЦА
             this.printDetailedTables(
                 newExactGraph,
                 model.graph,
@@ -360,7 +363,37 @@ class TopologicalAccumulator {
         };
     }
 
-    // ==================== ПЕЧАТЬ ТАБЛИЦ ====================
+    // ==================== СТАРАЯ ТАБЛИЦА (ОБЯЗАТЕЛЬНО ОСТАВИТЬ) ====================
+
+    printFinalTable(newGraph, modelGraph, matches) {
+        console.log(`\n📋 ИТОГОВАЯ ТАБЛИЦА СОПОСТАВЛЕНИЯ ВСЕХ ТОЧЕК:`);
+        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┬─────────────────────┬─────────────────────┐`);
+        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │ СТАТУС    │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
+        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼───────────┼─────────────────────┼─────────────────────┤`);
+
+        let count = 0;
+        for (const [photoId, match] of matches) {
+            if (count >= 30) break;
+
+            const photoNode = newGraph.nodes.get(photoId);
+            const modelNode = modelGraph.nodes.get(match.modelId);
+
+            if (!photoNode || !modelNode) continue;
+
+            count++;
+            console.log(
+                `│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
+                `${match.modelId.substring(0,20).padEnd(20)} │ ` +
+                `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
+                `${'✅'.padEnd(7)}   │ ` +
+                `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
+                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
+            );
+        }
+        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
+    }
+
+    // ==================== НОВАЯ ДЕТАЛЬНАЯ ТАБЛИЦА ====================
 
     printDetailedTables(newGraph, modelGraph, centerMatches, allMatches) {
         console.log(`\n${'='.repeat(120)}`);
@@ -456,9 +489,6 @@ class TopologicalAccumulator {
             console.log(`   • Якорей найдено: ${centerMatches.size}`);
             console.log(`   • Всего сопоставлено: ${allMatches.size}`);
             console.log(`   • Доля якорей: ${((centerMatches.size/allMatches.size)*100).toFixed(1)}%`);
-           
-            // Проверка на одинаковое преобразование
-            console.log(`   • Проверка поворота:`);
         }
     }
 
