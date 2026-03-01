@@ -107,6 +107,42 @@ class FeatureTable {
                 neighborStats.rCount,
                 neighborStats.lCount
             ].filter(v => !isNaN(v) && v !== null);
+          // 🔥 ВАЖНО: проверяем, что массив не пустой
+let sumFeatures = '0.00';
+let prodFeatures = '0.00';
+let variance = '0.00';
+let entropy = '0.00';
+
+if (allFeatures.length > 0) {
+    // Сумма
+    const sum = allFeatures.reduce((a, b) => a + b, 0);
+    sumFeatures = sum.toFixed(2);
+   
+    // Произведение (с защитой от нулей)
+    const product = allFeatures.reduce((a, b) => a * Math.max(b, 0.001), 1);
+    prodFeatures = product > 1e6 ? product.toExponential(2) : product.toFixed(2);
+   
+    // Дисперсия
+    const mean = sum / allFeatures.length;
+    const squaredDiffs = allFeatures.map(v => Math.pow(v - mean, 2));
+    const varValue = squaredDiffs.reduce((a, b) => a + b, 0) / allFeatures.length;
+    variance = varValue.toFixed(2);
+   
+    // Энтропия
+    const total = allFeatures.reduce((a, b) => a + b, 0);
+    if (total > 0) {
+        const probabilities = allFeatures.map(v => v / total);
+        let entr = 0;
+        for (const p of probabilities) {
+            if (p > 0) {
+                entr -= p * Math.log2(p);
+            }
+        }
+        entropy = entr.toFixed(2);
+    }
+}
+
+// Теперь используем эти переменные в выводе
            
             const sumFeatures = allFeatures.reduce((a, b) => a + b, 0).toFixed(2);
             const prodFeatures = allFeatures.length > 0
@@ -117,17 +153,17 @@ class FeatureTable {
 
             // Выводим строку таблицы (ВСЕ 27 колонок!)
             console.log(
-                `│ ${idx.toString().padEnd(3)} │ ${point.id.substring(0,20).padEnd(20)} │ ` +
-                `${role.padEnd(3)} │ ${degree.toString().padEnd(3)} │ ${triangles.toString().padEnd(3)} │ ` +
-                `${compactness.padStart(4)} │ ${normArea.padStart(4)} │ ${eccentricity.padStart(4)} │ ` +
-                `${orientation.padStart(3)} │ ${zone.padEnd(3)} │ ${isUnique.padEnd(3)} │ ` +
-                `${neighborStats.clusterId.padEnd(5)} │ ${neighborStats.clusterSize.padEnd(5)} │ ` +
-                `${radialProfile.padEnd(5)} │ ${neighborStats.hCount.toString().padEnd(4)} │ ` +
-                `${neighborStats.rCount.toString().padEnd(4)} │ ${neighborStats.lCount.toString().padEnd(4)} │ ` +
-                `${radial.angles.N.toFixed(0).padStart(3)} │ ${radial.angles.E.toFixed(0).padStart(3)} │ ` +
-                `${radial.angles.S.toFixed(0).padStart(3)} │ ${radial.angles.W.toFixed(0).padStart(3)} │ ` +
-                `${sumFeatures.padStart(5)} │ ${prodFeatures.padStart(5)} │ ${variance.padStart(4)} │ ` +
-                `${entropy.padStart(4)} │`
+                 `│ ${idx.toString().padEnd(3)} │ ${point.id.substring(0,20).padEnd(20)} │ ` +
+    `${role.padEnd(3)} │ ${degree.toString().padEnd(3)} │ ${triangles.toString().padEnd(3)} │ ` +
+    `${compactness.padStart(4)} │ ${normArea.padStart(4)} │ ${eccentricity.padStart(4)} │ ` +
+    `${orientation.padStart(3)} │ ${zone.padEnd(3)} │ ${isUnique.padEnd(3)} │ ` +
+    `${neighborStats.clusterId.padEnd(5)} │ ${neighborStats.clusterSize.padEnd(5)} │ ` +
+    `${radialProfile.padEnd(5)} │ ${neighborStats.hCount.toString().padEnd(4)} │ ` +
+    `${neighborStats.rCount.toString().padEnd(4)} │ ${neighborStats.lCount.toString().padEnd(4)} │ ` +
+    `${radial.angles.N.toFixed(0).padStart(3)} │ ${radial.angles.E.toFixed(0).padStart(3)} │ ` +
+    `${radial.angles.S.toFixed(0).padStart(3)} │ ${radial.angles.W.toFixed(0).padStart(3)} │ ` +
+    `${sumFeatures.padStart(5)} │ ${prodFeatures.padStart(5)} │ ${variance.padStart(4)} │ ` +
+    `${entropy.padStart(4)} │`
             );
 
             idx++;
