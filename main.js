@@ -3832,6 +3832,45 @@ bot.onText(/\/visualize_merge/, async (msg) => {
     }
 });
 
+// /features - показать таблицу признаков
+bot.onText(/\/features/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!footprintManager) {
+        await bot.sendMessage(chatId, '❌ Система не инициализирована');
+        return;
+    }
+
+    await bot.sendMessage(chatId, '📊 Генерирую таблицу признаков...');
+
+    const result = await footprintManager.printFeatureTable(userId);
+
+    if (!result.success) {
+        await bot.sendMessage(chatId, `❌ ${result.error}`);
+    }
+});
+
+// /feature <id> - детали конкретной точки
+bot.onText(/\/feature (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const pointId = match[1];
+
+    if (!footprintManager) {
+        await bot.sendMessage(chatId, '❌ Система не инициализирована');
+        return;
+    }
+
+    await bot.sendMessage(chatId, `🔍 Ищу детали для точки ${pointId}...`);
+
+    const result = await footprintManager.printFeatureTable(userId, { pointId });
+
+    if (!result.success) {
+        await bot.sendMessage(chatId, `❌ ${result.error}`);
+    }
+});
+
 // 🔥 НОВАЯ КОМАНДА: /force_update_confirmations - принудительное обновление подтверждений
 bot.onText(/\/force_update_confirmations/, async (msg) => {
     const chatId = msg.chat.id;
