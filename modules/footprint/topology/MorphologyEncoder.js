@@ -1,5 +1,5 @@
 // modules/footprint/topology/MorphologyEncoder.js
-// 🔥 МОРФОЛОГИЧЕСКИЙ КОД - ТОЛЬКО ИНВАРИАНТНЫЕ ПРИЗНАКИ
+// 🔥 МОРФОЛОГИЧЕСКИЙ КОД - ПОЛНАЯ ВЕРСИЯ С ЭКСЦЕНТРИСИТЕТОМ И ОРИЕНТАЦИЕЙ
 
 class MorphologyEncoder {
     constructor(options = {}) {
@@ -8,7 +8,7 @@ class MorphologyEncoder {
         // Кеш для морфологических кодов
         this.cache = new Map();
 
-        console.log('🔷 MorphologyEncoder (инвариантный) создан');
+        console.log('🔷 MorphologyEncoder (полная версия) создан');
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
@@ -18,7 +18,7 @@ class MorphologyEncoder {
 
         const morphologyMap = new Map();
 
-        // 🔥 Создаём мапу контуров по pointId для быстрого доступа
+        // Создаём мапу контуров по pointId для быстрого доступа
         const contourMap = new Map();
         if (contours && Array.isArray(contours)) {
             for (const contour of contours) {
@@ -45,14 +45,20 @@ class MorphologyEncoder {
                 if (this.debug && morphologyMap.size <= 3) {
                     console.log(`   Точка ${point.id.substring(0,12)}...`);
                     console.log(`      compactness: ${code.compactness.toFixed(2)}`);
+                    console.log(`      eccentricity: ${code.eccentricity.toFixed(2)}`);
+                    console.log(`      orientation: ${code.orientation.toFixed(1)}°`);
                     console.log(`      normalizedArea: ${code.normalizedArea.toFixed(2)}`);
                 }
             } else {
                 // Нет контура - ставим значения по умолчанию
                 morphologyMap.set(point.id, {
                     compactness: 4.0,  // квадрат
+                    eccentricity: 0.5,
+                    orientation: 0,
                     hasContour: false,
-                    normalizedArea: 1.0
+                    normalizedArea: 1.0,
+                    radialProfile: [1, 1, 1, 1],
+                    asymmetry: 0
                 });
             }
         }
@@ -61,7 +67,6 @@ class MorphologyEncoder {
         this.normalizeAreas(morphologyMap);
 
         console.log(`✅ Закодировано ${morphologyMap.size} точек`);
-
         return morphologyMap;
     }
 
@@ -74,22 +79,123 @@ class MorphologyEncoder {
         // 2. Основные метрики
         const area = this.computePolygonArea(simplified);
         const perimeter = this.computePolygonPerimeter(simplified);
-
-        // 🔥 ТОЛЬКО ИНВАРИАНТНЫЕ ПРИЗНАКИ:
-        // - compactness (периметр²/площадь) — инвариантна к повороту и масштабу
-        // - normalizedArea (относительная площадь) — инвариантна после нормализации
        
+        // 3. Эксцентриситет и ориентация
+        const { eccentricity, orientation } = this.calculateEllipseFeatures(simplified);
+       
+        // 4. Радиальный профиль
+        const center = centerPoint || this.calculateCentroid(simplified);
+        const radial = this.calculateRadialFeatures(simplified, center);
+
         // Компактность (периметр²/площадь)
         const compactness = area > 0 ? (perimeter * perimeter) / area : 0;
 
-        // Относительная площадь (будет нормализована позже)
-        const rawArea = area;
-
         return {
             compactness,
-            rawArea,
+            eccentricity,
+            orientation,
+            rawArea: area,
             hasContour: true,
-            contour: simplified
+            contour: simplified,
+            radialProfile: radial.profile,
+            asymmetry: radial.asymmetry
+        };
+    }
+
+    /**
+     * Вычисляет эксцентриситет и ориентацию эллипса, аппроксимирующего контур
+     */
+    calculateEllipseFeatures(points) {
+        if (points.length < 5) {
+            return { eccentricity: 0.5, orientation: 0 };
+        }
+
+        // Вычисляем моменты инерции
+        let sumX = 0, sumY = 0;
+        let sumXX = 0, sumYY = 0, sumXY = 0;
+        const n = points.length;
+       
+        for (const p of points) {
+            sumX += p.x;
+            sumY += p.y;
+            sumXX += p.x * p.x;
+            sumYY += p.y * p.y;
+            sumXY += p.x * p.y;
+        }
+       
+        const meanX = sumX / n;
+        const meanY = sumY / n;
+       
+        const covXX = sumXX / n - meanX * meanX;
+        const covYY = sumYY / n - meanY * meanY;
+        const covXY = sumXY / n - meanX * meanY;
+       
+        // Вычисляем собственные значения
+        const trace = covXX + covYY;
+        const det = covXX * covYY - covXY * covXY;
+        const sqrtTerm = Math.sqrt(Math.max(trace * trace - 4 * det, 0));
+       
+        const lambda1 = (trace + sqrtTerm) / 2;
+        const lambda2 = (trace - sqrtTerm) / 2;
+       
+        // Эксцентриситет (0-1, 0-круг, 1-линия)
+        const eccentricity = Math.sqrt(1 - (lambda2 / Math.max(lambda1, 0.001)));
+       
+        // Ориентация в градусах
+        let orientation = 0.5 * Math.atan2(2 * covXY, covXX - covYY) * 180 / Math.PI;
+        if (orientation < 0) orientation += 180;
+       
+        return { eccentricity, orientation };
+    }
+
+    /**
+     * Вычисляет радиальный профиль фигуры
+     */
+    calculateRadialFeatures(points, center) {
+        // Инициализируем расстояния в 4 направлениях
+        let north = 0, south = 0, east = 0, west = 0;
+       
+        for (const p of points) {
+            const dx = p.x - center.x;
+            const dy = p.y - center.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+           
+            // Определяем направление (с допуском 45°)
+            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+           
+            if (Math.abs(angle) < 45) east = Math.max(east, dist);
+            if (Math.abs(angle - 180) < 45 || Math.abs(angle + 180) < 45) west = Math.max(west, dist);
+            if (Math.abs(angle - 90) < 45) north = Math.max(north, dist);
+            if (Math.abs(angle + 90) < 45) south = Math.max(south, dist);
+        }
+       
+        // Нормализуем на максимальное расстояние
+        const maxDist = Math.max(north, south, east, west, 0.001);
+        const profile = [
+            north / maxDist,
+            east / maxDist,
+            south / maxDist,
+            west / maxDist
+        ];
+       
+        // Асимметрия (сумма разностей противоположных направлений)
+        const asymmetry = Math.abs(profile[0] - profile[2]) + Math.abs(profile[1] - profile[3]);
+       
+        return { profile, asymmetry };
+    }
+
+    /**
+     * Вычисляет центр масс контура
+     */
+    calculateCentroid(points) {
+        let sumX = 0, sumY = 0;
+        for (const p of points) {
+            sumX += p.x;
+            sumY += p.y;
+        }
+        return {
+            x: sumX / points.length,
+            y: sumY / points.length
         };
     }
 
@@ -182,8 +288,9 @@ class MorphologyEncoder {
         if (!morph1 || !morph2) return 0.5;
 
         const weights = {
-            compactness: 0.6,
-            area: 0.4
+            compactness: 0.4,
+            eccentricity: 0.3,
+            area: 0.3
         };
 
         let score = 0;
@@ -193,6 +300,13 @@ class MorphologyEncoder {
             const compactDiff = Math.abs(morph1.compactness - morph2.compactness);
             const compactSim = Math.max(0, 1 - compactDiff / 10);
             score += compactSim * weights.compactness;
+        }
+
+        // Эксцентриситет
+        if (morph1.eccentricity && morph2.eccentricity) {
+            const eccDiff = Math.abs(morph1.eccentricity - morph2.eccentricity);
+            const eccSim = Math.max(0, 1 - eccDiff);
+            score += eccSim * weights.eccentricity;
         }
 
         // Нормализованная площадь
