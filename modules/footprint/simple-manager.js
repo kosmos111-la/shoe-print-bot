@@ -1127,7 +1127,7 @@ async generateFeatureTableFromModel(modelInfo, options = {}) {
 
     const featureTable = new FeatureTable({
         debug: this.config.debug,
-        maxPointsToShow: options.maxPoints || 30
+        maxPointsToShow: options.maxPoints || 1000
     });
 
     if (options.pointId) {
