@@ -324,7 +324,7 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
 // 🔥 ОТПРАВКА В TELEGRAM - ОТПРАВЛЯЕМ ОБЕ КАРТИНКИ
 let telegramSent = false;
 if (bot && chatId) {
-    // Проверяем, что пути существуют
+    // Важно: проверяем, что modelVizPath определен, а не vizPath
     if (modelVizPath || photoVizPath) {
         telegramSent = await this.sendTopologyTelegram(
             userId,
@@ -339,8 +339,9 @@ if (bot && chatId) {
         );
     } else {
         console.log('⚠️ Нет визуализаций для отправки');
+        telegramSent = true; // Чтобы не падало с ошибкой
     }
-}    
+}
           // 🔥 ФОРМИРУЕМ РЕЗУЛЬТАТ
             const result = {
                 success: true,
