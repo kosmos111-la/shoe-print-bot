@@ -324,11 +324,17 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
 let telegramSent = false;
 if (bot && chatId) {
     telegramSent = await this.sendTopologyTelegram(
-        userId, decision, similarity, visualizationData,
-        modelVizPath, photoVizPath, bot, chatId, topologicalResult
+        userId,
+        decision,
+        similarity,
+        visualizationData,
+        modelVizPath,  // ← ИСПРАВЛЕНО: используем modelVizPath
+        photoVizPath,  // ← ИСПРАВЛЕНО: используем photoVizPath
+        bot,
+        chatId,
+        topologicalResult
     );
 }
-
             // 🔥 ФОРМИРУЕМ РЕЗУЛЬТАТ
             const result = {
                 success: true,
