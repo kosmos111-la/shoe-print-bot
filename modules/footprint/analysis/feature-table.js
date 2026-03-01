@@ -235,50 +235,59 @@ class FeatureTable {
             const radialProfile = `${radial.profile[0].toFixed(1)},${radial.profile[1].toFixed(1)},${radial.profile[2].toFixed(1)},${radial.profile[3].toFixed(1)}`;
 
             // === УРОВЕНЬ 6: АГРЕГИРОВАННЫЕ ===
-            const allFeatures = [
-                this.roleToNumber(role),
-                degree,
-                triangle,
-                morph.compactness || 0,
-                morph.normalizedArea || 0,
-                morph.eccentricity || 0,
-                morph.orientation || 0,
-                distToCenter,
-                angleToCenter,
-                neighborStat.hCount,
-                neighborStat.rCount,
-                neighborStat.lCount
-            ].filter(v => !isNaN(v) && v !== null && v !== undefined);
+           const allFeatures = [
+    this.roleToNumber(role),
+    degree,
+    triangle,
+    morph.compactness || 0,
+    morph.normalizedArea || 0,
+    morph.eccentricity || 0,
+    morph.orientation || 0,
+    parseFloat(distToCenter) || 0,  // 🔥 ИСПРАВЛЕНО: преобразуем в число
+    parseFloat(angleToCenter) || 0, // 🔥 ИСПРАВЛЕНО: преобразуем в число
+    neighborStat.hCount,
+    neighborStat.rCount,
+    neighborStat.lCount
+].filter(v => !isNaN(v) && v !== null && v !== undefined);
 
-            let sumFeatures = '0.00';
-            let prodFeatures = '0.00';
-            let variance = '0.00';
-            let entropy = '0.00';
+// Для отладки можно раскомментировать:
+// if (idx <= 3) console.log('allFeatures:', allFeatures);
 
-            if (allFeatures.length > 0) {
-                const sum = allFeatures.reduce((a, b) => a + b, 0);
-                sumFeatures = sum.toFixed(2);
+let sumFeatures = '0.00';
+let prodFeatures = '0.00';
+let variance = '0.00';
+let entropy = '0.00';
 
-                const product = allFeatures.reduce((a, b) => a * Math.max(Math.abs(b), 0.001), 1);
-                prodFeatures = product > 1e6 ? product.toExponential(2) : product.toFixed(2);
+if (allFeatures.length > 0) {
+    // Убеждаемся, что все элементы - числа
+    const numericFeatures = allFeatures.map(v => {
+        const num = parseFloat(v);
+        return isNaN(num) ? 0 : num;
+    });
+   
+    const sum = numericFeatures.reduce((a, b) => a + b, 0);
+    sumFeatures = sum.toFixed(2);
 
-                const mean = sum / allFeatures.length;
-                const squaredDiffs = allFeatures.map(v => Math.pow(v - mean, 2));
-                const varValue = squaredDiffs.reduce((a, b) => a + b, 0) / allFeatures.length;
-                variance = varValue.toFixed(2);
+    const product = numericFeatures.reduce((a, b) => a * Math.max(Math.abs(b), 0.001), 1);
+    prodFeatures = product > 1e6 ? product.toExponential(2) : product.toFixed(2);
 
-                const total = allFeatures.reduce((a, b) => a + b, 0);
-                if (total > 0) {
-                    const probabilities = allFeatures.map(v => v / total);
-                    let entr = 0;
-                    for (const p of probabilities) {
-                        if (p > 0) {
-                            entr -= p * Math.log2(p);
-                        }
-                    }
-                    entropy = entr.toFixed(2);
-                }
+    const mean = sum / numericFeatures.length;
+    const squaredDiffs = numericFeatures.map(v => Math.pow(v - mean, 2));
+    const varValue = squaredDiffs.reduce((a, b) => a + b, 0) / numericFeatures.length;
+    variance = varValue.toFixed(2);
+
+    const total = numericFeatures.reduce((a, b) => a + b, 0);
+    if (total > 0) {
+        const probabilities = numericFeatures.map(v => v / total);
+        let entr = 0;
+        for (const p of probabilities) {
+            if (p > 0) {
+                entr -= p * Math.log2(p);
             }
+        }
+        entropy = entr.toFixed(2);
+    }
+}
 
             // Выводим строку таблицы
             console.log(
