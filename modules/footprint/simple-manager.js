@@ -324,19 +324,24 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
 // 🔥 ОТПРАВКА В TELEGRAM - ОТПРАВЛЯЕМ ОБЕ КАРТИНКИ
 let telegramSent = false;
 if (bot && chatId) {
-    telegramSent = await this.sendTopologyTelegram(
-        userId,
-        decision,
-        similarity,
-        visualizationData,
-        modelVizPath,  // ← ИСПРАВЛЕНО: используем modelVizPath
-        photoVizPath,  // ← ИСПРАВЛЕНО: используем photoVizPath
-        bot,
-        chatId,
-        topologicalResult
-    );
-}
-            // 🔥 ФОРМИРУЕМ РЕЗУЛЬТАТ
+    // Проверяем, что пути существуют
+    if (modelVizPath || photoVizPath) {
+        telegramSent = await this.sendTopologyTelegram(
+            userId,
+            decision,
+            similarity,
+            visualizationData,
+            modelVizPath,  // ← БЫЛО vizPath, СТАЛО modelVizPath
+            photoVizPath,  // ← добавили photoVizPath
+            bot,
+            chatId,
+            topologicalResult
+        );
+    } else {
+        console.log('⚠️ Нет визуализаций для отправки');
+    }
+}    
+          // 🔥 ФОРМИРУЕМ РЕЗУЛЬТАТ
             const result = {
                 success: true,
                 footprintId: session.id,
@@ -1072,10 +1077,22 @@ if (bot && chatId) {
 * Вывести таблицу признаков для последнего анализа пользователя
 */
 async printFeatureTable(userId, options = {}) {
+    console.log(`📊 Генерация таблицы признаков для пользователя ${userId}`);
+   
+    // 🔥 ИСПРАВЛЕНО: используем правильный метод
     const session = this.getActiveSandbox(userId);
     if (!session || !session.currentFootprint) {
         console.log('📭 Нет активной сессии или данных');
-        return { success: false, error: 'Нет данных' };
+        // Пробуем получить из topologyManager напрямую
+        const topologyManager = this.getTopologyManager(userId);
+        if (topologyManager && topologyManager.accumulator.currentModelId) {
+            const modelInfo = topologyManager.accumulator.getCurrentModel();
+            if (modelInfo) {
+                console.log('📦 Использую модель из topologyManager');
+                return this.generateFeatureTableFromModel(modelInfo, options);
+            }
+        }
+        return { success: false, error: 'Нет данных для анализа' };
     }
 
     const topologyManager = this.getTopologyManager(userId);
@@ -1090,6 +1107,15 @@ async printFeatureTable(userId, options = {}) {
         return { success: false, error: 'Нет модели' };
     }
 
+    return this.generateFeatureTableFromModel(modelInfo, options);
+}
+
+/**
+* Генерация таблицы из модели
+*/
+async generateFeatureTableFromModel(modelInfo, options = {}) {
+    const FeatureTable = require('./analysis/feature-table');
+   
     const footprintData = {
         points: Array.from(modelInfo.graph.nodes.values()),
         graph: modelInfo.graph,
@@ -1103,10 +1129,8 @@ async printFeatureTable(userId, options = {}) {
     });
 
     if (options.pointId) {
-        // Детали конкретной точки
         featureTable.printPointDetails(options.pointId, footprintData);
     } else {
-        // Общая таблица
         featureTable.generateTable(footprintData);
     }
 
@@ -1171,6 +1195,7 @@ getRolesFromGraph(graph) {
         };
     }
 
+  
     // ==================== ОТПРАВКА В TELEGRAM ====================
 
     async sendTopologyTelegram(userId, decision, similarity, visualizationData,
@@ -1234,6 +1259,27 @@ getRolesFromGraph(graph) {
     }
     return false;
 }
+
+/**
+* Получить активную песочницу пользователя
+*/
+getActiveSandbox(userId) {
+    // Используем sessionManager для получения песочницы
+    const sandbox = this.sessionManager?.getActiveSandboxSession(userId);
+    if (sandbox) {
+        return {
+            id: sandbox.id,
+            name: sandbox.name,
+            createdAt: sandbox.createdAt,
+            lastActivity: sandbox.lastActivity,
+            currentFootprint: sandbox.currentFootprint,
+            photos: sandbox.photos,
+            isSandbox: true
+        };
+    }
+    return null;
+}
+  
 }
 
 module.exports = SimpleFootprintManager;
