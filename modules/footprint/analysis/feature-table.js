@@ -52,9 +52,9 @@ class FeatureTable {
      */
     printFullFeatureTable(points, { graph, roles, morphology }) {
         // Заголовок таблицы (27 колонок!)
-        console.log(`\n${'┌'.padEnd(159, '─')}┐`);
-        console.log(`│ ${'#'.padEnd(3)} │ ${'ID ТОЧКИ'.padEnd(20)} │ Роль│ Ст.│Тр-ки│ Комп │ Площ│ Эксц│ Ор-я│ Зона│Уникл│Р-класт│С-класт│ Провал│ H-сос│ R-сос│ L-сос│ УгN │ УгE │ УгS │ УгW │ Σприз│ Πприз│ Дисп│ Энтр│`);
-        console.log(`├${'─'.repeat(4)}┼${'─'.repeat(22)}┼${'─'.repeat(4)}┼${'─'.repeat(4)}┼${'─'.repeat(4)}┼${'─'.repeat(5)}┼${'─'.repeat(5)}┼${'─'.repeat(5)}┼${'─'.repeat(4)}┼${'─'.repeat(4)}┼${'─'.repeat(5)}┼${'─'.repeat(6)}┼${'─'.repeat(6)}┼${'─'.repeat(6)}┼${'─'.repeat(5)}┼${'─'.repeat(5)}┼${'─'.repeat(5)}┼${'─'.repeat(4)}┼${'─'.repeat(4)}┼${'─'.repeat(4)}┼${'─'.repeat(4)}┼${'─'.repeat(6)}┼${'─'.repeat(6)}┼${'─'.repeat(5)}┼${'─'.repeat(5)}┤`);
+        console.log(`\n┌─────┬──────────────────────┬─────┬─────┬─────┬──────┬──────┬──────┬─────┬──────┬──────┬───────┬───────┬───────┬──────┬──────┬──────┬─────┬─────┬─────┬─────┬───────┬───────┬──────┬──────┐`);
+        console.log(`│  #  │       ID ТОЧКИ        │ Роль│ Ст. │Тр-ки│ Комп │ Площ │ Эксц │ Ор-я│ Зона │Уникл │Р-класт│С-класт│Провал │ H-сос│ R-сос│ L-сос│ УгN │ УгE │ УгS │ УгW │ Σприз │ Πприз │Дисп │Энтр │`);
+        console.log(`├─────┼──────────────────────┼─────┼─────┼─────┼──────┼──────┼──────┼─────┼──────┼──────┼───────┼───────┼───────┼──────┼──────┼──────┼─────┼─────┼─────┼─────┼───────┼───────┼──────┼──────┤`);
 
         let idx = 1;
         for (const point of points) {
@@ -70,15 +70,15 @@ class FeatureTable {
             const neighborStats = this.getNeighborStats(point.id, graph, roles);
            
             // === УРОВЕНЬ 2: МОРФОЛОГИЧЕСКИЕ ===
-            const compactness = morph.compactness ? morph.compactness.toFixed(2) : ' - ';
-            const normArea = morph.normalizedArea ? morph.normalizedArea.toFixed(2) : ' - ';
-            const eccentricity = morph.eccentricity ? morph.eccentricity.toFixed(2) : ' - ';
+            const compactness = morph.compactness ? morph.compactness.toFixed(2) : '  -  ';
+            const normArea = morph.normalizedArea ? morph.normalizedArea.toFixed(2) : '  -  ';
+            const eccentricity = morph.eccentricity ? morph.eccentricity.toFixed(2) : '  -  ';
             const orientation = morph.orientation ? morph.orientation.toFixed(0) : ' - ';
            
             // === УРОВЕНЬ 3: ПОЗИЦИОННЫЕ ===
             const zone = this.getZone(point.y);
-            const distToCenter = this.getDistToCenter(point, points).toFixed(1);
-            const angleToCenter = this.getAngleToCenter(point, points).toFixed(0);
+            const distToCenter = this.getDistToCenter(point, points);
+            const angleToCenter = this.getAngleToCenter(point, points);
            
             // === УРОВЕНЬ 4: ГРУППОВЫЕ ===
             const clusterId = this.findClusterId(point, points, morphology);
@@ -86,11 +86,9 @@ class FeatureTable {
             const isUnique = clusterSize === 1 ? '✅' : '❌';
             const neighborClusters = this.getNeighborClusters(point.id, graph, points, morphology);
            
-            // === УРОВЕНЬ 5: РАДИАЛЬНЫЕ (НОВЫЕ) ===
+            // === УРОВЕНЬ 5: РАДИАЛЬНЫЕ ===
             const radial = this.calculateRadialFeatures(point, morphology);
             const radialProfile = radial.profile.join(',');
-            const asymmetry = radial.asymmetry.toFixed(2);
-            const quadType = radial.quadType;
            
             // === УРОВЕНЬ 6: АГРЕГИРОВАННЫЕ ===
             const allFeatures = [
@@ -106,70 +104,62 @@ class FeatureTable {
                 neighborStats.hCount,
                 neighborStats.rCount,
                 neighborStats.lCount
-            ].filter(v => !isNaN(v) && v !== null);
-          // 🔥 ВАЖНО: проверяем, что массив не пустой
-let sumFeatures = '0.00';
-let prodFeatures = '0.00';
-let variance = '0.00';
-let entropy = '0.00';
-
-if (allFeatures.length > 0) {
-    // Сумма
-    const sum = allFeatures.reduce((a, b) => a + b, 0);
-    sumFeatures = sum.toFixed(2);
-   
-    // Произведение (с защитой от нулей)
-    const product = allFeatures.reduce((a, b) => a * Math.max(b, 0.001), 1);
-    prodFeatures = product > 1e6 ? product.toExponential(2) : product.toFixed(2);
-   
-    // Дисперсия
-    const mean = sum / allFeatures.length;
-    const squaredDiffs = allFeatures.map(v => Math.pow(v - mean, 2));
-    const varValue = squaredDiffs.reduce((a, b) => a + b, 0) / allFeatures.length;
-    variance = varValue.toFixed(2);
-   
-    // Энтропия
-    const total = allFeatures.reduce((a, b) => a + b, 0);
-    if (total > 0) {
-        const probabilities = allFeatures.map(v => v / total);
-        let entr = 0;
-        for (const p of probabilities) {
-            if (p > 0) {
-                entr -= p * Math.log2(p);
-            }
-        }
-        entropy = entr.toFixed(2);
-    }
-}
-
-// Теперь используем эти переменные в выводе
+            ].filter(v => !isNaN(v) && v !== null && v !== undefined);
            
-            const sumFeatures = allFeatures.reduce((a, b) => a + b, 0).toFixed(2);
-            const prodFeatures = allFeatures.length > 0
-                ? allFeatures.reduce((a, b) => a * Math.max(b, 0.1), 1).toExponential(2)
-                : '0';
-            const variance = this.calculateVariance(allFeatures).toFixed(2);
-            const entropy = this.calculateEntropy(allFeatures).toFixed(2);
+            // 🔥 ИСПРАВЛЕНО: объявляем переменные один раз
+            let sumFeatures = '0.00';
+            let prodFeatures = '0.00';
+            let variance = '0.00';
+            let entropy = '0.00';
+           
+            if (allFeatures.length > 0) {
+                // Сумма
+                const sum = allFeatures.reduce((a, b) => a + b, 0);
+                sumFeatures = sum.toFixed(2);
+               
+                // Произведение (с защитой от нулей)
+                const product = allFeatures.reduce((a, b) => a * Math.max(b, 0.001), 1);
+                prodFeatures = product > 1e6 ? product.toExponential(2) : product.toFixed(2);
+               
+                // Дисперсия
+                const mean = sum / allFeatures.length;
+                const squaredDiffs = allFeatures.map(v => Math.pow(v - mean, 2));
+                const varValue = squaredDiffs.reduce((a, b) => a + b, 0) / allFeatures.length;
+                variance = varValue.toFixed(2);
+               
+                // Энтропия
+                const total = allFeatures.reduce((a, b) => a + b, 0);
+                if (total > 0) {
+                    const probabilities = allFeatures.map(v => v / total);
+                    let entr = 0;
+                    for (const p of probabilities) {
+                        if (p > 0) {
+                            entr -= p * Math.log2(p);
+                        }
+                    }
+                    entropy = entr.toFixed(2);
+                }
+            }
 
-            // Выводим строку таблицы (ВСЕ 27 колонок!)
+            // Выводим строку таблицы
             console.log(
-                 `│ ${idx.toString().padEnd(3)} │ ${point.id.substring(0,20).padEnd(20)} │ ` +
-    `${role.padEnd(3)} │ ${degree.toString().padEnd(3)} │ ${triangles.toString().padEnd(3)} │ ` +
-    `${compactness.padStart(4)} │ ${normArea.padStart(4)} │ ${eccentricity.padStart(4)} │ ` +
-    `${orientation.padStart(3)} │ ${zone.padEnd(3)} │ ${isUnique.padEnd(3)} │ ` +
-    `${neighborStats.clusterId.padEnd(5)} │ ${neighborStats.clusterSize.padEnd(5)} │ ` +
-    `${radialProfile.padEnd(5)} │ ${neighborStats.hCount.toString().padEnd(4)} │ ` +
-    `${neighborStats.rCount.toString().padEnd(4)} │ ${neighborStats.lCount.toString().padEnd(4)} │ ` +
-    `${radial.angles.N.toFixed(0).padStart(3)} │ ${radial.angles.E.toFixed(0).padStart(3)} │ ` +
-    `${radial.angles.S.toFixed(0).padStart(3)} │ ${radial.angles.W.toFixed(0).padStart(3)} │ ` +
-    `${sumFeatures.padStart(5)} │ ${prodFeatures.padStart(5)} │ ${variance.padStart(4)} │ ` +
-    `${entropy.padStart(4)} │`
+                `│ ${idx.toString().padEnd(3)} │ ${point.id.substring(0,20).padEnd(20)} │ ` +
+                `${role.padEnd(3)} │ ${degree.toString().padEnd(3)} │ ${triangles.toString().padEnd(3)} │ ` +
+                `${compactness.padStart(5)} │ ${normArea.padStart(5)} │ ${eccentricity.padStart(5)} │ ` +
+                `${orientation.padStart(3)} │ ${zone.padEnd(4)} │ ${isUnique.padEnd(4)} │ ` +
+                `${clusterId.padStart(6)} │ ${clusterSize.toString().padStart(6)} │ ` +
+                `${radialProfile.padStart(6)} │ ${neighborStats.hCount.toString().padStart(4)} │ ` +
+                `${neighborStats.rCount.toString().padStart(4)} │ ${neighborStats.lCount.toString().padStart(4)} │ ` +
+                `${radial.angles.N.toFixed(0).padStart(3)} │ ${radial.angles.E.toFixed(0).padStart(3)} │ ` +
+                `${radial.angles.S.toFixed(0).padStart(3)} │ ${radial.angles.W.toFixed(0).padStart(3)} │ ` +
+                `${sumFeatures.padStart(5)} │ ${prodFeatures.padStart(5)} │ ${variance.padStart(4)} │ ` +
+                `${entropy.padStart(4)} │`
             );
 
             idx++;
         }
 
-        console.log(`└${'─'.repeat(4)}┴${'─'.repeat(22)}┴${'─'.repeat(4)}┴${'─'.repeat(4)}┴${'─'.repeat(4)}┴${'─'.repeat(5)}┴${'─'.repeat(5)}┴${'─'.repeat(5)}┴${'─'.repeat(4)}┴${'─'.repeat(4)}┴${'─'.repeat(5)}┴${'─'.repeat(6)}┴${'─'.repeat(6)}┴${'─'.repeat(6)}┴${'─'.repeat(5)}┴${'─'.repeat(5)}┴${'─'.repeat(5)}┴${'─'.repeat(4)}┴${'─'.repeat(4)}┴${'─'.repeat(4)}┴${'─'.repeat(4)}┴${'─'.repeat(6)}┴${'─'.repeat(6)}┴${'─'.repeat(5)}┴${'─'.repeat(5)}┘`);
+        console.log(`└─────┴──────────────────────┴─────┴─────┴─────┴──────┴──────┴──────┴─────┴──────┴──────┴───────┴───────┴───────┴──────┴──────┴──────┴─────┴─────┴─────┴─────┴───────┴───────┴──────┴──────┘`);
        
         // Легенда
         this.printLegend();
@@ -192,8 +182,8 @@ if (allFeatures.length > 0) {
         console.log(`   ПОЗИЦИОННЫЕ:`);
         console.log(`   • Зона - T(носок)/C(центр)/H(пятка)`);
         console.log(`   • Уникл - уникальность (✅/❌)`);
-        console.log(`   • Р-класт - размер кластера`);
-        console.log(`   • С-класт - соседние кластеры`);
+        console.log(`   • Р-класт - ID кластера`);
+        console.log(`   • С-класт - размер кластера`);
         console.log(`   • Провал - паттерн провалов`);
         console.log(`   РАДИАЛЬНЫЕ:`);
         console.log(`   • H-сос/R-сос/L-сос - количество соседей по ролям`);
@@ -279,7 +269,7 @@ if (allFeatures.length > 0) {
 
         // Определяем кластер на основе паттерна соседей
         const clusterId = `${hCount}H${rCount}R${lCount}L`;
-        const clusterSize = 1; // Заглушка, реально нужно считать по всем точкам
+        const clusterSize = 1; // Заглушка
 
         return {
             hCount,
@@ -319,7 +309,6 @@ if (allFeatures.length > 0) {
     }
 
     findClusterId(point, allPoints, morphology) {
-        // Упрощенная кластеризация по компактности
         const morph = morphology.get(point.id);
         if (!morph || !morph.compactness) return 'R0';
        
@@ -353,11 +342,7 @@ if (allFeatures.length > 0) {
     }
 
     calculateRadialFeatures(point, morphology) {
-        // Получаем контур точки из морфологии
-        const morph = morphology.get(point.id);
-        const contour = morph?.contour || [];
-       
-        // Заглушка - реально нужно анализировать контур
+        // Заглушка
         return {
             profile: [1.2, 1.5, 1.3, 1.4],
             asymmetry: 0.3,
@@ -371,28 +356,6 @@ if (allFeatures.length > 0) {
         return map[role] || 0;
     }
 
-    calculateVariance(values) {
-        if (values.length === 0) return 0;
-        const mean = values.reduce((a, b) => a + b, 0) / values.length;
-        const squaredDiffs = values.map(v => Math.pow(v - mean, 2));
-        return squaredDiffs.reduce((a, b) => a + b, 0) / values.length;
-    }
-
-    calculateEntropy(values) {
-        if (values.length === 0) return 0;
-        const sum = values.reduce((a, b) => a + b, 0);
-        if (sum === 0) return 0;
-       
-        const probabilities = values.map(v => v / sum);
-        let entropy = 0;
-        for (const p of probabilities) {
-            if (p > 0) {
-                entropy -= p * Math.log2(p);
-            }
-        }
-        return entropy;
-    }
-
     calculateUniquenessScore(point, { graph, roles, morphology }) {
         const node = graph.nodes.get(point.id) || {};
         const role = roles.get(point.id) || 'R';
@@ -400,23 +363,19 @@ if (allFeatures.length > 0) {
        
         let score = 0;
        
-        // Топология (40%)
         if (role === 'H') score += 0.4;
         else if (role === 'C') score += 0.3;
         else if (role === 'B') score += 0.2;
        
-        // Степень (20%)
         const degree = node.degree || 0;
         score += Math.min(degree / 15, 1) * 0.2;
        
-        // Морфология (20%)
         if (morph.compactness) {
             const compactness = morph.compactness;
             if (compactness < 10 || compactness > 20) score += 0.2;
             else score += 0.1;
         }
        
-        // Соседи (20%)
         const neighbors = this.findNodeNeighbors(point.id, graph);
         const neighborRoles = new Set();
         for (const n of neighbors) {
