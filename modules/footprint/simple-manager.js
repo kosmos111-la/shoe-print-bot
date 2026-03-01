@@ -13,6 +13,7 @@ const TemplateCoordination = require('./core/comparison/template-coordination');
 const SessionManager = require('./core/session/session-manager');
 const GeometryUtils = require('./core/utils/geometry-utils');
 const LogManager = require('./core/log-manager');
+const FeatureTable = require('./analysis/feature-table');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -1067,6 +1068,65 @@ if (bot && chatId) {
         return topologyManager.clearUserModels();
     }
 
+/**
+* Вывести таблицу признаков для последнего анализа пользователя
+*/
+async printFeatureTable(userId, options = {}) {
+    const session = this.getActiveSandbox(userId);
+    if (!session || !session.currentFootprint) {
+        console.log('📭 Нет активной сессии или данных');
+        return { success: false, error: 'Нет данных' };
+    }
+
+    const topologyManager = this.getTopologyManager(userId);
+    if (!topologyManager) {
+        console.log('📭 Нет топологического менеджера');
+        return { success: false, error: 'Нет топологических данных' };
+    }
+
+    const modelInfo = topologyManager.accumulator.getCurrentModel();
+    if (!modelInfo) {
+        console.log('📭 Нет модели для анализа');
+        return { success: false, error: 'Нет модели' };
+    }
+
+    const footprintData = {
+        points: Array.from(modelInfo.graph.nodes.values()),
+        graph: modelInfo.graph,
+        roles: this.getRolesFromGraph(modelInfo.graph),
+        morphology: modelInfo.morphologyMap || new Map()
+    };
+
+    const featureTable = new FeatureTable({
+        debug: this.config.debug,
+        maxPointsToShow: options.maxPoints || 30
+    });
+
+    if (options.pointId) {
+        // Детали конкретной точки
+        featureTable.printPointDetails(options.pointId, footprintData);
+    } else {
+        // Общая таблица
+        featureTable.generateTable(footprintData);
+    }
+
+    return { success: true };
+}
+
+/**
+* Получить роли из графа (временная заглушка)
+*/
+getRolesFromGraph(graph) {
+    const roles = new Map();
+    for (const [nodeId, node] of graph.nodes) {
+        // Упрощенное определение роли
+        if (node.degree >= 6) roles.set(nodeId, 'H');
+        else if (node.degree === 1) roles.set(nodeId, 'L');
+        else roles.set(nodeId, 'R');
+    }
+    return roles;
+}
+  
     // ==================== МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ ====================
 
     async addAnalysisToSession(userId, analysis, photoInfo = {}) {
