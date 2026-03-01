@@ -14,6 +14,7 @@ const SessionManager = require('./core/session/session-manager');
 const GeometryUtils = require('./core/utils/geometry-utils');
 const LogManager = require('./core/log-manager');
 const FeatureTable = require('./analysis/feature-table');
+const ClusterAnalyzer = require('./analysis/ClusterAnalyzer');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
