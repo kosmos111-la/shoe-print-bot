@@ -15,7 +15,8 @@ class RelativePositioning {
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
-    positionPoints(photoGraph, modelGraph, anchorMatches, photoMorphology, modelMorphology) {
+    positionPoints(photoGraph, modelGraph, anchorMatches, photoMorphology, modelMorphology, options = {}) {
+    const confidenceThreshold = options.confidenceThreshold || this.confidenceThreshold;
         console.log(`\n🧩 Достраиваю точки относительно ${anchorMatches.size} опорных...`);
 
         const photoToModel = new Map(); // photoId -> { modelId, confidence, path }
