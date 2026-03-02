@@ -12,7 +12,7 @@ const MorphologyEncoder = require('./MorphologyEncoder');
 const CenterMatcher = require('./CenterMatcher');
 const RelativePositioning = require('./RelativePositioning');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
-const AdaptiveMatcher = require('./matching/AdaptiveMatcher'); // ← ДОБАВЛЕНО
+const AdaptiveMatcher = require('../matching/AdaptiveMatcher'); // ← ДОБАВЛЕНО
 
 class TopologicalAccumulator {
     constructor(options = {}) {
