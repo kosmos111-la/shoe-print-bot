@@ -1,5 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - МОДЕЛЬ + ФОТО С НОМЕРАМИ ЯКОРЕЙ (ИСПРАВЛЕНО)
+// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - МОДЕЛЬ + ФОТО С НОМЕРАМИ ВСЕХ ПАР (ИСПРАВЛЕНО)
 
 const fs = require('fs');
 const path = require('path');
@@ -19,7 +19,7 @@ class ClusterVisualizer {
             fs.mkdirSync(this.config.outputDir, { recursive: true });
         }
 
-        console.log('🎨 ClusterVisualizer (с номерами якорей) создан');
+        console.log('🎨 ClusterVisualizer (с номерами всех пар) создан');
     }
 
     async visualizeTopologicalModel(topologyData, options = {}) {
@@ -72,7 +72,7 @@ class ClusterVisualizer {
         ctx.fillStyle = '#212529';
         ctx.font = 'bold 26px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`🏗️ ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ (ЯКОРЯ 1-12)`, this.config.canvasWidth / 2, 45);
+        ctx.fillText(`🏗️ ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ`, this.config.canvasWidth / 2, 45);
 
         // Вычисляем границы
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
@@ -88,7 +88,7 @@ class ClusterVisualizer {
             this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
         }
 
-        // Точки модели с номерами ТОЛЬКО для якорей
+        // Точки модели с номерами для ВСЕХ подтвержденных точек
         this.drawModelPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
 
         // Статистика
@@ -122,7 +122,7 @@ class ClusterVisualizer {
         ctx.fillStyle = '#212529';
         ctx.font = 'bold 26px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`📸 ФОТО - ТОЧКИ (ЯКОРЯ 1-12)`, this.config.canvasWidth / 2, 45);
+        ctx.fillText(`📸 ФОТО - ВСЕ СОПОСТАВЛЕННЫЕ ТОЧКИ`, this.config.canvasWidth / 2, 45);
 
         // Вычисляем границы
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
@@ -167,31 +167,16 @@ class ClusterVisualizer {
         const points = topologyData.points;
         const matchMap = topologyData.matchMap || new Map();
 
-        // 🔥 СОЗДАЁМ КАРТУ ТОЛЬКО ДЛЯ ЯКОРЕЙ (первые 12 пар)
-        // Якоря - это точки с наивысшей уверенностью, которые есть в matchMap
+        // 🔥 ИСПРАВЛЕНО: Берем ВСЕ точки из matchMap, которые имеют pairNumber
         const anchorPairs = new Map();
-        let anchorCount = 0;
        
-        // Сортируем matchMap по pairNumber чтобы взять первые 12
-        const sortedMatches = Array.from(matchMap.entries())
-            .sort((a, b) => (a[1].pairNumber || 0) - (b[1].pairNumber || 0));
-       
-        for (const [photoId, match] of sortedMatches) {
-            if (match && match.modelId && anchorCount < 12) {
+        for (const [photoId, match] of matchMap) {
+            if (match && match.modelId && match.pairNumber) {
                 anchorPairs.set(match.modelId, match.pairNumber);
-                anchorCount++;
             }
         }
 
         console.log(`   🎯 Якорей для отображения на МОДЕЛИ: ${anchorPairs.size}`);
-
-        // Создаём обратную карту modelId -> pairNumber для всех (нужно для отладки)
-        const modelToPair = new Map();
-        for (const [photoId, match] of matchMap) {
-            if (match && match.modelId) {
-                modelToPair.set(match.modelId, match.pairNumber);
-            }
-        }
 
         console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
 
@@ -204,8 +189,8 @@ class ClusterVisualizer {
             const y = centerY + (point.y - avgY) * scale;
 
             const confirmations = point.confirmationCount || 0;
-           
-            // 🔥 Проверяем, является ли точка ЯКОРЕМ (есть в anchorPairs)
+
+            // 🔥 Проверяем, является ли точка ПОДТВЕРЖДЕННОЙ (есть в anchorPairs)
             const pairNumber = anchorPairs.get(point.id);
             const isAnchor = pairNumber !== undefined;
 
@@ -213,7 +198,7 @@ class ClusterVisualizer {
             let color, size;
 
             if (isAnchor) {
-                color = '#FF0000'; // 🔴 Красный - якорь
+                color = '#FF0000'; // 🔴 Красный - подтвержденная точка
                 size = 12;
                 anchorPoints++;
             } else if (confirmations >= 3) {
@@ -243,48 +228,38 @@ class ClusterVisualizer {
             ctx.lineWidth = 1.5;
             ctx.stroke();
 
-            // 🔥 РИСУЕМ НОМЕР ТОЛЬКО ДЛЯ ЯКОРЕЙ (1-12)
+            // 🔥 РИСУЕМ НОМЕР ДЛЯ ВСЕХ ПОДТВЕРЖДЕННЫХ ТОЧЕК
             if (isAnchor) {
                 ctx.fillStyle = '#000000';
                 ctx.font = 'bold 14px Arial';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-               
+
                 // Белый фон для номера (для читаемости)
                 ctx.fillStyle = '#FFFFFF';
                 ctx.fillRect(x - 12, y - size - 22, 24, 18);
-               
+
                 ctx.fillStyle = '#000000';
                 ctx.fillText(pairNumber.toString(), x, y - size - 12);
-               
-                if (this.config.debug) {
-                    console.log(`      Якорь ${pairNumber} на модели: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-                }
             }
         }
 
-        console.log(`   🎯 Модель: 🔴 ${anchorPoints} якорей, остальных: ${regularPoints}`);
+        console.log(`   🎯 Модель: 🔴 ${anchorPoints} подтвержденных, остальных: ${regularPoints}`);
     }
 
     drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
         console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
 
-        // 🔥 СОЗДАЁМ КАРТУ ТОЛЬКО ДЛЯ ЯКОРЕЙ (первые 12 пар)
+        // 🔥 ИСПРАВЛЕНО: Берем ВСЕ точки из matchMap, которые имеют pairNumber
         const anchorPairs = new Map();
-        let anchorCount = 0;
        
-        // Сортируем matchMap по pairNumber чтобы взять первые 12
-        const sortedMatches = Array.from(matchMap.entries())
-            .sort((a, b) => (a[1].pairNumber || 0) - (b[1].pairNumber || 0));
-       
-        for (const [photoId, match] of sortedMatches) {
-            if (match && match.pairNumber && anchorCount < 12) {
+        for (const [photoId, match] of matchMap) {
+            if (match && match.pairNumber) {
                 anchorPairs.set(photoId, match.pairNumber);
-                anchorCount++;
             }
         }
 
-        console.log(`   🎯 Якорей для отображения на ФОТО: ${anchorPairs.size}`);
+        console.log(`   🎯 Подтвержденных точек на ФОТО: ${anchorPairs.size}`);
 
         let anchorPoints = 0, matchedPoints = 0, unmatchedPoints = 0;
 
@@ -294,27 +269,27 @@ class ClusterVisualizer {
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
 
-            // 🔥 Проверяем, является ли точка ЯКОРЕМ
+            // 🔥 Проверяем, является ли точка ПОДТВЕРЖДЕННОЙ
             const pairNumber = anchorPairs.get(point.id);
             const isAnchor = pairNumber !== undefined;
            
-            // Проверяем, есть ли вообще пара (не обязательно якорь)
+            // Проверяем, есть ли вообще пара (не обязательно подтвержденная)
             const hasMatch = matchMap.has(point.id);
 
             // Цвет
             let color;
             if (isAnchor) {
-                color = '#FF0000'; // 🔴 Красный - якорь (совпадает с моделью)
+                color = '#FF0000'; // 🔴 Красный - подтвержденная точка
                 anchorPoints++;
             } else if (hasMatch) {
-                color = '#4CAF50'; // 🟢 Зелёный - есть пара, но не якорь
+                color = '#4CAF50'; // 🟢 Зелёный - есть пара, но не в этой итерации
                 matchedPoints++;
             } else {
                 color = '#FF9800'; // 🟠 Оранжевый - новая точка
                 unmatchedPoints++;
             }
 
-            // Размер (якоря чуть крупнее)
+            // Размер (подтвержденные чуть крупнее)
             const size = isAnchor ? 10 : 8;
 
             // Рисуем точку
@@ -326,27 +301,23 @@ class ClusterVisualizer {
             ctx.lineWidth = 1.5;
             ctx.stroke();
 
-            // 🔥 РИСУЕМ НОМЕР ТОЛЬКО ДЛЯ ЯКОРЕЙ (1-12)
+            // 🔥 РИСУЕМ НОМЕР ДЛЯ ВСЕХ ПОДТВЕРЖДЕННЫХ ТОЧЕК
             if (isAnchor) {
                 ctx.fillStyle = '#000000';
                 ctx.font = 'bold 12px Arial';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-               
+
                 // Белый фон для номера
                 ctx.fillStyle = '#FFFFFF';
                 ctx.fillRect(x - 10, y - size - 20, 20, 16);
-               
+
                 ctx.fillStyle = '#000000';
                 ctx.fillText(pairNumber.toString(), x, y - size - 10);
-               
-                if (this.config.debug) {
-                    console.log(`      Якорь ${pairNumber} на фото: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-                }
             }
         }
 
-        console.log(`   🎯 Фото: 🔴 ${anchorPoints} якорей, 🟢 ${matchedPoints} пар, 🟠 ${unmatchedPoints} новых`);
+        console.log(`   🎯 Фото: 🔴 ${anchorPoints} подтвержденных, 🟢 ${matchedPoints} прочих пар, 🟠 ${unmatchedPoints} новых`);
     }
 
     drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
@@ -394,8 +365,7 @@ class ClusterVisualizer {
             `Узлов: ${stats.totalNodes || 0}`,
             `Рёбер: ${stats.totalEdges || 0}`,
             `Средняя степень: ${stats.avgDegree?.toFixed(2) || '?'}`,
-            `🔴 Якорей (первые 12): 12`,
-            `🔴 3+ подтверждений: ${stats.confirmed3 || 0}`,
+            `🔴 Подтвержденных: ${stats.confirmed3 || 0}`,
             `🟡 2 подтверждения: ${stats.confirmed2 || 0}`,
             `🔵 1 подтверждение: ${stats.confirmed1 || 0}`,
             `⚪ 0 подтверждений: ${stats.confirmed0 || 0}`
@@ -415,8 +385,7 @@ class ClusterVisualizer {
 
         const rows = [
             `Узлов в фото: ${stats.totalNodes || 0}`,
-            `🔴 Якорей (первые 12): 12`,
-            `✅ Сопоставлено всего: ${matchedCount || 0}`,
+            `✅ Подтверждено: ${matchedCount || 0}`,
             `🟠 Новых: ${(stats.totalNodes || 0) - (matchedCount || 0)}`
         ];
 
@@ -470,7 +439,6 @@ class ClusterVisualizer {
             report += `• Название: ${topologyData.modelName || 'Неизвестная'}\n`;
             report += `• Узлов: ${topologyData.stats?.totalNodes || 0}\n`;
             report += `• Рёбер: ${topologyData.stats?.totalEdges || 0}\n`;
-            report += `• Якорей: 12\n`;
         }
 
         fs.writeFileSync(outputPath, report, 'utf8');
