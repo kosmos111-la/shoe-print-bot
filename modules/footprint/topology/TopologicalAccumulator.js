@@ -93,48 +93,98 @@ class TopologicalAccumulator {
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     async processPoints(points, options = {}) {
-        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
+    console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
 
-        const photoId = options.photoId || `photo_${Date.now()}`;
-        const contours = options.contours || [];
-        const modelIdHint = options.modelId;
+    const photoId = options.photoId || `photo_${Date.now()}`;
+    const contours = options.contours || [];
+    const modelIdHint = options.modelId;
 
-        // 1. Строим графы
-        const exactGraph = this.graphBuilder.buildGraph(points, options.source || 'photo');
-        const knnGraph = this.knnBuilder.buildGraph(points, options.source || 'photo_knn');
-        const morphologyMap = this.morphologyEncoder.encode(points, contours);
-        const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
+    // 1. Строим графы
+    const exactGraph = this.graphBuilder.buildGraph(points, options.source || 'photo');
+    const knnGraph = this.knnBuilder.buildGraph(points, options.source || 'photo_knn');
+    const morphologyMap = this.morphologyEncoder.encode(points, contours);
+    const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
 
-        // 🔥 2. Если есть существующая модель - пробуем быстрое сравнение
-        if (modelIdHint && this.models.has(modelIdHint)) {
-            const existingModel = this.models.get(modelIdHint);
+    // 🔥 2. Если есть существующая модель - пробуем быстрое сравнение
+    if (modelIdHint && this.models.has(modelIdHint)) {
+        const existingModel = this.models.get(modelIdHint);
+       
+        // Создаем временную модель из нового фото
+        const tempModel = {
+            graph: exactGraph,
+            morphologyMap: morphologyMap,
+            metadata: { name: 'temp' }
+        };
+       
+        const fastCompare = await this.compareByFeatures(tempModel, existingModel);
+       
+        if (fastCompare.sufficient) {
+            console.log(`\n✅ 4-Й ЭТАП: найдено ${fastCompare.count} якорей за ${fastCompare.time}ms`);
            
-            // Создаем временную модель из нового фото для сравнения
-            const tempModel = {
-                graph: exactGraph,
-                morphologyMap: morphologyMap,
-                metadata: { name: 'temp' }
+            // 2.1 Достраиваем остальные точки через RelativePositioning
+            const allMatches = await this.relativePositioning.positionPoints(
+                exactGraph,
+                existingModel.graph,
+                this.convertMatchesToMap(fastCompare.matches),
+                morphologyMap,
+                existingModel.morphologyMap
+            );
+           
+            // 2.2 Обновляем модель
+            const updateResult = this.updateModelWithMatches(
+                modelIdHint,
+                exactGraph,
+                allMatches,
+                this.convertMatchesToMap(fastCompare.matches),
+                morphologyMap
+            );
+           
+            // 2.3 Обновляем KNN-граф и подписи
+            existingModel.knnGraph = knnGraph;
+            existingModel.knnFingerprints = new Map([...existingModel.knnFingerprints, ...knnFingerprints]);
+            existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
+            existingModel.metadata.lastEnhanced = new Date();
+           
+            // 2.4 Создаем matchMap для визуализации
+            const matchMap = this.buildMatchMap(fastCompare.matches, allMatches);
+           
+            // 2.5 Очищаем неподтверждённые точки
+            const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
+            this.stats.totalNodesRemoved += cleanResult.removed;
+           
+            console.log(`\n📊 ИТОГ 4-ГО ЭТАПА:`);
+            console.log(`   • Якорей: ${fastCompare.count}`);
+            console.log(`   • Всего соответствий: ${allMatches.size}`);
+            console.log(`   • Новых точек добавлено: ${updateResult.newNodesAdded}`);
+            console.log(`   • Неподтверждённых в модели: ${existingModel.graph.nodes.size - allMatches.size}`);
+           
+            return {
+                status: 'enhanced_fast',
+                modelId: modelIdHint,
+                similarity: fastCompare.similarity,
+                centerMatches: fastCompare.count,
+                totalMatches: allMatches.size,
+                newNodesAdded: updateResult.newNodesAdded,
+                nodesRemoved: cleanResult.removed,
+                matchMap: matchMap,
+                message: `4-й этап: ${fastCompare.count} якорей, ${updateResult.newNodesAdded} новых точек`
             };
-           
-            const fastCompare = await this.compareByFeatures(tempModel, existingModel);
-           
-            if (fastCompare.sufficient) {
-                console.log(`\n✅ Быстрое сравнение дало ${fastCompare.count} якорей!`);
-                // TODO: можно сразу обновить модель, используя fastCompare.matches
-            }
+        } else {
+            console.log(`\n⚠️ 4-й этап дал только ${fastCompare.count} якорей - недостаточно`);
         }
+    }
 
         // Если это первое фото вообще - создаём первую модель
         if (this.models.size === 0) {
-            console.log(`🆕 Первое фото в сессии, создаю первую модель`);
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, options);
-            this.photoToModel.set(photoId, result.modelId);
-            return {
-                ...result,
-                isFirstModel: true,
-                totalModels: this.models.size
-            };
-        }
+        console.log(`🆕 Первое фото в сессии, создаю первую модель`);
+        const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, options);
+        this.photoToModel.set(photoId, result.modelId);
+        return {
+            ...result,
+            isFirstModel: true,
+            totalModels: this.models.size
+        };
+    }
 
         // Сравниваем со ВСЕМИ существующими моделями
         console.log(`\n🔍 Сравниваю с ${this.models.size} существующими моделями...`);
@@ -247,6 +297,51 @@ class TopologicalAccumulator {
         }
     }
 
+/**
+* Конвертирует matches из AdaptiveMatcher в формат Map для RelativePositioning
+*/
+convertMatchesToMap(matches) {
+    const map = new Map();
+    for (const match of matches) {
+        map.set(match.pointA, {
+            modelId: match.pointB,
+            confidence: match.score
+        });
+    }
+    return map;
+}
+
+/**
+* Строит matchMap для визуализации
+*/
+buildMatchMap(fastMatches, allMatches) {
+    const matchMap = new Map();
+    let pairNumber = 1;
+   
+    // Сначала якоря (с номерами)
+    for (const match of fastMatches) {
+        matchMap.set(match.pointA, {
+            modelId: match.pointB,
+            pairNumber: pairNumber++,
+            type: 'anchor',
+            confidence: match.score
+        });
+    }
+   
+    // Потом остальные (без номеров)
+    for (const [photoId, match] of allMatches) {
+        if (!matchMap.has(photoId)) {
+            matchMap.set(photoId, {
+                modelId: match.modelId,
+                type: 'regular',
+                confidence: match.confidence
+            });
+        }
+    }
+   
+    return matchMap;
+}
+  
     // ==================== НОВЫЙ МЕТОД: БЫСТРОЕ СРАВНЕНИЕ ПО ПРИЗНАКАМ ====================
 
     /**
@@ -1173,7 +1268,34 @@ extractFeaturesFromModel(model) {
             relativePositioning: this.relativePositioning.getStats()
         };
     }
-
+/**
+* Обновляет статистику модели после 4-го этапа
+*/
+updateModelStats(modelId, confirmedCount, newPointsCount) {
+    const model = this.models.get(modelId);
+    if (!model) return;
+   
+    // Обновляем счетчики подтверждений
+    for (const node of model.graph.nodes.values()) {
+        if (node.confirmationCount > 1) {
+            node.confirmed = true;
+        }
+    }
+   
+    // Логируем статистику
+    const totalPoints = model.graph.nodes.size;
+    const confirmed = Array.from(model.graph.nodes.values())
+        .filter(n => n.confirmationCount > 1).length;
+    const unconfirmed = totalPoints - confirmed;
+   
+    console.log(`\n📊 СТАТИСТИКА МОДЕЛИ ПОСЛЕ 4-ГО ЭТАПА:`);
+    console.log(`   • Всего точек: ${totalPoints}`);
+    console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmed}`);
+    console.log(`   • 🔵 Неподтвержденных (1 фото): ${unconfirmed}`);
+    console.log(`   • 🟡 Новых в этом фото: ${newPointsCount}`);
+   
+    return { confirmed, unconfirmed, newPoints: newPointsCount };
+}
     // ==================== ЭКСПОРТ/ИМПОРТ ====================
 
     exportModel(modelId) {
