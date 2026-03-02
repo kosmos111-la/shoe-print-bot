@@ -328,38 +328,33 @@ class TopologicalAccumulator {
     /**
      * Извлечение признаков из модели для быстрого сравнения
      */
-    extractFeaturesFromModel(model) {
+extractFeaturesFromModel(model) {
     const features = [];
     const graph = model.graph;
+    const morphologyMap = model.morphologyMap || new Map(); // ← ВАЖНО!
    
-    // 🔥 Берем ТОЛЬКО хабы и самые важные точки
-    const importantNodes = [];
+    console.log(`📊 Извлечение признаков из модели с ${graph.nodes.size} точками`);
+   
     for (const [nodeId, node] of graph.nodes) {
-        const role = this.getNodeRoleSimple(nodeId, graph);
-        // Только хабы и точки с высокой степенью
-        if (role === 'H' || node.degree >= 5) {
-            importantNodes.push({nodeId, node, role});
-        }
-    }
-   
-    // 🔥 Ограничиваем до 30 самых важных
-    importantNodes.sort((a, b) => b.node.degree - a.node.degree);
-    const topNodes = importantNodes.slice(0, 150);
-   
-    for (const {nodeId, node} of topNodes) {
+        const morph = morphologyMap.get(nodeId) || {}; // ← Берем морфологию!
+       
         features.push({
             id: nodeId,
             role: this.getNodeRoleSimple(nodeId, graph),
             degree: node.degree || 0,
             triangles: node.triangles || 0,
-            compactness: node.morphology?.compactness,
-            eccentricity: node.morphology?.eccentricity,
-            radialProfile: node.morphology?.radialProfile || [0,0,0,0],
+            // 🔥 РЕАЛЬНЫЕ ЗНАЧЕНИЯ ИЗ МОРФОЛОГИИ
+            compactness: morph.compactness,
+            eccentricity: morph.eccentricity,
+            radialProfile: morph.radialProfile,
             neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
         });
     }
    
-    console.log(`📊 Извлечено ${features.length} важных признаков`);
+    // Статистика для отладки
+    const withMorph = features.filter(f => f.compactness).length;
+    console.log(`   • Точек с морфологией: ${withMorph}/${features.length}`);
+   
     return features;
 }
 
