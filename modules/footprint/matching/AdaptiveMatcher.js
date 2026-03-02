@@ -155,51 +155,65 @@ class AdaptiveMatcher {
     /**
      * Создает ДЕТАЛЬНУЮ подпись точки (без потери точности)
      */
-    createDetailedSignature(point) {
-        const components = [];
-       
-        // 1. Роль (категориальный)
-        components.push(point.role || 'R');
-       
-        // 2. Компактность (с 2 знаками)
-        if (point.compactness) {
-            components.push(point.compactness.toFixed(2));
-        } else {
-            components.push('0.00');
-        }
-       
-        // 3. Эксцентриситет (с 3 знаками)
-        if (point.eccentricity) {
-            components.push(point.eccentricity.toFixed(3));
-        } else {
-            components.push('0.000');
-        }
-       
-        // 4. Радиальный профиль (с 2 знаками)
-        if (point.radialProfile && Array.isArray(point.radialProfile)) {
-            const profileStr = point.radialProfile.map(v => v.toFixed(2)).join(',');
-            components.push(profileStr);
-        } else {
-            components.push('0.00,0.00,0.00,0.00');
-        }
-       
-        // 5. Роли соседей (отсортированные)
-        if (point.neighborRoles) {
-            const sortedRoles = point.neighborRoles.split('').sort().join('');
-            components.push(sortedRoles);
-        } else {
-            components.push('');
-        }
-       
-        // 6. Степень
-        if (point.degree) {
-            components.push(point.degree.toString());
-        } else {
-            components.push('0');
-        }
-       
-        return components.join('|');
+createDetailedSignature(point) {
+    const components = [];
+
+    // 1. Роль (категориальный)
+    components.push(point.role || 'R');
+
+    // 2. Компактность (с 2 знаками)
+    if (point.compactness) {
+        components.push(point.compactness.toFixed(2));
+    } else {
+        components.push('0.00');
     }
+
+    // 3. Эксцентриситет (с 3 знаками)
+    if (point.eccentricity) {
+        components.push(point.eccentricity.toFixed(3));
+    } else {
+        components.push('0.000');
+    }
+
+    // 4. Радиальный профиль (с 2 знаками)
+    if (point.radialProfile && Array.isArray(point.radialProfile)) {
+        const profileStr = point.radialProfile.map(v => v.toFixed(2)).join(',');
+        components.push(profileStr);
+    } else {
+        components.push('0.00,0.00,0.00,0.00');
+    }
+
+    // 5. Роли соседей (отсортированные)
+    if (point.neighborRoles) {
+        const sortedRoles = point.neighborRoles.split('').sort().join('');
+        components.push(sortedRoles);
+    } else {
+        components.push('');
+    }
+
+    // 6. Степень
+    if (point.degree) {
+        components.push(`D${point.degree}`);  // ← ИСПРАВЛЕНО: добавляем D
+    } else {
+        components.push('D0');
+    }
+
+    // 🔥 НОВОЕ: треугольники
+    if (point.triangles) {
+        components.push(`T${point.triangles}`);  // ← ДОБАВЛЕНО
+    } else {
+        components.push('T0');
+    }
+
+    // 🔥 НОВОЕ: размер кластера (будет заполняться позже)
+    if (point.clusterSize) {
+        components.push(`C${point.clusterSize}`);  // ← ДОБАВЛЕНО
+    } else {
+        components.push('C1');
+    }
+
+    return components.join('|');
+}
 
     /**
      * Сопоставляет уникальные точки двух наборов
