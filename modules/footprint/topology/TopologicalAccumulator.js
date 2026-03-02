@@ -253,40 +253,77 @@ class TopologicalAccumulator {
      * Быстрое сравнение двух моделей по инвариантным признакам (4-й этап)
      */
     async compareByFeatures(model1, model2, options = {}) {
-        console.log(`\n🔍 Быстрое сравнение по инвариантным признакам...`);
+    console.log(`\n🔍 Быстрое сравнение по инвариантным признакам...`);
+   
+    // 🔥 ТАЙМАУТ: максимум 5 секунд на всё сравнение
+    const timeout = options.timeout || 5000; // 5 секунд
+   
+    return new Promise(async (resolve) => {
+        const timer = setTimeout(() => {
+            console.log(`⏰ Таймаут быстрого сравнения (${timeout}ms) - возвращаю пустой результат`);
+            resolve({
+                success: false,
+                matches: [],
+                count: 0,
+                sufficient: false,
+                timeout: true
+            });
+        }, timeout);
        
-        // Извлекаем признаки из моделей
-        const features1 = this.extractFeaturesFromModel(model1);
-        const features2 = this.extractFeaturesFromModel(model2);
-       
-        console.log(`📊 Признаков: ${features1.length} ↔ ${features2.length}`);
-       
-        // Создаем адаптивный матчер
-        const matcher = new AdaptiveMatcher({
-            debug: this.debug,
-            ...options
-        });
-       
-        // Ищем соответствия
-        const matches = matcher.findMatches(features1, features2);
-       
-        // Формируем результат
-        const result = {
-            success: true,
-            matches: matches,
-            stats: matcher.getStats(),
-            count: matches.length,
-            sufficient: matches.length >= 12,
-            similarity: matches.length / Math.min(features1.length, features2.length)
-        };
-       
-        console.log(`\n📊 РЕЗУЛЬТАТ БЫСТРОГО СРАВНЕНИЯ:`);
-        console.log(`   • Найдено соответствий: ${result.count}`);
-        console.log(`   • Достаточно для якорей: ${result.sufficient ? '✅' : '❌'}`);
-        console.log(`   • Конфликтов разрешено: ${matcher.getStats().conflictsResolved || 0}`);
-       
-        return result;
-    }
+        try {
+            // Извлекаем признаки из моделей
+            const features1 = this.extractFeaturesFromModel(model1);
+            const features2 = this.extractFeaturesFromModel(model2);
+           
+            console.log(`📊 Признаков: ${features1.length} ↔ ${features2.length}`);
+           
+            // Если признаков слишком много, ограничиваем
+            const maxFeatures = options.maxFeatures || 100;
+            const limited1 = features1.slice(0, maxFeatures);
+            const limited2 = features2.slice(0, maxFeatures);
+           
+            // Создаем адаптивный матчер
+            const matcher = new AdaptiveMatcher({
+                debug: this.debug,
+                ...options
+            });
+           
+            // Ищем соответствия (с внутренним таймаутом)
+            const matches = await Promise.race([
+                Promise.resolve(matcher.findMatches(limited1, limited2)),
+                new Promise(resolve => setTimeout(() => resolve([]), timeout - 1000))
+            ]);
+           
+            clearTimeout(timer);
+           
+            const result = {
+                success: true,
+                matches: matches || [],
+                stats: matcher.getStats(),
+                count: matches?.length || 0,
+                sufficient: (matches?.length || 0) >= 12,
+                similarity: (matches?.length || 0) / Math.min(features1.length, features2.length)
+            };
+           
+            console.log(`\n📊 РЕЗУЛЬТАТ БЫСТРОГО СРАВНЕНИЯ:`);
+            console.log(`   • Найдено соответствий: ${result.count}`);
+            console.log(`   • Достаточно для якорей: ${result.sufficient ? '✅' : '❌'}`);
+           
+            resolve(result);
+           
+        } catch (error) {
+            clearTimeout(timer);
+            console.log(`❌ Ошибка быстрого сравнения: ${error.message}`);
+            resolve({
+                success: false,
+                matches: [],
+                count: 0,
+                sufficient: false,
+                error: error.message
+            });
+        }
+    });
+}
 
     /**
      * Извлечение признаков из модели для быстрого сравнения
