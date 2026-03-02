@@ -345,18 +345,18 @@ if (bot && chatId) {
 }
           // 🔥 ФОРМИРУЕМ РЕЗУЛЬТАТ
             const result = {
-                success: true,
-                footprintId: session.id,
-                photoId: photoId,
-                nodesAdded: points.length,
-                totalPhotos: session.photos.length,
-                topologicalDecision: decision,
-                topologicalSimilarity: similarity,
-                hasTopology: this.config.enableTopology,
-                visualizationPath: vizPath,
-                telegramSent: telegramSent,
-                mode: 'sandbox' // 🔥 явно указываем режим
-            };
+    success: true,
+    footprintId: session.id,
+    photoId: photoId,
+    nodesAdded: points.length,
+    totalPhotos: session.photos.length,
+    topologicalDecision: decision,
+    topologicalSimilarity: similarity,
+    hasTopology: this.config.enableTopology,
+    visualizationPath: modelVizPath || photoVizPath || null, // ← ИСПРАВЛЕНО!
+    telegramSent: telegramSent,
+    mode: 'sandbox'
+};
 
             if (topologicalResult) {
                 result.topologicalResult = {
