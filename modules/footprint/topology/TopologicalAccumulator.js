@@ -344,7 +344,7 @@ class TopologicalAccumulator {
    
     // 🔥 Ограничиваем до 30 самых важных
     importantNodes.sort((a, b) => b.node.degree - a.node.degree);
-    const topNodes = importantNodes.slice(0, 30);
+    const topNodes = importantNodes.slice(0, 150);
    
     for (const {nodeId, node} of topNodes) {
         features.push({
