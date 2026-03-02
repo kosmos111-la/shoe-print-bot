@@ -1,9 +1,6 @@
 // modules/footprint/topology/TopologicalAccumulator.js
 // 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - ИСПРАВЛЕННАЯ ВЕРСИЯ
-// ✅ Все переменные объявлены
-// ✅ Все таблицы работают
-// ✅ Визуализация получает данные
-// ✅ Интегрирован AdaptiveMatcher (4-й этап)
+// ✅ 4-й этап полностью интегрирован
 
 const GraphBuilder = require('./GraphBuilder');
 const KNNGraphBuilder = require('./KNNGraphBuilder');
@@ -12,7 +9,7 @@ const MorphologyEncoder = require('./MorphologyEncoder');
 const CenterMatcher = require('./CenterMatcher');
 const RelativePositioning = require('./RelativePositioning');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
-const AdaptiveMatcher = require('../matching/AdaptiveMatcher'); // ← ДОБАВЛЕНО
+const AdaptiveMatcher = require('../matching/AdaptiveMatcher');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -81,6 +78,7 @@ class TopologicalAccumulator {
             totalNodesRemoved: 0,
             totalDuplicatesSkipped: 0,
             differentFootprintsDetected: 0,
+            fastMatchesCount: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
         };
@@ -93,98 +91,114 @@ class TopologicalAccumulator {
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     async processPoints(points, options = {}) {
-    console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
+        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
 
-    const photoId = options.photoId || `photo_${Date.now()}`;
-    const contours = options.contours || [];
-    const modelIdHint = options.modelId;
+        const photoId = options.photoId || `photo_${Date.now()}`;
+        const contours = options.contours || [];
+        const modelIdHint = options.modelId;
 
-    // 1. Строим графы
-    const exactGraph = this.graphBuilder.buildGraph(points, options.source || 'photo');
-    const knnGraph = this.knnBuilder.buildGraph(points, options.source || 'photo_knn');
-    const morphologyMap = this.morphologyEncoder.encode(points, contours);
-    const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
+        // 1. Строим графы
+        const exactGraph = this.graphBuilder.buildGraph(points, options.source || 'photo');
+        const knnGraph = this.knnBuilder.buildGraph(points, options.source || 'photo_knn');
+        const morphologyMap = this.morphologyEncoder.encode(points, contours);
+        const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
 
-    // 🔥 2. Если есть существующая модель - пробуем быстрое сравнение
-    if (modelIdHint && this.models.has(modelIdHint)) {
-        const existingModel = this.models.get(modelIdHint);
-       
-        // Создаем временную модель из нового фото
-        const tempModel = {
-            graph: exactGraph,
-            morphologyMap: morphologyMap,
-            metadata: { name: 'temp' }
-        };
-       
-        const fastCompare = await this.compareByFeatures(tempModel, existingModel);
-       
-        if (fastCompare.sufficient) {
-            console.log(`\n✅ 4-Й ЭТАП: найдено ${fastCompare.count} якорей за ${fastCompare.time}ms`);
+        // 🔥 2. Если есть существующая модель - пробуем быстрое сравнение
+        if (modelIdHint && this.models.has(modelIdHint)) {
+            const existingModel = this.models.get(modelIdHint);
            
-            // 2.1 Достраиваем остальные точки через RelativePositioning
-            const allMatches = await this.relativePositioning.positionPoints(
-                exactGraph,
-                existingModel.graph,
-                this.convertMatchesToMap(fastCompare.matches),
-                morphologyMap,
-                existingModel.morphologyMap
-            );
-           
-            // 2.2 Обновляем модель
-            const updateResult = this.updateModelWithMatches(
-                modelIdHint,
-                exactGraph,
-                allMatches,
-                this.convertMatchesToMap(fastCompare.matches),
-                morphologyMap
-            );
-           
-            // 2.3 Обновляем KNN-граф и подписи
-            existingModel.knnGraph = knnGraph;
-            existingModel.knnFingerprints = new Map([...existingModel.knnFingerprints, ...knnFingerprints]);
-            existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
-            existingModel.metadata.lastEnhanced = new Date();
-           
-            // 2.4 Создаем matchMap для визуализации
-            const matchMap = this.buildMatchMap(fastCompare.matches, allMatches);
-           
-            // 2.5 Очищаем неподтверждённые точки
-            const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
-            this.stats.totalNodesRemoved += cleanResult.removed;
-           
-            console.log(`\n📊 ИТОГ 4-ГО ЭТАПА:`);
-            console.log(`   • Якорей: ${fastCompare.count}`);
-            console.log(`   • Всего соответствий: ${allMatches.size}`);
-            console.log(`   • Новых точек добавлено: ${updateResult.newNodesAdded}`);
-            console.log(`   • Неподтверждённых в модели: ${existingModel.graph.nodes.size - allMatches.size}`);
-           
-            return {
-                status: 'enhanced_fast',
-                modelId: modelIdHint,
-                similarity: fastCompare.similarity,
-                centerMatches: fastCompare.count,
-                totalMatches: allMatches.size,
-                newNodesAdded: updateResult.newNodesAdded,
-                nodesRemoved: cleanResult.removed,
-                matchMap: matchMap,
-                message: `4-й этап: ${fastCompare.count} якорей, ${updateResult.newNodesAdded} новых точек`
+            // Создаем временную модель из нового фото
+            const tempModel = {
+                graph: exactGraph,
+                morphologyMap: morphologyMap,
+                metadata: { name: 'temp' }
             };
-        } else {
-            console.log(`\n⚠️ 4-й этап дал только ${fastCompare.count} якорей - недостаточно`);
+           
+            console.log(`\n🔍 БЫСТРОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
+            const fastCompare = await this.compareByFeatures(tempModel, existingModel);
+           
+            if (fastCompare.sufficient) {
+                console.log(`\n✅ 4-Й ЭТАП: найдено ${fastCompare.count} якорей за ${fastCompare.time || 0}ms`);
+               
+                // 2.1 Достраиваем остальные точки через RelativePositioning (с пониженным порогом)
+                console.log(`\n🧩 ДОСТРАИВАНИЕ остальных точек (порог 50%)...`);
+                const allMatches = await this.relativePositioning.positionPoints(
+                    exactGraph,
+                    existingModel.graph,
+                    this.convertMatchesToMap(fastCompare.matches),
+                    morphologyMap,
+                    existingModel.morphologyMap,
+                    { confidenceThreshold: 0.5 }  // понижаем порог для поиска остальных
+                );
+               
+                console.log(`   • Найдено соответствий: ${allMatches.size} (якорей: ${fastCompare.count})`);
+               
+                // 2.2 Обновляем модель
+                const updateResult = this.updateModelWithMatches(
+                    modelIdHint,
+                    exactGraph,
+                    allMatches,
+                    this.convertMatchesToMap(fastCompare.matches),
+                    morphologyMap
+                );
+               
+                // 2.3 Обновляем KNN-граф и подписи
+                existingModel.knnGraph = knnGraph;
+                existingModel.knnFingerprints = new Map([...existingModel.knnFingerprints, ...knnFingerprints]);
+                existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
+                existingModel.metadata.lastEnhanced = new Date();
+               
+                // 2.4 Создаем matchMap для визуализации (ВСЕ точки с номерами!)
+                const matchMap = this.buildCompleteMatchMap(allMatches);
+               
+                // 2.5 Очищаем неподтверждённые точки
+                const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
+                this.stats.totalNodesRemoved += cleanResult.removed;
+                this.stats.fastMatchesCount += fastCompare.count;
+               
+                // 2.6 Статистика
+                const confirmedInModel = allMatches.size;
+                const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
+                const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
+               
+                console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
+                console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
+                console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
+                console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
+                console.log(`   • Всего в модели теперь: ${existingModel.graph.nodes.size}`);
+               
+                this.photoToModel.set(photoId, modelIdHint);
+               
+                return {
+                    status: 'enhanced_fast',
+                    modelId: modelIdHint,
+                    similarity: fastCompare.similarity,
+                    centerMatches: fastCompare.count,
+                    totalMatches: allMatches.size,
+                    newNodesAdded: updateResult.newNodesAdded,
+                    nodesRemoved: cleanResult.removed,
+                    matchMap: matchMap,
+                    message: `4-й этап: ${fastCompare.count} якорей, +${updateResult.newNodesAdded} новых точек`
+                };
+            } else {
+                console.log(`\n⚠️ 4-й этап дал только ${fastCompare.count} якорей - недостаточно (нужно 12)`);
+            }
         }
-    }
 
         // Если это первое фото вообще - создаём первую модель
         if (this.models.size === 0) {
-        console.log(`🆕 Первое фото в сессии, создаю первую модель`);
-        const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, options);
-        this.photoToModel.set(photoId, result.modelId);
-        return {
-            ...result,
-            isFirstModel: true,
-            totalModels: this.models.size
-        };
-    }
+            console.log(`🆕 Первое фото в сессии, создаю первую модель`);
+            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, options);
+            this.photoToModel.set(photoId, result.modelId);
+            return {
+                ...result,
+                isFirstModel: true,
+                totalModels: this.models.size
+            };
+        }
+
+        // Если быстрый путь не сработал - идем по стандартному пути
+        console.log(`\n🔍 Быстрый путь не сработал, запускаю полный анализ...`);
 
         // Сравниваем со ВСЕМИ существующими моделями
         console.log(`\n🔍 Сравниваю с ${this.models.size} существующими моделями...`);
@@ -297,161 +311,81 @@ class TopologicalAccumulator {
         }
     }
 
-/**
-* Конвертирует matches из AdaptiveMatcher в формат Map для RelativePositioning
-*/
-convertMatchesToMap(matches) {
-    const map = new Map();
-    for (const match of matches) {
-        map.set(match.pointA, {
-            modelId: match.pointB,
-            confidence: match.score
-        });
-    }
-    return map;
-}
-
-/**
-* Строит matchMap для визуализации
-*/
-buildMatchMap(fastMatches, allMatches) {
-    const matchMap = new Map();
-    let pairNumber = 1;
-   
-    // Сначала якоря (с номерами)
-    for (const match of fastMatches) {
-        matchMap.set(match.pointA, {
-            modelId: match.pointB,
-            pairNumber: pairNumber++,
-            type: 'anchor',
-            confidence: match.score
-        });
-    }
-   
-    // Потом остальные (без номеров)
-    for (const [photoId, match] of allMatches) {
-        if (!matchMap.has(photoId)) {
-            matchMap.set(photoId, {
-                modelId: match.modelId,
-                type: 'regular',
-                confidence: match.confidence
-            });
-        }
-    }
-   
-    return matchMap;
-}
-  
     // ==================== НОВЫЙ МЕТОД: БЫСТРОЕ СРАВНЕНИЕ ПО ПРИЗНАКАМ ====================
 
     /**
      * Быстрое сравнение двух моделей по инвариантным признакам (4-й этап)
      */
     async compareByFeatures(model1, model2, options = {}) {
-    console.log(`\n🔍 Быстрое сравнение по инвариантным признакам...`);
-   
-    // 🔥 ТАЙМАУТ: максимум 5 секунд на всё сравнение
-    const timeout = options.timeout || 5000; // 5 секунд
-   
-    return new Promise(async (resolve) => {
-        const timer = setTimeout(() => {
-            console.log(`⏰ Таймаут быстрого сравнения (${timeout}ms) - возвращаю пустой результат`);
-            resolve({
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                timeout: true
-            });
-        }, timeout);
+        const startTime = Date.now();
+        console.log(`\n🔍 Быстрое сравнение по инвариантным признакам...`);
        
-        try {
-            // Извлекаем признаки из моделей
-            const features1 = this.extractFeaturesFromModel(model1);
-            const features2 = this.extractFeaturesFromModel(model2);
-           
-            console.log(`📊 Признаков: ${features1.length} ↔ ${features2.length}`);
-           
-            // Если признаков слишком много, ограничиваем
-            const maxFeatures = options.maxFeatures || 100;
-            const limited1 = features1.slice(0, maxFeatures);
-            const limited2 = features2.slice(0, maxFeatures);
-           
-            // Создаем адаптивный матчер
-            const matcher = new AdaptiveMatcher({
-                debug: this.debug,
-                ...options
-            });
-           
-            // Ищем соответствия (с внутренним таймаутом)
-            const matches = await Promise.race([
-                Promise.resolve(matcher.findMatches(limited1, limited2)),
-                new Promise(resolve => setTimeout(() => resolve([]), timeout - 1000))
-            ]);
-           
-            clearTimeout(timer);
-           
-            const result = {
-                success: true,
-                matches: matches || [],
-                stats: matcher.getStats(),
-                count: matches?.length || 0,
-                sufficient: (matches?.length || 0) >= 12,
-                similarity: (matches?.length || 0) / Math.min(features1.length, features2.length)
-            };
-           
-            console.log(`\n📊 РЕЗУЛЬТАТ БЫСТРОГО СРАВНЕНИЯ:`);
-            console.log(`   • Найдено соответствий: ${result.count}`);
-            console.log(`   • Достаточно для якорей: ${result.sufficient ? '✅' : '❌'}`);
-           
-            resolve(result);
-           
-        } catch (error) {
-            clearTimeout(timer);
-            console.log(`❌ Ошибка быстрого сравнения: ${error.message}`);
-            resolve({
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                error: error.message
-            });
-        }
-    });
-}
+        // Извлекаем признаки из моделей
+        const features1 = this.extractFeaturesFromModel(model1);
+        const features2 = this.extractFeaturesFromModel(model2);
+       
+        console.log(`📊 Признаков: ${features1.length} ↔ ${features2.length}`);
+       
+        // Создаем адаптивный матчер
+        const matcher = new AdaptiveMatcher({
+            debug: this.debug,
+            ...options
+        });
+       
+        // Ищем соответствия
+        const matches = matcher.findMatches(features1, features2);
+       
+        const result = {
+            success: true,
+            matches: matches,
+            stats: matcher.getStats(),
+            count: matches.length,
+            sufficient: matches.length >= 12,
+            similarity: matches.length / Math.min(features1.length, features2.length),
+            time: Date.now() - startTime
+        };
+       
+        console.log(`\n📊 РЕЗУЛЬТАТ БЫСТРОГО СРАВНЕНИЯ:`);
+        console.log(`   • Найдено соответствий: ${result.count}`);
+        console.log(`   • Достаточно для якорей: ${result.sufficient ? '✅' : '❌'}`);
+        console.log(`   • Время: ${result.time}ms`);
+       
+        return result;
+    }
 
     /**
      * Извлечение признаков из модели для быстрого сравнения
      */
-extractFeaturesFromModel(model) {
-    const features = [];
-    const graph = model.graph;
-    const morphologyMap = model.morphologyMap || new Map(); // ← ВАЖНО!
-   
-    console.log(`📊 Извлечение признаков из модели с ${graph.nodes.size} точками`);
-   
-    for (const [nodeId, node] of graph.nodes) {
-        const morph = morphologyMap.get(nodeId) || {}; // ← Берем морфологию!
+    extractFeaturesFromModel(model) {
+        const features = [];
+        const graph = model.graph;
+        const morphologyMap = model.morphologyMap || new Map();
        
-        features.push({
-            id: nodeId,
-            role: this.getNodeRoleSimple(nodeId, graph),
-            degree: node.degree || 0,
-            triangles: node.triangles || 0,
-            // 🔥 РЕАЛЬНЫЕ ЗНАЧЕНИЯ ИЗ МОРФОЛОГИИ
-            compactness: morph.compactness,
-            eccentricity: morph.eccentricity,
-            radialProfile: morph.radialProfile,
-            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
-        });
+        console.log(`📊 Извлечение признаков из модели с ${graph.nodes.size} точками`);
+       
+        for (const [nodeId, node] of graph.nodes) {
+            const morph = morphologyMap.get(nodeId) || {};
+           
+            features.push({
+                id: nodeId,
+                role: this.getNodeRoleSimple(nodeId, graph),
+                degree: node.degree || 0,
+                triangles: node.triangles || 0,
+                compactness: morph.compactness,
+                eccentricity: morph.eccentricity,
+                radialProfile: morph.radialProfile,
+                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
+                // Координаты для геометрии
+                x: node.x,
+                y: node.y
+            });
+        }
+       
+        const withMorph = features.filter(f => f.compactness).length;
+        console.log(`   • Точек с морфологией: ${withMorph}/${features.length}`);
+       
+        return features;
     }
-   
-    // Статистика для отладки
-    const withMorph = features.filter(f => f.compactness).length;
-    console.log(`   • Точек с морфологией: ${withMorph}/${features.length}`);
-   
-    return features;
-}
 
     /**
      * Упрощенное определение роли (для быстрого доступа)
@@ -481,7 +415,42 @@ extractFeaturesFromModel(model) {
         return roles.sort().join('');
     }
 
-    // ==================== УЛУЧШЕНИЕ СУЩЕСТВУЮЩЕЙ МОДЕЛИ ====================
+    /**
+     * Конвертирует matches из AdaptiveMatcher в формат Map для RelativePositioning
+     */
+    convertMatchesToMap(matches) {
+        const map = new Map();
+        for (const match of matches) {
+            map.set(match.pointA, {
+                modelId: match.pointB,
+                confidence: match.score
+            });
+        }
+        return map;
+    }
+
+    /**
+     * Строит matchMap для визуализации - ВСЕ точки получают номера!
+     */
+    buildCompleteMatchMap(allMatches) {
+        const matchMap = new Map();
+        let pairNumber = 1;
+       
+        // ВСЕ подтвержденные пары получают номера
+        for (const [photoId, match] of allMatches) {
+            matchMap.set(photoId, {
+                modelId: match.modelId,
+                pairNumber: pairNumber++,  // теперь у всех есть номер
+                type: 'confirmed',
+                confidence: match.confidence
+            });
+        }
+       
+        console.log(`📋 Создан matchMap: ${matchMap.size} пар с номерами`);
+        return matchMap;
+    }
+
+    // ==================== ОСТАЛЬНЫЕ МЕТОДЫ (БЕЗ ИЗМЕНЕНИЙ) ====================
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
         const model = this.models.get(modelId);
@@ -503,14 +472,12 @@ extractFeaturesFromModel(model) {
 
         console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК (ЯКОРЯ)`);
 
-        // 🔥 ВАЖНО: ОБЪЯВЛЯЕМ ВСЕ ПЕРЕМЕННЫЕ ЗДЕСЬ, ДО БЛОКА IF
         let allMatches = new Map();
         let stabilizedMatches = new Map();
         let finalMatches = new Map([...centerMatches]);
         let newNodesAdded = 0;
 
         if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
-            // RelativePositioning для достраивания остальных точек
             console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
 
             allMatches = this.relativePositioning.positionPoints(
@@ -529,21 +496,11 @@ extractFeaturesFromModel(model) {
                 model.morphologyMap
             );
 
-            // Объединяем все найденные соответствия
             finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
 
-            // 🔥 СТАРАЯ ТАБЛИЦА (для совместимости)
             this.printFinalTable(newExactGraph, model.graph, finalMatches);
+            this.printDetailedTables(newExactGraph, model.graph, centerMatches, finalMatches);
 
-            // 🔥 НОВАЯ ДЕТАЛЬНАЯ ТАБЛИЦА
-            this.printDetailedTables(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                finalMatches
-            );
-
-            // Обновляем модель
             const updateResult = this.updateModelWithMatches(
                 modelId,
                 newExactGraph,
@@ -554,12 +511,10 @@ extractFeaturesFromModel(model) {
             newNodesAdded = updateResult.newNodesAdded;
         } else {
             console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size}) для полного анализа`);
-            // Всё равно выводим то, что есть
             this.printFinalTable(newExactGraph, model.graph, finalMatches);
             this.printDetailedTables(newExactGraph, model.graph, centerMatches, finalMatches);
         }
 
-        // Обновляем KNN-граф и подписи
         model.knnGraph = newKNNGraph;
         model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
         model.metadata.photoCount = (model.metadata.photoCount || 0) + 1;
@@ -577,13 +532,11 @@ extractFeaturesFromModel(model) {
         this.stats.totalEnhancements++;
         this.stats.lastUpdated = new Date();
 
-        // 🔥 СОЗДАЁМ matchMap ДЛЯ ВИЗУАЛИЗАЦИИ
         const matchMap = new Map();
         let pairNumber = 1;
 
         console.log(`\n📋 ФОРМИРОВАНИЕ MATCHMAP:`);
 
-        // Сначала якоря (CenterMatcher) - им даём номера 1-12
         for (const [photoId, match] of centerMatches) {
             if (match && match.confidence >= 0.7) {
                 matchMap.set(photoId, {
@@ -595,7 +548,6 @@ extractFeaturesFromModel(model) {
             }
         }
 
-        // Потом остальные точки (RelativePositioning) - им номера не даём
         for (const [photoId, match] of allMatches) {
             if (!centerMatches.has(photoId) && match && match.confidence >= 0.7) {
                 matchMap.set(photoId, {
@@ -616,7 +568,6 @@ extractFeaturesFromModel(model) {
 
         console.log(`\n📊 ИТОГО: ${centerMatches.size} якорей, ${matchMap.size - centerMatches.size} дополнительных точек`);
 
-        // Очищаем неподтверждённые точки
         const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
         this.stats.totalNodesRemoved += cleanResult.removed;
 
@@ -625,11 +576,9 @@ extractFeaturesFromModel(model) {
             totalMatches: finalMatches.size,
             newNodesAdded,
             nodesRemoved: cleanResult.removed,
-            matchMap // 🔥 matchMap передаётся для визуализации
+            matchMap
         };
     }
-
-    // ==================== СТАРАЯ ТАБЛИЦА ====================
 
     printFinalTable(newGraph, modelGraph, matches) {
         console.log(`\n📋 ИТОГОВАЯ ТАБЛИЦА СОПОСТАВЛЕНИЯ ВСЕХ ТОЧЕК:`);
@@ -659,14 +608,11 @@ extractFeaturesFromModel(model) {
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
     }
 
-    // ==================== НОВАЯ ДЕТАЛЬНАЯ ТАБЛИЦА ====================
-
     printDetailedTables(newGraph, modelGraph, centerMatches, allMatches) {
         console.log(`\n${'='.repeat(120)}`);
         console.log(`📊 ДЕТАЛЬНЫЕ ТАБЛИЦЫ СООТВЕТСТВИЙ`);
         console.log(`${'='.repeat(120)}`);
 
-        // 🔴 ТАБЛИЦА 1: ТОЛЬКО ЯКОРЯ (CenterMatcher)
         console.log(`\n🔴 ЯКОРЯ (CenterMatcher) - ${centerMatches.size} абсолютно надёжных точек:`);
         console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
         console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
@@ -692,7 +638,6 @@ extractFeaturesFromModel(model) {
         }
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
 
-        // 🟢 ТАБЛИЦА 2: ВСЕ СОПОСТАВЛЕНИЯ
         console.log(`\n🟢 ВСЕ СОПОСТАВЛЕНИЯ - ${allMatches.size} точек:`);
         console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
         console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
@@ -718,7 +663,6 @@ extractFeaturesFromModel(model) {
         }
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
 
-        // 📐 ТАБЛИЦА 3: АНАЛИЗ ПРЕОБРАЗОВАНИЯ
         console.log(`\n📐 АНАЛИЗ ПРЕОБРАЗОВАНИЯ (первые ${Math.min(10, centerMatches.size)} якорей):`);
         console.log(`┌─────┬────────────┬────────────┬────────────┬────────────┬───────────┐`);
         console.log(`│  #  │  МОДЕЛЬ X  │  МОДЕЛЬ Y  │   ФОТО X   │   ФОТО Y   │  ΔX | ΔY  │`);
@@ -748,7 +692,6 @@ extractFeaturesFromModel(model) {
         }
         console.log(`└─────┴────────────┴────────────┴────────────┴────────────┴───────────┘`);
 
-        // 💡 ВЫВОД
         if (centerMatches.size >= 3) {
             console.log(`\n💡 АНАЛИЗ:`);
             console.log(`   • Якорей найдено: ${centerMatches.size}`);
@@ -756,8 +699,6 @@ extractFeaturesFromModel(model) {
             console.log(`   • Доля якорей: ${((centerMatches.size/allMatches.size)*100).toFixed(1)}%`);
         }
     }
-
-    // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
     updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology) {
         const model = this.models.get(modelId);
@@ -768,7 +709,6 @@ extractFeaturesFromModel(model) {
         const matchedPhotoIds = new Set();
         const matchedModelIds = new Set();
 
-        // Подтверждаем существующие точки
         for (const [photoId, match] of matches) {
             const modelNode = model.graph.nodes.get(match.modelId);
             if (modelNode) {
@@ -781,7 +721,6 @@ extractFeaturesFromModel(model) {
             }
         }
 
-        // Добавляем новые точки с проверкой на дубликаты
         for (const [photoId, photoNode] of newGraph.nodes) {
             if (matchedPhotoIds.has(photoId)) continue;
 
@@ -966,8 +905,6 @@ extractFeaturesFromModel(model) {
         };
     }
 
-    // ==================== ИНВАРИАНТНАЯ ПРОВЕРКА ДУБЛИКАТОВ ====================
-
     isDuplicate(newNode, modelGraph, morphologyMap) {
         if (modelGraph.nodes.size === 0) return false;
 
@@ -1025,8 +962,6 @@ extractFeaturesFromModel(model) {
         }
         return neighbors;
     }
-
-    // ==================== ОЧИСТКА НЕПОДТВЕРЖДЁННЫХ ТОЧЕК ====================
 
     cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
         const model = this.models.get(modelId);
@@ -1101,8 +1036,6 @@ extractFeaturesFromModel(model) {
         }
     }
 
-    // ==================== ВЫЧИСЛЕНИЕ ТРЕУГОЛЬНИКОВ ====================
-
     computeTriangles(graph) {
         if (!graph || !graph.nodes || !graph.edges) return [];
 
@@ -1130,8 +1063,6 @@ extractFeaturesFromModel(model) {
 
         return triangles;
     }
-
-    // ==================== ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ ====================
 
     getVisualizationData(modelId = null, reliablePhotoIds = []) {
         const targetId = modelId || this.currentModelId;
@@ -1211,8 +1142,6 @@ extractFeaturesFromModel(model) {
         };
     }
 
-    // ==================== ИНФОРМАЦИЯ О МОДЕЛИ ====================
-
     getModelInfo(modelId = null) {
         const targetId = modelId || this.currentModelId;
         if (!targetId || !this.models.has(targetId)) return { error: 'Model not found' };
@@ -1255,8 +1184,6 @@ extractFeaturesFromModel(model) {
         };
     }
 
-    // ==================== СТАТИСТИКА ====================
-
     getStats() {
         return {
             system: this.stats,
@@ -1268,35 +1195,6 @@ extractFeaturesFromModel(model) {
             relativePositioning: this.relativePositioning.getStats()
         };
     }
-/**
-* Обновляет статистику модели после 4-го этапа
-*/
-updateModelStats(modelId, confirmedCount, newPointsCount) {
-    const model = this.models.get(modelId);
-    if (!model) return;
-   
-    // Обновляем счетчики подтверждений
-    for (const node of model.graph.nodes.values()) {
-        if (node.confirmationCount > 1) {
-            node.confirmed = true;
-        }
-    }
-   
-    // Логируем статистику
-    const totalPoints = model.graph.nodes.size;
-    const confirmed = Array.from(model.graph.nodes.values())
-        .filter(n => n.confirmationCount > 1).length;
-    const unconfirmed = totalPoints - confirmed;
-   
-    console.log(`\n📊 СТАТИСТИКА МОДЕЛИ ПОСЛЕ 4-ГО ЭТАПА:`);
-    console.log(`   • Всего точек: ${totalPoints}`);
-    console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmed}`);
-    console.log(`   • 🔵 Неподтвержденных (1 фото): ${unconfirmed}`);
-    console.log(`   • 🟡 Новых в этом фото: ${newPointsCount}`);
-   
-    return { confirmed, unconfirmed, newPoints: newPointsCount };
-}
-    // ==================== ЭКСПОРТ/ИМПОРТ ====================
 
     exportModel(modelId) {
         const model = this.models.get(modelId);
@@ -1353,8 +1251,6 @@ updateModelStats(modelId, confirmedCount, newPointsCount) {
         }
     }
 
-    // ==================== ОЧИСТКА ====================
-
     clear() {
         this.models.clear();
         this.currentModelId = null;
@@ -1375,6 +1271,7 @@ updateModelStats(modelId, confirmedCount, newPointsCount) {
             totalNodesRemoved: 0,
             totalDuplicatesSkipped: 0,
             differentFootprintsDetected: 0,
+            fastMatchesCount: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
         };
