@@ -329,28 +329,39 @@ class TopologicalAccumulator {
      * Извлечение признаков из модели для быстрого сравнения
      */
     extractFeaturesFromModel(model) {
-        const features = [];
-        const graph = model.graph;
-       
-        for (const [nodeId, node] of graph.nodes) {
-            // Собираем все инвариантные признаки
-            features.push({
-                id: nodeId,
-                role: this.getNodeRoleSimple(nodeId, graph),
-                degree: node.degree || 0,
-                triangles: node.triangles || 0,
-                compactness: node.morphology?.compactness,
-                eccentricity: node.morphology?.eccentricity,
-                radialProfile: node.morphology?.radialProfile || [0,0,0,0],
-                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
-                // Координаты для геометрии (но не для сравнения)
-                x: node.x,
-                y: node.y
-            });
+    const features = [];
+    const graph = model.graph;
+   
+    // 🔥 Берем ТОЛЬКО хабы и самые важные точки
+    const importantNodes = [];
+    for (const [nodeId, node] of graph.nodes) {
+        const role = this.getNodeRoleSimple(nodeId, graph);
+        // Только хабы и точки с высокой степенью
+        if (role === 'H' || node.degree >= 5) {
+            importantNodes.push({nodeId, node, role});
         }
-       
-        return features;
     }
+   
+    // 🔥 Ограничиваем до 30 самых важных
+    importantNodes.sort((a, b) => b.node.degree - a.node.degree);
+    const topNodes = importantNodes.slice(0, 30);
+   
+    for (const {nodeId, node} of topNodes) {
+        features.push({
+            id: nodeId,
+            role: this.getNodeRoleSimple(nodeId, graph),
+            degree: node.degree || 0,
+            triangles: node.triangles || 0,
+            compactness: node.morphology?.compactness,
+            eccentricity: node.morphology?.eccentricity,
+            radialProfile: node.morphology?.radialProfile || [0,0,0,0],
+            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
+        });
+    }
+   
+    console.log(`📊 Извлечено ${features.length} важных признаков`);
+    return features;
+}
 
     /**
      * Упрощенное определение роли (для быстрого доступа)
