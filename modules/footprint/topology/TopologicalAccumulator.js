@@ -3,6 +3,7 @@
 // ✅ Все переменные объявлены
 // ✅ Все таблицы работают
 // ✅ Визуализация получает данные
+// ✅ Интегрирован AdaptiveMatcher (4-й этап)
 
 const GraphBuilder = require('./GraphBuilder');
 const KNNGraphBuilder = require('./KNNGraphBuilder');
@@ -11,6 +12,7 @@ const MorphologyEncoder = require('./MorphologyEncoder');
 const CenterMatcher = require('./CenterMatcher');
 const RelativePositioning = require('./RelativePositioning');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
+const AdaptiveMatcher = require('./matching/AdaptiveMatcher'); // ← ДОБАВЛЕНО
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -103,6 +105,25 @@ class TopologicalAccumulator {
         const morphologyMap = this.morphologyEncoder.encode(points, contours);
         const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
 
+        // 🔥 2. Если есть существующая модель - пробуем быстрое сравнение
+        if (modelIdHint && this.models.has(modelIdHint)) {
+            const existingModel = this.models.get(modelIdHint);
+           
+            // Создаем временную модель из нового фото для сравнения
+            const tempModel = {
+                graph: exactGraph,
+                morphologyMap: morphologyMap,
+                metadata: { name: 'temp' }
+            };
+           
+            const fastCompare = await this.compareByFeatures(tempModel, existingModel);
+           
+            if (fastCompare.sufficient) {
+                console.log(`\n✅ Быстрое сравнение дало ${fastCompare.count} якорей!`);
+                // TODO: можно сразу обновить модель, используя fastCompare.matches
+            }
+        }
+
         // Если это первое фото вообще - создаём первую модель
         if (this.models.size === 0) {
             console.log(`🆕 Первое фото в сессии, создаю первую модель`);
@@ -117,19 +138,19 @@ class TopologicalAccumulator {
 
         // Сравниваем со ВСЕМИ существующими моделями
         console.log(`\n🔍 Сравниваю с ${this.models.size} существующими моделями...`);
-       
+
         const comparisons = [];
-       
+
         for (const [modelId, model] of this.models) {
             console.log(`   Проверяю модель ${modelId.slice(0, 12)}...`);
-           
+
             const comparison = this.fingerprinter.compareGraphs(
                 model.knnGraph,
                 model.knnFingerprints,
                 knnGraph,
                 knnFingerprints
             );
-           
+
             comparisons.push({
                 modelId,
                 similarity: comparison.similarity,
@@ -149,9 +170,9 @@ class TopologicalAccumulator {
         // Если сходство выше порога - улучшаем существующую модель
         if (bestMatch.similarity >= this.similarityThreshold) {
             console.log(`\n✅ СОВПАДЕНИЕ! Улучшаю модель ${bestMatch.modelId.slice(0, 12)}...`);
-           
+
             this.switchToModel(bestMatch.modelId);
-           
+
             if (!this.fastMode) {
                 const enhancedResult = await this.enhanceExistingModel(
                     bestMatch.modelId,
@@ -161,9 +182,9 @@ class TopologicalAccumulator {
                     morphologyMap,
                     options
                 );
-               
+
                 this.photoToModel.set(photoId, bestMatch.modelId);
-               
+
                 return {
                     status: 'enhanced',
                     modelId: bestMatch.modelId,
@@ -174,7 +195,7 @@ class TopologicalAccumulator {
                 };
             } else {
                 this.photoToModel.set(photoId, bestMatch.modelId);
-               
+
                 return {
                     status: 'matched_fast',
                     modelId: bestMatch.modelId,
@@ -191,29 +212,29 @@ class TopologicalAccumulator {
         else {
             console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
             console.log(`🆕 Создаю НОВУЮ модель для другого следа...`);
-           
+
             const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
                 ...options,
                 comparedWith: bestMatch.modelId,
                 reason: 'different_footprint'
             });
-           
+
             this.modelRelations.set(result.modelId, {
                 related: [bestMatch.modelId],
                 type: 'different',
                 similarity: bestMatch.similarity
             });
-           
+
             const existingRel = this.modelRelations.get(bestMatch.modelId);
             this.modelRelations.set(bestMatch.modelId, {
                 related: [...(existingRel?.related || []), result.modelId],
                 type: 'different',
                 similarity: bestMatch.similarity
             });
-           
+
             this.photoToModel.set(photoId, result.modelId);
             this.stats.differentFootprintsDetected++;
-           
+
             return {
                 status: 'created_new',
                 modelId: result.modelId,
@@ -224,6 +245,102 @@ class TopologicalAccumulator {
                 message: `Обнаружен ДРУГОЙ след! Создана новая модель.`
             };
         }
+    }
+
+    // ==================== НОВЫЙ МЕТОД: БЫСТРОЕ СРАВНЕНИЕ ПО ПРИЗНАКАМ ====================
+
+    /**
+     * Быстрое сравнение двух моделей по инвариантным признакам (4-й этап)
+     */
+    async compareByFeatures(model1, model2, options = {}) {
+        console.log(`\n🔍 Быстрое сравнение по инвариантным признакам...`);
+       
+        // Извлекаем признаки из моделей
+        const features1 = this.extractFeaturesFromModel(model1);
+        const features2 = this.extractFeaturesFromModel(model2);
+       
+        console.log(`📊 Признаков: ${features1.length} ↔ ${features2.length}`);
+       
+        // Создаем адаптивный матчер
+        const matcher = new AdaptiveMatcher({
+            debug: this.debug,
+            ...options
+        });
+       
+        // Ищем соответствия
+        const matches = matcher.findMatches(features1, features2);
+       
+        // Формируем результат
+        const result = {
+            success: true,
+            matches: matches,
+            stats: matcher.getStats(),
+            count: matches.length,
+            sufficient: matches.length >= 12,
+            similarity: matches.length / Math.min(features1.length, features2.length)
+        };
+       
+        console.log(`\n📊 РЕЗУЛЬТАТ БЫСТРОГО СРАВНЕНИЯ:`);
+        console.log(`   • Найдено соответствий: ${result.count}`);
+        console.log(`   • Достаточно для якорей: ${result.sufficient ? '✅' : '❌'}`);
+        console.log(`   • Конфликтов разрешено: ${matcher.getStats().conflictsResolved || 0}`);
+       
+        return result;
+    }
+
+    /**
+     * Извлечение признаков из модели для быстрого сравнения
+     */
+    extractFeaturesFromModel(model) {
+        const features = [];
+        const graph = model.graph;
+       
+        for (const [nodeId, node] of graph.nodes) {
+            // Собираем все инвариантные признаки
+            features.push({
+                id: nodeId,
+                role: this.getNodeRoleSimple(nodeId, graph),
+                degree: node.degree || 0,
+                triangles: node.triangles || 0,
+                compactness: node.morphology?.compactness,
+                eccentricity: node.morphology?.eccentricity,
+                radialProfile: node.morphology?.radialProfile || [0,0,0,0],
+                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
+                // Координаты для геометрии (но не для сравнения)
+                x: node.x,
+                y: node.y
+            });
+        }
+       
+        return features;
+    }
+
+    /**
+     * Упрощенное определение роли (для быстрого доступа)
+     */
+    getNodeRoleSimple(nodeId, graph) {
+        const node = graph.nodes.get(nodeId);
+        if (!node) return 'R';
+       
+        const degree = node.degree || 0;
+        if (degree >= 6) return 'H';
+        if (degree === 1) return 'L';
+        return 'R';
+    }
+
+    /**
+     * Получить строку ролей соседей
+     */
+    getNeighborRolesForPoint(nodeId, graph) {
+        const neighbors = this.findNodeNeighbors(nodeId, graph);
+        const roles = [];
+       
+        for (const neighbor of neighbors) {
+            const role = this.getNodeRoleSimple(neighbor.id, graph);
+            roles.push(role);
+        }
+       
+        return roles.sort().join('');
     }
 
     // ==================== УЛУЧШЕНИЕ СУЩЕСТВУЮЩЕЙ МОДЕЛИ ====================
@@ -257,7 +374,7 @@ class TopologicalAccumulator {
         if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
             // RelativePositioning для достраивания остальных точек
             console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
-           
+
             allMatches = this.relativePositioning.positionPoints(
                 newExactGraph,
                 model.graph,
@@ -279,7 +396,7 @@ class TopologicalAccumulator {
 
             // 🔥 СТАРАЯ ТАБЛИЦА (для совместимости)
             this.printFinalTable(newExactGraph, model.graph, finalMatches);
-           
+
             // 🔥 НОВАЯ ДЕТАЛЬНАЯ ТАБЛИЦА
             this.printDetailedTables(
                 newExactGraph,
@@ -325,9 +442,9 @@ class TopologicalAccumulator {
         // 🔥 СОЗДАЁМ matchMap ДЛЯ ВИЗУАЛИЗАЦИИ
         const matchMap = new Map();
         let pairNumber = 1;
-       
+
         console.log(`\n📋 ФОРМИРОВАНИЕ MATCHMAP:`);
-       
+
         // Сначала якоря (CenterMatcher) - им даём номера 1-12
         for (const [photoId, match] of centerMatches) {
             if (match && match.confidence >= 0.7) {
@@ -339,7 +456,7 @@ class TopologicalAccumulator {
                 console.log(`   🔴 Якорь ${pairNumber-1}: ${photoId.slice(0,12)}... ↔ ${match.modelId.slice(0,12)}...`);
             }
         }
-       
+
         // Потом остальные точки (RelativePositioning) - им номера не даём
         for (const [photoId, match] of allMatches) {
             if (!centerMatches.has(photoId) && match && match.confidence >= 0.7) {
@@ -349,7 +466,7 @@ class TopologicalAccumulator {
                 });
             }
         }
-       
+
         for (const [photoId, match] of stabilizedMatches) {
             if (!centerMatches.has(photoId) && !allMatches.has(photoId) && match && match.confidence >= 0.7) {
                 matchMap.set(photoId, {
@@ -481,7 +598,7 @@ class TopologicalAccumulator {
             transformCount++;
             const dx = photoNode.x - modelNode.x;
             const dy = photoNode.y - modelNode.y;
-           
+
             console.log(
                 `│ ${transformCount.toString().padEnd(3)} │ ` +
                 `${modelNode.x.toFixed(1).padStart(10)} │ ` +
@@ -728,9 +845,9 @@ class TopologicalAccumulator {
 
             if (compactnessDiff < this.duplicateCompactnessThreshold &&
                 areaDiff < this.duplicateAreaThreshold) {
-               
+
                 const graphDist = this.graphDistance(newNode.id, existingId, modelGraph);
-               
+
                 if (graphDist <= this.duplicateGraphDistance) {
                     return true;
                 }
@@ -741,17 +858,17 @@ class TopologicalAccumulator {
 
     graphDistance(nodeA, nodeB, graph) {
         if (nodeA === nodeB) return 0;
-       
+
         const queue = [{id: nodeA, dist: 0}];
         const visited = new Set([nodeA]);
-       
+
         while (queue.length > 0) {
             const {id, dist} = queue.shift();
-           
+
             const neighbors = this.findNodeNeighbors(id, graph);
             for (const neighbor of neighbors) {
                 if (neighbor.id === nodeB) return dist + 1;
-               
+
                 if (!visited.has(neighbor.id)) {
                     visited.add(neighbor.id);
                     queue.push({id: neighbor.id, dist: dist + 1});
@@ -1062,7 +1179,7 @@ class TopologicalAccumulator {
 
             this.models.set(modelId, model);
             this.stats.totalModels++;
-           
+
             console.log(`📥 Импортирована модель ${modelId.slice(0, 12)}...`);
             return true;
         } catch (error) {
@@ -1078,7 +1195,7 @@ class TopologicalAccumulator {
         this.currentModelId = null;
         this.modelRelations.clear();
         this.photoToModel.clear();
-       
+
         this.fingerprinter.clearCache();
         this.localGroupSignature.clearCache();
         this.morphologyEncoder.clearCache();
