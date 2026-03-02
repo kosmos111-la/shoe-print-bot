@@ -34,46 +34,55 @@ class AdaptiveMatcher {
     /**
      * ОСНОВНОЙ МЕТОД: найти соответствия между двумя наборами точек
      */
-    findMatches(pointsA, pointsB) {
-        console.log(`\n🔍 Адаптивный поиск соответствий: ${pointsA.length} ↔ ${pointsB.length}`);
-        
-        const matches = [];
-        const usedB = new Set();
-        
-        // Сортируем точки по важности (сначала хабы)
-        const sortedA = this.sortByImportance(pointsA);
-        
-        for (const pointA of sortedA) {
-            // Находим кандидатов в B
-            const candidates = this.findCandidates(pointA, pointsB, usedB);
-            
-            // Адаптивный подбор порога
-            const bestMatch = this.findBestMatchWithAdaptiveThreshold(pointA, candidates);
-            
-            if (bestMatch) {
-                matches.push({
-                    pointA: pointA.id,
-                    pointB: bestMatch.id,
-                    score: bestMatch.score,
-                    confidence: this.calculateConfidence(pointA, bestMatch)
-                });
-                usedB.add(bestMatch.id);
-                
-                if (this.debug) {
-                    console.log(`   ✅ ${pointA.id.slice(0,12)} ↔ ${bestMatch.id.slice(0,12)} (${(bestMatch.score*100).toFixed(1)}%)`);
-                }
-            }
-        }
-        
-        // Проверка на конфликты (обратная уникальность)
-        const validated = this.validateMatches(matches, pointsA, pointsB);
-        
-        console.log(`\n📊 ИТОГ: найдено ${validated.length} соответствий`);
-        console.log(`   • Конфликтов разрешено: ${this.stats.conflictsResolved}`);
-        console.log(`   • Средняя уверенность: ${this.calculateAvgConfidence(validated)}%`);
-        
-        return validated;
-    }
+findMatches(pointsA, pointsB) {
+    console.log(`\n🔍 Адаптивный поиск соответствий: ${pointsA.length} ↔ ${pointsB.length}`);
+   
+    // 🔥 Если слишком много точек, ограничиваем
+    if (pointsA.length > 50 || pointsB.length > 50) {
+        console.log(`⚠️ Слишком много точек, ограничиваю до 50`);
+        pointsA = pointsA.slice(0, 50);
+        pointsB = pointsB.slice(0, 50);
+    }
+   
+    const matches = [];
+    const usedB = new Set();
+   
+    // Сортируем точки по важности (сначала хабы)
+    const sortedA = this.sortByImportance(pointsA);
+   
+    // 🔥 Ограничиваем количество итераций
+    const maxIterations = Math.min(sortedA.length, 30);
+   
+    for (let i = 0; i < maxIterations; i++) {
+        const pointA = sortedA[i];
+       
+        // Находим кандидатов в B
+        const candidates = this.findCandidates(pointA, pointsB, usedB);
+       
+        // Адаптивный подбор порога
+        const bestMatch = this.findBestMatchWithAdaptiveThreshold(pointA, candidates);
+       
+        if (bestMatch) {
+            matches.push({
+                pointA: pointA.id,
+                pointB: bestMatch.id,
+                score: bestMatch.score,
+                confidence: this.calculateConfidence(pointA, bestMatch)
+            });
+            usedB.add(bestMatch.id);
+        }
+       
+        // 🔥 Проверка на превышение времени (если есть внешний таймер)
+        if (this._shouldStop) return matches;
+    }
+   
+    // Проверка на конфликты
+    const validated = this.validateMatches(matches, pointsA, pointsB);
+   
+    console.log(`\n📊 ИТОГ: найдено ${validated.length} соответствий`);
+   
+    return validated;
+}
 
     /**
      * Сортировка точек по важности (хабы первыми)
