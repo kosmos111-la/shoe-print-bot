@@ -15,190 +15,178 @@ class RelativePositioning {
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
-    positionPoints(photoGraph, modelGraph, anchorMatches, photoMorphology, modelMorphology, options = {}) {
+positionPoints(photoGraph, modelGraph, anchorMatches, photoMorphology, modelMorphology, options = {}) {
     const confidenceThreshold = options.confidenceThreshold || this.confidenceThreshold;
-    console.log(`   🔧 Порог уверенности: ${confidenceThreshold * 100}%`);
-        console.log(`\n🧩 Достраиваю точки относительно ${anchorMatches.size} опорных...`);
+    console.log(`   🔧 Порог уверенности: ${(confidenceThreshold * 100).toFixed(0)}%`);
+    console.log(`\n🧩 Достраиваю точки относительно ${anchorMatches.size} опорных...`);
 
-        const photoToModel = new Map(); // photoId -> { modelId, confidence, path }
-        const modelToPhoto = new Map(); // modelId -> photoId
+    const photoToModel = new Map(); // photoId -> { modelId, confidence, path }
+    const modelToPhoto = new Map(); // modelId -> photoId
 
-        // 🔥 1. Сначала добавляем опорные точки (якоря)
-        for (const [photoId, match] of anchorMatches) {
-            photoToModel.set(photoId, {
-                modelId: match.modelId,
-                confidence: 1.0,
-                source: 'anchor'
-            });
-            modelToPhoto.set(match.modelId, photoId);
-        }
-
-        // 🔥 2. Вычисляем пути от опорных точек ко всем остальным
-        const anchorIds = Array.from(anchorMatches.keys());
-        const modelAnchorIds = Array.from(anchorMatches.values()).map(m => m.modelId);
-       
-        const photoPaths = this.computeAllPaths(photoGraph, anchorIds);
-        const modelPaths = this.computeAllPaths(modelGraph, modelAnchorIds);
-
-        // 🔥 3. Пытаемся сопоставить остальные точки
-        let matched = 0;
-        let lowConfidence = 0;
-        let totalPoints = photoGraph.nodes.size - anchorMatches.size;
-
-        // Сортируем точки по расстоянию от ближайшего якоря (ближайшие сначала)
-        const photoNodes = Array.from(photoGraph.nodes.entries())
-            .filter(([id]) => !photoToModel.has(id))
-            .map(([id, node]) => {
-                const pathInfo = photoPaths.get(id);
-                return {
-                    id,
-                    node,
-                    minDist: pathInfo ? pathInfo.bestDist : Infinity
-                };
-            })
-            .sort((a, b) => a.minDist - b.minDist);
-
-        // 🔥 Временное хранилище кандидатов
-        const candidates = [];
-
-        for (const { id: photoId, node: photoNode, minDist } of photoNodes) {
-            if (minDist === Infinity) {
-                if (this.debug) console.log(`   ⚠️ Точка ${photoId.substring(0,12)}... недостижима от якорей`);
-                continue;
-            }
-
-            const photoPathInfo = photoPaths.get(photoId);
-            if (!photoPathInfo) continue;
-
-            let bestMatch = null;
-            let bestScore = 0;
-            let bestModelId = null;
-
-            // Ищем среди всех точек модели, которые ещё не сопоставлены
-            for (const [modelId, modelNode] of modelGraph.nodes) {
-                if (modelToPhoto.has(modelId)) continue; // уже занято
-
-                const modelPathInfo = modelPaths.get(modelId);
-                if (!modelPathInfo) continue;
-
-                // Сравниваем пути
-                const score = this.comparePaths(
-                    photoId,
-                    photoPathInfo,
-                    modelId,
-                    modelPathInfo,
-                    photoGraph,
-                    modelGraph,
-                    photoMorphology,
-                    modelMorphology,
-                    photoToModel,
-                    modelToPhoto
-                );
-
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestModelId = modelId;
-                    bestMatch = {
-                        modelId,
-                        confidence: score,
-                        pathInfo: photoPathInfo
-                    };
-                }
-            }
-
-            if (bestMatch && bestScore >= this.confidenceThreshold) {
-                candidates.push({
-                    photoId,
-                    modelId: bestMatch.modelId,
-                    score: bestScore,
-                    photoNode,
-                    pathInfo: photoPathInfo
-                });
-            } else if (bestMatch) {
-                lowConfidence++;
-            }
-        }
-
-        // 🔥 4. ВЗАИМНАЯ ПРОВЕРКА КАНДИДАТОВ
-        // Создаём карты для двунаправленной проверки
-        const photoToCandidate = new Map(); // photoId -> candidate
-        const modelToCandidate = new Map(); // modelId -> candidate
-
-        // Сначала собираем всех кандидатов
-        for (const cand of candidates) {
-            photoToCandidate.set(cand.photoId, cand);
-           
-            if (!modelToCandidate.has(cand.modelId)) {
-                modelToCandidate.set(cand.modelId, []);
-            }
-            modelToCandidate.get(cand.modelId).push(cand);
-        }
-
-        // Проверяем взаимность
-        const mutualCandidates = [];
-        const conflictCandidates = [];
-
-        for (const cand of candidates) {
-            // Для этого кандидата смотрим, есть ли у его модели другие претенденты
-            const competitors = modelToCandidate.get(cand.modelId) || [];
-           
-            if (competitors.length === 1) {
-                // У модели только один претендент - проверяем взаимность
-                mutualCandidates.push(cand);
-            } else {
-                // Конфликт - несколько точек хотят одну модель
-                // Сортируем по уверенности и берём лучшего
-                competitors.sort((a, b) => b.score - a.score);
-                const best = competitors[0];
-               
-                if (!conflictCandidates.includes(best)) {
-                    conflictCandidates.push(best);
-                }
-            }
-        }
-
-        // 🔥 5. НАЗНАЧАЕМ ТОЛЬКО ВЗАИМНО ПРОВЕРЕННЫЕ
-        const usedModelIds = new Set();
-        const finalCandidates = [];
-
-        // Сначала назначаем mutual (они безопаснее)
-        for (const cand of mutualCandidates) {
-            if (!usedModelIds.has(cand.modelId)) {
-                usedModelIds.add(cand.modelId);
-                finalCandidates.push(cand);
-            }
-        }
-
-        // Потом назначаем лучших из конфликтующих
-        for (const cand of conflictCandidates) {
-            if (!usedModelIds.has(cand.modelId)) {
-                usedModelIds.add(cand.modelId);
-                finalCandidates.push(cand);
-            }
-        }
-
-        // Назначаем финальных кандидатов
-        for (const cand of finalCandidates) {
-            photoToModel.set(cand.photoId, {
-                modelId: cand.modelId,
-                confidence: cand.score,
-                source: 'relative'
-            });
-            modelToPhoto.set(cand.modelId, cand.photoId);
-            matched++;
-           
-            if (this.debug && matched <= 5) {
-                console.log(`   ✅ Сопоставлено: ${cand.photoId.substring(0,12)}... ↔ ${cand.modelId.substring(0,12)}... (${(cand.score*100).toFixed(0)}%)`);
-            }
-        }
-
-        console.log(`   ✅ Сопоставлено: ${matched}/${totalPoints} точек (уверенность ≥${this.confidenceThreshold*100}%)`);
-        console.log(`   ⚠️ Низкая уверенность/конфликты: ${lowConfidence} точек (кандидаты на новые)`);
-        console.log(`   🎯 Всего в фото: ${photoGraph.nodes.size} точек`);
-        console.log(`   🎯 Сопоставлено всего: ${photoToModel.size}/${photoGraph.nodes.size}`);
-
-        return photoToModel;
+    // 🔥 1. Сначала добавляем опорные точки (якоря)
+    for (const [photoId, match] of anchorMatches) {
+        photoToModel.set(photoId, {
+            modelId: match.modelId,
+            confidence: 1.0,
+            source: 'anchor'
+        });
+        modelToPhoto.set(match.modelId, photoId);
     }
+
+    // 🔥 2. Вычисляем пути от опорных точек ко всем остальным
+    const anchorIds = Array.from(anchorMatches.keys());
+    const modelAnchorIds = Array.from(anchorMatches.values()).map(m => m.modelId);
+
+    const photoPaths = this.computeAllPaths(photoGraph, anchorIds);
+    const modelPaths = this.computeAllPaths(modelGraph, modelAnchorIds);
+
+    // 🔥 3. Пытаемся сопоставить остальные точки
+    let matched = 0;
+    let lowConfidence = 0;
+    let totalPoints = photoGraph.nodes.size - anchorMatches.size;
+
+    // Сортируем точки по расстоянию от ближайшего якоря (ближайшие сначала)
+    const photoNodes = Array.from(photoGraph.nodes.entries())
+        .filter(([id]) => !photoToModel.has(id))
+        .map(([id, node]) => {
+            const pathInfo = photoPaths.get(id);
+            return {
+                id,
+                node,
+                minDist: pathInfo ? pathInfo.bestDist : Infinity
+            };
+        })
+        .sort((a, b) => a.minDist - b.minDist);
+
+    // 🔥 Временное хранилище кандидатов
+    const candidates = [];
+
+    for (const { id: photoId, node: photoNode, minDist } of photoNodes) {
+        if (minDist === Infinity) {
+            if (this.debug) console.log(`   ⚠️ Точка ${photoId.substring(0,12)}... недостижима от якорей`);
+            continue;
+        }
+
+        const photoPathInfo = photoPaths.get(photoId);
+        if (!photoPathInfo) continue;
+
+        let bestMatch = null;
+        let bestScore = 0;
+        let bestModelId = null;
+
+        // Ищем среди всех точек модели, которые ещё не сопоставлены
+        for (const [modelId, modelNode] of modelGraph.nodes) {
+            if (modelToPhoto.has(modelId)) continue; // уже занято
+
+            const modelPathInfo = modelPaths.get(modelId);
+            if (!modelPathInfo) continue;
+
+            // Сравниваем пути
+            const score = this.comparePaths(
+                photoId,
+                photoPathInfo,
+                modelId,
+                modelPathInfo,
+                photoGraph,
+                modelGraph,
+                photoMorphology,
+                modelMorphology,
+                photoToModel,
+                modelToPhoto
+            );
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestModelId = modelId;
+                bestMatch = {
+                    modelId,
+                    confidence: score,
+                    pathInfo: photoPathInfo
+                };
+            }
+        }
+
+        // 🔥 ИСПРАВЛЕНО: используем confidenceThreshold из параметров
+        if (bestMatch && bestScore >= confidenceThreshold) {
+            candidates.push({
+                photoId,
+                modelId: bestMatch.modelId,
+                score: bestScore,
+                photoNode,
+                pathInfo: photoPathInfo
+            });
+        } else if (bestMatch) {
+            lowConfidence++;
+        }
+    }
+
+    // 🔥 4. ВЗАИМНАЯ ПРОВЕРКА КАНДИДАТОВ
+    const photoToCandidate = new Map();
+    const modelToCandidate = new Map();
+
+    for (const cand of candidates) {
+        photoToCandidate.set(cand.photoId, cand);
+        if (!modelToCandidate.has(cand.modelId)) {
+            modelToCandidate.set(cand.modelId, []);
+        }
+        modelToCandidate.get(cand.modelId).push(cand);
+    }
+
+    const mutualCandidates = [];
+    const conflictCandidates = [];
+
+    for (const cand of candidates) {
+        const competitors = modelToCandidate.get(cand.modelId) || [];
+
+        if (competitors.length === 1) {
+            mutualCandidates.push(cand);
+        } else {
+            competitors.sort((a, b) => b.score - a.score);
+            const best = competitors[0];
+            if (!conflictCandidates.includes(best)) {
+                conflictCandidates.push(best);
+            }
+        }
+    }
+
+    const usedModelIds = new Set();
+    const finalCandidates = [];
+
+    for (const cand of mutualCandidates) {
+        if (!usedModelIds.has(cand.modelId)) {
+            usedModelIds.add(cand.modelId);
+            finalCandidates.push(cand);
+        }
+    }
+
+    for (const cand of conflictCandidates) {
+        if (!usedModelIds.has(cand.modelId)) {
+            usedModelIds.add(cand.modelId);
+            finalCandidates.push(cand);
+        }
+    }
+
+    for (const cand of finalCandidates) {
+        photoToModel.set(cand.photoId, {
+            modelId: cand.modelId,
+            confidence: cand.score,
+            source: 'relative'
+        });
+        modelToPhoto.set(cand.modelId, cand.photoId);
+        matched++;
+
+        if (this.debug && matched <= 5) {
+            console.log(`   ✅ Сопоставлено: ${cand.photoId.substring(0,12)}... ↔ ${cand.modelId.substring(0,12)}... (${(cand.score*100).toFixed(0)}%)`);
+        }
+    }
+
+    console.log(`   ✅ Сопоставлено: ${matched}/${totalPoints} точек (уверенность ≥${(confidenceThreshold*100).toFixed(0)}%)`);
+    console.log(`   ⚠️ Низкая уверенность/конфликты: ${lowConfidence} точек (кандидаты на новые)`);
+    console.log(`   🎯 Всего в фото: ${photoGraph.nodes.size} точек`);
+    console.log(`   🎯 Сопоставлено всего: ${photoToModel.size}/${photoGraph.nodes.size}`);
+
+    return photoToModel;
+}
 
     // ==================== ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ====================
 
