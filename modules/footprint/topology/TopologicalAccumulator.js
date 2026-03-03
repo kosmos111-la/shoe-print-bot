@@ -922,13 +922,14 @@ buildOptimalMatchMap(matches) {
         const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
         let morphologyCount = 0;
-        for (const [nodeId, node] of exactGraph.nodes) {
+for (const [nodeId, node] of exactGraph.nodes) {
     const morph = morphologyMap.get(nodeId);
     if (morph) {
+        // Сохраняем все поля морфологии
         node.morphology = morph;
         node.hasContour = morph.hasContour || false;
        
-        // 🔥 ЯВНО СОХРАНЯЕМ ВСЕ ПОЛЯ
+        // 🔥 ЯВНО СОХРАНЯЕМ КАЖДОЕ ПОЛЕ
         node.compactness = morph.compactness;
         node.eccentricity = morph.eccentricity;
         node.orientation = morph.orientation;
@@ -937,6 +938,14 @@ buildOptimalMatchMap(matches) {
         node.asymmetry = morph.asymmetry;
        
         morphologyCount++;
+       
+        // Отладка для первых 3 точек
+        if (this.debug && morphologyCount <= 3) {
+            console.log(`   Точка ${nodeId.substring(0,12)}...`);
+            console.log(`      compactness: ${morph.compactness?.toFixed(2)}`);
+            console.log(`      eccentricity: ${morph.eccentricity?.toFixed(3)}`);
+            console.log(`      radialProfile: ${morph.radialProfile?.length} значений`);
+        }
     }
     node.confirmationCount = 1;
     node.addedFrom = 'original';
