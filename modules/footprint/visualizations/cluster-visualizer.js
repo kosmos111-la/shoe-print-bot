@@ -1,5 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - МОДЕЛЬ + ФОТО С НОМЕРАМИ ВСЕХ ПАР (ИСПРАВЛЕНО)
+// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - КВАДРАТНАЯ, С ЧИТАЕМЫМИ НОМЕРАМИ
 
 const fs = require('fs');
 const path = require('path');
@@ -8,10 +8,12 @@ class ClusterVisualizer {
     constructor(options = {}) {
         this.config = {
             outputDir: options.outputDir || './data/footprints/visualizations/topology',
-            canvasWidth: options.canvasWidth || 1200,
-            canvasHeight: options.canvasHeight || 800,
+            canvasWidth: options.canvasWidth || 1000,  // квадрат 1000x1000
+            canvasHeight: options.canvasHeight || 1000,
             debug: options.debug || false,
             showEdges: options.showEdges !== false,
+            fontSize: options.fontSize || 14,          // увеличенный шрифт
+            pointSize: options.pointSize || 10,
             ...options
         };
 
@@ -19,7 +21,7 @@ class ClusterVisualizer {
             fs.mkdirSync(this.config.outputDir, { recursive: true });
         }
 
-        console.log('🎨 ClusterVisualizer (с номерами всех пар) создан');
+        console.log('🎨 ClusterVisualizer (квадратный, с читаемыми номерами) создан');
     }
 
     async visualizeTopologicalModel(topologyData, options = {}) {
@@ -74,27 +76,30 @@ class ClusterVisualizer {
         ctx.textAlign = 'center';
         ctx.fillText(`🏗️ ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ`, this.config.canvasWidth / 2, 45);
 
-        // Вычисляем границы
+        // Вычисляем границы с отступами
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
         const { minX, maxX, minY, maxY } = this.calculateBounds(validPoints);
-        const scale = this.calculateScale(minX, maxX, minY, maxY, this.config.canvasWidth * 0.7, this.config.canvasHeight * 0.5);
+       
+        // 🔥 УВЕЛИЧЕННЫЙ МАСШТАБ И ЦЕНТРИРОВАНИЕ
+        const scale = this.calculateScale(minX, maxX, minY, maxY,
+            this.config.canvasWidth * 0.8, this.config.canvasHeight * 0.7);
+       
         const centerX = this.config.canvasWidth / 2;
-        const centerY = this.config.canvasHeight * 0.6;
+        const centerY = this.config.canvasHeight / 2 + 50;
         const avgX = (minX + maxX) / 2;
         const avgY = (minY + maxY) / 2;
 
-        // Рёбра
+        // Рёбра (полупрозрачные)
         if (this.config.showEdges && topologyData.edges) {
             this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
         }
 
-        // Точки модели с номерами для ВСЕХ подтвержденных точек
+        // Точки модели с номерами
         this.drawModelPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
 
         // Статистика
         this.drawStats(ctx, topologyData.stats, this.config.canvasWidth);
 
-        // Сохраняем
         const filename = options.filename ? options.filename.replace('.png', '_model.png') : `model_${Date.now()}.png`;
         const outputPath = path.join(this.config.outputDir, filename);
 
@@ -114,40 +119,36 @@ class ClusterVisualizer {
         const canvas = require('canvas').createCanvas(this.config.canvasWidth, this.config.canvasHeight);
         const ctx = canvas.getContext('2d');
 
-        // ФОН
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, this.config.canvasWidth, this.config.canvasHeight);
 
-        // ЗАГОЛОВОК
         ctx.fillStyle = '#212529';
         ctx.font = 'bold 26px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`📸 ФОТО - ВСЕ СОПОСТАВЛЕННЫЕ ТОЧКИ`, this.config.canvasWidth / 2, 45);
+        ctx.fillText(`📸 ФОТО - ТОЧКИ`, this.config.canvasWidth / 2, 45);
 
-        // Вычисляем границы
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
         const { minX, maxX, minY, maxY } = this.calculateBounds(validPoints);
-        const scale = this.calculateScale(minX, maxX, minY, maxY, this.config.canvasWidth * 0.7, this.config.canvasHeight * 0.5);
+       
+        // 🔥 УВЕЛИЧЕННЫЙ МАСШТАБ
+        const scale = this.calculateScale(minX, maxX, minY, maxY,
+            this.config.canvasWidth * 0.8, this.config.canvasHeight * 0.7);
+       
         const centerX = this.config.canvasWidth / 2;
-        const centerY = this.config.canvasHeight * 0.6;
+        const centerY = this.config.canvasHeight / 2 + 50;
         const avgX = (minX + maxX) / 2;
         const avgY = (minY + maxY) / 2;
 
-        // Рёбра
         if (this.config.showEdges && topologyData.edges) {
             this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
         }
 
-        // 🔥 Используем photoPoints, если они есть, иначе points
         const photoPoints = topologyData.photoPoints || topologyData.points;
         const matchMap = topologyData.matchMap || new Map();
 
         this.drawPhotoPoints(ctx, photoPoints, matchMap, avgX, avgY, centerX, centerY, scale);
-
-        // Статистика
         this.drawPhotoStats(ctx, topologyData.stats, this.config.canvasWidth, matchMap.size);
 
-        // Сохраняем
         const filename = options.filename ? options.filename.replace('.png', '_photo.png') : `photo_${Date.now()}.png`;
         const outputPath = path.join(this.config.outputDir, filename);
 
@@ -167,55 +168,60 @@ class ClusterVisualizer {
         const points = topologyData.points;
         const matchMap = topologyData.matchMap || new Map();
 
-        // 🔥 ИСПРАВЛЕНО: Берем ВСЕ точки из matchMap, которые имеют pairNumber
-        const anchorPairs = new Map();
-       
+        // 🔥 СОЗДАЕМ КАРТУ НОМЕРОВ (modelId -> pairNumber)
+        const modelToPair = new Map();
         for (const [photoId, match] of matchMap) {
             if (match && match.modelId && match.pairNumber) {
-                anchorPairs.set(match.modelId, match.pairNumber);
+                modelToPair.set(match.modelId, {
+                    number: match.pairNumber,
+                    confidence: match.confidence
+                });
             }
         }
 
-        console.log(`   🎯 Якорей для отображения на МОДЕЛИ: ${anchorPairs.size}`);
-
         console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
+
+        // Сортируем точки: сначала с номерами, потом без
+        const sortedPoints = [...points].sort((a, b) => {
+            const aHasNum = modelToPair.has(a.id) ? 1 : 0;
+            const bHasNum = modelToPair.has(b.id) ? 1 : 0;
+            return bHasNum - aHasNum;
+        });
 
         let anchorPoints = 0, regularPoints = 0;
 
-        for (const point of points) {
+        for (const point of sortedPoints) {
             if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
 
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
 
             const confirmations = point.confirmationCount || 0;
-
-            // 🔥 Проверяем, является ли точка ПОДТВЕРЖДЕННОЙ (есть в anchorPairs)
-            const pairNumber = anchorPairs.get(point.id);
-            const isAnchor = pairNumber !== undefined;
+            const pairInfo = modelToPair.get(point.id);
+            const hasNumber = pairInfo !== undefined;
 
             // Цвет и размер
             let color, size;
 
-            if (isAnchor) {
-                color = '#FF0000'; // 🔴 Красный - подтвержденная точка
-                size = 12;
+            if (hasNumber) {
+                color = '#FF0000'; // 🔴 Красный - есть пара
+                size = this.config.pointSize + 2;
                 anchorPoints++;
             } else if (confirmations >= 3) {
-                color = '#FF0000'; // 🔴 Ядро (3+)
-                size = 10;
+                color = '#FF0000';
+                size = this.config.pointSize;
                 regularPoints++;
             } else if (confirmations >= 2) {
-                color = '#FFC107'; // 🟡 Подтверждённый (2)
-                size = 8;
+                color = '#FFC107'; // 🟡 Подтверждённый
+                size = this.config.pointSize - 1;
                 regularPoints++;
             } else if (confirmations >= 1) {
-                color = '#2196F3'; // 🔵 Новый (1)
-                size = 6;
+                color = '#2196F3'; // 🔵 Новый
+                size = this.config.pointSize - 2;
                 regularPoints++;
             } else {
-                color = '#BDBDBD'; // ⚪ Неподтверждённый (0)
-                size = 5;
+                color = '#BDBDBD'; // ⚪ Неподтверждённый
+                size = this.config.pointSize - 3;
                 regularPoints++;
             }
 
@@ -228,71 +234,75 @@ class ClusterVisualizer {
             ctx.lineWidth = 1.5;
             ctx.stroke();
 
-            // 🔥 РИСУЕМ НОМЕР ДЛЯ ВСЕХ ПОДТВЕРЖДЕННЫХ ТОЧЕК
-            if (isAnchor) {
-                ctx.fillStyle = '#000000';
-                ctx.font = 'bold 14px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-
-                // Белый фон для номера (для читаемости)
+            // 🔥 РИСУЕМ НОМЕР (с белым фоном для читаемости)
+            if (hasNumber) {
+                const number = pairInfo.number;
+               
+                // Белый фон для номера
                 ctx.fillStyle = '#FFFFFF';
                 ctx.fillRect(x - 12, y - size - 22, 24, 18);
-
+               
                 ctx.fillStyle = '#000000';
-                ctx.fillText(pairNumber.toString(), x, y - size - 12);
+                ctx.font = `bold ${this.config.fontSize}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(number.toString(), x, y - size - 12);
             }
         }
 
-        console.log(`   🎯 Модель: 🔴 ${anchorPoints} подтвержденных, остальных: ${regularPoints}`);
+        console.log(`   🎯 Модель: 🔴 ${anchorPoints} с номерами, остальных: ${regularPoints}`);
     }
 
     drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
         console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
 
-        // 🔥 ИСПРАВЛЕНО: Берем ВСЕ точки из matchMap, которые имеют pairNumber
-        const anchorPairs = new Map();
-       
+        // 🔥 СОЗДАЕМ КАРТУ НОМЕРОВ (photoId -> pairNumber)
+        const photoToPair = new Map();
         for (const [photoId, match] of matchMap) {
             if (match && match.pairNumber) {
-                anchorPairs.set(photoId, match.pairNumber);
+                photoToPair.set(photoId, {
+                    number: match.pairNumber,
+                    confidence: match.confidence
+                });
             }
         }
 
-        console.log(`   🎯 Подтвержденных точек на ФОТО: ${anchorPairs.size}`);
+        // Сортируем точки: сначала с номерами
+        const sortedPoints = [...points].sort((a, b) => {
+            const aHasNum = photoToPair.has(a.id) ? 1 : 0;
+            const bHasNum = photoToPair.has(b.id) ? 1 : 0;
+            return bHasNum - aHasNum;
+        });
 
         let anchorPoints = 0, matchedPoints = 0, unmatchedPoints = 0;
 
-        for (const point of points) {
+        for (const point of sortedPoints) {
             if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
 
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
 
-            // 🔥 Проверяем, является ли точка ПОДТВЕРЖДЕННОЙ
-            const pairNumber = anchorPairs.get(point.id);
-            const isAnchor = pairNumber !== undefined;
-           
-            // Проверяем, есть ли вообще пара (не обязательно подтвержденная)
+            const pairInfo = photoToPair.get(point.id);
+            const hasNumber = pairInfo !== undefined;
             const hasMatch = matchMap.has(point.id);
 
             // Цвет
-            let color;
-            if (isAnchor) {
-                color = '#FF0000'; // 🔴 Красный - подтвержденная точка
+            let color, size;
+           
+            if (hasNumber) {
+                color = '#FF0000'; // 🔴 Красный - с номером
+                size = this.config.pointSize + 2;
                 anchorPoints++;
             } else if (hasMatch) {
-                color = '#4CAF50'; // 🟢 Зелёный - есть пара, но не в этой итерации
+                color = '#4CAF50'; // 🟢 Зелёный - есть пара
+                size = this.config.pointSize;
                 matchedPoints++;
             } else {
-                color = '#FF9800'; // 🟠 Оранжевый - новая точка
+                color = '#FF9800'; // 🟠 Оранжевый - новая
+                size = this.config.pointSize - 1;
                 unmatchedPoints++;
             }
 
-            // Размер (подтвержденные чуть крупнее)
-            const size = isAnchor ? 10 : 8;
-
-            // Рисуем точку
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(x, y, size, 0, Math.PI * 2);
@@ -301,23 +311,20 @@ class ClusterVisualizer {
             ctx.lineWidth = 1.5;
             ctx.stroke();
 
-            // 🔥 РИСУЕМ НОМЕР ДЛЯ ВСЕХ ПОДТВЕРЖДЕННЫХ ТОЧЕК
-            if (isAnchor) {
+            // 🔥 РИСУЕМ НОМЕР
+            if (hasNumber) {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(x - 12, y - size - 22, 24, 18);
+               
                 ctx.fillStyle = '#000000';
-                ctx.font = 'bold 12px Arial';
+                ctx.font = `bold ${this.config.fontSize}px Arial`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-
-                // Белый фон для номера
-                ctx.fillStyle = '#FFFFFF';
-                ctx.fillRect(x - 10, y - size - 20, 20, 16);
-
-                ctx.fillStyle = '#000000';
-                ctx.fillText(pairNumber.toString(), x, y - size - 10);
+                ctx.fillText(pairInfo.number.toString(), x, y - size - 12);
             }
         }
 
-        console.log(`   🎯 Фото: 🔴 ${anchorPoints} подтвержденных, 🟢 ${matchedPoints} прочих пар, 🟠 ${unmatchedPoints} новых`);
+        console.log(`   🎯 Фото: 🔴 ${anchorPoints} с номерами, 🟢 ${matchedPoints} пар, 🟠 ${unmatchedPoints} новых`);
     }
 
     drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
@@ -364,11 +371,10 @@ class ClusterVisualizer {
         const rows = [
             `Узлов: ${stats.totalNodes || 0}`,
             `Рёбер: ${stats.totalEdges || 0}`,
-            `Средняя степень: ${stats.avgDegree?.toFixed(2) || '?'}`,
-            `🔴 Подтвержденных: ${stats.confirmed3 || 0}`,
-            `🟡 2 подтверждения: ${stats.confirmed2 || 0}`,
-            `🔵 1 подтверждение: ${stats.confirmed1 || 0}`,
-            `⚪ 0 подтверждений: ${stats.confirmed0 || 0}`
+            `🔴 С номерами: ${stats.confirmed3 || 0}`,
+            `🟡 Подтвержденных: ${stats.confirmed2 || 0}`,
+            `🔵 Новых: ${stats.confirmed1 || 0}`,
+            `⚪ Неподтвержденных: ${stats.confirmed0 || 0}`
         ];
 
         rows.forEach((text, i) => {
@@ -385,7 +391,7 @@ class ClusterVisualizer {
 
         const rows = [
             `Узлов в фото: ${stats.totalNodes || 0}`,
-            `✅ Подтверждено: ${matchedCount || 0}`,
+            `✅ Сопоставлено: ${matchedCount || 0}`,
             `🟠 Новых: ${(stats.totalNodes || 0) - (matchedCount || 0)}`
         ];
 
@@ -411,7 +417,8 @@ class ClusterVisualizer {
             maxY = Math.max(maxY, point.y);
         });
 
-        const padding = Math.max(maxX - minX, maxY - minY) * 0.1;
+        // 🔥 Увеличиваем отступы для лучшего обзора
+        const padding = Math.max(maxX - minX, maxY - minY) * 0.15;
         return {
             minX: minX - padding,
             maxX: maxX + padding,
@@ -423,7 +430,7 @@ class ClusterVisualizer {
     calculateScale(minX, maxX, minY, maxY, targetWidth, targetHeight) {
         const width = Math.max(1, maxX - minX);
         const height = Math.max(1, maxY - minY);
-        return Math.min(targetWidth / width, targetHeight / height, 3);
+        return Math.min(targetWidth / width, targetHeight / height, 4); // увеличенный максимум
     }
 
     createTopologyReport(topologyData, error) {
