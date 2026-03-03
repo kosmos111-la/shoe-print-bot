@@ -1,17 +1,20 @@
 // modules/footprint/matching/AdaptiveMatcher.js
-// 🎯 4-Й ЭТАП: ПОИСК УНИКАЛЬНЫХ ТОЧЕК И ИХ СОПОСТАВЛЕНИЕ
-// 📊 С ПОДРОБНЫМ ЛОГИРОВАНИЕМ
+// 🎯 4-Й ЭТАП: ПОИСК УНИКАЛЬНЫХ ТОЧЕК С ДОПУСКАМИ (БЕЗ ВЕСОВ)
 
 class AdaptiveMatcher {
     constructor(options = {}) {
-        this.debug = options.debug !== false; // логи включены по умолчанию
+        this.debug = options.debug !== false;
         this.verbose = options.verbose || false;
        
-        // Пороги
-        this.thresholds = {
-            exact: 1.0,
-            high: 0.95,
-            medium: 0.85
+        // 🔥 ДОПУСКИ вместо весов
+        this.tolerances = options.tolerances || {
+            compactness: 0.1,        // 10% допуск
+            eccentricity: 0.05,       // абсолютный допуск
+            normalizedArea: 0.15,      // 15% допуск
+            radialProfile: 0.1,        // средняя разница
+            degree: 2,                 // максимум разница в степени
+            triangles: 1,               // максимум разница в треугольников
+            role: 'strict'              // роли должны совпадать строго
         };
        
         this.stats = {
@@ -20,12 +23,11 @@ class AdaptiveMatcher {
             uniquePointsA: 0,
             uniquePointsB: 0,
             exactMatches: 0,
-            highMatches: 0,
-            mediumMatches: 0,
+            toleranceMatches: 0,
             conflictsResolved: 0
         };
        
-        console.log('🎯 AdaptiveMatcher (4-й этап - уникальные точки) создан');
+        console.log('🎯 AdaptiveMatcher (4-й этап - допуски) создан');
     }
 
     /**
@@ -35,7 +37,7 @@ class AdaptiveMatcher {
         const startTime = Date.now();
        
         console.log(`\n${'='.repeat(80)}`);
-        console.log(`🔍 4-Й ЭТАП: ПОИСК УНИКАЛЬНЫХ ТОЧЕК И ИХ СОПОСТАВЛЕНИЕ`);
+        console.log(`🔍 4-Й ЭТАП: ПОИСК ПО ДОПУСКАМ`);
         console.log(`${'='.repeat(80)}`);
         console.log(`📊 Всего точек в следе А: ${pointsA.length}`);
         console.log(`📊 Всего точек в следе Б: ${pointsB.length}`);
@@ -52,31 +54,23 @@ class AdaptiveMatcher {
         console.log(`\n📊 УНИКАЛЬНЫЕ ТОЧКИ В СЛЕДЕ А:`);
         console.log(`   • Найдено: ${uniqueA.length} из ${pointsA.length}`);
         console.log(`   • Уникальных подписей: ${statsA.uniqueSignatures}`);
-        console.log(`   • Топ-3 самые редкие:`);
-        statsA.rarest.slice(0, 3).forEach((item, i) => {
-            console.log(`     ${i+1}. ${item.signature.substring(0,40)}... (${item.count} раз)`);
-        });
        
         console.log(`\n📊 УНИКАЛЬНЫЕ ТОЧКИ В СЛЕДЕ Б:`);
         console.log(`   • Найдено: ${uniqueB.length} из ${pointsB.length}`);
         console.log(`   • Уникальных подписей: ${statsB.uniqueSignatures}`);
-        console.log(`   • Топ-3 самые редкие:`);
-        statsB.rarest.slice(0, 3).forEach((item, i) => {
-            console.log(`     ${i+1}. ${item.signature.substring(0,40)}... (${item.count} раз)`);
-        });
        
         this.stats.uniquePointsA = uniqueA.length;
         this.stats.uniquePointsB = uniqueB.length;
        
         // ШАГ 2: Сопоставляем уникальные точки
-        console.log(`\n🔎 ШАГ 2: Сопоставление уникальных точек...`);
+        console.log(`\n🔎 ШАГ 2: Сопоставление по допускам...`);
        
-        const matches = this.matchUniquePoints(uniqueA, uniqueB);
+        const matches = this.matchPointsWithTolerances(uniqueA, uniqueB);
        
         console.log(`\n📊 РЕЗУЛЬТАТЫ СОПОСТАВЛЕНИЯ:`);
         console.log(`   • Точных совпадений: ${this.stats.exactMatches}`);
-        console.log(`   • Высокое сходство: ${this.stats.highMatches}`);
-        console.log(`   • Среднее сходство: ${this.stats.mediumMatches}`);
+        console.log(`   • Совпадений в пределах допусков: ${this.stats.toleranceMatches}`);
+        console.log(`   • Всего пар: ${matches.length}`);
        
         // ШАГ 3: Проверка на конфликты
         console.log(`\n🔎 ШАГ 3: Проверка уникальности соответствий...`);
@@ -89,20 +83,18 @@ class AdaptiveMatcher {
         // ШАГ 4: Детальный анализ найденных пар
         if (validated.length > 0) {
             console.log(`\n📋 ДЕТАЛЬНЫЙ АНАЛИЗ НАЙДЕННЫХ ПАР (первые 5):`);
-            console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┐`);
-            console.log(`│  #  │       ТОЧКА А         │       ТОЧКА Б         │ СХОДСТВО  │    ТИП    │`);
-            console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼───────────┤`);
+            console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┐`);
+            console.log(`│  #  │       ТОЧКА А         │       ТОЧКА Б         │ СТАТУС    │`);
+            console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┤`);
            
             validated.slice(0, 5).forEach((match, i) => {
-                const type = match.matchType === 'exact' ? 'ТОЧНОЕ' :
-                            match.matchType === 'high' ? 'ВЫСОКОЕ' : 'СРЕДНЕЕ';
+                const status = match.exact ? 'ТОЧНОЕ' : 'ДОПУСК';
                 console.log(
                     `│ ${(i+1).toString().padEnd(3)} │ ${match.pointA.substring(0,20).padEnd(20)} │ ` +
-                    `${match.pointB.substring(0,20).padEnd(20)} │ ` +
-                    `${(match.score*100).toFixed(1).padStart(7)}%   │ ${type.padEnd(9)} │`
+                    `${match.pointB.substring(0,20).padEnd(20)} │ ${status.padEnd(9)} │`
                 );
             });
-            console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┘`);
+            console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┘`);
         }
        
         console.log(`\n⏱️  Время выполнения: ${Date.now() - startTime}ms`);
@@ -136,165 +128,83 @@ class AdaptiveMatcher {
             return signatureCounts.get(sig) === 1;
         });
        
-        if (this.verbose) {
-            console.log(`\n📈 РАСПРЕДЕЛЕНИЕ ПОДПИСЕЙ:`);
-            console.log(`   • Уникальных подписей: ${uniqueSignatures.length}`);
-            console.log(`   • Повторяющихся: ${signatureStats.length - uniqueSignatures.length}`);
-            console.log(`   • Самая частая подпись встречается: ${signatureStats[signatureStats.length-1]?.count} раз`);
-        }
-       
         return {
             unique: uniquePoints,
             stats: {
-                uniqueSignatures: uniqueSignatures.length,
-                rarest: signatureStats.slice(0, 5)
+                uniqueSignatures: uniqueSignatures.length
             }
         };
     }
 
     /**
-     * Создает ДЕТАЛЬНУЮ подпись точки (без потери точности)
+     * Создает ДЕТАЛЬНУЮ подпись точки (с допусками)
      */
-createDetailedSignature(point) {
-    const components = [];
-
-    // 1. Роль (категориальный)
-    components.push(point.role || 'R');
-
-    // 2. Компактность (с 2 знаками)
-    if (point.compactness) {
-        components.push(point.compactness.toFixed(2));
-    } else {
-        components.push('0.00');
+    createDetailedSignature(point) {
+        const components = [
+            point.role || 'R',
+            point.compactness ? point.compactness.toFixed(2) : '0.00',
+            point.eccentricity ? point.eccentricity.toFixed(3) : '0.000',
+            point.normalizedArea ? point.normalizedArea.toFixed(2) : '1.00',
+            point.radialProfile ? point.radialProfile.map(v => v.toFixed(2)).join(',') : '0.00,0.00,0.00,0.00',
+            point.neighborRoles || '',
+            `D${point.degree || 0}`,
+            `T${point.triangles || 0}`
+        ];
+       
+        return components.join('|');
     }
-
-    // 3. Эксцентриситет (с 3 знаками)
-    if (point.eccentricity) {
-        components.push(point.eccentricity.toFixed(3));
-    } else {
-        components.push('0.000');
-    }
-
-    // 4. Радиальный профиль (с 2 знаками)
-    if (point.radialProfile && Array.isArray(point.radialProfile)) {
-        const profileStr = point.radialProfile.map(v => v.toFixed(2)).join(',');
-        components.push(profileStr);
-    } else {
-        components.push('0.00,0.00,0.00,0.00');
-    }
-
-    // 5. Роли соседей (отсортированные)
-    if (point.neighborRoles) {
-        const sortedRoles = point.neighborRoles.split('').sort().join('');
-        components.push(sortedRoles);
-    } else {
-        components.push('');
-    }
-
-    // 6. Степень
-    if (point.degree) {
-        components.push(`D${point.degree}`);  // ← ИСПРАВЛЕНО: добавляем D
-    } else {
-        components.push('D0');
-    }
-
-    // 🔥 НОВОЕ: треугольники
-    if (point.triangles) {
-        components.push(`T${point.triangles}`);  // ← ДОБАВЛЕНО
-    } else {
-        components.push('T0');
-    }
-
-    // 🔥 НОВОЕ: размер кластера (будет заполняться позже)
-    if (point.clusterSize) {
-        components.push(`C${point.clusterSize}`);  // ← ДОБАВЛЕНО
-    } else {
-        components.push('C1');
-    }
-
-    return components.join('|');
-}
 
     /**
-     * Сопоставляет уникальные точки двух наборов
+     * Сопоставляет точки с использованием допусков
      */
-    matchUniquePoints(uniqueA, uniqueB) {
+    matchPointsWithTolerances(pointsA, pointsB) {
         const matches = [];
         const usedB = new Set();
        
-        // Создаем индекс для быстрого поиска по подписям
-        const signatureIndexB = new Map();
-        for (const pointB of uniqueB) {
-            const sig = this.createDetailedSignature(pointB);
-            if (!signatureIndexB.has(sig)) {
-                signatureIndexB.set(sig, []);
-            }
-            signatureIndexB.get(sig).push(pointB);
-        }
+        // Сортируем точки A по важности (хабы первыми)
+        const sortedA = this.sortByImportance(pointsA);
        
-        for (const pointA of uniqueA) {
-            const sigA = this.createDetailedSignature(pointA);
+        for (const pointA of sortedA) {
+            let bestMatch = null;
+            let bestMatchType = null;
            
-            // 1. Ищем точное совпадение подписи
-            const exactMatches = signatureIndexB.get(sigA) || [];
-            const availableExact = exactMatches.filter(p => !usedB.has(p.id));
-           
-            if (availableExact.length > 0) {
-                // Точное совпадение!
-                const pointB = availableExact[0];
-                matches.push({
-                    pointA: pointA.id,
-                    pointB: pointB.id,
-                    score: 1.0,
-                    matchType: 'exact',
-                    signature: sigA
-                });
-                usedB.add(pointB.id);
-                this.stats.exactMatches++;
-               
-                if (this.debug) {
-                    console.log(`   ✅ ТОЧНОЕ: ${pointA.id.slice(0,12)} ↔ ${pointB.id.slice(0,12)}`);
-                    if (this.verbose) {
-                        console.log(`      Подпись: ${sigA.substring(0,60)}...`);
-                    }
-                }
-                continue;
-            }
-           
-            // 2. Ищем похожие по компонентам
-            const candidates = [];
-            for (const pointB of uniqueB) {
+            for (const pointB of pointsB) {
                 if (usedB.has(pointB.id)) continue;
                
-                const similarity = this.calculateComponentSimilarity(pointA, pointB);
-                if (similarity.score >= this.thresholds.medium) {
-                    candidates.push({
-                        pointB: pointB,
-                        score: similarity.score,
-                        details: similarity.details
-                    });
+                // Проверяем точное совпадение подписи
+                if (this.signaturesEqual(pointA, pointB)) {
+                    bestMatch = pointB;
+                    bestMatchType = 'exact';
+                    break;
+                }
+               
+                // Проверяем совпадение в пределах допусков
+                if (this.withinTolerances(pointA, pointB)) {
+                    // Если еще нет лучшего или этот лучше по степени
+                    if (!bestMatch || pointB.degree > bestMatch.degree) {
+                        bestMatch = pointB;
+                        bestMatchType = 'tolerance';
+                    }
                 }
             }
            
-            if (candidates.length > 0) {
-                candidates.sort((a, b) => b.score - a.score);
-                const best = candidates[0];
-               
-                const matchType = best.score >= this.thresholds.high ? 'high' : 'medium';
+            if (bestMatch) {
                 matches.push({
                     pointA: pointA.id,
-                    pointB: best.pointB.id,
-                    score: best.score,
-                    matchType: matchType,
-                    details: best.details
+                    pointB: bestMatch.id,
+                    exact: bestMatchType === 'exact',
+                    score: bestMatchType === 'exact' ? 1.0 : 0.9
                 });
-                usedB.add(best.pointB.id);
+                usedB.add(bestMatch.id);
                
-                this.stats[`${matchType}Matches`]++;
+                if (bestMatchType === 'exact') {
+                    this.stats.exactMatches++;
+                } else {
+                    this.stats.toleranceMatches++;
+                }
                
                 if (this.debug) {
-                    const typeStr = matchType === 'high' ? 'ВЫСОКОЕ' : 'СРЕДНЕЕ';
-                    console.log(`   🔸 ${typeStr}: ${pointA.id.slice(0,12)} ↔ ${best.pointB.id.slice(0,12)} (${(best.score*100).toFixed(1)}%)`);
+                    console.log(`   ${bestMatchType === 'exact' ? '✅ ТОЧНОЕ' : '🟡 ДОПУСК'}: ${pointA.id.slice(0,12)} ↔ ${bestMatch.id.slice(0,12)}`);
                 }
             }
         }
@@ -303,89 +213,84 @@ createDetailedSignature(point) {
     }
 
     /**
-     * Сравнение по компонентам (для похожих, но не идентичных точек)
+     * Проверяет точное равенство подписей
      */
-    calculateComponentSimilarity(pointA, pointB) {
-        const details = {};
-        let totalScore = 0;
-        let totalWeight = 0;
-       
-        // Веса для разных компонент
-        const weights = {
-            role: 0.20,
-            compactness: 0.25,
-            eccentricity: 0.20,
-            radialProfile: 0.25,
-            neighborRoles: 0.10
-        };
-       
-        // 1. Роль (должна совпадать)
-        if (pointA.role !== pointB.role) {
-            return { score: 0, details: { reason: 'role_mismatch' } };
-        }
-        details.role = 1.0;
-        totalScore += 1.0 * weights.role;
-        totalWeight += weights.role;
-       
-        // 2. Компактность
-        if (pointA.compactness && pointB.compactness) {
-            const ratio = Math.min(pointA.compactness, pointB.compactness) /
-                         Math.max(pointA.compactness, pointB.compactness);
-            details.compactness = ratio;
-            totalScore += ratio * weights.compactness;
-            totalWeight += weights.compactness;
-        }
-       
-        // 3. Эксцентриситет
-        if (pointA.eccentricity && pointB.eccentricity) {
-            const diff = Math.abs(pointA.eccentricity - pointB.eccentricity);
-            const sim = Math.max(0, 1 - diff * 2);
-            details.eccentricity = sim;
-            totalScore += sim * weights.eccentricity;
-            totalWeight += weights.eccentricity;
-        }
-       
-        // 4. Радиальный профиль
-        if (pointA.radialProfile && pointB.radialProfile) {
-            const sim = this.compareProfiles(pointA.radialProfile, pointB.radialProfile);
-            details.radialProfile = sim;
-            totalScore += sim * weights.radialProfile;
-            totalWeight += weights.radialProfile;
-        }
-       
-        // 5. Роли соседей
-        if (pointA.neighborRoles && pointB.neighborRoles) {
-            const sim = this.compareNeighborRoles(pointA.neighborRoles, pointB.neighborRoles);
-            details.neighborRoles = sim;
-            totalScore += sim * weights.neighborRoles;
-            totalWeight += weights.neighborRoles;
-        }
-       
-        return {
-            score: totalWeight > 0 ? totalScore / totalWeight : 0,
-            details: details
-        };
+    signaturesEqual(pointA, pointB) {
+        const sigA = this.createDetailedSignature(pointA);
+        const sigB = this.createDetailedSignature(pointB);
+        return sigA === sigB;
     }
 
     /**
-     * Сравнение радиальных профилей
+     * Проверяет, находятся ли точки в пределах допусков
      */
-    compareProfiles(profA, profB) {
-        if (!profA || !profB) return 0.5;
+    withinTolerances(pointA, pointB) {
+        // 1. Роль должна совпадать строго
+        if (pointA.role !== pointB.role) return false;
        
+        // 2. Компактность в пределах допуска
+        if (pointA.compactness && pointB.compactness) {
+            const ratio = Math.min(pointA.compactness, pointB.compactness) /
+                         Math.max(pointA.compactness, pointB.compactness);
+            if (ratio < 1 - this.tolerances.compactness) return false;
+        }
+       
+        // 3. Эксцентриситет в пределах допуска
+        if (pointA.eccentricity && pointB.eccentricity) {
+            if (Math.abs(pointA.eccentricity - pointB.eccentricity) > this.tolerances.eccentricity) {
+                return false;
+            }
+        }
+       
+        // 4. Нормированная площадь в пределах допуска
+        if (pointA.normalizedArea && pointB.normalizedArea) {
+            const ratio = Math.min(pointA.normalizedArea, pointB.normalizedArea) /
+                         Math.max(pointA.normalizedArea, pointB.normalizedArea);
+            if (ratio < 1 - this.tolerances.normalizedArea) return false;
+        }
+       
+        // 5. Радиальный профиль в пределах допуска
+        if (pointA.radialProfile && pointB.radialProfile) {
+            const avgDiff = this.averageProfileDiff(pointA.radialProfile, pointB.radialProfile);
+            if (avgDiff > this.tolerances.radialProfile) return false;
+        }
+       
+        // 6. Роли соседей должны быть похожи (проверяем состав)
+        if (!this.similarNeighborRoles(pointA.neighborRoles, pointB.neighborRoles)) {
+            return false;
+        }
+       
+        // 7. Степень в пределах допуска
+        if (Math.abs(pointA.degree - pointB.degree) > this.tolerances.degree) {
+            return false;
+        }
+       
+        // 8. Треугольники в пределах допуска
+        if (Math.abs(pointA.triangles - pointB.triangles) > this.tolerances.triangles) {
+            return false;
+        }
+       
+        return true;
+    }
+
+    /**
+     * Средняя разница между профилями
+     */
+    averageProfileDiff(profA, profB) {
         let sum = 0;
         const len = Math.min(profA.length, profB.length);
         for (let i = 0; i < len; i++) {
-            const diff = Math.abs(profA[i] - profB[i]);
-            sum += 1 - Math.min(diff, 1);
+            sum += Math.abs(profA[i] - profB[i]);
         }
         return sum / len;
     }
 
     /**
-     * Сравнение ролей соседей
+     * Проверяет похожесть ролей соседей (по составу)
      */
-    compareNeighborRoles(rolesA, rolesB) {
+    similarNeighborRoles(rolesA, rolesB) {
+        if (!rolesA || !rolesB) return true;
+       
         const getCounts = (roles) => {
             const counts = { H: 0, C: 0, B: 0, R: 0, L: 0 };
             for (const r of roles) {
@@ -397,19 +302,27 @@ createDetailedSignature(point) {
         const countsA = getCounts(rolesA);
         const countsB = getCounts(rolesB);
        
-        let score = 0;
-        let total = 0;
-       
-        for (const role of ['H', 'C', 'B', 'R', 'L']) {
-            const max = Math.max(countsA[role], countsB[role]);
-            if (max > 0) {
-                const min = Math.min(countsA[role], countsB[role]);
-                score += min / max;
-                total++;
+        // Проверяем, что количество каждого типа отличается не более чем на 1
+        for (const type of ['H', 'C', 'B', 'R', 'L']) {
+            if (Math.abs(countsA[type] - countsB[type]) > 1) {
+                return false;
             }
         }
-       
-        return total > 0 ? score / total : 0;
+        return true;
+    }
+
+    /**
+     * Сортировка точек по важности
+     */
+    sortByImportance(points) {
+        return [...points].sort((a, b) => {
+            const roleWeight = { 'H': 5, 'C': 4, 'B': 3, 'R': 2, 'L': 1 };
+            const weightA = roleWeight[a.role] || 0;
+            const weightB = roleWeight[b.role] || 0;
+           
+            if (weightA !== weightB) return weightB - weightA;
+            return (b.degree || 0) - (a.degree || 0);
+        });
     }
 
     /**
@@ -420,8 +333,12 @@ createDetailedSignature(point) {
         const usedA = new Set();
         const usedB = new Set();
        
-        // Сортируем по убыванию score
-        const sorted = [...matches].sort((a, b) => b.score - a.score);
+        // Сначала точные совпадения, потом по допускам
+        const sorted = [...matches].sort((a, b) => {
+            if (a.exact && !b.exact) return -1;
+            if (!a.exact && b.exact) return 1;
+            return 0;
+        });
        
         for (const match of sorted) {
             if (!usedA.has(match.pointA) && !usedB.has(match.pointB)) {
@@ -430,9 +347,6 @@ createDetailedSignature(point) {
                 usedB.add(match.pointB);
             } else {
                 this.stats.conflictsResolved++;
-                if (this.debug) {
-                    console.log(`   ⚠️ Конфликт: ${match.pointA.slice(0,12)} или ${match.pointB.slice(0,12)} уже используются`);
-                }
             }
         }
        
