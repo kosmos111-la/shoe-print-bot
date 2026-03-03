@@ -923,16 +923,25 @@ buildOptimalMatchMap(matches) {
 
         let morphologyCount = 0;
         for (const [nodeId, node] of exactGraph.nodes) {
-            const morph = morphologyMap.get(nodeId);
-            if (morph) {
-                node.morphology = morph;
-                node.hasContour = morph.hasContour || false;
-                morphologyCount++;
-            }
-            node.confirmationCount = 1;
-            node.addedFrom = 'original';
-            node.addedAt = new Date();
-        }
+    const morph = morphologyMap.get(nodeId);
+    if (morph) {
+        node.morphology = morph;
+        node.hasContour = morph.hasContour || false;
+       
+        // 🔥 ЯВНО СОХРАНЯЕМ ВСЕ ПОЛЯ
+        node.compactness = morph.compactness;
+        node.eccentricity = morph.eccentricity;
+        node.orientation = morph.orientation;
+        node.normalizedArea = morph.normalizedArea;
+        node.radialProfile = morph.radialProfile;
+        node.asymmetry = morph.asymmetry;
+       
+        morphologyCount++;
+    }
+    node.confirmationCount = 1;
+    node.addedFrom = 'original';
+    node.addedAt = new Date();
+}
 
         // 🔥 АНАЛИЗ ПАТТЕРНОВ
         const tempModel = {
