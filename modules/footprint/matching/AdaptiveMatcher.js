@@ -551,21 +551,26 @@ class AdaptiveMatcher {
         }
 
         if (this.rejectionStats.samples.length > 0) {
-            console.log(`\n🔍 ПРИМЕРЫ ОТСЕВА:`);
-            this.rejectionStats.samples.forEach((sample, i) => {
-                console.log(`   ${i+1}. ${sample.pointA} ↔ ${sample.pointB}`);
-                console.log(`      Причина: ${sample.reason}`);
-                if (sample.details) {
-                    for (const [key, val] of Object.entries(sample.details)) {
-                        if (val.expected !== undefined) {
-                            console.log(`         ${key}: ожидалось ${val.expected.toFixed(3)}, получено ${val.actual.toFixed(3)} (разница ${(val.diff*100).toFixed(1)}%)`);
-                        } else {
-                            console.log(`         ${key}: разница ${(val.diff*100).toFixed(1)}% (допуск ${(val.tolerance*100).toFixed(1)}%)`);
-                        }
+    console.log(`\n🔍 ПРИМЕРЫ ОТСЕВА:`);
+    this.rejectionStats.samples.forEach((sample, i) => {
+        console.log(`   ${i+1}. ${sample.pointA} ↔ ${sample.pointB}`);
+        console.log(`      Причина: ${sample.reason}`);
+        if (sample.details) {
+            for (const [key, val] of Object.entries(sample.details)) {
+                // 🔥 ПРОВЕРЯЕМ ТИП ДАННЫХ ПЕРЕД ФОРМАТИРОВАНИЕМ
+                if (val.expected !== undefined && val.actual !== undefined) {
+                    if (typeof val.expected === 'number' && typeof val.actual === 'number') {
+                        console.log(`         ${key}: ожидалось ${val.expected.toFixed(3)}, получено ${val.actual.toFixed(3)} (разница ${(val.diff*100).toFixed(1)}%)`);
+                    } else {
+                        console.log(`         ${key}: ожидалось ${val.expected}, получено ${val.actual}`);
                     }
+                } else {
+                    console.log(`         ${key}: разница ${(val.diff*100).toFixed(1)}% (допуск ${(val.tolerance*100).toFixed(1)}%)`);
                 }
-            });
+            }
         }
+    });
+}
     }
 
     /**
