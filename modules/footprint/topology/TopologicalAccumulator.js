@@ -374,36 +374,37 @@ class TopologicalAccumulator {
      * Извлечение признаков из модели для быстрого сравнения
      */
     extractFeaturesFromModel(model) {
-        const features = [];
-        const graph = model.graph;
-        const morphologyMap = model.morphologyMap || new Map();
-
-        console.log(`📊 Извлечение признаков из модели с ${graph.nodes.size} точками`);
-
-        for (const [nodeId, node] of graph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
-
-            features.push({
-                id: nodeId,
-                role: this.getNodeRoleSimple(nodeId, graph),
-                degree: node.degree || 0,
-                triangles: node.triangles || 0,
-                compactness: morph.compactness,
-                eccentricity: morph.eccentricity,
-                normalizedArea: morph.normalizedArea,
-                radialProfile: morph.radialProfile,
-                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
-                // Координаты для геометрии
-                x: node.x,
-                y: node.y
-            });
-        }
-
-        const withMorph = features.filter(f => f.compactness).length;
-        console.log(`   • Точек с морфологией: ${withMorph}/${features.length}`);
-
-        return features;
+    const features = [];
+    const graph = model.graph;
+    const morphologyMap = model.morphologyMap || new Map();
+    const patternData = model.patternData || {}; // ← НУЖНО ДОБАВИТЬ
+   
+    for (const [nodeId, node] of graph.nodes) {
+        const morph = morphologyMap.get(nodeId) || {};
+       
+        features.push({
+            id: nodeId,
+            role: this.getNodeRoleSimple(nodeId, graph),
+            degree: node.degree || 0,
+            triangles: node.triangles || 0,
+            compactness: morph.compactness,
+            eccentricity: morph.eccentricity,
+            normalizedArea: morph.normalizedArea,
+            radialProfile: morph.radialProfile,
+            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
+           
+            // 🔥 НОВЫЕ ПРИЗНАКИ
+            clusterId: node.clusterId || '0',
+            clusterSize: node.clusterSize || 1,
+            patternType: node.patternType || 'R',
+            patternFrequency: node.patternFrequency || 1,
+            gapPattern: node.gapPattern || '0',
+            neighborClusters: node.neighborClusters || 0
+        });
     }
+   
+    return features;
+}
 
     /**
      * Упрощенное определение роли (для быстрого доступа)
