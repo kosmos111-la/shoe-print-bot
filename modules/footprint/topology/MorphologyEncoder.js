@@ -14,8 +14,13 @@ class MorphologyEncoder {
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     encode(points, contours) {
-        console.log(`📐 Кодирую морфологию для ${points.length} точек...`);
-
+    console.log(`📐 Кодирую морфологию для ${points.length} точек...`);
+   
+    // 🔥 ДИАГНОСТИКА ВХОДНЫХ ДАННЫХ
+    console.log(`   contours: ${contours?.length || 0}`);
+    if (points.length > 0) {
+        console.log(`   Пример точки: ${points[0].id}, контур есть? ${!!points[0].originalPoints}`);
+    }
         const morphologyMap = new Map();
 
         // Создаём мапу контуров по pointId для быстрого доступа
@@ -74,6 +79,8 @@ class MorphologyEncoder {
     // ==================== ВЫЧИСЛЕНИЕ МОРФОЛОГИЧЕСКОГО КОДА ====================
 
     computeMorphologyCode(contourPoints, centerPoint) {
+    console.log(`   Вычисляю морфологию для контура из ${contourPoints.length} точек`);
+      
         // 1. Аппроксимируем контур для уменьшения шума
         const simplified = this.simplifyContour(contourPoints, 2.0);
 
