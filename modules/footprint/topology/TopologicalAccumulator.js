@@ -24,14 +24,14 @@ class TopologicalAccumulator {
 
         // 🔥 ДОПУСКИ ДЛЯ ПРИЗНАКОВ (вместо весов)
         this.tolerances = {
-            compactness: 0.1,        // 10% допуск
-            eccentricity: 0.05,       // абсолютный допуск
-            normalizedArea: 0.15,      // 15% допуск
-            radialProfile: 0.1,        // средняя разница
-            degree: 2,                 // максимум разница в степени
-            triangles: 1,               // максимум разница в треугольников
-            role: 'strict'              // роли должны совпадать строго
-        };
+    compactness: 0.4,        // 40%
+    eccentricity: 0.15,      // абсолютный
+    normalizedArea: 0.75,     // 75%
+    radialProfile: 0.3,       // 30%
+    degree: 2,
+    triangles: 1,
+    role: 'soft'
+};
 
         // Компоненты
         this.graphBuilder = new GraphBuilder({ debug: this.debug });
