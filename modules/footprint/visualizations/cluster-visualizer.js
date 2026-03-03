@@ -168,7 +168,6 @@ class ClusterVisualizer {
     const points = topologyData.points;
     const matchMap = topologyData.matchMap || new Map();
 
-    // Карта номеров для модели
     const modelToPair = new Map();
     for (const [photoId, match] of matchMap) {
         if (match && match.modelId && match.pairNumber) {
@@ -190,44 +189,43 @@ class ClusterVisualizer {
         const pairNumber = modelToPair.get(point.id);
         const isAnchor = pairNumber !== undefined;
 
-        // Цвет и размер
+        // 🔥 РАЗМЕРЫ УМЕНЬШЕНЫ В 2 РАЗА
         let color, size;
 
         if (isAnchor) {
-            color = '#FF0000'; // 🔴 Красный
-            size = 16; // Чуть больше для цифры внутри
+            color = '#FF0000';
+            size = 8;  // было 16
             anchorPoints++;
         } else if (confirmations >= 3) {
             color = '#FF0000';
-            size = 12;
+            size = 6;  // было 12
             regularPoints++;
         } else if (confirmations >= 2) {
-            color = '#FFC107'; // 🟡 Желтый
-            size = 10;
+            color = '#FFC107';
+            size = 5;  // было 10
             regularPoints++;
         } else if (confirmations >= 1) {
-            color = '#2196F3'; // 🔵 Синий
-            size = 8;
+            color = '#2196F3';
+            size = 4;  // было 8
             regularPoints++;
         } else {
-            color = '#BDBDBD'; // ⚪ Серый
-            size = 6;
+            color = '#BDBDBD';
+            size = 3;  // было 6
             regularPoints++;
         }
 
-        // Рисуем точку
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(x, y, size, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1;
         ctx.stroke();
 
-        // 🔥 ЦИФРА ВНУТРИ ТОЧКИ
+        // 🔥 ШРИФТ ТОЖЕ УМЕНЬШЕН
         if (isAnchor) {
             ctx.fillStyle = '#000000';
-            ctx.font = 'bold 10px Arial';
+            ctx.font = 'bold 8px Arial';  // было 10px
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(pairNumber.toString(), x, y);
@@ -240,7 +238,6 @@ class ClusterVisualizer {
 drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
     console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
 
-    // Карта номеров для фото
     const photoToPair = new Map();
     for (const [photoId, match] of matchMap) {
         if (match && match.pairNumber) {
@@ -260,20 +257,20 @@ drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
         const isAnchor = pairNumber !== undefined;
         const hasMatch = matchMap.has(point.id);
 
-        // Цвет и размер
+        // 🔥 РАЗМЕРЫ УМЕНЬШЕНЫ В 2 РАЗА
         let color, size;
        
         if (isAnchor) {
-            color = '#FF0000'; // 🔴 Красный
-            size = 16;
+            color = '#FF0000';
+            size = 8;  // было 16
             anchorPoints++;
         } else if (hasMatch) {
-            color = '#4CAF50'; // 🟢 Зеленый
-            size = 12;
+            color = '#4CAF50';
+            size = 6;  // было 12
             matchedPoints++;
         } else {
-            color = '#FF9800'; // 🟠 Оранжевый
-            size = 10;
+            color = '#FF9800';
+            size = 5;  // было 10
             unmatchedPoints++;
         }
 
@@ -282,13 +279,12 @@ drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
         ctx.arc(x, y, size, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1;
         ctx.stroke();
 
-        // 🔥 ЦИФРА ВНУТРИ ТОЧКИ
         if (isAnchor) {
             ctx.fillStyle = '#000000';
-            ctx.font = 'bold 10px Arial';
+            ctx.font = 'bold 8px Arial';  // было 10px
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(pairNumber.toString(), x, y);
