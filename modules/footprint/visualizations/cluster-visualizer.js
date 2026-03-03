@@ -165,167 +165,138 @@ class ClusterVisualizer {
     }
 
     drawModelPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
-        const points = topologyData.points;
-        const matchMap = topologyData.matchMap || new Map();
+    const points = topologyData.points;
+    const matchMap = topologyData.matchMap || new Map();
 
-        // 🔥 СОЗДАЕМ КАРТУ НОМЕРОВ (modelId -> pairNumber)
-        const modelToPair = new Map();
-        for (const [photoId, match] of matchMap) {
-            if (match && match.modelId && match.pairNumber) {
-                modelToPair.set(match.modelId, {
-                    number: match.pairNumber,
-                    confidence: match.confidence
-                });
-            }
+    // Карта номеров для модели
+    const modelToPair = new Map();
+    for (const [photoId, match] of matchMap) {
+        if (match && match.modelId && match.pairNumber) {
+            modelToPair.set(match.modelId, match.pairNumber);
         }
-
-        console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
-
-        // Сортируем точки: сначала с номерами, потом без
-        const sortedPoints = [...points].sort((a, b) => {
-            const aHasNum = modelToPair.has(a.id) ? 1 : 0;
-            const bHasNum = modelToPair.has(b.id) ? 1 : 0;
-            return bHasNum - aHasNum;
-        });
-
-        let anchorPoints = 0, regularPoints = 0;
-
-        for (const point of sortedPoints) {
-            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
-
-            const x = centerX + (point.x - avgX) * scale;
-            const y = centerY + (point.y - avgY) * scale;
-
-            const confirmations = point.confirmationCount || 0;
-            const pairInfo = modelToPair.get(point.id);
-            const hasNumber = pairInfo !== undefined;
-
-            // Цвет и размер
-            let color, size;
-
-            if (hasNumber) {
-                color = '#FF0000'; // 🔴 Красный - есть пара
-                size = this.config.pointSize + 2;
-                anchorPoints++;
-            } else if (confirmations >= 3) {
-                color = '#FF0000';
-                size = this.config.pointSize;
-                regularPoints++;
-            } else if (confirmations >= 2) {
-                color = '#FFC107'; // 🟡 Подтверждённый
-                size = this.config.pointSize - 1;
-                regularPoints++;
-            } else if (confirmations >= 1) {
-                color = '#2196F3'; // 🔵 Новый
-                size = this.config.pointSize - 2;
-                regularPoints++;
-            } else {
-                color = '#BDBDBD'; // ⚪ Неподтверждённый
-                size = this.config.pointSize - 3;
-                regularPoints++;
-            }
-
-            // Рисуем точку
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-
-            // 🔥 РИСУЕМ НОМЕР (с белым фоном для читаемости)
-            if (hasNumber) {
-                const number = pairInfo.number;
-               
-                // Белый фон для номера
-                ctx.fillStyle = '#FFFFFF';
-                ctx.fillRect(x - 12, y - size - 22, 24, 18);
-               
-                ctx.fillStyle = '#000000';
-                ctx.font = `bold ${this.config.fontSize}px Arial`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(number.toString(), x, y - size - 12);
-            }
-        }
-
-        console.log(`   🎯 Модель: 🔴 ${anchorPoints} с номерами, остальных: ${regularPoints}`);
     }
 
-    drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
-        console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
+    console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
 
-        // 🔥 СОЗДАЕМ КАРТУ НОМЕРОВ (photoId -> pairNumber)
-        const photoToPair = new Map();
-        for (const [photoId, match] of matchMap) {
-            if (match && match.pairNumber) {
-                photoToPair.set(photoId, {
-                    number: match.pairNumber,
-                    confidence: match.confidence
-                });
-            }
+    let anchorPoints = 0, regularPoints = 0;
+
+    for (const point of points) {
+        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+
+        const x = centerX + (point.x - avgX) * scale;
+        const y = centerY + (point.y - avgY) * scale;
+
+        const confirmations = point.confirmationCount || 0;
+        const pairNumber = modelToPair.get(point.id);
+        const isAnchor = pairNumber !== undefined;
+
+        // Цвет и размер
+        let color, size;
+
+        if (isAnchor) {
+            color = '#FF0000'; // 🔴 Красный
+            size = 16; // Чуть больше для цифры внутри
+            anchorPoints++;
+        } else if (confirmations >= 3) {
+            color = '#FF0000';
+            size = 12;
+            regularPoints++;
+        } else if (confirmations >= 2) {
+            color = '#FFC107'; // 🟡 Желтый
+            size = 10;
+            regularPoints++;
+        } else if (confirmations >= 1) {
+            color = '#2196F3'; // 🔵 Синий
+            size = 8;
+            regularPoints++;
+        } else {
+            color = '#BDBDBD'; // ⚪ Серый
+            size = 6;
+            regularPoints++;
         }
 
-        // Сортируем точки: сначала с номерами
-        const sortedPoints = [...points].sort((a, b) => {
-            const aHasNum = photoToPair.has(a.id) ? 1 : 0;
-            const bHasNum = photoToPair.has(b.id) ? 1 : 0;
-            return bHasNum - aHasNum;
-        });
+        // Рисуем точку
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
 
-        let anchorPoints = 0, matchedPoints = 0, unmatchedPoints = 0;
-
-        for (const point of sortedPoints) {
-            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
-
-            const x = centerX + (point.x - avgX) * scale;
-            const y = centerY + (point.y - avgY) * scale;
-
-            const pairInfo = photoToPair.get(point.id);
-            const hasNumber = pairInfo !== undefined;
-            const hasMatch = matchMap.has(point.id);
-
-            // Цвет
-            let color, size;
-           
-            if (hasNumber) {
-                color = '#FF0000'; // 🔴 Красный - с номером
-                size = this.config.pointSize + 2;
-                anchorPoints++;
-            } else if (hasMatch) {
-                color = '#4CAF50'; // 🟢 Зелёный - есть пара
-                size = this.config.pointSize;
-                matchedPoints++;
-            } else {
-                color = '#FF9800'; // 🟠 Оранжевый - новая
-                size = this.config.pointSize - 1;
-                unmatchedPoints++;
-            }
-
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-
-            // 🔥 РИСУЕМ НОМЕР
-            if (hasNumber) {
-                ctx.fillStyle = '#FFFFFF';
-                ctx.fillRect(x - 12, y - size - 22, 24, 18);
-               
-                ctx.fillStyle = '#000000';
-                ctx.font = `bold ${this.config.fontSize}px Arial`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(pairInfo.number.toString(), x, y - size - 12);
-            }
+        // 🔥 ЦИФРА ВНУТРИ ТОЧКИ
+        if (isAnchor) {
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(pairNumber.toString(), x, y);
         }
-
-        console.log(`   🎯 Фото: 🔴 ${anchorPoints} с номерами, 🟢 ${matchedPoints} пар, 🟠 ${unmatchedPoints} новых`);
     }
+
+    console.log(`   🎯 Модель: 🔴 ${anchorPoints} с цифрами, остальных: ${regularPoints}`);
+}
+
+drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
+    console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
+
+    // Карта номеров для фото
+    const photoToPair = new Map();
+    for (const [photoId, match] of matchMap) {
+        if (match && match.pairNumber) {
+            photoToPair.set(photoId, match.pairNumber);
+        }
+    }
+
+    let anchorPoints = 0, matchedPoints = 0, unmatchedPoints = 0;
+
+    for (const point of points) {
+        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+
+        const x = centerX + (point.x - avgX) * scale;
+        const y = centerY + (point.y - avgY) * scale;
+
+        const pairNumber = photoToPair.get(point.id);
+        const isAnchor = pairNumber !== undefined;
+        const hasMatch = matchMap.has(point.id);
+
+        // Цвет и размер
+        let color, size;
+       
+        if (isAnchor) {
+            color = '#FF0000'; // 🔴 Красный
+            size = 16;
+            anchorPoints++;
+        } else if (hasMatch) {
+            color = '#4CAF50'; // 🟢 Зеленый
+            size = 12;
+            matchedPoints++;
+        } else {
+            color = '#FF9800'; // 🟠 Оранжевый
+            size = 10;
+            unmatchedPoints++;
+        }
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // 🔥 ЦИФРА ВНУТРИ ТОЧКИ
+        if (isAnchor) {
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(pairNumber.toString(), x, y);
+        }
+    }
+
+    console.log(`   🎯 Фото: 🔴 ${anchorPoints} с цифрами, 🟢 ${matchedPoints} пар, 🟠 ${unmatchedPoints} новых`);
+}
 
     drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
         const pointsMap = new Map();
