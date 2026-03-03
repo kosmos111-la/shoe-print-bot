@@ -1,55 +1,40 @@
 // modules/footprint/matching/AdaptiveMatcher.js
-// 🎯 4-Й ЭТАП: ПОИСК УНИКАЛЬНЫХ ТОЧЕК С ДОПУСКАМИ (БЕЗ ВЕСОВ)
-// 🔥 С МЯГКИМИ РОЛЯМИ И СТАТИСТИКОЙ ОТСЕВА
+// 🎯 4-Й ЭТАП: ПОИСК УНИКАЛЬНЫХ ТОЧЕК С ДОПУСКАМИ
+// 🔥 14 ИНВАРИАНТНЫХ ПРИЗНАКОВ
 
 class AdaptiveMatcher {
     constructor(options = {}) {
         this.debug = options.debug !== false;
         this.verbose = options.verbose || false;
 
-        // 🔥 ДОПУСКИ (расширенные на основе статистики)
+        // 🔥 ДОПУСКИ (расширенные)
         this.tolerances = options.tolerances || {
-            compactness: 0.4,        // 40% допуск (было 10%)
-            eccentricity: 0.15,       // абсолютный допуск (было 0.05)
-            normalizedArea: 0.75,      // 75% допуск (было 15%)
-            radialProfile: 0.3,        // 30% допуск (было 10%)
-            degree: 2,                 // максимум разница в степени
-            triangles: 1,               // максимум разница в треугольников
-            role: 'soft'                // мягкие роли
+            // Индивидуальные признаки
+            compactness: 0.4,        // 40%
+            eccentricity: 0.15,       // абсолютный
+            normalizedArea: 0.75,      // 75% (но предфильтр!)
+            radialProfile: 0.3,        // 30%
+            degree: 2,                 // разница в степени
+            triangles: 1,               // разница в треугольников
+           
+            // Групповые признаки
+            clusterSize: 0,             // должно совпадать точно (0 = strict)
+            patternType: 'strict',       // тип паттерна должен совпадать
+            patternFrequency: 1,         // разница в частоте
+            gapPattern: 0.2,             // 20% разница в паттерне пропусков
+            neighborClusters: 1,          // разница в количестве соседних кластеров
+           
+            // Роли с учетом силы
+            role: 'soft'
         };
 
-        // 🔥 МЯГКИЕ РОЛИ (пограничные состояния)
+        // 🔥 МЯГКИЕ РОЛИ (без изменений)
         this.roleTransitions = {
-            'H': {  // Хаб
-                strong: ['H'],                    // сильный хаб не меняется
-                weak: ['H', 'C', 'B'],            // слабый хаб может стать кликой или мостом
-                minDegree: 6,                      // минимальная степень для хаба
-                borderline: 7                       // пограничное значение (6-7)
-            },
-            'C': {  // Клика
-                strong: ['C'],
-                weak: ['C', 'H', 'R'],
-                minDegree: 3,
-                borderline: 4
-            },
-            'B': {  // Мост
-                strong: ['B'],
-                weak: ['B', 'R', 'L'],
-                minDegree: 2,
-                borderline: 2
-            },
-            'R': {  // Обычный
-                strong: ['R'],
-                weak: ['R', 'B', 'L'],
-                minDegree: 2,
-                borderline: 2
-            },
-            'L': {  // Лист
-                strong: ['L'],
-                weak: ['L', 'R'],
-                minDegree: 1,
-                borderline: 1
-            }
+            'H': { strong: ['H'], weak: ['H', 'C', 'B'], minDegree: 6, borderline: 7 },
+            'C': { strong: ['C'], weak: ['C', 'H', 'R'], minDegree: 3, borderline: 4 },
+            'B': { strong: ['B'], weak: ['B', 'R', 'L'], minDegree: 2, borderline: 2 },
+            'R': { strong: ['R'], weak: ['R', 'B', 'L'], minDegree: 2, borderline: 2 },
+            'L': { strong: ['L'], weak: ['L', 'R'], minDegree: 1, borderline: 1 }
         };
 
         this.stats = {
@@ -62,7 +47,7 @@ class AdaptiveMatcher {
             conflictsResolved: 0
         };
 
-        // Статистика отсева
+        // Статистика отсева (расширенная)
         this.rejectionStats = {
             total: 0,
             byReason: {},
@@ -73,12 +58,258 @@ class AdaptiveMatcher {
                 radialProfile: { total: 0, sumDiff: 0, maxDiff: 0 },
                 degree: { total: 0, sumDiff: 0, maxDiff: 0 },
                 triangles: { total: 0, sumDiff: 0, maxDiff: 0 },
-                role: { total: 0, sumDiff: 0, maxDiff: 0 }
+                role: { total: 0, sumDiff: 0, maxDiff: 0 },
+                // Новые групповые признаки
+                clusterSize: { total: 0, sumDiff: 0, maxDiff: 0 },
+                patternType: { total: 0, sumDiff: 0, maxDiff: 0 },
+                patternFrequency: { total: 0, sumDiff: 0, maxDiff: 0 },
+                gapPattern: { total: 0, sumDiff: 0, maxDiff: 0 },
+                neighborClusters: { total: 0, sumDiff: 0, maxDiff: 0 }
             },
             samples: []
         };
 
-        console.log('🎯 AdaptiveMatcher (4-й этап - мягкие роли) создан');
+        console.log('🎯 AdaptiveMatcher (14 признаков) создан');
+    }
+
+    /**
+     * ПРЕДФИЛЬТР: отсекаем заведомо разные точки
+     */
+    preFilter(pointA, pointB) {
+        // Площадь не может отличаться в 5 раз
+        if (pointA.normalizedArea && pointB.normalizedArea) {
+            const ratio = Math.max(pointA.normalizedArea, pointB.normalizedArea) /
+                         Math.min(pointA.normalizedArea, pointB.normalizedArea);
+            if (ratio > 5) {
+                this.logRejection(pointA, pointB, 'area_prefilter', {
+                    expected: pointA.normalizedArea,
+                    actual: pointB.normalizedArea,
+                    ratio: ratio
+                });
+                return false;
+            }
+        }
+
+        // Степень не может измениться слишком сильно
+        if (Math.abs(pointA.degree - pointB.degree) > 5) {
+            this.logRejection(pointA, pointB, 'degree_prefilter', {
+                expected: pointA.degree,
+                actual: pointB.degree,
+                diff: Math.abs(pointA.degree - pointB.degree)
+            });
+            return false;
+        }
+
+        // Хаб не может стать листом (и наоборот)
+        if ((pointA.role === 'H' && pointB.role === 'L') ||
+            (pointA.role === 'L' && pointB.role === 'H')) {
+            this.logRejection(pointA, pointB, 'role_prefilter', {
+                expected: pointA.role,
+                actual: pointB.role
+            });
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Создает ДЕТАЛЬНУЮ подпись точки (14 признаков)
+     */
+    createDetailedSignature(point) {
+        const components = [
+            // Индивидуальные признаки (8)
+            point.role || 'R',
+            point.compactness ? point.compactness.toFixed(2) : '0.00',
+            point.eccentricity ? point.eccentricity.toFixed(3) : '0.000',
+            point.normalizedArea ? point.normalizedArea.toFixed(2) : '1.00',
+            point.radialProfile ? point.radialProfile.map(v => v.toFixed(2)).join(',') : '0.00,0.00,0.00,0.00',
+            point.neighborRoles || '',
+            `D${point.degree || 0}`,
+            `T${point.triangles || 0}`,
+           
+            // Групповые признаки (6)
+            `CL${point.clusterId || '0'}`,
+            `CS${point.clusterSize || 1}`,
+            `PT${point.patternType || 'R'}`,
+            `PF${point.patternFrequency || 1}`,
+            `GP${point.gapPattern || '0'}`,
+            `NC${point.neighborClusters || 0}`
+        ];
+
+        return components.join('|');
+    }
+
+    /**
+     * Проверяет, находятся ли точки в пределах допусков
+     */
+    withinTolerances(pointA, pointB) {
+        // Сначала предфильтр
+        if (!this.preFilter(pointA, pointB)) return false;
+
+        // 1. Роли с учетом силы
+        const maxDegree = Math.max(pointA.degree, pointB.degree, 10);
+        if (!this.rolesCompatible(pointA.role, pointB.role, pointA.degree, pointB.degree, maxDegree)) {
+            this.logRejection(pointA, pointB, 'role_mismatch', {
+                expected: pointA.role,
+                actual: pointB.role,
+                degreeA: pointA.degree,
+                degreeB: pointB.degree
+            });
+            return false;
+        }
+
+        // 2. Компактность
+        if (pointA.compactness && pointB.compactness) {
+            const ratio = Math.min(pointA.compactness, pointB.compactness) /
+                         Math.max(pointA.compactness, pointB.compactness);
+            const diff = 1 - ratio;
+            if (diff > this.tolerances.compactness) {
+                this.logRejection(pointA, pointB, 'compactness', {
+                    expected: pointA.compactness,
+                    actual: pointB.compactness,
+                    diff: diff
+                });
+                return false;
+            }
+        }
+
+        // 3. Эксцентриситет
+        if (pointA.eccentricity && pointB.eccentricity) {
+            const diff = Math.abs(pointA.eccentricity - pointB.eccentricity);
+            if (diff > this.tolerances.eccentricity) {
+                this.logRejection(pointA, pointB, 'eccentricity', {
+                    expected: pointA.eccentricity,
+                    actual: pointB.eccentricity,
+                    diff: diff
+                });
+                return false;
+            }
+        }
+
+        // 4. Площадь (после предфильтра)
+        if (pointA.normalizedArea && pointB.normalizedArea) {
+            const ratio = Math.min(pointA.normalizedArea, pointB.normalizedArea) /
+                         Math.max(pointA.normalizedArea, pointB.normalizedArea);
+            const diff = 1 - ratio;
+            if (diff > this.tolerances.normalizedArea) {
+                this.logRejection(pointA, pointB, 'area', {
+                    expected: pointA.normalizedArea,
+                    actual: pointB.normalizedArea,
+                    diff: diff
+                });
+                return false;
+            }
+        }
+
+        // 5. Радиальный профиль
+        if (pointA.radialProfile && pointB.radialProfile) {
+            const avgDiff = this.averageProfileDiff(pointA.radialProfile, pointB.radialProfile);
+            if (avgDiff > this.tolerances.radialProfile) {
+                this.logRejection(pointA, pointB, 'radialProfile', {
+                    diff: avgDiff
+                });
+                return false;
+            }
+        }
+
+        // 6. Степень (после предфильтра)
+        const degreeDiff = Math.abs(pointA.degree - pointB.degree);
+        if (degreeDiff > this.tolerances.degree) {
+            this.logRejection(pointA, pointB, 'degree', {
+                expected: pointA.degree,
+                actual: pointB.degree,
+                diff: degreeDiff
+            });
+            return false;
+        }
+
+        // 7. Треугольники
+        const trianglesDiff = Math.abs(pointA.triangles - pointB.triangles);
+        if (trianglesDiff > this.tolerances.triangles) {
+            this.logRejection(pointA, pointB, 'triangles', {
+                expected: pointA.triangles,
+                actual: pointB.triangles,
+                diff: trianglesDiff
+            });
+            return false;
+        }
+
+        // 8. Размер кластера (строго)
+        if (pointA.clusterSize !== undefined && pointB.clusterSize !== undefined) {
+            if (pointA.clusterSize !== pointB.clusterSize) {
+                this.logRejection(pointA, pointB, 'clusterSize', {
+                    expected: pointA.clusterSize,
+                    actual: pointB.clusterSize
+                });
+                return false;
+            }
+        }
+
+        // 9. Тип паттерна (строго)
+        if (pointA.patternType && pointB.patternType) {
+            if (pointA.patternType !== pointB.patternType) {
+                this.logRejection(pointA, pointB, 'patternType', {
+                    expected: pointA.patternType,
+                    actual: pointB.patternType
+                });
+                return false;
+            }
+        }
+
+        // 10. Частота паттерна
+        if (pointA.patternFrequency && pointB.patternFrequency) {
+            const diff = Math.abs(pointA.patternFrequency - pointB.patternFrequency);
+            if (diff > this.tolerances.patternFrequency) {
+                this.logRejection(pointA, pointB, 'patternFrequency', {
+                    expected: pointA.patternFrequency,
+                    actual: pointB.patternFrequency,
+                    diff: diff
+                });
+                return false;
+            }
+        }
+
+        // 11. Паттерн пропусков
+        if (pointA.gapPattern && pointB.gapPattern) {
+            const diff = this.compareGapPatterns(pointA.gapPattern, pointB.gapPattern);
+            if (diff > this.tolerances.gapPattern) {
+                this.logRejection(pointA, pointB, 'gapPattern', {
+                    diff: diff
+                });
+                return false;
+            }
+        }
+
+        // 12. Соседние кластеры
+        if (pointA.neighborClusters !== undefined && pointB.neighborClusters !== undefined) {
+            const diff = Math.abs(pointA.neighborClusters - pointB.neighborClusters);
+            if (diff > this.tolerances.neighborClusters) {
+                this.logRejection(pointA, pointB, 'neighborClusters', {
+                    expected: pointA.neighborClusters,
+                    actual: pointB.neighborClusters,
+                    diff: diff
+                });
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Сравнивает паттерны пропусков
+     */
+    compareGapPatterns(gapA, gapB) {
+        if (typeof gapA === 'string') gapA = gapA.split(',').map(Number);
+        if (typeof gapB === 'string') gapB = gapB.split(',').map(Number);
+       
+        let matches = 0;
+        const len = Math.min(gapA.length, gapB.length);
+        for (let i = 0; i < len; i++) {
+            if (Math.abs(gapA[i] - gapB[i]) < 0.1) matches++;
+        }
+        return 1 - (matches / len);
     }
 
     /**
