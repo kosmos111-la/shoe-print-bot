@@ -448,22 +448,25 @@ class TopologicalAccumulator {
      * Строит matchMap для визуализации - только надежные пары получают номера
      */
     buildOptimalMatchMap(matches) {
-        const matchMap = new Map();
-        let pairNumber = 1;
+    const matchMap = new Map();
+    let pairNumber = 1;
 
-        // Сортируем по убыванию сходства
-        const sortedMatches = [...matches].sort((a, b) => b.score - a.score);
-       
-        // Первые 12 получают номера
-        for (let i = 0; i < Math.min(12, sortedMatches.length); i++) {
-            const match = sortedMatches[i];
-            matchMap.set(match.pointA, {
-                modelId: match.pointB,
-                pairNumber: pairNumber++,
-                type: 'anchor',
-                confidence: match.score
-            });
-        }
+    // Сортируем по убыванию сходства (для красоты)
+    const sortedMatches = [...matches].sort((a, b) => b.score - a.score);
+
+    // 🔥 ВСЕ точки получают номера!
+    for (const match of sortedMatches) {
+        matchMap.set(match.pointA, {
+            modelId: match.pointB,
+            pairNumber: pairNumber++,
+            type: 'anchor',
+            confidence: match.score
+        });
+    }
+
+    console.log(`📋 Создан matchMap: ${matchMap.size} пар (ВСЕ с номерами)`);
+    return matchMap;
+}
 
         // Остальные подтвержденные пары - без номеров
         for (let i = 12; i < sortedMatches.length; i++) {
