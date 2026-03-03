@@ -13,8 +13,11 @@ class ClusterAnalyzer {
      * Основной метод: кластеризация всех точек
      */
     analyze(points, features, graph) {
-        console.log(`📊 Кластеризую ${points.length} точек по 14 признакам...`);
-
+    console.log(`📊 Кластеризую ${points.length} точек по 14 признакам...`);
+   
+    // 🔥 ДИАГНОСТИКА
+    this.diagnoseFeatures(points, features);
+      
         // 1. Создаем подписи для каждой точки (14 признаков)
         const signatures = this.createSignatures(points, features);
        
@@ -396,6 +399,82 @@ class ClusterAnalyzer {
        
         return null;
     }
+/**
+* Диагностика распределения признаков
+*/
+diagnoseFeatures(points, features) {
+    console.log(`\n🔬 ДИАГНОСТИКА ПРИЗНАКОВ:`);
+   
+    const stats = {
+        role: {},
+        degree: [],
+        compactness: [],
+        eccentricity: [],
+        area: [],
+        radialProfile: [],
+        neighborRoles: new Set(),
+        triangles: []
+    };
+   
+    for (const point of points) {
+        const f = features.get(point.id) || {};
+        const morph = f.morphology || {};
+       
+        // Роли
+        stats.role[f.role || 'R'] = (stats.role[f.role || 'R'] || 0) + 1;
+       
+        // Числовые признаки
+        if (f.degree) stats.degree.push(f.degree);
+        if (morph.compactness) stats.compactness.push(morph.compactness);
+        if (morph.eccentricity) stats.eccentricity.push(morph.eccentricity);
+        if (morph.normalizedArea) stats.area.push(morph.normalizedArea);
+        if (f.triangles) stats.triangles.push(f.triangles);
+       
+        // Роли соседей
+        if (f.neighborRoles) stats.neighborRoles.add(f.neighborRoles);
+       
+        // Радиальный профиль
+        if (morph.radialProfile) {
+            stats.radialProfile.push(morph.radialProfile.join(','));
+        }
+    }
+   
+    // Статистика
+    console.log(`\n📊 РАСПРЕДЕЛЕНИЕ РОЛЕЙ:`);
+    Object.entries(stats.role).forEach(([role, count]) => {
+        console.log(`   • ${role}: ${count} точек (${(count/points.length*100).toFixed(1)}%)`);
+    });
+   
+    console.log(`\n📈 ЧИСЛОВЫЕ ПРИЗНАКИ:`);
+    this.printNumberStats('Степень', stats.degree);
+    this.printNumberStats('Компактность', stats.compactness);
+    this.printNumberStats('Эксцентриситет', stats.eccentricity);
+    this.printNumberStats('Площадь', stats.area);
+    this.printNumberStats('Треугольники', stats.triangles);
+   
+    console.log(`\n🔤 РОЛИ СОСЕДЕЙ: ${stats.neighborRoles.size} уникальных паттернов`);
+    if (stats.neighborRoles.size < 10) {
+        console.log(`   Примеры: ${Array.from(stats.neighborRoles).slice(0,5).join(', ')}`);
+    }
+   
+    console.log(`\n📐 РАДИАЛЬНЫЙ ПРОФИЛЬ: ${stats.radialProfile.length} точек`);
+    const uniqueProfiles = new Set(stats.radialProfile);
+    console.log(`   • Уникальных профилей: ${uniqueProfiles.size}`);
+    console.log(`   • Повторов: ${stats.radialProfile.length - uniqueProfiles.size}`);
+}
+
+printNumberStats(name, values) {
+    if (values.length === 0) return;
+   
+    const unique = new Set(values);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const avg = values.reduce((a,b) => a+b, 0) / values.length;
+   
+    console.log(`   • ${name}: диапазон ${min.toFixed(2)}-${max.toFixed(2)}, среднее ${avg.toFixed(2)}`);
+    console.log(`     уникальных значений: ${unique.size}/${values.length} (${(unique.size/values.length*100).toFixed(1)}%)`);
+}
+  
 }
 
 module.exports = ClusterAnalyzer;
