@@ -1,7 +1,7 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - ИСПРАВЛЕННАЯ ВЕРСИЯ
-// 🔥 Убраны веса, добавлены допуски
-// ✅ 4-й этап полностью интегрирован
+// 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - ОПТИМАЛЬНОЕ ПАРОСОЧЕТАНИЕ
+// 🔥 14 инвариантных признаков + венгерский алгоритм
+// ✅ ПОЛНАЯ ВЕРСИЯ
 
 const GraphBuilder = require('./GraphBuilder');
 const KNNGraphBuilder = require('./KNNGraphBuilder');
@@ -10,9 +10,9 @@ const MorphologyEncoder = require('./MorphologyEncoder');
 const CenterMatcher = require('./CenterMatcher');
 const RelativePositioning = require('./RelativePositioning');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
-const AdaptiveMatcher = require('../matching/AdaptiveMatcher');
+const OptimalMatcher = require('../matching/OptimalMatcher');
 const PatternAnalyzer = require('../analysis/PatternAnalyzer');
-const ClusterAnalyzer = require('../analysis/ClusterAnalyzer'); // если есть
+const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -25,18 +25,14 @@ class TopologicalAccumulator {
 
         // 🔥 ДОПУСКИ ДЛЯ ПРИЗНАКОВ
         this.tolerances = {
-            compactness: 0.4,
-            eccentricity: 0.15,
-            normalizedArea: 0.75,
-            radialProfile: 0.3,
+            compactness: 0.4,        // 40%
+            eccentricity: 0.15,       // абсолютный
+            normalizedArea: 0.75,      // 75%
+            radialProfile: 0.3,        // 30%
             degree: 2,
             triangles: 1,
             role: 'soft'
         };
-
-        // 🔥 АНАЛИЗАТОРЫ
-        this.patternAnalyzer = new PatternAnalyzer({ debug: this.debug });
-        // this.clusterAnalyzer = new ClusterAnalyzer({ debug: this.debug }); // если есть
 
         // Компоненты
         this.graphBuilder = new GraphBuilder({ debug: this.debug });
@@ -76,6 +72,10 @@ class TopologicalAccumulator {
             confidenceThreshold: options.confidenceThreshold || 0.8
         });
 
+        // 🔥 АНАЛИЗАТОРЫ
+        this.patternAnalyzer = new PatternAnalyzer({ debug: this.debug });
+        this.clusterAnalyzer = new ClusterAnalyzer({ debug: this.debug });
+
         // 🔥 ИНВАРИАНТНЫЕ ПАРАМЕТРЫ
         this.duplicateCompactnessThreshold = options.duplicateCompactnessThreshold || 0.3;
         this.duplicateAreaThreshold = options.duplicateAreaThreshold || 0.15;
@@ -96,7 +96,7 @@ class TopologicalAccumulator {
             totalNodesRemoved: 0,
             totalDuplicatesSkipped: 0,
             differentFootprintsDetected: 0,
-            fastMatchesCount: 0,
+            optimalMatchesCount: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
         };
@@ -124,7 +124,7 @@ class TopologicalAccumulator {
         const morphologyMap = this.morphologyEncoder.encode(points, contours);
         const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
 
-        // 🔥 2. Если есть существующая модель - пробуем быстрое сравнение
+        // 🔥 2. Если есть существующая модель - пробуем оптимальное сравнение
         if (modelIdHint && this.models.has(modelIdHint)) {
             const existingModel = this.models.get(modelIdHint);
 
@@ -135,31 +135,28 @@ class TopologicalAccumulator {
                 metadata: { name: 'temp' }
             };
 
-            console.log(`\n🔍 БЫСТРОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
-            const fastCompare = await this.compareByFeatures(tempModel, existingModel);
+            console.log(`\n🔍 ОПТИМАЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
+            const optimalResult = await this.compareByOptimalMatching(tempModel, existingModel);
 
-            if (fastCompare.sufficient) {
-                console.log(`\n✅ 4-Й ЭТАП: найдено ${fastCompare.count} якорей за ${fastCompare.time || 0}ms`);
+            if (optimalResult.sufficient) {
+                console.log(`\n✅ Найдено ${optimalResult.count} оптимальных пар!`);
 
-                // 2.1 Достраиваем остальные точки через RelativePositioning (с пониженным порогом)
-                console.log(`\n🧩 ДОСТРАИВАНИЕ остальных точек (порог 50%)...`);
+                // 2.1 Достраиваем остальные точки через RelativePositioning
+                console.log(`\n🧩 ДОСТРАИВАНИЕ остальных точек...`);
                 const allMatches = await this.relativePositioning.positionPoints(
                     exactGraph,
                     existingModel.graph,
-                    this.convertMatchesToMap(fastCompare.matches),
+                    this.convertMatchesToMap(optimalResult.matches),
                     morphologyMap,
                     existingModel.morphologyMap,
                     { confidenceThreshold: 0.5 }
                 );
 
-                console.log(`   • Найдено соответствий: ${allMatches.size} (якорей: ${fastCompare.count})`);
-
                 // 2.2 Обновляем модель
-                const updateResult = this.updateModelWithMatches(
+                const updateResult = this.updateModelWithOptimalMatches(
                     modelIdHint,
                     exactGraph,
-                    allMatches,
-                    this.convertMatchesToMap(fastCompare.matches),
+                    optimalResult.matches,
                     morphologyMap
                 );
 
@@ -170,15 +167,15 @@ class TopologicalAccumulator {
                 existingModel.metadata.lastEnhanced = new Date();
 
                 // 2.4 Создаем matchMap для визуализации
-                const matchMap = this.buildMatchMap(fastCompare.matches, allMatches);
+                const matchMap = this.buildOptimalMatchMap(optimalResult.matches);
 
                 // 2.5 Очищаем неподтверждённые точки
                 const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
                 this.stats.totalNodesRemoved += cleanResult.removed;
-                this.stats.fastMatchesCount += fastCompare.count;
+                this.stats.optimalMatchesCount += optimalResult.count;
 
                 // 2.6 Статистика
-                const confirmedInModel = allMatches.size;
+                const confirmedInModel = optimalResult.matches.length;
                 const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
                 const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
 
@@ -191,18 +188,18 @@ class TopologicalAccumulator {
                 this.photoToModel.set(photoId, modelIdHint);
 
                 return {
-                    status: 'enhanced_fast',
+                    status: 'enhanced_optimal',
                     modelId: modelIdHint,
-                    similarity: fastCompare.similarity,
-                    centerMatches: fastCompare.count,
-                    totalMatches: allMatches.size,
+                    similarity: optimalResult.similarity,
+                    centerMatches: optimalResult.count,
+                    totalMatches: optimalResult.matches.length,
                     newNodesAdded: updateResult.newNodesAdded,
                     nodesRemoved: cleanResult.removed,
                     matchMap: matchMap,
-                    message: `4-й этап: ${fastCompare.count} якорей, +${updateResult.newNodesAdded} новых точек`
+                    message: `Оптимальное сопоставление: ${optimalResult.count} пар`
                 };
             } else {
-                console.log(`\n⚠️ 4-й этап дал только ${fastCompare.count} якорей - недостаточно (нужно 12)`);
+                console.log(`\n⚠️ Оптимальное сравнение дало только ${optimalResult.count} пар - недостаточно (нужно 12)`);
             }
         }
 
@@ -332,83 +329,79 @@ class TopologicalAccumulator {
         }
     }
 
-    // ==================== НОВЫЙ МЕТОД: БЫСТРОЕ СРАВНЕНИЕ ПО ПРИЗНАКАМ ====================
+    // ==================== ОПТИМАЛЬНОЕ СОПОСТАВЛЕНИЕ ====================
 
-    /**
-     * Быстрое сравнение двух моделей по инвариантным признакам (4-й этап)
-     */
-    async compareByFeatures(model1, model2, options = {}) {
-        const startTime = Date.now();
-        console.log(`\n🔍 Быстрое сравнение по инвариантным признакам...`);
+    async compareByOptimalMatching(model1, model2) {
+        console.log(`\n🔍 Оптимальное сопоставление по 14 признакам...`);
 
-        // Извлекаем признаки из моделей
+        // Извлекаем признаки
         const features1 = this.extractFeaturesFromModel(model1);
         const features2 = this.extractFeaturesFromModel(model2);
 
         console.log(`📊 Признаков: ${features1.length} ↔ ${features2.length}`);
 
-        // Создаем адаптивный матчер с допусками вместо весов
-        const matcher = new AdaptiveMatcher({
-    debug: true,  // ← ВРЕМЕННО ФОРСИРУЕМ true
-    tolerances: this.tolerances,
-    ...options
-});
+        // Создаем оптимальный матчер
+        const matcher = new OptimalMatcher({
+            debug: true,
+            tolerances: this.tolerances
+        });
 
-        // Ищем соответствия
-        const matches = matcher.findMatches(features1, features2);
+        // Находим оптимальные пары
+        const result = matcher.findOptimalMatches(features1, features2);
 
-        const result = {
+        console.log(`\n📊 РЕЗУЛЬТАТ ОПТИМАЛЬНОГО СОПОСТАВЛЕНИЯ:`);
+        console.log(`   • Всего пар: ${result.matches.length}`);
+        console.log(`   • Среднее сходство: ${(result.averageSimilarity * 100).toFixed(1)}%`);
+        console.log(`   • Только в модели А: ${result.onlyA}`);
+        console.log(`   • Только в модели Б: ${result.onlyB}`);
+
+        return {
             success: true,
-            matches: matches,
-            stats: matcher.getStats(),
-            count: matches.length,
-            sufficient: matches.length >= 12,
-            similarity: matches.length / Math.min(features1.length, features2.length),
-            time: Date.now() - startTime
+            matches: result.matches,
+            count: result.matches.length,
+            sufficient: result.matches.length >= 12,
+            similarity: result.averageSimilarity,
+            matchMap: this.convertMatchesToMap(result.matches),
+            onlyA: result.onlyA,
+            onlyB: result.onlyB
         };
-
-        console.log(`\n📊 РЕЗУЛЬТАТ БЫСТРОГО СРАВНЕНИЯ:`);
-        console.log(`   • Найдено соответствий: ${result.count}`);
-        console.log(`   • Достаточно для якорей: ${result.sufficient ? '✅' : '❌'}`);
-        console.log(`   • Время: ${result.time}ms`);
-
-        return result;
     }
 
     /**
      * Извлечение признаков из модели для быстрого сравнения
      */
     extractFeaturesFromModel(model) {
-    const features = [];
-    const graph = model.graph;
-    const morphologyMap = model.morphologyMap || new Map();
+        const features = [];
+        const graph = model.graph;
+        const morphologyMap = model.morphologyMap || new Map();
 
-    for (const [nodeId, node] of graph.nodes) {
-        const morph = morphologyMap.get(nodeId) || {};
+        for (const [nodeId, node] of graph.nodes) {
+            const morph = morphologyMap.get(nodeId) || {};
 
-        features.push({
-            id: nodeId,
-            role: this.getNodeRoleSimple(nodeId, graph),
-            degree: node.degree || 0,
-            triangles: node.triangles || 0,
-            compactness: morph.compactness,
-            eccentricity: morph.eccentricity,
-            normalizedArea: morph.normalizedArea,
-            radialProfile: morph.radialProfile,
-            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
+            features.push({
+                id: nodeId,
+                role: this.getNodeRoleSimple(nodeId, graph),
+                degree: node.degree || 0,
+                triangles: node.triangles || 0,
+                compactness: morph.compactness,
+                eccentricity: morph.eccentricity,
+                normalizedArea: morph.normalizedArea,
+                radialProfile: morph.radialProfile,
+                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
 
-            // 🔥 НОВЫЕ ПРИЗНАКИ (теперь реальные!)
-            clusterId: node.clusterId || '0',
-            clusterSize: node.clusterSize || 1,
-            patternType: node.patternType || 'R',
-            patternFrequency: node.patternFrequency || 1,
-            gapPattern: node.gapPattern || '0',
-            neighborClusters: node.neighborClusters || 0
-        });
+                // 🔥 НОВЫЕ ПРИЗНАКИ (теперь реальные!)
+                clusterId: node.clusterId || '0',
+                clusterSize: node.clusterSize || 1,
+                patternType: node.patternType || 'R',
+                patternFrequency: node.patternFrequency || 1,
+                gapPattern: node.gapPattern || '0',
+                neighborClusters: node.neighborClusters || 0
+            });
+        }
+
+        return features;
     }
 
-    return features;
-}
     /**
      * Упрощенное определение роли (для быстрого доступа)
      */
@@ -438,7 +431,7 @@ class TopologicalAccumulator {
     }
 
     /**
-     * Конвертирует matches из AdaptiveMatcher в формат Map для RelativePositioning
+     * Конвертирует matches из OptimalMatcher в формат Map
      */
     convertMatchesToMap(matches) {
         const map = new Map();
@@ -454,15 +447,16 @@ class TopologicalAccumulator {
     /**
      * Строит matchMap для визуализации - только надежные пары получают номера
      */
-    buildMatchMap(fastMatches, allMatches) {
+    buildOptimalMatchMap(matches) {
         const matchMap = new Map();
         let pairNumber = 1;
 
-        // Только якоря (первые 12 самых надежных) получают номера
-        const sortedMatches = [...fastMatches].sort((a, b) => b.score - a.score);
-        const topAnchors = sortedMatches.slice(0, 12);
-
-        for (const match of topAnchors) {
+        // Сортируем по убыванию сходства
+        const sortedMatches = [...matches].sort((a, b) => b.score - a.score);
+       
+        // Первые 12 получают номера
+        for (let i = 0; i < Math.min(12, sortedMatches.length); i++) {
+            const match = sortedMatches[i];
             matchMap.set(match.pointA, {
                 modelId: match.pointB,
                 pairNumber: pairNumber++,
@@ -472,21 +466,20 @@ class TopologicalAccumulator {
         }
 
         // Остальные подтвержденные пары - без номеров
-        for (const [photoId, match] of allMatches) {
-            if (!matchMap.has(photoId)) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    type: 'confirmed',
-                    confidence: match.confidence
-                });
-            }
+        for (let i = 12; i < sortedMatches.length; i++) {
+            const match = sortedMatches[i];
+            matchMap.set(match.pointA, {
+                modelId: match.pointB,
+                type: 'confirmed',
+                confidence: match.score
+            });
         }
 
         console.log(`📋 Создан matchMap: ${matchMap.size} пар (${pairNumber-1} с номерами)`);
         return matchMap;
     }
 
-    // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
+    // ==================== УЛУЧШЕНИЕ СУЩЕСТВУЮЩЕЙ МОДЕЛИ ====================
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
         const model = this.models.get(modelId);
@@ -616,6 +609,54 @@ class TopologicalAccumulator {
         };
     }
 
+    updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
+        const model = this.models.get(modelId);
+        let confirmedExisting = 0;
+        let newNodesAdded = 0;
+
+        const matchedPhotoIds = new Set();
+        const matchedModelIds = new Set();
+
+        // Подтверждаем существующие точки
+        for (const match of matches) {
+            const modelNode = model.graph.nodes.get(match.pointB);
+            if (modelNode) {
+                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
+                modelNode.lastConfirmed = new Date();
+                confirmedExisting++;
+
+                matchedPhotoIds.add(match.pointA);
+                matchedModelIds.add(match.pointB);
+            }
+        }
+
+        // Добавляем новые точки
+        for (const [photoId, photoNode] of newGraph.nodes) {
+            if (matchedPhotoIds.has(photoId)) continue;
+
+            const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
+            model.graph.nodes.set(newNodeId, {
+                id: newNodeId,
+                x: photoNode.x,
+                y: photoNode.y,
+                degree: photoNode.degree,
+                morphology: newMorphology.get(photoId),
+                confirmationCount: 1,
+                addedFrom: 'new_point',
+                addedAt: new Date(),
+                originalPhotoId: photoId
+            });
+            newNodesAdded++;
+        }
+
+        return {
+            confirmedExisting,
+            newNodesAdded
+        };
+    }
+
+    // ==================== СТАРАЯ ТАБЛИЦА ====================
+
     printFinalTable(newGraph, modelGraph, matches) {
         console.log(`\n📋 ИТОГОВАЯ ТАБЛИЦА СОПОСТАВЛЕНИЯ ВСЕХ ТОЧЕК:`);
         console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┬─────────────────────┬─────────────────────┐`);
@@ -644,11 +685,14 @@ class TopologicalAccumulator {
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
     }
 
+    // ==================== НОВАЯ ДЕТАЛЬНАЯ ТАБЛИЦА ====================
+
     printDetailedTables(newGraph, modelGraph, centerMatches, allMatches) {
         console.log(`\n${'='.repeat(120)}`);
         console.log(`📊 ДЕТАЛЬНЫЕ ТАБЛИЦЫ СООТВЕТСТВИЙ`);
         console.log(`${'='.repeat(120)}`);
 
+        // 🔴 ТАБЛИЦА 1: ТОЛЬКО ЯКОРЯ (CenterMatcher)
         console.log(`\n🔴 ЯКОРЯ (CenterMatcher) - ${centerMatches.size} абсолютно надёжных точек:`);
         console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
         console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
@@ -674,6 +718,7 @@ class TopologicalAccumulator {
         }
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
 
+        // 🟢 ТАБЛИЦА 2: ВСЕ СОПОСТАВЛЕНИЯ
         console.log(`\n🟢 ВСЕ СОПОСТАВЛЕНИЯ - ${allMatches.size} точек:`);
         console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
         console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
@@ -699,6 +744,7 @@ class TopologicalAccumulator {
         }
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
 
+        // 📐 ТАБЛИЦА 3: АНАЛИЗ ПРЕОБРАЗОВАНИЯ
         console.log(`\n📐 АНАЛИЗ ПРЕОБРАЗОВАНИЯ (первые ${Math.min(10, centerMatches.size)} якорей):`);
         console.log(`┌─────┬────────────┬────────────┬────────────┬────────────┬───────────┐`);
         console.log(`│  #  │  МОДЕЛЬ X  │  МОДЕЛЬ Y  │   ФОТО X   │   ФОТО Y   │  ΔX | ΔY  │`);
@@ -728,6 +774,7 @@ class TopologicalAccumulator {
         }
         console.log(`└─────┴────────────┴────────────┴────────────┴────────────┴───────────┘`);
 
+        // 💡 ВЫВОД
         if (centerMatches.size >= 3) {
             console.log(`\n💡 АНАЛИЗ:`);
             console.log(`   • Якорей найдено: ${centerMatches.size}`);
@@ -735,6 +782,8 @@ class TopologicalAccumulator {
             console.log(`   • Доля якорей: ${((centerMatches.size/allMatches.size)*100).toFixed(1)}%`);
         }
     }
+
+    // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
     updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology) {
         const model = this.models.get(modelId);
@@ -881,88 +930,109 @@ class TopologicalAccumulator {
         return photos;
     }
 
-    createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
-    const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
+        const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-    let morphologyCount = 0;
-    for (const [nodeId, node] of exactGraph.nodes) {
-        const morph = morphologyMap.get(nodeId);
-        if (morph) {
-            node.morphology = morph;
-            node.hasContour = morph.hasContour || false;
-            morphologyCount++;
+        let morphologyCount = 0;
+        for (const [nodeId, node] of exactGraph.nodes) {
+            const morph = morphologyMap.get(nodeId);
+            if (morph) {
+                node.morphology = morph;
+                node.hasContour = morph.hasContour || false;
+                morphologyCount++;
+            }
+            node.confirmationCount = 1;
+            node.addedFrom = 'original';
+            node.addedAt = new Date();
         }
-        node.confirmationCount = 1;
-        node.addedFrom = 'original';
-        node.addedAt = new Date();
+
+        // 🔥 АНАЛИЗ ПАТТЕРНОВ
+        const tempModel = {
+            graph: exactGraph,
+            morphologyMap,
+            metadata: { name: 'temp' }
+        };
+       
+        console.log(`\n🔍 Анализ паттернов для новой модели...`);
+        const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
+       
+        // 🔥 АНАЛИЗ КЛАСТЕРОВ
+        console.log(`🔍 Анализ кластеров для новой модели...`);
+        const points = Array.from(exactGraph.nodes.values());
+        const features = new Map(); // временно пусто
+        const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
+       
+        // 🔥 ДОБАВЛЯЕМ ПАТТЕРНЫ И КЛАСТЕРЫ В УЗЛЫ
+        for (const [nodeId, node] of exactGraph.nodes) {
+            node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
+            node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
+            node.gapPattern = patternData.gaps?.[nodeId] || '0';
+           
+            // Ищем кластер для точки
+            let foundCluster = null;
+            for (const [clusterId, cluster] of Object.entries(clusterData.clusters || {})) {
+                if (cluster.pointIds.includes(nodeId)) {
+                    foundCluster = cluster;
+                    break;
+                }
+            }
+           
+            node.clusterId = foundCluster?.id || '0';
+            node.clusterSize = foundCluster?.size || 1;
+            node.neighborClusters = foundCluster?.neighbors || 0;
+        }
+
+        const model = {
+            id: modelId,
+            graph: exactGraph,
+            knnGraph: null,
+            knnFingerprints: knnFingerprints,
+            morphologyMap: morphologyMap,
+            originalPoints: originalPoints,
+            patternData: patternData,
+            clusterData: clusterData,
+            metadata: {
+                name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
+                createdAt: new Date(),
+                pointsCount: originalPoints.length,
+                nodesCount: exactGraph.nodes.size,
+                edgesCount: exactGraph.edges.size,
+                photoCount: 1,
+                source: options.source || 'unknown'
+            },
+            history: [{
+                action: 'created',
+                timestamp: new Date(),
+                points: originalPoints.length,
+                nodes: exactGraph.nodes.size
+            }]
+        };
+
+        this.models.set(modelId, model);
+        this.currentModelId = modelId;
+        this.stats.totalModels++;
+        this.stats.lastUpdated = new Date();
+
+        console.log(`🏗️ СОЗДАНА НОВАЯ МОДЕЛЬ ${modelId.slice(0, 12)}...:`);
+        console.log(`   Узлов: ${exactGraph.nodes.size}`);
+        console.log(`   Точек с морфологией: ${morphologyCount}`);
+        console.log(`   Паттернов найдено: ${Object.keys(patternData.patterns || {}).length}`);
+        console.log(`   Кластеров: ${Object.keys(clusterData.clusters || {}).length}`);
+        console.log(`   WL-подписей: ${knnFingerprints.size}`);
+
+        return {
+            status: 'created',
+            modelId: modelId,
+            nodes: exactGraph.nodes.size,
+            edges: exactGraph.edges.size,
+            morphologyCount: morphologyCount,
+            patternCount: Object.keys(patternData.patterns || {}).length,
+            clusterCount: Object.keys(clusterData.clusters || {}).length,
+            message: `Создана новая топологическая модель`
+        };
     }
 
-    // 🔥 АНАЛИЗ ПАТТЕРНОВ
-    const tempModel = {
-        graph: exactGraph,
-        morphologyMap,
-        metadata: { name: 'temp' }
-    };
-   
-    console.log(`\n🔍 Анализ паттернов для новой модели...`);
-    const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
-   
-    // 🔥 ДОБАВЛЯЕМ ПАТТЕРНЫ В УЗЛЫ
-    for (const [nodeId, node] of exactGraph.nodes) {
-        node.patternType = patternData.patterns[nodeId]?.type || 'R';
-        node.patternFrequency = patternData.patterns[nodeId]?.frequency || 1;
-        node.gapPattern = patternData.gaps[nodeId] || '0';
-        node.clusterId = patternData.clusters[nodeId]?.id || '0';
-        node.clusterSize = patternData.clusters[nodeId]?.size || 1;
-        node.neighborClusters = patternData.clusters[nodeId]?.neighbors || 0;
-    }
-
-    const model = {
-        id: modelId,
-        graph: exactGraph,
-        knnGraph: null,
-        knnFingerprints: knnFingerprints,
-        morphologyMap: morphologyMap,
-        originalPoints: originalPoints,
-        patternData: patternData, // сохраняем для истории
-        metadata: {
-            name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
-            createdAt: new Date(),
-            pointsCount: originalPoints.length,
-            nodesCount: exactGraph.nodes.size,
-            edgesCount: exactGraph.edges.size,
-            photoCount: 1,
-            source: options.source || 'unknown'
-        },
-        history: [{
-            action: 'created',
-            timestamp: new Date(),
-            points: originalPoints.length,
-            nodes: exactGraph.nodes.size
-        }]
-    };
-
-    this.models.set(modelId, model);
-    this.currentModelId = modelId;
-    this.stats.totalModels++;
-    this.stats.lastUpdated = new Date();
-
-    console.log(`🏗️ СОЗДАНА НОВАЯ МОДЕЛЬ ${modelId.slice(0, 12)}...:`);
-    console.log(`   Узлов: ${exactGraph.nodes.size}`);
-    console.log(`   Точек с морфологией: ${morphologyCount}`);
-    console.log(`   Паттернов найдено: ${Object.keys(patternData.patterns || {}).length}`);
-    console.log(`   WL-подписей: ${knnFingerprints.size}`);
-
-    return {
-        status: 'created',
-        modelId: modelId,
-        nodes: exactGraph.nodes.size,
-        edges: exactGraph.edges.size,
-        morphologyCount: morphologyCount,
-        patternCount: Object.keys(patternData.patterns || {}).length,
-        message: `Создана новая топологическая модель`
-    };
-}
+    // ==================== ИНВАРИАНТНАЯ ПРОВЕРКА ДУБЛИКАТОВ ====================
 
     isDuplicate(newNode, modelGraph, morphologyMap) {
         if (modelGraph.nodes.size === 0) return false;
@@ -1021,6 +1091,8 @@ class TopologicalAccumulator {
         }
         return neighbors;
     }
+
+    // ==================== ОЧИСТКА НЕПОДТВЕРЖДЁННЫХ ТОЧЕК ====================
 
     cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
         const model = this.models.get(modelId);
@@ -1095,6 +1167,8 @@ class TopologicalAccumulator {
         }
     }
 
+    // ==================== ВЫЧИСЛЕНИЕ ТРЕУГОЛЬНИКОВ ====================
+
     computeTriangles(graph) {
         if (!graph || !graph.nodes || !graph.edges) return [];
 
@@ -1122,6 +1196,8 @@ class TopologicalAccumulator {
 
         return triangles;
     }
+
+    // ==================== ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ ====================
 
     getVisualizationData(modelId = null, reliablePhotoIds = []) {
         const targetId = modelId || this.currentModelId;
@@ -1201,6 +1277,8 @@ class TopologicalAccumulator {
         };
     }
 
+    // ==================== ИНФОРМАЦИЯ О МОДЕЛИ ====================
+
     getModelInfo(modelId = null) {
         const targetId = modelId || this.currentModelId;
         if (!targetId || !this.models.has(targetId)) return { error: 'Model not found' };
@@ -1243,6 +1321,8 @@ class TopologicalAccumulator {
         };
     }
 
+    // ==================== СТАТИСТИКА ====================
+
     getStats() {
         return {
             system: this.stats,
@@ -1254,6 +1334,8 @@ class TopologicalAccumulator {
             relativePositioning: this.relativePositioning.getStats()
         };
     }
+
+    // ==================== ЭКСПОРТ/ИМПОРТ ====================
 
     exportModel(modelId) {
         const model = this.models.get(modelId);
@@ -1310,6 +1392,8 @@ class TopologicalAccumulator {
         }
     }
 
+    // ==================== ОЧИСТКА ====================
+
     clear() {
         this.models.clear();
         this.currentModelId = null;
@@ -1330,7 +1414,7 @@ class TopologicalAccumulator {
             totalNodesRemoved: 0,
             totalDuplicatesSkipped: 0,
             differentFootprintsDetected: 0,
-            fastMatchesCount: 0,
+            optimalMatchesCount: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
         };
