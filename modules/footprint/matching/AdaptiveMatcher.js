@@ -1,21 +1,55 @@
 // modules/footprint/matching/AdaptiveMatcher.js
 // 🎯 4-Й ЭТАП: ПОИСК УНИКАЛЬНЫХ ТОЧЕК С ДОПУСКАМИ (БЕЗ ВЕСОВ)
-// 📊 С ДЕТАЛЬНОЙ СТАТИСТИКОЙ ОТСЕВА
+// 🔥 С МЯГКИМИ РОЛЯМИ И СТАТИСТИКОЙ ОТСЕВА
 
 class AdaptiveMatcher {
     constructor(options = {}) {
         this.debug = options.debug !== false;
         this.verbose = options.verbose || false;
 
-        // 🔥 ДОПУСКИ вместо весов
+        // 🔥 ДОПУСКИ (расширенные на основе статистики)
         this.tolerances = options.tolerances || {
-            compactness: 0.1,        // 10% допуск
-            eccentricity: 0.05,       // абсолютный допуск
-            normalizedArea: 0.15,      // 15% допуск
-            radialProfile: 0.1,        // средняя разница
+            compactness: 0.4,        // 40% допуск (было 10%)
+            eccentricity: 0.15,       // абсолютный допуск (было 0.05)
+            normalizedArea: 0.75,      // 75% допуск (было 15%)
+            radialProfile: 0.3,        // 30% допуск (было 10%)
             degree: 2,                 // максимум разница в степени
             triangles: 1,               // максимум разница в треугольников
-            role: 'strict'              // роли должны совпадать строго
+            role: 'soft'                // мягкие роли
+        };
+
+        // 🔥 МЯГКИЕ РОЛИ (пограничные состояния)
+        this.roleTransitions = {
+            'H': {  // Хаб
+                strong: ['H'],                    // сильный хаб не меняется
+                weak: ['H', 'C', 'B'],            // слабый хаб может стать кликой или мостом
+                minDegree: 6,                      // минимальная степень для хаба
+                borderline: 7                       // пограничное значение (6-7)
+            },
+            'C': {  // Клика
+                strong: ['C'],
+                weak: ['C', 'H', 'R'],
+                minDegree: 3,
+                borderline: 4
+            },
+            'B': {  // Мост
+                strong: ['B'],
+                weak: ['B', 'R', 'L'],
+                minDegree: 2,
+                borderline: 2
+            },
+            'R': {  // Обычный
+                strong: ['R'],
+                weak: ['R', 'B', 'L'],
+                minDegree: 2,
+                borderline: 2
+            },
+            'L': {  // Лист
+                strong: ['L'],
+                weak: ['L', 'R'],
+                minDegree: 1,
+                borderline: 1
+            }
         };
 
         this.stats = {
@@ -44,7 +78,7 @@ class AdaptiveMatcher {
             samples: []
         };
 
-        console.log('🎯 AdaptiveMatcher (4-й этап - допуски) создан');
+        console.log('🎯 AdaptiveMatcher (4-й этап - мягкие роли) создан');
     }
 
     /**
@@ -79,7 +113,7 @@ class AdaptiveMatcher {
         this.stats.uniquePointsA = uniqueA.length;
         this.stats.uniquePointsB = uniqueB.length;
 
-        // 🔥 Статистика отсева (до сравнения)
+        // 🔥 Статистика отсева
         if (this.debug) {
             this.collectRejectionStats(pointsA, pointsB);
             this.printRejectionStats();
@@ -178,83 +212,59 @@ class AdaptiveMatcher {
     }
 
     /**
-     * Сопоставляет точки с использованием допусков
+     * Проверяет совместимость ролей с учетом силы
      */
-    matchPointsWithTolerances(pointsA, pointsB) {
-        const matches = [];
-        const usedB = new Set();
+    rolesCompatible(roleA, roleB, degreeA, degreeB, maxDegree) {
+        if (roleA === roleB) return true;
 
-        // Сортируем точки A по важности (хабы первыми)
-        const sortedA = this.sortByImportance(pointsA);
+        const getRoleStrength = (role, degree) => {
+            const roleInfo = this.roleTransitions[role];
+            if (!roleInfo) return 1.0;
+           
+            const strength = degree / maxDegree;
+            const isWeak = degree <= roleInfo.borderline;
+            return { strength, isWeak };
+        };
 
-        for (const pointA of sortedA) {
-            let bestMatch = null;
-            let bestMatchType = null;
+        const strengthA = getRoleStrength(roleA, degreeA);
+        const strengthB = getRoleStrength(roleB, degreeB);
 
-            for (const pointB of pointsB) {
-                if (usedB.has(pointB.id)) continue;
-
-                // Проверяем точное совпадение подписи
-                if (this.signaturesEqual(pointA, pointB)) {
-                    bestMatch = pointB;
-                    bestMatchType = 'exact';
-                    break;
-                }
-
-                // Проверяем совпадение в пределах допусков
-                if (this.withinTolerances(pointA, pointB)) {
-                    // Если еще нет лучшего или этот лучше по степени
-                    if (!bestMatch || pointB.degree > bestMatch.degree) {
-                        bestMatch = pointB;
-                        bestMatchType = 'tolerance';
-                    }
-                }
-            }
-
-            if (bestMatch) {
-                matches.push({
-                    pointA: pointA.id,
-                    pointB: bestMatch.id,
-                    exact: bestMatchType === 'exact',
-                    score: bestMatchType === 'exact' ? 1.0 : 0.9
-                });
-                usedB.add(bestMatch.id);
-
-                if (bestMatchType === 'exact') {
-                    this.stats.exactMatches++;
-                } else {
-                    this.stats.toleranceMatches++;
-                }
-
-                if (this.debug) {
-                    console.log(`   ${bestMatchType === 'exact' ? '✅ ТОЧНОЕ' : '🟡 ДОПУСК'}: ${pointA.id.slice(0,12)} ↔ ${bestMatch.id.slice(0,12)}`);
-                }
-            }
+        // Сильные роды не должны меняться
+        if (strengthA.strength > 0.5 && strengthB.strength > 0.5) {
+            return roleA === roleB;
         }
 
-        return matches;
-    }
+        // Слабые/пограничные могут меняться по правилам
+        const allowedTransitions = {
+            'H': ['H', 'C', 'B'],
+            'C': ['C', 'H', 'R'],
+            'B': ['B', 'R', 'L'],
+            'R': ['R', 'B', 'L'],
+            'L': ['L', 'R']
+        };
 
-    /**
-     * Проверяет точное равенство подписей
-     */
-    signaturesEqual(pointA, pointB) {
-        const sigA = this.createDetailedSignature(pointA);
-        const sigB = this.createDetailedSignature(pointB);
-        return sigA === sigB;
+        return allowedTransitions[roleA]?.includes(roleB) || false;
     }
 
     /**
      * Проверяет, находятся ли точки в пределах допусков
      */
     withinTolerances(pointA, pointB) {
-        // 1. Роль должна совпадать строго
-        if (pointA.role !== pointB.role) {
+        // 1. Проверяем роли с учетом силы
+        const maxDegree = Math.max(
+            pointA._maxDegree || pointA.degree,
+            pointB._maxDegree || pointB.degree,
+            10
+        );
+       
+        if (!this.rolesCompatible(pointA.role, pointB.role, pointA.degree, pointB.degree, maxDegree)) {
             this.logRejection(pointA, pointB, 'role_mismatch', {
                 expected: pointA.role,
                 actual: pointB.role,
+                degreeA: pointA.degree,
+                degreeB: pointB.degree,
                 diff: 1,
-                tolerance: 'strict'
+                tolerance: 'soft'
             });
             return false;
         }
@@ -345,6 +355,73 @@ class AdaptiveMatcher {
     }
 
     /**
+     * Сопоставляет точки с использованием допусков
+     */
+    matchPointsWithTolerances(pointsA, pointsB) {
+        const matches = [];
+        const usedB = new Set();
+
+        // Сортируем точки A по важности (хабы первыми)
+        const sortedA = this.sortByImportance(pointsA);
+
+        for (const pointA of sortedA) {
+            let bestMatch = null;
+            let bestMatchType = null;
+
+            for (const pointB of pointsB) {
+                if (usedB.has(pointB.id)) continue;
+
+                // Проверяем точное совпадение подписи
+                if (this.signaturesEqual(pointA, pointB)) {
+                    bestMatch = pointB;
+                    bestMatchType = 'exact';
+                    break;
+                }
+
+                // Проверяем совпадение в пределах допусков
+                if (this.withinTolerances(pointA, pointB)) {
+                    // Если еще нет лучшего или этот лучше по степени
+                    if (!bestMatch || pointB.degree > bestMatch.degree) {
+                        bestMatch = pointB;
+                        bestMatchType = 'tolerance';
+                    }
+                }
+            }
+
+            if (bestMatch) {
+                matches.push({
+                    pointA: pointA.id,
+                    pointB: bestMatch.id,
+                    exact: bestMatchType === 'exact',
+                    score: bestMatchType === 'exact' ? 1.0 : 0.9
+                });
+                usedB.add(bestMatch.id);
+
+                if (bestMatchType === 'exact') {
+                    this.stats.exactMatches++;
+                } else {
+                    this.stats.toleranceMatches++;
+                }
+
+                if (this.debug) {
+                    console.log(`   ${bestMatchType === 'exact' ? '✅ ТОЧНОЕ' : '🟡 ДОПУСК'}: ${pointA.id.slice(0,12)} ↔ ${bestMatch.id.slice(0,12)}`);
+                }
+            }
+        }
+
+        return matches;
+    }
+
+    /**
+     * Проверяет точное равенство подписей
+     */
+    signaturesEqual(pointA, pointB) {
+        const sigA = this.createDetailedSignature(pointA);
+        const sigB = this.createDetailedSignature(pointB);
+        return sigA === sigB;
+    }
+
+    /**
      * Собирает статистику по reject-ам для анализа
      */
     collectRejectionStats(pointsA, pointsB) {
@@ -364,7 +441,7 @@ class AdaptiveMatcher {
         };
 
         let sampleCount = 0;
-        const maxSamples = 200; // Ограничиваем для производительности
+        const maxSamples = 200;
 
         for (const pointA of pointsA.slice(0, 30)) {
             for (const pointB of pointsB.slice(0, 30)) {
@@ -389,8 +466,8 @@ class AdaptiveMatcher {
                    
                     if (this.rejectionStats.samples.length < 5) {
                         this.rejectionStats.samples.push({
-                            pointA: pointA.id.slice(0,12),
-                            pointB: pointB.id.slice(0,12),
+                            pointA: pointA.id.slice(0,16),
+                            pointB: pointB.id.slice(0,16),
                             reason: rejection.reason,
                             details: rejection.details
                         });
@@ -404,12 +481,19 @@ class AdaptiveMatcher {
      * Анализирует причину reject-а для пары точек
      */
     analyzeRejection(pointA, pointB) {
-        // Роль
-        if (pointA.role !== pointB.role) {
+        // Роль с учетом силы
+        const maxDegree = Math.max(pointA.degree, pointB.degree, 10);
+        if (!this.rolesCompatible(pointA.role, pointB.role, pointA.degree, pointB.degree, maxDegree)) {
             return {
                 rejected: true,
                 reason: 'role_mismatch',
-                details: { role: { expected: pointA.role, actual: pointB.role, diff: 1 } }
+                details: {
+                    role: {
+                        expected: pointA.role,
+                        actual: pointB.role,
+                        diff: 1
+                    }
+                }
             };
         }
 
@@ -551,26 +635,25 @@ class AdaptiveMatcher {
         }
 
         if (this.rejectionStats.samples.length > 0) {
-    console.log(`\n🔍 ПРИМЕРЫ ОТСЕВА:`);
-    this.rejectionStats.samples.forEach((sample, i) => {
-        console.log(`   ${i+1}. ${sample.pointA} ↔ ${sample.pointB}`);
-        console.log(`      Причина: ${sample.reason}`);
-        if (sample.details) {
-            for (const [key, val] of Object.entries(sample.details)) {
-                // 🔥 ПРОВЕРЯЕМ ТИП ДАННЫХ ПЕРЕД ФОРМАТИРОВАНИЕМ
-                if (val.expected !== undefined && val.actual !== undefined) {
-                    if (typeof val.expected === 'number' && typeof val.actual === 'number') {
-                        console.log(`         ${key}: ожидалось ${val.expected.toFixed(3)}, получено ${val.actual.toFixed(3)} (разница ${(val.diff*100).toFixed(1)}%)`);
-                    } else {
-                        console.log(`         ${key}: ожидалось ${val.expected}, получено ${val.actual}`);
+            console.log(`\n🔍 ПРИМЕРЫ ОТСЕВА:`);
+            this.rejectionStats.samples.forEach((sample, i) => {
+                console.log(`   ${i+1}. ${sample.pointA} ↔ ${sample.pointB}`);
+                console.log(`      Причина: ${sample.reason}`);
+                if (sample.details) {
+                    for (const [key, val] of Object.entries(sample.details)) {
+                        if (val.expected !== undefined && val.actual !== undefined) {
+                            if (typeof val.expected === 'number' && typeof val.actual === 'number') {
+                                console.log(`         ${key}: ожидалось ${val.expected.toFixed(3)}, получено ${val.actual.toFixed(3)} (разница ${(val.diff*100).toFixed(1)}%)`);
+                            } else {
+                                console.log(`         ${key}: ожидалось ${val.expected}, получено ${val.actual}`);
+                            }
+                        } else {
+                            console.log(`         ${key}: разница ${(val.diff*100).toFixed(1)}% (допуск ${(val.tolerance*100).toFixed(1)}%)`);
+                        }
                     }
-                } else {
-                    console.log(`         ${key}: разница ${(val.diff*100).toFixed(1)}% (допуск ${(val.tolerance*100).toFixed(1)}%)`);
                 }
-            }
+            });
         }
-    });
-}
     }
 
     /**
@@ -631,19 +714,8 @@ class AdaptiveMatcher {
      * Детальное логирование причин отсева
      */
     logRejection(pointA, pointB, reason, details = {}) {
-        if (!this.debug) return;
-
-        // Для статистики не выводим каждую пару, только в сводке
-        if (this.verbose) {
-            console.log(`   ❌ ${pointA.id.slice(0,12)}... ↔ ${pointB.id.slice(0,12)}...`);
-            console.log(`      Причина: ${reason}`);
-            if (details.expected !== undefined && details.actual !== undefined) {
-                console.log(`      Ожидалось: ${typeof details.expected === 'number' ? details.expected.toFixed(3) : details.expected}, получено: ${typeof details.actual === 'number' ? details.actual.toFixed(3) : details.actual}`);
-            }
-            if (details.diff !== undefined) {
-                console.log(`      Разница: ${(details.diff * 100).toFixed(1)}%, допуск: ${(details.tolerance * 100).toFixed(1)}%`);
-            }
-        }
+        if (!this.verbose) return;
+        // В статистику уже собрали, для лога не выводим каждую пару
     }
 
     /**
