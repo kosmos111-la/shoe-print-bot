@@ -652,12 +652,14 @@ class CenterMatcher {
            
             let idx = 1;
             for (const [photoId, match] of bestCombo) {
-                console.log(
-                    `│ ${idx++.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
-                    `${match.modelId.substring(0,20).padEnd(20)} │ ` +
-                    `${(match.confidence*100).toFixed(0).padStart(5)}%   │`
-                );
-            }
+    const currentIdx = idx; // 🔥 ИСПРАВЛЕНИЕ
+    idx++;
+    console.log(
+        `│ ${currentIdx.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
+        `${match.modelId.substring(0,20).padEnd(20)} │ ` +
+        `${(match.confidence*100).toFixed(0).padStart(5)}%   │`
+    );
+}
             console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┘`);
            
             return bestCombo;
