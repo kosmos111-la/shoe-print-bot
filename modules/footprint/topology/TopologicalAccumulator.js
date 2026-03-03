@@ -12,6 +12,7 @@ const RelativePositioning = require('./RelativePositioning');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
 const AdaptiveMatcher = require('../matching/AdaptiveMatcher');
 const PatternAnalyzer = require('../analysis/PatternAnalyzer');
+const ClusterAnalyzer = require('../analysis/ClusterAnalyzer'); // если есть
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -22,16 +23,20 @@ class TopologicalAccumulator {
         this.fastMode = options.fastMode || false;
         this.similarityThreshold = options.similarityThreshold || 0.6;
 
-        // 🔥 ДОПУСКИ ДЛЯ ПРИЗНАКОВ (вместо весов)
+        // 🔥 ДОПУСКИ ДЛЯ ПРИЗНАКОВ
         this.tolerances = {
-    compactness: 0.4,        // 40%
-    eccentricity: 0.15,      // абсолютный
-    normalizedArea: 0.75,     // 75%
-    radialProfile: 0.3,       // 30%
-    degree: 2,
-    triangles: 1,
-    role: 'soft'
-};
+            compactness: 0.4,
+            eccentricity: 0.15,
+            normalizedArea: 0.75,
+            radialProfile: 0.3,
+            degree: 2,
+            triangles: 1,
+            role: 'soft'
+        };
+
+        // 🔥 АНАЛИЗАТОРЫ
+        this.patternAnalyzer = new PatternAnalyzer({ debug: this.debug });
+        // this.clusterAnalyzer = new ClusterAnalyzer({ debug: this.debug }); // если есть
 
         // Компоненты
         this.graphBuilder = new GraphBuilder({ debug: this.debug });
@@ -377,11 +382,10 @@ class TopologicalAccumulator {
     const features = [];
     const graph = model.graph;
     const morphologyMap = model.morphologyMap || new Map();
-    const patternData = model.patternData || {}; // ← НУЖНО ДОБАВИТЬ
-   
+
     for (const [nodeId, node] of graph.nodes) {
         const morph = morphologyMap.get(nodeId) || {};
-       
+
         features.push({
             id: nodeId,
             role: this.getNodeRoleSimple(nodeId, graph),
@@ -392,8 +396,8 @@ class TopologicalAccumulator {
             normalizedArea: morph.normalizedArea,
             radialProfile: morph.radialProfile,
             neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
-           
-            // 🔥 НОВЫЕ ПРИЗНАКИ
+
+            // 🔥 НОВЫЕ ПРИЗНАКИ (теперь реальные!)
             clusterId: node.clusterId || '0',
             clusterSize: node.clusterSize || 1,
             patternType: node.patternType || 'R',
@@ -402,10 +406,9 @@ class TopologicalAccumulator {
             neighborClusters: node.neighborClusters || 0
         });
     }
-   
+
     return features;
 }
-
     /**
      * Упрощенное определение роли (для быстрого доступа)
      */
@@ -878,65 +881,88 @@ class TopologicalAccumulator {
         return photos;
     }
 
-    createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
-        const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
+    const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-        let morphologyCount = 0;
-        for (const [nodeId, node] of exactGraph.nodes) {
-            const morph = morphologyMap.get(nodeId);
-            if (morph) {
-                node.morphology = morph;
-                node.hasContour = morph.hasContour || false;
-                morphologyCount++;
-            }
-            node.confirmationCount = 1;
-            node.addedFrom = 'original';
-            node.addedAt = new Date();
+    let morphologyCount = 0;
+    for (const [nodeId, node] of exactGraph.nodes) {
+        const morph = morphologyMap.get(nodeId);
+        if (morph) {
+            node.morphology = morph;
+            node.hasContour = morph.hasContour || false;
+            morphologyCount++;
         }
-
-        const model = {
-            id: modelId,
-            graph: exactGraph,
-            knnGraph: null,
-            knnFingerprints: knnFingerprints,
-            morphologyMap: morphologyMap,
-            originalPoints: originalPoints,
-            metadata: {
-                name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
-                createdAt: new Date(),
-                pointsCount: originalPoints.length,
-                nodesCount: exactGraph.nodes.size,
-                edgesCount: exactGraph.edges.size,
-                photoCount: 1,
-                source: options.source || 'unknown'
-            },
-            history: [{
-                action: 'created',
-                timestamp: new Date(),
-                points: originalPoints.length,
-                nodes: exactGraph.nodes.size
-            }]
-        };
-
-        this.models.set(modelId, model);
-        this.currentModelId = modelId;
-        this.stats.totalModels++;
-        this.stats.lastUpdated = new Date();
-
-        console.log(`🏗️ СОЗДАНА НОВАЯ МОДЕЛЬ ${modelId.slice(0, 12)}...:`);
-        console.log(`   Узлов: ${exactGraph.nodes.size}`);
-        console.log(`   Точек с морфологией: ${morphologyCount}`);
-        console.log(`   WL-подписей: ${knnFingerprints.size}`);
-
-        return {
-            status: 'created',
-            modelId: modelId,
-            nodes: exactGraph.nodes.size,
-            edges: exactGraph.edges.size,
-            morphologyCount: morphologyCount,
-            message: `Создана новая топологическая модель`
-        };
+        node.confirmationCount = 1;
+        node.addedFrom = 'original';
+        node.addedAt = new Date();
     }
+
+    // 🔥 АНАЛИЗ ПАТТЕРНОВ
+    const tempModel = {
+        graph: exactGraph,
+        morphologyMap,
+        metadata: { name: 'temp' }
+    };
+   
+    console.log(`\n🔍 Анализ паттернов для новой модели...`);
+    const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
+   
+    // 🔥 ДОБАВЛЯЕМ ПАТТЕРНЫ В УЗЛЫ
+    for (const [nodeId, node] of exactGraph.nodes) {
+        node.patternType = patternData.patterns[nodeId]?.type || 'R';
+        node.patternFrequency = patternData.patterns[nodeId]?.frequency || 1;
+        node.gapPattern = patternData.gaps[nodeId] || '0';
+        node.clusterId = patternData.clusters[nodeId]?.id || '0';
+        node.clusterSize = patternData.clusters[nodeId]?.size || 1;
+        node.neighborClusters = patternData.clusters[nodeId]?.neighbors || 0;
+    }
+
+    const model = {
+        id: modelId,
+        graph: exactGraph,
+        knnGraph: null,
+        knnFingerprints: knnFingerprints,
+        morphologyMap: morphologyMap,
+        originalPoints: originalPoints,
+        patternData: patternData, // сохраняем для истории
+        metadata: {
+            name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
+            createdAt: new Date(),
+            pointsCount: originalPoints.length,
+            nodesCount: exactGraph.nodes.size,
+            edgesCount: exactGraph.edges.size,
+            photoCount: 1,
+            source: options.source || 'unknown'
+        },
+        history: [{
+            action: 'created',
+            timestamp: new Date(),
+            points: originalPoints.length,
+            nodes: exactGraph.nodes.size
+        }]
+    };
+
+    this.models.set(modelId, model);
+    this.currentModelId = modelId;
+    this.stats.totalModels++;
+    this.stats.lastUpdated = new Date();
+
+    console.log(`🏗️ СОЗДАНА НОВАЯ МОДЕЛЬ ${modelId.slice(0, 12)}...:`);
+    console.log(`   Узлов: ${exactGraph.nodes.size}`);
+    console.log(`   Точек с морфологией: ${morphologyCount}`);
+    console.log(`   Паттернов найдено: ${Object.keys(patternData.patterns || {}).length}`);
+    console.log(`   WL-подписей: ${knnFingerprints.size}`);
+
+    return {
+        status: 'created',
+        modelId: modelId,
+        nodes: exactGraph.nodes.size,
+        edges: exactGraph.edges.size,
+        morphologyCount: morphologyCount,
+        patternCount: Object.keys(patternData.patterns || {}).length,
+        message: `Создана новая топологическая модель`
+    };
+}
 
     isDuplicate(newNode, modelGraph, morphologyMap) {
         if (modelGraph.nodes.size === 0) return false;
