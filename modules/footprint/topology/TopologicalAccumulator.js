@@ -344,10 +344,10 @@ class TopologicalAccumulator {
 
         // Создаем адаптивный матчер с допусками вместо весов
         const matcher = new AdaptiveMatcher({
-            debug: this.debug,
-            tolerances: this.tolerances,
-            ...options
-        });
+    debug: true,  // ← ВРЕМЕННО ФОРСИРУЕМ true
+    tolerances: this.tolerances,
+    ...options
+});
 
         // Ищем соответствия
         const matches = matcher.findMatches(features1, features2);
