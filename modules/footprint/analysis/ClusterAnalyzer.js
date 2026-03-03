@@ -11,20 +11,13 @@ class ClusterAnalyzer {
     /**
      * Основной метод: кластеризация всех точек
      */
-    analyze(points, features, graph) {  // ← добавили graph
+    analyze(points, features, graph) {
         console.log(`📊 Кластеризую ${points.length} точек...`);
 
-        // 1. Создаем подписи для каждой точки
         const signatures = this.createSignatures(points, features);
-
-        // 2. Группируем по подписям
         const clusters = this.groupBySignature(signatures);
-
-        // 3. Добавляем информацию о кластерах в features
         const enhancedFeatures = this.enhanceFeatures(features, clusters);
-
-        // 4. Анализируем соседние кластеры
-        const clusterRelations = this.analyzeClusterRelations(clusters, points, graph); // ← передаем graph
+        const clusterRelations = this.analyzeClusterRelations(clusters, points, graph);
 
         console.log(`   • Создано кластеров: ${Object.keys(clusters).length}`);
         console.log(`   • Средний размер кластера: ${this.calculateAvgClusterSize(clusters)}`);
@@ -36,52 +29,31 @@ class ClusterAnalyzer {
         };
     }
 
-    /**
-     * Создает сигнатуру точки на основе её признаков
-     */
     createSignatures(points, features) {
         const signatures = [];
-
         for (const point of points) {
             const f = features.get(point.id) || {};
-
-            // Улучшенная сигнатура: роль + степень + компактность + eccentricity
             const role = f.role || 'R';
             const degree = Math.round((f.degree || 0) / 2);
             const compactness = f.morphology?.compactness || 4;
             const compactGroup = Math.round(compactness / 2);
             const eccentricity = f.morphology?.eccentricity || 0.5;
             const eccGroup = Math.round(eccentricity * 5);
-
             const signature = `${role}_${degree}_${compactGroup}_${eccGroup}`;
-
-            signatures.push({
-                pointId: point.id,
-                signature: signature,
-                features: f
-            });
+            signatures.push({ pointId: point.id, signature, features: f });
         }
-
         return signatures;
     }
 
-    /**
-     * Группирует точки по подписям
-     */
     groupBySignature(signatures) {
         const groups = {};
-
         for (const s of signatures) {
-            if (!groups[s.signature]) {
-                groups[s.signature] = [];
-            }
+            if (!groups[s.signature]) groups[s.signature] = [];
             groups[s.signature].push(s.pointId);
         }
 
-        // Превращаем группы в кластеры с ID
         const clusters = {};
         let clusterId = 1;
-
         for (const [signature, pointIds] of Object.entries(groups)) {
             clusters[`C${clusterId}`] = {
                 id: `C${clusterId}`,
@@ -92,15 +64,10 @@ class ClusterAnalyzer {
             };
             clusterId++;
         }
-
         return clusters;
     }
 
-    /**
-     * Добавляет информацию о кластерах в features
-     */
     enhanceFeatures(features, clusters) {
-        // Создаем обратную мапу pointId -> cluster
         const pointToCluster = new Map();
         for (const [clusterId, cluster] of Object.entries(clusters)) {
             for (const pointId of cluster.pointIds) {
@@ -112,7 +79,6 @@ class ClusterAnalyzer {
             }
         }
 
-        // Добавляем в features
         const enhanced = new Map(features);
         for (const [pointId, feature] of enhanced) {
             const cluster = pointToCluster.get(pointId);
@@ -126,52 +92,36 @@ class ClusterAnalyzer {
                 feature.isUnique = false;
             }
         }
-
         return enhanced;
     }
 
-    /**
-     * Анализирует соседние кластеры для каждой точки
-     */
     analyzeClusterRelations(clusters, points, graph) {
         if (!graph) return new Map();
-
         const relations = new Map();
 
         for (const [clusterId, cluster] of Object.entries(clusters)) {
             const neighborClusters = new Set();
-
-            // Для каждой точки в кластере смотрим её соседей
             for (const pointId of cluster.pointIds) {
                 const neighbors = this.findNodeNeighbors(pointId, graph);
                 for (const neighbor of neighbors) {
-                    // Находим кластер соседа
                     for (const [otherId, otherCluster] of Object.entries(clusters)) {
-                        if (otherCluster.pointIds.includes(neighbor.id)) {
-                            if (otherId !== clusterId) {
-                                neighborClusters.add(otherId);
-                            }
+                        if (otherCluster.pointIds.includes(neighbor.id) && otherId !== clusterId) {
+                            neighborClusters.add(otherId);
                             break;
                         }
                     }
                 }
             }
-
             relations.set(clusterId, {
                 neighbors: Array.from(neighborClusters),
                 neighborCount: neighborClusters.size
             });
         }
-
         return relations;
     }
 
-    /**
-     * Находит уникальные точки (одинокие в своем кластере)
-     */
     findUniquePoints(clusters) {
         const uniquePoints = [];
-
         for (const [clusterId, cluster] of Object.entries(clusters)) {
             if (cluster.size === 1) {
                 uniquePoints.push({
@@ -181,17 +131,12 @@ class ClusterAnalyzer {
                 });
             }
         }
-
         return uniquePoints;
     }
 
-    /**
-     * Вспомогательный метод: поиск соседей в графе
-     */
     findNodeNeighbors(nodeId, graph) {
         const neighbors = [];
         if (!graph?.edges) return neighbors;
-
         for (const edge of graph.edges) {
             const [a, b] = edge.split('--');
             if (a === nodeId) {
@@ -206,9 +151,6 @@ class ClusterAnalyzer {
         return neighbors;
     }
 
-    /**
-     * Вычисляет средний размер кластера
-     */
     calculateAvgClusterSize(clusters) {
         const sizes = Object.values(clusters).map(c => c.size);
         if (sizes.length === 0) return 0;
@@ -216,9 +158,6 @@ class ClusterAnalyzer {
         return (sum / sizes.length).toFixed(1);
     }
 
-    /**
-     * Получает статистику по кластерам
-     */
     getClusterStats(clusters) {
         const stats = {
             totalClusters: Object.keys(clusters).length,
@@ -226,15 +165,12 @@ class ClusterAnalyzer {
             largeClusters: 0,
             distribution: {}
         };
-
         for (const cluster of Object.values(clusters)) {
             if (cluster.size === 1) stats.uniqueClusters++;
             if (cluster.size > 5) stats.largeClusters++;
-
             const sizeGroup = cluster.size <= 3 ? 'small' : (cluster.size <= 8 ? 'medium' : 'large');
             stats.distribution[sizeGroup] = (stats.distribution[sizeGroup] || 0) + 1;
         }
-
         return stats;
     }
 }
