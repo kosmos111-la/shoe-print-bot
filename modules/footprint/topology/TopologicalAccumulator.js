@@ -371,36 +371,36 @@ class TopologicalAccumulator {
      * Извлечение признаков из модели для быстрого сравнения
      */
     extractFeaturesFromModel(model) {
-        const features = [];
-        const graph = model.graph;
-        const morphologyMap = model.morphologyMap || new Map();
+    const features = [];
+    const graph = model.graph;
+    const morphologyMap = model.morphologyMap || new Map();
 
-        for (const [nodeId, node] of graph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
+    for (const [nodeId, node] of graph.nodes) {
+        const morph = morphologyMap.get(nodeId) || {};
 
-            features.push({
-                id: nodeId,
-                role: this.getNodeRoleSimple(nodeId, graph),
-                degree: node.degree || 0,
-                triangles: node.triangles || 0,
-                compactness: morph.compactness,
-                eccentricity: morph.eccentricity,
-                normalizedArea: morph.normalizedArea,
-                radialProfile: morph.radialProfile,
-                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
+        features.push({
+            id: nodeId,
+            role: this.getNodeRoleSimple(nodeId, graph),
+            degree: node.degree || 0,
+            triangles: node.triangles || 0,
+            compactness: morph.compactness,
+            eccentricity: morph.eccentricity,
+            normalizedArea: morph.normalizedArea,
+            radialProfile: morph.radialProfile,
+            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
 
-                // 🔥 НОВЫЕ ПРИЗНАКИ (теперь реальные!)
-                clusterId: node.clusterId || '0',
-                clusterSize: node.clusterSize || 1,
-                patternType: node.patternType || 'R',
-                patternFrequency: node.patternFrequency || 1,
-                gapPattern: node.gapPattern || '0',
-                neighborClusters: node.neighborClusters || 0
-            });
-        }
-
-        return features;
+            // 🔥 НОВЫЕ ПРИЗНАКИ - теперь с реальными значениями!
+            clusterId: node.clusterId || '0',
+            clusterSize: node.clusterSize || 1,
+            patternType: node.patternType || 'R',
+            patternFrequency: node.patternFrequency || 1,
+            gapPattern: node.gapPattern || '0',
+            neighborClusters: node.neighborClusters || 0
+        });
     }
+
+    return features;
+}
 
     /**
      * Упрощенное определение роли (для быстрого доступа)
