@@ -1,5 +1,6 @@
 // modules/footprint/topology/TopologyManager.js
 // 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (С ПОДДЕРЖКОЙ ПЕСОЧНИЦЫ)
+// 🔥 ПОЛНАЯ ВЕРСИЯ С ПЕРЕДАЧЕЙ patternData И clusterData
 
 const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalAccumulator = require('./TopologicalAccumulator');
@@ -20,7 +21,8 @@ class TopologyManager {
             debug: this.debug,
             similarityThreshold: options.similarityThreshold || 0.6,
             minMatchesForEnhancement: options.minMatchesForEnhancement || 3,
-            wlIterations: options.wlIterations || 3
+            wlIterations: options.wlIterations || 3,
+            tolerances: options.tolerances // передаем допуски
         });
 
         // Связь с существующей системой
@@ -29,9 +31,14 @@ class TopologyManager {
         // 🔥 ВРЕМЕННЫЕ МОДЕЛИ ДЛЯ ПЕСОЧНИЦЫ (сессия -> модель)
         this.sandboxModels = new Map();
 
+        // 🔥 ХРАНИЛИЩЕ ПАТТЕРНОВ И КЛАСТЕРОВ
+        this.patterns = new Map();     // modelId -> patternData
+        this.clusters = new Map();      // modelId -> clusterData
+
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
         console.log(`   🔥 Режим: ${this.sandboxMode ? 'ПЕСОЧНИЦА (изолированные модели)' : 'ПРОДАКШН (накопление)'}`);
         console.log(`   🔥 Аккумулятор с поддержкой треугольников`);
+        console.log(`   🔥 Сохранение паттернов и кластеров: включено`);
     }
 
     // ==================== ГЛАВНЫЙ МЕТОД ====================
@@ -112,6 +119,17 @@ class TopologyManager {
             contours: contours
         });
 
+        // 🔥 СОХРАНЯЕМ patternData И clusterData
+        if (result.modelId && this.accumulator.models.has(result.modelId)) {
+            const model = this.accumulator.models.get(result.modelId);
+            if (model.patternData) {
+                this.patterns.set(result.modelId, model.patternData);
+            }
+            if (model.clusterData) {
+                this.clusters.set(result.modelId, model.clusterData);
+            }
+        }
+
         // Обновляем связь след-модель (только для продакшна)
         if (!this.sandboxMode && result.modelId && result.modelId !== modelId) {
             this.linkedFootprints.set(footprint.id, result.modelId);
@@ -139,7 +157,9 @@ class TopologyManager {
             modelId: result.modelId,
             similarity: result.similarity || 0,
             decision: this.getDecisionFromResult(result),
-            sandboxMode: this.sandboxMode
+            sandboxMode: this.sandboxMode,
+            patternData: this.patterns.get(result.modelId),
+            clusterData: this.clusters.get(result.modelId)
         };
     }
 
@@ -202,7 +222,7 @@ class TopologyManager {
 
         if (result.status === 'created') {
             return 'new_footprint';
-        } else if (result.status === 'enhanced_full' || result.status === 'enhanced_fast') {
+        } else if (result.status === 'enhanced_full' || result.status === 'enhanced_fast' || result.status === 'enhanced_optimal') {
             return 'same_footprint_enhanced';
         } else if (result.similarity >= 0.6) {
             return 'same_footprint';
@@ -221,13 +241,73 @@ class TopologyManager {
             return null;
         }
 
-        return this.accumulator.getVisualizationData(targetModelId);
+        const vizData = this.accumulator.getVisualizationData(targetModelId);
+       
+        // Добавляем паттерны и кластеры для визуализации
+        if (vizData) {
+            vizData.patternData = this.patterns.get(targetModelId);
+            vizData.clusterData = this.clusters.get(targetModelId);
+        }
+
+        return vizData;
+    }
+
+    // ==================== РАБОТА С ПАТТЕРНАМИ И КЛАСТЕРАМИ ====================
+
+    getPatterns(modelId = null) {
+        const targetId = modelId || this.accumulator.currentModelId;
+        return targetId ? this.patterns.get(targetId) : null;
+    }
+
+    getClusters(modelId = null) {
+        const targetId = modelId || this.accumulator.currentModelId;
+        return targetId ? this.clusters.get(targetId) : null;
+    }
+
+    comparePatterns(modelId1, modelId2) {
+        const patterns1 = this.patterns.get(modelId1);
+        const patterns2 = this.patterns.get(modelId2);
+       
+        if (!patterns1 || !patterns2) {
+            return { error: 'Pattern data not found' };
+        }
+
+        // Используем PatternAnalyzer для сравнения
+        const PatternAnalyzer = require('../analysis/PatternAnalyzer');
+        const analyzer = new PatternAnalyzer({ debug: this.debug });
+       
+        return analyzer.comparePatterns(patterns1.patterns, patterns2.patterns);
     }
 
     // ==================== ИНФОРМАЦИЯ О МОДЕЛЯХ ====================
 
     getUserModelsInfo() {
-        return this.accumulator.getStats();
+        const stats = this.accumulator.getStats();
+       
+        // Добавляем информацию о паттернах и кластерах
+        const models = [];
+        for (const [modelId, model] of this.accumulator.models) {
+            const patternData = this.patterns.get(modelId);
+            const clusterData = this.clusters.get(modelId);
+           
+            models.push({
+                id: modelId,
+                name: model.metadata.name,
+                nodes: model.graph.nodes.size,
+                edges: model.graph.edges.size,
+                patterns: patternData ? Object.keys(patternData.groups || {}).length : 0,
+                clusters: clusterData ? Object.keys(clusterData.clusters || {}).length : 0,
+                createdAt: model.metadata.createdAt
+            });
+        }
+
+        return {
+            ...stats,
+            models: {
+                total: this.accumulator.models.size,
+                list: models
+            }
+        };
     }
 
     clearUserModels() {
@@ -235,6 +315,8 @@ class TopologyManager {
         this.accumulator.currentModelId = null;
         this.linkedFootprints.clear();
         this.sandboxModels.clear();
+        this.patterns.clear();
+        this.clusters.clear();
 
         console.log(`🧹 Очищены все топологические модели пользователя ${this.userId}`);
         return { success: true, message: 'Топологические модели очищены' };
@@ -246,7 +328,12 @@ class TopologyManager {
         const models = [];
 
         for (const [modelId, model] of this.accumulator.models) {
-            models.push(this.accumulator.exportModel(modelId));
+            const exportData = this.accumulator.exportModel(modelId);
+            models.push({
+                ...exportData,
+                patternData: this.patterns.get(modelId),
+                clusterData: this.clusters.get(modelId)
+            });
         }
 
         return {
@@ -254,7 +341,7 @@ class TopologyManager {
             models: models,
             linkedFootprints: Array.from(this.linkedFootprints.entries()),
             exportedAt: new Date().toISOString(),
-            version: '1.0-topological'
+            version: '2.0-topological'
         };
     }
 
@@ -267,6 +354,13 @@ class TopologyManager {
 
         for (const modelData of data.models) {
             if (this.accumulator.importModel(modelData)) {
+                const modelId = modelData.id;
+                if (modelData.patternData) {
+                    this.patterns.set(modelId, modelData.patternData);
+                }
+                if (modelData.clusterData) {
+                    this.clusters.set(modelId, modelData.clusterData);
+                }
                 importedCount++;
             }
         }
@@ -279,11 +373,45 @@ class TopologyManager {
         }
 
         console.log(`📥 Импортировано ${importedCount} топологических моделей для пользователя ${this.userId}`);
+        console.log(`   • Восстановлено паттернов: ${this.patterns.size}`);
+        console.log(`   • Восстановлено кластеров: ${this.clusters.size}`);
 
         return {
             success: true,
             importedCount: importedCount,
-            totalModels: this.accumulator.models.size
+            totalModels: this.accumulator.models.size,
+            patternsCount: this.patterns.size,
+            clustersCount: this.clusters.size
+        };
+    }
+
+    // ==================== ДИАГНОСТИКА ====================
+
+    debugModel(modelId = null) {
+        const targetId = modelId || this.accumulator.currentModelId;
+        if (!targetId || !this.accumulator.models.has(targetId)) {
+            return { error: 'Model not found' };
+        }
+
+        const model = this.accumulator.models.get(targetId);
+        const patternData = this.patterns.get(targetId);
+        const clusterData = this.clusters.get(targetId);
+
+        return {
+            modelId: targetId,
+            nodes: model.graph.nodes.size,
+            edges: model.graph.edges.size,
+            patterns: patternData ? {
+                total: Object.keys(patternData.patterns || {}).length,
+                groups: Object.keys(patternData.groups || {}).length,
+                gaps: Object.keys(patternData.gaps || {}).length
+            } : null,
+            clusters: clusterData ? {
+                total: Object.keys(clusterData.clusters || {}).length,
+                relations: clusterData.relations ? clusterData.relations.size : 0
+            } : null,
+            morphology: Array.from(model.graph.nodes.values())
+                .filter(n => n.morphology && n.hasContour).length
         };
     }
 }
