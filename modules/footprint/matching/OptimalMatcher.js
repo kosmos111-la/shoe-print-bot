@@ -30,45 +30,68 @@ class OptimalMatcher {
      * Основной метод: находит оптимальные пары
      */
     findOptimalMatches(pointsA, pointsB) {
-        console.log(`\n🔍 Венгерский алгоритм: ${pointsA.length} ↔ ${pointsB.length}`);
+    console.log(`\n🔍 Венгерский алгоритм: ${pointsA.length} ↔ ${pointsB.length}`);
 
-        // 1. Строим матрицу сходства
-        const matrix = this.buildSimilarityMatrix(pointsA, pointsB);
-       
-        // 2. Применяем венгерский алгоритм
-        const assignment = this.hungarianAlgorithm(matrix);
-       
-        // 3. Формируем результат
-        const matches = [];
-        const usedA = new Set();
-        const usedB = new Set();
+    // 1. Строим матрицу сходства
+    const matrix = this.buildSimilarityMatrix(pointsA, pointsB);
+   
+    // 2. Применяем венгерский алгоритм
+    const assignment = this.hungarianAlgorithm(matrix);
+   
+    // 3. Формируем результат
+    const matches = [];
+    const usedA = new Set();
+    const usedB = new Set();
 
-        for (let i = 0; i < pointsA.length; i++) {
-            const j = assignment[i];
-            if (j < pointsB.length && matrix[i][j] > 0.6) { // порог
-                matches.push({
-                    pointA: pointsA[i].id,
-                    pointB: pointsB[j].id,
-                    score: matrix[i][j]
-                });
-                usedA.add(pointsA[i].id);
-                usedB.add(pointsB[j].id);
-            }
+    for (let i = 0; i < pointsA.length; i++) {
+        const j = assignment[i];
+        if (j < pointsB.length && matrix[i][j] > 0.6) {
+            matches.push({
+                pointA: pointsA[i].id,
+                pointB: pointsB[j].id,
+                score: matrix[i][j]
+            });
+            usedA.add(pointsA[i].id);
+            usedB.add(pointsB[j].id);
         }
-
-        // 4. Определяем "одинокие" точки
-        const onlyA = pointsA.filter(p => !usedA.has(p.id)).length;
-        const onlyB = pointsB.filter(p => !usedB.has(p.id)).length;
-
-        const avgScore = matches.reduce((sum, m) => sum + m.score, 0) / matches.length;
-
-        return {
-            matches,
-            averageSimilarity: avgScore || 0,
-            onlyA,
-            onlyB
-        };
     }
+
+    // 4. Определяем "одинокие" точки
+    const onlyA = pointsA.filter(p => !usedA.has(p.id)).length;
+    const onlyB = pointsB.filter(p => !usedB.has(p.id)).length;
+
+    const avgScore = matches.reduce((sum, m) => sum + m.score, 0) / matches.length;
+
+    // 🔥 ВОТ ЗДЕСЬ ВСТАВЛЯЕМ ТАБЛИЦУ ПАР
+    console.log(`\n📋 ТАБЛИЦА НАЙДЕННЫХ ПАР (первые 20):`);
+    console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┐`);
+    console.log(`│  #  │   ТОЧКА В МОДЕЛИ А    │   ТОЧКА В МОДЕЛИ Б    │ СХОДСТВО  │ УВЕРЕН.   │`);
+    console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼───────────┤`);
+
+    matches.slice(0, 20).forEach((match, i) => {
+        const confidence = match.score > 0.95 ? '✅ ВЫСОКАЯ' :
+                          match.score > 0.8 ? '🟡 СРЕДНЯЯ' : '⚠️ НИЗКАЯ';
+        console.log(
+            `│ ${(i+1).toString().padEnd(3)} │ ${match.pointA.substring(0,20).padEnd(20)} │ ` +
+            `${match.pointB.substring(0,20).padEnd(20)} │ ` +
+            `${(match.score*100).toFixed(1).padStart(7)}%   │ ${confidence.padEnd(9)} │`
+        );
+    });
+    console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┘`);
+
+    if (onlyA > 0 || onlyB > 0) {
+        console.log(`\n⚠️ ТОЧКИ БЕЗ ПАРЫ:`);
+        console.log(`   • Только в модели А: ${onlyA}`);
+        console.log(`   • Только в модели Б: ${onlyB}`);
+    }
+
+    return {
+        matches,
+        averageSimilarity: avgScore || 0,
+        onlyA,
+        onlyB
+    };
+}
 
     /**
      * Строит матрицу сходства между всеми точками
