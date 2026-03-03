@@ -45,9 +45,10 @@ class MorphologyEncoder {
                 if (this.debug && morphologyMap.size <= 3) {
                     console.log(`   Точка ${point.id.substring(0,12)}...`);
                     console.log(`      compactness: ${code.compactness.toFixed(2)}`);
-                    console.log(`      eccentricity: ${code.eccentricity.toFixed(2)}`);
+                    console.log(`      eccentricity: ${code.eccentricity.toFixed(3)}`);
                     console.log(`      orientation: ${code.orientation.toFixed(1)}°`);
                     console.log(`      normalizedArea: ${code.normalizedArea.toFixed(2)}`);
+                    console.log(`      radialProfile: [${code.radialProfile.map(v => v.toFixed(2)).join(', ')}]`);
                 }
             } else {
                 // Нет контура - ставим значения по умолчанию
@@ -98,7 +99,8 @@ class MorphologyEncoder {
             hasContour: true,
             contour: simplified,
             radialProfile: radial.profile,
-            asymmetry: radial.asymmetry
+            asymmetry: radial.asymmetry,
+            radialDistances: radial.distances
         };
     }
 
@@ -154,6 +156,9 @@ class MorphologyEncoder {
     calculateRadialFeatures(points, center) {
         // Инициализируем расстояния в 4 направлениях
         let north = 0, south = 0, east = 0, west = 0;
+        let ne = 0, nw = 0, se = 0, sw = 0;
+       
+        const distances = [];
        
         for (const p of points) {
             const dx = p.x - center.x;
@@ -167,21 +172,43 @@ class MorphologyEncoder {
             if (Math.abs(angle - 180) < 45 || Math.abs(angle + 180) < 45) west = Math.max(west, dist);
             if (Math.abs(angle - 90) < 45) north = Math.max(north, dist);
             if (Math.abs(angle + 90) < 45) south = Math.max(south, dist);
+           
+            // Диагонали
+            if (angle > 45 && angle < 135) ne = Math.max(ne, dist);
+            if (angle > 135 || angle < -135) nw = Math.max(nw, dist);
+            if (angle < -45 && angle > -135) sw = Math.max(sw, dist);
+            if (angle > -45 && angle < 45) se = Math.max(se, dist);
+           
+            distances.push({ angle, dist });
         }
        
         // Нормализуем на максимальное расстояние
-        const maxDist = Math.max(north, south, east, west, 0.001);
+        const maxDist = Math.max(north, south, east, west, ne, nw, se, sw, 0.001);
         const profile = [
             north / maxDist,
             east / maxDist,
             south / maxDist,
-            west / maxDist
+            west / maxDist,
+            ne / maxDist,
+            nw / maxDist,
+            se / maxDist,
+            sw / maxDist
         ];
        
         // Асимметрия (сумма разностей противоположных направлений)
-        const asymmetry = Math.abs(profile[0] - profile[2]) + Math.abs(profile[1] - profile[3]);
+        const asymmetry = Math.abs(profile[0] - profile[2]) +
+                         Math.abs(profile[1] - profile[3]) +
+                         Math.abs(profile[4] - profile[6]) +
+                         Math.abs(profile[5] - profile[7]);
        
-        return { profile, asymmetry };
+        return {
+            profile,
+            asymmetry,
+            distances: {
+                north, south, east, west, ne, nw, se, sw,
+                maxDist
+            }
+        };
     }
 
     /**
@@ -278,7 +305,7 @@ class MorphologyEncoder {
     }
 
     simplifyContour(contour, epsilon) {
-        // Пока возвращаем исходный контур
+        // TODO: Реализовать упрощение контура (алгоритм Дугласа-Пекера)
         return contour;
     }
 
@@ -287,36 +314,52 @@ class MorphologyEncoder {
     compare(morph1, morph2) {
         if (!morph1 || !morph2) return 0.5;
 
-        const weights = {
-            compactness: 0.4,
-            eccentricity: 0.3,
-            area: 0.3
-        };
-
         let score = 0;
+        let checks = 0;
 
         // Компактность
         if (morph1.compactness && morph2.compactness) {
-            const compactDiff = Math.abs(morph1.compactness - morph2.compactness);
-            const compactSim = Math.max(0, 1 - compactDiff / 10);
-            score += compactSim * weights.compactness;
+            const ratio = Math.min(morph1.compactness, morph2.compactness) /
+                         Math.max(morph1.compactness, morph2.compactness);
+            score += ratio;
+            checks++;
         }
 
         // Эксцентриситет
         if (morph1.eccentricity && morph2.eccentricity) {
-            const eccDiff = Math.abs(morph1.eccentricity - morph2.eccentricity);
-            const eccSim = Math.max(0, 1 - eccDiff);
-            score += eccSim * weights.eccentricity;
+            const diff = Math.abs(morph1.eccentricity - morph2.eccentricity);
+            score += 1 - Math.min(diff, 1);
+            checks++;
+        }
+
+        // Ориентация (с учетом цикличности)
+        if (morph1.orientation !== undefined && morph2.orientation !== undefined) {
+            let diff = Math.abs(morph1.orientation - morph2.orientation);
+            if (diff > 180) diff = 360 - diff;
+            score += 1 - (diff / 180);
+            checks++;
         }
 
         // Нормализованная площадь
         if (morph1.normalizedArea && morph2.normalizedArea) {
-            const areaDiff = Math.abs(morph1.normalizedArea - morph2.normalizedArea);
-            const areaSim = Math.max(0, 1 - areaDiff);
-            score += areaSim * weights.area;
+            const ratio = Math.min(morph1.normalizedArea, morph2.normalizedArea) /
+                         Math.max(morph1.normalizedArea, morph2.normalizedArea);
+            score += ratio;
+            checks++;
         }
 
-        return score;
+        // Радиальный профиль
+        if (morph1.radialProfile && morph2.radialProfile) {
+            let sum = 0;
+            const len = Math.min(morph1.radialProfile.length, morph2.radialProfile.length);
+            for (let i = 0; i < len; i++) {
+                sum += 1 - Math.min(Math.abs(morph1.radialProfile[i] - morph2.radialProfile[i]), 1);
+            }
+            score += sum / len;
+            checks++;
+        }
+
+        return checks > 0 ? score / checks : 0.5;
     }
 
     // ==================== СТАТИСТИКА ====================
