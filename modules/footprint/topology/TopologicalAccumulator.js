@@ -444,17 +444,16 @@ class TopologicalAccumulator {
         return map;
     }
 
-    /**
-     * Строит matchMap для визуализации - только надежные пары получают номера
-     */
-    buildOptimalMatchMap(matches) {
+   /**
+* Строит matchMap для визуализации - ВСЕ точки с номерами
+*/
+buildOptimalMatchMap(matches) {
     const matchMap = new Map();
     let pairNumber = 1;
 
-    // Сортируем по убыванию сходства (для красоты)
     const sortedMatches = [...matches].sort((a, b) => b.score - a.score);
 
-    // 🔥 ВСЕ точки получают номера!
+    // 🔥 ВСЕ точки получают номера
     for (const match of sortedMatches) {
         matchMap.set(match.pointA, {
             modelId: match.pointB,
@@ -467,20 +466,6 @@ class TopologicalAccumulator {
     console.log(`📋 Создан matchMap: ${matchMap.size} пар (ВСЕ с номерами)`);
     return matchMap;
 }
-
-        // Остальные подтвержденные пары - без номеров
-        for (let i = 12; i < sortedMatches.length; i++) {
-            const match = sortedMatches[i];
-            matchMap.set(match.pointA, {
-                modelId: match.pointB,
-                type: 'confirmed',
-                confidence: match.score
-            });
-        }
-
-        console.log(`📋 Создан matchMap: ${matchMap.size} пар (${pairNumber-1} с номерами)`);
-        return matchMap;
-    }
 
     // ==================== УЛУЧШЕНИЕ СУЩЕСТВУЮЩЕЙ МОДЕЛИ ====================
 
