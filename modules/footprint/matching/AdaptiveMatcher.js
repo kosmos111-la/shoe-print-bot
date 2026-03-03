@@ -224,7 +224,7 @@ class AdaptiveMatcher {
     /**
      * Проверяет, находятся ли точки в пределах допусков
      */
-withinTolerances(pointA, pointB) {
+    withinTolerances(pointA, pointB) {
         // 1. Роль должна совпадать строго
         if (pointA.role !== pointB.role) {
             this.logRejection(pointA, pointB, 'роли не совпадают', {
@@ -400,7 +400,7 @@ withinTolerances(pointA, pointB) {
 /**
      * Детальное логирование причин отсева
      */
-    logRejection(pointA, pointB, reason, details = {}) {
+     logRejection(pointA, pointB, reason, details = {}) {
         if (!this.debug) return;
        
         console.log(`   ❌ ${pointA.id.slice(0,12)}... ↔ ${pointB.id.slice(0,12)}...`);
