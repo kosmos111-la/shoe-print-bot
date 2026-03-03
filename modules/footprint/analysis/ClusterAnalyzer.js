@@ -11,24 +11,24 @@ class ClusterAnalyzer {
     /**
      * Основной метод: кластеризация всех точек
      */
-    analyze(points, features) {
+    analyze(points, features, graph) {  // ← добавили graph
         console.log(`📊 Кластеризую ${points.length} точек...`);
-       
+
         // 1. Создаем подписи для каждой точки
         const signatures = this.createSignatures(points, features);
-       
+
         // 2. Группируем по подписям
         const clusters = this.groupBySignature(signatures);
-       
+
         // 3. Добавляем информацию о кластерах в features
         const enhancedFeatures = this.enhanceFeatures(features, clusters);
-       
+
         // 4. Анализируем соседние кластеры
-        const clusterRelations = this.analyzeClusterRelations(clusters, points);
-       
+        const clusterRelations = this.analyzeClusterRelations(clusters, points, graph); // ← передаем graph
+
         console.log(`   • Создано кластеров: ${Object.keys(clusters).length}`);
         console.log(`   • Средний размер кластера: ${this.calculateAvgClusterSize(clusters)}`);
-       
+
         return {
             clusters,
             enhancedFeatures,
@@ -41,25 +41,27 @@ class ClusterAnalyzer {
      */
     createSignatures(points, features) {
         const signatures = [];
-       
+
         for (const point of points) {
             const f = features.get(point.id) || {};
-           
-            // Упрощенная сигнатура: роль + степень + компактность
+
+            // Улучшенная сигнатура: роль + степень + компактность + eccentricity
             const role = f.role || 'R';
-            const degree = Math.round((f.degree || 0) / 2); // Группируем степени
+            const degree = Math.round((f.degree || 0) / 2);
             const compactness = f.morphology?.compactness || 4;
-            const compactGroup = Math.round(compactness / 2); // Группируем компактность
-           
-            const signature = `${role}_${degree}_${compactGroup}`;
-           
+            const compactGroup = Math.round(compactness / 2);
+            const eccentricity = f.morphology?.eccentricity || 0.5;
+            const eccGroup = Math.round(eccentricity * 5);
+
+            const signature = `${role}_${degree}_${compactGroup}_${eccGroup}`;
+
             signatures.push({
                 pointId: point.id,
                 signature: signature,
                 features: f
             });
         }
-       
+
         return signatures;
     }
 
@@ -68,18 +70,18 @@ class ClusterAnalyzer {
      */
     groupBySignature(signatures) {
         const groups = {};
-       
+
         for (const s of signatures) {
             if (!groups[s.signature]) {
                 groups[s.signature] = [];
             }
             groups[s.signature].push(s.pointId);
         }
-       
+
         // Превращаем группы в кластеры с ID
         const clusters = {};
         let clusterId = 1;
-       
+
         for (const [signature, pointIds] of Object.entries(groups)) {
             clusters[`C${clusterId}`] = {
                 id: `C${clusterId}`,
@@ -90,7 +92,7 @@ class ClusterAnalyzer {
             };
             clusterId++;
         }
-       
+
         return clusters;
     }
 
@@ -109,7 +111,7 @@ class ClusterAnalyzer {
                 });
             }
         }
-       
+
         // Добавляем в features
         const enhanced = new Map(features);
         for (const [pointId, feature] of enhanced) {
@@ -124,7 +126,7 @@ class ClusterAnalyzer {
                 feature.isUnique = false;
             }
         }
-       
+
         return enhanced;
     }
 
@@ -133,12 +135,12 @@ class ClusterAnalyzer {
      */
     analyzeClusterRelations(clusters, points, graph) {
         if (!graph) return new Map();
-       
+
         const relations = new Map();
-       
+
         for (const [clusterId, cluster] of Object.entries(clusters)) {
             const neighborClusters = new Set();
-           
+
             // Для каждой точки в кластере смотрим её соседей
             for (const pointId of cluster.pointIds) {
                 const neighbors = this.findNodeNeighbors(pointId, graph);
@@ -154,13 +156,13 @@ class ClusterAnalyzer {
                     }
                 }
             }
-           
+
             relations.set(clusterId, {
                 neighbors: Array.from(neighborClusters),
                 neighborCount: neighborClusters.size
             });
         }
-       
+
         return relations;
     }
 
@@ -169,7 +171,7 @@ class ClusterAnalyzer {
      */
     findUniquePoints(clusters) {
         const uniquePoints = [];
-       
+
         for (const [clusterId, cluster] of Object.entries(clusters)) {
             if (cluster.size === 1) {
                 uniquePoints.push({
@@ -179,7 +181,7 @@ class ClusterAnalyzer {
                 });
             }
         }
-       
+
         return uniquePoints;
     }
 
@@ -224,15 +226,15 @@ class ClusterAnalyzer {
             largeClusters: 0,
             distribution: {}
         };
-       
+
         for (const cluster of Object.values(clusters)) {
             if (cluster.size === 1) stats.uniqueClusters++;
             if (cluster.size > 5) stats.largeClusters++;
-           
+
             const sizeGroup = cluster.size <= 3 ? 'small' : (cluster.size <= 8 ? 'medium' : 'large');
             stats.distribution[sizeGroup] = (stats.distribution[sizeGroup] || 0) + 1;
         }
-       
+
         return stats;
     }
 }
