@@ -80,10 +80,10 @@ class MorphologyEncoder {
         // 2. Основные метрики
         const area = this.computePolygonArea(simplified);
         const perimeter = this.computePolygonPerimeter(simplified);
-       
+
         // 3. Эксцентриситет и ориентация
         const { eccentricity, orientation } = this.calculateEllipseFeatures(simplified);
-       
+
         // 4. Радиальный профиль
         const center = centerPoint || this.calculateCentroid(simplified);
         const radial = this.calculateRadialFeatures(simplified, center);
