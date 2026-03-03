@@ -224,20 +224,41 @@ class AdaptiveMatcher {
     /**
      * Проверяет, находятся ли точки в пределах допусков
      */
-    withinTolerances(pointA, pointB) {
+withinTolerances(pointA, pointB) {
         // 1. Роль должна совпадать строго
-        if (pointA.role !== pointB.role) return false;
+        if (pointA.role !== pointB.role) {
+            this.logRejection(pointA, pointB, 'роли не совпадают', {
+                expected: pointA.role,
+                actual: pointB.role
+            });
+            return false;
+        }
        
         // 2. Компактность в пределах допуска
         if (pointA.compactness && pointB.compactness) {
             const ratio = Math.min(pointA.compactness, pointB.compactness) /
                          Math.max(pointA.compactness, pointB.compactness);
-            if (ratio < 1 - this.tolerances.compactness) return false;
+            if (ratio < 1 - this.tolerances.compactness) {
+                this.logRejection(pointA, pointB, 'компактность вне допуска', {
+                    expected: pointA.compactness,
+                    actual: pointB.compactness,
+                    diff: 1 - ratio,
+                    tolerance: this.tolerances.compactness
+                });
+                return false;
+            }
         }
        
         // 3. Эксцентриситет в пределах допуска
         if (pointA.eccentricity && pointB.eccentricity) {
-            if (Math.abs(pointA.eccentricity - pointB.eccentricity) > this.tolerances.eccentricity) {
+            const diff = Math.abs(pointA.eccentricity - pointB.eccentricity);
+            if (diff > this.tolerances.eccentricity) {
+                this.logRejection(pointA, pointB, 'эксцентриситет вне допуска', {
+                    expected: pointA.eccentricity,
+                    actual: pointB.eccentricity,
+                    diff: diff,
+                    tolerance: this.tolerances.eccentricity
+                });
                 return false;
             }
         }
@@ -246,27 +267,50 @@ class AdaptiveMatcher {
         if (pointA.normalizedArea && pointB.normalizedArea) {
             const ratio = Math.min(pointA.normalizedArea, pointB.normalizedArea) /
                          Math.max(pointA.normalizedArea, pointB.normalizedArea);
-            if (ratio < 1 - this.tolerances.normalizedArea) return false;
+            if (ratio < 1 - this.tolerances.normalizedArea) {
+                this.logRejection(pointA, pointB, 'площадь вне допуска', {
+                    expected: pointA.normalizedArea,
+                    actual: pointB.normalizedArea,
+                    diff: 1 - ratio,
+                    tolerance: this.tolerances.normalizedArea
+                });
+                return false;
+            }
         }
        
-        // 5. Радиальный профиль в пределах допуска
+        // 5. Радиальный профиль
         if (pointA.radialProfile && pointB.radialProfile) {
             const avgDiff = this.averageProfileDiff(pointA.radialProfile, pointB.radialProfile);
-            if (avgDiff > this.tolerances.radialProfile) return false;
+            if (avgDiff > this.tolerances.radialProfile) {
+                this.logRejection(pointA, pointB, 'радиальный профиль вне допуска', {
+                    diff: avgDiff,
+                    tolerance: this.tolerances.radialProfile
+                });
+                return false;
+            }
         }
        
-        // 6. Роли соседей должны быть похожи (проверяем состав)
-        if (!this.similarNeighborRoles(pointA.neighborRoles, pointB.neighborRoles)) {
+        // 6. Степень
+        const degreeDiff = Math.abs(pointA.degree - pointB.degree);
+        if (degreeDiff > this.tolerances.degree) {
+            this.logRejection(pointA, pointB, 'степень вне допуска', {
+                expected: pointA.degree,
+                actual: pointB.degree,
+                diff: degreeDiff,
+                tolerance: this.tolerances.degree
+            });
             return false;
         }
        
-        // 7. Степень в пределах допуска
-        if (Math.abs(pointA.degree - pointB.degree) > this.tolerances.degree) {
-            return false;
-        }
-       
-        // 8. Треугольники в пределах допуска
-        if (Math.abs(pointA.triangles - pointB.triangles) > this.tolerances.triangles) {
+        // 7. Треугольники
+        const trianglesDiff = Math.abs(pointA.triangles - pointB.triangles);
+        if (trianglesDiff > this.tolerances.triangles) {
+            this.logRejection(pointA, pointB, 'треугольники вне допуска', {
+                expected: pointA.triangles,
+                actual: pointB.triangles,
+                diff: trianglesDiff,
+                tolerance: this.tolerances.triangles
+            });
             return false;
         }
        
@@ -353,6 +397,23 @@ class AdaptiveMatcher {
         return validMatches;
     }
 
+/**
+     * Детальное логирование причин отсева
+     */
+    logRejection(pointA, pointB, reason, details = {}) {
+        if (!this.debug) return;
+       
+        console.log(`   ❌ ${pointA.id.slice(0,12)}... ↔ ${pointB.id.slice(0,12)}...`);
+        console.log(`      Причина: ${reason}`);
+       
+        if (details.expected !== undefined && details.actual !== undefined) {
+            console.log(`      Ожидалось: ${typeof details.expected === 'number' ? details.expected.toFixed(3) : details.expected}, получено: ${typeof details.actual === 'number' ? details.actual.toFixed(3) : details.actual}`);
+        }
+        if (details.diff !== undefined) {
+            console.log(`      Разница: ${(details.diff * 100).toFixed(1)}%, допуск: ${(details.tolerance * 100).toFixed(1)}%`);
+        }
+    }
+  
     /**
      * Получить статистику
      */
