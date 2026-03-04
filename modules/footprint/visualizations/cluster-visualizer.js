@@ -1,5 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - КВАДРАТНАЯ, С ЧИТАЕМЫМИ НОМЕРАМИ
+// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 const fs = require('fs');
 const path = require('path');
@@ -8,11 +8,11 @@ class ClusterVisualizer {
     constructor(options = {}) {
         this.config = {
             outputDir: options.outputDir || './data/footprints/visualizations/topology',
-            canvasWidth: options.canvasWidth || 1000,  // квадрат 1000x1000
+            canvasWidth: options.canvasWidth || 1000,
             canvasHeight: options.canvasHeight || 1000,
             debug: options.debug || false,
             showEdges: options.showEdges !== false,
-            fontSize: options.fontSize || 14,          // увеличенный шрифт
+            fontSize: options.fontSize || 14,
             pointSize: options.pointSize || 10,
             ...options
         };
@@ -21,7 +21,7 @@ class ClusterVisualizer {
             fs.mkdirSync(this.config.outputDir, { recursive: true });
         }
 
-        console.log('🎨 ClusterVisualizer (квадратный, с читаемыми номерами) создан');
+        console.log('🎨 ClusterVisualizer (исправленная версия) создан');
     }
 
     async visualizeTopologicalModel(topologyData, options = {}) {
@@ -74,24 +74,27 @@ class ClusterVisualizer {
         ctx.fillStyle = '#212529';
         ctx.font = 'bold 26px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`🏗️ ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ`, this.config.canvasWidth / 2, 45);
+        ctx.fillText(`🏗️ ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ (${topologyData.points.length} точек)`, this.config.canvasWidth / 2, 45);
 
         // Вычисляем границы с отступами
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
         const { minX, maxX, minY, maxY } = this.calculateBounds(validPoints);
-       
+      
         // 🔥 УВЕЛИЧЕННЫЙ МАСШТАБ И ЦЕНТРИРОВАНИЕ
         const scale = this.calculateScale(minX, maxX, minY, maxY,
             this.config.canvasWidth * 0.8, this.config.canvasHeight * 0.7);
-       
+      
         const centerX = this.config.canvasWidth / 2;
         const centerY = this.config.canvasHeight / 2 + 50;
         const avgX = (minX + maxX) / 2;
         const avgY = (minY + maxY) / 2;
 
+        // 🔥 ИСПРАВЛЕНО: перестраиваем граф для актуальных точек
+        const edges = this.rebuildEdges(topologyData.points);
+
         // Рёбра (полупрозрачные)
-        if (this.config.showEdges && topologyData.edges) {
-            this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
+        if (this.config.showEdges && edges.length > 0) {
+            this.drawEdges(ctx, edges, topologyData.points, avgX, avgY, centerX, centerY, scale);
         }
 
         // Точки модели с номерами
@@ -125,22 +128,24 @@ class ClusterVisualizer {
         ctx.fillStyle = '#212529';
         ctx.font = 'bold 26px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`📸 ФОТО - ТОЧКИ`, this.config.canvasWidth / 2, 45);
+        ctx.fillText(`📸 ФОТО - ТОЧКИ (${topologyData.photoPoints?.length || 0} точек)`, this.config.canvasWidth / 2, 45);
 
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
         const { minX, maxX, minY, maxY } = this.calculateBounds(validPoints);
-       
-        // 🔥 УВЕЛИЧЕННЫЙ МАСШТАБ
+      
         const scale = this.calculateScale(minX, maxX, minY, maxY,
             this.config.canvasWidth * 0.8, this.config.canvasHeight * 0.7);
-       
+      
         const centerX = this.config.canvasWidth / 2;
         const centerY = this.config.canvasHeight / 2 + 50;
         const avgX = (minX + maxX) / 2;
         const avgY = (minY + maxY) / 2;
 
-        if (this.config.showEdges && topologyData.edges) {
-            this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
+        // 🔥 ИСПРАВЛЕНО: перестраиваем граф для актуальных точек
+        const edges = this.rebuildEdges(topologyData.points);
+
+        if (this.config.showEdges && edges.length > 0) {
+            this.drawEdges(ctx, edges, topologyData.points, avgX, avgY, centerX, centerY, scale);
         }
 
         const photoPoints = topologyData.photoPoints || topologyData.points;
@@ -164,139 +169,199 @@ class ClusterVisualizer {
         });
     }
 
-    drawModelPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
-    const points = topologyData.points;
-    const matchMap = topologyData.matchMap || new Map();
-
-    const modelToPair = new Map();
-    for (const [photoId, match] of matchMap) {
-        if (match && match.modelId && match.pairNumber) {
-            modelToPair.set(match.modelId, match.pairNumber);
-        }
-    }
-
-    console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
-
-    let anchorPoints = 0, regularPoints = 0;
-
-    for (const point of points) {
-        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
-
-        const x = centerX + (point.x - avgX) * scale;
-        const y = centerY + (point.y - avgY) * scale;
-
-        const confirmations = point.confirmationCount || 0;
-        const pairNumber = modelToPair.get(point.id);
-        const isAnchor = pairNumber !== undefined;
-
-        // 🔥 РАЗМЕРЫ УМЕНЬШЕНЫ В 2 РАЗА
-        let color, size;
-
-        if (isAnchor) {
-            color = '#FF0000';
-            size = 8;  // было 16
-            anchorPoints++;
-        } else if (confirmations >= 3) {
-            color = '#FF0000';
-            size = 6;  // было 12
-            regularPoints++;
-        } else if (confirmations >= 2) {
-            color = '#FFC107';
-            size = 5;  // было 10
-            regularPoints++;
-        } else if (confirmations >= 1) {
-            color = '#2196F3';
-            size = 4;  // было 8
-            regularPoints++;
-        } else {
-            color = '#BDBDBD';
-            size = 3;  // было 6
-            regularPoints++;
-        }
-
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // 🔥 ШРИФТ ТОЖЕ УМЕНЬШЕН
-        if (isAnchor) {
-            ctx.fillStyle = '#000000';
-            ctx.font = 'bold 8px Arial';  // было 10px
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(pairNumber.toString(), x, y);
-        }
-    }
-
-    console.log(`   🎯 Модель: 🔴 ${anchorPoints} с цифрами, остальных: ${regularPoints}`);
-}
-
-drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
-    console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
-
-    const photoToPair = new Map();
-    for (const [photoId, match] of matchMap) {
-        if (match && match.pairNumber) {
-            photoToPair.set(photoId, match.pairNumber);
-        }
-    }
-
-    let anchorPoints = 0, matchedPoints = 0, unmatchedPoints = 0;
-
-    for (const point of points) {
-        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
-
-        const x = centerX + (point.x - avgX) * scale;
-        const y = centerY + (point.y - avgY) * scale;
-
-        const pairNumber = photoToPair.get(point.id);
-        const isAnchor = pairNumber !== undefined;
-        const hasMatch = matchMap.has(point.id);
-
-        // 🔥 РАЗМЕРЫ УМЕНЬШЕНЫ В 2 РАЗА
-        let color, size;
-       
-        if (isAnchor) {
-            color = '#FF0000';
-            size = 8;  // было 16
-            anchorPoints++;
-        } else if (hasMatch) {
-            color = '#4CAF50';
-            size = 6;  // было 12
-            matchedPoints++;
-        } else {
-            color = '#FF9800';
-            size = 5;  // было 10
-            unmatchedPoints++;
-        }
-
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        if (isAnchor) {
-            ctx.fillStyle = '#000000';
-            ctx.font = 'bold 8px Arial';  // было 10px
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(pairNumber.toString(), x, y);
-        }
-    }
-
-    console.log(`   🎯 Фото: 🔴 ${anchorPoints} с цифрами, 🟢 ${matchedPoints} пар, 🟠 ${unmatchedPoints} новых`);
-}
-
-    drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
+    /**
+     * 🔥 НОВЫЙ МЕТОД: перестраивает граф для актуальных точек
+     */
+    rebuildEdges(points) {
+        const edges = [];
         const pointsMap = new Map();
-        topologyData.points.forEach(point => {
+       
+        // Создаем карту точек для быстрого доступа
+        points.forEach(point => {
+            if (point && point.id) pointsMap.set(point.id, point);
+        });
+
+        // Строим триангуляцию Делоне для актуальных точек
+        if (points.length < 3) return edges;
+
+        // Упрощенная триангуляция для визуализации
+        // В реальности здесь должна быть полноценная триангуляция Делоне
+        const validPoints = points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
+       
+        // Для демонстрации соединяем близкие точки
+        for (let i = 0; i < validPoints.length; i++) {
+            for (let j = i + 1; j < validPoints.length; j++) {
+                const p1 = validPoints[i];
+                const p2 = validPoints[j];
+                const dx = p1.x - p2.x;
+                const dy = p1.y - p2.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+               
+                // Соединяем точки, расстояние между которыми меньше порога
+                const threshold = Math.max(
+                    (this.config.canvasWidth / 10) / this.calculateScaleForPoints(validPoints),
+                    20
+                );
+               
+                if (dist < threshold) {
+                    edges.push(`${p1.id}--${p2.id}`);
+                }
+            }
+        }
+
+        return edges;
+    }
+
+    /**
+     * 🔥 ВСПОМОГАТЕЛЬНЫЙ: вычисляет масштаб для порога расстояния
+     */
+    calculateScaleForPoints(points) {
+        if (points.length === 0) return 1;
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+       
+        points.forEach(p => {
+            minX = Math.min(minX, p.x);
+            maxX = Math.max(maxX, p.x);
+            minY = Math.min(minY, p.y);
+            maxY = Math.max(maxY, p.y);
+        });
+       
+        const width = Math.max(1, maxX - minX);
+        const height = Math.max(1, maxY - minY);
+        return Math.min(this.config.canvasWidth / width, this.config.canvasHeight / height);
+    }
+
+    drawModelPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
+        const points = topologyData.points;
+        const matchMap = topologyData.matchMap || new Map();
+
+        const modelToPair = new Map();
+        for (const [photoId, match] of matchMap) {
+            if (match && match.modelId && match.pairNumber) {
+                modelToPair.set(match.modelId, match.pairNumber);
+            }
+        }
+
+        console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
+
+        let anchorPoints = 0, regularPoints = 0;
+
+        for (const point of points) {
+            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+
+            const x = centerX + (point.x - avgX) * scale;
+            const y = centerY + (point.y - avgY) * scale;
+
+            const confirmations = point.confirmationCount || 0;
+            const pairNumber = modelToPair.get(point.id);
+            const isAnchor = pairNumber !== undefined;
+
+            let color, size;
+
+            if (isAnchor) {
+                color = '#FF0000';
+                size = 8;
+                anchorPoints++;
+            } else if (confirmations >= 3) {
+                color = '#FF0000';
+                size = 6;
+                regularPoints++;
+            } else if (confirmations >= 2) {
+                color = '#FFC107';
+                size = 5;
+                regularPoints++;
+            } else if (confirmations >= 1) {
+                color = '#2196F3';
+                size = 4;
+                regularPoints++;
+            } else {
+                color = '#BDBDBD';
+                size = 3;
+                regularPoints++;
+            }
+
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            if (isAnchor) {
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 8px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(pairNumber.toString(), x, y);
+            }
+        }
+
+        console.log(`   🎯 Модель: 🔴 ${anchorPoints} с цифрами, остальных: ${regularPoints}`);
+    }
+
+    drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
+        console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
+
+        const photoToPair = new Map();
+        for (const [photoId, match] of matchMap) {
+            if (match && match.pairNumber) {
+                photoToPair.set(photoId, match.pairNumber);
+            }
+        }
+
+        let anchorPoints = 0, matchedPoints = 0, unmatchedPoints = 0;
+
+        for (const point of points) {
+            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+
+            const x = centerX + (point.x - avgX) * scale;
+            const y = centerY + (point.y - avgY) * scale;
+
+            const pairNumber = photoToPair.get(point.id);
+            const isAnchor = pairNumber !== undefined;
+            const hasMatch = matchMap.has(point.id);
+
+            let color, size;
+          
+            if (isAnchor) {
+                color = '#FF0000';
+                size = 8;
+                anchorPoints++;
+            } else if (hasMatch) {
+                color = '#4CAF50';
+                size = 6;
+                matchedPoints++;
+            } else {
+                color = '#FF9800';
+                size = 5;
+                unmatchedPoints++;
+            }
+
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            if (isAnchor) {
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 8px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(pairNumber.toString(), x, y);
+            }
+        }
+
+        console.log(`   🎯 Фото: 🔴 ${anchorPoints} с цифрами, 🟢 ${matchedPoints} пар, 🟠 ${unmatchedPoints} новых`);
+    }
+
+    drawEdges(ctx, edges, points, avgX, avgY, centerX, centerY, scale) {
+        const pointsMap = new Map();
+        points.forEach(point => {
             if (point && point.id) pointsMap.set(point.id, point);
         });
 
@@ -304,8 +369,8 @@ drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
         ctx.lineWidth = 1;
         let edgesDrawn = 0;
 
-        if (topologyData.edges && Array.isArray(topologyData.edges)) {
-            for (const edgeStr of topologyData.edges) {
+        if (edges && Array.isArray(edges)) {
+            for (const edgeStr of edges) {
                 const [nodeAId, nodeBId] = edgeStr.split('--');
                 const pointA = pointsMap.get(nodeAId);
                 const pointB = pointsMap.get(nodeBId);
@@ -384,7 +449,6 @@ drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
             maxY = Math.max(maxY, point.y);
         });
 
-        // 🔥 Увеличиваем отступы для лучшего обзора
         const padding = Math.max(maxX - minX, maxY - minY) * 0.15;
         return {
             minX: minX - padding,
@@ -397,7 +461,7 @@ drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
     calculateScale(minX, maxX, minY, maxY, targetWidth, targetHeight) {
         const width = Math.max(1, maxX - minX);
         const height = Math.max(1, maxY - minY);
-        return Math.min(targetWidth / width, targetHeight / height, 4); // увеличенный максимум
+        return Math.min(targetWidth / width, targetHeight / height, 4);
     }
 
     createTopologyReport(topologyData, error) {
