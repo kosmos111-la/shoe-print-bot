@@ -942,8 +942,20 @@ async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprin
        
         // Анализ кластеров
         const points = Array.from(exactGraph.nodes.values());
-        const features = new Map();
-        const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
+const features = new Map();
+
+// Заполняем features данными из morphologyMap
+for (const point of points) {
+    const morph = morphologyMap.get(point.id) || {};
+    features.set(point.id, {
+        role: this.getNodeRoleSimple(point.id, exactGraph),
+        degree: point.degree,
+        morphology: morph,
+        neighborRoles: this.getNeighborRolesForPoint(point.id, exactGraph)
+    });
+}
+
+const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
        
         // Добавляем паттерны и кластеры
         for (const [nodeId, node] of exactGraph.nodes) {
