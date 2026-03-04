@@ -1,5 +1,5 @@
 // modules/footprint/matching/HierarchicalMatcher.js
-// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР - neighborClusters на последнем уровне
 
 class HierarchicalMatcher {
     constructor(options = {}) {
@@ -39,18 +39,18 @@ class HierarchicalMatcher {
                 weight: 0.10,
                 enabled: true
             },
-            {   // УРОВЕНЬ 5: СОСЕДНИЕ КЛАСТЕРЫ
-                name: 'СОСЕДНИЕ КЛАСТЕРЫ',
-                features: ['neighborClusters'],
-                tolerances: [1],
+            {   // УРОВЕНЬ 5: КОНТЕКСТ (только gapPattern)
+                name: 'КОНТЕКСТ',
+                features: ['gapPattern'],
+                tolerances: ['soft'],
                 groupLevel: false,
                 weight: 0.10,
                 enabled: true
             },
-            {   // УРОВЕНЬ 6: ДЕТАЛЬНАЯ ПРОВЕРКА (с patternFrequency)
+            {   // УРОВЕНЬ 6: ДЕТАЛЬНАЯ ПРОВЕРКА (с neighborClusters)
                 name: 'ДЕТАЛЬНАЯ ПРОВЕРКА',
-                features: ['radialProfile', 'patternType', 'patternFrequency'],
-                tolerances: [0.3, 'strict', 2],
+                features: ['radialProfile', 'patternType', 'patternFrequency', 'neighborClusters'],
+                tolerances: [0.3, 'strict', 2, 2],
                 groupLevel: true,
                 weight: 0.25,
                 enabled: true
@@ -178,6 +178,12 @@ class HierarchicalMatcher {
         console.log(`   Точка А: ${firstPointA.patternFrequency} (${typeof firstPointA.patternFrequency})`);
         console.log(`   Точка Б: ${firstPointB.patternFrequency} (${typeof firstPointB.patternFrequency})`);
         console.log(`   Разница: ${Math.abs((firstPointA.patternFrequency || 0) - (firstPointB.patternFrequency || 0))}`);
+       
+        // Диагностика neighborClusters
+        console.log(`\n🔍 neighborClusters:`);
+        console.log(`   Точка А: ${firstPointA.neighborClusters} (${typeof firstPointA.neighborClusters})`);
+        console.log(`   Точка Б: ${firstPointB.neighborClusters} (${typeof firstPointB.neighborClusters})`);
+        console.log(`   Разница: ${Math.abs((firstPointA.neighborClusters || 0) - (firstPointB.neighborClusters || 0))}`);
     }
 
     /**
@@ -263,6 +269,7 @@ class HierarchicalMatcher {
       
         if (tolerance === 'soft') {
             if (feature === 'neighborRoles') return this.compareNeighborRolesSoft(valA, valB);
+            if (feature === 'gapPattern') return this.compareGapPatternSoft(valA, valB);
             return true;
         }
       
@@ -270,8 +277,8 @@ class HierarchicalMatcher {
             if (typeof valA === 'number' && typeof valB === 'number') {
                 // Абсолютная разница для дискретных признаков
                 if (feature === 'degree' || feature === 'triangles' ||
-                    feature === 'clusterSize' || feature === 'neighborClusters' ||
-                    feature === 'patternFrequency') {
+                    feature === 'clusterSize' || feature === 'patternFrequency' ||
+                    feature === 'neighborClusters') {
                     return Math.abs(valA - valB) <= tolerance;
                 }
                 // Относительная разница для непрерывных
@@ -314,6 +321,26 @@ class HierarchicalMatcher {
         for (const role of setA) if (!setB.has(role)) return false;
         for (const role of setB) if (!setA.has(role)) return false;
         return true;
+    }
+
+    compareGapPatternSoft(patternA, patternB) {
+        if (!patternA || !patternB) return true;
+        // Если оба "0" - ок
+        if (patternA === '0' && patternB === '0') return true;
+        // Если оба объекта (строки JSON) - сравниваем наличие ключей
+        try {
+            const objA = typeof patternA === 'string' && patternA !== '0' ? JSON.parse(patternA) : null;
+            const objB = typeof patternB === 'string' && patternB !== '0' ? JSON.parse(patternB) : null;
+           
+            if (objA && objB) {
+                // Проверяем, что типы совпадают
+                return objA.type === objB.type;
+            }
+        } catch (e) {
+            // Если не парсится - считаем разными
+            return false;
+        }
+        return false;
     }
 
     checkEarlyExit(candidates, currentLevel) {
@@ -403,13 +430,13 @@ class HierarchicalMatcher {
                         sizeGroup.count++;
                        
                         if (upToLevel >= 4) {
-                            const neighborClusters = point.neighborClusters || 0;
-                            const contextKey = `nc:${neighborClusters}`;
-                            if (!sizeGroup.children.has(contextKey)) {
-                                sizeGroup.children.set(contextKey, { name: `neighborClusters: ${neighborClusters}`, count: 0, children: new Map() });
+                            const gapPattern = point.gapPattern || '0';
+                            const gapKey = `gap:${gapPattern.substring(0, 10)}`;
+                            if (!sizeGroup.children.has(gapKey)) {
+                                sizeGroup.children.set(gapKey, { name: `gapPattern: ${gapPattern.substring(0, 10)}...`, count: 0, children: new Map() });
                             }
-                            const contextGroup = sizeGroup.children.get(contextKey);
-                            contextGroup.count++;
+                            const gapGroup = sizeGroup.children.get(gapKey);
+                            gapGroup.count++;
                         }
                     }
                 }
@@ -428,10 +455,10 @@ class HierarchicalMatcher {
                     for (const [size, sizeGroup] of neighborGroup.children) {
                         const sizeNode = { name: sizeGroup.name, count: sizeGroup.count, children: [] };
                        
-                        for (const [context, contextGroup] of sizeGroup.children) {
+                        for (const [gap, gapGroup] of sizeGroup.children) {
                             sizeNode.children.push({
-                                name: contextGroup.name,
-                                count: contextGroup.count,
+                                name: gapGroup.name,
+                                count: gapGroup.count,
                                 children: []
                             });
                         }
