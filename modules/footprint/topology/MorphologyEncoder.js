@@ -1,26 +1,18 @@
 // modules/footprint/topology/MorphologyEncoder.js
-// 🔥 МОРФОЛОГИЧЕСКИЙ КОД - ПОЛНАЯ ВЕРСИЯ С ЭКСЦЕНТРИСИТЕТОМ И ОРИЕНТАЦИЕЙ
+// 🔥 МОРФОЛОГИЧЕСКИЙ КОД - ИСПРАВЛЕННАЯ НОРМАЛИЗАЦИЯ ПЛОЩАДИ
 
 class MorphologyEncoder {
     constructor(options = {}) {
         this.debug = options.debug || false;
-
-        // Кеш для морфологических кодов
         this.cache = new Map();
-
         console.log('🔷 MorphologyEncoder (полная версия) создан');
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     encode(points, contours) {
-    console.log(`📐 Кодирую морфологию для ${points.length} точек...`);
-   
-    // 🔥 ДИАГНОСТИКА ВХОДНЫХ ДАННЫХ
-    console.log(`   contours: ${contours?.length || 0}`);
-    if (points.length > 0) {
-        console.log(`   Пример точки: ${points[0].id}, контур есть? ${!!points[0].originalPoints}`);
-    }
+        console.log(`📐 Кодирую морфологию для ${points.length} точек...`);
+      
         const morphologyMap = new Map();
 
         // Создаём мапу контуров по pointId для быстрого доступа
@@ -44,32 +36,23 @@ class MorphologyEncoder {
             if (contour && contour.points && contour.points.length >= 3) {
                 // Есть контур - вычисляем морфологию
                 const code = this.computeMorphologyCode(contour.points, point);
-                // Сохраняем под ID точки
                 morphologyMap.set(point.id, code);
-
-                if (this.debug && morphologyMap.size <= 3) {
-                    console.log(`   Точка ${point.id.substring(0,12)}...`);
-                    console.log(`      compactness: ${code.compactness.toFixed(2)}`);
-                    console.log(`      eccentricity: ${code.eccentricity.toFixed(3)}`);
-                    console.log(`      orientation: ${code.orientation.toFixed(1)}°`);
-                    console.log(`      normalizedArea: ${code.normalizedArea.toFixed(2)}`);
-                    console.log(`      radialProfile: [${code.radialProfile.map(v => v.toFixed(2)).join(', ')}]`);
-                }
             } else {
                 // Нет контура - ставим значения по умолчанию
                 morphologyMap.set(point.id, {
-                    compactness: 4.0,  // квадрат
+                    compactness: 4.0,
                     eccentricity: 0.5,
                     orientation: 0,
                     hasContour: false,
                     normalizedArea: 1.0,
-                    radialProfile: [1, 1, 1, 1],
+                    rawArea: 0,
+                    radialProfile: [1, 1, 1, 1, 1, 1, 1, 1],
                     asymmetry: 0
                 });
             }
         }
 
-        // Нормализуем площади относительно всех точек
+        // 🔥 ИСПРАВЛЕНО: нормализуем площади относительно среднего геометрического
         this.normalizeAreas(morphologyMap);
 
         console.log(`✅ Закодировано ${morphologyMap.size} точек`);
@@ -79,8 +62,6 @@ class MorphologyEncoder {
     // ==================== ВЫЧИСЛЕНИЕ МОРФОЛОГИЧЕСКОГО КОДА ====================
 
     computeMorphologyCode(contourPoints, centerPoint) {
-    console.log(`   Вычисляю морфологию для контура из ${contourPoints.length} точек`);
-      
         // 1. Аппроксимируем контур для уменьшения шума
         const simplified = this.simplifyContour(contourPoints, 2.0);
 
@@ -102,7 +83,7 @@ class MorphologyEncoder {
             compactness,
             eccentricity,
             orientation,
-            rawArea: area,
+            rawArea: area,  // 🔥 СОХРАНЯЕМ для нормализации
             hasContour: true,
             contour: simplified,
             radialProfile: radial.profile,
@@ -112,18 +93,17 @@ class MorphologyEncoder {
     }
 
     /**
-     * Вычисляет эксцентриситет и ориентацию эллипса, аппроксимирующего контур
+     * Вычисляет эксцентриситет и ориентацию эллипса
      */
     calculateEllipseFeatures(points) {
         if (points.length < 5) {
             return { eccentricity: 0.5, orientation: 0 };
         }
 
-        // Вычисляем моменты инерции
         let sumX = 0, sumY = 0;
         let sumXX = 0, sumYY = 0, sumXY = 0;
         const n = points.length;
-       
+      
         for (const p of points) {
             sumX += p.x;
             sumY += p.y;
@@ -131,29 +111,26 @@ class MorphologyEncoder {
             sumYY += p.y * p.y;
             sumXY += p.x * p.y;
         }
-       
+      
         const meanX = sumX / n;
         const meanY = sumY / n;
-       
+      
         const covXX = sumXX / n - meanX * meanX;
         const covYY = sumYY / n - meanY * meanY;
         const covXY = sumXY / n - meanX * meanY;
-       
-        // Вычисляем собственные значения
+      
         const trace = covXX + covYY;
         const det = covXX * covYY - covXY * covXY;
         const sqrtTerm = Math.sqrt(Math.max(trace * trace - 4 * det, 0));
-       
+      
         const lambda1 = (trace + sqrtTerm) / 2;
         const lambda2 = (trace - sqrtTerm) / 2;
-       
-        // Эксцентриситет (0-1, 0-круг, 1-линия)
+      
         const eccentricity = Math.sqrt(1 - (lambda2 / Math.max(lambda1, 0.001)));
-       
-        // Ориентация в градусах
+      
         let orientation = 0.5 * Math.atan2(2 * covXY, covXX - covYY) * 180 / Math.PI;
         if (orientation < 0) orientation += 180;
-       
+      
         return { eccentricity, orientation };
     }
 
@@ -161,35 +138,31 @@ class MorphologyEncoder {
      * Вычисляет радиальный профиль фигуры
      */
     calculateRadialFeatures(points, center) {
-        // Инициализируем расстояния в 4 направлениях
         let north = 0, south = 0, east = 0, west = 0;
         let ne = 0, nw = 0, se = 0, sw = 0;
-       
+      
         const distances = [];
-       
+      
         for (const p of points) {
             const dx = p.x - center.x;
             const dy = p.y - center.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
-           
-            // Определяем направление (с допуском 45°)
+          
             const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-           
+          
             if (Math.abs(angle) < 45) east = Math.max(east, dist);
             if (Math.abs(angle - 180) < 45 || Math.abs(angle + 180) < 45) west = Math.max(west, dist);
             if (Math.abs(angle - 90) < 45) north = Math.max(north, dist);
             if (Math.abs(angle + 90) < 45) south = Math.max(south, dist);
-           
-            // Диагонали
+          
             if (angle > 45 && angle < 135) ne = Math.max(ne, dist);
             if (angle > 135 || angle < -135) nw = Math.max(nw, dist);
             if (angle < -45 && angle > -135) sw = Math.max(sw, dist);
             if (angle > -45 && angle < 45) se = Math.max(se, dist);
-           
+          
             distances.push({ angle, dist });
         }
-       
-        // Нормализуем на максимальное расстояние
+      
         const maxDist = Math.max(north, south, east, west, ne, nw, se, sw, 0.001);
         const profile = [
             north / maxDist,
@@ -201,13 +174,12 @@ class MorphologyEncoder {
             se / maxDist,
             sw / maxDist
         ];
-       
-        // Асимметрия (сумма разностей противоположных направлений)
+      
         const asymmetry = Math.abs(profile[0] - profile[2]) +
                          Math.abs(profile[1] - profile[3]) +
                          Math.abs(profile[4] - profile[6]) +
                          Math.abs(profile[5] - profile[7]);
-       
+      
         return {
             profile,
             asymmetry,
@@ -233,7 +205,7 @@ class MorphologyEncoder {
         };
     }
 
-    // ==================== НОРМАЛИЗАЦИЯ ПЛОЩАДЕЙ ====================
+    // ==================== 🔥 ИСПРАВЛЕННАЯ НОРМАЛИЗАЦИЯ ПЛОЩАДЕЙ ====================
 
     normalizeAreas(morphologyMap) {
         // Собираем все площади
@@ -246,21 +218,34 @@ class MorphologyEncoder {
 
         if (areas.length === 0) return;
 
-        // Вычисляем медиану
-        areas.sort((a, b) => a - b);
-        const median = areas[Math.floor(areas.length / 2)];
+        // 🔥 ИСПОЛЬЗУЕМ СРЕДНЕЕ ГЕОМЕТРИЧЕСКОЕ
+        // Оно лучше работает с данными, имеющими большой разброс
+        const logSum = areas.reduce((sum, a) => sum + Math.log(a), 0);
+        const geometricMean = Math.exp(logSum / areas.length);
+       
+        console.log(`   📐 Среднее геометрическое площади: ${geometricMean.toFixed(2)}`);
 
-        if (median === 0) return;
-
-        // Нормализуем относительно медианы
+        // Нормализуем относительно среднего геометрического
+        const normalizedAreas = [];
         for (const code of morphologyMap.values()) {
             if (code.hasContour && code.rawArea) {
-                code.normalizedArea = code.rawArea / median;
-                // Убираем сырые данные
-                delete code.rawArea;
+                code.normalizedArea = code.rawArea / geometricMean;
+                // Добавляем логарифмическую версию для кластеризации
+                code.logArea = Math.log10(code.normalizedArea + 1);
+                normalizedAreas.push(code.normalizedArea);
+                delete code.rawArea; // Удаляем сырые данные
             } else {
                 code.normalizedArea = 1.0;
+                code.logArea = Math.log10(2);
             }
+        }
+
+        // Статистика для отладки
+        if (this.debug && normalizedAreas.length > 0) {
+            const min = Math.min(...normalizedAreas);
+            const max = Math.max(...normalizedAreas);
+            const avg = normalizedAreas.reduce((a, b) => a + b, 0) / normalizedAreas.length;
+            console.log(`   📊 normalizedArea: мин=${min.toFixed(2)}, макс=${max.toFixed(2)}, среднее=${avg.toFixed(2)}`);
         }
     }
 
@@ -312,7 +297,7 @@ class MorphologyEncoder {
     }
 
     simplifyContour(contour, epsilon) {
-        // TODO: Реализовать упрощение контура (алгоритм Дугласа-Пекера)
+        // TODO: Реализовать упрощение контура
         return contour;
     }
 
@@ -324,7 +309,6 @@ class MorphologyEncoder {
         let score = 0;
         let checks = 0;
 
-        // Компактность
         if (morph1.compactness && morph2.compactness) {
             const ratio = Math.min(morph1.compactness, morph2.compactness) /
                          Math.max(morph1.compactness, morph2.compactness);
@@ -332,14 +316,12 @@ class MorphologyEncoder {
             checks++;
         }
 
-        // Эксцентриситет
         if (morph1.eccentricity && morph2.eccentricity) {
             const diff = Math.abs(morph1.eccentricity - morph2.eccentricity);
             score += 1 - Math.min(diff, 1);
             checks++;
         }
 
-        // Ориентация (с учетом цикличности)
         if (morph1.orientation !== undefined && morph2.orientation !== undefined) {
             let diff = Math.abs(morph1.orientation - morph2.orientation);
             if (diff > 180) diff = 360 - diff;
@@ -347,15 +329,18 @@ class MorphologyEncoder {
             checks++;
         }
 
-        // Нормализованная площадь
-        if (morph1.normalizedArea && morph2.normalizedArea) {
+        // 🔥 ИСПОЛЬЗУЕМ logArea ДЛЯ СРАВНЕНИЯ
+        if (morph1.logArea !== undefined && morph2.logArea !== undefined) {
+            const diff = Math.abs(morph1.logArea - morph2.logArea);
+            score += 1 - Math.min(diff, 1);
+            checks++;
+        } else if (morph1.normalizedArea && morph2.normalizedArea) {
             const ratio = Math.min(morph1.normalizedArea, morph2.normalizedArea) /
                          Math.max(morph1.normalizedArea, morph2.normalizedArea);
             score += ratio;
             checks++;
         }
 
-        // Радиальный профиль
         if (morph1.radialProfile && morph2.radialProfile) {
             let sum = 0;
             const len = Math.min(morph1.radialProfile.length, morph2.radialProfile.length);
