@@ -206,7 +206,6 @@ class HierarchicalMatcher {
                         zone: 'CORE'
                     });
                    
-                    // Помечаем как обработанную
                     data.status = 'core';
                     data.candidates = [];
                     break;
@@ -231,7 +230,7 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 НОВЫЙ МЕТОД: Стабилизация ЗОНЫ 1
+     * 🔥 НОВЫЙ МЕТОД: Стабилизация ЗОНЫ 1 (потеря 1 соседа)
      */
     stabilizeZone1(candidates) {
         let stabilized = 0;
@@ -304,7 +303,7 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 НОВЫЙ МЕТОД: Стабилизация ЗОНЫ 2
+     * 🔥 НОВЫЙ МЕТОД: Стабилизация ЗОНЫ 2 (потеря 2+ соседей)
      */
     stabilizeZone2(candidates) {
         let stabilized = 0;
@@ -865,9 +864,9 @@ class HierarchicalMatcher {
             noMatchA: noMatch,
             noMatchB: unmatchedB,
             zones: {
-                core: Array.from(this.zones.core.keys()),
-                zone1: Array.from(this.zones.zone1.keys()),
-                zone2: Array.from(this.zones.zone2.keys())
+                core: Array.from(this.zones.core.entries()).map(([id, m]) => ({ id, pointB: m.pointB })),
+                zone1: Array.from(this.zones.zone1.entries()).map(([id, m]) => ({ id, pointB: m.pointB, changes: m.changes })),
+                zone2: Array.from(this.zones.zone2.entries()).map(([id, m]) => ({ id, pointB: m.pointB, changes: m.changes }))
             },
             stats: {
                 totalPairs: matches.length,
@@ -897,6 +896,17 @@ class HierarchicalMatcher {
         }
       
         return totalWeight > 0 ? score / totalWeight : 0.5;
+    }
+
+    /**
+     * 🔥 НОВЫЙ МЕТОД: Получить зоны для внешнего использования
+     */
+    getZones() {
+        return {
+            core: Array.from(this.zones.core.entries()).map(([id, m]) => ({ pointA: id, pointB: m.pointB })),
+            zone1: Array.from(this.zones.zone1.entries()).map(([id, m]) => ({ pointA: id, pointB: m.pointB, changes: m.changes })),
+            zone2: Array.from(this.zones.zone2.entries()).map(([id, m]) => ({ pointA: id, pointB: m.pointB, changes: m.changes }))
+        };
     }
 }
 
