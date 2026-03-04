@@ -1,5 +1,5 @@
 // modules/footprint/matching/HierarchicalMatcher.js
-// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ИЕРАРХИЧЕСКОЙ ТИПОЛОГИЕЙ
+// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ПОЛНЫМ ИЕРАРХИЧЕСКИМ ДЕРЕВОМ
 
 class HierarchicalMatcher {
     constructor(options = {}) {
@@ -309,7 +309,7 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 ИЕРАРХИЧЕСКАЯ СТАТИСТИКА С ТИПОЛОГИЕЙ
+     * 🔥 ПОЛНОЕ ИЕРАРХИЧЕСКОЕ ДЕРЕВО
      */
     logLevelStats(level, stats, candidates) {
         const passRate = stats.total > 0 ? (stats.passed / stats.total * 100).toFixed(1) : '0.0';
@@ -318,8 +318,8 @@ class HierarchicalMatcher {
         console.log(`   • Прошло фильтр: ${stats.passed} (${passRate}%)`);
         console.log(`   • Отсеяно: ${stats.rejected} (${stats.total > 0 ? (stats.rejected/stats.total*100).toFixed(1) : '0.0'}%)`);
       
-        // 🔥 ИЕРАРХИЧЕСКАЯ ТИПОЛОГИЯ
-        this.printHierarchicalTypology(candidates);
+        // 🔥 ПОЛНОЕ ИЕРАРХИЧЕСКОЕ ДЕРЕВО
+        this.printFullHierarchy(candidates);
       
         const candidatesCounts = Array.from(candidates.values())
             .map(d => d.candidates.length);
@@ -336,97 +336,111 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 ИЕРАРХИЧЕСКАЯ ТИПОЛОГИЯ (по типу личинок)
+     * 🔥 ПОЛНОЕ ИЕРАРХИЧЕСКОЕ ДЕРЕВО (форма → роль → кластер)
      */
-    printHierarchicalTypology(candidates) {
-        // Иерархия для замков: форма -> { роль -> { кластер -> счетчик } }
-        const lockHierarchy = {
-            'Овальные': { roles: {}, clusters: {}, total: 0 },
-            'Круглые': { roles: {}, clusters: {}, total: 0 },
-            'Вытянутые': { roles: {}, clusters: {}, total: 0 }
+    printFullHierarchy(candidates) {
+        // Строим дерево для замков
+        const lockTree = this.buildHierarchy(candidates, 'lock');
+        // Строим дерево для ключей
+        const keyTree = this.buildHierarchy(candidates, 'key');
+       
+        console.log(`\n🌳 ПОЛНОЕ ИЕРАРХИЧЕСКОЕ ДЕРЕВО ЗАМКОВ:`);
+        this.printTree(lockTree, 0);
+       
+        console.log(`\n🌳 ПОЛНОЕ ИЕРАРХИЧЕСКОЕ ДЕРЕВО КЛЮЧЕЙ:`);
+        this.printTree(keyTree, 0);
+    }
+
+    /**
+     * Построение иерархического дерева
+     */
+    buildHierarchy(candidates, type) {
+        const tree = {
+            'Овальные': { roles: {}, total: 0 },
+            'Круглые': { roles: {}, total: 0 },
+            'Вытянутые': { roles: {}, total: 0 }
         };
        
-        // Собираем данные по замкам (кандидатам)
-        for (const [pointId, data] of candidates) {
-            for (const candidate of data.candidates) {
-                const form = this.getFormType(candidate);
-                const role = candidate.role || 'R';
-                const cluster = candidate.clusterId || 'R0';
+        if (type === 'lock') {
+            // Для замков (кандидатов)
+            for (const [pointId, data] of candidates) {
+                for (const candidate of data.candidates) {
+                    const form = this.getFormType(candidate);
+                    const role = candidate.role || 'R';
+                    const cluster = candidate.clusterId || 'R0';
+                   
+                    tree[form].total++;
+                   
+                    if (!tree[form].roles[role]) {
+                        tree[form].roles[role] = { total: 0, clusters: {} };
+                    }
+                   
+                    tree[form].roles[role].total++;
+                    tree[form].roles[role].clusters[cluster] =
+                        (tree[form].roles[role].clusters[cluster] || 0) + 1;
+                }
+            }
+        } else {
+            // Для ключей (точек А)
+            for (const [pointId, data] of candidates) {
+                const form = this.getFormType(data.point);
+                const role = data.point.role || 'R';
+                const cluster = data.point.clusterId || 'R0';
                
-                lockHierarchy[form].total++;
-                lockHierarchy[form].roles[role] = (lockHierarchy[form].roles[role] || 0) + 1;
-                lockHierarchy[form].clusters[cluster] = (lockHierarchy[form].clusters[cluster] || 0) + 1;
-            }
-        }
-       
-        // Печатаем иерархию замков
-        console.log(`\n🏗️ ТИПЫ ЛИЧИНОК (ПО ФОРМЕ):`);
-       
-        for (const [form, data] of Object.entries(lockHierarchy)) {
-            if (data.total === 0) continue;
-           
-            console.log(`\n   • ${form}: ${data.total} замков`);
-           
-            // Роли внутри типа личинки
-            const roles = Object.entries(data.roles)
-                .sort((a, b) => b[1] - a[1]);
-           
-            if (roles.length > 0) {
-                console.log(`        🚪 Роли: ${roles.map(([r, c]) => `${r}:${c}`).join(', ')}`);
-            }
-           
-            // Кластеры внутри типа личинки (топ-5)
-            const clusters = Object.entries(data.clusters)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 5);
-           
-            if (clusters.length > 0) {
-                console.log(`        📦 Кластеры: ${clusters.map(([c, cnt]) => `${c}(${cnt})`).join(', ')}`);
-                if (Object.keys(data.clusters).length > 5) {
-                    console.log(`          ... и еще ${Object.keys(data.clusters).length - 5} кластеров`);
+                tree[form].total++;
+               
+                if (!tree[form].roles[role]) {
+                    tree[form].roles[role] = { total: 0, clusters: {} };
                 }
+               
+                tree[form].roles[role].total++;
+                tree[form].roles[role].clusters[cluster] =
+                    (tree[form].roles[role].clusters[cluster] || 0) + 1;
             }
         }
        
-        // Иерархия для ключей
-        const keyHierarchy = {
-            'Овальные': { roles: {}, clusters: {}, total: 0 },
-            'Круглые': { roles: {}, clusters: {}, total: 0 },
-            'Вытянутые': { roles: {}, clusters: {}, total: 0 }
-        };
+        return tree;
+    }
+
+    /**
+     * Рекурсивная печать дерева
+     */
+    printTree(node, depth, prefix = '') {
+        const indent = '  '.repeat(depth);
        
-        for (const [pointId, data] of candidates) {
-            const form = this.getFormType(data.point);
-            const role = data.point.role || 'R';
-            const cluster = data.point.clusterId || 'R0';
+        for (const [form, formData] of Object.entries(node)) {
+            if (formData.total === 0) continue;
            
-            keyHierarchy[form].total++;
-            keyHierarchy[form].roles[role] = (keyHierarchy[form].roles[role] || 0) + 1;
-            keyHierarchy[form].clusters[cluster] = (keyHierarchy[form].clusters[cluster] || 0) + 1;
-        }
-       
-        console.log(`\n🗝️ ТИПЫ КЛЮЧЕЙ (ПО ФОРМЕ):`);
-       
-        for (const [form, data] of Object.entries(keyHierarchy)) {
-            if (data.total === 0) continue;
+            console.log(`${indent}📌 ${form} (всего: ${formData.total})`);
            
-            console.log(`\n   • ${form}: ${data.total} ключей`);
+            // Сортируем роли по убыванию
+            const sortedRoles = Object.entries(formData.roles)
+                .sort((a, b) => b[1].total - a[1].total);
            
-            const roles = Object.entries(data.roles)
-                .sort((a, b) => b[1] - a[1]);
-            if (roles.length > 0) {
-                console.log(`        🚪 Роли: ${roles.map(([r, c]) => `${r}:${c}`).join(', ')}`);
-            }
-           
-            const clusters = Object.entries(data.clusters)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 5);
-            if (clusters.length > 0) {
-                console.log(`        📦 Кластеры: ${clusters.map(([c, cnt]) => `${c}(${cnt})`).join(', ')}`);
-                if (Object.keys(data.clusters).length > 5) {
-                    console.log(`          ... и еще ${Object.keys(data.clusters).length - 5} кластеров`);
+            sortedRoles.forEach(([role, roleData], roleIndex) => {
+                const isLastRole = roleIndex === sortedRoles.length - 1;
+                const rolePrefix = isLastRole ? '└─ ' : '├─ ';
+               
+                console.log(`${indent}  ${rolePrefix}🚪 Роль ${role}: ${roleData.total}`);
+               
+                // Сортируем кластеры по убыванию
+                const sortedClusters = Object.entries(roleData.clusters)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 8); // Показываем топ-8 кластеров
+               
+                sortedClusters.forEach(([cluster, count], clusterIndex) => {
+                    const isLastCluster = clusterIndex === sortedClusters.length - 1;
+                    const clusterPrefix = isLastRole ? '    ' : '│   ';
+                    const clusterMarker = isLastCluster ? '└─ ' : '├─ ';
+                   
+                    console.log(`${indent}  ${clusterPrefix}${clusterMarker}📦 Кластер ${cluster}: ${count}`);
+                });
+               
+                if (Object.keys(roleData.clusters).length > 8) {
+                    const clusterPrefix = isLastRole ? '    ' : '│   ';
+                    console.log(`${indent}  ${clusterPrefix}└─ ... и еще ${Object.keys(roleData.clusters).length - 8} кластеров`);
                 }
-            }
+            });
         }
     }
 
@@ -481,92 +495,22 @@ class HierarchicalMatcher {
             .filter(p => !usedB.has(p.id))
             .map(p => p.id);
 
-        // 🔥 ФИНАЛЬНАЯ ИЕРАРХИЧЕСКАЯ ТИПОЛОГИЯ
+        // 🔥 ФИНАЛЬНОЕ ДЕРЕВО
         console.log(`\n🔍 АНАЛИЗ СООТВЕТСТВИЙ:`);
-      
-        // Группируем якоря по форме и роли
-        const anchorByForm = {
-            'Овальные': { H:0, C:0, B:0, R:0, L:0, total:0 },
-            'Круглые': { H:0, C:0, B:0, R:0, L:0, total:0 },
-            'Вытянутые': { H:0, C:0, B:0, R:0, L:0, total:0 }
-        };
        
-        for (const match of matches) {
-            const pointA = candidates.get(match.pointA)?.point;
-            if (pointA) {
-                const form = this.getFormType(pointA);
-                const role = pointA.role || 'R';
-                anchorByForm[form][role]++;
-                anchorByForm[form].total++;
-            }
-        }
+        // Строим деревья для результатов
+        const anchorTree = this.buildResultHierarchy(matches, candidates, 'anchor');
+        const newKeyTree = this.buildResultHierarchy(noMatch, candidates, 'key');
+        const newLockTree = this.buildResultHierarchy(unmatchedB, pointsB, 'lock');
 
         console.log(`\n   ✅ ЯКОРЯ ПО ТИПАМ ЛИЧИНОК:`);
-        for (const [form, data] of Object.entries(anchorByForm)) {
-            if (data.total > 0) {
-                const roles = Object.entries(data)
-                    .filter(([k, v]) => k !== 'total' && v > 0)
-                    .map(([r, c]) => `${r}:${c}`)
-                    .join(', ');
-                console.log(`      • ${form}: ${data.total} якорей (${roles})`);
-            }
-        }
-
-        // Новые ключи по типам
-        const newByForm = {
-            'Овальные': { H:0, C:0, B:0, R:0, L:0, total:0 },
-            'Круглые': { H:0, C:0, B:0, R:0, L:0, total:0 },
-            'Вытянутые': { H:0, C:0, B:0, R:0, L:0, total:0 }
-        };
+        this.printResultTree(anchorTree, 2);
        
-        for (const id of noMatch) {
-            const point = candidates.get(id)?.point;
-            if (point) {
-                const form = this.getFormType(point);
-                const role = point.role || 'R';
-                newByForm[form][role]++;
-                newByForm[form].total++;
-            }
-        }
-
         console.log(`\n   🔵 НОВЫЕ КЛЮЧИ ПО ТИПАМ ЛИЧИНОК:`);
-        for (const [form, data] of Object.entries(newByForm)) {
-            if (data.total > 0) {
-                const roles = Object.entries(data)
-                    .filter(([k, v]) => k !== 'total' && v > 0)
-                    .map(([r, c]) => `${r}:${c}`)
-                    .join(', ');
-                console.log(`      • ${form}: ${data.total} ключей (${roles})`);
-            }
-        }
-
-        // Новые замки по типам
-        const newLockByForm = {
-            'Овальные': { H:0, C:0, B:0, R:0, L:0, total:0 },
-            'Круглые': { H:0, C:0, B:0, R:0, L:0, total:0 },
-            'Вытянутые': { H:0, C:0, B:0, R:0, L:0, total:0 }
-        };
+        this.printResultTree(newKeyTree, 2);
        
-        for (const id of unmatchedB) {
-            const point = pointsB.find(p => p.id === id);
-            if (point) {
-                const form = this.getFormType(point);
-                const role = point.role || 'R';
-                newLockByForm[form][role]++;
-                newLockByForm[form].total++;
-            }
-        }
-
         console.log(`\n   🔵 НОВЫЕ ЗАМКИ ПО ТИПАМ ЛИЧИНОК:`);
-        for (const [form, data] of Object.entries(newLockByForm)) {
-            if (data.total > 0) {
-                const roles = Object.entries(data)
-                    .filter(([k, v]) => k !== 'total' && v > 0)
-                    .map(([r, c]) => `${r}:${c}`)
-                    .join(', ');
-                console.log(`      • ${form}: ${data.total} замков (${roles})`);
-            }
-        }
+        this.printResultTree(newLockTree, 2);
 
         console.log(`\n✅ ОДНОЗНАЧНЫЕ СООТВЕТСТВИЯ (ЯКОРЯ): ${matches.length}`);
         if (matches.length > 0) {
@@ -603,6 +547,85 @@ class HierarchicalMatcher {
                 earlyExits: this.stats.earlyExits
             }
         };
+    }
+
+    /**
+     * Построение дерева для финальных результатов
+     */
+    buildResultHierarchy(items, source, type) {
+        const tree = {
+            'Овальные': { roles: {}, total: 0 },
+            'Круглые': { roles: {}, total: 0 },
+            'Вытянутые': { roles: {}, total: 0 }
+        };
+       
+        if (type === 'anchor') {
+            // Для якорей
+            for (const match of items) {
+                const point = source.get(match.pointA)?.point;
+                if (point) {
+                    const form = this.getFormType(point);
+                    const role = point.role || 'R';
+                   
+                    tree[form].total++;
+                    tree[form].roles[role] = (tree[form].roles[role] || 0) + 1;
+                }
+            }
+        } else if (type === 'key') {
+            // Для новых ключей
+            for (const id of items) {
+                const point = source.get(id)?.point;
+                if (point) {
+                    const form = this.getFormType(point);
+                    const role = point.role || 'R';
+                   
+                    tree[form].total++;
+                    tree[form].roles[role] = (tree[form].roles[role] || 0) + 1;
+                }
+            }
+        } else {
+            // Для новых замков
+            for (const id of items) {
+                const point = source.find(p => p.id === id);
+                if (point) {
+                    const form = this.getFormType(point);
+                    const role = point.role || 'R';
+                   
+                    tree[form].total++;
+                    tree[form].roles[role] = (tree[form].roles[role] || 0) + 1;
+                }
+            }
+        }
+       
+        return tree;
+    }
+
+    /**
+     * Печать дерева результатов
+     */
+    printResultTree(tree, indentLevel) {
+        const indent = '  '.repeat(indentLevel);
+        let hasContent = false;
+       
+        for (const [form, formData] of Object.entries(tree)) {
+            if (formData.total === 0) continue;
+           
+            hasContent = true;
+            console.log(`${indent}• ${form}: ${formData.total}`);
+           
+            const roles = Object.entries(formData.roles)
+                .sort((a, b) => b[1] - a[1])
+                .map(([r, c]) => `${r}:${c}`)
+                .join(', ');
+           
+            if (roles) {
+                console.log(`${indent}  🚪 Роли: ${roles}`);
+            }
+        }
+       
+        if (!hasContent) {
+            console.log(`${indent}(нет)`);
+        }
     }
 
     calculateConfidence(data) {
