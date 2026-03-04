@@ -101,7 +101,7 @@ class TopologicalAccumulator {
             lastUpdated: new Date()
         };
 
-        console.log(`🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ TopologicalAccumulator создан: "${this.name}"`);
+        console.log(`🏗 МУЛЬТИ-МОДЕЛЬНЫЙ TopologicalAccumulator создан: "${this.name}"`);
         console.log(`   🔥 Режим: ${this.fastMode ? 'БЫСТРЫЙ' : 'ПОЛНЫЙ'}`);
         console.log(`   🔷 Порог сходства: ${this.similarityThreshold * 100}%`);
         console.log(`   🔷 Допуски: компактность ${this.tolerances.compactness*100}%, ` +
@@ -384,7 +384,7 @@ class TopologicalAccumulator {
 
         // Создаем иерархический матчер
         const matcher = new HierarchicalMatcher({
-            debug: false  // Чистые логи!
+            debug: false
         });
 
         // Запускаем многоуровневый поиск
@@ -444,7 +444,7 @@ class TopologicalAccumulator {
                 normalizedArea: morph.normalizedArea,
                 radialProfile: morph.radialProfile,
                 neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
-                clusterId: node.clusterId || '0',
+                clusterId: node.clusterId || 'R0',
                 clusterSize: node.clusterSize || 1,
                 patternType: node.patternType || 'R',
                 patternFrequency: node.patternFrequency || 1,
@@ -568,210 +568,130 @@ class TopologicalAccumulator {
 
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
-async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
-    const model = this.models.get(modelId);
-    if (!model) return { error: 'Модель не найдена' };
+    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
+        const model = this.models.get(modelId);
+        if (!model) return { error: 'Модель не найдена' };
 
-    console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
-    console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
+        console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
+        console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
 
-    // 🔥 ИСПРАВЛЕНО: передаем оба аргумента морфологии
-    const centerMatches = this.centerMatcher.findCenterMatches(
-        newExactGraph,
-        model.graph,
-        newMorphology,      // photoMorphology
-        model.morphologyMap // modelMorphology
-    );
-
-    console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} якорей`);
-
-    let allMatches = new Map();
-    let stabilizedMatches = new Map();
-    let finalMatches = new Map([...centerMatches]);
-    let newNodesAdded = 0;
-
-    if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
-        console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
-
-        allMatches = this.relativePositioning.positionPoints(
+        // 🔥 ИСПРАВЛЕНО: передаем оба аргумента морфологии
+        const centerMatches = this.centerMatcher.findCenterMatches(
             newExactGraph,
             model.graph,
-            centerMatches,
-            newMorphology,
-            model.morphologyMap
+            newMorphology,      // photoMorphology
+            model.morphologyMap // modelMorphology
         );
 
-        stabilizedMatches = this.relativePositioning.iterativeStabilization(
-            newExactGraph,
-            model.graph,
-            centerMatches,
-            newMorphology,
-            model.morphologyMap
-        );
+        console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} якорей`);
 
-        finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
+        let allMatches = new Map();
+        let stabilizedMatches = new Map();
+        let finalMatches = new Map([...centerMatches]);
+        let newNodesAdded = 0;
 
-        const updateResult = this.updateModelWithMatches(
-            modelId,
-            newExactGraph,
-            finalMatches,
-            centerMatches,
-            newMorphology
-        );
-        newNodesAdded = updateResult.newNodesAdded;
-    } else {
-        console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size})`);
-    }
+        if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
+            console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
 
-    model.knnGraph = newKNNGraph;
-    model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
-    model.metadata.photoCount = (model.metadata.photoCount || 0) + 1;
-    model.metadata.lastEnhanced = new Date();
-
-    model.history.push({
-        action: 'enhanced',
-        timestamp: new Date(),
-        centerMatches: centerMatches.size,
-        totalMatches: finalMatches.size,
-        newNodes: newNodesAdded,
-        totalNodes: model.graph.nodes.size
-    });
-
-    this.stats.totalEnhancements++;
-    this.stats.lastUpdated = new Date();
-
-    const matchMap = this.buildMatchMap(centerMatches, allMatches, stabilizedMatches);
-
-    const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
-    this.stats.totalNodesRemoved += cleanResult.removed;
-
-    return {
-        centerMatches: centerMatches.size,
-        totalMatches: finalMatches.size,
-        newNodesAdded,
-        nodesRemoved: cleanResult.removed,
-        matchMap
-    };
-}
-
-    printFinalTable(newGraph, modelGraph, matches) {
-        console.log(`\n📋 ИТОГОВАЯ ТАБЛИЦА СОПОСТАВЛЕНИЯ ВСЕХ ТОЧЕК:`);
-        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┬─────────────────────┬─────────────────────┐`);
-        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │ СТАТУС    │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
-        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼───────────┼─────────────────────┼─────────────────────┤`);
-
-        let count = 0;
-        for (const [photoId, match] of matches) {
-            if (count >= 30) break;
-
-            const photoNode = newGraph.nodes.get(photoId);
-            const modelNode = modelGraph.nodes.get(match.modelId);
-
-            if (!photoNode || !modelNode) continue;
-
-            count++;
-            console.log(
-                `│ ${count.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
-                `${match.modelId.substring(0,20).padEnd(20)} │ ` +
-                `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
-                `${'✅'.padEnd(7)}   │ ` +
-                `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
-                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
+            allMatches = this.relativePositioning.positionPoints(
+                newExactGraph,
+                model.graph,
+                centerMatches,
+                newMorphology,
+                model.morphologyMap,
+                { confidenceThreshold: 0.5 }
             );
+
+            stabilizedMatches = this.relativePositioning.iterativeStabilization(
+                newExactGraph,
+                model.graph,
+                centerMatches,
+                newMorphology,
+                model.morphologyMap
+            );
+
+            finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
+
+            const updateResult = this.updateModelWithMatches(
+                modelId,
+                newExactGraph,
+                finalMatches,
+                centerMatches,
+                newMorphology
+            );
+            newNodesAdded = updateResult.newNodesAdded;
+        } else {
+            console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size})`);
         }
-        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
+
+        model.knnGraph = newKNNGraph;
+        model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
+        model.metadata.photoCount = (model.metadata.photoCount || 0) + 1;
+        model.metadata.lastEnhanced = new Date();
+
+        model.history.push({
+            action: 'enhanced',
+            timestamp: new Date(),
+            centerMatches: centerMatches.size,
+            totalMatches: finalMatches.size,
+            newNodes: newNodesAdded,
+            totalNodes: model.graph.nodes.size
+        });
+
+        this.stats.totalEnhancements++;
+        this.stats.lastUpdated = new Date();
+
+        const matchMap = this.buildMatchMap(centerMatches, allMatches, stabilizedMatches);
+
+        const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
+        this.stats.totalNodesRemoved += cleanResult.removed;
+
+        return {
+            centerMatches: centerMatches.size,
+            totalMatches: finalMatches.size,
+            newNodesAdded,
+            nodesRemoved: cleanResult.removed,
+            matchMap
+        };
     }
 
-    printDetailedTables(newGraph, modelGraph, centerMatches, allMatches) {
-        console.log(`\n${'='.repeat(120)}`);
-        console.log(`📊 ДЕТАЛЬНЫЕ ТАБЛИЦЫ СООТВЕТСТВИЙ`);
-        console.log(`${'='.repeat(120)}`);
+    buildMatchMap(centerMatches, allMatches, stabilizedMatches) {
+        const matchMap = new Map();
+        let pairNumber = 1;
 
-        console.log(`\n🔴 ЯКОРЯ (CenterMatcher) - ${centerMatches.size} абсолютно надёжных точек:`);
-        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
-        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
-        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼─────────────────────┼─────────────────────┤`);
+        console.log(`\n📋 ФОРМИРОВАНИЕ MATCHMAP:`);
 
-        let anchorCount = 0;
         for (const [photoId, match] of centerMatches) {
-            if (anchorCount >= 20) break;
-
-            const photoNode = newGraph.nodes.get(photoId);
-            const modelNode = modelGraph.nodes.get(match.modelId);
-
-            if (!photoNode || !modelNode) continue;
-
-            anchorCount++;
-            console.log(
-                `│ ${anchorCount.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
-                `${match.modelId.substring(0,20).padEnd(20)} │ ` +
-                `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
-                `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
-                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
-            );
+            if (match && match.confidence >= 0.7) {
+                matchMap.set(photoId, {
+                    modelId: match.modelId,
+                    pairNumber: pairNumber++,
+                    type: 'anchor'
+                });
+                console.log(`   🔴 Якорь ${pairNumber-1}: ${photoId.slice(0,12)}... ↔ ${match.modelId.slice(0,12)}...`);
+            }
         }
-        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
 
-        console.log(`\n🟢 ВСЕ СОПОСТАВЛЕНИЯ - ${allMatches.size} точек:`);
-        console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
-        console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
-        console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┼─────────────────────┼─────────────────────┤`);
-
-        let allCount = 0;
         for (const [photoId, match] of allMatches) {
-            if (allCount >= 30) break;
-
-            const photoNode = newGraph.nodes.get(photoId);
-            const modelNode = modelGraph.nodes.get(match.modelId);
-
-            if (!photoNode || !modelNode) continue;
-
-            allCount++;
-            console.log(
-                `│ ${allCount.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
-                `${match.modelId.substring(0,20).padEnd(20)} │ ` +
-                `${(match.confidence*100).toFixed(0).padStart(5)}%   │ ` +
-                `(${photoNode.x.toFixed(1).padStart(6)}, ${photoNode.y.toFixed(1).padStart(6)}) │ ` +
-                `(${modelNode.x.toFixed(1).padStart(6)}, ${modelNode.y.toFixed(1).padStart(6)}) │`
-            );
+            if (!centerMatches.has(photoId) && match && match.confidence >= 0.7) {
+                matchMap.set(photoId, {
+                    modelId: match.modelId,
+                    type: 'regular'
+                });
+            }
         }
-        console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
 
-        console.log(`\n📐 АНАЛИЗ ПРЕОБРАЗОВАНИЯ (первые ${Math.min(10, centerMatches.size)} якорей):`);
-        console.log(`┌─────┬────────────┬────────────┬────────────┬────────────┬───────────┐`);
-        console.log(`│  #  │  МОДЕЛЬ X  │  МОДЕЛЬ Y  │   ФОТО X   │   ФОТО Y   │  ΔX | ΔY  │`);
-        console.log(`├─────┼────────────┼────────────┼────────────┼────────────┼───────────┤`);
-
-        let transformCount = 0;
-        for (const [photoId, match] of centerMatches) {
-            if (transformCount >= 10) break;
-
-            const photoNode = newGraph.nodes.get(photoId);
-            const modelNode = modelGraph.nodes.get(match.modelId);
-
-            if (!photoNode || !modelNode) continue;
-
-            transformCount++;
-            const dx = photoNode.x - modelNode.x;
-            const dy = photoNode.y - modelNode.y;
-
-            console.log(
-                `│ ${transformCount.toString().padEnd(3)} │ ` +
-                `${modelNode.x.toFixed(1).padStart(10)} │ ` +
-                `${modelNode.y.toFixed(1).padStart(10)} │ ` +
-                `${photoNode.x.toFixed(1).padStart(10)} │ ` +
-                `${photoNode.y.toFixed(1).padStart(10)} │ ` +
-                `${dx.toFixed(1).padStart(4)}|${dy.toFixed(1).padEnd(4)} │`
-            );
+        for (const [photoId, match] of stabilizedMatches) {
+            if (!centerMatches.has(photoId) && !allMatches.has(photoId) && match && match.confidence >= 0.7) {
+                matchMap.set(photoId, {
+                    modelId: match.modelId,
+                    type: 'regular'
+                });
+            }
         }
-        console.log(`└─────┴────────────┴────────────┴────────────┴────────────┴───────────┘`);
 
-        if (centerMatches.size >= 3) {
-            console.log(`\n💡 АНАЛИЗ:`);
-            console.log(`   • Якорей найдено: ${centerMatches.size}`);
-            console.log(`   • Всего сопоставлено: ${allMatches.size}`);
-            console.log(`   • Доля якорей: ${((centerMatches.size/allMatches.size)*100).toFixed(1)}%`);
-        }
+        console.log(`\n📊 ИТОГО: ${centerMatches.size} якорей, ${matchMap.size - centerMatches.size} дополнительных точек`);
+        return matchMap;
     }
 
     updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology) {
@@ -914,94 +834,72 @@ async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprin
         return photos;
     }
 
+    /**
+     * 🔥 ИСПРАВЛЕНО: создание новой модели с правильными clusterId
+     */
     createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
-    const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-    // 🔥 ИСПРАВЛЕНО: Создаем features с данными
-    const points = Array.from(exactGraph.nodes.values());
-    const features = new Map();
-   
-    for (const point of points) {
-        const morph = morphologyMap.get(point.id) || {};
-        features.set(point.id, {
-            role: this.getNodeRoleSimple(point.id, exactGraph),
-            degree: point.degree || 0,
-            triangles: point.triangles || 0,
-            morphology: morph,
-            neighborRoles: this.getNeighborRolesForPoint(point.id, exactGraph),
-            patternType: point.patternType || 'R',
-            patternFrequency: point.patternFrequency || 1
-        });
-    }
-
-    // Анализ кластеров с реальными фичами
-    const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
-   
-    // Добавляем кластеры в узлы графа
-    for (const [nodeId, node] of exactGraph.nodes) {
-        const morph = morphologyMap.get(nodeId) || {};
-        const cluster = clusterData.enhancedFeatures.get(nodeId);
+        // 🔥 ИСПРАВЛЕНО: Создаем features с данными для кластеризации
+        const points = Array.from(exactGraph.nodes.values());
+        const features = new Map();
        
-        node.morphology = morph;
-        node.hasContour = morph.hasContour || false;
-        node.compactness = morph.compactness;
-        node.eccentricity = morph.eccentricity;
-        node.normalizedArea = morph.normalizedArea;
-        node.radialProfile = morph.radialProfile;
-       
-        // 🔥 ТЕПЕРЬ clusterId ПРИДЕТ ИЗ enhancedFeatures
-        if (cluster) {
-            node.clusterId = cluster.clusterId || 'R0';
-            node.clusterSize = cluster.clusterSize || 1;
-            node.isUnique = cluster.isUnique || false;
-        } else {
-            node.clusterId = 'R0';
-            node.clusterSize = 1;
+        for (const point of points) {
+            const morph = morphologyMap.get(point.id) || {};
+            features.set(point.id, {
+                role: this.getNodeRoleSimple(point.id, exactGraph),
+                degree: point.degree || 0,
+                triangles: point.triangles || 0,
+                morphology: morph,
+                neighborRoles: this.getNeighborRolesForPoint(point.id, exactGraph),
+                patternType: point.patternType || 'R',
+                patternFrequency: point.patternFrequency || 1
+            });
         }
-       
-        node.confirmationCount = 1;
-        node.addedFrom = 'original';
-        node.addedAt = new Date();
-    }
 
         // Анализ паттернов
         const tempModel = { graph: exactGraph, morphologyMap };
         const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
-       
-        // Анализ кластеров
-        const points = Array.from(exactGraph.nodes.values());
-const features = new Map();
-
-// Заполняем features данными из morphologyMap
-for (const point of points) {
-    const morph = morphologyMap.get(point.id) || {};
-    features.set(point.id, {
-        role: this.getNodeRoleSimple(point.id, exactGraph),
-        degree: point.degree,
-        morphology: morph,
-        neighborRoles: this.getNeighborRolesForPoint(point.id, exactGraph)
-    });
-}
-
-const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
-       
-        // Добавляем паттерны и кластеры
+      
+        // Анализ кластеров с реальными фичами
+        const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
+      
+        // Добавляем паттерны и кластеры в узлы графа
         for (const [nodeId, node] of exactGraph.nodes) {
+            const morph = morphologyMap.get(nodeId) || {};
+            const cluster = clusterData.enhancedFeatures.get(nodeId);
+           
+            node.morphology = morph;
+            node.hasContour = morph.hasContour || false;
+            node.compactness = morph.compactness;
+            node.eccentricity = morph.eccentricity;
+            node.orientation = morph.orientation;
+            node.normalizedArea = morph.normalizedArea;
+            node.radialProfile = morph.radialProfile;
+            node.asymmetry = morph.asymmetry;
+           
+            // 🔥 ТЕПЕРЬ clusterId ПРИДЕТ ИЗ enhancedFeatures
+            if (cluster) {
+                node.clusterId = cluster.clusterId || 'R0';
+                node.clusterSize = cluster.clusterSize || 1;
+                node.isUnique = cluster.isUnique || false;
+                node.clusterSignature = cluster.clusterSignature || 'unknown';
+            } else {
+                node.clusterId = 'R0';
+                node.clusterSize = 1;
+                node.isUnique = false;
+                node.clusterSignature = 'unknown';
+            }
+           
             node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
             node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
             node.gapPattern = patternData.gaps?.[nodeId] || '0';
            
-            let foundCluster = null;
-            for (const [clusterId, cluster] of Object.entries(clusterData.clusters || {})) {
-                if (cluster.pointIds.includes(nodeId)) {
-                    foundCluster = cluster;
-                    break;
-                }
-            }
+            node.neighborClusters = clusterData.relations?.get(node.clusterId)?.neighborCount || 0;
            
-            node.clusterId = foundCluster?.id || '0';
-            node.clusterSize = foundCluster?.size || 1;
-            node.neighborClusters = foundCluster?.neighbors || 0;
+            node.confirmationCount = 1;
+            node.addedFrom = 'original';
+            node.addedAt = new Date();
         }
 
         const model = {
@@ -1035,9 +933,9 @@ const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
         this.stats.totalModels++;
         this.stats.lastUpdated = new Date();
 
-        console.log(`🏗️ СОЗДАНА НОВАЯ МОДЕЛЬ ${modelId.slice(0, 12)}...:`);
+        console.log(`🏗 СОЗДАНА НОВАЯ МОДЕЛЬ ${modelId.slice(0, 12)}...:`);
         console.log(`   Узлов: ${exactGraph.nodes.size}`);
-        console.log(`   Точек с морфологией: ${morphologyCount}`);
+        console.log(`   Точек с морфологией: ${morphologyMap.size}`);
         console.log(`   Паттернов найдено: ${Object.keys(patternData.patterns || {}).length}`);
         console.log(`   Кластеров: ${Object.keys(clusterData.clusters || {}).length}`);
 
@@ -1046,7 +944,7 @@ const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
             modelId: modelId,
             nodes: exactGraph.nodes.size,
             edges: exactGraph.edges.size,
-            morphologyCount: morphologyCount,
+            morphologyCount: morphologyMap.size,
             patternCount: Object.keys(patternData.patterns || {}).length,
             clusterCount: Object.keys(clusterData.clusters || {}).length,
             message: `Создана новая топологическая модель`
