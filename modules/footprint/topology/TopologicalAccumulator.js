@@ -1,1263 +1,595 @@
-// modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - ИЕРАРХИЧЕСКАЯ ВЕРСИЯ
-// 🔥 Интегрирован HierarchicalMatcher
+// modules/footprint/matching/HierarchicalMatcher.js
+// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР - neighborClusters на последнем уровне
 
-const GraphBuilder = require('./GraphBuilder');
-const KNNGraphBuilder = require('./KNNGraphBuilder');
-const LocalGroupSignature = require('./LocalGroupSignature');
-const MorphologyEncoder = require('./MorphologyEncoder');
-const CenterMatcher = require('./CenterMatcher');
-const RelativePositioning = require('./RelativePositioning');
-const TopologicalFingerprint = require('./TopologicalFingerprint');
-const HierarchicalMatcher = require('../matching/HierarchicalMatcher');
-const PatternAnalyzer = require('../analysis/PatternAnalyzer');
-const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
-
-class TopologicalAccumulator {
+class HierarchicalMatcher {
     constructor(options = {}) {
-        this.name = options.name || `Топологическая_модель_${Date.now()}`;
         this.debug = options.debug || false;
-
-        // 🔥 РЕЖИМЫ РАБОТЫ
-        this.fastMode = options.fastMode || false;
-        this.similarityThreshold = options.similarityThreshold || 0.6;
-
-        // 🔥 ДОПУСКИ ДЛЯ ПРИЗНАКОВ
-        this.tolerances = {
-            compactness: 0.4,        // 40%
-            eccentricity: 0.15,       // абсолютный
-            normalizedArea: 0.75,      // 75%
-            radialProfile: 0.3,        // 30%
-            degree: 2,
-            triangles: 1,
-            role: 'soft'
-        };
-
-        // Компоненты
-        this.graphBuilder = new GraphBuilder({ debug: this.debug });
-        this.knnBuilder = new KNNGraphBuilder({
-            debug: this.debug,
-            k: options.k || 8
-        });
-
-        this.fingerprinter = new TopologicalFingerprint({
-            debug: this.debug,
-            iterations: options.wlIterations || 3,
-            structuralSimilarityThreshold: 0.5
-        });
-
-        this.localGroupSignature = new LocalGroupSignature({
-            debug: this.debug,
-            depth: options.localDepth || 3,
-            useMorphology: true
-        });
-
-        this.morphologyEncoder = new MorphologyEncoder({ debug: this.debug });
-
-        this.centerMatcher = new CenterMatcher({
-            debug: this.debug,
-            localGroupSignature: this.localGroupSignature,
-            morphologyEncoder: this.morphologyEncoder,
-            minLocalSimilarity: options.minLocalSimilarity || 0.5,
-            minMorphologySimilarity: options.minMorphologySimilarity || 0.6,
-            minConsistentPairs: options.minConsistentPairs || 1
-        });
-
-        this.relativePositioning = new RelativePositioning({
-            debug: this.debug,
-            localGroupSignature: this.localGroupSignature,
-            minPathSimilarity: options.minPathSimilarity || 0.5,
-            maxPathLengthDiff: options.maxPathLengthDiff || 3,
-            confidenceThreshold: options.confidenceThreshold || 0.8
-        });
-
-        // 🔥 АНАЛИЗАТОРЫ
-        this.patternAnalyzer = new PatternAnalyzer({ debug: this.debug });
-        this.clusterAnalyzer = new ClusterAnalyzer({ debug: this.debug });
-
-        // 🔥 ИНВАРИАНТНЫЕ ПАРАМЕТРЫ
-        this.duplicateCompactnessThreshold = options.duplicateCompactnessThreshold || 0.3;
-        this.duplicateAreaThreshold = options.duplicateAreaThreshold || 0.15;
-        this.duplicateGraphDistance = options.duplicateGraphDistance || 2;
-
-        // 🔥 ХРАНИЛИЩЕ МОДЕЛЕЙ
-        this.models = new Map();
-        this.currentModelId = null;
-        this.modelRelations = new Map();
-        this.photoToModel = new Map();
-
-        // Статистика
-        this.stats = {
-            totalModels: 0,
-            totalEnhancements: 0,
-            totalCenterMatches: 0,
-            totalRelativeMatches: 0,
-            totalNodesRemoved: 0,
-            totalDuplicatesSkipped: 0,
-            differentFootprintsDetected: 0,
-            fastMatchesCount: 0,
-            hierarchicalMatchesCount: 0,
-            createdAt: new Date(),
-            lastUpdated: new Date()
-        };
-
-        console.log(`🏗 МУЛЬТИ-МОДЕЛЬНЫЙ TopologicalAccumulator создан: "${this.name}"`);
-        console.log(`   🔥 Режим: ${this.fastMode ? 'БЫСТРЫЙ' : 'ПОЛНЫЙ'}`);
-        console.log(`   🔷 Порог сходства: ${this.similarityThreshold * 100}%`);
-        console.log(`   🔷 Допуски: компактность ${this.tolerances.compactness*100}%, ` +
-                    `эксцентриситет ${this.tolerances.eccentricity}, ` +
-                    `площадь ${this.tolerances.normalizedArea*100}%`);
-    }
-
-    // ==================== ОСНОВНОЙ МЕТОД ====================
-
-    async processPoints(points, options = {}) {
-        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
-
-        const photoId = options.photoId || `photo_${Date.now()}`;
-        const contours = options.contours || [];
-        const modelIdHint = options.modelId;
-
-        // 1. Строим графы
-        const exactGraph = this.graphBuilder.buildGraph(points, options.source || 'photo');
-        const knnGraph = this.knnBuilder.buildGraph(points, options.source || 'photo_knn');
-        const morphologyMap = this.morphologyEncoder.encode(points, contours);
-        const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
-
-        // 🔥 2. Если есть существующая модель - пробуем иерархическое сравнение
-        if (modelIdHint && this.models.has(modelIdHint)) {
-            const existingModel = this.models.get(modelIdHint);
-
-            // Создаем временную модель из нового фото
-            const tempModel = {
-                graph: exactGraph,
-                morphologyMap: morphologyMap,
-                metadata: { name: 'temp' }
-            };
-
-            console.log(`\n🔍 ИЕРАРХИЧЕСКОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
-            const hierarchicalResult = await this.compareByHierarchicalMatching(tempModel, existingModel);
-
-            if (hierarchicalResult.sufficient) {
-                console.log(`\n✅ Найдено ${hierarchicalResult.count} иерархических пар!`);
-
-                // 2.1 Достраиваем остальные точки через RelativePositioning
-                console.log(`\n🧩 ДОСТРАИВАНИЕ остальных точек...`);
-                const allMatches = await this.relativePositioning.positionPoints(
-                    exactGraph,
-                    existingModel.graph,
-                    this.convertMatchesToMap(hierarchicalResult.matches),
-                    morphologyMap,
-                    existingModel.morphologyMap,
-                    { confidenceThreshold: 0.5 }
-                );
-
-                // 2.2 Обновляем модель
-                const updateResult = this.updateModelWithOptimalMatches(
-                    modelIdHint,
-                    exactGraph,
-                    hierarchicalResult.matches,
-                    morphologyMap
-                );
-
-                // 2.3 Обновляем KNN-граф и подписи
-                existingModel.knnGraph = knnGraph;
-                existingModel.knnFingerprints = new Map([...existingModel.knnFingerprints, ...knnFingerprints]);
-                existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
-                existingModel.metadata.lastEnhanced = new Date();
-
-                // 2.4 Создаем matchMap для визуализации
-                const matchMap = this.buildHierarchicalMatchMap(hierarchicalResult);
-
-                // 2.5 Очищаем неподтверждённые точки
-                const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
-                this.stats.totalNodesRemoved += cleanResult.removed;
-                this.stats.hierarchicalMatchesCount += hierarchicalResult.count;
-
-                // 2.6 Статистика
-                const confirmedInModel = hierarchicalResult.matches.length;
-                const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
-                const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
-
-                console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-                console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
-                console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
-                console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
-                console.log(`   • Всего в модели теперь: ${existingModel.graph.nodes.size}`);
-                console.log(`   • Неоднозначных пар: ${hierarchicalResult.ambiguous?.length || 0}`);
-
-                this.photoToModel.set(photoId, modelIdHint);
-
-                return {
-                    status: 'enhanced_hierarchical',
-                    modelId: modelIdHint,
-                    similarity: hierarchicalResult.similarity,
-                    centerMatches: hierarchicalResult.count,
-                    totalMatches: hierarchicalResult.matches.length,
-                    newNodesAdded: updateResult.newNodesAdded,
-                    nodesRemoved: cleanResult.removed,
-                    matchMap: matchMap,
-                    ambiguous: hierarchicalResult.ambiguous,
-                    noMatchA: hierarchicalResult.noMatchA,
-                    noMatchB: hierarchicalResult.noMatchB,
-                    message: `Иерархическое сопоставление: ${hierarchicalResult.count} пар, ${hierarchicalResult.ambiguous?.length || 0} спорных`
-                };
-            } else {
-                console.log(`\n⚠️ Иерархическое сравнение дало только ${hierarchicalResult.count} пар - недостаточно (нужно 12)`);
+      
+        // 🔥 ИЕРАРХИЯ УРОВНЕЙ
+        this.levels = [
+            {   // УРОВЕНЬ 1: ПРОФИЛЬ КЛЮЧА (двухтавр)
+                name: 'БАЗОВАЯ ГЕОМЕТРИЯ',
+                features: ['compactness', 'eccentricity', 'normalizedArea'],
+                tolerances: [0.4, 0.15, 0.75],
+                groupLevel: true,
+                weight: 0.25,
+                enabled: true
+            },
+            {   // УРОВЕНЬ 2: ТИП/ЦВЕТ КЛЮЧА
+                name: 'ТОПОЛОГИЧЕСКАЯ РОЛЬ',
+                features: ['role', 'degree', 'triangles'],
+                tolerances: ['strict', 2, 1],
+                groupLevel: false,
+                weight: 0.20,
+                enabled: true
+            },
+            {   // УРОВЕНЬ 3: РОЛИ СОСЕДЕЙ (кто рядом)
+                name: 'РОЛИ СОСЕДЕЙ',
+                features: ['neighborRoles'],
+                tolerances: ['soft'],
+                groupLevel: false,
+                weight: 0.10,
+                enabled: true
+            },
+            {   // УРОВЕНЬ 4: РАЗМЕР ГРУППЫ
+                name: 'РАЗМЕР ГРУППЫ',
+                features: ['clusterSize'],
+                tolerances: [3],
+                groupLevel: false,
+                weight: 0.10,
+                enabled: true
+            },
+            {   // УРОВЕНЬ 5: КОНТЕКСТ (только gapPattern)
+                name: 'КОНТЕКСТ',
+                features: ['gapPattern'],
+                tolerances: ['soft'],
+                groupLevel: false,
+                weight: 0.10,
+                enabled: true
+            },
+            {   // УРОВЕНЬ 6: ДЕТАЛЬНАЯ ПРОВЕРКА (с neighborClusters)
+                name: 'ДЕТАЛЬНАЯ ПРОВЕРКА',
+                features: ['radialProfile', 'patternType', 'patternFrequency', 'neighborClusters'],
+                tolerances: [0.3, 'strict', 2, 2],
+                groupLevel: true,
+                weight: 0.25,
+                enabled: true
             }
-        }
+        ];
 
-        // Если это первое фото вообще - создаём первую модель
-        if (this.models.size === 0) {
-            console.log(`🆕 Первое фото в сессии, создаю первую модель`);
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, options);
-            this.photoToModel.set(photoId, result.modelId);
-            return {
-                ...result,
-                isFirstModel: true,
-                totalModels: this.models.size
-            };
-        }
-
-        // Если быстрый путь не сработал - идем по стандартному пути
-        console.log(`\n🔍 Быстрый путь не сработал, запускаю полный анализ...`);
-
-        // Сравниваем со ВСЕМИ существующими моделями
-        console.log(`\n🔍 Сравниваю с ${this.models.size} существующими моделями...`);
-
-        const comparisons = [];
-
-        for (const [modelId, model] of this.models) {
-            console.log(`   Проверяю модель ${modelId.slice(0, 12)}...`);
-
-            const comparison = this.fingerprinter.compareGraphs(
-                model.knnGraph,
-                model.knnFingerprints,
-                knnGraph,
-                knnFingerprints
-            );
-
-            comparisons.push({
-                modelId,
-                similarity: comparison.similarity,
-                exactMatches: comparison.exactMatches.length,
-                similarMatches: comparison.similarMatches.length,
-                model
-            });
-        }
-
-        comparisons.sort((a, b) => b.similarity - a.similarity);
-        const bestMatch = comparisons[0];
-
-        console.log(`\n📊 Лучшее совпадение:`);
-        console.log(`   Модель: ${bestMatch.modelId.slice(0, 12)}...`);
-        console.log(`   Сходство: ${(bestMatch.similarity * 100).toFixed(1)}%`);
-
-        // Если сходство выше порога - улучшаем существующую модель
-        if (bestMatch.similarity >= this.similarityThreshold) {
-            console.log(`\n✅ СОВПАДЕНИЕ! Улучшаю модель ${bestMatch.modelId.slice(0, 12)}...`);
-
-            this.switchToModel(bestMatch.modelId);
-
-            if (!this.fastMode) {
-                const enhancedResult = await this.enhanceExistingModel(
-                    bestMatch.modelId,
-                    exactGraph,
-                    knnGraph,
-                    knnFingerprints,
-                    morphologyMap,
-                    options
-                );
-
-                this.photoToModel.set(photoId, bestMatch.modelId);
-
-                return {
-                    status: 'enhanced',
-                    modelId: bestMatch.modelId,
-                    similarity: bestMatch.similarity,
-                    ...enhancedResult,
-                    totalModels: this.models.size,
-                    matchedModel: bestMatch.modelId
-                };
-            } else {
-                this.photoToModel.set(photoId, bestMatch.modelId);
-
-                return {
-                    status: 'matched_fast',
-                    modelId: bestMatch.modelId,
-                    similarity: bestMatch.similarity,
-                    exactMatches: bestMatch.exactMatches,
-                    similarMatches: bestMatch.similarMatches,
-                    totalModels: this.models.size,
-                    matchedModel: bestMatch.modelId,
-                    message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
-                };
-            }
-        }
-        // Если сходство ниже порога - создаём НОВУЮ модель
-        else {
-            console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
-            console.log(`🆕 Создаю НОВУЮ модель для другого следа...`);
-
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
-                ...options,
-                comparedWith: bestMatch.modelId,
-                reason: 'different_footprint'
-            });
-
-            this.modelRelations.set(result.modelId, {
-                related: [bestMatch.modelId],
-                type: 'different',
-                similarity: bestMatch.similarity
-            });
-
-            const existingRel = this.modelRelations.get(bestMatch.modelId);
-            this.modelRelations.set(bestMatch.modelId, {
-                related: [...(existingRel?.related || []), result.modelId],
-                type: 'different',
-                similarity: bestMatch.similarity
-            });
-
-            this.photoToModel.set(photoId, result.modelId);
-            this.stats.differentFootprintsDetected++;
-
-            return {
-                status: 'created_new',
-                modelId: result.modelId,
-                similarity: bestMatch.similarity,
-                comparedWith: bestMatch.modelId,
-                totalModels: this.models.size,
-                isDifferentFootprint: true,
-                message: `Обнаружен ДРУГОЙ след! Создана новая модель.`
-            };
-        }
-    }
-
-    // ==================== НОВЫЙ МЕТОД: ИЕРАРХИЧЕСКОЕ СРАВНЕНИЕ ====================
-
-    async compareByHierarchicalMatching(model1, model2, options = {}) {
-        const startTime = Date.now();
-        console.log(`\n🔍 Иерархическое сопоставление по всем признакам...`);
-
-        // Извлекаем признаки
-        const features1 = this.extractFeaturesFromModel(model1);
-        const features2 = this.extractFeaturesFromModel(model2);
-
-        console.log(`📊 Признаков: ${features1.length} ↔ ${features2.length}`);
-
-        // Преобразуем в формат для HierarchicalMatcher
-        const points1 = features1.map(f => ({
-            id: f.id,
-            role: f.role,
-            degree: f.degree,
-            triangles: f.triangles,
-            compactness: f.compactness,
-            eccentricity: f.eccentricity,
-            normalizedArea: f.normalizedArea,
-            radialProfile: f.radialProfile,
-            neighborRoles: f.neighborRoles,
-            clusterId: f.clusterId,
-            clusterSize: f.clusterSize,
-            patternType: f.patternType,
-            patternFrequency: f.patternFrequency,
-            gapPattern: f.gapPattern,
-            neighborClusters: f.neighborClusters
-        }));
-
-        const points2 = features2.map(f => ({
-            id: f.id,
-            role: f.role,
-            degree: f.degree,
-            triangles: f.triangles,
-            compactness: f.compactness,
-            eccentricity: f.eccentricity,
-            normalizedArea: f.normalizedArea,
-            radialProfile: f.radialProfile,
-            neighborRoles: f.neighborRoles,
-            clusterId: f.clusterId,
-            clusterSize: f.clusterSize,
-            patternType: f.patternType,
-            patternFrequency: f.patternFrequency,
-            gapPattern: f.gapPattern,
-            neighborClusters: f.neighborClusters
-        }));
-
-        // Создаем иерархический матчер
-        const matcher = new HierarchicalMatcher({
-            debug: false
-        });
-
-        // Запускаем многоуровневый поиск
-        const result = matcher.findMatches(points1, points2);
-
-        // Преобразуем результат
-        const matches = result.matches.map(m => ({
-            pointA: m.pointA,
-            pointB: m.pointB,
-            score: m.confidence
-        }));
-
-        const finalResult = {
-            success: true,
-            matches: matches,
-            count: matches.length,
-            sufficient: matches.length >= 12,
-            similarity: matches.length / Math.min(features1.length, features2.length),
-            time: Date.now() - startTime,
-            ambiguous: result.ambiguous || [],
-            noMatchA: result.noMatchA || [],
-            noMatchB: result.noMatchB || [],
-            stats: result.stats
-        };
-
-        console.log(`\n📊 РЕЗУЛЬТАТ ИЕРАРХИЧЕСКОГО СОПОСТАВЛЕНИЯ:`);
-        console.log(`   • Найдено соответствий: ${finalResult.count}`);
-        console.log(`   • Неоднозначных: ${finalResult.ambiguous.length}`);
-        console.log(`   • Новых в А: ${finalResult.noMatchA.length}`);
-        console.log(`   • Новых в Б: ${finalResult.noMatchB.length}`);
-        console.log(`   • Достаточно для якорей: ${finalResult.sufficient ? '✅' : '❌'}`);
-        console.log(`   • Время: ${finalResult.time}ms`);
-
-        return finalResult;
-    }
-
-    // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
-
-    /**
-     * Извлечение признаков из модели
-     */
-    extractFeaturesFromModel(model) {
-        const features = [];
-        const graph = model.graph;
-        const morphologyMap = model.morphologyMap || new Map();
-
-        for (const [nodeId, node] of graph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
-
-            features.push({
-                id: nodeId,
-                role: this.getNodeRoleSimple(nodeId, graph),
-                degree: node.degree || 0,
-                triangles: node.triangles || 0,
-                compactness: morph.compactness,
-                eccentricity: morph.eccentricity,
-                normalizedArea: morph.normalizedArea,
-                radialProfile: morph.radialProfile,
-                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
-                clusterId: node.clusterId || 'R0',
-                clusterSize: node.clusterSize || 1,
-                patternType: node.patternType || 'R',
-                patternFrequency: node.patternFrequency || 1,
-                gapPattern: node.gapPattern || '0',
-                neighborClusters: node.neighborClusters || 0
-            });
-        }
-
-        return features;
+        this.featureCache = new Map();
+        this.stats = { levels: [], earlyExits: 0, totalPairs: 0 };
     }
 
     /**
-     * Упрощенное определение роли
+     * ОСНОВНОЙ МЕТОД
      */
-    getNodeRoleSimple(nodeId, graph) {
-        const node = graph.nodes.get(nodeId);
-        if (!node) return 'R';
-        const degree = node.degree || 0;
-        if (degree >= 6) return 'H';
-        if (degree === 1) return 'L';
-        return 'R';
-    }
+    findMatches(pointsA, pointsB) {
+        console.log(`\n${'='.repeat(100)}`);
+        console.log(`🔑 МНОГОУРОВНЕВЫЙ ПОДБОР КЛЮЧЕЙ`);
+        console.log(`${'='.repeat(100)}`);
+        console.log(`📊 Всего ключей (точек) в А: ${pointsA.length}`);
+        console.log(`📊 Всего замков (точек) в Б: ${pointsB.length}`);
+      
+        this.validateFeatures(pointsA, pointsB);
+        this.diagnoseFirstPoint(pointsA, pointsB);
 
-    /**
-     * Получить роли соседей
-     */
-    getNeighborRolesForPoint(nodeId, graph) {
-        const neighbors = this.findNodeNeighbors(nodeId, graph);
-        const roles = [];
-        for (const neighbor of neighbors) {
-            roles.push(this.getNodeRoleSimple(neighbor.id, graph));
-        }
-        return roles.sort().join('');
-    }
+        const candidates = this.initializeCandidates(pointsA, pointsB);
 
-    /**
-     * Конвертирует matches в Map
-     */
-    convertMatchesToMap(matches) {
-        const map = new Map();
-        for (const match of matches) {
-            map.set(match.pointA, {
-                modelId: match.pointB,
-                confidence: match.score
-            });
-        }
-        return map;
-    }
+        for (let levelIdx = 0; levelIdx < this.levels.length; levelIdx++) {
+            const level = this.levels[levelIdx];
+            if (!level.enabled) continue;
 
-    /**
-     * Строит matchMap для визуализации
-     */
-    buildHierarchicalMatchMap(result) {
-        const matchMap = new Map();
-        let pairNumber = 1;
+            console.log(`\n${'─'.repeat(80)}`);
+            console.log(`🔍 УРОВЕНЬ ${levelIdx + 1}: ${level.name}`);
+            console.log(`${'─'.repeat(80)}`);
 
-        // Сначала однозначные пары
-        for (const match of result.matches) {
-            matchMap.set(match.pointA, {
-                modelId: match.pointB,
-                pairNumber: pairNumber++,
-                type: 'anchor',
-                confidence: match.score
-            });
-        }
+            const levelStats = { total: 0, passed: 0, rejected: 0 };
 
-        // Потом неоднозначные (без номеров)
-        if (result.ambiguous) {
-            for (const amb of result.ambiguous) {
-                matchMap.set(amb.pointA, {
-                    candidates: amb.candidates.map(c => c.id),
-                    type: 'ambiguous',
-                    count: amb.count
+            for (const [pointId, data] of candidates) {
+                if (data.status === 'rejected') continue;
+              
+                const before = data.candidates.length;
+                const filtered = this.filterByLevel(data.point, data.candidates, level);
+
+                data.candidates = filtered;
+                data.levels.push({
+                    level: levelIdx,
+                    before,
+                    after: filtered.length,
+                    rejected: before - filtered.length
                 });
+
+                levelStats.total += before;
+                levelStats.passed += filtered.length;
+                levelStats.rejected += (before - filtered.length);
+            }
+
+            this.logLevelStats(level, levelStats, candidates);
+            this.printHierarchicalTree(candidates, levelIdx);
+          
+            if (this.checkEarlyExit(candidates, levelIdx)) {
+                console.log(`\n🎯 РАННИЙ ВЫХОД на уровне ${levelIdx + 1}`);
+                this.stats.earlyExits++;
+                break;
             }
         }
 
-        console.log(`📋 Создан matchMap: ${matchMap.size} записей (${pairNumber-1} с номерами)`);
-        return matchMap;
+        return this.finalAnalysis(candidates, pointsB);
     }
 
-    updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
-        const model = this.models.get(modelId);
-        let confirmedExisting = 0;
-        let newNodesAdded = 0;
+    /**
+     * 🔥 ДИАГНОСТИКА ПРИЗНАКОВ ПЕРВОЙ ТОЧКИ
+     */
+    diagnoseFirstPoint(pointsA, pointsB) {
+        if (pointsA.length === 0 || pointsB.length === 0) return;
+       
+        const firstPointA = pointsA[0];
+        const firstPointB = pointsB[0];
+       
+        console.log(`\n🔬 ДИАГНОСТИКА ПРИЗНАКОВ (ПЕРВАЯ ТОЧКА):`);
+        console.log(`┌───────────────────┬─────────────────────┬─────────────────────┐`);
+        console.log(`│ Признак           │ Точка А             │ Точка Б             │`);
+        console.log(`├───────────────────┼─────────────────────┼─────────────────────┤`);
+       
+        const features = [
+            'id', 'role', 'degree', 'triangles',
+            'compactness', 'eccentricity', 'normalizedArea',
+            'radialProfile', 'neighborRoles', 'clusterId',
+            'clusterSize', 'patternType', 'patternFrequency',
+            'gapPattern', 'neighborClusters'
+        ];
+       
+        for (const feat of features) {
+            const valA = firstPointA[feat];
+            const valB = firstPointB[feat];
+           
+            let strA = valA !== undefined ? String(valA) : 'undefined';
+            let strB = valB !== undefined ? String(valB) : 'undefined';
+           
+            if (strA.length > 20) strA = strA.substring(0, 17) + '...';
+            if (strB.length > 20) strB = strB.substring(0, 17) + '...';
+           
+            console.log(
+                `│ ${feat.padEnd(17)} │ ${strA.padEnd(19)} │ ${strB.padEnd(19)} │`
+            );
+        }
+       
+        console.log(`└───────────────────┴─────────────────────┴─────────────────────┘`);
+       
+        if (Array.isArray(firstPointA.radialProfile) && Array.isArray(firstPointB.radialProfile)) {
+            const sortedA = this.getRotationInvariantProfile(firstPointA.radialProfile);
+            const sortedB = this.getRotationInvariantProfile(firstPointB.radialProfile);
+           
+            console.log(`\n🔍 radialProfile ПОСЛЕ СОРТИРОВКИ:`);
+            console.log(`   Точка А: [${sortedA.map(v => v.toFixed(2)).join(', ')}]`);
+            console.log(`   Точка Б: [${sortedB.map(v => v.toFixed(2)).join(', ')}]`);
+           
+            let sum = 0;
+            for (let i = 0; i < sortedA.length; i++) {
+                sum += Math.abs(sortedA[i] - sortedB[i]);
+            }
+            const similarity = 1 - (sum / sortedA.length);
+            console.log(`   🔥 Сходство после сортировки: ${(similarity * 100).toFixed(1)}%`);
+        }
+       
+        // Диагностика patternFrequency
+        console.log(`\n🔍 patternFrequency:`);
+        console.log(`   Точка А: ${firstPointA.patternFrequency} (${typeof firstPointA.patternFrequency})`);
+        console.log(`   Точка Б: ${firstPointB.patternFrequency} (${typeof firstPointB.patternFrequency})`);
+        console.log(`   Разница: ${Math.abs((firstPointA.patternFrequency || 0) - (firstPointB.patternFrequency || 0))}`);
+       
+        // Диагностика neighborClusters
+        console.log(`\n🔍 neighborClusters:`);
+        console.log(`   Точка А: ${firstPointA.neighborClusters} (${typeof firstPointA.neighborClusters})`);
+        console.log(`   Точка Б: ${firstPointB.neighborClusters} (${typeof firstPointB.neighborClusters})`);
+        console.log(`   Разница: ${Math.abs((firstPointA.neighborClusters || 0) - (firstPointB.neighborClusters || 0))}`);
+    }
 
-        const matchedPhotoIds = new Set();
-        const matchedModelIds = new Set();
+    /**
+     * 🔥 ИНВАРИАНТНЫЙ К ПОВОРОТУ RADIAL PROFILE
+     */
+    getRotationInvariantProfile(profile) {
+        if (!Array.isArray(profile)) return [];
+        const mainDirs = profile.slice(0, 4).sort((a, b) => a - b);
+        const diagDirs = profile.slice(4, 8).sort((a, b) => a - b);
+        return [...mainDirs, ...diagDirs];
+    }
 
-        for (const match of matches) {
-            const modelNode = model.graph.nodes.get(match.pointB);
-            if (modelNode) {
-                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-                modelNode.lastConfirmed = new Date();
-                confirmedExisting++;
-                matchedPhotoIds.add(match.pointA);
-                matchedModelIds.add(match.pointB);
+    /**
+     * ПРОВЕРКА НАЛИЧИЯ ПРИЗНАКОВ
+     */
+    validateFeatures(pointsA, pointsB) {
+        console.log(`\n🔍 ПРОВЕРКА НАЛИЧИЯ ПРИЗНАКОВ:`);
+        const allPoints = [...pointsA, ...pointsB];
+        const featureStats = {};
+
+        for (const point of allPoints) {
+            for (const [key, value] of Object.entries(point)) {
+                if (!featureStats[key]) featureStats[key] = { present: 0 };
+                if (value !== undefined && value !== null) featureStats[key].present++;
             }
         }
 
-        for (const [photoId, photoNode] of newGraph.nodes) {
-            if (matchedPhotoIds.has(photoId)) continue;
-
-            const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
-            model.graph.nodes.set(newNodeId, {
-                id: newNodeId,
-                x: photoNode.x,
-                y: photoNode.y,
-                degree: photoNode.degree,
-                morphology: newMorphology.get(photoId),
-                confirmationCount: 1,
-                addedFrom: 'new_point',
-                addedAt: new Date(),
-                originalPhotoId: photoId
+        console.log(`   📊 ДОСТУПНЫЕ ПРИЗНАКИ:`);
+        Object.entries(featureStats)
+            .sort((a, b) => b[1].present - a[1].present)
+            .forEach(([feature, stats]) => {
+                const percent = (stats.present / allPoints.length * 100).toFixed(1);
+                console.log(`   • ${feature}: ${stats.present}/${allPoints.length} (${percent}%)`);
             });
-            newNodesAdded++;
-        }
-
-        return { confirmedExisting, newNodesAdded };
     }
 
-    // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
+    initializeCandidates(pointsA, pointsB) {
+        const candidates = new Map();
+        for (const pointA of pointsA) {
+            candidates.set(pointA.id, {
+                point: pointA,
+                candidates: [...pointsB],
+                levels: [],
+                status: 'pending'
+            });
+        }
+        return candidates;
+    }
 
-    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
-        const model = this.models.get(modelId);
-        if (!model) return { error: 'Модель не найдена' };
-
-        console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
-        console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
-
-        // 🔥 ИСПРАВЛЕНО: передаем оба аргумента морфологии
-        const centerMatches = this.centerMatcher.findCenterMatches(
-            newExactGraph,
-            model.graph,
-            newMorphology,      // photoMorphology
-            model.morphologyMap // modelMorphology
-        );
-
-        console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} якорей`);
-
-        let allMatches = new Map();
-        let stabilizedMatches = new Map();
-        let finalMatches = new Map([...centerMatches]);
-        let newNodesAdded = 0;
-
-        if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
-            console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
-
-            allMatches = this.relativePositioning.positionPoints(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap,
-                { confidenceThreshold: 0.5 }
-            );
-
-            stabilizedMatches = this.relativePositioning.iterativeStabilization(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap
-            );
-
-            finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
-
-            const updateResult = this.updateModelWithMatches(
-                modelId,
-                newExactGraph,
-                finalMatches,
-                centerMatches,
-                newMorphology
-            );
-            newNodesAdded = updateResult.newNodesAdded;
+    filterByLevel(pointA, candidates, level) {
+        if (level.groupLevel) {
+            return candidates.filter(pointB => {
+                for (let i = 0; i < level.features.length; i++) {
+                    if (!this.checkFeature(pointA, pointB, level.features[i], level.tolerances[i])) {
+                        return false;
+                    }
+                }
+                return true;
+            });
         } else {
-            console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size})`);
+            let filtered = candidates;
+            for (let i = 0; i < level.features.length; i++) {
+                const feature = level.features[i];
+                const tolerance = level.tolerances[i];
+                filtered = filtered.filter(pointB =>
+                    this.checkFeature(pointA, pointB, feature, tolerance)
+                );
+            }
+            return filtered;
         }
-
-        model.knnGraph = newKNNGraph;
-        model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
-        model.metadata.photoCount = (model.metadata.photoCount || 0) + 1;
-        model.metadata.lastEnhanced = new Date();
-
-        model.history.push({
-            action: 'enhanced',
-            timestamp: new Date(),
-            centerMatches: centerMatches.size,
-            totalMatches: finalMatches.size,
-            newNodes: newNodesAdded,
-            totalNodes: model.graph.nodes.size
-        });
-
-        this.stats.totalEnhancements++;
-        this.stats.lastUpdated = new Date();
-
-        const matchMap = this.buildMatchMap(centerMatches, allMatches, stabilizedMatches);
-
-        const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
-        this.stats.totalNodesRemoved += cleanResult.removed;
-
-        return {
-            centerMatches: centerMatches.size,
-            totalMatches: finalMatches.size,
-            newNodesAdded,
-            nodesRemoved: cleanResult.removed,
-            matchMap
-        };
     }
 
-    buildMatchMap(centerMatches, allMatches, stabilizedMatches) {
-        const matchMap = new Map();
-        let pairNumber = 1;
-
-        console.log(`\n📋 ФОРМИРОВАНИЕ MATCHMAP:`);
-
-        for (const [photoId, match] of centerMatches) {
-            if (match && match.confidence >= 0.7) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    pairNumber: pairNumber++,
-                    type: 'anchor'
-                });
-                console.log(`   🔴 Якорь ${pairNumber-1}: ${photoId.slice(0,12)}... ↔ ${match.modelId.slice(0,12)}...`);
+    /**
+     * 🔥 ПРОВЕРКА ПРИЗНАКА
+     */
+    checkFeature(pointA, pointB, feature, tolerance) {
+        const valA = pointA[feature];
+        const valB = pointB[feature];
+      
+        if (valA === undefined || valB === undefined) return true;
+      
+        if (tolerance === 'strict') return valA === valB;
+      
+        if (tolerance === 'soft') {
+            if (feature === 'neighborRoles') return this.compareNeighborRolesSoft(valA, valB);
+            if (feature === 'gapPattern') return this.compareGapPatternSoft(valA, valB);
+            return true;
+        }
+      
+        if (typeof tolerance === 'number') {
+            if (typeof valA === 'number' && typeof valB === 'number') {
+                // Абсолютная разница для дискретных признаков
+                if (feature === 'degree' || feature === 'triangles' ||
+                    feature === 'clusterSize' || feature === 'patternFrequency' ||
+                    feature === 'neighborClusters') {
+                    return Math.abs(valA - valB) <= tolerance;
+                }
+                // Относительная разница для непрерывных
+                else {
+                    const maxVal = Math.max(Math.abs(valA), Math.abs(valB), 0.001);
+                    const minVal = Math.min(Math.abs(valA), Math.abs(valB));
+                    if (maxVal < 0.001) return true;
+                    return (1 - minVal / maxVal) <= tolerance;
+                }
+            } else if (Array.isArray(valA) && Array.isArray(valB)) {
+                // Инвариантный radialProfile
+                if (feature === 'radialProfile') {
+                    const sortedA = this.getRotationInvariantProfile(valA);
+                    const sortedB = this.getRotationInvariantProfile(valB);
+                   
+                    if (sortedA.length !== sortedB.length) return false;
+                    let sum = 0;
+                    for (let i = 0; i < sortedA.length; i++) {
+                        sum += Math.abs(sortedA[i] - sortedB[i]);
+                    }
+                    return (sum / sortedA.length) <= tolerance;
+                } else {
+                    if (valA.length !== valB.length) return false;
+                    let sum = 0;
+                    for (let i = 0; i < valA.length; i++) {
+                        sum += Math.abs(valA[i] - valB[i]);
+                    }
+                    return (sum / valA.length) <= tolerance;
+                }
             }
         }
-
-        for (const [photoId, match] of allMatches) {
-            if (!centerMatches.has(photoId) && match && match.confidence >= 0.7) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    type: 'regular'
-                });
-            }
-        }
-
-        for (const [photoId, match] of stabilizedMatches) {
-            if (!centerMatches.has(photoId) && !allMatches.has(photoId) && match && match.confidence >= 0.7) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    type: 'regular'
-                });
-            }
-        }
-
-        console.log(`\n📊 ИТОГО: ${centerMatches.size} якорей, ${matchMap.size - centerMatches.size} дополнительных точек`);
-        return matchMap;
+      
+        return false;
     }
 
-    updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology) {
-        const model = this.models.get(modelId);
-        let confirmedExisting = 0;
-        let newNodesAdded = 0;
-        let duplicatesSkipped = 0;
-
-        const matchedPhotoIds = new Set();
-        const matchedModelIds = new Set();
-
-        for (const [photoId, match] of matches) {
-            const modelNode = model.graph.nodes.get(match.modelId);
-            if (modelNode) {
-                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-                modelNode.lastConfirmed = new Date();
-                confirmedExisting++;
-                matchedPhotoIds.add(photoId);
-                matchedModelIds.add(match.modelId);
-            }
-        }
-
-        for (const [photoId, photoNode] of newGraph.nodes) {
-            if (matchedPhotoIds.has(photoId)) continue;
-
-            const match = matches.get(photoId);
-            if (!match || match.confidence < 0.7) continue;
-
-            if (this.isDuplicate(photoNode, model.graph, model.morphologyMap)) {
-                duplicatesSkipped++;
-                continue;
-            }
-
-            const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
-            model.graph.nodes.set(newNodeId, {
-                id: newNodeId,
-                x: photoNode.x,
-                y: photoNode.y,
-                degree: photoNode.degree,
-                morphology: newMorphology.get(photoId),
-                confirmationCount: 1,
-                addedFrom: 'new_point',
-                addedAt: new Date(),
-                originalPhotoId: photoId
-            });
-            newNodesAdded++;
-        }
-
-        this.updateEdges(model.graph, newGraph, matches);
-
-        return { confirmedExisting, newNodesAdded, duplicatesSkipped };
-    }
-
-    switchToModel(modelId) {
-        if (!this.models.has(modelId)) {
-            console.log(`❌ Модель ${modelId} не найдена`);
-            return false;
-        }
-        this.currentModelId = modelId;
-        console.log(`🔄 Переключился на модель ${modelId.slice(0, 12)}...`);
+    compareNeighborRolesSoft(rolesA, rolesB) {
+        if (!rolesA || !rolesB) return true;
+        const setA = new Set(typeof rolesA === 'string' ? rolesA.split('') : rolesA);
+        const setB = new Set(typeof rolesB === 'string' ? rolesB.split('') : rolesB);
+        for (const role of setA) if (!setB.has(role)) return false;
+        for (const role of setB) if (!setA.has(role)) return false;
         return true;
     }
 
-    getAllModels() {
-        const models = [];
-        for (const [modelId, model] of this.models) {
-            models.push({
-                id: modelId,
-                name: model.metadata.name,
-                nodes: model.graph.nodes.size,
-                edges: model.graph.edges.size,
-                photos: model.metadata.photoCount || 0,
-                createdAt: model.metadata.createdAt,
-                lastUpdated: model.metadata.lastEnhanced || model.metadata.createdAt,
-                isCurrent: modelId === this.currentModelId
-            });
-        }
-        return models;
-    }
-
-    getModel(modelId) {
-        return this.models.get(modelId) || null;
-    }
-
-    getCurrentModel() {
-        return this.currentModelId ? this.models.get(this.currentModelId) : null;
-    }
-
-    getCurrentModelId() {
-        return this.currentModelId;
-    }
-
-    getModelsStats() {
-        const stats = {
-            total: this.models.size,
-            current: this.currentModelId,
-            differentFootprints: this.stats.differentFootprintsDetected,
-            models: []
-        };
-
-        for (const [modelId, model] of this.models) {
-            stats.models.push({
-                id: modelId,
-                name: model.metadata.name,
-                nodes: model.graph.nodes.size,
-                edges: model.graph.edges.size,
-                photos: model.metadata.photoCount || 0,
-                isCurrent: modelId === this.currentModelId,
-                createdAt: model.metadata.createdAt
-            });
-        }
-
-        return stats;
-    }
-
-    getModelRelations() {
-        const relations = [];
-        for (const [modelId, rel] of this.modelRelations) {
-            relations.push({
-                modelId,
-                relatedTo: rel.related,
-                type: rel.type,
-                similarity: rel.similarity
-            });
-        }
-        return relations;
-    }
-
-    getModelForPhoto(photoId) {
-        return this.photoToModel.get(photoId) || null;
-    }
-
-    getPhotosForModel(modelId) {
-        const photos = [];
-        for (const [photoId, mid] of this.photoToModel) {
-            if (mid === modelId) {
-                photos.push(photoId);
+    compareGapPatternSoft(patternA, patternB) {
+        if (!patternA || !patternB) return true;
+        // Если оба "0" - ок
+        if (patternA === '0' && patternB === '0') return true;
+        // Если оба объекта (строки JSON) - сравниваем наличие ключей
+        try {
+            const objA = typeof patternA === 'string' && patternA !== '0' ? JSON.parse(patternA) : null;
+            const objB = typeof patternB === 'string' && patternB !== '0' ? JSON.parse(patternB) : null;
+           
+            if (objA && objB) {
+                // Проверяем, что типы совпадают
+                return objA.type === objB.type;
             }
-        }
-        return photos;
-    }
-
-    /**
-     * 🔥 ИСПРАВЛЕНО: создание новой модели с правильными clusterId
-     */
-    createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
-        const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-
-        // 🔥 ИСПРАВЛЕНО: Создаем features с данными для кластеризации
-        const points = Array.from(exactGraph.nodes.values());
-        const features = new Map();
-       
-        for (const point of points) {
-            const morph = morphologyMap.get(point.id) || {};
-            features.set(point.id, {
-                role: this.getNodeRoleSimple(point.id, exactGraph),
-                degree: point.degree || 0,
-                triangles: point.triangles || 0,
-                morphology: morph,
-                neighborRoles: this.getNeighborRolesForPoint(point.id, exactGraph),
-                patternType: point.patternType || 'R',
-                patternFrequency: point.patternFrequency || 1
-            });
-        }
-
-        // Анализ паттернов
-        const tempModel = { graph: exactGraph, morphologyMap };
-        const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
-      
-        // Анализ кластеров с реальными фичами
-        const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
-      
-        // Добавляем паттерны и кластеры в узлы графа
-        for (const [nodeId, node] of exactGraph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
-            const cluster = clusterData.enhancedFeatures.get(nodeId);
-           
-            node.morphology = morph;
-            node.hasContour = morph.hasContour || false;
-            node.compactness = morph.compactness;
-            node.eccentricity = morph.eccentricity;
-            node.orientation = morph.orientation;
-            node.normalizedArea = morph.normalizedArea;
-            node.radialProfile = morph.radialProfile;
-            node.asymmetry = morph.asymmetry;
-           
-            // 🔥 ТЕПЕРЬ clusterId ПРИДЕТ ИЗ enhancedFeatures
-            if (cluster) {
-                node.clusterId = cluster.clusterId || 'R0';
-                node.clusterSize = cluster.clusterSize || 1;
-                node.isUnique = cluster.isUnique || false;
-                node.clusterSignature = cluster.clusterSignature || 'unknown';
-            } else {
-                node.clusterId = 'R0';
-                node.clusterSize = 1;
-                node.isUnique = false;
-                node.clusterSignature = 'unknown';
-            }
-           
-            node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
-            node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
-            node.gapPattern = patternData.gaps?.[nodeId] || '0';
-           
-            node.neighborClusters = clusterData.relations?.get(node.clusterId)?.neighborCount || 0;
-           
-            node.confirmationCount = 1;
-            node.addedFrom = 'original';
-            node.addedAt = new Date();
-        }
-
-        const model = {
-            id: modelId,
-            graph: exactGraph,
-            knnGraph: null,
-            knnFingerprints: knnFingerprints,
-            morphologyMap: morphologyMap,
-            originalPoints: originalPoints,
-            patternData: patternData,
-            clusterData: clusterData,
-            metadata: {
-                name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
-                createdAt: new Date(),
-                pointsCount: originalPoints.length,
-                nodesCount: exactGraph.nodes.size,
-                edgesCount: exactGraph.edges.size,
-                photoCount: 1,
-                source: options.source || 'unknown'
-            },
-            history: [{
-                action: 'created',
-                timestamp: new Date(),
-                points: originalPoints.length,
-                nodes: exactGraph.nodes.size
-            }]
-        };
-
-        this.models.set(modelId, model);
-        this.currentModelId = modelId;
-        this.stats.totalModels++;
-        this.stats.lastUpdated = new Date();
-
-        console.log(`🏗 СОЗДАНА НОВАЯ МОДЕЛЬ ${modelId.slice(0, 12)}...:`);
-        console.log(`   Узлов: ${exactGraph.nodes.size}`);
-        console.log(`   Точек с морфологией: ${morphologyMap.size}`);
-        console.log(`   Паттернов найдено: ${Object.keys(patternData.patterns || {}).length}`);
-        console.log(`   Кластеров: ${Object.keys(clusterData.clusters || {}).length}`);
-
-        return {
-            status: 'created',
-            modelId: modelId,
-            nodes: exactGraph.nodes.size,
-            edges: exactGraph.edges.size,
-            morphologyCount: morphologyMap.size,
-            patternCount: Object.keys(patternData.patterns || {}).length,
-            clusterCount: Object.keys(clusterData.clusters || {}).length,
-            message: `Создана новая топологическая модель`
-        };
-    }
-
-    // ==================== ИНВАРИАНТНАЯ ПРОВЕРКА ДУБЛИКАТОВ ====================
-
-    isDuplicate(newNode, modelGraph, morphologyMap) {
-        if (modelGraph.nodes.size === 0) return false;
-
-        const newMorph = morphologyMap.get(newNode.id);
-        if (!newMorph || !newMorph.hasContour) return false;
-
-        for (const [existingId, existingNode] of modelGraph.nodes) {
-            const existingMorph = morphologyMap.get(existingId);
-            if (!existingMorph || !existingMorph.hasContour) continue;
-
-            const compactnessDiff = Math.abs(newMorph.compactness - existingMorph.compactness);
-            const areaDiff = Math.abs(newMorph.normalizedArea - existingMorph.normalizedArea);
-
-            if (compactnessDiff < this.duplicateCompactnessThreshold &&
-                areaDiff < this.duplicateAreaThreshold) {
-
-                const graphDist = this.graphDistance(newNode.id, existingId, modelGraph);
-
-                if (graphDist <= this.duplicateGraphDistance) {
-                    return true;
-                }
-            }
+        } catch (e) {
+            // Если не парсится - считаем разными
+            return false;
         }
         return false;
     }
 
-    graphDistance(nodeA, nodeB, graph) {
-        if (nodeA === nodeB) return 0;
+    checkEarlyExit(candidates, currentLevel) {
+        let allUnique = true;
+        let totalWithCandidates = 0;
+        for (const [_, data] of candidates) {
+            if (data.candidates.length === 0) continue;
+            if (data.candidates.length > 1) allUnique = false;
+            totalWithCandidates++;
+        }
+        return allUnique && totalWithCandidates > 0;
+    }
 
-        const queue = [{id: nodeA, dist: 0}];
-        const visited = new Set([nodeA]);
+    logLevelStats(level, stats, candidates) {
+        const passRate = stats.total > 0 ? (stats.passed / stats.total * 100).toFixed(1) : '0.0';
+        console.log(`\n📊 СТАТИСТИКА УРОВНЯ:`);
+        console.log(`   • Всего рассмотрено: ${stats.total} пар`);
+        console.log(`   • Прошло фильтр: ${stats.passed} (${passRate}%)`);
+        console.log(`   • Отсеяно: ${stats.rejected} (${stats.total > 0 ? (stats.rejected/stats.total*100).toFixed(1) : '0.0'}%)`);
+      
+        const candidatesCounts = Array.from(candidates.values()).map(d => d.candidates.length);
+        const avgCandidates = candidatesCounts.length > 0
+            ? (candidatesCounts.reduce((a, b) => a + b, 0) / candidatesCounts.length).toFixed(2)
+            : '0.00';
+        const zeroCandidates = candidatesCounts.filter(c => c === 0).length;
+        const multiCandidates = candidatesCounts.filter(c => c > 1).length;
+      
+        console.log(`\n   📈 ТЕКУЩЕЕ СОСТОЯНИЕ:`);
+        console.log(`      • Среднее число кандидатов: ${avgCandidates}`);
+        console.log(`      • Точек без кандидатов: ${zeroCandidates} (НОВЫЕ КЛЮЧИ 🔵)`);
+        console.log(`      • Точек с >1 кандидатом: ${multiCandidates} (СПОРНЫЕ ⚠️)`);
+    }
 
-        while (queue.length > 0) {
-            const {id, dist} = queue.shift();
+    printHierarchicalTree(candidates, upToLevel) {
+        console.log(`\n🌳 ИЕРАРХИЧЕСКОЕ ДЕРЕВО ДО УРОВНЯ ${upToLevel + 1}:`);
+       
+        const tree = this.buildHierarchicalTree(candidates, upToLevel);
+       
+        if (tree.count > 0) {
+            this.printNode(tree, 0, upToLevel);
+        } else {
+            console.log(`└── (нет ключей с кандидатами)`);
+        }
+    }
 
-            const neighbors = this.findNodeNeighbors(id, graph);
-            for (const neighbor of neighbors) {
-                if (neighbor.id === nodeB) return dist + 1;
-                if (!visited.has(neighbor.id)) {
-                    visited.add(neighbor.id);
-                    queue.push({id: neighbor.id, dist: dist + 1});
+    buildHierarchicalTree(candidates, upToLevel) {
+        const root = { name: 'Все ключи', count: 0, children: [] };
+        const groups = new Map();
+       
+        for (const [pointId, data] of candidates) {
+            if (data.candidates.length === 0) continue;
+           
+            const point = data.point;
+            root.count++;
+           
+            const form = this.getFormType(point);
+            if (!groups.has(form)) {
+                groups.set(form, { name: form, count: 0, children: new Map() });
+            }
+            const formGroup = groups.get(form);
+            formGroup.count++;
+           
+            if (upToLevel >= 1) {
+                const role = point.role || 'R';
+                if (!formGroup.children.has(role)) {
+                    formGroup.children.set(role, { name: `Роль ${role}`, count: 0, children: new Map() });
                 }
-            }
-        }
-        return Infinity;
-    }
-
-    findNodeNeighbors(nodeId, graph) {
-        const neighbors = [];
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (a === nodeId) neighbors.push({id: b});
-            if (b === nodeId) neighbors.push({id: a});
-        }
-        return neighbors;
-    }
-
-    cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
-        const model = this.models.get(modelId);
-        if (!model) return { removed: 0, remaining: 0 };
-
-        const graph = model.graph;
-        const toRemove = [];
-        const now = Date.now();
-
-        for (const [nodeId, node] of graph.nodes) {
-            if (node.addedFrom === 'original') continue;
-
-            const confirmations = node.confirmationCount || 1;
-            const addedAt = node.addedAt ? node.addedAt.getTime() : now;
-            const age = (now - addedAt) / (1000 * 60 * 60 * 24);
-
-            if (confirmations < minConfirmations && age > 0.1) {
-                toRemove.push(nodeId);
-            }
-        }
-
-        toRemove.forEach(nodeId => graph.nodes.delete(nodeId));
-
-        const newEdges = new Set();
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a) && graph.nodes.has(b)) {
-                newEdges.add(edge);
-            }
-        }
-        graph.edges = newEdges;
-
-        for (const node of graph.nodes.values()) node.degree = 0;
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
-            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
-        }
-
-        console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
-
-        return { removed: toRemove.length, remaining: graph.nodes.size };
-    }
-
-    updateEdges(modelGraph, newGraph, matches) {
-        for (const edge of newGraph.edges) {
-            const [photoA, photoB] = edge.split('--');
-            const modelA = matches.get(photoA)?.modelId;
-            const modelB = matches.get(photoB)?.modelId;
-
-            if (modelA && modelB && modelGraph.nodes.has(modelA) && modelGraph.nodes.has(modelB)) {
-                modelGraph.edges.add([modelA, modelB].sort().join('--'));
-            }
-        }
-
-        for (const node of modelGraph.nodes.values()) node.degree = 0;
-        for (const edge of modelGraph.edges) {
-            const [a, b] = edge.split('--');
-            if (modelGraph.nodes.has(a)) modelGraph.nodes.get(a).degree++;
-            if (modelGraph.nodes.has(b)) modelGraph.nodes.get(b).degree++;
-        }
-    }
-
-    computeTriangles(graph) {
-        if (!graph || !graph.nodes || !graph.edges) return [];
-
-        const triangles = [];
-        const nodeIds = Array.from(graph.nodes.keys());
-        const edges = new Set(graph.edges);
-
-        for (let i = 0; i < nodeIds.length; i++) {
-            for (let j = i + 1; j < nodeIds.length; j++) {
-                for (let k = j + 1; k < nodeIds.length; k++) {
-                    const a = nodeIds[i];
-                    const b = nodeIds[j];
-                    const c = nodeIds[k];
-
-                    if (edges.has([a, b].sort().join('--')) &&
-                        edges.has([b, c].sort().join('--')) &&
-                        edges.has([c, a].sort().join('--'))) {
-                        triangles.push([a, b, c]);
+                const roleGroup = formGroup.children.get(role);
+                roleGroup.count++;
+               
+                if (upToLevel >= 2) {
+                    const neighborRoles = point.neighborRoles || 'unknown';
+                    const neighborKey = typeof neighborRoles === 'string' ? neighborRoles : JSON.stringify(neighborRoles);
+                    if (!roleGroup.children.has(neighborKey)) {
+                        roleGroup.children.set(neighborKey, { name: `neighborRoles: ${neighborKey}`, count: 0, children: new Map() });
+                    }
+                    const neighborGroup = roleGroup.children.get(neighborKey);
+                    neighborGroup.count++;
+                   
+                    if (upToLevel >= 3) {
+                        const clusterSize = point.clusterSize || 0;
+                        const sizeKey = `size:${clusterSize}`;
+                        if (!neighborGroup.children.has(sizeKey)) {
+                            neighborGroup.children.set(sizeKey, { name: `clusterSize: ${clusterSize}`, count: 0, children: new Map() });
+                        }
+                        const sizeGroup = neighborGroup.children.get(sizeKey);
+                        sizeGroup.count++;
+                       
+                        if (upToLevel >= 4) {
+                            const gapPattern = point.gapPattern || '0';
+                            const gapKey = `gap:${gapPattern.substring(0, 10)}`;
+                            if (!sizeGroup.children.has(gapKey)) {
+                                sizeGroup.children.set(gapKey, { name: `gapPattern: ${gapPattern.substring(0, 10)}...`, count: 0, children: new Map() });
+                            }
+                            const gapGroup = sizeGroup.children.get(gapKey);
+                            gapGroup.count++;
+                        }
                     }
                 }
             }
         }
-        return triangles;
+       
+        for (const [form, formGroup] of groups) {
+            const formNode = { name: formGroup.name, count: formGroup.count, children: [] };
+           
+            for (const [role, roleGroup] of formGroup.children) {
+                const roleNode = { name: roleGroup.name, count: roleGroup.count, children: [] };
+               
+                for (const [neighbor, neighborGroup] of roleGroup.children) {
+                    const neighborNode = { name: neighborGroup.name, count: neighborGroup.count, children: [] };
+                   
+                    for (const [size, sizeGroup] of neighborGroup.children) {
+                        const sizeNode = { name: sizeGroup.name, count: sizeGroup.count, children: [] };
+                       
+                        for (const [gap, gapGroup] of sizeGroup.children) {
+                            sizeNode.children.push({
+                                name: gapGroup.name,
+                                count: gapGroup.count,
+                                children: []
+                            });
+                        }
+                       
+                        neighborNode.children.push(sizeNode);
+                    }
+                   
+                    roleNode.children.push(neighborNode);
+                }
+               
+                formNode.children.push(roleNode);
+            }
+           
+            root.children.push(formNode);
+        }
+       
+        return root;
     }
 
-    getVisualizationData(modelId = null, reliablePhotoIds = []) {
-        const targetId = modelId || this.currentModelId;
-        if (!targetId || !this.models.has(targetId)) return null;
+    printNode(node, depth, maxDepth) {
+        if (depth > maxDepth + 1) return;
+       
+        const indent = '  '.repeat(depth);
+        const prefix = depth === 0 ? '└── ' : '├── ';
+       
+        console.log(`${indent}${prefix}${node.name} (${node.count})`);
+       
+        for (const child of node.children) {
+            this.printNode(child, depth + 1, maxDepth);
+        }
+    }
 
-        const model = this.models.get(targetId);
-        const graph = model.graph;
+    getFormType(point) {
+        const c = point.compactness || 0;
+        if (c < 15) return 'Овальные';
+        if (c < 25) return 'Круглые';
+        return 'Вытянутые';
+    }
 
-        let reliableNodeIds = new Set(reliablePhotoIds);
-        if (reliableNodeIds.size === 0) {
-            for (const [nodeId, node] of graph.nodes) {
-                if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
+    finalAnalysis(candidates, pointsB) {
+        console.log(`\n${'='.repeat(100)}`);
+        console.log(`🏁 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ`);
+        console.log(`${'='.repeat(100)}`);
+
+        const matches = [];
+        const ambiguous = [];
+        const noMatch = [];
+        const usedB = new Set();
+
+        const sorted = Array.from(candidates.entries())
+            .sort((a, b) => a[1].candidates.length - b[1].candidates.length);
+
+        for (const [pointId, data] of sorted) {
+            if (data.candidates.length === 0) {
+                noMatch.push(pointId);
+                continue;
+            }
+          
+            const available = data.candidates.filter(c => !usedB.has(c.id));
+          
+            if (available.length === 1) {
+                matches.push({
+                    pointA: pointId,
+                    pointB: available[0].id,
+                    confidence: this.calculateConfidence(data)
+                });
+                usedB.add(available[0].id);
+            } else if (available.length > 1) {
+                ambiguous.push({
+                    pointA: pointId,
+                    candidates: available.map(c => c.id),
+                    count: available.length
+                });
             }
         }
 
-        const pointsByConfirmation = {
-            confirmed3: [], confirmed2: [], confirmed1: [], confirmed0: []
-        };
+        const unmatchedB = pointsB.filter(p => !usedB.has(p.id)).map(p => p.id);
 
-        for (const node of graph.nodes.values()) {
-            const count = node.confirmationCount || 0;
-            if (count >= 3) pointsByConfirmation.confirmed3.push(node);
-            else if (count >= 2) pointsByConfirmation.confirmed2.push(node);
-            else if (count >= 1) pointsByConfirmation.confirmed1.push(node);
-            else pointsByConfirmation.confirmed0.push(node);
+        console.log(`\n✅ ОДНОЗНАЧНЫЕ СООТВЕТСТВИЯ (ЯКОРЯ): ${matches.length}`);
+        if (matches.length > 0) {
+            matches.slice(0, 5).forEach((m, i) => {
+                console.log(`   ${i+1}. ${m.pointA.slice(0,12)}... ↔ ${m.pointB.slice(0,12)}... (уверенность ${(m.confidence*100).toFixed(0)}%)`);
+            });
         }
 
+        console.log(`\n⚠️ СПОРНЫЕ (требуют проверки): ${ambiguous.length}`);
+        ambiguous.slice(0, 3).forEach((a, i) => {
+            console.log(`   ${i+1}. ${a.pointA.slice(0,12)}... → ${a.count} кандидатов`);
+        });
+
+        console.log(`\n🔵 НОВЫЕ В ПЕРВОМ СЛЕДЕ: ${noMatch.length}`);
+        console.log(`🔵 НОВЫЕ ВО ВТОРОМ СЛЕДЕ: ${unmatchedB.length}`);
+
+        console.log(`\n📊 ИТОГОВАЯ СТАТИСТИКА:`);
+        console.log(`   • ✅ Якорей: ${matches.length}`);
+        console.log(`   • ⚠️ Спорных: ${ambiguous.length}`);
+        console.log(`   • 🔵 Новых в первом: ${noMatch.length}`);
+        console.log(`   • 🔵 Новых во втором: ${unmatchedB.length}`);
+        console.log(`   • 🎯 Ранних выходов: ${this.stats.earlyExits}`);
+
         return {
-            modelId: targetId,
-            modelName: model.metadata.name,
-            points: Array.from(graph.nodes.values()),
-            edges: Array.from(graph.edges),
+            matches,
+            ambiguous,
+            noMatchA: noMatch,
+            noMatchB: unmatchedB,
             stats: {
-                totalNodes: graph.nodes.size,
-                totalEdges: graph.edges.size,
-                confirmed3: pointsByConfirmation.confirmed3.length,
-                confirmed2: pointsByConfirmation.confirmed2.length,
-                confirmed1: pointsByConfirmation.confirmed1.length,
-                confirmed0: pointsByConfirmation.confirmed0.length,
-                reliableNodes: reliableNodeIds.size
-            },
-            pointsByConfirmation,
-            metadata: model.metadata,
-            allModels: this.getAllModels(),
-            currentModelId: this.currentModelId
+                totalPairs: matches.length,
+                ambiguous: ambiguous.length,
+                uniqueA: noMatch.length,
+                uniqueB: unmatchedB.length,
+                earlyExits: this.stats.earlyExits
+            }
         };
     }
 
-    getModelInfo(modelId = null) {
-        const targetId = modelId || this.currentModelId;
-        if (!targetId || !this.models.has(targetId)) return { error: 'Model not found' };
-
-        const model = this.models.get(targetId);
-        const graph = model.graph;
-
-        const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
-        for (const node of graph.nodes.values()) {
-            const count = node.confirmationCount || 0;
-            if (count >= 4) confirmations['4+']++;
-            else confirmations[count] = (confirmations[count] || 0) + 1;
+    calculateConfidence(data) {
+        let score = 0;
+        let totalWeight = 0;
+      
+        for (let i = 0; i < data.levels.length; i++) {
+            const level = data.levels[i];
+            const levelConfig = this.levels[i];
+            if (!levelConfig?.enabled) continue;
+          
+            const rejectionRate = level.rejected / level.before;
+            score += rejectionRate * levelConfig.weight;
+            totalWeight += levelConfig.weight;
         }
-
-        return {
-            id: model.id,
-            name: model.metadata.name,
-            stats: {
-                nodes: graph.nodes.size,
-                edges: graph.edges.size,
-                confirmed1: confirmations[1] || 0,
-                confirmed2: confirmations[2] || 0,
-                confirmed3: confirmations[3] || 0,
-                confirmed4plus: confirmations['4+'] || 0,
-                photosCount: model.metadata.photoCount || 0
-            },
-            metadata: model.metadata,
-            createdAt: model.metadata.createdAt,
-            lastUpdated: this.stats.lastUpdated
-        };
-    }
-
-    getStats() {
-        return {
-            system: this.stats,
-            models: this.getModelsStats(),
-            relations: this.getModelRelations()
-        };
-    }
-
-    exportModel(modelId) {
-        const model = this.models.get(modelId);
-        if (!model) return null;
-
-        return {
-            id: model.id,
-            metadata: model.metadata,
-            graph: {
-                nodes: Array.from(model.graph.nodes.entries()),
-                edges: Array.from(model.graph.edges),
-                avgDegree: model.graph.avgDegree
-            },
-            knnFingerprints: Array.from(model.knnFingerprints.entries()),
-            morphologyMap: Array.from(model.morphologyMap.entries()),
-            history: model.history
-        };
-    }
-
-    importModel(modelData) {
-        try {
-            const modelId = modelData.id;
-            const nodes = new Map(modelData.graph.nodes);
-            const edges = new Set(modelData.graph.edges);
-            const knnFingerprints = new Map(modelData.knnFingerprints);
-            const morphologyMap = new Map(modelData.morphologyMap);
-
-            const model = {
-                id: modelId,
-                graph: { nodes, edges, avgDegree: modelData.graph.avgDegree },
-                knnGraph: null,
-                knnFingerprints,
-                morphologyMap,
-                originalPoints: [],
-                metadata: modelData.metadata,
-                history: modelData.history || []
-            };
-
-            this.models.set(modelId, model);
-            this.stats.totalModels++;
-            console.log(`📥 Импортирована модель ${modelId.slice(0, 12)}...`);
-            return true;
-        } catch (error) {
-            console.log(`❌ Ошибка импорта: ${error.message}`);
-            return false;
-        }
-    }
-
-    clear() {
-        this.models.clear();
-        this.currentModelId = null;
-        this.modelRelations.clear();
-        this.photoToModel.clear();
-        this.fingerprinter.clearCache();
-        this.localGroupSignature.clearCache();
-        this.morphologyEncoder.clearCache();
-        this.centerMatcher.clear();
-        this.relativePositioning.clear();
-
-        this.stats = {
-            totalModels: 0,
-            totalEnhancements: 0,
-            totalCenterMatches: 0,
-            totalRelativeMatches: 0,
-            totalNodesRemoved: 0,
-            totalDuplicatesSkipped: 0,
-            differentFootprintsDetected: 0,
-            fastMatchesCount: 0,
-            hierarchicalMatchesCount: 0,
-            createdAt: new Date(),
-            lastUpdated: new Date()
-        };
-
-        console.log('🧹 Аккумулятор очищен');
+      
+        return totalWeight > 0 ? score / totalWeight : 0.5;
     }
 }
 
-module.exports = TopologicalAccumulator;
+module.exports = HierarchicalMatcher;
