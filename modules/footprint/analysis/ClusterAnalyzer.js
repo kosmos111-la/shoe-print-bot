@@ -75,7 +75,7 @@ class ClusterAnalyzer {
     }
 
     /**
-     * Группирует точки по подписям
+     * 🔥 ИСПРАВЛЕНО: группировка с правильными ID кластеров
      */
     groupBySignature(signatures) {
         const groups = {};
@@ -95,7 +95,7 @@ class ClusterAnalyzer {
 
         for (const [signature, members] of Object.entries(groups)) {
             const pointIds = members.map(m => m.pointId);
-            // 🔥 ИСПРАВЛЕНО: clusterId всегда с префиксом 'C'
+            // 🔥 ВАЖНО: clusterId всегда с префиксом 'C'
             const clusterKey = `C${clusterId}`;
             clusters[clusterKey] = {
                 id: clusterKey,
@@ -112,7 +112,7 @@ class ClusterAnalyzer {
     }
 
     /**
-     * 🔥 ИСПРАВЛЕНО: Добавляет информацию о кластерах в features
+     * 🔥 ИСПРАВЛЕНО: добавление clusterId в features
      */
     enhanceFeatures(features, clusters) {
         const pointToCluster = new Map();
@@ -128,7 +128,12 @@ class ClusterAnalyzer {
             }
         }
 
-        const enhanced = new Map(features);
+        const enhanced = new Map();
+       
+        // Копируем существующие features
+        for (const [pointId, feature] of features) {
+            enhanced.set(pointId, { ...feature });
+        }
        
         for (const [pointId, feature] of enhanced) {
             const cluster = pointToCluster.get(pointId);
@@ -138,7 +143,7 @@ class ClusterAnalyzer {
                 feature.isUnique = cluster.isUnique;
                 feature.clusterSignature = cluster.signature;
             } else {
-                // 🔥 ИСПРАВЛЕНО: для некластеризованных тоже добавляем префикс
+                // 🔥 ИСПРАВЛЕНО: для некластеризованных 'R0'
                 feature.clusterId = 'R0';
                 feature.clusterSize = 1;
                 feature.isUnique = false;
@@ -182,13 +187,16 @@ class ClusterAnalyzer {
             relations.set(clusterId, {
                 neighbors: Array.from(neighborClusters),
                 neighborCount: neighborClusters.size,
-                neighborPoints: Array.from(neighborPoints).length
+                neighborPoints: neighborPoints.size
             });
         }
 
         return relations;
     }
 
+    /**
+     * Находит уникальные точки
+     */
     findUniquePoints(clusters) {
         const uniquePoints = [];
 
@@ -206,6 +214,9 @@ class ClusterAnalyzer {
         return uniquePoints;
     }
 
+    /**
+     * Поиск соседей в графе
+     */
     findNodeNeighbors(nodeId, graph) {
         const neighbors = [];
         if (!graph?.edges) return neighbors;
@@ -224,6 +235,9 @@ class ClusterAnalyzer {
         return neighbors;
     }
 
+    /**
+     * Статистика кластеров
+     */
     getClusterStats(clusters) {
         const sizes = Object.values(clusters).map(c => c.size);
         const totalClusters = Object.keys(clusters).length;
@@ -265,6 +279,9 @@ class ClusterAnalyzer {
         return stats;
     }
 
+    /**
+     * Сравнение кластеров двух следов
+     */
     compareClusters(clusters1, clusters2) {
         const comparison = {
             matching: [],
@@ -339,6 +356,9 @@ class ClusterAnalyzer {
         return comparison;
     }
 
+    /**
+     * Поиск похожих кластеров
+     */
     findSimilarClusters(signature, cluster, clusters2) {
         const components = cluster.representative;
       
@@ -360,6 +380,9 @@ class ClusterAnalyzer {
         return null;
     }
 
+    /**
+     * Диагностика распределения признаков
+     */
     diagnoseFeatures(points, features) {
         console.log(`\n🔬 ДИАГНОСТИКА ПРИЗНАКОВ:`);
       
