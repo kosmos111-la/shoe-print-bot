@@ -1,7 +1,6 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - ОПТИМАЛЬНОЕ ПАРОСОЧЕТАНИЕ
-// 🔥 14 инвариантных признаков + венгерский алгоритм
-// ✅ ПОЛНАЯ ВЕРСИЯ
+// 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - ИЕРАРХИЧЕСКАЯ ВЕРСИЯ
+// 🔥 Интегрирован HierarchicalMatcher
 
 const GraphBuilder = require('./GraphBuilder');
 const KNNGraphBuilder = require('./KNNGraphBuilder');
@@ -10,7 +9,7 @@ const MorphologyEncoder = require('./MorphologyEncoder');
 const CenterMatcher = require('./CenterMatcher');
 const RelativePositioning = require('./RelativePositioning');
 const TopologicalFingerprint = require('./TopologicalFingerprint');
-const OptimalMatcher = require('../matching/OptimalMatcher');
+const HierarchicalMatcher = require('../matching/HierarchicalMatcher');
 const PatternAnalyzer = require('../analysis/PatternAnalyzer');
 const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
 
@@ -96,7 +95,8 @@ class TopologicalAccumulator {
             totalNodesRemoved: 0,
             totalDuplicatesSkipped: 0,
             differentFootprintsDetected: 0,
-            optimalMatchesCount: 0,
+            fastMatchesCount: 0,
+            hierarchicalMatchesCount: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
         };
@@ -124,7 +124,7 @@ class TopologicalAccumulator {
         const morphologyMap = this.morphologyEncoder.encode(points, contours);
         const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
 
-        // 🔥 2. Если есть существующая модель - пробуем оптимальное сравнение
+        // 🔥 2. Если есть существующая модель - пробуем иерархическое сравнение
         if (modelIdHint && this.models.has(modelIdHint)) {
             const existingModel = this.models.get(modelIdHint);
 
@@ -135,18 +135,18 @@ class TopologicalAccumulator {
                 metadata: { name: 'temp' }
             };
 
-            console.log(`\n🔍 ОПТИМАЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
-            const optimalResult = await this.compareByOptimalMatching(tempModel, existingModel);
+            console.log(`\n🔍 ИЕРАРХИЧЕСКОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
+            const hierarchicalResult = await this.compareByHierarchicalMatching(tempModel, existingModel);
 
-            if (optimalResult.sufficient) {
-                console.log(`\n✅ Найдено ${optimalResult.count} оптимальных пар!`);
+            if (hierarchicalResult.sufficient) {
+                console.log(`\n✅ Найдено ${hierarchicalResult.count} иерархических пар!`);
 
                 // 2.1 Достраиваем остальные точки через RelativePositioning
                 console.log(`\n🧩 ДОСТРАИВАНИЕ остальных точек...`);
                 const allMatches = await this.relativePositioning.positionPoints(
                     exactGraph,
                     existingModel.graph,
-                    this.convertMatchesToMap(optimalResult.matches),
+                    this.convertMatchesToMap(hierarchicalResult.matches),
                     morphologyMap,
                     existingModel.morphologyMap,
                     { confidenceThreshold: 0.5 }
@@ -156,7 +156,7 @@ class TopologicalAccumulator {
                 const updateResult = this.updateModelWithOptimalMatches(
                     modelIdHint,
                     exactGraph,
-                    optimalResult.matches,
+                    hierarchicalResult.matches,
                     morphologyMap
                 );
 
@@ -167,15 +167,15 @@ class TopologicalAccumulator {
                 existingModel.metadata.lastEnhanced = new Date();
 
                 // 2.4 Создаем matchMap для визуализации
-                const matchMap = this.buildOptimalMatchMap(optimalResult.matches);
+                const matchMap = this.buildHierarchicalMatchMap(hierarchicalResult);
 
                 // 2.5 Очищаем неподтверждённые точки
                 const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
                 this.stats.totalNodesRemoved += cleanResult.removed;
-                this.stats.optimalMatchesCount += optimalResult.count;
+                this.stats.hierarchicalMatchesCount += hierarchicalResult.count;
 
                 // 2.6 Статистика
-                const confirmedInModel = optimalResult.matches.length;
+                const confirmedInModel = hierarchicalResult.matches.length;
                 const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
                 const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
 
@@ -184,22 +184,26 @@ class TopologicalAccumulator {
                 console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
                 console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
                 console.log(`   • Всего в модели теперь: ${existingModel.graph.nodes.size}`);
+                console.log(`   • Неоднозначных пар: ${hierarchicalResult.ambiguous?.length || 0}`);
 
                 this.photoToModel.set(photoId, modelIdHint);
 
                 return {
-                    status: 'enhanced_optimal',
+                    status: 'enhanced_hierarchical',
                     modelId: modelIdHint,
-                    similarity: optimalResult.similarity,
-                    centerMatches: optimalResult.count,
-                    totalMatches: optimalResult.matches.length,
+                    similarity: hierarchicalResult.similarity,
+                    centerMatches: hierarchicalResult.count,
+                    totalMatches: hierarchicalResult.matches.length,
                     newNodesAdded: updateResult.newNodesAdded,
                     nodesRemoved: cleanResult.removed,
                     matchMap: matchMap,
-                    message: `Оптимальное сопоставление: ${optimalResult.count} пар`
+                    ambiguous: hierarchicalResult.ambiguous,
+                    noMatchA: hierarchicalResult.noMatchA,
+                    noMatchB: hierarchicalResult.noMatchB,
+                    message: `Иерархическое сопоставление: ${hierarchicalResult.count} пар, ${hierarchicalResult.ambiguous?.length || 0} спорных`
                 };
             } else {
-                console.log(`\n⚠️ Оптимальное сравнение дало только ${optimalResult.count} пар - недостаточно (нужно 12)`);
+                console.log(`\n⚠️ Иерархическое сравнение дало только ${hierarchicalResult.count} пар - недостаточно (нужно 12)`);
             }
         }
 
@@ -329,10 +333,11 @@ class TopologicalAccumulator {
         }
     }
 
-    // ==================== ОПТИМАЛЬНОЕ СОПОСТАВЛЕНИЕ ====================
+    // ==================== НОВЫЙ МЕТОД: ИЕРАРХИЧЕСКОЕ СРАВНЕНИЕ ====================
 
-    async compareByOptimalMatching(model1, model2) {
-        console.log(`\n🔍 Оптимальное сопоставление по 14 признакам...`);
+    async compareByHierarchicalMatching(model1, model2, options = {}) {
+        const startTime = Date.now();
+        console.log(`\n🔍 Иерархическое сопоставление по всем признакам...`);
 
         // Извлекаем признаки
         const features1 = this.extractFeaturesFromModel(model1);
@@ -340,75 +345,123 @@ class TopologicalAccumulator {
 
         console.log(`📊 Признаков: ${features1.length} ↔ ${features2.length}`);
 
-        // Создаем оптимальный матчер
-        const matcher = new OptimalMatcher({
-            debug: true,
-            tolerances: this.tolerances
+        // Преобразуем в формат для HierarchicalMatcher
+        const points1 = features1.map(f => ({
+            id: f.id,
+            role: f.role,
+            degree: f.degree,
+            triangles: f.triangles,
+            compactness: f.compactness,
+            eccentricity: f.eccentricity,
+            normalizedArea: f.normalizedArea,
+            radialProfile: f.radialProfile,
+            neighborRoles: f.neighborRoles,
+            clusterId: f.clusterId,
+            clusterSize: f.clusterSize,
+            patternType: f.patternType,
+            patternFrequency: f.patternFrequency,
+            gapPattern: f.gapPattern,
+            neighborClusters: f.neighborClusters
+        }));
+
+        const points2 = features2.map(f => ({
+            id: f.id,
+            role: f.role,
+            degree: f.degree,
+            triangles: f.triangles,
+            compactness: f.compactness,
+            eccentricity: f.eccentricity,
+            normalizedArea: f.normalizedArea,
+            radialProfile: f.radialProfile,
+            neighborRoles: f.neighborRoles,
+            clusterId: f.clusterId,
+            clusterSize: f.clusterSize,
+            patternType: f.patternType,
+            patternFrequency: f.patternFrequency,
+            gapPattern: f.gapPattern,
+            neighborClusters: f.neighborClusters
+        }));
+
+        // Создаем иерархический матчер
+        const matcher = new HierarchicalMatcher({
+            debug: true
         });
 
-        // Находим оптимальные пары
-        const result = matcher.findOptimalMatches(features1, features2);
+        // Запускаем многоуровневый поиск
+        const result = matcher.findMatches(points1, points2);
 
-        console.log(`\n📊 РЕЗУЛЬТАТ ОПТИМАЛЬНОГО СОПОСТАВЛЕНИЯ:`);
-        console.log(`   • Всего пар: ${result.matches.length}`);
-        console.log(`   • Среднее сходство: ${(result.averageSimilarity * 100).toFixed(1)}%`);
-        console.log(`   • Только в модели А: ${result.onlyA}`);
-        console.log(`   • Только в модели Б: ${result.onlyB}`);
+        // Преобразуем результат
+        const matches = result.matches.map(m => ({
+            pointA: m.pointA,
+            pointB: m.pointB,
+            score: m.confidence
+        }));
 
-        return {
+        const finalResult = {
             success: true,
-            matches: result.matches,
-            count: result.matches.length,
-            sufficient: result.matches.length >= 12,
-            similarity: result.averageSimilarity,
-            matchMap: this.convertMatchesToMap(result.matches),
-            onlyA: result.onlyA,
-            onlyB: result.onlyB
+            matches: matches,
+            count: matches.length,
+            sufficient: matches.length >= 12,
+            similarity: matches.length / Math.min(features1.length, features2.length),
+            time: Date.now() - startTime,
+            ambiguous: result.ambiguous || [],
+            noMatchA: result.noMatchA || [],
+            noMatchB: result.noMatchB || [],
+            stats: result.stats
         };
+
+        console.log(`\n📊 РЕЗУЛЬТАТ ИЕРАРХИЧЕСКОГО СОПОСТАВЛЕНИЯ:`);
+        console.log(`   • Найдено соответствий: ${finalResult.count}`);
+        console.log(`   • Неоднозначных: ${finalResult.ambiguous.length}`);
+        console.log(`   • Новых в А: ${finalResult.noMatchA.length}`);
+        console.log(`   • Новых в Б: ${finalResult.noMatchB.length}`);
+        console.log(`   • Достаточно для якорей: ${finalResult.sufficient ? '✅' : '❌'}`);
+        console.log(`   • Время: ${finalResult.time}ms`);
+
+        return finalResult;
     }
 
+    // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
+
     /**
-     * Извлечение признаков из модели для быстрого сравнения
+     * Извлечение признаков из модели
      */
     extractFeaturesFromModel(model) {
-    const features = [];
-    const graph = model.graph;
-    const morphologyMap = model.morphologyMap || new Map();
+        const features = [];
+        const graph = model.graph;
+        const morphologyMap = model.morphologyMap || new Map();
 
-    for (const [nodeId, node] of graph.nodes) {
-        const morph = morphologyMap.get(nodeId) || {};
+        for (const [nodeId, node] of graph.nodes) {
+            const morph = morphologyMap.get(nodeId) || {};
 
-        features.push({
-            id: nodeId,
-            role: this.getNodeRoleSimple(nodeId, graph),
-            degree: node.degree || 0,
-            triangles: node.triangles || 0,
-            compactness: morph.compactness,
-            eccentricity: morph.eccentricity,
-            normalizedArea: morph.normalizedArea,
-            radialProfile: morph.radialProfile,
-            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
+            features.push({
+                id: nodeId,
+                role: this.getNodeRoleSimple(nodeId, graph),
+                degree: node.degree || 0,
+                triangles: node.triangles || 0,
+                compactness: morph.compactness,
+                eccentricity: morph.eccentricity,
+                normalizedArea: morph.normalizedArea,
+                radialProfile: morph.radialProfile,
+                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph),
+                clusterId: node.clusterId || '0',
+                clusterSize: node.clusterSize || 1,
+                patternType: node.patternType || 'R',
+                patternFrequency: node.patternFrequency || 1,
+                gapPattern: node.gapPattern || '0',
+                neighborClusters: node.neighborClusters || 0
+            });
+        }
 
-            // 🔥 НОВЫЕ ПРИЗНАКИ - теперь с реальными значениями!
-            clusterId: node.clusterId || '0',
-            clusterSize: node.clusterSize || 1,
-            patternType: node.patternType || 'R',
-            patternFrequency: node.patternFrequency || 1,
-            gapPattern: node.gapPattern || '0',
-            neighborClusters: node.neighborClusters || 0
-        });
+        return features;
     }
 
-    return features;
-}
-
     /**
-     * Упрощенное определение роли (для быстрого доступа)
+     * Упрощенное определение роли
      */
     getNodeRoleSimple(nodeId, graph) {
         const node = graph.nodes.get(nodeId);
         if (!node) return 'R';
-
         const degree = node.degree || 0;
         if (degree >= 6) return 'H';
         if (degree === 1) return 'L';
@@ -416,22 +469,19 @@ class TopologicalAccumulator {
     }
 
     /**
-     * Получить строку ролей соседей
+     * Получить роли соседей
      */
     getNeighborRolesForPoint(nodeId, graph) {
         const neighbors = this.findNodeNeighbors(nodeId, graph);
         const roles = [];
-
         for (const neighbor of neighbors) {
-            const role = this.getNodeRoleSimple(neighbor.id, graph);
-            roles.push(role);
+            roles.push(this.getNodeRoleSimple(neighbor.id, graph));
         }
-
         return roles.sort().join('');
     }
 
     /**
-     * Конвертирует matches из OptimalMatcher в формат Map
+     * Конвертирует matches в Map
      */
     convertMatchesToMap(matches) {
         const map = new Map();
@@ -444,40 +494,85 @@ class TopologicalAccumulator {
         return map;
     }
 
-   /**
-* Строит matchMap для визуализации - ВСЕ точки с номерами
-*/
-buildOptimalMatchMap(matches) {
-    const matchMap = new Map();
-    let pairNumber = 1;
+    /**
+     * Строит matchMap для визуализации
+     */
+    buildHierarchicalMatchMap(result) {
+        const matchMap = new Map();
+        let pairNumber = 1;
 
-    const sortedMatches = [...matches].sort((a, b) => b.score - a.score);
+        // Сначала однозначные пары
+        for (const match of result.matches) {
+            matchMap.set(match.pointA, {
+                modelId: match.pointB,
+                pairNumber: pairNumber++,
+                type: 'anchor',
+                confidence: match.score
+            });
+        }
 
-    // 🔥 ВСЕ точки получают номера
-    for (const match of sortedMatches) {
-        matchMap.set(match.pointA, {
-            modelId: match.pointB,
-            pairNumber: pairNumber++,
-            type: 'anchor',
-            confidence: match.score
-        });
+        // Потом неоднозначные (без номеров)
+        if (result.ambiguous) {
+            for (const amb of result.ambiguous) {
+                matchMap.set(amb.pointA, {
+                    candidates: amb.candidates.map(c => c.id),
+                    type: 'ambiguous',
+                    count: amb.count
+                });
+            }
+        }
+
+        console.log(`📋 Создан matchMap: ${matchMap.size} записей (${pairNumber-1} с номерами)`);
+        return matchMap;
     }
 
-    console.log(`📋 Создан matchMap: ${matchMap.size} пар (ВСЕ с номерами)`);
-    return matchMap;
-}
+    updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
+        const model = this.models.get(modelId);
+        let confirmedExisting = 0;
+        let newNodesAdded = 0;
 
-    // ==================== УЛУЧШЕНИЕ СУЩЕСТВУЮЩЕЙ МОДЕЛИ ====================
+        const matchedPhotoIds = new Set();
+        const matchedModelIds = new Set();
+
+        for (const match of matches) {
+            const modelNode = model.graph.nodes.get(match.pointB);
+            if (modelNode) {
+                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
+                modelNode.lastConfirmed = new Date();
+                confirmedExisting++;
+                matchedPhotoIds.add(match.pointA);
+                matchedModelIds.add(match.pointB);
+            }
+        }
+
+        for (const [photoId, photoNode] of newGraph.nodes) {
+            if (matchedPhotoIds.has(photoId)) continue;
+
+            const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
+            model.graph.nodes.set(newNodeId, {
+                id: newNodeId,
+                x: photoNode.x,
+                y: photoNode.y,
+                degree: photoNode.degree,
+                morphology: newMorphology.get(photoId),
+                confirmationCount: 1,
+                addedFrom: 'new_point',
+                addedAt: new Date(),
+                originalPhotoId: photoId
+            });
+            newNodesAdded++;
+        }
+
+        return { confirmedExisting, newNodesAdded };
+    }
+
+    // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
         const model = this.models.get(modelId);
-        if (!model) {
-            return { error: 'Модель не найдена' };
-        }
+        if (!model) return { error: 'Модель не найдена' };
 
         console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
-
-        // Запускаем CenterMatcher для поиска якорей
         console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
 
         const centerMatches = this.centerMatcher.findCenterMatches(
@@ -487,7 +582,7 @@ buildOptimalMatchMap(matches) {
             model.morphologyMap
         );
 
-        console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} АБСОЛЮТНО НАДЁЖНЫХ ТОЧЕК (ЯКОРЯ)`);
+        console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} якорей`);
 
         let allMatches = new Map();
         let stabilizedMatches = new Map();
@@ -527,7 +622,7 @@ buildOptimalMatchMap(matches) {
             );
             newNodesAdded = updateResult.newNodesAdded;
         } else {
-            console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size}) для полного анализа`);
+            console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size})`);
             this.printFinalTable(newExactGraph, model.graph, finalMatches);
             this.printDetailedTables(newExactGraph, model.graph, centerMatches, finalMatches);
         }
@@ -597,54 +692,6 @@ buildOptimalMatchMap(matches) {
         };
     }
 
-    updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
-        const model = this.models.get(modelId);
-        let confirmedExisting = 0;
-        let newNodesAdded = 0;
-
-        const matchedPhotoIds = new Set();
-        const matchedModelIds = new Set();
-
-        // Подтверждаем существующие точки
-        for (const match of matches) {
-            const modelNode = model.graph.nodes.get(match.pointB);
-            if (modelNode) {
-                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-                modelNode.lastConfirmed = new Date();
-                confirmedExisting++;
-
-                matchedPhotoIds.add(match.pointA);
-                matchedModelIds.add(match.pointB);
-            }
-        }
-
-        // Добавляем новые точки
-        for (const [photoId, photoNode] of newGraph.nodes) {
-            if (matchedPhotoIds.has(photoId)) continue;
-
-            const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
-            model.graph.nodes.set(newNodeId, {
-                id: newNodeId,
-                x: photoNode.x,
-                y: photoNode.y,
-                degree: photoNode.degree,
-                morphology: newMorphology.get(photoId),
-                confirmationCount: 1,
-                addedFrom: 'new_point',
-                addedAt: new Date(),
-                originalPhotoId: photoId
-            });
-            newNodesAdded++;
-        }
-
-        return {
-            confirmedExisting,
-            newNodesAdded
-        };
-    }
-
-    // ==================== СТАРАЯ ТАБЛИЦА ====================
-
     printFinalTable(newGraph, modelGraph, matches) {
         console.log(`\n📋 ИТОГОВАЯ ТАБЛИЦА СОПОСТАВЛЕНИЯ ВСЕХ ТОЧЕК:`);
         console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬───────────┬─────────────────────┬─────────────────────┐`);
@@ -673,14 +720,11 @@ buildOptimalMatchMap(matches) {
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴───────────┴─────────────────────┴─────────────────────┘`);
     }
 
-    // ==================== НОВАЯ ДЕТАЛЬНАЯ ТАБЛИЦА ====================
-
     printDetailedTables(newGraph, modelGraph, centerMatches, allMatches) {
         console.log(`\n${'='.repeat(120)}`);
         console.log(`📊 ДЕТАЛЬНЫЕ ТАБЛИЦЫ СООТВЕТСТВИЙ`);
         console.log(`${'='.repeat(120)}`);
 
-        // 🔴 ТАБЛИЦА 1: ТОЛЬКО ЯКОРЯ (CenterMatcher)
         console.log(`\n🔴 ЯКОРЯ (CenterMatcher) - ${centerMatches.size} абсолютно надёжных точек:`);
         console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
         console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
@@ -706,7 +750,6 @@ buildOptimalMatchMap(matches) {
         }
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
 
-        // 🟢 ТАБЛИЦА 2: ВСЕ СОПОСТАВЛЕНИЯ
         console.log(`\n🟢 ВСЕ СОПОСТАВЛЕНИЯ - ${allMatches.size} точек:`);
         console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┬─────────────────────┬─────────────────────┐`);
         console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │   КООРД. ФОТО 2     │   КООРД. МОДЕЛИ     │`);
@@ -732,7 +775,6 @@ buildOptimalMatchMap(matches) {
         }
         console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┴─────────────────────┴─────────────────────┘`);
 
-        // 📐 ТАБЛИЦА 3: АНАЛИЗ ПРЕОБРАЗОВАНИЯ
         console.log(`\n📐 АНАЛИЗ ПРЕОБРАЗОВАНИЯ (первые ${Math.min(10, centerMatches.size)} якорей):`);
         console.log(`┌─────┬────────────┬────────────┬────────────┬────────────┬───────────┐`);
         console.log(`│  #  │  МОДЕЛЬ X  │  МОДЕЛЬ Y  │   ФОТО X   │   ФОТО Y   │  ΔX | ΔY  │`);
@@ -762,7 +804,6 @@ buildOptimalMatchMap(matches) {
         }
         console.log(`└─────┴────────────┴────────────┴────────────┴────────────┴───────────┘`);
 
-        // 💡 ВЫВОД
         if (centerMatches.size >= 3) {
             console.log(`\n💡 АНАЛИЗ:`);
             console.log(`   • Якорей найдено: ${centerMatches.size}`);
@@ -770,8 +811,6 @@ buildOptimalMatchMap(matches) {
             console.log(`   • Доля якорей: ${((centerMatches.size/allMatches.size)*100).toFixed(1)}%`);
         }
     }
-
-    // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
     updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology) {
         const model = this.models.get(modelId);
@@ -788,7 +827,6 @@ buildOptimalMatchMap(matches) {
                 modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
                 modelNode.lastConfirmed = new Date();
                 confirmedExisting++;
-
                 matchedPhotoIds.add(photoId);
                 matchedModelIds.add(match.modelId);
             }
@@ -822,11 +860,7 @@ buildOptimalMatchMap(matches) {
 
         this.updateEdges(model.graph, newGraph, matches);
 
-        return {
-            confirmedExisting,
-            newNodesAdded,
-            duplicatesSkipped
-        };
+        return { confirmedExisting, newNodesAdded, duplicatesSkipped };
     }
 
     switchToModel(modelId) {
@@ -922,59 +956,39 @@ buildOptimalMatchMap(matches) {
         const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
         let morphologyCount = 0;
-for (const [nodeId, node] of exactGraph.nodes) {
-    const morph = morphologyMap.get(nodeId);
-    if (morph) {
-        // Сохраняем все поля морфологии
-        node.morphology = morph;
-        node.hasContour = morph.hasContour || false;
-       
-        // 🔥 ЯВНО СОХРАНЯЕМ КАЖДОЕ ПОЛЕ
-        node.compactness = morph.compactness;
-        node.eccentricity = morph.eccentricity;
-        node.orientation = morph.orientation;
-        node.normalizedArea = morph.normalizedArea;
-        node.radialProfile = morph.radialProfile;
-        node.asymmetry = morph.asymmetry;
-       
-        morphologyCount++;
-       
-        // Отладка для первых 3 точек
-        if (this.debug && morphologyCount <= 3) {
-            console.log(`   Точка ${nodeId.substring(0,12)}...`);
-            console.log(`      compactness: ${morph.compactness?.toFixed(2)}`);
-            console.log(`      eccentricity: ${morph.eccentricity?.toFixed(3)}`);
-            console.log(`      radialProfile: ${morph.radialProfile?.length} значений`);
+        for (const [nodeId, node] of exactGraph.nodes) {
+            const morph = morphologyMap.get(nodeId);
+            if (morph) {
+                node.morphology = morph;
+                node.hasContour = morph.hasContour || false;
+                node.compactness = morph.compactness;
+                node.eccentricity = morph.eccentricity;
+                node.orientation = morph.orientation;
+                node.normalizedArea = morph.normalizedArea;
+                node.radialProfile = morph.radialProfile;
+                node.asymmetry = morph.asymmetry;
+                morphologyCount++;
+            }
+            node.confirmationCount = 1;
+            node.addedFrom = 'original';
+            node.addedAt = new Date();
         }
-    }
-    node.confirmationCount = 1;
-    node.addedFrom = 'original';
-    node.addedAt = new Date();
-}
 
-        // 🔥 АНАЛИЗ ПАТТЕРНОВ
-        const tempModel = {
-            graph: exactGraph,
-            morphologyMap,
-            metadata: { name: 'temp' }
-        };
-       
-        console.log(`\n🔍 Анализ паттернов для новой модели...`);
+        // Анализ паттернов
+        const tempModel = { graph: exactGraph, morphologyMap };
         const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
        
-        // 🔥 АНАЛИЗ КЛАСТЕРОВ
-        console.log(`🔍 Анализ кластеров для новой модели...`);
+        // Анализ кластеров
         const points = Array.from(exactGraph.nodes.values());
-        const features = new Map(); // временно пусто
+        const features = new Map();
         const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
        
-        // 🔥 ДОБАВЛЯЕМ ПАТТЕРНЫ И КЛАСТЕРЫ В УЗЛЫ
+        // Добавляем паттерны и кластеры
         for (const [nodeId, node] of exactGraph.nodes) {
             node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
             node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
             node.gapPattern = patternData.gaps?.[nodeId] || '0';
            
-            // Ищем кластер для точки
             let foundCluster = null;
             for (const [clusterId, cluster] of Object.entries(clusterData.clusters || {})) {
                 if (cluster.pointIds.includes(nodeId)) {
@@ -1024,7 +1038,6 @@ for (const [nodeId, node] of exactGraph.nodes) {
         console.log(`   Точек с морфологией: ${morphologyCount}`);
         console.log(`   Паттернов найдено: ${Object.keys(patternData.patterns || {}).length}`);
         console.log(`   Кластеров: ${Object.keys(clusterData.clusters || {}).length}`);
-        console.log(`   WL-подписей: ${knnFingerprints.size}`);
 
         return {
             status: 'created',
@@ -1078,7 +1091,6 @@ for (const [nodeId, node] of exactGraph.nodes) {
             const neighbors = this.findNodeNeighbors(id, graph);
             for (const neighbor of neighbors) {
                 if (neighbor.id === nodeB) return dist + 1;
-
                 if (!visited.has(neighbor.id)) {
                     visited.add(neighbor.id);
                     queue.push({id: neighbor.id, dist: dist + 1});
@@ -1097,8 +1109,6 @@ for (const [nodeId, node] of exactGraph.nodes) {
         }
         return neighbors;
     }
-
-    // ==================== ОЧИСТКА НЕПОДТВЕРЖДЁННЫХ ТОЧЕК ====================
 
     cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
         const model = this.models.get(modelId);
@@ -1120,9 +1130,7 @@ for (const [nodeId, node] of exactGraph.nodes) {
             }
         }
 
-        toRemove.forEach(nodeId => {
-            graph.nodes.delete(nodeId);
-        });
+        toRemove.forEach(nodeId => graph.nodes.delete(nodeId));
 
         const newEdges = new Set();
         for (const edge of graph.edges) {
@@ -1133,47 +1141,36 @@ for (const [nodeId, node] of exactGraph.nodes) {
         }
         graph.edges = newEdges;
 
-        for (const node of graph.nodes.values()) {
-            node.degree = 0;
-        }
+        for (const node of graph.nodes.values()) node.degree = 0;
         for (const edge of graph.edges) {
             const [a, b] = edge.split('--');
             if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
             if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
         }
 
-        console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек из модели`);
+        console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
 
-        return {
-            removed: toRemove.length,
-            remaining: graph.nodes.size
-        };
+        return { removed: toRemove.length, remaining: graph.nodes.size };
     }
 
     updateEdges(modelGraph, newGraph, matches) {
         for (const edge of newGraph.edges) {
             const [photoA, photoB] = edge.split('--');
-
             const modelA = matches.get(photoA)?.modelId;
             const modelB = matches.get(photoB)?.modelId;
 
             if (modelA && modelB && modelGraph.nodes.has(modelA) && modelGraph.nodes.has(modelB)) {
-                const modelEdge = [modelA, modelB].sort().join('--');
-                modelGraph.edges.add(modelEdge);
+                modelGraph.edges.add([modelA, modelB].sort().join('--'));
             }
         }
 
-        for (const node of modelGraph.nodes.values()) {
-            node.degree = 0;
-        }
+        for (const node of modelGraph.nodes.values()) node.degree = 0;
         for (const edge of modelGraph.edges) {
             const [a, b] = edge.split('--');
             if (modelGraph.nodes.has(a)) modelGraph.nodes.get(a).degree++;
             if (modelGraph.nodes.has(b)) modelGraph.nodes.get(b).degree++;
         }
     }
-
-    // ==================== ВЫЧИСЛЕНИЕ ТРЕУГОЛЬНИКОВ ====================
 
     computeTriangles(graph) {
         if (!graph || !graph.nodes || !graph.edges) return [];
@@ -1189,21 +1186,16 @@ for (const [nodeId, node] of exactGraph.nodes) {
                     const b = nodeIds[j];
                     const c = nodeIds[k];
 
-                    const ab = [a, b].sort().join('--');
-                    const bc = [b, c].sort().join('--');
-                    const ca = [c, a].sort().join('--');
-
-                    if (edges.has(ab) && edges.has(bc) && edges.has(ca)) {
+                    if (edges.has([a, b].sort().join('--')) &&
+                        edges.has([b, c].sort().join('--')) &&
+                        edges.has([c, a].sort().join('--'))) {
                         triangles.push([a, b, c]);
                     }
                 }
             }
         }
-
         return triangles;
     }
-
-    // ==================== ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ ====================
 
     getVisualizationData(modelId = null, reliablePhotoIds = []) {
         const targetId = modelId || this.currentModelId;
@@ -1213,36 +1205,14 @@ for (const [nodeId, node] of exactGraph.nodes) {
         const graph = model.graph;
 
         let reliableNodeIds = new Set(reliablePhotoIds);
-
         if (reliableNodeIds.size === 0) {
             for (const [nodeId, node] of graph.nodes) {
-                if (node.confirmationCount >= 2) {
-                    reliableNodeIds.add(nodeId);
-                }
-            }
-        }
-
-        const allTriangles = this.computeTriangles(graph);
-
-        const reliableTriangles = [];
-        const regularTriangles = [];
-
-        for (const triangle of allTriangles) {
-            const [a, b, c] = triangle;
-            const isReliable = reliableNodeIds.has(a) && reliableNodeIds.has(b) && reliableNodeIds.has(c);
-
-            if (isReliable) {
-                reliableTriangles.push(triangle);
-            } else {
-                regularTriangles.push(triangle);
+                if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
             }
         }
 
         const pointsByConfirmation = {
-            confirmed3: [],
-            confirmed2: [],
-            confirmed1: [],
-            confirmed0: []
+            confirmed3: [], confirmed2: [], confirmed1: [], confirmed0: []
         };
 
         for (const node of graph.nodes.values()) {
@@ -1258,32 +1228,21 @@ for (const [nodeId, node] of exactGraph.nodes) {
             modelName: model.metadata.name,
             points: Array.from(graph.nodes.values()),
             edges: Array.from(graph.edges),
-            reliableTriangles: reliableTriangles,
-            regularTriangles: regularTriangles,
             stats: {
                 totalNodes: graph.nodes.size,
                 totalEdges: graph.edges.size,
-                reliableTriangles: reliableTriangles.length,
-                regularTriangles: regularTriangles.length,
-                avgDegree: graph.avgDegree || 0,
                 confirmed3: pointsByConfirmation.confirmed3.length,
                 confirmed2: pointsByConfirmation.confirmed2.length,
                 confirmed1: pointsByConfirmation.confirmed1.length,
                 confirmed0: pointsByConfirmation.confirmed0.length,
-                reliableNodes: reliableNodeIds.size,
-                duplicatesSkipped: this.stats.totalDuplicatesSkipped,
-                nodesRemoved: this.stats.totalNodesRemoved
+                reliableNodes: reliableNodeIds.size
             },
-            pointsByConfirmation: pointsByConfirmation,
+            pointsByConfirmation,
             metadata: model.metadata,
-            isTopological: true,
-            reliableNodeIds: Array.from(reliableNodeIds),
             allModels: this.getAllModels(),
             currentModelId: this.currentModelId
         };
     }
-
-    // ==================== ИНФОРМАЦИЯ О МОДЕЛИ ====================
 
     getModelInfo(modelId = null) {
         const targetId = modelId || this.currentModelId;
@@ -1299,26 +1258,16 @@ for (const [nodeId, node] of exactGraph.nodes) {
             else confirmations[count] = (confirmations[count] || 0) + 1;
         }
 
-        let withMorphology = 0;
-        for (const node of graph.nodes.values()) {
-            if (node.morphology && node.hasContour) withMorphology++;
-        }
-
         return {
             id: model.id,
             name: model.metadata.name,
             stats: {
                 nodes: graph.nodes.size,
                 edges: graph.edges.size,
-                withMorphology,
                 confirmed1: confirmations[1] || 0,
                 confirmed2: confirmations[2] || 0,
                 confirmed3: confirmations[3] || 0,
                 confirmed4plus: confirmations['4+'] || 0,
-                centerMatches: this.stats.totalCenterMatches,
-                relativeMatches: this.stats.totalRelativeMatches,
-                duplicatesSkipped: this.stats.totalDuplicatesSkipped,
-                nodesRemoved: this.stats.totalNodesRemoved,
                 photosCount: model.metadata.photoCount || 0
             },
             metadata: model.metadata,
@@ -1327,21 +1276,13 @@ for (const [nodeId, node] of exactGraph.nodes) {
         };
     }
 
-    // ==================== СТАТИСТИКА ====================
-
     getStats() {
         return {
             system: this.stats,
             models: this.getModelsStats(),
-            relations: this.getModelRelations(),
-            fingerprinter: this.fingerprinter.getStats(),
-            localGroupSignature: this.localGroupSignature.getStats(),
-            centerMatcher: this.centerMatcher.getStats(),
-            relativePositioning: this.relativePositioning.getStats()
+            relations: this.getModelRelations()
         };
     }
-
-    // ==================== ЭКСПОРТ/ИМПОРТ ====================
 
     exportModel(modelId) {
         const model = this.models.get(modelId);
@@ -1364,21 +1305,14 @@ for (const [nodeId, node] of exactGraph.nodes) {
     importModel(modelData) {
         try {
             const modelId = modelData.id;
-
             const nodes = new Map(modelData.graph.nodes);
             const edges = new Set(modelData.graph.edges);
-            const graph = {
-                nodes,
-                edges,
-                avgDegree: modelData.graph.avgDegree
-            };
-
             const knnFingerprints = new Map(modelData.knnFingerprints);
             const morphologyMap = new Map(modelData.morphologyMap);
 
             const model = {
                 id: modelId,
-                graph,
+                graph: { nodes, edges, avgDegree: modelData.graph.avgDegree },
                 knnGraph: null,
                 knnFingerprints,
                 morphologyMap,
@@ -1389,23 +1323,19 @@ for (const [nodeId, node] of exactGraph.nodes) {
 
             this.models.set(modelId, model);
             this.stats.totalModels++;
-
             console.log(`📥 Импортирована модель ${modelId.slice(0, 12)}...`);
             return true;
         } catch (error) {
-            console.log(`❌ Ошибка импорта модели: ${error.message}`);
+            console.log(`❌ Ошибка импорта: ${error.message}`);
             return false;
         }
     }
-
-    // ==================== ОЧИСТКА ====================
 
     clear() {
         this.models.clear();
         this.currentModelId = null;
         this.modelRelations.clear();
         this.photoToModel.clear();
-
         this.fingerprinter.clearCache();
         this.localGroupSignature.clearCache();
         this.morphologyEncoder.clearCache();
@@ -1420,12 +1350,13 @@ for (const [nodeId, node] of exactGraph.nodes) {
             totalNodesRemoved: 0,
             totalDuplicatesSkipped: 0,
             differentFootprintsDetected: 0,
-            optimalMatchesCount: 0,
+            fastMatchesCount: 0,
+            hierarchicalMatchesCount: 0,
             createdAt: new Date(),
             lastUpdated: new Date()
         };
 
-        console.log('🧹 Мульти-модельный аккумулятор очищен');
+        console.log('🧹 Аккумулятор очищен');
     }
 }
 
