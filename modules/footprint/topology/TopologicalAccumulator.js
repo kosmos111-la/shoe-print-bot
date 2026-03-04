@@ -1018,13 +1018,26 @@ class TopologicalAccumulator {
         const toRemove = [];
         const now = Date.now();
 
+        // Получаем информацию о зонах из hierarchicalMatcher, если она есть
+        const corePoints = new Set();
+        if (model.lastHierarchicalResult && model.lastHierarchicalResult.zones) {
+            model.lastHierarchicalResult.zones.core.forEach(p => corePoints.add(p.pointA));
+        }
+
         for (const [nodeId, node] of graph.nodes) {
+            // 🔥 НИКОГДА не удаляем точки из ядра!
+            if (corePoints.has(nodeId)) {
+                continue;
+            }
+
+            // Точки из оригинального фото (первое в сессии) не удаляем
             if (node.addedFrom === 'original') continue;
 
             const confirmations = node.confirmationCount || 1;
             const addedAt = node.addedAt ? node.addedAt.getTime() : now;
-            const age = (now - addedAt) / (1000 * 60 * 60 * 24);
+            const age = (now - addedAt) / (1000 * 60 * 60 * 24); // в днях
 
+            // Удаляем только неподтверждённые точки, добавленные из других фото
             if (confirmations < minConfirmations && age > 0.1) {
                 toRemove.push(nodeId);
             }
@@ -1032,6 +1045,7 @@ class TopologicalAccumulator {
 
         toRemove.forEach(nodeId => graph.nodes.delete(nodeId));
 
+        // Обновляем рёбра
         const newEdges = new Set();
         for (const edge of graph.edges) {
             const [a, b] = edge.split('--');
@@ -1041,6 +1055,7 @@ class TopologicalAccumulator {
         }
         graph.edges = newEdges;
 
+        // Пересчитываем степени
         for (const node of graph.nodes.values()) node.degree = 0;
         for (const edge of graph.edges) {
             const [a, b] = edge.split('--');
@@ -1049,8 +1064,17 @@ class TopologicalAccumulator {
         }
 
         console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
-
         return { removed: toRemove.length, remaining: graph.nodes.size };
+    }
+
+    /**
+     * 🔥 НОВЫЙ МЕТОД: Сохранить результаты иерархического матчера
+     */
+    setHierarchicalResult(modelId, result) {
+        const model = this.models.get(modelId);
+        if (model) {
+            model.lastHierarchicalResult = result;
+        }
     }
 
     updateEdges(modelGraph, newGraph, matches) {
