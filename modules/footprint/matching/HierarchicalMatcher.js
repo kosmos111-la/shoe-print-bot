@@ -1,5 +1,5 @@
 // modules/footprint/matching/HierarchicalMatcher.js
-// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ТИПОЛОГИЕЙ КЛЮЧЕЙ И ЗАМКОВ
+// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ИЕРАРХИЧЕСКОЙ ТИПОЛОГИЕЙ
 
 class HierarchicalMatcher {
     constructor(options = {}) {
@@ -31,10 +31,10 @@ class HierarchicalMatcher {
                 weight: 0.07,
                 enabled: true
             },
-            {   // УРОВЕНЬ 3B: КЛАСТЕР (группа)
-                name: 'КЛАСТЕРНАЯ ПРИНАДЛЕЖНОСТЬ',
-                features: ['clusterId', 'clusterSize'],
-                tolerances: ['soft', 2],
+            {   // УРОВЕНЬ 3B: РАЗМЕР ГРУППЫ (сколько соседей в кластере)
+                name: 'РАЗМЕР ГРУППЫ',
+                features: ['clusterSize'],
+                tolerances: [3],
                 groupLevel: false,
                 weight: 0.07,
                 enabled: true
@@ -49,8 +49,8 @@ class HierarchicalMatcher {
             },
             {   // УРОВЕНЬ 4: МЕХАНИЗМ ЛИЧИНКИ (финальная примерка)
                 name: 'ДЕТАЛЬНАЯ ПРОВЕРКА',
-                features: ['radialProfile', 'patternType', 'gapPattern'],
-                tolerances: [0.3, 'strict', 0.2],
+                features: ['radialProfile', 'patternType'],
+                tolerances: [0.3, 'strict'],
                 groupLevel: true,
                 weight: 0.25,
                 enabled: true
@@ -226,8 +226,8 @@ class HierarchicalMatcher {
         } else if (tolerance === 'soft') {
             if (feature === 'neighborRoles') {
                 return this.compareNeighborRolesSoft(valA, valB);
-            } else if (feature === 'clusterId') {
-                return this.compareClusterIdSoft(valA, valB);
+            } else if (feature === 'patternType') {
+                return true; // Пропускаем patternType на софте
             }
             return true;
         } else if (typeof tolerance === 'number') {
@@ -267,17 +267,6 @@ class HierarchicalMatcher {
             if (!setA.has(role)) return false;
         }
         return true;
-    }
-
-    /**
-     * Мягкое сравнение ID кластера
-     */
-    compareClusterIdSoft(idA, idB) {
-        if (!idA || !idB) return true;
-        // Сравниваем только тип кластера (C1, C2 и т.д.)
-        const typeA = idA.replace(/[0-9]/g, ''); // Убираем цифры
-        const typeB = idB.replace(/[0-9]/g, '');
-        return typeA === typeB;
     }
 
     compareArrays(arrA, arrB, tolerance) {
@@ -320,7 +309,7 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 РАСШИРЕННАЯ СТАТИСТИКА С ТИПОЛОГИЕЙ
+     * 🔥 ИЕРАРХИЧЕСКАЯ СТАТИСТИКА С ТИПОЛОГИЕЙ
      */
     logLevelStats(level, stats, candidates) {
         const passRate = stats.total > 0 ? (stats.passed / stats.total * 100).toFixed(1) : '0.0';
@@ -329,8 +318,8 @@ class HierarchicalMatcher {
         console.log(`   • Прошло фильтр: ${stats.passed} (${passRate}%)`);
         console.log(`   • Отсеяно: ${stats.rejected} (${stats.total > 0 ? (stats.rejected/stats.total*100).toFixed(1) : '0.0'}%)`);
       
-        // 🔥 ТИПОЛОГИЯ КЛЮЧЕЙ И ЗАМКОВ
-        this.printTypology(candidates);
+        // 🔥 ИЕРАРХИЧЕСКАЯ ТИПОЛОГИЯ
+        this.printHierarchicalTypology(candidates);
       
         const candidatesCounts = Array.from(candidates.values())
             .map(d => d.candidates.length);
@@ -347,87 +336,98 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 ПЕЧАТЬ ТИПОЛОГИИ КЛЮЧЕЙ И ЗАМКОВ
+     * 🔥 ИЕРАРХИЧЕСКАЯ ТИПОЛОГИЯ (по типу личинок)
      */
-    printTypology(candidates) {
-        // Типы по компактности (форма)
-        const keyTypesByForm = { Овальные: 0, Круглые: 0, Вытянутые: 0 };
-        const lockTypesByForm = { Овальные: 0, Круглые: 0, Вытянутые: 0 };
-        const lockFormSet = new Set();
-      
-        // Типы по ролям
-        const keyRoles = { H:0, C:0, B:0, R:0, L:0 };
-        const lockRoles = { H:0, C:0, B:0, R:0, L:0 };
-        const lockRoleSet = new Set();
-      
-        // Типы по кластерам
-        const keyClusters = new Map();
-        const lockClusters = new Map();
-
+    printHierarchicalTypology(candidates) {
+        // Иерархия для замков: форма -> { роль -> { кластер -> счетчик } }
+        const lockHierarchy = {
+            'Овальные': { roles: {}, clusters: {}, total: 0 },
+            'Круглые': { roles: {}, clusters: {}, total: 0 },
+            'Вытянутые': { roles: {}, clusters: {}, total: 0 }
+        };
+       
+        // Собираем данные по замкам (кандидатам)
         for (const [pointId, data] of candidates) {
-            if (data.candidates.length === 0) {
-                // Ключи без кандидатов (новые)
-                const form = this.getFormType(data.point);
-                keyTypesByForm[form]++;
-                keyRoles[data.point.role || 'R']++;
-              
-                const cluster = data.point.clusterId || 'R0';
-                keyClusters.set(cluster, (keyClusters.get(cluster) || 0) + 1);
-                continue;
-            }
-          
-            // Ключи с кандидатами
-            const form = this.getFormType(data.point);
-            keyTypesByForm[form]++;
-            keyRoles[data.point.role || 'R']++;
-          
-            const cluster = data.point.clusterId || 'R0';
-            keyClusters.set(cluster, (keyClusters.get(cluster) || 0) + 1);
-          
-            // Анализируем кандидатов (замки)
             for (const candidate of data.candidates) {
-                const lockForm = this.getFormType(candidate);
-                lockTypesByForm[lockForm]++;
-                lockFormSet.add(lockForm);
-              
-                const lockRole = candidate.role || 'R';
-                lockRoles[lockRole]++;
-                lockRoleSet.add(lockRole);
-              
-                const lockCluster = candidate.clusterId || 'R0';
-                lockClusters.set(lockCluster, (lockClusters.get(lockCluster) || 0) + 1);
+                const form = this.getFormType(candidate);
+                const role = candidate.role || 'R';
+                const cluster = candidate.clusterId || 'R0';
+               
+                lockHierarchy[form].total++;
+                lockHierarchy[form].roles[role] = (lockHierarchy[form].roles[role] || 0) + 1;
+                lockHierarchy[form].clusters[cluster] = (lockHierarchy[form].clusters[cluster] || 0) + 1;
             }
         }
-
-        // Печатаем типологию
-        console.log(`\n   🗝️ ТИПЫ КЛЮЧЕЙ (ПО ФОРМЕ):`);
-        Object.entries(keyTypesByForm).forEach(([type, count]) => {
-            if (count > 0) console.log(`      • ${type}: ${count} ключей`);
-        });
-
-        console.log(`\n   🚪 ТИПЫ ЗАМКОВ (ПО ФОРМЕ):`);
-        Object.entries(lockTypesByForm).forEach(([type, count]) => {
-            if (count > 0) console.log(`      • ${type}: ${count} замков`);
-        });
-        if (lockFormSet.size > 0) {
-            console.log(`      🎯 Разнообразие форм замков: ${lockFormSet.size} типа`);
+       
+        // Печатаем иерархию замков
+        console.log(`\n🏗️ ТИПЫ ЛИЧИНОК (ПО ФОРМЕ):`);
+       
+        for (const [form, data] of Object.entries(lockHierarchy)) {
+            if (data.total === 0) continue;
+           
+            console.log(`\n   • ${form}: ${data.total} замков`);
+           
+            // Роли внутри типа личинки
+            const roles = Object.entries(data.roles)
+                .sort((a, b) => b[1] - a[1]);
+           
+            if (roles.length > 0) {
+                console.log(`        🚪 Роли: ${roles.map(([r, c]) => `${r}:${c}`).join(', ')}`);
+            }
+           
+            // Кластеры внутри типа личинки (топ-5)
+            const clusters = Object.entries(data.clusters)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+           
+            if (clusters.length > 0) {
+                console.log(`        📦 Кластеры: ${clusters.map(([c, cnt]) => `${c}(${cnt})`).join(', ')}`);
+                if (Object.keys(data.clusters).length > 5) {
+                    console.log(`          ... и еще ${Object.keys(data.clusters).length - 5} кластеров`);
+                }
+            }
         }
-
-        console.log(`\n   🎨 РАСПРЕДЕЛЕНИЕ КЛЮЧЕЙ ПО РОЛЯМ:`);
-        Object.entries(keyRoles).forEach(([role, count]) => {
-            if (count > 0) console.log(`      • ${role}: ${count} ключей`);
-        });
-
-        console.log(`\n   🎨 РАСПРЕДЕЛЕНИЕ ЗАМКОВ ПО РОЛЯМ:`);
-        Object.entries(lockRoles).forEach(([role, count]) => {
-            if (count > 0) console.log(`      • ${role}: ${count} замков`);
-        });
-        if (lockRoleSet.size > 0) {
-            console.log(`      🎯 Разнообразие ролей замков: ${lockRoleSet.size} типа`);
+       
+        // Иерархия для ключей
+        const keyHierarchy = {
+            'Овальные': { roles: {}, clusters: {}, total: 0 },
+            'Круглые': { roles: {}, clusters: {}, total: 0 },
+            'Вытянутые': { roles: {}, clusters: {}, total: 0 }
+        };
+       
+        for (const [pointId, data] of candidates) {
+            const form = this.getFormType(data.point);
+            const role = data.point.role || 'R';
+            const cluster = data.point.clusterId || 'R0';
+           
+            keyHierarchy[form].total++;
+            keyHierarchy[form].roles[role] = (keyHierarchy[form].roles[role] || 0) + 1;
+            keyHierarchy[form].clusters[cluster] = (keyHierarchy[form].clusters[cluster] || 0) + 1;
         }
-
-        console.log(`\n   📦 КЛАСТЕРЫ КЛЮЧЕЙ: ${keyClusters.size} уникальных групп`);
-        console.log(`   📦 КЛАСТЕРЫ ЗАМКОВ: ${lockClusters.size} уникальных групп`);
+       
+        console.log(`\n🗝️ ТИПЫ КЛЮЧЕЙ (ПО ФОРМЕ):`);
+       
+        for (const [form, data] of Object.entries(keyHierarchy)) {
+            if (data.total === 0) continue;
+           
+            console.log(`\n   • ${form}: ${data.total} ключей`);
+           
+            const roles = Object.entries(data.roles)
+                .sort((a, b) => b[1] - a[1]);
+            if (roles.length > 0) {
+                console.log(`        🚪 Роли: ${roles.map(([r, c]) => `${r}:${c}`).join(', ')}`);
+            }
+           
+            const clusters = Object.entries(data.clusters)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+            if (clusters.length > 0) {
+                console.log(`        📦 Кластеры: ${clusters.map(([c, cnt]) => `${c}(${cnt})`).join(', ')}`);
+                if (Object.keys(data.clusters).length > 5) {
+                    console.log(`          ... и еще ${Object.keys(data.clusters).length - 5} кластеров`);
+                }
+            }
+        }
     }
 
     /**
@@ -481,39 +481,92 @@ class HierarchicalMatcher {
             .filter(p => !usedB.has(p.id))
             .map(p => p.id);
 
-        // 🔥 ФИНАЛЬНАЯ ТИПОЛОГИЯ
+        // 🔥 ФИНАЛЬНАЯ ИЕРАРХИЧЕСКАЯ ТИПОЛОГИЯ
         console.log(`\n🔍 АНАЛИЗ СООТВЕТСТВИЙ:`);
       
-        const matchedRoles = { H:0, C:0, B:0, R:0, L:0 };
+        // Группируем якоря по форме и роли
+        const anchorByForm = {
+            'Овальные': { H:0, C:0, B:0, R:0, L:0, total:0 },
+            'Круглые': { H:0, C:0, B:0, R:0, L:0, total:0 },
+            'Вытянутые': { H:0, C:0, B:0, R:0, L:0, total:0 }
+        };
+       
         for (const match of matches) {
             const pointA = candidates.get(match.pointA)?.point;
-            if (pointA) matchedRoles[pointA.role || 'R']++;
+            if (pointA) {
+                const form = this.getFormType(pointA);
+                const role = pointA.role || 'R';
+                anchorByForm[form][role]++;
+                anchorByForm[form].total++;
+            }
         }
 
-        console.log(`\n   ✅ ЯКОРЯ ПО РОЛЯМ:`);
-        Object.entries(matchedRoles).forEach(([role, count]) => {
-            if (count > 0) console.log(`      • ${role}: ${count} якорей`);
-        });
+        console.log(`\n   ✅ ЯКОРЯ ПО ТИПАМ ЛИЧИНОК:`);
+        for (const [form, data] of Object.entries(anchorByForm)) {
+            if (data.total > 0) {
+                const roles = Object.entries(data)
+                    .filter(([k, v]) => k !== 'total' && v > 0)
+                    .map(([r, c]) => `${r}:${c}`)
+                    .join(', ');
+                console.log(`      • ${form}: ${data.total} якорей (${roles})`);
+            }
+        }
 
-        console.log(`\n   🔵 НОВЫЕ КЛЮЧИ (ПО РОЛЯМ):`);
-        const newRoles = { H:0, C:0, B:0, R:0, L:0 };
+        // Новые ключи по типам
+        const newByForm = {
+            'Овальные': { H:0, C:0, B:0, R:0, L:0, total:0 },
+            'Круглые': { H:0, C:0, B:0, R:0, L:0, total:0 },
+            'Вытянутые': { H:0, C:0, B:0, R:0, L:0, total:0 }
+        };
+       
         for (const id of noMatch) {
             const point = candidates.get(id)?.point;
-            if (point) newRoles[point.role || 'R']++;
+            if (point) {
+                const form = this.getFormType(point);
+                const role = point.role || 'R';
+                newByForm[form][role]++;
+                newByForm[form].total++;
+            }
         }
-        Object.entries(newRoles).forEach(([role, count]) => {
-            if (count > 0) console.log(`      • ${role}: ${count} ключей`);
-        });
 
-        console.log(`\n   🔵 НОВЫЕ ЗАМКИ (ПО РОЛЯМ):`);
-        const newLockRoles = { H:0, C:0, B:0, R:0, L:0 };
+        console.log(`\n   🔵 НОВЫЕ КЛЮЧИ ПО ТИПАМ ЛИЧИНОК:`);
+        for (const [form, data] of Object.entries(newByForm)) {
+            if (data.total > 0) {
+                const roles = Object.entries(data)
+                    .filter(([k, v]) => k !== 'total' && v > 0)
+                    .map(([r, c]) => `${r}:${c}`)
+                    .join(', ');
+                console.log(`      • ${form}: ${data.total} ключей (${roles})`);
+            }
+        }
+
+        // Новые замки по типам
+        const newLockByForm = {
+            'Овальные': { H:0, C:0, B:0, R:0, L:0, total:0 },
+            'Круглые': { H:0, C:0, B:0, R:0, L:0, total:0 },
+            'Вытянутые': { H:0, C:0, B:0, R:0, L:0, total:0 }
+        };
+       
         for (const id of unmatchedB) {
             const point = pointsB.find(p => p.id === id);
-            if (point) newLockRoles[point.role || 'R']++;
+            if (point) {
+                const form = this.getFormType(point);
+                const role = point.role || 'R';
+                newLockByForm[form][role]++;
+                newLockByForm[form].total++;
+            }
         }
-        Object.entries(newLockRoles).forEach(([role, count]) => {
-            if (count > 0) console.log(`      • ${role}: ${count} замков`);
-        });
+
+        console.log(`\n   🔵 НОВЫЕ ЗАМКИ ПО ТИПАМ ЛИЧИНОК:`);
+        for (const [form, data] of Object.entries(newLockByForm)) {
+            if (data.total > 0) {
+                const roles = Object.entries(data)
+                    .filter(([k, v]) => k !== 'total' && v > 0)
+                    .map(([r, c]) => `${r}:${c}`)
+                    .join(', ');
+                console.log(`      • ${form}: ${data.total} замков (${roles})`);
+            }
+        }
 
         console.log(`\n✅ ОДНОЗНАЧНЫЕ СООТВЕТСТВИЯ (ЯКОРЯ): ${matches.length}`);
         if (matches.length > 0) {
