@@ -213,10 +213,11 @@ class SimpleFootprintManager {
 
                 // 🔥 ПЕРЕДАЁМ И ТОЧКИ, И КОНТУРЫ
                 topologicalResult = await topologyManager.processFootprint(
-                    { id: `sandbox_${session.id}` },
-                    { points, contours },
-                    { ...photoInfo, photoId, sandboxId: session.id }
-                );
+    `sandbox_${session.id}`,  // ← фото ID как строка
+    points,                    // ← массив точек
+    contours,                  // ← массив контуров
+    { ...photoInfo, photoId, sandboxId: session.id }
+);
 
                 decision = topologicalResult.decision;
                 similarity = topologicalResult.similarity || 0;
