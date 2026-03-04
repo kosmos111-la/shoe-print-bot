@@ -915,26 +915,54 @@ async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprin
     }
 
     createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
-        const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-        let morphologyCount = 0;
-        for (const [nodeId, node] of exactGraph.nodes) {
-            const morph = morphologyMap.get(nodeId);
-            if (morph) {
-                node.morphology = morph;
-                node.hasContour = morph.hasContour || false;
-                node.compactness = morph.compactness;
-                node.eccentricity = morph.eccentricity;
-                node.orientation = morph.orientation;
-                node.normalizedArea = morph.normalizedArea;
-                node.radialProfile = morph.radialProfile;
-                node.asymmetry = morph.asymmetry;
-                morphologyCount++;
-            }
-            node.confirmationCount = 1;
-            node.addedFrom = 'original';
-            node.addedAt = new Date();
+    // 🔥 ИСПРАВЛЕНО: Создаем features с данными
+    const points = Array.from(exactGraph.nodes.values());
+    const features = new Map();
+   
+    for (const point of points) {
+        const morph = morphologyMap.get(point.id) || {};
+        features.set(point.id, {
+            role: this.getNodeRoleSimple(point.id, exactGraph),
+            degree: point.degree || 0,
+            triangles: point.triangles || 0,
+            morphology: morph,
+            neighborRoles: this.getNeighborRolesForPoint(point.id, exactGraph),
+            patternType: point.patternType || 'R',
+            patternFrequency: point.patternFrequency || 1
+        });
+    }
+
+    // Анализ кластеров с реальными фичами
+    const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
+   
+    // Добавляем кластеры в узлы графа
+    for (const [nodeId, node] of exactGraph.nodes) {
+        const morph = morphologyMap.get(nodeId) || {};
+        const cluster = clusterData.enhancedFeatures.get(nodeId);
+       
+        node.morphology = morph;
+        node.hasContour = morph.hasContour || false;
+        node.compactness = morph.compactness;
+        node.eccentricity = morph.eccentricity;
+        node.normalizedArea = morph.normalizedArea;
+        node.radialProfile = morph.radialProfile;
+       
+        // 🔥 ТЕПЕРЬ clusterId ПРИДЕТ ИЗ enhancedFeatures
+        if (cluster) {
+            node.clusterId = cluster.clusterId || 'R0';
+            node.clusterSize = cluster.clusterSize || 1;
+            node.isUnique = cluster.isUnique || false;
+        } else {
+            node.clusterId = 'R0';
+            node.clusterSize = 1;
         }
+       
+        node.confirmationCount = 1;
+        node.addedFrom = 'original';
+        node.addedAt = new Date();
+    }
 
         // Анализ паттернов
         const tempModel = { graph: exactGraph, morphologyMap };
