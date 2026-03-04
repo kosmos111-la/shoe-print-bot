@@ -183,6 +183,11 @@ class HierarchicalMatcher {
        
         this.stats.iterations = iteration;
         console.log(`\n✅ Стабилизация завершена за ${iteration} итераций`);
+       
+        // Обновляем статистику зон
+        this.stats.coreSize = this.zones.core.size;
+        this.stats.zone1Size = this.zones.zone1.size;
+        this.stats.zone2Size = this.zones.zone2.size;
     }
 
     /**
@@ -197,11 +202,13 @@ class HierarchicalMatcher {
                     this.zones.core.set(pointId, {
                         pointB: candidate.id,
                         confidence: 1.0,
-                        reason: 'EXACT_MATCH'
+                        reason: 'EXACT_MATCH',
+                        zone: 'CORE'
                     });
                    
+                    // Помечаем как обработанную
+                    data.status = 'core';
                     data.candidates = [];
-                    data.status = 'matched';
                     break;
                 }
             }
@@ -230,7 +237,7 @@ class HierarchicalMatcher {
         let stabilized = 0;
        
         for (const [pointId, data] of candidates) {
-            if (data.status === 'matched' || this.zones.core.has(pointId)) continue;
+            if (data.status === 'core' || data.status === 'zone1' || data.status === 'zone2') continue;
             if (data.candidates.length === 0) continue;
            
             for (const candidate of data.candidates) {
@@ -241,11 +248,12 @@ class HierarchicalMatcher {
                         pointB: candidate.id,
                         confidence: 1.0,
                         reason: analysis.reason,
+                        zone: 'ZONE1',
                         changes: analysis.changes
                     });
                    
+                    data.status = 'zone1';
                     data.candidates = [];
-                    data.status = 'matched';
                     stabilized++;
                     break;
                 }
@@ -302,7 +310,7 @@ class HierarchicalMatcher {
         let stabilized = 0;
        
         for (const [pointId, data] of candidates) {
-            if (data.status === 'matched' || this.zones.core.has(pointId) || this.zones.zone1.has(pointId)) continue;
+            if (data.status === 'core' || data.status === 'zone1' || data.status === 'zone2') continue;
             if (data.candidates.length === 0) continue;
            
             for (const candidate of data.candidates) {
@@ -313,11 +321,12 @@ class HierarchicalMatcher {
                         pointB: candidate.id,
                         confidence: 1.0,
                         reason: analysis.reason,
+                        zone: 'ZONE2',
                         changes: analysis.changes
                     });
                    
+                    data.status = 'zone2';
                     data.candidates = [];
-                    data.status = 'matched';
                     stabilized++;
                     break;
                 }
@@ -736,20 +745,64 @@ class HierarchicalMatcher {
         return 'Вытянутые';
     }
 
+    /**
+     * 🔥 ИСПРАВЛЕННЫЙ ФИНАЛЬНЫЙ АНАЛИЗ
+     */
     finalAnalysis(candidates, pointsB) {
         console.log(`\n${'='.repeat(100)}`);
         console.log(`🏁 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ`);
         console.log(`${'='.repeat(100)}`);
 
+        // Сначала собираем ВСЕ стабилизированные точки из зон
         const matches = [];
+        const usedB = new Set();
+       
+        // Добавляем ядро
+        for (const [pointId, match] of this.zones.core) {
+            matches.push({
+                pointA: pointId,
+                pointB: match.pointB,
+                confidence: 1.0,
+                zone: 'CORE'
+            });
+            usedB.add(match.pointB);
+        }
+       
+        // Добавляем зону 1
+        for (const [pointId, match] of this.zones.zone1) {
+            matches.push({
+                pointA: pointId,
+                pointB: match.pointB,
+                confidence: 1.0,
+                zone: 'ZONE1',
+                changes: match.changes
+            });
+            usedB.add(match.pointB);
+        }
+       
+        // Добавляем зону 2
+        for (const [pointId, match] of this.zones.zone2) {
+            matches.push({
+                pointA: pointId,
+                pointB: match.pointB,
+                confidence: 1.0,
+                zone: 'ZONE2',
+                changes: match.changes
+            });
+            usedB.add(match.pointB);
+        }
+
+        // Теперь обрабатываем оставшиеся candidates
         const ambiguous = [];
         const noMatch = [];
-        const usedB = new Set();
-
+       
         const sorted = Array.from(candidates.entries())
             .sort((a, b) => a[1].candidates.length - b[1].candidates.length);
 
         for (const [pointId, data] of sorted) {
+            // Пропускаем уже обработанные точки
+            if (data.status === 'core' || data.status === 'zone1' || data.status === 'zone2') continue;
+           
             if (data.candidates.length === 0) {
                 noMatch.push(pointId);
                 continue;
@@ -761,7 +814,8 @@ class HierarchicalMatcher {
                 matches.push({
                     pointA: pointId,
                     pointB: available[0].id,
-                    confidence: this.calculateConfidence(data)
+                    confidence: this.calculateConfidence(data),
+                    zone: 'MATCHED'
                 });
                 usedB.add(available[0].id);
             } else if (available.length > 1) {
@@ -775,10 +829,18 @@ class HierarchicalMatcher {
 
         const unmatchedB = pointsB.filter(p => !usedB.has(p.id)).map(p => p.id);
 
+        // Выводим статистику по зонам
+        console.log(`\n📍 СТАТИСТИКА ПО ЗОНАМ:`);
+        console.log(`   • 🟣 ЯДРО (100%): ${this.zones.core.size} точек`);
+        console.log(`   • 🔵 ЗОНА 1 (потеря 1 соседа): ${this.zones.zone1.size} точек`);
+        console.log(`   • 🟡 ЗОНА 2 (потеря 2+ соседей): ${this.zones.zone2.size} точек`);
+        console.log(`   • 🟢 Найдено через допуски: ${matches.length - this.zones.core.size - this.zones.zone1.size - this.zones.zone2.size} точек`);
+
         console.log(`\n✅ ОДНОЗНАЧНЫЕ СООТВЕТСТВИЯ (ЯКОРЯ): ${matches.length}`);
         if (matches.length > 0) {
             matches.slice(0, 5).forEach((m, i) => {
-                console.log(`   ${i+1}. ${m.pointA.slice(0,12)}... ↔ ${m.pointB.slice(0,12)}... (уверенность ${(m.confidence*100).toFixed(0)}%)`);
+                const zoneInfo = m.zone ? ` [${m.zone}]` : '';
+                console.log(`   ${i+1}. ${m.pointA.slice(0,12)}... ↔ ${m.pointB.slice(0,12)}... (уверенность ${(m.confidence*100).toFixed(0)}%)${zoneInfo}`);
             });
         }
 
@@ -802,12 +864,20 @@ class HierarchicalMatcher {
             ambiguous,
             noMatchA: noMatch,
             noMatchB: unmatchedB,
+            zones: {
+                core: Array.from(this.zones.core.keys()),
+                zone1: Array.from(this.zones.zone1.keys()),
+                zone2: Array.from(this.zones.zone2.keys())
+            },
             stats: {
                 totalPairs: matches.length,
                 ambiguous: ambiguous.length,
                 uniqueA: noMatch.length,
                 uniqueB: unmatchedB.length,
-                earlyExits: this.stats.earlyExits
+                earlyExits: this.stats.earlyExits,
+                coreSize: this.zones.core.size,
+                zone1Size: this.zones.zone1.size,
+                zone2Size: this.zones.zone2.size
             }
         };
     }
