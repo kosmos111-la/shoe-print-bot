@@ -91,7 +91,7 @@ class TopologyManager {
      * Обработка нового фото
      */
     async processFootprint(photoId, points, contours, options = {}) {
-        console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoId.slice(0, 20)}...`);
+        console.log(`🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${String(photoId).slice(0, 20)}...`);
         console.log(`📦 Получены точки (${points.length}) и контуры (${contours?.length || 0})`);
 
         const startTime = Date.now();
