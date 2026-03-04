@@ -53,7 +53,7 @@ class ClusterAnalyzer {
 
         for (const point of points) {
             const f = features.get(point.id) || {};
-            const morph = f.morphology || {};
+            const morph = point.morphology || f.morphology || {};
            
             // Группируем непрерывные признаки для кластеризации
             const components = [
