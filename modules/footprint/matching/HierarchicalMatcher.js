@@ -1,5 +1,5 @@
 // modules/footprint/matching/HierarchicalMatcher.js
-// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ПОЛНОЙ ИЕРАРХИЧЕСКОЙ ВЛОЖЕННОСТЬЮ И ДИАГНОСТИКОЙ
+// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ИНВАРИАНТНЫМ RADIAL PROFILE
 
 class HierarchicalMatcher {
     constructor(options = {}) {
@@ -39,7 +39,7 @@ class HierarchicalMatcher {
                 weight: 0.07,
                 enabled: true
             },
-            {   // УРОВЕНЬ 5: КОНТЕКСТ (окружение) - ВРЕМЕННО УПРОЩЕН
+            {   // УРОВЕНЬ 5: СОСЕДНИЕ КЛАСТЕРЫ
                 name: 'СОСЕДНИЕ КЛАСТЕРЫ',
                 features: ['neighborClusters'],
                 tolerances: [1],
@@ -47,7 +47,7 @@ class HierarchicalMatcher {
                 weight: 0.06,
                 enabled: true
             },
-            {   // УРОВЕНЬ 6: ДЕТАЛЬНАЯ ПРОВЕРКА (финальная примерка)
+            {   // УРОВЕНЬ 6: ДЕТАЛЬНАЯ ПРОВЕРКА (с инвариантным radialProfile)
                 name: 'ДЕТАЛЬНАЯ ПРОВЕРКА',
                 features: ['radialProfile', 'patternType'],
                 tolerances: [0.3, 'strict'],
@@ -72,7 +72,7 @@ class HierarchicalMatcher {
         console.log(`📊 Всего замков (точек) в Б: ${pointsB.length}`);
       
         this.validateFeatures(pointsA, pointsB);
-        this.diagnoseFirstPoint(pointsA, pointsB); // 🔥 ДИАГНОСТИКА
+        this.diagnoseFirstPoint(pointsA, pointsB);
 
         const candidates = this.initializeCandidates(pointsA, pointsB);
 
@@ -160,19 +160,36 @@ class HierarchicalMatcher {
        
         console.log(`└───────────────────┴─────────────────────┴─────────────────────┘`);
        
-        // Дополнительно проверим gapPattern особо
-        console.log(`\n🔍 ДЕТАЛЬНО ПРО gapPattern:`);
-        console.log(`   Точка А:`, firstPointA['gapPattern']);
-        console.log(`   Точка Б:`, firstPointB['gapPattern']);
-        console.log(`   Тип А: ${typeof firstPointA['gapPattern']}`);
-        console.log(`   Тип Б: ${typeof firstPointB['gapPattern']}`);
+        // Детально про radialProfile (показываем сортированную версию)
+        if (Array.isArray(firstPointA.radialProfile) && Array.isArray(firstPointB.radialProfile)) {
+            const sortedA = this.getRotationInvariantProfile(firstPointA.radialProfile);
+            const sortedB = this.getRotationInvariantProfile(firstPointB.radialProfile);
+           
+            console.log(`\n🔍 radialProfile ПОСЛЕ СОРТИРОВКИ:`);
+            console.log(`   Точка А: [${sortedA.map(v => v.toFixed(2)).join(', ')}]`);
+            console.log(`   Точка Б: [${sortedB.map(v => v.toFixed(2)).join(', ')}]`);
+           
+            // Считаем сходство после сортировки
+            let sum = 0;
+            for (let i = 0; i < sortedA.length; i++) {
+                sum += Math.abs(sortedA[i] - sortedB[i]);
+            }
+            const similarity = 1 - (sum / sortedA.length);
+            console.log(`   🔥 Сходство после сортировки: ${(similarity * 100).toFixed(1)}%`);
+        }
+    }
+
+    /**
+     * 🔥 ИНВАРИАНТНЫЙ К ПОВОРОТУ RADIAL PROFILE
+     */
+    getRotationInvariantProfile(profile) {
+        if (!Array.isArray(profile)) return [];
        
-        // Проверим radialProfile
-        console.log(`\n🔍 ДЕТАЛЬНО ПРО radialProfile:`);
-        console.log(`   Точка А:`, firstPointA['radialProfile']);
-        console.log(`   Точка Б:`, firstPointB['radialProfile']);
-        console.log(`   Тип А: ${typeof firstPointA['radialProfile']}, длина: ${firstPointA['radialProfile']?.length}`);
-        console.log(`   Тип Б: ${typeof firstPointB['radialProfile']}, длина: ${firstPointB['radialProfile']?.length}`);
+        // Первые 4 - основные направления, следующие 4 - диагонали
+        const mainDirs = profile.slice(0, 4).sort((a, b) => a - b);
+        const diagDirs = profile.slice(4, 8).sort((a, b) => a - b);
+       
+        return [...mainDirs, ...diagDirs];
     }
 
     /**
@@ -236,7 +253,7 @@ class HierarchicalMatcher {
     }
 
     /**
-     * ПРОВЕРКА ПРИЗНАКА
+     * 🔥 ПРОВЕРКА ПРИЗНАКА С ИНВАРИАНТНЫМ RADIAL PROFILE
      */
     checkFeature(pointA, pointB, feature, tolerance) {
         const valA = pointA[feature];
@@ -248,30 +265,40 @@ class HierarchicalMatcher {
       
         if (tolerance === 'soft') {
             if (feature === 'neighborRoles') return this.compareNeighborRolesSoft(valA, valB);
-            return true; // Для остальных soft признаков пропускаем
+            return true;
         }
       
         if (typeof tolerance === 'number') {
             if (typeof valA === 'number' && typeof valB === 'number') {
-                // Для дискретных признаков - абсолютная разница
                 if (feature === 'degree' || feature === 'triangles' ||
                     feature === 'clusterSize' || feature === 'neighborClusters') {
                     return Math.abs(valA - valB) <= tolerance;
-                }
-                // Для непрерывных - относительная разница
-                else {
+                } else {
                     const maxVal = Math.max(Math.abs(valA), Math.abs(valB), 0.001);
                     const minVal = Math.min(Math.abs(valA), Math.abs(valB));
                     if (maxVal < 0.001) return true;
                     return (1 - minVal / maxVal) <= tolerance;
                 }
             } else if (Array.isArray(valA) && Array.isArray(valB)) {
-                if (valA.length !== valB.length) return false;
-                let sum = 0;
-                for (let i = 0; i < valA.length; i++) {
-                    sum += Math.abs(valA[i] - valB[i]);
+                // 🔥 ДЛЯ RADIAL PROFILE - ИСПОЛЬЗУЕМ ИНВАРИАНТНУЮ ВЕРСИЮ
+                if (feature === 'radialProfile') {
+                    const sortedA = this.getRotationInvariantProfile(valA);
+                    const sortedB = this.getRotationInvariantProfile(valB);
+                   
+                    if (sortedA.length !== sortedB.length) return false;
+                    let sum = 0;
+                    for (let i = 0; i < sortedA.length; i++) {
+                        sum += Math.abs(sortedA[i] - sortedB[i]);
+                    }
+                    return (sum / sortedA.length) <= tolerance;
+                } else {
+                    if (valA.length !== valB.length) return false;
+                    let sum = 0;
+                    for (let i = 0; i < valA.length; i++) {
+                        sum += Math.abs(valA[i] - valB[i]);
+                    }
+                    return (sum / valA.length) <= tolerance;
                 }
-                return (sum / valA.length) <= tolerance;
             }
         }
       
@@ -290,9 +317,6 @@ class HierarchicalMatcher {
         return true;
     }
 
-    /**
-     * Проверка раннего выхода
-     */
     checkEarlyExit(candidates, currentLevel) {
         let allUnique = true;
         let totalWithCandidates = 0;
@@ -304,9 +328,6 @@ class HierarchicalMatcher {
         return allUnique && totalWithCandidates > 0;
     }
 
-    /**
-     * Статистика уровня
-     */
     logLevelStats(level, stats, candidates) {
         const passRate = stats.total > 0 ? (stats.passed / stats.total * 100).toFixed(1) : '0.0';
         console.log(`\n📊 СТАТИСТИКА УРОВНЯ:`);
@@ -327,16 +348,11 @@ class HierarchicalMatcher {
         console.log(`      • Точек с >1 кандидатом: ${multiCandidates} (СПОРНЫЕ ⚠️)`);
     }
 
-    /**
-     * ПОЛНОЕ ИЕРАРХИЧЕСКОЕ ДЕРЕВО ДЛЯ КОНКРЕТНОГО УРОВНЯ
-     */
     printHierarchicalTree(candidates, upToLevel) {
         console.log(`\n🌳 ИЕРАРХИЧЕСКОЕ ДЕРЕВО ДО УРОВНЯ ${upToLevel + 1}:`);
        
-        // Группируем ключи по иерархии признаков
         const tree = this.buildHierarchicalTree(candidates, upToLevel);
        
-        // Рекурсивно печатаем дерево
         if (tree.count > 0) {
             this.printNode(tree, 0, upToLevel);
         } else {
@@ -344,12 +360,9 @@ class HierarchicalMatcher {
         }
     }
 
-    /**
-     * Построение иерархического дерева
-     */
     buildHierarchicalTree(candidates, upToLevel) {
         const root = { name: 'Все ключи', count: 0, children: [] };
-        const groups = new Map(); // группировка по форме
+        const groups = new Map();
        
         for (const [pointId, data] of candidates) {
             if (data.candidates.length === 0) continue;
@@ -357,7 +370,6 @@ class HierarchicalMatcher {
             const point = data.point;
             root.count++;
            
-            // Уровень 1: форма
             const form = this.getFormType(point);
             if (!groups.has(form)) {
                 groups.set(form, { name: form, count: 0, children: new Map() });
@@ -366,7 +378,6 @@ class HierarchicalMatcher {
             formGroup.count++;
            
             if (upToLevel >= 1) {
-                // Уровень 2: роль
                 const role = point.role || 'R';
                 if (!formGroup.children.has(role)) {
                     formGroup.children.set(role, { name: `Роль ${role}`, count: 0, children: new Map() });
@@ -375,7 +386,6 @@ class HierarchicalMatcher {
                 roleGroup.count++;
                
                 if (upToLevel >= 2) {
-                    // Уровень 3: роли соседей
                     const neighborRoles = point.neighborRoles || 'unknown';
                     const neighborKey = typeof neighborRoles === 'string' ? neighborRoles : JSON.stringify(neighborRoles);
                     if (!roleGroup.children.has(neighborKey)) {
@@ -385,7 +395,6 @@ class HierarchicalMatcher {
                     neighborGroup.count++;
                    
                     if (upToLevel >= 3) {
-                        // Уровень 4: размер группы
                         const clusterSize = point.clusterSize || 0;
                         const sizeKey = `size:${clusterSize}`;
                         if (!neighborGroup.children.has(sizeKey)) {
@@ -395,7 +404,6 @@ class HierarchicalMatcher {
                         sizeGroup.count++;
                        
                         if (upToLevel >= 4) {
-                            // Уровень 5: соседние кластеры
                             const neighborClusters = point.neighborClusters || 0;
                             const contextKey = `nc:${neighborClusters}`;
                             if (!sizeGroup.children.has(contextKey)) {
@@ -409,34 +417,17 @@ class HierarchicalMatcher {
             }
         }
        
-        // Преобразуем Map в массив для root
         for (const [form, formGroup] of groups) {
-            const formNode = {
-                name: formGroup.name,
-                count: formGroup.count,
-                children: []
-            };
+            const formNode = { name: formGroup.name, count: formGroup.count, children: [] };
            
             for (const [role, roleGroup] of formGroup.children) {
-                const roleNode = {
-                    name: roleGroup.name,
-                    count: roleGroup.count,
-                    children: []
-                };
+                const roleNode = { name: roleGroup.name, count: roleGroup.count, children: [] };
                
                 for (const [neighbor, neighborGroup] of roleGroup.children) {
-                    const neighborNode = {
-                        name: neighborGroup.name,
-                        count: neighborGroup.count,
-                        children: []
-                    };
+                    const neighborNode = { name: neighborGroup.name, count: neighborGroup.count, children: [] };
                    
                     for (const [size, sizeGroup] of neighborGroup.children) {
-                        const sizeNode = {
-                            name: sizeGroup.name,
-                            count: sizeGroup.count,
-                            children: []
-                        };
+                        const sizeNode = { name: sizeGroup.name, count: sizeGroup.count, children: [] };
                        
                         for (const [context, contextGroup] of sizeGroup.children) {
                             sizeNode.children.push({
@@ -461,9 +452,6 @@ class HierarchicalMatcher {
         return root;
     }
 
-    /**
-     * Рекурсивная печать узла дерева
-     */
     printNode(node, depth, maxDepth) {
         if (depth > maxDepth + 1) return;
        
@@ -477,9 +465,6 @@ class HierarchicalMatcher {
         }
     }
 
-    /**
-     * Определение типа по компактности
-     */
     getFormType(point) {
         const c = point.compactness || 0;
         if (c < 15) return 'Овальные';
@@ -487,9 +472,6 @@ class HierarchicalMatcher {
         return 'Вытянутые';
     }
 
-    /**
-     * Финальный анализ
-     */
     finalAnalysis(candidates, pointsB) {
         console.log(`\n${'='.repeat(100)}`);
         console.log(`🏁 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ`);
@@ -566,9 +548,6 @@ class HierarchicalMatcher {
         };
     }
 
-    /**
-     * Вычисление уверенности
-     */
     calculateConfidence(data) {
         let score = 0;
         let totalWeight = 0;
