@@ -568,129 +568,91 @@ class TopologicalAccumulator {
 
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
-    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
-        const model = this.models.get(modelId);
-        if (!model) return { error: 'Модель не найдена' };
+async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
+    const model = this.models.get(modelId);
+    if (!model) return { error: 'Модель не найдена' };
 
-        console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
-        console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
+    console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
+    console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
 
-        const centerMatches = this.centerMatcher.findCenterMatches(
+    // 🔥 ИСПРАВЛЕНО: передаем оба аргумента морфологии
+    const centerMatches = this.centerMatcher.findCenterMatches(
+        newExactGraph,
+        model.graph,
+        newMorphology,      // photoMorphology
+        model.morphologyMap // modelMorphology
+    );
+
+    console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} якорей`);
+
+    let allMatches = new Map();
+    let stabilizedMatches = new Map();
+    let finalMatches = new Map([...centerMatches]);
+    let newNodesAdded = 0;
+
+    if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
+        console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
+
+        allMatches = this.relativePositioning.positionPoints(
             newExactGraph,
             model.graph,
+            centerMatches,
             newMorphology,
             model.morphologyMap
         );
 
-        console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} якорей`);
+        stabilizedMatches = this.relativePositioning.iterativeStabilization(
+            newExactGraph,
+            model.graph,
+            centerMatches,
+            newMorphology,
+            model.morphologyMap
+        );
 
-        let allMatches = new Map();
-        let stabilizedMatches = new Map();
-        let finalMatches = new Map([...centerMatches]);
-        let newNodesAdded = 0;
+        finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
 
-        if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
-            console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
-
-            allMatches = this.relativePositioning.positionPoints(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap
-            );
-
-            stabilizedMatches = this.relativePositioning.iterativeStabilization(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap
-            );
-
-            finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
-
-            this.printFinalTable(newExactGraph, model.graph, finalMatches);
-            this.printDetailedTables(newExactGraph, model.graph, centerMatches, finalMatches);
-
-            const updateResult = this.updateModelWithMatches(
-                modelId,
-                newExactGraph,
-                finalMatches,
-                centerMatches,
-                newMorphology
-            );
-            newNodesAdded = updateResult.newNodesAdded;
-        } else {
-            console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size})`);
-            this.printFinalTable(newExactGraph, model.graph, finalMatches);
-            this.printDetailedTables(newExactGraph, model.graph, centerMatches, finalMatches);
-        }
-
-        model.knnGraph = newKNNGraph;
-        model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
-        model.metadata.photoCount = (model.metadata.photoCount || 0) + 1;
-        model.metadata.lastEnhanced = new Date();
-
-        model.history.push({
-            action: 'enhanced',
-            timestamp: new Date(),
-            centerMatches: centerMatches.size,
-            totalMatches: finalMatches.size,
-            newNodes: newNodesAdded,
-            totalNodes: model.graph.nodes.size
-        });
-
-        this.stats.totalEnhancements++;
-        this.stats.lastUpdated = new Date();
-
-        const matchMap = new Map();
-        let pairNumber = 1;
-
-        console.log(`\n📋 ФОРМИРОВАНИЕ MATCHMAP:`);
-
-        for (const [photoId, match] of centerMatches) {
-            if (match && match.confidence >= 0.7) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    pairNumber: pairNumber++,
-                    type: 'anchor'
-                });
-                console.log(`   🔴 Якорь ${pairNumber-1}: ${photoId.slice(0,12)}... ↔ ${match.modelId.slice(0,12)}...`);
-            }
-        }
-
-        for (const [photoId, match] of allMatches) {
-            if (!centerMatches.has(photoId) && match && match.confidence >= 0.7) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    type: 'regular'
-                });
-            }
-        }
-
-        for (const [photoId, match] of stabilizedMatches) {
-            if (!centerMatches.has(photoId) && !allMatches.has(photoId) && match && match.confidence >= 0.7) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    type: 'regular'
-                });
-            }
-        }
-
-        console.log(`\n📊 ИТОГО: ${centerMatches.size} якорей, ${matchMap.size - centerMatches.size} дополнительных точек`);
-
-        const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
-        this.stats.totalNodesRemoved += cleanResult.removed;
-
-        return {
-            centerMatches: centerMatches.size,
-            totalMatches: finalMatches.size,
-            newNodesAdded,
-            nodesRemoved: cleanResult.removed,
-            matchMap
-        };
+        const updateResult = this.updateModelWithMatches(
+            modelId,
+            newExactGraph,
+            finalMatches,
+            centerMatches,
+            newMorphology
+        );
+        newNodesAdded = updateResult.newNodesAdded;
+    } else {
+        console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size})`);
     }
+
+    model.knnGraph = newKNNGraph;
+    model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
+    model.metadata.photoCount = (model.metadata.photoCount || 0) + 1;
+    model.metadata.lastEnhanced = new Date();
+
+    model.history.push({
+        action: 'enhanced',
+        timestamp: new Date(),
+        centerMatches: centerMatches.size,
+        totalMatches: finalMatches.size,
+        newNodes: newNodesAdded,
+        totalNodes: model.graph.nodes.size
+    });
+
+    this.stats.totalEnhancements++;
+    this.stats.lastUpdated = new Date();
+
+    const matchMap = this.buildMatchMap(centerMatches, allMatches, stabilizedMatches);
+
+    const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
+    this.stats.totalNodesRemoved += cleanResult.removed;
+
+    return {
+        centerMatches: centerMatches.size,
+        totalMatches: finalMatches.size,
+        newNodesAdded,
+        nodesRemoved: cleanResult.removed,
+        matchMap
+    };
+}
 
     printFinalTable(newGraph, modelGraph, matches) {
         console.log(`\n📋 ИТОГОВАЯ ТАБЛИЦА СОПОСТАВЛЕНИЯ ВСЕХ ТОЧЕК:`);
