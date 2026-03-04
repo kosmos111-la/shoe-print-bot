@@ -384,7 +384,7 @@ class TopologicalAccumulator {
 
         // Создаем иерархический матчер
         const matcher = new HierarchicalMatcher({
-            debug: true
+            debug: false  // Чистые логи!
         });
 
         // Запускаем многоуровневый поиск
