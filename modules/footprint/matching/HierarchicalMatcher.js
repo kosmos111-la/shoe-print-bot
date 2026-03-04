@@ -1,5 +1,5 @@
 // modules/footprint/matching/HierarchicalMatcher.js
-// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ИНВАРИАНТНЫМ RADIAL PROFILE
+// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 class HierarchicalMatcher {
     constructor(options = {}) {
@@ -12,7 +12,7 @@ class HierarchicalMatcher {
                 features: ['compactness', 'eccentricity', 'normalizedArea'],
                 tolerances: [0.4, 0.15, 0.75],
                 groupLevel: true,
-                weight: 0.3,
+                weight: 0.25,
                 enabled: true
             },
             {   // УРОВЕНЬ 2: ТИП/ЦВЕТ КЛЮЧА
@@ -20,7 +20,7 @@ class HierarchicalMatcher {
                 features: ['role', 'degree', 'triangles'],
                 tolerances: ['strict', 2, 1],
                 groupLevel: false,
-                weight: 0.25,
+                weight: 0.20,
                 enabled: true
             },
             {   // УРОВЕНЬ 3: РОЛИ СОСЕДЕЙ (кто рядом)
@@ -28,15 +28,15 @@ class HierarchicalMatcher {
                 features: ['neighborRoles'],
                 tolerances: ['soft'],
                 groupLevel: false,
-                weight: 0.07,
+                weight: 0.10,
                 enabled: true
             },
-            {   // УРОВЕНЬ 4: РАЗМЕР ГРУППЫ (сколько соседей в кластере)
+            {   // УРОВЕНЬ 4: РАЗМЕР ГРУППЫ
                 name: 'РАЗМЕР ГРУППЫ',
                 features: ['clusterSize'],
                 tolerances: [3],
                 groupLevel: false,
-                weight: 0.07,
+                weight: 0.10,
                 enabled: true
             },
             {   // УРОВЕНЬ 5: СОСЕДНИЕ КЛАСТЕРЫ
@@ -44,13 +44,13 @@ class HierarchicalMatcher {
                 features: ['neighborClusters'],
                 tolerances: [1],
                 groupLevel: false,
-                weight: 0.06,
+                weight: 0.10,
                 enabled: true
             },
-            {   // УРОВЕНЬ 6: ДЕТАЛЬНАЯ ПРОВЕРКА (с инвариантным radialProfile)
+            {   // УРОВЕНЬ 6: ДЕТАЛЬНАЯ ПРОВЕРКА (с patternFrequency)
                 name: 'ДЕТАЛЬНАЯ ПРОВЕРКА',
-                features: ['radialProfile', 'patternType'],
-                tolerances: [0.3, 'strict'],
+                features: ['radialProfile', 'patternType', 'patternFrequency'],
+                tolerances: [0.3, 'strict', 2],
                 groupLevel: true,
                 weight: 0.25,
                 enabled: true
@@ -106,8 +106,6 @@ class HierarchicalMatcher {
             }
 
             this.logLevelStats(level, levelStats, candidates);
-          
-            // Показываем иерархическое дерево для этого уровня
             this.printHierarchicalTree(candidates, levelIdx);
           
             if (this.checkEarlyExit(candidates, levelIdx)) {
@@ -149,7 +147,6 @@ class HierarchicalMatcher {
             let strA = valA !== undefined ? String(valA) : 'undefined';
             let strB = valB !== undefined ? String(valB) : 'undefined';
            
-            // Обрезаем длинные строки
             if (strA.length > 20) strA = strA.substring(0, 17) + '...';
             if (strB.length > 20) strB = strB.substring(0, 17) + '...';
            
@@ -160,7 +157,6 @@ class HierarchicalMatcher {
        
         console.log(`└───────────────────┴─────────────────────┴─────────────────────┘`);
        
-        // Детально про radialProfile (показываем сортированную версию)
         if (Array.isArray(firstPointA.radialProfile) && Array.isArray(firstPointB.radialProfile)) {
             const sortedA = this.getRotationInvariantProfile(firstPointA.radialProfile);
             const sortedB = this.getRotationInvariantProfile(firstPointB.radialProfile);
@@ -169,7 +165,6 @@ class HierarchicalMatcher {
             console.log(`   Точка А: [${sortedA.map(v => v.toFixed(2)).join(', ')}]`);
             console.log(`   Точка Б: [${sortedB.map(v => v.toFixed(2)).join(', ')}]`);
            
-            // Считаем сходство после сортировки
             let sum = 0;
             for (let i = 0; i < sortedA.length; i++) {
                 sum += Math.abs(sortedA[i] - sortedB[i]);
@@ -177,6 +172,12 @@ class HierarchicalMatcher {
             const similarity = 1 - (sum / sortedA.length);
             console.log(`   🔥 Сходство после сортировки: ${(similarity * 100).toFixed(1)}%`);
         }
+       
+        // Диагностика patternFrequency
+        console.log(`\n🔍 patternFrequency:`);
+        console.log(`   Точка А: ${firstPointA.patternFrequency} (${typeof firstPointA.patternFrequency})`);
+        console.log(`   Точка Б: ${firstPointB.patternFrequency} (${typeof firstPointB.patternFrequency})`);
+        console.log(`   Разница: ${Math.abs((firstPointA.patternFrequency || 0) - (firstPointB.patternFrequency || 0))}`);
     }
 
     /**
@@ -184,11 +185,8 @@ class HierarchicalMatcher {
      */
     getRotationInvariantProfile(profile) {
         if (!Array.isArray(profile)) return [];
-       
-        // Первые 4 - основные направления, следующие 4 - диагонали
         const mainDirs = profile.slice(0, 4).sort((a, b) => a - b);
         const diagDirs = profile.slice(4, 8).sort((a, b) => a - b);
-       
         return [...mainDirs, ...diagDirs];
     }
 
@@ -253,7 +251,7 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 ПРОВЕРКА ПРИЗНАКА С ИНВАРИАНТНЫМ RADIAL PROFILE
+     * 🔥 ПРОВЕРКА ПРИЗНАКА
      */
     checkFeature(pointA, pointB, feature, tolerance) {
         const valA = pointA[feature];
@@ -270,17 +268,21 @@ class HierarchicalMatcher {
       
         if (typeof tolerance === 'number') {
             if (typeof valA === 'number' && typeof valB === 'number') {
+                // Абсолютная разница для дискретных признаков
                 if (feature === 'degree' || feature === 'triangles' ||
-                    feature === 'clusterSize' || feature === 'neighborClusters') {
+                    feature === 'clusterSize' || feature === 'neighborClusters' ||
+                    feature === 'patternFrequency') {
                     return Math.abs(valA - valB) <= tolerance;
-                } else {
+                }
+                // Относительная разница для непрерывных
+                else {
                     const maxVal = Math.max(Math.abs(valA), Math.abs(valB), 0.001);
                     const minVal = Math.min(Math.abs(valA), Math.abs(valB));
                     if (maxVal < 0.001) return true;
                     return (1 - minVal / maxVal) <= tolerance;
                 }
             } else if (Array.isArray(valA) && Array.isArray(valB)) {
-                // 🔥 ДЛЯ RADIAL PROFILE - ИСПОЛЬЗУЕМ ИНВАРИАНТНУЮ ВЕРСИЮ
+                // Инвариантный radialProfile
                 if (feature === 'radialProfile') {
                     const sortedA = this.getRotationInvariantProfile(valA);
                     const sortedB = this.getRotationInvariantProfile(valB);
@@ -305,9 +307,6 @@ class HierarchicalMatcher {
         return false;
     }
 
-    /**
-     * Мягкое сравнение ролей соседей
-     */
     compareNeighborRolesSoft(rolesA, rolesB) {
         if (!rolesA || !rolesB) return true;
         const setA = new Set(typeof rolesA === 'string' ? rolesA.split('') : rolesA);
