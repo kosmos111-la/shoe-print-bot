@@ -100,10 +100,7 @@ class TopologyManager {
         const startTime = Date.now();
 
         // Извлекаем точки из анализа
-        const extractedPoints = this.extractPoints(points);
-        const extractedContours = this.extractContours(contours, extractedPoints);
-
-        console.log(`📊 Извлечено ${extractedPoints.length} точек ИЗ ТЕКУЩЕГО ФОТО`);
+        console.log(`📊 Получено ${points.length} точек и ${contours.length} контуров`);
 
         // Определяем, есть ли уже модель для этого пользователя
         const currentModelId = this.accumulator.getCurrentModelId();
