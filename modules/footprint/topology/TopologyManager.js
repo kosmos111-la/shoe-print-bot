@@ -91,8 +91,11 @@ class TopologyManager {
      * Обработка нового фото
      */
     async processFootprint(photoId, points, contours, options = {}) {
-        console.log(`🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${String(photoId).slice(0, 20)}...`);
-        console.log(`📦 Получены точки (${points.length}) и контуры (${contours?.length || 0})`);
+        // 🔥 ИСПРАВЛЕНО: преобразуем photoId в строку
+        const photoIdStr = String(photoId);
+       
+        console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoIdStr.slice(0, 20)}...`);
+        console.log(`📦 Получены точки (${points?.length}) и контуры (${contours?.length || 0})`);
 
         const startTime = Date.now();
 
@@ -110,7 +113,7 @@ class TopologyManager {
         if (!currentModelId) {
             console.log(`🆕 Первое фото в сессии, создаю базовую модель`);
             result = await this.accumulator.processPoints(extractedPoints, {
-                photoId,
+                photoId: photoIdStr,
                 contours: extractedContours,
                 source: 'photo',
                 ...options
@@ -120,7 +123,7 @@ class TopologyManager {
             console.log(`🔄 Использую существующую модель ${currentModelId.slice(0, 12)}...`);
            
             result = await this.accumulator.processPoints(extractedPoints, {
-                photoId,
+                photoId: photoIdStr,
                 contours: extractedContours,
                 modelId: currentModelId,
                 source: 'photo',
@@ -139,13 +142,13 @@ class TopologyManager {
         }
 
         // Сохраняем в кеш
-        this.cache.lastPhotoId = photoId;
+        this.cache.lastPhotoId = photoIdStr;
         this.cache.lastResult = result;
 
         // Генерируем визуализацию если нужно
         if (options.generateVisualization !== false) {
             try {
-                const visData = await this.generateVisualization(photoId, result);
+                const visData = await this.generateVisualization(photoIdStr, result);
                 this.cache.lastVisualization = visData;
                 result.visualization = visData;
             } catch (e) {
@@ -340,7 +343,7 @@ class TopologyManager {
      * Получить модель по ID фото
      */
     getModelForPhoto(photoId) {
-        return this.accumulator.getModelForPhoto(photoId);
+        return this.accumulator.getModelForPhoto(String(photoId));
     }
 
     /**
