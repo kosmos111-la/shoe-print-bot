@@ -1,5 +1,5 @@
 // modules/footprint/matching/HierarchicalMatcher.js
-// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ПОЛНОЙ ИЕРАРХИЧЕСКОЙ ВЛОЖЕННОСТЬЮ
+// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ПОЛНОЙ ИЕРАРХИЧЕСКОЙ ВЛОЖЕННОСТЬЮ И ДИАГНОСТИКОЙ
 
 class HierarchicalMatcher {
     constructor(options = {}) {
@@ -7,18 +7,63 @@ class HierarchicalMatcher {
       
         // 🔥 ИЕРАРХИЯ УРОВНЕЙ
         this.levels = [
-            { name: 'БАЗОВАЯ ГЕОМЕТРИЯ', features: ['compactness', 'eccentricity', 'normalizedArea'], tolerances: [0.4, 0.15, 0.75], groupLevel: true, weight: 0.3, enabled: true },
-            { name: 'ТОПОЛОГИЧЕСКАЯ РОЛЬ', features: ['role', 'degree', 'triangles'], tolerances: ['strict', 2, 1], groupLevel: false, weight: 0.25, enabled: true },
-            { name: 'РОЛИ СОСЕДЕЙ', features: ['neighborRoles'], tolerances: ['soft'], groupLevel: false, weight: 0.07, enabled: true },
-            { name: 'РАЗМЕР ГРУППЫ', features: ['clusterSize'], tolerances: [3], groupLevel: false, weight: 0.07, enabled: true },
-            { name: 'КОНТЕКСТ', features: ['neighborClusters', 'gapPattern'], tolerances: [1, 0.3], groupLevel: true, weight: 0.06, enabled: true },
-            { name: 'ДЕТАЛЬНАЯ ПРОВЕРКА', features: ['radialProfile', 'patternType'], tolerances: [0.3, 'strict'], groupLevel: true, weight: 0.25, enabled: true }
+            {   // УРОВЕНЬ 1: ПРОФИЛЬ КЛЮЧА (двухтавр)
+                name: 'БАЗОВАЯ ГЕОМЕТРИЯ',
+                features: ['compactness', 'eccentricity', 'normalizedArea'],
+                tolerances: [0.4, 0.15, 0.75],
+                groupLevel: true,
+                weight: 0.3,
+                enabled: true
+            },
+            {   // УРОВЕНЬ 2: ТИП/ЦВЕТ КЛЮЧА
+                name: 'ТОПОЛОГИЧЕСКАЯ РОЛЬ',
+                features: ['role', 'degree', 'triangles'],
+                tolerances: ['strict', 2, 1],
+                groupLevel: false,
+                weight: 0.25,
+                enabled: true
+            },
+            {   // УРОВЕНЬ 3: РОЛИ СОСЕДЕЙ (кто рядом)
+                name: 'РОЛИ СОСЕДЕЙ',
+                features: ['neighborRoles'],
+                tolerances: ['soft'],
+                groupLevel: false,
+                weight: 0.07,
+                enabled: true
+            },
+            {   // УРОВЕНЬ 4: РАЗМЕР ГРУППЫ (сколько соседей в кластере)
+                name: 'РАЗМЕР ГРУППЫ',
+                features: ['clusterSize'],
+                tolerances: [3],
+                groupLevel: false,
+                weight: 0.07,
+                enabled: true
+            },
+            {   // УРОВЕНЬ 5: КОНТЕКСТ (окружение) - ВРЕМЕННО УПРОЩЕН
+                name: 'СОСЕДНИЕ КЛАСТЕРЫ',
+                features: ['neighborClusters'],
+                tolerances: [1],
+                groupLevel: false,
+                weight: 0.06,
+                enabled: true
+            },
+            {   // УРОВЕНЬ 6: ДЕТАЛЬНАЯ ПРОВЕРКА (финальная примерка)
+                name: 'ДЕТАЛЬНАЯ ПРОВЕРКА',
+                features: ['radialProfile', 'patternType'],
+                tolerances: [0.3, 'strict'],
+                groupLevel: true,
+                weight: 0.25,
+                enabled: true
+            }
         ];
 
         this.featureCache = new Map();
         this.stats = { levels: [], earlyExits: 0, totalPairs: 0 };
     }
 
+    /**
+     * ОСНОВНОЙ МЕТОД
+     */
     findMatches(pointsA, pointsB) {
         console.log(`\n${'='.repeat(100)}`);
         console.log(`🔑 МНОГОУРОВНЕВЫЙ ПОДБОР КЛЮЧЕЙ`);
@@ -27,6 +72,8 @@ class HierarchicalMatcher {
         console.log(`📊 Всего замков (точек) в Б: ${pointsB.length}`);
       
         this.validateFeatures(pointsA, pointsB);
+        this.diagnoseFirstPoint(pointsA, pointsB); // 🔥 ДИАГНОСТИКА
+
         const candidates = this.initializeCandidates(pointsA, pointsB);
 
         for (let levelIdx = 0; levelIdx < this.levels.length; levelIdx++) {
@@ -60,7 +107,7 @@ class HierarchicalMatcher {
 
             this.logLevelStats(level, levelStats, candidates);
           
-            // 🔥 ПОКАЗЫВАЕМ ИЕРАРХИЧЕСКОЕ ДЕРЕВО ДЛЯ ЭТОГО УРОВНЯ
+            // Показываем иерархическое дерево для этого уровня
             this.printHierarchicalTree(candidates, levelIdx);
           
             if (this.checkEarlyExit(candidates, levelIdx)) {
@@ -74,7 +121,214 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 ПОЛНОЕ ИЕРАРХИЧЕСКОЕ ДЕРЕВО ДЛЯ КОНКРЕТНОГО УРОВНЯ
+     * 🔥 ДИАГНОСТИКА ПРИЗНАКОВ ПЕРВОЙ ТОЧКИ
+     */
+    diagnoseFirstPoint(pointsA, pointsB) {
+        if (pointsA.length === 0 || pointsB.length === 0) return;
+       
+        const firstPointA = pointsA[0];
+        const firstPointB = pointsB[0];
+       
+        console.log(`\n🔬 ДИАГНОСТИКА ПРИЗНАКОВ (ПЕРВАЯ ТОЧКА):`);
+        console.log(`┌───────────────────┬─────────────────────┬─────────────────────┐`);
+        console.log(`│ Признак           │ Точка А             │ Точка Б             │`);
+        console.log(`├───────────────────┼─────────────────────┼─────────────────────┤`);
+       
+        const features = [
+            'id', 'role', 'degree', 'triangles',
+            'compactness', 'eccentricity', 'normalizedArea',
+            'radialProfile', 'neighborRoles', 'clusterId',
+            'clusterSize', 'patternType', 'patternFrequency',
+            'gapPattern', 'neighborClusters'
+        ];
+       
+        for (const feat of features) {
+            const valA = firstPointA[feat];
+            const valB = firstPointB[feat];
+           
+            let strA = valA !== undefined ? String(valA) : 'undefined';
+            let strB = valB !== undefined ? String(valB) : 'undefined';
+           
+            // Обрезаем длинные строки
+            if (strA.length > 20) strA = strA.substring(0, 17) + '...';
+            if (strB.length > 20) strB = strB.substring(0, 17) + '...';
+           
+            console.log(
+                `│ ${feat.padEnd(17)} │ ${strA.padEnd(19)} │ ${strB.padEnd(19)} │`
+            );
+        }
+       
+        console.log(`└───────────────────┴─────────────────────┴─────────────────────┘`);
+       
+        // Дополнительно проверим gapPattern особо
+        console.log(`\n🔍 ДЕТАЛЬНО ПРО gapPattern:`);
+        console.log(`   Точка А:`, firstPointA['gapPattern']);
+        console.log(`   Точка Б:`, firstPointB['gapPattern']);
+        console.log(`   Тип А: ${typeof firstPointA['gapPattern']}`);
+        console.log(`   Тип Б: ${typeof firstPointB['gapPattern']}`);
+       
+        // Проверим radialProfile
+        console.log(`\n🔍 ДЕТАЛЬНО ПРО radialProfile:`);
+        console.log(`   Точка А:`, firstPointA['radialProfile']);
+        console.log(`   Точка Б:`, firstPointB['radialProfile']);
+        console.log(`   Тип А: ${typeof firstPointA['radialProfile']}, длина: ${firstPointA['radialProfile']?.length}`);
+        console.log(`   Тип Б: ${typeof firstPointB['radialProfile']}, длина: ${firstPointB['radialProfile']?.length}`);
+    }
+
+    /**
+     * ПРОВЕРКА НАЛИЧИЯ ПРИЗНАКОВ
+     */
+    validateFeatures(pointsA, pointsB) {
+        console.log(`\n🔍 ПРОВЕРКА НАЛИЧИЯ ПРИЗНАКОВ:`);
+        const allPoints = [...pointsA, ...pointsB];
+        const featureStats = {};
+
+        for (const point of allPoints) {
+            for (const [key, value] of Object.entries(point)) {
+                if (!featureStats[key]) featureStats[key] = { present: 0 };
+                if (value !== undefined && value !== null) featureStats[key].present++;
+            }
+        }
+
+        console.log(`   📊 ДОСТУПНЫЕ ПРИЗНАКИ:`);
+        Object.entries(featureStats)
+            .sort((a, b) => b[1].present - a[1].present)
+            .forEach(([feature, stats]) => {
+                const percent = (stats.present / allPoints.length * 100).toFixed(1);
+                console.log(`   • ${feature}: ${stats.present}/${allPoints.length} (${percent}%)`);
+            });
+    }
+
+    initializeCandidates(pointsA, pointsB) {
+        const candidates = new Map();
+        for (const pointA of pointsA) {
+            candidates.set(pointA.id, {
+                point: pointA,
+                candidates: [...pointsB],
+                levels: [],
+                status: 'pending'
+            });
+        }
+        return candidates;
+    }
+
+    filterByLevel(pointA, candidates, level) {
+        if (level.groupLevel) {
+            return candidates.filter(pointB => {
+                for (let i = 0; i < level.features.length; i++) {
+                    if (!this.checkFeature(pointA, pointB, level.features[i], level.tolerances[i])) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        } else {
+            let filtered = candidates;
+            for (let i = 0; i < level.features.length; i++) {
+                const feature = level.features[i];
+                const tolerance = level.tolerances[i];
+                filtered = filtered.filter(pointB =>
+                    this.checkFeature(pointA, pointB, feature, tolerance)
+                );
+            }
+            return filtered;
+        }
+    }
+
+    /**
+     * ПРОВЕРКА ПРИЗНАКА
+     */
+    checkFeature(pointA, pointB, feature, tolerance) {
+        const valA = pointA[feature];
+        const valB = pointB[feature];
+      
+        if (valA === undefined || valB === undefined) return true;
+      
+        if (tolerance === 'strict') return valA === valB;
+      
+        if (tolerance === 'soft') {
+            if (feature === 'neighborRoles') return this.compareNeighborRolesSoft(valA, valB);
+            return true; // Для остальных soft признаков пропускаем
+        }
+      
+        if (typeof tolerance === 'number') {
+            if (typeof valA === 'number' && typeof valB === 'number') {
+                // Для дискретных признаков - абсолютная разница
+                if (feature === 'degree' || feature === 'triangles' ||
+                    feature === 'clusterSize' || feature === 'neighborClusters') {
+                    return Math.abs(valA - valB) <= tolerance;
+                }
+                // Для непрерывных - относительная разница
+                else {
+                    const maxVal = Math.max(Math.abs(valA), Math.abs(valB), 0.001);
+                    const minVal = Math.min(Math.abs(valA), Math.abs(valB));
+                    if (maxVal < 0.001) return true;
+                    return (1 - minVal / maxVal) <= tolerance;
+                }
+            } else if (Array.isArray(valA) && Array.isArray(valB)) {
+                if (valA.length !== valB.length) return false;
+                let sum = 0;
+                for (let i = 0; i < valA.length; i++) {
+                    sum += Math.abs(valA[i] - valB[i]);
+                }
+                return (sum / valA.length) <= tolerance;
+            }
+        }
+      
+        return false;
+    }
+
+    /**
+     * Мягкое сравнение ролей соседей
+     */
+    compareNeighborRolesSoft(rolesA, rolesB) {
+        if (!rolesA || !rolesB) return true;
+        const setA = new Set(typeof rolesA === 'string' ? rolesA.split('') : rolesA);
+        const setB = new Set(typeof rolesB === 'string' ? rolesB.split('') : rolesB);
+        for (const role of setA) if (!setB.has(role)) return false;
+        for (const role of setB) if (!setA.has(role)) return false;
+        return true;
+    }
+
+    /**
+     * Проверка раннего выхода
+     */
+    checkEarlyExit(candidates, currentLevel) {
+        let allUnique = true;
+        let totalWithCandidates = 0;
+        for (const [_, data] of candidates) {
+            if (data.candidates.length === 0) continue;
+            if (data.candidates.length > 1) allUnique = false;
+            totalWithCandidates++;
+        }
+        return allUnique && totalWithCandidates > 0;
+    }
+
+    /**
+     * Статистика уровня
+     */
+    logLevelStats(level, stats, candidates) {
+        const passRate = stats.total > 0 ? (stats.passed / stats.total * 100).toFixed(1) : '0.0';
+        console.log(`\n📊 СТАТИСТИКА УРОВНЯ:`);
+        console.log(`   • Всего рассмотрено: ${stats.total} пар`);
+        console.log(`   • Прошло фильтр: ${stats.passed} (${passRate}%)`);
+        console.log(`   • Отсеяно: ${stats.rejected} (${stats.total > 0 ? (stats.rejected/stats.total*100).toFixed(1) : '0.0'}%)`);
+      
+        const candidatesCounts = Array.from(candidates.values()).map(d => d.candidates.length);
+        const avgCandidates = candidatesCounts.length > 0
+            ? (candidatesCounts.reduce((a, b) => a + b, 0) / candidatesCounts.length).toFixed(2)
+            : '0.00';
+        const zeroCandidates = candidatesCounts.filter(c => c === 0).length;
+        const multiCandidates = candidatesCounts.filter(c => c > 1).length;
+      
+        console.log(`\n   📈 ТЕКУЩЕЕ СОСТОЯНИЕ:`);
+        console.log(`      • Среднее число кандидатов: ${avgCandidates}`);
+        console.log(`      • Точек без кандидатов: ${zeroCandidates} (НОВЫЕ КЛЮЧИ 🔵)`);
+        console.log(`      • Точек с >1 кандидатом: ${multiCandidates} (СПОРНЫЕ ⚠️)`);
+    }
+
+    /**
+     * ПОЛНОЕ ИЕРАРХИЧЕСКОЕ ДЕРЕВО ДЛЯ КОНКРЕТНОГО УРОВНЯ
      */
     printHierarchicalTree(candidates, upToLevel) {
         console.log(`\n🌳 ИЕРАРХИЧЕСКОЕ ДЕРЕВО ДО УРОВНЯ ${upToLevel + 1}:`);
@@ -83,7 +337,11 @@ class HierarchicalMatcher {
         const tree = this.buildHierarchicalTree(candidates, upToLevel);
        
         // Рекурсивно печатаем дерево
-        this.printNode(tree, 0, upToLevel);
+        if (tree.count > 0) {
+            this.printNode(tree, 0, upToLevel);
+        } else {
+            console.log(`└── (нет ключей с кандидатами)`);
+        }
     }
 
     /**
@@ -119,10 +377,11 @@ class HierarchicalMatcher {
                 if (upToLevel >= 2) {
                     // Уровень 3: роли соседей
                     const neighborRoles = point.neighborRoles || 'unknown';
-                    if (!roleGroup.children.has(neighborRoles)) {
-                        roleGroup.children.set(neighborRoles, { name: `neighborRoles: ${neighborRoles}`, count: 0, children: new Map() });
+                    const neighborKey = typeof neighborRoles === 'string' ? neighborRoles : JSON.stringify(neighborRoles);
+                    if (!roleGroup.children.has(neighborKey)) {
+                        roleGroup.children.set(neighborKey, { name: `neighborRoles: ${neighborKey}`, count: 0, children: new Map() });
                     }
-                    const neighborGroup = roleGroup.children.get(neighborRoles);
+                    const neighborGroup = roleGroup.children.get(neighborKey);
                     neighborGroup.count++;
                    
                     if (upToLevel >= 3) {
@@ -136,7 +395,7 @@ class HierarchicalMatcher {
                         sizeGroup.count++;
                        
                         if (upToLevel >= 4) {
-                            // Уровень 5: контекст
+                            // Уровень 5: соседние кластеры
                             const neighborClusters = point.neighborClusters || 0;
                             const contextKey = `nc:${neighborClusters}`;
                             if (!sizeGroup.children.has(contextKey)) {
@@ -218,132 +477,9 @@ class HierarchicalMatcher {
         }
     }
 
-    validateFeatures(pointsA, pointsB) {
-        console.log(`\n🔍 ПРОВЕРКА НАЛИЧИЯ ПРИЗНАКОВ:`);
-        const allPoints = [...pointsA, ...pointsB];
-        const featureStats = {};
-
-        for (const point of allPoints) {
-            for (const [key, value] of Object.entries(point)) {
-                if (!featureStats[key]) featureStats[key] = { present: 0 };
-                if (value !== undefined && value !== null) featureStats[key].present++;
-            }
-        }
-
-        console.log(`   📊 ДОСТУПНЫЕ ПРИЗНАКИ:`);
-        Object.entries(featureStats)
-            .sort((a, b) => b[1].present - a[1].present)
-            .forEach(([feature, stats]) => {
-                const percent = (stats.present / allPoints.length * 100).toFixed(1);
-                console.log(`   • ${feature}: ${stats.present}/${allPoints.length} (${percent}%)`);
-            });
-    }
-
-    initializeCandidates(pointsA, pointsB) {
-        const candidates = new Map();
-        for (const pointA of pointsA) {
-            candidates.set(pointA.id, {
-                point: pointA,
-                candidates: [...pointsB],
-                levels: [],
-                status: 'pending'
-            });
-        }
-        return candidates;
-    }
-
-    filterByLevel(pointA, candidates, level) {
-        if (level.groupLevel) {
-            return candidates.filter(pointB => {
-                for (let i = 0; i < level.features.length; i++) {
-                    if (!this.checkFeature(pointA, pointB, level.features[i], level.tolerances[i])) {
-                        return false;
-                    }
-                }
-                return true;
-            });
-        } else {
-            let filtered = candidates;
-            for (let i = 0; i < level.features.length; i++) {
-                const feature = level.features[i];
-                const tolerance = level.tolerances[i];
-                filtered = filtered.filter(pointB =>
-                    this.checkFeature(pointA, pointB, feature, tolerance)
-                );
-            }
-            return filtered;
-        }
-    }
-
-    checkFeature(pointA, pointB, feature, tolerance) {
-        const valA = pointA[feature];
-        const valB = pointB[feature];
-      
-        if (valA === undefined || valB === undefined) return true;
-      
-        if (tolerance === 'strict') return valA === valB;
-        if (tolerance === 'soft') {
-            if (feature === 'neighborRoles') return this.compareNeighborRolesSoft(valA, valB);
-            return true;
-        }
-        if (typeof tolerance === 'number') {
-            if (typeof valA === 'number' && typeof valB === 'number') {
-                if (feature === 'degree' || feature === 'triangles' || feature === 'clusterSize' || feature === 'neighborClusters') {
-                    return Math.abs(valA - valB) <= tolerance;
-                } else {
-                    const maxVal = Math.max(Math.abs(valA), Math.abs(valB), 0.001);
-                    const minVal = Math.min(Math.abs(valA), Math.abs(valB));
-                    if (maxVal < 0.001) return true;
-                    return (1 - minVal / maxVal) <= tolerance;
-                }
-            } else if (Array.isArray(valA) && Array.isArray(valB)) {
-                if (valA.length !== valB.length) return false;
-                let sum = 0;
-                for (let i = 0; i < valA.length; i++) sum += Math.abs(valA[i] - valB[i]);
-                return (sum / valA.length) <= tolerance;
-            }
-        }
-        return false;
-    }
-
-    compareNeighborRolesSoft(rolesA, rolesB) {
-        if (!rolesA || !rolesB) return true;
-        const setA = new Set(typeof rolesA === 'string' ? rolesA.split('') : rolesA);
-        const setB = new Set(typeof rolesB === 'string' ? rolesB.split('') : rolesB);
-        for (const role of setA) if (!setB.has(role)) return false;
-        for (const role of setB) if (!setA.has(role)) return false;
-        return true;
-    }
-
-    checkEarlyExit(candidates, currentLevel) {
-        let allUnique = true;
-        let totalWithCandidates = 0;
-        for (const [_, data] of candidates) {
-            if (data.candidates.length === 0) continue;
-            if (data.candidates.length > 1) allUnique = false;
-            totalWithCandidates++;
-        }
-        return allUnique && totalWithCandidates > 0;
-    }
-
-    logLevelStats(level, stats, candidates) {
-        const passRate = stats.total > 0 ? (stats.passed / stats.total * 100).toFixed(1) : '0.0';
-        console.log(`\n📊 СТАТИСТИКА УРОВНЯ:`);
-        console.log(`   • Всего рассмотрено: ${stats.total} пар`);
-        console.log(`   • Прошло фильтр: ${stats.passed} (${passRate}%)`);
-        console.log(`   • Отсеяно: ${stats.rejected} (${stats.total > 0 ? (stats.rejected/stats.total*100).toFixed(1) : '0.0'}%)`);
-      
-        const candidatesCounts = Array.from(candidates.values()).map(d => d.candidates.length);
-        const avgCandidates = candidatesCounts.length > 0 ? (candidatesCounts.reduce((a, b) => a + b, 0) / candidatesCounts.length).toFixed(2) : '0.00';
-        const zeroCandidates = candidatesCounts.filter(c => c === 0).length;
-        const multiCandidates = candidatesCounts.filter(c => c > 1).length;
-      
-        console.log(`\n   📈 ТЕКУЩЕЕ СОСТОЯНИЕ:`);
-        console.log(`      • Среднее число кандидатов: ${avgCandidates}`);
-        console.log(`      • Точек без кандидатов: ${zeroCandidates} (НОВЫЕ КЛЮЧИ 🔵)`);
-        console.log(`      • Точек с >1 кандидатом: ${multiCandidates} (СПОРНЫЕ ⚠️)`);
-    }
-
+    /**
+     * Определение типа по компактности
+     */
     getFormType(point) {
         const c = point.compactness || 0;
         if (c < 15) return 'Овальные';
@@ -351,6 +487,9 @@ class HierarchicalMatcher {
         return 'Вытянутые';
     }
 
+    /**
+     * Финальный анализ
+     */
     finalAnalysis(candidates, pointsB) {
         console.log(`\n${'='.repeat(100)}`);
         console.log(`🏁 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ`);
@@ -373,21 +512,78 @@ class HierarchicalMatcher {
             const available = data.candidates.filter(c => !usedB.has(c.id));
           
             if (available.length === 1) {
-                matches.push({ pointA: pointId, pointB: available[0].id, confidence: 1.0 });
+                matches.push({
+                    pointA: pointId,
+                    pointB: available[0].id,
+                    confidence: this.calculateConfidence(data)
+                });
                 usedB.add(available[0].id);
             } else if (available.length > 1) {
-                ambiguous.push({ pointA: pointId, candidates: available.map(c => c.id), count: available.length });
+                ambiguous.push({
+                    pointA: pointId,
+                    candidates: available.map(c => c.id),
+                    count: available.length
+                });
             }
         }
 
         const unmatchedB = pointsB.filter(p => !usedB.has(p.id)).map(p => p.id);
 
         console.log(`\n✅ ОДНОЗНАЧНЫЕ СООТВЕТСТВИЯ (ЯКОРЯ): ${matches.length}`);
+        if (matches.length > 0) {
+            matches.slice(0, 5).forEach((m, i) => {
+                console.log(`   ${i+1}. ${m.pointA.slice(0,12)}... ↔ ${m.pointB.slice(0,12)}... (уверенность ${(m.confidence*100).toFixed(0)}%)`);
+            });
+        }
+
         console.log(`\n⚠️ СПОРНЫЕ (требуют проверки): ${ambiguous.length}`);
+        ambiguous.slice(0, 3).forEach((a, i) => {
+            console.log(`   ${i+1}. ${a.pointA.slice(0,12)}... → ${a.count} кандидатов`);
+        });
+
         console.log(`\n🔵 НОВЫЕ В ПЕРВОМ СЛЕДЕ: ${noMatch.length}`);
         console.log(`🔵 НОВЫЕ ВО ВТОРОМ СЛЕДЕ: ${unmatchedB.length}`);
 
-        return { matches, ambiguous, noMatchA: noMatch, noMatchB: unmatchedB, stats: { totalPairs: matches.length, ambiguous: ambiguous.length, uniqueA: noMatch.length, uniqueB: unmatchedB.length, earlyExits: this.stats.earlyExits } };
+        console.log(`\n📊 ИТОГОВАЯ СТАТИСТИКА:`);
+        console.log(`   • ✅ Якорей: ${matches.length}`);
+        console.log(`   • ⚠️ Спорных: ${ambiguous.length}`);
+        console.log(`   • 🔵 Новых в первом: ${noMatch.length}`);
+        console.log(`   • 🔵 Новых во втором: ${unmatchedB.length}`);
+        console.log(`   • 🎯 Ранних выходов: ${this.stats.earlyExits}`);
+
+        return {
+            matches,
+            ambiguous,
+            noMatchA: noMatch,
+            noMatchB: unmatchedB,
+            stats: {
+                totalPairs: matches.length,
+                ambiguous: ambiguous.length,
+                uniqueA: noMatch.length,
+                uniqueB: unmatchedB.length,
+                earlyExits: this.stats.earlyExits
+            }
+        };
+    }
+
+    /**
+     * Вычисление уверенности
+     */
+    calculateConfidence(data) {
+        let score = 0;
+        let totalWeight = 0;
+      
+        for (let i = 0; i < data.levels.length; i++) {
+            const level = data.levels[i];
+            const levelConfig = this.levels[i];
+            if (!levelConfig?.enabled) continue;
+          
+            const rejectionRate = level.rejected / level.before;
+            score += rejectionRate * levelConfig.weight;
+            totalWeight += levelConfig.weight;
+        }
+      
+        return totalWeight > 0 ? score / totalWeight : 0.5;
     }
 }
 
