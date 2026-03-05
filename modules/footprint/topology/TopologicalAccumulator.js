@@ -167,8 +167,13 @@ class TopologicalAccumulator {
                 existingModel.metadata.lastEnhanced = new Date();
 
                 // 2.4 Создаем matchMap для визуализации
-                const { matchMap, modelMatchMap } = this.buildHierarchicalMatchMap(hierarchicalResult);
+const { matchMap, modelMatchMap } = this.buildHierarchicalMatchMap(hierarchicalResult);
 
+// 🔥 СОХРАНЯЕМ В МОДЕЛИ
+existingModel.lastHierarchicalResult = {
+    ...hierarchicalResult,
+    modelMatchMap: modelMatchMap
+};
                 // 2.5 Очищаем неподтверждённые точки
                 const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
                 this.stats.totalNodesRemoved += cleanResult.removed;
@@ -1170,52 +1175,56 @@ buildHierarchicalMatchMap(result) {
         return triangles;
     }
 
-    getVisualizationData(modelId = null, reliablePhotoIds = []) {
-        const targetId = modelId || this.currentModelId;
-        if (!targetId || !this.models.has(targetId)) return null;
+getVisualizationData(modelId = null, reliablePhotoIds = []) {
+    const targetId = modelId || this.currentModelId;
+    if (!targetId || !this.models.has(targetId)) return null;
 
-        const model = this.models.get(targetId);
-        const graph = model.graph;
+    const model = this.models.get(targetId);
+    const graph = model.graph;
 
-        let reliableNodeIds = new Set(reliablePhotoIds);
-        if (reliableNodeIds.size === 0) {
-            for (const [nodeId, node] of graph.nodes) {
-                if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
-            }
+    let reliableNodeIds = new Set(reliablePhotoIds);
+    if (reliableNodeIds.size === 0) {
+        for (const [nodeId, node] of graph.nodes) {
+            if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
         }
-
-        const pointsByConfirmation = {
-            confirmed3: [], confirmed2: [], confirmed1: [], confirmed0: []
-        };
-
-        for (const node of graph.nodes.values()) {
-            const count = node.confirmationCount || 0;
-            if (count >= 3) pointsByConfirmation.confirmed3.push(node);
-            else if (count >= 2) pointsByConfirmation.confirmed2.push(node);
-            else if (count >= 1) pointsByConfirmation.confirmed1.push(node);
-            else pointsByConfirmation.confirmed0.push(node);
-        }
-
-        return {
-            modelId: targetId,
-            modelName: model.metadata.name,
-            points: Array.from(graph.nodes.values()),
-            edges: Array.from(graph.edges),
-            stats: {
-                totalNodes: graph.nodes.size,
-                totalEdges: graph.edges.size,
-                confirmed3: pointsByConfirmation.confirmed3.length,
-                confirmed2: pointsByConfirmation.confirmed2.length,
-                confirmed1: pointsByConfirmation.confirmed1.length,
-                confirmed0: pointsByConfirmation.confirmed0.length,
-                reliableNodes: reliableNodeIds.size
-            },
-            pointsByConfirmation,
-            metadata: model.metadata,
-            allModels: this.getAllModels(),
-            currentModelId: this.currentModelId
-        };
     }
+
+    const pointsByConfirmation = {
+        confirmed3: [], confirmed2: [], confirmed1: [], confirmed0: []
+    };
+
+    for (const node of graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 3) pointsByConfirmation.confirmed3.push(node);
+        else if (count >= 2) pointsByConfirmation.confirmed2.push(node);
+        else if (count >= 1) pointsByConfirmation.confirmed1.push(node);
+        else pointsByConfirmation.confirmed0.push(node);
+    }
+
+    // 🔥 ПОЛУЧАЕМ modelMatchMap ИЗ ПОСЛЕДНЕГО РЕЗУЛЬТАТА
+    const modelMatchMap = model.lastHierarchicalResult?.modelMatchMap || new Map();
+
+    return {
+        modelId: targetId,
+        modelName: model.metadata.name,
+        points: Array.from(graph.nodes.values()),
+        edges: Array.from(graph.edges),
+        stats: {
+            totalNodes: graph.nodes.size,
+            totalEdges: graph.edges.size,
+            confirmed3: pointsByConfirmation.confirmed3.length,
+            confirmed2: pointsByConfirmation.confirmed2.length,
+            confirmed1: pointsByConfirmation.confirmed1.length,
+            confirmed0: pointsByConfirmation.confirmed0.length,
+            reliableNodes: reliableNodeIds.size
+        },
+        pointsByConfirmation,
+        metadata: model.metadata,
+        allModels: this.getAllModels(),
+        currentModelId: this.currentModelId,
+        modelMatchMap: modelMatchMap // 🔥 ВАЖНО!
+    };
+}
 
     getModelInfo(modelId = null) {
         const targetId = modelId || this.currentModelId;
