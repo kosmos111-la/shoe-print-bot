@@ -1,5 +1,6 @@
 // modules/footprint/visualizations/cluster-visualizer.js
 // 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// 🔥 Поддержка двустороннего matchMap (фото→модель и модель→фото)
 
 const fs = require('fs');
 const path = require('path');
@@ -74,7 +75,7 @@ class ClusterVisualizer {
         ctx.fillStyle = '#212529';
         ctx.font = 'bold 26px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`🏗️ ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ (${topologyData.points.length} точек)`, this.config.canvasWidth / 2, 45);
+        ctx.fillText(`🏗️ ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ`, this.config.canvasWidth / 2, 45);
 
         // Вычисляем границы с отступами
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
@@ -89,16 +90,16 @@ class ClusterVisualizer {
         const avgX = (minX + maxX) / 2;
         const avgY = (minY + maxY) / 2;
 
-        // 🔥 ИСПРАВЛЕНО: перестраиваем граф для актуальных точек
-        const edges = this.rebuildEdges(topologyData.points);
-
         // Рёбра (полупрозрачные)
-        if (this.config.showEdges && edges.length > 0) {
-            this.drawEdges(ctx, edges, topologyData.points, avgX, avgY, centerX, centerY, scale);
+        if (this.config.showEdges && topologyData.edges) {
+            this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
         }
 
+        // 🔥 ИСПРАВЛЕНО: используем modelMatchMap для отображения номеров в модели
+        const modelMatchMap = topologyData.modelMatchMap || new Map();
+       
         // Точки модели с номерами
-        this.drawModelPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
+        this.drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale);
 
         // Статистика
         this.drawStats(ctx, topologyData.stats, this.config.canvasWidth);
@@ -128,7 +129,7 @@ class ClusterVisualizer {
         ctx.fillStyle = '#212529';
         ctx.font = 'bold 26px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`📸 ФОТО - ТОЧКИ (${topologyData.photoPoints?.length || 0} точек)`, this.config.canvasWidth / 2, 45);
+        ctx.fillText(`📸 ФОТО - ТОЧКИ`, this.config.canvasWidth / 2, 45);
 
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
         const { minX, maxX, minY, maxY } = this.calculateBounds(validPoints);
@@ -141,14 +142,12 @@ class ClusterVisualizer {
         const avgX = (minX + maxX) / 2;
         const avgY = (minY + maxY) / 2;
 
-        // 🔥 ИСПРАВЛЕНО: перестраиваем граф для актуальных точек
-        const edges = this.rebuildEdges(topologyData.points);
-
-        if (this.config.showEdges && edges.length > 0) {
-            this.drawEdges(ctx, edges, topologyData.points, avgX, avgY, centerX, centerY, scale);
+        if (this.config.showEdges && topologyData.edges) {
+            this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
         }
 
         const photoPoints = topologyData.photoPoints || topologyData.points;
+        // 🔥 ИСПОЛЬЗУЕМ matchMap ДЛЯ ФОТО
         const matchMap = topologyData.matchMap || new Map();
 
         this.drawPhotoPoints(ctx, photoPoints, matchMap, avgX, avgY, centerX, centerY, scale);
@@ -169,80 +168,9 @@ class ClusterVisualizer {
         });
     }
 
-    /**
-     * 🔥 НОВЫЙ МЕТОД: перестраивает граф для актуальных точек
-     */
-    rebuildEdges(points) {
-        const edges = [];
-        const pointsMap = new Map();
-       
-        // Создаем карту точек для быстрого доступа
-        points.forEach(point => {
-            if (point && point.id) pointsMap.set(point.id, point);
-        });
-
-        // Строим триангуляцию Делоне для актуальных точек
-        if (points.length < 3) return edges;
-
-        // Упрощенная триангуляция для визуализации
-        // В реальности здесь должна быть полноценная триангуляция Делоне
-        const validPoints = points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
-       
-        // Для демонстрации соединяем близкие точки
-        for (let i = 0; i < validPoints.length; i++) {
-            for (let j = i + 1; j < validPoints.length; j++) {
-                const p1 = validPoints[i];
-                const p2 = validPoints[j];
-                const dx = p1.x - p2.x;
-                const dy = p1.y - p2.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-               
-                // Соединяем точки, расстояние между которыми меньше порога
-                const threshold = Math.max(
-                    (this.config.canvasWidth / 10) / this.calculateScaleForPoints(validPoints),
-                    20
-                );
-               
-                if (dist < threshold) {
-                    edges.push(`${p1.id}--${p2.id}`);
-                }
-            }
-        }
-
-        return edges;
-    }
-
-    /**
-     * 🔥 ВСПОМОГАТЕЛЬНЫЙ: вычисляет масштаб для порога расстояния
-     */
-    calculateScaleForPoints(points) {
-        if (points.length === 0) return 1;
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-       
-        points.forEach(p => {
-            minX = Math.min(minX, p.x);
-            maxX = Math.max(maxX, p.x);
-            minY = Math.min(minY, p.y);
-            maxY = Math.max(maxY, p.y);
-        });
-       
-        const width = Math.max(1, maxX - minX);
-        const height = Math.max(1, maxY - minY);
-        return Math.min(this.config.canvasWidth / width, this.config.canvasHeight / height);
-    }
-
-    drawModelPoints(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
+    drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale) {
         const points = topologyData.points;
-        const matchMap = topologyData.matchMap || new Map();
-
-        const modelToPair = new Map();
-        for (const [photoId, match] of matchMap) {
-            if (match && match.modelId && match.pairNumber) {
-                modelToPair.set(match.modelId, match.pairNumber);
-            }
-        }
-
+       
         console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
 
         let anchorPoints = 0, regularPoints = 0;
@@ -254,7 +182,10 @@ class ClusterVisualizer {
             const y = centerY + (point.y - avgY) * scale;
 
             const confirmations = point.confirmationCount || 0;
-            const pairNumber = modelToPair.get(point.id);
+           
+            // 🔥 ИСПРАВЛЕНО: ищем номер точки в modelMatchMap
+            const match = modelMatchMap.get(point.id);
+            const pairNumber = match?.pairNumber;
             const isAnchor = pairNumber !== undefined;
 
             let color, size;
@@ -359,9 +290,9 @@ class ClusterVisualizer {
         console.log(`   🎯 Фото: 🔴 ${anchorPoints} с цифрами, 🟢 ${matchedPoints} пар, 🟠 ${unmatchedPoints} новых`);
     }
 
-    drawEdges(ctx, edges, points, avgX, avgY, centerX, centerY, scale) {
+    drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
         const pointsMap = new Map();
-        points.forEach(point => {
+        topologyData.points.forEach(point => {
             if (point && point.id) pointsMap.set(point.id, point);
         });
 
@@ -369,8 +300,8 @@ class ClusterVisualizer {
         ctx.lineWidth = 1;
         let edgesDrawn = 0;
 
-        if (edges && Array.isArray(edges)) {
-            for (const edgeStr of edges) {
+        if (topologyData.edges && Array.isArray(topologyData.edges)) {
+            for (const edgeStr of topologyData.edges) {
                 const [nodeAId, nodeBId] = edgeStr.split('--');
                 const pointA = pointsMap.get(nodeAId);
                 const pointB = pointsMap.get(nodeBId);
