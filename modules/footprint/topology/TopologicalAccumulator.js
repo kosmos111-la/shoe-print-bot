@@ -840,20 +840,27 @@ class TopologicalAccumulator {
     createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
         const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-        // 🔥 ИСПРАВЛЕНО: Создаем features с данными для кластеризации
+        // 🔥 ИСПРАВЛЕНО: Создаем features С ДАННЫМИ для кластеризации
         const points = Array.from(exactGraph.nodes.values());
         const features = new Map();
        
         for (const point of points) {
             const morph = morphologyMap.get(point.id) || {};
             features.set(point.id, {
+                id: point.id,
                 role: this.getNodeRoleSimple(point.id, exactGraph),
                 degree: point.degree || 0,
                 triangles: point.triangles || 0,
                 morphology: morph,
                 neighborRoles: this.getNeighborRolesForPoint(point.id, exactGraph),
                 patternType: point.patternType || 'R',
-                patternFrequency: point.patternFrequency || 1
+                patternFrequency: point.patternFrequency || 1,
+                // Явно передаем морфологические признаки
+                compactness: morph.compactness,
+                eccentricity: morph.eccentricity,
+                normalizedArea: morph.normalizedArea,
+                radialProfile: morph.radialProfile,
+                logArea: morph.logArea
             });
         }
 
@@ -861,7 +868,7 @@ class TopologicalAccumulator {
         const tempModel = { graph: exactGraph, morphologyMap };
         const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
       
-        // Анализ кластеров с реальными фичами
+        // 🔥 ИСПРАВЛЕНО: Анализ кластеров с РЕАЛЬНЫМИ фичами
         const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
       
         // Добавляем паттерны и кластеры в узлы графа
@@ -877,25 +884,31 @@ class TopologicalAccumulator {
             node.normalizedArea = morph.normalizedArea;
             node.radialProfile = morph.radialProfile;
             node.asymmetry = morph.asymmetry;
+            node.logArea = morph.logArea;
            
-            // 🔥 ТЕПЕРЬ clusterId ПРИДЕТ ИЗ enhancedFeatures
+            // 🔥 ТЕПЕРЬ clusterId ПРИДЕТ ИЗ enhancedFeatures С ПРЕФИКСАМИ
             if (cluster) {
                 node.clusterId = cluster.clusterId || 'R0';
                 node.clusterSize = cluster.clusterSize || 1;
                 node.isUnique = cluster.isUnique || false;
                 node.clusterSignature = cluster.clusterSignature || 'unknown';
+               
+                // 🔥 Добавляем соседние кластеры
+                if (clusterData.relations) {
+                    const rel = clusterData.relations.get(node.clusterId);
+                    node.neighborClusters = rel ? rel.neighborCount : 0;
+                }
             } else {
                 node.clusterId = 'R0';
                 node.clusterSize = 1;
                 node.isUnique = false;
                 node.clusterSignature = 'unknown';
+                node.neighborClusters = 0;
             }
            
             node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
             node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
             node.gapPattern = patternData.gaps?.[nodeId] || '0';
-           
-            node.neighborClusters = clusterData.relations?.get(node.clusterId)?.neighborCount || 0;
            
             node.confirmationCount = 1;
             node.addedFrom = 'original';
@@ -938,6 +951,14 @@ class TopologicalAccumulator {
         console.log(`   Точек с морфологией: ${morphologyMap.size}`);
         console.log(`   Паттернов найдено: ${Object.keys(patternData.patterns || {}).length}`);
         console.log(`   Кластеров: ${Object.keys(clusterData.clusters || {}).length}`);
+       
+        // Статистика по кластерам
+        const clusterSizes = Object.values(clusterData.clusters || {}).map(c => c.size);
+        const avgClusterSize = clusterSizes.length > 0
+            ? (clusterSizes.reduce((a, b) => a + b, 0) / clusterSizes.length).toFixed(1)
+            : 0;
+        console.log(`   • Средний размер кластера: ${avgClusterSize}`);
+        console.log(`   • Уникальных кластеров: ${clusterData.stats?.uniqueClusters || 0}`);
 
         return {
             status: 'created',
