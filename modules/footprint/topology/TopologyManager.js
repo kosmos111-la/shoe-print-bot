@@ -1,467 +1,418 @@
 // modules/footprint/topology/TopologyManager.js
-// 🎯 ТОПОЛОГИЧЕСКИЙ МЕНЕДЖЕР - УПРАВЛЕНИЕ МОДЕЛЯМИ СЛЕДОВ
+// 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (С ПОДДЕРЖКОЙ ПЕСОЧНИЦЫ)
+// 🔥 ПОЛНАЯ ВЕРСИЯ С ПЕРЕДАЧЕЙ patternData И clusterData
 
+const TopologyBuilder = require('./TopologyBuilder');
 const TopologicalAccumulator = require('./TopologicalAccumulator');
-const HierarchicalMatcher = require('../matching/HierarchicalMatcher');
-const GraphBuilder = require('./GraphBuilder');
-const KNNGraphBuilder = require('./KNNGraphBuilder');
-const MorphologyEncoder = require('./MorphologyEncoder');
-const PatternAnalyzer = require('../analysis/PatternAnalyzer');
-const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
-const RelativePositioning = require('./RelativePositioning');
-const CenterMatcher = require('./CenterMatcher');
 
 class TopologyManager {
     constructor(options = {}) {
-        this.userId = options.userId;
+        this.userId = options.userId || 'default';
+        this.name = options.name || `Топология_${this.userId}`;
         this.debug = options.debug || false;
-       
-        // Режим работы: 'sandbox' (песочница) или 'production' (накопление)
-        this.sandboxMode = options.sandboxMode || false;
-       
-        // Параметры
-        this.similarityThreshold = options.similarityThreshold || 0.6;
-        this.minConsistentPairs = options.minConsistentPairs || 3;
-        this.confidenceThreshold = options.confidenceThreshold || 0.8;
-       
-        // Компоненты
-        this.graphBuilder = new GraphBuilder({ debug: this.debug });
-        this.knnBuilder = new KNNGraphBuilder({
-            debug: this.debug,
-            k: options.k || 8
-        });
-       
-        this.morphologyEncoder = new MorphologyEncoder({ debug: this.debug });
-        this.patternAnalyzer = new PatternAnalyzer({ debug: this.debug });
-        this.clusterAnalyzer = new ClusterAnalyzer({ debug: this.debug });
-       
-        this.relativePositioning = new RelativePositioning({
-            debug: this.debug,
-            confidenceThreshold: this.confidenceThreshold
-        });
-       
-        this.centerMatcher = new CenterMatcher({
-            debug: this.debug,
-            minConsistentPairs: this.minConsistentPairs
-        });
 
-        // Создаём аккумулятор для этого пользователя
+        // 🔥 РЕЖИМ ПЕСОЧНИЦЫ - по умолчанию false для накопления!
+        this.sandboxMode = options.sandboxMode === true;
+        console.log(`   🔥 sandboxMode: ${this.sandboxMode ? 'ДА (изолированные модели)' : 'НЕТ (накопление)'}`);
+
+        // Аккумулятор с поддержкой треугольников
         this.accumulator = new TopologicalAccumulator({
+            name: this.name,
             debug: this.debug,
-            name: `Сессия_${new Date().toLocaleTimeString('ru-RU')}`,
-            similarityThreshold: this.similarityThreshold,
-            minConsistentPairs: this.minConsistentPairs,
-            confidenceThreshold: this.confidenceThreshold,
-            graphBuilder: this.graphBuilder,
-            knnBuilder: this.knnBuilder,
-            morphologyEncoder: this.morphologyEncoder,
-            patternAnalyzer: this.patternAnalyzer,
-            clusterAnalyzer: this.clusterAnalyzer,
-            relativePositioning: this.relativePositioning,
-            centerMatcher: this.centerMatcher
+            similarityThreshold: options.similarityThreshold || 0.6,
+            minMatchesForEnhancement: options.minMatchesForEnhancement || 3,
+            wlIterations: options.wlIterations || 3,
+            tolerances: options.tolerances // передаем допуски
         });
 
-        // Кеш для быстрого доступа
-        this.cache = {
-            lastPhotoId: null,
-            lastResult: null,
-            lastVisualization: null
-        };
+        // Связь с существующей системой
+        this.linkedFootprints = new Map();
 
-        // Статистика
-        this.stats = {
-            totalPhotos: 0,
-            totalMatches: 0,
-            totalNewNodes: 0,
-            totalRemovedNodes: 0,
-            created: new Date(),
-            lastUpdated: new Date()
-        };
+        // 🔥 ВРЕМЕННЫЕ МОДЕЛИ ДЛЯ ПЕСОЧНИЦЫ (сессия -> модель)
+        this.sandboxModels = new Map();
+
+        // 🔥 ХРАНИЛИЩЕ ПАТТЕРНОВ И КЛАСТЕРОВ
+        this.patterns = new Map();     // modelId -> patternData
+        this.clusters = new Map();      // modelId -> clusterData
 
         console.log(`🎯 TopologyManager создан для пользователя ${this.userId}`);
-        console.log(`   🔥 Режим: ${this.sandboxMode ? 'ПЕСОЧНИЦА' : 'ПРОДАКШН (накопление)'}`);
-        console.log(`   🔥 Порог сходства: ${this.similarityThreshold * 100}%`);
-        console.log(`   🔥 Минимум якорей: ${this.minConsistentPairs}`);
-        console.log(`   🔥 Порог уверенности: ${this.confidenceThreshold * 100}%`);
+        console.log(`   🔥 Режим: ${this.sandboxMode ? 'ПЕСОЧНИЦА (изолированные модели)' : 'ПРОДАКШН (накопление)'}`);
+        console.log(`   🔥 Аккумулятор с поддержкой треугольников`);
+        console.log(`   🔥 Сохранение паттернов и кластеров: включено`);
     }
 
-    // ==================== ОСНОВНОЙ МЕТОД ====================
+    // ==================== ГЛАВНЫЙ МЕТОД ====================
 
-    /**
-     * Обработка нового фото
-     */
-    async processFootprint(photoId, points, contours, options = {}) {
-        // 🔥 ИСПРАВЛЕНО: преобразуем photoId в строку
-        const photoIdStr = String(photoId);
-       
-        console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoIdStr.slice(0, 20)}...`);
-        console.log(`📦 Получены точки (${points?.length}) и контуры (${contours?.length || 0})`);
+    async processFootprint(footprint, analysisData, photoInfo = {}) {
+        console.log(`\n🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото ${photoInfo.photoId || 'без ID'}...`);
 
-        const startTime = Date.now();
+        // Извлекаем точки и контуры
+        let points = [];
+        let contours = [];
 
-        // Извлекаем точки из анализа
-        console.log(`📊 Получено ${points.length} точек и ${contours.length} контуров`);
+        if (Array.isArray(analysisData)) {
+            points = analysisData;
+            contours = [];
+            console.log(`📦 Получен массив точек (старый формат): ${points.length}`);
+        } else if (analysisData && typeof analysisData === 'object') {
+            if (analysisData.predictions) {
+                const extracted = this.extractPointsFromCurrentPhoto(analysisData, photoInfo);
+                points = extracted.points;
+                contours = extracted.contours;
+            } else {
+                points = analysisData.points || [];
+                contours = analysisData.contours || [];
+            }
+            console.log(`📦 Получены точки (${points.length}) и контуры (${contours.length})`);
+        }
 
-        // Определяем, есть ли уже модель для этого пользователя
-        const currentModelId = this.accumulator.getCurrentModelId();
-       
-        let result;
-       
-        if (!currentModelId) {
-            console.log(`🆕 Первое фото в сессии, создаю базовую модель`);
-            result = await this.accumulator.processPoints(extractedPoints, {
-                photoId: photoIdStr,
-                contours: extractedContours,
-                source: 'photo',
-                ...options
+        if (points.length < 3) {
+            console.log('⚠️ Слишком мало точек для топологии');
+            return {
+                success: false,
+                error: 'Недостаточно точек для топологической обработки',
+                points: points.length
+            };
+        }
+
+        console.log(`📊 Извлечено ${points.length} точек ИЗ ТЕКУЩЕГО ФОТО`);
+
+        // Диагностика точек
+        if (this.debug && points.length > 0) {
+            console.log(`📋 Первые 3 точки текущего фото:`);
+            points.slice(0, 3).forEach((p, i) => {
+                console.log(`   ${i+1}. ${p.id || 'no-id'}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
             });
+        }
+
+        // 🔥 ОПРЕДЕЛЯЕМ МОДЕЛЬ ДЛЯ СРАВНЕНИЯ
+        let modelId;
+
+        if (this.sandboxMode) {
+            // В песочнице - всегда новая временная модель
+            const sessionId = photoInfo.sessionId || 'default_sandbox';
+            modelId = this.sandboxModels.get(sessionId);
+
+            if (!modelId) {
+                modelId = `sandbox_${sessionId}_${Date.now()}`;
+                this.sandboxModels.set(sessionId, modelId);
+                console.log(`🏖️ Создана временная модель для сессии ${sessionId}`);
+            }
         } else {
-            // Есть модель - пробуем иерархическое сравнение
-            console.log(`🔄 Использую существующую модель ${currentModelId.slice(0, 12)}...`);
-           
-            result = await this.accumulator.processPoints(extractedPoints, {
-                photoId: photoIdStr,
-                contours: extractedContours,
-                modelId: currentModelId,
-                source: 'photo',
-                ...options
-            });
+            // 🔥 НАКОПЛЕНИЕ: используем одну модель для всей сессии
+            if (!this.accumulator.currentModelId) {
+                console.log(`🆕 Первое фото, создаю базовую модель`);
+            } else {
+                console.log(`🔄 Использую существующую модель ${this.accumulator.currentModelId}`);
+            }
+            modelId = this.accumulator.currentModelId;
         }
 
-        // Обновляем статистику
-        this.stats.totalPhotos++;
-        this.stats.lastUpdated = new Date();
-       
-        if (result) {
-            this.stats.totalMatches += result.matches?.length || 0;
-            this.stats.totalNewNodes += result.newNodesAdded || 0;
-            this.stats.totalRemovedNodes += result.nodesRemoved || 0;
-        }
+        // Передаём точки и контуры в аккумулятор
+        const result = await this.accumulator.processPoints(points, {
+            modelId: modelId,
+            source: `photo_${photoInfo.photoId || Date.now()}`,
+            name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
+            footprintId: footprint.id,
+            photoInfo: photoInfo,
+            photoId: photoInfo.photoId,
+            contours: contours
+        });
 
-        // Сохраняем в кеш
-        this.cache.lastPhotoId = photoIdStr;
-        this.cache.lastResult = result;
-
-        // Генерируем визуализацию если нужно
-        if (options.generateVisualization !== false) {
-            try {
-                const visData = await this.generateVisualization(photoIdStr, result);
-                this.cache.lastVisualization = visData;
-                result.visualization = visData;
-            } catch (e) {
-                console.log(`⚠️ Ошибка визуализации: ${e.message}`);
+        // 🔥 СОХРАНЯЕМ patternData И clusterData
+        if (result.modelId && this.accumulator.models.has(result.modelId)) {
+            const model = this.accumulator.models.get(result.modelId);
+            if (model.patternData) {
+                this.patterns.set(result.modelId, model.patternData);
+            }
+            if (model.clusterData) {
+                this.clusters.set(result.modelId, model.clusterData);
             }
         }
 
-        const elapsed = Date.now() - startTime;
-        console.log(`\n⏱️ Обработка фото заняла ${elapsed}ms`);
-       
-        return result;
-    }
-
-    /**
-     * Извлечение точек из предсказаний
-     */
-    extractPoints(predictions) {
-        if (!predictions || !Array.isArray(predictions)) {
-            return [];
+        // Обновляем связь след-модель (только для продакшна)
+        if (!this.sandboxMode && result.modelId && result.modelId !== modelId) {
+            this.linkedFootprints.set(footprint.id, result.modelId);
+            console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
         }
 
+        // Получаем обновленную информацию о модели
+        const modelInfo = this.accumulator.getModelInfo(result.modelId);
+
+        // 🔥 СОХРАНЯЕМ matchMap ИЗ РЕЗУЛЬТАТА (для визуализации)
+        const matchMap = result.matchMap || null;
+       
+        if (matchMap) {
+            console.log(`🔍 matchMap передан в результат: ${matchMap.size} пар`);
+        }
+
+        return {
+            success: true,
+            topologicalResult: {
+                ...result,
+                matchMap: matchMap
+            },
+            modelInfo: modelInfo,
+            pointsCount: points.length,
+            modelId: result.modelId,
+            similarity: result.similarity || 0,
+            decision: this.getDecisionFromResult(result),
+            sandboxMode: this.sandboxMode,
+            patternData: this.patterns.get(result.modelId),
+            clusterData: this.clusters.get(result.modelId)
+        };
+    }
+
+    // ==================== ИЗВЛЕЧЕНИЕ ТОЧЕК И КОНТУРОВ ====================
+
+    extractPointsFromCurrentPhoto(analysis, photoInfo = {}) {
         const points = [];
-        let index = 0;
+        const contours = [];
 
-        for (const pred of predictions) {
-            if (!pred || !pred.points || !Array.isArray(pred.points)) continue;
-
-            // Берем все точки протектора
-            if (pred.class === 'shoe-protector' || pred.class === 'protector') {
-                for (const point of pred.points) {
-                    if (point && typeof point.x === 'number' && typeof point.y === 'number') {
-                        points.push({
-                            id: `pt_${Date.now()}_${index++}`,
-                            x: point.x,
-                            y: point.y,
-                            confidence: pred.confidence || 0.5,
-                            class: pred.class,
-                            originalPoints: pred.points
-                        });
-                    }
-                }
-            }
+        if (!analysis?.predictions) {
+            console.log('⚠️ Нет данных анализа для извлечения точек');
+            return { points, contours };
         }
 
-        return points;
+        const photoId = photoInfo.photoId || `photo_${Date.now()}`;
+        const predictions = analysis.predictions || [];
+        let protectorCount = 0;
+
+        predictions.forEach((pred, idx) => {
+            if (pred.class === 'shoe-protector' && pred.points && pred.points.length > 0) {
+                const xs = pred.points.map(p => p.x);
+                const ys = pred.points.map(p => p.y);
+
+                const pointId = `${photoId}_pt_${protectorCount}`;
+               
+                // Сохраняем контур
+                contours.push({
+                    id: `${photoId}_contour_${protectorCount}`,
+                    pointId: pointId,
+                    points: pred.points,
+                    class: pred.class,
+                    confidence: pred.confidence || 0.5
+                });
+
+                // Сохраняем точку (центр контура)
+                points.push({
+                    id: pointId,
+                    x: (Math.min(...xs) + Math.max(...xs)) / 2,
+                    y: (Math.min(...ys) + Math.max(...ys)) / 2,
+                    confidence: pred.confidence || 0.5,
+                    source: 'current_photo',
+                    photoId: photoId,
+                    originalIndex: protectorCount,
+                    originalPoints: pred.points,
+                    contourId: `${photoId}_contour_${protectorCount}`
+                });
+                protectorCount++;
+            }
+        });
+
+        console.log(`📸 Извлечено ${points.length} точек и ${contours.length} контуров из ТЕКУЩЕГО ФОТО ${photoId}`);
+
+        return { points, contours };
     }
 
-    /**
-     * Извлечение контуров из предсказаний
-     */
-    extractContours(predictions, extractedPoints) {
-        if (!predictions || !Array.isArray(predictions)) {
-            return [];
+    // ==================== ПОЛУЧЕНИЕ РЕШЕНИЯ ====================
+
+    getDecisionFromResult(result) {
+        if (!result) return 'unknown';
+
+        if (result.status === 'created') {
+            return 'new_footprint';
+        } else if (result.status === 'enhanced_full' || result.status === 'enhanced_fast' || result.status === 'enhanced_optimal') {
+            return 'same_footprint_enhanced';
+        } else if (result.similarity >= 0.6) {
+            return 'same_footprint';
+        } else {
+            return 'different_footprint';
         }
-
-        const contours = [];
-        let pointIndex = 0;
-
-        for (const pred of predictions) {
-            if (!pred || !pred.points || !Array.isArray(pred.points)) continue;
-
-            if (pred.class === 'shoe-protector' || pred.class === 'protector') {
-                // Создаем контур для каждой точки протектора
-                for (let i = 0; i < pred.points.length; i++) {
-                    if (pointIndex < extractedPoints.length) {
-                        contours.push({
-                            pointId: extractedPoints[pointIndex].id,
-                            points: pred.points,
-                            class: pred.class,
-                            confidence: pred.confidence
-                        });
-                        pointIndex++;
-                    }
-                }
-            }
-        }
-
-        return contours;
     }
 
     // ==================== ВИЗУАЛИЗАЦИЯ ====================
 
-    /**
-     * Генерация визуализации
-     */
-    async generateVisualization(photoId, result) {
-        console.log(`\n🎨 Генерация визуализации для фото ${photoId.slice(0, 20)}...`);
+    getAccumulativeVisualizationData(modelId = null) {
+        const targetModelId = modelId || this.accumulator.currentModelId;
 
-        const ClusterVisualizer = require('../visualizations/cluster-visualizer');
-        const visualizer = new ClusterVisualizer({
-            debug: this.debug,
-            outputDir: './data/footprints/visualizations/topology'
-        });
-
-        const model = this.accumulator.getCurrentModel();
-        if (!model) {
-            console.log('⚠️ Нет модели для визуализации');
+        if (!targetModelId) {
+            console.log('⚠️ Нет активной топологической модели');
             return null;
         }
 
-        // Собираем данные для визуализации
-        const visData = {
-            points: Array.from(model.graph.nodes.values()),
-            edges: Array.from(model.graph.edges),
-            stats: {
-                totalNodes: model.graph.nodes.size,
-                totalEdges: model.graph.edges.size,
-                confirmed3: 0,
-                confirmed2: 0,
-                confirmed1: 0,
-                confirmed0: 0
-            },
-            matchMap: result?.matchMap || new Map(),
-            photoPoints: result?.photoPoints || []
-        };
-
-        // Считаем подтверждения
-        for (const node of model.graph.nodes.values()) {
-            const count = node.confirmationCount || 0;
-            if (count >= 3) visData.stats.confirmed3++;
-            else if (count >= 2) visData.stats.confirmed2++;
-            else if (count >= 1) visData.stats.confirmed1++;
-            else visData.stats.confirmed0++;
+        const vizData = this.accumulator.getVisualizationData(targetModelId);
+       
+        // Добавляем паттерны и кластеры для визуализации
+        if (vizData) {
+            vizData.patternData = this.patterns.get(targetModelId);
+            vizData.clusterData = this.clusters.get(targetModelId);
         }
 
-        const filename = `topology_${this.userId}_${Date.now()}.png`;
-        const result_vis = await visualizer.visualizeTopologicalModel(visData, { filename });
+        return vizData;
+    }
 
-        console.log(`✅ Визуализация сохранена: ${result_vis.modelPath}`);
+    // ==================== РАБОТА С ПАТТЕРНАМИ И КЛАСТЕРАМИ ====================
+
+    getPatterns(modelId = null) {
+        const targetId = modelId || this.accumulator.currentModelId;
+        return targetId ? this.patterns.get(targetId) : null;
+    }
+
+    getClusters(modelId = null) {
+        const targetId = modelId || this.accumulator.currentModelId;
+        return targetId ? this.clusters.get(targetId) : null;
+    }
+
+    comparePatterns(modelId1, modelId2) {
+        const patterns1 = this.patterns.get(modelId1);
+        const patterns2 = this.patterns.get(modelId2);
        
-        return result_vis;
+        if (!patterns1 || !patterns2) {
+            return { error: 'Pattern data not found' };
+        }
+
+        // Используем PatternAnalyzer для сравнения
+        const PatternAnalyzer = require('../analysis/PatternAnalyzer');
+        const analyzer = new PatternAnalyzer({ debug: this.debug });
+       
+        return analyzer.comparePatterns(patterns1.patterns, patterns2.patterns);
     }
 
-    // ==================== УПРАВЛЕНИЕ МОДЕЛЯМИ ====================
+    // ==================== ИНФОРМАЦИЯ О МОДЕЛЯХ ====================
 
-    /**
-     * Получить текущую модель
-     */
-    getCurrentModel() {
-        return this.accumulator.getCurrentModel();
-    }
+    getUserModelsInfo() {
+        const stats = this.accumulator.getStats();
+       
+        // Добавляем информацию о паттернах и кластерах
+        const models = [];
+        for (const [modelId, model] of this.accumulator.models) {
+            const patternData = this.patterns.get(modelId);
+            const clusterData = this.clusters.get(modelId);
+           
+            models.push({
+                id: modelId,
+                name: model.metadata.name,
+                nodes: model.graph.nodes.size,
+                edges: model.graph.edges.size,
+                patterns: patternData ? Object.keys(patternData.groups || {}).length : 0,
+                clusters: clusterData ? Object.keys(clusterData.clusters || {}).length : 0,
+                createdAt: model.metadata.createdAt
+            });
+        }
 
-    /**
-     * Получить ID текущей модели
-     */
-    getCurrentModelId() {
-        return this.accumulator.getCurrentModelId();
-    }
-
-    /**
-     * Переключиться на другую модель
-     */
-    switchToModel(modelId) {
-        return this.accumulator.switchToModel(modelId);
-    }
-
-    /**
-     * Получить все модели
-     */
-    getAllModels() {
-        return this.accumulator.getAllModels();
-    }
-
-    /**
-     * Получить статистику
-     */
-    getStats() {
-        const accStats = this.accumulator.getStats();
         return {
-            ...this.stats,
-            accumulator: accStats,
-            currentModelId: this.accumulator.getCurrentModelId(),
-            totalModels: accStats?.models?.total || 0
+            ...stats,
+            models: {
+                total: this.accumulator.models.size,
+                list: models
+            }
         };
     }
 
-    /**
-     * Получить данные для визуализации
-     */
-    getVisualizationData(modelId = null, reliablePhotoIds = []) {
-        return this.accumulator.getVisualizationData(modelId, reliablePhotoIds);
-    }
+    clearUserModels() {
+        this.accumulator.models.clear();
+        this.accumulator.currentModelId = null;
+        this.linkedFootprints.clear();
+        this.sandboxModels.clear();
+        this.patterns.clear();
+        this.clusters.clear();
 
-    /**
-     * Получить информацию о модели
-     */
-    getModelInfo(modelId = null) {
-        return this.accumulator.getModelInfo(modelId);
-    }
-
-    /**
-     * Получить модель по ID фото
-     */
-    getModelForPhoto(photoId) {
-        return this.accumulator.getModelForPhoto(String(photoId));
-    }
-
-    /**
-     * Получить все фото для модели
-     */
-    getPhotosForModel(modelId) {
-        return this.accumulator.getPhotosForModel(modelId);
-    }
-
-    /**
-     * Получить кеш
-     */
-    getCache() {
-        return this.cache;
-    }
-
-    /**
-     * Получить последний результат
-     */
-    getLastResult() {
-        return this.cache.lastResult;
-    }
-
-    /**
-     * Получить последнюю визуализацию
-     */
-    getLastVisualization() {
-        return this.cache.lastVisualization;
+        console.log(`🧹 Очищены все топологические модели пользователя ${this.userId}`);
+        return { success: true, message: 'Топологические модели очищены' };
     }
 
     // ==================== ЭКСПОРТ/ИМПОРТ ====================
 
-    /**
-     * Экспорт модели
-     */
-    exportModel(modelId) {
-        return this.accumulator.exportModel(modelId);
-    }
+    exportUserModels() {
+        const models = [];
 
-    /**
-     * Импорт модели
-     */
-    importModel(modelData) {
-        const result = this.accumulator.importModel(modelData);
-        if (result) {
-            this.stats.lastUpdated = new Date();
+        for (const [modelId, model] of this.accumulator.models) {
+            const exportData = this.accumulator.exportModel(modelId);
+            models.push({
+                ...exportData,
+                patternData: this.patterns.get(modelId),
+                clusterData: this.clusters.get(modelId)
+            });
         }
-        return result;
-    }
 
-    /**
-     * Экспорт всех моделей
-     */
-    exportAllModels() {
-        const models = this.accumulator.getAllModels();
-        const exports = {};
-       
-        for (const model of models) {
-            exports[model.id] = this.accumulator.exportModel(model.id);
-        }
-       
         return {
             userId: this.userId,
-            exportedAt: new Date(),
-            models: exports,
-            stats: this.stats
+            models: models,
+            linkedFootprints: Array.from(this.linkedFootprints.entries()),
+            exportedAt: new Date().toISOString(),
+            version: '2.0-topological'
         };
     }
 
-    /**
-     * Импорт всех моделей
-     */
-    importAllModels(data) {
-        if (!data || !data.models) return { success: false, count: 0 };
-       
-        let count = 0;
-        for (const [modelId, modelData] of Object.entries(data.models)) {
+    importUserModels(data) {
+        if (!data || !data.models || !Array.isArray(data.models)) {
+            return { success: false, error: 'Неверный формат данных' };
+        }
+
+        let importedCount = 0;
+
+        for (const modelData of data.models) {
             if (this.accumulator.importModel(modelData)) {
-                count++;
+                const modelId = modelData.id;
+                if (modelData.patternData) {
+                    this.patterns.set(modelId, modelData.patternData);
+                }
+                if (modelData.clusterData) {
+                    this.clusters.set(modelId, modelData.clusterData);
+                }
+                importedCount++;
             }
         }
-       
-        this.stats.lastUpdated = new Date();
-        console.log(`📥 Импортировано ${count} моделей`);
-       
-        return { success: true, count };
+
+        // Восстанавливаем связи след-модель
+        if (data.linkedFootprints && Array.isArray(data.linkedFootprints)) {
+            data.linkedFootprints.forEach(([footprintId, modelId]) => {
+                this.linkedFootprints.set(footprintId, modelId);
+            });
+        }
+
+        console.log(`📥 Импортировано ${importedCount} топологических моделей для пользователя ${this.userId}`);
+        console.log(`   • Восстановлено паттернов: ${this.patterns.size}`);
+        console.log(`   • Восстановлено кластеров: ${this.clusters.size}`);
+
+        return {
+            success: true,
+            importedCount: importedCount,
+            totalModels: this.accumulator.models.size,
+            patternsCount: this.patterns.size,
+            clustersCount: this.clusters.size
+        };
     }
 
-    // ==================== ОЧИСТКА ====================
+    // ==================== ДИАГНОСТИКА ====================
 
-    /**
-     * Очистить все данные
-     */
-    clear() {
-        this.accumulator.clear();
-        this.cache = {
-            lastPhotoId: null,
-            lastResult: null,
-            lastVisualization: null
-        };
-        this.stats = {
-            totalPhotos: 0,
-            totalMatches: 0,
-            totalNewNodes: 0,
-            totalRemovedNodes: 0,
-            created: this.stats.created,
-            lastUpdated: new Date()
-        };
-        console.log(`🧹 TopologyManager для пользователя ${this.userId} очищен`);
-    }
+    debugModel(modelId = null) {
+        const targetId = modelId || this.accumulator.currentModelId;
+        if (!targetId || !this.accumulator.models.has(targetId)) {
+            return { error: 'Model not found' };
+        }
 
-    /**
-     * Очистить кеш
-     */
-    clearCache() {
-        this.cache = {
-            lastPhotoId: null,
-            lastResult: null,
-            lastVisualization: null
+        const model = this.accumulator.models.get(targetId);
+        const patternData = this.patterns.get(targetId);
+        const clusterData = this.clusters.get(targetId);
+
+        return {
+            modelId: targetId,
+            nodes: model.graph.nodes.size,
+            edges: model.graph.edges.size,
+            patterns: patternData ? {
+                total: Object.keys(patternData.patterns || {}).length,
+                groups: Object.keys(patternData.groups || {}).length,
+                gaps: Object.keys(patternData.gaps || {}).length
+            } : null,
+            clusters: clusterData ? {
+                total: Object.keys(clusterData.clusters || {}).length,
+                relations: clusterData.relations ? clusterData.relations.size : 0
+            } : null,
+            morphology: Array.from(model.graph.nodes.values())
+                .filter(n => n.morphology && n.hasContour).length
         };
-        console.log(`🧹 Кеш TopologyManager очищен`);
     }
 }
 
