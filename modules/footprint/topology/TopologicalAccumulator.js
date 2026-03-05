@@ -499,51 +499,60 @@ class TopologicalAccumulator {
      * Строит matchMap для визуализации
      */
 buildHierarchicalMatchMap(result) {
-        const matchMap = new Map();      // фото -> модель
-        const modelMatchMap = new Map(); // модель -> фото
-        let pairNumber = 1;
+    const matchMap = new Map();
+    const modelMatchMap = new Map();
+    let pairNumber = 1;
 
-        // Сначала однозначные пары
-        for (const match of result.matches) {
-            // Для фото
-            matchMap.set(match.pointA, {
-                modelId: match.pointB,
-                pairNumber: pairNumber,
-                type: 'anchor',
-                confidence: match.score
-            });
-           
-            // Для модели
+    console.log(`\n🔍 ОТЛАДКА buildHierarchicalMatchMap:`);
+    console.log(`   result.matches.length = ${result.matches.length}`);
+   
+    // Проверим первые 5 matches
+    for (let i = 0; i < Math.min(5, result.matches.length); i++) {
+        const match = result.matches[i];
+        console.log(`   match[${i}]: pointA=${match.pointA?.slice(0,12)}..., pointB=${match.pointB?.slice(0,12)}...`);
+    }
+
+    for (const match of result.matches) {
+        // Для фото
+        matchMap.set(match.pointA, {
+            modelId: match.pointB,
+            pairNumber: pairNumber,
+            type: 'anchor',
+            confidence: match.score
+        });
+
+        // Для модели
+        if (match.pointB) {
             modelMatchMap.set(match.pointB, {
                 photoId: match.pointA,
                 pairNumber: pairNumber,
                 type: 'anchor',
                 confidence: match.score
             });
-           
-            pairNumber++;
         }
 
-        // Потом неоднозначные (без номеров)
-        if (result.ambiguous) {
-            for (const amb of result.ambiguous) {
-                matchMap.set(amb.pointA, {
-                    candidates: amb.candidates,
-                    type: 'ambiguous',
-                    count: amb.count
-                });
-                // Для неоднозначных в модель не добавляем
-            }
-        }
-
-        console.log(`📋 Создан matchMap: ${matchMap.size} записей (${pairNumber-1} с номерами)`);
-        console.log(`📋 Создан modelMatchMap: ${modelMatchMap.size} записей`);
-
-        return {
-            matchMap,
-            modelMatchMap
-        };
+        pairNumber++;
     }
+
+    console.log(`   matchMap size = ${matchMap.size}`);
+    console.log(`   modelMatchMap size = ${modelMatchMap.size}`);
+   
+    // Проверим, есть ли дубликаты в modelMatchMap
+    const modelIds = new Set();
+    let duplicates = 0;
+    for (const match of result.matches) {
+        if (match.pointB) {
+            if (modelIds.has(match.pointB)) {
+                duplicates++;
+                console.log(`   ⚠️ Дубликат modelId: ${match.pointB.slice(0,12)}...`);
+            }
+            modelIds.add(match.pointB);
+        }
+    }
+    console.log(`   Уникальных modelId: ${modelIds.size}, дубликатов: ${duplicates}`);
+
+    return { matchMap, modelMatchMap };
+}
 
     updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
         const model = this.models.get(modelId);
