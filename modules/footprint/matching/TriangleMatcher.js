@@ -29,75 +29,113 @@ class TriangleMatcher {
     /**
      * 🔥 ОСНОВНОЙ МЕТОД
      */
-    findMatches(pointsA, pointsB) {
-        console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК СООТВЕТСТВИЙ`);
-        console.log(`${'='.repeat(100)}`);
-        console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
+findMatches(pointsA, pointsB) {
+    console.log(`\n${'='.repeat(100)}`);
+    console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК СООТВЕТСТВИЙ`);
+    console.log(`${'='.repeat(100)}`);
+    console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
-        // ШАГ 1: Строим все возможные треугольники
-        console.log(`\n🔍 ШАГ 1: Построение треугольников...`);
-       
-        const trianglesA = this.buildAllTriangles(pointsA);
-        const trianglesB = this.buildAllTriangles(pointsB);
-       
-        console.log(`   • Треугольников в А: ${trianglesA.length}`);
-        console.log(`   • Треугольников в Б: ${trianglesB.length}`);
+    // ШАГ 1: Строим все возможные треугольники
+    console.log(`\n🔍 ШАГ 1: Построение треугольников...`);
+   
+    const trianglesA = this.buildAllTriangles(pointsA);
+    const trianglesB = this.buildAllTriangles(pointsB);
+   
+    console.log(`   • Треугольников в А: ${trianglesA.length}`);
+    console.log(`   • Треугольников в Б: ${trianglesB.length}`);
 
-        if (trianglesA.length === 0 || trianglesB.length === 0) {
-            console.log(`⚠️ Недостаточно треугольников для сопоставления`);
-            return {
-                matches: [],
-                stats: this.stats
-            };
-        }
+    // 🔥 ДЕТАЛИЗАЦИЯ ТРЕУГОЛЬНИКОВ
+    console.log(`\n📊 ДЕТАЛИЗАЦИЯ ТРЕУГОЛЬНИКОВ:`);
+    console.log(`   • В фото А (первые 5 треугольников):`);
+    trianglesA.slice(0, 5).forEach((t, i) => {
+        console.log(`     ${i+1}. Точки: ${t.points.map(p => p.slice(0,8)).join(' ')}`);
+        console.log(`        Отношения: ${t.ratios.map(r => r.toFixed(2)).join(' ')}`);
+        console.log(`        Тип: ${t.type}`);
+        console.log(`        Морфология вершин: [${t.morph.slice(0,3).map(v => v.toFixed(1))}...]`);
+    });
 
-        // ШАГ 2: Группировка треугольников по их признакам
-        console.log(`\n🔍 ШАГ 2: Группировка треугольников...`);
-       
-        const groupsA = this.groupTriangles(trianglesA);
-        const groupsB = this.groupTriangles(trianglesB);
-       
-        console.log(`   • Уникальных групп в А: ${Object.keys(groupsA).length}`);
-        console.log(`   • Уникальных групп в Б: ${Object.keys(groupsB).length}`);
-
-        // ШАГ 3: Поиск соответствующих треугольников
-        console.log(`\n🔍 ШАГ 3: Поиск соответствий...`);
-       
-        const triangleMatches = this.matchTriangles(groupsA, groupsB);
-       
-        console.log(`   • Найдено пар треугольников: ${triangleMatches.length}`);
-
-        // ШАГ 4: Построение окрестностей
-        console.log(`\n🔍 ШАГ 4: Построение окрестностей...`);
-       
-        const neighborhoodsA = this.buildNeighborhoods(trianglesA, triangleMatches);
-        const neighborhoodsB = this.buildNeighborhoods(trianglesB, triangleMatches);
-       
-        console.log(`   • Окрестностей в А: ${neighborhoodsA.length}`);
-        console.log(`   • Окрестностей в Б: ${neighborhoodsB.length}`);
-
-        // ШАГ 5: Поиск соответствующих окрестностей
-        console.log(`\n🔍 ШАГ 5: Поиск соответствий окрестностей...`);
-       
-        const neighborhoodMatches = this.matchNeighborhoods(neighborhoodsA, neighborhoodsB);
-       
-        console.log(`   • Найдено окрестностей: ${neighborhoodMatches.length}`);
-
-        // ШАГ 6: Восстановление точек по окрестностям
-        console.log(`\n🔍 ШАГ 6: Восстановление точек...`);
-       
-        const pointMatches = this.reconstructPoints(neighborhoodMatches, pointsA, pointsB);
-       
-        console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
-
+    if (trianglesA.length === 0 || trianglesB.length === 0) {
+        console.log(`⚠️ Недостаточно треугольников для сопоставления`);
         return {
-            matches: pointMatches,
-            triangleMatches,
-            neighborhoodMatches,
+            matches: [],
             stats: this.stats
         };
     }
+
+    // ШАГ 2: Группировка треугольников по их признакам
+    console.log(`\n🔍 ШАГ 2: Группировка треугольников...`);
+   
+    const groupsA = this.groupTriangles(trianglesA);
+    const groupsB = this.groupTriangles(trianglesB);
+   
+    console.log(`   • Уникальных групп в А: ${Object.keys(groupsA).length}`);
+    console.log(`   • Уникальных групп в Б: ${Object.keys(groupsB).length}`);
+
+    // 🔥 ДЕТАЛИЗАЦИЯ ГРУПП
+    console.log(`\n📊 РАСПРЕДЕЛЕНИЕ ПО ГРУППАМ:`);
+    const groupSizesA = Object.values(groupsA).map(g => g.length);
+    const groupSizesB = Object.values(groupsB).map(g => g.length);
+    console.log(`   • Фото А: групп ${groupSizesA.length}, макс размер ${Math.max(...groupSizesA)}`);
+    console.log(`   • Фото Б: групп ${groupSizesB.length}, макс размер ${Math.max(...groupSizesB)}`);
+
+    // Пример первой группы из А (если есть)
+    const firstGroupKey = Object.keys(groupsA)[0];
+    if (firstGroupKey) {
+        console.log(`\n📊 ПРИМЕР ГРУППЫ ИЗ А:`);
+        console.log(`   • Ключ: ${firstGroupKey}`);
+        console.log(`   • Треугольников в группе: ${groupsA[firstGroupKey].length}`);
+        const sample = groupsA[firstGroupKey][0];
+        console.log(`   • Образец: отношения ${sample.ratios.map(r => r.toFixed(2)).join(' ')}`);
+        console.log(`   • Тип: ${sample.type}`);
+    }
+
+    // ШАГ 3: Поиск соответствующих треугольников
+    console.log(`\n🔍 ШАГ 3: Поиск соответствий...`);
+   
+    const triangleMatches = this.matchTriangles(groupsA, groupsB);
+   
+    console.log(`   • Найдено пар треугольников: ${triangleMatches.length}`);
+
+    // 🔥 ДЕТАЛИЗАЦИЯ СОВПАДЕНИЙ
+    if (triangleMatches.length > 0) {
+        console.log(`\n📊 ПРИМЕРЫ СОВПАДЕНИЙ:`);
+        triangleMatches.slice(0, 3).forEach((m, i) => {
+            console.log(`   ${i+1}. Сходство: ${(m.score*100).toFixed(1)}%`);
+            console.log(`      А: точки ${m.triangleA.points.map(p => p.slice(0,8)).join(' ')}`);
+            console.log(`      Б: точки ${m.triangleB.points.map(p => p.slice(0,8)).join(' ')}`);
+        });
+    }
+
+    // ШАГ 4: Построение окрестностей
+    console.log(`\n🔍 ШАГ 4: Построение окрестностей...`);
+   
+    const neighborhoodsA = this.buildNeighborhoods(trianglesA, triangleMatches);
+    const neighborhoodsB = this.buildNeighborhoods(trianglesB, triangleMatches);
+   
+    console.log(`   • Окрестностей в А: ${neighborhoodsA.length}`);
+    console.log(`   • Окрестностей в Б: ${neighborhoodsB.length}`);
+
+    // ШАГ 5: Поиск соответствующих окрестностей
+    console.log(`\n🔍 ШАГ 5: Поиск соответствий окрестностей...`);
+   
+    const neighborhoodMatches = this.matchNeighborhoods(neighborhoodsA, neighborhoodsB);
+   
+    console.log(`   • Найдено окрестностей: ${neighborhoodMatches.length}`);
+
+    // ШАГ 6: Восстановление точек по окрестностям
+    console.log(`\n🔍 ШАГ 6: Восстановление точек...`);
+   
+    const pointMatches = this.reconstructPoints(neighborhoodMatches, pointsA, pointsB);
+   
+    console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
+
+    return {
+        matches: pointMatches,
+        triangleMatches,
+        neighborhoodMatches,
+        stats: this.stats
+    };
+}
 
     /**
      * 🔥 Построение всех треугольников между похожими точками
