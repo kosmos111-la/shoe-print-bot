@@ -1,12 +1,12 @@
 // modules/footprint/topology/GraphBuilder.js
-// 🔷 ПОСТРОЕНИЕ ГРАФА ДЕЛОНЕ С НОРМАЛИЗАЦИЕЙ (тихий режим)
+// 🔷 ПОСТРОЕНИЕ ГРАФА ДЕЛОНЕ С НОРМАЛИЗАЦИЕЙ И ПОДСЧЕТОМ ТРЕУГОЛЬНИКОВ
 
 const GeometryUtils = require('./geometry');
 
 class GraphBuilder {
     constructor(options = {}) {
         this.debug = options.debug || false;
-        console.log('🔷 GraphBuilder (Делоне + нормализация) создан');
+        console.log('🔷 GraphBuilder (Делоне + нормализация + треугольники) создан');
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
@@ -21,11 +21,25 @@ class GraphBuilder {
 
         // Нормализуем координаты (только для построения графа)
         const normalizedPoints = this.normalizePoints(points);
-       
+      
         // Строим триангуляцию Делоне на нормализованных координатах
         const graph = this.buildDelaunayGraph(normalizedPoints, points);
 
+        // 🔥 НОВОЕ: Подсчет треугольников для каждой точки
+        const triangles = this.countTriangles(graph);
+       
+        // Добавляем треугольники в узлы графа
+        for (const [nodeId, node] of graph.nodes) {
+            node.triangles = triangles.get(nodeId) || 0;
+        }
+
         console.log(`✅ Граф Делоне построен: ${graph.nodes.size} узлов, ${graph.edges.size} рёбер`);
+       
+        // Статистика по треугольникам
+        const triangleValues = Array.from(triangles.values());
+        const avgTriangles = triangleValues.reduce((a, b) => a + b, 0) / triangleValues.length;
+        const maxTriangles = Math.max(...triangleValues);
+        console.log(`   📐 Треугольников: среднее ${avgTriangles.toFixed(1)}, макс ${maxTriangles}`);
 
         return graph;
     }
@@ -35,20 +49,20 @@ class GraphBuilder {
     normalizePoints(points) {
         let minX = Infinity, maxX = -Infinity;
         let minY = Infinity, maxY = -Infinity;
-       
+      
         for (const p of points) {
             minX = Math.min(minX, p.x);
             maxX = Math.max(maxX, p.x);
             minY = Math.min(minY, p.y);
             maxY = Math.max(maxY, p.y);
         }
-       
+      
         const width = maxX - minX;
         const height = maxY - minY;
         const maxDim = Math.max(width, height);
-       
+      
         if (maxDim === 0) return points;
-       
+      
         // Нормализуем, но СОХРАНЯЕМ оригинальные координаты
         return points.map((p, idx) => ({
             id: p.id || `pt_${idx}`,
@@ -92,8 +106,6 @@ class GraphBuilder {
             }
 
             triangles = [...goodTriangles, ...newTriangles];
-
-            // Тихий режим - никаких логов на каждые 10 точек
         }
 
         const superIndices = superTriangle.indices;
@@ -102,6 +114,9 @@ class GraphBuilder {
         );
 
         const graph = this.trianglesToGraph(triangles, normalizedPoints, originalPoints);
+       
+        // 🔥 Сохраняем список треугольников для дальнейшего использования
+        graph.triangleList = triangles;
 
         return graph;
     }
@@ -171,13 +186,14 @@ class GraphBuilder {
         for (let i = 0; i < normalizedPoints.length; i++) {
             const normPoint = normalizedPoints[i];
             const origPoint = originalPoints[i];
-           
+          
             nodes.set(normPoint.id, {
                 id: normPoint.id,
-                x: origPoint.x,  // Оригинальные координаты для визуализации
+                x: origPoint.x,
                 y: origPoint.y,
                 confidence: normPoint.confidence || 0.5,
-                degree: 0
+                degree: 0,
+                triangles: 0
             });
         }
 
@@ -216,10 +232,63 @@ class GraphBuilder {
             nodes: nodes,
             edges: edges,
             triangles: triangles.length,
+            triangleList: triangles,
             avgDegree: avgDegree,
             points: normalizedPoints
         };
     }
+
+    // ==================== 🔥 НОВЫЙ МЕТОД: ПОДСЧЕТ ТРЕУГОЛЬНИКОВ ====================
+
+    /**
+     * Подсчитывает количество треугольников для каждой точки графа
+     * @param {Object} graph - граф с nodes и edges
+     * @returns {Map} - карта nodeId -> количество треугольников
+     */
+    countTriangles(graph) {
+        const triangles = new Map();
+        const nodes = Array.from(graph.nodes.keys());
+        const edges = new Set(graph.edges);
+       
+        // Инициализируем счетчики
+        for (const nodeId of nodes) {
+            triangles.set(nodeId, 0);
+        }
+       
+        // Для каждого узла считаем треугольники
+        for (let i = 0; i < nodes.length; i++) {
+            const nodeId = nodes[i];
+           
+            // Находим всех соседей узла
+            const neighbors = [];
+            for (const edge of edges) {
+                const [a, b] = edge.split('--');
+                if (a === nodeId) neighbors.push(b);
+                if (b === nodeId) neighbors.push(a);
+            }
+           
+            // Если соседей меньше 2, треугольников быть не может
+            if (neighbors.length < 2) continue;
+           
+            // Считаем треугольники (циклы длины 3)
+            let count = 0;
+            for (let j = 0; j < neighbors.length; j++) {
+                for (let k = j + 1; k < neighbors.length; k++) {
+                    // Проверяем, есть ли ребро между соседями
+                    const edgeId = [neighbors[j], neighbors[k]].sort().join('--');
+                    if (edges.has(edgeId)) {
+                        count++;
+                    }
+                }
+            }
+           
+            triangles.set(nodeId, count);
+        }
+       
+        return triangles;
+    }
+
+    // ==================== МИНИМАЛЬНЫЙ ГРАФ (ДЛЯ МАЛОГО КОЛИЧЕСТВА ТОЧЕК) ====================
 
     buildMinimalGraph(points) {
         const nodes = new Map();
@@ -234,7 +303,8 @@ class GraphBuilder {
                 x: point.x,
                 y: point.y,
                 confidence: point.confidence || 0.5,
-                degree: 0
+                degree: 0,
+                triangles: 0
             });
 
             if (i > 0) {
@@ -255,10 +325,17 @@ class GraphBuilder {
             nodes.get(nodeB).degree++;
         }
 
+        // Для минимального графа треугольников нет
+        const triangles = new Map();
+        for (const nodeId of nodes.keys()) {
+            triangles.set(nodeId, 0);
+        }
+
         return {
             nodes: nodes,
             edges: edges,
             triangles: 0,
+            triangleList: [],
             avgDegree: points.length > 0 ?
                 Array.from(nodes.values()).reduce((sum, n) => sum + n.degree, 0) / nodes.size : 0,
             points: points.map((p, idx) => ({
