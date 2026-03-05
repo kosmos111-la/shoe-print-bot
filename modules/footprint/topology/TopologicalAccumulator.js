@@ -107,224 +107,236 @@ class TopologicalAccumulator {
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
-    async processPoints(points, options = {}) {
-        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
+    async processPoints(points, options = {}) {async processPoints(points, options = {}) {
+    console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
 
-        const photoId = options.photoId || `photo_${Date.now()}`;
-        const contours = options.contours || [];
-        const modelIdHint = options.modelId;
+    const photoId = options.photoId || `photo_${Date.now()}`;
+    const contours = options.contours || [];
+    const modelIdHint = options.modelId;
 
-        // 1. Строим графы
-        const exactGraph = this.graphBuilder.buildGraph(points, options.source || 'photo');
-        const knnGraph = this.knnBuilder.buildGraph(points, options.source || 'photo_knn');
-        const morphologyMap = this.morphologyEncoder.encode(points, contours);
-        const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
+    // 🔥 ОТЛАДКА
+    console.log(`\n🔍 ОТЛАДКА processPoints:`);
+    console.log(`   • photoId: ${photoId}`);
+    console.log(`   • modelIdHint: ${modelIdHint}`);
+    console.log(`   • models.has: ${this.models.has(modelIdHint)}`);
 
-        // 🔥 2. Если есть существующая модель - пробуем треугольное сравнение
-        if (modelIdHint && this.models.has(modelIdHint)) {
-            const existingModel = this.models.get(modelIdHint);
+    // 1. Строим графы
+    const exactGraph = this.graphBuilder.buildGraph(points, options.source || 'photo');
+    const knnGraph = this.knnBuilder.buildGraph(points, options.source || 'photo_knn');
+    const morphologyMap = this.morphologyEncoder.encode(points, contours);
+    const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
 
-            // Создаем временную модель из нового фото
-            const tempModel = {
-                graph: exactGraph,
-                morphologyMap: morphologyMap,
-                metadata: { name: 'temp' }
-            };
+    // 🔥 2. Если есть существующая модель - пробуем треугольное сравнение
+    if (modelIdHint && this.models.has(modelIdHint)) {
+        console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
+       
+        const existingModel = this.models.get(modelIdHint);
 
-            console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
-            const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
+        // Создаем временную модель из нового фото
+        const tempModel = {
+            graph: exactGraph,
+            morphologyMap: morphologyMap,
+            metadata: { name: 'temp' }
+        };
 
-            if (triangleResult.sufficient) {
-                console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
+        console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
+        const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
 
-                // 2.1 Достраиваем остальные точки через RelativePositioning
-                console.log(`\n🧩 ДОСТРАИВАНИЕ остальных точек...`);
-                const allMatches = await this.relativePositioning.positionPoints(
-                    exactGraph,
-                    existingModel.graph,
-                    this.convertMatchesToMap(triangleResult.matches),
-                    morphologyMap,
-                    existingModel.morphologyMap,
-                    { confidenceThreshold: 0.5 }
-                );
+        if (triangleResult.sufficient) {
+            console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
 
-                // 2.2 Обновляем модель
-                const updateResult = this.updateModelWithOptimalMatches(
-                    modelIdHint,
-                    exactGraph,
-                    triangleResult.matches,
-                    morphologyMap
-                );
-
-                // 2.3 Обновляем KNN-граф и подписи
-                existingModel.knnGraph = knnGraph;
-                existingModel.knnFingerprints = new Map([...existingModel.knnFingerprints, ...knnFingerprints]);
-                existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
-                existingModel.metadata.lastEnhanced = new Date();
-
-                // 2.4 Создаем matchMap для визуализации
-                const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(triangleResult);
-
-                // 2.5 Очищаем неподтверждённые точки
-                const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
-                this.stats.totalNodesRemoved += cleanResult.removed;
-                this.stats.triangleMatchesCount += triangleResult.count;
-
-                // 2.6 Статистика
-                const confirmedInModel = triangleResult.matches.length;
-                const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
-                const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
-
-                console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-                console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
-                console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
-                console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
-                console.log(`   • Всего в модели теперь: ${existingModel.graph.nodes.size}`);
-
-                this.photoToModel.set(photoId, modelIdHint);
-
-                return {
-                    status: 'enhanced_triangle',
-                    modelId: modelIdHint,
-                    similarity: triangleResult.similarity,
-                    centerMatches: triangleResult.count,
-                    totalMatches: triangleResult.matches.length,
-                    newNodesAdded: updateResult.newNodesAdded,
-                    nodesRemoved: cleanResult.removed,
-                    matchMap: matchMap,
-                    modelMatchMap: modelMatchMap,
-                    message: `Треугольное сопоставление: ${triangleResult.count} пар`
-                };
-            } else {
-                console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - недостаточно (нужно 12)`);
-            }
-        }
-
-        // Если это первое фото вообще - создаём первую модель
-        if (this.models.size === 0) {
-            console.log(`🆕 Первое фото в сессии, создаю первую модель`);
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, options);
-            this.photoToModel.set(photoId, result.modelId);
-            return {
-                ...result,
-                isFirstModel: true,
-                totalModels: this.models.size
-            };
-        }
-
-        // Если быстрый путь не сработал - идем по стандартному пути
-        console.log(`\n🔍 Быстрый путь не сработал, запускаю полный анализ...`);
-
-        // Сравниваем со ВСЕМИ существующими моделями
-        console.log(`\n🔍 Сравниваю с ${this.models.size} существующими моделями...`);
-
-        const comparisons = [];
-
-        for (const [modelId, model] of this.models) {
-            console.log(`   Проверяю модель ${modelId.slice(0, 12)}...`);
-
-            const comparison = this.fingerprinter.compareGraphs(
-                model.knnGraph,
-                model.knnFingerprints,
-                knnGraph,
-                knnFingerprints
+            // 2.1 Достраиваем остальные точки через RelativePositioning
+            console.log(`\n🧩 ДОСТРАИВАНИЕ остальных точек...`);
+            const allMatches = await this.relativePositioning.positionPoints(
+                exactGraph,
+                existingModel.graph,
+                this.convertMatchesToMap(triangleResult.matches),
+                morphologyMap,
+                existingModel.morphologyMap,
+                { confidenceThreshold: 0.5 }
             );
 
-            comparisons.push({
-                modelId,
-                similarity: comparison.similarity,
-                exactMatches: comparison.exactMatches.length,
-                similarMatches: comparison.similarMatches.length,
-                model
-            });
-        }
+            // 2.2 Обновляем модель
+            const updateResult = this.updateModelWithOptimalMatches(
+                modelIdHint,
+                exactGraph,
+                triangleResult.matches,
+                morphologyMap
+            );
 
-        comparisons.sort((a, b) => b.similarity - a.similarity);
-        const bestMatch = comparisons[0];
+            // 2.3 Обновляем KNN-граф и подписи
+            existingModel.knnGraph = knnGraph;
+            existingModel.knnFingerprints = new Map([...existingModel.knnFingerprints, ...knnFingerprints]);
+            existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
+            existingModel.metadata.lastEnhanced = new Date();
 
-        console.log(`\n📊 Лучшее совпадение:`);
-        console.log(`   Модель: ${bestMatch.modelId.slice(0, 12)}...`);
-        console.log(`   Сходство: ${(bestMatch.similarity * 100).toFixed(1)}%`);
+            // 2.4 Создаем matchMap для визуализации
+            const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(triangleResult);
 
-        // Если сходство выше порога - улучшаем существующую модель
-        if (bestMatch.similarity >= this.similarityThreshold) {
-            console.log(`\n✅ СОВПАДЕНИЕ! Улучшаю модель ${bestMatch.modelId.slice(0, 12)}...`);
+            // 2.5 Очищаем неподтверждённые точки
+            const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
+            this.stats.totalNodesRemoved += cleanResult.removed;
+            this.stats.triangleMatchesCount += triangleResult.count;
 
-            this.switchToModel(bestMatch.modelId);
+            // 2.6 Статистика
+            const confirmedInModel = triangleResult.matches.length;
+            const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
+            const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
 
-            if (!this.fastMode) {
-                const enhancedResult = await this.enhanceExistingModel(
-                    bestMatch.modelId,
-                    exactGraph,
-                    knnGraph,
-                    knnFingerprints,
-                    morphologyMap,
-                    options
-                );
+            console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
+            console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
+            console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
+            console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
+            console.log(`   • Всего в модели теперь: ${existingModel.graph.nodes.size}`);
 
-                this.photoToModel.set(photoId, bestMatch.modelId);
-
-                return {
-                    status: 'enhanced',
-                    modelId: bestMatch.modelId,
-                    similarity: bestMatch.similarity,
-                    ...enhancedResult,
-                    totalModels: this.models.size,
-                    matchedModel: bestMatch.modelId
-                };
-            } else {
-                this.photoToModel.set(photoId, bestMatch.modelId);
-
-                return {
-                    status: 'matched_fast',
-                    modelId: bestMatch.modelId,
-                    similarity: bestMatch.similarity,
-                    exactMatches: bestMatch.exactMatches,
-                    similarMatches: bestMatch.similarMatches,
-                    totalModels: this.models.size,
-                    matchedModel: bestMatch.modelId,
-                    message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
-                };
-            }
-        }
-        // Если сходство ниже порога - создаём НОВУЮ модель
-        else {
-            console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
-            console.log(`🆕 Создаю НОВУЮ модель для другого следа...`);
-
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
-                ...options,
-                comparedWith: bestMatch.modelId,
-                reason: 'different_footprint'
-            });
-
-            this.modelRelations.set(result.modelId, {
-                related: [bestMatch.modelId],
-                type: 'different',
-                similarity: bestMatch.similarity
-            });
-
-            const existingRel = this.modelRelations.get(bestMatch.modelId);
-            this.modelRelations.set(bestMatch.modelId, {
-                related: [...(existingRel?.related || []), result.modelId],
-                type: 'different',
-                similarity: bestMatch.similarity
-            });
-
-            this.photoToModel.set(photoId, result.modelId);
-            this.stats.differentFootprintsDetected++;
+            this.photoToModel.set(photoId, modelIdHint);
 
             return {
-                status: 'created_new',
-                modelId: result.modelId,
+                status: 'enhanced_triangle',
+                modelId: modelIdHint,
+                similarity: triangleResult.similarity,
+                centerMatches: triangleResult.count,
+                totalMatches: triangleResult.matches.length,
+                newNodesAdded: updateResult.newNodesAdded,
+                nodesRemoved: cleanResult.removed,
+                matchMap: matchMap,
+                modelMatchMap: modelMatchMap,
+                message: `Треугольное сопоставление: ${triangleResult.count} пар`
+            };
+        } else {
+            console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - недостаточно (нужно 12)`);
+        }
+    } else {
+        console.log(`\n❌ МОДЕЛЬ НЕ НАЙДЕНА, создаю новую...`);
+        console.log(`   modelIdHint: ${modelIdHint}`);
+        console.log(`   models.has: ${this.models.has(modelIdHint)}`);
+    }
+
+    // Если это первое фото вообще - создаём первую модель
+    if (this.models.size === 0) {
+        console.log(`🆕 Первое фото в сессии, создаю первую модель`);
+        const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, options);
+        this.photoToModel.set(photoId, result.modelId);
+        return {
+            ...result,
+            isFirstModel: true,
+            totalModels: this.models.size
+        };
+    }
+
+    // Если быстрый путь не сработал - идем по стандартному пути
+    console.log(`\n🔍 Быстрый путь не сработал, запускаю полный анализ...`);
+
+    // Сравниваем со ВСЕМИ существующими моделями
+    console.log(`\n🔍 Сравниваю с ${this.models.size} существующими моделями...`);
+
+    const comparisons = [];
+
+    for (const [modelId, model] of this.models) {
+        console.log(`   Проверяю модель ${modelId.slice(0, 12)}...`);
+
+        const comparison = this.fingerprinter.compareGraphs(
+            model.knnGraph,
+            model.knnFingerprints,
+            knnGraph,
+            knnFingerprints
+        );
+
+        comparisons.push({
+            modelId,
+            similarity: comparison.similarity,
+            exactMatches: comparison.exactMatches.length,
+            similarMatches: comparison.similarMatches.length,
+            model
+        });
+    }
+
+    comparisons.sort((a, b) => b.similarity - a.similarity);
+    const bestMatch = comparisons[0];
+
+    console.log(`\n📊 Лучшее совпадение:`);
+    console.log(`   Модель: ${bestMatch.modelId.slice(0, 12)}...`);
+    console.log(`   Сходство: ${(bestMatch.similarity * 100).toFixed(1)}%`);
+
+    // Если сходство выше порога - улучшаем существующую модель
+    if (bestMatch.similarity >= this.similarityThreshold) {
+        console.log(`\n✅ СОВПАДЕНИЕ! Улучшаю модель ${bestMatch.modelId.slice(0, 12)}...`);
+
+        this.switchToModel(bestMatch.modelId);
+
+        if (!this.fastMode) {
+            const enhancedResult = await this.enhanceExistingModel(
+                bestMatch.modelId,
+                exactGraph,
+                knnGraph,
+                knnFingerprints,
+                morphologyMap,
+                options
+            );
+
+            this.photoToModel.set(photoId, bestMatch.modelId);
+
+            return {
+                status: 'enhanced',
+                modelId: bestMatch.modelId,
                 similarity: bestMatch.similarity,
-                comparedWith: bestMatch.modelId,
+                ...enhancedResult,
                 totalModels: this.models.size,
-                isDifferentFootprint: true,
-                message: `Обнаружен ДРУГОЙ след! Создана новая модель.`
+                matchedModel: bestMatch.modelId
+            };
+        } else {
+            this.photoToModel.set(photoId, bestMatch.modelId);
+
+            return {
+                status: 'matched_fast',
+                modelId: bestMatch.modelId,
+                similarity: bestMatch.similarity,
+                exactMatches: bestMatch.exactMatches,
+                similarMatches: bestMatch.similarMatches,
+                totalModels: this.models.size,
+                matchedModel: bestMatch.modelId,
+                message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
             };
         }
     }
+    // Если сходство ниже порога - создаём НОВУЮ модель
+    else {
+        console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
+        console.log(`🆕 Создаю НОВУЮ модель для другого следа...`);
+
+        const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
+            ...options,
+            comparedWith: bestMatch.modelId,
+            reason: 'different_footprint'
+        });
+
+        this.modelRelations.set(result.modelId, {
+            related: [bestMatch.modelId],
+            type: 'different',
+            similarity: bestMatch.similarity
+        });
+
+        const existingRel = this.modelRelations.get(bestMatch.modelId);
+        this.modelRelations.set(bestMatch.modelId, {
+            related: [...(existingRel?.related || []), result.modelId],
+            type: 'different',
+            similarity: bestMatch.similarity
+        });
+
+        this.photoToModel.set(photoId, result.modelId);
+        this.stats.differentFootprintsDetected++;
+
+        return {
+            status: 'created_new',
+            modelId: result.modelId,
+            similarity: bestMatch.similarity,
+            comparedWith: bestMatch.modelId,
+            totalModels: this.models.size,
+            isDifferentFootprint: true,
+            message: `Обнаружен ДРУГОЙ след! Создана новая модель.`
+        };
+    }
+}
 
     // ==================== НОВЫЙ МЕТОД: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
 
