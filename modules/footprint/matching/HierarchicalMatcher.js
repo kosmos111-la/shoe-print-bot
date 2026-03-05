@@ -186,7 +186,7 @@ class HierarchicalMatcher {
 
         const verifiedResult = this.geometricVerification(result);
 
-        this.checkpoints.afterGeometry = verifiedResult.verified.length;
+        this.checkpoints.afterGeometry = (verifiedResult.matches || []).length;
         this.stats.geometricInliers = verifiedResult.stats.verified;
         this.stats.geometricOutliers = verifiedResult.stats.rejected;
 
