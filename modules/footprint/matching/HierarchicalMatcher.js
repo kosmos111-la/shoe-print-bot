@@ -1,6 +1,5 @@
 // modules/footprint/matching/HierarchicalMatcher.js
-// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ИТЕРАТИВНОЙ СТАБИЛИЗАЦИЕЙ
-// ИСПРАВЛЕНО: защита от дубликатов pointB в зонах
+// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ЗОНОЙ 0.5 (ОДИНОКИЕ СТАБИЛЬНЫЕ ТОЧКИ)
 
 class HierarchicalMatcher {
     constructor(options = {}) {
@@ -60,20 +59,22 @@ class HierarchicalMatcher {
 
         this.featureCache = new Map();
 
-        // === НОВЫЕ ПОЛЯ ДЛЯ ИТЕРАТИВНОЙ СТАБИЛИЗАЦИИ ===
+        // === ЗОНЫ СТАБИЛИЗАЦИИ ===
         this.zones = {
             core: new Map(),      // 100% стабильные
-            zone1: new Map(),     // стабилизированные на 1-м проходе
-            zone2: new Map(),     // стабилизированные на 2-м проходе
-            zone3: new Map(),     // стабилизированные на 3-м проходе
+            zone05: new Map(),    // 🔥 НОВОЕ: одиночки (degree=0, но роль та же)
+            zone1: new Map(),     // потеря соседей, оставшиеся стабильны
+            zone2: new Map(),     // до 1 нестабильного соседа
+            zone3: new Map(),     // до 2 нестабильных соседей
             ambiguous: new Map(), // спорные
             new: new Map()        // новые точки
         };
 
-        // Контрольные точки для отслеживания прогресса
+        // Контрольные точки
         this.checkpoints = {
             beforeCore: 0,
             afterCore: 0,
+            afterZone05: 0,
             afterZone1: 0,
             afterZone2: 0,
             afterZone3: 0,
@@ -86,6 +87,7 @@ class HierarchicalMatcher {
             earlyExits: 0,
             totalPairs: 0,
             coreSize: 0,
+            zone05Size: 0,
             zone1Size: 0,
             zone2Size: 0,
             zone3Size: 0,
@@ -162,7 +164,7 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ С КОНТРОЛЬНЫМИ ТОЧКАМИ
+     * 🔥 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ
      */
     iterativeStabilization(candidates) {
         // Сначала находим ЯДРО (100% совпадения)
@@ -175,6 +177,12 @@ class HierarchicalMatcher {
             console.log(`   ⚠️ Ядро не найдено, стабилизация невозможна`);
             return;
         }
+
+        // 🔥 ФАЗА 0.5: Одиночки (точки без соседей)
+        console.log(`\n📌 [КОНТРОЛЬНАЯ ТОЧКА 1.5] Поиск ОДИНОЧЕК (степень = 0)...`);
+        this.findLonelyStablePoints(candidates);
+        this.checkpoints.afterZone05 = this.zones.zone05.size;
+        console.log(`   ✅ ОДИНОЧКИ: +${this.zones.zone05.size} точек`);
 
         // 🔥 ФАЗА 1: Стабилизация ЗОНЫ 1 (связанные с ядром)
         console.log(`\n📌 [КОНТРОЛЬНАЯ ТОЧКА 2] Стабилизация ЗОНЫ 1...`);
@@ -195,7 +203,6 @@ class HierarchicalMatcher {
                 zone1NewCount = newStable;
             }
 
-            // Защита от бесконечного цикла
             if (zone1Iterations > 5) {
                 console.log(`   ⚠️ Достигнут лимит итераций для ЗОНЫ 1`);
                 break;
@@ -206,7 +213,7 @@ class HierarchicalMatcher {
         this.checkpoints.afterZone1 = this.zones.zone1.size;
         console.log(`\n📊 ИТОГ ЗОНЫ 1: +${this.zones.zone1.size} точек`);
 
-        // 🔥 ФАЗА 2: Стабилизация ЗОНЫ 2 (связанные с ЗОНОЙ 1)
+        // 🔥 ФАЗА 2: Стабилизация ЗОНЫ 2
         if (this.zones.zone1.size > 0) {
             console.log(`\n📌 [КОНТРОЛЬНАЯ ТОЧКА 3] Стабилизация ЗОНЫ 2...`);
             let zone2Iterations = 0;
@@ -237,7 +244,7 @@ class HierarchicalMatcher {
             console.log(`\n📊 ИТОГ ЗОНЫ 2: +${this.zones.zone2.size} точек`);
         }
 
-        // 🔥 ФАЗА 3: Стабилизация ЗОНЫ 3 (связанные с ЗОНОЙ 2)
+        // 🔥 ФАЗА 3: Стабилизация ЗОНЫ 3
         if (this.zones.zone2.size > 0) {
             console.log(`\n📌 [КОНТРОЛЬНАЯ ТОЧКА 4] Стабилизация ЗОНЫ 3...`);
             let zone3Iterations = 0;
@@ -271,29 +278,73 @@ class HierarchicalMatcher {
         // Финальная статистика
         console.log(`\n📌 [КОНТРОЛЬНАЯ ТОЧКА 5] ИТОГ СТАБИЛИЗАЦИИ:`);
         console.log(`   • ЯДРО: ${this.zones.core.size} точек`);
+        console.log(`   • ЗОНА 0.5 (одиночки): ${this.zones.zone05.size} точек`);
         console.log(`   • ЗОНА 1: ${this.zones.zone1.size} точек`);
         console.log(`   • ЗОНА 2: ${this.zones.zone2.size} точек`);
         console.log(`   • ЗОНА 3: ${this.zones.zone3.size} точек`);
-        console.log(`   • ВСЕГО: ${this.zones.core.size + this.zones.zone1.size + this.zones.zone2.size + this.zones.zone3.size} точек`);
+        console.log(`   • ВСЕГО: ${this.zones.core.size + this.zones.zone05.size + this.zones.zone1.size + this.zones.zone2.size + this.zones.zone3.size} точек`);
 
-        // Обновляем статистику
         this.stats.coreSize = this.zones.core.size;
+        this.stats.zone05Size = this.zones.zone05.size;
         this.stats.zone1Size = this.zones.zone1.size;
         this.stats.zone2Size = this.zones.zone2.size;
         this.stats.zone3Size = this.zones.zone3.size;
     }
 
     /**
-     * 🔥 ПОИСК ЯДРА (100% совпадение) - ИСПРАВЛЕНО
+     * 🔥 НОВЫЙ МЕТОД: Поиск одиноких стабильных точек (degree = 0)
+     */
+    findLonelyStablePoints(candidates) {
+        const usedModelPoints = new Set();
+       
+        // Собираем уже использованные точки модели
+        for (const [_, match] of this.zones.core) {
+            usedModelPoints.add(match.pointB);
+        }
+
+        for (const [pointId, data] of candidates) {
+            if (data.status === 'core' || data.status === 'zone05' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
+            if (data.candidates.length === 0) continue;
+
+            // Только точки с degree = 0 (без соседей)
+            if (data.point.degree !== 0) continue;
+
+            for (const candidate of data.candidates) {
+                if (usedModelPoints.has(candidate.id)) continue;
+
+                // У кандидата тоже degree = 0
+                if (candidate.degree !== 0) continue;
+
+                // Проверяем совпадение роли (единственное, что осталось)
+                if (data.point.role === candidate.role) {
+                    this.zones.zone05.set(pointId, {
+                        pointB: candidate.id,
+                        confidence: 1.0,
+                        reason: 'LONELY_STABLE',
+                        zone: 'ZONE05',
+                        role: data.point.role,
+                        degree: 0
+                    });
+
+                    usedModelPoints.add(candidate.id);
+                    data.status = 'zone05';
+                    data.candidates = [];
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * 🔥 ПОИСК ЯДРА (100% совпадение)
      */
     findCore(candidates) {
-        const usedModelPoints = new Set(); // Точки модели, уже использованные в ядре
+        const usedModelPoints = new Set();
 
         for (const [pointId, data] of candidates) {
             if (data.candidates.length === 0) continue;
 
             for (const candidate of data.candidates) {
-                // Пропускаем, если точка модели уже занята
                 if (usedModelPoints.has(candidate.id)) continue;
 
                 if (this.isExactMatch(data.point, candidate)) {
@@ -307,7 +358,7 @@ class HierarchicalMatcher {
                         neighborRoles: data.point.neighborRoles
                     });
 
-                    usedModelPoints.add(candidate.id); // Запоминаем
+                    usedModelPoints.add(candidate.id);
                     data.status = 'core';
                     data.candidates = [];
                     break;
@@ -317,32 +368,23 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 СТАБИЛИЗАЦИЯ ЗОНЫ 1 (строгая - все соседи стабильны) - ИСПРАВЛЕНО
+     * 🔥 СТАБИЛИЗАЦИЯ ЗОНЫ 1 (строгая)
      */
     stabilizeZone1(candidates, stableRoles, stablePoints) {
         let stabilized = 0;
         const usedModelPoints = new Set();
        
-        // Собираем уже использованные точки модели из ядра и предыдущих итераций
-        for (const [_, match] of this.zones.core) {
-            usedModelPoints.add(match.pointB);
-        }
-        for (const [_, match] of this.zones.zone1) {
-            usedModelPoints.add(match.pointB);
-        }
-        for (const [_, match] of this.zones.zone2) {
-            usedModelPoints.add(match.pointB);
-        }
-        for (const [_, match] of this.zones.zone3) {
-            usedModelPoints.add(match.pointB);
-        }
+        for (const [_, match] of this.zones.core) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone05) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone1) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone2) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone3) usedModelPoints.add(match.pointB);
 
         for (const [pointId, data] of candidates) {
-            if (data.status === 'core' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
+            if (data.status === 'core' || data.status === 'zone05' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
             if (data.candidates.length === 0) continue;
 
             for (const candidate of data.candidates) {
-                // Пропускаем, если точка модели уже занята
                 if (usedModelPoints.has(candidate.id)) continue;
 
                 const analysis = this.analyzeZone1(data.point, candidate, stableRoles, stablePoints);
@@ -359,7 +401,7 @@ class HierarchicalMatcher {
                         changes: analysis.changes
                     });
 
-                    usedModelPoints.add(candidate.id); // Запоминаем
+                    usedModelPoints.add(candidate.id);
                     data.status = 'zone1';
                     data.candidates = [];
                     stabilized++;
@@ -371,95 +413,46 @@ class HierarchicalMatcher {
         return stabilized;
     }
 
-    /**
-     * 🔥 АНАЛИЗ ДЛЯ ЗОНЫ 1 (все соседи стабильны)
-     */
     analyzeZone1(pointA, pointB, stableRoles, stablePoints) {
         const changes = [];
-
         const degreeDiff = (pointA.degree || 0) - (pointB.degree || 0);
-
         if (degreeDiff < 1) return { stable: false };
 
         const rolesB = pointB.neighborRoles || '';
         const remainingRoles = rolesB.split('');
+        const allRemainingStable = remainingRoles.every(role => stableRoles.includes(role));
+        if (!allRemainingStable) return { stable: false };
 
-        // В ЗОНЕ 1 все оставшиеся соседи должны быть стабильны
-        const allRemainingStable = remainingRoles.every(role =>
-            stableRoles.includes(role)
-        );
-
-        if (!allRemainingStable) {
-            return { stable: false };
-        }
-
-        // Считаем, какие роли потеряны
         const rolesA = pointA.neighborRoles || '';
         const lostRoles = [];
         for (const role of ['H', 'C', 'B', 'R', 'L']) {
             const countA = (rolesA.match(new RegExp(role, 'g')) || []).length;
             const countB = (rolesB.match(new RegExp(role, 'g')) || []).length;
-            for (let i = 0; i < countA - countB; i++) {
-                lostRoles.push(role);
-            }
+            for (let i = 0; i < countA - countB; i++) lostRoles.push(role);
         }
 
-        changes.push({
-            type: 'LOST_NEIGHBORS',
-            roles: lostRoles,
-            degreeDiff,
-            remainingStable: true
-        });
-
-        return {
-            stable: true,
-            reason: `LOST_${lostRoles.length}_NEIGHBORS_BUT_STABLE`,
-            changes
-        };
+        changes.push({ type: 'LOST_NEIGHBORS', roles: lostRoles, degreeDiff, remainingStable: true });
+        return { stable: true, reason: `LOST_${lostRoles.length}_NEIGHBORS_BUT_STABLE`, changes };
     }
 
-    /**
-     * 🔥 СТАБИЛИЗАЦИЯ ЗОНЫ 2 (умеренная - до 1 нестабильного соседа) - ИСПРАВЛЕНО
-     */
     stabilizeZone2(candidates, stableRoles, stablePoints) {
         let stabilized = 0;
         const usedModelPoints = new Set();
-       
-        // Собираем уже использованные точки модели
-        for (const [_, match] of this.zones.core) {
-            usedModelPoints.add(match.pointB);
-        }
-        for (const [_, match] of this.zones.zone1) {
-            usedModelPoints.add(match.pointB);
-        }
-        for (const [_, match] of this.zones.zone2) {
-            usedModelPoints.add(match.pointB);
-        }
-        for (const [_, match] of this.zones.zone3) {
-            usedModelPoints.add(match.pointB);
-        }
+        for (const [_, match] of this.zones.core) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone05) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone1) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone2) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone3) usedModelPoints.add(match.pointB);
 
         for (const [pointId, data] of candidates) {
-            if (data.status === 'core' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
+            if (data.status === 'core' || data.status === 'zone05' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
             if (data.candidates.length === 0) continue;
 
             for (const candidate of data.candidates) {
                 if (usedModelPoints.has(candidate.id)) continue;
-
                 const analysis = this.analyzeZone2(data.point, candidate, stableRoles, stablePoints);
-
                 if (analysis.stable) {
-                    this.zones.zone2.set(pointId, {
-                        pointB: candidate.id,
-                        confidence: 1.0,
-                        reason: analysis.reason,
-                        zone: 'ZONE2',
-                        role: data.point.role,
-                        degree: data.point.degree,
-                        neighborRoles: data.point.neighborRoles,
-                        changes: analysis.changes
-                    });
-
+                    this.zones.zone2.set(pointId, { pointB: candidate.id, confidence: 1.0, reason: analysis.reason, zone: 'ZONE2', role: data.point.role, degree: data.point.degree, neighborRoles: data.point.neighborRoles, changes: analysis.changes });
                     usedModelPoints.add(candidate.id);
                     data.status = 'zone2';
                     data.candidates = [];
@@ -468,99 +461,46 @@ class HierarchicalMatcher {
                 }
             }
         }
-
         return stabilized;
     }
 
-    /**
-     * 🔥 АНАЛИЗ ДЛЯ ЗОНЫ 2 (до 1 нестабильного соседа)
-     */
     analyzeZone2(pointA, pointB, stableRoles, stablePoints) {
         const changes = [];
-
         const degreeDiff = (pointA.degree || 0) - (pointB.degree || 0);
-
         if (degreeDiff < 1) return { stable: false };
-
         const rolesB = pointB.neighborRoles || '';
         const remainingRoles = rolesB.split('');
-
-        // В ЗОНЕ 2 разрешаем до 1 нестабильного соседа
-        const unstableRemaining = remainingRoles.filter(role =>
-            !stableRoles.includes(role)
-        );
-
-        if (unstableRemaining.length > 1) {
-            return { stable: false };
-        }
-
-        // Считаем, какие роли потеряны
+        const unstableRemaining = remainingRoles.filter(role => !stableRoles.includes(role));
+        if (unstableRemaining.length > 1) return { stable: false };
         const rolesA = pointA.neighborRoles || '';
         const lostRoles = [];
         for (const role of ['H', 'C', 'B', 'R', 'L']) {
             const countA = (rolesA.match(new RegExp(role, 'g')) || []).length;
             const countB = (rolesB.match(new RegExp(role, 'g')) || []).length;
-            for (let i = 0; i < countA - countB; i++) {
-                lostRoles.push(role);
-            }
+            for (let i = 0; i < countA - countB; i++) lostRoles.push(role);
         }
-
-        changes.push({
-            type: 'LOST_NEIGHBORS',
-            roles: lostRoles,
-            degreeDiff,
-            unstableRemaining: unstableRemaining.length
-        });
-
-        return {
-            stable: true,
-            reason: `LOST_${lostRoles.length}_NEIGHBORS_${unstableRemaining.length}_UNSTABLE`,
-            changes
-        };
+        changes.push({ type: 'LOST_NEIGHBORS', roles: lostRoles, degreeDiff, unstableRemaining: unstableRemaining.length });
+        return { stable: true, reason: `LOST_${lostRoles.length}_NEIGHBORS_${unstableRemaining.length}_UNSTABLE`, changes };
     }
 
-    /**
-     * 🔥 СТАБИЛИЗАЦИЯ ЗОНЫ 3 (мягкая - до 2 нестабильных соседей) - ИСПРАВЛЕНО
-     */
     stabilizeZone3(candidates, stableRoles, stablePoints) {
         let stabilized = 0;
         const usedModelPoints = new Set();
-       
-        // Собираем уже использованные точки модели
-        for (const [_, match] of this.zones.core) {
-            usedModelPoints.add(match.pointB);
-        }
-        for (const [_, match] of this.zones.zone1) {
-            usedModelPoints.add(match.pointB);
-        }
-        for (const [_, match] of this.zones.zone2) {
-            usedModelPoints.add(match.pointB);
-        }
-        for (const [_, match] of this.zones.zone3) {
-            usedModelPoints.add(match.pointB);
-        }
+        for (const [_, match] of this.zones.core) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone05) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone1) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone2) usedModelPoints.add(match.pointB);
+        for (const [_, match] of this.zones.zone3) usedModelPoints.add(match.pointB);
 
         for (const [pointId, data] of candidates) {
-            if (data.status === 'core' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
+            if (data.status === 'core' || data.status === 'zone05' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
             if (data.candidates.length === 0) continue;
 
             for (const candidate of data.candidates) {
                 if (usedModelPoints.has(candidate.id)) continue;
-
                 const analysis = this.analyzeZone3(data.point, candidate, stableRoles, stablePoints);
-
                 if (analysis.stable) {
-                    this.zones.zone3.set(pointId, {
-                        pointB: candidate.id,
-                        confidence: 1.0,
-                        reason: analysis.reason,
-                        zone: 'ZONE3',
-                        role: data.point.role,
-                        degree: data.point.degree,
-                        neighborRoles: data.point.neighborRoles,
-                        changes: analysis.changes
-                    });
-
+                    this.zones.zone3.set(pointId, { pointB: candidate.id, confidence: 1.0, reason: analysis.reason, zone: 'ZONE3', role: data.point.role, degree: data.point.degree, neighborRoles: data.point.neighborRoles, changes: analysis.changes });
                     usedModelPoints.add(candidate.id);
                     data.status = 'zone3';
                     data.candidates = [];
@@ -569,220 +509,120 @@ class HierarchicalMatcher {
                 }
             }
         }
-
         return stabilized;
     }
 
-    /**
-     * 🔥 АНАЛИЗ ДЛЯ ЗОНЫ 3 (до 2 нестабильных соседей)
-     */
     analyzeZone3(pointA, pointB, stableRoles, stablePoints) {
         const changes = [];
-
         const degreeDiff = (pointA.degree || 0) - (pointB.degree || 0);
-
         if (degreeDiff < 1) return { stable: false };
-
         const rolesB = pointB.neighborRoles || '';
         const remainingRoles = rolesB.split('');
-
-        // В ЗОНЕ 3 разрешаем до 2 нестабильных соседей
-        const unstableRemaining = remainingRoles.filter(role =>
-            !stableRoles.includes(role)
-        );
-
-        if (unstableRemaining.length > 2) {
-            return { stable: false };
-        }
-
-        // Считаем, какие роли потеряны
+        const unstableRemaining = remainingRoles.filter(role => !stableRoles.includes(role));
+        if (unstableRemaining.length > 2) return { stable: false };
         const rolesA = pointA.neighborRoles || '';
         const lostRoles = [];
         for (const role of ['H', 'C', 'B', 'R', 'L']) {
             const countA = (rolesA.match(new RegExp(role, 'g')) || []).length;
             const countB = (rolesB.match(new RegExp(role, 'g')) || []).length;
-            for (let i = 0; i < countA - countB; i++) {
-                lostRoles.push(role);
-            }
+            for (let i = 0; i < countA - countB; i++) lostRoles.push(role);
         }
-
-        changes.push({
-            type: 'LOST_NEIGHBORS',
-            roles: lostRoles,
-            degreeDiff,
-            unstableRemaining: unstableRemaining.length
-        });
-
-        return {
-            stable: true,
-            reason: `LOST_${lostRoles.length}_NEIGHBORS_${unstableRemaining.length}_UNSTABLE`,
-            changes
-        };
+        changes.push({ type: 'LOST_NEIGHBORS', roles: lostRoles, degreeDiff, unstableRemaining: unstableRemaining.length });
+        return { stable: true, reason: `LOST_${lostRoles.length}_NEIGHBORS_${unstableRemaining.length}_UNSTABLE`, changes };
     }
 
-    /**
-     * 🔥 ТОЧНОЕ СОВПАДЕНИЕ
-     */
     isExactMatch(pointA, pointB) {
         const criticalFeatures = ['role', 'degree', 'triangles', 'clusterSize', 'neighborRoles'];
-
         for (const feat of criticalFeatures) {
             if (pointA[feat] !== pointB[feat]) return false;
         }
-
         if (pointA.neighborRoles !== pointB.neighborRoles) return false;
-
         return true;
     }
 
-    /**
-     * 🔥 ПОЛУЧИТЬ ВСЕ СТАБИЛЬНЫЕ РОЛИ
-     */
     getStableRoles() {
         const roles = new Set();
-
-        for (const [_, match] of this.zones.core) {
-            if (match.role) roles.add(match.role);
-        }
-        for (const [_, match] of this.zones.zone1) {
-            if (match.role) roles.add(match.role);
-        }
-        for (const [_, match] of this.zones.zone2) {
-            if (match.role) roles.add(match.role);
-        }
-        for (const [_, match] of this.zones.zone3) {
-            if (match.role) roles.add(match.role);
-        }
-
+        for (const [_, match] of this.zones.core) if (match.role) roles.add(match.role);
+        for (const [_, match] of this.zones.zone05) if (match.role) roles.add(match.role);
+        for (const [_, match] of this.zones.zone1) if (match.role) roles.add(match.role);
+        for (const [_, match] of this.zones.zone2) if (match.role) roles.add(match.role);
+        for (const [_, match] of this.zones.zone3) if (match.role) roles.add(match.role);
         return Array.from(roles);
     }
 
-    /**
-     * 🔥 ПОЛУЧИТЬ ID ВСЕХ СТАБИЛЬНЫХ ТОЧЕК
-     */
     getStablePointIds() {
         const ids = new Set();
-
-        for (const [id, _] of this.zones.core) {
-            ids.add(id);
-        }
-        for (const [id, _] of this.zones.zone1) {
-            ids.add(id);
-        }
-        for (const [id, _] of this.zones.zone2) {
-            ids.add(id);
-        }
-        for (const [id, _] of this.zones.zone3) {
-            ids.add(id);
-        }
-
+        for (const [id, _] of this.zones.core) ids.add(id);
+        for (const [id, _] of this.zones.zone05) ids.add(id);
+        for (const [id, _] of this.zones.zone1) ids.add(id);
+        for (const [id, _] of this.zones.zone2) ids.add(id);
+        for (const [id, _] of this.zones.zone3) ids.add(id);
         return ids;
     }
 
-    /**
-     * 🔥 ПОДСЧЕТ АКТИВНЫХ КАНДИДАТОВ
-     */
     countActiveCandidates(candidates) {
         let count = 0;
-        for (const [_, data] of candidates) {
-            if (data.candidates.length > 0) count++;
-        }
+        for (const [_, data] of candidates) if (data.candidates.length > 0) count++;
         return count;
     }
 
-    /**
-     * ПРОВЕРКА НАЛИЧИЯ ПРИЗНАКОВ
-     */
     validateFeatures(pointsA, pointsB) {
         console.log(`\n🔍 ПРОВЕРКА НАЛИЧИЯ ПРИЗНАКОВ:`);
         const allPoints = [...pointsA, ...pointsB];
         const featureStats = {};
-
         for (const point of allPoints) {
             for (const [key, value] of Object.entries(point)) {
                 if (!featureStats[key]) featureStats[key] = { present: 0 };
                 if (value !== undefined && value !== null) featureStats[key].present++;
             }
         }
-
         console.log(`   📊 ДОСТУПНЫЕ ПРИЗНАКИ:`);
-        Object.entries(featureStats)
-            .sort((a, b) => b[1].present - a[1].present)
-            .forEach(([feature, stats]) => {
-                const percent = (stats.present / allPoints.length * 100).toFixed(1);
-                console.log(`   • ${feature}: ${stats.present}/${allPoints.length} (${percent}%)`);
-            });
+        Object.entries(featureStats).sort((a, b) => b[1].present - a[1].present).forEach(([feature, stats]) => {
+            const percent = (stats.present / allPoints.length * 100).toFixed(1);
+            console.log(`   • ${feature}: ${stats.present}/${allPoints.length} (${percent}%)`);
+        });
     }
 
-    /**
-     * 🔥 ДИАГНОСТИКА ПРИЗНАКОВ ПЕРВОЙ ТОЧКИ
-     */
     diagnoseFirstPoint(pointsA, pointsB) {
         if (pointsA.length === 0 || pointsB.length === 0) return;
-
         const firstPointA = pointsA[0];
         const firstPointB = pointsB[0];
-
         console.log(`\n🔬 ДИАГНОСТИКА ПРИЗНАКОВ (ПЕРВАЯ ТОЧКА):`);
         console.log(`┌───────────────────┬─────────────────────┬─────────────────────┐`);
         console.log(`│ Признак           │ Точка А             │ Точка Б             │`);
         console.log(`├───────────────────┼─────────────────────┼─────────────────────┤`);
-
-        const features = [
-            'id', 'role', 'degree', 'triangles',
-            'compactness', 'eccentricity', 'normalizedArea',
-            'radialProfile', 'neighborRoles', 'clusterId',
-            'clusterSize', 'patternType', 'patternFrequency',
-            'gapPattern', 'neighborClusters'
-        ];
-
+        const features = ['id', 'role', 'degree', 'triangles', 'compactness', 'eccentricity', 'normalizedArea', 'radialProfile', 'neighborRoles', 'clusterId', 'clusterSize', 'patternType', 'patternFrequency', 'gapPattern', 'neighborClusters'];
         for (const feat of features) {
             const valA = firstPointA[feat];
             const valB = firstPointB[feat];
-
             let strA = valA !== undefined ? String(valA) : 'undefined';
             let strB = valB !== undefined ? String(valB) : 'undefined';
-
             if (strA.length > 20) strA = strA.substring(0, 17) + '...';
             if (strB.length > 20) strB = strB.substring(0, 17) + '...';
-
-            console.log(
-                `│ ${feat.padEnd(17)} │ ${strA.padEnd(19)} │ ${strB.padEnd(19)} │`
-            );
+            console.log(`│ ${feat.padEnd(17)} │ ${strA.padEnd(19)} │ ${strB.padEnd(19)} │`);
         }
-
         console.log(`└───────────────────┴─────────────────────┴─────────────────────┘`);
-
         if (Array.isArray(firstPointA.radialProfile) && Array.isArray(firstPointB.radialProfile)) {
             const sortedA = this.getRotationInvariantProfile(firstPointA.radialProfile);
             const sortedB = this.getRotationInvariantProfile(firstPointB.radialProfile);
-
             console.log(`\n🔍 radialProfile ПОСЛЕ СОРТИРОВКИ:`);
             console.log(`   Точка А: [${sortedA.map(v => v.toFixed(2)).join(', ')}]`);
             console.log(`   Точка Б: [${sortedB.map(v => v.toFixed(2)).join(', ')}]`);
-
             let sum = 0;
-            for (let i = 0; i < sortedA.length; i++) {
-                sum += Math.abs(sortedA[i] - sortedB[i]);
-            }
+            for (let i = 0; i < sortedA.length; i++) sum += Math.abs(sortedA[i] - sortedB[i]);
             const similarity = 1 - (sum / sortedA.length);
             console.log(`   🔥 Сходство после сортировки: ${(similarity * 100).toFixed(1)}%`);
         }
-
         console.log(`\n🔍 patternFrequency:`);
         console.log(`   Точка А: ${firstPointA.patternFrequency} (${typeof firstPointA.patternFrequency})`);
         console.log(`   Точка Б: ${firstPointB.patternFrequency} (${typeof firstPointB.patternFrequency})`);
         console.log(`   Разница: ${Math.abs((firstPointA.patternFrequency || 0) - (firstPointB.patternFrequency || 0))}`);
-
         console.log(`\n🔍 neighborClusters:`);
         console.log(`   Точка А: ${firstPointA.neighborClusters} (${typeof firstPointA.neighborClusters})`);
         console.log(`   Точка Б: ${firstPointB.neighborClusters} (${typeof firstPointB.neighborClusters})`);
         console.log(`   Разница: ${Math.abs((firstPointA.neighborClusters || 0) - (firstPointB.neighborClusters || 0))}`);
     }
 
-    /**
-     * 🔥 ИНВАРИАНТНЫЙ К ПОВОРОТУ RADIAL PROFILE
-     */
     getRotationInvariantProfile(profile) {
         if (!Array.isArray(profile)) return [];
         const mainDirs = profile.slice(0, 4).sort((a, b) => a - b);
@@ -792,14 +632,7 @@ class HierarchicalMatcher {
 
     initializeCandidates(pointsA, pointsB) {
         const candidates = new Map();
-        for (const pointA of pointsA) {
-            candidates.set(pointA.id, {
-                point: pointA,
-                candidates: [...pointsB],
-                levels: [],
-                status: 'pending'
-            });
-        }
+        for (const pointA of pointsA) candidates.set(pointA.id, { point: pointA, candidates: [...pointsB], levels: [], status: 'pending' });
         return candidates;
     }
 
@@ -807,9 +640,7 @@ class HierarchicalMatcher {
         if (level.groupLevel) {
             return candidates.filter(pointB => {
                 for (let i = 0; i < level.features.length; i++) {
-                    if (!this.checkFeature(pointA, pointB, level.features[i], level.tolerances[i])) {
-                        return false;
-                    }
+                    if (!this.checkFeature(pointA, pointB, level.features[i], level.tolerances[i])) return false;
                 }
                 return true;
             });
@@ -818,36 +649,25 @@ class HierarchicalMatcher {
             for (let i = 0; i < level.features.length; i++) {
                 const feature = level.features[i];
                 const tolerance = level.tolerances[i];
-                filtered = filtered.filter(pointB =>
-                    this.checkFeature(pointA, pointB, feature, tolerance)
-                );
+                filtered = filtered.filter(pointB => this.checkFeature(pointA, pointB, feature, tolerance));
             }
             return filtered;
         }
     }
 
-    /**
-     * ПРОВЕРКА ПРИЗНАКА
-     */
     checkFeature(pointA, pointB, feature, tolerance) {
         const valA = pointA[feature];
         const valB = pointB[feature];
-
         if (valA === undefined || valB === undefined) return true;
-
         if (tolerance === 'strict') return valA === valB;
-
         if (tolerance === 'soft') {
             if (feature === 'neighborRoles') return this.compareNeighborRolesSoft(valA, valB);
             if (feature === 'gapPattern') return this.compareGapPatternSoft(valA, valB);
             return true;
         }
-
         if (typeof tolerance === 'number') {
             if (typeof valA === 'number' && typeof valB === 'number') {
-                if (feature === 'degree' || feature === 'triangles' ||
-                    feature === 'clusterSize' || feature === 'patternFrequency' ||
-                    feature === 'neighborClusters') {
+                if (feature === 'degree' || feature === 'triangles' || feature === 'clusterSize' || feature === 'patternFrequency' || feature === 'neighborClusters') {
                     return Math.abs(valA - valB) <= tolerance;
                 } else {
                     const maxVal = Math.max(Math.abs(valA), Math.abs(valB), 0.001);
@@ -859,24 +679,18 @@ class HierarchicalMatcher {
                 if (feature === 'radialProfile') {
                     const sortedA = this.getRotationInvariantProfile(valA);
                     const sortedB = this.getRotationInvariantProfile(valB);
-
                     if (sortedA.length !== sortedB.length) return false;
                     let sum = 0;
-                    for (let i = 0; i < sortedA.length; i++) {
-                        sum += Math.abs(sortedA[i] - sortedB[i]);
-                    }
+                    for (let i = 0; i < sortedA.length; i++) sum += Math.abs(sortedA[i] - sortedB[i]);
                     return (sum / sortedA.length) <= tolerance;
                 } else {
                     if (valA.length !== valB.length) return false;
                     let sum = 0;
-                    for (let i = 0; i < valA.length; i++) {
-                        sum += Math.abs(valA[i] - valB[i]);
-                    }
+                    for (let i = 0; i < valA.length; i++) sum += Math.abs(valA[i] - valB[i]);
                     return (sum / valA.length) <= tolerance;
                 }
             }
         }
-
         return false;
     }
 
@@ -895,13 +709,8 @@ class HierarchicalMatcher {
         try {
             const objA = typeof patternA === 'string' && patternA !== '0' ? JSON.parse(patternA) : null;
             const objB = typeof patternB === 'string' && patternB !== '0' ? JSON.parse(patternB) : null;
-
-            if (objA && objB) {
-                return objA.type === objB.type;
-            }
-        } catch (e) {
-            return false;
-        }
+            if (objA && objB) return objA.type === objB.type;
+        } catch (e) { return false; }
         return false;
     }
 
@@ -922,14 +731,10 @@ class HierarchicalMatcher {
         console.log(`   • Всего рассмотрено: ${stats.total} пар`);
         console.log(`   • Прошло фильтр: ${stats.passed} (${passRate}%)`);
         console.log(`   • Отсеяно: ${stats.rejected} (${stats.total > 0 ? (stats.rejected/stats.total*100).toFixed(1) : '0.0'}%)`);
-
         const candidatesCounts = Array.from(candidates.values()).map(d => d.candidates.length);
-        const avgCandidates = candidatesCounts.length > 0
-            ? (candidatesCounts.reduce((a, b) => a + b, 0) / candidatesCounts.length).toFixed(2)
-            : '0.00';
+        const avgCandidates = candidatesCounts.length > 0 ? (candidatesCounts.reduce((a, b) => a + b, 0) / candidatesCounts.length).toFixed(2) : '0.00';
         const zeroCandidates = candidatesCounts.filter(c => c === 0).length;
         const multiCandidates = candidatesCounts.filter(c => c > 1).length;
-
         console.log(`\n   📈 ТЕКУЩЕЕ СОСТОЯНИЕ:`);
         console.log(`      • Среднее число кандидатов: ${avgCandidates}`);
         console.log(`      • Точек без кандидатов: ${zeroCandidates} (НОВЫЕ КЛЮЧИ 🔵)`);
@@ -938,65 +743,43 @@ class HierarchicalMatcher {
 
     printHierarchicalTree(candidates, upToLevel) {
         console.log(`\n🌳 ИЕРАРХИЧЕСКОЕ ДЕРЕВО ДО УРОВНЯ ${upToLevel + 1}:`);
-
         const tree = this.buildHierarchicalTree(candidates, upToLevel);
-
-        if (tree.count > 0) {
-            this.printNode(tree, 0, upToLevel);
-        } else {
-            console.log(`└── (нет ключей с кандидатами)`);
-        }
+        if (tree.count > 0) this.printNode(tree, 0, upToLevel);
+        else console.log(`└── (нет ключей с кандидатами)`);
     }
 
     buildHierarchicalTree(candidates, upToLevel) {
         const root = { name: 'Все ключи', count: 0, children: [] };
         const groups = new Map();
-
         for (const [pointId, data] of candidates) {
             if (data.candidates.length === 0) continue;
-
             const point = data.point;
             root.count++;
-
             const form = this.getFormType(point);
-            if (!groups.has(form)) {
-                groups.set(form, { name: form, count: 0, children: new Map() });
-            }
+            if (!groups.has(form)) groups.set(form, { name: form, count: 0, children: new Map() });
             const formGroup = groups.get(form);
             formGroup.count++;
-
             if (upToLevel >= 1) {
                 const role = point.role || 'R';
-                if (!formGroup.children.has(role)) {
-                    formGroup.children.set(role, { name: `Роль ${role}`, count: 0, children: new Map() });
-                }
+                if (!formGroup.children.has(role)) formGroup.children.set(role, { name: `Роль ${role}`, count: 0, children: new Map() });
                 const roleGroup = formGroup.children.get(role);
                 roleGroup.count++;
-
                 if (upToLevel >= 2) {
                     const neighborRoles = point.neighborRoles || 'unknown';
                     const neighborKey = typeof neighborRoles === 'string' ? neighborRoles : JSON.stringify(neighborRoles);
-                    if (!roleGroup.children.has(neighborKey)) {
-                        roleGroup.children.set(neighborKey, { name: `neighborRoles: ${neighborKey}`, count: 0, children: new Map() });
-                    }
+                    if (!roleGroup.children.has(neighborKey)) roleGroup.children.set(neighborKey, { name: `neighborRoles: ${neighborKey}`, count: 0, children: new Map() });
                     const neighborGroup = roleGroup.children.get(neighborKey);
                     neighborGroup.count++;
-
                     if (upToLevel >= 3) {
                         const clusterSize = point.clusterSize || 0;
                         const sizeKey = `size:${clusterSize}`;
-                        if (!neighborGroup.children.has(sizeKey)) {
-                            neighborGroup.children.set(sizeKey, { name: `clusterSize: ${clusterSize}`, count: 0, children: new Map() });
-                        }
+                        if (!neighborGroup.children.has(sizeKey)) neighborGroup.children.set(sizeKey, { name: `clusterSize: ${clusterSize}`, count: 0, children: new Map() });
                         const sizeGroup = neighborGroup.children.get(sizeKey);
                         sizeGroup.count++;
-
                         if (upToLevel >= 4) {
                             const gapPattern = point.gapPattern || '0';
                             const gapKey = `gap:${gapPattern.substring(0, 10)}`;
-                            if (!sizeGroup.children.has(gapKey)) {
-                                sizeGroup.children.set(gapKey, { name: `gapPattern: ${gapPattern.substring(0, 10)}...`, count: 0, children: new Map() });
-                            }
+                            if (!sizeGroup.children.has(gapKey)) sizeGroup.children.set(gapKey, { name: `gapPattern: ${gapPattern.substring(0, 10)}...`, count: 0, children: new Map() });
                             const gapGroup = sizeGroup.children.get(gapKey);
                             gapGroup.count++;
                         }
@@ -1004,53 +787,34 @@ class HierarchicalMatcher {
                 }
             }
         }
-
         for (const [form, formGroup] of groups) {
             const formNode = { name: formGroup.name, count: formGroup.count, children: [] };
-
             for (const [role, roleGroup] of formGroup.children) {
                 const roleNode = { name: roleGroup.name, count: roleGroup.count, children: [] };
-
                 for (const [neighbor, neighborGroup] of roleGroup.children) {
                     const neighborNode = { name: neighborGroup.name, count: neighborGroup.count, children: [] };
-
                     for (const [size, sizeGroup] of neighborGroup.children) {
                         const sizeNode = { name: sizeGroup.name, count: sizeGroup.count, children: [] };
-
                         for (const [gap, gapGroup] of sizeGroup.children) {
-                            sizeNode.children.push({
-                                name: gapGroup.name,
-                                count: gapGroup.count,
-                                children: []
-                            });
+                            sizeNode.children.push({ name: gapGroup.name, count: gapGroup.count, children: [] });
                         }
-
                         neighborNode.children.push(sizeNode);
                     }
-
                     roleNode.children.push(neighborNode);
                 }
-
                 formNode.children.push(roleNode);
             }
-
             root.children.push(formNode);
         }
-
         return root;
     }
 
     printNode(node, depth, maxDepth) {
         if (depth > maxDepth + 1) return;
-
         const indent = '  '.repeat(depth);
         const prefix = depth === 0 ? '└── ' : '├── ';
-
         console.log(`${indent}${prefix}${node.name} (${node.count})`);
-
-        for (const child of node.children) {
-            this.printNode(child, depth + 1, maxDepth);
-        }
+        for (const child of node.children) this.printNode(child, depth + 1, maxDepth);
     }
 
     getFormType(point) {
@@ -1060,121 +824,78 @@ class HierarchicalMatcher {
         return 'Вытянутые';
     }
 
-    /**
-     * 🔥 ФИНАЛЬНЫЙ АНАЛИЗ - ИСПРАВЛЕНО (добавлена проверка уникальности)
-     */
     finalAnalysis(candidates, pointsB) {
         console.log(`\n${'='.repeat(100)}`);
         console.log(`🏁 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ`);
         console.log(`${'='.repeat(100)}`);
 
-        // Собираем ВСЕ стабилизированные точки из зон
         const matches = [];
         const usedB = new Set();
 
         for (const [pointId, match] of this.zones.core) {
-            // Проверяем, что точка модели еще не использована
             if (!usedB.has(match.pointB)) {
-                matches.push({
-                    pointA: pointId,
-                    pointB: match.pointB,
-                    confidence: 1.0,
-                    zone: 'CORE'
-                });
+                matches.push({ pointA: pointId, pointB: match.pointB, confidence: 1.0, zone: 'CORE' });
                 usedB.add(match.pointB);
-            } else {
-                console.log(`   ⚠️ Дубликат в CORE: ${pointId} -> ${match.pointB}`);
+            }
+        }
+
+        for (const [pointId, match] of this.zones.zone05) {
+            if (!usedB.has(match.pointB)) {
+                matches.push({ pointA: pointId, pointB: match.pointB, confidence: 1.0, zone: 'ZONE05', changes: match.changes });
+                usedB.add(match.pointB);
             }
         }
 
         for (const [pointId, match] of this.zones.zone1) {
             if (!usedB.has(match.pointB)) {
-                matches.push({
-                    pointA: pointId,
-                    pointB: match.pointB,
-                    confidence: 1.0,
-                    zone: 'ZONE1',
-                    changes: match.changes
-                });
+                matches.push({ pointA: pointId, pointB: match.pointB, confidence: 1.0, zone: 'ZONE1', changes: match.changes });
                 usedB.add(match.pointB);
-            } else {
-                console.log(`   ⚠️ Дубликат в ZONE1: ${pointId} -> ${match.pointB}`);
             }
         }
 
         for (const [pointId, match] of this.zones.zone2) {
             if (!usedB.has(match.pointB)) {
-                matches.push({
-                    pointA: pointId,
-                    pointB: match.pointB,
-                    confidence: 1.0,
-                    zone: 'ZONE2',
-                    changes: match.changes
-                });
+                matches.push({ pointA: pointId, pointB: match.pointB, confidence: 1.0, zone: 'ZONE2', changes: match.changes });
                 usedB.add(match.pointB);
-            } else {
-                console.log(`   ⚠️ Дубликат в ZONE2: ${pointId} -> ${match.pointB}`);
             }
         }
 
         for (const [pointId, match] of this.zones.zone3) {
             if (!usedB.has(match.pointB)) {
-                matches.push({
-                    pointA: pointId,
-                    pointB: match.pointB,
-                    confidence: 1.0,
-                    zone: 'ZONE3',
-                    changes: match.changes
-                });
+                matches.push({ pointA: pointId, pointB: match.pointB, confidence: 1.0, zone: 'ZONE3', changes: match.changes });
                 usedB.add(match.pointB);
-            } else {
-                console.log(`   ⚠️ Дубликат в ZONE3: ${pointId} -> ${match.pointB}`);
             }
         }
 
-        // Обрабатываем оставшиеся candidates
         const ambiguous = [];
         const noMatch = [];
 
-        const sorted = Array.from(candidates.entries())
-            .sort((a, b) => a[1].candidates.length - b[1].candidates.length);
+        const sorted = Array.from(candidates.entries()).sort((a, b) => a[1].candidates.length - b[1].candidates.length);
 
         for (const [pointId, data] of sorted) {
-            if (data.status === 'core' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
-
+            if (data.status === 'core' || data.status === 'zone05' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
             if (data.candidates.length === 0) {
                 noMatch.push(pointId);
                 continue;
             }
-
             const available = data.candidates.filter(c => !usedB.has(c.id));
-
             if (available.length === 1) {
-                matches.push({
-                    pointA: pointId,
-                    pointB: available[0].id,
-                    confidence: this.calculateConfidence(data),
-                    zone: 'MATCHED'
-                });
+                matches.push({ pointA: pointId, pointB: available[0].id, confidence: this.calculateConfidence(data), zone: 'MATCHED' });
                 usedB.add(available[0].id);
             } else if (available.length > 1) {
-                ambiguous.push({
-                    pointA: pointId,
-                    candidates: available.map(c => c.id),
-                    count: available.length
-                });
+                ambiguous.push({ pointA: pointId, candidates: available.map(c => c.id), count: available.length });
             }
         }
 
         const unmatchedB = pointsB.filter(p => !usedB.has(p.id)).map(p => p.id);
 
-        // Статистика по зонам
         console.log(`\n📍 СТАТИСТИКА ПО ЗОНАМ:`);
         console.log(`   • 🟣 ЯДРО (100%): ${this.zones.core.size} точек`);
-        console.log(`   • 🔵 ЗОНА 1 (все соседи стабильны): ${this.zones.zone1.size} точек`);
-        console.log(`   • 🟡 ЗОНА 2 (до 1 нестабильного соседа): ${this.zones.zone2.size} точек`);
-        console.log(`   • 🟠 ЗОНА 3 (до 2 нестабильных соседей): ${this.zones.zone3.size} точек`);
-        console.log(`   • 🟢 Найдено через допуски: ${matches.length - this.zones.core.size - this.zones.zone1.size - this.zones.zone2.size - this.zones.zone3.size} точек`);
+        console.log(`   • ⚪ ЗОНА 0.5 (одиночки): ${this.zones.zone05.size} точек`);
+        console.log(`   • 🔵 ЗОНА 1: ${this.zones.zone1.size} точек`);
+        console.log(`   • 🟡 ЗОНА 2: ${this.zones.zone2.size} точек`);
+        console.log(`   • 🟠 ЗОНА 3: ${this.zones.zone3.size} точек`);
+        console.log(`   • 🟢 Найдено через допуски: ${matches.length - this.zones.core.size - this.zones.zone05.size - this.zones.zone1.size - this.zones.zone2.size - this.zones.zone3.size} точек`);
 
         console.log(`\n✅ ОДНОЗНАЧНЫЕ СООТВЕТСТВИЯ (ЯКОРЯ): ${matches.length}`);
         if (matches.length > 0) {
@@ -1206,6 +927,7 @@ class HierarchicalMatcher {
             noMatchB: unmatchedB,
             zones: {
                 core: Array.from(this.zones.core.entries()).map(([id, m]) => ({ id, pointB: m.pointB })),
+                zone05: Array.from(this.zones.zone05.entries()).map(([id, m]) => ({ id, pointB: m.pointB, changes: m.changes })),
                 zone1: Array.from(this.zones.zone1.entries()).map(([id, m]) => ({ id, pointB: m.pointB, changes: m.changes })),
                 zone2: Array.from(this.zones.zone2.entries()).map(([id, m]) => ({ id, pointB: m.pointB, changes: m.changes })),
                 zone3: Array.from(this.zones.zone3.entries()).map(([id, m]) => ({ id, pointB: m.pointB, changes: m.changes }))
@@ -1217,6 +939,7 @@ class HierarchicalMatcher {
                 uniqueB: unmatchedB.length,
                 earlyExits: this.stats.earlyExits,
                 coreSize: this.zones.core.size,
+                zone05Size: this.zones.zone05.size,
                 zone1Size: this.zones.zone1.size,
                 zone2Size: this.zones.zone2.size,
                 zone3Size: this.zones.zone3.size
@@ -1227,26 +950,21 @@ class HierarchicalMatcher {
     calculateConfidence(data) {
         let score = 0;
         let totalWeight = 0;
-
         for (let i = 0; i < data.levels.length; i++) {
             const level = data.levels[i];
             const levelConfig = this.levels[i];
             if (!levelConfig?.enabled) continue;
-
             const rejectionRate = level.rejected / level.before;
             score += rejectionRate * levelConfig.weight;
             totalWeight += levelConfig.weight;
         }
-
         return totalWeight > 0 ? score / totalWeight : 0.5;
     }
 
-    /**
-     * 🔥 ПОЛУЧИТЬ ЗОНЫ
-     */
     getZones() {
         return {
             core: Array.from(this.zones.core.entries()).map(([id, m]) => ({ pointA: id, pointB: m.pointB })),
+            zone05: Array.from(this.zones.zone05.entries()).map(([id, m]) => ({ pointA: id, pointB: m.pointB, changes: m.changes })),
             zone1: Array.from(this.zones.zone1.entries()).map(([id, m]) => ({ pointA: id, pointB: m.pointB, changes: m.changes })),
             zone2: Array.from(this.zones.zone2.entries()).map(([id, m]) => ({ pointA: id, pointB: m.pointB, changes: m.changes })),
             zone3: Array.from(this.zones.zone3.entries()).map(([id, m]) => ({ pointA: id, pointB: m.pointB, changes: m.changes }))
