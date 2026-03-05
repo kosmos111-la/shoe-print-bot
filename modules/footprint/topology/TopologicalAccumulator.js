@@ -167,7 +167,7 @@ class TopologicalAccumulator {
                 existingModel.metadata.lastEnhanced = new Date();
 
                 // 2.4 Создаем matchMap для визуализации
-                const matchMap = this.buildHierarchicalMatchMap(hierarchicalResult);
+                const { matchMap, modelMatchMap } = this.buildHierarchicalMatchMap(hierarchicalResult);
 
                 // 2.5 Очищаем неподтверждённые точки
                 const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
@@ -189,19 +189,20 @@ class TopologicalAccumulator {
                 this.photoToModel.set(photoId, modelIdHint);
 
                 return {
-                    status: 'enhanced_hierarchical',
-                    modelId: modelIdHint,
-                    similarity: hierarchicalResult.similarity,
-                    centerMatches: hierarchicalResult.count,
-                    totalMatches: hierarchicalResult.matches.length,
-                    newNodesAdded: updateResult.newNodesAdded,
-                    nodesRemoved: cleanResult.removed,
-                    matchMap: matchMap,
-                    ambiguous: hierarchicalResult.ambiguous,
-                    noMatchA: hierarchicalResult.noMatchA,
-                    noMatchB: hierarchicalResult.noMatchB,
-                    message: `Иерархическое сопоставление: ${hierarchicalResult.count} пар, ${hierarchicalResult.ambiguous?.length || 0} спорных`
-                };
+    status: 'enhanced_hierarchical',
+    modelId: modelIdHint,
+    similarity: hierarchicalResult.similarity,
+    centerMatches: hierarchicalResult.count,
+    totalMatches: hierarchicalResult.matches.length,
+    newNodesAdded: updateResult.newNodesAdded,
+    nodesRemoved: cleanResult.removed,
+    matchMap: matchMap,           // для фото
+    modelMatchMap: modelMatchMap, // для модели
+    ambiguous: hierarchicalResult.ambiguous,
+    noMatchA: hierarchicalResult.noMatchA,
+    noMatchB: hierarchicalResult.noMatchB,
+    message: `Иерархическое сопоставление: ${hierarchicalResult.count} пар, ${hierarchicalResult.ambiguous?.length || 0} спорных`
+};
             } else {
                 console.log(`\n⚠️ Иерархическое сравнение дало только ${hierarchicalResult.count} пар - недостаточно (нужно 12)`);
             }
@@ -497,33 +498,51 @@ class TopologicalAccumulator {
     /**
      * Строит matchMap для визуализации
      */
-    buildHierarchicalMatchMap(result) {
-        const matchMap = new Map();
+buildHierarchicalMatchMap(result) {
+        const matchMap = new Map();      // фото -> модель
+        const modelMatchMap = new Map(); // модель -> фото
         let pairNumber = 1;
 
         // Сначала однозначные пары
         for (const match of result.matches) {
+            // Для фото
             matchMap.set(match.pointA, {
                 modelId: match.pointB,
-                pairNumber: pairNumber++,
+                pairNumber: pairNumber,
                 type: 'anchor',
                 confidence: match.score
             });
+           
+            // Для модели
+            modelMatchMap.set(match.pointB, {
+                photoId: match.pointA,
+                pairNumber: pairNumber,
+                type: 'anchor',
+                confidence: match.score
+            });
+           
+            pairNumber++;
         }
 
         // Потом неоднозначные (без номеров)
         if (result.ambiguous) {
             for (const amb of result.ambiguous) {
                 matchMap.set(amb.pointA, {
-                    candidates: amb.candidates.map(c => c.id),
+                    candidates: amb.candidates,
                     type: 'ambiguous',
                     count: amb.count
                 });
+                // Для неоднозначных в модель не добавляем
             }
         }
 
         console.log(`📋 Создан matchMap: ${matchMap.size} записей (${pairNumber-1} с номерами)`);
-        return matchMap;
+        console.log(`📋 Создан modelMatchMap: ${modelMatchMap.size} записей`);
+
+        return {
+            matchMap,
+            modelMatchMap
+        };
     }
 
     updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
