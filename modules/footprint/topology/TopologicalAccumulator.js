@@ -107,7 +107,7 @@ class TopologicalAccumulator {
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
-    async processPoints(points, options = {}) {async processPoints(points, options = {}) {
+    async processPoints(points, options = {}) {
     console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
 
     const photoId = options.photoId || `photo_${Date.now()}`;
