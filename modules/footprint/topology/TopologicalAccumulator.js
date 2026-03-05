@@ -352,9 +352,10 @@ class TopologicalAccumulator {
 
         // Создаем треугольный матчер
         const triangleMatcher = new TriangleMatcher({
-            morphologyThreshold: 0.15,
-            ratioThreshold: 0.1,
-            angleThreshold: 10
+            morphologyThreshold: 0.4,    // было 0.15
+    ratioThreshold: 0.25,         // было 0.1
+    angleThreshold: 30,            // добавить
+    degreeTolerance: 1
         });
 
         // Запускаем треугольный поиск
