@@ -171,38 +171,45 @@ class TopologicalAccumulator {
             existingModel.metadata.lastEnhanced = new Date();
 
             // 2.4 Создаем matchMap для визуализации
-            const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(triangleResult);
+const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(triangleResult);
 
-            // 2.5 Очищаем неподтверждённые точки
-            const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
-            this.stats.totalNodesRemoved += cleanResult.removed;
-            this.stats.triangleMatchesCount += triangleResult.count;
+// 🔥 СОХРАНЯЕМ В МОДЕЛИ для визуализации
+existingModel.lastTriangleResult = {
+    ...triangleResult,
+    modelMatchMap: modelMatchMap,
+    matchMap: matchMap
+};
 
-            // 2.6 Статистика
-            const confirmedInModel = triangleResult.matches.length;
-            const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
-            const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
+// 2.5 Очищаем неподтверждённые точки
+const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
+this.stats.totalNodesRemoved += cleanResult.removed;
+this.stats.triangleMatchesCount += triangleResult.count;
 
-            console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-            console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
-            console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
-            console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
-            console.log(`   • Всего в модели теперь: ${existingModel.graph.nodes.size}`);
+// 2.6 Статистика
+const confirmedInModel = triangleResult.matches.length;
+const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
+const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
 
-            this.photoToModel.set(photoId, modelIdHint);
+console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
+console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
+console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
+console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
+console.log(`   • Всего в модели теперь: ${existingModel.graph.nodes.size}`);
 
-            return {
-                status: 'enhanced_triangle',
-                modelId: modelIdHint,
-                similarity: triangleResult.similarity,
-                centerMatches: triangleResult.count,
-                totalMatches: triangleResult.matches.length,
-                newNodesAdded: updateResult.newNodesAdded,
-                nodesRemoved: cleanResult.removed,
-                matchMap: matchMap,
-                modelMatchMap: modelMatchMap,
-                message: `Треугольное сопоставление: ${triangleResult.count} пар`
-            };
+this.photoToModel.set(photoId, modelIdHint);
+
+return {
+    status: 'enhanced_triangle',
+    modelId: modelIdHint,
+    similarity: triangleResult.similarity,
+    centerMatches: triangleResult.count,
+    totalMatches: triangleResult.matches.length,
+    newNodesAdded: updateResult.newNodesAdded,
+    nodesRemoved: cleanResult.removed,
+    matchMap: matchMap,
+    modelMatchMap: modelMatchMap, // 🔥 ВАЖНО!
+    message: `Треугольное сопоставление: ${triangleResult.count} пар`
+};
         } else {
             console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - недостаточно (нужно 12)`);
         }
