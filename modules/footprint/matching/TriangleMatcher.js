@@ -1,14 +1,15 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР С ИЕРАРХИЧЕСКОЙ СТРУКТУРОЙ
+// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР С ИСПРАВЛЕННОЙ ГРУППИРОВКОЙ
 
 class TriangleMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
        
         // Пороги для признаков
-        this.morphologyThreshold = options.morphologyThreshold || 0.15; // 15%
+        this.morphologyThreshold = options.morphologyThreshold || 0.3; // увеличен до 30%
         this.ratioThreshold = options.ratioThreshold || 0.1; // 10%
-        this.angleThreshold = options.angleThreshold || 10; // 10 градусов
+        this.angleThreshold = options.angleThreshold || 15; // 15 градусов
+        this.maxTriangleDistance = options.maxTriangleDistance || 200; // макс расстояние между точками
        
         // Статистика
         this.stats = {
@@ -22,6 +23,7 @@ class TriangleMatcher {
         console.log(`   • Порог морфологии: ${this.morphologyThreshold*100}%`);
         console.log(`   • Порог отношений: ${this.ratioThreshold*100}%`);
         console.log(`   • Порог углов: ${this.angleThreshold}°`);
+        console.log(`   • Макс. расстояние: ${this.maxTriangleDistance}px`);
     }
 
     /**
@@ -41,6 +43,14 @@ class TriangleMatcher {
        
         console.log(`   • Треугольников в А: ${trianglesA.length}`);
         console.log(`   • Треугольников в Б: ${trianglesB.length}`);
+
+        if (trianglesA.length === 0 || trianglesB.length === 0) {
+            console.log(`⚠️ Недостаточно треугольников для сопоставления`);
+            return {
+                matches: [],
+                stats: this.stats
+            };
+        }
 
         // ШАГ 2: Группировка треугольников по их признакам
         console.log(`\n🔍 ШАГ 2: Группировка треугольников...`);
@@ -94,14 +104,20 @@ class TriangleMatcher {
      */
     buildAllTriangles(points) {
         const triangles = [];
-        const n = points.length;
        
-        // Сначала группируем точки по морфологии
+        // 🔥 ИСПРАВЛЕНО: сначала группируем точки по морфологии
         const groups = this.groupPointsByMorphology(points);
+       
+        console.log(`   • Групп по морфологии: ${Object.keys(groups).length}`);
        
         // Строим треугольники только внутри групп
         for (const [groupId, groupPoints] of Object.entries(groups)) {
             if (groupPoints.length < 3) continue;
+           
+            // Для отладки покажем размер группы
+            if (this.debug && groupPoints.length > 10) {
+                console.log(`   • Группа ${groupId}: ${groupPoints.length} точек`);
+            }
            
             for (let i = 0; i < groupPoints.length; i++) {
                 for (let j = i+1; j < groupPoints.length; j++) {
@@ -124,19 +140,28 @@ class TriangleMatcher {
     }
 
     /**
-     * 🔥 Группировка точек по морфологии
+     * 🔥 Группировка точек по морфологии - ИСПРАВЛЕННАЯ
      */
     groupPointsByMorphology(points) {
         const groups = {};
-        const tolerance = this.morphologyThreshold;
        
         for (const point of points) {
-            // Ключ группы: компактность + эксцентриситет + площадь (с допусками)
-            const compactGroup = Math.round(point.compactness / tolerance);
-            const eccGroup = Math.round(point.eccentricity / tolerance);
-            const areaGroup = Math.round(point.normalizedArea / tolerance);
+            // 🔥 ИСПРАВЛЕНО: используем дискретизацию с разумными интервалами
            
-            const key = `${compactGroup}_${eccGroup}_${areaGroup}`;
+            // Компактность: группы по 5 единиц (14-55 → 3-11 групп)
+            const compactGroup = Math.floor(point.compactness / 5);
+           
+            // Эксцентриситет: 0-0.33, 0.33-0.66, 0.66-1.0
+            const eccGroup = Math.floor(point.eccentricity * 3);
+           
+            // Площадь: логарифмическая шкала (чтобы сжать огромный разброс)
+            const logArea = Math.log10(point.normalizedArea + 1);
+            const areaGroup = Math.floor(logArea * 2); // 0-2 для большинства
+           
+            // Роль как дополнительный группирующий признак
+            const role = point.role || 'R';
+           
+            const key = `${role}_${compactGroup}_${eccGroup}_${areaGroup}`;
            
             if (!groups[key]) groups[key] = [];
             groups[key].push(point);
@@ -151,9 +176,14 @@ class TriangleMatcher {
     createTriangle(p1, p2, p3) {
         // 1. Морфология вершин (5×3 = 15 признаков)
         const morph = [
-            p1.compactness, p1.eccentricity, p1.normalizedArea, p1.radialProfile[0], this.roleToNumber(p1.role),
-            p2.compactness, p2.eccentricity, p2.normalizedArea, p2.radialProfile[0], this.roleToNumber(p2.role),
-            p3.compactness, p3.eccentricity, p3.normalizedArea, p3.radialProfile[0], this.roleToNumber(p3.role)
+            p1.compactness || 0, p1.eccentricity || 0, p1.normalizedArea || 0,
+            (p1.radialProfile ? p1.radialProfile[0] : 0), this.roleToNumber(p1.role || 'R'),
+           
+            p2.compactness || 0, p2.eccentricity || 0, p2.normalizedArea || 0,
+            (p2.radialProfile ? p2.radialProfile[0] : 0), this.roleToNumber(p2.role || 'R'),
+           
+            p3.compactness || 0, p3.eccentricity || 0, p3.normalizedArea || 0,
+            (p3.radialProfile ? p3.radialProfile[0] : 0), this.roleToNumber(p3.role || 'R')
         ];
        
         // 2. Отношения сторон (3 признака)
@@ -161,26 +191,27 @@ class TriangleMatcher {
         const d13 = this.distance(p1, p3);
         const d23 = this.distance(p2, p3);
        
+        // Защита от деления на ноль
+        const eps = 0.001;
         const ratios = [
-            d12 / d13,
-            d12 / d23,
-            d13 / d23
+            d12 / (d13 + eps),
+            d12 / (d23 + eps),
+            d13 / (d23 + eps)
         ].sort();
        
         // 3. Углы между ориентациями вершин (3 признака)
         const angles = [
-            this.angleBetween(p1.orientation, this.direction(p1, p2)),
-            this.angleBetween(p2.orientation, this.direction(p2, p3)),
-            this.angleBetween(p3.orientation, this.direction(p3, p1))
+            this.angleBetween(p1.orientation || 0, this.direction(p1, p2)),
+            this.angleBetween(p2.orientation || 0, this.direction(p2, p3)),
+            this.angleBetween(p3.orientation || 0, this.direction(p3, p1))
         ];
        
         // 4. Тип треугольника (1 признак)
         const type = this.classifyTriangle(d12, d13, d23);
        
-        // 5. Ориентация центра (1 признак) — относительно глобального центра
+        // 5. Ориентация центра (1 признак)
         const center = this.triangleCenter(p1, p2, p3);
-        const globalCenter = { x: 300, y: 300 }; // центр следа
-        const centerAngle = Math.atan2(center.y - globalCenter.y, center.x - globalCenter.x) * 180 / Math.PI;
+        const centerAngle = Math.atan2(center.y - 300, center.x - 300) * 180 / Math.PI;
        
         return {
             points: [p1.id, p2.id, p3.id],
@@ -192,9 +223,9 @@ class TriangleMatcher {
            
             // Для построения связей
             edges: [
-                [p1.id, p2.id],
-                [p2.id, p3.id],
-                [p3.id, p1.id]
+                [p1.id, p2.id].sort(),
+                [p2.id, p3.id].sort(),
+                [p3.id, p1.id].sort()
             ],
            
             // Кеш для быстрого доступа
@@ -210,7 +241,7 @@ class TriangleMatcher {
        
         for (const triangle of triangles) {
             // Ключ: тип + грубые отношения сторон
-            const ratiosKey = triangle.ratios.map(r => Math.round(r * 10)).join('_');
+            const ratiosKey = triangle.ratios.map(r => Math.round(r * 5)).join('_');
             const key = `${triangle.type}_${ratiosKey}`;
            
             if (!groups[key]) groups[key] = [];
@@ -234,25 +265,28 @@ class TriangleMatcher {
             for (const triA of trianglesA) {
                 let bestMatch = null;
                 let bestScore = 0;
+                let bestIndex = -1;
                
                 for (let i = 0; i < trianglesB.length; i++) {
-                    const triB = trianglesB[i];
                     if (usedB.has(i)) continue;
                    
+                    const triB = trianglesB[i];
                     const score = this.compareTriangles(triA, triB);
+                   
                     if (score > bestScore) {
                         bestScore = score;
-                        bestMatch = { triangle: triB, index: i };
+                        bestMatch = triB;
+                        bestIndex = i;
                     }
                 }
                
-                if (bestMatch && bestScore > 0.8) {
+                if (bestMatch && bestScore > 0.7) {
                     matches.push({
                         triangleA: triA,
-                        triangleB: bestMatch.triangle,
+                        triangleB: bestMatch,
                         score: bestScore
                     });
-                    usedB.add(bestMatch.index);
+                    usedB.add(bestIndex);
                 }
             }
         }
@@ -335,15 +369,14 @@ class TriangleMatcher {
      */
     findNeighborTriangles(triangle, allTriangles) {
         const neighbors = [];
-        const edges = new Set(triangle.edges.map(e => e.sort().join('--')));
+        const edgeSet = new Set(triangle.edges.map(e => e.join('--')));
        
         for (const other of allTriangles) {
             if (other === triangle) continue;
            
             // Проверяем, есть ли общее ребро
             for (const edge of other.edges) {
-                const edgeKey = edge.sort().join('--');
-                if (edges.has(edgeKey)) {
+                if (edgeSet.has(edge.join('--'))) {
                     neighbors.push(other);
                     break;
                 }
@@ -363,6 +396,7 @@ class TriangleMatcher {
         for (const nA of neighborhoodsA) {
             let bestMatch = null;
             let bestScore = 0;
+            let bestIndex = -1;
            
             for (let i = 0; i < neighborhoodsB.length; i++) {
                 if (usedB.has(i)) continue;
@@ -372,17 +406,18 @@ class TriangleMatcher {
                
                 if (score > bestScore) {
                     bestScore = score;
-                    bestMatch = { neighborhood: nB, index: i };
+                    bestMatch = nB;
+                    bestIndex = i;
                 }
             }
            
-            if (bestMatch && bestScore > 0.7) {
+            if (bestMatch && bestScore > 0.6) {
                 matches.push({
                     neighborhoodA: nA,
-                    neighborhoodB: bestMatch.neighborhood,
+                    neighborhoodB: bestMatch,
                     score: bestScore
                 });
-                usedB.add(bestMatch.index);
+                usedB.add(bestIndex);
             }
         }
        
@@ -432,7 +467,7 @@ class TriangleMatcher {
                     const idx = nA.center.points.indexOf(pointId);
                     const pointBId = nB.center.points[idx];
                    
-                    if (!usedB.has(pointBId)) {
+                    if (pointBId && !usedB.has(pointBId)) {
                         matches.push({
                             pointA: pointId,
                             pointB: pointBId,
@@ -454,7 +489,7 @@ class TriangleMatcher {
                     const pointId = triA.points[j];
                     if (!usedA.has(pointId)) {
                         const pointBId = triB.points[j];
-                        if (!usedB.has(pointBId)) {
+                        if (pointBId && !usedB.has(pointBId)) {
                             matches.push({
                                 pointA: pointId,
                                 pointB: pointBId,
@@ -490,6 +525,7 @@ class TriangleMatcher {
     }
 
     angleBetween(a1, a2) {
+        if (a1 === undefined || a2 === undefined) return 0;
         let diff = Math.abs(a1 - a2);
         if (diff > 180) diff = 360 - diff;
         return diff;
@@ -503,15 +539,16 @@ class TriangleMatcher {
     }
 
     classifyTriangle(d1, d2, d3) {
-        const eps = 0.01;
+        const eps = 0.1;
         const sides = [d1, d2, d3].sort((a,b) => a-b);
        
-        if (Math.abs(sides[0] - sides[2]) < eps) return 'equilateral';
-        if (Math.abs(sides[0] - sides[1]) < eps || Math.abs(sides[1] - sides[2]) < eps) return 'isosceles';
+        if (Math.abs(sides[0] - sides[2]) / sides[2] < eps) return 'equilateral';
+        if (Math.abs(sides[0] - sides[1]) / sides[1] < eps ||
+            Math.abs(sides[1] - sides[2]) / sides[2] < eps) return 'isosceles';
        
         // Проверка на прямоугольный
         const a = sides[0], b = sides[1], c = sides[2];
-        if (Math.abs(a*a + b*b - c*c) < eps) return 'right';
+        if (Math.abs(a*a + b*b - c*c) / (c*c) < eps) return 'right';
        
         return 'scalene';
     }
@@ -521,16 +558,16 @@ class TriangleMatcher {
         const d13 = this.distance(p1, p3);
         const d23 = this.distance(p2, p3);
         const maxDist = Math.max(d12, d13, d23);
-        return maxDist > 200; // порог
+        return maxDist > this.maxTriangleDistance;
     }
 
     hashTriangle(morph, ratios, angles, type, centerAngle) {
         const rounded = [
             ...morph.map(v => Math.round(v * 10)),
             ...ratios.map(v => Math.round(v * 10)),
-            ...angles.map(v => Math.round(v)),
+            ...angles.map(v => Math.round(v / 5) * 5),
             type,
-            Math.round(centerAngle)
+            Math.round(centerAngle / 10) * 10
         ];
         return rounded.join('_');
     }
