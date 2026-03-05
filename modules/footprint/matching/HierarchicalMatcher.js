@@ -1,5 +1,7 @@
 // modules/footprint/matching/HierarchicalMatcher.js
-// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ЗОНОЙ 0.5 (ОДИНОКИЕ СТАБИЛЬНЫЕ ТОЧКИ)
+// 🔥 МНОГОУРОВНЕВЫЙ МАТЧЕР С ГЕОМЕТРИЧЕСКОЙ ВЕРИФИКАЦИЕЙ
+
+const GeometricValidator = require('./GeometricValidator');
 
 class HierarchicalMatcher {
     constructor(options = {}) {
@@ -58,11 +60,17 @@ class HierarchicalMatcher {
         ];
 
         this.featureCache = new Map();
+       
+        // Геометрический валидатор
+        this.geometricValidator = new GeometricValidator({
+            ransacIterations: options.ransacIterations || 100,
+            distanceThreshold: options.geometryThreshold || 10
+        });
 
-        // === ЗОНЫ СТАБИЛИЗАЦИИ ===
+        // ЗОНЫ СТАБИЛИЗАЦИИ
         this.zones = {
             core: new Map(),      // 100% стабильные
-            zone05: new Map(),    // 🔥 НОВОЕ: одиночки (degree=0, но роль та же)
+            zone05: new Map(),    // одиночки (degree=0, но роль та же)
             zone1: new Map(),     // потеря соседей, оставшиеся стабильны
             zone2: new Map(),     // до 1 нестабильного соседа
             zone3: new Map(),     // до 2 нестабильных соседей
@@ -78,6 +86,7 @@ class HierarchicalMatcher {
             afterZone1: 0,
             afterZone2: 0,
             afterZone3: 0,
+            afterGeometry: 0,
             final: 0
         };
 
@@ -91,6 +100,8 @@ class HierarchicalMatcher {
             zone1Size: 0,
             zone2Size: 0,
             zone3Size: 0,
+            geometricInliers: 0,
+            geometricOutliers: 0,
             newSize: 0
         };
     }
@@ -104,6 +115,12 @@ class HierarchicalMatcher {
         console.log(`${'='.repeat(100)}`);
         console.log(`📊 Всего ключей (точек) в А: ${pointsA.length}`);
         console.log(`📊 Всего замков (точек) в Б: ${pointsB.length}`);
+
+        // Сохраняем координаты для геометрии
+        this.pointsA = new Map();
+        this.pointsB = new Map();
+        for (const p of pointsA) this.pointsA.set(p.id, p);
+        for (const p of pointsB) this.pointsB.set(p.id, p);
 
         this.validateFeatures(pointsA, pointsB);
         this.diagnoseFirstPoint(pointsA, pointsB);
@@ -160,7 +177,67 @@ class HierarchicalMatcher {
 
         // ШАГ 3: Финальный анализ
         this.checkpoints.final = this.countActiveCandidates(candidates);
-        return this.finalAnalysis(candidates, pointsB);
+        const result = this.finalAnalysis(candidates, pointsB);
+
+        // ШАГ 4: Геометрическая верификация
+        console.log(`\n${'─'.repeat(80)}`);
+        console.log(`📐 ГЕОМЕТРИЧЕСКАЯ ВЕРИФИКАЦИЯ ЯКОРЕЙ`);
+        console.log(`${'─'.repeat(80)}`);
+
+        const verifiedResult = this.geometricVerification(result);
+
+        this.checkpoints.afterGeometry = verifiedResult.verified.length;
+        this.stats.geometricInliers = verifiedResult.stats.verified;
+        this.stats.geometricOutliers = verifiedResult.stats.rejected;
+
+        return verifiedResult;
+    }
+
+    /**
+     * 🔥 ГЕОМЕТРИЧЕСКАЯ ВЕРИФИКАЦИЯ
+     */
+    geometricVerification(result) {
+        if (result.matches.length < 3) {
+            console.log(`⚠️ Меньше 3 якорей, верификация невозможна`);
+            return result;
+        }
+
+        // Подготавливаем данные для валидатора
+        const anchors = result.matches.map(m => ({
+            pointA: m.pointA,
+            pointB: m.pointB,
+            confidence: m.confidence,
+            zone: m.zone
+        }));
+
+        const validationResult = this.geometricValidator.validateAnchors(
+            anchors,
+            this.pointsA,
+            this.pointsB
+        );
+
+        console.log(`\n📊 РЕЗУЛЬТАТ ВЕРИФИКАЦИИ:`);
+        console.log(`   • Подтверждено геометрией: ${validationResult.verified.length}`);
+        console.log(`   • Отвергнуто: ${validationResult.rejected.length}`);
+       
+        if (validationResult.transform) {
+            console.log(`   • Поворот: ${(validationResult.transform.angle * 180 / Math.PI).toFixed(1)}°`);
+            console.log(`   • Масштаб: ${validationResult.transform.scale.toFixed(2)}`);
+            console.log(`   • Сдвиг: (${validationResult.transform.tx.toFixed(1)}, ${validationResult.transform.ty.toFixed(1)})`);
+        }
+
+        // Обновляем результат
+        return {
+            ...result,
+            matches: validationResult.verified,
+            rejectedAnchors: validationResult.rejected,
+            geometricTransform: validationResult.transform,
+            stats: {
+                ...result.stats,
+                geometricInliers: validationResult.verified.length,
+                geometricOutliers: validationResult.rejected.length
+            }
+        };
     }
 
     /**
@@ -178,13 +255,13 @@ class HierarchicalMatcher {
             return;
         }
 
-        // 🔥 ФАЗА 0.5: Одиночки (точки без соседей)
+        // ФАЗА 0.5: Одиночки (точки без соседей)
         console.log(`\n📌 [КОНТРОЛЬНАЯ ТОЧКА 1.5] Поиск ОДИНОЧЕК (степень = 0)...`);
         this.findLonelyStablePoints(candidates);
         this.checkpoints.afterZone05 = this.zones.zone05.size;
         console.log(`   ✅ ОДИНОЧКИ: +${this.zones.zone05.size} точек`);
 
-        // 🔥 ФАЗА 1: Стабилизация ЗОНЫ 1 (связанные с ядром)
+        // ФАЗА 1: Стабилизация ЗОНЫ 1 (связанные с ядром)
         console.log(`\n📌 [КОНТРОЛЬНАЯ ТОЧКА 2] Стабилизация ЗОНЫ 1...`);
         let zone1Iterations = 0;
         let zone1NewCount = 0;
@@ -213,7 +290,7 @@ class HierarchicalMatcher {
         this.checkpoints.afterZone1 = this.zones.zone1.size;
         console.log(`\n📊 ИТОГ ЗОНЫ 1: +${this.zones.zone1.size} точек`);
 
-        // 🔥 ФАЗА 2: Стабилизация ЗОНЫ 2
+        // ФАЗА 2: Стабилизация ЗОНЫ 2
         if (this.zones.zone1.size > 0) {
             console.log(`\n📌 [КОНТРОЛЬНАЯ ТОЧКА 3] Стабилизация ЗОНЫ 2...`);
             let zone2Iterations = 0;
@@ -244,7 +321,7 @@ class HierarchicalMatcher {
             console.log(`\n📊 ИТОГ ЗОНЫ 2: +${this.zones.zone2.size} точек`);
         }
 
-        // 🔥 ФАЗА 3: Стабилизация ЗОНЫ 3
+        // ФАЗА 3: Стабилизация ЗОНЫ 3
         if (this.zones.zone2.size > 0) {
             console.log(`\n📌 [КОНТРОЛЬНАЯ ТОЧКА 4] Стабилизация ЗОНЫ 3...`);
             let zone3Iterations = 0;
@@ -278,7 +355,7 @@ class HierarchicalMatcher {
         // Финальная статистика
         console.log(`\n📌 [КОНТРОЛЬНАЯ ТОЧКА 5] ИТОГ СТАБИЛИЗАЦИИ:`);
         console.log(`   • ЯДРО: ${this.zones.core.size} точек`);
-        console.log(`   • ЗОНА 0.5 (одиночки): ${this.zones.zone05.size} точек`);
+        console.log(`   • ЗОНА 0.5: ${this.zones.zone05.size} точек`);
         console.log(`   • ЗОНА 1: ${this.zones.zone1.size} точек`);
         console.log(`   • ЗОНА 2: ${this.zones.zone2.size} точек`);
         console.log(`   • ЗОНА 3: ${this.zones.zone3.size} точек`);
@@ -289,50 +366,6 @@ class HierarchicalMatcher {
         this.stats.zone1Size = this.zones.zone1.size;
         this.stats.zone2Size = this.zones.zone2.size;
         this.stats.zone3Size = this.zones.zone3.size;
-    }
-
-    /**
-     * 🔥 НОВЫЙ МЕТОД: Поиск одиноких стабильных точек (degree = 0)
-     */
-    findLonelyStablePoints(candidates) {
-        const usedModelPoints = new Set();
-       
-        // Собираем уже использованные точки модели
-        for (const [_, match] of this.zones.core) {
-            usedModelPoints.add(match.pointB);
-        }
-
-        for (const [pointId, data] of candidates) {
-            if (data.status === 'core' || data.status === 'zone05' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
-            if (data.candidates.length === 0) continue;
-
-            // Только точки с degree = 0 (без соседей)
-            if (data.point.degree !== 0) continue;
-
-            for (const candidate of data.candidates) {
-                if (usedModelPoints.has(candidate.id)) continue;
-
-                // У кандидата тоже degree = 0
-                if (candidate.degree !== 0) continue;
-
-                // Проверяем совпадение роли (единственное, что осталось)
-                if (data.point.role === candidate.role) {
-                    this.zones.zone05.set(pointId, {
-                        pointB: candidate.id,
-                        confidence: 1.0,
-                        reason: 'LONELY_STABLE',
-                        zone: 'ZONE05',
-                        role: data.point.role,
-                        degree: 0
-                    });
-
-                    usedModelPoints.add(candidate.id);
-                    data.status = 'zone05';
-                    data.candidates = [];
-                    break;
-                }
-            }
-        }
     }
 
     /**
@@ -368,7 +401,46 @@ class HierarchicalMatcher {
     }
 
     /**
-     * 🔥 СТАБИЛИЗАЦИЯ ЗОНЫ 1 (строгая)
+     * 🔥 ПОИСК ОДИНОЧЕК (degree = 0)
+     */
+    findLonelyStablePoints(candidates) {
+        const usedModelPoints = new Set();
+       
+        for (const [_, match] of this.zones.core) {
+            usedModelPoints.add(match.pointB);
+        }
+
+        for (const [pointId, data] of candidates) {
+            if (data.status === 'core' || data.status === 'zone05' || data.status === 'zone1' || data.status === 'zone2' || data.status === 'zone3') continue;
+            if (data.candidates.length === 0) continue;
+
+            if (data.point.degree !== 0) continue;
+
+            for (const candidate of data.candidates) {
+                if (usedModelPoints.has(candidate.id)) continue;
+                if (candidate.degree !== 0) continue;
+
+                if (data.point.role === candidate.role) {
+                    this.zones.zone05.set(pointId, {
+                        pointB: candidate.id,
+                        confidence: 1.0,
+                        reason: 'LONELY_STABLE',
+                        zone: 'ZONE05',
+                        role: data.point.role,
+                        degree: 0
+                    });
+
+                    usedModelPoints.add(candidate.id);
+                    data.status = 'zone05';
+                    data.candidates = [];
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * 🔥 СТАБИЛИЗАЦИЯ ЗОНЫ 1
      */
     stabilizeZone1(candidates, stableRoles, stablePoints) {
         let stabilized = 0;
@@ -891,7 +963,7 @@ class HierarchicalMatcher {
 
         console.log(`\n📍 СТАТИСТИКА ПО ЗОНАМ:`);
         console.log(`   • 🟣 ЯДРО (100%): ${this.zones.core.size} точек`);
-        console.log(`   • ⚪ ЗОНА 0.5 (одиночки): ${this.zones.zone05.size} точек`);
+        console.log(`   • ⚪ ЗОНА 0.5: ${this.zones.zone05.size} точек`);
         console.log(`   • 🔵 ЗОНА 1: ${this.zones.zone1.size} точек`);
         console.log(`   • 🟡 ЗОНА 2: ${this.zones.zone2.size} точек`);
         console.log(`   • 🟠 ЗОНА 3: ${this.zones.zone3.size} точек`);
