@@ -1,44 +1,45 @@
 // modules/footprint/matching/GeometricValidator.js
-// 🔥 ГЕОМЕТРИЧЕСКАЯ ВЕРИФИКАЦИЯ ЯКОРЕЙ ЧЕРЕЗ RANSAC
+// 🔥 ВЕКТОРНАЯ ГЕОМЕТРИЧЕСКАЯ ВЕРИФИКАЦИЯ ЯКОРЕЙ
+// (инвариантна к повороту, масштабу и сдвигу)
 
 class GeometricValidator {
     constructor(options = {}) {
         this.debug = options.debug || false;
        
-        // Параметры RANSAC
-        this.ransacIterations = options.ransacIterations || 100;
-        this.distanceThreshold = options.distanceThreshold || 10.0; // пикселей
-        this.minInliers = options.minInliers || 3;
+        // Параметры векторной верификации
+        this.ratioThreshold = options.ratioThreshold || 0.1; // 10% допуск на отношения
+        this.minAnchors = options.minAnchors || 3;
        
-        console.log(`📐 GeometricValidator создан`);
-        console.log(`   • Итераций RANSAC: ${this.ransacIterations}`);
-        console.log(`   • Порог расстояния: ${this.distanceThreshold}px`);
+        console.log(`📐 GeometricValidator (векторный) создан`);
+        console.log(`   • Допуск на отношения: ${this.ratioThreshold * 100}%`);
     }
 
     /**
-     * 🔥 ОСНОВНОЙ МЕТОД: верификация якорей
+     * 🔥 ОСНОВНОЙ МЕТОД: векторная верификация якорей
      * @param {Array} anchors - массив якорей { pointA, pointB, confidence, zone }
      * @param {Map} pointsA - карта точек из фото (id -> {x, y})
      * @param {Map} pointsB - карта точек из модели (id -> {x, y})
      * @returns {Object} результат верификации
      */
     validateAnchors(anchors, pointsA, pointsB) {
-        console.log(`\n🔍 ГЕОМЕТРИЧЕСКАЯ ВЕРИФИКАЦИЯ ЯКОРЕЙ`);
+        console.log(`\n🔍 ВЕКТОРНАЯ ГЕОМЕТРИЧЕСКАЯ ВЕРИФИКАЦИЯ`);
         console.log(`========================================`);
         console.log(`📊 Всего кандидатов: ${anchors.length}`);
 
-        if (anchors.length < 3) {
-            console.log(`⚠️ Меньше 3 якорей, верификация невозможна`);
+        if (anchors.length < this.minAnchors) {
+            console.log(`⚠️ Меньше ${this.minAnchors} якорей, верификация невозможна`);
             return {
-                verified: [],
+                verified: anchors, // возвращаем как есть
                 rejected: [],
-                transform: null,
-                inliers: [],
-                outliers: []
+                stats: {
+                    total: anchors.length,
+                    verified: anchors.length,
+                    rejected: 0
+                }
             };
         }
 
-        // ШАГ 1: Подготовка данных для RANSAC
+        // ШАГ 1: Подготовка данных
         const data = [];
         for (const anchor of anchors) {
             const pointA = pointsA.get(anchor.pointA);
@@ -60,301 +61,236 @@ class GeometricValidator {
 
         console.log(`📊 Подготовлено данных: ${data.length}`);
 
-        // ШАГ 2: RANSAC для поиска лучшего преобразования
-        const bestModel = this.ransac(data);
+        // ШАГ 2: Вычисляем матрицу согласованности
+        const consistencyMatrix = this.buildConsistencyMatrix(data);
        
-        if (!bestModel) {
-            console.log(`❌ RANSAC не нашел стабильного преобразования`);
-            return {
-                verified: [],
-                rejected: anchors,
-                transform: null,
-                inliers: [],
-                outliers: data
-            };
-        }
-
-        // ШАГ 3: Классификация на inliers/outliers
-        const inliers = [];
-        const outliers = [];
+        // ШАГ 3: Находим максимальный согласованный кластер
+        const cluster = this.findMaxConsistentCluster(consistencyMatrix, data);
        
-        for (const point of data) {
-            const projected = this.applyTransform(point.x1, point.y1, bestModel.transform);
-            const dx = projected.x - point.x2;
-            const dy = projected.y - point.y2;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-           
-            if (dist <= this.distanceThreshold) {
-                inliers.push(point);
-            } else {
-                outliers.push(point);
-            }
-        }
-
         console.log(`\n📊 РЕЗУЛЬТАТ ВЕРИФИКАЦИИ:`);
-        console.log(`   • Подтверждено (inliers): ${inliers.length}`);
-        console.log(`   • Отвергнуто (outliers): ${outliers.length}`);
-        console.log(`   • Точность модели: ${(inliers.length/data.length*100).toFixed(1)}%`);
+        console.log(`   • Согласовано: ${cluster.length} точек`);
+        console.log(`   • Несогласовано: ${data.length - cluster.length} точек`);
 
         // ШАГ 4: Формируем результат
         const verified = [];
         const rejected = [];
+        const clusterSet = new Set(cluster);
 
-        for (const inlier of inliers) {
-            verified.push({
-                pointA: inlier.id,
-                pointB: inlier.modelId,
-                confidence: 1.0,
-                zone: inlier.zone,
-                geometricError: this.calculateError(inlier, bestModel.transform)
-            });
-        }
-
-        for (const outlier of outliers) {
-            rejected.push({
-                pointA: outlier.id,
-                pointB: outlier.modelId,
-                confidence: 0.0,
-                zone: outlier.zone,
-                geometricError: this.calculateError(outlier, bestModel.transform),
-                alternatives: this.findAlternatives(outlier, data, bestModel.transform)
-            });
+        for (let i = 0; i < data.length; i++) {
+            if (clusterSet.has(i)) {
+                verified.push({
+                    pointA: data[i].id,
+                    pointB: data[i].modelId,
+                    confidence: 1.0,
+                    zone: data[i].zone,
+                    geometricScore: 1.0
+                });
+            } else {
+                rejected.push({
+                    pointA: data[i].id,
+                    pointB: data[i].modelId,
+                    confidence: 0.0,
+                    zone: data[i].zone,
+                    geometricScore: 0.0,
+                    alternatives: this.findAlternatives(data[i], data)
+                });
+            }
         }
 
         return {
             verified,
             rejected,
-            transform: bestModel.transform,
-            inliers: inliers.map(p => p.id),
-            outliers: outliers.map(p => p.id),
             stats: {
                 total: data.length,
                 verified: verified.length,
                 rejected: rejected.length,
-                inlierRatio: inliers.length / data.length
+                consistency: verified.length / data.length
             }
         };
     }
 
     /**
-     * 🔥 RANSAC: поиск лучшего преобразования
+     * 🔥 Построение матрицы согласованности
+     * Проверяем каждую тройку точек на сохранение пропорций
      */
-    ransac(data) {
-        if (data.length < 2) return null;
-
-        let bestInliers = [];
-        let bestTransform = null;
-        let bestScore = 0;
-
-        for (let iter = 0; iter < this.ransacIterations; iter++) {
-            // Случайно выбираем 2 точки для вычисления преобразования
-            const idx1 = Math.floor(Math.random() * data.length);
-            let idx2;
-            do {
-                idx2 = Math.floor(Math.random() * data.length);
-            } while (idx2 === idx1);
-
-            const p1 = data[idx1];
-            const p2 = data[idx2];
-
-            // Вычисляем преобразование (поворот + сдвиг)
-            const transform = this.computeTransform(p1, p2);
-            if (!transform) continue;
-
-            // Считаем, сколько точек поддерживают это преобразование
-            const inliers = [];
-            for (const point of data) {
-                const projected = this.applyTransform(point.x1, point.y1, transform);
-                const dx = projected.x - point.x2;
-                const dy = projected.y - point.y2;
-                const dist = Math.sqrt(dx*dx + dy*dy);
+    buildConsistencyMatrix(data) {
+        const n = data.length;
+        const matrix = Array(n).fill().map(() => Array(n).fill(0));
+       
+        // Счетчик согласованных троек для каждой пары
+        for (let i = 0; i < n; i++) {
+            for (let j = i+1; j < n; j++) {
+                let consistentCount = 0;
+                let totalChecks = 0;
                
-                if (dist <= this.distanceThreshold) {
-                    inliers.push(point);
+                for (let k = 0; k < n; k++) {
+                    if (k === i || k === j) continue;
+                   
+                    if (this.checkTriangleConsistency(data[i], data[j], data[k])) {
+                        consistentCount++;
+                    }
+                    totalChecks++;
+                }
+               
+                // Степень согласованности пары (доля троек, где они согласованы)
+                if (totalChecks > 0) {
+                    matrix[i][j] = matrix[j][i] = consistentCount / totalChecks;
                 }
             }
+        }
+       
+        return matrix;
+    }
 
-            // Обновляем лучшее решение
-            if (inliers.length > bestScore) {
-                bestScore = inliers.length;
-                bestInliers = inliers;
-                bestTransform = transform;
-            }
-
-            // Ранний выход, если нашли отличное решение
-            if (bestScore > data.length * 0.8) {
+    /**
+     * 🔥 Проверка согласованности тройки точек
+     * Сравниваем отношения расстояний в фото и модели
+     */
+    checkTriangleConsistency(p1, p2, p3) {
+        // Расстояния в фото
+        const d12a = this.distance(p1.x1, p1.y1, p2.x1, p2.y1);
+        const d13a = this.distance(p1.x1, p1.y1, p3.x1, p3.y1);
+        const d23a = this.distance(p2.x1, p2.y1, p3.x1, p3.y1);
+       
+        // Расстояния в модели
+        const d12b = this.distance(p1.x2, p1.y2, p2.x2, p2.y2);
+        const d13b = this.distance(p1.x2, p1.y2, p3.x2, p3.y2);
+        const d23b = this.distance(p2.x2, p2.y2, p3.x2, p3.y2);
+       
+        // Защита от деления на ноль
+        if (d12a < 0.1 || d13a < 0.1 || d23a < 0.1 ||
+            d12b < 0.1 || d13b < 0.1 || d23b < 0.1) {
+            return false;
+        }
+       
+        // Вычисляем отношения сторон (инвариантны к масштабу)
+        const ratiosA = [
+            d12a / d13a,
+            d12a / d23a,
+            d13a / d23a
+        ].sort((a, b) => a - b);
+       
+        const ratiosB = [
+            d12b / d13b,
+            d12b / d23b,
+            d13b / d23b
+        ].sort((a, b) => a - b);
+       
+        // Проверяем все три отношения
+        let consistent = true;
+        for (let i = 0; i < 3; i++) {
+            const diff = Math.abs(ratiosA[i] - ratiosB[i]);
+            const maxRatio = Math.max(ratiosA[i], ratiosB[i]);
+            if (maxRatio > 0 && diff / maxRatio > this.ratioThreshold) {
+                consistent = false;
                 break;
             }
         }
-
-        if (bestScore < this.minInliers) {
-            return null;
-        }
-
-        // Пересчитываем преобразование по всем inliers для точности
-        if (bestInliers.length >= 2) {
-            bestTransform = this.refineTransform(bestInliers);
-        }
-
-        return {
-            transform: bestTransform,
-            inliers: bestInliers,
-            score: bestScore
-        };
+       
+        return consistent;
     }
 
     /**
-     * 🔥 Вычисление преобразования по двум точкам
-     * Модель: поворот + масштаб + сдвиг
+     * 🔥 Поиск максимального согласованного кластера
+     * Используем жадный алгоритм: начинаем с лучшей пары и добавляем согласованные точки
      */
-    computeTransform(p1, p2) {
-        // Вектора в первом изображении
-        const dx1 = p2.x1 - p1.x1;
-        const dy1 = p2.y1 - p1.y1;
+    findMaxConsistentCluster(matrix, data) {
+        const n = data.length;
+        if (n === 0) return [];
        
-        // Вектора во втором изображении
-        const dx2 = p2.x2 - p1.x2;
-        const dy2 = p2.y2 - p1.y2;
+        // Находим пару с максимальной согласованностью
+        let bestPair = [0, 1];
+        let bestScore = matrix[0][1];
        
-        // Вычисляем масштаб
-        const len1 = Math.sqrt(dx1*dx1 + dy1*dy1);
-        const len2 = Math.sqrt(dx2*dx2 + dy2*dy2);
-       
-        if (len1 < 0.001 || len2 < 0.001) return null;
-       
-        const scale = len2 / len1;
-       
-        // Вычисляем угол поворота
-        let angle = Math.atan2(dy2, dx2) - Math.atan2(dy1, dx1);
-       
-        // Нормализуем угол
-        while (angle < -Math.PI) angle += 2*Math.PI;
-        while (angle > Math.PI) angle -= 2*Math.PI;
-       
-        // Вычисляем сдвиг
-        const tx = p1.x2 - (p1.x1 * Math.cos(angle) - p1.y1 * Math.sin(angle)) * scale;
-        const ty = p1.y2 - (p1.x1 * Math.sin(angle) + p1.y1 * Math.cos(angle)) * scale;
-       
-        return {
-            scale,
-            angle,
-            tx,
-            ty,
-            cos: Math.cos(angle),
-            sin: Math.sin(angle)
-        };
-    }
-
-    /**
-     * 🔥 Применение преобразования к точке
-     */
-    applyTransform(x, y, transform) {
-        const xr = x * transform.cos - y * transform.sin;
-        const yr = x * transform.sin + y * transform.cos;
-       
-        return {
-            x: xr * transform.scale + transform.tx,
-            y: yr * transform.scale + transform.ty
-        };
-    }
-
-    /**
-     * 🔥 Уточнение преобразования по множеству точек (метод наименьших квадратов)
-     */
-    refineTransform(points) {
-        if (points.length < 2) return null;
-
-        // Усредняем масштаб и угол по всем парам
-        let sumScale = 0;
-        let sumAngle = 0;
-        let validPairs = 0;
-
-        for (let i = 0; i < points.length; i++) {
-            for (let j = i+1; j < points.length; j++) {
-                const p1 = points[i];
-                const p2 = points[j];
-               
-                const dx1 = p2.x1 - p1.x1;
-                const dy1 = p2.y1 - p1.y1;
-                const dx2 = p2.x2 - p1.x2;
-                const dy2 = p2.y2 - p1.y2;
-               
-                const len1 = Math.sqrt(dx1*dx1 + dy1*dy1);
-                const len2 = Math.sqrt(dx2*dx2 + dy2*dy2);
-               
-                if (len1 < 0.001 || len2 < 0.001) continue;
-               
-                sumScale += len2 / len1;
-               
-                let angle = Math.atan2(dy2, dx2) - Math.atan2(dy1, dx1);
-                while (angle < -Math.PI) angle += 2*Math.PI;
-                while (angle > Math.PI) angle -= 2*Math.PI;
-               
-                sumAngle += angle;
-                validPairs++;
+        for (let i = 0; i < n; i++) {
+            for (let j = i+1; j < n; j++) {
+                if (matrix[i][j] > bestScore) {
+                    bestScore = matrix[i][j];
+                    bestPair = [i, j];
+                }
             }
         }
-
-        if (validPairs === 0) return null;
-
-        const scale = sumScale / validPairs;
-        const angle = sumAngle / validPairs;
-        const cos = Math.cos(angle);
-        const sin = Math.sin(angle);
-
-        // Вычисляем сдвиг как среднее по всем точкам
-        let sumTx = 0;
-        let sumTy = 0;
-
-        for (const point of points) {
-            const xr = point.x1 * cos - point.y1 * sin;
-            const yr = point.x1 * sin + point.y1 * cos;
-           
-            sumTx += point.x2 - xr * scale;
-            sumTy += point.y2 - yr * scale;
+       
+        // Если даже лучшая пара плохая, возвращаем пустой кластер
+        if (bestScore < 0.3) {
+            console.log(`   ⚠️ Слишком низкая согласованность, лучшая пара: ${(bestScore*100).toFixed(1)}%`);
+            return [];
         }
-
-        const tx = sumTx / points.length;
-        const ty = sumTy / points.length;
-
-        return { scale, angle, tx, ty, cos, sin };
-    }
-
-    /**
-     * 🔥 Вычисление ошибки для точки
-     */
-    calculateError(point, transform) {
-        const projected = this.applyTransform(point.x1, point.y1, transform);
-        const dx = projected.x - point.x2;
-        const dy = projected.y - point.y2;
-        return Math.sqrt(dx*dx + dy*dy);
+       
+        // Начинаем кластер с лучшей пары
+        const cluster = new Set(bestPair);
+       
+        // Жадно добавляем точки, которые согласованы с большинством в кластере
+        let changed;
+        do {
+            changed = false;
+           
+            for (let i = 0; i < n; i++) {
+                if (cluster.has(i)) continue;
+               
+                // Считаем, со сколькими точками в кластере согласована точка i
+                let agreements = 0;
+                for (const j of cluster) {
+                    if (matrix[i][j] > 0.5) { // согласована с j
+                        agreements++;
+                    }
+                }
+               
+                // Если согласована с большинством в кластере, добавляем
+                if (agreements > cluster.size / 2) {
+                    cluster.add(i);
+                    changed = true;
+                }
+            }
+        } while (changed);
+       
+        return Array.from(cluster);
     }
 
     /**
      * 🔥 Поиск альтернативных соответствий для отвергнутой точки
      */
-    findAlternatives(point, allPoints, transform) {
+    findAlternatives(point, allPoints) {
         const alternatives = [];
        
-        // Ищем другие точки модели, которые могли бы соответствовать этой точке фото
+        // Ищем другие точки модели, которые могли бы подойти
         for (const other of allPoints) {
             if (other.modelId === point.modelId) continue;
            
-            const projected = this.applyTransform(point.x1, point.y1, transform);
-            const dx = projected.x - other.x2;
-            const dy = projected.y - other.y2;
-            const dist = Math.sqrt(dx*dx + dy*dy);
+            // Проверяем геометрическую согласованность с другими точками
+            let consistentCount = 0;
+            let checkCount = 0;
            
-            if (dist <= this.distanceThreshold * 2) {
+            for (const ref of allPoints) {
+                if (ref.modelId === point.modelId || ref.modelId === other.modelId) continue;
+               
+                if (this.checkTriangleConsistency(point, other, ref)) {
+                    consistentCount++;
+                }
+                checkCount++;
+            }
+           
+            const score = checkCount > 0 ? consistentCount / checkCount : 0;
+           
+            if (score > 0.5) {
                 alternatives.push({
                     pointB: other.modelId,
-                    distance: dist,
-                    confidence: 1 - dist / (this.distanceThreshold * 4)
+                    score: score,
+                    reason: 'geometric_alternative'
                 });
             }
         }
+       
+        return alternatives.sort((a, b) => b.score - a.score).slice(0, 3);
+    }
 
-        return alternatives.sort((a, b) => a.distance - b.distance);
+    /**
+     * 🔥 Евклидово расстояние
+     */
+    distance(x1, y1, x2, y2) {
+        const dx = x1 - x2;
+        const dy = y1 - y2;
+        return Math.sqrt(dx*dx + dy*dy);
     }
 }
 
