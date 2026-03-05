@@ -1,5 +1,5 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ГИБРИДНЫЙ ТРЕУГОЛЬНЫЙ МАТЧЕР (топология + геометрия)
+// 🔺 ГИБРИДНЫЙ ТРЕУГОЛЬНЫЙ МАТЧЕР (инвариантный к перестановкам)
 
 class TriangleMatcher {
     constructor(options = {}) {
@@ -9,17 +9,24 @@ class TriangleMatcher {
         this.degreeTolerance = options.degreeTolerance || 1; // допуск на степень
         this.roleStrict = options.roleStrict !== false; // роли строго?
        
-        // Геометрические пороги
-        this.ratioThreshold = options.ratioThreshold || 0.15; // 15% допуск на отношения
-        this.morphologyThreshold = options.morphologyThreshold || 0.3; // 30% на морфологию
+        // Геометрические пороги - УВЕЛИЧЕНЫ!
+        this.ratioThreshold = options.ratioThreshold || 0.25; // 25% допуск на отношения
+        this.morphologyThreshold = options.morphologyThreshold || 0.4; // 40% на морфологию
        
         // Общие параметры
         this.maxTriangleDistance = options.maxTriangleDistance || 200;
+       
+        // Все перестановки для инвариантности
+        this.permutations = [
+            [0,1,2], [0,2,1], [1,0,2],
+            [1,2,0], [2,0,1], [2,1,0]
+        ];
        
         console.log(`🔺 Гибридный TriangleMatcher создан`);
         console.log(`   • Топология: степени ±${this.degreeTolerance}, роли ${this.roleStrict ? 'строго' : 'мягко'}`);
         console.log(`   • Геометрия: отношения ±${this.ratioThreshold*100}%`);
         console.log(`   • Морфология: ±${this.morphologyThreshold*100}%`);
+        console.log(`   • Перестановок: 6 (инвариантный)`);
     }
 
     findMatches(pointsA, pointsB) {
@@ -68,12 +75,17 @@ class TriangleMatcher {
         return {
             matches: pointMatches,
             triangleMatches: matches,
-            stats: { trianglesA: trianglesA.length, trianglesB: trianglesB.length }
+            stats: {
+                trianglesA: trianglesA.length,
+                trianglesB: trianglesB.length,
+                matches: matches.length,
+                points: pointMatches.length
+            }
         };
     }
 
     /**
-     * 🔥 Построение треугольников (как было)
+     * 🔥 Построение треугольников
      */
     buildAllTriangles(points) {
         const triangles = [];
@@ -101,7 +113,7 @@ class TriangleMatcher {
     }
 
     /**
-     * 🔥 Группировка по морфологии
+     * 🔥 Группировка точек по морфологии
      */
     groupPointsByMorphology(points) {
         const groups = {};
@@ -123,18 +135,13 @@ class TriangleMatcher {
     }
 
     /**
-     * 🔥 Создание треугольника с топологическими и геометрическими признаками
+     * 🔥 Создание треугольника
      */
     createTriangle(p1, p2, p3) {
         // Топологические признаки
         const topology = {
             roles: [p1.role || 'R', p2.role || 'R', p3.role || 'R'],
             degrees: [p1.degree || 0, p2.degree || 0, p3.degree || 0],
-            neighborRoles: [
-                p1.neighborRoles || '',
-                p2.neighborRoles || '',
-                p3.neighborRoles || ''
-            ]
         };
        
         // Геометрические признаки
@@ -142,7 +149,8 @@ class TriangleMatcher {
         const d13 = this.distance(p1, p3);
         const d23 = this.distance(p2, p3);
        
-        const ratios = [d12/d13, d12/d23, d13/d23].sort();
+        // Отношения сторон (инвариантны к масштабу)
+        const ratios = [d12/d13, d12/d23, d13/d23].sort((a,b)=>a-b);
        
         // Морфологические признаки
         const morph = [
@@ -172,7 +180,7 @@ class TriangleMatcher {
         const groups = {};
        
         for (const triangle of triangles) {
-            // Ключ: роли (строго)
+            // Сортируем роли для инвариантности
             const roleKey = triangle.topology.roles.sort().join('');
            
             // Грубые степени (округляем до четных)
@@ -205,24 +213,31 @@ class TriangleMatcher {
                 let bestMatch = null;
                 let bestScore = 0;
                 let bestIndex = -1;
+                let bestPerm = null;
                
                 for (let i = 0; i < trisB.length; i++) {
                     if (usedB.has(i)) continue;
                    
                     const triB = trisB[i];
-                    const score = this.compareTriangles(triA, triB);
                    
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestMatch = triB;
-                        bestIndex = i;
+                    // 🔥 Пробуем все перестановки
+                    for (const perm of this.permutations) {
+                        const score = this.compareTrianglesWithPermutation(triA, triB, perm);
+                       
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestMatch = triB;
+                            bestIndex = i;
+                            bestPerm = perm;
+                        }
                     }
                 }
                
-                if (bestMatch && bestScore > 0.6) {
+                if (bestMatch && bestScore > 0.5) { // понизили порог
                     matches.push({
                         triangleA: triA,
                         triangleB: bestMatch,
+                        permutation: bestPerm,
                         score: bestScore
                     });
                     usedB.add(bestIndex);
@@ -234,26 +249,25 @@ class TriangleMatcher {
     }
 
     /**
-     * 🔥 Сравнение треугольников (топология + геометрия)
+     * 🔥 Сравнение треугольников с заданной перестановкой
      */
-    compareTriangles(t1, t2) {
-        // 1. ТОПОЛОГИЯ (роли должны совпасть)
-        const roles1 = t1.topology.roles.sort().join('');
-        const roles2 = t2.topology.roles.sort().join('');
-        if (roles1 !== roles2) return 0;
-       
-        // 2. СТЕПЕНИ (могут отличаться на допуск)
-        let degreeScore = 0;
-        const deg1 = t1.topology.degrees.sort((a,b)=>a-b);
-        const deg2 = t2.topology.degrees.sort((a,b)=>a-b);
-       
+    compareTrianglesWithPermutation(t1, t2, perm) {
+        // 1. Роли должны совпадать с учетом перестановки
         for (let i = 0; i < 3; i++) {
-            const diff = Math.abs(deg1[i] - deg2[i]);
+            if (t1.topology.roles[i] !== t2.topology.roles[perm[i]]) {
+                return 0;
+            }
+        }
+       
+        // 2. Степени с допуском
+        let degreeScore = 0;
+        for (let i = 0; i < 3; i++) {
+            const diff = Math.abs(t1.topology.degrees[i] - t2.topology.degrees[perm[i]]);
             degreeScore += Math.max(0, 1 - diff / this.degreeTolerance);
         }
         degreeScore /= 3;
        
-        // 3. ГЕОМЕТРИЯ (отношения сторон)
+        // 3. Геометрия (отношения сторон) - они уже отсортированы, поэтому перестановка не важна
         let ratioScore = 0;
         for (let i = 0; i < 3; i++) {
             const diff = Math.abs(t1.ratios[i] - t2.ratios[i]);
@@ -262,21 +276,32 @@ class TriangleMatcher {
         }
         ratioScore /= 3;
        
-        // 4. МОРФОЛОГИЯ (очень мягко)
+        // 4. Морфология с учетом перестановки
         let morphScore = 0;
-        for (let i = 0; i < 9; i++) {
-            const diff = Math.abs(t1.morph[i] - t2.morph[i]);
-            const maxVal = Math.max(Math.abs(t1.morph[i]), Math.abs(t2.morph[i]), 0.001);
-            morphScore += Math.max(0, 1 - (diff / maxVal) / this.morphologyThreshold);
+        for (let i = 0; i < 3; i++) {
+            // Компактность
+            const compDiff = Math.abs(t1.morph[i] - t2.morph[perm[i]]);
+            const maxComp = Math.max(t1.morph[i], t2.morph[perm[i]], 0.001);
+            morphScore += Math.max(0, 1 - (compDiff / maxComp) / this.morphologyThreshold);
+           
+            // Эксцентриситет
+            const eccDiff = Math.abs(t1.morph[i+3] - t2.morph[perm[i]+3]);
+            const maxEcc = Math.max(t1.morph[i+3], t2.morph[perm[i]+3], 0.001);
+            morphScore += Math.max(0, 1 - (eccDiff / maxEcc) / this.morphologyThreshold);
+           
+            // Площадь
+            const areaDiff = Math.abs(t1.morph[i+6] - t2.morph[perm[i]+6]);
+            const maxArea = Math.max(t1.morph[i+6], t2.morph[perm[i]+6], 0.001);
+            morphScore += Math.max(0, 1 - (areaDiff / maxArea) / this.morphologyThreshold);
         }
         morphScore /= 9;
        
-        // Итог: геометрия важнее, топология уже отсекла лишнее
-        return ratioScore * 0.6 + degreeScore * 0.2 + morphScore * 0.2;
+        // Итог: геометрия важнее
+        return ratioScore * 0.5 + degreeScore * 0.2 + morphScore * 0.3;
     }
 
     /**
-     * 🔥 Восстановление точек по треугольникам
+     * 🔥 Восстановление точек по треугольникам с учетом перестановки
      */
     reconstructPoints(matches, pointsA, pointsB) {
         const pointMatches = [];
@@ -286,12 +311,11 @@ class TriangleMatcher {
         for (const match of matches) {
             const triA = match.triangleA;
             const triB = match.triangleB;
+            const perm = match.permutation || [0,1,2];
            
-            // Ищем лучшее соответствие точек внутри треугольника
-            // Простейший вариант — по порядку (но можно улучшить)
             for (let i = 0; i < 3; i++) {
                 const pointA = triA.points[i];
-                const pointB = triB.points[i];
+                const pointB = triB.points[perm[i]];
                
                 if (!usedA.has(pointA) && !usedB.has(pointB)) {
                     pointMatches.push({
