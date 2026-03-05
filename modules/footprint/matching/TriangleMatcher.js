@@ -237,20 +237,37 @@ class TriangleMatcher {
      * 🔥 Группировка треугольников по их признакам
      */
     groupTriangles(triangles) {
-        const groups = {};
+    const groups = {};
+   
+    for (const triangle of triangles) {
+        // 🔥 ГРУБАЯ ГРУППИРОВКА ОТНОШЕНИЙ СТОРОН
+        // Округляем до 1 знака после запятой
+        const ratiosKey = triangle.ratios.map(r => Math.floor(r * 10) / 10).join('_');
        
-        for (const triangle of triangles) {
-            // Ключ: тип + грубые отношения сторон
-            const ratiosKey = triangle.ratios.map(r => Math.round(r * 5)).join('_');
-            const key = `${triangle.type}_${ratiosKey}`;
-           
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(triangle);
+        // 🔥 ГРУБАЯ ГРУППИРОВКА ПО ТИПУ
+        const type = triangle.type;
+       
+        // 🔥 ГРУБАЯ ГРУППИРОВКА ПО МОРФОЛОГИИ (только первый признак для начала)
+        const morphKey = Math.floor(triangle.morph[0] / 10); // компактность с шагом 10
+       
+        // Формируем ключ
+        const key = `${type}_${ratiosKey}_${morphKey}`;
+       
+        if (!groups[key]) {
+            groups[key] = [];
         }
-       
-        return groups;
+        groups[key].push(triangle);
     }
-
+   
+    // Для отладки выведем размеры групп
+    if (this.debug) {
+        console.log(`   • Групп после укрупнения: ${Object.keys(groups).length}`);
+        const sizes = Object.values(groups).map(g => g.length);
+        console.log(`   • Размеры групп: мин=${Math.min(...sizes)}, макс=${Math.max(...sizes)}, среднее=${(sizes.reduce((a,b)=>a+b,0)/sizes.length).toFixed(1)}`);
+    }
+   
+    return groups;
+}
     /**
      * 🔥 Поиск соответствующих треугольников
      */
