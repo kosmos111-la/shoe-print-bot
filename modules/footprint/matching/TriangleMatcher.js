@@ -332,9 +332,29 @@ diagnoseFirstPoint(pointsA, pointsB) {
      * Получение треугольников из Делоне
      */
     getTrianglesFromDelaunay(delaunay) {
-        return delaunay.triangles || [];
+    if (!delaunay) {
+        console.log(`⚠️ delaunay = null/undefined`);
+        return [];
     }
-
+   
+    // Выводим структуру для диагностики
+    console.log(`🔍 Структура delaunay:`, Object.keys(delaunay));
+   
+    // Пробуем разные варианты
+    if (delaunay.triangles) {
+        console.log(`✅ Найдено triangles: ${delaunay.triangles.length}`);
+        return delaunay.triangles;
+    }
+   
+    if (delaunay.triangleList) {
+        console.log(`✅ Найдено triangleList: ${delaunay.triangleList.length}`);
+        return delaunay.triangleList;
+    }
+   
+    // Если ничего не нашли
+    console.log(`❌ Нет данных о треугольниках в графе`);
+    return [];
+}
     /**
      * Группировка по сигнатуре
      */
