@@ -1,23 +1,24 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ИЕРАРХИЧЕСКИЙ ТРЕУГОЛЬНЫЙ МАТЧЕР (с защитой от undefined)
+// 🔺 ИЕРАРХИЧЕСКИЙ ТРЕУГОЛЬНЫЙ МАТЧЕР (только устойчивые признаки)
 
 class TriangleMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
        
-        // Пороги
-        this.compactnessThreshold = options.compactnessThreshold || 0.3;
-        this.eccentricityThreshold = options.eccentricityThreshold || 0.15;
-        this.areaThreshold = options.areaThreshold || 0.4;
-        this.ratioThreshold = options.ratioThreshold || 0.15;
+        // Пороги для мягкой морфологии (Уровень 1)
+        this.compactnessThreshold = options.compactnessThreshold || 0.4;  // 40%
+        this.eccentricityThreshold = options.eccentricityThreshold || 0.2; // 20%
+        this.areaThreshold = options.areaThreshold || 0.5; // 50% (логарифм)
        
-        // Статистика для принятия решений
+        // Пороги для мягкой геометрии (Уровень 4)
+        this.ratioThreshold = options.ratioThreshold || 0.2; // 20%
+       
+        // Статистика по уровням
         this.stats = {
-            level1: { groupsA: 0, groupsB: 0, variants: [], avgVariants: 0, confusionLevel: 0 },
-            level2: { trianglesA: 0, trianglesB: 0, variants: [], avgVariants: 0, confusionLevel: 0 },
-            level3: { topoGroupsA: 0, topoGroupsB: 0, variants: [], avgVariants: 0, confusionLevel: 0 },
-            level4: { geoGroupsA: 0, geoGroupsB: 0, variants: [], avgVariants: 0, confusionLevel: 0 },
-            level5: { matches: 0, ambiguous: 0, avgConfidence: 0 }
+            level1: { groups: 0, variants: 0 },
+            level2: { triangles: 0, groups: 0, variants: 0 },
+            level3: { structures: 0, groups: 0, variants: 0 },
+            level4: { matches: 0, confidence: 0 }
         };
        
         console.log(`🔺 Иерархический TriangleMatcher создан`);
@@ -25,161 +26,145 @@ class TriangleMatcher {
 
     findMatches(pointsA, pointsB) {
         console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ИЕРАРХИЧЕСКИЙ ТРЕУГОЛЬНЫЙ ПОИСК`);
+        console.log(`🔺 ИЕРАРХИЧЕСКИЙ ПОИСК (только устойчивые признаки)`);
         console.log(`${'='.repeat(100)}`);
         console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
-        // ===== УРОВЕНЬ 1: ГРУППИРОВКА ТОЧЕК =====
+        // ===== УРОВЕНЬ 1: Мягкая морфология =====
         console.log(`\n🔍 УРОВЕНЬ 1: Группировка точек по форме...`);
        
         const groupsA = this.groupPointsByMorphology(pointsA);
         const groupsB = this.groupPointsByMorphology(pointsB);
        
-        if (!groupsA || !groupsB) {
-            console.log(`❌ Ошибка группировки точек`);
-            return { matches: [], stats: this.stats };
-        }
+        this.stats.level1.groups = Object.keys(groupsA).length;
+        this.stats.level1.variants = this.calculateVariants(groupsA, groupsB);
        
-        this.stats.level1.groupsA = Object.keys(groupsA).length;
-        this.stats.level1.groupsB = Object.keys(groupsB).length;
-       
-        console.log(`   • Групп в А: ${this.stats.level1.groupsA}`);
-        console.log(`   • Групп в Б: ${this.stats.level1.groupsB}`);
-       
-        this.analyzeLevelConfusion(groupsA, groupsB, 1);
+        console.log(`   • Групп в А: ${Object.keys(groupsA).length}`);
+        console.log(`   • Групп в Б: ${Object.keys(groupsB).length}`);
+        console.log(`   • Вариантов на группу: ${this.stats.level1.variants.toFixed(2)}`);
 
-        // ===== УРОВЕНЬ 2: ТРЕУГОЛЬНИКИ =====
-        console.log(`\n🔍 УРОВЕНЬ 2: Построение треугольников...`);
+        // ===== УРОВЕНЬ 2: Топологические треугольники =====
+        console.log(`\n🔍 УРОВЕНЬ 2: Построение топологических треугольников...`);
        
-        const trianglesA = this.buildAllTrianglesFromGroups(groupsA);
-        const trianglesB = this.buildAllTrianglesFromGroups(groupsB);
+        const trianglesA = this.buildTriangles(groupsA);
+        const trianglesB = this.buildTriangles(groupsB);
        
-        this.stats.level2.trianglesA = trianglesA.length;
-        this.stats.level2.trianglesB = trianglesB.length;
-       
-        console.log(`   • Треугольников в А: ${this.stats.level2.trianglesA}`);
-        console.log(`   • Треугольников в Б: ${this.stats.level2.trianglesB}`);
-       
-        this.analyzeLevelConfusion(trianglesA, trianglesB, 2, t => t.roles);
+        this.stats.level2.triangles = trianglesA.length;
+        console.log(`   • Треугольников в А: ${trianglesA.length}`);
+        console.log(`   • Треугольников в Б: ${trianglesB.length}`);
 
-        // ===== УРОВЕНЬ 3: ТОПОЛОГИЧЕСКИЕ ГРУППЫ =====
-        console.log(`\n🔍 УРОВЕНЬ 3: Топологическая группировка...`);
+        // Группировка треугольников (инвариантно к повороту)
+        const triGroupsA = this.groupTrianglesByTopology(trianglesA);
+        const triGroupsB = this.groupTrianglesByTopology(trianglesB);
        
-        const topoGroupsA = this.groupByTopology(trianglesA);
-        const topoGroupsB = this.groupByTopology(trianglesB);
+        this.stats.level2.groups = Object.keys(triGroupsA).length;
+        this.stats.level2.variants = this.calculateVariants(triGroupsA, triGroupsB);
        
-        this.stats.level3.topoGroupsA = Object.keys(topoGroupsA).length;
-        this.stats.level3.topoGroupsB = Object.keys(topoGroupsB).length;
-       
-        console.log(`   • Топогрупп в А: ${this.stats.level3.topoGroupsA}`);
-        console.log(`   • Топогрупп в Б: ${this.stats.level3.topoGroupsB}`);
-       
-        this.analyzeGroupConfusion(topoGroupsA, topoGroupsB, 3);
+        console.log(`   • Групп треугольников в А: ${Object.keys(triGroupsA).length}`);
+        console.log(`   • Групп треугольников в Б: ${Object.keys(triGroupsB).length}`);
+        console.log(`   • Вариантов на группу: ${this.stats.level2.variants.toFixed(2)}`);
 
-        // ===== УРОВЕНЬ 4: ГЕОМЕТРИЧЕСКИЕ ГРУППЫ =====
-        console.log(`\n🔍 УРОВЕНЬ 4: Геометрическая группировка...`);
+        // ===== УРОВЕНЬ 3: Структуры из треугольников =====
+        console.log(`\n🔍 УРОВЕНЬ 3: Построение структур...`);
        
-        const geoGroupsA = this.groupByGeometry(topoGroupsA);
-        const geoGroupsB = this.groupByGeometry(topoGroupsB);
+        const structuresA = this.buildStructures(trianglesA);
+        const structuresB = this.buildStructures(trianglesB);
        
-        this.stats.level4.geoGroupsA = Object.keys(geoGroupsA).length;
-        this.stats.level4.geoGroupsB = Object.keys(geoGroupsB).length;
-       
-        console.log(`   • Геогрупп в А: ${this.stats.level4.geoGroupsA}`);
-        console.log(`   • Геогрупп в Б: ${this.stats.level4.geoGroupsB}`);
-       
-        this.analyzeGroupConfusion(geoGroupsA, geoGroupsB, 4);
+        this.stats.level3.structures = structuresA.length;
+        console.log(`   • Структур в А: ${structuresA.length}`);
+        console.log(`   • Структур в Б: ${structuresB.length}`);
 
-        // ===== УРОВЕНЬ 5: ПОИСК СООТВЕТСТВИЙ =====
-        console.log(`\n🔍 УРОВЕНЬ 5: Поиск соответствий...`);
+        // Группировка структур
+        const structGroupsA = this.groupStructures(structuresA);
+        const structGroupsB = this.groupStructures(structuresB);
        
-        const matches = this.findMatchesInGroups(geoGroupsA, geoGroupsB);
+        this.stats.level3.groups = Object.keys(structGroupsA).length;
+        this.stats.level3.variants = this.calculateVariants(structGroupsA, structGroupsB);
        
-        this.stats.level5.matches = matches.length;
-        this.stats.level5.ambiguous = this.countAmbiguous(matches);
-        this.stats.level5.avgConfidence = this.calculateAvgConfidence(matches);
-       
-        console.log(`   • Найдено пар: ${this.stats.level5.matches}`);
-        console.log(`   • Неоднозначных: ${this.stats.level5.ambiguous}`);
-        console.log(`   • Средняя уверенность: ${(this.stats.level5.avgConfidence*100).toFixed(1)}%`);
+        console.log(`   • Групп структур в А: ${Object.keys(structGroupsA).length}`);
+        console.log(`   • Групп структур в Б: ${Object.keys(structGroupsB).length}`);
+        console.log(`   • Вариантов на группу: ${this.stats.level3.variants.toFixed(2)}`);
 
-        // ===== ИТОГОВАЯ ДИАГНОСТИКА =====
-        this.printConfusionDiagnostics();
+        // ===== УРОВЕНЬ 4: Мягкая геометрия =====
+        console.log(`\n🔍 УРОВЕНЬ 4: Геометрическая верификация...`);
+       
+        const matches = this.matchStructures(structGroupsA, structGroupsB);
+       
+        this.stats.level4.matches = matches.length;
+        this.stats.level4.confidence = matches.length / Math.min(trianglesA.length, trianglesB.length);
+       
+        console.log(`   • Найдено соответствий: ${matches.length}`);
+        console.log(`   • Уверенность: ${(this.stats.level4.confidence*100).toFixed(1)}%`);
+
+        // ===== Восстановление точек =====
+        const pointMatches = this.reconstructPoints(matches);
+       
+        console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
+        this.printSummary();
 
         return {
-            matches: this.reconstructPoints(matches),
-            stats: this.stats,
-            confusion: this.getConfusionReport()
+            matches: pointMatches,
+            stats: this.stats
         };
     }
 
     /**
-     * 🔥 УРОВЕНЬ 1: Группировка точек с защитой
+     * УРОВЕНЬ 1: Группировка точек по мягкой морфологии
      */
     groupPointsByMorphology(points) {
-        if (!points || points.length === 0) {
-            console.log(`   ⚠️ Нет точек для группировки`);
-            return {};
-        }
-       
         const groups = {};
-        let pointsWithMorph = 0;
-        let skippedPoints = 0;
        
         for (const point of points) {
-            // Проверяем наличие всех необходимых полей
-            if (point.compactness === undefined || point.compactness === null) {
-                skippedPoints++;
-                continue;
-            }
-            if (point.eccentricity === undefined || point.eccentricity === null) {
-                skippedPoints++;
-                continue;
-            }
-            if (point.normalizedArea === undefined || point.normalizedArea === null) {
-                skippedPoints++;
-                continue;
-            }
-           
-            const compactGroup = Math.floor(point.compactness / 5);
-            const eccGroup = Math.floor(point.eccentricity * 3);
+            // Большие шаги для мягкой группировки
+            const compactGroup = Math.floor(point.compactness / 10);      // шаг 10
+            const eccGroup = Math.floor(point.eccentricity * 2);          // 0-0.5, 0.5-1.0
             const logArea = Math.log10(point.normalizedArea + 1);
-            const areaGroup = Math.floor(logArea * 2);
-            const role = point.role || 'R';
+            const areaGroup = Math.floor(logArea * 3);                    // 3 группы
            
-            const key = `${role}_${compactGroup}_${eccGroup}_${areaGroup}`;
+            const key = `${compactGroup}_${eccGroup}_${areaGroup}`;
            
             if (!groups[key]) groups[key] = [];
             groups[key].push(point);
-            pointsWithMorph++;
         }
-       
-        if (skippedPoints > 0) {
-            console.log(`   ⚠️ Пропущено точек без морфологии: ${skippedPoints}`);
-        }
-        console.log(`   • Точек с морфологией: ${pointsWithMorph}/${points.length}`);
        
         return groups;
     }
 
     /**
-     * 🔥 УРОВЕНЬ 2: Построение треугольников
+     * УРОВЕНЬ 2: Построение треугольников (инвариантно к повороту)
      */
-    buildAllTrianglesFromGroups(groups) {
+    buildTriangles(groups) {
         const triangles = [];
        
-        for (const [groupKey, groupPoints] of Object.entries(groups)) {
+        for (const groupPoints of Object.values(groups)) {
             if (groupPoints.length < 3) continue;
            
             for (let i = 0; i < groupPoints.length; i++) {
                 for (let j = i+1; j < groupPoints.length; j++) {
                     for (let k = j+1; k < groupPoints.length; k++) {
-                        const triangle = this.createTriangle(
-                            groupPoints[i],
-                            groupPoints[j],
-                            groupPoints[k]
-                        );
-                        if (triangle) triangles.push(triangle);
+                        const p1 = groupPoints[i];
+                        const p2 = groupPoints[j];
+                        const p3 = groupPoints[k];
+                       
+                        // Только расстояния (для будущей геометрии)
+                        const d12 = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+                        const d13 = Math.hypot(p1.x - p3.x, p1.y - p3.y);
+                        const d23 = Math.hypot(p2.x - p3.x, p2.y - p3.y);
+                       
+                        if (d12 < 0.1 || d13 < 0.1 || d23 < 0.1) continue;
+                       
+                        // Отношения сторон (сортируем для инвариантности к повороту)
+                        const ratios = [d12/d13, d12/d23, d13/d23].sort((a,b)=>a-b);
+                       
+                        triangles.push({
+                            points: [p1.id, p2.id, p3.id],
+                            ratios,
+                            edges: [
+                                [p1.id, p2.id].sort().join('--'),
+                                [p2.id, p3.id].sort().join('--'),
+                                [p3.id, p1.id].sort().join('--')
+                            ]
+                        });
                     }
                 }
             }
@@ -189,167 +174,136 @@ class TriangleMatcher {
     }
 
     /**
-     * 🔥 Создание треугольника с проверкой
+     * УРОВЕНЬ 2: Группировка треугольников по топологии
+     * (пока просто по грубым отношениям)
      */
-    createTriangle(p1, p2, p3) {
-        if (!p1 || !p2 || !p3) return null;
-       
-        const roles = [p1.role, p2.role, p3.role].sort().join('');
-       
-        const d12 = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-        const d13 = Math.hypot(p1.x - p3.x, p1.y - p3.y);
-        const d23 = Math.hypot(p2.x - p3.x, p2.y - p3.y);
-       
-        // Защита от деления на ноль
-        if (d12 < 0.1 || d13 < 0.1 || d23 < 0.1) return null;
-       
-        const ratios = [d12/d13, d12/d23, d13/d23].sort((a,b)=>a-b);
-       
-        return {
-            points: [p1.id, p2.id, p3.id],
-            roles,
-            ratios,
-            edges: [
-                [p1.id, p2.id].sort().join('--'),
-                [p2.id, p3.id].sort().join('--'),
-                [p3.id, p1.id].sort().join('--')
-            ]
-        };
-    }
-
-    /**
-     * 🔥 УРОВЕНЬ 3: Топологическая группировка
-     */
-    groupByTopology(triangles) {
+    groupTrianglesByTopology(triangles) {
         const groups = {};
+       
         for (const t of triangles) {
-            if (!groups[t.roles]) groups[t.roles] = [];
-            groups[t.roles].push(t);
+            // Грубая геометрия (шаг 0.2) для группировки
+            const roughRatios = t.ratios.map(r => Math.floor(r * 5) / 5).join('_');
+           
+            if (!groups[roughRatios]) groups[roughRatios] = [];
+            groups[roughRatios].push(t);
         }
+       
         return groups;
     }
 
     /**
-     * 🔥 УРОВЕНЬ 4: Геометрическая группировка
+     * УРОВЕНЬ 3: Построение структур из треугольников
      */
-    groupByGeometry(topoGroups) {
-        const geoGroups = {};
-        for (const [roleKey, tris] of Object.entries(topoGroups)) {
-            for (const t of tris) {
-                const ratioKey = t.ratios.map(r => Math.floor(r * 10)).join('_');
-                const key = `${roleKey}_${ratioKey}`;
-                if (!geoGroups[key]) geoGroups[key] = [];
-                geoGroups[key].push(t);
-            }
-        }
-        return geoGroups;
-    }
-
-    /**
-     * 🔥 УРОВЕНЬ 5: Поиск соответствий
-     */
-    findMatchesInGroups(geoGroupsA, geoGroupsB) {
-        const matches = [];
-        for (const [key, trisA] of Object.entries(geoGroupsA)) {
-            const trisB = geoGroupsB[key];
-            if (!trisB) continue;
+    buildStructures(triangles) {
+        const structures = [];
+        const used = new Set();
+       
+        // Строим граф треугольников
+        const triangleMap = new Map();
+        triangles.forEach((t, idx) => triangleMap.set(idx, t));
+       
+        // Ищем связанные треугольники (по общим рёбрам)
+        for (let i = 0; i < triangles.length; i++) {
+            if (used.has(i)) continue;
            
-            for (let i = 0; i < Math.min(trisA.length, trisB.length); i++) {
-                matches.push({
-                    triangleA: trisA[i],
-                    triangleB: trisB[i],
-                    score: 1.0
+            const structure = [triangles[i]];
+            used.add(i);
+           
+            // Жадно добавляем соседей
+            let changed;
+            do {
+                changed = false;
+                for (let j = 0; j < triangles.length; j++) {
+                    if (used.has(j)) continue;
+                   
+                    // Проверяем, есть ли общее ребро с любым треугольником в структуре
+                    for (const t of structure) {
+                        for (const edge of t.edges) {
+                            if (triangles[j].edges.includes(edge)) {
+                                structure.push(triangles[j]);
+                                used.add(j);
+                                changed = true;
+                                break;
+                            }
+                        }
+                        if (changed) break;
+                    }
+                    if (changed) break;
+                }
+            } while (changed);
+           
+            if (structure.length > 1) {
+                structures.push({
+                    triangles: structure,
+                    size: structure.length,
+                    // Подпись структуры (сортируем для инвариантности)
+                    signature: structure.map(t =>
+                        t.ratios.map(r => Math.floor(r * 5)).join('_')
+                    ).sort().join('|')
                 });
             }
         }
-        return matches;
+       
+        return structures;
     }
 
     /**
-     * 🔥 Анализ спутанности
+     * УРОВЕНЬ 3: Группировка структур
      */
-    analyzeLevelConfusion(itemsA, itemsB, level, keyFunc = null) {
-        const variants = [];
-        let totalVariants = 0;
-        let groupsWithVariants = 0;
+    groupStructures(structures) {
+        const groups = {};
        
-        if (!itemsA || !itemsB) {
-            this.stats[`level${level}`].avgVariants = 0;
-            this.stats[`level${level}`].confusionLevel = 'Нет данных';
-            return;
+        for (const s of structures) {
+            if (!groups[s.signature]) groups[s.signature] = [];
+            groups[s.signature].push(s);
         }
        
-        if (Array.isArray(itemsA) && Array.isArray(itemsB)) {
-            const groups = {};
-            for (const item of itemsB) {
-                const key = keyFunc ? keyFunc(item) : item;
-                groups[key] = (groups[key] || 0) + 1;
-            }
+        return groups;
+    }
+
+    /**
+     * УРОВЕНЬ 4: Мягкая геометрия
+     */
+    matchStructures(structGroupsA, structGroupsB) {
+        const matches = [];
+       
+        for (const [sig, structsA] of Object.entries(structGroupsA)) {
+            const structsB = structGroupsB[sig];
+            if (!structsB) continue;
            
-            for (const item of itemsA) {
-                const key = keyFunc ? keyFunc(item) : item;
-                const count = groups[key] || 0;
-                if (count > 1) {
-                    variants.push({ key, count });
-                    totalVariants += count;
-                    groupsWithVariants++;
+            // Для каждой структуры ищем лучшее соответствие
+            for (let i = 0; i < Math.min(structsA.length, structsB.length); i++) {
+                const sA = structsA[i];
+                const sB = structsB[i];
+               
+                // Проверяем геометрию с мягким допуском
+                let geoScore = 0;
+                for (let j = 0; j < Math.min(sA.triangles.length, sB.triangles.length); j++) {
+                    const tA = sA.triangles[j];
+                    const tB = sB.triangles[j];
+                   
+                    for (let k = 0; k < 3; k++) {
+                        const diff = Math.abs(tA.ratios[k] - tB.ratios[k]);
+                        geoScore += 1 - Math.min(diff / this.ratioThreshold, 1);
+                    }
+                }
+                geoScore /= (sA.triangles.length * 3);
+               
+                if (geoScore > 0.7) {
+                    matches.push({
+                        structureA: sA,
+                        structureB: sB,
+                        score: geoScore
+                    });
                 }
             }
         }
        
-        const avgVariants = groupsWithVariants > 0 ? totalVariants / groupsWithVariants : 0;
-        this.stats[`level${level}`].avgVariants = avgVariants;
-       
-        let confusionLevel = 'Низкая';
-        if (avgVariants > 5) confusionLevel = 'Критическая';
-        else if (avgVariants > 3) confusionLevel = 'Высокая';
-        else if (avgVariants > 1.5) confusionLevel = 'Средняя';
-       
-        this.stats[`level${level}`].confusionLevel = confusionLevel;
-       
-        console.log(`   • Среднее число вариантов: ${avgVariants.toFixed(2)} (${confusionLevel} спутанность)`);
+        return matches;
     }
 
     /**
-     * 🔥 Анализ спутанности групп
-     */
-    analyzeGroupConfusion(groupsA, groupsB, level) {
-        if (!groupsA || !groupsB) {
-            this.stats[`level${level}`].avgVariants = 0;
-            this.stats[`level${level}`].confusionLevel = 'Нет данных';
-            return;
-        }
-       
-        const commonKeys = Object.keys(groupsA).filter(k => groupsB[k]);
-        let totalVariants = 0;
-        let groupsWithVariants = 0;
-       
-        for (const key of commonKeys) {
-            const diff = Math.abs(groupsA[key].length - groupsB[key].length);
-            if (diff > 0) {
-                totalVariants += diff;
-                groupsWithVariants++;
-            }
-        }
-       
-        const avgVariants = groupsWithVariants > 0 ? totalVariants / groupsWithVariants : 0;
-        this.stats[`level${level}`].avgVariants = avgVariants;
-       
-        let confusionLevel = 'Низкая';
-        if (avgVariants > 3) confusionLevel = 'Критическая';
-        else if (avgVariants > 2) confusionLevel = 'Высокая';
-        else if (avgVariants > 0.5) confusionLevel = 'Средняя';
-       
-        this.stats[`level${level}`].confusionLevel = confusionLevel;
-       
-        console.log(`   • Среднее расхождение: ${avgVariants.toFixed(2)} (${confusionLevel} спутанность)`);
-        console.log(`   • Общих групп: ${commonKeys.length}`);
-        console.log(`   • Уникальных для А: ${Object.keys(groupsA).length - commonKeys.length}`);
-        console.log(`   • Уникальных для Б: ${Object.keys(groupsB).length - commonKeys.length}`);
-    }
-
-    /**
-     * 🔥 Восстановление точек
+     * Восстановление точек по структурам
      */
     reconstructPoints(matches) {
         const pointMatches = [];
@@ -357,104 +311,85 @@ class TriangleMatcher {
         const usedB = new Set();
        
         for (const match of matches) {
-            for (let i = 0; i < 3; i++) {
-                const pointA = match.triangleA.points[i];
-                const pointB = match.triangleB.points[i];
-                if (!usedA.has(pointA) && !usedB.has(pointB)) {
-                    pointMatches.push({ pointA, pointB, confidence: match.score });
-                    usedA.add(pointA);
-                    usedB.add(pointB);
+            const sA = match.structureA;
+            const sB = match.structureB;
+           
+            for (let i = 0; i < Math.min(sA.triangles.length, sB.triangles.length); i++) {
+                const tA = sA.triangles[i];
+                const tB = sB.triangles[i];
+               
+                for (let j = 0; j < 3; j++) {
+                    const pointA = tA.points[j];
+                    const pointB = tB.points[j];
+                   
+                    if (!usedA.has(pointA) && !usedB.has(pointB)) {
+                        pointMatches.push({
+                            pointA,
+                            pointB,
+                            confidence: match.score
+                        });
+                        usedA.add(pointA);
+                        usedB.add(pointB);
+                    }
                 }
             }
         }
+       
         return pointMatches;
     }
 
     /**
-     * 🔥 Подсчет неоднозначных
+     * Расчет вариантов на группу
      */
-    countAmbiguous(matches) {
-        const usedB = new Set();
-        const counts = {};
+    calculateVariants(groupsA, groupsB) {
+        let total = 0;
+        let count = 0;
        
-        for (const match of matches) {
-            usedB.add(match.triangleB);
+        for (const key of Object.keys(groupsA)) {
+            if (groupsB[key]) {
+                total += Math.max(groupsA[key].length, groupsB[key].length);
+                count++;
+            }
         }
        
-        let ambiguous = 0;
-        for (const match of matches) {
-            const key = JSON.stringify(match.triangleB);
-            counts[key] = (counts[key] || 0) + 1;
-            if (counts[key] > 1) ambiguous++;
-        }
-       
-        return ambiguous;
+        return count > 0 ? total / count : 0;
     }
 
     /**
-     * 🔥 Средняя уверенность
+     * Итоговая статистика
      */
-    calculateAvgConfidence(matches) {
-        if (matches.length === 0) return 0;
-        const sum = matches.reduce((s, m) => s + (m.score || 1.0), 0);
-        return sum / matches.length;
-    }
-
-    /**
-     * 🔥 Финальная диагностика
-     */
-    printConfusionDiagnostics() {
+    printSummary() {
         console.log(`\n${'='.repeat(100)}`);
-        console.log(`📊 ДИАГНОСТИКА СПУТАННОСТИ`);
+        console.log(`📊 ИТОГОВАЯ СТАТИСТИКА`);
         console.log(`${'='.repeat(100)}`);
        
-        console.log(`\n📈 ДИНАМИКА ПО УРОВНЯМ:`);
-        console.log(`   УРОВЕНЬ 1 (точки): среднее вариантов ${this.stats.level1.avgVariants.toFixed(2)} — ${this.stats.level1.confusionLevel}`);
-        console.log(`   УРОВЕНЬ 2 (треугольники): среднее вариантов ${this.stats.level2.avgVariants.toFixed(2)} — ${this.stats.level2.confusionLevel}`);
-        console.log(`   УРОВЕНЬ 3 (топогруппы): расхождение ${this.stats.level3.avgVariants.toFixed(2)} — ${this.stats.level3.confusionLevel}`);
-        console.log(`   УРОВЕНЬ 4 (геогруппы): расхождение ${this.stats.level4.avgVariants.toFixed(2)} — ${this.stats.level4.confusionLevel}`);
-        console.log(`   УРОВЕНЬ 5 (соответствия): уверенность ${(this.stats.level5.avgConfidence*100).toFixed(1)}%`);
-
-        const improving = this.isImproving();
-        if (improving) {
-            console.log(`\n✅ Система успешно снижает спутанность`);
-        } else {
-            console.log(`\n⚠️ На каком-то уровне спутанность выросла`);
-        }
-
-        console.log(`\n💡 РЕКОМЕНДАЦИЯ: ${this.getRecommendation()}`);
-    }
-
-    isImproving() {
-        const trend = [
-            this.stats.level1.avgVariants,
-            this.stats.level2.avgVariants,
-            this.stats.level3.avgVariants,
-            this.stats.level4.avgVariants
+        console.log(`\n📈 СЖАТИЕ ПО УРОВНЯМ:`);
+        console.log(`   УРОВЕНЬ 1 (точки): ${this.stats.level1.groups} групп, вариантов ${this.stats.level1.variants.toFixed(2)}`);
+        console.log(`   УРОВЕНЬ 2 (треугольники): ${this.stats.level2.groups} групп, вариантов ${this.stats.level2.variants.toFixed(2)}`);
+        console.log(`   УРОВЕНЬ 3 (структуры): ${this.stats.level3.groups} групп, вариантов ${this.stats.level3.variants.toFixed(2)}`);
+        console.log(`   УРОВЕНЬ 4 (соответствия): ${this.stats.level4.matches} пар, уверенность ${(this.stats.level4.confidence*100).toFixed(1)}%`);
+       
+        // Анализ эффективности
+        const compression = [
+            this.stats.level1.variants,
+            this.stats.level2.variants,
+            this.stats.level3.variants
         ];
-        return trend.every((val, i) => i === 0 || val < trend[i-1]);
-    }
-
-    getRecommendation() {
-        if (this.stats.level5.avgConfidence > 0.8) {
-            return "ВЫСОКАЯ УВЕРЕННОСТЬ — можно использовать якоря";
-        } else if (this.stats.level5.avgConfidence > 0.6) {
-            return "СРЕДНЯЯ УВЕРЕННОСТЬ — нужна дополнительная проверка";
+       
+        const improving = compression.every((v, i) => i === 0 || v < compression[i-1]);
+       
+        console.log(`\n💡 ВЫВОД:`);
+        if (improving) {
+            console.log(`   ✅ Иерархия эффективно снижает спутанность`);
         } else {
-            return "НИЗКАЯ УВЕРЕННОСТЬ — проверьте пороги";
+            console.log(`   ⚠️ На каком-то уровне спутанность выросла`);
         }
-    }
-
-    getConfusionReport() {
-        return {
-            level1: { avgVariants: this.stats.level1.avgVariants, confusion: this.stats.level1.confusionLevel },
-            level2: { avgVariants: this.stats.level2.avgVariants, confusion: this.stats.level2.confusionLevel },
-            level3: { avgVariants: this.stats.level3.avgVariants, confusion: this.stats.level3.confusionLevel },
-            level4: { avgVariants: this.stats.level4.avgVariants, confusion: this.stats.level4.confusionLevel },
-            level5: { confidence: this.stats.level5.avgConfidence },
-            improving: this.isImproving(),
-            recommendation: this.getRecommendation()
-        };
+       
+        if (this.stats.level4.confidence > 0.7) {
+            console.log(`   ✅ Высокая уверенность в соответствии`);
+        } else {
+            console.log(`   ⚠️ Низкая уверенность — нужна дополнительная проверка`);
+        }
     }
 }
 
