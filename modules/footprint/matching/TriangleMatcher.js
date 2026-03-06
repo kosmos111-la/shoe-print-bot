@@ -123,27 +123,27 @@ class TriangleMatcher {
         const pointB = pointsB[0];
 
         console.log(`\n🔬 ДИАГНОСТИКА ПЕРВОЙ ТОЧКИ:`);
-        console.log(`┌──────────────────────┬─────────────────────┬─────────────────────┐`);
-        console.log(`│ Признак              │ Точка А             │ Точка Б             │`);
-        console.log(`├──────────────────────┼─────────────────────┼─────────────────────┤`);
+console.log(`┌──────────────────────┬─────────────────────┬─────────────────────┐`);
+console.log(`│ Признак              │ Точка А             │ Точка Б             │`);
+console.log(`├──────────────────────┼─────────────────────┼─────────────────────┤`);
 
-        // Вычисляем все признаки для точки А
-        console.log(`\n   📊 ВЫЧИСЛЕНИЕ ПРИЗНАКОВ ДЛЯ ТОЧКИ А:`);
-        const featuresA = this.computeAllFeatures(pointA);
-       
-        console.log(`\n   📊 ВЫЧИСЛЕНИЕ ПРИЗНАКОВ ДЛЯ ТОЧКИ Б:`);
-        const featuresB = this.computeAllFeatures(pointB);
+const formatValue = (val) => {
+    if (val === null || val === undefined) return 'N/A'.padEnd(19);
+    if (typeof val === 'number') return val.toFixed(4).padEnd(19);
+    if (Array.isArray(val)) return `[${val.length}]`.padEnd(19);
+    return String(val).substring(0, 19).padEnd(19);
+};
 
-        // Таблица сравнения
-        const allFeatures = new Set([...Object.keys(featuresA), ...Object.keys(featuresB)]);
-        for (const feat of allFeatures) {
-            const valA = featuresA[feat] !== undefined ? featuresA[feat].toFixed(4) : 'N/A';
-            const valB = featuresB[feat] !== undefined ? featuresB[feat].toFixed(4) : 'N/A';
-            console.log(
-                `│ ${feat.padEnd(20)} │ ${valA.padEnd(19)} │ ${valB.padEnd(19)} │`
-            );
-        }
-        console.log(`└──────────────────────┴─────────────────────┴─────────────────────┘`);
+const allFeatures = new Set([...Object.keys(featuresA), ...Object.keys(featuresB)]);
+for (const feat of allFeatures) {
+    const valA = featuresA[feat];
+    const valB = featuresB[feat];
+   
+    console.log(
+        `│ ${feat.padEnd(20)} │ ${formatValue(valA)} │ ${formatValue(valB)} │`
+    );
+}
+console.log(`└──────────────────────┴─────────────────────┴─────────────────────┘`);
 
         // Проверка формата данных
         console.log(`\n🔍 ПРОВЕРКА ФОРМАТА ДАННЫХ:`);
