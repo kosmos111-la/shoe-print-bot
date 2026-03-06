@@ -276,47 +276,62 @@ diagnoseFirstPoint(pointsA, pointsB) {
     /**
      * Построение топологических треугольников
      */
-    buildTopologicalTriangles(delaunay, points) {
-        const triangles = [];
-        const pointMap = new Map(points.map(p => [p.id, p]));
+buildTopologicalTriangles(delaunay, points) {
+    const triangles = [];
+    const pointMap = new Map(points.map(p => [p.id, p]));
 
-        const triangleList = this.getTrianglesFromDelaunay(delaunay);
+    // Получаем список треугольников
+    const triangleList = this.getTrianglesFromDelaunay(delaunay);
+   
+    console.log(`   🏗️ Построение треугольников из ${triangleList.length} записей`);
 
-        for (const [id1, id2, id3] of triangleList) {
-            const p1 = pointMap.get(id1);
-            const p2 = pointMap.get(id2);
-            const p3 = pointMap.get(id3);
+    for (const tri of triangleList) {
+        // tri — это массив индексов [idx1, idx2, idx3]
+        // Индексы ссылаются на points по порядку
+        if (!Array.isArray(tri) || tri.length < 3) continue;
+       
+        const [idx1, idx2, idx3] = tri;
+       
+        // Получаем точки по индексам
+        const p1 = points[idx1];
+        const p2 = points[idx2];
+        const p3 = points[idx3];
 
-            if (!p1 || !p2 || !p3) continue;
-
-            const v1 = this.getPointVector(p1);
-            const v2 = this.getPointVector(p2);
-            const v3 = this.getPointVector(p3);
-
-            // Сортируем для инвариантности к повороту
-            const vectors = [v1, v2, v3].sort((a, b) => {
-                for (let i = 0; i < a.length; i++) {
-                    if (a[i] !== b[i]) return a[i] - b[i];
-                }
-                return 0;
-            });
-
-            const triangle = {
-                points: [id1, id2, id3],
-                vectors: vectors.flat(),
-                signature: vectors.flat().join('_'),
-                p1, p2, p3,
-                center: {
-                    x: (p1.x + p2.x + p3.x) / 3,
-                    y: (p1.y + p2.y + p3.y) / 3
-                }
-            };
-
-            triangles.push(triangle);
+        if (!p1 || !p2 || !p3) {
+            console.log(`   ⚠️ Не найдены точки для индексов ${idx1}, ${idx2}, ${idx3}`);
+            continue;
         }
 
-        return triangles;
+        // Вектор признаков для каждой точки (5 чисел)
+        const v1 = this.getPointVector(p1);
+        const v2 = this.getPointVector(p2);
+        const v3 = this.getPointVector(p3);
+
+        // Сортируем векторы для инвариантности к повороту
+        const vectors = [v1, v2, v3].sort((a, b) => {
+            for (let i = 0; i < a.length; i++) {
+                if (a[i] !== b[i]) return a[i] - b[i];
+            }
+            return 0;
+        });
+
+        const triangle = {
+            points: [p1.id, p2.id, p3.id],
+            vectors: vectors.flat(),
+            signature: vectors.flat().join('_'),
+            p1, p2, p3,
+            center: {
+                x: (p1.x + p2.x + p3.x) / 3,
+                y: (p1.y + p2.y + p3.y) / 3
+            }
+        };
+
+        triangles.push(triangle);
     }
+
+    console.log(`   ✅ Построено ${triangles.length} топологических треугольников`);
+    return triangles;
+}
 
     /**
      * Заглушки для вычисления признаков (реализовать позже)
