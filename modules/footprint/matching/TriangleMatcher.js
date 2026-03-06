@@ -1,15 +1,16 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ИЕРАРХИЧЕСКИЙ ТРЕУГОЛЬНЫЙ МАТЧЕР (с признаками рёбер и внешних точек)
+// 🔺 ИЕРАРХИЧЕСКИЙ ТРЕУГОЛЬНЫЙ МАТЧЕР (5 признаков + роли в базисе)
 
 class TriangleMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
 
-        // Пороги
-        this.compactnessThreshold = options.compactnessThreshold || 0.4;
-        this.eccentricityThreshold = options.eccentricityThreshold || 0.2;
-        this.areaThreshold = options.areaThreshold || 0.5;
-        this.ratioThreshold = options.ratioThreshold || 0.2;
+        // Пороги для мягкой морфологии (допуски)
+        this.compactnessThreshold = 5;  // шаг 5
+        this.eccentricityThreshold = 0.33; // 3 группы
+        this.areaThreshold = 0.3; // логарифмическая шкала
+        this.radialThreshold = 0.2; // шаг 0.2
+        this.convexityThreshold = 1; // бинарный признак
 
         // Статистика
         this.stats = {
@@ -20,15 +21,42 @@ class TriangleMatcher {
             level5: { matches: 0, confidence: 0 }
         };
 
-        console.log(`🔺 TriangleMatcher с признаками рёбер и внешних точек создан`);
+        console.log(`🔺 TriangleMatcher (5 признаков + роли в базисе) создан`);
+    }
+
+    /**
+     * Вектор признаков точки (БЕЗ РОЛИ)
+     */
+    getPointVector(point) {
+        return [
+            Math.floor(point.compactness / this.compactnessThreshold),           // компактность
+            Math.floor(point.eccentricity / this.eccentricityThreshold),         // вытянутость
+            Math.floor(Math.log10(point.normalizedArea + 1) / this.areaThreshold), // лог площади
+            Math.floor((point.radialProfile?.[0] || 0) / this.radialThreshold), // радиальный профиль
+            point.isConvex ? 1 : 0                                              // выпуклость/вогнутость
+        ];
+    }
+
+    /**
+     * Вектор признаков точки С РОЛЬЮ (для базовых треугольников)
+     */
+    getPointVectorWithRole(point) {
+        const roleMap = { 'H': 5, 'C': 4, 'B': 3, 'R': 2, 'L': 1 };
+        return [
+            Math.floor(point.compactness / this.compactnessThreshold),
+            Math.floor(point.eccentricity / this.eccentricityThreshold),
+            Math.floor(Math.log10(point.normalizedArea + 1) / this.areaThreshold),
+            Math.floor((point.radialProfile?.[0] || 0) / this.radialThreshold),
+            point.isConvex ? 1 : 0,
+            roleMap[point.role] || 2  // роль как 6-й признак
+        ];
     }
 
     findMatches(pointsA, pointsB) {
         console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ИЕРАРХИЧЕСКИЙ ПОИСК (с признаками рёбер и внешних точек)`);
+        console.log(`🔺 ИЕРАРХИЧЕСКИЙ ПОИСК (5 признаков + роли в базисе)`);
         console.log(`${'='.repeat(100)}`);
 
-        // 🔥 ЗАЩИТА: проверяем входные данные
         if (!pointsA || !pointsB) {
             console.log(`❌ pointsA или pointsB = null/undefined`);
             return { matches: [], stats: this.stats };
@@ -36,16 +64,11 @@ class TriangleMatcher {
 
         console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
-        // ===== УРОВЕНЬ 1: Мягкая морфология =====
+        // ===== УРОВЕНЬ 1: Мягкая морфология (БЕЗ РОЛЕЙ) =====
         console.log(`\n🔍 УРОВЕНЬ 1: Группировка точек по форме...`);
 
-        const groupsA = this.groupPointsByMorphology(pointsA);
-        const groupsB = this.groupPointsByMorphology(pointsB);
-
-        if (!groupsA || !groupsB) {
-            console.log(`❌ Ошибка группировки точек`);
-            return { matches: [], stats: this.stats };
-        }
+        const groupsA = this.groupPointsByMorphology(pointsA, false);
+        const groupsB = this.groupPointsByMorphology(pointsB, false);
 
         this.stats.level1.groups = Object.keys(groupsA).length;
         this.stats.level1.totalPairs = this.calculateTotalPairs(groupsA, groupsB);
@@ -56,11 +79,11 @@ class TriangleMatcher {
         console.log(`   • Всего пар точек: ${this.stats.level1.totalPairs}`);
         console.log(`   • Среднее вариантов: ${this.stats.level1.variants.toFixed(2)}`);
 
-        // ===== УРОВЕНЬ 2: Топологические треугольники =====
-        console.log(`\n🔍 УРОВЕНЬ 2: Построение топологических треугольников...`);
+        // ===== УРОВЕНЬ 2: Базовые треугольники (С РОЛЯМИ) =====
+        console.log(`\n🔍 УРОВЕНЬ 2: Построение базовых треугольников (с ролями)...`);
 
-        const trianglesA = this.buildTriangles(groupsA);
-        const trianglesB = this.buildTriangles(groupsB);
+        const trianglesA = this.buildBaseTriangles(pointsA, true);  // с ролями
+        const trianglesB = this.buildBaseTriangles(pointsB, true);
 
         this.stats.level2.triangles = trianglesA.length;
 
@@ -77,11 +100,15 @@ class TriangleMatcher {
         console.log(`   • Всего пар треугольников: ${this.stats.level2.totalPairs}`);
         console.log(`   • Среднее вариантов: ${this.stats.level2.variants.toFixed(2)}`);
 
-        // ===== УРОВЕНЬ 3: Группировка по признакам рёбер =====
-        console.log(`\n🔍 УРОВЕНЬ 3: Анализ рёбер треугольников...`);
+        // ===== УРОВЕНЬ 3: Рёбра (БЕЗ РОЛЕЙ) =====
+        console.log(`\n🔍 УРОВЕНЬ 3: Анализ рёбер (без ролей)...`);
 
-        const edgeGroupsA = this.groupByEdgeFeatures(trianglesA);
-        const edgeGroupsB = this.groupByEdgeFeatures(trianglesB);
+        // Добавляем соседей
+        this.buildTriangleNeighbors(trianglesA);
+        this.buildTriangleNeighbors(trianglesB);
+
+        const edgeGroupsA = this.groupByEdgeFeatures(trianglesA, false);
+        const edgeGroupsB = this.groupByEdgeFeatures(trianglesB, false);
 
         this.stats.level3.edgeGroups = Object.keys(edgeGroupsA).length;
         this.stats.level3.totalPairs = this.calculateTotalPairs(edgeGroupsA, edgeGroupsB);
@@ -92,10 +119,9 @@ class TriangleMatcher {
         console.log(`   • Всего пар с учётом рёбер: ${this.stats.level3.totalPairs}`);
         console.log(`   • Среднее вариантов: ${this.stats.level3.variants.toFixed(2)}`);
 
-        // ===== УРОВЕНЬ 3.5: Группировка по внешним точкам =====
+        // ===== УРОВЕНЬ 3.5: Внешние точки (БЕЗ РОЛЕЙ) =====
         console.log(`\n🔍 УРОВЕНЬ 3.5: Анализ внешних точек через рёбра...`);
 
-        // Добавляем внешние точки к треугольникам
         this.addExternalPointsToTriangles(trianglesA, pointsA);
         this.addExternalPointsToTriangles(trianglesB, pointsB);
 
@@ -128,7 +154,6 @@ class TriangleMatcher {
         console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
         this.printSummary();
 
-        // 🔥 ВОЗВРАЩАЕМ ОБЪЕКТ!
         return {
             matches: pointMatches,
             stats: this.stats
@@ -136,128 +161,14 @@ class TriangleMatcher {
     }
 
     /**
-     * 🔥 НОВЫЙ МЕТОД: Добавление внешних точек к рёбрам
+     * УРОВЕНЬ 1: Группировка точек по морфологии
      */
-    addExternalPointsToTriangles(triangles, allPoints) {
-        // Создаем карту точек для быстрого доступа
-        const pointMap = new Map();
-        allPoints.forEach(p => pointMap.set(p.id, p));
-
-        for (const triangle of triangles) {
-            // Для каждого ребра треугольника
-            for (const edge of triangle.edges) {
-                edge.externalPoints = [];
-
-                // Ищем точки, которые не входят в треугольник
-                for (const point of allPoints) {
-                    if (triangle.points.includes(point.id)) continue;
-
-                    // Проверяем, лежит ли точка "за ребром"
-                    const position = this.getPointPositionRelativeToEdge(
-                        point,
-                        edge.v1,
-                        edge.v2,
-                        edge.opposite
-                    );
-
-                    if (position) {
-                        edge.externalPoints.push({
-                            id: point.id,
-                            position: position,
-                            morph: point.compactness
-                        });
-                    }
-                }
-
-                // Сортируем внешние точки для инвариантности
-                edge.externalPoints.sort((a, b) => a.id.localeCompare(b.id));
-            }
-        }
-    }
-
-    /**
-     * 🔥 НОВЫЙ МЕТОД: Определение позиции точки относительно ребра
-     */
-    getPointPositionRelativeToEdge(point, v1, v2, opposite) {
-        // Находим пересечение линии от opposite к point с ребром v1-v2
-        const intersection = this.lineIntersection(
-            opposite.x, opposite.y, point.x, point.y,
-            v1.x, v1.y, v2.x, v2.y
-        );
-
-        if (!intersection) return null;
-
-        // Определяем, где находится пересечение на ребре
-        const distToV1 = this.distance(intersection.x, intersection.y, v1.x, v1.y);
-        const distToV2 = this.distance(intersection.x, intersection.y, v2.x, v2.y);
-        const edgeLength = this.distance(v1.x, v1.y, v2.x, v2.y);
-
-        // Грубая классификация (3 позиции)
-        const ratio = distToV1 / edgeLength;
-       
-        if (ratio < 0.33) return 'nearV1';
-        if (ratio > 0.67) return 'nearV2';
-        return 'center';
-    }
-
-    /**
-     * 🔥 НОВЫЙ МЕТОД: Пересечение двух отрезков
-     */
-    lineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
-        const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-        if (Math.abs(denom) < 0.001) return null;
-
-        const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
-        const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
-
-        if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
-            return {
-                x: x1 + t * (x2 - x1),
-                y: y1 + t * (y2 - y1)
-            };
-        }
-        return null;
-    }
-
-    /**
-     * 🔥 НОВЫЙ МЕТОД: Группировка по внешним точкам
-     */
-    groupByExternalFeatures(triangles) {
-        const groups = {};
-
-        for (const t of triangles) {
-            // Для каждого ребра создаём сигнатуру внешних точек
-            const edgeKeys = t.edges.map(e => {
-                // Грубая морфология внешних точек (3 градации)
-                const externalSignatures = e.externalPoints.map(ep =>
-                    `${Math.floor(ep.morph / 10)}_${ep.position}`
-                ).sort().join('|');
-               
-                return externalSignatures || 'none';
-            }).sort();
-
-            const key = edgeKeys.join('||');
-
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(t);
-        }
-
-        return groups;
-    }
-
-    /**
-     * УРОВЕНЬ 1: Группировка точек по мягкой морфологии
-     */
-    groupPointsByMorphology(points) {
+    groupPointsByMorphology(points, withRoles = false) {
         const groups = {};
 
         for (const point of points) {
-            const compactGroup = Math.floor(point.compactness / 10);
-            const eccGroup = Math.floor(point.eccentricity * 2);
-            const logArea = Math.log10(point.normalizedArea + 1);
-            const areaGroup = Math.floor(logArea * 3);
-
-            const key = `${compactGroup}_${eccGroup}_${areaGroup}`;
+            const vec = withRoles ? this.getPointVectorWithRole(point) : this.getPointVector(point);
+            const key = vec.join('_');
 
             if (!groups[key]) groups[key] = [];
             groups[key].push(point);
@@ -267,72 +178,56 @@ class TriangleMatcher {
     }
 
     /**
-     * УРОВЕНЬ 2: Построение треугольников
+     * УРОВЕНЬ 2: Построение базовых треугольников
      */
-    buildTriangles(groups) {
+    buildBaseTriangles(points, withRoles = true) {
         const triangles = [];
+        const n = points.length;
 
-        for (const groupPoints of Object.values(groups)) {
-            if (groupPoints.length < 3) continue;
+        for (let i = 0; i < n; i++) {
+            for (let j = i+1; j < n; j++) {
+                for (let k = j+1; k < n; k++) {
+                    const p1 = points[i];
+                    const p2 = points[j];
+                    const p3 = points[k];
 
-            for (let i = 0; i < groupPoints.length; i++) {
-                for (let j = i+1; j < groupPoints.length; j++) {
-                    for (let k = j+1; k < groupPoints.length; k++) {
-                        const p1 = groupPoints[i];
-                        const p2 = groupPoints[j];
-                        const p3 = groupPoints[k];
+                    // Проверяем минимальное расстояние
+                    const d12 = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+                    const d13 = Math.hypot(p1.x - p3.x, p1.y - p3.y);
+                    const d23 = Math.hypot(p2.x - p3.x, p2.y - p3.y);
+                   
+                    if (d12 < 5 || d13 < 5 || d23 < 5) continue;
 
-                        const d12 = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-                        const d13 = Math.hypot(p1.x - p3.x, p1.y - p3.y);
-                        const d23 = Math.hypot(p2.x - p3.x, p2.y - p3.y);
+                    // Векторы признаков (с ролями или без)
+                    const v1 = withRoles ? this.getPointVectorWithRole(p1) : this.getPointVector(p1);
+                    const v2 = withRoles ? this.getPointVectorWithRole(p2) : this.getPointVector(p2);
+                    const v3 = withRoles ? this.getPointVectorWithRole(p3) : this.getPointVector(p3);
 
-                        if (d12 < 0.1 || d13 < 0.1 || d23 < 0.1) continue;
+                    // Сортируем векторы для инвариантности к повороту
+                    const vectors = [v1, v2, v3].sort((a, b) => {
+                        for (let idx = 0; idx < a.length; idx++) {
+                            if (a[idx] !== b[idx]) return a[idx] - b[idx];
+                        }
+                        return 0;
+                    });
 
-                        const ratios = [d12/d13, d12/d23, d13/d23].sort((a,b)=>a-b);
+                    const triangle = {
+                        points: [p1.id, p2.id, p3.id],
+                        vectors: vectors.flat(),
+                        signature: vectors.flat().join('_'),
+                        p1, p2, p3,
+                        edges: [
+                            { v1: p1, v2: p2, opposite: p3, neighborTriangles: [], externalPoints: [] },
+                            { v1: p2, v2: p3, opposite: p1, neighborTriangles: [], externalPoints: [] },
+                            { v1: p3, v2: p1, opposite: p2, neighborTriangles: [], externalPoints: [] }
+                        ]
+                    };
 
-                        const triangle = {
-                            points: [p1.id, p2.id, p3.id],
-                            p1, p2, p3,
-                            ratios,
-                            edges: [
-                                {
-                                    v1: p1, v2: p2,
-                                    morph1: p1.compactness,
-                                    morph2: p2.compactness,
-                                    opposite: p3,
-                                    oppositeMorph: p3.compactness,
-                                    neighborTriangles: [],
-                                    externalPoints: []
-                                },
-                                {
-                                    v1: p2, v2: p3,
-                                    morph1: p2.compactness,
-                                    morph2: p3.compactness,
-                                    opposite: p1,
-                                    oppositeMorph: p1.compactness,
-                                    neighborTriangles: [],
-                                    externalPoints: []
-                                },
-                                {
-                                    v1: p3, v2: p1,
-                                    morph1: p3.compactness,
-                                    morph2: p1.compactness,
-                                    opposite: p2,
-                                    oppositeMorph: p2.compactness,
-                                    neighborTriangles: [],
-                                    externalPoints: []
-                                }
-                            ]
-                        };
-
-                        triangle.signature = this.getTriangleSignature(triangle);
-                        triangles.push(triangle);
-                    }
+                    triangles.push(triangle);
                 }
             }
         }
 
-        this.buildTriangleNeighbors(triangles);
         return triangles;
     }
 
@@ -342,7 +237,7 @@ class TriangleMatcher {
     buildTriangleNeighbors(triangles) {
         const edgeMap = new Map();
 
-        triangles.forEach((t) => {
+        triangles.forEach(t => {
             t.edges.forEach(edge => {
                 const key = [edge.v1.id, edge.v2.id].sort().join('--');
                 if (!edgeMap.has(key)) edgeMap.set(key, []);
@@ -363,43 +258,103 @@ class TriangleMatcher {
     }
 
     /**
-     * Сигнатура треугольника
+     * УРОВЕНЬ 3: Группировка по признакам рёбер
      */
-    getTriangleSignature(triangle) {
-        const edgeSignatures = triangle.edges.map(e =>
-            `${Math.floor(e.morph1 * 10)}_${Math.floor(e.morph2 * 10)}_${Math.floor(e.oppositeMorph * 10)}`
-        ).sort();
-
-        return edgeSignatures.join('|');
-    }
-
-    /**
-     * УРОВЕНЬ 2: Группировка треугольников по сигнатуре
-     */
-    groupTrianglesBySignature(triangles) {
+    groupByEdgeFeatures(triangles, withRoles = false) {
         const groups = {};
 
         for (const t of triangles) {
-            if (!groups[t.signature]) groups[t.signature] = [];
-            groups[t.signature].push(t);
+            const edgeKeys = t.edges.map(e => {
+                const v1vec = withRoles ? this.getPointVectorWithRole(e.v1) : this.getPointVector(e.v1);
+                const v2vec = withRoles ? this.getPointVectorWithRole(e.v2) : this.getPointVector(e.v2);
+                const oppositeVec = withRoles ? this.getPointVectorWithRole(e.opposite) : this.getPointVector(e.opposite);
+               
+                const hasNeighbor = e.neighborTriangles.length > 0 ? 1 : 0;
+               
+                return [
+                    ...v1vec,
+                    ...v2vec,
+                    ...oppositeVec,
+                    hasNeighbor
+                ].join('_');
+            }).sort();
+
+            const key = edgeKeys.join('||');
+
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(t);
         }
 
         return groups;
     }
 
     /**
-     * УРОВЕНЬ 3: Группировка по признакам рёбер
+     * Добавление внешних точек к рёбрам
      */
-    groupByEdgeFeatures(triangles) {
+    addExternalPointsToTriangles(triangles, allPoints) {
+        for (const triangle of triangles) {
+            for (const edge of triangle.edges) {
+                edge.externalPoints = [];
+
+                for (const point of allPoints) {
+                    if (triangle.points.includes(point.id)) continue;
+
+                    const position = this.getPointPositionRelativeToEdge(
+                        point,
+                        edge.v1,
+                        edge.v2,
+                        edge.opposite
+                    );
+
+                    if (position) {
+                        edge.externalPoints.push({
+                            id: point.id,
+                            position: position,
+                            vector: this.getPointVector(point)  // БЕЗ роли!
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Определение позиции точки относительно ребра
+     */
+    getPointPositionRelativeToEdge(point, v1, v2, opposite) {
+        // Находим пересечение линии от opposite к point с ребром v1-v2
+        const intersection = this.lineIntersection(
+            opposite.x, opposite.y, point.x, point.y,
+            v1.x, v1.y, v2.x, v2.y
+        );
+
+        if (!intersection) return null;
+
+        const distToV1 = this.distance(intersection.x, intersection.y, v1.x, v1.y);
+        const distToV2 = this.distance(intersection.x, intersection.y, v2.x, v2.y);
+        const edgeLength = this.distance(v1.x, v1.y, v2.x, v2.y);
+
+        const ratio = distToV1 / edgeLength;
+       
+        if (ratio < 0.33) return 'nearV1';
+        if (ratio > 0.67) return 'nearV2';
+        return 'center';
+    }
+
+    /**
+     * УРОВЕНЬ 3.5: Группировка по внешним точкам
+     */
+    groupByExternalFeatures(triangles) {
         const groups = {};
 
         for (const t of triangles) {
             const edgeKeys = t.edges.map(e => {
-                const hasNeighbor = e.neighborTriangles.length > 0 ? '1' : '0';
-                return `${Math.floor(e.morph1 * 10)}_${Math.floor(e.morph2 * 10)}_${Math.floor(e.oppositeMorph * 10)}_${hasNeighbor}`;
+                const positions = e.externalPoints.map(ep => ep.position).sort().join('');
+                const morphSummary = e.externalPoints.length > 0 ? 'has' : 'none';
+                return `${positions}_${morphSummary}`;
             }).sort();
 
-            const key = edgeKeys.join('|');
+            const key = edgeKeys.join('||');
 
             if (!groups[key]) groups[key] = [];
             groups[key].push(t);
@@ -466,6 +421,15 @@ class TriangleMatcher {
     /**
      * Вспомогательные методы
      */
+    groupTrianglesBySignature(triangles) {
+        const groups = {};
+        for (const t of triangles) {
+            if (!groups[t.signature]) groups[t.signature] = [];
+            groups[t.signature].push(t);
+        }
+        return groups;
+    }
+
     calculateTotalPairs(groupsA, groupsB) {
         let total = 0;
         for (const key of Object.keys(groupsA)) {
@@ -490,6 +454,22 @@ class TriangleMatcher {
         return count > 0 ? total / count : 0;
     }
 
+    lineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
+        const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+        if (Math.abs(denom) < 0.001) return null;
+
+        const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+        const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+
+        if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+            return {
+                x: x1 + t * (x2 - x1),
+                y: y1 + t * (y2 - y1)
+            };
+        }
+        return null;
+    }
+
     distance(x1, y1, x2, y2) {
         const dx = x1 - x2;
         const dy = y1 - y2;
@@ -503,7 +483,7 @@ class TriangleMatcher {
 
         console.log(`\n📈 СЖАТИЕ ПО УРОВНЯМ:`);
         console.log(`   УРОВЕНЬ 1 (точки): ${this.stats.level1.totalPairs} пар`);
-        console.log(`   УРОВЕНЬ 2 (треугольники): ${this.stats.level2.totalPairs} пар`);
+        console.log(`   УРОВЕНЬ 2 (базисные треугольники): ${this.stats.level2.totalPairs} пар`);
         console.log(`   УРОВЕНЬ 3 (рёбра): ${this.stats.level3.totalPairs} пар`);
         console.log(`   УРОВЕНЬ 3.5 (внешние точки): ${this.stats.level4.totalPairs} пар`);
         console.log(`   УРОВЕНЬ 4 (соответствия): ${this.stats.level5.matches} пар`);
@@ -527,7 +507,7 @@ class TriangleMatcher {
         if (this.stats.level5.matches > 0) {
             console.log(`   ✅ Найдено ${this.stats.level5.matches} соответствий`);
         } else {
-            console.log(`   ⚠️ Соответствия не найдены`);
+            console.log(`   ⚠️ Соответствия не найдены — возможно, пороги слишком жесткие`);
         }
     }
 }
