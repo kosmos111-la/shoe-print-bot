@@ -22,114 +22,123 @@ class TriangleMatcher {
         console.log(`🔺 TriangleMatcher с признаками рёбер создан`);
     }
 
-    findMatches(pointsA, pointsB) {
-        console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ИЕРАРХИЧЕСКИЙ ПОИСК (с признаками рёбер)`);
-        console.log(`${'='.repeat(100)}`);
-        console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
-
-        // ===== УРОВЕНЬ 1: Мягкая морфология =====
-        console.log(`\n🔍 УРОВЕНЬ 1: Группировка точек по форме...`);
-       
-        const groupsA = this.groupPointsByMorphology(pointsA);
-        const groupsB = this.groupPointsByMorphology(pointsB);
-       
-        this.stats.level1.groups = Object.keys(groupsA).length;
-        this.stats.level1.totalPairs = this.calculateTotalPairs(groupsA, groupsB);
-        this.stats.level1.variants = this.calculateVariants(groupsA, groupsB);
-       
-        console.log(`   • Групп в А: ${Object.keys(groupsA).length}`);
-        console.log(`   • Групп в Б: ${Object.keys(groupsB).length}`);
-        console.log(`   • Всего пар точек: ${this.stats.level1.totalPairs}`);
-        console.log(`   • Среднее вариантов: ${this.stats.level1.variants.toFixed(2)}`);
-
-        // ===== УРОВЕНЬ 2: Топологические треугольники (инвариантные к повороту) =====
-        console.log(`\n🔍 УРОВЕНЬ 2: Построение топологических треугольников...`);
-       
-        const trianglesA = this.buildTriangles(groupsA);
-        const trianglesB = this.buildTriangles(groupsB);
-       
-        this.stats.level2.triangles = trianglesA.length;
-       
-        // Группируем треугольники по их сигнатуре (уже инвариантно к повороту)
-        const triGroupsA = this.groupTrianglesBySignature(trianglesA);
-        const triGroupsB = this.groupTrianglesBySignature(trianglesB);
-       
-        this.stats.level2.groups = Object.keys(triGroupsA).length;
-        this.stats.level2.totalPairs = this.calculateTotalPairs(triGroupsA, triGroupsB);
-        this.stats.level2.variants = this.calculateVariants(triGroupsA, triGroupsB);
-       
-        console.log(`   • Треугольников в А: ${trianglesA.length}`);
-        console.log(`   • Треугольников в Б: ${trianglesB.length}`);
-        console.log(`   • Групп треугольников в А: ${Object.keys(triGroupsA).length}`);
-        console.log(`   • Всего пар треугольников: ${this.stats.level2.totalPairs}`);
-        console.log(`   • Среднее вариантов: ${this.stats.level2.variants.toFixed(2)}`);
-
-        // Покажем пример треугольника
-        if (trianglesA.length > 0) {
-            console.log(`\n   📐 Пример треугольника:`);
-            const sample = trianglesA[0];
-            console.log(`      Отношения сторон: ${sample.ratios.map(r => r.toFixed(2)).join(' ')}`);
-            console.log(`      Сигнатура: ${sample.signature}`);
-            console.log(`      Рёбра:`);
-            sample.edges.forEach((e, i) => {
-                console.log(`         Ребро ${i+1}: вершины ${e.v1.id.slice(0,8)}... и ${e.v2.id.slice(0,8)}...`);
-                console.log(`                морфология концов: [${e.morph1.toFixed(1)}, ${e.morph2.toFixed(1)}]`);
-                console.log(`                противовес: ${e.oppositeMorph.toFixed(1)}`);
-            });
-        }
-
-        // ===== УРОВЕНЬ 3: Группировка по признакам рёбер =====
-        console.log(`\n🔍 УРОВЕНЬ 3: Анализ рёбер треугольников...`);
-       
-        const edgeGroupsA = this.groupByEdgeFeatures(trianglesA);
-        const edgeGroupsB = this.groupByEdgeFeatures(trianglesB);
-       
-        this.stats.level3.edgeGroups = Object.keys(edgeGroupsA).length;
-        this.stats.level3.totalPairs = this.calculateTotalPairs(edgeGroupsA, edgeGroupsB);
-        this.stats.level3.variants = this.calculateVariants(edgeGroupsA, edgeGroupsB);
-       
-        console.log(`   • Групп по рёбрам в А: ${Object.keys(edgeGroupsA).length}`);
-        console.log(`   • Групп по рёбрам в Б: ${Object.keys(edgeGroupsB).length}`);
-        console.log(`   • Всего пар с учётом рёбер: ${this.stats.level3.totalPairs}`);
-        console.log(`   • Среднее вариантов: ${this.stats.level3.variants.toFixed(2)}`);
-
-        // Покажем пример группы рёбер
-        const firstKey = Object.keys(edgeGroupsA)[0];
-        if (firstKey) {
-            console.log(`\n   🔗 Пример группы рёбер:`);
-            console.log(`      Сигнатура: ${firstKey}`);
-            console.log(`      Треугольников в группе: ${edgeGroupsA[firstKey].length}`);
-            const sample = edgeGroupsA[firstKey][0];
-            console.log(`      Рёбра треугольника:`);
-            sample.edges.forEach((e, i) => {
-                const hasNeighbor = e.neighborTriangles ? e.neighborTriangles.length > 0 : false;
-                console.log(`         Ребро ${i+1}: концы [${e.morph1.toFixed(1)}, ${e.morph2.toFixed(1)}], противовес ${e.oppositeMorph.toFixed(1)}${hasNeighbor ? ', есть сосед' : ', нет соседа'}`);
-            });
-        }
-
-        // ===== УРОВЕНЬ 4: Поиск соответствий =====
-        console.log(`\n🔍 УРОВЕНЬ 4: Поиск соответствий...`);
-       
-        const matches = this.findMatches(edgeGroupsA, edgeGroupsB);
-       
-        this.stats.level4.matches = matches.length;
-        this.stats.level4.confidence = matches.length / Math.min(trianglesA.length, trianglesB.length);
-       
-        console.log(`   • Найдено соответствий: ${matches.length}`);
-        console.log(`   • Уверенность: ${(this.stats.level4.confidence*100).toFixed(1)}%`);
-
-        // ===== Восстановление точек =====
-        const pointMatches = this.reconstructPoints(matches);
-       
-        console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
-        this.printSummary();
-
-        return {
-            matches: pointMatches,
-            stats: this.stats
-        };
+findMatches(pointsA, pointsB) {
+    console.log(`\n${'='.repeat(100)}`);
+    console.log(`🔺 ИЕРАРХИЧЕСКИЙ ПОИСК (с признаками рёбер)`);
+    console.log(`${'='.repeat(100)}`);
+   
+    // 🔥 ЗАЩИТА: проверяем входные данные
+    if (!pointsA || !pointsB) {
+        console.log(`❌ pointsA или pointsB = null/undefined`);
+        return { matches: [], stats: this.stats };
     }
+   
+    console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
+
+    // ===== УРОВЕНЬ 1: Мягкая морфология =====
+    console.log(`\n🔍 УРОВЕНЬ 1: Группировка точек по форме...`);
+   
+    const groupsA = this.groupPointsByMorphology(pointsA);
+    const groupsB = this.groupPointsByMorphology(pointsB);
+   
+    // 🔥 ЗАЩИТА: проверяем группы
+    if (!groupsA || !groupsB) {
+        console.log(`❌ Ошибка группировки точек`);
+        return { matches: [], stats: this.stats };
+    }
+   
+    this.stats.level1.groups = Object.keys(groupsA).length;
+    this.stats.level1.totalPairs = this.calculateTotalPairs(groupsA, groupsB);
+    this.stats.level1.variants = this.calculateVariants(groupsA, groupsB);
+   
+    console.log(`   • Групп в А: ${Object.keys(groupsA).length}`);
+    console.log(`   • Групп в Б: ${Object.keys(groupsB).length}`);
+    console.log(`   • Всего пар точек: ${this.stats.level1.totalPairs}`);
+    console.log(`   • Среднее вариантов: ${this.stats.level1.variants.toFixed(2)}`);
+
+    // ===== УРОВЕНЬ 2: Топологические треугольники =====
+    console.log(`\n🔍 УРОВЕНЬ 2: Построение топологических треугольников...`);
+   
+    const trianglesA = this.buildTriangles(groupsA);
+    const trianglesB = this.buildTriangles(groupsB);
+   
+    this.stats.level2.triangles = trianglesA.length;
+   
+    const triGroupsA = this.groupTrianglesBySignature(trianglesA);
+    const triGroupsB = this.groupTrianglesBySignature(trianglesB);
+   
+    this.stats.level2.groups = Object.keys(triGroupsA).length;
+    this.stats.level2.totalPairs = this.calculateTotalPairs(triGroupsA, triGroupsB);
+    this.stats.level2.variants = this.calculateVariants(triGroupsA, triGroupsB);
+   
+    console.log(`   • Треугольников в А: ${trianglesA.length}`);
+    console.log(`   • Треугольников в Б: ${trianglesB.length}`);
+    console.log(`   • Групп треугольников в А: ${Object.keys(triGroupsA).length}`);
+    console.log(`   • Всего пар треугольников: ${this.stats.level2.totalPairs}`);
+    console.log(`   • Среднее вариантов: ${this.stats.level2.variants.toFixed(2)}`);
+
+    // ===== УРОВЕНЬ 3: Группировка по признакам рёбер =====
+    console.log(`\n🔍 УРОВЕНЬ 3: Анализ рёбер треугольников...`);
+   
+    const edgeGroupsA = this.groupByEdgeFeatures(trianglesA);
+    const edgeGroupsB = this.groupByEdgeFeatures(trianglesB);
+   
+    this.stats.level3.edgeGroups = Object.keys(edgeGroupsA).length;
+    this.stats.level3.totalPairs = this.calculateTotalPairs(edgeGroupsA, edgeGroupsB);
+    this.stats.level3.variants = this.calculateVariants(edgeGroupsA, edgeGroupsB);
+   
+    console.log(`   • Групп по рёбрам в А: ${Object.keys(edgeGroupsA).length}`);
+    console.log(`   • Групп по рёбрам в Б: ${Object.keys(edgeGroupsB).length}`);
+    console.log(`   • Всего пар с учётом рёбер: ${this.stats.level3.totalPairs}`);
+    console.log(`   • Среднее вариантов: ${this.stats.level3.variants.toFixed(2)}`);
+
+    // ===== УРОВЕНЬ 4: Поиск соответствий =====
+    console.log(`\n🔍 УРОВЕНЬ 4: Поиск соответствий...`);
+   
+    const matches = this.findMatchesInGroups(edgeGroupsA, edgeGroupsB);
+   
+    this.stats.level4.matches = matches.length;
+    this.stats.level4.confidence = matches.length / Math.min(trianglesA.length, trianglesB.length);
+   
+    console.log(`   • Найдено соответствий: ${matches.length}`);
+    console.log(`   • Уверенность: ${(this.stats.level4.confidence*100).toFixed(1)}%`);
+
+    // ===== Восстановление точек =====
+    const pointMatches = this.reconstructPoints(matches);
+   
+    console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
+    this.printSummary();
+
+    // 🔥 ВОЗВРАЩАЕМ ОБЪЕКТ!
+    return {
+        matches: pointMatches,
+        stats: this.stats
+    };
+}
+
+/**
+* УРОВЕНЬ 4: Поиск соответствий (переименовано во избежание путаницы)
+*/
+findMatchesInGroups(groupsA, groupsB) {
+    const matches = [];
+   
+    if (!groupsA || !groupsB) return matches;
+   
+    for (const [key, trisA] of Object.entries(groupsA)) {
+        const trisB = groupsB[key];
+        if (!trisB) continue;
+       
+        for (let i = 0; i < Math.min(trisA.length, trisB.length); i++) {
+            matches.push({
+                triangleA: trisA[i],
+                triangleB: trisB[i],
+                score: 1.0
+            });
+        }
+    }
+   
+    return matches;
+}
 
     /**
      * УРОВЕНЬ 1: Группировка точек по мягкой морфологии
