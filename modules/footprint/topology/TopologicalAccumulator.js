@@ -523,6 +523,7 @@ extractPointsFromModel(model) {
             orientation: morph.orientation || 0,
            
             neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
+          contour: morph.contour,
         });
     }
 
