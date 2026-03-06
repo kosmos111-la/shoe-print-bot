@@ -408,32 +408,36 @@ return {
     /**
      * Извлечение точек из модели
      */
-    extractPointsFromModel(model) {
-        const points = [];
-        const graph = model.graph;
-        const morphologyMap = model.morphologyMap || new Map();
+extractPointsFromModel(model) {
+    const points = [];
+    const graph = model.graph;
+    const morphologyMap = model.morphologyMap || new Map();
 
-        for (const [nodeId, node] of graph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
+    for (const [nodeId, node] of graph.nodes) {
+        const morph = morphologyMap.get(nodeId) || {};
+       
+        points.push({
+            id: nodeId,
+            x: node.x,
+            y: node.y,
+            role: this.getNodeRoleSimple(nodeId, graph),
+            degree: node.degree || 0,
+            triangles: node.triangles || 0,
            
-            points.push({
-                id: nodeId,
-                x: node.x,
-                y: node.y,
-                role: this.getNodeRoleSimple(nodeId, graph),
-                degree: node.degree || 0,
-                triangles: node.triangles || 0,
-                compactness: morph.compactness,
-                eccentricity: morph.eccentricity,
-                normalizedArea: morph.normalizedArea,
-                radialProfile: morph.radialProfile,
-                orientation: morph.orientation || 0,
-                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
-            });
-        }
-
-        return points;
+            // 🔥 МОРФОЛОГИЯ (обязательно!)
+            compactness: morph.compactness || 0,
+            eccentricity: morph.eccentricity || 0,
+            normalizedArea: morph.normalizedArea || 1,
+            radialProfile: morph.radialProfile || [0,0,0,0],
+            orientation: morph.orientation || 0,
+           
+            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
+        });
     }
+
+    console.log(`📊 Извлечено ${points.length} точек из модели с морфологией`);
+    return points;
+}
 
     /**
      * Строит matchMap для визуализации
