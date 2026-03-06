@@ -383,27 +383,32 @@ async compareByTriangleMatching(model1, model2, options = {}) {
     }
 
     // Запускаем треугольный поиск
-    console.log(`🔍 Запуск TriangleMatcher.findMatches...`);
-    let result;
-    try {
-        result = triangleMatcher.findMatches(points1, points2);
-    } catch (error) {
-        console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
-        console.log(error.stack);
-        // 🔥 ВАЖНО: возвращаем объект, а не массив!
-        return {
-            success: false,
-            matches: [],
-            count: 0,
-            sufficient: false,
-            similarity: 0,
-            time: Date.now() - startTime,
-            ambiguous: [],
-            noMatchA: points1.map(p => p.id),
-            noMatchB: points2.map(p => p.id),
-            stats: {}
-        };
-    }
+console.log(`🔍 Запуск TriangleMatcher.findMatches...`);
+let result;
+try {
+    // 🔥 ПЕРЕДАЁМ ТРИАНГУЛЯЦИЮ!
+    result = triangleMatcher.findMatches(
+        points1,
+        points2,
+        model1.graph,  // триангуляция из первой модели
+        model2.graph   // триангуляция из второй модели
+    );
+} catch (error) {
+    console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
+    console.log(error.stack);
+    return {
+        success: false,
+        matches: [],
+        count: 0,
+        sufficient: false,
+        similarity: 0,
+        time: Date.now() - startTime,
+        ambiguous: [],
+        noMatchA: points1.map(p => p.id),
+        noMatchB: points2.map(p => p.id),
+        stats: {}
+    };
+}
 
     // 🔥 ПРОВЕРКА: result может быть массивом (если ошибка в матчере)
     if (Array.isArray(result)) {
