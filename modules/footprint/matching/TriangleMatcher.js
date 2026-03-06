@@ -116,41 +116,50 @@ class TriangleMatcher {
     /**
      * 🔍 ДИАГНОСТИКА ПЕРВОЙ ТОЧКИ
      */
-    diagnoseFirstPoint(pointsA, pointsB) {
-        if (pointsA.length === 0 || pointsB.length === 0) return;
+diagnoseFirstPoint(pointsA, pointsB) {
+    if (pointsA.length === 0 || pointsB.length === 0) return;
 
-        const pointA = pointsA[0];
-        const pointB = pointsB[0];
+    const pointA = pointsA[0];
+    const pointB = pointsB[0];
 
-        console.log(`\n🔬 ДИАГНОСТИКА ПЕРВОЙ ТОЧКИ:`);
-console.log(`┌──────────────────────┬─────────────────────┬─────────────────────┐`);
-console.log(`│ Признак              │ Точка А             │ Точка Б             │`);
-console.log(`├──────────────────────┼─────────────────────┼─────────────────────┤`);
-
-const formatValue = (val) => {
-    if (val === null || val === undefined) return 'N/A'.padEnd(19);
-    if (typeof val === 'number') return val.toFixed(4).padEnd(19);
-    if (Array.isArray(val)) return `[${val.length}]`.padEnd(19);
-    return String(val).substring(0, 19).padEnd(19);
-};
-
-const allFeatures = new Set([...Object.keys(featuresA), ...Object.keys(featuresB)]);
-for (const feat of allFeatures) {
-    const valA = featuresA[feat];
-    const valB = featuresB[feat];
+    console.log(`\n🔬 ДИАГНОСТИКА ПЕРВОЙ ТОЧКИ:`);
    
-    console.log(
-        `│ ${feat.padEnd(20)} │ ${formatValue(valA)} │ ${formatValue(valB)} │`
-    );
-}
-console.log(`└──────────────────────┴─────────────────────┴─────────────────────┘`);
+    // Вычисляем признаки для точки А
+    console.log(`\n   📊 ВЫЧИСЛЕНИЕ ПРИЗНАКОВ ДЛЯ ТОЧКИ А:`);
+    const featuresA = this.computeAllFeatures(pointA);
+   
+    // Вычисляем признаки для точки Б
+    console.log(`\n   📊 ВЫЧИСЛЕНИЕ ПРИЗНАКОВ ДЛЯ ТОЧКИ Б:`);
+    const featuresB = this.computeAllFeatures(pointB);
 
-        // Проверка формата данных
-        console.log(`\n🔍 ПРОВЕРКА ФОРМАТА ДАННЫХ:`);
-        console.log(`   • pointA имеет morphology? ${pointA.morphology ? '✅' : '❌'}`);
-        console.log(`   • pointA.contour длина: ${pointA.morphology?.contour?.length || 0}`);
-        console.log(`   • pointA.radialProfile: ${pointA.radialProfile ? '✅' : '❌'}`);
+    // Таблица сравнения
+    console.log(`\n┌──────────────────────┬─────────────────────┬─────────────────────┐`);
+    console.log(`│ Признак              │ Точка А             │ Точка Б             │`);
+    console.log(`├──────────────────────┼─────────────────────┼─────────────────────┤`);
+
+    const formatValue = (val) => {
+        if (val === null || val === undefined) return 'N/A'.padEnd(19);
+        if (typeof val === 'number') return val.toFixed(4).padEnd(19);
+        if (Array.isArray(val)) return `[${val.length}]`.padEnd(19);
+        return String(val).substring(0, 19).padEnd(19);
+    };
+
+    const allFeatures = new Set([...Object.keys(featuresA), ...Object.keys(featuresB)]);
+    for (const feat of allFeatures) {
+        const valA = featuresA[feat];
+        const valB = featuresB[feat];
+       
+        console.log(
+            `│ ${feat.padEnd(20)} │ ${formatValue(valA)} │ ${formatValue(valB)} │`
+        );
     }
+    console.log(`└──────────────────────┴─────────────────────┴─────────────────────┘`);
+
+    // Проверка формата данных
+    console.log(`\n🔍 ПРОВЕРКА ФОРМАТА ДАННЫХ:`);
+    console.log(`   • pointA имеет contour? ${pointA.contour ? '✅' : '❌'}`);
+    console.log(`   • pointA.radialProfile: ${pointA.radialProfile ? '✅' : '❌'}`);
+}
 
     /**
      * Вычисление ВСЕХ признаков для точки (тестовый режим)
