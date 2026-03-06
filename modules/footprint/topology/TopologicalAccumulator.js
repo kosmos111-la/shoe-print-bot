@@ -347,61 +347,131 @@ return {
 
     // ==================== НОВЫЙ МЕТОД: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
 
-    async compareByTriangleMatching(model1, model2, options = {}) {
-        const startTime = Date.now();
-        console.log(`\n🔍 Треугольное сопоставление...`);
+async compareByTriangleMatching(model1, model2, options = {}) {
+    const startTime = Date.now();
+    console.log(`\n🔍 Треугольное сопоставление...`);
 
-        // Извлекаем точки из моделей
-        const points1 = this.extractPointsFromModel(model1);
-        const points2 = this.extractPointsFromModel(model2);
+    // Извлекаем точки из моделей
+    const points1 = this.extractPointsFromModel(model1);
+    const points2 = this.extractPointsFromModel(model2);
 
-        console.log(`📊 Точек: ${points1.length} ↔ ${points2.length}`);
+    console.log(`📊 Точек: ${points1.length} ↔ ${points2.length}`);
 
-        // Создаем треугольный матчер
-        const triangleMatcher = new TriangleMatcher({
-    compactnessThreshold: 0.4,
-    eccentricityThreshold: 0.2,
-    areaThreshold: 0.5,
-    ratioThreshold: 0.25
-});
+    // Создаем треугольный матчер
+    const triangleMatcher = new TriangleMatcher({
+        compactnessThreshold: 0.4,
+        eccentricityThreshold: 0.2,
+        areaThreshold: 0.5,
+        ratioThreshold: 0.25
+    });
 
-        // Запускаем треугольный поиск
-        const result = triangleMatcher.findMatches(points1, points2);
-
-        // Находим точки без пары
-        const matchedPointA = new Set(result.matches.map(m => m.pointA));
-        const matchedPointB = new Set(result.matches.map(m => m.pointB));
-       
-        const noMatchA = points1
-            .filter(p => !matchedPointA.has(p.id))
-            .map(p => p.id);
-       
-        const noMatchB = points2
-            .filter(p => !matchedPointB.has(p.id))
-            .map(p => p.id);
-
-        const finalResult = {
-            success: true,
-            matches: result.matches,
-            count: result.matches.length,
-            sufficient: result.matches.length >= 12,
-            similarity: result.matches.length / Math.min(points1.length, points2.length),
+    // 🔥 ЗАЩИТА: проверяем, что точки не пустые
+    if (!points1 || !points2 || points1.length === 0 || points2.length === 0) {
+        console.log(`❌ Нет точек для сопоставления`);
+        return {
+            success: false,
+            matches: [],
+            count: 0,
+            sufficient: false,
+            similarity: 0,
             time: Date.now() - startTime,
             ambiguous: [],
-            noMatchA,
-            noMatchB,
-            stats: result.stats
+            noMatchA: points1?.map(p => p.id) || [],
+            noMatchB: points2?.map(p => p.id) || [],
+            stats: {}
         };
-
-        console.log(`\n📊 РЕЗУЛЬТАТ ТРЕУГОЛЬНОГО СОПОСТАВЛЕНИЯ:`);
-        console.log(`   • Найдено соответствий: ${finalResult.count}`);
-        console.log(`   • Новых в А: ${finalResult.noMatchA.length}`);
-        console.log(`   • Новых в Б: ${finalResult.noMatchB.length}`);
-        console.log(`   • Достаточно для якорей: ${finalResult.sufficient ? '✅' : '❌'}`);
-        console.log(`   • Время: ${finalResult.time}ms`);
-
-        return finalResult;
     }
+
+    // Запускаем треугольный поиск
+    console.log(`🔍 Запуск TriangleMatcher.findMatches...`);
+    let result;
+    try {
+        result = triangleMatcher.findMatches(points1, points2);
+    } catch (error) {
+        console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
+        return {
+            success: false,
+            matches: [],
+            count: 0,
+            sufficient: false,
+            similarity: 0,
+            time: Date.now() - startTime,
+            ambiguous: [],
+            noMatchA: points1.map(p => p.id),
+            noMatchB: points2.map(p => p.id),
+            stats: {}
+        };
+    }
+
+    if (!result) {
+        console.log(`❌ triangleMatcher.findMatches вернул null/undefined`);
+        return {
+            success: false,
+            matches: [],
+            count: 0,
+            sufficient: false,
+            similarity: 0,
+            time: Date.now() - startTime,
+            ambiguous: [],
+            noMatchA: points1.map(p => p.id),
+            noMatchB: points2.map(p => p.id),
+            stats: {}
+        };
+    }
+
+    if (!result.matches) {
+        console.log(`❌ result.matches = undefined`);
+        console.log(`   result =`, Object.keys(result));
+        return {
+            success: false,
+            matches: [],
+            count: 0,
+            sufficient: false,
+            similarity: 0,
+            time: Date.now() - startTime,
+            ambiguous: [],
+            noMatchA: points1.map(p => p.id),
+            noMatchB: points2.map(p => p.id),
+            stats: result.stats || {}
+        };
+    }
+
+    console.log(`✅ triangleMatcher.findMatches выполнен, matches: ${result.matches.length}`);
+
+    // Находим точки без пары
+    const matchedPointA = new Set(result.matches.map(m => m.pointA));
+    const matchedPointB = new Set(result.matches.map(m => m.pointB));
+
+    const noMatchA = points1
+        .filter(p => !matchedPointA.has(p.id))
+        .map(p => p.id);
+
+    const noMatchB = points2
+        .filter(p => !matchedPointB.has(p.id))
+        .map(p => p.id);
+
+    const finalResult = {
+        success: true,
+        matches: result.matches,
+        count: result.matches.length,
+        sufficient: result.matches.length >= 12,
+        similarity: result.matches.length / Math.min(points1.length, points2.length),
+        time: Date.now() - startTime,
+        ambiguous: [],
+        noMatchA,
+        noMatchB,
+        stats: result.stats
+    };
+
+    console.log(`\n📊 РЕЗУЛЬТАТ ТРЕУГОЛЬНОГО СОПОСТАВЛЕНИЯ:`);
+    console.log(`   • Найдено соответствий: ${finalResult.count}`);
+    console.log(`   • Новых в А: ${finalResult.noMatchA.length}`);
+    console.log(`   • Новых в Б: ${finalResult.noMatchB.length}`);
+    console.log(`   • Достаточно для якорей: ${finalResult.sufficient ? '✅' : '❌'}`);
+    console.log(`   • Время: ${finalResult.time}ms`);
+
+    return finalResult;
+}
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
 
