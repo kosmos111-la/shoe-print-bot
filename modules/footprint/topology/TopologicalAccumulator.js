@@ -515,15 +515,17 @@ extractPointsFromModel(model) {
             degree: node.degree || 0,
             triangles: node.triangles || 0,
            
-            // 🔥 МОРФОЛОГИЯ (обязательно!)
+            // МОРФОЛОГИЯ
             compactness: morph.compactness || 0,
             eccentricity: morph.eccentricity || 0,
             normalizedArea: morph.normalizedArea || 1,
-            radialProfile: morph.radialProfile || [0,0,0,0],
+            radialProfile: morph.radialProfile || [0,0,0,0,0,0,0,0],
             orientation: morph.orientation || 0,
            
-            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
-          contour: morph.contour,
+            // 🔥 КОНТУР (для новых признаков)
+            contour: morph.contour || null,
+           
+            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph) // ← здесь НЕТ запятой!
         });
     }
 
