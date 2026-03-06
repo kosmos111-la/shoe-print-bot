@@ -337,21 +337,15 @@ diagnoseFirstPoint(pointsA, pointsB) {
         return [];
     }
    
-    // Выводим структуру для диагностики
     console.log(`🔍 Структура delaunay:`, Object.keys(delaunay));
    
-    // Пробуем разные варианты
-    if (delaunay.triangles) {
-        console.log(`✅ Найдено triangles: ${delaunay.triangles.length}`);
-        return delaunay.triangles;
-    }
-   
     if (delaunay.triangleList) {
-        console.log(`✅ Найдено triangleList: ${delaunay.triangleList.length}`);
+        console.log(`✅ Найдено triangleList, тип:`, typeof delaunay.triangleList);
+        console.log(`✅ triangleList длина:`, delaunay.triangleList.length);
+        console.log(`✅ triangleList первые 3 элемента:`, delaunay.triangleList.slice(0, 3));
         return delaunay.triangleList;
     }
    
-    // Если ничего не нашли
     console.log(`❌ Нет данных о треугольниках в графе`);
     return [];
 }
