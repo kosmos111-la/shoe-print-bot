@@ -389,6 +389,26 @@ async compareByTriangleMatching(model1, model2, options = {}) {
         result = triangleMatcher.findMatches(points1, points2);
     } catch (error) {
         console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
+        console.log(error.stack);
+        // 🔥 ВАЖНО: возвращаем объект, а не массив!
+        return {
+            success: false,
+            matches: [],
+            count: 0,
+            sufficient: false,
+            similarity: 0,
+            time: Date.now() - startTime,
+            ambiguous: [],
+            noMatchA: points1.map(p => p.id),
+            noMatchB: points2.map(p => p.id),
+            stats: {}
+        };
+    }
+
+    // 🔥 ПРОВЕРКА: result может быть массивом (если ошибка в матчере)
+    if (Array.isArray(result)) {
+        console.log(`❌ triangleMatcher вернул массив вместо объекта`);
+        console.log(`   Исправьте TriangleMatcher.findMatches чтобы возвращал объект с полем matches`);
         return {
             success: false,
             matches: [],
@@ -421,7 +441,8 @@ async compareByTriangleMatching(model1, model2, options = {}) {
 
     if (!result.matches) {
         console.log(`❌ result.matches = undefined`);
-        console.log(`   result =`, Object.keys(result));
+        console.log(`   result =`, result);
+        console.log(`   keys =`, Object.keys(result));
         return {
             success: false,
             matches: [],
