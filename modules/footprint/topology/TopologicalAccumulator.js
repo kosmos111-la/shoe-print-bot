@@ -359,11 +359,11 @@ return {
 
         // Создаем треугольный матчер
         const triangleMatcher = new TriangleMatcher({
-            morphologyThreshold: 0.4,    // было 0.15
-    ratioThreshold: 0.25,         // было 0.1
-    angleThreshold: 30,            // добавить
-    degreeTolerance: 1
-        });
+    compactnessThreshold: 0.4,
+    eccentricityThreshold: 0.2,
+    areaThreshold: 0.5,
+    ratioThreshold: 0.25
+});
 
         // Запускаем треугольный поиск
         const result = triangleMatcher.findMatches(points1, points2);
