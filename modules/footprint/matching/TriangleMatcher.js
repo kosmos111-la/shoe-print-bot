@@ -380,16 +380,46 @@ buildTopologicalTriangles(delaunay, points) {
      * Поиск соответствий
      */
     findMatchesInGroups(groupsA, groupsB) {
-        const matches = [];
-        for (const [key, trisA] of Object.entries(groupsA)) {
-            const trisB = groupsB[key];
-            if (!trisB) continue;
-            for (let i = 0; i < Math.min(trisA.length, trisB.length); i++) {
-                matches.push({ triangleA: trisA[i], triangleB: trisB[i], score: 1.0 });
-            }
+    const matches = [];
+
+    if (!groupsA || !groupsB) return matches;
+
+    for (const [key, trisA] of Object.entries(groupsA)) {
+        const trisB = groupsB[key];
+        if (!trisB) continue;
+
+        // ✅ УНИКАЛЬНАЯ ПАРА: по одному треугольнику в каждой группе
+        if (trisA.length === 1 && trisB.length === 1) {
+            matches.push({
+                triangleA: trisA[0],
+                triangleB: trisB[0],
+                score: 1.0,
+                type: 'unique'
+            });
         }
-        return matches;
+        // ⚠️ СПУТАННЫЕ: сохраняем для дальнейшей обработки
+        else {
+            // Здесь можно сохранить для этапа 5 (рёбра, внешние точки)
+            this.confusedGroups = this.confusedGroups || [];
+            this.confusedGroups.push({
+                key,
+                trisA,
+                trisB,
+                sizeA: trisA.length,
+                sizeB: trisB.length
+            });
+        }
     }
+
+    console.log(`   ✅ Уникальных пар: ${matches.length}`);
+    if (this.confusedGroups) {
+        console.log(`   ⚠️ Спутнанных групп: ${this.confusedGroups.length}`);
+        let totalTriangles = this.confusedGroups.reduce((sum, g) => sum + g.sizeA, 0);
+        console.log(`      • Треугольников в спутанных группах А: ${totalTriangles}`);
+    }
+
+    return matches;
+}
 
     /**
      * Восстановление точек
