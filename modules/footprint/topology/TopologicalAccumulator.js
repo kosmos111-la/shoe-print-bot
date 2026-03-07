@@ -173,11 +173,18 @@ class TopologicalAccumulator {
             // 2.4 Создаем matchMap для визуализации
 const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(triangleResult);
 
-// 🔥 СОХРАНЯЕМ В МОДЕЛИ для визуализации
-existingModel.lastTriangleResult = {
-    ...triangleResult,
+// 🔥 ВРЕМЕННО: показываем только уникальные треугольники
+console.log(`\n🔍 ОТЛАДКА: ${triangleResult.matches.length} уникальных точек`);
+console.log(`   matchMap передан в визуализацию: ${matchMap.size} пар`);
+
+// ВОЗВРАЩАЕМ РЕЗУЛЬТАТ СРАЗУ, БЕЗ ДОСТРАИВАНИЯ
+return {
+    status: 'debug_triangles',
+    modelId: modelIdHint,
+    similarity: triangleResult.similarity,
+    matchMap: matchMap,
     modelMatchMap: modelMatchMap,
-    matchMap: matchMap
+    message: `Отладка: ${triangleResult.count} уникальных треугольников`
 };
 
 // 2.5 Очищаем неподтверждённые точки
