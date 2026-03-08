@@ -1,5 +1,5 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (только 3 реальных признака)
+// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (3 признака + ориентация)
 
 class TriangleMatcher {
     constructor(options = {}) {
@@ -21,12 +21,12 @@ class TriangleMatcher {
         this.confusedGroups = [];
         this.uniquePairs = [];
 
-        console.log(`🔺 TriangleMatcher (3 реальных признака) создан`);
+        console.log(`🔺 TriangleMatcher (3 признака + ориентация) создан`);
     }
 
     findMatches(pointsA, pointsB, delaunayA, delaunayB) {
         console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (3 реальных признака)`);
+        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (3 признака + ориентация)`);
         console.log(`${'='.repeat(100)}`);
         console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
@@ -111,6 +111,7 @@ class TriangleMatcher {
         console.log(`      Точки: ${triangle.points.map(p => p.slice(0,8)).join(' ')}`);
         console.log(`      Сигнатура: ${triangle.signature}`);
         console.log(`      Количество соседей: ${triangle.degree}`);
+        console.log(`      Ориентация: ${triangle.orientation}`);
         console.log(`      Вектор признаков (9 чисел): [${triangle.vectors.join(', ')}]`);
     }
 
@@ -122,6 +123,7 @@ class TriangleMatcher {
         console.log(`      Треугольник А: точки ${pair.triangleA.points.map(p => p.slice(0,8)).join(' ')}`);
         console.log(`      Треугольник Б: точки ${pair.triangleB.points.map(p => p.slice(0,8)).join(' ')}`);
         console.log(`      Сигнатура: ${pair.triangleA.signature}`);
+        console.log(`      Ориентации: А=${pair.triangleA.orientation}, Б=${pair.triangleB.orientation}`);
         console.log(`      Степени: А=${pair.triangleA.degree}, Б=${pair.triangleB.degree}`);
         console.log(`      Вектор А: [${pair.triangleA.vectors.join(', ')}]`);
         console.log(`      Вектор Б: [${pair.triangleB.vectors.join(', ')}]`);
@@ -191,6 +193,10 @@ class TriangleMatcher {
                 Math.floor(Math.log10(p3.normalizedArea + 1) * 4)
             ];
 
+            // 🔥 ВЫЧИСЛЯЕМ ОРИЕНТАЦИЮ
+            const orient = (p2.x - p1.x)*(p3.y - p1.y) - (p2.y - p1.y)*(p3.x - p1.x);
+            const orientation = Math.sign(orient); // +1 или -1
+
             // Сортируем векторы для инвариантности к повороту
             const vectors = [v1, v2, v3].sort((a, b) => {
                 for (let i = 0; i < 3; i++) {
@@ -205,7 +211,7 @@ class TriangleMatcher {
             const triangle = {
                 points: [p1.id, p2.id, p3.id],
                 vectors: flatVectors,
-                signature: flatVectors.join('_'),
+                orientation: orientation,
                 degree: 0, // будет заполнено позже
                 p1, p2, p3,
                 edges: [
@@ -221,10 +227,10 @@ class TriangleMatcher {
         // Строим связи между треугольниками
         this.buildNeighbors(triangles);
 
-        // Добавляем степень в сигнатуру
+        // Добавляем степень и ориентацию в сигнатуру
         for (const t of triangles) {
             t.degree = t.edges.filter(e => e.neighborTriangles.length > 0).length;
-            t.signature += `_deg${t.degree}`;
+            t.signature = t.vectors.join('_') + '_' + t.orientation + '_deg' + t.degree;
         }
 
         console.log(`   ✅ Построено ${triangles.length} топологических треугольников`);
