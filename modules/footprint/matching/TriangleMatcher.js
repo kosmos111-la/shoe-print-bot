@@ -1,21 +1,15 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР С ПРИЗНАКОМ "КОЛИЧЕСТВО СОСЕДЕЙ"
+// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (только 3 реальных признака)
 
 class TriangleMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
 
-        // Конфигурация признаков
+        // Конфигурация признаков (только реальные)
         this.featureConfig = {
             compactness: { enabled: true, weight: 1 },
             eccentricity: { enabled: true, weight: 1 },
-            asymmetry: { enabled: true, weight: 1 },
-            convexity: { enabled: true, weight: 1 },
-            quadrants: { enabled: false, weight: 1 },
-            centerMass: { enabled: false, weight: 1 },
-            centerInscribed: { enabled: false, weight: 1 },
-            centerCircumscribed: { enabled: false, weight: 1 },
-            radialProfile: { enabled: false, weight: 1 }
+            area: { enabled: true, weight: 1 }
         };
 
         this.stats = {
@@ -27,12 +21,12 @@ class TriangleMatcher {
         this.confusedGroups = [];
         this.uniquePairs = [];
 
-        console.log(`🔺 TriangleMatcher с признаком "количество соседей" создан`);
+        console.log(`🔺 TriangleMatcher (3 реальных признака) создан`);
     }
 
     findMatches(pointsA, pointsB, delaunayA, delaunayB) {
         console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (с признаком "количество соседей")`);
+        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (3 реальных признака)`);
         console.log(`${'='.repeat(100)}`);
         console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
@@ -117,10 +111,7 @@ class TriangleMatcher {
         console.log(`      Точки: ${triangle.points.map(p => p.slice(0,8)).join(' ')}`);
         console.log(`      Сигнатура: ${triangle.signature}`);
         console.log(`      Количество соседей: ${triangle.degree}`);
-        console.log(`      Векторы признаков:`);
-        triangle.vectors.forEach((v, i) => {
-            if (i % 5 === 0) console.log(`         Точка ${Math.floor(i/5)+1}: ${v}, ${triangle.vectors[i+1]}, ${triangle.vectors[i+2]}, ${triangle.vectors[i+3]}, ${triangle.vectors[i+4]}`);
-        });
+        console.log(`      Вектор признаков (9 чисел): [${triangle.vectors.join(', ')}]`);
     }
 
     /**
@@ -132,6 +123,8 @@ class TriangleMatcher {
         console.log(`      Треугольник Б: точки ${pair.triangleB.points.map(p => p.slice(0,8)).join(' ')}`);
         console.log(`      Сигнатура: ${pair.triangleA.signature}`);
         console.log(`      Степени: А=${pair.triangleA.degree}, Б=${pair.triangleB.degree}`);
+        console.log(`      Вектор А: [${pair.triangleA.vectors.join(', ')}]`);
+        console.log(`      Вектор Б: [${pair.triangleB.vectors.join(', ')}]`);
     }
 
     /**
@@ -179,21 +172,40 @@ class TriangleMatcher {
 
             if (!p1 || !p2 || !p3) continue;
 
-            const v1 = this.getPointVector(p1);
-            const v2 = this.getPointVector(p2);
-            const v3 = this.getPointVector(p3);
+            // 🔥 ТОЛЬКО 3 РЕАЛЬНЫХ ПРИЗНАКА
+            const v1 = [
+                Math.floor(p1.compactness / 5),
+                Math.floor(p1.eccentricity * 3),
+                Math.floor(Math.log10(p1.normalizedArea + 1) * 4)
+            ];
+           
+            const v2 = [
+                Math.floor(p2.compactness / 5),
+                Math.floor(p2.eccentricity * 3),
+                Math.floor(Math.log10(p2.normalizedArea + 1) * 4)
+            ];
+           
+            const v3 = [
+                Math.floor(p3.compactness / 5),
+                Math.floor(p3.eccentricity * 3),
+                Math.floor(Math.log10(p3.normalizedArea + 1) * 4)
+            ];
 
+            // Сортируем векторы для инвариантности к повороту
             const vectors = [v1, v2, v3].sort((a, b) => {
-                for (let i = 0; i < a.length; i++) {
+                for (let i = 0; i < 3; i++) {
                     if (a[i] !== b[i]) return a[i] - b[i];
                 }
                 return 0;
             });
 
+            // Плоский массив из 9 чисел
+            const flatVectors = vectors.flat();
+
             const triangle = {
                 points: [p1.id, p2.id, p3.id],
-                vectors: vectors.flat(),
-                signature: vectors.flat().join('_'),
+                vectors: flatVectors,
+                signature: flatVectors.join('_'),
                 degree: 0, // будет заполнено позже
                 p1, p2, p3,
                 edges: [
@@ -245,22 +257,6 @@ class TriangleMatcher {
         });
     }
 
-    /**
-     * Вектор признаков точки
-     */
-   getPointVector(point) {
-    return [
-        Math.floor(point.compactness / 5),
-        Math.floor(point.eccentricity * 3),
-        Math.floor(Math.log10(point.normalizedArea + 1) * 4),
-        0,  // заглушка для asymmetry
-        0,  // заглушка для quadrants
-        0,  // заглушка для centerMass
-        0,  // заглушка для centerInscribed
-        0,  // заглушка для centerCircumscribed
-        0   // заглушка для radialProfile
-    ];
-}
     /**
      * Получение треугольников из Делоне
      */
