@@ -248,46 +248,19 @@ class TriangleMatcher {
     /**
      * Вектор признаков точки
      */
-    getPointVector(point) {
-        const vector = [];
-
-        for (const [name, config] of Object.entries(this.featureConfig)) {
-            if (!config.enabled) continue;
-
-            switch(name) {
-                case 'compactness':
-                    vector.push(Math.floor(point.compactness / 5));
-                    break;
-                case 'eccentricity':
-                    vector.push(Math.floor(point.eccentricity * 3));
-                    break;
-                case 'asymmetry':
-                    vector.push(Math.floor(0.5 * 10)); // заглушка
-                    break;
-                case 'convexity':
-                    vector.push(point.isConvex ? 1 : 0);
-                    break;
-                case 'quadrants':
-                    vector.push(0,0,0,0); // заглушка
-                    break;
-                case 'centerMass':
-                    vector.push(0); // заглушка
-                    break;
-                case 'centerInscribed':
-                    vector.push(0); // заглушка
-                    break;
-                case 'centerCircumscribed':
-                    vector.push(0); // заглушка
-                    break;
-                case 'radialProfile':
-                    vector.push(0); // заглушка
-                    break;
-            }
-        }
-
-        return vector;
-    }
-
+   getPointVector(point) {
+    return [
+        Math.floor(point.compactness / 5),
+        Math.floor(point.eccentricity * 3),
+        Math.floor(Math.log10(point.normalizedArea + 1) * 4),
+        0,  // заглушка для asymmetry
+        0,  // заглушка для quadrants
+        0,  // заглушка для centerMass
+        0,  // заглушка для centerInscribed
+        0,  // заглушка для centerCircumscribed
+        0   // заглушка для radialProfile
+    ];
+}
     /**
      * Получение треугольников из Делоне
      */
