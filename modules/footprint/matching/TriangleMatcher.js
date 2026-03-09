@@ -69,6 +69,47 @@ class TriangleMatcher {
         console.log(`   • Всего пар треугольников: ${this.stats.level1.totalPairs}`);
         console.log(`   • Среднее вариантов: ${this.stats.level1.variants.toFixed(2)}`);
 
+console.log(`\n📊 ПОЛНЫЙ СПИСОК УНИКАЛЬНЫХ СИГНАТУР В СЛЕДЕ А:`);
+const sortedSignaturesA = Object.entries(groupsA)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 200); // первые 20 для наглядности
+
+sortedSignaturesA.forEach(([sig, tris], idx) => {
+    console.log(`\n   ${idx+1}. Сигнатура: ${sig}`);
+    console.log(`      Треугольников: ${tris.length}`);
+    if (tris.length === 1) {
+        const t = tris[0];
+        console.log(`      Точки: ${t.points.map(p => p.slice(0,8)).join(' ')}`);
+        console.log(`      Вектор: [${t.vectors.join(', ')}]`);
+        console.log(`      Ориентация: ${t.orientation}`);
+        console.log(`      Степень: ${t.degree}`);
+    } else {
+        // Показываем первые 3 треугольника в группе
+        tris.slice(0, 3).forEach((t, i) => {
+            console.log(`      Вариант ${i+1}: точки ${t.points.map(p => p.slice(0,8)).join(' ')}`);
+        });
+        if (tris.length > 3) console.log(`      ... и еще ${tris.length-3}`);
+    }
+});
+
+console.log(`\n📊 ПОЛНЫЙ СПИСОК УНИКАЛЬНЫХ СИГНАТУР В СЛЕДЕ Б:`);
+const sortedSignaturesB = Object.entries(groupsB)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 200);
+
+sortedSignaturesB.forEach(([sig, tris], idx) => {
+    console.log(`\n   ${idx+1}. Сигнатура: ${sig}`);
+    console.log(`      Треугольников: ${tris.length}`);
+    if (tris.length === 1) {
+        const t = tris[0];
+        console.log(`      Точки: ${t.points.map(p => p.slice(0,8)).join(' ')}`);
+        console.log(`      Вектор: [${t.vectors.join(', ')}]`);
+        console.log(`      Ориентация: ${t.orientation}`);
+        console.log(`      Степень: ${t.degree}`);
+    }
+});
+      
+
         // ШАГ 4: Поиск соответствий (только уникальные)
         console.log(`\n🔍 ШАГ 4: Поиск соответствий`);
 
