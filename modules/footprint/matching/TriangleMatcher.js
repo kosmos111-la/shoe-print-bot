@@ -1,15 +1,16 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (3 признака + ориентация)
+// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (4 признака + ориентация + степень + зона)
 
 class TriangleMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
 
-        // Конфигурация признаков (только реальные)
+        // 🔥 ТЕПЕРЬ 4 ПРИЗНАКА
         this.featureConfig = {
             compactness: { enabled: true, weight: 1 },
             eccentricity: { enabled: true, weight: 1 },
-            area: { enabled: true, weight: 1 }
+            area: { enabled: true, weight: 1 },
+            asymmetry: { enabled: true, weight: 1 }  // НОВЫЙ!
         };
 
         this.stats = {
@@ -21,16 +22,14 @@ class TriangleMatcher {
         this.confusedGroups = [];
         this.uniquePairs = [];
 
-        console.log(`🔺 TriangleMatcher (3 признака + ориентация) создан`);
+        console.log(`🔺 TriangleMatcher (4 признака + ориентация + степень) создан`);
     }
 
     findMatches(pointsA, pointsB, delaunayA, delaunayB) {
         console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (3 признака + ориентация)`);
+        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (4 признака + ориентация + степень)`);
         console.log(`${'='.repeat(100)}`);
         console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
-
-        this.diagnoseFirstPoint(pointsA, pointsB);
 
         // ШАГ 1: Триангуляция Делоне
         console.log(`\n🔍 ШАГ 1: Триангуляция Делоне`);
@@ -47,90 +46,24 @@ class TriangleMatcher {
         console.log(`   • Треугольников в А: ${trianglesA.length}`);
         console.log(`   • Треугольников в Б: ${trianglesB.length}`);
 
-        // Диагностика первого треугольника (если есть)
-        if (trianglesA.length > 0) {
-            this.diagnoseFirstTriangle(trianglesA[0], 'А');
-        }
-        if (trianglesB.length > 0) {
-            this.diagnoseFirstTriangle(trianglesB[0], 'Б');
-        }
+        // ШАГ 3: Группировка по сигнатуре ВНУТРИ каждого следа
+        console.log(`\n🔍 ШАГ 3: Поиск УНИКАЛЬНЫХ треугольников в каждом следе`);
 
-        // ШАГ 3: Группировка по сигнатуре
-        console.log(`\n🔍 ШАГ 3: Группировка треугольников`);
+        const uniqueInA = this.findUniqueTriangles(trianglesA);
+        const uniqueInB = this.findUniqueTriangles(trianglesB);
 
-        const groupsA = this.groupBySignature(trianglesA);
-        const groupsB = this.groupBySignature(trianglesB);
+        console.log(`\n📊 УНИКАЛЬНЫЕ ТРЕУГОЛЬНИКИ:`);
+        console.log(`   • В следе А: ${uniqueInA.length} из ${trianglesA.length}`);
+        console.log(`   • В следе Б: ${uniqueInB.length} из ${trianglesB.length}`);
 
-        this.stats.level1.groups = Object.keys(groupsA).length;
-        this.stats.level1.totalPairs = this.calculateTotalPairs(groupsA, groupsB);
-        this.stats.level1.variants = this.calculateVariants(groupsA, groupsB);
+        // ШАГ 4: Поиск соответствий МЕЖДУ уникальными треугольниками
+        console.log(`\n🔍 ШАГ 4: Поиск соответствий между уникальными треугольниками`);
 
-        console.log(`   • Уникальных групп в А: ${Object.keys(groupsA).length}`);
-        console.log(`   • Всего пар треугольников: ${this.stats.level1.totalPairs}`);
-        console.log(`   • Среднее вариантов: ${this.stats.level1.variants.toFixed(2)}`);
+        this.findMatchesBetweenUnique(uniqueInA, uniqueInB);
 
-console.log(`\n📊 ПОЛНЫЙ СПИСОК УНИКАЛЬНЫХ СИГНАТУР В СЛЕДЕ А:`);
-const sortedSignaturesA = Object.entries(groupsA)
-    .sort((a, b) => b[1].length - a[1].length)
-    .slice(0, 200); // первые 20 для наглядности
-
-sortedSignaturesA.forEach(([sig, tris], idx) => {
-    console.log(`\n   ${idx+1}. Сигнатура: ${sig}`);
-    console.log(`      Треугольников: ${tris.length}`);
-    if (tris.length === 1) {
-        const t = tris[0];
-        console.log(`      Точки: ${t.points.map(p => p.slice(0,8)).join(' ')}`);
-        console.log(`      Вектор: [${t.vectors.join(', ')}]`);
-        console.log(`      Ориентация: ${t.orientation}`);
-        console.log(`      Степень: ${t.degree}`);
-    } else {
-        // Показываем первые 3 треугольника в группе
-        tris.slice(0, 3).forEach((t, i) => {
-            console.log(`      Вариант ${i+1}: точки ${t.points.map(p => p.slice(0,8)).join(' ')}`);
-        });
-        if (tris.length > 3) console.log(`      ... и еще ${tris.length-3}`);
-    }
-});
-
-console.log(`\n📊 ПОЛНЫЙ СПИСОК УНИКАЛЬНЫХ СИГНАТУР В СЛЕДЕ Б:`);
-const sortedSignaturesB = Object.entries(groupsB)
-    .sort((a, b) => b[1].length - a[1].length)
-    .slice(0, 200);
-
-sortedSignaturesB.forEach(([sig, tris], idx) => {
-    console.log(`\n   ${idx+1}. Сигнатура: ${sig}`);
-    console.log(`      Треугольников: ${tris.length}`);
-    if (tris.length === 1) {
-        const t = tris[0];
-        console.log(`      Точки: ${t.points.map(p => p.slice(0,8)).join(' ')}`);
-        console.log(`      Вектор: [${t.vectors.join(', ')}]`);
-        console.log(`      Ориентация: ${t.orientation}`);
-        console.log(`      Степень: ${t.degree}`);
-    }
-});
-      
-
-        // ШАГ 4: Поиск соответствий (только уникальные)
-        console.log(`\n🔍 ШАГ 4: Поиск соответствий`);
-
-        this.findUniqueMatches(groupsA, groupsB);
-
-        this.stats.level3.matches = this.uniquePairs.length;
-        this.stats.level3.confidence = this.uniquePairs.length / Math.min(trianglesA.length, trianglesB.length);
-
-        console.log(`   ✅ Уникальных пар: ${this.uniquePairs.length}`);
-        console.log(`   ⚠️ Спутнанных групп: ${this.confusedGroups.length}`);
-       
-        let confusedTriangles = this.confusedGroups.reduce((sum, g) => sum + g.trisA.length, 0);
-        console.log(`      • Треугольников в спутанных группах А: ${confusedTriangles}`);
-
-        console.log(`   • Найдено пар треугольников: ${this.uniquePairs.length}`);
-        console.log(`   • Уверенность: ${(this.stats.level3.confidence*100).toFixed(1)}%`);
-
-        // Диагностика первой уникальной пары
-        if (this.uniquePairs.length > 0) {
-            this.diagnoseFirstUniquePair(this.uniquePairs[0]);
-        }
+        console.log(`\n📊 РЕЗУЛЬТАТ:`);
+        console.log(`   • Найдено уникальных пар: ${this.uniquePairs.length}`);
+        console.log(`   • Уверенность: ${(this.uniquePairs.length / Math.min(uniqueInA.length, uniqueInB.length) * 100).toFixed(1)}%`);
 
         // Восстановление точек
         const pointMatches = this.reconstructPoints(this.uniquePairs);
@@ -145,56 +78,58 @@ sortedSignaturesB.forEach(([sig, tris], idx) => {
     }
 
     /**
-     * 🔍 ДИАГНОСТИКА ПЕРВОГО ТРЕУГОЛЬНИКА
+     * Находит ТОЛЬКО уникальные треугольники (те, у которых сигнатура встречается ровно 1 раз)
      */
-    diagnoseFirstTriangle(triangle, label) {
-        console.log(`\n   📐 ПЕРВЫЙ ТРЕУГОЛЬНИК В СЛЕДЕ ${label}:`);
-        console.log(`      Точки: ${triangle.points.map(p => p.slice(0,8)).join(' ')}`);
-        console.log(`      Сигнатура: ${triangle.signature}`);
-        console.log(`      Количество соседей: ${triangle.degree}`);
-        console.log(`      Ориентация: ${triangle.orientation}`);
-        console.log(`      Вектор признаков (9 чисел): [${triangle.vectors.join(', ')}]`);
+    findUniqueTriangles(triangles) {
+        // Сначала группируем по сигнатуре
+        const groups = {};
+        for (const t of triangles) {
+            if (!groups[t.signature]) groups[t.signature] = [];
+            groups[t.signature].push(t);
+        }
+
+        // Оставляем только те, у которых размер группы = 1
+        const unique = [];
+        for (const [sig, tris] of Object.entries(groups)) {
+            if (tris.length === 1) {
+                unique.push(tris[0]);
+            } else {
+                if (this.debug) {
+                    console.log(`   ⚠️ Группа ${sig} имеет ${tris.length} вариантов - пропускаем`);
+                }
+            }
+        }
+
+        return unique;
     }
 
     /**
-     * 🔍 ДИАГНОСТИКА ПЕРВОЙ УНИКАЛЬНОЙ ПАРЫ
+     * Находит соответствия МЕЖДУ уникальными треугольниками из двух следов
      */
-    diagnoseFirstUniquePair(pair) {
-        console.log(`\n   🔗 ПЕРВАЯ УНИКАЛЬНАЯ ПАРА:`);
-        console.log(`      Треугольник А: точки ${pair.triangleA.points.map(p => p.slice(0,8)).join(' ')}`);
-        console.log(`      Треугольник Б: точки ${pair.triangleB.points.map(p => p.slice(0,8)).join(' ')}`);
-        console.log(`      Сигнатура: ${pair.triangleA.signature}`);
-        console.log(`      Ориентации: А=${pair.triangleA.orientation}, Б=${pair.triangleB.orientation}`);
-        console.log(`      Степени: А=${pair.triangleA.degree}, Б=${pair.triangleB.degree}`);
-        console.log(`      Вектор А: [${pair.triangleA.vectors.join(', ')}]`);
-        console.log(`      Вектор Б: [${pair.triangleB.vectors.join(', ')}]`);
-    }
-
-    /**
-     * Поиск только уникальных пар
-     */
-    findUniqueMatches(groupsA, groupsB) {
+    findMatchesBetweenUnique(uniqueA, uniqueB) {
         this.uniquePairs = [];
-        this.confusedGroups = [];
+       
+        // Создаем map для быстрого поиска
+        const signatureMapB = new Map();
+        for (const t of uniqueB) {
+            signatureMapB.set(t.signature, t);
+        }
 
-        for (const [key, trisA] of Object.entries(groupsA)) {
-            const trisB = groupsB[key];
-            if (!trisB) continue;
-
-            if (trisA.length === 1 && trisB.length === 1) {
+        // Ищем точные совпадения сигнатур
+        for (const tA of uniqueA) {
+            const tB = signatureMapB.get(tA.signature);
+            if (tB) {
                 this.uniquePairs.push({
-                    triangleA: trisA[0],
-                    triangleB: trisB[0],
+                    triangleA: tA,
+                    triangleB: tB,
                     score: 1.0
                 });
-            } else {
-                this.confusedGroups.push({ key, trisA, trisB });
             }
         }
     }
 
     /**
-     * Построение топологических треугольников
+     * Построение топологических треугольников с 4 признаками
      */
     buildTopologicalTriangles(delaunay, points) {
         const triangles = [];
@@ -215,38 +150,41 @@ sortedSignaturesB.forEach(([sig, tris], idx) => {
 
             if (!p1 || !p2 || !p3) continue;
 
-            // 🔥 ТОЛЬКО 3 РЕАЛЬНЫХ ПРИЗНАКА
+            // 🔥 4 ПРИЗНАКА НА ТОЧКУ
             const v1 = [
-                Math.floor(p1.compactness / 5),
-                Math.floor(p1.eccentricity * 3),
-                Math.floor(Math.log10(p1.normalizedArea + 1) * 4)
+                Math.floor(p1.compactness / 5) || 0,
+                Math.floor(p1.eccentricity * 3) || 0,
+                Math.floor(Math.log10(p1.normalizedArea + 1) * 4) || 0,
+                Math.floor((p1.asymmetry || 0) * 5) || 0  // НОВЫЙ: асимметрия 0-5
             ];
            
             const v2 = [
-                Math.floor(p2.compactness / 5),
-                Math.floor(p2.eccentricity * 3),
-                Math.floor(Math.log10(p2.normalizedArea + 1) * 4)
+                Math.floor(p2.compactness / 5) || 0,
+                Math.floor(p2.eccentricity * 3) || 0,
+                Math.floor(Math.log10(p2.normalizedArea + 1) * 4) || 0,
+                Math.floor((p2.asymmetry || 0) * 5) || 0
             ];
            
             const v3 = [
-                Math.floor(p3.compactness / 5),
-                Math.floor(p3.eccentricity * 3),
-                Math.floor(Math.log10(p3.normalizedArea + 1) * 4)
+                Math.floor(p3.compactness / 5) || 0,
+                Math.floor(p3.eccentricity * 3) || 0,
+                Math.floor(Math.log10(p3.normalizedArea + 1) * 4) || 0,
+                Math.floor((p3.asymmetry || 0) * 5) || 0
             ];
 
-            // 🔥 ВЫЧИСЛЯЕМ ОРИЕНТАЦИЮ
+            // Вычисляем ориентацию
             const orient = (p2.x - p1.x)*(p3.y - p1.y) - (p2.y - p1.y)*(p3.x - p1.x);
             const orientation = Math.sign(orient); // +1 или -1
 
             // Сортируем векторы для инвариантности к повороту
             const vectors = [v1, v2, v3].sort((a, b) => {
-                for (let i = 0; i < 3; i++) {
+                for (let i = 0; i < 4; i++) {
                     if (a[i] !== b[i]) return a[i] - b[i];
                 }
                 return 0;
             });
 
-            // Плоский массив из 9 чисел
+            // Плоский массив из 12 чисел
             const flatVectors = vectors.flat();
 
             const triangle = {
@@ -268,9 +206,10 @@ sortedSignaturesB.forEach(([sig, tris], idx) => {
         // Строим связи между треугольниками
         this.buildNeighbors(triangles);
 
-        // Добавляем степень и ориентацию в сигнатуру
+        // Добавляем степень в сигнатуру
         for (const t of triangles) {
             t.degree = t.edges.filter(e => e.neighborTriangles.length > 0).length;
+            // Сигнатура: 12 чисел + ориентация + степень
             t.signature = t.vectors.join('_') + '_' + t.orientation + '_deg' + t.degree;
         }
 
@@ -314,19 +253,7 @@ sortedSignaturesB.forEach(([sig, tris], idx) => {
     }
 
     /**
-     * Группировка по сигнатуре
-     */
-    groupBySignature(triangles) {
-        const groups = {};
-        for (const t of triangles) {
-            if (!groups[t.signature]) groups[t.signature] = [];
-            groups[t.signature].push(t);
-        }
-        return groups;
-    }
-
-    /**
-     * Восстановление точек
+     * Восстановление точек с сортировкой для сохранения соответствия
      */
     reconstructPoints(matches) {
         const pointMatches = [];
@@ -337,80 +264,24 @@ sortedSignaturesB.forEach(([sig, tris], idx) => {
             const tA = match.triangleA;
             const tB = match.triangleB;
 
-            for (let i = 0; i < 3; i++) {
-                const pointA = tA.points[i];
-                const pointB = tB.points[i];
+            // Сортируем точки по компактности для сохранения порядка
+            const pointsA = [tA.p1, tA.p2, tA.p3].sort((a, b) => a.compactness - b.compactness);
+            const pointsB = [tB.p1, tB.p2, tB.p3].sort((a, b) => a.compactness - b.compactness);
 
-                if (!usedA.has(pointA) && !usedB.has(pointB)) {
-                    pointMatches.push({ pointA, pointB, confidence: match.score });
-                    usedA.add(pointA);
-                    usedB.add(pointB);
+            for (let i = 0; i < 3; i++) {
+                if (!usedA.has(pointsA[i].id) && !usedB.has(pointsB[i].id)) {
+                    pointMatches.push({
+                        pointA: pointsA[i].id,
+                        pointB: pointsB[i].id,
+                        confidence: match.score
+                    });
+                    usedA.add(pointsA[i].id);
+                    usedB.add(pointsB[i].id);
                 }
             }
         }
 
         return pointMatches;
-    }
-
-    /**
-     * Вспомогательные методы
-     */
-    calculateTotalPairs(groupsA, groupsB) {
-        let total = 0;
-        for (const key of Object.keys(groupsA)) {
-            if (groupsB[key]) {
-                total += groupsA[key].length * groupsB[key].length;
-            }
-        }
-        return total;
-    }
-
-    calculateVariants(groupsA, groupsB) {
-        let total = 0, count = 0;
-        for (const key of Object.keys(groupsA)) {
-            if (groupsB[key]) {
-                total += Math.max(groupsA[key].length, groupsB[key].length);
-                count++;
-            }
-        }
-        return count > 0 ? total / count : 0;
-    }
-
-    /**
-     * Диагностика первой точки
-     */
-    diagnoseFirstPoint(pointsA, pointsB) {
-        if (pointsA.length === 0 || pointsB.length === 0) return;
-
-        const pointA = pointsA[0];
-        const pointB = pointsB[0];
-
-        console.log(`\n🔬 ДИАГНОСТИКА ПЕРВОЙ ТОЧКИ:`);
-
-        const formatValue = (val) => {
-            if (val === null || val === undefined) return 'N/A'.padEnd(19);
-            if (typeof val === 'number') return val.toFixed(4).padEnd(19);
-            if (Array.isArray(val)) return `[${val.length}]`.padEnd(19);
-            return String(val).substring(0, 19).padEnd(19);
-        };
-
-        console.log(`┌──────────────────────┬─────────────────────┬─────────────────────┐`);
-        console.log(`│ Признак              │ Точка А             │ Точка Б             │`);
-        console.log(`├──────────────────────┼─────────────────────┼─────────────────────┤`);
-
-        const features = ['compactness', 'eccentricity', 'asymmetry', 'convexity',
-                         'quadrants', 'centerMass', 'centerInscribed', 'centerCircumscribed', 'radialProfile'];
-
-        for (const feat of features) {
-            const valA = pointA[feat];
-            const valB = pointB[feat];
-            console.log(`│ ${feat.padEnd(20)} │ ${formatValue(valA)} │ ${formatValue(valB)} │`);
-        }
-
-        console.log(`└──────────────────────┴─────────────────────┴─────────────────────┘`);
-        console.log(`\n🔍 ПРОВЕРКА ФОРМАТА ДАННЫХ:`);
-        console.log(`   • pointA имеет contour? ${pointA.contour ? '✅' : '❌'}`);
-        console.log(`   • pointA.radialProfile: ${pointA.radialProfile ? '✅' : '❌'}`);
     }
 
     printSummary() {
@@ -420,14 +291,7 @@ sortedSignaturesB.forEach(([sig, tris], idx) => {
 
         console.log(`\n📈 ТРЕУГОЛЬНИКИ:`);
         console.log(`   • В следе А: ${this.stats.level2.triangles}`);
-        console.log(`   • Уникальных групп: ${this.stats.level1.groups}`);
-        console.log(`   • Всего пар: ${this.stats.level1.totalPairs}`);
-        console.log(`   • Среднее вариантов: ${this.stats.level1.variants.toFixed(2)}`);
-
-        console.log(`\n🎯 СООТВЕТСТВИЯ:`);
-        console.log(`   • Найдено пар треугольников: ${this.stats.level3.matches}`);
-        console.log(`   • Уверенность: ${(this.stats.level3.confidence*100).toFixed(1)}%`);
-        console.log(`   • Восстановлено точек: ${this.stats.level3.matches * 3}`);
+        console.log(`   • Найдено уникальных пар: ${this.uniquePairs.length}`);
     }
 }
 
