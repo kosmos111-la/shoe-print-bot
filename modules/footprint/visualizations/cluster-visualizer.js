@@ -1,6 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
-// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - ИСПРАВЛЕННАЯ ВЕРСИЯ
-// 🔥 Поддержка двустороннего matchMap (фото→модель и модель→фото)
+// 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - ДИАГНОСТИЧЕСКАЯ ВЕРСИЯ
 
 const fs = require('fs');
 const path = require('path');
@@ -22,7 +21,7 @@ class ClusterVisualizer {
             fs.mkdirSync(this.config.outputDir, { recursive: true });
         }
 
-        console.log('🎨 ClusterVisualizer (исправленная версия) создан');
+        console.log('🎨 ClusterVisualizer (диагностическая версия) создан');
     }
 
     async visualizeTopologicalModel(topologyData, options = {}) {
@@ -80,24 +79,25 @@ class ClusterVisualizer {
         // Вычисляем границы с отступами
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
         const { minX, maxX, minY, maxY } = this.calculateBounds(validPoints);
-      
-        // 🔥 УВЕЛИЧЕННЫЙ МАСШТАБ И ЦЕНТРИРОВАНИЕ
+     
+        // МАСШТАБ И ЦЕНТРИРОВАНИЕ
         const scale = this.calculateScale(minX, maxX, minY, maxY,
             this.config.canvasWidth * 0.8, this.config.canvasHeight * 0.7);
-      
+     
         const centerX = this.config.canvasWidth / 2;
         const centerY = this.config.canvasHeight / 2 + 50;
         const avgX = (minX + maxX) / 2;
         const avgY = (minY + maxY) / 2;
 
-        // Рёбра (полупрозрачные)
+        // Рёбра
         if (this.config.showEdges && topologyData.edges) {
             this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
         }
 
-        // 🔥 ИСПРАВЛЕНО: используем modelMatchMap для отображения номеров в модели
+        // 🔥 ИСПОЛЬЗУЕМ modelMatchMap
         const modelMatchMap = topologyData.modelMatchMap || new Map();
-       
+        console.log(`   📋 modelMatchMap содержит ${modelMatchMap.size} записей`);
+      
         // Точки модели с номерами
         this.drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale);
 
@@ -133,10 +133,10 @@ class ClusterVisualizer {
 
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
         const { minX, maxX, minY, maxY } = this.calculateBounds(validPoints);
-      
+     
         const scale = this.calculateScale(minX, maxX, minY, maxY,
             this.config.canvasWidth * 0.8, this.config.canvasHeight * 0.7);
-      
+     
         const centerX = this.config.canvasWidth / 2;
         const centerY = this.config.canvasHeight / 2 + 50;
         const avgX = (minX + maxX) / 2;
@@ -146,9 +146,13 @@ class ClusterVisualizer {
             this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
         }
 
-        const photoPoints = topologyData.photoPoints || topologyData.points;
-        // 🔥 ИСПОЛЬЗУЕМ matchMap ДЛЯ ФОТО
+        // 🔥 ВАЖНО: используем photoPoints если есть, иначе точки модели
+        const photoPoints = topologyData.photoPoints || [];
+        console.log(`   📸 Рисую ${photoPoints.length} точек фото (должно быть 12)`);
+
+        // 🔥 УБЕДИМСЯ, что matchMap передан правильно
         const matchMap = topologyData.matchMap || new Map();
+        console.log(`   📋 matchMap содержит ${matchMap.size} записей`);
 
         this.drawPhotoPoints(ctx, photoPoints, matchMap, avgX, avgY, centerX, centerY, scale);
         this.drawPhotoStats(ctx, topologyData.stats, this.config.canvasWidth, matchMap.size);
@@ -170,10 +174,22 @@ class ClusterVisualizer {
 
     drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale) {
         const points = topologyData.points;
-       
+      
         console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
+        console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
 
         let anchorPoints = 0, regularPoints = 0;
+
+        // Создаем map для быстрого поиска
+        const modelToPair = new Map();
+        for (const [modelId, match] of modelMatchMap) {
+            if (match && match.pairNumber) {
+                modelToPair.set(modelId, match.pairNumber);
+                if (this.config.debug) {
+                    console.log(`      🔢 Модель ${modelId.slice(0,12)}... → номер ${match.pairNumber}`);
+                }
+            }
+        }
 
         for (const point of points) {
             if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
@@ -182,10 +198,8 @@ class ClusterVisualizer {
             const y = centerY + (point.y - avgY) * scale;
 
             const confirmations = point.confirmationCount || 0;
-           
-            // 🔥 ИСПРАВЛЕНО: ищем номер точки в modelMatchMap
-            const match = modelMatchMap.get(point.id);
-            const pairNumber = match?.pairNumber;
+          
+            const pairNumber = modelToPair.get(point.id);
             const isAnchor = pairNumber !== undefined;
 
             let color, size;
@@ -234,11 +248,15 @@ class ClusterVisualizer {
 
     drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
         console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
+        console.log(`   📋 matchMap в drawPhotoPoints: ${matchMap.size} записей`);
 
         const photoToPair = new Map();
         for (const [photoId, match] of matchMap) {
             if (match && match.pairNumber) {
                 photoToPair.set(photoId, match.pairNumber);
+                if (this.config.debug) {
+                    console.log(`      🔢 Фото ${photoId.slice(0,12)}... → номер ${match.pairNumber}`);
+                }
             }
         }
 
@@ -255,7 +273,7 @@ class ClusterVisualizer {
             const hasMatch = matchMap.has(point.id);
 
             let color, size;
-          
+         
             if (isAnchor) {
                 color = '#FF0000';
                 size = 8;
@@ -353,9 +371,9 @@ class ClusterVisualizer {
         ctx.textAlign = 'left';
 
         const rows = [
-            `Узлов в фото: ${stats.totalNodes || 0}`,
+            `Узлов в фото: ${matchedCount}`,
             `✅ Сопоставлено: ${matchedCount || 0}`,
-            `🟠 Новых: ${(stats.totalNodes || 0) - (matchedCount || 0)}`
+            `🟠 Новых: 0`
         ];
 
         rows.forEach((text, i) => {
