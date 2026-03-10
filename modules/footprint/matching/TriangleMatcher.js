@@ -150,26 +150,30 @@ buildTopologicalTriangles(delaunay, points) {
 
         if (!p1 || !p2 || !p3) continue;
 
-        // 🔥 4 ПРИЗНАКА НА ТОЧКУ
+        // 🔥 ВЫЧИСЛЯЕМ radialMin для каждой точки (если ещё не посчитано)
+        if (p1.radialMin === undefined) {
+            p1.radialMin = this.calculateRadialMin(p1);
+            p2.radialMin = this.calculateRadialMin(p2);
+            p3.radialMin = this.calculateRadialMin(p3);
+        }
+
+        // 🔥 ТОЛЬКО 3 УСТОЙЧИВЫХ ПРИЗНАКА НА ТОЧКУ
         const v1 = [
-            Math.floor(p1.compactness / 5) || 0,
-            Math.floor(p1.eccentricity * 3) || 0,
-            Math.floor(Math.log10(p1.normalizedArea + 1) * 4) || 0,
-            Math.floor((p1.asymmetry || 0) * 5) || 0
+            Math.floor(p1.eccentricity * 3) || 0,        // эксцентриситет 0-2
+            Math.floor((p1.asymmetry || 0) * 5) || 0,     // асимметрия 0-4
+            Math.floor((p1.radialMin || 0) * 5) || 0      // мин. радиус 0-4
         ];
        
         const v2 = [
-            Math.floor(p2.compactness / 5) || 0,
             Math.floor(p2.eccentricity * 3) || 0,
-            Math.floor(Math.log10(p2.normalizedArea + 1) * 4) || 0,
-            Math.floor((p2.asymmetry || 0) * 5) || 0
+            Math.floor((p2.asymmetry || 0) * 5) || 0,
+            Math.floor((p2.radialMin || 0) * 5) || 0
         ];
        
         const v3 = [
-            Math.floor(p3.compactness / 5) || 0,
             Math.floor(p3.eccentricity * 3) || 0,
-            Math.floor(Math.log10(p3.normalizedArea + 1) * 4) || 0,
-            Math.floor((p3.asymmetry || 0) * 5) || 0
+            Math.floor((p3.asymmetry || 0) * 5) || 0,
+            Math.floor((p3.radialMin || 0) * 5) || 0
         ];
 
         // Вычисляем ориентацию
@@ -178,13 +182,13 @@ buildTopologicalTriangles(delaunay, points) {
 
         // Сортируем векторы для инвариантности к повороту
         const vectors = [v1, v2, v3].sort((a, b) => {
-            for (let i = 0; i < 4; i++) {
+            for (let i = 0; i < 3; i++) {
                 if (a[i] !== b[i]) return a[i] - b[i];
             }
             return 0;
         });
 
-        // Плоский массив из 12 чисел
+        // Плоский массив из 9 чисел
         const flatVectors = vectors.flat();
 
         const triangle = {
@@ -220,12 +224,15 @@ buildTopologicalTriangles(delaunay, points) {
                 // Ищем вершину, не входящую в текущее ребро
                 for (const v of [neighborTri.p1, neighborTri.p2, neighborTri.p3]) {
                     if (v.id !== edge.v1.id && v.id !== edge.v2.id) {
-                        // 🔥 Эта точка жёстко привязана к данному ребру!
+                        // 🔥 ТЕ ЖЕ 3 УСТОЙЧИВЫХ ПРИЗНАКА ДЛЯ ВНЕШНЕЙ ТОЧКИ
+                        if (v.radialMin === undefined) {
+                            v.radialMin = this.calculateRadialMin(v);
+                        }
+                       
                         const morph = [
-                            Math.floor(v.compactness / 5) || 0,
                             Math.floor(v.eccentricity * 3) || 0,
-                            Math.floor(Math.log10(v.normalizedArea + 1) * 4) || 0,
-                            Math.floor((v.asymmetry || 0) * 5) || 0
+                            Math.floor((v.asymmetry || 0) * 5) || 0,
+                            Math.floor((v.radialMin || 0) * 5) || 0
                         ];
                        
                         // Сортируем ID вершин ребра для уникального ключа
@@ -252,7 +259,7 @@ buildTopologicalTriangles(delaunay, points) {
         t.externalCount = externalVectors.length;
        
         // 🔥 ПОЛНАЯ СИГНАТУРА:
-        // 12 чисел (3 точки × 4 признака) + ориентация + степень + внешние точки
+        // 9 чисел (3 точки × 3 признака) + ориентация + степень + внешние точки
         t.signature = t.vectors.join('_') + '_' + t.orientation + '_deg' + t.degree + '_ext_' + t.externalSignature;
        
         if (this.debug && t.degree > 0) {
@@ -264,6 +271,41 @@ buildTopologicalTriangles(delaunay, points) {
 
     console.log(`   ✅ Построено ${triangles.length} топологических треугольников`);
     return triangles;
+}
+
+/**
+* Вычисляет минимальный радиус для точки (расстояние до ближайшей точки контура)
+*/
+calculateRadialMin(point) {
+    if (!point.contour || point.contour.length === 0) return 0;
+   
+    let minDist = Infinity;
+    for (const p of point.contour) {
+        const dx = p.x - point.x;
+        const dy = p.y - point.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < minDist) minDist = dist;
+    }
+   
+    // Нормируем относительно максимального расстояния
+    const maxDist = this.calculateRadialMax(point);
+    return maxDist > 0 ? minDist / maxDist : 0;
+}
+
+/**
+* Вычисляет максимальный радиус для точки
+*/
+calculateRadialMax(point) {
+    if (!point.contour || point.contour.length === 0) return 1;
+   
+    let maxDist = 0;
+    for (const p of point.contour) {
+        const dx = p.x - point.x;
+        const dy = p.y - point.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist > maxDist) maxDist = dist;
+    }
+    return maxDist;
 }
 
     /**
