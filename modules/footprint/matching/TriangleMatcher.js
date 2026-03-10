@@ -131,91 +131,140 @@ class TriangleMatcher {
     /**
      * Построение топологических треугольников с 4 признаками
      */
-    buildTopologicalTriangles(delaunay, points) {
-        const triangles = [];
-        const pointMap = new Map(points.map(p => [p.id, p]));
+buildTopologicalTriangles(delaunay, points) {
+    const triangles = [];
+    const pointMap = new Map(points.map(p => [p.id, p]));
 
-        const triangleList = this.getTrianglesFromDelaunay(delaunay);
+    const triangleList = this.getTrianglesFromDelaunay(delaunay);
+   
+    console.log(`   🏗️ Построение треугольников из ${triangleList.length} записей`);
+
+    for (const tri of triangleList) {
+        if (!Array.isArray(tri) || tri.length < 3) continue;
        
-        console.log(`   🏗️ Построение треугольников из ${triangleList.length} записей`);
+        const [idx1, idx2, idx3] = tri;
+       
+        const p1 = points[idx1];
+        const p2 = points[idx2];
+        const p3 = points[idx3];
 
-        for (const tri of triangleList) {
-            if (!Array.isArray(tri) || tri.length < 3) continue;
-           
-            const [idx1, idx2, idx3] = tri;
-           
-            const p1 = points[idx1];
-            const p2 = points[idx2];
-            const p3 = points[idx3];
+        if (!p1 || !p2 || !p3) continue;
 
-            if (!p1 || !p2 || !p3) continue;
+        // 🔥 4 ПРИЗНАКА НА ТОЧКУ
+        const v1 = [
+            Math.floor(p1.compactness / 5) || 0,
+            Math.floor(p1.eccentricity * 3) || 0,
+            Math.floor(Math.log10(p1.normalizedArea + 1) * 4) || 0,
+            Math.floor((p1.asymmetry || 0) * 5) || 0
+        ];
+       
+        const v2 = [
+            Math.floor(p2.compactness / 5) || 0,
+            Math.floor(p2.eccentricity * 3) || 0,
+            Math.floor(Math.log10(p2.normalizedArea + 1) * 4) || 0,
+            Math.floor((p2.asymmetry || 0) * 5) || 0
+        ];
+       
+        const v3 = [
+            Math.floor(p3.compactness / 5) || 0,
+            Math.floor(p3.eccentricity * 3) || 0,
+            Math.floor(Math.log10(p3.normalizedArea + 1) * 4) || 0,
+            Math.floor((p3.asymmetry || 0) * 5) || 0
+        ];
 
-            // 🔥 4 ПРИЗНАКА НА ТОЧКУ
-            const v1 = [
-                Math.floor(p1.compactness / 5) || 0,
-                Math.floor(p1.eccentricity * 3) || 0,
-                Math.floor(Math.log10(p1.normalizedArea + 1) * 4) || 0,
-                Math.floor((p1.asymmetry || 0) * 5) || 0  // НОВЫЙ: асимметрия 0-5
-            ];
-           
-            const v2 = [
-                Math.floor(p2.compactness / 5) || 0,
-                Math.floor(p2.eccentricity * 3) || 0,
-                Math.floor(Math.log10(p2.normalizedArea + 1) * 4) || 0,
-                Math.floor((p2.asymmetry || 0) * 5) || 0
-            ];
-           
-            const v3 = [
-                Math.floor(p3.compactness / 5) || 0,
-                Math.floor(p3.eccentricity * 3) || 0,
-                Math.floor(Math.log10(p3.normalizedArea + 1) * 4) || 0,
-                Math.floor((p3.asymmetry || 0) * 5) || 0
-            ];
+        // Вычисляем ориентацию
+        const orient = (p2.x - p1.x)*(p3.y - p1.y) - (p2.y - p1.y)*(p3.x - p1.x);
+        const orientation = Math.sign(orient); // +1 или -1
 
-            // Вычисляем ориентацию
-            const orient = (p2.x - p1.x)*(p3.y - p1.y) - (p2.y - p1.y)*(p3.x - p1.x);
-            const orientation = Math.sign(orient); // +1 или -1
+        // Сортируем векторы для инвариантности к повороту
+        const vectors = [v1, v2, v3].sort((a, b) => {
+            for (let i = 0; i < 4; i++) {
+                if (a[i] !== b[i]) return a[i] - b[i];
+            }
+            return 0;
+        });
 
-            // Сортируем векторы для инвариантности к повороту
-            const vectors = [v1, v2, v3].sort((a, b) => {
-                for (let i = 0; i < 4; i++) {
-                    if (a[i] !== b[i]) return a[i] - b[i];
-                }
-                return 0;
-            });
+        // Плоский массив из 12 чисел
+        const flatVectors = vectors.flat();
 
-            // Плоский массив из 12 чисел
-            const flatVectors = vectors.flat();
+        const triangle = {
+            points: [p1.id, p2.id, p3.id],
+            vectors: flatVectors,
+            orientation: orientation,
+            degree: 0, // будет заполнено позже
+            p1, p2, p3,
+            edges: [
+                { v1: p1, v2: p2, neighborTriangles: [] },
+                { v1: p2, v2: p3, neighborTriangles: [] },
+                { v1: p3, v2: p1, neighborTriangles: [] }
+            ]
+        };
 
-            const triangle = {
-                points: [p1.id, p2.id, p3.id],
-                vectors: flatVectors,
-                orientation: orientation,
-                degree: 0, // будет заполнено позже
-                p1, p2, p3,
-                edges: [
-                    { v1: p1, v2: p2, neighborTriangles: [] },
-                    { v1: p2, v2: p3, neighborTriangles: [] },
-                    { v1: p3, v2: p1, neighborTriangles: [] }
-                ]
-            };
-
-            triangles.push(triangle);
-        }
-
-        // Строим связи между треугольниками
-        this.buildNeighbors(triangles);
-
-        // Добавляем степень в сигнатуру
-        for (const t of triangles) {
-            t.degree = t.edges.filter(e => e.neighborTriangles.length > 0).length;
-            // Сигнатура: 12 чисел + ориентация + степень
-            t.signature = t.vectors.join('_') + '_' + t.orientation + '_deg' + t.degree;
-        }
-
-        console.log(`   ✅ Построено ${triangles.length} топологических треугольников`);
-        return triangles;
+        triangles.push(triangle);
     }
+
+    // Строим связи между треугольниками
+    this.buildNeighbors(triangles);
+
+    // 🔥 ДОБАВЛЯЕМ ВНЕШНИЕ ТОЧКИ ЧЕРЕЗ РЁБРА
+    for (const t of triangles) {
+        // Степень (количество соседних треугольников)
+        t.degree = t.edges.filter(e => e.neighborTriangles.length > 0).length;
+       
+        // 🔥 Собираем внешние точки, привязанные к рёбрам
+        const externalByEdge = [];
+       
+        for (const edge of t.edges) {
+            // Для каждого ребра ищем внешнюю точку
+            for (const neighborTri of edge.neighborTriangles) {
+                // Ищем вершину, не входящую в текущее ребро
+                for (const v of [neighborTri.p1, neighborTri.p2, neighborTri.p3]) {
+                    if (v.id !== edge.v1.id && v.id !== edge.v2.id) {
+                        // 🔥 Эта точка жёстко привязана к данному ребру!
+                        const morph = [
+                            Math.floor(v.compactness / 5) || 0,
+                            Math.floor(v.eccentricity * 3) || 0,
+                            Math.floor(Math.log10(v.normalizedArea + 1) * 4) || 0,
+                            Math.floor((v.asymmetry || 0) * 5) || 0
+                        ];
+                       
+                        // Сортируем ID вершин ребра для уникального ключа
+                        const edgeKey = [edge.v1.id, edge.v2.id].sort().join('-');
+                       
+                        externalByEdge.push({
+                            edge: edgeKey,
+                            morph: morph
+                        });
+                        break; // Нашли точку для этого ребра
+                    }
+                }
+            }
+        }
+       
+        // 🔥 Сортируем внешние точки по ключам рёбер (инвариантно к повороту!)
+        externalByEdge.sort((a, b) => a.edge.localeCompare(b.edge));
+       
+        // Извлекаем только морфологию в правильном порядке
+        const externalVectors = externalByEdge.map(e => e.morph);
+        const externalFlat = externalVectors.flat();
+       
+        t.externalSignature = externalFlat.length > 0 ? externalFlat.join('_') : 'none';
+        t.externalCount = externalVectors.length;
+       
+        // 🔥 ПОЛНАЯ СИГНАТУРА:
+        // 12 чисел (3 точки × 4 признака) + ориентация + степень + внешние точки
+        t.signature = t.vectors.join('_') + '_' + t.orientation + '_deg' + t.degree + '_ext_' + t.externalSignature;
+       
+        if (this.debug && t.degree > 0) {
+            console.log(`   🔍 Треугольник ${t.points.map(p => p.substring(0,6)).join(',')}:`);
+            console.log(`      Степень: ${t.degree}, внешних точек: ${t.externalCount}`);
+            console.log(`      Сигнатура: ${t.signature.substring(0, 70)}...`);
+        }
+    }
+
+    console.log(`   ✅ Построено ${triangles.length} топологических треугольников`);
+    return triangles;
+}
 
     /**
      * Построение связей между треугольниками
