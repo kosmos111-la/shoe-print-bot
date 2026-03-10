@@ -1,18 +1,18 @@
 // modules/footprint/topology/MorphologyEncoder.js
-// 🔥 МОРФОЛОГИЧЕСКИЙ КОД - ИСПРАВЛЕННАЯ НОРМАЛИЗАЦИЯ ПЛОЩАДИ
+// 🔥 МОРФОЛОГИЧЕСКИЙ КОД С АСИММЕТРИЕЙ
 
 class MorphologyEncoder {
     constructor(options = {}) {
         this.debug = options.debug || false;
         this.cache = new Map();
-        console.log('🔷 MorphologyEncoder (полная версия) создан');
+        console.log('🔷 MorphologyEncoder (с асимметрией) создан');
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     encode(points, contours) {
         console.log(`📐 Кодирую морфологию для ${points.length} точек...`);
-      
+     
         const morphologyMap = new Map();
 
         // Создаём мапу контуров по pointId для быстрого доступа
@@ -52,7 +52,7 @@ class MorphologyEncoder {
             }
         }
 
-        // 🔥 ИСПРАВЛЕНО: нормализуем площади относительно среднего геометрического
+        // Нормализуем площади относительно среднего геометрического
         this.normalizeAreas(morphologyMap);
 
         console.log(`✅ Закодировано ${morphologyMap.size} точек`);
@@ -76,6 +76,9 @@ class MorphologyEncoder {
         const center = centerPoint || this.calculateCentroid(simplified);
         const radial = this.calculateRadialFeatures(simplified, center);
 
+        // 🔥 ВЫЧИСЛЯЕМ АСИММЕТРИЮ (0-1)
+        const asymmetry = this.calculateAsymmetry(simplified, center);
+
         // Компактность (периметр²/площадь)
         const compactness = area > 0 ? (perimeter * perimeter) / area : 0;
 
@@ -83,13 +86,39 @@ class MorphologyEncoder {
             compactness,
             eccentricity,
             orientation,
-            rawArea: area,  // 🔥 СОХРАНЯЕМ для нормализации
+            rawArea: area,
             hasContour: true,
             contour: simplified,
             radialProfile: radial.profile,
-            asymmetry: radial.asymmetry,
+            asymmetry: asymmetry,  // 🔥 НОВОЕ
             radialDistances: radial.distances
         };
+    }
+
+    /**
+     * 🔥 НОВЫЙ МЕТОД: вычисление асимметрии (0 - симметрично, 1 - максимально асимметрично)
+     */
+    calculateAsymmetry(points, center) {
+        if (points.length < 4) return 0;
+       
+        let leftArea = 0;
+        let rightArea = 0;
+       
+        // Разделяем точки по оси X относительно центра
+        for (const p of points) {
+            // Приблизительная площадь вклада точки
+            const contrib = Math.abs(p.x - center.x) * Math.abs(p.y - center.y);
+            if (p.x < center.x) {
+                leftArea += contrib;
+            } else {
+                rightArea += contrib;
+            }
+        }
+       
+        if (leftArea + rightArea === 0) return 0;
+       
+        // Асимметрия: 0 = симметрично, 1 = максимально асимметрично
+        return Math.abs(leftArea - rightArea) / (leftArea + rightArea);
     }
 
     /**
@@ -103,7 +132,7 @@ class MorphologyEncoder {
         let sumX = 0, sumY = 0;
         let sumXX = 0, sumYY = 0, sumXY = 0;
         const n = points.length;
-      
+     
         for (const p of points) {
             sumX += p.x;
             sumY += p.y;
@@ -111,26 +140,26 @@ class MorphologyEncoder {
             sumYY += p.y * p.y;
             sumXY += p.x * p.y;
         }
-      
+     
         const meanX = sumX / n;
         const meanY = sumY / n;
-      
+     
         const covXX = sumXX / n - meanX * meanX;
         const covYY = sumYY / n - meanY * meanY;
         const covXY = sumXY / n - meanX * meanY;
-      
+     
         const trace = covXX + covYY;
         const det = covXX * covYY - covXY * covXY;
         const sqrtTerm = Math.sqrt(Math.max(trace * trace - 4 * det, 0));
-      
+     
         const lambda1 = (trace + sqrtTerm) / 2;
         const lambda2 = (trace - sqrtTerm) / 2;
-      
+     
         const eccentricity = Math.sqrt(1 - (lambda2 / Math.max(lambda1, 0.001)));
-      
+     
         let orientation = 0.5 * Math.atan2(2 * covXY, covXX - covYY) * 180 / Math.PI;
         if (orientation < 0) orientation += 180;
-      
+     
         return { eccentricity, orientation };
     }
 
@@ -140,29 +169,29 @@ class MorphologyEncoder {
     calculateRadialFeatures(points, center) {
         let north = 0, south = 0, east = 0, west = 0;
         let ne = 0, nw = 0, se = 0, sw = 0;
-      
+     
         const distances = [];
-      
+     
         for (const p of points) {
             const dx = p.x - center.x;
             const dy = p.y - center.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
-          
+         
             const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-          
+         
             if (Math.abs(angle) < 45) east = Math.max(east, dist);
             if (Math.abs(angle - 180) < 45 || Math.abs(angle + 180) < 45) west = Math.max(west, dist);
             if (Math.abs(angle - 90) < 45) north = Math.max(north, dist);
             if (Math.abs(angle + 90) < 45) south = Math.max(south, dist);
-          
+         
             if (angle > 45 && angle < 135) ne = Math.max(ne, dist);
             if (angle > 135 || angle < -135) nw = Math.max(nw, dist);
             if (angle < -45 && angle > -135) sw = Math.max(sw, dist);
             if (angle > -45 && angle < 45) se = Math.max(se, dist);
-          
+         
             distances.push({ angle, dist });
         }
-      
+     
         const maxDist = Math.max(north, south, east, west, ne, nw, se, sw, 0.001);
         const profile = [
             north / maxDist,
@@ -174,12 +203,12 @@ class MorphologyEncoder {
             se / maxDist,
             sw / maxDist
         ];
-      
+     
         const asymmetry = Math.abs(profile[0] - profile[2]) +
                          Math.abs(profile[1] - profile[3]) +
                          Math.abs(profile[4] - profile[6]) +
                          Math.abs(profile[5] - profile[7]);
-      
+     
         return {
             profile,
             asymmetry,
@@ -205,7 +234,7 @@ class MorphologyEncoder {
         };
     }
 
-    // ==================== 🔥 ИСПРАВЛЕННАЯ НОРМАЛИЗАЦИЯ ПЛОЩАДЕЙ ====================
+    // ==================== НОРМАЛИЗАЦИЯ ПЛОЩАДЕЙ ====================
 
     normalizeAreas(morphologyMap) {
         // Собираем все площади
@@ -218,11 +247,10 @@ class MorphologyEncoder {
 
         if (areas.length === 0) return;
 
-        // 🔥 ИСПОЛЬЗУЕМ СРЕДНЕЕ ГЕОМЕТРИЧЕСКОЕ
-        // Оно лучше работает с данными, имеющими большой разброс
+        // Используем среднее геометрическое
         const logSum = areas.reduce((sum, a) => sum + Math.log(a), 0);
         const geometricMean = Math.exp(logSum / areas.length);
-       
+      
         console.log(`   📐 Среднее геометрическое площади: ${geometricMean.toFixed(2)}`);
 
         // Нормализуем относительно среднего геометрического
@@ -230,22 +258,13 @@ class MorphologyEncoder {
         for (const code of morphologyMap.values()) {
             if (code.hasContour && code.rawArea) {
                 code.normalizedArea = code.rawArea / geometricMean;
-                // Добавляем логарифмическую версию для кластеризации
                 code.logArea = Math.log10(code.normalizedArea + 1);
                 normalizedAreas.push(code.normalizedArea);
-                delete code.rawArea; // Удаляем сырые данные
+                delete code.rawArea;
             } else {
                 code.normalizedArea = 1.0;
                 code.logArea = Math.log10(2);
             }
-        }
-
-        // Статистика для отладки
-        if (this.debug && normalizedAreas.length > 0) {
-            const min = Math.min(...normalizedAreas);
-            const max = Math.max(...normalizedAreas);
-            const avg = normalizedAreas.reduce((a, b) => a + b, 0) / normalizedAreas.length;
-            console.log(`   📊 normalizedArea: мин=${min.toFixed(2)}, макс=${max.toFixed(2)}, среднее=${avg.toFixed(2)}`);
         }
     }
 
@@ -329,15 +348,9 @@ class MorphologyEncoder {
             checks++;
         }
 
-        // 🔥 ИСПОЛЬЗУЕМ logArea ДЛЯ СРАВНЕНИЯ
         if (morph1.logArea !== undefined && morph2.logArea !== undefined) {
             const diff = Math.abs(morph1.logArea - morph2.logArea);
             score += 1 - Math.min(diff, 1);
-            checks++;
-        } else if (morph1.normalizedArea && morph2.normalizedArea) {
-            const ratio = Math.min(morph1.normalizedArea, morph2.normalizedArea) /
-                         Math.max(morph1.normalizedArea, morph2.normalizedArea);
-            score += ratio;
             checks++;
         }
 
