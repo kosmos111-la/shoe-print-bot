@@ -548,34 +548,44 @@ extractPointsFromModel(model) {
     /**
      * Строит matchMap для визуализации
      */
-    buildTriangleMatchMap(result) {
-        const matchMap = new Map();
-        const modelMatchMap = new Map();
-        let pairNumber = 1;
+buildTriangleMatchMap(result) {
+    const matchMap = new Map();
+    const modelMatchMap = new Map();
+    let pairNumber = 1;
 
-        for (const match of result.matches) {
-            matchMap.set(match.pointA, {
-                modelId: match.pointB,
-                pairNumber: pairNumber,
-                type: 'anchor',
-                confidence: match.confidence
-            });
+    for (const match of result.matches) {
+        matchMap.set(match.pointA, {
+            modelId: match.pointB,
+            pairNumber: pairNumber,
+            type: 'anchor',
+            confidence: match.confidence
+        });
 
-            modelMatchMap.set(match.pointB, {
-                photoId: match.pointA,
-                pairNumber: pairNumber,
-                type: 'anchor',
-                confidence: match.confidence
-            });
+        modelMatchMap.set(match.pointB, {
+            photoId: match.pointA,
+            pairNumber: pairNumber,
+            type: 'anchor',
+            confidence: match.confidence
+        });
 
-            pairNumber++;
-        }
-
-        console.log(`📋 Создан matchMap: ${matchMap.size} записей (${pairNumber-1} с номерами)`);
-        console.log(`📋 Создан modelMatchMap: ${modelMatchMap.size} записей`);
-
-        return { matchMap, modelMatchMap };
+        pairNumber++;
     }
+
+    console.log(`📋 Создан matchMap: ${matchMap.size} записей (${pairNumber-1} с номерами)`);
+    console.log(`📋 Создан modelMatchMap: ${matchMap.size} записей`);  // ДОЛЖНО БЫТЬ matchMap.size, а не modelMatchMap.size
+
+    // 🔥 КЛЮЧЕВОЕ: сохраняем в модель!
+    if (this.currentModelId && this.models.has(this.currentModelId)) {
+        const model = this.models.get(this.currentModelId);
+        model.lastTriangleResult = {
+            ...(model.lastTriangleResult || {}),
+            modelMatchMap: modelMatchMap
+        };
+        console.log(`💾 modelMatchMap сохранён в модель ${this.currentModelId.slice(0,12)}...`);
+    }
+
+    return { matchMap, modelMatchMap };
+}
 
     /**
      * Конвертирует matches в Map
@@ -1213,7 +1223,10 @@ extractPointsFromModel(model) {
 
         const model = this.models.get(targetId);
         const graph = model.graph;
-
+ // 🔥 ПОЛУЧАЕМ modelMatchMap ИЗ МОДЕЛИ
+    const modelMatchMap = model.lastTriangleResult?.modelMatchMap || new Map();
+    console.log(`📋 getVisualizationData: modelMatchMap содержит ${modelMatchMap.size} записей`);
+      
         let reliableNodeIds = new Set(reliablePhotoIds);
         if (reliableNodeIds.size === 0) {
             for (const [nodeId, node] of graph.nodes) {
@@ -1237,26 +1250,26 @@ extractPointsFromModel(model) {
         const modelMatchMap = model.lastTriangleResult?.modelMatchMap || new Map();
 
         return {
-            modelId: targetId,
-            modelName: model.metadata.name,
-            points: Array.from(graph.nodes.values()),
-            edges: Array.from(graph.edges),
-            stats: {
-                totalNodes: graph.nodes.size,
-                totalEdges: graph.edges.size,
-                confirmed3: pointsByConfirmation.confirmed3.length,
-                confirmed2: pointsByConfirmation.confirmed2.length,
-                confirmed1: pointsByConfirmation.confirmed1.length,
-                confirmed0: pointsByConfirmation.confirmed0.length,
-                reliableNodes: reliableNodeIds.size
-            },
-            pointsByConfirmation,
-            metadata: model.metadata,
-            allModels: this.getAllModels(),
-            currentModelId: this.currentModelId,
-            modelMatchMap: modelMatchMap
-        };
-    }
+        modelId: targetId,
+        modelName: model.metadata.name,
+        points: Array.from(graph.nodes.values()),
+        edges: Array.from(graph.edges),
+        stats: {
+            totalNodes: graph.nodes.size,
+            totalEdges: graph.edges.size,
+            confirmed3: pointsByConfirmation.confirmed3.length,
+            confirmed2: pointsByConfirmation.confirmed2.length,
+            confirmed1: pointsByConfirmation.confirmed1.length,
+            confirmed0: pointsByConfirmation.confirmed0.length,
+            reliableNodes: reliableNodeIds.size
+        },
+        pointsByConfirmation,
+        metadata: model.metadata,
+        allModels: this.getAllModels(),
+        currentModelId: this.currentModelId,
+        modelMatchMap: modelMatchMap  // 🔥 ВАЖНО!
+    };
+}
 
     getModelInfo(modelId = null) {
         const targetId = modelId || this.currentModelId;
