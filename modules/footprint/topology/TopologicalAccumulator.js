@@ -126,96 +126,98 @@ class TopologicalAccumulator {
         const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
 
         // 🔥 2. Если есть существующая модель - пробуем треугольное сравнение
-        if (modelIdHint && this.models.has(modelIdHint)) {
-            console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
-          
-            const existingModel = this.models.get(modelIdHint);
+if (modelIdHint && this.models.has(modelIdHint)) {
+    console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
+  
+    const existingModel = this.models.get(modelIdHint);
 
-            // Создаем временную модель из нового фото
-            const tempModel = {
-                graph: exactGraph,
-                morphologyMap: morphologyMap,
-                metadata: { name: 'temp' }
-            };
+    // Создаем временную модель из нового фото
+    const tempModel = {
+        graph: exactGraph,
+        morphologyMap: morphologyMap,
+        metadata: { name: 'temp' }
+    };
 
-            console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
-            const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
+    console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
+    const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
 
-            if (triangleResult.sufficient) {
-                console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
+    // 🔥 ВРЕМЕННО: срабатывает даже с 1 точкой
+    if (triangleResult.count >= 1) {
+        console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
 
-                // 2.1 Достраиваем остальные точки через RelativePositioning
-                console.log(`\n🧩 ДОСТРАИВАНИЕ остальных точек...`);
-                const allMatches = await this.relativePositioning.positionPoints(
-                    exactGraph,
-                    existingModel.graph,
-                    this.convertMatchesToMap(triangleResult.matches),
-                    morphologyMap,
-                    existingModel.morphologyMap,
-                    { confidenceThreshold: 0.5 }
-                );
+        // 🔥 ВРЕМЕННО ОТКЛЮЧАЕМ ДОСТРАИВАНИЕ
+        // console.log(`\n🧩 ДОСТРАИВАНИЕ остальных точек...`);
+        // const allMatches = await this.relativePositioning.positionPoints(
+        //     exactGraph,
+        //     existingModel.graph,
+        //     this.convertMatchesToMap(triangleResult.matches),
+        //     morphologyMap,
+        //     existingModel.morphologyMap,
+        //     { confidenceThreshold: 0.5 }
+        // );
 
-                // 2.2 Обновляем модель
-                const updateResult = this.updateModelWithOptimalMatches(
-                    modelIdHint,
-                    exactGraph,
-                    triangleResult.matches,
-                    morphologyMap
-                );
+        // 2.2 Обновляем модель ТОЛЬКО найденными треугольниками
+        const updateResult = this.updateModelWithOptimalMatches(
+            modelIdHint,
+            exactGraph,
+            triangleResult.matches,
+            morphologyMap
+        );
 
-                // 2.3 Обновляем KNN-граф и подписи
-                existingModel.knnGraph = knnGraph;
-                existingModel.knnFingerprints = new Map([...existingModel.knnFingerprints, ...knnFingerprints]);
-                existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
-                existingModel.metadata.lastEnhanced = new Date();
+        // 2.3 Обновляем KNN-граф и подписи
+        existingModel.knnGraph = knnGraph;
+        existingModel.knnFingerprints = new Map([...existingModel.knnFingerprints, ...knnFingerprints]);
+        existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
+        existingModel.metadata.lastEnhanced = new Date();
 
-                // 2.4 Создаем matchMap для визуализации
-                const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(triangleResult);
+        // 2.4 Создаем matchMap для визуализации
+        const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(triangleResult);
 
-                // 🔥 СОХРАНЯЕМ modelMatchMap В МОДЕЛЬ
-                existingModel.lastTriangleResult = {
-                    ...(existingModel.lastTriangleResult || {}),
-                    modelMatchMap: modelMatchMap,
-                    matchMap: matchMap
-                };
+        // 🔥 СОХРАНЯЕМ modelMatchMap В МОДЕЛЬ
+        existingModel.lastTriangleResult = {
+            ...(existingModel.lastTriangleResult || {}),
+            modelMatchMap: modelMatchMap,
+            matchMap: matchMap
+        };
 
-                console.log(`\n🔍 ОТЛАДКА: ${triangleResult.matches.length} уникальных точек`);
-                console.log(`   matchMap передан в визуализацию: ${matchMap.size} пар`);
-                console.log(`   modelMatchMap сохранён в модель: ${modelMatchMap.size} пар`);
+        console.log(`\n🔍 ОТЛАДКА: ${triangleResult.matches.length} уникальных точек`);
+        console.log(`   matchMap передан в визуализацию: ${matchMap.size} пар`);
+        console.log(`   modelMatchMap сохранён в модель: ${modelMatchMap.size} пар`);
 
-                // 2.5 Очищаем неподтверждённые точки
-                const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
-                this.stats.totalNodesRemoved += cleanResult.removed;
-                this.stats.triangleMatchesCount += triangleResult.count;
+        // 2.5 Очищаем неподтверждённые точки
+        const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
+        this.stats.totalNodesRemoved += cleanResult.removed;
+        this.stats.triangleMatchesCount += triangleResult.count;
 
-                // 2.6 Статистика
-                const confirmedInModel = triangleResult.matches.length;
-                const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
-                const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
+        // 2.6 Статистика
+        const confirmedInModel = triangleResult.matches.length;
+        const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
+        const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
 
-                console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-                console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
-                console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
-                console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
-                console.log(`   • Всего в модели теперь: ${existingModel.graph.nodes.size}`);
+        console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
+        console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
+        console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
+        console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
+        console.log(`   • Всего в модели теперь: ${existingModel.graph.nodes.size}`);
 
-                this.photoToModel.set(photoId, modelIdHint);
+        this.photoToModel.set(photoId, modelIdHint);
 
-                return {
-                    status: 'enhanced_triangle',
-                    modelId: modelIdHint,
-                    similarity: triangleResult.similarity,
-                    centerMatches: triangleResult.count,
-                    totalMatches: triangleResult.matches.length,
-                    newNodesAdded: updateResult.newNodesAdded,
-                    nodesRemoved: cleanResult.removed,
-                    matchMap: matchMap,
-                    message: `Треугольное сопоставление: ${triangleResult.count} пар`
-                };
-            } else {
-                console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - недостаточно (нужно 12)`);
-            }
-        } else {
+        return {
+            status: 'debug_triangles_only',
+            modelId: modelIdHint,
+            similarity: triangleResult.similarity,
+            centerMatches: triangleResult.count,
+            totalMatches: triangleResult.matches.length,
+            newNodesAdded: updateResult.newNodesAdded,
+            nodesRemoved: cleanResult.removed,
+            matchMap: matchMap,
+            modelMatchMap: modelMatchMap,
+            message: `ОТЛАДКА: ${triangleResult.count} треугольников (${triangleResult.matches.length} точек) без достраивания`
+        };
+    } else {
+        console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
+    }
+} else {
             console.log(`\n❌ МОДЕЛЬ НЕ НАЙДЕНА, создаю новую...`);
             console.log(`   modelIdHint: ${modelIdHint}`);
             console.log(`   models.has: ${this.models.has(modelIdHint)}`);
