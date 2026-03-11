@@ -1,5 +1,6 @@
 // modules/footprint/matching/TriangleMatcher.js
 // 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (двухэтапный поиск: грубый → точный)
+// 📊 С РАСШИРЕННОЙ ДИАГНОСТИКОЙ
 
 class TriangleMatcher {
     constructor(options = {}) {
@@ -7,19 +8,20 @@ class TriangleMatcher {
 
         // 🔥 НАСТРОЙКИ ЭТАПОВ
         this.roughThreshold = options.roughThreshold || 0.5;      // Порог для грубого поиска
-        this.exactThreshold = options.exactThreshold || 0.9;     // Порог для точной проверки
-       
+        this.exactThreshold = options.exactThreshold || 0.85;     // 🔥 СНИЗИЛИ ДО 85%
+
         // Грубые признаки (этап 1)
         this.roughFeatures = {
-    eccentricity: { enabled: true, weight: 1, levels: 2 },  // 0-1 (оставляем)
-    asymmetry: { enabled: true, weight: 1, levels: 2 }      // 0-1 (было 3, стало 2)
+            eccentricity: { enabled: true, weight: 1, levels: 2 },  // 0-1
+            asymmetry: { enabled: true, weight: 1, levels: 2 }      // 0-1
         };
-       
+
         // Точные признаки (этап 2)
         this.exactFeatures = {
+            role: { enabled: true, weight: 1, levels: 3 },          // роль 1-3
             eccentricity: { enabled: true, weight: 1, levels: 3 },  // 0-2
             asymmetry: { enabled: true, weight: 1, levels: 5 },     // 0-4
-            radialMin: { enabled: true, weight: 1, levels: 5 }      // 0-4
+            size: { enabled: true, weight: 1, levels: 3 }           // размер 0-2
         };
 
         this.stats = {
@@ -45,6 +47,9 @@ class TriangleMatcher {
         console.log(`${'='.repeat(100)}`);
         console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
+        // 🔥 ДИАГНОСТИКА ПЕРВОЙ ТОЧКИ
+        this.diagnoseFirstPoint(pointsA, pointsB);
+
         // ШАГ 1: Триангуляция Делоне
         console.log(`\n🔍 ШАГ 1: Триангуляция Делоне`);
         console.log(`   • Треугольников в А: ${delaunayA.triangleList?.length || 0}`);
@@ -58,9 +63,12 @@ class TriangleMatcher {
 
         this.stats.trianglesA = trianglesA.length;
         this.stats.trianglesB = trianglesB.length;
-       
+
         console.log(`   • Треугольников в А: ${trianglesA.length}`);
         console.log(`   • Треугольников в Б: ${trianglesB.length}`);
+
+        // 🔥 ДИАГНОСТИКА ПЕРВОГО ТРЕУГОЛЬНИКА
+        this.diagnoseFirstTriangle(trianglesA, trianglesB);
 
         // ШАГ 3: Поиск уникальных треугольников (по грубым признакам)
         console.log(`\n🔍 ШАГ 3: Поиск уникальных треугольников (грубые признаки)`);
@@ -77,21 +85,24 @@ class TriangleMatcher {
 
         // ШАГ 4: Грубый поиск кандидатов
         console.log(`\n🔍 ШАГ 4: Грубый поиск кандидатов`);
-       
+
         const candidates = this.findRoughCandidates(uniqueA, uniqueB);
         this.stats.rough.candidates = candidates.length;
-       
+
         console.log(`   • Найдено кандидатов: ${candidates.length}`);
 
         // ШАГ 5: Точная верификация кандидатов
         console.log(`\n🔍 ШАГ 5: Точная верификация кандидатов`);
-       
+
         const matches = this.verifyCandidates(candidates);
         this.stats.exact.matches = matches.length;
 
         console.log(`\n📊 РЕЗУЛЬТАТ:`);
         console.log(`   • Найдено точных соответствий: ${matches.length}`);
         console.log(`   • Уверенность: ${(matches.length / Math.min(uniqueA.length, uniqueB.length) * 100).toFixed(1)}%`);
+
+        // 🔥 ДИАГНОСТИКА ПЕРВОЙ ПАРЫ
+        this.diagnoseFirstMatch(matches);
 
         // Восстановление точек
         const pointMatches = this.reconstructPoints(matches);
@@ -106,6 +117,131 @@ class TriangleMatcher {
     }
 
     /**
+     * 🔥 ДИАГНОСТИКА ПЕРВОЙ ТОЧКИ
+     */
+    diagnoseFirstPoint(pointsA, pointsB) {
+        if (pointsA.length === 0 || pointsB.length === 0) return;
+
+        const pA = pointsA[0];
+        const pB = pointsB[0];
+
+        console.log(`\n🔬 ДИАГНОСТИКА ПЕРВОЙ ТОЧКИ:`);
+        console.log(`┌──────────────────────┬─────────────────────┬─────────────────────┐`);
+        console.log(`│ Признак              │ Точка А             │ Точка Б             │`);
+        console.log(`├──────────────────────┼─────────────────────┼─────────────────────┤`);
+
+        const features = [
+            'id', 'role', 'degree', 'triangles',
+            'compactness', 'eccentricity', 'asymmetry',
+            'normalizedArea', 'radialMin', 'radialMax'
+        ];
+
+        for (const feat of features) {
+            const valA = pA[feat] !== undefined ? pA[feat] : 'N/A';
+            const valB = pB[feat] !== undefined ? pB[feat] : 'N/A';
+           
+            let strA = typeof valA === 'number' ? valA.toFixed(4) : String(valA);
+            let strB = typeof valB === 'number' ? valB.toFixed(4) : String(valB);
+           
+            console.log(`│ ${feat.padEnd(20)} │ ${strA.padEnd(19)} │ ${strB.padEnd(19)} │`);
+        }
+
+        console.log(`└──────────────────────┴─────────────────────┴─────────────────────┘`);
+       
+        // Проверка наличия роли
+        console.log(`\n🔍 ПРОВЕРКА РОЛИ:`);
+        console.log(`   • pointA.role: ${pA.role || 'НЕТ'}`);
+        console.log(`   • pointB.role: ${pB.role || 'НЕТ'}`);
+       
+        // Код роли
+        const roleCodeA = this.getRoleCode(pA);
+        const roleCodeB = this.getRoleCode(pB);
+        console.log(`   • roleCode A: ${roleCodeA}`);
+        console.log(`   • roleCode B: ${roleCodeB}`);
+    }
+
+    /**
+     * 🔥 ДИАГНОСТИКА ПЕРВОГО ТРЕУГОЛЬНИКА
+     */
+    diagnoseFirstTriangle(trianglesA, trianglesB) {
+        if (trianglesA.length === 0 || trianglesB.length === 0) return;
+
+        const tA = trianglesA[0];
+        const tB = trianglesB[0];
+
+        console.log(`\n🔬 ДИАГНОСТИКА ПЕРВОГО ТРЕУГОЛЬНИКА:`);
+        console.log(`\n   ТРЕУГОЛЬНИК А:`);
+        console.log(`      Точки: ${tA.points.map(p => p.substring(0,8)).join(', ')}`);
+        console.log(`      Степень: ${tA.degree}`);
+        console.log(`      Ориентация: ${tA.orientation}`);
+        console.log(`      Грубые признаки: [${tA.roughVectors.join(', ')}]`);
+        console.log(`      Точные признаки: [${tA.exactVectors.join(', ')}]`);
+        console.log(`      Внешние точки: ${tA.externalVectors.length}`);
+       
+        console.log(`\n   ТРЕУГОЛЬНИК Б:`);
+        console.log(`      Точки: ${tB.points.map(p => p.substring(0,8)).join(', ')}`);
+        console.log(`      Степень: ${tB.degree}`);
+        console.log(`      Ориентация: ${tB.orientation}`);
+        console.log(`      Грубые признаки: [${tB.roughVectors.join(', ')}]`);
+        console.log(`      Точные признаки: [${tB.exactVectors.join(', ')}]`);
+        console.log(`      Внешние точки: ${tB.externalVectors.length}`);
+    }
+
+    /**
+     * 🔥 ДИАГНОСТИКА ПЕРВОЙ ПАРЫ
+     */
+    diagnoseFirstMatch(matches) {
+        if (matches.length === 0) return;
+
+        const match = matches[0];
+        const tA = match.triangleA;
+        const tB = match.triangleB;
+
+        console.log(`\n🔗 ПЕРВАЯ НАЙДЕННАЯ ПАРА:`);
+        console.log(`   Уверенность: ${(match.score * 100).toFixed(1)}%`);
+       
+        console.log(`\n   ТРЕУГОЛЬНИК А:`);
+        console.log(`      Точки: ${tA.points.map(p => p.substring(0,8)).join(', ')}`);
+        console.log(`      Точные признаки: [${tA.exactVectors.join(', ')}]`);
+        console.log(`      Степень: ${tA.degree}, Ориентация: ${tA.orientation}`);
+        console.log(`      Внешние точки: ${tA.externalVectors.length}`);
+       
+        console.log(`\n   ТРЕУГОЛЬНИК Б:`);
+        console.log(`      Точки: ${tB.points.map(p => p.substring(0,8)).join(', ')}`);
+        console.log(`      Точные признаки: [${tB.exactVectors.join(', ')}]`);
+        console.log(`      Степень: ${tB.degree}, Ориентация: ${tB.orientation}`);
+        console.log(`      Внешние точки: ${tB.externalVectors.length}`);
+       
+        if (tA.externalVectors.length > 0 && tB.externalVectors.length > 0) {
+            console.log(`\n   ВНЕШНИЕ ТОЧКИ А: [${tA.externalFlat.join(', ')}]`);
+            console.log(`   ВНЕШНИЕ ТОЧКИ Б: [${tB.externalFlat.join(', ')}]`);
+        }
+    }
+
+    /**
+     * 🔥 ПОЛУЧЕНИЕ КОДА РОЛИ (3 значения)
+     */
+    getRoleCode(point) {
+        if (!point || !point.role) {
+            if (this.debug) console.log(`   ⚠️ point.role отсутствует, используется R по умолчанию`);
+            return 2; // R по умолчанию
+        }
+       
+        // H и C → хабы (1)
+        // R и B → обычные (2)
+        // L → листья (3)
+        const codes = {
+            'H': 1,  // хаб
+            'C': 1,  // клика (тоже много связей)
+            'R': 2,  // обычный
+            'B': 2,  // мост (обычный по степени)
+            'L': 3   // лист
+        };
+       
+        return codes[point.role] || 2;
+    }
+
+    /**
      * Построение топологических треугольников
      */
     buildTopologicalTriangles(delaunay, points) {
@@ -117,13 +253,16 @@ class TriangleMatcher {
             if (point.radialMin === undefined) {
                 point.radialMin = this.calculateRadialMin(point);
             }
+            if (point.radialMax === undefined) {
+                point.radialMax = this.calculateRadialMax(point);
+            }
         }
 
         for (const tri of triangleList) {
             if (!Array.isArray(tri) || tri.length < 3) continue;
-           
+
             const [idx1, idx2, idx3] = tri;
-           
+
             const p1 = points[idx1];
             const p2 = points[idx2];
             const p3 = points[idx3];
@@ -131,63 +270,45 @@ class TriangleMatcher {
             if (!p1 || !p2 || !p3) continue;
 
             // 🔥 ГРУБЫЕ ПРИЗНАКИ (для этапа 1)
-           const rough1 = [
-    Math.floor(p1.eccentricity * 2) || 0,        // 0-1 (2 уровня)
-    Math.floor((p1.asymmetry || 0) * 2) || 0,     // 0-1 (2 уровня)
-    Math.floor((p1.normalizedArea * 2) || 0)      // 0-1 (2 уровня) - размер
-];
+            const rough1 = [
+                Math.floor(p1.eccentricity * 2) || 0,        // 0-1
+                Math.floor((p1.asymmetry || 0) * 2) || 0,    // 0-1
+                Math.floor((p1.normalizedArea * 2) || 0)     // 0-1 (размер)
+            ];
 
-const rough2 = [
-    Math.floor(p2.eccentricity * 2) || 0,
-    Math.floor((p2.asymmetry || 0) * 2) || 0,
-    Math.floor((p2.normalizedArea * 2) || 0)
-];
+            const rough2 = [
+                Math.floor(p2.eccentricity * 2) || 0,
+                Math.floor((p2.asymmetry || 0) * 2) || 0,
+                Math.floor((p2.normalizedArea * 2) || 0)
+            ];
 
-const rough3 = [
-    Math.floor(p3.eccentricity * 2) || 0,
-    Math.floor((p3.asymmetry || 0) * 2) || 0,
-    Math.floor((p3.normalizedArea * 2) || 0)
-];
+            const rough3 = [
+                Math.floor(p3.eccentricity * 2) || 0,
+                Math.floor((p3.asymmetry || 0) * 2) || 0,
+                Math.floor((p3.normalizedArea * 2) || 0)
+            ];
 
-            // 🔥 ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ КОДА РОЛИ
-const getRoleCode = (point) => {
-    if (!point.role) return 2; // R по умолчанию
-   
-    // H и C → хабы (1)
-    // R и B → обычные (2) 
-    // L → листья (3)
-    const codes = {
-        'H': 1,  // хаб
-        'C': 1,  // клика (тоже много связей)
-        'R': 2,  // обычный
-        'B': 2,  // мост (обычный по степени)
-        'L': 3   // лист
-    };
-   
-    return codes[point.role] || 2;
-};
+            // 🔥 ТОЧНЫЕ ПРИЗНАКИ С РОЛЬЮ (4 числа на точку)
+            const exact1 = [
+                this.getRoleCode(p1),                         // роль 1-3
+                Math.floor(p1.eccentricity * 3) || 0,         // эксцентриситет 0-2
+                Math.floor((p1.asymmetry || 0) * 5) || 0,     // асимметрия 0-4
+                Math.floor((p1.normalizedArea * 3) || 0)      // размер 0-2
+            ];
 
-// 🔥 ТОЧНЫЕ ПРИЗНАКИ С РОЛЬЮ (4 числа на точку)
-const exact1 = [
-    getRoleCode(p1),                                // роль 1-5
-    Math.floor(p1.eccentricity * 3) || 0,           // эксцентриситет 0-2
-    Math.floor((p1.asymmetry || 0) * 5) || 0,       // асимметрия 0-4
-    Math.floor((p1.normalizedArea * 3) || 0)        // размер 0-2
-];
+            const exact2 = [
+                this.getRoleCode(p2),
+                Math.floor(p2.eccentricity * 3) || 0,
+                Math.floor((p2.asymmetry || 0) * 5) || 0,
+                Math.floor((p2.normalizedArea * 3) || 0)
+            ];
 
-const exact2 = [
-    getRoleCode(p2),
-    Math.floor(p2.eccentricity * 3) || 0,
-    Math.floor((p2.asymmetry || 0) * 5) || 0,
-    Math.floor((p2.normalizedArea * 3) || 0)
-];
-
-const exact3 = [
-    getRoleCode(p3),
-    Math.floor(p3.eccentricity * 3) || 0,
-    Math.floor((p3.asymmetry || 0) * 5) || 0,
-    Math.floor((p3.normalizedArea * 3) || 0)
-];
+            const exact3 = [
+                this.getRoleCode(p3),
+                Math.floor(p3.eccentricity * 3) || 0,
+                Math.floor((p3.asymmetry || 0) * 5) || 0,
+                Math.floor((p3.normalizedArea * 3) || 0)
+            ];
 
             // Вычисляем ориентацию
             const orient = (p2.x - p1.x)*(p3.y - p1.y) - (p2.y - p1.y)*(p3.x - p1.x);
@@ -202,7 +323,7 @@ const exact3 = [
             });
 
             const exactVectors = [exact1, exact2, exact3].sort((a, b) => {
-                for (let i = 0; i < 3; i++) {
+                for (let i = 0; i < 4; i++) {  // 🔥 теперь 4 признака
                     if (a[i] !== b[i]) return a[i] - b[i];
                 }
                 return 0;
@@ -210,8 +331,8 @@ const exact3 = [
 
             const triangle = {
                 points: [p1.id, p2.id, p3.id],
-                roughVectors: roughVectors.flat(),     // 6 чисел
-                exactVectors: exactVectors.flat(),     // 9 чисел
+                roughVectors: roughVectors.flat(),     // 9 чисел (3×3)
+                exactVectors: exactVectors.flat(),     // 12 чисел (3×4)
                 orientation: orientation,
                 degree: 0,
                 p1, p2, p3,
@@ -231,10 +352,10 @@ const exact3 = [
         // Добавляем степень и внешние точки
         for (const t of triangles) {
             t.degree = t.edges.filter(e => e.neighborTriangles.length > 0).length;
-           
+
             // Собираем внешние точки
             const externalByEdge = [];
-           
+
             for (const edge of t.edges) {
                 for (const neighborTri of edge.neighborTriangles) {
                     for (const v of [neighborTri.p1, neighborTri.p2, neighborTri.p3]) {
@@ -242,16 +363,16 @@ const exact3 = [
                             if (v.radialMin === undefined) {
                                 v.radialMin = this.calculateRadialMin(v);
                             }
-                           
-                            // Точные признаки для внешних точек
+
+                            // Точные признаки для внешних точек (без роли)
                             const morph = [
                                 Math.floor(v.eccentricity * 3) || 0,
                                 Math.floor((v.asymmetry || 0) * 5) || 0,
                                 Math.floor((v.radialMin || 0) * 5) || 0
                             ];
-                           
+
                             const edgeKey = [edge.v1.id, edge.v2.id].sort().join('-');
-                           
+
                             externalByEdge.push({
                                 edge: edgeKey,
                                 morph: morph
@@ -261,15 +382,15 @@ const exact3 = [
                     }
                 }
             }
-           
+
             externalByEdge.sort((a, b) => a.edge.localeCompare(b.edge));
-           
+
             t.externalVectors = externalByEdge.map(e => e.morph);
             t.externalFlat = t.externalVectors.flat();
-           
+
             // Грубая сигнатура (для уникальности внутри следа)
             t.roughSignature = t.roughVectors.join('_') + '_' + t.orientation + '_deg' + t.degree;
-           
+
             // Полная сигнатура (для точной проверки)
             t.fullSignature = t.exactVectors.join('_') + '_' + t.orientation + '_deg' + t.degree +
                              '_ext_' + (t.externalFlat.length > 0 ? t.externalFlat.join('_') : 'none');
@@ -283,7 +404,7 @@ const exact3 = [
      */
     findUniqueByRoughFeatures(triangles) {
         const groups = {};
-       
+
         for (const t of triangles) {
             if (!groups[t.roughSignature]) {
                 groups[t.roughSignature] = [];
@@ -341,23 +462,18 @@ const exact3 = [
      * Сравнение по грубым признакам
      */
     compareRough(tA, tB) {
-        // Сравниваем грубые векторы (6 чисел)
         const v1 = tA.roughVectors;
         const v2 = tB.roughVectors;
-       
+
         if (v1.length !== v2.length) return 0;
-       
+
         let sumDiff = 0;
         for (let i = 0; i < v1.length; i++) {
             sumDiff += Math.abs(v1[i] - v2[i]);
         }
-       
-        // Максимальная разница: каждое число может отличаться максимум на:
-        // eccentricity: 0-1 → макс 1
-        // asymmetry: 0-2 → макс 2
-        // Итого на 6 чисел: макс 6*2 = 12
-        const maxDiff = 12;
-       
+
+        // Макс. разница: 9 чисел × макс 2 = 18
+        const maxDiff = 18;
         return 1 - (sumDiff / maxDiff);
     }
 
@@ -370,7 +486,7 @@ const exact3 = [
         for (const cand of candidates) {
             // Проверка по точным признакам
             const exactScore = this.compareExact(cand.triangleA, cand.triangleB);
-           
+
             if (exactScore < this.exactThreshold) {
                 if (this.debug) {
                     console.log(`   ❌ Кандидат отсеян: точное сходство ${(exactScore*100).toFixed(1)}%`);
@@ -380,7 +496,7 @@ const exact3 = [
 
             // Проверка внешних точек
             const externalScore = this.compareExternal(cand.triangleA, cand.triangleB);
-           
+
             if (externalScore < 0.75) {
                 if (this.debug) {
                     console.log(`   ❌ Кандидат отсеян: внешние точки ${(externalScore*100).toFixed(1)}%`);
@@ -390,7 +506,7 @@ const exact3 = [
 
             // Проверка геометрии (соотношение сторон)
             const geometryScore = this.compareGeometry(cand.triangleA, cand.triangleB);
-           
+
             if (geometryScore < 0.8) {
                 if (this.debug) {
                     console.log(`   ❌ Кандидат отсеян: геометрия ${(geometryScore*100).toFixed(1)}%`);
@@ -400,7 +516,7 @@ const exact3 = [
 
             // Все проверки пройдены
             const totalScore = (exactScore * 0.5 + externalScore * 0.3 + geometryScore * 0.2);
-           
+
             matches.push({
                 triangleA: cand.triangleA,
                 triangleB: cand.triangleB,
@@ -421,17 +537,16 @@ const exact3 = [
     compareExact(tA, tB) {
         const v1 = tA.exactVectors;
         const v2 = tB.exactVectors;
-       
+
         if (v1.length !== v2.length) return 0;
-       
+
         let sumDiff = 0;
         for (let i = 0; i < v1.length; i++) {
             sumDiff += Math.abs(v1[i] - v2[i]);
         }
-       
-        // Максимальная разница: 9 чисел × макс 4 = 36
-        const maxDiff = 36;
-       
+
+        // Макс. разница: 12 чисел × макс 4 = 48
+        const maxDiff = 48;
         return 1 - (sumDiff / maxDiff);
     }
 
@@ -441,16 +556,16 @@ const exact3 = [
     compareExternal(tA, tB) {
         const e1 = tA.externalFlat;
         const e2 = tB.externalFlat;
-       
+
         if (e1.length === 0 && e2.length === 0) return 1.0;
         if (e1.length === 0 || e2.length === 0) return 0.5;
         if (e1.length !== e2.length) return 0.3;
-       
+
         let sumDiff = 0;
         for (let i = 0; i < e1.length; i++) {
             sumDiff += Math.abs(e1[i] - e2[i]);
         }
-       
+
         const maxDiff = e1.length * 4;
         return 1 - (sumDiff / maxDiff);
     }
@@ -459,21 +574,18 @@ const exact3 = [
      * Сравнение геометрии (соотношения сторон)
      */
     compareGeometry(tA, tB) {
-        // Вычисляем длины сторон
         const sidesA = this.calcSides(tA.p1, tA.p2, tA.p3);
         const sidesB = this.calcSides(tB.p1, tB.p2, tB.p3);
-       
-        // Сортируем для инвариантности
+
         sidesA.sort((a, b) => a - b);
         sidesB.sort((a, b) => a - b);
-       
-        // Сравниваем отношения сторон
+
         let score = 0;
         for (let i = 0; i < 3; i++) {
             const ratio = Math.min(sidesA[i], sidesB[i]) / Math.max(sidesA[i], sidesB[i]);
             score += ratio;
         }
-       
+
         return score / 3;
     }
 
@@ -527,7 +639,7 @@ const exact3 = [
      */
     calculateRadialMin(point) {
         if (!point.contour || point.contour.length === 0) return 0;
-       
+
         let minDist = Infinity;
         for (const p of point.contour) {
             const dx = p.x - point.x;
@@ -535,7 +647,7 @@ const exact3 = [
             const dist = Math.sqrt(dx*dx + dy*dy);
             if (dist < minDist) minDist = dist;
         }
-       
+
         const maxDist = this.calculateRadialMax(point);
         return maxDist > 0 ? minDist / maxDist : 0;
     }
@@ -545,7 +657,7 @@ const exact3 = [
      */
     calculateRadialMax(point) {
         if (!point.contour || point.contour.length === 0) return 1;
-       
+
         let maxDist = 0;
         for (const p of point.contour) {
             const dx = p.x - point.x;
@@ -568,7 +680,6 @@ const exact3 = [
             const tA = match.triangleA;
             const tB = match.triangleB;
 
-            // Сортируем точки по компактности
             const pointsA = [tA.p1, tA.p2, tA.p3].sort((a, b) => a.eccentricity - b.eccentricity);
             const pointsB = [tB.p1, tB.p2, tB.p3].sort((a, b) => a.eccentricity - b.eccentricity);
 
@@ -601,7 +712,7 @@ const exact3 = [
         console.log(`   • В следе Б: ${this.stats.trianglesB}`);
         console.log(`   • Уникальных в А: ${this.stats.uniqueA}`);
         console.log(`   • Уникальных в Б: ${this.stats.uniqueB}`);
-       
+
         console.log(`\n🔍 ПОИСК:`);
         console.log(`   • Грубых кандидатов: ${this.stats.rough.candidates}`);
         console.log(`   • Точных соответствий: ${this.stats.exact.matches}`);
