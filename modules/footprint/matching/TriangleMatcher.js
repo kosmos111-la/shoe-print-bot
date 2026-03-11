@@ -131,19 +131,22 @@ class TriangleMatcher {
             if (!p1 || !p2 || !p3) continue;
 
             // 🔥 ГРУБЫЕ ПРИЗНАКИ (для этапа 1)
-            const rough1 = [
-    Math.floor(p1.eccentricity * 2) || 0,        // 0-1 (без изменений)
-    Math.floor((p1.asymmetry || 0) * 2) || 0      // 0-1 (было *3, стало *2)
+           const rough1 = [
+    Math.floor(p1.eccentricity * 2) || 0,        // 0-1 (2 уровня)
+    Math.floor((p1.asymmetry || 0) * 2) || 0,     // 0-1 (2 уровня)
+    Math.floor((p1.normalizedArea * 2) || 0)      // 0-1 (2 уровня) - размер
 ];
 
 const rough2 = [
     Math.floor(p2.eccentricity * 2) || 0,
-    Math.floor((p2.asymmetry || 0) * 2) || 0
+    Math.floor((p2.asymmetry || 0) * 2) || 0,
+    Math.floor((p2.normalizedArea * 2) || 0)
 ];
 
 const rough3 = [
     Math.floor(p3.eccentricity * 2) || 0,
-    Math.floor((p3.asymmetry || 0) * 2) || 0
+    Math.floor((p3.asymmetry || 0) * 2) || 0,
+    Math.floor((p3.normalizedArea * 2) || 0)
 ];
 
             // 🔥 ТОЧНЫЕ ПРИЗНАКИ (для этапа 2)
