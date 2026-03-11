@@ -149,24 +149,34 @@ const rough3 = [
     Math.floor((p3.normalizedArea * 2) || 0)
 ];
 
-            // 🔥 ТОЧНЫЕ ПРИЗНАКИ (для этапа 2)
-            const exact1 = [
-                Math.floor(p1.eccentricity * 3) || 0,        // 0-2
-                Math.floor((p1.asymmetry || 0) * 5) || 0,     // 0-4
-                Math.floor((p1.radialMin || 0) * 5) || 0      // 0-4
-            ];
-           
-            const exact2 = [
-                Math.floor(p2.eccentricity * 3) || 0,
-                Math.floor((p2.asymmetry || 0) * 5) || 0,
-                Math.floor((p2.radialMin || 0) * 5) || 0
-            ];
-           
-            const exact3 = [
-                Math.floor(p3.eccentricity * 3) || 0,
-                Math.floor((p3.asymmetry || 0) * 5) || 0,
-                Math.floor((p3.radialMin || 0) * 5) || 0
-            ];
+            // 🔥 ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ КОДА РОЛИ
+const getRoleCode = (point) => {
+    if (!point.role) return 2; // R по умолчанию
+    const codes = { 'H': 1, 'R': 2, 'L': 3, 'C': 4, 'B': 5 };
+    return codes[point.role] || 2;
+};
+
+// 🔥 ТОЧНЫЕ ПРИЗНАКИ С РОЛЬЮ (4 числа на точку)
+const exact1 = [
+    getRoleCode(p1),                                // роль 1-5
+    Math.floor(p1.eccentricity * 3) || 0,           // эксцентриситет 0-2
+    Math.floor((p1.asymmetry || 0) * 5) || 0,       // асимметрия 0-4
+    Math.floor((p1.normalizedArea * 3) || 0)        // размер 0-2
+];
+
+const exact2 = [
+    getRoleCode(p2),
+    Math.floor(p2.eccentricity * 3) || 0,
+    Math.floor((p2.asymmetry || 0) * 5) || 0,
+    Math.floor((p2.normalizedArea * 3) || 0)
+];
+
+const exact3 = [
+    getRoleCode(p3),
+    Math.floor(p3.eccentricity * 3) || 0,
+    Math.floor((p3.asymmetry || 0) * 5) || 0,
+    Math.floor((p3.normalizedArea * 3) || 0)
+];
 
             // Вычисляем ориентацию
             const orient = (p2.x - p1.x)*(p3.y - p1.y) - (p2.y - p1.y)*(p3.x - p1.x);
