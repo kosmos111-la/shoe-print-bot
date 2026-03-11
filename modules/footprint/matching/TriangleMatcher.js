@@ -11,8 +11,8 @@ class TriangleMatcher {
        
         // Грубые признаки (этап 1)
         this.roughFeatures = {
-            eccentricity: { enabled: true, weight: 1, levels: 2 },  // 0-1
-            asymmetry: { enabled: true, weight: 1, levels: 3 }      // 0-2
+    eccentricity: { enabled: true, weight: 1, levels: 2 },  // 0-1 (оставляем)
+    asymmetry: { enabled: true, weight: 1, levels: 2 }      // 0-1 (было 3, стало 2)
         };
        
         // Точные признаки (этап 2)
@@ -132,19 +132,19 @@ class TriangleMatcher {
 
             // 🔥 ГРУБЫЕ ПРИЗНАКИ (для этапа 1)
             const rough1 = [
-                Math.floor(p1.eccentricity * 2) || 0,        // 0-1
-                Math.floor((p1.asymmetry || 0) * 3) || 0     // 0-2
-            ];
-           
-            const rough2 = [
-                Math.floor(p2.eccentricity * 2) || 0,
-                Math.floor((p2.asymmetry || 0) * 3) || 0
-            ];
-           
-            const rough3 = [
-                Math.floor(p3.eccentricity * 2) || 0,
-                Math.floor((p3.asymmetry || 0) * 3) || 0
-            ];
+    Math.floor(p1.eccentricity * 2) || 0,        // 0-1 (без изменений)
+    Math.floor((p1.asymmetry || 0) * 2) || 0      // 0-1 (было *3, стало *2)
+];
+
+const rough2 = [
+    Math.floor(p2.eccentricity * 2) || 0,
+    Math.floor((p2.asymmetry || 0) * 2) || 0
+];
+
+const rough3 = [
+    Math.floor(p3.eccentricity * 2) || 0,
+    Math.floor((p3.asymmetry || 0) * 2) || 0
+];
 
             // 🔥 ТОЧНЫЕ ПРИЗНАКИ (для этапа 2)
             const exact1 = [
