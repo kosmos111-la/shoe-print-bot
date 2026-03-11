@@ -360,7 +360,7 @@ const rough3 = [
             // Проверка внешних точек
             const externalScore = this.compareExternal(cand.triangleA, cand.triangleB);
            
-            if (externalScore < 0.7) {
+            if (externalScore < 0.75) {
                 if (this.debug) {
                     console.log(`   ❌ Кандидат отсеян: внешние точки ${(externalScore*100).toFixed(1)}%`);
                 }
