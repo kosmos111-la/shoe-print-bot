@@ -7,7 +7,7 @@ class TriangleMatcher {
 
         // 🔥 НАСТРОЙКИ ЭТАПОВ
         this.roughThreshold = options.roughThreshold || 0.5;      // Порог для грубого поиска
-        this.exactThreshold = options.exactThreshold || 0.85;     // Порог для точной проверки
+        this.exactThreshold = options.exactThreshold || 0.9;     // Порог для точной проверки
        
         // Грубые признаки (этап 1)
         this.roughFeatures = {
