@@ -588,7 +588,7 @@ class TriangleMatcher {
             }
 
             // Все проверки пройдены
-            const totalScore = (exactScore * 0.5 + externalScore * 0.3 + geometryScore * 0.2);
+            const totalScore = (exactScore * 0.4 + externalScore * 0.3 + geometryScore * 0.3);
 
             matches.push({
                 triangleA: cand.triangleA,
