@@ -1,6 +1,6 @@
 // modules/footprint/matching/TriangleMatcher.js
 // 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (двухэтапный поиск: грубый → точный)
-// 📊 С РАСШИРЕННОЙ ДИАГНОСТИКОЙ
+// 📊 С РАСШИРЕННОЙ ДИАГНОСТИКОЙ ПАР
 
 class TriangleMatcher {
     constructor(options = {}) {
@@ -8,7 +8,7 @@ class TriangleMatcher {
 
         // 🔥 НАСТРОЙКИ ЭТАПОВ
         this.roughThreshold = options.roughThreshold || 0.5;      // Порог для грубого поиска
-        this.exactThreshold = options.exactThreshold || 0.85;     // 🔥 СНИЗИЛИ ДО 85%
+        this.exactThreshold = options.exactThreshold || 0.85;     // Порог для точной проверки
 
         // Грубые признаки (этап 1)
         this.roughFeatures = {
@@ -101,7 +101,7 @@ class TriangleMatcher {
         console.log(`   • Найдено точных соответствий: ${matches.length}`);
         console.log(`   • Уверенность: ${(matches.length / Math.min(uniqueA.length, uniqueB.length) * 100).toFixed(1)}%`);
 
-        // 🔥 ДИАГНОСТИКА ПЕРВОЙ ПАРЫ
+        // 🔥 ДИАГНОСТИКА ПЕРВОЙ ПАРЫ (С РАСШИРЕННЫМ СРАВНЕНИЕМ)
         this.diagnoseFirstMatch(matches);
 
         // Восстановление точек
@@ -188,7 +188,7 @@ class TriangleMatcher {
     }
 
     /**
-     * 🔥 ДИАГНОСТИКА ПЕРВОЙ ПАРЫ
+     * 🔥 ДИАГНОСТИКА ПЕРВОЙ ПАРЫ (РАСШИРЕННАЯ)
      */
     diagnoseFirstMatch(matches) {
         if (matches.length === 0) return;
@@ -204,17 +204,90 @@ class TriangleMatcher {
         console.log(`      Точки: ${tA.points.map(p => p.substring(0,8)).join(', ')}`);
         console.log(`      Точные признаки: [${tA.exactVectors.join(', ')}]`);
         console.log(`      Степень: ${tA.degree}, Ориентация: ${tA.orientation}`);
-        console.log(`      Внешние точки: ${tA.externalVectors.length}`);
+        console.log(`      Координаты:`);
+        console.log(`         ${tA.p1.id.substring(0,8)}: (${tA.p1.x.toFixed(1)}, ${tA.p1.y.toFixed(1)})`);
+        console.log(`         ${tA.p2.id.substring(0,8)}: (${tA.p2.x.toFixed(1)}, ${tA.p2.y.toFixed(1)})`);
+        console.log(`         ${tA.p3.id.substring(0,8)}: (${tA.p3.x.toFixed(1)}, ${tA.p3.y.toFixed(1)})`);
        
         console.log(`\n   ТРЕУГОЛЬНИК Б:`);
         console.log(`      Точки: ${tB.points.map(p => p.substring(0,8)).join(', ')}`);
         console.log(`      Точные признаки: [${tB.exactVectors.join(', ')}]`);
         console.log(`      Степень: ${tB.degree}, Ориентация: ${tB.orientation}`);
-        console.log(`      Внешние точки: ${tB.externalVectors.length}`);
+        console.log(`      Координаты:`);
+        console.log(`         ${tB.p1.id.substring(0,8)}: (${tB.p1.x.toFixed(1)}, ${tB.p1.y.toFixed(1)})`);
+        console.log(`         ${tB.p2.id.substring(0,8)}: (${tB.p2.x.toFixed(1)}, ${tB.p2.y.toFixed(1)})`);
+        console.log(`         ${tB.p3.id.substring(0,8)}: (${tB.p3.x.toFixed(1)}, ${tB.p3.y.toFixed(1)})`);
        
         if (tA.externalVectors.length > 0 && tB.externalVectors.length > 0) {
-            console.log(`\n   ВНЕШНИЕ ТОЧКИ А: [${tA.externalFlat.join(', ')}]`);
-            console.log(`   ВНЕШНИЕ ТОЧКИ Б: [${tB.externalFlat.join(', ')}]`);
+            console.log(`\n   СРАВНЕНИЕ ВНЕШНИХ ТОЧЕК:`);
+           
+            // Сравниваем внешние точки по рёбрам
+            const edgesA = tA.edges.filter(e => e.neighborTriangles.length > 0);
+            const edgesB = tB.edges.filter(e => e.neighborTriangles.length > 0);
+           
+            for (let i = 0; i < Math.min(edgesA.length, edgesB.length); i++) {
+                const edgeA = edgesA[i];
+                const edgeB = edgesB[i];
+               
+                // Находим внешнюю точку для ребра A
+                let externalA = null;
+                for (const neighborTri of edgeA.neighborTriangles) {
+                    for (const v of [neighborTri.p1, neighborTri.p2, neighborTri.p3]) {
+                        if (v.id !== edgeA.v1.id && v.id !== edgeA.v2.id) {
+                            externalA = v;
+                            break;
+                        }
+                    }
+                }
+               
+                // Находим внешнюю точку для ребра B
+                let externalB = null;
+                for (const neighborTri of edgeB.neighborTriangles) {
+                    for (const v of [neighborTri.p1, neighborTri.p2, neighborTri.p3]) {
+                        if (v.id !== edgeB.v1.id && v.id !== edgeB.v2.id) {
+                            externalB = v;
+                            break;
+                        }
+                    }
+                }
+               
+                if (externalA && externalB) {
+                    console.log(`\n      Ребро ${i+1}:`);
+                    console.log(`         А: точка ${externalA.id.substring(0,8)} (${externalA.x.toFixed(1)}, ${externalA.y.toFixed(1)})`);
+                    console.log(`         Б: точка ${externalB.id.substring(0,8)} (${externalB.x.toFixed(1)}, ${externalB.y.toFixed(1)})`);
+                   
+                    // Морфология внешних точек
+                    const morphA = [
+                        Math.floor(externalA.eccentricity * 3) || 0,
+                        Math.floor((externalA.asymmetry || 0) * 5) || 0,
+                        Math.floor((externalA.radialMin || 0) * 5) || 0
+                    ];
+                   
+                    const morphB = [
+                        Math.floor(externalB.eccentricity * 3) || 0,
+                        Math.floor((externalB.asymmetry || 0) * 5) || 0,
+                        Math.floor((externalB.radialMin || 0) * 5) || 0
+                    ];
+                   
+                    const diff = morphA.map((val, idx) => Math.abs(val - morphB[idx]));
+                    console.log(`         Морфология А: [${morphA.join(', ')}]`);
+                    console.log(`         Морфология Б: [${morphB.join(', ')}]`);
+                    console.log(`         Разница: [${diff.join(', ')}]`);
+                }
+            }
+           
+            // Общие векторы внешних точек
+            console.log(`\n      Векторы внешних точек А: [${tA.externalFlat.join(', ')}]`);
+            console.log(`      Векторы внешних точек Б: [${tB.externalFlat.join(', ')}]`);
+           
+            // Поэлементное сравнение
+            const minLen = Math.min(tA.externalFlat.length, tB.externalFlat.length);
+            const diffs = [];
+            for (let i = 0; i < minLen; i++) {
+                diffs.push(Math.abs(tA.externalFlat[i] - tB.externalFlat[i]));
+            }
+            console.log(`      Поэлементная разница: [${diffs.join(', ')}]`);
+            console.log(`      Средняя разница: ${(diffs.reduce((a,b) => a+b, 0) / diffs.length).toFixed(2)}`);
         }
     }
 
