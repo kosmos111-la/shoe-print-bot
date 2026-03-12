@@ -171,7 +171,7 @@ if (modelIdHint && this.models.has(modelIdHint)) {
         existingModel.metadata.lastEnhanced = new Date();
 
         // 2.4 Создаем matchMap для визуализации
-        const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(triangleResult);
+        const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(triangleResult, modelIdHint);
 
         // 🔥 СОХРАНЯЕМ modelMatchMap В МОДЕЛЬ
         existingModel.lastTriangleResult = {
@@ -527,45 +527,46 @@ if (modelIdHint && this.models.has(modelIdHint)) {
     /**
      * Строит matchMap для визуализации
      */
-    buildTriangleMatchMap(result) {
-        const matchMap = new Map();
-        const modelMatchMap = new Map();
-        let pairNumber = 1;
+buildTriangleMatchMap(result, targetModelId = null) {
+    const matchMap = new Map();
+    const modelMatchMap = new Map();
+    let pairNumber = 1;
 
-        for (const match of result.matches) {
-            matchMap.set(match.pointA, {
-                modelId: match.pointB,
-                pairNumber: pairNumber,
-                type: 'anchor',
-                confidence: match.confidence
-            });
+    for (const match of result.matches) {
+        matchMap.set(match.pointA, {
+            modelId: match.pointB,
+            pairNumber: pairNumber,
+            type: 'anchor',
+            confidence: match.confidence
+        });
 
-            modelMatchMap.set(match.pointB, {
-                photoId: match.pointA,
-                pairNumber: pairNumber,
-                type: 'anchor',
-                confidence: match.confidence
-            });
+        modelMatchMap.set(match.pointB, {
+            photoId: match.pointA,
+            pairNumber: pairNumber,
+            type: 'anchor',
+            confidence: match.confidence
+        });
 
-            pairNumber++;
-        }
-
-        console.log(`📋 Создан matchMap: ${matchMap.size} записей (${pairNumber-1} с номерами)`);
-        console.log(`📋 Создан modelMatchMap: ${modelMatchMap.size} записей`);
-
-        // 🔥 КЛЮЧЕВОЕ: сохраняем в модель
-        if (this.currentModelId && this.models.has(this.currentModelId)) {
-            const model = this.models.get(this.currentModelId);
-            model.lastTriangleResult = {
-                ...(model.lastTriangleResult || {}),
-                modelMatchMap: modelMatchMap,
-                matchMap: matchMap
-            };
-            console.log(`💾 modelMatchMap сохранён в модель ${this.currentModelId.slice(0,12)}...`);
-        }
-
-        return { matchMap, modelMatchMap };
+        pairNumber++;
     }
+
+    console.log(`📋 Создан matchMap: ${matchMap.size} записей (${pairNumber-1} с номерами)`);
+    console.log(`📋 Создан modelMatchMap: ${modelMatchMap.size} записей`);
+
+    // 🔥 ИСПРАВЛЕНО: используем targetModelId или текущий
+    const modelIdToUse = targetModelId || this.currentModelId;
+    if (modelIdToUse && this.models.has(modelIdToUse)) {
+        const model = this.models.get(modelIdToUse);
+        model.lastTriangleResult = {
+            ...(model.lastTriangleResult || {}),
+            modelMatchMap: modelMatchMap,
+            matchMap: matchMap
+        };
+        console.log(`💾 modelMatchMap сохранён в модель ${modelIdToUse.slice(0,12)}...`);
+    }
+
+    return { matchMap, modelMatchMap };
+}
 
     /**
      * Конвертирует matches в Map
