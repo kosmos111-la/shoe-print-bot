@@ -521,34 +521,46 @@ class TriangleMatcher {
     /**
      * Восстановление точек из якорей
      */
-    reconstructPoints(anchors, uniqueA, uniqueB) {
-        const pointMatches = [];
-        const pointMap = new Map(); // pointA -> pointB
+reconstructPoints(anchors, uniqueA, uniqueB) {
+    const pointMatches = [];
+    const pointMap = new Map(); // pointA -> pointB
+    const usedB = new Set(); // уже использованные точки из B
 
-        for (const anchor of anchors) {
-            const tA = uniqueA[anchor.aIndex];
-            const tB = uniqueB[anchor.bIndex];
+    for (const anchor of anchors) {
+        const tA = uniqueA[anchor.aIndex];
+        const tB = uniqueB[anchor.bIndex];
 
-            const pointsA = [tA.p1, tA.p2, tA.p3].sort((a, b) => a.eccentricity - b.eccentricity);
-            const pointsB = [tB.p1, tB.p2, tB.p3].sort((a, b) => a.eccentricity - b.eccentricity);
+        // НЕ СОРТИРУЕМ! Используем исходное соответствие из треугольников
+        const pairs = [
+            { a: tA.p1.id, b: tB.p1.id },
+            { a: tA.p2.id, b: tB.p2.id },
+            { a: tA.p3.id, b: tB.p3.id }
+        ];
 
-            for (let i = 0; i < 3; i++) {
-                const pA = pointsA[i].id;
-                const pB = pointsB[i].id;
-               
-                if (!pointMap.has(pA)) {
-                    pointMap.set(pA, pB);
-                    pointMatches.push({
-                        pointA: pA,
-                        pointB: pB,
-                        confidence: anchor.geometryScore
-                    });
+        for (const { a: pA, b: pB } of pairs) {
+            // Проверяем согласованность
+            if (pointMap.has(pA)) {
+                if (pointMap.get(pA) !== pB) {
+                    console.log(`⚠️ Несогласованность: точка ${pA} соответствует и ${pointMap.get(pA)} и ${pB}`);
+                    continue;
                 }
+            } else if (usedB.has(pB)) {
+                console.log(`⚠️ Точка ${pB} уже используется для другого соответствия`);
+                continue;
+            } else {
+                pointMap.set(pA, pB);
+                usedB.add(pB);
+                pointMatches.push({
+                    pointA: pA,
+                    pointB: pB,
+                    confidence: anchor.geometryScore
+                });
             }
         }
-
-        return pointMatches;
     }
+
+    return pointMatches;
+}
 
     /**
      * Печать статистики
