@@ -1,13 +1,13 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (динамические пороги + диагностика)
+// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (100% порог + исправленные конфликты)
 
 class TriangleMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
 
-        // 🔥 ПОРОГИ
+        // 🔥 ПОРОГИ (добавлен 100%)
         this.roughThreshold = options.roughThreshold || 0.5;      // Порог для грубой морфологии (50%)
-        this.geometryThresholds = options.geometryThresholds || [0.95, 0.90, 0.85, 0.80]; // Динамические пороги
+        this.geometryThresholds = options.geometryThresholds || [1.00, 0.95, 0.90, 0.85, 0.80]; // 100%, 95%, 90%, 85%, 80%
 
         // Грубые признаки (только морфология, без геометрии)
         this.roughFeatures = {
@@ -26,7 +26,7 @@ class TriangleMatcher {
             byThreshold: {}
         };
 
-        console.log(`🔺 TriangleMatcher (динамические пороги) создан`);
+        console.log(`🔺 TriangleMatcher (динамические пороги + 100%) создан`);
         console.log(`   • Грубый порог: ${this.roughThreshold * 100}%`);
         console.log(`   • Геометрия пороги: ${this.geometryThresholds.map(t => t*100 + '%').join(', ')}`);
     }
@@ -36,7 +36,7 @@ class TriangleMatcher {
      */
     findMatches(pointsA, pointsB, delaunayA, delaunayB) {
         console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (динамические пороги)`);
+        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (100% порог)`);
         console.log(`${'='.repeat(100)}`);
         console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
@@ -88,7 +88,7 @@ class TriangleMatcher {
         );
 
         this.stats.anchors = anchors.length;
-        this.stats.anchorsPoints = anchors.length * 3; // Каждый якорь = 3 точки
+        this.stats.anchorsPoints = anchors.length * 3;
         this.stats.ambiguous = ambiguous.length;
         this.stats.noMatches = noMatches.length;
         this.stats.byThreshold = byThreshold;
@@ -305,11 +305,10 @@ class TriangleMatcher {
                 }
                 externalScore = 1 - (extDiff / (e1.length * 1));
             } else {
-                externalScore = 0.3; // разное количество внешних точек
+                externalScore = 0.3;
             }
         }
        
-        // Комбинируем (вершины 70%, внешние 30%)
         return morphScore * 0.7 + externalScore * 0.3;
     }
 
@@ -317,7 +316,7 @@ class TriangleMatcher {
      * Геометрическая верификация всех кандидатов
      */
     verifyGeometry(candidates, uniqueA, uniqueB) {
-        const results = new Map(); // aIndex -> Map(bIndex -> { morphScore, geometryScore })
+        const results = new Map();
 
         for (const c of candidates) {
             const geometryScore = this.compareGeometry(c.triangleA, c.triangleB);
@@ -342,18 +341,15 @@ class TriangleMatcher {
         const sidesA = this.calcSides(tA.p1, tA.p2, tA.p3);
         const sidesB = this.calcSides(tB.p1, tB.p2, tB.p3);
        
-        // Нормируем (делим на максимальную сторону)
         const maxA = Math.max(...sidesA);
         const maxB = Math.max(...sidesB);
        
         const normA = sidesA.map(s => s / maxA);
         const normB = sidesB.map(s => s / maxB);
        
-        // Сортируем для инвариантности
         normA.sort((a, b) => a - b);
         normB.sort((a, b) => a - b);
        
-        // Сравниваем
         let score = 0;
         for (let i = 0; i < 3; i++) {
             const ratio = Math.min(normA[i], normB[i]) / Math.max(normA[i], normB[i]);
@@ -367,11 +363,10 @@ class TriangleMatcher {
      * Динамический поиск якорей по порогам
      */
     findAnchorsDynamic(geometryResults, uniqueA, uniqueB, thresholds) {
-        const anchors = [];           // однозначные пары (треугольники)
-        const ambiguous = [];         // пары с вариантами
-        let remaining = [];           // ещё не проверенные
+        const anchors = [];
+        const ambiguous = [];
+        let remaining = [];
        
-        // Инициализация: все треугольники из А
         for (let i = 0; i < uniqueA.length; i++) {
             remaining.push(i);
         }
@@ -380,6 +375,9 @@ class TriangleMatcher {
         for (const th of thresholds) {
             byThreshold[th] = { anchors: 0, ambiguous: 0 };
         }
+       
+        // Карта соответствий точек (pointA -> pointB)
+        const pointMatches = new Map();
        
         for (const threshold of thresholds) {
             if (remaining.length === 0) break;
@@ -391,10 +389,8 @@ class TriangleMatcher {
             const nextRemaining = [];
            
             for (const aIndex of remaining) {
-                // Получаем всех кандидатов для этого треугольника
                 const candidates = geometryResults.get(aIndex) || new Map();
                
-                // Отбираем прошедших текущий порог
                 const passed = [];
                 for (const [bIndex, res] of candidates) {
                     if (res.geometryScore >= threshold) {
@@ -403,18 +399,53 @@ class TriangleMatcher {
                 }
                
                 if (passed.length === 1) {
-                    // ✅ Однозначная пара
-                    newAnchors.push({
-                        aIndex,
-                        bIndex: passed[0].bIndex,
-                        threshold,
-                        geometryScore: passed[0].score,
-                        morphScore: candidates.get(passed[0].bIndex).morphScore
-                    });
-                    console.log(`      ✅ Треугольник ${aIndex}: однозначная пара (геом: ${(passed[0].score*100).toFixed(1)}%)`);
+                    // Проверяем конфликты точек перед добавлением
+                    const tA = uniqueA[aIndex];
+                    const tB = uniqueB[passed[0].bIndex];
+                   
+                    // Сортируем точки для инвариантности
+                    const pointsA = [tA.p1, tA.p2, tA.p3].sort((a, b) => a.eccentricity - b.eccentricity);
+                    const pointsB = [tB.p1, tB.p2, tB.p3].sort((a, b) => a.eccentricity - b.eccentricity);
+                   
+                    let conflict = false;
+                    const tempMatches = new Map();
+                   
+                    for (let i = 0; i < 3; i++) {
+                        const pA = pointsA[i].id;
+                        const pB = pointsB[i].id;
+                       
+                        if (pointMatches.has(pA)) {
+                            if (pointMatches.get(pA) !== pB) {
+                                console.log(`      ⚠️ Конфликт: точка ${pA.substring(0,8)} уже сопоставлена с ${pointMatches.get(pA).substring(0,8)}, пытаемся с ${pB.substring(0,8)}`);
+                                conflict = true;
+                                break;
+                            }
+                        } else {
+                            tempMatches.set(pA, pB);
+                        }
+                    }
+                   
+                    if (!conflict) {
+                        // Добавляем временные соответствия в основную карту
+                        for (const [pA, pB] of tempMatches) {
+                            pointMatches.set(pA, pB);
+                        }
+                       
+                        newAnchors.push({
+                            aIndex,
+                            bIndex: passed[0].bIndex,
+                            threshold,
+                            geometryScore: passed[0].score,
+                            morphScore: candidates.get(passed[0].bIndex).morphScore
+                        });
+                        console.log(`      ✅ Треугольник ${aIndex}: однозначная пара (геом: ${(passed[0].score*100).toFixed(1)}%)`);
+                    } else {
+                        // При конфликте отправляем в следующий порог
+                        nextRemaining.push(aIndex);
+                        console.log(`      ⚠️ Треугольник ${aIndex}: конфликт точек, перенесён на следующий порог`);
+                    }
                    
                 } else if (passed.length > 1) {
-                    // ⚠️ Появились варианты - запоминаем и больше не проверяем
                     newAmbiguous.push({
                         aIndex,
                         candidates: passed.map(p => p.bIndex),
@@ -424,23 +455,11 @@ class TriangleMatcher {
                     });
                     console.log(`      ⚠️ Треугольник ${aIndex}: варианты (${passed.length})`);
                    
-                    // Детальная диагностика вариантов
-                    if (this.debug) {
-                        for (let k = 0; k < passed.length; k++) {
-                            console.log(`         Кандидат ${k+1}: bIndex=${passed[k].bIndex}, геометрия ${(passed[k].score*100).toFixed(1)}%`);
-                        }
-                    }
-                   
                 } else {
-                    // Нет кандидатов на этом пороге - оставляем для следующего
                     nextRemaining.push(aIndex);
-                    if (this.debug) {
-                        console.log(`      • Треугольник ${aIndex}: нет кандидатов на пороге ${threshold*100}%`);
-                    }
                 }
             }
            
-            // Добавляем найденное в общие массивы
             anchors.push(...newAnchors);
             ambiguous.push(...newAmbiguous);
             remaining = nextRemaining;
@@ -451,52 +470,7 @@ class TriangleMatcher {
             console.log(`   → На этом пороге: +${newAnchors.length} якорей (${newAnchors.length*3} точек), +${newAmbiguous.length} вариативных, осталось ${remaining.length}`);
         }
        
-        // Проверка на дубликаты точек в якорях
-        const usedPointsA = new Set();
-        const usedPointsB = new Set();
-        const validAnchors = [];
-       
-        for (const anchor of anchors) {
-            const tA = uniqueA[anchor.aIndex];
-            const tB = uniqueB[anchor.bIndex];
-           
-            // Проверяем, не заняты ли точки
-            const pointsA = [tA.p1.id, tA.p2.id, tA.p3.id];
-            const pointsB = [tB.p1.id, tB.p2.id, tB.p3.id];
-           
-            let conflict = false;
-            for (const p of pointsA) {
-                if (usedPointsA.has(p)) {
-                    console.log(`   ⚠️ Конфликт: точка ${p.substring(0,8)} уже используется в другом якоре`);
-                    conflict = true;
-                    break;
-                }
-            }
-            for (const p of pointsB) {
-                if (usedPointsB.has(p)) {
-                    console.log(`   ⚠️ Конфликт: точка ${p.substring(0,8)} уже используется в другом якоре`);
-                    conflict = true;
-                    break;
-                }
-            }
-           
-            if (!conflict) {
-                validAnchors.push(anchor);
-                pointsA.forEach(p => usedPointsA.add(p));
-                pointsB.forEach(p => usedPointsB.add(p));
-            }
-        }
-       
-        if (validAnchors.length !== anchors.length) {
-            console.log(`\n⚠️ Обнаружены конфликты: было ${anchors.length} якорей, осталось ${validAnchors.length}`);
-        }
-       
-        return {
-            anchors: validAnchors,
-            ambiguous,
-            noMatches: remaining,
-            byThreshold
-        };
+        return { anchors, ambiguous, noMatches: remaining, byThreshold };
     }
 
     /**
@@ -549,28 +523,26 @@ class TriangleMatcher {
      */
     reconstructPoints(anchors, uniqueA, uniqueB) {
         const pointMatches = [];
-        const usedA = new Set();
-        const usedB = new Set();
+        const pointMap = new Map(); // pointA -> pointB
 
         for (const anchor of anchors) {
             const tA = uniqueA[anchor.aIndex];
             const tB = uniqueB[anchor.bIndex];
 
-            // Сортируем точки для инвариантности
             const pointsA = [tA.p1, tA.p2, tA.p3].sort((a, b) => a.eccentricity - b.eccentricity);
             const pointsB = [tB.p1, tB.p2, tB.p3].sort((a, b) => a.eccentricity - b.eccentricity);
 
             for (let i = 0; i < 3; i++) {
-                if (!usedA.has(pointsA[i].id) && !usedB.has(pointsB[i].id)) {
+                const pA = pointsA[i].id;
+                const pB = pointsB[i].id;
+               
+                if (!pointMap.has(pA)) {
+                    pointMap.set(pA, pB);
                     pointMatches.push({
-                        pointA: pointsA[i].id,
-                        pointB: pointsB[i].id,
+                        pointA: pA,
+                        pointB: pB,
                         confidence: anchor.geometryScore
                     });
-                    usedA.add(pointsA[i].id);
-                    usedB.add(pointsB[i].id);
-                } else {
-                    console.log(`   ⚠️ Конфликт при восстановлении: точка ${pointsA[i].id.substring(0,8)} или ${pointsB[i].id.substring(0,8)} уже используется`);
                 }
             }
         }
