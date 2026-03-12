@@ -537,76 +537,93 @@ buildTriangleMatchMap(result, targetModelId = null) {
         return { matchMap: new Map(), modelMatchMap: new Map() };
     }
 
-    // ===== ШАГ 1: Собираем ВСЕ уникальные соответствия точек =====
-    console.log(`\n📋 ШАГ 1: Сбор уникальных соответствий точек`);
+    // ===== ШАГ 1: Собираем уникальные пары точек =====
+    console.log(`\n📋 ШАГ 1: Сбор уникальных пар точек`);
+   
+    // Множество для отслеживания уже обработанных пар
+    const processedPairs = new Set();
+   
+    // Карта для хранения максимальной уверенности для каждой уникальной пары
+    const bestConfidence = new Map(); // key -> confidence
+   
+    for (const match of result.matches) {
+        const pointA = match.pointA;
+        const pointB = match.pointB;
+        const pairKey = `${pointA}-->${pointB}`; // уникальный ключ пары
+       
+        // Пропускаем, если уже обрабатывали эту пару
+        if (processedPairs.has(pairKey)) {
+            continue;
+        }
+        processedPairs.add(pairKey);
+       
+        // Сохраняем уверенность для этой пары
+        bestConfidence.set(pairKey, match.confidence);
+       
+        console.log(`   ✅ Уникальная пара: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)} (уверенность: ${(match.confidence*100).toFixed(1)}%)`);
+    }
+
+    console.log(`\n📊 УНИКАЛЬНЫХ ПАР ТОЧЕК: ${processedPairs.size}`);
+
+    // ===== ШАГ 2: Собираем глобальную карту соответствий =====
+    console.log(`\n📋 ШАГ 2: Построение глобальной карты соответствий`);
    
     const pointCorrespondence = new Map(); // pointA -> pointB
     const reverseCorrespondence = new Map(); // pointB -> pointA
     let conflicts = 0;
     let added = 0;
 
-    for (const match of result.matches) {
-        const pointA = match.pointA;
-        const pointB = match.pointB;
+    // Сортируем уникальные пары по убыванию уверенности
+    const sortedPairs = Array.from(processedPairs).map(key => {
+        const [pointA, pointB] = key.split('-->');
+        return { pointA, pointB, confidence: bestConfidence.get(key) };
+    }).sort((a, b) => b.confidence - a.confidence);
+
+    for (const { pointA, pointB, confidence } of sortedPairs) {
+        // Проверяем конфликты
+        const aFree = !pointCorrespondence.has(pointA);
+        const bFree = !reverseCorrespondence.has(pointB);
        
-        // Проверяем, нет ли конфликта в прямом направлении
-        if (pointCorrespondence.has(pointA)) {
-            if (pointCorrespondence.get(pointA) !== pointB) {
-                console.log(`   ⚠️ КОНФЛИКТ: точка ${pointA.substring(0,12)} уже соответствует ${pointCorrespondence.get(pointA).substring(0,12)}, пытаемся с ${pointB.substring(0,12)}`);
-                conflicts++;
-            }
-            continue;
-        }
-       
-        // Проверяем, нет ли конфликта в обратном направлении
-        if (reverseCorrespondence.has(pointB)) {
-            if (reverseCorrespondence.get(pointB) !== pointA) {
-                console.log(`   ⚠️ КОНФЛИКТ: точка ${pointB.substring(0,12)} уже соответствует ${reverseCorrespondence.get(pointB).substring(0,12)}, пытаемся с ${pointA.substring(0,12)}`);
-                conflicts++;
-            }
-            continue;
-        }
-       
-        // Нет конфликтов - добавляем
-        pointCorrespondence.set(pointA, pointB);
-        reverseCorrespondence.set(pointB, pointA);
-        added++;
-       
-        if (added <= 5) { // покажем первые 5 для отладки
-            console.log(`   ✅ Добавлено: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
+        if (aFree && bFree) {
+            // Нет конфликтов - добавляем
+            pointCorrespondence.set(pointA, pointB);
+            reverseCorrespondence.set(pointB, pointA);
+            added++;
+            console.log(`   ✅ Добавлено: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)} (уверенность: ${(confidence*100).toFixed(1)}%)`);
+        } else {
+            console.log(`   ⚠️ Конфликт: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)} (уверенность: ${(confidence*100).toFixed(1)}%)`);
+            if (!aFree) console.log(`      • pointA уже соответствует ${pointCorrespondence.get(pointA).substring(0,12)}`);
+            if (!bFree) console.log(`      • pointB уже соответствует ${reverseCorrespondence.get(pointB).substring(0,12)}`);
+            conflicts++;
         }
     }
 
     console.log(`\n📊 ИТОГ СБОРА:`);
     console.log(`   • Уникальных соответствий: ${pointCorrespondence.size}`);
     console.log(`   • Конфликтов: ${conflicts}`);
-    console.log(`   • Всего matches: ${result.matches.length}`);
+    console.log(`   • Всего уникальных пар: ${processedPairs.size}`);
 
-    // ===== ШАГ 2: Назначаем номера парам =====
-    console.log(`\n📋 ШАГ 2: Назначение номеров парам`);
+    // ===== ШАГ 3: Назначаем номера парам =====
+    console.log(`\n📋 ШАГ 3: Назначение номеров парам`);
    
     const matchMap = new Map();
     const modelMatchMap = new Map();
     let pairNumber = 1;
    
-    // Сортируем соответствия по уверенности (если есть)
-    const sortedCorrespondences = [];
+    // Сортируем финальные соответствия по уверенности
+    const finalPairs = [];
     for (const [pointA, pointB] of pointCorrespondence) {
-        // Ищем максимальную уверенность для этой пары
-        let maxConfidence = 0;
-        for (const match of result.matches) {
-            if (match.pointA === pointA && match.pointB === pointB) {
-                maxConfidence = Math.max(maxConfidence, match.confidence);
-            }
-        }
-        sortedCorrespondences.push({ pointA, pointB, confidence: maxConfidence });
+        const key = `${pointA}-->${pointB}`;
+        finalPairs.push({
+            pointA, pointB,
+            confidence: bestConfidence.get(key)
+        });
     }
    
-    // Сортируем по убыванию уверенности
-    sortedCorrespondences.sort((a, b) => b.confidence - a.confidence);
+    finalPairs.sort((a, b) => b.confidence - a.confidence);
    
     console.log(`\n   Назначение номеров (по убыванию уверенности):`);
-    for (const { pointA, pointB, confidence } of sortedCorrespondences) {
+    for (const { pointA, pointB, confidence } of finalPairs) {
         matchMap.set(pointA, {
             modelId: pointB,
             pairNumber: pairNumber,
@@ -625,30 +642,14 @@ buildTriangleMatchMap(result, targetModelId = null) {
         pairNumber++;
     }
 
-    // ===== ШАГ 3: Проверка целостности =====
+    // ===== ШАГ 4: Проверка целостности =====
     console.log(`\n📊 ИТОГ buildTriangleMatchMap:`);
     console.log(`   • matchMap size: ${matchMap.size}`);
     console.log(`   • modelMatchMap size: ${modelMatchMap.size}`);
     console.log(`   • Уникальных photo точек: ${pointCorrespondence.size}`);
     console.log(`   • Уникальных model точек: ${reverseCorrespondence.size}`);
-   
-    // Проверка, что все точки из якорей покрыты
-    const anchorPoints = new Set();
-    for (const match of result.matches) {
-        anchorPoints.add(match.pointA);
-        anchorPoints.add(match.pointB);
-    }
-   
-    const coveredPoints = new Set([...pointCorrespondence.keys(), ...reverseCorrespondence.keys()]);
-    const missingPoints = [...anchorPoints].filter(p => !coveredPoints.has(p));
-   
-    if (missingPoints.length > 0) {
-        console.log(`\n⚠️ Точки, не попавшие в финальные соответствия:`);
-        missingPoints.slice(0, 10).forEach(p => console.log(`   • ${p.substring(0,12)}`));
-        if (missingPoints.length > 10) console.log(`   • ... и ещё ${missingPoints.length - 10}`);
-    }
 
-    // ===== ШАГ 4: Сохраняем в модель =====
+    // ===== ШАГ 5: Сохраняем в модель =====
     const modelIdToUse = targetModelId || this.currentModelId;
     console.log(`\n💾 Сохранение в модель ${modelIdToUse?.substring(0,12)}:`);
 
@@ -661,7 +662,7 @@ buildTriangleMatchMap(result, targetModelId = null) {
             matchMap: matchMap,
             pointCorrespondence: pointCorrespondence,
             stats: {
-                totalMatches: result.matches.length,
+                totalPairs: processedPairs.size,
                 uniquePoints: pointCorrespondence.size,
                 conflicts: conflicts,
                 anchors: matchMap.size
