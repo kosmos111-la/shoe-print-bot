@@ -1,5 +1,5 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (динамические пороги геометрии)
+// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (динамические пороги + диагностика)
 
 class TriangleMatcher {
     constructor(options = {}) {
@@ -20,6 +20,7 @@ class TriangleMatcher {
             uniqueB: 0,
             totalCandidates: 0,
             anchors: 0,
+            anchorsPoints: 0,
             ambiguous: 0,
             noMatches: 0,
             byThreshold: {}
@@ -87,18 +88,20 @@ class TriangleMatcher {
         );
 
         this.stats.anchors = anchors.length;
+        this.stats.anchorsPoints = anchors.length * 3; // Каждый якорь = 3 точки
         this.stats.ambiguous = ambiguous.length;
         this.stats.noMatches = noMatches.length;
         this.stats.byThreshold = byThreshold;
 
         console.log(`\n📊 РЕЗУЛЬТАТ ПО ПОРОГАМ:`);
         for (const th of this.geometryThresholds) {
-            console.log(`   • ${th*100}%: якорей ${byThreshold[th]?.anchors || 0}, вариативных ${byThreshold[th]?.ambiguous || 0}`);
+            console.log(`   • ${th*100}%: якорей ${byThreshold[th]?.anchors || 0} (${(byThreshold[th]?.anchors || 0)*3} точек), вариативных ${byThreshold[th]?.ambiguous || 0}`);
         }
 
         console.log(`\n🎯 ИТОГ:`);
-        console.log(`   • Якорей: ${anchors.length}`);
-        console.log(`   • Вариативных: ${ambiguous.length}`);
+        console.log(`   • Якорей (треугольников): ${anchors.length}`);
+        console.log(`   • Точек в якорях: ${anchors.length * 3}`);
+        console.log(`   • Вариативных треугольников: ${ambiguous.length}`);
         console.log(`   • Без кандидатов: ${noMatches.length}`);
 
         // Восстановление точек из якорей
@@ -364,7 +367,7 @@ class TriangleMatcher {
      * Динамический поиск якорей по порогам
      */
     findAnchorsDynamic(geometryResults, uniqueA, uniqueB, thresholds) {
-        const anchors = [];           // однозначные пары
+        const anchors = [];           // однозначные пары (треугольники)
         const ambiguous = [];         // пары с вариантами
         let remaining = [];           // ещё не проверенные
        
@@ -381,9 +384,7 @@ class TriangleMatcher {
         for (const threshold of thresholds) {
             if (remaining.length === 0) break;
            
-            if (this.debug) {
-                console.log(`\n🔍 ПРОВЕРКА НА ПОРОГЕ ${threshold*100}%:`);
-            }
+            console.log(`\n🔍 ПРОВЕРКА НА ПОРОГЕ ${threshold*100}%:`);
            
             const newAnchors = [];
             const newAmbiguous = [];
@@ -410,9 +411,8 @@ class TriangleMatcher {
                         geometryScore: passed[0].score,
                         morphScore: candidates.get(passed[0].bIndex).morphScore
                     });
-                    if (this.debug) {
-                        console.log(`      ✅ Треугольник ${aIndex}: однозначная пара (геом: ${(passed[0].score*100).toFixed(1)}%)`);
-                    }
+                    console.log(`      ✅ Треугольник ${aIndex}: однозначная пара (геом: ${(passed[0].score*100).toFixed(1)}%)`);
+                   
                 } else if (passed.length > 1) {
                     // ⚠️ Появились варианты - запоминаем и больше не проверяем
                     newAmbiguous.push({
@@ -422,12 +422,21 @@ class TriangleMatcher {
                         count: passed.length,
                         scores: passed.map(p => p.score)
                     });
+                    console.log(`      ⚠️ Треугольник ${aIndex}: варианты (${passed.length})`);
+                   
+                    // Детальная диагностика вариантов
                     if (this.debug) {
-                        console.log(`      ⚠️ Треугольник ${aIndex}: варианты (${passed.length})`);
+                        for (let k = 0; k < passed.length; k++) {
+                            console.log(`         Кандидат ${k+1}: bIndex=${passed[k].bIndex}, геометрия ${(passed[k].score*100).toFixed(1)}%`);
+                        }
                     }
+                   
                 } else {
                     // Нет кандидатов на этом пороге - оставляем для следующего
                     nextRemaining.push(aIndex);
+                    if (this.debug) {
+                        console.log(`      • Треугольник ${aIndex}: нет кандидатов на пороге ${threshold*100}%`);
+                    }
                 }
             }
            
@@ -439,13 +448,51 @@ class TriangleMatcher {
             byThreshold[threshold].anchors = newAnchors.length;
             byThreshold[threshold].ambiguous = newAmbiguous.length;
            
-            if (this.debug) {
-                console.log(`   → На этом пороге: +${newAnchors.length} якорей, +${newAmbiguous.length} вариативных, осталось ${remaining.length}`);
+            console.log(`   → На этом пороге: +${newAnchors.length} якорей (${newAnchors.length*3} точек), +${newAmbiguous.length} вариативных, осталось ${remaining.length}`);
+        }
+       
+        // Проверка на дубликаты точек в якорях
+        const usedPointsA = new Set();
+        const usedPointsB = new Set();
+        const validAnchors = [];
+       
+        for (const anchor of anchors) {
+            const tA = uniqueA[anchor.aIndex];
+            const tB = uniqueB[anchor.bIndex];
+           
+            // Проверяем, не заняты ли точки
+            const pointsA = [tA.p1.id, tA.p2.id, tA.p3.id];
+            const pointsB = [tB.p1.id, tB.p2.id, tB.p3.id];
+           
+            let conflict = false;
+            for (const p of pointsA) {
+                if (usedPointsA.has(p)) {
+                    console.log(`   ⚠️ Конфликт: точка ${p.substring(0,8)} уже используется в другом якоре`);
+                    conflict = true;
+                    break;
+                }
+            }
+            for (const p of pointsB) {
+                if (usedPointsB.has(p)) {
+                    console.log(`   ⚠️ Конфликт: точка ${p.substring(0,8)} уже используется в другом якоре`);
+                    conflict = true;
+                    break;
+                }
+            }
+           
+            if (!conflict) {
+                validAnchors.push(anchor);
+                pointsA.forEach(p => usedPointsA.add(p));
+                pointsB.forEach(p => usedPointsB.add(p));
             }
         }
        
+        if (validAnchors.length !== anchors.length) {
+            console.log(`\n⚠️ Обнаружены конфликты: было ${anchors.length} якорей, осталось ${validAnchors.length}`);
+        }
+       
         return {
-            anchors,
+            anchors: validAnchors,
             ambiguous,
             noMatches: remaining,
             byThreshold
@@ -522,6 +569,8 @@ class TriangleMatcher {
                     });
                     usedA.add(pointsA[i].id);
                     usedB.add(pointsB[i].id);
+                } else {
+                    console.log(`   ⚠️ Конфликт при восстановлении: точка ${pointsA[i].id.substring(0,8)} или ${pointsB[i].id.substring(0,8)} уже используется`);
                 }
             }
         }
@@ -545,13 +594,14 @@ class TriangleMatcher {
         console.log(`   • Всего кандидатов: ${this.stats.totalCandidates}`);
 
         console.log(`\n🎯 РЕЗУЛЬТАТ ПОСЛЕ ГЕОМЕТРИИ:`);
-        console.log(`   • Якорей: ${this.stats.anchors}`);
-        console.log(`   • Вариативных: ${this.stats.ambiguous}`);
+        console.log(`   • Якорей (треугольников): ${this.stats.anchors}`);
+        console.log(`   • Точек в якорях: ${this.stats.anchorsPoints}`);
+        console.log(`   • Вариативных треугольников: ${this.stats.ambiguous}`);
         console.log(`   • Без кандидатов: ${this.stats.noMatches}`);
        
         console.log(`\n📊 ПО ПОРОГАМ:`);
         for (const [th, data] of Object.entries(this.stats.byThreshold)) {
-            console.log(`   • ${(parseFloat(th)*100).toFixed(0)}%: якорей ${data.anchors}, вариативных ${data.ambiguous}`);
+            console.log(`   • ${(parseFloat(th)*100).toFixed(0)}%: якорей ${data.anchors} (${data.anchors*3} точек), вариативных ${data.ambiguous}`);
         }
     }
 }
