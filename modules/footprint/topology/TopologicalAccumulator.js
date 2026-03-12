@@ -530,125 +530,151 @@ if (modelIdHint && this.models.has(modelIdHint)) {
 buildTriangleMatchMap(result, targetModelId = null) {
     console.log(`\n🔍 buildTriangleMatchMap: начало`);
     console.log(`   • result.matches.length = ${result.matches?.length || 0}`);
+    console.log(`   • Якорей (треугольников): ${result.anchors || 'не указано'}`);
    
     if (!result.matches || result.matches.length === 0) {
         console.log(`   ⚠️ Нет matches для построения map`);
         return { matchMap: new Map(), modelMatchMap: new Map() };
     }
 
-    const matchMap = new Map();
-    const modelMatchMap = new Map();
+    // ===== ШАГ 1: Собираем ВСЕ уникальные соответствия точек =====
+    console.log(`\n📋 ШАГ 1: Сбор уникальных соответствий точек`);
    
-    // Множества для отслеживания уже использованных точек
-    const usedPhotoPoints = new Set();
-    const usedModelPoints = new Set();
-   
-    // Сначала сортируем matches по убыванию confidence (более уверенные первыми)
-    const sortedMatches = [...result.matches].sort((a, b) => b.confidence - a.confidence);
-   
-    console.log(`\n📊 СОРТИРОВАННЫЕ ПО УВЕРЕННОСТИ:`);
-    sortedMatches.forEach((match, idx) => {
-        console.log(`   ${idx+1}. уверенность: ${match.confidence.toFixed(3)}`);
-    });
+    const pointCorrespondence = new Map(); // pointA -> pointB
+    const reverseCorrespondence = new Map(); // pointB -> pointA
+    let conflicts = 0;
+    let added = 0;
 
-    let pairNumber = 1;
-    const usedPairs = [];
-
-    for (const match of sortedMatches) {
-        console.log(`\n   Обработка пары с уверенностью ${match.confidence.toFixed(3)}:`);
-        console.log(`      pointA: ${match.pointA?.substring(0,12) || 'undefined'}`);
-        console.log(`      pointB: ${match.pointB?.substring(0,12) || 'undefined'}`);
-
-        // Проверка на конфликты
-        const photoPointFree = !usedPhotoPoints.has(match.pointA);
-        const modelPointFree = !usedModelPoints.has(match.pointB);
-
-        if (photoPointFree && modelPointFree) {
-            // ✅ Нет конфликтов - добавляем
-            console.log(`      ✅ Нет конфликтов, добавляем как пару ${pairNumber}`);
-           
-            usedPhotoPoints.add(match.pointA);
-            usedModelPoints.add(match.pointB);
-           
-            matchMap.set(match.pointA, {
-                modelId: match.pointB,
-                pairNumber: pairNumber,
-                type: 'anchor',
-                confidence: match.confidence
-            });
-
-            modelMatchMap.set(match.pointB, {
-                photoId: match.pointA,
-                pairNumber: pairNumber,
-                type: 'anchor',
-                confidence: match.confidence
-            });
-
-            usedPairs.push({
-                pairNumber,
-                pointA: match.pointA.substring(0,12),
-                pointB: match.pointB.substring(0,12),
-                confidence: match.confidence
-            });
-
-            pairNumber++;
-        } else {
-            // ⚠️ Есть конфликт
-            console.log(`      ⚠️ КОНФЛИКТ:`);
-            if (!photoPointFree) {
-                console.log(`         • pointA уже используется в другой паре`);
+    for (const match of result.matches) {
+        const pointA = match.pointA;
+        const pointB = match.pointB;
+       
+        // Проверяем, нет ли конфликта в прямом направлении
+        if (pointCorrespondence.has(pointA)) {
+            if (pointCorrespondence.get(pointA) !== pointB) {
+                console.log(`   ⚠️ КОНФЛИКТ: точка ${pointA.substring(0,12)} уже соответствует ${pointCorrespondence.get(pointA).substring(0,12)}, пытаемся с ${pointB.substring(0,12)}`);
+                conflicts++;
             }
-            if (!modelPointFree) {
-                console.log(`         • pointB уже используется в другой паре`);
+            continue;
+        }
+       
+        // Проверяем, нет ли конфликта в обратном направлении
+        if (reverseCorrespondence.has(pointB)) {
+            if (reverseCorrespondence.get(pointB) !== pointA) {
+                console.log(`   ⚠️ КОНФЛИКТ: точка ${pointB.substring(0,12)} уже соответствует ${reverseCorrespondence.get(pointB).substring(0,12)}, пытаемся с ${pointA.substring(0,12)}`);
+                conflicts++;
             }
+            continue;
+        }
+       
+        // Нет конфликтов - добавляем
+        pointCorrespondence.set(pointA, pointB);
+        reverseCorrespondence.set(pointB, pointA);
+        added++;
+       
+        if (added <= 5) { // покажем первые 5 для отладки
+            console.log(`   ✅ Добавлено: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
         }
     }
 
+    console.log(`\n📊 ИТОГ СБОРА:`);
+    console.log(`   • Уникальных соответствий: ${pointCorrespondence.size}`);
+    console.log(`   • Конфликтов: ${conflicts}`);
+    console.log(`   • Всего matches: ${result.matches.length}`);
+
+    // ===== ШАГ 2: Назначаем номера парам =====
+    console.log(`\n📋 ШАГ 2: Назначение номеров парам`);
+   
+    const matchMap = new Map();
+    const modelMatchMap = new Map();
+    let pairNumber = 1;
+   
+    // Сортируем соответствия по уверенности (если есть)
+    const sortedCorrespondences = [];
+    for (const [pointA, pointB] of pointCorrespondence) {
+        // Ищем максимальную уверенность для этой пары
+        let maxConfidence = 0;
+        for (const match of result.matches) {
+            if (match.pointA === pointA && match.pointB === pointB) {
+                maxConfidence = Math.max(maxConfidence, match.confidence);
+            }
+        }
+        sortedCorrespondences.push({ pointA, pointB, confidence: maxConfidence });
+    }
+   
+    // Сортируем по убыванию уверенности
+    sortedCorrespondences.sort((a, b) => b.confidence - a.confidence);
+   
+    console.log(`\n   Назначение номеров (по убыванию уверенности):`);
+    for (const { pointA, pointB, confidence } of sortedCorrespondences) {
+        matchMap.set(pointA, {
+            modelId: pointB,
+            pairNumber: pairNumber,
+            type: 'anchor',
+            confidence: confidence
+        });
+
+        modelMatchMap.set(pointB, {
+            photoId: pointA,
+            pairNumber: pairNumber,
+            type: 'anchor',
+            confidence: confidence
+        });
+
+        console.log(`   Пара ${pairNumber}: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)} (уверенность: ${(confidence*100).toFixed(1)}%)`);
+        pairNumber++;
+    }
+
+    // ===== ШАГ 3: Проверка целостности =====
     console.log(`\n📊 ИТОГ buildTriangleMatchMap:`);
     console.log(`   • matchMap size: ${matchMap.size}`);
     console.log(`   • modelMatchMap size: ${modelMatchMap.size}`);
-    console.log(`   • Уникальных photo точек: ${usedPhotoPoints.size}`);
-    console.log(`   • Уникальных model точек: ${usedModelPoints.size}`);
+    console.log(`   • Уникальных photo точек: ${pointCorrespondence.size}`);
+    console.log(`   • Уникальных model точек: ${reverseCorrespondence.size}`);
    
-    console.log(`\n📋 ИСПОЛЬЗОВАННЫЕ ПАРЫ (по убыванию уверенности):`);
-    usedPairs.forEach(p => {
-        console.log(`   Пара ${p.pairNumber}: ${p.pointA} ↔ ${p.pointB} (уверенность: ${(p.confidence*100).toFixed(1)}%)`);
-    });
-
-    // Проверка на несоответствие
-    if (matchMap.size !== modelMatchMap.size) {
-        console.log(`   ⚠️ НЕСООТВЕТСТВИЕ: matchMap (${matchMap.size}) != modelMatchMap (${modelMatchMap.size})`);
+    // Проверка, что все точки из якорей покрыты
+    const anchorPoints = new Set();
+    for (const match of result.matches) {
+        anchorPoints.add(match.pointA);
+        anchorPoints.add(match.pointB);
+    }
+   
+    const coveredPoints = new Set([...pointCorrespondence.keys(), ...reverseCorrespondence.keys()]);
+    const missingPoints = [...anchorPoints].filter(p => !coveredPoints.has(p));
+   
+    if (missingPoints.length > 0) {
+        console.log(`\n⚠️ Точки, не попавшие в финальные соответствия:`);
+        missingPoints.slice(0, 10).forEach(p => console.log(`   • ${p.substring(0,12)}`));
+        if (missingPoints.length > 10) console.log(`   • ... и ещё ${missingPoints.length - 10}`);
     }
 
-    // 🔥 СОХРАНЯЕМ В МОДЕЛЬ
+    // ===== ШАГ 4: Сохраняем в модель =====
     const modelIdToUse = targetModelId || this.currentModelId;
-    console.log(`\n💾 Сохранение в модель:`);
-    console.log(`   • targetModelId: ${targetModelId?.substring(0,12) || 'null'}`);
-    console.log(`   • this.currentModelId: ${this.currentModelId?.substring(0,12) || 'null'}`);
-    console.log(`   • modelIdToUse: ${modelIdToUse?.substring(0,12) || 'null'}`);
+    console.log(`\n💾 Сохранение в модель ${modelIdToUse?.substring(0,12)}:`);
 
     if (modelIdToUse && this.models.has(modelIdToUse)) {
         const model = this.models.get(modelIdToUse);
        
-        // Сохраняем
         model.lastTriangleResult = {
             ...(model.lastTriangleResult || {}),
             modelMatchMap: modelMatchMap,
             matchMap: matchMap,
-            timestamp: new Date().toISOString(),
-            usedPairs: usedPairs // для отладки
+            pointCorrespondence: pointCorrespondence,
+            stats: {
+                totalMatches: result.matches.length,
+                uniquePoints: pointCorrespondence.size,
+                conflicts: conflicts,
+                anchors: matchMap.size
+            },
+            timestamp: new Date().toISOString()
         };
        
         console.log(`   ✅ modelMatchMap сохранён (${modelMatchMap.size} записей)`);
         console.log(`   ✅ matchMap сохранён (${matchMap.size} записей)`);
-       
-        // Проверка, что сохранилось
-        const savedModelMatchMap = model.lastTriangleResult?.modelMatchMap;
-        console.log(`   🔍 Проверка сохранения: ${savedModelMatchMap?.size || 0} записей в модели`);
+        console.log(`   📊 Статистика сохранена в модели`);
        
     } else {
         console.log(`   ❌ Модель ${modelIdToUse?.substring(0,12)} не найдена!`);
-        console.log(`   • Доступные модели: ${Array.from(this.models.keys()).map(id => id.substring(0,12)).join(', ')}`);
     }
 
     return { matchMap, modelMatchMap };
