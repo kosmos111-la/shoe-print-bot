@@ -1,13 +1,13 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (полная логика: грубая морфология + геометрия)
+// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (динамические пороги геометрии)
 
 class TriangleMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
 
         // 🔥 ПОРОГИ
-        this.roughThreshold = options.roughThreshold || 0.5;      // Порог для грубой морфологии
-        this.geometryThreshold = options.geometryThreshold || 0.8; // Порог для геометрии
+        this.roughThreshold = options.roughThreshold || 0.5;      // Порог для грубой морфологии (50%)
+        this.geometryThresholds = options.geometryThresholds || [0.95, 0.90, 0.85, 0.80]; // Динамические пороги
 
         // Грубые признаки (только морфология, без геометрии)
         this.roughFeatures = {
@@ -18,17 +18,16 @@ class TriangleMatcher {
         this.stats = {
             uniqueA: 0,
             uniqueB: 0,
-            oneToOne: 0,
-            oneToMany: 0,
-            manyToOne: 0,
-            manyToMany: 0,
+            totalCandidates: 0,
             anchors: 0,
-            postponed: 0
+            ambiguous: 0,
+            noMatches: 0,
+            byThreshold: {}
         };
 
-        console.log(`🔺 TriangleMatcher (полная логика) создан`);
+        console.log(`🔺 TriangleMatcher (динамические пороги) создан`);
         console.log(`   • Грубый порог: ${this.roughThreshold * 100}%`);
-        console.log(`   • Геометрия порог: ${this.geometryThreshold * 100}%`);
+        console.log(`   • Геометрия пороги: ${this.geometryThresholds.map(t => t*100 + '%').join(', ')}`);
     }
 
     /**
@@ -36,7 +35,7 @@ class TriangleMatcher {
      */
     findMatches(pointsA, pointsB, delaunayA, delaunayB) {
         console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (полная логика)`);
+        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (динамические пороги)`);
         console.log(`${'='.repeat(100)}`);
         console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
@@ -67,47 +66,43 @@ class TriangleMatcher {
         console.log(`   • В следе А: ${uniqueA.length} из ${trianglesA.length}`);
         console.log(`   • В следе Б: ${uniqueB.length} из ${trianglesB.length}`);
 
-        // ШАГ 4: Построение матрицы связей (грубая морфология)
-        console.log(`\n🔍 ШАГ 4: Построение матрицы связей`);
+        // ШАГ 4: Сбор всех кандидатов по грубой морфологии
+        console.log(`\n🔍 ШАГ 4: Сбор кандидатов (грубая морфология)`);
 
-        const { matrix, aToB, bToA } = this.buildConnectionMatrix(uniqueA, uniqueB);
+        const candidates = this.findAllCandidates(uniqueA, uniqueB);
+        this.stats.totalCandidates = candidates.length;
 
-        // ШАГ 5: Анализ однозначности
-        console.log(`\n🔍 ШАГ 5: Анализ однозначности`);
+        console.log(`   • Найдено кандидатов: ${candidates.length}`);
 
-        const categories = this.analyzeUniqueness(matrix, aToB, bToA, uniqueA, uniqueB);
+        // ШАГ 5: Геометрическая верификация всех кандидатов
+        console.log(`\n🔍 ШАГ 5: Геометрическая верификация`);
 
-        console.log(`\n📊 РАСПРЕДЕЛЕНИЕ СВЯЗЕЙ:`);
-        console.log(`   • 1:1 (взаимно однозначных): ${categories.oneToOne.length}`);
-        console.log(`   • 1:N (у А несколько кандидатов): ${categories.oneToMany.length}`);
-        console.log(`   • N:1 (у Б несколько кандидатов): ${categories.manyToOne.length}`);
-        console.log(`   • M:N (сложные связи): ${categories.manyToMany.length}`);
+        const geometryResults = this.verifyGeometry(candidates, uniqueA, uniqueB);
 
-        this.stats.oneToOne = categories.oneToOne.length;
-        this.stats.oneToMany = categories.oneToMany.length;
-        this.stats.manyToOne = categories.manyToOne.length;
-        this.stats.manyToMany = categories.manyToMany.length;
+        // ШАГ 6: Динамический поиск якорей по порогам
+        console.log(`\n🔍 ШАГ 6: Динамический поиск якорей`);
 
-        // ШАГ 6: Геометрическая верификация ВСЕХ связей
-        console.log(`\n🔍 ШАГ 6: Геометрическая верификация`);
-
-        const geometryResults = this.verifyGeometry(matrix, uniqueA, uniqueB);
-
-        // ШАГ 7: Финальное решение (только однозначные после геометрии)
-        console.log(`\n🔍 ШАГ 7: Финальное решение`);
-
-        const anchors = this.findAnchors(geometryResults, uniqueA, uniqueB);
+        const { anchors, ambiguous, noMatches, byThreshold } = this.findAnchorsDynamic(
+            geometryResults, uniqueA, uniqueB, this.geometryThresholds
+        );
 
         this.stats.anchors = anchors.length;
-        this.stats.postponed = categories.oneToOne.length + categories.oneToMany.length +
-                              categories.manyToOne.length + categories.manyToMany.length - anchors.length;
+        this.stats.ambiguous = ambiguous.length;
+        this.stats.noMatches = noMatches.length;
+        this.stats.byThreshold = byThreshold;
 
-        console.log(`\n🎯 РЕЗУЛЬТАТ:`);
-        console.log(`   • Найдено якорей: ${anchors.length}`);
-        console.log(`   • Отложено (неоднозначно): ${this.stats.postponed}`);
+        console.log(`\n📊 РЕЗУЛЬТАТ ПО ПОРОГАМ:`);
+        for (const th of this.geometryThresholds) {
+            console.log(`   • ${th*100}%: якорей ${byThreshold[th]?.anchors || 0}, вариативных ${byThreshold[th]?.ambiguous || 0}`);
+        }
+
+        console.log(`\n🎯 ИТОГ:`);
+        console.log(`   • Якорей: ${anchors.length}`);
+        console.log(`   • Вариативных: ${ambiguous.length}`);
+        console.log(`   • Без кандидатов: ${noMatches.length}`);
 
         // Восстановление точек из якорей
-        const pointMatches = this.reconstructPoints(anchors);
+        const pointMatches = this.reconstructPoints(anchors, uniqueA, uniqueB);
 
         console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
         this.printSummary();
@@ -124,13 +119,6 @@ class TriangleMatcher {
     buildTopologicalTriangles(delaunay, points) {
         const triangles = [];
         const triangleList = this.getTrianglesFromDelaunay(delaunay);
-
-        // Вычисляем радиальные признаки
-        for (const point of points) {
-            if (point.radialMin === undefined) {
-                point.radialMin = this.calculateRadialMin(point);
-            }
-        }
 
         for (const tri of triangleList) {
             if (!Array.isArray(tri) || tri.length < 3) continue;
@@ -257,23 +245,11 @@ class TriangleMatcher {
     }
 
     /**
-     * Построение матрицы связей по грубой морфологии
+     * Сбор всех кандидатов по грубой морфологии
      */
-    buildConnectionMatrix(uniqueA, uniqueB) {
-        const matrix = new Map(); // aIndex -> Map(bIndex -> score)
-        const aToB = new Map();   // aIndex -> Set(bIndices)
-        const bToA = new Map();   // bIndex -> Set(aIndices)
+    findAllCandidates(uniqueA, uniqueB) {
+        const candidates = [];
 
-        // Инициализация
-        for (let i = 0; i < uniqueA.length; i++) {
-            aToB.set(i, new Set());
-            matrix.set(i, new Map());
-        }
-        for (let j = 0; j < uniqueB.length; j++) {
-            bToA.set(j, new Set());
-        }
-
-        // Заполняем матрицу
         for (let i = 0; i < uniqueA.length; i++) {
             const tA = uniqueA[i];
            
@@ -283,14 +259,18 @@ class TriangleMatcher {
                 const score = this.compareMorphology(tA, tB);
                
                 if (score >= this.roughThreshold) {
-                    matrix.get(i).set(j, score);
-                    aToB.get(i).add(j);
-                    bToA.get(j).add(i);
+                    candidates.push({
+                        aIndex: i,
+                        bIndex: j,
+                        triangleA: tA,
+                        triangleB: tB,
+                        morphScore: score
+                    });
                 }
             }
         }
 
-        return { matrix, aToB, bToA };
+        return candidates;
     }
 
     /**
@@ -331,115 +311,22 @@ class TriangleMatcher {
     }
 
     /**
-     * Анализ однозначности связей
+     * Геометрическая верификация всех кандидатов
      */
-    analyzeUniqueness(matrix, aToB, bToA, uniqueA, uniqueB) {
-        const categories = {
-            oneToOne: [],      // взаимно однозначные
-            oneToMany: [],     // у А несколько кандидатов
-            manyToOne: [],     // у Б несколько кандидатов
-            manyToMany: []     // сложные связи
-        };
+    verifyGeometry(candidates, uniqueA, uniqueB) {
+        const results = new Map(); // aIndex -> Map(bIndex -> { morphScore, geometryScore })
 
-        // Проверяем каждую связь
-        for (let i = 0; i < uniqueA.length; i++) {
-            const bIndices = Array.from(aToB.get(i));
-            if (bIndices.length === 0) continue;
-
-            for (const j of bIndices) {
-                const aIndices = Array.from(bToA.get(j));
-               
-                if (bIndices.length === 1 && aIndices.length === 1) {
-                    // Взаимно однозначная
-                    categories.oneToOne.push({
-                        aIndex: i,
-                        bIndex: j,
-                        triangleA: uniqueA[i],
-                        triangleB: uniqueB[j],
-                        score: matrix.get(i).get(j)
-                    });
-                } else if (bIndices.length > 1 && aIndices.length === 1) {
-                    // У А несколько кандидатов, но у Б только этот А
-                    categories.oneToMany.push({
-                        aIndex: i,
-                        bIndex: j,
-                        triangleA: uniqueA[i],
-                        triangleB: uniqueB[j],
-                        score: matrix.get(i).get(j),
-                        otherCandidates: bIndices.filter(idx => idx !== j).length
-                    });
-                } else if (bIndices.length === 1 && aIndices.length > 1) {
-                    // У Б несколько кандидатов, но у А только этот Б
-                    categories.manyToOne.push({
-                        aIndex: i,
-                        bIndex: j,
-                        triangleA: uniqueA[i],
-                        triangleB: uniqueB[j],
-                        score: matrix.get(i).get(j),
-                        otherCandidates: aIndices.filter(idx => idx !== i).length
-                    });
-                } else {
-                    // Сложные связи
-                    categories.manyToMany.push({
-                        aIndex: i,
-                        bIndex: j,
-                        triangleA: uniqueA[i],
-                        triangleB: uniqueB[j],
-                        score: matrix.get(i).get(j),
-                        aCandidates: bIndices.length,
-                        bCandidates: aIndices.length
-                    });
-                }
-            }
-        }
-
-        // Убираем дубликаты (каждая пара попадает дважды)
-        categories.oneToOne = this.uniquePairs(categories.oneToOne);
-        categories.oneToMany = this.uniquePairs(categories.oneToMany);
-        categories.manyToOne = this.uniquePairs(categories.manyToOne);
-        categories.manyToMany = this.uniquePairs(categories.manyToMany);
-
-        return categories;
-    }
-
-    /**
-     * Убирает дубликаты пар
-     */
-    uniquePairs(pairs) {
-        const seen = new Set();
-        return pairs.filter(p => {
-            const key = `${p.aIndex}-${p.bIndex}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-        });
-    }
-
-    /**
-     * Геометрическая верификация
-     */
-    verifyGeometry(matrix, uniqueA, uniqueB) {
-        const results = new Map(); // aIndex -> Map(bIndex -> geometryScore)
-
-        for (let i = 0; i < uniqueA.length; i++) {
-            const bMap = matrix.get(i);
-            if (!bMap) continue;
+        for (const c of candidates) {
+            const geometryScore = this.compareGeometry(c.triangleA, c.triangleB);
            
-            for (const [j, morphScore] of bMap) {
-                const tA = uniqueA[i];
-                const tB = uniqueB[j];
-               
-                const geometryScore = this.compareGeometry(tA, tB);
-               
-                if (!results.has(i)) {
-                    results.set(i, new Map());
-                }
-                results.get(i).set(j, {
-                    morphScore,
-                    geometryScore,
-                    passed: geometryScore >= this.geometryThreshold
-                });
+            if (!results.has(c.aIndex)) {
+                results.set(c.aIndex, new Map());
             }
+           
+            results.get(c.aIndex).set(c.bIndex, {
+                morphScore: c.morphScore,
+                geometryScore: geometryScore
+            });
         }
 
         return results;
@@ -474,52 +361,95 @@ class TriangleMatcher {
     }
 
     /**
-     * Поиск якорей (однозначных после геометрии)
+     * Динамический поиск якорей по порогам
      */
-    findAnchors(geometryResults, uniqueA, uniqueB) {
-        const anchors = [];
-
-        // Проверяем каждый треугольник из А
+    findAnchorsDynamic(geometryResults, uniqueA, uniqueB, thresholds) {
+        const anchors = [];           // однозначные пары
+        const ambiguous = [];         // пары с вариантами
+        let remaining = [];           // ещё не проверенные
+       
+        // Инициализация: все треугольники из А
         for (let i = 0; i < uniqueA.length; i++) {
-            const bResults = geometryResults.get(i);
-            if (!bResults) continue;
+            remaining.push(i);
+        }
+       
+        const byThreshold = {};
+        for (const th of thresholds) {
+            byThreshold[th] = { anchors: 0, ambiguous: 0 };
+        }
+       
+        for (const threshold of thresholds) {
+            if (remaining.length === 0) break;
            
-            // Отбираем кандидатов, прошедших геометрию
-            const passed = [];
-            for (const [j, res] of bResults) {
-                if (res.passed) {
-                    passed.push({ j, score: res.morphScore, geometryScore: res.geometryScore });
+            if (this.debug) {
+                console.log(`\n🔍 ПРОВЕРКА НА ПОРОГЕ ${threshold*100}%:`);
+            }
+           
+            const newAnchors = [];
+            const newAmbiguous = [];
+            const nextRemaining = [];
+           
+            for (const aIndex of remaining) {
+                // Получаем всех кандидатов для этого треугольника
+                const candidates = geometryResults.get(aIndex) || new Map();
+               
+                // Отбираем прошедших текущий порог
+                const passed = [];
+                for (const [bIndex, res] of candidates) {
+                    if (res.geometryScore >= threshold) {
+                        passed.push({ bIndex, score: res.geometryScore });
+                    }
+                }
+               
+                if (passed.length === 1) {
+                    // ✅ Однозначная пара
+                    newAnchors.push({
+                        aIndex,
+                        bIndex: passed[0].bIndex,
+                        threshold,
+                        geometryScore: passed[0].score,
+                        morphScore: candidates.get(passed[0].bIndex).morphScore
+                    });
+                    if (this.debug) {
+                        console.log(`      ✅ Треугольник ${aIndex}: однозначная пара (геом: ${(passed[0].score*100).toFixed(1)}%)`);
+                    }
+                } else if (passed.length > 1) {
+                    // ⚠️ Появились варианты - запоминаем и больше не проверяем
+                    newAmbiguous.push({
+                        aIndex,
+                        candidates: passed.map(p => p.bIndex),
+                        threshold,
+                        count: passed.length,
+                        scores: passed.map(p => p.score)
+                    });
+                    if (this.debug) {
+                        console.log(`      ⚠️ Треугольник ${aIndex}: варианты (${passed.length})`);
+                    }
+                } else {
+                    // Нет кандидатов на этом пороге - оставляем для следующего
+                    nextRemaining.push(aIndex);
                 }
             }
            
-            // Если ровно один кандидат - это якорь
-            if (passed.length === 1) {
-                const j = passed[0].j;
-               
-                // Проверяем, что и для этого кандидата из Б наш треугольник - единственный
-                const aResults = new Map();
-                for (let k = 0; k < uniqueA.length; k++) {
-                    const res = geometryResults.get(k)?.get(j);
-                    if (res?.passed) {
-                        aResults.set(k, res);
-                    }
-                }
-               
-                if (aResults.size === 1) {
-                    anchors.push({
-                        triangleA: uniqueA[i],
-                        triangleB: uniqueB[j],
-                        confidence: (passed[0].score * 0.5 + passed[0].geometryScore * 0.5)
-                    });
-                   
-                    if (this.debug) {
-                        console.log(`   ✅ Якорь: A[${i}] ↔ B[${j}] (морфология: ${(passed[0].score*100).toFixed(1)}%, геометрия: ${(passed[0].geometryScore*100).toFixed(1)}%)`);
-                    }
-                }
+            // Добавляем найденное в общие массивы
+            anchors.push(...newAnchors);
+            ambiguous.push(...newAmbiguous);
+            remaining = nextRemaining;
+           
+            byThreshold[threshold].anchors = newAnchors.length;
+            byThreshold[threshold].ambiguous = newAmbiguous.length;
+           
+            if (this.debug) {
+                console.log(`   → На этом пороге: +${newAnchors.length} якорей, +${newAmbiguous.length} вариативных, осталось ${remaining.length}`);
             }
         }
-
-        return anchors;
+       
+        return {
+            anchors,
+            ambiguous,
+            noMatches: remaining,
+            byThreshold
+        };
     }
 
     /**
@@ -568,50 +498,16 @@ class TriangleMatcher {
     }
 
     /**
-     * Вычисление минимального радиуса
-     */
-    calculateRadialMin(point) {
-        if (!point.contour || point.contour.length === 0) return 0;
-
-        let minDist = Infinity;
-        for (const p of point.contour) {
-            const dx = p.x - point.x;
-            const dy = p.y - point.y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            if (dist < minDist) minDist = dist;
-        }
-
-        const maxDist = this.calculateRadialMax(point);
-        return maxDist > 0 ? minDist / maxDist : 0;
-    }
-
-    /**
-     * Вычисление максимального радиуса
-     */
-    calculateRadialMax(point) {
-        if (!point.contour || point.contour.length === 0) return 1;
-
-        let maxDist = 0;
-        for (const p of point.contour) {
-            const dx = p.x - point.x;
-            const dy = p.y - point.y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            if (dist > maxDist) maxDist = dist;
-        }
-        return maxDist;
-    }
-
-    /**
      * Восстановление точек из якорей
      */
-    reconstructPoints(anchors) {
+    reconstructPoints(anchors, uniqueA, uniqueB) {
         const pointMatches = [];
         const usedA = new Set();
         const usedB = new Set();
 
         for (const anchor of anchors) {
-            const tA = anchor.triangleA;
-            const tB = anchor.triangleB;
+            const tA = uniqueA[anchor.aIndex];
+            const tB = uniqueB[anchor.bIndex];
 
             // Сортируем точки для инвариантности
             const pointsA = [tA.p1, tA.p2, tA.p3].sort((a, b) => a.eccentricity - b.eccentricity);
@@ -622,7 +518,7 @@ class TriangleMatcher {
                     pointMatches.push({
                         pointA: pointsA[i].id,
                         pointB: pointsB[i].id,
-                        confidence: anchor.confidence
+                        confidence: anchor.geometryScore
                     });
                     usedA.add(pointsA[i].id);
                     usedB.add(pointsB[i].id);
@@ -645,15 +541,18 @@ class TriangleMatcher {
         console.log(`   • Уникальных в А: ${this.stats.uniqueA}`);
         console.log(`   • Уникальных в Б: ${this.stats.uniqueB}`);
 
-        console.log(`\n🔗 СВЯЗИ (грубая морфология):`);
-        console.log(`   • 1:1 (взаимно однозначных): ${this.stats.oneToOne}`);
-        console.log(`   • 1:N (у А несколько): ${this.stats.oneToMany}`);
-        console.log(`   • N:1 (у Б несколько): ${this.stats.manyToOne}`);
-        console.log(`   • M:N (сложные): ${this.stats.manyToMany}`);
+        console.log(`\n🔗 КАНДИДАТЫ:`);
+        console.log(`   • Всего кандидатов: ${this.stats.totalCandidates}`);
 
         console.log(`\n🎯 РЕЗУЛЬТАТ ПОСЛЕ ГЕОМЕТРИИ:`);
         console.log(`   • Якорей: ${this.stats.anchors}`);
-        console.log(`   • Отложено: ${this.stats.postponed}`);
+        console.log(`   • Вариативных: ${this.stats.ambiguous}`);
+        console.log(`   • Без кандидатов: ${this.stats.noMatches}`);
+       
+        console.log(`\n📊 ПО ПОРОГАМ:`);
+        for (const [th, data] of Object.entries(this.stats.byThreshold)) {
+            console.log(`   • ${(parseFloat(th)*100).toFixed(0)}%: якорей ${data.anchors}, вариативных ${data.ambiguous}`);
+        }
     }
 }
 
