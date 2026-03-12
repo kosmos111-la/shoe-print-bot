@@ -528,11 +528,39 @@ if (modelIdHint && this.models.has(modelIdHint)) {
      * Строит matchMap для визуализации
      */
 buildTriangleMatchMap(result, targetModelId = null) {
+    console.log(`\n🔍 buildTriangleMatchMap: начало`);
+    console.log(`   • result.matches.length = ${result.matches?.length || 0}`);
+   
+    if (!result.matches || result.matches.length === 0) {
+        console.log(`   ⚠️ Нет matches для построения map`);
+        return { matchMap: new Map(), modelMatchMap: new Map() };
+    }
+
     const matchMap = new Map();
     const modelMatchMap = new Map();
     let pairNumber = 1;
 
+    // Для отслеживания уникальности точек
+    const usedPhotoPoints = new Set();
+    const usedModelPoints = new Set();
+
     for (const match of result.matches) {
+        console.log(`\n   Пара ${pairNumber}:`);
+        console.log(`      pointA: ${match.pointA?.substring(0,12) || 'undefined'}`);
+        console.log(`      pointB: ${match.pointB?.substring(0,12) || 'undefined'}`);
+        console.log(`      confidence: ${match.confidence}`);
+
+        // Проверка на дубликаты
+        if (usedPhotoPoints.has(match.pointA)) {
+            console.log(`      ⚠️ ДУБЛИКАТ: pointA уже использован!`);
+        }
+        if (usedModelPoints.has(match.pointB)) {
+            console.log(`      ⚠️ ДУБЛИКАТ: pointB уже использован!`);
+        }
+
+        usedPhotoPoints.add(match.pointA);
+        usedModelPoints.add(match.pointB);
+
         matchMap.set(match.pointA, {
             modelId: match.pointB,
             pairNumber: pairNumber,
@@ -550,19 +578,45 @@ buildTriangleMatchMap(result, targetModelId = null) {
         pairNumber++;
     }
 
-    console.log(`📋 Создан matchMap: ${matchMap.size} записей (${pairNumber-1} с номерами)`);
-    console.log(`📋 Создан modelMatchMap: ${modelMatchMap.size} записей`);
+    console.log(`\n📊 ИТОГ buildTriangleMatchMap:`);
+    console.log(`   • matchMap size: ${matchMap.size}`);
+    console.log(`   • modelMatchMap size: ${modelMatchMap.size}`);
+    console.log(`   • Уникальных photo точек: ${usedPhotoPoints.size}`);
+    console.log(`   • Уникальных model точек: ${usedModelPoints.size}`);
 
-    // 🔥 ИСПРАВЛЕНО: используем targetModelId или текущий
+    // Проверка на несоответствие
+    if (matchMap.size !== modelMatchMap.size) {
+        console.log(`   ⚠️ НЕСООТВЕТСТВИЕ: matchMap (${matchMap.size}) != modelMatchMap (${modelMatchMap.size})`);
+    }
+
+    // 🔥 СОХРАНЯЕМ В МОДЕЛЬ
     const modelIdToUse = targetModelId || this.currentModelId;
+    console.log(`\n💾 Сохранение в модель:`);
+    console.log(`   • targetModelId: ${targetModelId?.substring(0,12) || 'null'}`);
+    console.log(`   • this.currentModelId: ${this.currentModelId?.substring(0,12) || 'null'}`);
+    console.log(`   • modelIdToUse: ${modelIdToUse?.substring(0,12) || 'null'}`);
+
     if (modelIdToUse && this.models.has(modelIdToUse)) {
         const model = this.models.get(modelIdToUse);
+       
+        // Сохраняем
         model.lastTriangleResult = {
             ...(model.lastTriangleResult || {}),
             modelMatchMap: modelMatchMap,
-            matchMap: matchMap
+            matchMap: matchMap,
+            timestamp: new Date().toISOString()
         };
-        console.log(`💾 modelMatchMap сохранён в модель ${modelIdToUse.slice(0,12)}...`);
+       
+        console.log(`   ✅ modelMatchMap сохранён (${modelMatchMap.size} записей)`);
+        console.log(`   ✅ matchMap сохранён (${matchMap.size} записей)`);
+       
+        // Проверка, что сохранилось
+        const savedModelMatchMap = model.lastTriangleResult?.modelMatchMap;
+        console.log(`   🔍 Проверка сохранения: ${savedModelMatchMap?.size || 0} записей в модели`);
+       
+    } else {
+        console.log(`   ❌ Модель ${modelIdToUse?.substring(0,12)} не найдена!`);
+        console.log(`   • Доступные модели: ${Array.from(this.models.keys()).map(id => id.substring(0,12)).join(', ')}`);
     }
 
     return { matchMap, modelMatchMap };
