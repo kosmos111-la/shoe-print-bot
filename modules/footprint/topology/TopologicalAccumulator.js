@@ -538,44 +538,70 @@ buildTriangleMatchMap(result, targetModelId = null) {
 
     const matchMap = new Map();
     const modelMatchMap = new Map();
-    let pairNumber = 1;
-
-    // Для отслеживания уникальности точек
+   
+    // Множества для отслеживания уже использованных точек
     const usedPhotoPoints = new Set();
     const usedModelPoints = new Set();
+   
+    // Сначала сортируем matches по убыванию confidence (более уверенные первыми)
+    const sortedMatches = [...result.matches].sort((a, b) => b.confidence - a.confidence);
+   
+    console.log(`\n📊 СОРТИРОВАННЫЕ ПО УВЕРЕННОСТИ:`);
+    sortedMatches.forEach((match, idx) => {
+        console.log(`   ${idx+1}. уверенность: ${match.confidence.toFixed(3)}`);
+    });
 
-    for (const match of result.matches) {
-        console.log(`\n   Пара ${pairNumber}:`);
+    let pairNumber = 1;
+    const usedPairs = [];
+
+    for (const match of sortedMatches) {
+        console.log(`\n   Обработка пары с уверенностью ${match.confidence.toFixed(3)}:`);
         console.log(`      pointA: ${match.pointA?.substring(0,12) || 'undefined'}`);
         console.log(`      pointB: ${match.pointB?.substring(0,12) || 'undefined'}`);
-        console.log(`      confidence: ${match.confidence}`);
 
-        // Проверка на дубликаты
-        if (usedPhotoPoints.has(match.pointA)) {
-            console.log(`      ⚠️ ДУБЛИКАТ: pointA уже использован!`);
+        // Проверка на конфликты
+        const photoPointFree = !usedPhotoPoints.has(match.pointA);
+        const modelPointFree = !usedModelPoints.has(match.pointB);
+
+        if (photoPointFree && modelPointFree) {
+            // ✅ Нет конфликтов - добавляем
+            console.log(`      ✅ Нет конфликтов, добавляем как пару ${pairNumber}`);
+           
+            usedPhotoPoints.add(match.pointA);
+            usedModelPoints.add(match.pointB);
+           
+            matchMap.set(match.pointA, {
+                modelId: match.pointB,
+                pairNumber: pairNumber,
+                type: 'anchor',
+                confidence: match.confidence
+            });
+
+            modelMatchMap.set(match.pointB, {
+                photoId: match.pointA,
+                pairNumber: pairNumber,
+                type: 'anchor',
+                confidence: match.confidence
+            });
+
+            usedPairs.push({
+                pairNumber,
+                pointA: match.pointA.substring(0,12),
+                pointB: match.pointB.substring(0,12),
+                confidence: match.confidence
+            });
+
+            pairNumber++;
+        } else {
+            // ⚠️ Есть конфликт
+            console.log(`      ⚠️ КОНФЛИКТ:`);
+            if (!photoPointFree) {
+                console.log(`         • pointA уже используется в другой паре`);
+            }
+            if (!modelPointFree) {
+                console.log(`         • pointB уже используется в другой паре`);
+            }
         }
-        if (usedModelPoints.has(match.pointB)) {
-            console.log(`      ⚠️ ДУБЛИКАТ: pointB уже использован!`);
-        }
-
-        usedPhotoPoints.add(match.pointA);
-        usedModelPoints.add(match.pointB);
-
-        matchMap.set(match.pointA, {
-            modelId: match.pointB,
-            pairNumber: pairNumber,
-            type: 'anchor',
-            confidence: match.confidence
-        });
-
-        modelMatchMap.set(match.pointB, {
-            photoId: match.pointA,
-            pairNumber: pairNumber,
-            type: 'anchor',
-            confidence: match.confidence
-        });
-
-        pairNumber++;
     }
 
     console.log(`\n📊 ИТОГ buildTriangleMatchMap:`);
@@ -583,6 +609,11 @@ buildTriangleMatchMap(result, targetModelId = null) {
     console.log(`   • modelMatchMap size: ${modelMatchMap.size}`);
     console.log(`   • Уникальных photo точек: ${usedPhotoPoints.size}`);
     console.log(`   • Уникальных model точек: ${usedModelPoints.size}`);
+   
+    console.log(`\n📋 ИСПОЛЬЗОВАННЫЕ ПАРЫ (по убыванию уверенности):`);
+    usedPairs.forEach(p => {
+        console.log(`   Пара ${p.pairNumber}: ${p.pointA} ↔ ${p.pointB} (уверенность: ${(p.confidence*100).toFixed(1)}%)`);
+    });
 
     // Проверка на несоответствие
     if (matchMap.size !== modelMatchMap.size) {
@@ -604,7 +635,8 @@ buildTriangleMatchMap(result, targetModelId = null) {
             ...(model.lastTriangleResult || {}),
             modelMatchMap: modelMatchMap,
             matchMap: matchMap,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            usedPairs: usedPairs // для отладки
         };
        
         console.log(`   ✅ modelMatchMap сохранён (${modelMatchMap.size} записей)`);
