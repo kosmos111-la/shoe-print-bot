@@ -195,25 +195,68 @@ const consistent = this.checkGlobalConsistency(
 );
 
         
-        // ===== ШАГ 3: КОНВЕРТИРУЕМ СОГЛАСОВАННЫЕ ЯКОРЯ ОБРАТНО В MATCHES =====
-        const finalMatches = this.twoStagePositioning(
-    consistent.points,           // согласованные якоря (18 точек)
-    triangleResult.matches,       // все matches (45 точек)
-    exactGraph,                   // граф первого следа
-    existingModel.graph,          // граф модели
-    morphologyMap,                // морфология первого следа
-    existingModel.morphologyMap   // морфология модели
+        // ===== ШАГ 3: ДВУХЭТАПНАЯ ДОСТРОЙКА =====
+const finalMatches = this.twoStagePositioning(
+    consistent.points,
+    triangleResult.matches,
+    exactGraph,
+    existingModel.graph,
+    morphologyMap,
+    existingModel.morphologyMap
 );
 
 console.log(`\n📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:`);
 console.log(`   • Было matches: ${triangleResult.matches.length}`);
 console.log(`   • Стало matches: ${finalMatches.length}`);
 
+// ===== ШАГ 3.5: ПОВТОРНОЕ ГЛОБАЛЬНОЕ СОГЛАСОВАНИЕ =====
+console.log(`\n🔄 ПОВТОРНОЕ ГЛОБАЛЬНОЕ СОГЛАСОВАНИЕ ПОСЛЕ ДОСТРОЙКИ`);
+
+// Создаём временные якоря из всех достроенных точек
+const postAnchors = [];
+for (let i = 0; i < finalMatches.length; i += 3) {
+    if (i + 2 < finalMatches.length) {
+        const group = [
+            finalMatches[i],
+            finalMatches[i+1],
+            finalMatches[i+2]
+        ];
+        postAnchors.push({
+            aIndex: -1,
+            bIndex: -1,
+            geometryScore: Math.min(...group.map(m => m.confidence)),
+            points: group.map(m => ({
+                pointA: m.pointA,
+                pointB: m.pointB,
+                confidence: m.confidence
+            }))
+        });
+    }
+}
+
+console.log(`   • Создано временных якорей: ${postAnchors.length}`);
+
+// Запускаем повторную глобальную проверку
+const postConsistent = this.checkGlobalConsistency(
+    postAnchors,
+    trianglesA,
+    trianglesB,
+    exactGraph,
+    existingModel.graph
+);
+
+console.log(`\n📊 РЕЗУЛЬТАТ ПОВТОРНОГО СОГЛАСОВАНИЯ:`);
+console.log(`   • Согласованных точек: ${postConsistent.points.length}`);
+console.log(`   • Отсеяно: ${finalMatches.length - postConsistent.points.length}`);
+
+// Используем отфильтрованные точки для дальнейшей работы
+const finalConsistentMatches = postConsistent.points;
+
         // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ ТОЛЬКО СОГЛАСОВАННЫМИ ТОЧКАМИ =====
 const updateResult = this.updateModelWithOptimalMatches(
     modelIdHint,
     exactGraph,
-    finalMatches,  // ← ИСПРАВЛЕНО!
+    finalConsistentMatches,  // ← стало
     morphologyMap
 );
 
@@ -225,7 +268,7 @@ existingModel.metadata.lastEnhanced = new Date();
 
 // 2.4 Создаем matchMap для визуализации
 const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
-    { matches: finalMatches },  // ← ИСПРАВЛЕНО!
+    { matches: finalConsistentMatches },  // ← стало
     modelIdHint
 );
 
@@ -237,17 +280,17 @@ existingModel.lastTriangleResult = {
     globalConsistency: consistent.stats
 };
 
-console.log(`\n🔍 ОТЛАДКА: ${finalMatches.length} согласованных точек`);  // ← ИСПРАВЛЕНО!
+console.log(`\n🔍 ОТЛАДКА: ${finalConsistentMatches.length} согласованных точек`);
 console.log(`   • matchMap передан в визуализацию: ${matchMap.size} пар`);
 console.log(`   • modelMatchMap сохранён в модель: ${modelMatchMap.size} пар`);
 
 // 2.5 Очищаем неподтверждённые точки
 const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
 this.stats.totalNodesRemoved += cleanResult.removed;
-this.stats.triangleMatchesCount += finalMatches.length;  // ← ИСПРАВЛЕНО!
+this.stats.triangleMatchesCount += finalConsistentMatches.length;  // ← стало
 
 // 2.6 Статистика
-const confirmedInModel = finalMatches.length;  // ← ИСПРАВЛЕНО!
+const confirmedInModel = finalConsistentMatches.length;  // ← стало
 const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
 const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
 
@@ -263,14 +306,14 @@ return {
     status: 'consistent_anchors',
     modelId: modelIdHint,
     similarity: triangleResult.similarity,
-    centerMatches: finalMatches.length,  // ← ИСПРАВЛЕНО!
-    totalMatches: finalMatches.length,   // ← ИСПРАВЛЕНО!
+    centerMatches: finalConsistentMatches.length,  // ← стало
+    totalMatches: finalConsistentMatches.length,   // ← стало
     newNodesAdded: updateResult.newNodesAdded,
     nodesRemoved: cleanResult.removed,
     matchMap: matchMap,
     modelMatchMap: modelMatchMap,
-    consistency: consistent.stats,
-    message: `Глобально согласовано: ${finalMatches.length} точек (${consistent.anchors.length} треугольников)`  // ← ИСПРАВЛЕНО!
+    consistency: postConsistent.stats,  // ← стало (используем postConsistent)
+    message: `Глобально согласовано после достройки: ${finalConsistentMatches.length} точек`
 };
     } else {
         console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
