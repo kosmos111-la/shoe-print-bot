@@ -194,21 +194,7 @@ const consistent = this.checkGlobalConsistency(
     existingModel.graph
 );
 
-        // ===== ШАГ 2: ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ =====
-        console.log(`\n🔍 ЗАПУСК ГЛОБАЛЬНОЙ ПРОВЕРКИ СОГЛАСОВАННОСТИ`);
-       
-        const consistent = this.checkGlobalConsistency(
-            tempAnchors,
-            trianglesA,
-            trianglesB,
-            exactGraph,
-            existingModel.graph
-        );
-       
-        console.log(`\n📊 РЕЗУЛЬТАТ ГЛОБАЛЬНОЙ ПРОВЕРКИ:`);
-        console.log(`   • Согласованных якорей: ${consistent.anchors.length}`);
-        console.log(`   • Согласованных точек: ${consistent.points.length}`);
-
+        
         // ===== ШАГ 3: КОНВЕРТИРУЕМ СОГЛАСОВАННЫЕ ЯКОРЯ ОБРАТНО В MATCHES =====
         const filteredMatches = this.convertConsistentToMatches(consistent.anchors);
        
