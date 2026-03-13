@@ -128,7 +128,7 @@ class TopologicalAccumulator {
         // 🔥 2. Если есть существующая модель - пробуем треугольное сравнение
 if (modelIdHint && this.models.has(modelIdHint)) {
     console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
-  
+
     const existingModel = this.models.get(modelIdHint);
 
     // Создаем временную модель из нового фото
@@ -145,22 +145,61 @@ if (modelIdHint && this.models.has(modelIdHint)) {
     if (triangleResult.count >= 1) {
         console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
 
-        // 🔥 ВРЕМЕННО ОТКЛЮЧАЕМ ДОСТРАИВАНИЕ
-        // console.log(`\n🧩 ДОСТРАИВАНИЕ остальных точек...`);
-        // const allMatches = await this.relativePositioning.positionPoints(
-        //     exactGraph,
-        //     existingModel.graph,
-        //     this.convertMatchesToMap(triangleResult.matches),
-        //     morphologyMap,
-        //     existingModel.morphologyMap,
-        //     { confidenceThreshold: 0.5 }
-        // );
+        // ===== ШАГ 1: СОЗДАЁМ ВРЕМЕННЫЕ ЯКОРЯ ИЗ MATCHES =====
+        console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
+       
+        // Получаем треугольники из результата (нужно, чтобы матчер их возвращал)
+        // Если матчер не возвращает - создаём заглушки
+        const trianglesA = triangleResult.trianglesA || [];
+        const trianglesB = triangleResult.trianglesB || [];
+       
+        // Создаем временные якоря из matches
+        const tempAnchors = [];
+        const usedTriangles = new Set();
+       
+        for (const match of triangleResult.matches) {
+            // Предполагаем, что match содержит индексы треугольников
+            // Если нет - нужно доработать матчер
+            if (match.triangleAIndex !== undefined && !usedTriangles.has(match.triangleAIndex)) {
+                tempAnchors.push({
+                    aIndex: match.triangleAIndex,
+                    bIndex: match.triangleBIndex,
+                    geometryScore: match.confidence
+                });
+                usedTriangles.add(match.triangleAIndex);
+            }
+        }
+       
+        console.log(`   • Создано временных якорей: ${tempAnchors.length}`);
 
-        // 2.2 Обновляем модель ТОЛЬКО найденными треугольниками
+        // ===== ШАГ 2: ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ =====
+        console.log(`\n🔍 ЗАПУСК ГЛОБАЛЬНОЙ ПРОВЕРКИ СОГЛАСОВАННОСТИ`);
+       
+        const consistent = this.checkGlobalConsistency(
+            tempAnchors,
+            trianglesA,
+            trianglesB,
+            exactGraph,      // граф первого следа
+            existingModel.graph // граф модели
+        );
+       
+        console.log(`\n📊 РЕЗУЛЬТАТ ГЛОБАЛЬНОЙ ПРОВЕРКИ:`);
+        console.log(`   • Согласованных якорей: ${consistent.anchors.length}`);
+        console.log(`   • Согласованных точек: ${consistent.points.length}`);
+
+        // ===== ШАГ 3: КОНВЕРТИРУЕМ СОГЛАСОВАННЫЕ ЯКОРЯ ОБРАТНО В MATCHES =====
+        const filteredMatches = this.convertConsistentToMatches(consistent.anchors);
+       
+        console.log(`\n📊 РЕЗУЛЬТАТ ФИЛЬТРАЦИИ:`);
+        console.log(`   • Было matches: ${triangleResult.matches.length}`);
+        console.log(`   • Стало matches: ${filteredMatches.length}`);
+        console.log(`   • Отсеяно: ${triangleResult.matches.length - filteredMatches.length}`);
+
+        // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ ТОЛЬКО СОГЛАСОВАННЫМИ ТОЧКАМИ =====
         const updateResult = this.updateModelWithOptimalMatches(
             modelIdHint,
             exactGraph,
-            triangleResult.matches,
+            filteredMatches,
             morphologyMap
         );
 
@@ -171,26 +210,30 @@ if (modelIdHint && this.models.has(modelIdHint)) {
         existingModel.metadata.lastEnhanced = new Date();
 
         // 2.4 Создаем matchMap для визуализации
-        const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(triangleResult, modelIdHint);
+        const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
+            { matches: filteredMatches },
+            modelIdHint
+        );
 
         // 🔥 СОХРАНЯЕМ modelMatchMap В МОДЕЛЬ
         existingModel.lastTriangleResult = {
             ...(existingModel.lastTriangleResult || {}),
             modelMatchMap: modelMatchMap,
-            matchMap: matchMap
+            matchMap: matchMap,
+            globalConsistency: consistent.stats // сохраняем статистику
         };
 
-        console.log(`\n🔍 ОТЛАДКА: ${triangleResult.matches.length} уникальных точек`);
-        console.log(`   matchMap передан в визуализацию: ${matchMap.size} пар`);
-        console.log(`   modelMatchMap сохранён в модель: ${modelMatchMap.size} пар`);
+        console.log(`\n🔍 ОТЛАДКА: ${filteredMatches.length} согласованных точек`);
+        console.log(`   • matchMap передан в визуализацию: ${matchMap.size} пар`);
+        console.log(`   • modelMatchMap сохранён в модель: ${modelMatchMap.size} пар`);
 
         // 2.5 Очищаем неподтверждённые точки
         const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
         this.stats.totalNodesRemoved += cleanResult.removed;
-        this.stats.triangleMatchesCount += triangleResult.count;
+        this.stats.triangleMatchesCount += filteredMatches.length;
 
         // 2.6 Статистика
-        const confirmedInModel = triangleResult.matches.length;
+        const confirmedInModel = filteredMatches.length;
         const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
         const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
 
@@ -203,16 +246,17 @@ if (modelIdHint && this.models.has(modelIdHint)) {
         this.photoToModel.set(photoId, modelIdHint);
 
         return {
-            status: 'debug_triangles_only',
+            status: 'consistent_anchors',
             modelId: modelIdHint,
             similarity: triangleResult.similarity,
-            centerMatches: triangleResult.count,
-            totalMatches: triangleResult.matches.length,
+            centerMatches: filteredMatches.length,
+            totalMatches: filteredMatches.length,
             newNodesAdded: updateResult.newNodesAdded,
             nodesRemoved: cleanResult.removed,
             matchMap: matchMap,
             modelMatchMap: modelMatchMap,
-            message: `ОТЛАДКА: ${triangleResult.count} треугольников (${triangleResult.matches.length} точек) без достраивания`
+            consistency: consistent.stats,
+            message: `Глобально согласовано: ${filteredMatches.length} точек (${consistent.anchors.length} треугольников)`
         };
     } else {
         console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
@@ -1436,6 +1480,266 @@ buildTriangleMatchMap(result, targetModelId = null) {
         }
     }
 
+/**
+* Проверяет глобальную согласованность всех найденных якорей
+* @param {Array} anchors - массив якорей (треугольников)
+* @param {Array} trianglesA - все треугольники из первого следа
+* @param {Array} trianglesB - все треугольники из второго следа
+* @param {Object} graphA - граф первого следа
+* @param {Object} graphB - граф второго следа
+* @returns {Object} - согласованные якоря и статистика
+*/
+checkGlobalConsistency(anchors, trianglesA, trianglesB, graphA, graphB) {
+    console.log(`\n🔍 ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ`);
+    console.log(`   • Всего кандидатов: ${anchors.length} треугольников (${anchors.length * 3} точек)`);
+
+    // ===== ШАГ 1: Собираем все уникальные соответствия точек =====
+    const pointPairs = new Map(); // pointA -> { pointB, confidence, triangleId }
+    const reversePairs = new Map(); // pointB -> pointA
+   
+    for (const anchor of anchors) {
+        const tA = trianglesA[anchor.aIndex];
+        const tB = trianglesB[anchor.bIndex];
+       
+        const pointsA = [tA.p1.id, tA.p2.id, tA.p3.id];
+        const pointsB = [tB.p1.id, tB.p2.id, tB.p3.id];
+       
+        for (let i = 0; i < 3; i++) {
+            const pA = pointsA[i];
+            const pB = pointsB[i];
+           
+            // Проверяем конфликты
+            if (pointPairs.has(pA)) {
+                if (pointPairs.get(pA).pointB !== pB) {
+                    console.log(`   ⚠️ Конфликт точки ${pA.substring(0,12)}: соответствует и ${pointPairs.get(pA).pointB.substring(0,12)} и ${pB.substring(0,12)}`);
+                }
+                continue;
+            }
+           
+            if (reversePairs.has(pB)) {
+                console.log(`   ⚠️ Конфликт точки ${pB.substring(0,12)}: уже соответствует ${reversePairs.get(pB).substring(0,12)}`);
+                continue;
+            }
+           
+            pointPairs.set(pA, {
+                pointB: pB,
+                confidence: anchor.geometryScore,
+                triangleId: anchor.aIndex
+            });
+            reversePairs.set(pB, pA);
+        }
+    }
+   
+    console.log(`\n📊 УНИКАЛЬНЫХ СООТВЕТСТВИЙ ТОЧЕК: ${pointPairs.size}`);
+
+    // ===== ШАГ 2: Анализируем распределение уверенностей =====
+    const confidences = Array.from(pointPairs.values()).map(p => p.confidence);
+    confidences.sort((a, b) => b - a);
+   
+    console.log(`\n📈 РАСПРЕДЕЛЕНИЕ УВЕРЕННОСТЕЙ:`);
+    console.log(`   • Максимальная: ${(confidences[0]*100).toFixed(1)}%`);
+    console.log(`   • Минимальная: ${(confidences[confidences.length-1]*100).toFixed(1)}%`);
+    console.log(`   • Медианная: ${(confidences[Math.floor(confidences.length/2)]*100).toFixed(1)}%`);
+   
+    // Находим естественный разрыв в уверенностях
+    let threshold = 0.90; // по умолчанию
+    for (let i = 1; i < confidences.length; i++) {
+        if (confidences[i-1] - confidences[i] > 0.05) {
+            threshold = confidences[i-1] - 0.01;
+            console.log(`   • Естественный разрыв на ${(threshold*100).toFixed(1)}% (${i} точек выше, ${confidences.length-i} ниже)`);
+            break;
+        }
+    }
+
+    // ===== ШАГ 3: ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА =====
+    console.log(`\n🔍 ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА:`);
+   
+    const consistentPoints = new Set();
+    const inconsistentPoints = new Set();
+   
+    // Строим карту соответствий для быстрого доступа
+    const pointMap = new Map();
+    for (const [pA, data] of pointPairs) {
+        pointMap.set(pA, data.pointB);
+    }
+   
+    // Для каждой точки проверяем её соседей
+    for (const [pA, data] of pointPairs) {
+        const pB = data.pointB;
+       
+        // Находим соседей точки A в графе
+        const neighborsA = this.findNodeNeighbors(pA, graphA);
+        const neighborAnchorsA = neighborsA.filter(n => pointMap.has(n.id)).map(n => n.id);
+       
+        // Находим соседей точки B в графе
+        const neighborsB = this.findNodeNeighbors(pB, graphB);
+        const neighborAnchorsB = neighborsB.filter(n => reversePairs.has(n.id)).map(n => n.id);
+       
+        // Проверяем, что количество якорей-соседей совпадает
+        if (neighborAnchorsA.length !== neighborAnchorsB.length) {
+            console.log(`   ⚠️ Точка ${pA.substring(0,12)}: соседей-якорей ${neighborAnchorsA.length} vs ${neighborAnchorsB.length}`);
+            inconsistentPoints.add(pA);
+            continue;
+        }
+       
+        // Проверяем, что соседи соответствуют друг другу
+        let allMatch = true;
+        for (const nA of neighborAnchorsA) {
+            const nB = pointMap.get(nA);
+            if (!neighborsB.some(n => n.id === nB)) {
+                allMatch = false;
+                break;
+            }
+        }
+       
+        if (allMatch) {
+            consistentPoints.add(pA);
+            if (consistentPoints.size <= 5) { // покажем первые 5
+                console.log(`   ✅ Точка ${pA.substring(0,12)}: топология согласована`);
+            }
+        } else {
+            console.log(`   ⚠️ Точка ${pA.substring(0,12)}: несоответствие соседей`);
+            inconsistentPoints.add(pA);
+        }
+    }
+
+    // ===== ШАГ 4: ФИЛЬТРАЦИЯ ПО УВЕРЕННОСТИ =====
+    console.log(`\n🔍 ФИЛЬТРАЦИЯ ПО УВЕРЕННОСТИ (порог ${(threshold*100).toFixed(1)}%):`);
+   
+    const highConfidencePoints = [];
+    const lowConfidencePoints = [];
+   
+    for (const [pA, data] of pointPairs) {
+        if (data.confidence >= threshold) {
+            highConfidencePoints.push(pA);
+        } else {
+            lowConfidencePoints.push(pA);
+        }
+    }
+   
+    console.log(`   • Высокая уверенность: ${highConfidencePoints.length} точек`);
+    console.log(`   • Низкая уверенность: ${lowConfidencePoints.length} точек`);
+
+    // ===== ШАГ 5: ФИНАЛЬНЫЙ ОТБОР =====
+    console.log(`\n🎯 ФИНАЛЬНЫЙ ОТБОР СОГЛАСОВАННЫХ ЯКОРЕЙ:`);
+   
+    const finalPoints = [];
+    for (const pA of consistentPoints) {
+        if (pointPairs.get(pA).confidence >= threshold) {
+            finalPoints.push({
+                pointA: pA,
+                pointB: pointPairs.get(pA).pointB,
+                confidence: pointPairs.get(pA).confidence
+            });
+        }
+    }
+   
+    console.log(`   • Прошли все проверки: ${finalPoints.length} точек`);
+    console.log(`   • Отсеяно топологией: ${inconsistentPoints.size} точек`);
+    console.log(`   • Отсеяно по уверенности: ${lowConfidencePoints.length} точек`);
+   
+    // ===== ШАГ 6: ВОССТАНОВЛЕНИЕ ТРЕУГОЛЬНИКОВ ИЗ ТОЧЕК =====
+    const finalAnchors = [];
+    const usedTriangles = new Set();
+   
+    // Строим обратную карту: точка -> треугольники
+    const pointToTriangles = new Map();
+    for (let i = 0; i < trianglesA.length; i++) {
+        const t = trianglesA[i];
+        for (const p of [t.p1.id, t.p2.id, t.p3.id]) {
+            if (!pointToTriangles.has(p)) pointToTriangles.set(p, []);
+            pointToTriangles.get(p).push(i);
+        }
+    }
+   
+    // Для каждой финальной точки ищем треугольник, где все три точки согласованы
+    const finalPointSet = new Set(finalPoints.map(p => p.pointA));
+   
+    for (const point of finalPoints) {
+        const triangles = pointToTriangles.get(point.pointA) || [];
+       
+        for (const tIdx of triangles) {
+            if (usedTriangles.has(tIdx)) continue;
+           
+            const tA = trianglesA[tIdx];
+            const pointsA = [tA.p1.id, tA.p2.id, tA.p3.id];
+           
+            // Проверяем, что все три точки треугольника в финальном наборе
+            if (pointsA.every(p => finalPointSet.has(p))) {
+                // Находим соответствующие точки в B
+                const pointsB = pointsA.map(p => pointPairs.get(p).pointB);
+               
+                // Ищем треугольник в B с этими точками
+                for (let j = 0; j < trianglesB.length; j++) {
+                    const tB = trianglesB[j];
+                    const tBPoints = [tB.p1.id, tB.p2.id, tB.p3.id];
+                   
+                    if (this.arraysEqual(pointsB.sort(), tBPoints.sort())) {
+                        finalAnchors.push({
+                            aIndex: tIdx,
+                            bIndex: j,
+                            geometryScore: Math.min(...pointsA.map(p => pointPairs.get(p).confidence)),
+                            points: pointsA.map(p => pointPairs.get(p))
+                        });
+                        usedTriangles.add(tIdx);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+   
+    console.log(`\n📊 ИТОГ ГЛОБАЛЬНОЙ ПРОВЕРКИ:`);
+    console.log(`   • Исходных якорей (треугольников): ${anchors.length}`);
+    console.log(`   • Согласованных якорей: ${finalAnchors.length}`);
+    console.log(`   • Согласованных точек: ${finalPoints.length}`);
+    console.log(`   • Процент сохранения: ${((finalPoints.length / pointPairs.size) * 100).toFixed(1)}%`);
+   
+    return {
+        anchors: finalAnchors,
+        points: finalPoints,
+        stats: {
+            original: anchors.length,
+            final: finalAnchors.length,
+            originalPoints: pointPairs.size,
+            finalPoints: finalPoints.length,
+            inconsistent: inconsistentPoints.size,
+            lowConfidence: lowConfidencePoints.length
+        }
+    };
+}
+
+/**
+* Конвертирует согласованные якоря обратно в matches для визуализации
+* @param {Array} consistentAnchors - массив согласованных якорей из checkGlobalConsistency
+* @returns {Array} - массив matches для визуализации
+*/
+convertConsistentToMatches(consistentAnchors) {
+    const matches = [];
+    for (const anchor of consistentAnchors) {
+        // Для каждой точки в треугольнике
+        for (const point of anchor.points) {
+            matches.push({
+                pointA: point.pointA,
+                pointB: point.pointB,
+                confidence: point.confidence
+            });
+        }
+    }
+    return matches;
+}
+  
+/**
+* Проверяет равенство массивов (для сравнения треугольников)
+*/
+arraysEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+    }
+    return true;
+}
+  
     clear() {
         this.models.clear();
         this.currentModelId = null;
