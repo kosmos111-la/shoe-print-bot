@@ -146,51 +146,45 @@ if (modelIdHint && this.models.has(modelIdHint)) {
         console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
 
         // ===== ШАГ 1: СОЗДАЁМ ВРЕМЕННЫЕ ЯКОРЯ ИЗ MATCHES =====
-        console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
-       
-        // Группируем matches по треугольникам
-        const triangleGroups = new Map(); // ключ -> массив matches одной тройки
-       
-        for (const match of triangleResult.matches) {
-            // Используем первые символы pointA как временный идентификатор треугольника
-            // В реальном матчере нужно добавить индексы треугольников
-            const key = match.pointA.substring(0,15); // первые 15 символов ID
-           
-            if (!triangleGroups.has(key)) {
-                triangleGroups.set(key, []);
-            }
-            triangleGroups.get(key).push(match);
-        }
-       
-        console.log(`   • Сформировано ${triangleGroups.size} групп точек`);
-       
-        // Создаем временные якоря из групп, где есть 3 точки
-        const tempAnchors = [];
-        for (const [key, group] of triangleGroups) {
-            if (group.length === 3) { // полный треугольник
-                tempAnchors.push({
-                    aIndex: -1, // временно, потом восстановим по точкам
-                    bIndex: -1,
-                    geometryScore: Math.min(...group.map(m => m.confidence)),
-                    points: group.map(m => ({
-                        pointA: m.pointA,
-                        pointB: m.pointB,
-                        confidence: m.confidence
-                    }))
-                });
-            } else {
-                console.log(`   ⚠️ Группа ${key.substring(0,8)}... имеет ${group.length} точек, ожидалось 3`);
-            }
-        }
-       
-        console.log(`   • Создано временных якорей: ${tempAnchors.length}`);
+console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
 
-        // Получаем треугольники из графов (для топологической проверки)
-        const trianglesA = this.extractTrianglesFromGraph(exactGraph);
-        const trianglesB = this.extractTrianglesFromGraph(existingModel.graph);
+// Группируем matches по треугольникам (каждые 3 точки - один треугольник)
+const tempAnchors = [];
+const matches = triangleResult.matches;
+
+for (let i = 0; i < matches.length; i += 3) {
+    if (i + 2 < matches.length) {
+        const group = [
+            matches[i],
+            matches[i+1],
+            matches[i+2]
+        ];
        
-        console.log(`   • Треугольников в A: ${trianglesA.length}`);
-        console.log(`   • Треугольников в B: ${trianglesB.length}`);
+        // Проверяем, что все точки из одного треугольника
+        // (в идеале тут должна быть проверка, но пока доверяем порядку)
+        tempAnchors.push({
+            aIndex: -1, // временно
+            bIndex: -1,
+            geometryScore: Math.min(...group.map(m => m.confidence)),
+            points: group.map(m => ({
+                pointA: m.pointA,
+                pointB: m.pointB,
+                confidence: m.confidence
+            }))
+        });
+    }
+}
+
+console.log(`   • Создано временных якорей: ${tempAnchors.length}`);
+console.log(`   • Всего matches: ${matches.length}`);
+
+// Получаем треугольники из графов
+console.log(`\n🔍 ИЗВЛЕЧЕНИЕ ТРЕУГОЛЬНИКОВ ИЗ ГРАФОВ`);
+const trianglesA = this.extractTrianglesFromGraph(exactGraph);
+const trianglesB = this.extractTrianglesFromGraph(existingModel.graph);
+
+console.log(`   • Треугольников в A: ${trianglesA.length}`);
+console.log(`   • Треугольников в B: ${trianglesB.length}`);
 
         // ===== ШАГ 2: ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ =====
         console.log(`\n🔍 ЗАПУСК ГЛОБАЛЬНОЙ ПРОВЕРКИ СОГЛАСОВАННОСТИ`);
@@ -1747,6 +1741,40 @@ convertConsistentToMatches(consistentAnchors) {
         }
     }
     return matches;
+}
+
+/**
+* Извлекает все треугольники из графа
+* @param {Object} graph - граф с nodes и edges
+* @returns {Array} - массив треугольников {p1, p2, p3}
+*/
+extractTrianglesFromGraph(graph) {
+    const triangles = [];
+    const nodeIds = Array.from(graph.nodes.keys());
+    const edges = new Set(graph.edges);
+   
+    for (let i = 0; i < nodeIds.length; i++) {
+        for (let j = i + 1; j < nodeIds.length; j++) {
+            for (let k = j + 1; k < nodeIds.length; k++) {
+                const a = nodeIds[i];
+                const b = nodeIds[j];
+                const c = nodeIds[k];
+               
+                if (edges.has([a, b].sort().join('--')) &&
+                    edges.has([b, c].sort().join('--')) &&
+                    edges.has([c, a].sort().join('--'))) {
+                   
+                    triangles.push({
+                        p1: graph.nodes.get(a),
+                        p2: graph.nodes.get(b),
+                        p3: graph.nodes.get(c)
+                    });
+                }
+            }
+        }
+    }
+   
+    return triangles;
 }
   
 /**
