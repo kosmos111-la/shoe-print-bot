@@ -148,29 +148,49 @@ if (modelIdHint && this.models.has(modelIdHint)) {
         // ===== ШАГ 1: СОЗДАЁМ ВРЕМЕННЫЕ ЯКОРЯ ИЗ MATCHES =====
         console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
        
-        // Получаем треугольники из результата (нужно, чтобы матчер их возвращал)
-        // Если матчер не возвращает - создаём заглушки
-        const trianglesA = triangleResult.trianglesA || [];
-        const trianglesB = triangleResult.trianglesB || [];
-       
-        // Создаем временные якоря из matches
-        const tempAnchors = [];
-        const usedTriangles = new Set();
+        // Группируем matches по треугольникам
+        const triangleGroups = new Map(); // ключ -> массив matches одной тройки
        
         for (const match of triangleResult.matches) {
-            // Предполагаем, что match содержит индексы треугольников
-            // Если нет - нужно доработать матчер
-            if (match.triangleAIndex !== undefined && !usedTriangles.has(match.triangleAIndex)) {
+            // Используем первые символы pointA как временный идентификатор треугольника
+            // В реальном матчере нужно добавить индексы треугольников
+            const key = match.pointA.substring(0,15); // первые 15 символов ID
+           
+            if (!triangleGroups.has(key)) {
+                triangleGroups.set(key, []);
+            }
+            triangleGroups.get(key).push(match);
+        }
+       
+        console.log(`   • Сформировано ${triangleGroups.size} групп точек`);
+       
+        // Создаем временные якоря из групп, где есть 3 точки
+        const tempAnchors = [];
+        for (const [key, group] of triangleGroups) {
+            if (group.length === 3) { // полный треугольник
                 tempAnchors.push({
-                    aIndex: match.triangleAIndex,
-                    bIndex: match.triangleBIndex,
-                    geometryScore: match.confidence
+                    aIndex: -1, // временно, потом восстановим по точкам
+                    bIndex: -1,
+                    geometryScore: Math.min(...group.map(m => m.confidence)),
+                    points: group.map(m => ({
+                        pointA: m.pointA,
+                        pointB: m.pointB,
+                        confidence: m.confidence
+                    }))
                 });
-                usedTriangles.add(match.triangleAIndex);
+            } else {
+                console.log(`   ⚠️ Группа ${key.substring(0,8)}... имеет ${group.length} точек, ожидалось 3`);
             }
         }
        
         console.log(`   • Создано временных якорей: ${tempAnchors.length}`);
+
+        // Получаем треугольники из графов (для топологической проверки)
+        const trianglesA = this.extractTrianglesFromGraph(exactGraph);
+        const trianglesB = this.extractTrianglesFromGraph(existingModel.graph);
+       
+        console.log(`   • Треугольников в A: ${trianglesA.length}`);
+        console.log(`   • Треугольников в B: ${trianglesB.length}`);
 
         // ===== ШАГ 2: ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ =====
         console.log(`\n🔍 ЗАПУСК ГЛОБАЛЬНОЙ ПРОВЕРКИ СОГЛАСОВАННОСТИ`);
@@ -179,8 +199,8 @@ if (modelIdHint && this.models.has(modelIdHint)) {
             tempAnchors,
             trianglesA,
             trianglesB,
-            exactGraph,      // граф первого следа
-            existingModel.graph // граф модели
+            exactGraph,
+            existingModel.graph
         );
        
         console.log(`\n📊 РЕЗУЛЬТАТ ГЛОБАЛЬНОЙ ПРОВЕРКИ:`);
@@ -220,7 +240,7 @@ if (modelIdHint && this.models.has(modelIdHint)) {
             ...(existingModel.lastTriangleResult || {}),
             modelMatchMap: modelMatchMap,
             matchMap: matchMap,
-            globalConsistency: consistent.stats // сохраняем статистику
+            globalConsistency: consistent.stats
         };
 
         console.log(`\n🔍 ОТЛАДКА: ${filteredMatches.length} согласованных точек`);
