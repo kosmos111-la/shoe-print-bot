@@ -148,22 +148,34 @@ if (modelIdHint && this.models.has(modelIdHint)) {
         // ===== ШАГ 1: СОЗДАЁМ ВРЕМЕННЫЕ ЯКОРЯ ИЗ MATCHES =====
 console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
 
-// Группируем matches по треугольникам (каждые 3 точки - один треугольник)
-const tempAnchors = [];
-const matches = triangleResult.matches;
+// Сначала посмотрим, что вообще приходит
+console.log(`   • Первые 3 matches для примера:`);
+for (let i = 0; i < Math.min(3, triangleResult.matches.length); i++) {
+    console.log(`      match ${i}: pointA=${triangleResult.matches[i].pointA.substring(0,12)}... pointB=${triangleResult.matches[i].pointB.substring(0,12)}... confidence=${triangleResult.matches[i].confidence}`);
+}
 
-for (let i = 0; i < matches.length; i += 3) {
-    if (i + 2 < matches.length) {
-        const group = [
-            matches[i],
-            matches[i+1],
-            matches[i+2]
-        ];
-       
-        // Проверяем, что все точки из одного треугольника
-        // (в идеале тут должна быть проверка, но пока доверяем порядку)
+// Группируем matches по pointA (предполагаем, что точки из одного треугольника имеют похожие ID)
+const groups = new Map();
+
+for (const match of triangleResult.matches) {
+    // Используем первые 10 символов pointA как ключ группы
+    // В реальных ID точки из одного треугольника часто имеют общий префикс
+    const key = match.pointA.substring(0, 15); // первые 15 символов
+   
+    if (!groups.has(key)) {
+        groups.set(key, []);
+    }
+    groups.get(key).push(match);
+}
+
+console.log(`   • Сформировано ${groups.size} групп по префиксам`);
+
+// Создаем временные якоря из групп
+const tempAnchors = [];
+for (const [key, group] of groups) {
+    if (group.length === 3) {
         tempAnchors.push({
-            aIndex: -1, // временно
+            aIndex: -1,
             bIndex: -1,
             geometryScore: Math.min(...group.map(m => m.confidence)),
             points: group.map(m => ({
@@ -172,19 +184,13 @@ for (let i = 0; i < matches.length; i += 3) {
                 confidence: m.confidence
             }))
         });
+        console.log(`   ✅ Группа ${key.substring(0,8)}...: ${group.length} точек, уверенность ${(Math.min(...group.map(m => m.confidence))*100).toFixed(1)}%`);
+    } else {
+        console.log(`   ⚠️ Группа ${key.substring(0,8)}...: ${group.length} точек (ожидалось 3) - пропускаем`);
     }
 }
 
 console.log(`   • Создано временных якорей: ${tempAnchors.length}`);
-console.log(`   • Всего matches: ${matches.length}`);
-
-// Получаем треугольники из графов
-console.log(`\n🔍 ИЗВЛЕЧЕНИЕ ТРЕУГОЛЬНИКОВ ИЗ ГРАФОВ`);
-const trianglesA = this.extractTrianglesFromGraph(exactGraph);
-const trianglesB = this.extractTrianglesFromGraph(existingModel.graph);
-
-console.log(`   • Треугольников в A: ${trianglesA.length}`);
-console.log(`   • Треугольников в B: ${trianglesB.length}`);
 
         // ===== ШАГ 2: ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ =====
         console.log(`\n🔍 ЗАПУСК ГЛОБАЛЬНОЙ ПРОВЕРКИ СОГЛАСОВАННОСТИ`);
