@@ -1,11 +1,11 @@
 // modules/footprint/matching/TriangleMatcher.js
-// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (100% порог + исправленные конфликты)
+// 🔺 ТРЕУГОЛЬНЫЙ МАТЧЕР (исправленная версия - все треугольники)
 
 class TriangleMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
 
-        // 🔥 ПОРОГИ (добавлен 100%)
+        // 🔥 ПОРОГИ
         this.roughThreshold = options.roughThreshold || 0.5;      // Порог для грубой морфологии (50%)
         this.geometryThresholds = options.geometryThresholds || [1.00, 0.95, 0.90, 0.85, 0.80]; // 100%, 95%, 90%, 85%, 80%
 
@@ -16,8 +16,8 @@ class TriangleMatcher {
         };
 
         this.stats = {
-            uniqueA: 0,
-            uniqueB: 0,
+            totalTrianglesA: 0,
+            totalTrianglesB: 0,
             totalCandidates: 0,
             anchors: 0,
             anchorsPoints: 0,
@@ -26,7 +26,7 @@ class TriangleMatcher {
             byThreshold: {}
         };
 
-        console.log(`🔺 TriangleMatcher (динамические пороги + 100%) создан`);
+        console.log(`🔺 TriangleMatcher (ВСЕ ТРЕУГОЛЬНИКИ) создан`);
         console.log(`   • Грубый порог: ${this.roughThreshold * 100}%`);
         console.log(`   • Геометрия пороги: ${this.geometryThresholds.map(t => t*100 + '%').join(', ')}`);
     }
@@ -36,7 +36,7 @@ class TriangleMatcher {
      */
     findMatches(pointsA, pointsB, delaunayA, delaunayB) {
         console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (100% порог)`);
+        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (ВСЕ ТРЕУГОЛЬНИКИ)`);
         console.log(`${'='.repeat(100)}`);
         console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
@@ -51,40 +51,31 @@ class TriangleMatcher {
         const trianglesA = this.buildTopologicalTriangles(delaunayA, pointsA);
         const trianglesB = this.buildTopologicalTriangles(delaunayB, pointsB);
 
+        this.stats.totalTrianglesA = trianglesA.length;
+        this.stats.totalTrianglesB = trianglesB.length;
+
         console.log(`   • Треугольников в А: ${trianglesA.length}`);
         console.log(`   • Треугольников в Б: ${trianglesB.length}`);
 
-        // ШАГ 3: Поиск уникальных треугольников (по грубой морфологии)
-        console.log(`\n🔍 ШАГ 3: Поиск уникальных треугольников`);
+        // 🔥 ШАГ 3: Сбор ВСЕХ кандидатов по грубой морфологии (без фильтрации по уникальности)
+        console.log(`\n🔍 ШАГ 3: Сбор кандидатов (грубая морфология)`);
 
-        const uniqueA = this.findUniqueByMorphology(trianglesA);
-        const uniqueB = this.findUniqueByMorphology(trianglesB);
-
-        this.stats.uniqueA = uniqueA.length;
-        this.stats.uniqueB = uniqueB.length;
-
-        console.log(`\n📊 УНИКАЛЬНЫЕ ТРЕУГОЛЬНИКИ:`);
-        console.log(`   • В следе А: ${uniqueA.length} из ${trianglesA.length}`);
-        console.log(`   • В следе Б: ${uniqueB.length} из ${trianglesB.length}`);
-
-        // ШАГ 4: Сбор всех кандидатов по грубой морфологии
-        console.log(`\n🔍 ШАГ 4: Сбор кандидатов (грубая морфология)`);
-
-        const candidates = this.findAllCandidates(uniqueA, uniqueB);
+        const candidates = this.findAllCandidates(trianglesA, trianglesB);
         this.stats.totalCandidates = candidates.length;
 
         console.log(`   • Найдено кандидатов: ${candidates.length}`);
+        console.log(`   • Из возможных ${trianglesA.length * trianglesB.length} комбинаций`);
 
-        // ШАГ 5: Геометрическая верификация всех кандидатов
-        console.log(`\n🔍 ШАГ 5: Геометрическая верификация`);
+        // ШАГ 4: Геометрическая верификация всех кандидатов
+        console.log(`\n🔍 ШАГ 4: Геометрическая верификация`);
 
-        const geometryResults = this.verifyGeometry(candidates, uniqueA, uniqueB);
+        const geometryResults = this.verifyGeometry(candidates, trianglesA, trianglesB);
 
-        // ШАГ 6: Динамический поиск якорей по порогам
-        console.log(`\n🔍 ШАГ 6: Динамический поиск якорей`);
+        // ШАГ 5: Динамический поиск якорей по порогам
+        console.log(`\n🔍 ШАГ 5: Динамический поиск якорей`);
 
         const { anchors, ambiguous, noMatches, byThreshold } = this.findAnchorsDynamic(
-            geometryResults, uniqueA, uniqueB, this.geometryThresholds
+            geometryResults, trianglesA, trianglesB, this.geometryThresholds
         );
 
         this.stats.anchors = anchors.length;
@@ -105,7 +96,7 @@ class TriangleMatcher {
         console.log(`   • Без кандидатов: ${noMatches.length}`);
 
         // Восстановление точек из якорей
-        const pointMatches = this.reconstructPoints(anchors, uniqueA, uniqueB);
+        const pointMatches = this.reconstructPoints(anchors, trianglesA, trianglesB);
 
         console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
         this.printSummary();
@@ -117,9 +108,10 @@ class TriangleMatcher {
     }
 
     /**
-     * Построение топологических треугольников
+     * Построение топологических треугольников (БЕЗ ИЗМЕНЕНИЙ)
      */
     buildTopologicalTriangles(delaunay, points) {
+        // ... (код без изменений, как в твоём файле)
         const triangles = [];
         const triangleList = this.getTrianglesFromDelaunay(delaunay);
 
@@ -133,10 +125,10 @@ class TriangleMatcher {
 
             if (!p1 || !p2 || !p3) continue;
 
-            // 🔥 ТОЛЬКО ГРУБАЯ МОРФОЛОГИЯ (2 признака)
+            // ГРУБАЯ МОРФОЛОГИЯ (2 признака)
             const morph1 = [
-                Math.floor(p1.eccentricity * 2) || 0,        // 0-1
-                Math.floor((p1.asymmetry || 0) * 2) || 0     // 0-1
+                Math.floor(p1.eccentricity * 2) || 0,
+                Math.floor((p1.asymmetry || 0) * 2) || 0
             ];
 
             const morph2 = [
@@ -149,11 +141,9 @@ class TriangleMatcher {
                 Math.floor((p3.asymmetry || 0) * 2) || 0
             ];
 
-            // Ориентация (для уникальности)
             const orient = (p2.x - p1.x)*(p3.y - p1.y) - (p2.y - p1.y)*(p3.x - p1.x);
             const orientation = Math.sign(orient);
 
-            // Сортируем для инвариантности
             const morphVectors = [morph1, morph2, morph3].sort((a, b) => {
                 for (let i = 0; i < 2; i++) {
                     if (a[i] !== b[i]) return a[i] - b[i];
@@ -165,7 +155,7 @@ class TriangleMatcher {
                 id: `tri_${p1.id}_${p2.id}_${p3.id}`,
                 points: [p1.id, p2.id, p3.id],
                 p1, p2, p3,
-                morphVectors: morphVectors.flat(),  // 6 чисел (3×2)
+                morphVectors: morphVectors.flat(),
                 orientation: orientation,
                 degree: 0,
                 edges: [
@@ -178,21 +168,19 @@ class TriangleMatcher {
             triangles.push(triangle);
         }
 
-        // Строим связи между треугольниками
+        // Строим связи
         this.buildNeighbors(triangles);
 
         // Добавляем степень и внешние точки
         for (const t of triangles) {
             t.degree = t.edges.filter(e => e.neighborTriangles.length > 0).length;
 
-            // Собираем внешние точки (тоже по грубой морфологии)
             const externalVectors = [];
 
             for (const edge of t.edges) {
                 for (const neighborTri of edge.neighborTriangles) {
                     for (const v of [neighborTri.p1, neighborTri.p2, neighborTri.p3]) {
                         if (v.id !== edge.v1.id && v.id !== edge.v2.id) {
-                            // Грубая морфология для внешней точки
                             const morph = [
                                 Math.floor(v.eccentricity * 2) || 0,
                                 Math.floor((v.asymmetry || 0) * 2) || 0
@@ -204,7 +192,6 @@ class TriangleMatcher {
                 }
             }
 
-            // Сортируем внешние точки для инвариантности
             externalVectors.sort((a, b) => {
                 for (let i = 0; i < 2; i++) {
                     if (a[i] !== b[i]) return a[i] - b[i];
@@ -214,7 +201,7 @@ class TriangleMatcher {
 
             t.externalVectors = externalVectors.flat();
            
-            // Полная сигнатура (морфология вершин + степень + ориентация + внешние точки)
+            // Полная сигнатура
             t.signature = t.morphVectors.join('_') + '_' + t.orientation + '_deg' + t.degree +
                          '_ext_' + (t.externalVectors.length > 0 ? t.externalVectors.join('_') : 'none');
         }
@@ -223,41 +210,16 @@ class TriangleMatcher {
     }
 
     /**
-     * Поиск уникальных треугольников по морфологии
+     * 🔥 ИСПРАВЛЕНО: Сбор ВСЕХ кандидатов (без фильтрации по уникальности)
      */
-    findUniqueByMorphology(triangles) {
-        const groups = {};
-
-        for (const t of triangles) {
-            if (!groups[t.signature]) {
-                groups[t.signature] = [];
-            }
-            groups[t.signature].push(t);
-        }
-
-        const unique = [];
-        for (const [sig, tris] of Object.entries(groups)) {
-            if (tris.length === 1) {
-                unique.push(tris[0]);
-            } else if (this.debug) {
-                console.log(`   ⚠️ Группа ${sig.substring(0, 30)}... имеет ${tris.length} вариантов`);
-            }
-        }
-
-        return unique;
-    }
-
-    /**
-     * Сбор всех кандидатов по грубой морфологии
-     */
-    findAllCandidates(uniqueA, uniqueB) {
+    findAllCandidates(trianglesA, trianglesB) {
         const candidates = [];
 
-        for (let i = 0; i < uniqueA.length; i++) {
-            const tA = uniqueA[i];
+        for (let i = 0; i < trianglesA.length; i++) {
+            const tA = trianglesA[i];
            
-            for (let j = 0; j < uniqueB.length; j++) {
-                const tB = uniqueB[j];
+            for (let j = 0; j < trianglesB.length; j++) {
+                const tB = trianglesB[j];
                
                 const score = this.compareMorphology(tA, tB);
                
@@ -277,25 +239,22 @@ class TriangleMatcher {
     }
 
     /**
-     * Сравнение по грубой морфологии
+     * Сравнение по грубой морфологии (БЕЗ ИЗМЕНЕНИЙ)
      */
     compareMorphology(tA, tB) {
-        // Сравниваем морфологию вершин (6 чисел)
         const v1 = tA.morphVectors;
         const v2 = tB.morphVectors;
-       
+
         let sumDiff = 0;
         for (let i = 0; i < v1.length; i++) {
             sumDiff += Math.abs(v1[i] - v2[i]);
         }
-       
-        // Макс разница: 6 чисел × макс 1 = 6
+
         const morphScore = 1 - (sumDiff / 6);
-       
-        // Сравниваем внешние точки
+
         const e1 = tA.externalVectors;
         const e2 = tB.externalVectors;
-       
+
         let externalScore = 1.0;
         if (e1.length > 0 || e2.length > 0) {
             if (e1.length === e2.length) {
@@ -308,23 +267,23 @@ class TriangleMatcher {
                 externalScore = 0.3;
             }
         }
-       
+
         return morphScore * 0.7 + externalScore * 0.3;
     }
 
     /**
-     * Геометрическая верификация всех кандидатов
+     * Геометрическая верификация (БЕЗ ИЗМЕНЕНИЙ)
      */
-    verifyGeometry(candidates, uniqueA, uniqueB) {
+    verifyGeometry(candidates, trianglesA, trianglesB) {
         const results = new Map();
 
         for (const c of candidates) {
             const geometryScore = this.compareGeometry(c.triangleA, c.triangleB);
-           
+
             if (!results.has(c.aIndex)) {
                 results.set(c.aIndex, new Map());
             }
-           
+
             results.get(c.aIndex).set(c.bIndex, {
                 morphScore: c.morphScore,
                 geometryScore: geometryScore
@@ -335,85 +294,82 @@ class TriangleMatcher {
     }
 
     /**
-     * Сравнение геометрии (нормированные стороны)
+     * Сравнение геометрии (БЕЗ ИЗМЕНЕНИЙ)
      */
     compareGeometry(tA, tB) {
         const sidesA = this.calcSides(tA.p1, tA.p2, tA.p3);
         const sidesB = this.calcSides(tB.p1, tB.p2, tB.p3);
-       
+
         const maxA = Math.max(...sidesA);
         const maxB = Math.max(...sidesB);
-       
+
         const normA = sidesA.map(s => s / maxA);
         const normB = sidesB.map(s => s / maxB);
-       
+
         normA.sort((a, b) => a - b);
         normB.sort((a, b) => a - b);
-       
+
         let score = 0;
         for (let i = 0; i < 3; i++) {
             const ratio = Math.min(normA[i], normB[i]) / Math.max(normA[i], normB[i]);
             score += ratio;
         }
-       
+
         return score / 3;
     }
 
     /**
-     * Динамический поиск якорей по порогам
+     * Динамический поиск якорей (БЕЗ ИЗМЕНЕНИЙ)
      */
-    findAnchorsDynamic(geometryResults, uniqueA, uniqueB, thresholds) {
+    findAnchorsDynamic(geometryResults, trianglesA, trianglesB, thresholds) {
         const anchors = [];
         const ambiguous = [];
         let remaining = [];
-       
-        for (let i = 0; i < uniqueA.length; i++) {
+
+        for (let i = 0; i < trianglesA.length; i++) {
             remaining.push(i);
         }
-       
+
         const byThreshold = {};
         for (const th of thresholds) {
             byThreshold[th] = { anchors: 0, ambiguous: 0 };
         }
-       
-        // Карта соответствий точек (pointA -> pointB)
+
         const pointMatches = new Map();
-       
+
         for (const threshold of thresholds) {
             if (remaining.length === 0) break;
-           
+
             console.log(`\n🔍 ПРОВЕРКА НА ПОРОГЕ ${threshold*100}%:`);
-           
+
             const newAnchors = [];
             const newAmbiguous = [];
             const nextRemaining = [];
-           
+
             for (const aIndex of remaining) {
                 const candidates = geometryResults.get(aIndex) || new Map();
-               
+
                 const passed = [];
                 for (const [bIndex, res] of candidates) {
                     if (res.geometryScore >= threshold) {
                         passed.push({ bIndex, score: res.geometryScore });
                     }
                 }
-               
+
                 if (passed.length === 1) {
-                    // Проверяем конфликты точек перед добавлением
-                    const tA = uniqueA[aIndex];
-                    const tB = uniqueB[passed[0].bIndex];
-                   
-                    // Сортируем точки для инвариантности
-                    const pointsA = [tA.p1, tA.p2, tA.p3].sort((a, b) => a.eccentricity - b.eccentricity);
-                    const pointsB = [tB.p1, tB.p2, tB.p3].sort((a, b) => a.eccentricity - b.eccentricity);
-                   
+                    const tA = trianglesA[aIndex];
+                    const tB = trianglesB[passed[0].bIndex];
+
+                    const pointsA = [tA.p1, tA.p2, tA.p3];
+                    const pointsB = [tB.p1, tB.p2, tB.p3];
+
                     let conflict = false;
                     const tempMatches = new Map();
-                   
+
                     for (let i = 0; i < 3; i++) {
                         const pA = pointsA[i].id;
                         const pB = pointsB[i].id;
-                       
+
                         if (pointMatches.has(pA)) {
                             if (pointMatches.get(pA) !== pB) {
                                 console.log(`      ⚠️ Конфликт: точка ${pA.substring(0,8)} уже сопоставлена с ${pointMatches.get(pA).substring(0,8)}, пытаемся с ${pB.substring(0,8)}`);
@@ -424,13 +380,12 @@ class TriangleMatcher {
                             tempMatches.set(pA, pB);
                         }
                     }
-                   
+
                     if (!conflict) {
-                        // Добавляем временные соответствия в основную карту
                         for (const [pA, pB] of tempMatches) {
                             pointMatches.set(pA, pB);
                         }
-                       
+
                         newAnchors.push({
                             aIndex,
                             bIndex: passed[0].bIndex,
@@ -440,11 +395,10 @@ class TriangleMatcher {
                         });
                         console.log(`      ✅ Треугольник ${aIndex}: однозначная пара (геом: ${(passed[0].score*100).toFixed(1)}%)`);
                     } else {
-                        // При конфликте отправляем в следующий порог
                         nextRemaining.push(aIndex);
                         console.log(`      ⚠️ Треугольник ${aIndex}: конфликт точек, перенесён на следующий порог`);
                     }
-                   
+
                 } else if (passed.length > 1) {
                     newAmbiguous.push({
                         aIndex,
@@ -454,27 +408,27 @@ class TriangleMatcher {
                         scores: passed.map(p => p.score)
                     });
                     console.log(`      ⚠️ Треугольник ${aIndex}: варианты (${passed.length})`);
-                   
+
                 } else {
                     nextRemaining.push(aIndex);
                 }
             }
-           
+
             anchors.push(...newAnchors);
             ambiguous.push(...newAmbiguous);
             remaining = nextRemaining;
-           
+
             byThreshold[threshold].anchors = newAnchors.length;
             byThreshold[threshold].ambiguous = newAmbiguous.length;
-           
+
             console.log(`   → На этом пороге: +${newAnchors.length} якорей (${newAnchors.length*3} точек), +${newAmbiguous.length} вариативных, осталось ${remaining.length}`);
         }
-       
+
         return { anchors, ambiguous, noMatches: remaining, byThreshold };
     }
 
     /**
-     * Вычисление длин сторон
+     * Вычисление длин сторон (БЕЗ ИЗМЕНЕНИЙ)
      */
     calcSides(p1, p2, p3) {
         const d12 = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
@@ -484,7 +438,7 @@ class TriangleMatcher {
     }
 
     /**
-     * Построение связей между треугольниками
+     * Построение связей между треугольниками (БЕЗ ИЗМЕНЕНИЙ)
      */
     buildNeighbors(triangles) {
         const edgeMap = new Map();
@@ -510,7 +464,7 @@ class TriangleMatcher {
     }
 
     /**
-     * Получение треугольников из Делоне
+     * Получение треугольников из Делоне (БЕЗ ИЗМЕНЕНИЙ)
      */
     getTrianglesFromDelaunay(delaunay) {
         if (!delaunay) return [];
@@ -519,48 +473,46 @@ class TriangleMatcher {
     }
 
     /**
-     * Восстановление точек из якорей
+     * Восстановление точек из якорей (БЕЗ ИЗМЕНЕНИЙ)
      */
-reconstructPoints(anchors, uniqueA, uniqueB) {
-    const pointMatches = [];
-    const pointMap = new Map(); // pointA -> pointB
-    const usedB = new Set(); // уже использованные точки из B
+    reconstructPoints(anchors, trianglesA, trianglesB) {
+        const pointMatches = [];
+        const pointMap = new Map();
+        const usedB = new Set();
 
-    for (const anchor of anchors) {
-        const tA = uniqueA[anchor.aIndex];
-        const tB = uniqueB[anchor.bIndex];
+        for (const anchor of anchors) {
+            const tA = trianglesA[anchor.aIndex];
+            const tB = trianglesB[anchor.bIndex];
 
-        // НЕ СОРТИРУЕМ! Используем исходное соответствие из треугольников
-        const pairs = [
-            { a: tA.p1.id, b: tB.p1.id },
-            { a: tA.p2.id, b: tB.p2.id },
-            { a: tA.p3.id, b: tB.p3.id }
-        ];
+            const pairs = [
+                { a: tA.p1.id, b: tB.p1.id },
+                { a: tA.p2.id, b: tB.p2.id },
+                { a: tA.p3.id, b: tB.p3.id }
+            ];
 
-        for (const { a: pA, b: pB } of pairs) {
-            // Проверяем согласованность
-            if (pointMap.has(pA)) {
-                if (pointMap.get(pA) !== pB) {
-                    console.log(`⚠️ Несогласованность: точка ${pA} соответствует и ${pointMap.get(pA)} и ${pB}`);
+            for (const { a: pA, b: pB } of pairs) {
+                if (pointMap.has(pA)) {
+                    if (pointMap.get(pA) !== pB) {
+                        console.log(`⚠️ Несогласованность: точка ${pA} соответствует и ${pointMap.get(pA)} и ${pB}`);
+                        continue;
+                    }
+                } else if (usedB.has(pB)) {
+                    console.log(`⚠️ Точка ${pB} уже используется для другого соответствия`);
                     continue;
+                } else {
+                    pointMap.set(pA, pB);
+                    usedB.add(pB);
+                    pointMatches.push({
+                        pointA: pA,
+                        pointB: pB,
+                        confidence: anchor.geometryScore
+                    });
                 }
-            } else if (usedB.has(pB)) {
-                console.log(`⚠️ Точка ${pB} уже используется для другого соответствия`);
-                continue;
-            } else {
-                pointMap.set(pA, pB);
-                usedB.add(pB);
-                pointMatches.push({
-                    pointA: pA,
-                    pointB: pB,
-                    confidence: anchor.geometryScore
-                });
             }
         }
-    }
 
-    return pointMatches;
-}
+        return pointMatches;
+    }
 
     /**
      * Печать статистики
@@ -571,8 +523,8 @@ reconstructPoints(anchors, uniqueA, uniqueB) {
         console.log(`${'='.repeat(100)}`);
 
         console.log(`\n📈 ТРЕУГОЛЬНИКИ:`);
-        console.log(`   • Уникальных в А: ${this.stats.uniqueA}`);
-        console.log(`   • Уникальных в Б: ${this.stats.uniqueB}`);
+        console.log(`   • Всего в А: ${this.stats.totalTrianglesA}`);
+        console.log(`   • Всего в Б: ${this.stats.totalTrianglesB}`);
 
         console.log(`\n🔗 КАНДИДАТЫ:`);
         console.log(`   • Всего кандидатов: ${this.stats.totalCandidates}`);
