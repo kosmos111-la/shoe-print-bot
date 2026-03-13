@@ -475,44 +475,58 @@ class TriangleMatcher {
     /**
      * Восстановление точек из якорей (БЕЗ ИЗМЕНЕНИЙ)
      */
-    reconstructPoints(anchors, trianglesA, trianglesB) {
-        const pointMatches = [];
-        const pointMap = new Map();
-        const usedB = new Set();
+reconstructPoints(anchors, trianglesA, trianglesB) {
+    console.log(`\n🔍 RECONSTRUCT POINTS С КООРДИНАТАМИ:`);
+   
+    const pointMatches = [];
+    const pointMap = new Map();
+    const usedB = new Set();
 
-        for (const anchor of anchors) {
-            const tA = trianglesA[anchor.aIndex];
-            const tB = trianglesB[anchor.bIndex];
+    for (const anchor of anchors) {
+        const tA = trianglesA[anchor.aIndex];
+        const tB = trianglesB[anchor.bIndex];
 
-            const pairs = [
-                { a: tA.p1.id, b: tB.p1.id },
-                { a: tA.p2.id, b: tB.p2.id },
-                { a: tA.p3.id, b: tB.p3.id }
-            ];
+        console.log(`\n   Треугольник якорь (уверенность: ${(anchor.geometryScore*100).toFixed(1)}%):`);
+        console.log(`      A: ${tA.p1.id.substring(0,12)} (${tA.p1.x.toFixed(1)}, ${tA.p1.y.toFixed(1)})`);
+        console.log(`         ${tA.p2.id.substring(0,12)} (${tA.p2.x.toFixed(1)}, ${tA.p2.y.toFixed(1)})`);
+        console.log(`         ${tA.p3.id.substring(0,12)} (${tA.p3.x.toFixed(1)}, ${tA.p3.y.toFixed(1)})`);
+        console.log(`      B: ${tB.p1.id.substring(0,12)} (${tB.p1.x.toFixed(1)}, ${tB.p1.y.toFixed(1)})`);
+        console.log(`         ${tB.p2.id.substring(0,12)} (${tB.p2.x.toFixed(1)}, ${tB.p2.y.toFixed(1)})`);
+        console.log(`         ${tB.p3.id.substring(0,12)} (${tB.p3.x.toFixed(1)}, ${tB.p3.y.toFixed(1)})`);
 
-            for (const { a: pA, b: pB } of pairs) {
-                if (pointMap.has(pA)) {
-                    if (pointMap.get(pA) !== pB) {
-                        console.log(`⚠️ Несогласованность: точка ${pA} соответствует и ${pointMap.get(pA)} и ${pB}`);
-                        continue;
-                    }
-                } else if (usedB.has(pB)) {
-                    console.log(`⚠️ Точка ${pB} уже используется для другого соответствия`);
+        const pairs = [
+            { a: tA.p1.id, b: tB.p1.id, aCoord: [tA.p1.x, tA.p1.y], bCoord: [tB.p1.x, tB.p1.y] },
+            { a: tA.p2.id, b: tB.p2.id, aCoord: [tA.p2.x, tA.p2.y], bCoord: [tB.p2.x, tB.p2.y] },
+            { a: tA.p3.id, b: tB.p3.id, aCoord: [tA.p3.x, tA.p3.y], bCoord: [tB.p3.x, tB.p3.y] }
+        ];
+
+        for (const { a: pA, b: pB, aCoord, bCoord } of pairs) {
+            if (pointMap.has(pA)) {
+                if (pointMap.get(pA) !== pB) {
+                    console.log(`   ⚠️ КОНФЛИКТ: точка ${pA.substring(0,12)} (${aCoord[0].toFixed(1)}, ${aCoord[1].toFixed(1)})`);
+                    console.log(`             уже соответствует ${pointMap.get(pA).substring(0,12)}, пытаемся с ${pB.substring(0,12)} (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)})`);
                     continue;
-                } else {
-                    pointMap.set(pA, pB);
-                    usedB.add(pB);
-                    pointMatches.push({
-                        pointA: pA,
-                        pointB: pB,
-                        confidence: anchor.geometryScore
-                    });
                 }
+            } else if (usedB.has(pB)) {
+                console.log(`   ⚠️ Точка ${pB.substring(0,12)} (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)}) уже используется`);
+                continue;
+            } else {
+                pointMap.set(pA, pB);
+                usedB.add(pB);
+                pointMatches.push({
+                    pointA: pA,
+                    pointB: pB,
+                    confidence: anchor.geometryScore
+                });
+                console.log(`   ✅ Добавлено: ${pA.substring(0,12)} ↔ ${pB.substring(0,12)}`);
+                console.log(`      A: (${aCoord[0].toFixed(1)}, ${aCoord[1].toFixed(1)})`);
+                console.log(`      B: (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)})`);
             }
         }
-
-        return pointMatches;
     }
+
+    return pointMatches;
+}
 
     /**
      * Печать статистики
