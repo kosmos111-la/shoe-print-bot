@@ -172,89 +172,78 @@ class ClusterVisualizer {
         });
     }
 
-    drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale) {
+drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale) {
+    const points = topologyData.points;  // ← ЭТОЙ СТРОКИ НЕ ХВАТАЕТ!
     console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
     console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
-   
-    // Выведи первые 5 записей для проверки
-    let i = 0;
+
+    // Создаем map для быстрого поиска
+    const modelToPair = new Map();
     for (const [modelId, match] of modelMatchMap) {
-        if (i++ < 5) {
-            console.log(`      🔢 Модель ${modelId.substring(0,12)}... → номер ${match.pairNumber}`);
+        if (match && match.pairNumber) {
+            modelToPair.set(modelId, match.pairNumber);
+            if (this.config.debug) {
+                console.log(`      🔢 Модель ${modelId.slice(0,12)}... → номер ${match.pairNumber}`);
+            }
         }
     }
-        const points = topologyData.points;
+
+    let anchorPoints = 0, regularPoints = 0;
+
+    for (const point of points) {
+        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+
+        const x = centerX + (point.x - avgX) * scale;
+        const y = centerY + (point.y - avgY) * scale;
+
+        const confirmations = point.confirmationCount || 0;
       
-        console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
-        console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
+        const pairNumber = modelToPair.get(point.id);
+        const isAnchor = pairNumber !== undefined;
 
-        let anchorPoints = 0, regularPoints = 0;
+        let color, size;
 
-        // Создаем map для быстрого поиска
-        const modelToPair = new Map();
-        for (const [modelId, match] of modelMatchMap) {
-            if (match && match.pairNumber) {
-                modelToPair.set(modelId, match.pairNumber);
-                if (this.config.debug) {
-                    console.log(`      🔢 Модель ${modelId.slice(0,12)}... → номер ${match.pairNumber}`);
-                }
-            }
+        if (isAnchor) {
+            color = '#FF0000';
+            size = 8;
+            anchorPoints++;
+        } else if (confirmations >= 3) {
+            color = '#FF0000';
+            size = 6;
+            regularPoints++;
+        } else if (confirmations >= 2) {
+            color = '#FFC107';
+            size = 5;
+            regularPoints++;
+        } else if (confirmations >= 1) {
+            color = '#2196F3';
+            size = 4;
+            regularPoints++;
+        } else {
+            color = '#BDBDBD';
+            size = 3;
+            regularPoints++;
         }
 
-        for (const point of points) {
-            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1;
+        ctx.stroke();
 
-            const x = centerX + (point.x - avgX) * scale;
-            const y = centerY + (point.y - avgY) * scale;
-
-            const confirmations = point.confirmationCount || 0;
-          
-            const pairNumber = modelToPair.get(point.id);
-            const isAnchor = pairNumber !== undefined;
-
-            let color, size;
-
-            if (isAnchor) {
-                color = '#FF0000';
-                size = 8;
-                anchorPoints++;
-            } else if (confirmations >= 3) {
-                color = '#FF0000';
-                size = 6;
-                regularPoints++;
-            } else if (confirmations >= 2) {
-                color = '#FFC107';
-                size = 5;
-                regularPoints++;
-            } else if (confirmations >= 1) {
-                color = '#2196F3';
-                size = 4;
-                regularPoints++;
-            } else {
-                color = '#BDBDBD';
-                size = 3;
-                regularPoints++;
-            }
-
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            if (isAnchor) {
-                ctx.fillStyle = '#000000';
-                ctx.font = 'bold 8px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(pairNumber.toString(), x, y);
-            }
+        if (isAnchor) {
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 8px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(pairNumber.toString(), x, y);
         }
-
-        console.log(`   🎯 Модель: 🔴 ${anchorPoints} с цифрами, остальных: ${regularPoints}`);
     }
+
+    console.log(`   🎯 Модель: 🔴 ${anchorPoints} с цифрами, остальных: ${regularPoints}`);
+}
 
     drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
         console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
