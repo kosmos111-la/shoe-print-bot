@@ -84,7 +84,10 @@ class TopologicalAccumulator {
         this.currentModelId = null;
         this.modelRelations = new Map();
         this.photoToModel = new Map();
+this.photoIdMapping = new Map(); // новый ID точки в фото -> оригинальный ID
+    this.modelIdMapping = new Map(); // новый ID точки в модели -> оригинальный ID
 
+      
         // Статистика
         this.stats = {
             totalModels: 0,
@@ -643,36 +646,43 @@ return {
     for (const [nodeId, node] of graph.nodes) {
         const morph = morphologyMap.get(nodeId) || {};
        
-        // Добавляем суффикс с номером и источником
+        // 🔥 СОЗДАЁМ УНИКАЛЬНЫЙ ID
         const uniqueId = `${nodeId}_${source}_${counter++}`;
-
-        points.push({
-            id: uniqueId,  // ← УНИКАЛЬНЫЙ ID!
-            originalId: nodeId, // сохраняем оригинал для связей
-            x: node.x,
-            y: node.y,
-                role: this.getNodeRoleSimple(nodeId, graph),
-                degree: node.degree || 0,
-                triangles: node.triangles || 0,
-              
-                // МОРФОЛОГИЯ
-                compactness: morph.compactness || 0,
-                eccentricity: morph.eccentricity || 0,
-                normalizedArea: morph.normalizedArea || 1,
-                radialProfile: morph.radialProfile || [0,0,0,0,0,0,0,0],
-                orientation: morph.orientation || 0,
-                asymmetry: morph.asymmetry || 0,  // 🔥 ДОБАВЛЯЕМ АСИММЕТРИЮ
-              
-                // 🔥 КОНТУР (для новых признаков)
-                contour: morph.contour || null,
-              
-                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
-            });
+       
+        // 🔥 СОХРАНЯЕМ МАППИНГ
+        if (source === 'A') {
+            this.photoIdMapping.set(uniqueId, nodeId);
+        } else {
+            this.modelIdMapping.set(uniqueId, nodeId);
         }
 
-        console.log(`📊 Извлечено ${points.length} точек из модели с морфологией`);
-        return points;
+        points.push({
+            id: uniqueId,
+            originalId: nodeId,  // сохраняем оригинал
+            x: node.x,
+            y: node.y,
+            role: this.getNodeRoleSimple(nodeId, graph),
+            degree: node.degree || 0,
+            triangles: node.triangles || 0,
+
+            // МОРФОЛОГИЯ
+            compactness: morph.compactness || 0,
+            eccentricity: morph.eccentricity || 0,
+            normalizedArea: morph.normalizedArea || 1,
+            radialProfile: morph.radialProfile || [0,0,0,0,0,0,0,0],
+            orientation: morph.orientation || 0,
+            asymmetry: morph.asymmetry || 0,
+
+            // 🔥 КОНТУР
+            contour: morph.contour || null,
+
+            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
+        });
     }
+
+    console.log(`📊 Извлечено ${points.length} точек из модели с морфологией`);
+    return points;
+}
 
     /**
      * Строит matchMap для визуализации
