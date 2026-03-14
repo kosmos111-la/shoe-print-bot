@@ -196,7 +196,7 @@ const consistent = this.checkGlobalConsistency(
 
         
         // ===== ШАГ 3: ДВУХЭТАПНАЯ ДОСТРОЙКА =====
-const finalMatches = this.twoStagePositioning(
+const positionResult = this.twoStagePositioning(
     consistent.points,
     triangleResult.matches,
     exactGraph,
@@ -205,38 +205,20 @@ const finalMatches = this.twoStagePositioning(
     existingModel.morphologyMap
 );
 
+const finalMatches = positionResult.all;        // все 56 точек
+const confirmedPoints = positionResult.anchors; // 44 точки (18+26)
+const newPoints = positionResult.new;           // 12 точек
+
 console.log(`\n📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:`);
 console.log(`   • Было matches: ${triangleResult.matches.length}`);
 console.log(`   • Стало matches: ${finalMatches.length}`);
+console.log(`   • Из них подтверждённых: ${confirmedPoints.length}`);
+console.log(`   • Из них новых: ${newPoints.length}`);
 
-// ===== ШАГ 3.5: РАЗДЕЛЯЕМ ТОЧКИ ПО КАТЕГОРИЯМ =====
-console.log(`\n🔄 РАЗДЕЛЕНИЕ ТОЧЕК ПОСЛЕ ДОСТРОЙКИ`);
+// ===== ШАГ 3.5: ПРОВЕРКА ТОЛЬКО НОВЫХ ТОЧЕК =====
+console.log(`\n🔄 ПРОВЕРКА ТОЛЬКО НОВЫХ ТОЧЕК (${newPoints.length})`);
 
-// Создаём множество уже подтверждённых точек (якоря + уточнённые)
-// В twoStagePositioning у нас были:
-// - anchors (18 точек) - изначальные якоря
-// - confirmedFromConfused (24 точки) - уточнённые
-// - positionedMatches (23 точки) - достроенные
-
-// Извлекаем их из структуры (нужно модифицировать twoStagePositioning чтобы возвращала)
-// Пока используем эвристику - в twoStagePositioning порядок сохраняется:
-// сначала anchors (18), потом confirmedFromConfused (24), потом positionedMatches (23)
-
-const anchorCount = 18; // из consistent.points
-const confirmedCount = 24; // из лога
-const newCount = finalMatches.length - anchorCount - confirmedCount; // 65 - 18 - 24 = 23
-
-console.log(`   • Якорей: ${anchorCount}`);
-console.log(`   • Уточнённых: ${confirmedCount}`);
-console.log(`   • Достроенных новых: ${newCount}`);
-
-// Оставляем все подтверждённые точки (якоря + уточнённые) без изменений
-const confirmedPoints = finalMatches.slice(0, anchorCount + confirmedCount);
-
-// А новые точки проверяем повторно
-const newPoints = finalMatches.slice(anchorCount + confirmedCount);
-
-console.log(`\n🔍 ПРОВЕРКА ТОЛЬКО НОВЫХ ТОЧЕК (${newPoints.length})`);
+let finalConsistentMatches = confirmedPoints; // начинаем с подтверждённых
 
 if (newPoints.length > 0) {
     // Создаём временные якоря из новых точек
@@ -276,23 +258,20 @@ if (newPoints.length > 0) {
     console.log(`   • Согласовалось: ${newConsistent.points.length}`);
     console.log(`   • Отсеяно: ${newPoints.length - newConsistent.points.length}`);
    
-    // Финальный результат = старые подтверждённые + новые согласованные
-    const finalConsistentMatches = [...confirmedPoints, ...newConsistent.points];
-   
-    console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ:`);
-    console.log(`   • Старых подтверждённых: ${confirmedPoints.length}`);
-    console.log(`   • Новых согласованных: ${newConsistent.points.length}`);
-    console.log(`   • ВСЕГО: ${finalConsistentMatches.length} точек`);
-} else {
-    const finalConsistentMatches = confirmedPoints;
-    console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ: ${finalConsistentMatches.length} точек (новых нет)`);
+    // Добавляем только согласованные новые точки
+    finalConsistentMatches = [...confirmedPoints, ...newConsistent.points];
 }
 
-        // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ ТОЛЬКО СОГЛАСОВАННЫМИ ТОЧКАМИ =====
+console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ:`);
+console.log(`   • Старых подтверждённых: ${confirmedPoints.length}`);
+console.log(`   • Новых согласованных: ${finalConsistentMatches.length - confirmedPoints.length}`);
+console.log(`   • ВСЕГО: ${finalConsistentMatches.length} точек`);
+
+// ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
 const updateResult = this.updateModelWithOptimalMatches(
     modelIdHint,
     exactGraph,
-    finalConsistentMatches,  // ← стало
+    finalConsistentMatches,
     morphologyMap
 );
 
