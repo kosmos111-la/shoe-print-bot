@@ -255,7 +255,7 @@ if (newPoints.length > 0) {
     );
    
     console.log(`\n📊 РЕЗУЛЬТАТ ПРОВЕРКИ НОВЫХ ТОЧЕК:`);
-    console.log(`   • Согласовалось: ${newConsistent.points.length}`);
+    console.log(`   • Согласовалось: ${newConsistentPoints.length}`);
     console.log(`   • Отсеяно: ${newPoints.length - newConsistent.points.length}`);
    
     // Добавляем только согласованные новые точки
