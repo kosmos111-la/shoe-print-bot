@@ -2383,9 +2383,9 @@ cascadePositioning(anchors, graphA, graphB) {
                 // Вычисляем трансформацию между якорными треугольниками
                 // Нам нужен опорный треугольник, содержащий это ребро
                 // Ищем любой якорный треугольник с этим ребром
-                const anchorTriangle = this.findAnchorTriangleWithEdge(
-                    pointA, neighbor.id, currentAnchors, graphA
-                );
+const anchorTriangle = this.findAnchorTriangleWithEdge(
+    pointA, neighbor.id, currentAnchors, graphA, graphB  // ← добавили graphB
+);
                
                 if (anchorTriangle) {
     // ПОЛУЧАЕМ ТОЧКИ С ПРОВЕРКОЙ
@@ -2481,30 +2481,52 @@ cascadePositioning(anchors, graphA, graphB) {
 /**
 * Находит якорный треугольник, содержащий заданное ребро
 */
-findAnchorTriangleWithEdge(point1, point2, anchors, graph) {
-    // Ищем среди якорей треугольник, содержащий эти две точки
+findAnchorTriangleWithEdge(point1, point2, anchors, graphA, graphB) {
     const point1Anchor = anchors.find(a => a.pointA === point1);
     const point2Anchor = anchors.find(a => a.pointA === point2);
    
     if (!point1Anchor || !point2Anchor) return null;
    
-    // Ищем третью точку, которая с point1 и point2 образует треугольник
+    // Получаем все треугольники в графе B
+    const trianglesB = this.extractTrianglesFromGraph(graphB);
+   
+    // Ищем треугольник в A, содержащий point1 и point2
     for (const anchor of anchors) {
         if (anchor.pointA === point1 || anchor.pointA === point2) continue;
        
-        if (this.areConnected(point1, anchor.pointA, graph) &&
-            this.areConnected(point2, anchor.pointA, graph)) {
+        if (this.areConnected(point1, anchor.pointA, graphA) &&
+            this.areConnected(point2, anchor.pointA, graphA)) {
+           
+            // Нашли треугольник в A, теперь ищем соответствующий в B
+            const p3A = anchor.pointA;
+            const p1B = point1Anchor.pointB;
+            const p2B = point2Anchor.pointB;
+            const p3B = anchor.pointB;
+           
+            // Проверяем, есть ли такой треугольник в B
+            const triangleExists = trianglesB.some(t => {
+                const ids = [t.p1.id, t.p2.id, t.p3.id].sort();
+                const expected = [p1B, p2B, p3B].sort();
+                return ids[0] === expected[0] &&
+                       ids[1] === expected[1] &&
+                       ids[2] === expected[2];
+            });
+           
+            if (!triangleExists) {
+                console.log(`      ⚠️ Треугольник (${p1B.substring(0,8)},${p2B.substring(0,8)},${p3B.substring(0,8)}) не найден в B`);
+                return null;
+            }
            
             return {
                 triangleA: {
-                    p1: graph.nodes.get(point1),
-                    p2: graph.nodes.get(point2),
-                    p3: graph.nodes.get(anchor.pointA)
+                    p1: graphA.nodes.get(point1),
+                    p2: graphA.nodes.get(point2),
+                    p3: graphA.nodes.get(p3A)
                 },
                 triangleB: {
-                    p1: graph.nodes.get(point1Anchor.pointB),
-                    p2: graph.nodes.get(point2Anchor.pointB),
-                    p3: graph.nodes.get(anchor.pointB)
+                    p1: graphB.nodes.get(p1B),
+                    p2: graphB.nodes.get(p2B),
+                    p3: graphB.nodes.get(p3B)
                 }
             };
         }
