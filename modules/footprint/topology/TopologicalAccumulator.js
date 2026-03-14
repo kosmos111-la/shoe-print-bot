@@ -634,18 +634,23 @@ return {
     /**
      * Извлечение точек из модели
      */
-    extractPointsFromModel(model) {
-        const points = [];
-        const graph = model.graph;
-        const morphologyMap = model.morphologyMap || new Map();
+    extractPointsFromModel(model, source = 'A') {
+    const points = [];
+    const graph = model.graph;
+    const morphologyMap = model.morphologyMap || new Map();
+    let counter = 0;
 
-        for (const [nodeId, node] of graph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
-          
-            points.push({
-                id: nodeId,
-                x: node.x,
-                y: node.y,
+    for (const [nodeId, node] of graph.nodes) {
+        const morph = morphologyMap.get(nodeId) || {};
+       
+        // Добавляем суффикс с номером и источником
+        const uniqueId = `${nodeId}_${source}_${counter++}`;
+
+        points.push({
+            id: uniqueId,  // ← УНИКАЛЬНЫЙ ID!
+            originalId: nodeId, // сохраняем оригинал для связей
+            x: node.x,
+            y: node.y,
                 role: this.getNodeRoleSimple(nodeId, graph),
                 degree: node.degree || 0,
                 triangles: node.triangles || 0,
