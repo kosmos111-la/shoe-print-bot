@@ -2388,12 +2388,39 @@ cascadePositioning(anchors, graphA, graphB) {
                 );
                
                 if (anchorTriangle) {
-                    // Прогнозируем положение thirdB
-                    const predicted = this.predictPointPosition(
-                        graphA.nodes.get(thirdA),
-                        anchorTriangle.triangleA,
-                        anchorTriangle.triangleB
-                    );
+    // ПОЛУЧАЕМ ТОЧКИ С ПРОВЕРКОЙ
+    const point3A = graphA.nodes.get(thirdA);
+    if (!point3A) {
+        console.log(`      ⚠️ Точка ${thirdA.substring(0,8)} не найдена в графе A`);
+        continue;
+    }
+   
+    // Проверяем, что треугольники существуют
+    if (!anchorTriangle.triangleA || !anchorTriangle.triangleB) {
+        console.log(`      ⚠️ Опорный треугольник не полный`);
+        continue;
+    }
+   
+    // Проверяем, что все вершины треугольника A есть в графе
+    const tA = anchorTriangle.triangleA;
+    if (!tA.p1 || !tA.p2 || !tA.p3) {
+        console.log(`      ⚠️ Вершины треугольника A не определены`);
+        continue;
+    }
+   
+    // Проверяем, что все вершины треугольника B есть в графе
+    const tB = anchorTriangle.triangleB;
+    if (!tB.p1 || !tB.p2 || !tB.p3) {
+        console.log(`      ⚠️ Вершины треугольника B не определены`);
+        continue;
+    }
+   
+    // Прогнозируем положение thirdB
+    const predicted = this.predictPointPosition(
+        point3A,
+        tA,
+        tB
+    );
                    
                     // Ищем реальную точку рядом с прогнозом
                     const candidates = [];
