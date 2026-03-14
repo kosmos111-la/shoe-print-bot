@@ -287,45 +287,69 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
             }
 
 
-            // 🔥 СОЗДАЁМ ДАННЫЕ ДЛЯ ФОТО
-            if (matchMap && visualizationData) {
-                const photoPoints = [];
-                for (const [photoId, match] of matchMap) {
-                    const photoPoint = points.find(p => p.id === photoId);
-                    if (photoPoint) {
-                        photoPoints.push({
-                            id: photoId,
-                            x: photoPoint.x,
-                            y: photoPoint.y,
-                            confidence: 1.0
-                        });
-                    } else {
-                        const modelPoint = visualizationData.points.find(p => p.id === match.modelId);
-                        if (modelPoint) {
-                            photoPoints.push({
-                                id: photoId,
-                                x: modelPoint.x,
-                                y: modelPoint.y,
-                                confidence: 1.0
-                            });
-                        }
-                    }
-                }
+// 🔥 СОЗДАЁМ ДАННЫЕ ДЛЯ ФОТО
+if (matchMap && visualizationData) {
+    // Получаем маппинги из topologyManager
+    const photoIdMapping = topologyManager.accumulator.photoIdMapping || new Map();
+    const modelIdMapping = topologyManager.accumulator.modelIdMapping || new Map();
+   
+    const photoPoints = [];
+    for (const [photoId, match] of matchMap) {
+        // Пробуем найти точку по новому ID
+        let photoPoint = points.find(p => p.id === photoId);
+       
+        // Если не нашли, пробуем по оригинальному ID
+        if (!photoPoint) {
+            const originalId = photoIdMapping.get(photoId);
+            if (originalId) {
+                photoPoint = points.find(p => p.originalId === originalId || p.id === originalId);
+            }
+        }
+       
+        if (photoPoint) {
+            photoPoints.push({
+                id: photoId,
+                x: photoPoint.x,
+                y: photoPoint.y,
+                confidence: 1.0
+            });
+        } else {
+            // Если не нашли в фото, берём из модели
+            let modelPoint = visualizationData.points.find(p => p.id === match.modelId);
+           
+            // Если не нашли по новому ID, пробуем по оригинальному
+            if (!modelPoint) {
+                const originalModelId = modelIdMapping.get(match.modelId);
+                if (originalModelId) {
+                    modelPoint = visualizationData.points.find(p => p.originalId === originalModelId || p.id === originalModelId);
+                }
+            }
+           
+            if (modelPoint) {
+                photoPoints.push({
+                    id: photoId,
+                    x: modelPoint.x,
+                    y: modelPoint.y,
+                    confidence: 1.0
+                });
+            }
+        }
+    }
 
-                // 🔥 СОЗДАЁМ ОТДЕЛЬНЫЕ ДАННЫЕ ДЛЯ ФОТО
-                const photoVisualizationData = {
-                    ...visualizationData,
-                    points: photoPoints,
-                    matchMap: matchMap,
-                    isPhotoView: true
-                };
+    // 🔥 СОЗДАЁМ ОТДЕЛЬНЫЕ ДАННЫЕ ДЛЯ ФОТО
+    const photoVisualizationData = {
+        ...visualizationData,
+        points: photoPoints,
+        matchMap: matchMap,
+        isPhotoView: true
+    };
 
-                visualizationData.photoPoints = photoPoints;
-                visualizationData.matchMap = matchMap;
+    visualizationData.photoPoints = photoPoints;
+    visualizationData.matchMap = matchMap;
 
-                console.log(`✅ matchMap добавлен: ${matchMap.size} пар`);
-                console.log(`✅ photoPoints создано: ${photoPoints.length} точек`);
-            }
+    console.log(`✅ matchMap добавлен: ${matchMap.size} пар`);
+    console.log(`✅ photoPoints создано: ${photoPoints.length} точек`);
+}
 
 
             if (visualizationData) {
