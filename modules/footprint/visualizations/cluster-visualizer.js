@@ -173,6 +173,16 @@ class ClusterVisualizer {
     }
 
     drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale) {
+    console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
+    console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
+   
+    // Выведи первые 5 записей для проверки
+    let i = 0;
+    for (const [modelId, match] of modelMatchMap) {
+        if (i++ < 5) {
+            console.log(`      🔢 Модель ${modelId.substring(0,12)}... → номер ${match.pairNumber}`);
+        }
+    }
         const points = topologyData.points;
       
         console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
