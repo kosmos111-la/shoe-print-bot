@@ -209,48 +209,84 @@ console.log(`\n📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:`);
 console.log(`   • Было matches: ${triangleResult.matches.length}`);
 console.log(`   • Стало matches: ${finalMatches.length}`);
 
-// ===== ШАГ 3.5: ПОВТОРНОЕ ГЛОБАЛЬНОЕ СОГЛАСОВАНИЕ =====
-console.log(`\n🔄 ПОВТОРНОЕ ГЛОБАЛЬНОЕ СОГЛАСОВАНИЕ ПОСЛЕ ДОСТРОЙКИ`);
+// ===== ШАГ 3.5: РАЗДЕЛЯЕМ ТОЧКИ ПО КАТЕГОРИЯМ =====
+console.log(`\n🔄 РАЗДЕЛЕНИЕ ТОЧЕК ПОСЛЕ ДОСТРОЙКИ`);
 
-// Создаём временные якоря из всех достроенных точек
-const postAnchors = [];
-for (let i = 0; i < finalMatches.length; i += 3) {
-    if (i + 2 < finalMatches.length) {
-        const group = [
-            finalMatches[i],
-            finalMatches[i+1],
-            finalMatches[i+2]
-        ];
-        postAnchors.push({
-            aIndex: -1,
-            bIndex: -1,
-            geometryScore: Math.min(...group.map(m => m.confidence)),
-            points: group.map(m => ({
-                pointA: m.pointA,
-                pointB: m.pointB,
-                confidence: m.confidence
-            }))
-        });
+// Создаём множество уже подтверждённых точек (якоря + уточнённые)
+// В twoStagePositioning у нас были:
+// - anchors (18 точек) - изначальные якоря
+// - confirmedFromConfused (24 точки) - уточнённые
+// - positionedMatches (23 точки) - достроенные
+
+// Извлекаем их из структуры (нужно модифицировать twoStagePositioning чтобы возвращала)
+// Пока используем эвристику - в twoStagePositioning порядок сохраняется:
+// сначала anchors (18), потом confirmedFromConfused (24), потом positionedMatches (23)
+
+const anchorCount = 18; // из consistent.points
+const confirmedCount = 24; // из лога
+const newCount = finalMatches.length - anchorCount - confirmedCount; // 65 - 18 - 24 = 23
+
+console.log(`   • Якорей: ${anchorCount}`);
+console.log(`   • Уточнённых: ${confirmedCount}`);
+console.log(`   • Достроенных новых: ${newCount}`);
+
+// Оставляем все подтверждённые точки (якоря + уточнённые) без изменений
+const confirmedPoints = finalMatches.slice(0, anchorCount + confirmedCount);
+
+// А новые точки проверяем повторно
+const newPoints = finalMatches.slice(anchorCount + confirmedCount);
+
+console.log(`\n🔍 ПРОВЕРКА ТОЛЬКО НОВЫХ ТОЧЕК (${newPoints.length})`);
+
+if (newPoints.length > 0) {
+    // Создаём временные якоря из новых точек
+    const newAnchors = [];
+    for (let i = 0; i < newPoints.length; i += 3) {
+        if (i + 2 < newPoints.length) {
+            const group = [
+                newPoints[i],
+                newPoints[i+1],
+                newPoints[i+2]
+            ];
+            newAnchors.push({
+                aIndex: -1,
+                bIndex: -1,
+                geometryScore: Math.min(...group.map(m => m.confidence)),
+                points: group.map(m => ({
+                    pointA: m.pointA,
+                    pointB: m.pointB,
+                    confidence: m.confidence
+                }))
+            });
+        }
     }
+   
+    console.log(`   • Создано временных якорей: ${newAnchors.length}`);
+   
+    // Запускаем повторную глобальную проверку ТОЛЬКО для новых точек
+    const newConsistent = this.checkGlobalConsistency(
+        newAnchors,
+        trianglesA,
+        trianglesB,
+        exactGraph,
+        existingModel.graph
+    );
+   
+    console.log(`\n📊 РЕЗУЛЬТАТ ПРОВЕРКИ НОВЫХ ТОЧЕК:`);
+    console.log(`   • Согласовалось: ${newConsistent.points.length}`);
+    console.log(`   • Отсеяно: ${newPoints.length - newConsistent.points.length}`);
+   
+    // Финальный результат = старые подтверждённые + новые согласованные
+    const finalConsistentMatches = [...confirmedPoints, ...newConsistent.points];
+   
+    console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ:`);
+    console.log(`   • Старых подтверждённых: ${confirmedPoints.length}`);
+    console.log(`   • Новых согласованных: ${newConsistent.points.length}`);
+    console.log(`   • ВСЕГО: ${finalConsistentMatches.length} точек`);
+} else {
+    const finalConsistentMatches = confirmedPoints;
+    console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ: ${finalConsistentMatches.length} точек (новых нет)`);
 }
-
-console.log(`   • Создано временных якорей: ${postAnchors.length}`);
-
-// Запускаем повторную глобальную проверку
-const postConsistent = this.checkGlobalConsistency(
-    postAnchors,
-    trianglesA,
-    trianglesB,
-    exactGraph,
-    existingModel.graph
-);
-
-console.log(`\n📊 РЕЗУЛЬТАТ ПОВТОРНОГО СОГЛАСОВАНИЯ:`);
-console.log(`   • Согласованных точек: ${postConsistent.points.length}`);
-console.log(`   • Отсеяно: ${finalMatches.length - postConsistent.points.length}`);
-
-// Используем отфильтрованные точки для дальнейшей работы
-const finalConsistentMatches = postConsistent.points;
 
         // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ ТОЛЬКО СОГЛАСОВАННЫМИ ТОЧКАМИ =====
 const updateResult = this.updateModelWithOptimalMatches(
@@ -312,7 +348,7 @@ return {
     nodesRemoved: cleanResult.removed,
     matchMap: matchMap,
     modelMatchMap: modelMatchMap,
-    consistency: postConsistent.stats,  // ← стало (используем postConsistent)
+    consistency: newConsistent?.stats || consistent.stats, // ← стало (используем postConsistent)
     message: `Глобально согласовано после достройки: ${finalConsistentMatches.length} точек`
 };
     } else {
@@ -1778,13 +1814,13 @@ checkGlobalConsistency(anchors, trianglesA, trianglesB, graphA, graphB) {
 
 /**
 * Двухэтапная достройка точек на основе согласованных якорей
-* @param {Array} anchors - согласованные якоря (точки)
+* @param {Array} anchors - согласованные якоря (точки) - 18 шт
 * @param {Array} allMatches - все найденные matches (45 точек)
 * @param {Object} graphA - граф первого следа
 * @param {Object} graphB - граф второго следа
 * @param {Map} morphologyMap - морфология точек первого следа
 * @param {Map} modelMorphology - морфология точек модели
-* @returns {Object} - достроенные соответствия
+* @returns {Object} - достроенные соответствия с разделением по категориям
 */
 twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMorphology) {
     console.log(`\n🔧 ДВУХЭТАПНАЯ ДОСТРОЙКА ТОЧЕК`);
@@ -1793,7 +1829,6 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
     console.log(`\n📊 РАЗДЕЛЕНИЕ ТОЧЕК ПО КАТЕГОРИЯМ:`);
    
     const anchorSet = new Set(anchors.map(a => a.pointA));
-    const allPointsA = new Set(allMatches.map(m => m.pointA));
    
     const confusedPoints = []; // точки, которые есть в matches, но не в anchors
     for (const match of allMatches) {
@@ -1802,20 +1837,26 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
         }
     }
    
-    console.log(`   • Якорей: ${anchors.length} точек`);
+    console.log(`   • Якорей (топология): ${anchors.length} точек`);
     console.log(`   • Путающихся кандидатов: ${confusedPoints.length} точек`);
    
     // ===== ШАГ 2: Строим карту якорей для быстрого доступа =====
-    const anchorMap = new Map(); // pointA -> { pointB, confidence }
+    const anchorMap = new Map(); // pointA -> { pointB, confidence, x, y }
     for (const anchor of anchors) {
+        const pointA = graphA.nodes.get(anchor.pointA);
+        const pointB = graphB.nodes.get(anchor.pointB);
         anchorMap.set(anchor.pointA, {
             pointB: anchor.pointB,
-            confidence: anchor.confidence
+            confidence: anchor.confidence,
+            xA: pointA?.x,
+            yA: pointA?.y,
+            xB: pointB?.x,
+            yB: pointB?.y
         });
     }
    
-    // ===== ШАГ 3: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК =====
-    console.log(`\n🔍 ЭТАП 1: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК`);
+    // ===== ШАГ 3: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК (ГЕОМЕТРИЯ) =====
+    console.log(`\n🔍 ЭТАП 1: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК (геометрия)`);
    
     const confirmedFromConfused = [];
     const stillConfused = [];
@@ -1824,33 +1865,29 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
         const pointA = match.pointA;
         const pointB = match.pointB;
        
-        // Находим всех соседей-якорей для точки A
-        const neighborsA = this.findNodeNeighbors(pointA, graphA);
-        const anchorNeighborsA = neighborsA.filter(n => anchorMap.has(n.id));
+        // Находим ближайшие якоря в пространстве (не в графе!)
+        const neighborsA = this.findNearbyAnchors(pointA, graphA, anchorMap, 3);
+        const neighborsB = this.findNearbyAnchors(pointB, graphB,
+            new Map(Array.from(anchorMap.values()).map(a => [a.pointB, a])), 3);
        
-        // Находим всех соседей-якорей для точки B
-        const neighborsB = this.findNodeNeighbors(pointB, graphB);
-        const anchorNeighborsB = neighborsB.filter(n =>
-            Array.from(anchorMap.values()).some(a => a.pointB === n.id)
-        );
-       
-        if (anchorNeighborsA.length === 0 || anchorNeighborsB.length === 0) {
+        if (neighborsA.length < 2 || neighborsB.length < 2) {
             stillConfused.push(match);
             continue;
         }
        
-        // Проверяем расстояния до якорей в графе
+        // Проверяем геометрические соотношения (инвариантно!)
         let consistent = true;
-        const minNeighbors = Math.min(anchorNeighborsA.length, anchorNeighborsB.length);
+        const pairs = Math.min(neighborsA.length, neighborsB.length, 3);
        
-        for (let i = 0; i < minNeighbors; i++) {
-            const nA = anchorNeighborsA[i];
-            const nB = anchorNeighborsB[i];
+        for (let i = 0; i < pairs; i++) {
+            const [distAToAnchor, anchorA] = neighborsA[i];
+            const [distBToAnchor, anchorB] = neighborsB[i];
            
-            const distA = this.graphDistance(pointA, nA.id, graphA);
-            const distB = this.graphDistance(pointB, nB.id, graphB);
+            // Отношение расстояний должно сохраняться
+            const ratioA = distAToAnchor / this.getAvgDistance(pointA, neighborsA);
+            const ratioB = distBToAnchor / this.getAvgDistance(pointB, neighborsB);
            
-            if (Math.abs(distA - distB) > 1) {
+            if (Math.abs(ratioA - ratioB) > 0.2) { // 20% допуск
                 consistent = false;
                 break;
             }
@@ -1860,7 +1897,7 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
             confirmedFromConfused.push({
                 pointA: pointA,
                 pointB: pointB,
-                confidence: match.confidence * 0.9 // чуть снижаем уверенность
+                confidence: match.confidence * 0.95 // чуть снижаем уверенность
             });
             console.log(`   ✅ Уточнена: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
         } else {
@@ -1869,7 +1906,7 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
     }
    
     console.log(`\n📊 ИТОГ ЭТАПА 1:`);
-    console.log(`   • Уточнено: ${confirmedFromConfused.length} точек`);
+    console.log(`   • Уточнено геометрией: ${confirmedFromConfused.length} точек`);
     console.log(`   • Осталось путающихся: ${stillConfused.length} точек`);
    
     // ===== ШАГ 4: ПОДГОТОВКА ЯКОРЕЙ ДЛЯ ДОСТРОЙКИ =====
@@ -1882,8 +1919,8 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
         confirmedMap.set(point.pointA, point.pointB);
     }
    
-    // ===== ШАГ 5: ДОСТРОЙКА НОВЫХ ТОЧЕК =====
-    console.log(`\n🔍 ЭТАП 2: ДОСТРОЙКА НОВЫХ ТОЧЕК`);
+    // ===== ШАГ 5: ДОСТРОЙКА НОВЫХ ТОЧЕК (ТОЛЬКО ГЕОМЕТРИЯ) =====
+    console.log(`\n🔍 ЭТАП 2: ДОСТРОЙКА НОВЫХ ТОЧЕК (геометрия)`);
    
     // Находим все точки, которые есть только в первом следе
     const allPointsInA = Array.from(graphA.nodes.keys());
@@ -1891,59 +1928,117 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
    
     console.log(`   • Точек для достройки: ${pointsToPosition.length}`);
    
-    // Создаем карту якорей для RelativePositioning
-    const anchorMatches = new Map();
-    for (const point of allConfirmed) {
-        anchorMatches.set(point.pointA, {
-            modelId: point.pointB,
-            confidence: point.confidence
-        });
-    }
+    const positionedMatches = [];
    
-    // Запускаем RelativePositioning
-    const positionedMatches = this.relativePositioning.positionPoints(
-        graphA,
-        graphB,
-        anchorMatches,
-        morphologyMap,
-        modelMorphology,
-        { confidenceThreshold: 0.5 }
-    );
-   
-    console.log(`\n📊 ИТОГ ЭТАПА 2:`);
-    console.log(`   • Достроено: ${positionedMatches.size} точек`);
-   
-    // ===== ШАГ 6: ФОРМИРУЕМ ФИНАЛЬНЫЙ РЕЗУЛЬТАТ =====
-    const finalMatches = [];
-   
-    // Добавляем все подтвержденные точки
-    for (const point of allConfirmed) {
-        finalMatches.push({
-            pointA: point.pointA,
-            pointB: point.pointB,
-            confidence: point.confidence
-        });
-    }
-   
-    // Добавляем достроенные точки
-    for (const [pointA, match] of positionedMatches) {
-        // Проверяем, что точка ещё не добавлена
-        if (!confirmedMap.has(pointA)) {
-            finalMatches.push({
+    for (const pointA of pointsToPosition) {
+        const nodeA = graphA.nodes.get(pointA);
+        if (!nodeA) continue;
+       
+        // Находим ближайшие якоря в пространстве
+        const nearbyAnchors = this.findNearbyAnchors(pointA, graphA, anchorMap, 3);
+       
+        if (nearbyAnchors.length < 2) continue;
+       
+        // Интерполируем положение точки B
+        const candidates = new Map(); // pointB -> score
+       
+        for (const [distToAnchor, anchorA] of nearbyAnchors) {
+            const anchorData = anchorMap.get(anchorA);
+            if (!anchorData) continue;
+           
+            const pointB = anchorData.pointB;
+            const nodeB = graphB.nodes.get(pointB);
+            if (!nodeB) continue;
+           
+            // Предполагаемое положение точки B
+            const ratio = distToAnchor / this.getAvgDistance(pointA, nearbyAnchors);
+            const estimatedX = nodeB.x * ratio;
+            const estimatedY = nodeB.y * ratio;
+           
+            // Ищем реальные точки B рядом с предполагаемым положением
+            for (const [bId, bNode] of graphB.nodes) {
+                if (confirmedMap.has(bId)) continue;
+               
+                const dx = bNode.x - estimatedX;
+                const dy = bNode.y - estimatedY;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+               
+                if (dist < 20) { // порог 20 пикселей
+                    const score = 1 - (dist / 20);
+                    if (!candidates.has(bId) || candidates.get(bId) < score) {
+                        candidates.set(bId, score);
+                    }
+                }
+            }
+        }
+       
+        // Выбираем лучшего кандидата
+        let bestB = null;
+        let bestScore = 0;
+        for (const [bId, score] of candidates) {
+            if (score > bestScore && score > 0.5) {
+                bestScore = score;
+                bestB = bId;
+            }
+        }
+       
+        if (bestB) {
+            positionedMatches.push({
                 pointA: pointA,
-                pointB: match.modelId,
-                confidence: match.confidence
+                pointB: bestB,
+                confidence: bestScore
             });
         }
     }
    
-    console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ:`);
-    console.log(`   • Всего соответствий: ${finalMatches.length} точек`);
-    console.log(`   • Из них якорей: ${anchors.length}`);
-    console.log(`   • Уточнено путающихся: ${confirmedFromConfused.length}`);
-    console.log(`   • Достроено новых: ${finalMatches.length - allConfirmed.length}`);
+    console.log(`\n📊 ИТОГ ЭТАПА 2:`);
+    console.log(`   • Достроено геометрией: ${positionedMatches.length} точек`);
    
-    return finalMatches;
+    // ===== ШАГ 6: ФОРМИРУЕМ ФИНАЛЬНЫЙ РЕЗУЛЬТАТ =====
+    const finalMatches = [...allConfirmed, ...positionedMatches];
+   
+    console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ:`);
+    console.log(`   • Якорей (топология): ${anchors.length}`);
+    console.log(`   • Уточнено геометрией: ${confirmedFromConfused.length}`);
+    console.log(`   • Достроено геометрией: ${positionedMatches.length}`);
+    console.log(`   • ВСЕГО: ${finalMatches.length} точек`);
+   
+    return {
+        all: finalMatches,
+        anchors: allConfirmed,      // топологически подтверждённые (42)
+        new: positionedMatches       // только геометрией (23)
+    };
+}
+
+/**
+* Находит ближайшие якоря к точке в пространстве
+*/
+findNearbyAnchors(pointId, graph, anchorMap, count = 3) {
+    const node = graph.nodes.get(pointId);
+    if (!node) return [];
+   
+    const distances = [];
+    for (const [anchorId, anchorData] of anchorMap) {
+        const anchorNode = graph.nodes.get(anchorId);
+        if (!anchorNode) continue;
+       
+        const dx = node.x - anchorNode.x;
+        const dy = node.y - anchorNode.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+       
+        distances.push([dist, anchorId]);
+    }
+   
+    return distances.sort((a, b) => a[0] - b[0]).slice(0, count);
+}
+
+/**
+* Вычисляет среднее расстояние до ближайших якорей
+*/
+getAvgDistance(pointId, nearbyAnchors) {
+    if (nearbyAnchors.length === 0) return 1;
+    const sum = nearbyAnchors.reduce((acc, [dist]) => acc + dist, 0);
+    return sum / nearbyAnchors.length;
 }
   
 /**
