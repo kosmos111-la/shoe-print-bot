@@ -757,6 +757,7 @@ buildTriangleMatchMap(result, targetModelId = null) {
     // Для назначения номеров используем тот же порядок, что и при добавлении
     // (он уже отсортирован по уверенности)
     for (const [pointA, pointB] of pointCorrespondence) {
+           console.log(`   🔍 Назначение номера ${pairNumber}: ${pointA.substring(0,15)}... ↔ ${pointB.substring(0,15)}...`);
         matchMap.set(pointA, {
             modelId: pointB,
             pairNumber: pairNumber,
