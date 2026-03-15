@@ -759,25 +759,21 @@ buildTriangleMatchMap(result, targetModelId = null) {
     for (const [pointA, pointB] of pointCorrespondence) {
     console.log(`   🔍 Назначение номера ${pairNumber}: ${pointA.substring(0,15)}... ↔ ${pointB.substring(0,15)}...`);
    
-    // 🔥 ПОЛУЧАЕМ ОРИГИНАЛЬНЫЕ ID
-    const originalPhotoId = this.photoIdMapping?.get(pointA) || pointA;
-    const originalModelId = this.modelIdMapping?.get(pointB) || pointB;
-   
-    matchMap.set(originalPhotoId, {
-        modelId: originalModelId,
+    matchMap.set(pointA, {  // ← используем pointA напрямую
+        modelId: pointB,
         pairNumber: pairNumber,
         type: 'anchor',
         confidence: 1.0
     });
 
-    modelMatchMap.set(originalModelId, {
-        photoId: originalPhotoId,
+    modelMatchMap.set(pointB, {  // ← используем pointB напрямую
+        photoId: pointA,
         pairNumber: pairNumber,
         type: 'anchor',
         confidence: 1.0
     });
 
-    console.log(`   Пара ${pairNumber}: ${originalPhotoId.substring(0,12)} ↔ ${originalModelId.substring(0,12)}`);
+    console.log(`   Пара ${pairNumber}: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
     pairNumber++;
 }
 
