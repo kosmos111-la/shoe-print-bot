@@ -757,24 +757,29 @@ buildTriangleMatchMap(result, targetModelId = null) {
     // Для назначения номеров используем тот же порядок, что и при добавлении
     // (он уже отсортирован по уверенности)
     for (const [pointA, pointB] of pointCorrespondence) {
-           console.log(`   🔍 Назначение номера ${pairNumber}: ${pointA.substring(0,15)}... ↔ ${pointB.substring(0,15)}...`);
-        matchMap.set(pointA, {
-            modelId: pointB,
-            pairNumber: pairNumber,
-            type: 'anchor',
-            confidence: 1.0 // уверенность не критична для визуализации
-        });
+    console.log(`   🔍 Назначение номера ${pairNumber}: ${pointA.substring(0,15)}... ↔ ${pointB.substring(0,15)}...`);
+   
+    // 🔥 ПОЛУЧАЕМ ОРИГИНАЛЬНЫЕ ID
+    const originalPhotoId = this.photoIdMapping?.get(pointA) || pointA;
+    const originalModelId = this.modelIdMapping?.get(pointB) || pointB;
+   
+    matchMap.set(originalPhotoId, {
+        modelId: originalModelId,
+        pairNumber: pairNumber,
+        type: 'anchor',
+        confidence: 1.0
+    });
 
-        modelMatchMap.set(pointB, {
-            photoId: pointA,
-            pairNumber: pairNumber,
-            type: 'anchor',
-            confidence: 1.0
-        });
+    modelMatchMap.set(originalModelId, {
+        photoId: originalPhotoId,
+        pairNumber: pairNumber,
+        type: 'anchor',
+        confidence: 1.0
+    });
 
-        console.log(`   Пара ${pairNumber}: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
-        pairNumber++;
-    }
+    console.log(`   Пара ${pairNumber}: ${originalPhotoId.substring(0,12)} ↔ ${originalModelId.substring(0,12)}`);
+    pairNumber++;
+}
 
     // ===== ШАГ 4: Проверка целостности =====
     console.log(`\n📊 ИТОГ buildTriangleMatchMap:`);
