@@ -654,17 +654,19 @@ return {
     /**
      * Извлечение точек из модели
      */
-    extractPointsFromModel(model, source = 'A') {
+   extractPointsFromModel(model, source = 'A') {
+    // Добавить статический счётчик
+    if (!this.idCounter) this.idCounter = 0;
+   
     const points = [];
     const graph = model.graph;
     const morphologyMap = model.morphologyMap || new Map();
-    let counter = 0;
 
     for (const [nodeId, node] of graph.nodes) {
         const morph = morphologyMap.get(nodeId) || {};
        
-        // 🔥 СОЗДАЁМ УНИКАЛЬНЫЙ ID
-        const uniqueId = `${nodeId}_${source}_${counter++}`;
+        // 🔥 ИСПРАВЛЕНО: используем общий счётчик
+        const uniqueId = `${nodeId}_${source}_${this.idCounter++}`;
        
         // 🔥 СОХРАНЯЕМ МАППИНГ
         if (source === 'A') {
