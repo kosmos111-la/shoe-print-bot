@@ -236,13 +236,12 @@ const validationResult = validator.validateAll(
     existingModel.morphologyMap
 );
 
-if (validationResult.success) {
+if (validationResult.success) if (validationResult.success) {
     const validated = validationResult.results;
     const transform = validationResult.transform;
 
     console.log(`\n🔍 ПРОВЕРКА ВСЕХ ТОЧЕК НА СООТВЕТСТВИЕ ПРЕОБРАЗОВАНИЮ`);
 
-    // Объединяем все точки для проверки
     const allPointsToCheck = [
         ...validated.anchors,
         ...validated.confirmed,
@@ -257,10 +256,7 @@ if (validationResult.success) {
         const pointB = existingModel.graph.nodes.get(point.pointB);
 
         if (!pointA || !pointB) {
-            inconsistentPoints.push({
-                ...point,
-                reason: 'node_not_found'
-            });
+            inconsistentPoints.push({ ...point, reason: 'node_not_found' });
             continue;
         }
 
@@ -272,7 +268,6 @@ if (validationResult.success) {
         const relativeError = error / footprintSize;
 
         if (relativeError < 0.05) {
-            // ✅ Сохраняем точку с её оригинальным статусом
             allConsistent.push({
                 pointA: point.pointA,
                 pointB: point.pointB,
@@ -280,11 +275,7 @@ if (validationResult.success) {
                 status: point.status || 'anchor'
             });
         } else {
-            inconsistentPoints.push({
-                ...point,
-                reason: 'transform_mismatch',
-                error: relativeError
-            });
+            inconsistentPoints.push({ ...point, reason: 'transform_mismatch', error: relativeError });
         }
     }
 
@@ -292,23 +283,25 @@ if (validationResult.success) {
     console.log(`   • Согласовано: ${allConsistent.length} точек`);
     console.log(`   • Несогласовано: ${inconsistentPoints.length} точек`);
 
-    // Разделяем по статусам (для статистики)
-    const finalAnchors = allConsistent.filter(p => p.status === 'anchor');
-    const finalConfirmed = allConsistent.filter(p => p.status === 'confirmed');
-    const finalCandidates = allConsistent.filter(p => p.status === 'candidate');
+    // 🔥 СОЗДАЁМ МАССИВ ЯВНО
+    const finalValidatedMatches = allConsistent.map(p => ({
+        pointA: p.pointA,
+        pointB: p.pointB,
+        confidence: p.confidence,
+        status: p.status
+    }));
 
-    console.log(`\n✅ ИТОГО ПОСЛЕ ГЛОБАЛЬНОЙ ПРОВЕРКИ:`);
-    console.log(`   • Якорей: ${finalAnchors.length}`);
-    console.log(`   • Подтверждённых: ${finalConfirmed.length}`);
-    console.log(`   • Кандидатов: ${finalCandidates.length}`);
-    console.log(`   • Отвергнуто: ${inconsistentPoints.length}`);
-    console.log(`   • ВСЕГО: ${allConsistent.length} точек для визуализации`);
+    console.log(`\n✅ finalValidatedMatches создан: ${finalValidatedMatches.length} точек`);
+    console.log(`   • Тип: ${Array.isArray(finalValidatedMatches) ? 'МАССИВ' : 'НЕ МАССИВ'}`);
 
-    // 🔥 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ - просто allConsistent
-    const finalValidatedMatches = allConsistent;
+    // Статистика для информации
+    const anchors = finalValidatedMatches.filter(p => p.status === 'anchor').length;
+    const confirmed = finalValidatedMatches.filter(p => p.status === 'confirmed').length;
+   
+    console.log(`   • Якорей: ${anchors}`);
+    console.log(`   • Подтверждённых: ${confirmed}`);
 
-    // Сохраняем для отладки
-    existingModel.candidates = finalCandidates;
+    existingModel.candidates = [];
     existingModel.rejected = inconsistentPoints;
     existingModel.validationResult = validationResult;
 
