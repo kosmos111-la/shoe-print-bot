@@ -84,10 +84,7 @@ class TopologicalAccumulator {
         this.currentModelId = null;
         this.modelRelations = new Map();
         this.photoToModel = new Map();
-this.photoIdMapping = new Map(); // новый ID точки в фото -> оригинальный ID
-    this.modelIdMapping = new Map(); // новый ID точки в модели -> оригинальный ID
 
-      
         // Статистика
         this.stats = {
             totalModels: 0,
@@ -151,24 +148,7 @@ if (modelIdHint && this.models.has(modelIdHint)) {
 // ===== ШАГ 1: СОЗДАЁМ ВРЕМЕННЫЕ ЯКОРЯ ИЗ MATCHES =====
 console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
 
-// 🔥 ДИАГНОСТИКА: смотрим первые 9 matches
-console.log(`\n🔍 ДИАГНОСТИКА matches (первые 9):`);
-for (let i = 0; i < Math.min(9, triangleResult.matches.length); i++) {
-    const m = triangleResult.matches[i];
-    console.log(`   match[${i}]: pointA=${m.pointA.substring(0,15)}... pointB=${m.pointB.substring(0,15)}... conf=${m.confidence.toFixed(3)}`);
-}
-
-// Также покажем группировку по 3
-console.log(`\n🔍 ГРУППИРОВКА ПО ТРЕУГОЛЬНИКАМ:`);
-for (let i = 0; i < Math.min(9, triangleResult.matches.length); i += 3) {
-    if (i + 2 < triangleResult.matches.length) {
-        console.log(`   Треугольник ${i/3}:`);
-        console.log(`      точка1: ${triangleResult.matches[i].pointA.substring(0,15)}... ↔ ${triangleResult.matches[i].pointB.substring(0,15)}...`);
-        console.log(`      точка2: ${triangleResult.matches[i+1].pointA.substring(0,15)}... ↔ ${triangleResult.matches[i+1].pointB.substring(0,15)}...`);
-        console.log(`      точка3: ${triangleResult.matches[i+2].pointA.substring(0,15)}... ↔ ${triangleResult.matches[i+2].pointB.substring(0,15)}...`);
-    }
-}
-
+// Так как все ID одинаковые, группируем просто по порядку (каждые 3 точки)
 const tempAnchors = [];
 const matches = triangleResult.matches;
 
@@ -215,112 +195,25 @@ const consistent = this.checkGlobalConsistency(
 );
 
         
-        // ===== ШАГ 3: ДВУХЭТАПНАЯ ДОСТРОЙКА =====
-const positionResult = this.twoStagePositioning(
-    consistent.points,
-    triangleResult.matches,
-    exactGraph,
-    existingModel.graph,
-    morphologyMap,
-    existingModel.morphologyMap
+        // ===== ШАГ 3: КОНВЕРТИРУЕМ СОГЛАСОВАННЫЕ ЯКОРЯ ОБРАТНО В MATCHES =====
+        const finalMatches = this.twoStagePositioning(
+    consistent.points,           // согласованные якоря (18 точек)
+    triangleResult.matches,       // все matches (45 точек)
+    exactGraph,                   // граф первого следа
+    existingModel.graph,          // граф модели
+    morphologyMap,                // морфология первого следа
+    existingModel.morphologyMap   // морфология модели
 );
-
-const finalMatches = positionResult.all;        // все 56 точек
-const confirmedPoints = positionResult.anchors; // 44 точки (18+26)
-const newPoints = positionResult.new;           // 12 точек
 
 console.log(`\n📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:`);
 console.log(`   • Было matches: ${triangleResult.matches.length}`);
 console.log(`   • Стало matches: ${finalMatches.length}`);
-console.log(`   • Из них подтверждённых: ${confirmedPoints.length}`);
-console.log(`   • Из них новых: ${newPoints.length}`);
 
-// ===== ШАГ 3.5: ПРОВЕРКА ТОЛЬКО НОВЫХ ТОЧЕК =====
-console.log(`\n🔄 ПРОВЕРКА ТОЛЬКО НОВЫХ ТОЧЕК (${newPoints.length})`);
-
-let finalConsistentMatches = confirmedPoints; // начинаем с подтверждённых
-
-if (newPoints.length > 0) {
-    // Создаём временные якоря из новых точек
-    const newAnchors = [];
-    for (let i = 0; i < newPoints.length; i += 3) {
-        if (i + 2 < newPoints.length) {
-            const group = [
-                newPoints[i],
-                newPoints[i+1],
-                newPoints[i+2]
-            ];
-            newAnchors.push({
-                aIndex: -1,
-                bIndex: -1,
-                geometryScore: Math.min(...group.map(m => m.confidence)),
-                points: group.map(m => ({
-                    pointA: m.pointA,
-                    pointB: m.pointB,
-                    confidence: m.confidence
-                }))
-            });
-        }
-    }
-   
-    console.log(`   • Создано временных якорей: ${newAnchors.length}`);
-   
-    // Запускаем повторную глобальную проверку ТОЛЬКО для новых точек
-    const newConsistent = this.checkGlobalConsistency(
-        newAnchors,
-        trianglesA,
-        trianglesB,
-        exactGraph,
-        existingModel.graph
-    );
-   
-    console.log(`\n📊 РЕЗУЛЬТАТ ПРОВЕРКИ НОВЫХ ТОЧЕК:`);
-console.log(`   • Согласовалось: ${newConsistent.points.length}`);
-console.log(`   • Отсеяно: ${newPoints.length - newConsistent.points.length}`);
-   
-    // Добавляем только согласованные новые точки
-    finalConsistentMatches = [...confirmedPoints, ...newConsistent.points];
-}
-
-console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ:`);
-console.log(`   • Старых подтверждённых: ${confirmedPoints.length}`);
-console.log(`   • Новых согласованных: ${finalConsistentMatches.length - confirmedPoints.length}`);
-console.log(`   • ВСЕГО: ${finalConsistentMatches.length} точек`);
-
-// ===== ШАГ 4: КАСКАДНАЯ ДОСТРОЙКА =====
-console.log(`\n🚀 ЗАПУСК КАСКАДНОЙ ДОСТРОЙКИ`);
-
-// Преобразуем точки в формат якорей
-const anchorsForCascade = finalConsistentMatches.map(p => ({
-    pointA: p.pointA,
-    pointB: p.pointB,
-    confidence: p.confidence
-}));
-
-// Запускаем каскадную достройку
-const cascadeResult = this.cascadePositioning(
-    anchorsForCascade,
-    exactGraph,
-    existingModel.graph
-);
-
-// Обновляем финальные matches
-const finalCascadeMatches = cascadeResult.anchors.map(a => ({
-    pointA: a.pointA,
-    pointB: a.pointB,
-    confidence: a.confidence
-}));
-
-console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ ПОСЛЕ КАСКАДА:`);
-console.log(`   • Было точек: ${finalConsistentMatches.length}`);
-console.log(`   • Стало точек: ${finalCascadeMatches.length}`);
-console.log(`   • Добавлено каскадом: ${cascadeResult.added}`);
-
-// ===== ШАГ 5: ОБНОВЛЯЕМ МОДЕЛЬ =====
+        // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ ТОЛЬКО СОГЛАСОВАННЫМИ ТОЧКАМИ =====
 const updateResult = this.updateModelWithOptimalMatches(
     modelIdHint,
     exactGraph,
-    finalCascadeMatches,  // ← ТЕПЕРЬ ИСПОЛЬЗУЕМ finalCascadeMatches
+    finalMatches,  // ← ИСПРАВЛЕНО!
     morphologyMap
 );
 
@@ -332,7 +225,7 @@ existingModel.metadata.lastEnhanced = new Date();
 
 // 2.4 Создаем matchMap для визуализации
 const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
-    { matches: finalCascadeMatches },  // ← ЗАМЕНИТЬ!
+    { matches: finalMatches },  // ← ИСПРАВЛЕНО!
     modelIdHint
 );
 
@@ -344,17 +237,17 @@ existingModel.lastTriangleResult = {
     globalConsistency: consistent.stats
 };
 
-console.log(`\n🔍 ОТЛАДКА: ${finalCascadeMatches.length} согласованных точек`);
+console.log(`\n🔍 ОТЛАДКА: ${finalMatches.length} согласованных точек`);  // ← ИСПРАВЛЕНО!
 console.log(`   • matchMap передан в визуализацию: ${matchMap.size} пар`);
 console.log(`   • modelMatchMap сохранён в модель: ${modelMatchMap.size} пар`);
 
 // 2.5 Очищаем неподтверждённые точки
 const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
 this.stats.totalNodesRemoved += cleanResult.removed;
-this.stats.triangleMatchesCount += finalCascadeMatches.length;
+this.stats.triangleMatchesCount += finalMatches.length;  // ← ИСПРАВЛЕНО!
 
 // 2.6 Статистика
-const confirmedInModel = finalCascadeMatches.length;
+const confirmedInModel = finalMatches.length;  // ← ИСПРАВЛЕНО!
 const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
 const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
 
@@ -370,14 +263,14 @@ return {
     status: 'consistent_anchors',
     modelId: modelIdHint,
     similarity: triangleResult.similarity,
-    centerMatches: finalCascadeMatches.length,
-    totalMatches: finalCascadeMatches.length,
+    centerMatches: finalMatches.length,  // ← ИСПРАВЛЕНО!
+    totalMatches: finalMatches.length,   // ← ИСПРАВЛЕНО!
     newNodesAdded: updateResult.newNodesAdded,
     nodesRemoved: cleanResult.removed,
     matchMap: matchMap,
     modelMatchMap: modelMatchMap,
-    consistency: consistent.stats,  // ← ИСПРАВЛЕНО! используем consistent
-    message: `Глобально согласовано после достройки: ${finalCascadeMatches.length} точек`
+    consistency: consistent.stats,
+    message: `Глобально согласовано: ${finalMatches.length} точек (${consistent.anchors.length} треугольников)`  // ← ИСПРАВЛЕНО!
 };
     } else {
         console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
@@ -654,54 +547,40 @@ return {
     /**
      * Извлечение точек из модели
      */
-   extractPointsFromModel(model, source = 'A') {
-    // Добавить статический счётчик
-    if (!this.idCounter) this.idCounter = 0;
-   
-    const points = [];
-    const graph = model.graph;
-    const morphologyMap = model.morphologyMap || new Map();
+    extractPointsFromModel(model) {
+        const points = [];
+        const graph = model.graph;
+        const morphologyMap = model.morphologyMap || new Map();
 
-    for (const [nodeId, node] of graph.nodes) {
-        const morph = morphologyMap.get(nodeId) || {};
-       
-        // 🔥 ИСПРАВЛЕНО: используем общий счётчик
-        const uniqueId = `${nodeId}_${source}_${this.idCounter++}`;
-       
-        // 🔥 СОХРАНЯЕМ МАППИНГ
-        if (source === 'A') {
-            this.photoIdMapping.set(uniqueId, nodeId);
-        } else {
-            this.modelIdMapping.set(uniqueId, nodeId);
+        for (const [nodeId, node] of graph.nodes) {
+            const morph = morphologyMap.get(nodeId) || {};
+          
+            points.push({
+                id: nodeId,
+                x: node.x,
+                y: node.y,
+                role: this.getNodeRoleSimple(nodeId, graph),
+                degree: node.degree || 0,
+                triangles: node.triangles || 0,
+              
+                // МОРФОЛОГИЯ
+                compactness: morph.compactness || 0,
+                eccentricity: morph.eccentricity || 0,
+                normalizedArea: morph.normalizedArea || 1,
+                radialProfile: morph.radialProfile || [0,0,0,0,0,0,0,0],
+                orientation: morph.orientation || 0,
+                asymmetry: morph.asymmetry || 0,  // 🔥 ДОБАВЛЯЕМ АСИММЕТРИЮ
+              
+                // 🔥 КОНТУР (для новых признаков)
+                contour: morph.contour || null,
+              
+                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
+            });
         }
 
-        points.push({
-            id: uniqueId,
-            originalId: nodeId,  // сохраняем оригинал
-            x: node.x,
-            y: node.y,
-            role: this.getNodeRoleSimple(nodeId, graph),
-            degree: node.degree || 0,
-            triangles: node.triangles || 0,
-
-            // МОРФОЛОГИЯ
-            compactness: morph.compactness || 0,
-            eccentricity: morph.eccentricity || 0,
-            normalizedArea: morph.normalizedArea || 1,
-            radialProfile: morph.radialProfile || [0,0,0,0,0,0,0,0],
-            orientation: morph.orientation || 0,
-            asymmetry: morph.asymmetry || 0,
-
-            // 🔥 КОНТУР
-            contour: morph.contour || null,
-
-            neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
-        });
+        console.log(`📊 Извлечено ${points.length} точек из модели с морфологией`);
+        return points;
     }
-
-    console.log(`📊 Извлечено ${points.length} точек из модели с морфологией`);
-    return points;
-}
 
     /**
      * Строит matchMap для визуализации
@@ -776,25 +655,23 @@ buildTriangleMatchMap(result, targetModelId = null) {
     // Для назначения номеров используем тот же порядок, что и при добавлении
     // (он уже отсортирован по уверенности)
     for (const [pointA, pointB] of pointCorrespondence) {
-    console.log(`   🔍 Назначение номера ${pairNumber}: ${pointA.substring(0,15)}... ↔ ${pointB.substring(0,15)}...`);
-   
-    matchMap.set(pointA, {  // ← используем pointA напрямую
-        modelId: pointB,
-        pairNumber: pairNumber,
-        type: 'anchor',
-        confidence: 1.0
-    });
+        matchMap.set(pointA, {
+            modelId: pointB,
+            pairNumber: pairNumber,
+            type: 'anchor',
+            confidence: 1.0 // уверенность не критична для визуализации
+        });
 
-    modelMatchMap.set(pointB, {  // ← используем pointB напрямую
-        photoId: pointA,
-        pairNumber: pairNumber,
-        type: 'anchor',
-        confidence: 1.0
-    });
+        modelMatchMap.set(pointB, {
+            photoId: pointA,
+            pairNumber: pairNumber,
+            type: 'anchor',
+            confidence: 1.0
+        });
 
-    console.log(`   Пара ${pairNumber}: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
-    pairNumber++;
-}
+        console.log(`   Пара ${pairNumber}: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
+        pairNumber++;
+    }
 
     // ===== ШАГ 4: Проверка целостности =====
     console.log(`\n📊 ИТОГ buildTriangleMatchMap:`);
@@ -1630,20 +1507,6 @@ checkGlobalConsistency(anchors, trianglesA, trianglesB, graphA, graphB) {
     console.log(`\n🔍 ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ`);
     console.log(`   • Всего кандидатов: ${anchors.length} треугольников (${anchors.length * 3} точек)`);
 
-      // 🔥 ДИАГНОСТИКА ВХОДНЫХ ДАННЫХ
-console.log(`\n🔍 ДИАГНОСТИКА ПЕРВЫХ 5 ЯКОРЕЙ:`);
-for (let i = 0; i < Math.min(5, anchors.length); i++) {
-    const anchor = anchors[i];
-    console.log(`   Якорь ${i}: aIndex=${anchor.aIndex}, bIndex=${anchor.bIndex}, geometryScore=${anchor.geometryScore?.toFixed(3)}`);
-    if (anchor.points && anchor.points.length > 0) {
-        anchor.points.forEach((p, j) => {
-            console.log(`      point ${j}: ${p.pointA.substring(0,15)}... ↔ ${p.pointB.substring(0,15)}... (conf: ${p.confidence?.toFixed(3)})`);
-        });
-    } else {
-        console.log(`      ⚠️ Нет точек в якоре`);
-    }
-}
-      
     // ===== ШАГ 1: Собираем все уникальные соответствия точек =====
     const pointPairs = new Map(); // pointA -> { pointB, confidence }
     const reversePairs = new Map(); // pointB -> pointA
@@ -1726,16 +1589,7 @@ for (let i = 0; i < Math.min(5, anchors.length); i++) {
     if (skippedAnchors > 0) {
         console.log(`   • Пропущено якорей: ${skippedAnchors}`);
     }
-// 🔥 ДИАГНОСТИКА СОДЕРЖИМОГО pointPairs
-console.log(`\n🔍 ДИАГНОСТИКА pointPairs (первые 10):`);
-let pairCount = 0;
-for (const [pA, data] of pointPairs) {
-    if (pairCount++ < 10) {
-        console.log(`   ${pA.substring(0,15)}... ↔ ${data.pointB.substring(0,15)}... (conf: ${data.confidence.toFixed(3)})`);
-    } else {
-        break;
-    }
-}
+
     // ===== ШАГ 2: Анализируем распределение уверенностей =====
     const confidences = Array.from(pointPairs.values()).map(p => p.confidence);
     if (confidences.length === 0) {
@@ -1881,13 +1735,13 @@ for (const [pA, data] of pointPairs) {
 
 /**
 * Двухэтапная достройка точек на основе согласованных якорей
-* @param {Array} anchors - согласованные якоря (точки) - 18 шт
+* @param {Array} anchors - согласованные якоря (точки)
 * @param {Array} allMatches - все найденные matches (45 точек)
 * @param {Object} graphA - граф первого следа
 * @param {Object} graphB - граф второго следа
 * @param {Map} morphologyMap - морфология точек первого следа
 * @param {Map} modelMorphology - морфология точек модели
-* @returns {Object} - достроенные соответствия с разделением по категориям
+* @returns {Object} - достроенные соответствия
 */
 twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMorphology) {
     console.log(`\n🔧 ДВУХЭТАПНАЯ ДОСТРОЙКА ТОЧЕК`);
@@ -1896,6 +1750,7 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
     console.log(`\n📊 РАЗДЕЛЕНИЕ ТОЧЕК ПО КАТЕГОРИЯМ:`);
    
     const anchorSet = new Set(anchors.map(a => a.pointA));
+    const allPointsA = new Set(allMatches.map(m => m.pointA));
    
     const confusedPoints = []; // точки, которые есть в matches, но не в anchors
     for (const match of allMatches) {
@@ -1904,26 +1759,20 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
         }
     }
    
-    console.log(`   • Якорей (топология): ${anchors.length} точек`);
+    console.log(`   • Якорей: ${anchors.length} точек`);
     console.log(`   • Путающихся кандидатов: ${confusedPoints.length} точек`);
    
     // ===== ШАГ 2: Строим карту якорей для быстрого доступа =====
-    const anchorMap = new Map(); // pointA -> { pointB, confidence, x, y }
+    const anchorMap = new Map(); // pointA -> { pointB, confidence }
     for (const anchor of anchors) {
-        const pointA = graphA.nodes.get(anchor.pointA);
-        const pointB = graphB.nodes.get(anchor.pointB);
         anchorMap.set(anchor.pointA, {
             pointB: anchor.pointB,
-            confidence: anchor.confidence,
-            xA: pointA?.x,
-            yA: pointA?.y,
-            xB: pointB?.x,
-            yB: pointB?.y
+            confidence: anchor.confidence
         });
     }
    
-    // ===== ШАГ 3: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК (ГЕОМЕТРИЯ) =====
-    console.log(`\n🔍 ЭТАП 1: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК (геометрия)`);
+    // ===== ШАГ 3: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК =====
+    console.log(`\n🔍 ЭТАП 1: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК`);
    
     const confirmedFromConfused = [];
     const stillConfused = [];
@@ -1932,29 +1781,33 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
         const pointA = match.pointA;
         const pointB = match.pointB;
        
-        // Находим ближайшие якоря в пространстве (не в графе!)
-        const neighborsA = this.findNearbyAnchors(pointA, graphA, anchorMap, 3);
-        const neighborsB = this.findNearbyAnchors(pointB, graphB,
-            new Map(Array.from(anchorMap.values()).map(a => [a.pointB, a])), 3);
+        // Находим всех соседей-якорей для точки A
+        const neighborsA = this.findNodeNeighbors(pointA, graphA);
+        const anchorNeighborsA = neighborsA.filter(n => anchorMap.has(n.id));
        
-        if (neighborsA.length < 2 || neighborsB.length < 2) {
+        // Находим всех соседей-якорей для точки B
+        const neighborsB = this.findNodeNeighbors(pointB, graphB);
+        const anchorNeighborsB = neighborsB.filter(n =>
+            Array.from(anchorMap.values()).some(a => a.pointB === n.id)
+        );
+       
+        if (anchorNeighborsA.length === 0 || anchorNeighborsB.length === 0) {
             stillConfused.push(match);
             continue;
         }
        
-        // Проверяем геометрические соотношения (инвариантно!)
+        // Проверяем расстояния до якорей в графе
         let consistent = true;
-        const pairs = Math.min(neighborsA.length, neighborsB.length, 3);
+        const minNeighbors = Math.min(anchorNeighborsA.length, anchorNeighborsB.length);
        
-        for (let i = 0; i < pairs; i++) {
-            const [distAToAnchor, anchorA] = neighborsA[i];
-            const [distBToAnchor, anchorB] = neighborsB[i];
+        for (let i = 0; i < minNeighbors; i++) {
+            const nA = anchorNeighborsA[i];
+            const nB = anchorNeighborsB[i];
            
-            // Отношение расстояний должно сохраняться
-            const ratioA = distAToAnchor / this.getAvgDistance(pointA, neighborsA);
-            const ratioB = distBToAnchor / this.getAvgDistance(pointB, neighborsB);
+            const distA = this.graphDistance(pointA, nA.id, graphA);
+            const distB = this.graphDistance(pointB, nB.id, graphB);
            
-            if (Math.abs(ratioA - ratioB) > 0.2) { // 20% допуск
+            if (Math.abs(distA - distB) > 1) {
                 consistent = false;
                 break;
             }
@@ -1964,7 +1817,7 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
             confirmedFromConfused.push({
                 pointA: pointA,
                 pointB: pointB,
-                confidence: match.confidence * 0.95 // чуть снижаем уверенность
+                confidence: match.confidence * 0.9 // чуть снижаем уверенность
             });
             console.log(`   ✅ Уточнена: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
         } else {
@@ -1973,7 +1826,7 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
     }
    
     console.log(`\n📊 ИТОГ ЭТАПА 1:`);
-    console.log(`   • Уточнено геометрией: ${confirmedFromConfused.length} точек`);
+    console.log(`   • Уточнено: ${confirmedFromConfused.length} точек`);
     console.log(`   • Осталось путающихся: ${stillConfused.length} точек`);
    
     // ===== ШАГ 4: ПОДГОТОВКА ЯКОРЕЙ ДЛЯ ДОСТРОЙКИ =====
@@ -1986,8 +1839,8 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
         confirmedMap.set(point.pointA, point.pointB);
     }
    
-    // ===== ШАГ 5: ДОСТРОЙКА НОВЫХ ТОЧЕК (ТОЛЬКО ГЕОМЕТРИЯ) =====
-    console.log(`\n🔍 ЭТАП 2: ДОСТРОЙКА НОВЫХ ТОЧЕК (геометрия)`);
+    // ===== ШАГ 5: ДОСТРОЙКА НОВЫХ ТОЧЕК =====
+    console.log(`\n🔍 ЭТАП 2: ДОСТРОЙКА НОВЫХ ТОЧЕК`);
    
     // Находим все точки, которые есть только в первом следе
     const allPointsInA = Array.from(graphA.nodes.keys());
@@ -1995,117 +1848,59 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
    
     console.log(`   • Точек для достройки: ${pointsToPosition.length}`);
    
-    const positionedMatches = [];
+    // Создаем карту якорей для RelativePositioning
+    const anchorMatches = new Map();
+    for (const point of allConfirmed) {
+        anchorMatches.set(point.pointA, {
+            modelId: point.pointB,
+            confidence: point.confidence
+        });
+    }
    
-    for (const pointA of pointsToPosition) {
-        const nodeA = graphA.nodes.get(pointA);
-        if (!nodeA) continue;
-       
-        // Находим ближайшие якоря в пространстве
-        const nearbyAnchors = this.findNearbyAnchors(pointA, graphA, anchorMap, 3);
-       
-        if (nearbyAnchors.length < 2) continue;
-       
-        // Интерполируем положение точки B
-        const candidates = new Map(); // pointB -> score
-       
-        for (const [distToAnchor, anchorA] of nearbyAnchors) {
-            const anchorData = anchorMap.get(anchorA);
-            if (!anchorData) continue;
-           
-            const pointB = anchorData.pointB;
-            const nodeB = graphB.nodes.get(pointB);
-            if (!nodeB) continue;
-           
-            // Предполагаемое положение точки B
-            const ratio = distToAnchor / this.getAvgDistance(pointA, nearbyAnchors);
-            const estimatedX = nodeB.x * ratio;
-            const estimatedY = nodeB.y * ratio;
-           
-            // Ищем реальные точки B рядом с предполагаемым положением
-            for (const [bId, bNode] of graphB.nodes) {
-                if (confirmedMap.has(bId)) continue;
-               
-                const dx = bNode.x - estimatedX;
-                const dy = bNode.y - estimatedY;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-               
-                if (dist < 20) { // порог 20 пикселей
-                    const score = 1 - (dist / 20);
-                    if (!candidates.has(bId) || candidates.get(bId) < score) {
-                        candidates.set(bId, score);
-                    }
-                }
-            }
-        }
-       
-        // Выбираем лучшего кандидата
-        let bestB = null;
-        let bestScore = 0;
-        for (const [bId, score] of candidates) {
-            if (score > bestScore && score > 0.5) {
-                bestScore = score;
-                bestB = bId;
-            }
-        }
-       
-        if (bestB) {
-            positionedMatches.push({
+    // Запускаем RelativePositioning
+    const positionedMatches = this.relativePositioning.positionPoints(
+        graphA,
+        graphB,
+        anchorMatches,
+        morphologyMap,
+        modelMorphology,
+        { confidenceThreshold: 0.5 }
+    );
+   
+    console.log(`\n📊 ИТОГ ЭТАПА 2:`);
+    console.log(`   • Достроено: ${positionedMatches.size} точек`);
+   
+    // ===== ШАГ 6: ФОРМИРУЕМ ФИНАЛЬНЫЙ РЕЗУЛЬТАТ =====
+    const finalMatches = [];
+   
+    // Добавляем все подтвержденные точки
+    for (const point of allConfirmed) {
+        finalMatches.push({
+            pointA: point.pointA,
+            pointB: point.pointB,
+            confidence: point.confidence
+        });
+    }
+   
+    // Добавляем достроенные точки
+    for (const [pointA, match] of positionedMatches) {
+        // Проверяем, что точка ещё не добавлена
+        if (!confirmedMap.has(pointA)) {
+            finalMatches.push({
                 pointA: pointA,
-                pointB: bestB,
-                confidence: bestScore
+                pointB: match.modelId,
+                confidence: match.confidence
             });
         }
     }
    
-    console.log(`\n📊 ИТОГ ЭТАПА 2:`);
-    console.log(`   • Достроено геометрией: ${positionedMatches.length} точек`);
-   
-    // ===== ШАГ 6: ФОРМИРУЕМ ФИНАЛЬНЫЙ РЕЗУЛЬТАТ =====
-    const finalMatches = [...allConfirmed, ...positionedMatches];
-   
     console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ:`);
-    console.log(`   • Якорей (топология): ${anchors.length}`);
-    console.log(`   • Уточнено геометрией: ${confirmedFromConfused.length}`);
-    console.log(`   • Достроено геометрией: ${positionedMatches.length}`);
-    console.log(`   • ВСЕГО: ${finalMatches.length} точек`);
+    console.log(`   • Всего соответствий: ${finalMatches.length} точек`);
+    console.log(`   • Из них якорей: ${anchors.length}`);
+    console.log(`   • Уточнено путающихся: ${confirmedFromConfused.length}`);
+    console.log(`   • Достроено новых: ${finalMatches.length - allConfirmed.length}`);
    
-    return {
-        all: finalMatches,
-        anchors: allConfirmed,      // топологически подтверждённые (42)
-        new: positionedMatches       // только геометрией (23)
-    };
-}
-
-/**
-* Находит ближайшие якоря к точке в пространстве
-*/
-findNearbyAnchors(pointId, graph, anchorMap, count = 3) {
-    const node = graph.nodes.get(pointId);
-    if (!node) return [];
-   
-    const distances = [];
-    for (const [anchorId, anchorData] of anchorMap) {
-        const anchorNode = graph.nodes.get(anchorId);
-        if (!anchorNode) continue;
-       
-        const dx = node.x - anchorNode.x;
-        const dy = node.y - anchorNode.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-       
-        distances.push([dist, anchorId]);
-    }
-   
-    return distances.sort((a, b) => a[0] - b[0]).slice(0, count);
-}
-
-/**
-* Вычисляет среднее расстояние до ближайших якорей
-*/
-getAvgDistance(pointId, nearbyAnchors) {
-    if (nearbyAnchors.length === 0) return 1;
-    const sum = nearbyAnchors.reduce((acc, [dist]) => acc + dist, 0);
-    return sum / nearbyAnchors.length;
+    return finalMatches;
 }
   
 /**
@@ -2161,456 +1956,6 @@ extractTrianglesFromGraph(graph) {
    
     return triangles;
 }
-
-/**
-* Анализирует разницу между полной и временной топологией
-* @param {Array} anchors - массив якорей {pointA, pointB, confidence}
-* @param {Object} graphA - граф первого следа
-* @param {Object} graphB - граф второго следа
-* @returns {Object} - информация о точках для поиска
-*/
-analyzeTemporalTopology(anchors, graphA, graphB) {
-    console.log(`\n🔍 АНАЛИЗ ВРЕМЕННОЙ ТОПОЛОГИИ`);
-   
-    const anchorSetA = new Set(anchors.map(a => a.pointA));
-    const anchorSetB = new Set(anchors.map(a => a.pointB));
-   
-    const results = {
-        missingInA: [],      // точки есть в B, но нет в A
-        missingInB: [],      // точки есть в A, но нет в B
-        extraInA: [],        // лишние связи в A
-        extraInB: []         // лишние связи в B
-    };
-   
-    // Анализируем каждую якорную точку
-    for (const anchor of anchors) {
-        const pointA = anchor.pointA;
-        const pointB = anchor.pointB;
-       
-        // Полная степень из графа
-        const neighborsA = this.findNodeNeighbors(pointA, graphA);
-        const neighborsB = this.findNodeNeighbors(pointB, graphB);
-       
-        const fullDegreeA = neighborsA.length;
-        const fullDegreeB = neighborsB.length;
-       
-        // Временная степень (только среди якорей)
-        const tempDegreeA = neighborsA.filter(n => anchorSetA.has(n.id)).length;
-        const tempDegreeB = neighborsB.filter(n => anchorSetB.has(n.id)).length;
-       
-        console.log(`\n   Точка ${pointA.substring(0,12)}:`);
-        console.log(`      A: полная=${fullDegreeA}, временная=${tempDegreeA}`);
-        console.log(`      B: полная=${fullDegreeB}, временная=${tempDegreeB}`);
-       
-        // Анализируем разницу
-        if (fullDegreeA === fullDegreeB) {
-            if (tempDegreeA < fullDegreeA && tempDegreeB < fullDegreeB) {
-                // В обоих следах не хватает точек - ищем в обоих
-                const missingCount = fullDegreeA - tempDegreeA;
-                console.log(`      ✅ Совпадает: не хватает ${missingCount} точек в обоих следах`);
-               
-                // Находим недостающие точки
-                const missingInA = neighborsA.filter(n => !anchorSetA.has(n.id));
-                const missingInB = neighborsB.filter(n => !anchorSetB.has(n.id));
-               
-                results.missingInA.push(...missingInA.map(n => ({
-                    pointId: n.id,
-                    anchorPoint: pointA,
-                    expectedIn: 'both'
-                })));
-               
-                results.missingInB.push(...missingInB.map(n => ({
-                    pointId: n.id,
-                    anchorPoint: pointB,
-                    expectedIn: 'both'
-                })));
-            }
-        } else if (fullDegreeA > fullDegreeB) {
-            if (tempDegreeA > tempDegreeB) {
-                // В A больше связей с якорями - лишние точки в A
-                const extra = fullDegreeA - fullDegreeB;
-                console.log(`      ⚠️ Различается: в A на ${extra} точек больше`);
-               
-                const extraInA = neighborsA.filter(n => !anchorSetA.has(n.id));
-                results.extraInA.push(...extraInA.map(n => ({
-                    pointId: n.id,
-                    anchorPoint: pointA,
-                    expectedIn: 'A_only'
-                })));
-            }
-        } else if (fullDegreeA < fullDegreeB) {
-            if (tempDegreeA < tempDegreeB) {
-                // В B больше связей с якорями - лишние точки в B
-                const extra = fullDegreeB - fullDegreeA;
-                console.log(`      ⚠️ Различается: в B на ${extra} точек больше`);
-               
-                const extraInB = neighborsB.filter(n => !anchorSetB.has(n.id));
-                results.extraInB.push(...extraInB.map(n => ({
-                    pointId: n.id,
-                    anchorPoint: pointB,
-                    expectedIn: 'B_only'
-                })));
-            }
-        }
-    }
-   
-    console.log(`\n📊 ИТОГ АНАЛИЗА:`);
-    console.log(`   • Ищем в A: ${results.missingInA.length} точек`);
-    console.log(`   • Ищем в B: ${results.missingInB.length} точек`);
-    console.log(`   • Лишних в A: ${results.extraInA.length}`);
-    console.log(`   • Лишних в B: ${results.extraInB.length}`);
-   
-    return results;
-}
-
-/**
-* Находит треугольник по общему ребру
-* @param {string} point1 - первая вершина ребра
-* @param {string} point2 - вторая вершина ребра
-* @param {Object} graph - граф
-* @returns {Object|null} - информация о треугольнике {thirdPoint, triangle}
-*/
-findTriangleByEdge(point1, point2, graph) {
-    // Ищем все треугольники, содержащие это ребро
-    const triangles = [];
-   
-    for (const [nodeId, node] of graph.nodes) {
-        if (nodeId === point1 || nodeId === point2) continue;
-       
-        // Проверяем, образует ли node треугольник с point1 и point2
-        if (this.areConnected(point1, nodeId, graph) &&
-            this.areConnected(point2, nodeId, graph)) {
-           
-            // Нашли треугольник
-            const p1 = graph.nodes.get(point1);
-            const p2 = graph.nodes.get(point2);
-            const p3 = graph.nodes.get(nodeId);
-           
-            triangles.push({
-                thirdPoint: nodeId,
-                triangle: { p1, p2, p3 }
-            });
-        }
-    }
-   
-    // Возвращаем первый найденный (в триангуляции Делоне у ребра не больше 2 треугольников)
-    return triangles.length > 0 ? triangles[0] : null;
-}
-
-/**
-* Вычисляет трансформацию между двумя треугольниками
-* @param {Object} t1 - треугольник в первом следе {p1,p2,p3}
-* @param {Object} t2 - треугольник во втором следе {p1,p2,p3}
-* @returns {Object} - отношения сторон для трансформации
-*/
-calculateTriangleTransform(t1, t2) {
-    // Вычисляем длины сторон в первом треугольнике
-    const sides1 = [
-        this.calcDistance(t1.p1, t1.p2),
-        this.calcDistance(t1.p2, t1.p3),
-        this.calcDistance(t1.p3, t1.p1)
-    ];
-   
-    // Вычисляем длины сторон во втором треугольнике
-    const sides2 = [
-        this.calcDistance(t2.p1, t2.p2),
-        this.calcDistance(t2.p2, t2.p3),
-        this.calcDistance(t2.p3, t2.p1)
-    ];
-   
-    // Вычисляем отношения для каждой стороны
-    const ratios = [];
-    for (let i = 0; i < 3; i++) {
-        ratios.push(sides2[i] / sides1[i]);
-    }
-   
-    // Усредняем отношение (должно быть одинаково для всех сторон)
-    const scale = ratios.reduce((a, b) => a + b, 0) / 3;
-   
-    return {
-        scale,
-        sides1,
-        sides2,
-        ratios
-    };
-}  
-  
-/**
-* Прогнозирует положение точки в B по её положению в A
-* @param {Object} pointA - точка в A {id, x, y}
-* @param {Object} triangleA - опорный треугольник в A {p1,p2,p3}
-* @param {Object} triangleB - опорный треугольник в B {p1,p2,p3}
-* @returns {Object} - прогнозируемые координаты {x, y}
-*/
-predictPointPosition(pointA, triangleA, triangleB) {
-    // Используем барицентрические координаты
-    // Точка pointA выражается через вершины triangleA:
-    // pointA = α*tA.p1 + β*tA.p2 + γ*tA.p3, где α+β+γ=1
-   
-    // Вычисляем барицентрические координаты
-    const v0 = {
-        x: triangleA.p2.x - triangleA.p1.x,
-        y: triangleA.p2.y - triangleA.p1.y
-    };
-    const v1 = {
-        x: triangleA.p3.x - triangleA.p1.x,
-        y: triangleA.p3.y - triangleA.p1.y
-    };
-    const v2 = {
-        x: pointA.x - triangleA.p1.x,
-        y: pointA.y - triangleA.p1.y
-    };
-   
-    const dot00 = v0.x * v0.x + v0.y * v0.y;
-    const dot01 = v0.x * v1.x + v0.y * v1.y;
-    const dot02 = v0.x * v2.x + v0.y * v2.y;
-    const dot11 = v1.x * v1.x + v1.y * v1.y;
-    const dot12 = v1.x * v2.x + v1.y * v2.y;
-   
-    const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
-    const beta = (dot11 * dot02 - dot01 * dot12) * invDenom;
-    const gamma = (dot00 * dot12 - dot01 * dot02) * invDenom;
-    const alpha = 1 - beta - gamma;
-   
-    // Применяем те же координаты к triangleB
-    const x = alpha * triangleB.p1.x + beta * triangleB.p2.x + gamma * triangleB.p3.x;
-    const y = alpha * triangleB.p1.y + beta * triangleB.p2.y + gamma * triangleB.p3.y;
-   
-    return { x, y };
-}
-
-/**
-* Каскадная достройка точек через общие рёбра
-* @param {Array} anchors - начальные якоря
-* @param {Object} graphA - граф первого следа
-* @param {Object} graphB - граф второго следа
-* @returns {Object} - новые якоря и статистика
-*/
-cascadePositioning(anchors, graphA, graphB) {
-    console.log(`\n🔧 КАСКАДНАЯ ДОСТРОЙКА ЧЕРЕЗ ОБЩИЕ РЁБРА`);
-   
-    let currentAnchors = [...anchors];
-    const anchorMapA = new Map(currentAnchors.map(a => [a.pointA, a]));
-    const anchorMapB = new Map(currentAnchors.map(a => [a.pointB, a]));
-   
-    const processedEdges = new Set();
-    const newAnchors = [];
-    let iteration = 0;
-    let found;
-   
-    do {
-        found = false;
-        iteration++;
-        console.log(`\n📌 ИТЕРАЦИЯ ${iteration}:`);
-       
-        // Проходим по всем текущим якорям
-        for (const anchor of currentAnchors) {
-            const pointA = anchor.pointA;
-            const pointB = anchor.pointB;
-           
-            // Находим все рёбра, инцидентные pointA
-            const neighborsA = this.findNodeNeighbors(pointA, graphA);
-           
-            for (const neighbor of neighborsA) {
-                const edgeKey = [pointA, neighbor.id].sort().join('--');
-               
-                // Пропускаем уже обработанные рёбра
-                if (processedEdges.has(edgeKey)) continue;
-                processedEdges.add(edgeKey);
-               
-                // Ищем треугольник за этим ребром в A
-                const triangleInA = this.findTriangleByEdge(pointA, neighbor.id, graphA);
-                if (!triangleInA) continue;
-               
-                const thirdA = triangleInA.thirdPoint;
-               
-                // Если третья точка уже якорь, пропускаем
-                if (anchorMapA.has(thirdA)) continue;
-               
-                console.log(`\n   🔍 Ребро ${pointA.substring(0,8)}-${neighbor.id.substring(0,8)}`);
-                console.log(`      Треугольник в A: ${pointA.substring(0,8)}, ${neighbor.id.substring(0,8)}, ${thirdA.substring(0,8)}`);
-               
-                // Проверяем, есть ли такое же ребро в B
-                if (!anchorMapB.has(pointB)) continue;
-               
-                // Ищем треугольник за этим ребром в B
-                const triangleInB = this.findTriangleByEdge(pointB, anchorMapB.get(pointB)?.pointB, graphB);
-                if (!triangleInB) continue;
-               
-                const thirdB = triangleInB.thirdPoint;
-               
-                // Вычисляем трансформацию между якорными треугольниками
-                // Нам нужен опорный треугольник, содержащий это ребро
-                // Ищем любой якорный треугольник с этим ребром
-const anchorTriangle = this.findAnchorTriangleWithEdge(
-    pointA, neighbor.id, currentAnchors, graphA, graphB  // ← добавили graphB
-);
-               
-                if (anchorTriangle) {
-    // ПОЛУЧАЕМ ТОЧКИ С ПРОВЕРКОЙ
-    const point3A = graphA.nodes.get(thirdA);
-    if (!point3A) {
-        console.log(`      ⚠️ Точка ${thirdA.substring(0,8)} не найдена в графе A`);
-        continue;
-    }
-   
-    // Проверяем, что треугольники существуют
-    if (!anchorTriangle.triangleA || !anchorTriangle.triangleB) {
-        console.log(`      ⚠️ Опорный треугольник не полный`);
-        continue;
-    }
-   
-    // Проверяем, что все вершины треугольника A есть в графе
-    const tA = anchorTriangle.triangleA;
-    if (!tA.p1 || !tA.p2 || !tA.p3) {
-        console.log(`      ⚠️ Вершины треугольника A не определены`);
-        continue;
-    }
-   
-    // Проверяем, что все вершины треугольника B есть в графе
-    const tB = anchorTriangle.triangleB;
-    if (!tB.p1 || !tB.p2 || !tB.p3) {
-        console.log(`      ⚠️ Вершины треугольника B не определены`);
-        continue;
-    }
-   
-    // Прогнозируем положение thirdB
-    const predicted = this.predictPointPosition(
-        point3A,
-        tA,
-        tB
-    );
-                   
-                    // Ищем реальную точку рядом с прогнозом
-                    const candidates = [];
-                    for (const [bId, bNode] of graphB.nodes) {
-                        if (anchorMapB.has(bId)) continue;
-                       
-                        const dx = bNode.x - predicted.x;
-                        const dy = bNode.y - predicted.y;
-                        const dist = Math.sqrt(dx*dx + dy*dy);
-                       
-                        if (dist < 20) { // порог 20 пикселей
-                            candidates.push({ id: bId, dist });
-                        }
-                    }
-                   
-                    if (candidates.length === 1) {
-                        // Однозначно нашли
-                        console.log(`      ✅ Найдена точка ${candidates[0].id.substring(0,8)}`);
-                       
-                        const newAnchor = {
-                            pointA: thirdA,
-                            pointB: candidates[0].id,
-                            confidence: anchor.confidence * 0.95
-                        };
-                       
-                        newAnchors.push(newAnchor);
-                        anchorMapA.set(thirdA, newAnchor);
-                        anchorMapB.set(candidates[0].id, newAnchor);
-                        found = true;
-                       
-                    } else if (candidates.length > 1) {
-                        // Несколько кандидатов - нужна доп. проверка
-                        console.log(`      ⚠️ Несколько кандидатов: ${candidates.length}`);
-                    }
-                }
-            }
-        }
-       
-        // Добавляем новые якоря к текущим для следующих итераций
-        if (newAnchors.length > 0) {
-            currentAnchors = [...currentAnchors, ...newAnchors];
-            console.log(`   → Добавлено ${newAnchors.length} новых якорей`);
-        }
-       
-    } while (found && iteration < 5); // максимум 5 итераций
-   
-    console.log(`\n📊 ИТОГ КАСКАДНОЙ ДОСТРОЙКИ:`);
-    console.log(`   • Было якорей: ${anchors.length}`);
-    console.log(`   • Стало якорей: ${currentAnchors.length}`);
-    console.log(`   • Добавлено: ${currentAnchors.length - anchors.length}`);
-   
-    return {
-        anchors: currentAnchors,
-        added: currentAnchors.length - anchors.length
-    };
-}
-
-/**
-* Находит якорный треугольник, содержащий заданное ребро
-*/
-findAnchorTriangleWithEdge(point1, point2, anchors, graphA, graphB) {
-    const point1Anchor = anchors.find(a => a.pointA === point1);
-    const point2Anchor = anchors.find(a => a.pointA === point2);
-   
-    if (!point1Anchor || !point2Anchor) return null;
-   
-    // Получаем все треугольники в графе B
-    const trianglesB = this.extractTrianglesFromGraph(graphB);
-   
-    // Ищем треугольник в A, содержащий point1 и point2
-    for (const anchor of anchors) {
-        if (anchor.pointA === point1 || anchor.pointA === point2) continue;
-       
-        if (this.areConnected(point1, anchor.pointA, graphA) &&
-            this.areConnected(point2, anchor.pointA, graphA)) {
-           
-            // Нашли треугольник в A, теперь ищем соответствующий в B
-            const p3A = anchor.pointA;
-            const p1B = point1Anchor.pointB;
-            const p2B = point2Anchor.pointB;
-            const p3B = anchor.pointB;
-           
-            // Проверяем, есть ли такой треугольник в B
-            const triangleExists = trianglesB.some(t => {
-                const ids = [t.p1.id, t.p2.id, t.p3.id].sort();
-                const expected = [p1B, p2B, p3B].sort();
-                return ids[0] === expected[0] &&
-                       ids[1] === expected[1] &&
-                       ids[2] === expected[2];
-            });
-           
-            if (!triangleExists) {
-                console.log(`      ⚠️ Треугольник (${p1B.substring(0,8)},${p2B.substring(0,8)},${p3B.substring(0,8)}) не найден в B`);
-                return null;
-            }
-           
-            return {
-                triangleA: {
-                    p1: graphA.nodes.get(point1),
-                    p2: graphA.nodes.get(point2),
-                    p3: graphA.nodes.get(p3A)
-                },
-                triangleB: {
-                    p1: graphB.nodes.get(p1B),
-                    p2: graphB.nodes.get(p2B),
-                    p3: graphB.nodes.get(p3B)
-                }
-            };
-        }
-    }
-   
-    return null;
-}
-
-/**
-* Проверяет, соединены ли две точки в графе
-*/
-areConnected(id1, id2, graph) {
-    const edgeId = [id1, id2].sort().join('--');
-    return graph.edges.has(edgeId);
-}
-
-/**
-* Вычисляет расстояние между двумя точками
-*/
-calcDistance(p1, p2) {
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    return Math.sqrt(dx*dx + dy*dy);
-}
-  
   
 /**
 * Проверяет равенство массивов (для сравнения треугольников)
