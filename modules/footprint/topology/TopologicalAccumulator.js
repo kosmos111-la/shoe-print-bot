@@ -1611,6 +1611,20 @@ checkGlobalConsistency(anchors, trianglesA, trianglesB, graphA, graphB) {
     console.log(`\n🔍 ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ`);
     console.log(`   • Всего кандидатов: ${anchors.length} треугольников (${anchors.length * 3} точек)`);
 
+      // 🔥 ДИАГНОСТИКА ВХОДНЫХ ДАННЫХ
+console.log(`\n🔍 ДИАГНОСТИКА ПЕРВЫХ 5 ЯКОРЕЙ:`);
+for (let i = 0; i < Math.min(5, anchors.length); i++) {
+    const anchor = anchors[i];
+    console.log(`   Якорь ${i}: aIndex=${anchor.aIndex}, bIndex=${anchor.bIndex}, geometryScore=${anchor.geometryScore?.toFixed(3)}`);
+    if (anchor.points && anchor.points.length > 0) {
+        anchor.points.forEach((p, j) => {
+            console.log(`      point ${j}: ${p.pointA.substring(0,15)}... ↔ ${p.pointB.substring(0,15)}... (conf: ${p.confidence?.toFixed(3)})`);
+        });
+    } else {
+        console.log(`      ⚠️ Нет точек в якоре`);
+    }
+}
+      
     // ===== ШАГ 1: Собираем все уникальные соответствия точек =====
     const pointPairs = new Map(); // pointA -> { pointB, confidence }
     const reversePairs = new Map(); // pointB -> pointA
