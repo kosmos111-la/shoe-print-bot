@@ -213,12 +213,11 @@ console.log(`   • Стало matches: ${finalMatches.length}`);
 // ===== ШАГ 3.5: ПАРАЛЛЕЛЬНАЯ ВАЛИДАЦИЯ =====
 console.log(`\n🔄 ЗАПУСК ПАРАЛЛЕЛЬНОЙ ВАЛИДАЦИИ`);
 
-// Импортируем модуль (в начале файла уже есть все импорты, но добавим здесь для ясности)
 const ValidationModule = require('../validation/ValidationModule');
 const validator = new ValidationModule({
     debug: this.debug,
-    positionThreshold: 0.15,      // 15% от размера следа
-    morphologyThreshold: 0.85      // 85% сходства морфологии
+    positionThreshold: 0.15,
+    morphologyThreshold: 0.85
 });
 
 // Преобразуем finalMatches в формат якорей
@@ -239,28 +238,24 @@ const validationResult = validator.validateAll(
 
 if (validationResult.success) {
     const validated = validationResult.results;
-    const transform = validationResult.transform; // преобразование уже есть в результате
-   
+    const transform = validationResult.transform;
+
     console.log(`\n🔍 ПРОВЕРКА ВСЕХ ТОЧЕК НА СООТВЕТСТВИЕ ПРЕОБРАЗОВАНИЮ`);
-   
-    // Порог ошибки (в пикселях)
-    const ERROR_THRESHOLD = 15; // можно настроить
-   
-    // Проверяем все точки (включая старые якоря)
-    const allConsistent = [];
-    const inconsistentPoints = [];
-   
+
     // Объединяем все точки для проверки
     const allPointsToCheck = [
         ...validated.anchors,
         ...validated.confirmed,
         ...validated.candidates
     ];
-   
+
+    const allConsistent = [];
+    const inconsistentPoints = [];
+
     for (const point of allPointsToCheck) {
         const pointA = exactGraph.nodes.get(point.pointA);
         const pointB = existingModel.graph.nodes.get(point.pointB);
-       
+
         if (!pointA || !pointB) {
             inconsistentPoints.push({
                 ...point,
@@ -268,76 +263,55 @@ if (validationResult.success) {
             });
             continue;
         }
-       
-        // Проецируем точку A через преобразование
+
         const projected = validator.applyTransform(pointA, transform);
-       
-        // Вычисляем ошибку
         const dx = projected.x - pointB.x;
         const dy = projected.y - pointB.y;
         const error = Math.sqrt(dx*dx + dy*dy);
-       
-        // Нормируем относительно размера следа
         const footprintSize = validator.getFootprintSize(Array.from(existingModel.graph.nodes.values()));
         const relativeError = error / footprintSize;
-       
-        if (relativeError < 0.05) { // ошибка меньше 5% от размера следа
+
+        if (relativeError < 0.05) {
+            // ✅ Сохраняем точку с её оригинальным статусом
             allConsistent.push({
-                ...point,
-                status: point.status || 'anchor',
-                error: relativeError
+                pointA: point.pointA,
+                pointB: point.pointB,
+                confidence: point.confidence,
+                status: point.status || 'anchor'
             });
         } else {
             inconsistentPoints.push({
                 ...point,
                 reason: 'transform_mismatch',
-                error: relativeError,
-                projected,
-                actual: pointB
+                error: relativeError
             });
         }
     }
-   
+
     console.log(`\n📊 РЕЗУЛЬТАТ ПРОВЕРКИ ПО ПРЕОБРАЗОВАНИЮ:`);
     console.log(`   • Согласовано: ${allConsistent.length} точек`);
     console.log(`   • Несогласовано: ${inconsistentPoints.length} точек`);
-   
-    // Разделяем по статусам
+
+    // Разделяем по статусам (для статистики)
     const finalAnchors = allConsistent.filter(p => p.status === 'anchor');
     const finalConfirmed = allConsistent.filter(p => p.status === 'confirmed');
     const finalCandidates = allConsistent.filter(p => p.status === 'candidate');
-    const finalRejected = inconsistentPoints;
-   
-    // Обновляем статистику
-    validated.anchors = finalAnchors;
-    validated.confirmed = finalConfirmed;
-    validated.candidates = finalCandidates;
-    validated.rejected = [...(validated.rejected || []), ...finalRejected];
-   
+
     console.log(`\n✅ ИТОГО ПОСЛЕ ГЛОБАЛЬНОЙ ПРОВЕРКИ:`);
     console.log(`   • Якорей: ${finalAnchors.length}`);
     console.log(`   • Подтверждённых: ${finalConfirmed.length}`);
     console.log(`   • Кандидатов: ${finalCandidates.length}`);
-    console.log(`   • Отвергнуто: ${finalRejected.length}`);
-    console.log(`   • ВСЕГО: ${finalAnchors.length + finalConfirmed.length} точек для визуализации`);
+    console.log(`   • Отвергнуто: ${inconsistentPoints.length}`);
+    console.log(`   • ВСЕГО: ${allConsistent.length} точек для визуализации`);
 
-    // Формируем финальный результат ТОЛЬКО из согласованных
-    const finalValidatedMatches = [
-    ...finalAnchors,  // уже массив точек
-    ...finalConfirmed // уже массив точек
-].map(p => ({
-    pointA: p.pointA,
-    pointB: p.pointB,
-    confidence: p.confidence,
-    status: p.status
-}));
+    // 🔥 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ - просто allConsistent
+    const finalValidatedMatches = allConsistent;
 
-    // Сохраняем кандидаты и отвергнутые для отладки
+    // Сохраняем для отладки
     existingModel.candidates = finalCandidates;
-    existingModel.rejected = finalRejected;
+    existingModel.rejected = inconsistentPoints;
     existingModel.validationResult = validationResult;
-   
-  //  var finalValidatedMatches = finalValidatedMatches;
+
 } else {
     console.log(`⚠️ Ошибка валидации: ${validationResult.error}`);
     var finalValidatedMatches = finalMatches.map(p => ({
@@ -350,7 +324,7 @@ if (validationResult.success) {
 const updateResult = this.updateModelWithOptimalMatches(
     modelIdHint,
     exactGraph,
-    finalValidatedMatches,  // ← ИСПОЛЬЗУЕМ РЕЗУЛЬТАТ ВАЛИДАЦИИ!
+    finalValidatedMatches,
     morphologyMap
 );
 
