@@ -172,141 +172,176 @@ class ClusterVisualizer {
         });
     }
 
-    drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale) {
-        const points = topologyData.points;
-      
-        console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
-        console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
+drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale) {
+    const points = topologyData.points;
+   
+    console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
+    console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
 
-        let anchorPoints = 0, regularPoints = 0;
+    let anchorPoints = 0, confirmedPoints = 0, candidatePoints = 0, regularPoints = 0;
 
-        // Создаем map для быстрого поиска
-        const modelToPair = new Map();
-        for (const [modelId, match] of modelMatchMap) {
-            if (match && match.pairNumber) {
-                modelToPair.set(modelId, match.pairNumber);
-                if (this.config.debug) {
-                    console.log(`      🔢 Модель ${modelId.slice(0,12)}... → номер ${match.pairNumber}`);
-                }
+    // Создаем map для быстрого поиска
+    const modelToPair = new Map();
+    const modelToStatus = new Map();
+   
+    for (const [modelId, match] of modelMatchMap) {
+        if (match && match.pairNumber) {
+            modelToPair.set(modelId, match.pairNumber);
+            modelToStatus.set(modelId, match.status || 'anchor');
+            if (this.config.debug) {
+                console.log(`      🔢 Модель ${modelId.slice(0,12)}... → номер ${match.pairNumber} [${match.status || 'anchor'}]`);
             }
         }
-
-        for (const point of points) {
-            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
-
-            const x = centerX + (point.x - avgX) * scale;
-            const y = centerY + (point.y - avgY) * scale;
-
-            const confirmations = point.confirmationCount || 0;
-          
-            const pairNumber = modelToPair.get(point.id);
-            const isAnchor = pairNumber !== undefined;
-
-            let color, size;
-
-            if (isAnchor) {
-                color = '#FF0000';
-                size = 8;
-                anchorPoints++;
-            } else if (confirmations >= 3) {
-                color = '#FF0000';
-                size = 6;
-                regularPoints++;
-            } else if (confirmations >= 2) {
-                color = '#FFC107';
-                size = 5;
-                regularPoints++;
-            } else if (confirmations >= 1) {
-                color = '#2196F3';
-                size = 4;
-                regularPoints++;
-            } else {
-                color = '#BDBDBD';
-                size = 3;
-                regularPoints++;
-            }
-
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            if (isAnchor) {
-                ctx.fillStyle = '#000000';
-                ctx.font = 'bold 8px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(pairNumber.toString(), x, y);
-            }
-        }
-
-        console.log(`   🎯 Модель: 🔴 ${anchorPoints} с цифрами, остальных: ${regularPoints}`);
     }
 
-    drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
-        console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
-        console.log(`   📋 matchMap в drawPhotoPoints: ${matchMap.size} записей`);
+    for (const point of points) {
+        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
 
-        const photoToPair = new Map();
-        for (const [photoId, match] of matchMap) {
-            if (match && match.pairNumber) {
-                photoToPair.set(photoId, match.pairNumber);
-                if (this.config.debug) {
-                    console.log(`      🔢 Фото ${photoId.slice(0,12)}... → номер ${match.pairNumber}`);
-                }
-            }
-        }
+        const x = centerX + (point.x - avgX) * scale;
+        const y = centerY + (point.y - avgY) * scale;
 
-        let anchorPoints = 0, matchedPoints = 0, unmatchedPoints = 0;
+        const confirmations = point.confirmationCount || 0;
+        const pairNumber = modelToPair.get(point.id);
+        const status = modelToStatus.get(point.id);
+        const isAnchor = pairNumber !== undefined;
 
-        for (const point of points) {
-            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+        let color, size;
+        let label = '';
 
-            const x = centerX + (point.x - avgX) * scale;
-            const y = centerY + (point.y - avgY) * scale;
-
-            const pairNumber = photoToPair.get(point.id);
-            const isAnchor = pairNumber !== undefined;
-            const hasMatch = matchMap.has(point.id);
-
-            let color, size;
-         
-            if (isAnchor) {
-                color = '#FF0000';
-                size = 8;
+        if (isAnchor) {
+            if (status === 'anchor') {
+                color = '#FF0000'; // КРАСНЫЙ - старые якоря
+                label = pairNumber.toString();
                 anchorPoints++;
-            } else if (hasMatch) {
+            } else if (status === 'confirmed') {
+                color = '#00FF00'; // ЗЕЛЁНЫЙ - новые подтверждённые
+                label = '✓' + pairNumber;
+                confirmedPoints++;
+            } else if (status === 'candidate') {
+                color = '#FFA500'; // ОРАНЖЕВЫЙ - кандидаты
+                label = '?' + pairNumber;
+                candidatePoints++;
+            } else {
                 color = '#4CAF50';
-                size = 6;
-                matchedPoints++;
-            } else {
-                color = '#FF9800';
-                size = 5;
-                unmatchedPoints++;
+                label = pairNumber.toString();
+                confirmedPoints++;
             }
-
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            if (isAnchor) {
-                ctx.fillStyle = '#000000';
-                ctx.font = 'bold 8px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(pairNumber.toString(), x, y);
-            }
+            size = 8;
+        } else if (confirmations >= 3) {
+            color = '#FF0000';
+            size = 6;
+            regularPoints++;
+        } else if (confirmations >= 2) {
+            color = '#FFC107';
+            size = 5;
+            regularPoints++;
+        } else if (confirmations >= 1) {
+            color = '#2196F3';
+            size = 4;
+            regularPoints++;
+        } else {
+            color = '#BDBDBD';
+            size = 3;
+            regularPoints++;
         }
 
-        console.log(`   🎯 Фото: 🔴 ${anchorPoints} с цифрами, 🟢 ${matchedPoints} пар, 🟠 ${unmatchedPoints} новых`);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        if (label) {
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 8px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, x, y);
+        }
     }
+
+    console.log(`   🎯 Модель: 🔴 ${anchorPoints} якорей, 🟢 ${confirmedPoints} подтверждённых, 🟠 ${candidatePoints} кандидатов, остальных: ${regularPoints}`);
+}
+
+   drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
+    console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
+    console.log(`   📋 matchMap в drawPhotoPoints: ${matchMap.size} записей`);
+
+    const photoToPair = new Map();
+    const photoToStatus = new Map();
+   
+    for (const [photoId, match] of matchMap) {
+        if (match && match.pairNumber) {
+            photoToPair.set(photoId, match.pairNumber);
+            photoToStatus.set(photoId, match.status || 'anchor'); // статус по умолчанию
+            if (this.config.debug) {
+                console.log(`      🔢 Фото ${photoId.slice(0,12)}... → номер ${match.pairNumber} [${match.status || 'anchor'}]`);
+            }
+        }
+    }
+
+    let anchorPoints = 0, confirmedPoints = 0, candidatePoints = 0, unmatchedPoints = 0;
+
+    for (const point of points) {
+        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+
+        const x = centerX + (point.x - avgX) * scale;
+        const y = centerY + (point.y - avgY) * scale;
+
+        const pairNumber = photoToPair.get(point.id);
+        const status = photoToStatus.get(point.id);
+        const hasMatch = matchMap.has(point.id);
+
+        let color, size;
+        let label = '';
+
+        if (hasMatch) {
+            // 🔥 ЦВЕТА ПО СТАТУСУ
+            if (status === 'anchor') {
+                color = '#FF0000'; // КРАСНЫЙ - старые якоря
+                label = pairNumber.toString();
+                anchorPoints++;
+            } else if (status === 'confirmed') {
+                color = '#00FF00'; // ЗЕЛЁНЫЙ - новые подтверждённые
+                label = '✓' + pairNumber;
+                confirmedPoints++;
+            } else if (status === 'candidate') {
+                color = '#FFA500'; // ОРАНЖЕВЫЙ - кандидаты
+                label = '?' + pairNumber;
+                candidatePoints++;
+            } else {
+                color = '#4CAF50'; // ЗЕЛЁНЫЙ (запасной)
+                label = pairNumber.toString();
+                confirmedPoints++;
+            }
+            size = 8;
+        } else {
+            color = '#2196F3'; // СИНИЙ - новые точки
+            size = 5;
+            unmatchedPoints++;
+        }
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        if (label) {
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 8px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, x, y);
+        }
+    }
+
+    console.log(`   🎯 Фото: 🔴 ${anchorPoints} якорей, 🟢 ${confirmedPoints} подтверждённых, 🟠 ${candidatePoints} кандидатов, 🔵 ${unmatchedPoints} новых`);
+}
 
     drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
         const pointsMap = new Map();
