@@ -323,9 +323,14 @@ if (validationResult.success) {
 
     // Формируем финальный результат ТОЛЬКО из согласованных
     const finalValidatedMatches = [
-        ...finalAnchors.map(p => ({ ...p, status: 'anchor' })),
-        ...finalConfirmed.map(p => ({ ...p, status: 'confirmed' }))
-    ];
+    ...finalAnchors,  // уже массив точек
+    ...finalConfirmed // уже массив точек
+].map(p => ({
+    pointA: p.pointA,
+    pointB: p.pointB,
+    confidence: p.confidence,
+    status: p.status
+}));
 
     // Сохраняем кандидаты и отвергнутые для отладки
     existingModel.candidates = finalCandidates;
