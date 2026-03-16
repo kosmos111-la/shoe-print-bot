@@ -332,7 +332,7 @@ if (validationResult.success) {
     existingModel.rejected = finalRejected;
     existingModel.validationResult = validationResult;
    
-    var finalValidatedMatches = finalValidatedMatches;
+  //  var finalValidatedMatches = finalValidatedMatches;
 } else {
     console.log(`⚠️ Ошибка валидации: ${validationResult.error}`);
     var finalValidatedMatches = finalMatches.map(p => ({
