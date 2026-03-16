@@ -1726,7 +1726,16 @@ for (let i = 0; i < Math.min(5, anchors.length); i++) {
     if (skippedAnchors > 0) {
         console.log(`   • Пропущено якорей: ${skippedAnchors}`);
     }
-
+// 🔥 ДИАГНОСТИКА СОДЕРЖИМОГО pointPairs
+console.log(`\n🔍 ДИАГНОСТИКА pointPairs (первые 10):`);
+let pairCount = 0;
+for (const [pA, data] of pointPairs) {
+    if (pairCount++ < 10) {
+        console.log(`   ${pA.substring(0,15)}... ↔ ${data.pointB.substring(0,15)}... (conf: ${data.confidence.toFixed(3)})`);
+    } else {
+        break;
+    }
+}
     // ===== ШАГ 2: Анализируем распределение уверенностей =====
     const confidences = Array.from(pointPairs.values()).map(p => p.confidence);
     if (confidences.length === 0) {
