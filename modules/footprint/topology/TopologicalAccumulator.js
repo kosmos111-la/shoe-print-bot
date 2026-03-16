@@ -11,6 +11,7 @@ const TopologicalFingerprint = require('./TopologicalFingerprint');
 const TriangleMatcher = require('../matching/TriangleMatcher');
 const PatternAnalyzer = require('../analysis/PatternAnalyzer');
 const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
+const ValidationModule = require('../validation/ValidationModule');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -195,25 +196,79 @@ const consistent = this.checkGlobalConsistency(
 );
 
         
-        // ===== ШАГ 3: КОНВЕРТИРУЕМ СОГЛАСОВАННЫЕ ЯКОРЯ ОБРАТНО В MATCHES =====
-        const finalMatches = this.twoStagePositioning(
-    consistent.points,           // согласованные якоря (18 точек)
-    triangleResult.matches,       // все matches (45 точек)
-    exactGraph,                   // граф первого следа
-    existingModel.graph,          // граф модели
-    morphologyMap,                // морфология первого следа
-    existingModel.morphologyMap   // морфология модели
+  // ===== ШАГ 3: ДВУХЭТАПНАЯ ДОСТРОЙКА =====
+const finalMatches = this.twoStagePositioning(
+    consistent.points,
+    triangleResult.matches,
+    exactGraph,
+    existingModel.graph,
+    morphologyMap,
+    existingModel.morphologyMap
 );
 
 console.log(`\n📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:`);
 console.log(`   • Было matches: ${triangleResult.matches.length}`);
 console.log(`   • Стало matches: ${finalMatches.length}`);
 
-        // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ ТОЛЬКО СОГЛАСОВАННЫМИ ТОЧКАМИ =====
+// ===== ШАГ 3.5: ПАРАЛЛЕЛЬНАЯ ВАЛИДАЦИЯ =====
+console.log(`\n🔄 ЗАПУСК ПАРАЛЛЕЛЬНОЙ ВАЛИДАЦИИ`);
+
+// Импортируем модуль (в начале файла уже есть все импорты, но добавим здесь для ясности)
+const ValidationModule = require('../validation/ValidationModule');
+const validator = new ValidationModule({
+    debug: this.debug,
+    positionThreshold: 0.15,      // 15% от размера следа
+    morphologyThreshold: 0.85      // 85% сходства морфологии
+});
+
+// Преобразуем finalMatches в формат якорей
+const anchorsForValidation = finalMatches.map(m => ({
+    pointA: m.pointA,
+    pointB: m.pointB,
+    confidence: m.confidence
+}));
+
+// Запускаем валидацию
+const validationResult = validator.validateAll(
+    exactGraph,
+    existingModel.graph,
+    anchorsForValidation,
+    morphologyMap,
+    existingModel.morphologyMap
+);
+
+if (validationResult.success) {
+    const validated = validationResult.results;
+   
+    console.log(`\n📊 РЕЗУЛЬТАТ ВАЛИДАЦИИ:`);
+    console.log(`   • Якоря (были): ${validated.anchors.length}`);
+    console.log(`   • Подтверждено новых: ${validated.confirmed.length}`);
+    console.log(`   • Кандидатов (требуют проверки): ${validated.candidates.length}`);
+    console.log(`   • Отвергнуто: ${validated.rejected.length}`);
+   
+    // Объединяем якоря и подтверждённые
+    const allValidated = [...validated.anchors, ...validated.confirmed];
+   
+    console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕНО: ${allValidated.length} точек`);
+    console.log(`   • Из них якорей: ${validated.anchors.length}`);
+    console.log(`   • Новых: ${validated.confirmed.length}`);
+   
+    // Сохраняем результат валидации в модель для отладки
+    existingModel.validationResult = validationResult;
+   
+    // Используем allValidated для дальнейшей работы вместо finalMatches
+    var finalValidatedMatches = allValidated;
+} else {
+    console.log(`⚠️ Ошибка валидации: ${validationResult.error}`);
+    // Если валидация не удалась, используем исходные finalMatches
+    var finalValidatedMatches = finalMatches;
+}
+
+// ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
 const updateResult = this.updateModelWithOptimalMatches(
     modelIdHint,
     exactGraph,
-    finalMatches,  // ← ИСПРАВЛЕНО!
+    finalValidatedMatches,  // ← ИСПОЛЬЗУЕМ РЕЗУЛЬТАТ ВАЛИДАЦИИ!
     morphologyMap
 );
 
@@ -225,7 +280,7 @@ existingModel.metadata.lastEnhanced = new Date();
 
 // 2.4 Создаем matchMap для визуализации
 const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
-    { matches: finalMatches },  // ← ИСПРАВЛЕНО!
+    { matches: finalValidatedMatches },  // ← ИСПРАВИТЬ!
     modelIdHint
 );
 
@@ -237,17 +292,17 @@ existingModel.lastTriangleResult = {
     globalConsistency: consistent.stats
 };
 
-console.log(`\n🔍 ОТЛАДКА: ${finalMatches.length} согласованных точек`);  // ← ИСПРАВЛЕНО!
+console.log(`\n🔍 ОТЛАДКА: ${finalValidatedMatches.length} согласованных точек`);  // ← ИСПРАВЛЕНО!
 console.log(`   • matchMap передан в визуализацию: ${matchMap.size} пар`);
 console.log(`   • modelMatchMap сохранён в модель: ${modelMatchMap.size} пар`);
 
 // 2.5 Очищаем неподтверждённые точки
 const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
 this.stats.totalNodesRemoved += cleanResult.removed;
-this.stats.triangleMatchesCount += finalMatches.length;  // ← ИСПРАВЛЕНО!
+this.stats.triangleMatchesCount += finalValidatedMatches.length;  // ← ИСПРАВЛЕНО!
 
 // 2.6 Статистика
-const confirmedInModel = finalMatches.length;  // ← ИСПРАВЛЕНО!
+const confirmedInModel = finalValidatedMatches.length;  // ← ИСПРАВЛЕНО!
 const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
 const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
 
