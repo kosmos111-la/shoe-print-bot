@@ -239,47 +239,102 @@ const validationResult = validator.validateAll(
 
 if (validationResult.success) {
     const validated = validationResult.results;
+    const transform = validationResult.transform; // преобразование уже есть в результате
    
-    console.log(`\n📊 РЕЗУЛЬТАТ ВАЛИДАЦИИ:`);
-    console.log(`   • Якоря (были): ${validated.anchors.length}`);
-    console.log(`   • Подтверждено новых: ${validated.confirmed.length}`);
-    console.log(`   • Кандидатов (требуют проверки): ${validated.candidates.length}`);
-    console.log(`   • Отвергнуто: ${validated.rejected.length}`);
+    console.log(`\n🔍 ПРОВЕРКА ВСЕХ ТОЧЕК НА СООТВЕТСТВИЕ ПРЕОБРАЗОВАНИЮ`);
+   
+    // Порог ошибки (в пикселях)
+    const ERROR_THRESHOLD = 15; // можно настроить
+   
+    // Проверяем все точки (включая старые якоря)
+    const allConsistent = [];
+    const inconsistentPoints = [];
+   
+    // Объединяем все точки для проверки
+    const allPointsToCheck = [
+        ...validated.anchors,
+        ...validated.confirmed,
+        ...validated.candidates
+    ];
+   
+    for (const point of allPointsToCheck) {
+        const pointA = exactGraph.nodes.get(point.pointA);
+        const pointB = existingModel.graph.nodes.get(point.pointB);
+       
+        if (!pointA || !pointB) {
+            inconsistentPoints.push({
+                ...point,
+                reason: 'node_not_found'
+            });
+            continue;
+        }
+       
+        // Проецируем точку A через преобразование
+        const projected = validator.applyTransform(pointA, transform);
+       
+        // Вычисляем ошибку
+        const dx = projected.x - pointB.x;
+        const dy = projected.y - pointB.y;
+        const error = Math.sqrt(dx*dx + dy*dy);
+       
+        // Нормируем относительно размера следа
+        const footprintSize = validator.getFootprintSize(Array.from(existingModel.graph.nodes.values()));
+        const relativeError = error / footprintSize;
+       
+        if (relativeError < 0.05) { // ошибка меньше 5% от размера следа
+            allConsistent.push({
+                ...point,
+                status: point.status || 'anchor',
+                error: relativeError
+            });
+        } else {
+            inconsistentPoints.push({
+                ...point,
+                reason: 'transform_mismatch',
+                error: relativeError,
+                projected,
+                actual: pointB
+            });
+        }
+    }
+   
+    console.log(`\n📊 РЕЗУЛЬТАТ ПРОВЕРКИ ПО ПРЕОБРАЗОВАНИЮ:`);
+    console.log(`   • Согласовано: ${allConsistent.length} точек`);
+    console.log(`   • Несогласовано: ${inconsistentPoints.length} точек`);
+   
+    // Разделяем по статусам
+    const finalAnchors = allConsistent.filter(p => p.status === 'anchor');
+    const finalConfirmed = allConsistent.filter(p => p.status === 'confirmed');
+    const finalCandidates = allConsistent.filter(p => p.status === 'candidate');
+    const finalRejected = inconsistentPoints;
+   
+    // Обновляем статистику
+    validated.anchors = finalAnchors;
+    validated.confirmed = finalConfirmed;
+    validated.candidates = finalCandidates;
+    validated.rejected = [...(validated.rejected || []), ...finalRejected];
+   
+    console.log(`\n✅ ИТОГО ПОСЛЕ ГЛОБАЛЬНОЙ ПРОВЕРКИ:`);
+    console.log(`   • Якорей: ${finalAnchors.length}`);
+    console.log(`   • Подтверждённых: ${finalConfirmed.length}`);
+    console.log(`   • Кандидатов: ${finalCandidates.length}`);
+    console.log(`   • Отвергнуто: ${finalRejected.length}`);
+    console.log(`   • ВСЕГО: ${finalAnchors.length + finalConfirmed.length} точек для визуализации`);
 
-    // 🔥 СОХРАНЯЕМ СТАТУСЫ ДЛЯ ВИЗУАЛИЗАЦИИ
-    const anchorsWithStatus = validated.anchors.map(p => ({
-        ...p,
-        status: 'anchor'      // старые якоря
-    }));
-   
-    const confirmedWithStatus = validated.confirmed.map(p => ({
-        ...p,
-        status: 'confirmed'    // новые подтверждённые
-    }));
-   
-    const candidatesWithStatus = validated.candidates.map(p => ({
-        ...p,
-        status: 'candidate'    // кандидаты (требуют проверки)
-    }));
-   
-    // Объединяем якоря и подтверждённые
-    const allValidated = [...anchorsWithStatus, ...confirmedWithStatus];
-   
-    // Сохраняем кандидаты в модель для отладки
-    existingModel.candidates = candidatesWithStatus;
-    existingModel.rejected = validated.rejected;
+    // Формируем финальный результат ТОЛЬКО из согласованных
+    const finalValidatedMatches = [
+        ...finalAnchors.map(p => ({ ...p, status: 'anchor' })),
+        ...finalConfirmed.map(p => ({ ...p, status: 'confirmed' }))
+    ];
 
-    console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕНО: ${allValidated.length} точек`);
-    console.log(`   • Из них якорей: ${validated.anchors.length}`);
-    console.log(`   • Новых: ${validated.confirmed.length}`);
-    console.log(`   • Кандидатов отложено: ${candidatesWithStatus.length}`);
-
+    // Сохраняем кандидаты и отвергнутые для отладки
+    existingModel.candidates = finalCandidates;
+    existingModel.rejected = finalRejected;
     existingModel.validationResult = validationResult;
    
-    var finalValidatedMatches = allValidated;
+    var finalValidatedMatches = finalValidatedMatches;
 } else {
     console.log(`⚠️ Ошибка валидации: ${validationResult.error}`);
-    // Добавляем статус по умолчанию
     var finalValidatedMatches = finalMatches.map(p => ({
         ...p,
         status: 'anchor'
