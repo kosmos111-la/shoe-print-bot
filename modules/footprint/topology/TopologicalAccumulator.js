@@ -245,23 +245,45 @@ if (validationResult.success) {
     console.log(`   • Подтверждено новых: ${validated.confirmed.length}`);
     console.log(`   • Кандидатов (требуют проверки): ${validated.candidates.length}`);
     console.log(`   • Отвергнуто: ${validated.rejected.length}`);
+
+    // 🔥 СОХРАНЯЕМ СТАТУСЫ ДЛЯ ВИЗУАЛИЗАЦИИ
+    const anchorsWithStatus = validated.anchors.map(p => ({
+        ...p,
+        status: 'anchor'      // старые якоря
+    }));
+   
+    const confirmedWithStatus = validated.confirmed.map(p => ({
+        ...p,
+        status: 'confirmed'    // новые подтверждённые
+    }));
+   
+    const candidatesWithStatus = validated.candidates.map(p => ({
+        ...p,
+        status: 'candidate'    // кандидаты (требуют проверки)
+    }));
    
     // Объединяем якоря и подтверждённые
-    const allValidated = [...validated.anchors, ...validated.confirmed];
+    const allValidated = [...anchorsWithStatus, ...confirmedWithStatus];
    
+    // Сохраняем кандидаты в модель для отладки
+    existingModel.candidates = candidatesWithStatus;
+    existingModel.rejected = validated.rejected;
+
     console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕНО: ${allValidated.length} точек`);
     console.log(`   • Из них якорей: ${validated.anchors.length}`);
     console.log(`   • Новых: ${validated.confirmed.length}`);
-   
-    // Сохраняем результат валидации в модель для отладки
+    console.log(`   • Кандидатов отложено: ${candidatesWithStatus.length}`);
+
     existingModel.validationResult = validationResult;
    
-    // Используем allValidated для дальнейшей работы вместо finalMatches
     var finalValidatedMatches = allValidated;
 } else {
     console.log(`⚠️ Ошибка валидации: ${validationResult.error}`);
-    // Если валидация не удалась, используем исходные finalMatches
-    var finalValidatedMatches = finalMatches;
+    // Добавляем статус по умолчанию
+    var finalValidatedMatches = finalMatches.map(p => ({
+        ...p,
+        status: 'anchor'
+    }));
 }
 
 // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
@@ -701,32 +723,37 @@ buildTriangleMatchMap(result, targetModelId = null) {
     console.log(`   • Всего обработано matches: ${sortedMatches.length}`);
 
     // ===== ШАГ 3: Назначаем номера парам =====
-    console.log(`\n📋 ШАГ 3: Назначение номеров парам`);
-   
-    const matchMap = new Map();
-    const modelMatchMap = new Map();
-    let pairNumber = 1;
-   
-    // Для назначения номеров используем тот же порядок, что и при добавлении
-    // (он уже отсортирован по уверенности)
-    for (const [pointA, pointB] of pointCorrespondence) {
-        matchMap.set(pointA, {
-            modelId: pointB,
-            pairNumber: pairNumber,
-            type: 'anchor',
-            confidence: 1.0 // уверенность не критична для визуализации
-        });
+console.log(`\n📋 ШАГ 3: Назначение номеров парам`);
 
-        modelMatchMap.set(pointB, {
-            photoId: pointA,
-            pairNumber: pairNumber,
-            type: 'anchor',
-            confidence: 1.0
-        });
+const matchMap = new Map();
+const modelMatchMap = new Map();
+let pairNumber = 1;
 
-        console.log(`   Пара ${pairNumber}: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
-        pairNumber++;
-    }
+// Для назначения номеров используем тот же порядок, что и при добавлении
+for (const [pointA, pointB] of pointCorrespondence) {
+    // 🔥 ИЩЕМ СТАТУС ТОЧКИ В ИСХОДНЫХ ДАННЫХ
+    const match = result.matches.find(m => m.pointA === pointA && m.pointB === pointB);
+    const status = match?.status || 'anchor'; // по умолчанию anchor
+   
+    matchMap.set(pointA, {
+        modelId: pointB,
+        pairNumber: pairNumber,
+        type: 'anchor',
+        confidence: 1.0,
+        status: status  // ← ДОБАВЛЯЕМ СТАТУС!
+    });
+
+    modelMatchMap.set(pointB, {
+        photoId: pointA,
+        pairNumber: pairNumber,
+        type: 'anchor',
+        confidence: 1.0,
+        status: status  // ← ДОБАВЛЯЕМ СТАТУС!
+    });
+
+    console.log(`   Пара ${pairNumber}: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)} [${status}]`);
+    pairNumber++;
+}
 
     // ===== ШАГ 4: Проверка целостности =====
     console.log(`\n📊 ИТОГ buildTriangleMatchMap:`);
