@@ -172,99 +172,79 @@ class ClusterVisualizer {
         });
     }
 
-drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale) {
-    const points = topologyData.points;  // ← ЭТОЙ СТРОКИ НЕ ХВАТАЕТ!
-    console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
-    console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
+    drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale) {
+        const points = topologyData.points;
+      
+        console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
+        console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
 
-    // Создаем map для быстрого поиска
-const modelToPair = new Map();
-for (const [modelId, match] of modelMatchMap) {
-    if (match && match.pairNumber) {
-        modelToPair.set(modelId, match.pairNumber);
-        if (this.config.debug) {
-            console.log(`      🔢 Модель ${modelId.slice(0,12)}... → номер ${match.pairNumber}`);
+        let anchorPoints = 0, regularPoints = 0;
+
+        // Создаем map для быстрого поиска
+        const modelToPair = new Map();
+        for (const [modelId, match] of modelMatchMap) {
+            if (match && match.pairNumber) {
+                modelToPair.set(modelId, match.pairNumber);
+                if (this.config.debug) {
+                    console.log(`      🔢 Модель ${modelId.slice(0,12)}... → номер ${match.pairNumber}`);
+                }
+            }
         }
-    }
-}
 
-// 🔥 ДИАГНОСТИКА: показываем первые 5 записей modelToPair
-console.log(`   🔍 modelToPair содержит ${modelToPair.size} записей. Примеры:`);
-let diagCount = 0;
-for (const [modelId, pairNum] of modelToPair) {
-    if (diagCount++ < 5) {
-        console.log(`      ${modelId.substring(0,15)}... → номер ${pairNum}`);
-    }
-}
+        for (const point of points) {
+            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
 
-let anchorPoints = 0, regularPoints = 0;
-let pointsChecked = 0, pointsMatched = 0;
+            const x = centerX + (point.x - avgX) * scale;
+            const y = centerY + (point.y - avgY) * scale;
 
-for (const point of points) {
-    if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+            const confirmations = point.confirmationCount || 0;
+          
+            const pairNumber = modelToPair.get(point.id);
+            const isAnchor = pairNumber !== undefined;
 
-    pointsChecked++;
-   
-    const x = centerX + (point.x - avgX) * scale;
-    const y = centerY + (point.y - avgY) * scale;
+            let color, size;
 
-    const confirmations = point.confirmationCount || 0;
+            if (isAnchor) {
+                color = '#FF0000';
+                size = 8;
+                anchorPoints++;
+            } else if (confirmations >= 3) {
+                color = '#FF0000';
+                size = 6;
+                regularPoints++;
+            } else if (confirmations >= 2) {
+                color = '#FFC107';
+                size = 5;
+                regularPoints++;
+            } else if (confirmations >= 1) {
+                color = '#2196F3';
+                size = 4;
+                regularPoints++;
+            } else {
+                color = '#BDBDBD';
+                size = 3;
+                regularPoints++;
+            }
 
-    const pairNumber = modelToPair.get(point.id);
-    const isAnchor = pairNumber !== undefined;
-   
-    if (isAnchor) {
-        pointsMatched++;
-        // 🔥 ДИАГНОСТИКА: показываем первые 5 найденных точек
-        if (pointsMatched <= 5) {
-            console.log(`      ✅ Точка ${point.id.substring(0,15)}... (${point.x.toFixed(1)}, ${point.y.toFixed(1)}) → номер ${pairNumber}`);
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            if (isAnchor) {
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 8px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(pairNumber.toString(), x, y);
+            }
         }
+
+        console.log(`   🎯 Модель: 🔴 ${anchorPoints} с цифрами, остальных: ${regularPoints}`);
     }
-
-    let color, size;
-
-    if (isAnchor) {
-        color = '#FF0000';
-        size = 8;
-        anchorPoints++;
-    } else if (confirmations >= 3) {
-        color = '#FF0000';
-        size = 6;
-        regularPoints++;
-    } else if (confirmations >= 2) {
-        color = '#FFC107';
-        size = 5;
-        regularPoints++;
-    } else if (confirmations >= 1) {
-        color = '#2196F3';
-        size = 4;
-        regularPoints++;
-    } else {
-        color = '#BDBDBD';
-        size = 3;
-        regularPoints++;
-    }
-
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(x, y, size, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    if (isAnchor) {
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 8px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(pairNumber.toString(), x, y);
-    }
-}
-
-console.log(`   📊 Проверено точек: ${pointsChecked}, найдено в modelToPair: ${pointsMatched}`);
-console.log(`   🎯 Модель: 🔴 ${anchorPoints} с цифрами, остальных: ${regularPoints}`);
-}
 
     drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale) {
         console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
