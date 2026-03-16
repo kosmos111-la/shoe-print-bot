@@ -151,7 +151,24 @@ if (modelIdHint && this.models.has(modelIdHint)) {
 // ===== ШАГ 1: СОЗДАЁМ ВРЕМЕННЫЕ ЯКОРЯ ИЗ MATCHES =====
 console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
 
-// Так как все ID одинаковые, группируем просто по порядку (каждые 3 точки)
+// 🔥 ДИАГНОСТИКА: смотрим первые 9 matches
+console.log(`\n🔍 ДИАГНОСТИКА matches (первые 9):`);
+for (let i = 0; i < Math.min(9, triangleResult.matches.length); i++) {
+    const m = triangleResult.matches[i];
+    console.log(`   match[${i}]: pointA=${m.pointA.substring(0,15)}... pointB=${m.pointB.substring(0,15)}... conf=${m.confidence.toFixed(3)}`);
+}
+
+// Также покажем группировку по 3
+console.log(`\n🔍 ГРУППИРОВКА ПО ТРЕУГОЛЬНИКАМ:`);
+for (let i = 0; i < Math.min(9, triangleResult.matches.length); i += 3) {
+    if (i + 2 < triangleResult.matches.length) {
+        console.log(`   Треугольник ${i/3}:`);
+        console.log(`      точка1: ${triangleResult.matches[i].pointA.substring(0,15)}... ↔ ${triangleResult.matches[i].pointB.substring(0,15)}...`);
+        console.log(`      точка2: ${triangleResult.matches[i+1].pointA.substring(0,15)}... ↔ ${triangleResult.matches[i+1].pointB.substring(0,15)}...`);
+        console.log(`      точка3: ${triangleResult.matches[i+2].pointA.substring(0,15)}... ↔ ${triangleResult.matches[i+2].pointB.substring(0,15)}...`);
+    }
+}
+
 const tempAnchors = [];
 const matches = triangleResult.matches;
 
