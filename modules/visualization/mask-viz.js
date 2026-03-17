@@ -1,3 +1,4 @@
+// modules/visualization/mask-viz.js
 const { createCanvas, loadImage } = require('canvas');
 const path = require('path');
 const fs = require('fs');
