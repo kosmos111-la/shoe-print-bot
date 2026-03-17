@@ -470,27 +470,27 @@ class TriangleMatcher {
      * Построение связей между треугольниками
      */
     buildNeighbors(triangles) {
-        const edgeMap = new Map();
+    const edgeMap = new Map();
 
-        triangles.forEach(t => {
-            t.edges.forEach(edge => {
-                const key = [edge.v1.id, edge.v2.id].sort().join('--');
-                if (!edgeMap.has(key)) edgeMap.set(key, []);
-                edgeMap.get(key).push({ triangle: t, edge });
-            });
+    triangles.forEach(t => {
+        t.edges.forEach(edge => {
+            const key = [edge.v1.id, edge.v2.id].sort().join('--');
+            if (!edgeMap.has(key)) edgeMap.set(key, []);
+            edgeMap.get(key).push({ triangle: t, edge });
         });
+    });
 
-        edgeMap.forEach(triList => {
-            if (triList.length > 1) {
-                for (let i = 0; i < triList.length; i++) {
-                    for (let j = i+1; j < triList.length; j++) {
-                        triList[i].edge.neighborTriangles.push(triList[j].triangle);
-                        triList[j].edge.neighborTriangles.push(triList[i].triangle);
-                    }
+    edgeMap.forEach(triList => {
+        if (triList.length > 1) {
+            for (let i = 0; i < triList.length; i++) {
+                for (let j = i+1; j < triList.length; j++) {
+                    triList[i].edge.neighborTriangles.push(triList[j].triangle);
+                    triList[j].edge.neighborTriangles.push(triList[i].triangle);
                 }
             }
-        });
-    }
+        }
+    });
+}
 
     /**
      * Получение треугольников из Делоне
