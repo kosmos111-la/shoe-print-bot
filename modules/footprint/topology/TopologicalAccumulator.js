@@ -274,7 +274,7 @@ if (validationResult.success) {
         const footprintSize = validator.getFootprintSize(Array.from(existingModel.graph.nodes.values()));
         const relativeError = error / footprintSize;
 
-        if (relativeError < 0.08) { // 8% - чуть больше танцев
+        if (relativeError < 0.05) { // 5%
             allConsistent.push({
                 pointA: point.pointA,
                 pointB: point.pointB,
