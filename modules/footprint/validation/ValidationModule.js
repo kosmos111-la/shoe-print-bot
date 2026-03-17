@@ -335,7 +335,7 @@ findNewMatches(graphA, graphB, existingMatches, transform, morphologyA, morpholo
     console.log(`   • Точек без пары в B: ${unmatchedB.length}`);
    
     const newMatches = [];
-    const searchRadius = this.getFootprintSize(pointsB) * 0.25; // 25%
+    const searchRadius = this.getFootprintSize(pointsB) * this.positionThreshold; // 0.15
    
     for (const pointA of unmatchedA) {
         // Проецируем точку A в пространство B
@@ -364,7 +364,7 @@ findNewMatches(graphA, graphB, existingMatches, transform, morphologyA, morpholo
             if (morphA && morphB) {
                 const morphScore = this.compareMorphology(morphA, morphB);
                
-                if (morphScore >= 0.70) { // 70% - мягче
+                if (morphScore >= this.morphologyThreshold) { // 0.85
                     newMatches.push({
                         pointA: pointA.id,
                         pointB: bestMatch.id,
