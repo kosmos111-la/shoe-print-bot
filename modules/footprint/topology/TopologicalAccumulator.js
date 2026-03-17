@@ -330,12 +330,12 @@ if (validationResult.success) {
 // ===== ШАГ 3.6: ПОИСК НОВЫХ ПАР ЧЕРЕЗ ВАЛИДАТОР =====
 console.log(`\n🔍 ЗАПУСК ПОИСКА НОВЫХ ПАР`);
 
-if (validationResult.success && transform) {
+if (validationResult.success && transformFromValidator) {  // ← ИСПРАВЛЕНО!
     const newMatches = validator.findNewMatches(
         exactGraph,
         existingModel.graph,
         finalValidatedMatches,
-        transform,
+        transformFromValidator,  // ← ИСПРАВЛЕНО!
         morphologyMap,
         existingModel.morphologyMap
     );
@@ -356,11 +356,11 @@ if (validationResult.success && transform) {
         console.log(`\n⚠️ Новых соответствий не найдено`);
     }
 }
-  
-    // Сохраняем для отладки
-    existingModel.candidates = finalCandidates;
-    existingModel.rejected = inconsistentPoints;
-    existingModel.validationResult = validationResult;
+
+// Сохраняем для отладки
+existingModel.candidates = finalCandidates;
+existingModel.rejected = inconsistentPoints;
+existingModel.validationResult = validationResult;
 
 } else {
     console.log(`⚠️ Ошибка валидации: ${validationResult.error}`);
