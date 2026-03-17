@@ -241,24 +241,25 @@ let finalValidatedMatches;
 
 if (validationResult.success) {
     const validated = validationResult.results;
-    const transform = validationResult.transform;
+    const transformFromValidator = validationResult.transform; // переименовал, чтобы не конфликтовать
    
     // 🔥 СОХРАНЯЕМ TRANSFORM В МОДЕЛЬ
-    existingModel.transform = transform;
+    existingModel.transform = transformFromValidator;
     console.log(`\n💾 TRANSFORM СОХРАНЁН В МОДЕЛЬ:`);
-    console.log(`   • Масштаб: ${transform.scale.toFixed(3)}`);
-    console.log(`   • Поворот: ${(transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-    console.log(`   • Сдвиг: (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
+    console.log(`   • Масштаб: ${transformFromValidator.scale.toFixed(3)}`);
+    console.log(`   • Поворот: ${(transformFromValidator.rotation * 180 / Math.PI).toFixed(1)}°`);
+    console.log(`   • Сдвиг: (${transformFromValidator.translation.x.toFixed(1)}, ${transformFromValidator.translation.y.toFixed(1)})`);
    
     console.log(`\n🔍 ПРОВЕРКА ВСЕХ ТОЧЕК НА СООТВЕТСТВИЕ ПРЕОБРАЗОВАНИЮ`);
 
-    // Объединяем все точки для проверки
+    // Объявляем переменные ДО использования
+    let finalValidatedMatches;
     const allPointsToCheck = [
         ...validated.anchors,
         ...validated.confirmed,
         ...validated.candidates
     ];
-
+   
     const allConsistent = [];
     const inconsistentPoints = [];
 
@@ -274,7 +275,7 @@ if (validationResult.success) {
             continue;
         }
 
-        const projected = validator.applyTransform(pointA, transform);
+        const projected = validator.applyTransform(pointA, transformFromValidator);
         const dx = projected.x - pointB.x;
         const dy = projected.y - pointB.y;
         const error = Math.sqrt(dx*dx + dy*dy);
@@ -321,7 +322,7 @@ if (validationResult.success) {
         status: p.status
     }));
 
-    console.log(`\n✅ finalValidatedMatches создан: ${finalValidatedMatches.length} точек`); //317 строка
+    console.log(`\n✅ finalValidatedMatches создан: ${finalValidatedMatches.length} точек`);
     console.log(`   • Тип: ${Array.isArray(finalValidatedMatches) ? 'МАССИВ' : 'НЕ МАССИВ'}`);
     console.log(`   • Якорей: ${finalValidatedMatches.filter(p => p.status === 'anchor').length}`);
     console.log(`   • Подтверждённых: ${finalValidatedMatches.filter(p => p.status === 'confirmed').length}`);
@@ -476,8 +477,8 @@ return {
     consistency: consistent.stats,
     // 🔥 ДОБАВЛЯЕМ ОРИГИНАЛЬНЫЕ ТОЧКИ ФОТО И TRANSFORM
     originalPhotoPoints: points,
-    transform: transform,
-    message: `Глобально согласовано: ${finalMatches.length} точек (${consistent.anchors.length} треугольников)`  // ← ИСПРАВЛЕНО!
+    transform: transformFromValidator,  // используем правильное имя переменной
+    message: `Глобально согласовано: ${finalMatches.length} точек`
 };
     } else {
         console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
