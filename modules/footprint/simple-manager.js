@@ -416,6 +416,18 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                
                 console.log(`   📍 Текущее фото совпало с ${currentPhotoPoints.size} точками модели`);
                
+                // 🔥 ИСПОЛЬЗУЕМ ГЛОБАЛЬНЫЙ tempFileManager (как в других визуализациях)
+                // Вместо require('./temp-manager') используем this.tempFileManager
+                // Но его нужно получить из main.js или создать свой
+               
+                // Создаём временный файл для визуализации (как в других местах)
+                const tempDir = path.join(__dirname, '../../temp');
+                if (!fs.existsSync(tempDir)) {
+                    fs.mkdirSync(tempDir, { recursive: true });
+                }
+                const outputPath = path.join(tempDir, `model_prod_${Date.now()}.png`);
+               
+                // Импортируем визуализатор
                 const ModelVisualization = require('../visualization/model-viz');
                 const modelViz = new ModelVisualization();
                
@@ -431,9 +443,7 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                     edges: Array.from(modelInfo.graph.edges)
                 };
                
-                // 🔥 ИСПРАВЛЕНО: правильный путь к temp-manager
-                const tempFileManager = require('../../temp-manager');
-                const outputPath = tempFileManager.createTempFile('model_prod', 'png');
+                console.log(`   📊 Данные модели: ${modelData.points.length} точек, ${modelData.edges.length} рёбер`);
                
                 // Генерируем визуализацию
                 const modelImagePath = await modelViz.createVisualization(modelData, {
@@ -454,6 +464,8 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                         blue: modelData.points.filter(p => p.confirmationCount === 1).length,
                         gray: modelData.points.filter(p => !p.confirmationCount || p.confirmationCount === 0).length
                     };
+                   
+                    console.log(`   📊 Статистика: 🔴${confirmations.red} 🟠${confirmations.orange} 🟡${confirmations.yellow} 🔵${confirmations.blue} ⚫${confirmations.gray}`);
                    
                     // Отправляем в Telegram
                     await bot.sendPhoto(chatId, modelImagePath, {
@@ -484,6 +496,7 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
         }
     } catch (modelVizError) {
         console.log(`⚠️ Ошибка продакшен-визуализации модели: ${modelVizError.message}`);
+        console.log(modelVizError.stack);
     }
 }
 
