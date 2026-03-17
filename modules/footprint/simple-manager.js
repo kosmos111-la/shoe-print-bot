@@ -18,7 +18,7 @@ const GeometryUtils = require('./core/utils/geometry-utils');
 const LogManager = require('./core/log-manager');
 const FeatureTable = require('./analysis/feature-table');
 const ClusterAnalyzer = require('./analysis/ClusterAnalyzer');
-const ModelVisualization = require('./visualizations/model-viz');
+const ModelVisualization = require('../visualizations/model-viz');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
