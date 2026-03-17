@@ -45,15 +45,25 @@ class ModelVisualization {
 
             // Применяем трансформацию к точкам фото, если она есть
             let transformedPhotoPoints = [];
-            if (transform && photoPoints && photoPoints.length > 0) {
-                transformedPhotoPoints = photoPoints.map(p => ({
-                    ...p,
-                    originalX: p.x,
-                    originalY: p.y,
-                    transformed: this.applyTransform(p, transform)
-                }));
-                console.log(`   🔄 Трансформировано точек фото: ${transformedPhotoPoints.length}`);
-            }
+if (transform && photoPoints && photoPoints.length > 0) {
+    console.log(`   🔄 Применяю трансформацию к ${photoPoints.length} точкам фото:`);
+    console.log(`      Масштаб: ${transform.scale.toFixed(3)}`);
+    console.log(`      Поворот: ${(transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+   
+    transformedPhotoPoints = photoPoints.map(p => ({
+        ...p,
+        originalX: p.x,
+        originalY: p.y,
+        transformed: this.applyTransform(p, transform)
+    }));
+   
+    // Для отладки покажем первую точку
+    if (transformedPhotoPoints[0]) {
+        console.log(`      Пример трансформации:`);
+        console.log(`         Исходная: (${transformedPhotoPoints[0].originalX.toFixed(0)}, ${transformedPhotoPoints[0].originalY.toFixed(0)})`);
+        console.log(`         После: (${transformedPhotoPoints[0].transformed.x.toFixed(0)}, ${transformedPhotoPoints[0].transformed.y.toFixed(0)})`);
+    }
+}
 
             // Вычисляем общие границы для всех точек (модель + трансформированное фото)
             const allPoints = [
