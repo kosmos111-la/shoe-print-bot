@@ -245,6 +245,10 @@ if (validationResult.success) {
    
     // 🔥 СОХРАНЯЕМ TRANSFORM В МОДЕЛЬ
     existingModel.transform = transform;
+    console.log(`\n💾 TRANSFORM СОХРАНЁН В МОДЕЛЬ:`);
+    console.log(`   • Масштаб: ${transform.scale.toFixed(3)}`);
+    console.log(`   • Поворот: ${(transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+    console.log(`   • Сдвиг: (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
    
     console.log(`\n🔍 ПРОВЕРКА ВСЕХ ТОЧЕК НА СООТВЕТСТВИЕ ПРЕОБРАЗОВАНИЮ`);
 
@@ -463,13 +467,16 @@ return {
     status: 'consistent_anchors',
     modelId: modelIdHint,
     similarity: triangleResult.similarity,
-    centerMatches: finalMatches.length,  // ← ИСПРАВЛЕНО!
-    totalMatches: finalMatches.length,   // ← ИСПРАВЛЕНО!
+    centerMatches: finalMatches.length,
+    totalMatches: finalMatches.length,
     newNodesAdded: updateResult.newNodesAdded,
     nodesRemoved: cleanResult.removed,
     matchMap: matchMap,
     modelMatchMap: modelMatchMap,
     consistency: consistent.stats,
+    // 🔥 ДОБАВЛЯЕМ ОРИГИНАЛЬНЫЕ ТОЧКИ ФОТО И TRANSFORM
+    originalPhotoPoints: points,
+    transform: transform,
     message: `Глобально согласовано: ${finalMatches.length} точек (${consistent.anchors.length} треугольников)`  // ← ИСПРАВЛЕНО!
 };
     } else {
