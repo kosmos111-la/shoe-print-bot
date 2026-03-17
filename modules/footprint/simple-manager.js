@@ -416,7 +416,6 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                
                 console.log(`   📍 Текущее фото совпало с ${currentPhotoPoints.size} точками модели`);
                
-                // Импортируем визуализатор модели
                 const ModelVisualization = require('../visualization/model-viz');
                 const modelViz = new ModelVisualization();
                
@@ -432,8 +431,8 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                     edges: Array.from(modelInfo.graph.edges)
                 };
                
-                // Создаём временный файл для визуализации
-                const tempFileManager = require('./temp-manager');
+                // 🔥 ИСПРАВЛЕНО: правильный путь к temp-manager
+                const tempFileManager = require('../../temp-manager');
                 const outputPath = tempFileManager.createTempFile('model_prod', 'png');
                
                 // Генерируем визуализацию
