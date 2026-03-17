@@ -394,7 +394,6 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
     try {
         console.log('🏗️ Создаю продакшен-визуализацию итоговой модели...');
        
-        // Получаем текущую модель из аккумулятора
         const topologyManager = this.getTopologyManager(userId);
         if (!topologyManager) {
             console.log('⚠️ Нет топологического менеджера для визуализации модели');
@@ -403,12 +402,10 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
             if (!modelInfo) {
                 console.log('⚠️ Нет текущей модели для визуализации');
             } else {
-                // Получаем matchMap из результата
                 const matchMap = topologicalResult.matchMap ||
                                 (topologicalResult.topologicalResult?.matchMap) ||
                                 new Map();
                
-                // Создаём множество точек, совпавших с текущим фото
                 const currentPhotoPoints = new Set();
                 for (const [photoId, match] of matchMap) {
                     currentPhotoPoints.add(match.modelId);
@@ -416,11 +413,20 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                
                 console.log(`   📍 Текущее фото совпало с ${currentPhotoPoints.size} точками модели`);
                
-                // 🔥 ИСПОЛЬЗУЕМ ГЛОБАЛЬНЫЙ tempFileManager (как в других визуализациях)
-                // Вместо require('./temp-manager') используем this.tempFileManager
-                // Но его нужно получить из main.js или создать свой
+                // Подготавливаем данные модели
+                const points = Array.from(modelInfo.graph.nodes.values()).map(node => ({
+                    id: node.id,
+                    x: node.x,
+                    y: node.y,
+                    confirmationCount: node.confirmationCount || 0,
+                    pairNumber: matchMap.get(node.id)?.pairNumber
+                }));
                
-                // Создаём временный файл для визуализации (как в других местах)
+                const edges = Array.from(modelInfo.graph.edges);
+               
+                console.log(`   📊 Данные модели: ${points.length} точек, ${edges.length} рёбер`);
+               
+                // Создаём временный файл
                 const tempDir = path.join(__dirname, '../../temp');
                 if (!fs.existsSync(tempDir)) {
                     fs.mkdirSync(tempDir, { recursive: true });
@@ -431,23 +437,11 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                 const ModelVisualization = require('../visualization/model-viz');
                 const modelViz = new ModelVisualization();
                
-                // Подготавливаем данные модели
-                const modelData = {
-                    points: Array.from(modelInfo.graph.nodes.values()).map(node => ({
-                        id: node.id,
-                        x: node.x,
-                        y: node.y,
-                        confirmationCount: node.confirmationCount || 0,
-                        pairNumber: matchMap.get(node.id)?.pairNumber
-                    })),
-                    edges: Array.from(modelInfo.graph.edges)
-                };
-               
-                console.log(`   📊 Данные модели: ${modelData.points.length} точек, ${modelData.edges.length} рёбер`);
-               
-                // Генерируем визуализацию
-                const modelImagePath = await modelViz.createVisualization(modelData, {
-                    currentPhotoPoints,
+                // 🔥 ИСПРАВЛЕНО: передаём всё в options, как ожидает метод
+                const modelImagePath = await modelViz.createVisualization({
+                    points: points,
+                    edges: edges,
+                    currentPhotoPoints: currentPhotoPoints,
                     outputPath: outputPath,
                     width: 1200,
                     height: 800
@@ -456,18 +450,14 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                 if (modelImagePath && fs.existsSync(modelImagePath)) {
                     console.log(`✅ Продакшен-визуализация модели создана: ${modelImagePath}`);
                    
-                    // Формируем статистику подтверждений
                     const confirmations = {
-                        red: modelData.points.filter(p => p.confirmationCount >= 11).length,
-                        orange: modelData.points.filter(p => p.confirmationCount >= 5 && p.confirmationCount <= 10).length,
-                        yellow: modelData.points.filter(p => p.confirmationCount >= 2 && p.confirmationCount <= 4).length,
-                        blue: modelData.points.filter(p => p.confirmationCount === 1).length,
-                        gray: modelData.points.filter(p => !p.confirmationCount || p.confirmationCount === 0).length
+                        red: points.filter(p => p.confirmationCount >= 11).length,
+                        orange: points.filter(p => p.confirmationCount >= 5 && p.confirmationCount <= 10).length,
+                        yellow: points.filter(p => p.confirmationCount >= 2 && p.confirmationCount <= 4).length,
+                        blue: points.filter(p => p.confirmationCount === 1).length,
+                        gray: points.filter(p => !p.confirmationCount || p.confirmationCount === 0).length
                     };
                    
-                    console.log(`   📊 Статистика: 🔴${confirmations.red} 🟠${confirmations.orange} 🟡${confirmations.yellow} 🔵${confirmations.blue} ⚫${confirmations.gray}`);
-                   
-                    // Отправляем в Telegram
                     await bot.sendPhoto(chatId, modelImagePath, {
                         caption:
                             `🏗️ **ИТОГОВАЯ МОДЕЛЬ**\n\n` +
@@ -482,7 +472,6 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                             `💪 **Чем больше красных точек - тем надёжнее модель!**`
                     });
                    
-                    // Очищаем временный файл через минуту
                     setTimeout(() => {
                         if (fs.existsSync(modelImagePath)) {
                             fs.unlinkSync(modelImagePath);
