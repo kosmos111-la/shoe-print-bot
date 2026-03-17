@@ -402,46 +402,68 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
             if (!modelInfo) {
                 console.log('⚠️ Нет текущей модели для визуализации');
             } else {
+                // 🔥 ПОЛУЧАЕМ matchMap
                 const matchMap = topologicalResult.matchMap ||
                                 (topologicalResult.topologicalResult?.matchMap) ||
                                 new Map();
                
+                // 🔥 СОЗДАЁМ Set точек, совпавших с текущим фото
                 const currentPhotoPoints = new Set();
                 for (const [photoId, match] of matchMap) {
-                    currentPhotoPoints.add(match.modelId);
+                    // В matchMap ключ - photoId, значение - { modelId, pairNumber }
+                    if (match && match.modelId) {
+                        currentPhotoPoints.add(match.modelId);
+                    }
                 }
                
                 console.log(`   📍 Текущее фото совпало с ${currentPhotoPoints.size} точками модели`);
                
-                // Подготавливаем данные модели
-                const points = Array.from(modelInfo.graph.nodes.values()).map(node => ({
-                    id: node.id,
-                    x: node.x,
-                    y: node.y,
-                    confirmationCount: node.confirmationCount || 0,
-                    pairNumber: matchMap.get(node.id)?.pairNumber
-                }));
+                // 🔥 ПОДГОТАВЛИВАЕМ ДАННЫЕ МОДЕЛИ С НОМЕРАМИ ПАР
+                const points = Array.from(modelInfo.graph.nodes.values()).map(node => {
+                    // Ищем номер пары для этой точки
+                    let pairNumber = null;
+                    let status = null;
+                   
+                    // Ищем в modelMatchMap (ключ - modelId)
+                    for (const [modelId, match] of matchMap) {
+                        if (modelId === node.id && match.pairNumber) {
+                            pairNumber = match.pairNumber;
+                            status = match.status;
+                            break;
+                        }
+                    }
+                   
+                    return {
+                        id: node.id,
+                        x: node.x,
+                        y: node.y,
+                        confirmationCount: node.confirmationCount || 0,
+                        pairNumber: pairNumber,
+                        status: status
+                    };
+                });
                
                 const edges = Array.from(modelInfo.graph.edges);
                
                 console.log(`   📊 Данные модели: ${points.length} точек, ${edges.length} рёбер`);
+                console.log(`   📍 Точек с номерами: ${points.filter(p => p.pairNumber).length}`);
                
-                // Создаём временный файл
+                // 🔥 СОЗДАЁМ временный файл
                 const tempDir = path.join(__dirname, '../../temp');
                 if (!fs.existsSync(tempDir)) {
                     fs.mkdirSync(tempDir, { recursive: true });
                 }
                 const outputPath = path.join(tempDir, `model_prod_${Date.now()}.png`);
                
-                // Импортируем визуализатор
+                // 🔥 ИМПОРТИРУЕМ визуализатор
                 const ModelVisualization = require('../visualization/model-viz');
                 const modelViz = new ModelVisualization();
                
-                // 🔥 ИСПРАВЛЕНО: передаём всё в options, как ожидает метод
+                // 🔥 ПЕРЕДАЁМ ВСЕ ДАННЫЕ
                 const modelImagePath = await modelViz.createVisualization({
                     points: points,
                     edges: edges,
-                    currentPhotoPoints: currentPhotoPoints,
+                    currentPhotoPoints: currentPhotoPoints, // Set точек с фиолетовым кругом
                     outputPath: outputPath,
                     width: 1200,
                     height: 800
