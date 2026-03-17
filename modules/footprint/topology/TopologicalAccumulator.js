@@ -314,7 +314,7 @@ if (validationResult.success) {
         status: p.status
     }));
 
-    console.log(`\n✅ finalValidatedMatches создан: ${finalValidatedMatches.length} точек`);
+    console.log(`\n✅ finalValidatedMatches создан: ${finalValidatedMatches.length} точек`); //317 строка
     console.log(`   • Тип: ${Array.isArray(finalValidatedMatches) ? 'МАССИВ' : 'НЕ МАССИВ'}`);
     console.log(`   • Якорей: ${finalValidatedMatches.filter(p => p.status === 'anchor').length}`);
     console.log(`   • Подтверждённых: ${finalValidatedMatches.filter(p => p.status === 'confirmed').length}`);
@@ -894,18 +894,21 @@ for (const [pointA, pointB] of pointCorrespondence) {
         return roles.sort().join('');
     }
 
-    /**
+    /**  
      * Поиск соседей в графе
      */
     findNodeNeighbors(nodeId, graph) {
-        const neighbors = [];
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (a === nodeId) neighbors.push({id: b});
-            if (b === nodeId) neighbors.push({id: a});
-        }
-        return neighbors;
+    const neighbors = [];
+    // 🔥 Преобразуем Set в массив для итерации
+    const edges = Array.isArray(graph.edges) ? graph.edges : Array.from(graph.edges);
+   
+    for (const edge of edges) {
+        const [a, b] = edge.split('--');
+        if (a === nodeId) neighbors.push({id: b});
+        if (b === nodeId) neighbors.push({id: a});
     }
+    return neighbors;
+}
 
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
@@ -1444,48 +1447,56 @@ for (const [pointA, pointB] of pointCorrespondence) {
     }
 
     updateEdges(modelGraph, newGraph, matches) {
-        for (const edge of newGraph.edges) {
-            const [photoA, photoB] = edge.split('--');
-            const modelA = matches.get(photoA)?.modelId;
-            const modelB = matches.get(photoB)?.modelId;
+    // 🔥 Преобразуем Set в массив для итерации
+    const newEdges = Array.isArray(newGraph.edges) ? newGraph.edges : Array.from(newGraph.edges);
+   
+    for (const edge of newEdges) {
+        const [photoA, photoB] = edge.split('--');
+        const modelA = matches.get(photoA)?.modelId;
+        const modelB = matches.get(photoB)?.modelId;
 
-            if (modelA && modelB && modelGraph.nodes.has(modelA) && modelGraph.nodes.has(modelB)) {
-                modelGraph.edges.add([modelA, modelB].sort().join('--'));
-            }
-        }
-
-        for (const node of modelGraph.nodes.values()) node.degree = 0;
-        for (const edge of modelGraph.edges) {
-            const [a, b] = edge.split('--');
-            if (modelGraph.nodes.has(a)) modelGraph.nodes.get(a).degree++;
-            if (modelGraph.nodes.has(b)) modelGraph.nodes.get(b).degree++;
+        if (modelA && modelB && modelGraph.nodes.has(modelA) && modelGraph.nodes.has(modelB)) {
+            modelGraph.edges.add([modelA, modelB].sort().join('--'));
         }
     }
 
+    for (const node of modelGraph.nodes.values()) node.degree = 0;
+   
+    // 🔥 Преобразуем Set в массив для итерации
+    const modelEdges = Array.isArray(modelGraph.edges) ? modelGraph.edges : Array.from(modelGraph.edges);
+   
+    for (const edge of modelEdges) {
+        const [a, b] = edge.split('--');
+        if (modelGraph.nodes.has(a)) modelGraph.nodes.get(a).degree++;
+        if (modelGraph.nodes.has(b)) modelGraph.nodes.get(b).degree++;
+    }
+}
+
     computeTriangles(graph) {
-        if (!graph || !graph.nodes || !graph.edges) return [];
+    if (!graph || !graph.nodes || !graph.edges) return [];
 
-        const triangles = [];
-        const nodeIds = Array.from(graph.nodes.keys());
-        const edges = new Set(graph.edges);
+    const triangles = [];
+    const nodeIds = Array.from(graph.nodes.keys());
+    // 🔥 edges уже Set, это нормально
+    const edges = graph.edges;
 
-        for (let i = 0; i < nodeIds.length; i++) {
-            for (let j = i + 1; j < nodeIds.length; j++) {
-                for (let k = j + 1; k < nodeIds.length; k++) {
-                    const a = nodeIds[i];
-                    const b = nodeIds[j];
-                    const c = nodeIds[k];
+    for (let i = 0; i < nodeIds.length; i++) {
+        for (let j = i + 1; j < nodeIds.length; j++) {
+            for (let k = j + 1; k < nodeIds.length; k++) {
+                const a = nodeIds[i];
+                const b = nodeIds[j];
+                const c = nodeIds[k];
 
-                    if (edges.has([a, b].sort().join('--')) &&
-                        edges.has([b, c].sort().join('--')) &&
-                        edges.has([c, a].sort().join('--'))) {
-                        triangles.push([a, b, c]);
-                    }
+                if (edges.has([a, b].sort().join('--')) &&
+                    edges.has([b, c].sort().join('--')) &&
+                    edges.has([c, a].sort().join('--'))) {
+                    triangles.push([a, b, c]);
                 }
             }
         }
-        return triangles;
     }
+    return triangles;
+}
 
     getVisualizationData(modelId = null, reliablePhotoIds = []) {
         const targetId = modelId || this.currentModelId;
@@ -2063,15 +2074,16 @@ convertConsistentToMatches(consistentAnchors) {
 extractTrianglesFromGraph(graph) {
     const triangles = [];
     const nodeIds = Array.from(graph.nodes.keys());
-    const edges = new Set(graph.edges);
-   
+    // 🔥 edges уже Set, это нормально, .has() работает
+    const edges = graph.edges;
+
     for (let i = 0; i < nodeIds.length; i++) {
         for (let j = i + 1; j < nodeIds.length; j++) {
             for (let k = j + 1; k < nodeIds.length; k++) {
                 const a = nodeIds[i];
                 const b = nodeIds[j];
                 const c = nodeIds[k];
-               
+
                 if (edges.has([a, b].sort().join('--')) &&
                     edges.has([b, c].sort().join('--')) &&
                     edges.has([c, a].sort().join('--'))) {
@@ -2085,7 +2097,6 @@ extractTrianglesFromGraph(graph) {
             }
         }
     }
-   
     return triangles;
 }
   
