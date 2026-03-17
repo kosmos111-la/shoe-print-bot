@@ -417,7 +417,7 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                 console.log(`   📍 Текущее фото совпало с ${currentPhotoPoints.size} точками модели`);
                
                 // Импортируем визуализатор модели
-                const ModelVisualization = require('./visualizations/model-viz');
+                const ModelVisualization = require('../visualization/model-viz');
                 const modelViz = new ModelVisualization();
                
                 // Подготавливаем данные модели
