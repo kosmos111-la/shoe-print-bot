@@ -376,16 +376,22 @@ existingModel.validationResult = validationResult;
 console.log(`\n📊 ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК`);
 
 // Получаем все точки из графов
-const allPointsInA = Array.from(exactGraph.nodes.values());
-const allPointsInB = Array.from(existingModel.graph.nodes.values());
+const allPointsInA = Array.from(exactGraph?.nodes?.values() || []);
+const allPointsInB = Array.from(existingModel?.graph?.nodes?.values() || []);
+
+console.log(`   • Всего точек в A: ${allPointsInA.length}`);
+console.log(`   • Всего точек в B: ${allPointsInB.length}`);
 
 // Множества уже сопоставленных точек
-const matchedPointsA = new Set(finalValidatedMatches.map(m => m.pointA));
-const matchedPointsB = new Set(finalValidatedMatches.map(m => m.pointB));
+const matchedPointsA = new Set(finalValidatedMatches?.map(m => m.pointA) || []);
+const matchedPointsB = new Set(finalValidatedMatches?.map(m => m.pointB) || []);
+
+console.log(`   • Сопоставлено точек в A: ${matchedPointsA.size}`);
+console.log(`   • Сопоставлено точек в B: ${matchedPointsB.size}`);
 
 // Точки только в первом следе (модель)
 const uniqueInModel = allPointsInA
-    .filter(p => !matchedPointsA.has(p.id))
+    .filter(p => p && !matchedPointsA.has(p.id))
     .map(p => ({
         id: p.id,
         x: p.x,
@@ -395,7 +401,7 @@ const uniqueInModel = allPointsInA
 
 // Точки только во втором следе (фото)
 const uniqueInPhoto = allPointsInB
-    .filter(p => !matchedPointsB.has(p.id))
+    .filter(p => p && !matchedPointsB.has(p.id))
     .map(p => ({
         id: p.id,
         x: p.x,
@@ -407,10 +413,12 @@ console.log(`   • Уникальных в модели: ${uniqueInModel.leng
 console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
 
 // Сохраняем в модель для визуализации
-existingModel.uniquePoints = {
-    model: uniqueInModel,
-    photo: uniqueInPhoto
-};
+if (existingModel) {
+    existingModel.uniquePoints = {
+        model: uniqueInModel,
+        photo: uniqueInPhoto
+    };
+}
       
 // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
 console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches.length} точек`);
