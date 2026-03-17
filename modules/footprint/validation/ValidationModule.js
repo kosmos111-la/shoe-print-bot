@@ -306,6 +306,81 @@ class ValidationModule {
         };
     }
 
+/**
+* Находит новые соответствия среди нераспознанных точек
+* @param {Object} graphA - граф первого следа
+* @param {Object} graphB - граф второго следа
+* @param {Array} existingMatches - уже найденные соответствия
+* @param {Object} transform - вычисленное преобразование
+* @param {Map} morphologyA - морфология первого следа
+* @param {Map} morphologyB - морфология второго следа
+* @returns {Array} - новые найденные соответствия
+*/
+findNewMatches(graphA, graphB, existingMatches, transform, morphologyA, morphologyB) {
+    console.log(`\n🔍 ПОИСК НОВЫХ СООТВЕТСТВИЙ ЧЕРЕЗ ВАЛИДАТОР`);
+   
+    // Создаём множества уже использованных точек
+    const usedPointsA = new Set(existingMatches.map(m => m.pointA));
+    const usedPointsB = new Set(existingMatches.map(m => m.pointB));
+   
+    // Получаем все точки из графов
+    const pointsA = Array.from(graphA.nodes.values());
+    const pointsB = Array.from(graphB.nodes.values());
+   
+    // Фильтруем только неиспользованные
+    const unmatchedA = pointsA.filter(p => !usedPointsA.has(p.id));
+    const unmatchedB = pointsB.filter(p => !usedPointsB.has(p.id));
+   
+    console.log(`   • Точек без пары в A: ${unmatchedA.length}`);
+    console.log(`   • Точек без пары в B: ${unmatchedB.length}`);
+   
+    const newMatches = [];
+    const searchRadius = this.getFootprintSize(pointsB) * this.positionThreshold; // 15% от размера
+   
+    for (const pointA of unmatchedA) {
+        // Проецируем точку A в пространство B
+        const projected = this.applyTransform(pointA, transform);
+       
+        // Ищем ближайшую точку в B
+        let bestMatch = null;
+        let bestDist = Infinity;
+       
+        for (const pointB of unmatchedB) {
+            const dx = pointB.x - projected.x;
+            const dy = pointB.y - projected.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+           
+            if (dist < bestDist && dist < searchRadius) {
+                bestDist = dist;
+                bestMatch = pointB;
+            }
+        }
+       
+        if (bestMatch) {
+            // Проверяем морфологию
+            const morphA = morphologyA.get(pointA.id);
+            const morphB = morphologyB.get(bestMatch.id);
+           
+            if (morphA && morphB) {
+                const morphScore = this.compareMorphology(morphA, morphB);
+               
+                if (morphScore >= this.morphologyThreshold) {
+                    newMatches.push({
+                        pointA: pointA.id,
+                        pointB: bestMatch.id,
+                        confidence: (1 - bestDist / searchRadius) * 0.6 + morphScore * 0.4,
+                        method: 'validator_new',
+                        status: 'validator_found'
+                    });
+                }
+            }
+        }
+    }
+   
+    console.log(`\n📊 НАЙДЕНО НОВЫХ СООТВЕТСТВИЙ: ${newMatches.length}`);
+    return newMatches;
+}
+  
     /**
      * Вычисляет центроид множества точек
      */
