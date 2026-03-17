@@ -319,6 +319,36 @@ if (validationResult.success) {
     console.log(`   • Якорей: ${finalValidatedMatches.filter(p => p.status === 'anchor').length}`);
     console.log(`   • Подтверждённых: ${finalValidatedMatches.filter(p => p.status === 'confirmed').length}`);
 
+// ===== ШАГ 3.6: ПОИСК НОВЫХ ПАР ЧЕРЕЗ ВАЛИДАТОР =====
+console.log(`\n🔍 ЗАПУСК ПОИСКА НОВЫХ ПАР`);
+
+if (validationResult.success && transform) {
+    const newMatches = validator.findNewMatches(
+        exactGraph,
+        existingModel.graph,
+        finalValidatedMatches,
+        transform,
+        morphologyMap,
+        existingModel.morphologyMap
+    );
+   
+    if (newMatches.length > 0) {
+        console.log(`\n✅ Найдено ${newMatches.length} новых соответствий!`);
+       
+        // Добавляем новые matches к существующим
+        const allMatches = [...finalValidatedMatches, ...newMatches];
+       
+        console.log(`\n📊 ТЕПЕРЬ ВСЕГО: ${allMatches.length} точек`);
+        console.log(`   • Было: ${finalValidatedMatches.length}`);
+        console.log(`   • Добавлено: ${newMatches.length}`);
+       
+        // Обновляем finalValidatedMatches
+        finalValidatedMatches = allMatches;
+    } else {
+        console.log(`\n⚠️ Новых соответствий не найдено`);
+    }
+}
+  
     // Сохраняем для отладки
     existingModel.candidates = finalCandidates;
     existingModel.rejected = inconsistentPoints;
