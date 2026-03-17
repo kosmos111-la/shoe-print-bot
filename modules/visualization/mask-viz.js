@@ -1,4 +1,6 @@
 // modules/visualization/mask-viz.js
+// 🎨 УЛУЧШЕННАЯ MASK ВИЗУАЛИЗАЦИЯ С ПОДДЕРЖКОЙ ПАР
+
 const { createCanvas, loadImage } = require('canvas');
 const path = require('path');
 const fs = require('fs');
@@ -6,14 +8,14 @@ const fs = require('fs');
 class MaskStyleVisualization {
     constructor() {
         this.styleName = 'mask';
-        this.modelVersion = 'Roboflow v13';
-        console.log('✅ Enhanced MaskStyleVisualization создан');
+        this.modelVersion = 'Roboflow v13 + топология';
+        console.log('✅ Enhanced MaskStyleVisualization с поддержкой пар создан');
     }
 
     async createVisualization(imageUrl, predictions, userData = {}, outputPath = null) {
         try {
             console.log('🎨 Создаем улучшенную MASK визуализацию...');
-           
+
             if (!imageUrl) {
                 console.log('❌ Нет imageUrl');
                 return null;
@@ -26,45 +28,45 @@ class MaskStyleVisualization {
 
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 15000);
-           
+
             try {
                 const response = await fetch(imageUrl, { signal: controller.signal });
                 clearTimeout(timeout);
-               
+
                 if (!response.ok) {
                     console.log(`❌ HTTP ошибка: ${response.status}`);
                     return null;
                 }
-               
+
                 const buffer = await response.arrayBuffer();
                 const image = await loadImage(Buffer.from(buffer));
-               
+
                 const canvas = createCanvas(image.width, image.height);
                 const ctx = canvas.getContext('2d');
-               
+
                 // 1. Оригинальное изображение
                 ctx.globalAlpha = 0.4;
                 ctx.drawImage(image, 0, 0);
                 ctx.globalAlpha = 1.0;
-               
+
                 // 2. Темная маска
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-               
-                // 3. Рисуем предсказания и связи
-                this.drawPredictionsWithConnections(ctx, predictions);
-               
-                // 4. Добавляем информационный штамп
-                this.drawInfoStamp(ctx, canvas.width, canvas.height, predictions);
-               
-                // 🔄 ИСПОЛЬЗУЕМ ПЕРЕДАННЫЙ ПУТЬ ИЛИ СОЗДАЕМ СВОЙ
-const finalOutputPath = outputPath || path.join(this.ensureTempDir(), `enhanced_mask_${Date.now()}.png`);
-const bufferOut = canvas.toBuffer('image/png');
-fs.writeFileSync(finalOutputPath, bufferOut);
 
-console.log('✅ Улучшенная mask визуализация создана:', finalOutputPath);
-return finalOutputPath;
-               
+                // 3. Рисуем предсказания и связи с учетом пар
+                await this.drawPredictionsWithPairs(ctx, predictions, userData);
+
+                // 4. Добавляем информационный штамп
+                this.drawInfoStamp(ctx, canvas.width, canvas.height, predictions, userData);
+
+                // Сохраняем результат
+                const finalOutputPath = outputPath || path.join(this.ensureTempDir(), `enhanced_mask_${Date.now()}.png`);
+                const bufferOut = canvas.toBuffer('image/png');
+                fs.writeFileSync(finalOutputPath, bufferOut);
+
+                console.log('✅ Улучшенная mask визуализация создана:', finalOutputPath);
+                return finalOutputPath;
+
             } catch (fetchError) {
                 clearTimeout(timeout);
                 if (fetchError.name === 'AbortError') {
@@ -73,74 +75,162 @@ return finalOutputPath;
                     throw fetchError;
                 }
             }
-           
+
             return null;
-           
+
         } catch (error) {
             console.log('❌ Ошибка в createVisualization:', error.message);
             return null;
         }
     }
 
-    drawPredictionsWithConnections(ctx, predictions) {
+    /**
+     * 🔥 НОВЫЙ МЕТОД: отрисовка с учетом пар из топологической системы
+     */
+    async drawPredictionsWithPairs(ctx, predictions, userData) {
         try {
+            // Создаем карту пар, если они есть в userData
+            const pairs = userData.pairs || new Map(); // photoId -> { modelId, pairNumber, status }
+            const matchedPoints = new Set(pairs.keys()); // ID точек, у которых есть пара
+
+            console.log(`   📍 Найдено ${matchedPoints.size} сопоставленных точек`);
+
             const validPredictions = predictions.filter(pred =>
                 pred && pred.points && Array.isArray(pred.points) && pred.points.length >= 3
             );
-           
+
             if (validPredictions.length === 0) {
                 console.log('⚠️ Нет валидных predictions для отрисовки');
                 return;
             }
 
-            // Сначала рисуем все полигоны
-            validPredictions.forEach(prediction => {
-                this.drawSinglePrediction(ctx, prediction);
-            });
+            // Разделяем предсказания на категории
+            const outlines = validPredictions.filter(p => p.class === 'Outline-trail');
+            const protectors = validPredictions.filter(p => p.class === 'shoe-protector');
+            const morphology = validPredictions.filter(p => p.class === 'Morphology');
+            const others = validPredictions.filter(p =>
+                p.class !== 'Outline-trail' &&
+                p.class !== 'shoe-protector' &&
+                p.class !== 'Morphology'
+            );
 
-            // Затем рисуем заметные связи между центрами
-            this.drawEnhancedConnections(ctx, validPredictions);
-           
+            // Сначала рисуем контуры (фон)
+            outlines.forEach(pred => this.drawOutline(ctx, pred));
+
+            // Рисуем морфологию
+            morphology.forEach(pred => this.drawMorphology(ctx, pred));
+
+            // Рисуем остальные классы
+            others.forEach(pred => this.drawDefault(ctx, pred));
+
+            // 🔥 КЛЮЧЕВОЕ: рисуем протекторы с учетом пар
+            await this.drawProtectorsWithPairs(ctx, protectors, pairs);
+
+            // Рисуем связи между протекторами (для наглядности)
+            this.drawConnections(ctx, protectors);
+
         } catch (error) {
-            console.log('❌ Ошибка в drawPredictionsWithConnections:', error.message);
+            console.log('❌ Ошибка в drawPredictionsWithPairs:', error.message);
         }
     }
 
-    drawSinglePrediction(ctx, prediction) {
-        try {
-            const points = prediction.points;
-            const className = prediction.class || 'unknown';
-            const confidence = prediction.confidence || 0;
+    /**
+     * 🔥 НОВЫЙ МЕТОД: отрисовка протекторов с номерами пар
+     */
+    async drawProtectorsWithPairs(ctx, protectors, pairs) {
+        if (protectors.length === 0) return;
+
+        // Сначала вычисляем центры для всех протекторов
+        for (const pred of protectors) {
+            pred.center = this.calculateCenter(pred.points);
            
-            // Сохраняем уверенность для использования в связях
-            prediction.confidence = confidence;
-           
-            ctx.lineCap = 'round';
-           
-            switch(className) {
-                case 'Outline-trail':
-                    this.drawOutline(ctx, points);
-                    break;
-                case 'shoe-protector':
-                    this.drawProtector(ctx, points, prediction);
-                    break;
-                case 'Morphology':
-                    this.drawMorphology(ctx, points);
-                    break;
-                default:
-                    this.drawDefault(ctx, points);
+            // Генерируем ID для точки (если его нет)
+            if (!pred.id) {
+                pred.id = `pt_${Date.now()}_${Math.random()}`;
             }
-        } catch (error) {
-            console.log('❌ Ошибка отрисовки prediction:', error.message);
+        }
+
+        // Рисуем сами протекторы (полупрозрачные)
+        for (const pred of protectors) {
+            this.drawProtectorShape(ctx, pred);
+        }
+
+        // 🔥 Рисуем номера пар
+        for (const pred of protectors) {
+            const pair = pairs.get(pred.id);
+           
+            if (pair) {
+                // ✅ Это сопоставленная точка - фиолетовый круг с номером
+                this.drawPairedPoint(ctx, pred.center, pair.pairNumber);
+            } else {
+                // ❌ Неподтверждённая точка - маленькая чёрная
+                this.drawUnpairedPoint(ctx, pred.center);
+            }
         }
     }
 
-    drawOutline(ctx, points) {
-        // Толстый пунктир для контура следа
+    /**
+     * Рисует форму протектора (полупрозрачный чёрный)
+     */
+    drawProtectorShape(ctx, prediction) {
+        const points = prediction.points;
+
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)'; // Очень светлая заливка
+
+        ctx.beginPath();
+        points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    /**
+     * Рисует сопоставленную точку: фиолетовый круг с номером
+     */
+    drawPairedPoint(ctx, center, pairNumber) {
+        // Фиолетовый круг
+        ctx.fillStyle = '#AA00FF'; // Фиолетовый
+        ctx.strokeStyle = '#FFFFFF'; // Белая обводка для контраста
+        ctx.lineWidth = 2;
+       
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, 8, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        // Белый номер
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 10px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(pairNumber.toString(), center.x, center.y);
+    }
+
+    /**
+     * Рисует неподтверждённую точку: маленькая чёрная
+     */
+    drawUnpairedPoint(ctx, center) {
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, 3, 0, 2 * Math.PI);
+        ctx.fill();
+    }
+
+    /**
+     * Рисует контур следа
+     */
+    drawOutline(ctx, prediction) {
+        const points = prediction.points;
+       
         ctx.setLineDash([20, 10]);
         ctx.lineWidth = 6;
         ctx.strokeStyle = '#000000';
-       
+
         ctx.beginPath();
         points.forEach((point, index) => {
             if (index === 0) ctx.moveTo(point.x, point.y);
@@ -151,53 +241,16 @@ return finalOutputPath;
         ctx.setLineDash([]);
     }
 
-    drawProtector(ctx, points, prediction) {
-        const confidence = prediction.confidence || 0;
+    /**
+     * Рисует морфологию
+     */
+    drawMorphology(ctx, prediction) {
+        const points = prediction.points;
        
-        // ОБВОДКА В 1 ПИКСЕЛЬ - ВСЕГДА ЧЕРНАЯ
         ctx.lineWidth = 1;
         ctx.strokeStyle = '#000000';
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-       
-        // Рисуем полигон с легкой заливкой
-        ctx.beginPath();
-        points.forEach((point, index) => {
-            if (index === 0) ctx.moveTo(point.x, point.y);
-            else ctx.lineTo(point.x, point.y);
-        });
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-       
-        // Центральная точка - ЧЕРНАЯ С КРАСНОЙ ОБВОДКОЙ для высокой уверенности
-        const center = this.calculateCenter(points);
-       
-        if (confidence > 0.8) {
-            // ВЫСОКАЯ УВЕРЕННОСТЬ - красная обводка
-            ctx.fillStyle = '#000000';
-            ctx.strokeStyle = '#ff0000';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(center.x, center.y, 4, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            // ОБЫЧНАЯ ТОЧКА - просто черная
-            ctx.fillStyle = '#000000';
-            ctx.beginPath();
-            ctx.arc(center.x, center.y, 3, 0, 2 * Math.PI);
-            ctx.fill();
-        }
-       
-        // Сохраняем центр для связей
-        prediction.center = center;
-    }
+        ctx.setLineDash([]);
 
-    drawMorphology(ctx, points) {
-        // Тонкие сплошные линии для морфологии
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = '#000000';
-       
         ctx.beginPath();
         points.forEach((point, index) => {
             if (index === 0) ctx.moveTo(point.x, point.y);
@@ -207,10 +260,16 @@ return finalOutputPath;
         ctx.stroke();
     }
 
-    drawDefault(ctx, points) {
+    /**
+     * Рисует остальные классы
+     */
+    drawDefault(ctx, prediction) {
+        const points = prediction.points;
+       
         ctx.lineWidth = 1;
         ctx.strokeStyle = '#000000';
-       
+        ctx.setLineDash([]);
+
         ctx.beginPath();
         points.forEach((point, index) => {
             if (index === 0) ctx.moveTo(point.x, point.y);
@@ -220,104 +279,95 @@ return finalOutputPath;
         ctx.stroke();
     }
 
-    drawEnhancedConnections(ctx, predictions) {
-        try {
-            const protectors = predictions.filter(p => p.class === 'shoe-protector' && p.center);
-           
-            if (protectors.length < 2) return;
-           
-            // Сначала рисуем все линии ЧЕРНЫМИ
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = '#000000';
-            ctx.setLineDash([]);
-           
-            for (let i = 0; i < protectors.length; i++) {
-                for (let j = i + 1; j < protectors.length; j++) {
-                    const center1 = protectors[i].center;
-                    const center2 = protectors[j].center;
-                   
-                    const distance = Math.sqrt(
-                        Math.pow(center2.x - center1.x, 2) +
-                        Math.pow(center2.y - center1.y, 2)
-                    );
-                   
-                    if (distance < 150) {
-                        ctx.beginPath();
-                        ctx.moveTo(center1.x, center1.y);
-                        ctx.lineTo(center2.x, center2.y);
-                        ctx.stroke();
-                    }
+    /**
+     * Рисует связи между протекторами (для наглядности)
+     */
+    drawConnections(ctx, protectors) {
+        if (protectors.length < 2) return;
+
+        // Тонкие чёрные линии
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.setLineDash([]);
+
+        for (let i = 0; i < protectors.length; i++) {
+            for (let j = i + 1; j < protectors.length; j++) {
+                const p1 = protectors[i].center;
+                const p2 = protectors[j].center;
+
+                if (!p1 || !p2) continue;
+
+                const distance = Math.sqrt(
+                    Math.pow(p2.x - p1.x, 2) +
+                    Math.pow(p2.y - p1.y, 2)
+                );
+
+                // Рисуем только близкие связи
+                if (distance < 150) {
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
                 }
             }
-           
-            // Затем поверх рисуем КРАСНЫЕ ПОДСВЕТКИ для высокоуверенных связей
-            ctx.lineWidth = 3; // Толще для подсветки
-            ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)'; // Полупрозрачный красный
-           
-            for (let i = 0; i < protectors.length; i++) {
-                for (let j = i + 1; j < protectors.length; j++) {
-                    const center1 = protectors[i].center;
-                    const center2 = protectors[j].center;
-                    const minConfidence = Math.min(protectors[i].confidence || 0, protectors[j].confidence || 0);
-                   
-                    const distance = Math.sqrt(
-                        Math.pow(center2.x - center1.x, 2) +
-                        Math.pow(center2.y - center1.y, 2)
-                    );
-                   
-                    // Подсвечиваем только высокоуверенные связи
-                    if (distance < 150 && minConfidence > 0.8) {
-                        ctx.beginPath();
-                        ctx.moveTo(center1.x, center1.y);
-                        ctx.lineTo(center2.x, center2.y);
-                        ctx.stroke();
-                    }
-                }
-            }
-           
-        } catch (error) {
-            console.log('❌ Ошибка в drawConnections:', error.message);
         }
     }
 
-    drawInfoStamp(ctx, width, height, predictions) {
+    /**
+     * Рисует информационный штамп
+     */
+    drawInfoStamp(ctx, width, height, predictions, userData) {
         try {
             const stats = this.calculateStats(predictions);
             const confidenceStats = this.calculateConfidenceStats(predictions);
             const currentDate = new Date().toLocaleDateString('ru-RU');
            
-            // ПРОЗРАЧНЫЙ ШТАМП - только рамка и текст
+            // Данные о парах
+            const pairs = userData.pairs || new Map();
+            const pairedCount = pairs.size;
+            const totalProtectors = stats.protectors;
+
+            // Штамп слева вверху
             ctx.strokeStyle = '#000000';
             ctx.lineWidth = 2;
-            ctx.strokeRect(10, 10, 250, 70);
-           
-            // Текст статистики (прямо на изображении)
+            ctx.strokeRect(10, 10, 280, 90);
+
             ctx.fillStyle = '#000000';
             ctx.font = 'bold 14px Arial';
             ctx.fillText('🔍 АНАЛИЗ СЛЕДА', 20, 28);
-           
+
             ctx.font = '11px Arial';
-            ctx.fillText(`• Деталей: ${stats.protectors}`, 20, 45);
+            ctx.fillText(`• Протекторов: ${totalProtectors}`, 20, 45);
             ctx.fillText(`• Контуров: ${stats.outlines}`, 20, 60);
-            ctx.fillText(`• Уверенность: ${confidenceStats.avgConfidence}%`, 20, 75);
+            ctx.fillText(`• Сред. уверенность: ${confidenceStats.avgConfidence}%`, 20, 75);
            
+            // 🔥 НОВОЕ: информация о парах
+            if (pairedCount > 0) {
+                ctx.fillStyle = '#AA00FF'; // Фиолетовый для пар
+                ctx.font = 'bold 11px Arial';
+                ctx.fillText(`• 🟣 Совпало: ${pairedCount}/${totalProtectors}`, 20, 92);
+            }
+
             // Информация в правом нижнем углу
             ctx.font = '9px Arial';
             ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillText(`${currentDate} | ${this.modelVersion}`, width - 180, height - 15);
-           
+            ctx.fillText(`${currentDate} | ${this.modelVersion}`, width - 200, height - 15);
+
         } catch (error) {
             console.log('❌ Ошибка в drawInfoStamp:', error.message);
         }
     }
 
+    /**
+     * Вычисляет статистику по классам
+     */
     calculateStats(predictions) {
         const stats = {
             protectors: 0,
             outlines: 0,
             morphology: 0
         };
-       
+
         predictions.forEach(pred => {
             switch(pred.class) {
                 case 'shoe-protector':
@@ -331,35 +381,36 @@ return finalOutputPath;
                     break;
             }
         });
-       
+
         return stats;
     }
 
+    /**
+     * Вычисляет статистику уверенности
+     */
     calculateConfidenceStats(predictions) {
         let totalConfidence = 0;
-        let highConfidenceCount = 0;
         let validPredictions = 0;
-       
+
         predictions.forEach(pred => {
             if (pred.confidence) {
                 totalConfidence += pred.confidence;
                 validPredictions++;
-                if (pred.confidence > 0.8) {
-                    highConfidenceCount++;
-                }
             }
         });
-       
+
         const avgConfidence = validPredictions > 0
             ? Math.round((totalConfidence / validPredictions) * 100)
             : 0;
-           
+
         return {
-            avgConfidence: avgConfidence,
-            highConfidence: highConfidenceCount
+            avgConfidence: avgConfidence
         };
     }
 
+    /**
+     * Вычисляет центр полигона
+     */
     calculateCenter(points) {
         const xs = points.map(p => p.x);
         const ys = points.map(p => p.y);
@@ -369,6 +420,9 @@ return finalOutputPath;
         };
     }
 
+    /**
+     * Создаёт временную директорию
+     */
     ensureTempDir() {
         const tempDir = path.join(__dirname, '../../temp');
         try {
