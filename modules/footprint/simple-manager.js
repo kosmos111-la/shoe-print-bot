@@ -18,7 +18,7 @@ const GeometryUtils = require('./core/utils/geometry-utils');
 const LogManager = require('./core/log-manager');
 const FeatureTable = require('./analysis/feature-table');
 const ClusterAnalyzer = require('./analysis/ClusterAnalyzer');
-
+const ModelVisualization = require('./visualizations/model-viz');
 
 class SimpleFootprintManager {
     constructor(options = {}) {
@@ -367,37 +367,140 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
 // 🔥 ОТПРАВКА В TELEGRAM - ОТПРАВЛЯЕМ ОБЕ КАРТИНКИ
 let telegramSent = false;
 if (bot && chatId) {
-    // Важно: проверяем, что modelVizPath определен, а не vizPath
-    if (modelVizPath || photoVizPath) {
-        telegramSent = await this.sendTopologyTelegram(
-            userId,
-            decision,
-            similarity,
-            visualizationData,
-            modelVizPath,  // ← БЫЛО vizPath, СТАЛО modelVizPath
-            photoVizPath,  // ← добавили photoVizPath
-            bot,
-            chatId,
-            topologicalResult
-        );
-    } else {
-        console.log('⚠️ Нет визуализаций для отправки');
-        telegramSent = true; // Чтобы не падало с ошибкой
-    }
+    // Важно: проверяем, что modelVizPath определен, а не vizPath
+    if (modelVizPath || photoVizPath) {
+        telegramSent = await this.sendTopologyTelegram(
+            userId,
+            decision,
+            similarity,
+            visualizationData,
+            modelVizPath,
+            photoVizPath,
+            bot,
+            chatId,
+            topologicalResult
+        );
+    } else {
+        console.log('⚠️ Нет визуализаций для отправки');
+        telegramSent = true;
+    }
 }
-          // 🔥 ФОРМИРУЕМ РЕЗУЛЬТАТ
-            const result = {
-    success: true,
-    footprintId: session.id,
-    photoId: photoId,
-    nodesAdded: points.length,
-    totalPhotos: session.photos.length,
-    topologicalDecision: decision,
-    topologicalSimilarity: similarity,
-    hasTopology: this.config.enableTopology,
-    visualizationPath: modelVizPath || photoVizPath || null, // ← ИСПРАВЛЕНО!
-    telegramSent: telegramSent,
-    mode: 'sandbox'
+
+// =============================================================================
+// 🎯 НОВАЯ ПРОДАКШЕН-ВИЗУАЛИЗАЦИЯ ИТОГОВОЙ МОДЕЛИ
+// =============================================================================
+
+if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
+    try {
+        console.log('🏗️ Создаю продакшен-визуализацию итоговой модели...');
+       
+        // Получаем текущую модель из аккумулятора
+        const topologyManager = this.getTopologyManager(userId);
+        if (!topologyManager) {
+            console.log('⚠️ Нет топологического менеджера для визуализации модели');
+        } else {
+            const modelInfo = topologyManager.accumulator.getCurrentModel();
+            if (!modelInfo) {
+                console.log('⚠️ Нет текущей модели для визуализации');
+            } else {
+                // Получаем matchMap из результата
+                const matchMap = topologicalResult.matchMap ||
+                                (topologicalResult.topologicalResult?.matchMap) ||
+                                new Map();
+               
+                // Создаём множество точек, совпавших с текущим фото
+                const currentPhotoPoints = new Set();
+                for (const [photoId, match] of matchMap) {
+                    currentPhotoPoints.add(match.modelId);
+                }
+               
+                console.log(`   📍 Текущее фото совпало с ${currentPhotoPoints.size} точками модели`);
+               
+                // Импортируем визуализатор модели
+                const ModelVisualization = require('./visualizations/model-viz');
+                const modelViz = new ModelVisualization();
+               
+                // Подготавливаем данные модели
+                const modelData = {
+                    points: Array.from(modelInfo.graph.nodes.values()).map(node => ({
+                        id: node.id,
+                        x: node.x,
+                        y: node.y,
+                        confirmationCount: node.confirmationCount || 0,
+                        pairNumber: matchMap.get(node.id)?.pairNumber
+                    })),
+                    edges: Array.from(modelInfo.graph.edges)
+                };
+               
+                // Создаём временный файл для визуализации
+                const tempFileManager = require('./temp-manager');
+                const outputPath = tempFileManager.createTempFile('model_prod', 'png');
+               
+                // Генерируем визуализацию
+                const modelImagePath = await modelViz.createVisualization(modelData, {
+                    currentPhotoPoints,
+                    outputPath: outputPath,
+                    width: 1200,
+                    height: 800
+                });
+               
+                if (modelImagePath && fs.existsSync(modelImagePath)) {
+                    console.log(`✅ Продакшен-визуализация модели создана: ${modelImagePath}`);
+                   
+                    // Формируем статистику подтверждений
+                    const confirmations = {
+                        red: modelData.points.filter(p => p.confirmationCount >= 11).length,
+                        orange: modelData.points.filter(p => p.confirmationCount >= 5 && p.confirmationCount <= 10).length,
+                        yellow: modelData.points.filter(p => p.confirmationCount >= 2 && p.confirmationCount <= 4).length,
+                        blue: modelData.points.filter(p => p.confirmationCount === 1).length,
+                        gray: modelData.points.filter(p => !p.confirmationCount || p.confirmationCount === 0).length
+                    };
+                   
+                    // Отправляем в Telegram
+                    await bot.sendPhoto(chatId, modelImagePath, {
+                        caption:
+                            `🏗️ **ИТОГОВАЯ МОДЕЛЬ**\n\n` +
+                            `📊 **СТАТИСТИКА ПОДТВЕРЖДЕНИЙ:**\n` +
+                            `• 🔴 Красные (11+): ${confirmations.red}\n` +
+                            `• 🟠 Оранжевые (5-10): ${confirmations.orange}\n` +
+                            `• 🟡 Жёлтые (2-5): ${confirmations.yellow}\n` +
+                            `• 🔵 Синие (1): ${confirmations.blue}\n` +
+                            `• ⚫ Серые (0): ${confirmations.gray}\n\n` +
+                            `🟣 **Фиолетовый круг** - точки, совпавшие с текущим фото\n` +
+                            `🔢 **Номера** - только у красных (11+ подтверждений)\n\n` +
+                            `💪 **Чем больше красных точек - тем надёжнее модель!**`
+                    });
+                   
+                    // Очищаем временный файл через минуту
+                    setTimeout(() => {
+                        if (fs.existsSync(modelImagePath)) {
+                            fs.unlinkSync(modelImagePath);
+                            console.log(`🧹 Удалён временный файл: ${modelImagePath}`);
+                        }
+                    }, 60000);
+                } else {
+                    console.log('⚠️ Не удалось создать продакшен-визуализацию модели');
+                }
+            }
+        }
+    } catch (modelVizError) {
+        console.log(`⚠️ Ошибка продакшен-визуализации модели: ${modelVizError.message}`);
+    }
+}
+
+// 🔥 ФОРМИРУЕМ РЕЗУЛЬТАТ
+const result = {
+    success: true,
+    footprintId: session.id,
+    photoId: photoId,
+    nodesAdded: points.length,
+    totalPhotos: session.photos.length,
+    topologicalDecision: decision,
+    topologicalSimilarity: similarity,
+    hasTopology: this.config.enableTopology,
+    visualizationPath: modelVizPath || photoVizPath || null,
+    telegramSent: telegramSent,
+    mode: 'sandbox'
 };
 
 
