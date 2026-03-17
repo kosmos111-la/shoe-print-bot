@@ -242,7 +242,10 @@ let finalValidatedMatches;
 if (validationResult.success) {
     const validated = validationResult.results;
     const transform = validationResult.transform;
-
+   
+    // 🔥 СОХРАНЯЕМ TRANSFORM В МОДЕЛЬ
+    existingModel.transform = transform;
+   
     console.log(`\n🔍 ПРОВЕРКА ВСЕХ ТОЧЕК НА СООТВЕТСТВИЕ ПРЕОБРАЗОВАНИЮ`);
 
     // Объединяем все точки для проверки
@@ -364,6 +367,46 @@ if (validationResult.success && transform) {
     }));
 }
 
+// ===== ШАГ 3.7: ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК ДЛЯ ВИЗУАЛИЗАЦИИ =====
+console.log(`\n📊 ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК`);
+
+// Получаем все точки из графов
+const allPointsInA = Array.from(exactGraph.nodes.values());
+const allPointsInB = Array.from(existingModel.graph.nodes.values());
+
+// Множества уже сопоставленных точек
+const matchedPointsA = new Set(finalValidatedMatches.map(m => m.pointA));
+const matchedPointsB = new Set(finalValidatedMatches.map(m => m.pointB));
+
+// Точки только в первом следе (модель)
+const uniqueInModel = allPointsInA
+    .filter(p => !matchedPointsA.has(p.id))
+    .map(p => ({
+        id: p.id,
+        x: p.x,
+        y: p.y,
+        type: 'unique_in_model'
+    }));
+
+// Точки только во втором следе (фото)
+const uniqueInPhoto = allPointsInB
+    .filter(p => !matchedPointsB.has(p.id))
+    .map(p => ({
+        id: p.id,
+        x: p.x,
+        y: p.y,
+        type: 'unique_in_photo'
+    }));
+
+console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
+console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
+
+// Сохраняем в модель для визуализации
+existingModel.uniquePoints = {
+    model: uniqueInModel,
+    photo: uniqueInPhoto
+};
+      
 // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
 console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches.length} точек`);
 
@@ -1529,56 +1572,59 @@ for (const [pointA, pointB] of pointCorrespondence) {
 }
 
     getVisualizationData(modelId = null, reliablePhotoIds = []) {
-        const targetId = modelId || this.currentModelId;
-        if (!targetId || !this.models.has(targetId)) return null;
+    const targetId = modelId || this.currentModelId;
+    if (!targetId || !this.models.has(targetId)) return null;
 
-        const model = this.models.get(targetId);
-        const graph = model.graph;
+    const model = this.models.get(targetId);
+    const graph = model.graph;
 
-        // 🔥 ПОЛУЧАЕМ modelMatchMap ИЗ МОДЕЛИ
-        const modelMatchMapFromModel = model.lastTriangleResult?.modelMatchMap || new Map();
-        console.log(`📋 getVisualizationData: modelMatchMap содержит ${modelMatchMapFromModel.size} записей`);
+    // 🔥 ПОЛУЧАЕМ modelMatchMap ИЗ МОДЕЛИ
+    const modelMatchMapFromModel = model.lastTriangleResult?.modelMatchMap || new Map();
+    console.log(`📋 getVisualizationData: modelMatchMap содержит ${modelMatchMapFromModel.size} записей`);
 
-        let reliableNodeIds = new Set(reliablePhotoIds);
-        if (reliableNodeIds.size === 0) {
-            for (const [nodeId, node] of graph.nodes) {
-                if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
-            }
+    let reliableNodeIds = new Set(reliablePhotoIds);
+    if (reliableNodeIds.size === 0) {
+        for (const [nodeId, node] of graph.nodes) {
+            if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
         }
-
-        const pointsByConfirmation = {
-            confirmed3: [], confirmed2: [], confirmed1: [], confirmed0: []
-        };
-
-        for (const node of graph.nodes.values()) {
-            const count = node.confirmationCount || 0;
-            if (count >= 3) pointsByConfirmation.confirmed3.push(node);
-            else if (count >= 2) pointsByConfirmation.confirmed2.push(node);
-            else if (count >= 1) pointsByConfirmation.confirmed1.push(node);
-            else pointsByConfirmation.confirmed0.push(node);
-        }
-
-        return {
-            modelId: targetId,
-            modelName: model.metadata.name,
-            points: Array.from(graph.nodes.values()),
-            edges: Array.from(graph.edges),
-            stats: {
-                totalNodes: graph.nodes.size,
-                totalEdges: graph.edges.size,
-                confirmed3: pointsByConfirmation.confirmed3.length,
-                confirmed2: pointsByConfirmation.confirmed2.length,
-                confirmed1: pointsByConfirmation.confirmed1.length,
-                confirmed0: pointsByConfirmation.confirmed0.length,
-                reliableNodes: reliableNodeIds.size
-            },
-            pointsByConfirmation,
-            metadata: model.metadata,
-            allModels: this.getAllModels(),
-            currentModelId: this.currentModelId,
-            modelMatchMap: modelMatchMapFromModel  // 🔥 ВАЖНО!
-        };
     }
+
+    const pointsByConfirmation = {
+        confirmed3: [], confirmed2: [], confirmed1: [], confirmed0: []
+    };
+
+    for (const node of graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 3) pointsByConfirmation.confirmed3.push(node);
+        else if (count >= 2) pointsByConfirmation.confirmed2.push(node);
+        else if (count >= 1) pointsByConfirmation.confirmed1.push(node);
+        else pointsByConfirmation.confirmed0.push(node);
+    }
+
+    return {
+        modelId: targetId,
+        modelName: model.metadata.name,
+        points: Array.from(graph.nodes.values()),
+        edges: Array.from(graph.edges),
+        stats: {
+            totalNodes: graph.nodes.size,
+            totalEdges: graph.edges.size,
+            confirmed3: pointsByConfirmation.confirmed3.length,
+            confirmed2: pointsByConfirmation.confirmed2.length,
+            confirmed1: pointsByConfirmation.confirmed1.length,
+            confirmed0: pointsByConfirmation.confirmed0.length,
+            reliableNodes: reliableNodeIds.size
+        },
+        pointsByConfirmation,
+        metadata: model.metadata,
+        allModels: this.getAllModels(),
+        currentModelId: this.currentModelId,
+        modelMatchMap: modelMatchMapFromModel,
+        // 🔥 ДОБАВЛЯЕМ НОВЫЕ ДАННЫЕ
+        transform: model.transform,
+        uniquePoints: model.uniquePoints
+    };
+}
 
     getModelInfo(modelId = null) {
         const targetId = modelId || this.currentModelId;
