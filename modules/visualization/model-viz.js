@@ -1,5 +1,5 @@
 // modules/visualization/model-viz.js
-// 🏗️ ВИЗУАЛИЗАЦИЯ ИТОГОВОЙ МОДЕЛИ (для продакшена)
+// 🏗️ ВИЗУАЛИЗАЦИЯ ИТОГОВОЙ МОДЕЛИ С ТРАНСФОРМИРОВАННЫМ ФОТО
 
 const { createCanvas } = require('canvas');
 const path = require('path');
@@ -13,7 +13,7 @@ class ModelVisualization {
     }
 
     /**
-     * Создаёт визуализацию модели
+     * Создаёт визуализацию модели с наложенным трансформированным фото
      * @param {Object} options - параметры визуализации
      * @returns {string} - путь к файлу
      */
@@ -22,53 +22,80 @@ class ModelVisualization {
             console.log('🏗️ Создаю визуализацию итоговой модели...');
 
             const {
-                points = [],
+                points = [],              // точки модели
+                photoPoints = [],         // оригинальные точки фото
+                transform = null,          // преобразование {scale, rotation, translation}
+                matches = new Map(),       // соответствия photoId -> modelId
                 edges = [],
-                currentPhotoPoints = new Set(), // ID точек, совпавших с текущим фото
                 width = 1200,
                 height = 1000,
                 padding = 50,
                 outputPath = null
             } = options;
 
-            // 🔥 ВАЖНО: проверяем, что точки есть
             if (!points || points.length === 0) {
-                console.log('⚠️ Нет точек для визуализации');
-                console.log('   📍 Передано currentPhotoPoints:', currentPhotoPoints.size);
+                console.log('⚠️ Нет точек модели для визуализации');
                 return null;
             }
 
-            console.log(`   📊 Получено ${points.length} точек для визуализации`);
-            console.log(`   📍 Совпало с текущим фото: ${currentPhotoPoints.size}`);
+            console.log(`   📊 Точек модели: ${points.length}`);
+            console.log(`   📸 Точек фото: ${photoPoints?.length || 0}`);
+            console.log(`   🔄 Трансформация: ${transform ? 'есть' : 'нет'}`);
+            console.log(`   🔗 Соответствий: ${matches.size}`);
 
-            // Вычисляем границы
-            const bounds = this.calculateBounds(points, padding);
+            // Применяем трансформацию к точкам фото, если она есть
+            let transformedPhotoPoints = [];
+            if (transform && photoPoints && photoPoints.length > 0) {
+                transformedPhotoPoints = photoPoints.map(p => ({
+                    ...p,
+                    originalX: p.x,
+                    originalY: p.y,
+                    transformed: this.applyTransform(p, transform)
+                }));
+                console.log(`   🔄 Трансформировано точек фото: ${transformedPhotoPoints.length}`);
+            }
+
+            // Вычисляем общие границы для всех точек (модель + трансформированное фото)
+            const allPoints = [
+                ...points,
+                ...transformedPhotoPoints.map(p => ({
+                    x: p.transformed.x,
+                    y: p.transformed.y
+                }))
+            ];
+           
+            const bounds = this.calculateBounds(allPoints, padding);
             const scale = this.calculateScale(bounds, width, height, padding);
 
             const canvas = createCanvas(width, height);
             const ctx = canvas.getContext('2d');
 
             // Фон
-            ctx.fillStyle = '#1a1a1a'; // Тёмный фон для контраста
+            ctx.fillStyle = '#1a1a1a';
             ctx.fillRect(0, 0, width, height);
 
-            // Рисуем рёбра (полупрозрачные)
+            // Рисуем рёбра модели (полупрозрачные)
             this.drawEdges(ctx, edges, points, bounds, scale, width, height);
 
-            // Рисуем точки
-            this.drawPoints(ctx, points, currentPhotoPoints, bounds, scale, width, height);
+            // Рисуем точки модели
+            this.drawModelPoints(ctx, points, matches, bounds, scale, width, height);
+
+            // Рисуем трансформированные точки фото
+            if (transformedPhotoPoints.length > 0) {
+                this.drawTransformedPhotoPoints(ctx, transformedPhotoPoints, matches, bounds, scale, width, height);
+            }
 
             // Рисуем легенду
-            this.drawLegend(ctx, width, height);
+            this.drawLegend(ctx, width, height, transform);
 
             // Сохраняем
             const finalOutputPath = outputPath ||
-                path.join(this.ensureOutputDir(), `model_${Date.now()}.png`);
+                path.join(this.ensureOutputDir(), `model_overlay_${Date.now()}.png`);
            
             const buffer = canvas.toBuffer('image/png');
             fs.writeFileSync(finalOutputPath, buffer);
 
-            console.log(`✅ Модель сохранена: ${finalOutputPath}`);
+            console.log(`✅ Модель с наложением сохранена: ${finalOutputPath}`);
             return finalOutputPath;
 
         } catch (error) {
@@ -79,16 +106,164 @@ class ModelVisualization {
     }
 
     /**
+     * Применяет преобразование к точке
+     */
+    applyTransform(point, transform) {
+        const { scale, rotation, translation } = transform;
+       
+        // Поворот и масштаб
+        const xRot = point.x * Math.cos(rotation) - point.y * Math.sin(rotation);
+        const yRot = point.x * Math.sin(rotation) + point.y * Math.cos(rotation);
+       
+        // Масштаб и сдвиг
+        return {
+            x: xRot * scale + translation.x,
+            y: yRot * scale + translation.y
+        };
+    }
+
+    /**
+     * Рисует точки модели
+     */
+    drawModelPoints(ctx, points, matches, bounds, scale, width, height) {
+        // Создаём Set сопоставленных точек модели
+        const matchedModelPoints = new Set();
+        for (const [photoId, match] of matches) {
+            if (match && match.modelId) {
+                matchedModelPoints.add(match.modelId);
+            }
+        }
+
+        let stats = { red: 0, orange: 0, yellow: 0, blue: 0, gray: 0, matched: 0 };
+
+        for (const point of points) {
+            const x = this.projectX(point.x, bounds, scale, width);
+            const y = this.projectY(point.y, bounds, scale, height);
+
+            const confirmations = point.confirmationCount || 0;
+            const isMatched = matchedModelPoints.has(point.id);
+           
+            // Определяем цвет по количеству подтверждений
+            let color;
+            let size;
+           
+            if (isMatched) {
+                color = '#FFD700'; // Золотой для сопоставленных точек модели
+                size = 8;
+                stats.matched++;
+            } else if (confirmations >= 11) {
+                color = '#FF0000'; // Красный
+                size = 8;
+                stats.red++;
+            } else if (confirmations >= 5) {
+                color = '#FFA500'; // Оранжевый
+                size = 7;
+                stats.orange++;
+            } else if (confirmations >= 2) {
+                color = '#FFD700'; // Жёлтый
+                size = 6;
+                stats.yellow++;
+            } else if (confirmations >= 1) {
+                color = '#4169E1'; // Синий
+                size = 5;
+                stats.blue++;
+            } else {
+                color = '#808080'; // Серый
+                size = 4;
+                stats.gray++;
+            }
+
+            // Рисуем точку
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, 2 * Math.PI);
+            ctx.fill();
+           
+            // Белая обводка для контраста
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Для красных точек добавляем номер
+            if (confirmations >= 11 && point.pairNumber) {
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 8px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(point.pairNumber.toString(), x, y);
+            }
+        }
+
+        console.log(`   📊 Модель: красных ${stats.red}, оранж ${stats.orange}, жёлт ${stats.yellow}, син ${stats.blue}, сер ${stats.gray}, сопоставлено ${stats.matched}`);
+    }
+
+    /**
+     * Рисует трансформированные точки фото
+     */
+    drawTransformedPhotoPoints(ctx, photoPoints, matches, bounds, scale, width, height) {
+        // Создаём карту соответствий для быстрого доступа
+        const matchMap = new Map();
+        for (const [photoId, match] of matches) {
+            matchMap.set(photoId, match);
+        }
+
+        let stats = { matched: 0, unmatched: 0 };
+
+        for (const point of photoPoints) {
+            const hasMatch = matchMap.has(point.id);
+            const tx = point.transformed.x;
+            const ty = point.transformed.y;
+           
+            const x = this.projectX(tx, bounds, scale, width);
+            const y = this.projectY(ty, bounds, scale, height);
+
+            if (hasMatch) {
+                // Сопоставленная точка - фиолетовая
+                ctx.fillStyle = '#AA00FF';
+                ctx.beginPath();
+                ctx.arc(x, y, 6, 0, 2 * Math.PI);
+                ctx.fill();
+               
+                // Белая обводка
+                ctx.strokeStyle = '#FFFFFF';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+               
+                // Номер пары
+                const match = matchMap.get(point.id);
+                if (match && match.pairNumber) {
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 8px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(match.pairNumber.toString(), x, y);
+                }
+               
+                stats.matched++;
+            } else {
+                // Несопоставленная точка - полупрозрачная синяя
+                ctx.fillStyle = 'rgba(65, 105, 225, 0.5)'; // Полупрозрачный синий
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, 2 * Math.PI);
+                ctx.fill();
+               
+                stats.unmatched++;
+            }
+        }
+
+        console.log(`   📸 Фото: сопоставлено ${stats.matched}, не сопоставлено ${stats.unmatched}`);
+    }
+
+    /**
      * Рисует рёбра графа
      */
     drawEdges(ctx, edges, points, bounds, scale, width, height) {
         if (!edges || edges.length === 0) return;
 
-        // Создаём карту точек для быстрого доступа
         const pointsMap = new Map();
         points.forEach(p => pointsMap.set(p.id, p));
 
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
         ctx.lineWidth = 1;
 
         let drawn = 0;
@@ -117,143 +292,85 @@ class ModelVisualization {
     }
 
     /**
-     * Рисует точки с цветами по количеству подтверждений
-     */
-    drawPoints(ctx, points, currentPhotoPoints, bounds, scale, width, height) {
-        console.log(`   🎨 Рисую ${points.length} точек...`);
-       
-        let stats = { red: 0, orange: 0, yellow: 0, blue: 0, gray: 0, purple: 0 };
-
-        for (const point of points) {
-            const x = this.projectX(point.x, bounds, scale, width);
-            const y = this.projectY(point.y, bounds, scale, height);
-
-            const confirmations = point.confirmationCount || 0;
-           
-            // Определяем цвет по количеству подтверждений
-            let color;
-            if (confirmations >= 11) {
-                color = '#FF0000'; // Красный
-                stats.red++;
-            } else if (confirmations >= 5) {
-                color = '#FFA500'; // Оранжевый
-                stats.orange++;
-            } else if (confirmations >= 2) {
-                color = '#FFD700'; // Жёлтый
-                stats.yellow++;
-            } else if (confirmations >= 1) {
-                color = '#4169E1'; // Синий
-                stats.blue++;
-            } else {
-                color = '#808080'; // Серый
-                stats.gray++;
-            }
-
-            // Размер точки зависит от подтверждений
-            const size = 4 + Math.min(confirmations, 8);
-
-            // Рисуем точку
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, 2 * Math.PI);
-            ctx.fill();
-
-            // Если точка совпала с текущим фото - добавляем фиолетовый круг
-            const isMatched = currentPhotoPoints.has(point.id);
-            if (isMatched) {
-                stats.purple++;
-                ctx.strokeStyle = '#AA00FF'; // Фиолетовый
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(x, y, size + 3, 0, 2 * Math.PI);
-                ctx.stroke();
-            }
-
-            // Для очень важных точек (11+ подтверждений) добавляем номер
-            if (confirmations >= 11 && point.pairNumber) {
-                ctx.fillStyle = '#FFFFFF';
-                ctx.font = 'bold 10px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(point.pairNumber.toString(), x, y);
-            }
-        }
-
-        console.log(`   📊 Распределение:`);
-        console.log(`      🔴 Красные (11+): ${stats.red}`);
-        console.log(`      🟠 Оранжевые (5-10): ${stats.orange}`);
-        console.log(`      🟡 Жёлтые (2-4): ${stats.yellow}`);
-        console.log(`      🔵 Синие (1): ${stats.blue}`);
-        console.log(`      ⚫ Серые (0): ${stats.gray}`);
-        console.log(`      🟣 Фиолетовый круг: ${stats.purple}`);
-    }
-
-    /**
      * Рисует легенду
      */
-    drawLegend(ctx, width, height) {
-        const legendX = width - 250;
+    drawLegend(ctx, width, height, transform) {
+        const legendX = width - 300;
         const legendY = 30;
-        const lineHeight = 25;
+        const lineHeight = 22;
 
-        // Полупрозрачный фон для легенды
+        // Полупрозрачный фон
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.fillRect(legendX - 15, legendY - 15, 240, 180);
+        ctx.fillRect(legendX - 15, legendY - 15, 280, transform ? 240 : 200);
 
         ctx.font = 'bold 14px Arial';
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillText('📊 МОДЕЛЬ', legendX, legendY);
+        ctx.fillText('🏗️ МОДЕЛЬ С НАЛОЖЕНИЕМ', legendX, legendY);
 
-        // Цветные точки с описанием
-        this.drawLegendItem(ctx, legendX, legendY + lineHeight, '#FF0000', '11+ подтверждений');
-        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 2, '#FFA500', '5-10 подтверждений');
-        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 3, '#FFD700', '2-4 подтверждения');
-        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 4, '#4169E1', '1 подтверждение');
-        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 5, '#808080', '0 подтверждений');
+        // Точки модели
+        this.drawLegendItem(ctx, legendX, legendY + lineHeight, '#FF0000', 'Модель: 11+ подтверждений');
+        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 2, '#FFA500', 'Модель: 5-10 подтверждений');
+        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 3, '#FFD700', 'Модель: 2-4 подтверждения');
+        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 4, '#4169E1', 'Модель: 1 подтверждение');
+        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 5, '#808080', 'Модель: 0 подтверждений');
 
-        // Фиолетовый круг
-        ctx.strokeStyle = '#AA00FF';
-        ctx.lineWidth = 2;
+        // Точки фото
+        ctx.fillStyle = '#AA00FF';
         ctx.beginPath();
-        ctx.arc(legendX + 7, legendY + lineHeight * 6 - 10, 6, 0, 2 * Math.PI);
+        ctx.arc(legendX + 7, legendY + lineHeight * 6 - 8, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1;
         ctx.stroke();
         ctx.fillStyle = '#FFFFFF';
         ctx.font = '12px Arial';
-        ctx.fillText('совпало с текущим фото', legendX + 20, legendY + lineHeight * 6 - 5);
+        ctx.fillText('Фото: сопоставлено', legendX + 20, legendY + lineHeight * 6 - 5);
+
+        ctx.fillStyle = 'rgba(65, 105, 225, 0.5)';
+        ctx.beginPath();
+        ctx.arc(legendX + 7, legendY + lineHeight * 7 - 8, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '12px Arial';
+        ctx.fillText('Фото: не сопоставлено', legendX + 20, legendY + lineHeight * 7 - 5);
+
+        // Информация о трансформации
+        if (transform) {
+            ctx.font = '11px Arial';
+            ctx.fillStyle = '#AAAAAA';
+            ctx.fillText(`Масштаб: ${transform.scale.toFixed(3)}`, legendX, legendY + lineHeight * 8);
+            ctx.fillText(`Поворот: ${(transform.rotation * 180 / Math.PI).toFixed(1)}°`, legendX, legendY + lineHeight * 9);
+            ctx.fillText(`Сдвиг: (${transform.translation.x.toFixed(0)}, ${transform.translation.y.toFixed(0)})`, legendX, legendY + lineHeight * 10);
+        }
     }
 
-    /**
-     * Рисует элемент легенды
-     */
     drawLegendItem(ctx, x, y, color, text) {
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(x + 7, y - 10, 6, 0, 2 * Math.PI);
+        ctx.arc(x + 7, y - 8, 6, 0, 2 * Math.PI);
         ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1;
+        ctx.stroke();
 
         ctx.fillStyle = '#FFFFFF';
         ctx.font = '12px Arial';
-        ctx.fillText(text, x + 20, y - 7);
+        ctx.fillText(text, x + 20, y - 5);
     }
 
-    /**
-     * Проецирует X координату
-     */
     projectX(x, bounds, scale, width) {
         return (x - bounds.minX) * scale + 50;
     }
 
-    /**
-     * Проецирует Y координату
-     */
     projectY(y, bounds, scale, height) {
         return (y - bounds.minY) * scale + 50;
     }
 
-    /**
-     * Вычисляет границы точек
-     */
     calculateBounds(points, padding) {
+        if (points.length === 0) {
+            return { minX: 0, maxX: 100, minY: 0, maxY: 100 };
+        }
+
         let minX = Infinity, maxX = -Infinity;
         let minY = Infinity, maxY = -Infinity;
 
@@ -264,7 +381,6 @@ class ModelVisualization {
             maxY = Math.max(maxY, p.y);
         }
 
-        // Добавляем отступы
         const rangeX = maxX - minX;
         const rangeY = maxY - minY;
        
@@ -276,9 +392,6 @@ class ModelVisualization {
         return { minX, maxX, minY, maxY };
     }
 
-    /**
-     * Вычисляет масштаб
-     */
     calculateScale(bounds, width, height, padding) {
         const rangeX = bounds.maxX - bounds.minX;
         const rangeY = bounds.maxY - bounds.minY;
@@ -287,12 +400,9 @@ class ModelVisualization {
        
         const scaleX = (width - padding * 2) / rangeX;
         const scaleY = (height - padding * 2) / rangeY;
-        return Math.min(scaleX, scaleY, 10); // Ограничиваем максимальный масштаб
+        return Math.min(scaleX, scaleY, 15);
     }
 
-    /**
-     * Создаёт выходную директорию
-     */
     ensureOutputDir() {
         const dir = path.join(__dirname, '../../data/footprints/visualizations/models');
         if (!fs.existsSync(dir)) {
