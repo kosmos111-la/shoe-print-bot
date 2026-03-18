@@ -1785,9 +1785,44 @@ try {
         }
     }
 
-    // 2. 🔥 ИСПРАВЛЕНО: НЕ добавляем все точки фото автоматически!
-    // Точки фото попадают в модель ТОЛЬКО через matches после полной валидации
-    // Если нужно добавить новую точку из фото, она уже должна быть в matches
+    // 2. Добавляем новые точки из фото (которые не совпали, но мы их сохраняем)
+    // uniqueInPhoto должен быть передан в метод или доступен из контекста
+    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+        console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
+       
+        for (const photoPoint of this.lastUniqueInPhoto) {
+            // Проверяем, нет ли уже такой точки рядом
+            let isDuplicate = false;
+            for (const [modelId, modelNode] of model.graph.nodes) {
+                const dx = modelNode.x - photoPoint.x;
+                const dy = modelNode.y - photoPoint.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < 5) { // порог 5px
+                    isDuplicate = true;
+                    break;
+                }
+            }
+           
+            if (!isDuplicate) {
+                const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
+               
+                model.graph.nodes.set(newNodeId, {
+                    id: newNodeId,
+                    x: photoPoint.x,
+                    y: photoPoint.y,
+                    degree: 0,
+                    morphology: newMorphology?.get(photoPoint.id),
+                    confirmationCount: 1,
+                    addedFrom: 'new_photo_point',
+                    addedAt: new Date(),
+                    originalPhotoId: photoPoint.id
+                });
+               
+                newNodesAdded++;
+                console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+            }
+        }
+    }
 
     console.log(`\n📊 Результат обновления модели:`);
     console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
