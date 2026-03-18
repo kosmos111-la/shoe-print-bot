@@ -652,6 +652,300 @@ class TopologicalAccumulator {
                         };
                     }
 
+// ===== ШАГ 3.9: ПОЛНЫЙ ЦИКЛ ДЛЯ СИНИХ ТОЧЕК =====
+console.log(`\n🔷 ПОЛНЫЙ ЦИКЛ ДЛЯ СИНИХ ТОЧЕК`);
+
+try {
+    // Получаем оставшиеся синие точки
+    const remainingPhotoPoints = unmatchedPhotoPoints.filter(p => !matchedPointsA.has(p?.id));
+    const remainingModelPoints = Array.from(existingModel?.graph?.nodes?.values() || [])
+        .filter(p => !matchedPointsB.has(p?.id));
+
+    console.log(`   • Синих точек фото: ${remainingPhotoPoints.length}`);
+    console.log(`   • Синих точек модели: ${remainingModelPoints.length}`);
+
+    if (remainingPhotoPoints.length === 0 || remainingModelPoints.length === 0) {
+        console.log(`   ⚠️ Нет синих точек для обработки`);
+    } else {
+        // ШАГ 1: Собираем кандидатов (как в валидаторе)
+        let blueCandidates = [];
+       
+        for (const photoPoint of remainingPhotoPoints) {
+            if (!photoPoint || !photoPoint.id) continue;
+           
+            try {
+                const projected = {
+                    x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+                       photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                       finalTransform.translation.x,
+                    y: photoPoint.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                       photoPoint.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+                       finalTransform.translation.y
+                };
+               
+                // Ищем ближайшие точки модели
+                const candidates = [];
+                for (const modelPoint of remainingModelPoints) {
+                    if (!modelPoint || !modelPoint.id) continue;
+                   
+                    const dx = projected.x - modelPoint.x;
+                    const dy = projected.y - modelPoint.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                   
+                    if (dist < 15) { // порог как в валидаторе
+                        candidates.push({
+                            modelPoint,
+                            distance: dist,
+                            normalizedDist: dist / 100
+                        });
+                    }
+                }
+               
+                if (candidates.length > 0) {
+                    candidates.sort((a, b) => a.distance - b.distance);
+                    blueCandidates.push({
+                        pointA: photoPoint.id,
+                        candidates: candidates.slice(0, 3), // топ-3 кандидата
+                        photoPoint,
+                        projected
+                    });
+                }
+            } catch (pointError) {
+                console.log(`   ⚠️ Ошибка обработки точки ${photoPoint?.id?.substring(0,12)}: ${pointError.message}`);
+            }
+        }
+
+        console.log(`\n📊 Найдено ${blueCandidates.length} точек-кандидатов`);
+
+        // ШАГ 2: ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА (как в checkGlobalConsistency)
+        console.log(`\n🔍 ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА СИНИХ КАНДИДАТОВ`);
+
+        let topologicallyConsistent = [];
+
+        for (const candidate of blueCandidates) {
+            try {
+                console.log(`\n   Проверка точки ${candidate.pointA.substring(0,12)}...`);
+               
+                // Для каждого кандидата проверяем топологию
+                const photoNeighbors = this.findNodeNeighbors(candidate.pointA, exactGraph) || [];
+                const photoNeighborIds = photoNeighbors.map(n => n?.id).filter(id => id);
+               
+                // Какие из соседей уже сопоставлены?
+                const matchedNeighbors = photoNeighborIds.filter(id => matchedPointsA.has(id));
+               
+                if (matchedNeighbors.length < 2) {
+                    console.log(`      ⚠️ Мало сопоставленных соседей (${matchedNeighbors.length}) - пропускаем`);
+                    continue;
+                }
+               
+                // Для каждого кандидата из топ-3
+                for (const modelCandidate of candidate.candidates) {
+                    const modelPoint = modelCandidate.modelPoint;
+                    if (!modelPoint || !modelPoint.id) continue;
+                   
+                    const modelNeighbors = this.findNodeNeighbors(modelPoint.id, existingModel.graph) || [];
+                    const modelNeighborIds = modelNeighbors.map(n => n?.id).filter(id => id);
+                   
+                    // Проверяем, что соседи модели тоже сопоставлены
+                    const matchedModelNeighbors = modelNeighborIds.filter(id => matchedPointsB.has(id));
+                   
+                    if (matchedModelNeighbors.length !== matchedNeighbors.length) {
+                        continue;
+                    }
+                   
+                    // Проверяем, что соседи соответствуют друг другу
+                    let topologyMatch = true;
+                    for (let i = 0; i < matchedNeighbors.length; i++) {
+                        const photoNeighbor = matchedNeighbors[i];
+                        // Находим, какой точке модели соответствует этот сосед
+                        const match = finalValidatedMatches.find(m => m?.pointA === photoNeighbor);
+                        if (!match || !match.pointB) {
+                            topologyMatch = false;
+                            break;
+                        }
+                        // Проверяем, есть ли этот modelId среди соседей модели
+                        if (!modelNeighborIds.includes(match.pointB)) {
+                            topologyMatch = false;
+                            break;
+                        }
+                    }
+                   
+                    if (topologyMatch) {
+                        console.log(`      ✅ Топология согласована с кандидатом ${modelPoint.id.substring(0,12)}`);
+                        topologicallyConsistent.push({
+                            pointA: candidate.pointA,
+                            pointB: modelPoint.id,
+                            distance: modelCandidate.distance,
+                            photoPoint: candidate.photoPoint,
+                            modelPoint: modelPoint,
+                            projected: candidate.projected
+                        });
+                        break; // Берём первого подходящего
+                    }
+                }
+            } catch (candidateError) {
+                console.log(`   ⚠️ Ошибка проверки кандидата: ${candidateError.message}`);
+            }
+        }
+
+        console.log(`\n📊 Топологически согласовано: ${topologicallyConsistent.length} точек`);
+
+        // ШАГ 3: ИТЕРАТИВНОЕ НАТЯГИВАНИЕ (как в этапе 2)
+        if (topologicallyConsistent.length > 0) {
+            console.log(`\n🔧 ИТЕРАТИВНОЕ НАТЯГИВАНИЕ СИНИХ ТОЧЕК`);
+           
+            let workingAnchors = finalValidatedMatches.map(m => ({
+                pointA: m?.pointA,
+                pointB: m?.pointB,
+                confidence: m?.confidence || 0.5
+            })).filter(a => a.pointA && a.pointB);
+           
+            let addedBluePoints = [];
+           
+            // Сортируем по расстоянию
+            topologicallyConsistent.sort((a, b) => a.distance - b.distance);
+           
+            for (const candidate of topologicallyConsistent) {
+                try {
+                    console.log(`\n   Проверка кандидата ${candidate.pointA.substring(0,12)}...`);
+                   
+                    const testAnchors = [...workingAnchors, {
+                        pointA: candidate.pointA,
+                        pointB: candidate.pointB,
+                        confidence: 0.9
+                    }];
+                   
+                    const testTransform = validator.calculateTransform(
+                        testAnchors,
+                        exactGraph,
+                        existingModel.graph
+                    );
+                   
+                    if (!testTransform) {
+                        console.log(`      ⚠️ Не удалось вычислить transform`);
+                        continue;
+                    }
+                   
+                    // Проверяем все существующие якоря
+                    let allConsistent = true;
+                    for (const anchor of workingAnchors) {
+                        if (!anchor || !anchor.pointA || !anchor.pointB) continue;
+                       
+                        const nodeA = exactGraph?.nodes?.get(anchor.pointA);
+                        const nodeB = existingModel?.graph?.nodes?.get(anchor.pointB);
+                       
+                        if (!nodeA || !nodeB) continue;
+                       
+                        const projected = validator.applyTransform(nodeA, testTransform);
+                        const dx = projected.x - nodeB.x;
+                        const dy = projected.y - nodeB.y;
+                        const error = Math.sqrt(dx*dx + dy*dy);
+                        const footprintSize = validator.getFootprintSize(Array.from(existingModel?.graph?.nodes?.values() || []));
+                        const relativeError = error / (footprintSize || 1);
+                       
+                        if (relativeError >= 0.05) {
+                            allConsistent = false;
+                            console.log(`      ⚠️ Нарушена точка ${anchor.pointA.substring(0,12)}`);
+                            break;
+                        }
+                    }
+                   
+                    if (allConsistent) {
+                        // Проверяем самого кандидата
+                        const nodeA = exactGraph?.nodes?.get(candidate.pointA);
+                        const nodeB = existingModel?.graph?.nodes?.get(candidate.pointB);
+                       
+                        if (nodeA && nodeB) {
+                            const projected = validator.applyTransform(nodeA, testTransform);
+                            const dx = projected.x - nodeB.x;
+                            const dy = projected.y - nodeB.y;
+                            const error = Math.sqrt(dx*dx + dy*dy);
+                            const footprintSize = validator.getFootprintSize(Array.from(existingModel?.graph?.nodes?.values() || []));
+                            const relativeError = error / (footprintSize || 1);
+                           
+                            if (relativeError < 0.05) {
+                                console.log(`      ✅ Кандидат согласован!`);
+                               
+                                // Притягиваем (усредняем)
+                                const avgX = (projected.x + nodeB.x) / 2;
+                                const avgY = (projected.y + nodeB.y) / 2;
+                               
+                                nodeB.x = avgX;
+                                nodeB.y = avgY;
+                                nodeB.confirmationCount = (nodeB.confirmationCount || 1) + 1;
+                               
+                                addedBluePoints.push({
+                                    pointA: candidate.pointA,
+                                    pointB: candidate.pointB,
+                                    confidence: 0.9,
+                                    status: 'blue_confirmed'
+                                });
+                               
+                                workingAnchors = testAnchors;
+                            }
+                        }
+                    }
+                } catch (iterError) {
+                    console.log(`   ⚠️ Ошибка итерации: ${iterError.message}`);
+                }
+            }
+           
+            if (addedBluePoints.length > 0) {
+                console.log(`\n✅ Добавлено ${addedBluePoints.length} синих точек!`);
+                finalValidatedMatches = [...finalValidatedMatches, ...addedBluePoints];
+               
+                // Обновляем множества
+                matchedPointsA.clear();
+                matchedPointsB.clear();
+                for (const match of finalValidatedMatches) {
+                    if (match?.pointA) matchedPointsA.add(match.pointA);
+                    if (match?.pointB) matchedPointsB.add(match.pointB);
+                }
+               
+                // Пересчитываем уникальные точки
+                const uniqueInModel = allPointsInA
+                    .filter(p => p && p.id && !matchedPointsA.has(p.id))
+                    .map(p => ({
+                        id: p.id,
+                        x: p.x,
+                        y: p.y,
+                        type: 'unique_in_model'
+                    }));
+
+                const uniqueInPhoto = allPointsInB
+                    .filter(p => p && p.id && !matchedPointsB.has(p.id))
+                    .map(p => ({
+                        id: p.id,
+                        x: p.x,
+                        y: p.y,
+                        type: 'unique_in_photo'
+                    }));
+
+                console.log(`\n📊 НОВАЯ СТАТИСТИКА:`);
+                console.log(`   • Сопоставлено точек в A: ${matchedPointsA.size}`);
+                console.log(`   • Сопоставлено точек в B: ${matchedPointsB.size}`);
+                console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
+                console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
+
+                // Обновляем uniquePoints в модели
+                if (existingModel) {
+                    existingModel.uniquePoints = {
+                        model: uniqueInModel,
+                        photo: uniqueInPhoto
+                    };
+                }
+            } else {
+                console.log(`\n⚠️ Ни один кандидат не прошёл проверку`);
+            }
+        } else {
+            console.log(`\n⚠️ Нет топологически согласованных кандидатов`);
+        }
+    }
+} catch (blueError) {
+    console.log(`\n⚠️ Ошибка в обработке синих точек: ${blueError.message}`);
+    console.log(blueError.stack);
+}
+                  
                     // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
                     console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
