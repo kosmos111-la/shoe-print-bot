@@ -375,20 +375,20 @@ class TopologicalAccumulator {
                     console.log(`   • Сдвиг: ${finalTransform ? `(${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})` : 'нет'}`);
 
                     // Формируем финальный список matches
-                    const finalValidatedMatches = [
-                        ...anchorsForValidation.map(a => ({
-                            pointA: a.pointA,
-                            pointB: a.pointB,
-                            confidence: a.confidence,
-                            status: 'anchor'
-                        })),
-                        ...addedPoints.map(a => ({
-                            pointA: a.pointA,
-                            pointB: a.pointB,
-                            confidence: a.confidence,
-                            status: 'validator_found'
-                        }))
-                    ];
+                    let finalValidatedMatches = [
+    ...anchorsForValidation.map(a => ({
+        pointA: a.pointA,
+        pointB: a.pointB,
+        confidence: a.confidence,
+        status: 'anchor'
+    })),
+    ...addedPoints.map(a => ({
+        pointA: a.pointA,
+        pointB: a.pointB,
+        confidence: a.confidence,
+        status: 'validator_found'
+    }))
+];
 
                     console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК: ${finalValidatedMatches.length}`);
 
@@ -484,10 +484,10 @@ if (finalTransform && finalValidatedMatches && finalValidatedMatches.length > 0)
         finalTransform,
         15 // порог в пикселях
     );
-   
+
     if (pulledCount > 0) {
         console.log(`\n✅ Притянуто ${pulledCount} точек!`);
-        // Обновляем matches
+        // Обновляем matches - теперь это работает, потому что finalValidatedMatches объявлена через let
         finalValidatedMatches = pulledMatches;
     }
 } else {
