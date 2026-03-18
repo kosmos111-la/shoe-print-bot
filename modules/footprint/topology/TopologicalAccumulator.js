@@ -1540,44 +1540,37 @@ try {
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
     updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
-        const model = this.models.get(modelId);
-        let confirmedExisting = 0;
-        let newNodesAdded = 0;
+    const model = this.models.get(modelId);
+    let confirmedExisting = 0;
+    let newNodesAdded = 0;
 
-        const matchedPhotoIds = new Set();
-        const matchedModelIds = new Set();
+    const matchedPhotoIds = new Set();
+    const matchedModelIds = new Set();
 
-        for (const match of matches) {
-            const modelNode = model.graph.nodes.get(match.pointB);
-            if (modelNode) {
-                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-                modelNode.lastConfirmed = new Date();
-                confirmedExisting++;
-                matchedPhotoIds.add(match.pointA);
-                matchedModelIds.add(match.pointB);
-            }
+    // 1. Обновляем существующие точки (только те, что в matches)
+    for (const match of matches) {
+        const modelNode = model.graph.nodes.get(match.pointB);
+        if (modelNode) {
+            modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
+            modelNode.lastConfirmed = new Date();
+            confirmedExisting++;
+            matchedPhotoIds.add(match.pointA);
+            matchedModelIds.add(match.pointB);
+           
+            console.log(`   ✅ Подтверждена точка ${match.pointB.substring(0,12)} (теперь ${modelNode.confirmationCount})`);
         }
-
-        for (const [photoId, photoNode] of newGraph.nodes) {
-            if (matchedPhotoIds.has(photoId)) continue;
-
-            const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
-            model.graph.nodes.set(newNodeId, {
-                id: newNodeId,
-                x: photoNode.x,
-                y: photoNode.y,
-                degree: photoNode.degree,
-                morphology: newMorphology.get(photoId),
-                confirmationCount: 1,
-                addedFrom: 'new_point',
-                addedAt: new Date(),
-                originalPhotoId: photoId
-            });
-            newNodesAdded++;
-        }
-
-        return { confirmedExisting, newNodesAdded };
     }
+
+    // 2. 🔥 ИСПРАВЛЕНО: НЕ добавляем все точки фото автоматически!
+    // Точки фото попадают в модель ТОЛЬКО через matches после полной валидации
+    // Если нужно добавить новую точку из фото, она уже должна быть в matches
+
+    console.log(`\n📊 Результат обновления модели:`);
+    console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
+    console.log(`   • Новых точек добавлено: ${newNodesAdded} (только из matches)`);
+
+    return { confirmedExisting, newNodesAdded };
+}
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
         const model = this.models.get(modelId);
