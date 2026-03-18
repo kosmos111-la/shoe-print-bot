@@ -481,7 +481,7 @@ class TopologicalAccumulator {
                             exactGraph,
                             existingModel.graph,
                             finalTransform,
-                            50 // порог в пикселях
+                            25 // порог в пикселях
                         );
 
                         if (pulledCount > 0) {
@@ -972,7 +972,23 @@ try {
             if (addedBluePoints.length > 0) {
                 console.log(`\n✅ Добавлено ${addedBluePoints.length} синих точек!`);
                 finalValidatedMatches = [...finalValidatedMatches, ...addedBluePoints];
+
+                // 🔥 ДОБАВЛЯЕМ МАГНИТ ДЛЯ НОВЫХ ПАР
+                console.log(`\n🧲 ДОПОЛНИТЕЛЬНОЕ ПРИТЯГИВАНИЕ НОВЫХ ПАР`);
                
+                const { pulledMatches, pulledCount } = magneticPull(
+                    finalValidatedMatches,
+                    exactGraph,
+                    existingModel.graph,
+                    finalTransform,
+                    20 // порог в пикселях
+                );
+               
+                if (pulledCount > 0) {
+                    console.log(`\n✅ Притянуто ещё ${pulledCount} новых пар!`);
+                    finalValidatedMatches = pulledMatches;
+                }
+
                 // Обновляем множества
                 matchedPointsA.clear();
                 matchedPointsB.clear();
