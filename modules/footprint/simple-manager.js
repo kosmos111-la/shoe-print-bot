@@ -388,9 +388,10 @@ if (bot && chatId) {
     }
 }
 
-// ==================== 🔥 ВИЗУАЛИЗАЦИЯ ЧИСТОЙ МОДЕЛИ ====================
+// ==================== 🔥 ИСПРАВЛЕНИЕ ЗДЕСЬ ====================
+// ВИЗУАЛИЗАЦИЯ МОДЕЛИ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО
 
-if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
+if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
     try {
         console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ ЧИСТОЙ МОДЕЛИ...');
 
@@ -491,6 +492,128 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
         }
     } catch (modelVizError) {
         console.log(`⚠️ Ошибка визуализации чистой модели: ${modelVizError.message}`);
+        console.log(modelVizError.stack);
+    }
+}if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
+    try {
+        console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО...');
+       
+        const topologyManager = this.getTopologyManager(userId);
+        if (!topologyManager) {
+            console.log('⚠️ Нет топологического менеджера для визуализации модели');
+        } else {
+            const modelInfo = topologyManager.accumulator.getCurrentModel();
+            if (!modelInfo) {
+                console.log('⚠️ Нет текущей модели для визуализации');
+            } else {
+                // 🔥 ПОЛУЧАЕМ ВСЕ НЕОБХОДИМЫЕ ДАННЫЕ
+                const transform = modelInfo.transform || topologicalResult.transform;
+                const photoPoints = topologicalResult.photoPoints || [];
+                const matchMap = topologicalResult.matchMap ||
+                                (topologicalResult.topologicalResult?.matchMap) ||
+                                new Map();
+               
+                console.log(`\n📊 ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ:`);
+                console.log(`   • Точек модели: ${modelInfo.graph.nodes.size}`);
+                console.log(`   • Точек фото: ${photoPoints.length}`);
+                console.log(`   • Соответствий: ${matchMap.size}`);
+                console.log(`   • Трансформация: ${transform ? '✅ ЕСТЬ' : '❌ НЕТ'}`);
+               
+                if (!transform) {
+                    console.log('⚠️ Трансформация отсутствует! Наложение невозможно');
+                    return;
+                }
+
+                if (transform) {
+                    console.log(`\n🔄 ПАРАМЕТРЫ ТРАНСФОРМАЦИИ:`);
+                    console.log(`   • Масштаб: ${transform.scale.toFixed(3)}`);
+                    console.log(`   • Поворот: ${(transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                    console.log(`   • Сдвиг: (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
+                }
+               
+                // Подготавливаем точки модели с номерами пар
+                const points = Array.from(modelInfo.graph.nodes.values()).map(node => {
+                    let pairNumber = null;
+                    let status = null;
+                   
+                    // Ищем номер пары в matchMap
+                    for (const [photoId, match] of matchMap) {
+                        if (match.modelId === node.id && match.pairNumber) {
+                            pairNumber = match.pairNumber;
+                            status = match.status;
+                            break;
+                        }
+                    }
+                   
+                    return {
+                        id: node.id,
+                        x: node.x,
+                        y: node.y,
+                        confirmationCount: node.confirmationCount || 0,
+                        pairNumber: pairNumber,
+                        status: status
+                    };
+                });
+               
+                const edges = Array.from(modelInfo.graph.edges);
+               
+                // 🔥 СОЗДАЁМ временный файл
+                const tempDir = path.join(__dirname, '../../temp');
+                if (!fs.existsSync(tempDir)) {
+                    fs.mkdirSync(tempDir, { recursive: true });
+                }
+                const outputPath = path.join(tempDir, `model_overlay_${Date.now()}.png`);
+               
+                // 🔥 ИМПОРТИРУЕМ визуализатор
+                const ModelVisualization = require('../visualization/model-viz');
+                const modelViz = new ModelVisualization();
+               
+                // 🔥 ПЕРЕДАЁМ ВСЕ ДАННЫЕ
+                const modelImagePath = await modelViz.createVisualization({
+                    points: points,
+                    photoPoints: photoPoints,
+                    transform: transform,
+                    matches: matchMap,
+                    edges: edges,
+                    outputPath: outputPath,
+                    width: 1200,
+                    height: 1000
+                });
+               
+                if (modelImagePath && fs.existsSync(modelImagePath)) {
+                    console.log(`\n✅ Визуализация с наложением создана: ${modelImagePath}`);
+                   
+                    // Отправляем в Telegram
+                    await bot.sendPhoto(chatId, modelImagePath, {
+                        caption:
+                            `🏗️ **НАЛОЖЕНИЕ ФОТО НА МОДЕЛЬ**\n\n` +
+                            `📊 **СТАТИСТИКА:**\n` +
+                            `• Точек модели: ${points.length}\n` +
+                            `• Точек фото: ${photoPoints.length}\n` +
+                            `• Совпало: ${matchMap.size}\n\n` +
+                            `🟡 **Жёлтые** - точки модели\n` +
+                            `🟣 **Фиолетовые** - точки фото ПОСЛЕ трансформации\n` +
+                            `🔵 **Полупрозрачные** - точки фото без пары\n\n` +
+                            `🔄 **Трансформация фото:**\n` +
+                            `• Масштаб: ${transform.scale.toFixed(3)}\n` +
+                            `• Поворот: ${(transform.rotation * 180 / Math.PI).toFixed(1)}°\n` +
+                            `• Сдвиг: (${transform.translation.x.toFixed(0)}, ${transform.translation.y.toFixed(0)})`
+                    });
+                   
+                    // Удаляем через минуту
+                    setTimeout(() => {
+                        if (fs.existsSync(modelImagePath)) {
+                            fs.unlinkSync(modelImagePath);
+                            console.log(`🧹 Удалён временный файл: ${modelImagePath}`);
+                        }
+                    }, 60000);
+                } else {
+                    console.log('⚠️ Не удалось создать визуализацию с наложением');
+                }
+            }
+        }
+    } catch (modelVizError) {
+        console.log(`⚠️ Ошибка визуализации с наложением: ${modelVizError.message}`);
         console.log(modelVizError.stack);
     }
 }
