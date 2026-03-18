@@ -644,6 +644,85 @@ class TopologicalAccumulator {
                     console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
                     console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
 
+// ===== ТАБЛИЦА ТОЧЕК ИЗ ВИЗУАЛИЗАЦИИ =====
+console.log(`\n📊 ТОЧКИ В ВИЗУАЛИЗАЦИИ:`);
+console.log(`┌──────┬────────────┬──────────────┬──────────────┬──────────────┬──────────┐`);
+console.log(`│  #   │    Тип     │    Индекс     │  Координаты  │  Расстояние  │  Статус  │`);
+console.log(`├──────┼────────────┼──────────────┼──────────────┼──────────────┼──────────┤`);
+
+// Создаём карты индексов
+const photoIndexMap = new Map();
+const modelIndexMap = new Map();
+
+Array.from(exactGraph?.nodes?.keys() || []).forEach((id, idx) => photoIndexMap.set(id, idx + 1));
+Array.from(existingModel?.graph?.nodes?.keys() || []).forEach((id, idx) => modelIndexMap.set(id, idx + 1));
+
+let rowNumber = 1;
+
+// 1. Ярко-синие точки модели (без пары)
+for (const point of uniqueInModel) {
+    const idx = modelIndexMap.get(point.id) || '?';
+    console.log(`│ ${rowNumber.toString().padEnd(4)} │ Модель 🔵   │ ${idx.toString().padEnd(12)} │ (${point.x.toFixed(1)},${point.y.toFixed(1).padStart(6)}) │      —      │ без пары │`);
+    rowNumber++;
+}
+
+// 2. Блёкло-синие точки фото (без пары)
+for (const point of uniqueInPhoto) {
+    const idx = photoIndexMap.get(point.id) || '?';
+    console.log(`│ ${rowNumber.toString().padEnd(4)} │ Фото 🔷     │ ${idx.toString().padEnd(12)} │ (${point.x.toFixed(1)},${point.y.toFixed(1).padStart(6)}) │      —      │ без пары │`);
+    rowNumber++;
+}
+
+// 3. Пары (с расстояниями)
+for (const match of finalValidatedMatches) {
+    if (!match?.pointA || !match?.pointB) continue;
+
+    const photoIdx = photoIndexMap.get(match.pointA);
+    const modelIdx = modelIndexMap.get(match.pointB);
+    const photoPoint = exactGraph?.nodes?.get(match.pointA);
+    const modelPoint = existingModel?.graph?.nodes?.get(match.pointB);
+
+    if (photoPoint && modelPoint && finalTransform) {
+        // Проецируем точку фото в пространство модели
+        const projected = {
+            x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+               photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               finalTransform.translation.x,
+            y: photoPoint.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               photoPoint.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+               finalTransform.translation.y
+        };
+
+        const dist = Math.sqrt(
+            Math.pow(projected.x - modelPoint.x, 2) +
+            Math.pow(projected.y - modelPoint.y, 2)
+        );
+
+        // Определяем иконку статуса
+        let statusIcon = '';
+        switch(match.status) {
+            case 'anchor': statusIcon = '🔴'; break;
+            case 'validator_found': statusIcon = '🟢'; break;
+            case 'new_pair': statusIcon = '🆕'; break;
+            case 'blue_confirmed': statusIcon = '🔷'; break;
+            default: statusIcon = '🟡';
+        }
+
+        console.log(`│ ${rowNumber.toString().padEnd(4)} │ Пара ${statusIcon} │ фото ${photoIdx}→модель ${modelIdx} │ ${dist.toFixed(1).padStart(5)}px      │ ${match.status} │`);
+        rowNumber++;
+    }
+}
+
+console.log(`└──────┴────────────┴──────────────┴──────────────┴──────────────┴──────────┘`);
+
+// Итог
+console.log(`\n📊 ИТОГО В ВИЗУАЛИЗАЦИИ:`);
+console.log(`   • Модель 🔵: ${uniqueInModel.length} точек`);
+console.log(`   • Фото 🔷: ${uniqueInPhoto.length} точек`);
+console.log(`   • Пар: ${finalValidatedMatches.length} точек`);
+console.log(`   • ВСЕГО: ${uniqueInModel.length + uniqueInPhoto.length + finalValidatedMatches.length} точек`);
+
+                  
                     // Сохраняем в модель для визуализации
                     if (existingModel) {
                         existingModel.uniquePoints = {
@@ -945,203 +1024,7 @@ try {
     console.log(`\n⚠️ Ошибка в обработке синих точек: ${blueError.message}`);
     console.log(blueError.stack);
 }
-
-// ===== ТАБЛИЦА СОПОСТАВЛЕНИЙ =====
-console.log(`\n📊 ТАБЛИЦА СОПОСТАВЛЕНИЙ ТОЧЕК`);
-console.log(`┌──────┬────────────┬──────────┬──────────┬──────────────┬──────────────┬────────┐`);
-console.log(`│  #   │   Статус   │ Фото idx │ Модель   │  Фото (x,y)   │ Модель (x,y) │ Расст. │`);
-console.log(`│      │            │          │   idx    │ после трансф  │              │        │`);
-console.log(`├──────┼────────────┼──────────┼──────────┼──────────────┼──────────────┼────────┤`);
-
-// Создаём карты для преобразования ID в индексы
-const photoIndexMap = new Map();
-const modelIndexMap = new Map();
-
-Array.from(exactGraph.nodes.keys()).forEach((id, idx) => photoIndexMap.set(id, idx + 1));
-Array.from(existingModel.graph.nodes.keys()).forEach((id, idx) => modelIndexMap.set(id, idx + 1));
-
-// Собираем все уникальные пары
-const allPairs = new Map(); // номер пары -> { статусы, точки }
-
-// 1. Сначала добавляем все подтверждённые matches
-for (const match of finalValidatedMatches) {
-    const pairNumber = match.pairNumber || '?';
-    if (!allPairs.has(pairNumber)) {
-        allPairs.set(pairNumber, {
-            number: pairNumber,
-            statuses: [],
-            photoPoints: new Map(),
-            modelPoints: new Map()
-        });
-    }
-   
-    const pair = allPairs.get(pairNumber);
-   
-    // Точка фото
-    const photoPoint = exactGraph.nodes.get(match.pointA);
-    if (photoPoint) {
-        // Проецируем в пространство модели
-        const projected = {
-            x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-               photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-               finalTransform.translation.x,
-            y: photoPoint.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-               photoPoint.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-               finalTransform.translation.y
-        };
-        pair.photoPoints.set(match.status || 'matched', {
-            idx: photoIndexMap.get(match.pointA),
-            x: projected.x,
-            y: projected.y
-        });
-    }
-   
-    // Точка модели
-    const modelPoint = existingModel.graph.nodes.get(match.pointB);
-    if (modelPoint) {
-        pair.modelPoints.set(match.status || 'matched', {
-            idx: modelIndexMap.get(match.pointB),
-            x: modelPoint.x,
-            y: modelPoint.y
-        });
-    }
-   
-    if (!pair.statuses.includes(match.status)) {
-        pair.statuses.push(match.status);
-    }
-}
-
-// 2. Добавляем синие точки модели без пары
-for (const [id, point] of existingModel.graph.nodes) {
-    if (!matchedPointsB.has(id)) {
-        const pairNumber = '—';
-        if (!allPairs.has(pairNumber)) {
-            allPairs.set(pairNumber, {
-                number: pairNumber,
-                statuses: [],
-                photoPoints: new Map(),
-                modelPoints: new Map()
-            });
-        }
-        allPairs.get(pairNumber).modelPoints.set('model', {
-            idx: modelIndexMap.get(id),
-            x: point.x,
-            y: point.y
-        });
-        if (!allPairs.get(pairNumber).statuses.includes('model')) {
-            allPairs.get(pairNumber).statuses.push('model');
-        }
-    }
-}
-
-// 3. Добавляем синие точки фото без пары (после трансформации)
-for (const point of unmatchedPhotoPoints) {
-    if (!matchedPointsA.has(point.id)) {
-        const projected = {
-            x: point.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-               point.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-               finalTransform.translation.x,
-            y: point.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-               point.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-               finalTransform.translation.y
-        };
-       
-        const pairNumber = '—';
-        if (!allPairs.has(pairNumber)) {
-            allPairs.set(pairNumber, {
-                number: pairNumber,
-                statuses: [],
-                photoPoints: new Map(),
-                modelPoints: new Map()
-            });
-        }
-        allPairs.get(pairNumber).photoPoints.set('photo', {
-            idx: photoIndexMap.get(point.id),
-            x: projected.x,
-            y: projected.y
-        });
-        if (!allPairs.get(pairNumber).statuses.includes('photo')) {
-            allPairs.get(pairNumber).statuses.push('photo');
-        }
-    }
-}
-
-// Сортируем пары по номеру
-const sortedPairs = Array.from(allPairs.values()).sort((a, b) => {
-    if (a.number === '—') return 1;
-    if (b.number === '—') return -1;
-    return parseInt(a.number) - parseInt(b.number);
-});
-
-// Выводим таблицу
-for (const pair of sortedPairs) {
-    const status = pair.statuses.join('/');
-   
-    // Для каждой точки в паре может быть несколько записей
-    const photoEntries = Array.from(pair.photoPoints.entries());
-    const modelEntries = Array.from(pair.modelPoints.entries());
-   
-    const maxRows = Math.max(photoEntries.length, modelEntries.length, 1);
-   
-    for (let row = 0; row < maxRows; row++) {
-        const photoEntry = photoEntries[row];
-        const modelEntry = modelEntries[row];
-       
-        let photoStr = '      ';
-        let modelStr = '      ';
-        let distStr = '   ';
-       
-        if (photoEntry) {
-            const [status, point] = photoEntry;
-            photoStr = `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
-            // Статус точки фото
-            const photoStatus = status === 'photo' ? '📸' :
-                               (status === 'new_pair' ? '🆕' :
-                               (status === 'blue_confirmed' ? '🔷' : '🟣'));
-            photoStr = `${photoStatus} ${point.idx.toString().padStart(2)} ${photoStr.padEnd(13)}`;
-        } else {
-            photoStr = ' '.repeat(18);
-        }
-       
-        if (modelEntry) {
-            const [status, point] = modelEntry;
-            modelStr = `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
-            const modelStatus = status === 'model' ? '🔵' :
-                               (status === 'anchor' ? '🔴' :
-                               (status === 'validator_found' ? '🟢' : '🟡'));
-            modelStr = `${modelStatus} ${point.idx.toString().padStart(2)} ${modelStr.padEnd(13)}`;
-        } else {
-            modelStr = ' '.repeat(18);
-        }
-       
-        // Вычисляем расстояние если есть обе точки
-        if (photoEntry && modelEntry) {
-            const dx = photoEntry[1].x - modelEntry[1].x;
-            const dy = photoEntry[1].y - modelEntry[1].y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            distStr = dist.toFixed(1).padStart(5);
-        }
-       
-        // Номер пары только в первой строке
-        const numberStr = row === 0 ? pair.number.toString().padStart(4) : '    ';
-       
-        console.log(`│ ${numberStr} │ ${status.padEnd(10)} │ ${photoStr} │ ${modelStr} │ ${distStr} │`);
-    }
-   
-    // Разделитель между парами
-    if (pair !== sortedPairs[sortedPairs.length - 1]) {
-        console.log(`├──────┼────────────┼──────────┼──────────┼──────────────┼──────────────┼────────┤`);
-    }
-}
-
-console.log(`└──────┴────────────┴──────────┴──────────┴──────────────┴──────────────┴────────┘`);
-
-// Статистика
-console.log(`\n📊 СТАТИСТИКА ПО ТАБЛИЦЕ:`);
-console.log(`   • Пар с номерами: ${sortedPairs.filter(p => p.number !== '—').length}`);
-console.log(`   • Синих точек модели: ${sortedPairs.filter(p => p.statuses.includes('model') && p.number === '—').length}`);
-console.log(`   • Синих точек фото: ${sortedPairs.filter(p => p.statuses.includes('photo') && p.number === '—').length}`);
-                  
+                 
                     // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
                     console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
