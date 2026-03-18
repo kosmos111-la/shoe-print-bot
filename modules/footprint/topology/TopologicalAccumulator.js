@@ -210,287 +210,316 @@ class TopologicalAccumulator {
                 console.log(`   • Стало matches: ${finalMatches.length}`);
 
                 // ===== ШАГ 3.5: ПАРАЛЛЕЛЬНАЯ ВАЛИДАЦИЯ =====
-                console.log(`\n🔄 ЗАПУСК ПАРАЛЛЕЛЬНОЙ ВАЛИДАЦИИ`);
+console.log(`\n🔄 ЗАПУСК ПАРАЛЛЕЛЬНОЙ ВАЛИДАЦИИ`);
 
-                const ValidationModule = require('../validation/ValidationModule');
-                const validator = new ValidationModule({
-                    debug: this.debug,
-                    positionThreshold: 0.15,
-                    morphologyThreshold: 0.85
-                });
+const ValidationModule = require('../validation/ValidationModule');
+const validator = new ValidationModule({
+    debug: this.debug,
+    positionThreshold: 0.15,
+    morphologyThreshold: 0.85
+});
 
-                // Преобразуем finalMatches в формат якорей
-                const anchorsForValidation = finalMatches.map(m => ({
-                    pointA: m.pointA,
-                    pointB: m.pointB,
-                    confidence: m.confidence
-                }));
+// 🔥 ИСПРАВЛЕНИЕ: Используем ТОЛЬКО согласованные якоря для вычисления transform
+const anchorsForValidation = consistent.points.map(p => ({
+    pointA: p.pointA,
+    pointB: p.pointB,
+    confidence: p.confidence
+}));
 
-                // Запускаем валидацию
-                const validationResult = validator.validateAll(
-                    exactGraph,
-                    existingModel.graph,
-                    anchorsForValidation,
-                    morphologyMap,
-                    existingModel.morphologyMap
-                );
+console.log(`\n🔍 ЭТАП 1: Вычисление базового transform по ${anchorsForValidation.length} надёжным якорям`);
 
-                // Объявляем переменную ДО условия
-                let finalValidatedMatches = [];
+// Сначала вычисляем transform по надёжным якорям
+const baseTransform = validator.calculateTransform(
+    anchorsForValidation,
+    exactGraph,
+    existingModel.graph
+);
 
-                if (validationResult.success) {
-                    const validated = validationResult.results;
-                    const transformFromValidator = validationResult.transform;
+if (!baseTransform) {
+    console.log(`❌ Не удалось вычислить базовый transform`);
+    return {
+        status: 'transform_failed',
+        modelId: modelIdHint,
+        similarity: triangleResult?.similarity || 0,
+        message: 'Не удалось вычислить transform по якорям'
+    };
+}
 
-                    // 🔥 СОХРАНЯЕМ TRANSFORM В МОДЕЛЬ
-                    if (existingModel) {
-                        existingModel.transform = transformFromValidator;
-                    }
-                    console.log(`\n💾 TRANSFORM СОХРАНЁН В МОДЕЛЬ:`);
-                    console.log(`   • Масштаб: ${transformFromValidator?.scale.toFixed(3) || 'нет'}`);
-                    console.log(`   • Поворот: ${transformFromValidator ? (transformFromValidator.rotation * 180 / Math.PI).toFixed(1) : 'нет'}°`);
-                    console.log(`   • Сдвиг: ${transformFromValidator ? `(${transformFromValidator.translation.x.toFixed(1)}, ${transformFromValidator.translation.y.toFixed(1)})` : 'нет'}`);
+console.log(`\n📐 БАЗОВЫЙ TRANSFORM (${anchorsForValidation.length} якорей):`);
+console.log(`   • Масштаб: ${baseTransform.scale.toFixed(3)}`);
+console.log(`   • Поворот: ${(baseTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+console.log(`   • Сдвиг: (${baseTransform.translation.x.toFixed(1)}, ${baseTransform.translation.y.toFixed(1)})`);
 
-                    console.log(`\n🔍 ПРОВЕРКА ВСЕХ ТОЧЕК НА СООТВЕТСТВИЕ ПРЕОБРАЗОВАНИЮ`);
+// 🔥 ЭТАП 2: Итеративное натягивание
+console.log(`\n🔍 ЭТАП 2: Итеративное натягивание ${finalMatches.length} кандидатов`);
 
-                    const allPointsToCheck = [
-                        ...(validated?.anchors || []),
-                        ...(validated?.confirmed || []),
-                        ...(validated?.candidates || [])
-                    ];
+// Начинаем с надёжных якорей
+let workingAnchors = [...anchorsForValidation];
+let workingTransform = baseTransform;
+let addedPoints = [];
+let rejectedPoints = [];
 
-                    const allConsistent = [];
-                    const inconsistentPoints = [];
+// Функция проверки согласованности точки
+function isPointConsistent(pointA, pointB, transform, graphA, graphB) {
+    const nodeA = exactGraph.nodes.get(pointA);
+    const nodeB = existingModel.graph.nodes.get(pointB);
+   
+    if (!nodeA || !nodeB) return false;
+   
+    const projected = validator.applyTransform(nodeA, transform);
+    const dx = projected.x - nodeB.x;
+    const dy = projected.y - nodeB.y;
+    const error = Math.sqrt(dx*dx + dy*dy);
+    const footprintSize = validator.getFootprintSize(Array.from(existingModel.graph.nodes.values()));
+    const relativeError = error / footprintSize;
+   
+    return relativeError < 0.05; // 5% порог
+}
 
-                    for (const point of allPointsToCheck) {
-                        const pointA = exactGraph?.nodes?.get(point?.pointA);
-                        const pointB = existingModel?.graph?.nodes?.get(point?.pointB);
+// Сортируем кандидаты по уверенности (от самых уверенных)
+const sortedCandidates = [...finalMatches].sort((a, b) => b.confidence - a.confidence);
 
-                        if (!pointA || !pointB) {
-                            inconsistentPoints.push({
-                                ...point,
-                                reason: 'node_not_found'
-                            });
-                            continue;
-                        }
-
-                        const projected = validator.applyTransform(pointA, transformFromValidator);
-                        const dx = projected.x - pointB.x;
-                        const dy = projected.y - pointB.y;
-                        const error = Math.sqrt(dx*dx + dy*dy);
-                        const footprintSize = validator.getFootprintSize(Array.from(existingModel.graph.nodes.values() || []));
-                        const relativeError = error / (footprintSize || 1);
-
-                        if (relativeError < 0.05) { // 5%
-                            allConsistent.push({
-                                pointA: point.pointA,
-                                pointB: point.pointB,
-                                confidence: point.confidence,
-                                status: point.status || 'anchor'
-                            });
-                        } else {
-                            inconsistentPoints.push({
-                                ...point,
-                                reason: 'transform_mismatch',
-                                error: relativeError
-                            });
-                        }
-                    }
-
-                    console.log(`\n📊 РЕЗУЛЬТАТ ПРОВЕРКИ ПО ПРЕОБРАЗОВАНИЮ:`);
-                    console.log(`   • Согласовано: ${allConsistent.length} точек`);
-                    console.log(`   • Несогласовано: ${inconsistentPoints.length} точек`);
-
-                    // Разделяем по статусам (для статистики)
-                    const finalAnchors = allConsistent.filter(p => p.status === 'anchor');
-                    const finalConfirmed = allConsistent.filter(p => p.status === 'confirmed');
-                    const finalCandidates = allConsistent.filter(p => p.status === 'candidate');
-
-                    console.log(`\n✅ ИТОГО ПОСЛЕ ГЛОБАЛЬНОЙ ПРОВЕРКИ:`);
-                    console.log(`   • Якорей: ${finalAnchors.length}`);
-                    console.log(`   • Подтверждённых: ${finalConfirmed.length}`);
-                    console.log(`   • Кандидатов: ${finalCandidates.length}`);
-                    console.log(`   • Отвергнуто: ${inconsistentPoints.length}`);
-                    console.log(`   • ВСЕГО: ${allConsistent.length} точек для визуализации`);
-
-                    // 🔥 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ - ЯВНО СОЗДАЁМ МАССИВ
-                    finalValidatedMatches = allConsistent.map(p => ({
-                        pointA: p.pointA,
-                        pointB: p.pointB,
-                        confidence: p.confidence,
-                        status: p.status
-                    }));
-
-                    console.log(`\n✅ finalValidatedMatches создан: ${finalValidatedMatches.length} точек`);
-                    console.log(`   • Тип: ${Array.isArray(finalValidatedMatches) ? 'МАССИВ' : 'НЕ МАССИВ'}`);
-                    console.log(`   • Якорей: ${finalValidatedMatches.filter(p => p.status === 'anchor').length}`);
-                    console.log(`   • Подтверждённых: ${finalValidatedMatches.filter(p => p.status === 'confirmed').length}`);
-
-                    // ===== ШАГ 3.6: ПОИСК НОВЫХ ПАР ЧЕРЕЗ ВАЛИДАТОР =====
-                    console.log(`\n🔍 ЗАПУСК ПОИСКА НОВЫХ ПАР`);
-
-                    if (validationResult.success && transformFromValidator) {
-                        const newMatches = validator.findNewMatches(
-                            exactGraph,
-                            existingModel.graph,
-                            finalValidatedMatches,
-                            transformFromValidator,
-                            morphologyMap,
-                            existingModel.morphologyMap
-                        );
-
-                        if (newMatches && newMatches.length > 0) {
-                            console.log(`\n✅ Найдено ${newMatches.length} новых соответствий!`);
-
-                            // Добавляем новые matches к существующим
-                            const allMatches = [...finalValidatedMatches, ...newMatches];
-
-                            console.log(`\n📊 ТЕПЕРЬ ВСЕГО: ${allMatches.length} точек`);
-                            console.log(`   • Было: ${finalValidatedMatches.length}`);
-                            console.log(`   • Добавлено: ${newMatches.length}`);
-
-                            // Обновляем finalValidatedMatches
-                            finalValidatedMatches = allMatches;
-                        } else {
-                            console.log(`\n⚠️ Новых соответствий не найдено`);
-                        }
-                    }
-
-                    // Сохраняем для отладки
-                    if (existingModel) {
-                        existingModel.candidates = finalCandidates;
-                        existingModel.rejected = inconsistentPoints;
-                        existingModel.validationResult = validationResult;
-                    }
-
-                    // ===== ШАГ 3.7: ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК ДЛЯ ВИЗУАЛИЗАЦИИ =====
-                    console.log(`\n📊 ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК`);
-
-                    // Получаем все точки из графов
-                    const allPointsInA = Array.from(exactGraph?.nodes?.values() || []);
-                    const allPointsInB = Array.from(existingModel?.graph?.nodes?.values() || []);
-
-                    console.log(`   • Всего точек в A: ${allPointsInA.length}`);
-                    console.log(`   • Всего точек в B: ${allPointsInB.length}`);
-
-                    // Множества уже сопоставленных точек
-                    const matchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
-                    const matchedPointsB = new Set(finalValidatedMatches?.map(m => m?.pointB) || []);
-
-                    console.log(`   • Сопоставлено точек в A: ${matchedPointsA.size}`);
-                    console.log(`   • Сопоставлено точек в B: ${matchedPointsB.size}`);
-
-                    // Точки только в первом следе (модель)
-                    const uniqueInModel = allPointsInA
-                        .filter(p => p && p.id && !matchedPointsA.has(p.id))
-                        .map(p => ({
-                            id: p.id,
-                            x: p.x,
-                            y: p.y,
-                            type: 'unique_in_model'
-                        }));
-
-                    // Точки только во втором следе (фото)
-                    const uniqueInPhoto = allPointsInB
-                        .filter(p => p && p.id && !matchedPointsB.has(p.id))
-                        .map(p => ({
-                            id: p.id,
-                            x: p.x,
-                            y: p.y,
-                            type: 'unique_in_photo'
-                        }));
-
-                    console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
-                    console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
-
-                    // Сохраняем в модель для визуализации
-                    if (existingModel) {
-                        existingModel.uniquePoints = {
-                            model: uniqueInModel,
-                            photo: uniqueInPhoto
-                        };
-                    }
-
-                    // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
-                    console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
-
-                    const updateResult = this.updateModelWithOptimalMatches(
-                        modelIdHint,
-                        exactGraph,
-                        finalValidatedMatches || [],
-                        morphologyMap
-                    );
-
-                    // 2.3 Обновляем KNN-граф и подписи
-                    if (existingModel) {
-                        existingModel.knnGraph = knnGraph;
-                        existingModel.knnFingerprints = new Map([...(existingModel.knnFingerprints || []), ...(knnFingerprints || [])]);
-                        existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
-                        existingModel.metadata.lastEnhanced = new Date();
-                    }
-
-                    // 2.4 Создаем matchMap для визуализации
-                    const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
-                        { matches: finalValidatedMatches || [] },
-                        modelIdHint
-                    );
-
-                    // 🔥 СОХРАНЯЕМ modelMatchMap В МОДЕЛЬ
-                    if (existingModel) {
-                        existingModel.lastTriangleResult = {
-                            ...(existingModel.lastTriangleResult || {}),
-                            modelMatchMap: modelMatchMap,
-                            matchMap: matchMap,
-                            globalConsistency: consistent?.stats
-                        };
-                    }
-
-                    console.log(`\n🔍 ОТЛАДКА: ${finalValidatedMatches?.length || 0} согласованных точек`);
-                    console.log(`   • matchMap передан в визуализацию: ${matchMap?.size || 0} пар`);
-                    console.log(`   • modelMatchMap сохранён в модель: ${modelMatchMap?.size || 0} пар`);
-
-                    // 2.5 Очищаем неподтверждённые точки
-                    const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
-                    this.stats.totalNodesRemoved += cleanResult.removed;
-                    this.stats.triangleMatchesCount += finalValidatedMatches?.length || 0;
-
-                    // 2.6 Статистика
-                    const confirmedInModel = finalValidatedMatches?.length || 0;
-                    const onlyInModel = (existingModel?.graph?.nodes?.size || 0) - confirmedInModel;
-                    const onlyInPhoto = (exactGraph?.nodes?.size || 0) - confirmedInModel;
-
-                    console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-                    console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
-                    console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
-                    console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
-                    console.log(`   • Всего в модели теперь: ${existingModel?.graph?.nodes?.size || 0}`);
-
-                    this.photoToModel.set(photoId, modelIdHint);
-
-                    return {
-                        status: 'consistent_anchors',
-                        modelId: modelIdHint,
-                        similarity: triangleResult?.similarity || 0,
-                        centerMatches: finalMatches?.length || 0,
-                        totalMatches: finalMatches?.length || 0,
-                        newNodesAdded: updateResult?.newNodesAdded || 0,
-                        nodesRemoved: cleanResult?.removed || 0,
-                        matchMap: matchMap,
-                        modelMatchMap: modelMatchMap,
-                        consistency: consistent?.stats,
-                        originalPhotoPoints: points,
-                        transform: transformFromValidator,
-                        message: `Глобально согласовано: ${finalMatches?.length || 0} точек`
-                    };
-                } else {
-                    console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
-                }
-            } else {
-                console.log(`\n❌ МОДЕЛЬ НЕ НАЙДЕНА, создаю новую...`);
-                console.log(`   modelIdHint: ${modelIdHint}`);
-                console.log(`   models.has: ${this.models.has(modelIdHint)}`);
-            }
+for (const candidate of sortedCandidates) {
+    console.log(`\n   Проверка кандидата ${candidate.pointA.substring(0,12)}...`);
+   
+    // Создаём временное множество якорей с кандидатом
+    const testAnchors = [...workingAnchors, {
+        pointA: candidate.pointA,
+        pointB: candidate.pointB,
+        confidence: candidate.confidence
+    }];
+   
+    // Вычисляем новый transform с кандидатом
+    const testTransform = validator.calculateTransform(
+        testAnchors,
+        exactGraph,
+        existingModel.graph
+    );
+   
+    if (!testTransform) {
+        console.log(`   ⚠️ Не удалось вычислить transform с кандидатом - пропускаем`);
+        rejectedPoints.push({
+            ...candidate,
+            reason: 'transform_failed'
+        });
+        continue;
+    }
+   
+    // Проверяем ВСЕ существующие якоря с новым transform
+    let allConsistent = true;
+    for (const anchor of workingAnchors) {
+        if (!isPointConsistent(anchor.pointA, anchor.pointB, testTransform, exactGraph, existingModel.graph)) {
+            allConsistent = false;
+            break;
         }
+    }
+   
+    // Проверяем самого кандидата
+    const candidateConsistent = isPointConsistent(
+        candidate.pointA,
+        candidate.pointB,
+        testTransform,
+        exactGraph,
+        existingModel.graph
+    );
+   
+    if (allConsistent && candidateConsistent) {
+        // ✅ Кандидат подходит - добавляем
+        console.log(`   ✅ Кандидат согласован! Добавляю в якоря`);
+        workingAnchors.push({
+            pointA: candidate.pointA,
+            pointB: candidate.pointB,
+            confidence: candidate.confidence
+        });
+        workingTransform = testTransform;
+        addedPoints.push(candidate);
+    } else {
+        // ❌ Кандидат не подходит
+        console.log(`   ⚠️ Кандидат не согласован - откладываю`);
+        rejectedPoints.push({
+            ...candidate,
+            reason: 'inconsistent'
+        });
+    }
+}
+
+console.log(`\n📊 РЕЗУЛЬТАТ ИТЕРАТИВНОГО НАТЯГИВАНИЯ:`);
+console.log(`   • Было якорей: ${anchorsForValidation.length}`);
+console.log(`   • Добавлено: ${addedPoints.length}`);
+console.log(`   • Отвергнуто: ${rejectedPoints.length}`);
+console.log(`   • ВСЕГО: ${workingAnchors.length} точек`);
+
+// 🔥 ЭТАП 3: ФИНАЛЬНАЯ ВАЛИДАЦИЯ С РАБОЧИМ TRANSFORM
+console.log(`\n🔍 ЭТАП 3: Финальная валидация с уточнённым transform`);
+
+const finalValidationResult = validator.validateAll(
+    exactGraph,
+    existingModel.graph,
+    workingAnchors,
+    morphologyMap,
+    existingModel.morphologyMap
+);
+
+if (finalValidationResult.success) {
+    const validated = finalValidationResult.results;
+    const finalTransform = finalValidationResult.transform;
+
+    // 🔥 СОХРАНЯЕМ TRANSFORM В МОДЕЛЬ
+    if (existingModel) {
+        existingModel.transform = finalTransform;
+    }
+   
+    console.log(`\n💾 ФИНАЛЬНЫЙ TRANSFORM СОХРАНЁН В МОДЕЛЬ:`);
+    console.log(`   • Масштаб: ${finalTransform?.scale.toFixed(3) || 'нет'}`);
+    console.log(`   • Поворот: ${finalTransform ? (finalTransform.rotation * 180 / Math.PI).toFixed(1) : 'нет'}°`);
+    console.log(`   • Сдвиг: ${finalTransform ? `(${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})` : 'нет'}`);
+
+    // Формируем финальный список matches
+    const finalValidatedMatches = [
+        ...anchorsForValidation.map(a => ({
+            pointA: a.pointA,
+            pointB: a.pointB,
+            confidence: a.confidence,
+            status: 'anchor'
+        })),
+        ...addedPoints.map(a => ({
+            pointA: a.pointA,
+            pointB: a.pointB,
+            confidence: a.confidence,
+            status: 'validator_found'
+        }))
+    ];
+
+    console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК: ${finalValidatedMatches.length}`);
+
+    // ===== ШАГ 3.7: ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК ДЛЯ ВИЗУАЛИЗАЦИИ =====
+    console.log(`\n📊 ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК`);
+
+    // Получаем все точки из графов
+    const allPointsInA = Array.from(exactGraph?.nodes?.values() || []);
+    const allPointsInB = Array.from(existingModel?.graph?.nodes?.values() || []);
+
+    console.log(`   • Всего точек в A: ${allPointsInA.length}`);
+    console.log(`   • Всего точек в B: ${allPointsInB.length}`);
+
+    // Множества уже сопоставленных точек
+    const matchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
+    const matchedPointsB = new Set(finalValidatedMatches?.map(m => m?.pointB) || []);
+
+    console.log(`   • Сопоставлено точек в A: ${matchedPointsA.size}`);
+    console.log(`   • Сопоставлено точек в B: ${matchedPointsB.size}`);
+
+    // Точки только в первом следе (модель)
+    const uniqueInModel = allPointsInA
+        .filter(p => p && p.id && !matchedPointsA.has(p.id))
+        .map(p => ({
+            id: p.id,
+            x: p.x,
+            y: p.y,
+            type: 'unique_in_model'
+        }));
+
+    // Точки только во втором следе (фото)
+    const uniqueInPhoto = allPointsInB
+        .filter(p => p && p.id && !matchedPointsB.has(p.id))
+        .map(p => ({
+            id: p.id,
+            x: p.x,
+            y: p.y,
+            type: 'unique_in_photo'
+        }));
+
+    console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
+    console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
+
+    // Сохраняем в модель для визуализации
+    if (existingModel) {
+        existingModel.uniquePoints = {
+            model: uniqueInModel,
+            photo: uniqueInPhoto
+        };
+    }
+
+    // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
+    console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
+
+    const updateResult = this.updateModelWithOptimalMatches(
+        modelIdHint,
+        exactGraph,
+        finalValidatedMatches || [],
+        morphologyMap
+    );
+
+    // Обновляем KNN-граф и подписи
+    if (existingModel) {
+        existingModel.knnGraph = knnGraph;
+        existingModel.knnFingerprints = new Map([...(existingModel.knnFingerprints || []), ...(knnFingerprints || [])]);
+        existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
+        existingModel.metadata.lastEnhanced = new Date();
+    }
+
+    // Создаем matchMap для визуализации
+    const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
+        { matches: finalValidatedMatches || [] },
+        modelIdHint
+    );
+
+    // 🔥 СОХРАНЯЕМ modelMatchMap В МОДЕЛЬ
+    if (existingModel) {
+        existingModel.lastTriangleResult = {
+            ...(existingModel.lastTriangleResult || {}),
+            modelMatchMap: modelMatchMap,
+            matchMap: matchMap,
+            globalConsistency: consistent?.stats
+        };
+    }
+
+    console.log(`\n🔍 ОТЛАДКА: ${finalValidatedMatches?.length || 0} согласованных точек`);
+    console.log(`   • matchMap передан в визуализацию: ${matchMap?.size || 0} пар`);
+    console.log(`   • modelMatchMap сохранён в модель: ${modelMatchMap?.size || 0} пар`);
+
+    // Очищаем неподтверждённые точки
+    const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
+    this.stats.totalNodesRemoved += cleanResult.removed;
+    this.stats.triangleMatchesCount += finalValidatedMatches?.length || 0;
+
+    // Статистика
+    const confirmedInModel = finalValidatedMatches?.length || 0;
+    const onlyInModel = (existingModel?.graph?.nodes?.size || 0) - confirmedInModel;
+    const onlyInPhoto = (exactGraph?.nodes?.size || 0) - confirmedInModel;
+
+    console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
+    console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
+    console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
+    console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
+    console.log(`   • Всего в модели теперь: ${existingModel?.graph?.nodes?.size || 0}`);
+
+    this.photoToModel.set(photoId, modelIdHint);
+
+    return {
+        status: 'consistent_anchors',
+        modelId: modelIdHint,
+        similarity: triangleResult?.similarity || 0,
+        centerMatches: finalMatches?.length || 0,
+        totalMatches: finalMatches?.length || 0,
+        newNodesAdded: updateResult?.newNodesAdded || 0,
+        nodesRemoved: cleanResult?.removed || 0,
+        matchMap: matchMap,
+        modelMatchMap: modelMatchMap,
+        consistency: consistent?.stats,
+        originalPhotoPoints: points,
+        transform: finalTransform,
+        message: `Итеративно согласовано: ${finalValidatedMatches.length} точек`
+    };
+} else {
+    console.log(`\n⚠️ Финальная валидация не удалась`);
+    return {
+        status: 'validation_failed',
+        modelId: modelIdHint,
+        similarity: triangleResult?.similarity || 0,
+        message: 'Финальная валидация не удалась'
+    };
+}
 
         // Если это первое фото вообще - создаём первую модель
         if (this.models.size === 0) {
