@@ -489,6 +489,7 @@ class TopologicalAccumulator {
                             // Обновляем matches
                             finalValidatedMatches = pulledMatches;
                         }
+                      
                     } else {
                         console.log(`\n⚠️ Нет transform или matches для притягивания`);
                     }
@@ -989,6 +990,134 @@ try {
                     finalValidatedMatches = pulledMatches;
                 }
 
+// ===== ДОПОЛНИТЕЛЬНОЕ СОПОСТАВЛЕНИЕ СИНИХ КАНДИДАТОВ =====
+                console.log(`\n🔷 ДОПОЛНИТЕЛЬНОЕ СОПОСТАВЛЕНИЕ СИНИХ КАНДИДАТОВ`);
+
+                // Находим оставшиеся синие точки
+                const finalBluePhotoPoints = unmatchedPhotoPoints.filter(p => !matchedPointsA.has(p.id));
+                const finalBlueModelPoints = Array.from(existingModel.graph.nodes.values())
+                    .filter(p => !matchedPointsB.has(p.id));
+
+                console.log(`   • Осталось синих фото: ${finalBluePhotoPoints.length}`);
+                console.log(`   • Осталось синих модели: ${finalBlueModelPoints.length}`);
+
+                // Ищем явные пары по расстоянию
+                let finalBluePairs = 0;
+                const blueCandidates = [];
+
+                for (const photoPoint of finalBluePhotoPoints) {
+                    const projected = {
+                        x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+                           photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                           finalTransform.translation.x,
+                        y: photoPoint.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                           photoPoint.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+                           finalTransform.translation.y
+                    };
+
+                    // Ищем ближайшую модель
+                    let bestMatch = null;
+                    let bestDist = Infinity;
+
+                    for (const modelPoint of finalBlueModelPoints) {
+                        const dx = projected.x - modelPoint.x;
+                        const dy = projected.y - modelPoint.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+
+                        if (dist < bestDist && dist < 10) { // порог 10px
+                            bestDist = dist;
+                            bestMatch = modelPoint;
+                        }
+                    }
+
+                    if (bestMatch) {
+                        console.log(`\n   🔍 Найдена пара:`);
+                        console.log(`      Фото (${projected.x.toFixed(1)}, ${projected.y.toFixed(1)})`);
+                        console.log(`      Модель (${bestMatch.x.toFixed(1)}, ${bestMatch.y.toFixed(1)})`);
+                        console.log(`      Расстояние: ${bestDist.toFixed(1)}px`);
+
+                        // Проверяем морфологию
+                        const photoMorph = morphologyMap.get(photoPoint.id);
+                        const modelMorph = existingModel.morphologyMap.get(bestMatch.id);
+
+                        if (photoMorph && modelMorph) {
+                            let morphScore = 0;
+                            let checks = 0;
+
+                            if (photoMorph.eccentricity && modelMorph.eccentricity) {
+                                const ratio = Math.min(photoMorph.eccentricity, modelMorph.eccentricity) /
+                                             Math.max(photoMorph.eccentricity, modelMorph.eccentricity);
+                                morphScore += ratio;
+                                checks++;
+                            }
+
+                            if (photoMorph.asymmetry && modelMorph.asymmetry) {
+                                const ratio = Math.min(photoMorph.asymmetry, modelMorph.asymmetry) /
+                                             Math.max(photoMorph.asymmetry, modelMorph.asymmetry);
+                                morphScore += ratio;
+                                checks++;
+                            }
+
+                            const finalMorphScore = checks > 0 ? morphScore / checks : 0.5;
+                            console.log(`      Морфология: ${(finalMorphScore * 100).toFixed(1)}%`);
+
+                            if (finalMorphScore > 0.6) { // чуть ниже порог для последнего шанса
+                                blueCandidates.push({
+                                    pointA: photoPoint.id,
+                                    pointB: bestMatch.id,
+                                    distance: bestDist,
+                                    morphScore: finalMorphScore
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if (blueCandidates.length > 0) {
+                    console.log(`\n📊 Найдено ${blueCandidates.length} финальных кандидатов`);
+
+                    // Добавляем их в matches
+                    for (const cand of blueCandidates) {
+                        finalValidatedMatches.push({
+                            pointA: cand.pointA,
+                            pointB: cand.pointB,
+                            confidence: 0.8,
+                            status: 'final_blue'
+                        });
+                        finalBluePairs++;
+
+                        // Притягиваем точки
+                        const nodeA = exactGraph.nodes.get(cand.pointA);
+                        const nodeB = existingModel.graph.nodes.get(cand.pointB);
+                        if (nodeA && nodeB) {
+                            const projected = {
+                                x: nodeA.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+                                   nodeA.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                                   finalTransform.translation.x,
+                                y: nodeA.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                                   nodeA.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+                                   finalTransform.translation.y
+                            };
+
+                            nodeB.x = (projected.x + nodeB.x) / 2;
+                            nodeB.y = (projected.y + nodeB.y) / 2;
+                            nodeB.confirmationCount++;
+                        }
+                    }
+
+                    console.log(`\n✅ Добавлено ${finalBluePairs} финальных синих пар!`);
+
+                    // Обновляем статистику
+                    matchedPointsA.clear();
+                    matchedPointsB.clear();
+                    for (const match of finalValidatedMatches) {
+                        matchedPointsA.add(match.pointA);
+                        matchedPointsB.add(match.pointB);
+                    }
+                } else {
+                    console.log(`\n⚠️ Финальных кандидатов не найдено`);
+                }
+              
                 // Обновляем множества
                 matchedPointsA.clear();
                 matchedPointsB.clear();
