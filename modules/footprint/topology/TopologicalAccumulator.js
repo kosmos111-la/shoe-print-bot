@@ -481,7 +481,7 @@ class TopologicalAccumulator {
                             exactGraph,
                             existingModel.graph,
                             finalTransform,
-                            25 // порог в пикселях
+                            50 // порог в пикселях
                         );
 
                         if (pulledCount > 0) {
