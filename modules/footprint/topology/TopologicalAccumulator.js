@@ -392,6 +392,108 @@ class TopologicalAccumulator {
 
                     console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК: ${finalValidatedMatches.length}`);
 
+
+// ===== ШАГ 3.6: ФИНАЛЬНОЕ ПРИТЯГИВАНИЕ БЛИЗКИХ ТОЧЕК =====
+console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
+
+const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10) => {
+    const pulledMatches = [];
+    const usedPhotoPoints = new Set();
+    const usedModelPoints = new Set();
+    let pulledCount = 0;
+   
+    // Сортируем matches по уверенности
+    const sortedMatches = [...matches].sort((a, b) => b.confidence - a.confidence);
+   
+    for (const match of sortedMatches) {
+        const photoPoint = photoGraph?.nodes?.get(match.pointA);
+        const modelPoint = modelGraph?.nodes?.get(match.pointB);
+       
+        if (!photoPoint || !modelPoint) continue;
+       
+        // Проецируем точку фото в пространство модели
+        const projected = {
+            x: photoPoint.x * transform.scale * Math.cos(transform.rotation) -
+               photoPoint.y * transform.scale * Math.sin(transform.rotation) +
+               transform.translation.x,
+            y: photoPoint.x * transform.scale * Math.sin(transform.rotation) +
+               photoPoint.y * transform.scale * Math.cos(transform.rotation) +
+               transform.translation.y
+        };
+       
+        // Вычисляем расстояние до точки модели
+        const dx = projected.x - modelPoint.x;
+        const dy = projected.y - modelPoint.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+       
+        if (dist < threshold && dist > 0.5) { // Не притягиваем если уже почти совпадают
+            // Точки рядом - притягиваем!
+            console.log(`   🧲 Точки рядом (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)}`);
+           
+            // Усредняем позицию (взвешенно по уверенности)
+            const weight = match.confidence || 0.5;
+            const avgX = (projected.x * weight + modelPoint.x * (1 - weight));
+            const avgY = (projected.y * weight + modelPoint.y * (1 - weight));
+           
+            // Обновляем модель
+            modelPoint.x = avgX;
+            modelPoint.y = avgY;
+            modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
+            modelPoint.pulled = true;
+            modelPoint.pullDistance = dist;
+           
+            pulledMatches.push({
+                ...match,
+                pulled: true,
+                pullDistance: dist,
+                newPosition: { x: avgX, y: avgY }
+            });
+           
+            usedPhotoPoints.add(match.pointA);
+            usedModelPoints.add(match.pointB);
+            pulledCount++;
+        } else if (dist >= threshold) {
+            // Точки далеко - оставляем как есть, но логируем для отладки
+            if (dist > threshold * 2) {
+                console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - не притягиваем`);
+            }
+            pulledMatches.push(match);
+            usedPhotoPoints.add(match.pointA);
+            usedModelPoints.add(match.pointB);
+        } else {
+            // Точки уже почти совпадают
+            pulledMatches.push(match);
+            usedPhotoPoints.add(match.pointA);
+            usedModelPoints.add(match.pointB);
+        }
+    }
+   
+    console.log(`\n📊 РЕЗУЛЬТАТ ПРИТЯГИВАНИЯ:`);
+    console.log(`   • Притянуто точек: ${pulledCount}`);
+    console.log(`   • Осталось без изменений: ${pulledMatches.length - pulledCount}`);
+   
+    return { pulledMatches, pulledCount };
+};
+
+// Применяем притягивание если есть transform и matches
+if (finalTransform && finalValidatedMatches && finalValidatedMatches.length > 0) {
+    const { pulledMatches, pulledCount } = magneticPull(
+        finalValidatedMatches,
+        exactGraph,
+        existingModel.graph,
+        finalTransform,
+        15 // порог в пикселях
+    );
+   
+    if (pulledCount > 0) {
+        console.log(`\n✅ Притянуто ${pulledCount} точек!`);
+        // Обновляем matches
+        finalValidatedMatches = pulledMatches;
+    }
+} else {
+    console.log(`\n⚠️ Нет transform или matches для притягивания`);
+}
+                  
                     // ===== ШАГ 3.7: ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК ДЛЯ ВИЗУАЛИЗАЦИИ =====
                     console.log(`\n📊 ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК`);
 
