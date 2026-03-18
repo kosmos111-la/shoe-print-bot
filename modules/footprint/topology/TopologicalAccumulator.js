@@ -645,6 +645,9 @@ class TopologicalAccumulator {
                     console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
                     console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
 
+// Сохраняем уникальные точки фото для последующего добавления в модель
+this.lastUniqueInPhoto = uniqueInPhoto;
+                  
 // ===== ТАБЛИЦА ТОЧЕК ИЗ ВИЗУАЛИЗАЦИИ =====
 console.log(`\n📊 ТОЧКИ В ВИЗУАЛИЗАЦИИ:`);
 console.log(`┌──────┬────────────┬──────────────┬──────────────┬──────────────┬──────────┐`);
