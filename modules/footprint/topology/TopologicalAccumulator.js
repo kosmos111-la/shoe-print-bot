@@ -1154,29 +1154,7 @@ try {
                 console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
                 console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
 
-              // Добавляем уникальные точки фото в модель
-if (uniqueInPhoto.length > 0) {
-    console.log(`\n📸 Добавляю ${uniqueInPhoto.length} новых точек из фото в модель`);
-   
-    for (const photoPoint of uniqueInPhoto) {
-        // Создаём новую точку в модели
-        const newNodeId = `node_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-       
-        existingModel.graph.nodes.set(newNodeId, {
-            id: newNodeId,
-            x: photoPoint.x,
-            y: photoPoint.y,
-            degree: 0,
-            morphology: morphologyMap?.get(photoPoint.id),
-            confirmationCount: 1,
-            addedFrom: 'new_photo_point',
-            addedAt: new Date(),
-            originalPhotoId: photoPoint.id
-        });
-       
-        console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
-    }
-}
+
 
                 // Обновляем uniquePoints в модели
                 if (existingModel) {
