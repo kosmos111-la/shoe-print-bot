@@ -1464,11 +1464,12 @@ class TopologicalAccumulator {
 
         // Создаем треугольный матчер
         const triangleMatcher = new TriangleMatcher({
-            compactnessThreshold: 0.4,
-            eccentricityThreshold: 0.2,
-            areaThreshold: 0.5,
-            ratioThreshold: 0.25
-        });
+    debug: false,  // ← добавляем эту строку
+    compactnessThreshold: 0.4,
+    eccentricityThreshold: 0.2,
+    areaThreshold: 0.5,
+    ratioThreshold: 0.25
+});
 
         // 🔥 ЗАЩИТА: проверяем, что точки не пустые
         if (!points1 || !points2 || points1.length === 0 || points2.length === 0) {
