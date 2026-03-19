@@ -35,22 +35,19 @@ class TriangleMatcher {
      * Основной метод поиска соответствий
      */
     findMatches(pointsA, pointsB, delaunayA, delaunayB) {
+        // Только самое важное - количество точек
+        console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
+
+        // ШАГ 1-4 выполняем, но логи под if(this.debug)
         if (this.debug) {
             console.log(`\n${'='.repeat(100)}`);
             console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (6 признаков треугольника)`);
             console.log(`${'='.repeat(100)}`);
-        }
-        console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
-
-        // ШАГ 1: Триангуляция Делоне
-        if (this.debug) {
             console.log(`\n🔍 ШАГ 1: Триангуляция Делоне`);
             console.log(`   • Треугольников в А: ${delaunayA.triangleList?.length || 0}`);
             console.log(`   • Треугольников в Б: ${delaunayB.triangleList?.length || 0}`);
+            console.log(`\n🔍 ШАГ 2: Создание топологических треугольников`);
         }
-
-        // ШАГ 2: Создание топологических треугольников
-        if (this.debug) console.log(`\n🔍 ШАГ 2: Создание топологических треугольников`);
 
         const trianglesA = this.buildTopologicalTriangles(delaunayA, pointsA);
         const trianglesB = this.buildTopologicalTriangles(delaunayB, pointsB);
@@ -61,10 +58,8 @@ class TriangleMatcher {
         if (this.debug) {
             console.log(`   • Треугольников в А: ${trianglesA.length}`);
             console.log(`   • Треугольников в Б: ${trianglesB.length}`);
+            console.log(`\n🔍 ШАГ 3: Сбор кандидатов (грубая морфология)`);
         }
-
-        // ШАГ 3: Сбор всех кандидатов по грубой морфологии
-        if (this.debug) console.log(`\n🔍 ШАГ 3: Сбор кандидатов (грубая морфология)`);
 
         const candidates = this.findAllCandidates(trianglesA, trianglesB);
         this.stats.totalCandidates = candidates.length;
@@ -72,14 +67,12 @@ class TriangleMatcher {
         if (this.debug) {
             console.log(`   • Найдено кандидатов: ${candidates.length}`);
             console.log(`   • Из возможных ${trianglesA.length * trianglesB.length} комбинаций`);
+            console.log(`\n🔍 ШАГ 4: Геометрическая верификация (6 признаков)`);
         }
-
-        // ШАГ 4: Геометрическая верификация всех кандидатов
-        if (this.debug) console.log(`\n🔍 ШАГ 4: Геометрическая верификация (6 признаков)`);
 
         const geometryResults = this.verifyGeometry(candidates, trianglesA, trianglesB);
 
-        // ШАГ 5: Динамический поиск якорей по порогам
+        // ШАГ 5: Динамический поиск якорей - логи под if(this.debug)
         if (this.debug) console.log(`\n🔍 ШАГ 5: Динамический поиск якорей`);
 
         const { anchors, ambiguous, noMatches, byThreshold } = this.findAnchorsDynamic(
@@ -92,6 +85,7 @@ class TriangleMatcher {
         this.stats.noMatches = noMatches.length;
         this.stats.byThreshold = byThreshold;
 
+        // ВАЖНЫЕ ИТОГИ - всегда показываем
         console.log(`\n📊 РЕЗУЛЬТАТ ПО ПОРОГАМ:`);
         for (const th of this.geometryThresholds) {
             console.log(`   • ${th*100}%: якорей ${byThreshold[th]?.anchors || 0} (${(byThreshold[th]?.anchors || 0)*3} точек), вариативных ${byThreshold[th]?.ambiguous || 0}`);
@@ -208,7 +202,6 @@ class TriangleMatcher {
                             // Расстояние от противоположной вершины до внешней точки
                             const dist = this.calcDistance(opposite, v);
                           
-                            // Сохраняем в соответствующую позицию
                             externalDists[i] = dist;
                             break;
                         }
@@ -344,7 +337,7 @@ class TriangleMatcher {
           
             // Если в одном 0, а в другом нет - штрафуем
             if (vecA[i] === 0 || vecB[i] === 0) {
-                score += 0.3; // штраф за отсутствие внешней точки
+                score += 0.3;
                 count++;
                 continue;
             }
@@ -380,6 +373,7 @@ class TriangleMatcher {
         for (const threshold of thresholds) {
             if (remaining.length === 0) break;
 
+            // Только заголовок порога без деталей
             if (this.debug) console.log(`\n🔍 ПРОВЕРКА НА ПОРОГЕ ${threshold*100}%:`);
 
             const newAnchors = [];
@@ -412,7 +406,7 @@ class TriangleMatcher {
 
                         if (pointMatches.has(pA)) {
                             if (pointMatches.get(pA) !== pB) {
-                                if (this.debug) console.log(`      ⚠️ Конфликт: точка ${pA.substring(0,8)} уже сопоставлена с ${pointMatches.get(pA).substring(0,8)}, пытаемся с ${pB.substring(0,8)}`);
+                                if (this.debug) console.log(`      ⚠️ Конфликт: точка ${pA.substring(0,8)}`);
                                 conflict = true;
                                 break;
                             }
@@ -433,10 +427,9 @@ class TriangleMatcher {
                             geometryScore: passed[0].score,
                             morphScore: candidates.get(passed[0].bIndex).morphScore
                         });
-                        if (this.debug) console.log(`      ✅ Треугольник ${aIndex}: однозначная пара (геом: ${(passed[0].score*100).toFixed(1)}%)`);
+                        if (this.debug) console.log(`      ✅ Треугольник ${aIndex}: однозначная пара`);
                     } else {
                         nextRemaining.push(aIndex);
-                        if (this.debug) console.log(`      ⚠️ Треугольник ${aIndex}: конфликт точек, перенесён на следующий порог`);
                     }
 
                 } else if (passed.length > 1) {
@@ -461,7 +454,7 @@ class TriangleMatcher {
             byThreshold[threshold].anchors = newAnchors.length;
             byThreshold[threshold].ambiguous = newAmbiguous.length;
 
-            if (this.debug) console.log(`   → На этом пороге: +${newAnchors.length} якорей (${newAnchors.length*3} точек), +${newAmbiguous.length} вариативных, осталось ${remaining.length}`);
+            if (this.debug) console.log(`   → На этом пороге: +${newAnchors.length} якорей, +${newAmbiguous.length} вариативных, осталось ${remaining.length}`);
         }
 
         return { anchors, ambiguous, noMatches: remaining, byThreshold };
@@ -506,8 +499,9 @@ class TriangleMatcher {
      * Восстановление точек из якорей
      */
     reconstructPoints(anchors, trianglesA, trianglesB) {
+        // Подробности только при отладке
         if (this.debug) console.log(`\n🔍 RECONSTRUCT POINTS С КООРДИНАТАМИ:`);
-      
+
         const pointMatches = [];
         const pointMap = new Map();
         const usedB = new Set();
@@ -536,13 +530,12 @@ class TriangleMatcher {
                 if (pointMap.has(pA)) {
                     if (pointMap.get(pA) !== pB) {
                         if (this.debug) {
-                            console.log(`   ⚠️ КОНФЛИКТ: точка ${pA.substring(0,12)} (${aCoord[0].toFixed(1)}, ${aCoord[1].toFixed(1)})`);
-                            console.log(`             уже соответствует ${pointMap.get(pA).substring(0,12)}, пытаемся с ${pB.substring(0,12)} (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)})`);
+                            console.log(`   ⚠️ КОНФЛИКТ: точка ${pA.substring(0,12)}`);
                         }
                         continue;
                     }
                 } else if (usedB.has(pB)) {
-                    if (this.debug) console.log(`   ⚠️ Точка ${pB.substring(0,12)} (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)}) уже используется`);
+                    if (this.debug) console.log(`   ⚠️ Точка ${pB.substring(0,12)} уже используется`);
                     continue;
                 } else {
                     pointMap.set(pA, pB);
@@ -554,8 +547,6 @@ class TriangleMatcher {
                     });
                     if (this.debug) {
                         console.log(`   ✅ Добавлено: ${pA.substring(0,12)} ↔ ${pB.substring(0,12)}`);
-                        console.log(`      A: (${aCoord[0].toFixed(1)}, ${aCoord[1].toFixed(1)})`);
-                        console.log(`      B: (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)})`);
                     }
                 }
             }
