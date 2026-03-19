@@ -35,18 +35,22 @@ class TriangleMatcher {
      * Основной метод поиска соответствий
      */
     findMatches(pointsA, pointsB, delaunayA, delaunayB) {
-        console.log(`\n${'='.repeat(100)}`);
-        console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (6 признаков треугольника)`);
-        console.log(`${'='.repeat(100)}`);
+        if (this.debug) {
+            console.log(`\n${'='.repeat(100)}`);
+            console.log(`🔺 ТРЕУГОЛЬНЫЙ ПОИСК (6 признаков треугольника)`);
+            console.log(`${'='.repeat(100)}`);
+        }
         console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
         // ШАГ 1: Триангуляция Делоне
-        console.log(`\n🔍 ШАГ 1: Триангуляция Делоне`);
-        console.log(`   • Треугольников в А: ${delaunayA.triangleList?.length || 0}`);
-        console.log(`   • Треугольников в Б: ${delaunayB.triangleList?.length || 0}`);
+        if (this.debug) {
+            console.log(`\n🔍 ШАГ 1: Триангуляция Делоне`);
+            console.log(`   • Треугольников в А: ${delaunayA.triangleList?.length || 0}`);
+            console.log(`   • Треугольников в Б: ${delaunayB.triangleList?.length || 0}`);
+        }
 
         // ШАГ 2: Создание топологических треугольников
-        console.log(`\n🔍 ШАГ 2: Создание топологических треугольников`);
+        if (this.debug) console.log(`\n🔍 ШАГ 2: Создание топологических треугольников`);
 
         const trianglesA = this.buildTopologicalTriangles(delaunayA, pointsA);
         const trianglesB = this.buildTopologicalTriangles(delaunayB, pointsB);
@@ -54,25 +58,29 @@ class TriangleMatcher {
         this.stats.totalTrianglesA = trianglesA.length;
         this.stats.totalTrianglesB = trianglesB.length;
 
-        console.log(`   • Треугольников в А: ${trianglesA.length}`);
-        console.log(`   • Треугольников в Б: ${trianglesB.length}`);
+        if (this.debug) {
+            console.log(`   • Треугольников в А: ${trianglesA.length}`);
+            console.log(`   • Треугольников в Б: ${trianglesB.length}`);
+        }
 
         // ШАГ 3: Сбор всех кандидатов по грубой морфологии
-        console.log(`\n🔍 ШАГ 3: Сбор кандидатов (грубая морфология)`);
+        if (this.debug) console.log(`\n🔍 ШАГ 3: Сбор кандидатов (грубая морфология)`);
 
         const candidates = this.findAllCandidates(trianglesA, trianglesB);
         this.stats.totalCandidates = candidates.length;
 
-        console.log(`   • Найдено кандидатов: ${candidates.length}`);
-        console.log(`   • Из возможных ${trianglesA.length * trianglesB.length} комбинаций`);
+        if (this.debug) {
+            console.log(`   • Найдено кандидатов: ${candidates.length}`);
+            console.log(`   • Из возможных ${trianglesA.length * trianglesB.length} комбинаций`);
+        }
 
         // ШАГ 4: Геометрическая верификация всех кандидатов
-        console.log(`\n🔍 ШАГ 4: Геометрическая верификация (6 признаков)`);
+        if (this.debug) console.log(`\n🔍 ШАГ 4: Геометрическая верификация (6 признаков)`);
 
         const geometryResults = this.verifyGeometry(candidates, trianglesA, trianglesB);
 
         // ШАГ 5: Динамический поиск якорей по порогам
-        console.log(`\n🔍 ШАГ 5: Динамический поиск якорей`);
+        if (this.debug) console.log(`\n🔍 ШАГ 5: Динамический поиск якорей`);
 
         const { anchors, ambiguous, noMatches, byThreshold } = this.findAnchorsDynamic(
             geometryResults, trianglesA, trianglesB, this.geometryThresholds
@@ -178,53 +186,46 @@ class TriangleMatcher {
             const sideAB = this.calcDistance(t.p1, t.p2);
             const sideBC = this.calcDistance(t.p2, t.p3);
             const sideCA = this.calcDistance(t.p3, t.p1);
-           
+          
             // 2. Находим внешние точки для каждого ребра
             const externalDists = [0, 0, 0]; // AD, BE, CF
-           
+          
             for (let i = 0; i < t.edges.length; i++) {
                 const edge = t.edges[i];
-               
+              
                 // Находим противоположную вершину
                 const opposite = [t.p1, t.p2, t.p3].find(p =>
                     p.id !== edge.v1.id && p.id !== edge.v2.id
                 );
-               
+              
                 // Ищем внешнюю точку
                 for (const neighborTri of edge.neighborTriangles) {
                     for (const v of [neighborTri.p1, neighborTri.p2, neighborTri.p3]) {
                         if (v.id !== edge.v1.id && v.id !== edge.v2.id) {
                             // Это внешняя точка
                             edge.externalPoint = v;
-                           
+                          
                             // Расстояние от противоположной вершины до внешней точки
                             const dist = this.calcDistance(opposite, v);
-                           
+                          
                             // Сохраняем в соответствующую позицию
-                            // i=0 (ребро AB) → внешняя точка C? Нет, надо проверить
-                            // По логике: для ребра AB противоположная C, внешняя точка D
-                            // Но нам нужно расстояние от A до D? Или от C до D?
-                            // По твоему описанию: "через ребро аб мы можем провести луч сд"
-                            // Значит от C через D - расстояние C→D
-                           
-                            // Упростим: сохраняем расстояние от противоположной вершины до внешней точки
                             externalDists[i] = dist;
                             break;
                         }
                     }
                 }
             }
-           
+          
             // Собираем все 6 расстояний
             const allDists = [
                 sideAB, sideBC, sideCA,
                 externalDists[0], externalDists[1], externalDists[2]
             ];
-           
+          
             // Нормируем относительно максимального
             const maxDist = Math.max(...allDists.filter(d => d > 0));
             t.normalizedDistances = allDists.map(d => maxDist > 0 ? d / maxDist : 0);
-           
+          
             // Для отладки
             if (this.debug && t.degree > 0) {
                 console.log(`   Треугольник ${t.points.map(p => p.substring(0,8)).join(',')}:`);
@@ -250,12 +251,12 @@ class TriangleMatcher {
 
         for (let i = 0; i < trianglesA.length; i++) {
             const tA = trianglesA[i];
-           
+          
             for (let j = 0; j < trianglesB.length; j++) {
                 const tB = trianglesB[j];
-               
+              
                 const score = this.compareMorphology(tA, tB);
-               
+              
                 if (score >= this.roughThreshold) {
                     candidates.push({
                         aIndex: i,
@@ -333,27 +334,27 @@ class TriangleMatcher {
     compareSixFeatures(tA, tB) {
         const vecA = tA.normalizedDistances;
         const vecB = tB.normalizedDistances;
-       
+      
         let score = 0;
         let count = 0;
-       
+      
         for (let i = 0; i < 6; i++) {
             // Если в обоих треугольниках по 0 - пропускаем
             if (vecA[i] === 0 && vecB[i] === 0) continue;
-           
+          
             // Если в одном 0, а в другом нет - штрафуем
             if (vecA[i] === 0 || vecB[i] === 0) {
                 score += 0.3; // штраф за отсутствие внешней точки
                 count++;
                 continue;
             }
-           
+          
             // Нормальное сравнение
             const ratio = Math.min(vecA[i], vecB[i]) / Math.max(vecA[i], vecB[i]);
             score += ratio;
             count++;
         }
-       
+      
         return count > 0 ? score / count : 0;
     }
 
@@ -379,7 +380,7 @@ class TriangleMatcher {
         for (const threshold of thresholds) {
             if (remaining.length === 0) break;
 
-            console.log(`\n🔍 ПРОВЕРКА НА ПОРОГЕ ${threshold*100}%:`);
+            if (this.debug) console.log(`\n🔍 ПРОВЕРКА НА ПОРОГЕ ${threshold*100}%:`);
 
             const newAnchors = [];
             const newAmbiguous = [];
@@ -411,7 +412,7 @@ class TriangleMatcher {
 
                         if (pointMatches.has(pA)) {
                             if (pointMatches.get(pA) !== pB) {
-                                console.log(`      ⚠️ Конфликт: точка ${pA.substring(0,8)} уже сопоставлена с ${pointMatches.get(pA).substring(0,8)}, пытаемся с ${pB.substring(0,8)}`);
+                                if (this.debug) console.log(`      ⚠️ Конфликт: точка ${pA.substring(0,8)} уже сопоставлена с ${pointMatches.get(pA).substring(0,8)}, пытаемся с ${pB.substring(0,8)}`);
                                 conflict = true;
                                 break;
                             }
@@ -432,10 +433,10 @@ class TriangleMatcher {
                             geometryScore: passed[0].score,
                             morphScore: candidates.get(passed[0].bIndex).morphScore
                         });
-                        console.log(`      ✅ Треугольник ${aIndex}: однозначная пара (геом: ${(passed[0].score*100).toFixed(1)}%)`);
+                        if (this.debug) console.log(`      ✅ Треугольник ${aIndex}: однозначная пара (геом: ${(passed[0].score*100).toFixed(1)}%)`);
                     } else {
                         nextRemaining.push(aIndex);
-                        console.log(`      ⚠️ Треугольник ${aIndex}: конфликт точек, перенесён на следующий порог`);
+                        if (this.debug) console.log(`      ⚠️ Треугольник ${aIndex}: конфликт точек, перенесён на следующий порог`);
                     }
 
                 } else if (passed.length > 1) {
@@ -446,7 +447,7 @@ class TriangleMatcher {
                         count: passed.length,
                         scores: passed.map(p => p.score)
                     });
-                    console.log(`      ⚠️ Треугольник ${aIndex}: варианты (${passed.length})`);
+                    if (this.debug) console.log(`      ⚠️ Треугольник ${aIndex}: варианты (${passed.length})`);
 
                 } else {
                     nextRemaining.push(aIndex);
@@ -460,7 +461,7 @@ class TriangleMatcher {
             byThreshold[threshold].anchors = newAnchors.length;
             byThreshold[threshold].ambiguous = newAmbiguous.length;
 
-            console.log(`   → На этом пороге: +${newAnchors.length} якорей (${newAnchors.length*3} точек), +${newAmbiguous.length} вариативных, осталось ${remaining.length}`);
+            if (this.debug) console.log(`   → На этом пороге: +${newAnchors.length} якорей (${newAnchors.length*3} точек), +${newAmbiguous.length} вариативных, осталось ${remaining.length}`);
         }
 
         return { anchors, ambiguous, noMatches: remaining, byThreshold };
@@ -470,27 +471,27 @@ class TriangleMatcher {
      * Построение связей между треугольниками
      */
     buildNeighbors(triangles) {
-    const edgeMap = new Map();
+        const edgeMap = new Map();
 
-    triangles.forEach(t => {
-        t.edges.forEach(edge => {
-            const key = [edge.v1.id, edge.v2.id].sort().join('--');
-            if (!edgeMap.has(key)) edgeMap.set(key, []);
-            edgeMap.get(key).push({ triangle: t, edge });
+        triangles.forEach(t => {
+            t.edges.forEach(edge => {
+                const key = [edge.v1.id, edge.v2.id].sort().join('--');
+                if (!edgeMap.has(key)) edgeMap.set(key, []);
+                edgeMap.get(key).push({ triangle: t, edge });
+            });
         });
-    });
 
-    edgeMap.forEach(triList => {
-        if (triList.length > 1) {
-            for (let i = 0; i < triList.length; i++) {
-                for (let j = i+1; j < triList.length; j++) {
-                    triList[i].edge.neighborTriangles.push(triList[j].triangle);
-                    triList[j].edge.neighborTriangles.push(triList[i].triangle);
+        edgeMap.forEach(triList => {
+            if (triList.length > 1) {
+                for (let i = 0; i < triList.length; i++) {
+                    for (let j = i+1; j < triList.length; j++) {
+                        triList[i].edge.neighborTriangles.push(triList[j].triangle);
+                        triList[j].edge.neighborTriangles.push(triList[i].triangle);
+                    }
                 }
             }
-        }
-    });
-}
+        });
+    }
 
     /**
      * Получение треугольников из Делоне
@@ -505,8 +506,8 @@ class TriangleMatcher {
      * Восстановление точек из якорей
      */
     reconstructPoints(anchors, trianglesA, trianglesB) {
-        console.log(`\n🔍 RECONSTRUCT POINTS С КООРДИНАТАМИ:`);
-       
+        if (this.debug) console.log(`\n🔍 RECONSTRUCT POINTS С КООРДИНАТАМИ:`);
+      
         const pointMatches = [];
         const pointMap = new Map();
         const usedB = new Set();
@@ -515,13 +516,15 @@ class TriangleMatcher {
             const tA = trianglesA[anchor.aIndex];
             const tB = trianglesB[anchor.bIndex];
 
-            console.log(`\n   Треугольник якорь (уверенность: ${(anchor.geometryScore*100).toFixed(1)}%):`);
-            console.log(`      A: ${tA.p1.id.substring(0,12)} (${tA.p1.x.toFixed(1)}, ${tA.p1.y.toFixed(1)})`);
-            console.log(`         ${tA.p2.id.substring(0,12)} (${tA.p2.x.toFixed(1)}, ${tA.p2.y.toFixed(1)})`);
-            console.log(`         ${tA.p3.id.substring(0,12)} (${tA.p3.x.toFixed(1)}, ${tA.p3.y.toFixed(1)})`);
-            console.log(`      B: ${tB.p1.id.substring(0,12)} (${tB.p1.x.toFixed(1)}, ${tB.p1.y.toFixed(1)})`);
-            console.log(`         ${tB.p2.id.substring(0,12)} (${tB.p2.x.toFixed(1)}, ${tB.p2.y.toFixed(1)})`);
-            console.log(`         ${tB.p3.id.substring(0,12)} (${tB.p3.x.toFixed(1)}, ${tB.p3.y.toFixed(1)})`);
+            if (this.debug) {
+                console.log(`\n   Треугольник якорь (уверенность: ${(anchor.geometryScore*100).toFixed(1)}%):`);
+                console.log(`      A: ${tA.p1.id.substring(0,12)} (${tA.p1.x.toFixed(1)}, ${tA.p1.y.toFixed(1)})`);
+                console.log(`         ${tA.p2.id.substring(0,12)} (${tA.p2.x.toFixed(1)}, ${tA.p2.y.toFixed(1)})`);
+                console.log(`         ${tA.p3.id.substring(0,12)} (${tA.p3.x.toFixed(1)}, ${tA.p3.y.toFixed(1)})`);
+                console.log(`      B: ${tB.p1.id.substring(0,12)} (${tB.p1.x.toFixed(1)}, ${tB.p1.y.toFixed(1)})`);
+                console.log(`         ${tB.p2.id.substring(0,12)} (${tB.p2.x.toFixed(1)}, ${tB.p2.y.toFixed(1)})`);
+                console.log(`         ${tB.p3.id.substring(0,12)} (${tB.p3.x.toFixed(1)}, ${tB.p3.y.toFixed(1)})`);
+            }
 
             const pairs = [
                 { a: tA.p1.id, b: tB.p1.id, aCoord: [tA.p1.x, tA.p1.y], bCoord: [tB.p1.x, tB.p1.y] },
@@ -532,12 +535,14 @@ class TriangleMatcher {
             for (const { a: pA, b: pB, aCoord, bCoord } of pairs) {
                 if (pointMap.has(pA)) {
                     if (pointMap.get(pA) !== pB) {
-                        console.log(`   ⚠️ КОНФЛИКТ: точка ${pA.substring(0,12)} (${aCoord[0].toFixed(1)}, ${aCoord[1].toFixed(1)})`);
-                        console.log(`             уже соответствует ${pointMap.get(pA).substring(0,12)}, пытаемся с ${pB.substring(0,12)} (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)})`);
+                        if (this.debug) {
+                            console.log(`   ⚠️ КОНФЛИКТ: точка ${pA.substring(0,12)} (${aCoord[0].toFixed(1)}, ${aCoord[1].toFixed(1)})`);
+                            console.log(`             уже соответствует ${pointMap.get(pA).substring(0,12)}, пытаемся с ${pB.substring(0,12)} (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)})`);
+                        }
                         continue;
                     }
                 } else if (usedB.has(pB)) {
-                    console.log(`   ⚠️ Точка ${pB.substring(0,12)} (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)}) уже используется`);
+                    if (this.debug) console.log(`   ⚠️ Точка ${pB.substring(0,12)} (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)}) уже используется`);
                     continue;
                 } else {
                     pointMap.set(pA, pB);
@@ -547,9 +552,11 @@ class TriangleMatcher {
                         pointB: pB,
                         confidence: anchor.geometryScore
                     });
-                    console.log(`   ✅ Добавлено: ${pA.substring(0,12)} ↔ ${pB.substring(0,12)}`);
-                    console.log(`      A: (${aCoord[0].toFixed(1)}, ${aCoord[1].toFixed(1)})`);
-                    console.log(`      B: (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)})`);
+                    if (this.debug) {
+                        console.log(`   ✅ Добавлено: ${pA.substring(0,12)} ↔ ${pB.substring(0,12)}`);
+                        console.log(`      A: (${aCoord[0].toFixed(1)}, ${aCoord[1].toFixed(1)})`);
+                        console.log(`      B: (${bCoord[0].toFixed(1)}, ${bCoord[1].toFixed(1)})`);
+                    }
                 }
             }
         }
@@ -577,7 +584,7 @@ class TriangleMatcher {
         console.log(`   • Точек в якорях: ${this.stats.anchorsPoints}`);
         console.log(`   • Вариативных треугольников: ${this.stats.ambiguous}`);
         console.log(`   • Без кандидатов: ${this.stats.noMatches}`);
-       
+      
         console.log(`\n📊 ПО ПОРОГАМ:`);
         for (const [th, data] of Object.entries(this.stats.byThreshold)) {
             console.log(`   • ${(parseFloat(th)*100).toFixed(0)}%: якорей ${data.anchors} (${data.anchors*3} точек), вариативных ${data.ambiguous}`);
