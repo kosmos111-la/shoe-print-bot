@@ -20,8 +20,9 @@ class ValidationModule {
      * @returns {Object} - преобразование {scale, rotation, translation}
      */
     calculateTransform(anchors, graphA, graphB) {
+      if (this.debug) {
         console.log(`\n📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО ${anchors.length} ЯКОРЯМ`);
-       
+       }
         if (anchors.length < 2) {
             console.log(`   ⚠️ Недостаточно якорей (нужно минимум 2)`);
             return null;
@@ -107,12 +108,12 @@ class ValidationModule {
                 y: centerB.y - (centerA.x * scale * Math.sin(rotation) + centerA.y * scale * Math.cos(rotation))
             }
         };
-
+if (this.debug) {
         console.log(`\n📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:`);
         console.log(`   • Масштаб: ${scale.toFixed(3)}`);
         console.log(`   • Поворот: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
         console.log(`   • Сдвиг: (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
-
+}
         return transform;
     }
 
@@ -222,8 +223,9 @@ class ValidationModule {
      * @returns {Object} - результаты валидации
      */
     validateAll(graphA, graphB, anchors, morphologyA, morphologyB) {
+      if (this.debug) {
         console.log(`\n🔍 ЗАПУСК ВАЛИДАЦИИ ВСЕХ ТОЧЕК`);
-       
+       }
         // Вычисляем преобразование по якорям
         const transform = this.calculateTransform(anchors, graphA, graphB);
         if (!transform) {
@@ -291,14 +293,14 @@ class ValidationModule {
                 });
             }
         }
-
+if (this.debug) {
         console.log(`\n📊 РЕЗУЛЬТАТЫ ВАЛИДАЦИИ:`);
         console.log(`   • Якорей: ${results.anchors.length}`);
         console.log(`   • Подтверждено: ${results.confirmed.length}`);
         console.log(`   • Кандидатов: ${results.candidates.length}`);
         console.log(`   • Отвергнуто: ${results.rejected.length}`);
         console.log(`   • ВСЕГО: ${results.anchors.length + results.confirmed.length} точек`);
-
+}
         return {
             success: true,
             transform,
