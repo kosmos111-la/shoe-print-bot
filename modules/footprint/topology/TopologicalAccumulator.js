@@ -633,14 +633,24 @@ class TopologicalAccumulator {
                         }));
 
                     // Точки только во втором следе (фото)
-                    const uniqueInPhoto = allPointsInB
-                        .filter(p => p && p.id && !matchedPointsB.has(p.id))
-                        .map(p => ({
-                            id: p.id,
-                            x: p.x,
-                            y: p.y,
-                            type: 'unique_in_photo'
-                        }));
+                    const uniqueInPhoto = points  // ← оригинальные точки фото
+    .filter(p => !matchedPointsA.has(p.id))
+    .map(p => {
+        const projected = {
+            x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+               p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               finalTransform.translation.x,
+            y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+               finalTransform.translation.y
+        };
+        return {
+            id: p.id,
+            x: projected.x,
+            y: projected.y,
+            type: 'unique_in_photo'
+        };
+    });
 
                     console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
                     console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
@@ -1139,14 +1149,24 @@ try {
                         type: 'unique_in_model'
                     }));
 
-                const uniqueInPhoto = allPointsInB
-                    .filter(p => p && p.id && !matchedPointsB.has(p.id))
-                    .map(p => ({
-                        id: p.id,
-                        x: p.x,
-                        y: p.y,
-                        type: 'unique_in_photo'
-                    }));
+                const uniqueInPhoto = points  // ← оригинальные точки фото
+    .filter(p => !matchedPointsA.has(p.id))
+    .map(p => {
+        const projected = {
+            x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+               p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               finalTransform.translation.x,
+            y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+               finalTransform.translation.y
+        };
+        return {
+            id: p.id,
+            x: projected.x,
+            y: projected.y,
+            type: 'unique_in_photo'
+        };
+    });
 
                 console.log(`\n📊 НОВАЯ СТАТИСТИКА:`);
                 console.log(`   • Сопоставлено точек в A: ${matchedPointsA.size}`);
@@ -1797,18 +1817,18 @@ try {
        
         for (const photoPoint of this.lastUniqueInPhoto) {
             // Проверяем, нет ли уже такой точки рядом
-//            let isDuplicate = false;
-//            for (const [modelId, modelNode] of model.graph.nodes) {
-//               const dx = modelNode.x - photoPoint.x;
-//                const dy = modelNode.y - photoPoint.y;
-//                const dist = Math.sqrt(dx*dx + dy*dy);
-//                if (dist < 5) { // порог 5px
-//                    isDuplicate = true;
-//                    break;
-//                }
-//            }
-//           
-//            if (!isDuplicate) {
+            let isDuplicate = false;
+            for (const [modelId, modelNode] of model.graph.nodes) {
+               const dx = modelNode.x - photoPoint.x;
+                const dy = modelNode.y - photoPoint.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < 5) { // порог 5px
+                    isDuplicate = true;
+                    break;
+                }
+            }
+           
+            if (!isDuplicate) {
                 const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
                
                 model.graph.nodes.set(newNodeId, {
@@ -1825,7 +1845,7 @@ try {
                
                 newNodesAdded++;
                 console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
- //           }
+           }
         }
     }
 
