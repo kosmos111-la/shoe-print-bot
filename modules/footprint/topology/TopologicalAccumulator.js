@@ -1797,18 +1797,18 @@ try {
        
         for (const photoPoint of this.lastUniqueInPhoto) {
             // Проверяем, нет ли уже такой точки рядом
-            let isDuplicate = false;
-            for (const [modelId, modelNode] of model.graph.nodes) {
-                const dx = modelNode.x - photoPoint.x;
-                const dy = modelNode.y - photoPoint.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                if (dist < 5) { // порог 5px
-                    isDuplicate = true;
-                    break;
-                }
-            }
-           
-            if (!isDuplicate) {
+//            let isDuplicate = false;
+//            for (const [modelId, modelNode] of model.graph.nodes) {
+//               const dx = modelNode.x - photoPoint.x;
+//                const dy = modelNode.y - photoPoint.y;
+//                const dist = Math.sqrt(dx*dx + dy*dy);
+//                if (dist < 5) { // порог 5px
+//                    isDuplicate = true;
+//                    break;
+//                }
+//            }
+//           
+//            if (!isDuplicate) {
                 const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
                
                 model.graph.nodes.set(newNodeId, {
@@ -1825,7 +1825,7 @@ try {
                
                 newNodesAdded++;
                 console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
-            }
+ //           }
         }
     }
 
