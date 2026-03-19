@@ -27,11 +27,11 @@ class PatternAnalyzer {
        
         // 🔥 ИСПРАВЛЕНО: передаем graph в analyzeGaps
         const gaps = this.analyzeGaps(graph, pointPatterns);
-      
+      if (this.debug) {
         console.log(`   • Найдено паттернов: ${patterns.length}`);
         console.log(`   • Уникальных групп: ${Object.keys(groups).length}`);
         console.log(`   • Типы: ${Object.keys(stats.typeDistribution).join(', ')}`);
-      
+      }
         return {
             patterns: pointPatterns,
             groups,
