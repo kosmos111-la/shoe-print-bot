@@ -308,7 +308,7 @@ const structures = structureManager.buildStructures(
 console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
 
 // Объявляем finalValidatedMatches ЗДЕСЬ, один раз
-let finalValidatedMatches = [];
+// let finalValidatedMatches = [];
 
 // Собираем matches из структур
 for (const structure of structures) {
