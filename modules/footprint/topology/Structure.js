@@ -32,7 +32,9 @@ class TopologicalStructure {
         };
        
         // Добавляем seed-треугольник
-        this.addTriangle(seedTriangle);
+        if (seedTriangle) {
+            this.addTriangle(seedTriangle);
+        }
     }
    
     /**
@@ -51,9 +53,9 @@ class TopologicalStructure {
         this.triangleIds.add(triangle.id);
        
         // Добавляем точки треугольника
-        [triangle.p1, triangle.p2, triangle.p3].forEach(p => {
-            if (p && p.id) this.pointIds.add(p.id);
-        });
+        if (triangle.p1 && triangle.p1.id) this.pointIds.add(triangle.p1.id);
+        if (triangle.p2 && triangle.p2.id) this.pointIds.add(triangle.p2.id);
+        if (triangle.p3 && triangle.p3.id) this.pointIds.add(triangle.p3.id);
        
         // Обновляем граничные рёбра
         this.updateBoundaries(triangle);
@@ -69,9 +71,18 @@ class TopologicalStructure {
      * @param {Object} triangle - добавленный треугольник
      */
     updateBoundaries(triangle) {
+        // Создаём рёбра из точек треугольника, если их нет
+        const edges = triangle.edges || [
+            { v1: triangle.p1, v2: triangle.p2, externalPoint: null },
+            { v1: triangle.p2, v2: triangle.p3, externalPoint: null },
+            { v1: triangle.p3, v2: triangle.p1, externalPoint: null }
+        ];
+       
         // Для каждого ребра треугольника
-        for (let i = 0; i < triangle.edges.length; i++) {
-            const edge = triangle.edges[i];
+        for (let i = 0; i < edges.length; i++) {
+            const edge = edges[i];
+            if (!edge.v1 || !edge.v2) continue;
+           
             const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
            
             // Если ребро уже было в границах - оно перестаёт быть граничным
@@ -95,9 +106,18 @@ class TopologicalStructure {
      * @returns {boolean} - можно ли присоединить
      */
     canAccept(triangle) {
+        // Создаём рёбра из точек треугольника, если их нет
+        const edges = triangle.edges || [
+            { v1: triangle.p1, v2: triangle.p2 },
+            { v1: triangle.p2, v2: triangle.p3 },
+            { v1: triangle.p3, v2: triangle.p1 }
+        ];
+       
         // Треугольник должен иметь хотя бы одно общее ребро с границей
-        for (let i = 0; i < triangle.edges.length; i++) {
-            const edge = triangle.edges[i];
+        for (let i = 0; i < edges.length; i++) {
+            const edge = edges[i];
+            if (!edge.v1 || !edge.v2) continue;
+           
             const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
            
             if (this.boundaryEdges.has(edgeKey)) {
@@ -105,6 +125,46 @@ class TopologicalStructure {
             }
         }
         return false;
+    }
+   
+    /**
+     * Возвращает все якоря (пары точек) из структуры
+     * @returns {Array} - массив якорей { pointA, pointB, confidence, triangleId }
+     */
+    getAnchors() {
+        const anchors = [];
+       
+        for (const triangle of this.triangles.values()) {
+            // Проверяем наличие точек
+            if (triangle.p1 && triangle.pB1) {
+                anchors.push({
+                    pointA: triangle.p1.id,
+                    pointB: triangle.pB1.id,
+                    confidence: triangle.confidence || 0.5,
+                    triangleId: triangle.id
+                });
+            }
+           
+            if (triangle.p2 && triangle.pB2) {
+                anchors.push({
+                    pointA: triangle.p2.id,
+                    pointB: triangle.pB2.id,
+                    confidence: triangle.confidence || 0.5,
+                    triangleId: triangle.id
+                });
+            }
+           
+            if (triangle.p3 && triangle.pB3) {
+                anchors.push({
+                    pointA: triangle.p3.id,
+                    pointB: triangle.pB3.id,
+                    confidence: triangle.confidence || 0.5,
+                    triangleId: triangle.id
+                });
+            }
+        }
+       
+        return anchors;
     }
    
     /**
@@ -120,18 +180,14 @@ class TopologicalStructure {
         }
        
         // Собираем все якоря из треугольников структуры
-        const anchors = [];
-        for (const triangle of this.triangles.values()) {
-            // Каждый треугольник даёт три пары точек
-            anchors.push({
-                pointA: triangle.p1.id,
-                pointB: triangle.pB1?.id // нужно уточнить структуру
-            });
-            // ... упрощённо
+        const anchors = this.getAnchors();
+       
+        if (anchors.length === 0) {
+            return null;
         }
        
         // Вычисляем transform
-        const transform = transformCalculator(anchors, graphA, graphB);
+        const transform = transformCalculator(anchors);
        
         if (transform) {
             this.transform = transform;
@@ -167,14 +223,14 @@ class TopologicalStructure {
             stats: {
                 scale: {
                     mean: scales.length ? scales.reduce((a, b) => a + b, 0) / scales.length : 0,
-                    min: Math.min(...scales),
-                    max: Math.max(...scales),
+                    min: scales.length ? Math.min(...scales) : 0,
+                    max: scales.length ? Math.max(...scales) : 0,
                     std: this.calculateStd(scales)
                 },
                 rotation: {
                     mean: rotations.length ? rotations.reduce((a, b) => a + b, 0) / rotations.length : 0,
-                    min: Math.min(...rotations),
-                    max: Math.max(...rotations),
+                    min: rotations.length ? Math.min(...rotations) : 0,
+                    max: rotations.length ? Math.max(...rotations) : 0,
                     std: this.calculateStd(rotations)
                 }
             }
@@ -261,8 +317,10 @@ class TopologicalStructure {
         const scaleStd = this.calculateStd(this.stats.scales);
        
         // Для каждого треугольника проверяем, не выбивается ли он
-        // (нужна инфа о том, как связать треугольник с его вкладом в статистику)
-        // Это упрощённая версия
+        for (const [id, triangle] of this.triangles) {
+            // Здесь нужно сравнить параметры треугольника с общими
+            // Упрощённая версия - пока пропускаем
+        }
        
         return outliers;
     }
@@ -301,8 +359,13 @@ class TopologicalStructure {
                 structure.triangles.set(triId, triangle);
                 structure.triangleIds.add(triId);
                
-                // Восстанавливаем границы (упрощённо)
-                // ...
+                // Восстанавливаем точки
+                if (triangle.p1 && triangle.p1.id) structure.pointIds.add(triangle.p1.id);
+                if (triangle.p2 && triangle.p2.id) structure.pointIds.add(triangle.p2.id);
+                if (triangle.p3 && triangle.p3.id) structure.pointIds.add(triangle.p3.id);
+               
+                // Восстанавливаем границы
+                structure.updateBoundaries(triangle);
             }
         }
        
