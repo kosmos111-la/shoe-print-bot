@@ -499,62 +499,67 @@ class TriangleMatcher {
      * Восстановление точек из якорей
      */
     reconstructPoints(anchors, trianglesA, trianglesB) {
-        // Подробности только при отладке
-        if (this.debug) console.log(`\n🔍 RECONSTRUCT POINTS С КООРДИНАТАМИ:`);
+    if (this.debug) console.log(`\n🔍 RECONSTRUCT POINTS С КООРДИНАТАМИ:`);
 
-        const pointMatches = [];
-        const pointMap = new Map();
-        const usedB = new Set();
+    const pointMatches = [];
+    const pointMap = new Map();
+    const usedB = new Set();
 
-        for (const anchor of anchors) {
-            const tA = trianglesA[anchor.aIndex];
-            const tB = trianglesB[anchor.bIndex];
+    for (const anchor of anchors) {
+        const tA = trianglesA[anchor.aIndex];
+        const tB = trianglesB[anchor.bIndex];
 
-            if (this.debug) {
-                console.log(`\n   Треугольник якорь (уверенность: ${(anchor.geometryScore*100).toFixed(1)}%):`);
-                console.log(`      A: ${tA.p1.id.substring(0,12)} (${tA.p1.x.toFixed(1)}, ${tA.p1.y.toFixed(1)})`);
-                console.log(`         ${tA.p2.id.substring(0,12)} (${tA.p2.x.toFixed(1)}, ${tA.p2.y.toFixed(1)})`);
-                console.log(`         ${tA.p3.id.substring(0,12)} (${tA.p3.x.toFixed(1)}, ${tA.p3.y.toFixed(1)})`);
-                console.log(`      B: ${tB.p1.id.substring(0,12)} (${tB.p1.x.toFixed(1)}, ${tB.p1.y.toFixed(1)})`);
-                console.log(`         ${tB.p2.id.substring(0,12)} (${tB.p2.x.toFixed(1)}, ${tB.p2.y.toFixed(1)})`);
-                console.log(`         ${tB.p3.id.substring(0,12)} (${tB.p3.x.toFixed(1)}, ${tB.p3.y.toFixed(1)})`);
-            }
+        if (this.debug) {
+            console.log(`\n   Треугольник якорь (уверенность: ${(anchor.geometryScore*100).toFixed(1)}%):`);
+            console.log(`      A: ${tA.p1.id.substring(0,12)} (${tA.p1.x.toFixed(1)}, ${tA.p1.y.toFixed(1)})`);
+            console.log(`         ${tA.p2.id.substring(0,12)} (${tA.p2.x.toFixed(1)}, ${tA.p2.y.toFixed(1)})`);
+            console.log(`         ${tA.p3.id.substring(0,12)} (${tA.p3.x.toFixed(1)}, ${tA.p3.y.toFixed(1)})`);
+            console.log(`      B: ${tB.p1.id.substring(0,12)} (${tB.p1.x.toFixed(1)}, ${tB.p1.y.toFixed(1)})`);
+            console.log(`         ${tB.p2.id.substring(0,12)} (${tB.p2.x.toFixed(1)}, ${tB.p2.y.toFixed(1)})`);
+            console.log(`         ${tB.p3.id.substring(0,12)} (${tB.p3.x.toFixed(1)}, ${tB.p3.y.toFixed(1)})`);
+        }
 
-            const pairs = [
-                { a: tA.p1.id, b: tB.p1.id, aCoord: [tA.p1.x, tA.p1.y], bCoord: [tB.p1.x, tB.p1.y] },
-                { a: tA.p2.id, b: tB.p2.id, aCoord: [tA.p2.x, tA.p2.y], bCoord: [tB.p2.x, tB.p2.y] },
-                { a: tA.p3.id, b: tB.p3.id, aCoord: [tA.p3.x, tA.p3.y], bCoord: [tB.p3.x, tB.p3.y] }
-            ];
+        // 🔥 СОХРАНЯЕМ СООТВЕТСТВИЯ В ТРЕУГОЛЬНИКЕ
+        tA.pB1 = tB.p1;  // точка из Б, соответствующая p1
+        tA.pB2 = tB.p2;  // точка из Б, соответствующая p2
+        tA.pB3 = tB.p3;  // точка из Б, соответствующая p3
+        tA.confidence = anchor.geometryScore; // сохраняем уверенность
 
-            for (const { a: pA, b: pB, aCoord, bCoord } of pairs) {
-                if (pointMap.has(pA)) {
-                    if (pointMap.get(pA) !== pB) {
-                        if (this.debug) {
-                            console.log(`   ⚠️ КОНФЛИКТ: точка ${pA.substring(0,12)}`);
-                        }
-                        continue;
-                    }
-                } else if (usedB.has(pB)) {
-                    if (this.debug) console.log(`   ⚠️ Точка ${pB.substring(0,12)} уже используется`);
-                    continue;
-                } else {
-                    pointMap.set(pA, pB);
-                    usedB.add(pB);
-                    pointMatches.push({
-                        pointA: pA,
-                        pointB: pB,
-                        confidence: anchor.geometryScore
-                    });
+        const pairs = [
+            { a: tA.p1.id, b: tB.p1.id, aObj: tA.p1, bObj: tB.p1, aCoord: [tA.p1.x, tA.p1.y], bCoord: [tB.p1.x, tB.p1.y] },
+            { a: tA.p2.id, b: tB.p2.id, aObj: tA.p2, bObj: tB.p2, aCoord: [tA.p2.x, tA.p2.y], bCoord: [tB.p2.x, tB.p2.y] },
+            { a: tA.p3.id, b: tB.p3.id, aObj: tA.p3, bObj: tB.p3, aCoord: [tA.p3.x, tA.p3.y], bCoord: [tB.p3.x, tB.p3.y] }
+        ];
+
+        for (const { a: pA, b: pB, aObj, bObj, aCoord, bCoord } of pairs) {
+            if (pointMap.has(pA)) {
+                if (pointMap.get(pA) !== pB) {
                     if (this.debug) {
-                        console.log(`   ✅ Добавлено: ${pA.substring(0,12)} ↔ ${pB.substring(0,12)}`);
+                        console.log(`   ⚠️ КОНФЛИКТ: точка ${pA.substring(0,12)} уже соответствует ${pointMap.get(pA).substring(0,12)}`);
                     }
+                    continue;
+                }
+            } else if (usedB.has(pB)) {
+                if (this.debug) console.log(`   ⚠️ Точка ${pB.substring(0,12)} уже используется`);
+                continue;
+            } else {
+                pointMap.set(pA, pB);
+                usedB.add(pB);
+                pointMatches.push({
+                    pointA: pA,
+                    pointB: pB,
+                    confidence: anchor.geometryScore,
+                    triangleId: tA.id  // 🔥 добавляем ID треугольника
+                });
+                if (this.debug) {
+                    console.log(`   ✅ Добавлено: ${pA.substring(0,12)} ↔ ${pB.substring(0,12)}`);
                 }
             }
         }
-
-        return pointMatches;
     }
 
+    return pointMatches;
+}
     /**
      * Печать статистики
      */
