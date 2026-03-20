@@ -149,22 +149,31 @@ class StructureBuilder {
      * @param {Object} triangle - треугольник-затравка
      * @returns {Array} - очередь рёбер для роста
      */
-    getInitialGrowthEdges(triangle) {
-        const queue = [];
+etInitialGrowthEdges(triangle) {
+    const queue = [];
+   
+    // Создаём рёбра из точек треугольника, если их нет
+    const edges = triangle.edges || [
+        { v1: triangle.p1, v2: triangle.p2, externalPoint: null },
+        { v1: triangle.p2, v2: triangle.p3, externalPoint: null },
+        { v1: triangle.p3, v2: triangle.p1, externalPoint: null }
+    ];
+   
+    for (let i = 0; i < edges.length; i++) {
+        const edge = edges[i];
+        if (!edge.v1 || !edge.v2) continue;
        
-        for (let i = 0; i < triangle.edges.length; i++) {
-            const edge = triangle.edges[i];
-            const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
-           
-            queue.push({
-                edgeKey,
-                edge,
-                sourceTriangle: triangle
-            });
-        }
+        const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
        
-        return queue;
+        queue.push({
+            edgeKey,
+            edge,
+            sourceTriangle: triangle
+        });
     }
+   
+    return queue;
+}
    
     /**
      * Возвращает новые граничные рёбра после добавления треугольника
@@ -173,28 +182,37 @@ class StructureBuilder {
      * @param {string} incomingEdgeKey - ребро, через которое пришли
      * @returns {Array} - новые рёбра для роста
      */
-    getNewBoundaryEdges(triangle, structure, incomingEdgeKey) {
-        const newEdges = [];
+getNewBoundaryEdges(triangle, structure, incomingEdgeKey) {
+    const newEdges = [];
+   
+    // Создаём рёбра из точек треугольника, если их нет
+    const edges = triangle.edges || [
+        { v1: triangle.p1, v2: triangle.p2, externalPoint: null },
+        { v1: triangle.p2, v2: triangle.p3, externalPoint: null },
+        { v1: triangle.p3, v2: triangle.p1, externalPoint: null }
+    ];
+   
+    for (let i = 0; i < edges.length; i++) {
+        const edge = edges[i];
+        if (!edge.v1 || !edge.v2) continue;
        
-        for (let i = 0; i < triangle.edges.length; i++) {
-            const edge = triangle.edges[i];
-            const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
-           
-            // Пропускаем ребро, через которое пришли
-            if (edgeKey === incomingEdgeKey) continue;
-           
-            // Проверяем, не стало ли это ребро внутренним
-            if (!structure.boundaryEdges.has(edgeKey)) {
-                newEdges.push({
-                    edgeKey,
-                    edge,
-                    sourceTriangle: triangle
-                });
-            }
+        const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
+       
+        // Пропускаем ребро, через которое пришли
+        if (edgeKey === incomingEdgeKey) continue;
+       
+        // Проверяем, не стало ли это ребро внутренним
+        if (!structure.boundaryEdges.has(edgeKey)) {
+            newEdges.push({
+                edgeKey,
+                edge,
+                sourceTriangle: triangle
+            });
         }
-       
-        return newEdges;
     }
+   
+    return newEdges;
+}
    
     /**
      * Ищет треугольники, содержащие заданное ребро
@@ -203,29 +221,38 @@ class StructureBuilder {
      * @param {Set} processed - уже обработанные треугольники
      * @returns {Array} - подходящие треугольники
      */
-    findTrianglesByEdge(edgeKey, allTriangles, processed) {
-        const [id1, id2] = edgeKey.split('--');
-        const candidates = [];
+findTrianglesByEdge(edgeKey, allTriangles, processed) {
+    const [id1, id2] = edgeKey.split('--');
+    const candidates = [];
+   
+    for (const triangle of allTriangles) {
+        // Пропускаем уже обработанные
+        if (processed.has(triangle.id)) continue;
        
-        for (const triangle of allTriangles) {
-            // Пропускаем уже обработанные
-            if (processed.has(triangle.id)) continue;
+        // Создаём рёбра треугольника, если их нет
+        const edges = triangle.edges || [
+            { v1: triangle.p1, v2: triangle.p2 },
+            { v1: triangle.p2, v2: triangle.p3 },
+            { v1: triangle.p3, v2: triangle.p1 }
+        ];
+       
+        // Проверяем, содержит ли треугольник это ребро
+        for (let i = 0; i < edges.length; i++) {
+            const edge = edges[i];
+            if (!edge.v1 || !edge.v2) continue;
            
-            // Проверяем, содержит ли треугольник это ребро
-            for (let i = 0; i < triangle.edges.length; i++) {
-                const edge = triangle.edges[i];
-                const triEdgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
-               
-                if (triEdgeKey === edgeKey) {
-                    candidates.push(triangle);
-                    break;
-                }
+            const triEdgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
+           
+            if (triEdgeKey === edgeKey) {
+                candidates.push(triangle);
+                break;
             }
         }
-       
-        // Сортируем по уверенности
-        return candidates.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
     }
+   
+    // Сортируем по уверенности
+    return candidates.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+}
    
     /**
      * Пытается добавить треугольник в структуру
@@ -237,59 +264,78 @@ class StructureBuilder {
      * @param {Map} modelMorphology - морфология второго следа
      * @returns {boolean} - успешно ли добавлен
      */
-    tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
-        // 1. Проверка уверенности
-        if ((triangle.confidence || 0) < this.minConfidence) {
-            this.stats.rejections.lowConfidence++;
+tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
+    // 1. Проверка уверенности
+    if ((triangle.confidence || 0) < this.minConfidence) {
+        this.stats.rejections.lowConfidence++;
+        return false;
+    }
+   
+    // 2. Если в структуре уже есть transform, проверяем согласованность
+    if (structure.transform) {
+        // Создаём временный набор якорей с новым треугольником
+        const existingAnchors = structure.getAnchors();
+       
+        // Создаём якоря из нового треугольника
+        const newAnchors = [];
+        if (triangle.p1 && triangle.pB1) {
+            newAnchors.push({
+                pointA: triangle.p1.id,
+                pointB: triangle.pB1.id,
+                confidence: triangle.confidence
+            });
+        }
+        if (triangle.p2 && triangle.pB2) {
+            newAnchors.push({
+                pointA: triangle.p2.id,
+                pointB: triangle.pB2.id,
+                confidence: triangle.confidence
+            });
+        }
+        if (triangle.p3 && triangle.pB3) {
+            newAnchors.push({
+                pointA: triangle.p3.id,
+                pointB: triangle.pB3.id,
+                confidence: triangle.confidence
+            });
+        }
+       
+        const testAnchors = [...existingAnchors, ...newAnchors];
+       
+        // Вычисляем новый transform
+        const testTransform = this.validator.calculateTransform(
+            testAnchors,
+            graphA,
+            graphB
+        );
+       
+        if (!testTransform) {
+            this.stats.rejections.transformFailed++;
             return false;
         }
        
-        // 2. Если в структуре уже есть transform, проверяем согласованность
-        if (structure.transform) {
-            // Создаём временный набор якорей с новым треугольником
-            const testAnchors = this.collectAnchors(structure, triangle);
-           
-            // Вычисляем новый transform
-            const testTransform = this.validator.calculateTransform(
-                testAnchors,
-                graphA,
-                graphB
-            );
-           
-            if (!testTransform) {
-                this.stats.rejections.transformFailed++;
-                return false;
-            }
-           
-            // Проверяем отклонение масштаба
-            const scaleDiff = Math.abs(testTransform.scale - structure.transform.scale) / structure.transform.scale;
-            if (scaleDiff > this.maxScaleDeviation) {
-                this.stats.rejections.scaleMismatch++;
-                if (this.debug) {
-                    console.log(`      ❌ Масштаб: ${testTransform.scale.toFixed(3)} vs ${structure.transform.scale.toFixed(3)}`);
-                }
-                return false;
-            }
-           
-            // Проверяем отклонение поворота
-            const rotDiff = Math.abs(testTransform.rotation - structure.transform.rotation) * 180 / Math.PI;
-            if (rotDiff > this.maxRotationDeviation) {
-                this.stats.rejections.rotationMismatch++;
-                if (this.debug) {
-                    console.log(`      ❌ Поворот: ${(testTransform.rotation * 180 / Math.PI).toFixed(1)}° vs ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-                }
-                return false;
-            }
-           
-            // Всё хорошо - обновляем transform структуры (опционально)
-            // Можно либо оставить старый, либо усреднить
-            structure.transform = testTransform;
+        // Проверяем отклонение масштаба
+        const scaleDiff = Math.abs(testTransform.scale - structure.transform.scale) / structure.transform.scale;
+        if (scaleDiff > this.maxScaleDeviation) {
+            this.stats.rejections.scaleMismatch++;
+            return false;
         }
        
-        // Добавляем треугольник
-        structure.addTriangle(triangle);
-        return true;
+        // Проверяем отклонение поворота
+        const rotDiff = Math.abs(testTransform.rotation - structure.transform.rotation) * 180 / Math.PI;
+        if (rotDiff > this.maxRotationDeviation) {
+            this.stats.rejections.rotationMismatch++;
+            return false;
+        }
+       
+        // Всё хорошо - обновляем transform структуры
+        structure.transform = testTransform;
     }
+   
+    // Добавляем треугольник
+    structure.addTriangle(triangle);
+    return true;
+}
    
     /**
      * Собирает все якоря из структуры плюс новый треугольник
