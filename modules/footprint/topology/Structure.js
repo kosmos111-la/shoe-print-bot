@@ -135,7 +135,6 @@ class TopologicalStructure {
         const anchors = [];
        
         for (const triangle of this.triangles.values()) {
-            // Проверяем наличие точек
             if (triangle.p1 && triangle.pB1) {
                 anchors.push({
                     pointA: triangle.p1.id,
@@ -144,7 +143,6 @@ class TopologicalStructure {
                     triangleId: triangle.id
                 });
             }
-           
             if (triangle.p2 && triangle.pB2) {
                 anchors.push({
                     pointA: triangle.p2.id,
@@ -153,7 +151,6 @@ class TopologicalStructure {
                     triangleId: triangle.id
                 });
             }
-           
             if (triangle.p3 && triangle.pB3) {
                 anchors.push({
                     pointA: triangle.p3.id,
