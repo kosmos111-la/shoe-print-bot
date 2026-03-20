@@ -12,6 +12,7 @@ const TriangleMatcher = require('../matching/TriangleMatcher');
 const PatternAnalyzer = require('../analysis/PatternAnalyzer');
 const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
 const ValidationModule = require('../validation/ValidationModule');
+const StructureManager = require('./StructureManager');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -257,151 +258,206 @@ class TopologicalAccumulator {
                     console.log(`   • Сдвиг: (${baseTransform.translation.x.toFixed(1)}, ${baseTransform.translation.y.toFixed(1)})`);
                 }
 
-                // 🔥 ЭТАП 2: Итеративное натягивание
-                if (this.debug) console.log(`\n🔍 ЭТАП 2: Итеративное натягивание ${finalMatches.length} кандидатов`);
+               // 🔥 ЭТАП 2: Построение топологических структур (НОВЫЙ ПОДХОД)
+console.log(`\n🔍 ЭТАП 2: Построение топологических структур из ${anchorsForValidation.length} якорей`);
 
-                // Начинаем с надёжных якорей
-                let workingAnchors = [...anchorsForValidation];
-                let workingTransform = baseTransform;
-                let addedPoints = [];
-                let rejectedPoints = [];
+// Создаём менеджер структур
 
-                // Функция проверки согласованности точки
-                const isPointConsistent = (pointA, pointB, transform, graphA, graphB) => {
-                    const nodeA = exactGraph.nodes.get(pointA);
-                    const nodeB = existingModel.graph.nodes.get(pointB);
+const structureManager = new StructureManager(validator, {
+    debug: this.debug,
+    minConfidence: 0.7,
+    maxScaleDeviation: 0.1,
+    maxRotationDeviation: 5
+});
 
-                    if (!nodeA || !nodeB) return false;
+// Подготавливаем все треугольники для строителя
+const allTriangles = [];
+if (triangleResult && triangleResult.triangles) {
+    allTriangles.push(...triangleResult.triangles);
+} else {
+    // Группируем якоря по 3
+    for (let i = 0; i < anchorsForValidation.length; i += 3) {
+        if (i + 2 < anchorsForValidation.length) {
+            const a1 = anchorsForValidation[i];
+            const a2 = anchorsForValidation[i+1];
+            const a3 = anchorsForValidation[i+2];
+            allTriangles.push({
+                id: `tri_${a1.pointA}_${a2.pointA}_${a3.pointA}`,
+                p1: { id: a1.pointA, x: exactGraph.nodes.get(a1.pointA)?.x, y: exactGraph.nodes.get(a1.pointA)?.y },
+                p2: { id: a2.pointA, x: exactGraph.nodes.get(a2.pointA)?.x, y: exactGraph.nodes.get(a2.pointA)?.y },
+                p3: { id: a3.pointA, x: exactGraph.nodes.get(a3.pointA)?.x, y: exactGraph.nodes.get(a3.pointA)?.y },
+                pB1: { id: a1.pointB, x: existingModel.graph.nodes.get(a1.pointB)?.x, y: existingModel.graph.nodes.get(a1.pointB)?.y },
+                pB2: { id: a2.pointB, x: existingModel.graph.nodes.get(a2.pointB)?.x, y: existingModel.graph.nodes.get(a2.pointB)?.y },
+                pB3: { id: a3.pointB, x: existingModel.graph.nodes.get(a3.pointB)?.x, y: existingModel.graph.nodes.get(a3.pointB)?.y },
+                confidence: (a1.confidence + a2.confidence + a3.confidence) / 3
+            });
+        }
+    }
+}
 
-                    const projected = validator.applyTransform(nodeA, transform);
-                    const dx = projected.x - nodeB.x;
-                    const dy = projected.y - nodeB.y;
-                    const error = Math.sqrt(dx*dx + dy*dy);
-                    const footprintSize = validator.getFootprintSize(Array.from(existingModel.graph.nodes.values()));
-                    const relativeError = error / footprintSize;
+// Строим все возможные структуры
+const structures = structureManager.buildStructures(
+    anchorsForValidation,
+    allTriangles,
+    exactGraph,
+    existingModel.graph,
+    morphologyMap,
+    existingModel.morphologyMap
+);
 
-                    return relativeError < 0.05; // 5% порог
-                };
+console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
 
-                // Сортируем кандидаты по уверенности (от самых уверенных)
-                const sortedCandidates = [...finalMatches].sort((a, b) => b.confidence - a.confidence);
+// Объявляем finalValidatedMatches ЗДЕСЬ, один раз
+let finalValidatedMatches = [];
 
-                for (const candidate of sortedCandidates) {
-                    if (this.debug) console.log(`\n   Проверка кандидата ${candidate.pointA.substring(0,12)}...`);
+// Собираем matches из структур
+for (const structure of structures) {
+    const anchors = structure.getAnchors();
+    for (const anchor of anchors) {
+        if (anchor.pointA && anchor.pointB) {
+            finalValidatedMatches.push({
+                pointA: anchor.pointA,
+                pointB: anchor.pointB,
+                confidence: anchor.confidence,
+                status: 'structure',
+                structureId: structure.id
+            });
+        }
+    }
+}
 
-                    // Создаём временное множество якорей с кандидатом
-                    const testAnchors = [...workingAnchors, {
-                        pointA: candidate.pointA,
-                        pointB: candidate.pointB,
-                        confidence: candidate.confidence
-                    }];
+// Анализируем отношения между структурами
+const relations = structureManager.analyzeRelations();
+if (relations.count > 1 && this.debug) {
+    console.log(`\n🔍 ОБНАРУЖЕНО ${relations.count} НЕЗАВИСИМЫХ СТРУКТУР:`);
+    relations.relations.forEach((r, i) => {
+        console.log(`   • Структуры ${i+1}: разница масштаба ${(r.scaleDiff*100).toFixed(1)}%, поворота ${r.rotationDiff.toFixed(1)}°`);
+    });
+}
 
-                    // Вычисляем новый transform с кандидатом
-                    const testTransform = validator.calculateTransform(
-                        testAnchors,
-                        exactGraph,
-                        existingModel.graph
-                    );
+console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК ИЗ СТРУКТУР: ${finalValidatedMatches.length}`);
 
-                    if (!testTransform) {
-                        if (this.debug) console.log(`   ⚠️ Не удалось вычислить transform с кандидатом - пропускаем`);
-                        rejectedPoints.push({
-                            ...candidate,
-                            reason: 'transform_failed'
-                        });
-                        continue;
-                    }
+// Сохраняем transform'ы структур в модель
+if (!existingModel.structures) {
+    existingModel.structures = [];
+}
+for (const structure of structures) {
+    existingModel.structures.push({
+        id: structure.id,
+        transform: structure.transform,
+        points: Array.from(structure.pointIds),
+        confidence: structure.calculateConfidence()
+    });
+}
 
-                    // Проверяем ВСЕ существующие якоря с новым transform
-                    let allConsistent = true;
-                    for (const anchor of workingAnchors) {
-                        if (!isPointConsistent(anchor.pointA, anchor.pointB, testTransform, exactGraph, existingModel.graph)) {
-                            allConsistent = false;
-                            break;
-                        }
-                    }
+// Для обратной совместимости - используем transform самой уверенной структуры
+let primaryTransform = null;
+if (structures.length > 0) {
+    const best = structureManager.getBestStructure();
+    primaryTransform = best?.transform || null;
+   
+    if (this.debug && structures.length > 1) {
+        console.log(`\n🎯 Выбрана главная структура с уверенностью ${(best.calculateConfidence()*100).toFixed(1)}%`);
+    }
+}
+   
 
-                    // Проверяем самого кандидата
-                    const candidateConsistent = isPointConsistent(
-                        candidate.pointA,
-                        candidate.pointB,
-                        testTransform,
-                        exactGraph,
-                        existingModel.graph
-                    );
+                // 🔥 ЭТАП 3: Финальная валидация (каждой структуры отдельно)
+console.log(`\n🔍 ЭТАП 3: Финальная валидация структур`);
 
-                    if (allConsistent && candidateConsistent) {
-                        // ✅ Кандидат подходит - добавляем
-                        if (this.debug) console.log(`   ✅ Кандидат согласован! Добавляю в якоря`);
-                        workingAnchors.push({
-                            pointA: candidate.pointA,
-                            pointB: candidate.pointB,
-                            confidence: candidate.confidence
-                        });
-                        workingTransform = testTransform;
-                        addedPoints.push(candidate);
-                    } else {
-                        // ❌ Кандидат не подходит
-                        if (this.debug) console.log(`   ⚠️ Кандидат не согласован - откладываю`);
-                        rejectedPoints.push({
-                            ...candidate,
-                            reason: 'inconsistent'
-                        });
-                    }
-                }
+let finalValidationResult = null;
+let allValidatedPoints = [];
+let finalTransform = null;
+let finalValidatedMatches = [];  // ← объявляем ЗДЕСЬ, ОДИН РАЗ
 
-                if (this.debug) {
-                    console.log(`\n📊 РЕЗУЛЬТАТ ИТЕРАТИВНОГО НАТЯГИВАНИЯ:`);
-                    console.log(`   • Было якорей: ${anchorsForValidation.length}`);
-                    console.log(`   • Добавлено: ${addedPoints.length}`);
-                    console.log(`   • Отвергнуто: ${rejectedPoints.length}`);
-                    console.log(`   • ВСЕГО: ${workingAnchors.length} точек`);
-                }
+// Валидируем каждую структуру отдельно
+for (const structure of structures) {
+    if (structure.triangleIds.size === 0) continue;
 
-                // 🔥 ЭТАП 3: Финальная валидация с уточнённым transform
-                if (this.debug) console.log(`\n🔍 ЭТАП 3: Финальная валидация с уточнённым transform`);
+    // Получаем якоря структуры
+    const structureAnchors = structure.getAnchors();
 
-                const finalValidationResult = validator.validateAll(
-                    exactGraph,
-                    existingModel.graph,
-                    workingAnchors,
-                    morphologyMap,
-                    existingModel.morphologyMap
-                );
+    if (structureAnchors.length === 0) continue;
 
-                if (finalValidationResult.success) {
-                    const validated = finalValidationResult.results;
-                    const finalTransform = finalValidationResult.transform;
+    console.log(`\n   Валидация структуры ${structure.id} (${structureAnchors.length} якорей)...`);
 
-                    // 🔥 СОХРАНЯЕМ TRANSFORM В МОДЕЛЬ
-                    if (existingModel) {
-                        existingModel.transform = finalTransform;
-                    }
+    const validationResult = validator.validateAll(
+        exactGraph,
+        existingModel.graph,
+        structureAnchors,
+        morphologyMap,
+        existingModel.morphologyMap
+    );
 
-                    if (this.debug) {
-                        console.log(`\n💾 ФИНАЛЬНЫЙ TRANSFORM СОХРАНЁН В МОДЕЛЬ:`);
-                        console.log(`   • Масштаб: ${finalTransform?.scale.toFixed(3) || 'нет'}`);
-                        console.log(`   • Поворот: ${finalTransform ? (finalTransform.rotation * 180 / Math.PI).toFixed(1) : 'нет'}°`);
-                        console.log(`   • Сдвиг: ${finalTransform ? `(${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})` : 'нет'}`);
-                    }
+    if (validationResult.success) {
+        // Добавляем подтверждённые точки
+        if (validationResult.results) {
+            allValidatedPoints.push(...validationResult.results.confirmed);
+            allValidatedPoints.push(...validationResult.results.anchors);
+        }
 
-                    // Формируем финальный список matches
-                    let finalValidatedMatches = [
-                        ...anchorsForValidation.map(a => ({
-                            pointA: a.pointA,
-                            pointB: a.pointB,
-                            confidence: a.confidence,
-                            status: 'anchor'
-                        })),
-                        ...addedPoints.map(a => ({
-                            pointA: a.pointA,
-                            pointB: a.pointB,
-                            confidence: a.confidence,
-                            status: 'validator_found'
-                        }))
-                    ];
+        // Сохраняем transform структуры
+        structure.transform = validationResult.transform;
 
-                    console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК: ${finalValidatedMatches.length}`);
+        // Если это первая или лучшая структура - сохраняем как основную
+        if (!finalValidationResult || (validationResult.transform &&
+            Math.abs(validationResult.transform.scale - 1) < Math.abs(finalValidationResult.transform?.scale - 1))) {
+            finalValidationResult = validationResult;
+            finalTransform = validationResult.transform;
+        }
+    }
+}
+
+// Если не удалось ни одной структуры - используем якоря
+if (!finalValidationResult) {
+    console.log(`\n⚠️ Структуры не дали результата, используем якоря...`);
+    finalValidationResult = validator.validateAll(
+        exactGraph,
+        existingModel.graph,
+        anchorsForValidation,
+        morphologyMap,
+        existingModel.morphologyMap
+    );
+    if (finalValidationResult.success) {
+        finalTransform = finalValidationResult.transform;
+    }
+}
+
+if (finalValidationResult && finalValidationResult.success) {
+    const validated = finalValidationResult.results;
+    const finalTransform = finalValidationResult.transform;
+
+    // 🔥 СОХРАНЯЕМ TRANSFORM В МОДЕЛЬ
+    if (existingModel) {
+        existingModel.transform = finalTransform;
+    }
+
+    if (this.debug) {
+        console.log(`\n💾 ФИНАЛЬНЫЙ TRANSFORM СОХРАНЁН В МОДЕЛЬ:`);
+        console.log(`   • Масштаб: ${finalTransform?.scale.toFixed(3) || 'нет'}`);
+        console.log(`   • Поворот: ${finalTransform ? (finalTransform.rotation * 180 / Math.PI).toFixed(1) : 'нет'}°`);
+        console.log(`   • Сдвиг: ${finalTransform ? `(${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})` : 'нет'}`);
+    }
+
+    // Формируем финальный список matches из структур
+    finalValidatedMatches = [];  // ← очищаем, если нужно, но НЕ объявляем заново
+
+    for (const structure of structures) {
+        const anchors = structure.getAnchors();
+        for (const anchor of anchors) {
+            if (anchor.pointA && anchor.pointB) {
+                finalValidatedMatches.push({
+                    pointA: anchor.pointA,
+                    pointB: anchor.pointB,
+                    confidence: anchor.confidence,
+                    status: 'structure',
+                    structureId: structure.id
+                });
+            }
+        }
+    }
+
+    console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК: ${finalValidatedMatches.length}`);
 
                     // ===== ШАГ 3.6: ФИНАЛЬНОЕ ПРИТЯГИВАНИЕ БЛИЗКИХ ТОЧЕК =====
                     if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
@@ -1288,20 +1344,29 @@ class TopologicalAccumulator {
                     this.photoToModel.set(photoId, modelIdHint);
 
                     return {
-                        status: 'consistent_anchors',
-                        modelId: modelIdHint,
-                        similarity: triangleResult?.similarity || 0,
-                        centerMatches: finalMatches?.length || 0,
-                        totalMatches: finalMatches?.length || 0,
-                        newNodesAdded: updateResult?.newNodesAdded || 0,
-                        nodesRemoved: cleanResult?.removed || 0,
-                        matchMap: matchMap,
-                        modelMatchMap: modelMatchMap,
-                        consistency: consistent?.stats,
-                        originalPhotoPoints: points,
-                        transform: finalTransform,
-                        message: `Итеративно согласовано: ${finalValidatedMatches.length} точек`
-                    };
+    status: 'consistent_anchors',
+    modelId: modelIdHint,
+    similarity: triangleResult?.similarity || 0,
+    centerMatches: finalMatches?.length || 0,
+    totalMatches: finalMatches?.length || 0,
+    newNodesAdded: updateResult?.newNodesAdded || 0,
+    nodesRemoved: cleanResult?.removed || 0,
+    matchMap: matchMap,
+    modelMatchMap: modelMatchMap,
+    consistency: consistent?.stats,
+    originalPhotoPoints: points,
+    transform: finalTransform,
+    // 🔥 ДОБАВЛЯЕМ ИНФОРМАЦИЮ О СТРУКТУРАХ
+    structures: structures.map(s => ({
+        id: s.id,
+        triangleCount: s.triangleIds.size,
+        pointCount: s.pointIds.size,
+        confidence: s.calculateConfidence(),
+        transform: s.transform
+    })),
+    structureCount: structures.length,
+    message: `Построено ${structures.length} структур, согласовано: ${finalValidatedMatches.length} точек`
+};
                 } else {
                     console.log(`\n⚠️ Финальная валидация не удалась`);
                     return {
