@@ -17,10 +17,10 @@ const StructureManager = require('./StructureManager');
 class TopologicalAccumulator {
     constructor(options = {}) {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
-        this.debug = options.debug || false;
+        this.debug = options.debug || true;
 
         // 🔥 РЕЖИМЫ РАБОТЫ
-        this.fastMode = options.fastMode || true;
+        this.fastMode = options.fastMode || false;
         this.similarityThreshold = options.similarityThreshold || 0.6;
 
         // 🔥 ДОПУСКИ ДЛЯ ПРИЗНАКОВ
