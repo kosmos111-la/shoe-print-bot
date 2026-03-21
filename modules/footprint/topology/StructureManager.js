@@ -47,36 +47,73 @@ class StructureManager {
      * @param {Map} modelMorphology - морфология второго следа
      * @returns {Array} - массив построенных структур
      */
-    buildStructures(anchorTriangles, allTriangles, graphA, graphB, morphologyMap, modelMorphology) {
+buildStructures(anchorTriangles, allTriangles, graphA, graphB, morphologyMap, modelMorphology) {
         if (this.debug) {
-            console.log(`\n🗂️ Начинаю сборку структур из ${anchorTriangles.length} якорей...`);
+            console.log(`\n🗂️ Начинаю сборку структур из ${anchorTriangles?.length || 0} якорей...`);
         }
        
         // Очищаем предыдущие структуры
         this.structures.clear();
         this.structureCounter = 0;
        
+        // Проверяем, что якоря есть
+        if (!anchorTriangles || anchorTriangles.length === 0) {
+            if (this.debug) console.log(`⚠️ Нет якорей для сборки структур`);
+            return [];
+        }
+       
+        // 🔥 ЗАЩИТА: проверяем каждый якорь
+        const validAnchors = [];
+        for (const anchor of anchorTriangles) {
+            if (!anchor || !anchor.pointA || !anchor.pointB) {
+                if (this.debug) console.log(`   ⚠️ Пропущен некорректный якорь: ${JSON.stringify(anchor)}`);
+                continue;
+            }
+            validAnchors.push(anchor);
+        }
+       
         // Сортируем якоря по уверенности (самые надёжные первые)
-        const sortedAnchors = [...anchorTriangles].sort((a, b) =>
+        const sortedAnchors = [...validAnchors].sort((a, b) =>
             (b.confidence || 0) - (a.confidence || 0)
         );
+       
+        if (this.debug && sortedAnchors.length !== anchorTriangles.length) {
+            console.log(`   • Отфильтровано ${anchorTriangles.length - sortedAnchors.length} некорректных якорей`);
+        }
        
         // Множество уже использованных треугольников
         const usedTriangles = new Set();
        
         // Для каждого якоря пробуем построить структуру
         for (const anchor of sortedAnchors) {
-            // Пропускаем уже использованные
-            if (usedTriangles.has(anchor.id)) continue;
+            // 🔥 ЗАЩИТА: убеждаемся, что у якоря есть ID
+            const anchorId = anchor.id || `anchor_${anchor.pointA}_${anchor.pointB}`;
+           
+            if (usedTriangles.has(anchorId)) continue;
            
             if (this.debug) {
-                console.log(`\n🔨 Пробую построить структуру от якоря ${anchor.id.substring(0,12)}...`);
+                console.log(`\n🔨 Пробую построить структуру от якоря ${anchorId.substring(0,12)}...`);
             }
+           
+            // 🔥 СОЗДАЁМ ТРЕУГОЛЬНИК ДЛЯ СТРОИТЕЛЯ
+            // Если у якоря нет всех трёх точек, используем один якорь как "треугольник" из одной точки
+            const seedTriangle = {
+                id: anchorId,
+                confidence: anchor.confidence || 0.7,
+                // Для совместимости с ожиданиями StructureBuilder
+                p1: { id: anchor.pointA },
+                p2: { id: anchor.pointA },
+                p3: { id: anchor.pointA },
+                pB1: { id: anchor.pointB },
+                pB2: { id: anchor.pointB },
+                pB3: { id: anchor.pointB },
+                edges: []  // пустые рёбра для начала
+            };
            
             // Строим структуру
             const structure = this.builder.buildFromSeed(
-                anchor,
-                allTriangles,
+                seedTriangle,
+                allTriangles || [],
                 graphA,
                 graphB,
                 morphologyMap,
