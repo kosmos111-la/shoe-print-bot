@@ -355,7 +355,7 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
 
                     console.log(`\n   Валидация структуры ${structure.id} (${structureAnchors.length} якорей)...`);
                    
-                    // 🔥 ДОБАВЛЯЕМ ДИАГНОСТИКУ
+                    // 🔥 ДИАГНОСТИКА: показываем первые якоря структуры
                     if (this.debug && structureAnchors.length > 0) {
                         console.log(`      🔍 Первые 3 якоря структуры:`);
                         structureAnchors.slice(0, 3).forEach((a, i) => {
@@ -363,6 +363,8 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
                             const pB = existingModel.graph.nodes.get(a.pointB);
                             if (pA && pB) {
                                 console.log(`         ${i+1}: A(${pA.x.toFixed(1)},${pA.y.toFixed(1)}) ↔ B(${pB.x.toFixed(1)},${pB.y.toFixed(1)}) [${(a.confidence*100).toFixed(0)}%]`);
+                            } else {
+                                console.log(`         ${i+1}: точка не найдена! A=${!!pA}, B=${!!pB}`);
                             }
                         });
                     }
@@ -375,7 +377,7 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
                         existingModel.morphologyMap
                     );
                    
-                    // 🔥 ДОБАВЛЯЕМ ДИАГНОСТИКУ РЕЗУЛЬТАТА
+                    // 🔥 ДИАГНОСТИКА: результат валидации
                     if (this.debug) {
                         console.log(`      📊 Результат валидации: success=${validationResult.success}`);
                         if (validationResult.results) {
@@ -401,15 +403,36 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
                             Math.abs(validationResult.transform.scale - 1) < Math.abs(finalValidationResult.transform?.scale - 1))) {
                             finalValidationResult = validationResult;
                             finalTransform = validationResult.transform;
-                        } else {
+                        }
+                       
                         if (this.debug) {
-                            console.log(`      ⚠️ Структура ${structure.id} не прошла валидацию!`);
+                            console.log(`      ✅ Структура ${structure.id} успешно валидирована`);
+                        }
+                    } else {
+                        if (this.debug) {
+                            console.log(`      ⚠️ Структура ${structure.id} НЕ прошла валидацию!`);
+                            if (validationResult.error) {
+                                console.log(`         Ошибка: ${validationResult.error}`);
+                            }
                         }
                     }
+                }
 
                 // Если не удалось ни одной структуры - используем якоря
                 if (!finalValidationResult) {
                     console.log(`\n⚠️ Структуры не дали результата, используем якоря...`);
+                   
+                    if (this.debug) {
+                        console.log(`   Якорей для валидации: ${anchorsForValidation.length}`);
+                        anchorsForValidation.slice(0, 3).forEach((a, i) => {
+                            const pA = exactGraph.nodes.get(a.pointA);
+                            const pB = existingModel.graph.nodes.get(a.pointB);
+                            if (pA && pB) {
+                                console.log(`      Якорь ${i+1}: A(${pA.x.toFixed(1)},${pA.y.toFixed(1)}) ↔ B(${pB.x.toFixed(1)},${pB.y.toFixed(1)})`);
+                            }
+                        });
+                    }
+                   
                     finalValidationResult = validator.validateAll(
                         exactGraph,
                         existingModel.graph,
@@ -417,6 +440,15 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
                         morphologyMap,
                         existingModel.morphologyMap
                     );
+                   
+                    if (this.debug && finalValidationResult) {
+                        console.log(`   Результат валидации якорей: success=${finalValidationResult.success}`);
+                        if (finalValidationResult.results) {
+                            console.log(`      Якорей: ${finalValidationResult.results.anchors?.length || 0}`);
+                            console.log(`      Подтверждено: ${finalValidationResult.results.confirmed?.length || 0}`);
+                        }
+                    }
+                   
                     if (finalValidationResult.success) {
                         finalTransform = finalValidationResult.transform;
                     }
