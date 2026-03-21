@@ -20,7 +20,7 @@ class TopologicalAccumulator {
         this.debug = options.debug || false;
 
         // 🔥 РЕЖИМЫ РАБОТЫ
-        this.fastMode = options.fastMode || false;
+        this.fastMode = options.fastMode || true;
         this.similarityThreshold = options.similarityThreshold || 0.6;
 
         // 🔥 ДОПУСКИ ДЛЯ ПРИЗНАКОВ
