@@ -24,7 +24,8 @@ class StructureBuilder {
                 lowConfidence: 0,
                 scaleMismatch: 0,
                 rotationMismatch: 0,
-                transformFailed: 0
+                transformFailed: 0,
+                rayMismatch: 0  // 🔥 НОВОЕ
             }
         };
        
@@ -194,6 +195,88 @@ class StructureBuilder {
             if (this.debug) {
                 console.log(`      ❌ Низкая уверенность: ${(triangle.confidence*100).toFixed(1)}% < ${this.minConfidence*100}%`);
             }
+            return false;
+        }
+       
+        // 🔥 НОВАЯ ПРОВЕРКА: Анализ лучей из новых точек
+        // Определяем, какие точки в треугольнике являются новыми (ещё не в структуре)
+        const newPoints = [];
+        const existingPoints = [];
+       
+        [triangle.p1, triangle.p2, triangle.p3].forEach(p => {
+            if (p && p.id) {
+                if (structure.pointIds.has(p.id)) {
+                    existingPoints.push(p);
+                } else {
+                    newPoints.push(p);
+                }
+            }
+        });
+       
+        // Если есть новые точки, проверяем лучи из них
+        if (newPoints.length > 0 && this.debug) {
+            console.log(`      🔍 Новые точки в треугольнике: ${newPoints.map(p => p.id.substring(0,8)).join(', ')}`);
+        }
+       
+        // Для каждой новой точки проверяем, не "улетает" ли луч
+        let raysConsistent = true;
+        for (const newPoint of newPoints) {
+            // Находим все рёбра, где участвует новая точка
+            const edgesWithNewPoint = triangle.edges.filter(e =>
+                e.v1.id === newPoint.id || e.v2.id === newPoint.id
+            );
+           
+            for (const edge of edgesWithNewPoint) {
+                // Находим противоположную вершину (старую)
+                const opposite = [triangle.p1, triangle.p2, triangle.p3].find(p =>
+                    p.id !== edge.v1.id && p.id !== edge.v2.id
+                );
+               
+                if (!opposite) continue;
+               
+                // Находим внешнюю точку (соседний треугольник)
+                const externalPoint = edge.externalPoint;
+                if (!externalPoint) continue;
+               
+                // Проверяем, есть ли эта внешняя точка в структуре или в кандидатах
+                // Проецируем и проверяем согласованность
+                if (structure.transform) {
+                    // Проецируем новую точку
+                    const projectedNew = this.validator.applyTransform(newPoint, structure.transform);
+                    // Проецируем внешнюю точку
+                    const projectedExternal = this.validator.applyTransform(externalPoint, structure.transform);
+                   
+                    // Расстояние между ними в пространстве модели
+                    const dx = projectedNew.x - projectedExternal.x;
+                    const dy = projectedNew.y - projectedExternal.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                   
+                    // Ожидаемое расстояние (из графа B)
+                    const expectedDist = this.validator.calcDistance(
+                        existingModel.graph.nodes.get(externalPoint.id),
+                        existingModel.graph.nodes.get(newPoint.id)
+                    );
+                   
+                    // Если реальное расстояние сильно отличается от ожидаемого - луч "улетает"
+                    const scale = structure.transform.scale;
+                    const expectedInModel = expectedDist * scale;
+                    const relativeError = Math.abs(dist - expectedInModel) / expectedInModel;
+                   
+                    if (relativeError > 0.3) { // 30% отклонение
+                        raysConsistent = false;
+                        if (this.debug) {
+                            console.log(`      ❌ Луч из новой точки ${newPoint.id.substring(0,8)} улетает:`);
+                            console.log(`         ожидал: ${expectedInModel.toFixed(1)}px, получил: ${dist.toFixed(1)}px (ошибка ${(relativeError*100).toFixed(1)}%)`);
+                        }
+                        break;
+                    }
+                }
+            }
+            if (!raysConsistent) break;
+        }
+       
+        if (!raysConsistent) {
+            this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
             return false;
         }
        
