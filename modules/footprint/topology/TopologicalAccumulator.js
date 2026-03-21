@@ -354,6 +354,18 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
                     if (structureAnchors.length === 0) continue;
 
                     console.log(`\n   Валидация структуры ${structure.id} (${structureAnchors.length} якорей)...`);
+                   
+                    // 🔥 ДОБАВЛЯЕМ ДИАГНОСТИКУ
+                    if (this.debug && structureAnchors.length > 0) {
+                        console.log(`      🔍 Первые 3 якоря структуры:`);
+                        structureAnchors.slice(0, 3).forEach((a, i) => {
+                            const pA = exactGraph.nodes.get(a.pointA);
+                            const pB = existingModel.graph.nodes.get(a.pointB);
+                            if (pA && pB) {
+                                console.log(`         ${i+1}: A(${pA.x.toFixed(1)},${pA.y.toFixed(1)}) ↔ B(${pB.x.toFixed(1)},${pB.y.toFixed(1)}) [${(a.confidence*100).toFixed(0)}%]`);
+                            }
+                        });
+                    }
 
                     const validationResult = validator.validateAll(
                         exactGraph,
@@ -362,6 +374,20 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
                         morphologyMap,
                         existingModel.morphologyMap
                     );
+                   
+                    // 🔥 ДОБАВЛЯЕМ ДИАГНОСТИКУ РЕЗУЛЬТАТА
+                    if (this.debug) {
+                        console.log(`      📊 Результат валидации: success=${validationResult.success}`);
+                        if (validationResult.results) {
+                            console.log(`         Якорей: ${validationResult.results.anchors?.length || 0}`);
+                            console.log(`         Подтверждено: ${validationResult.results.confirmed?.length || 0}`);
+                            console.log(`         Кандидатов: ${validationResult.results.candidates?.length || 0}`);
+                            console.log(`         Отвергнуто: ${validationResult.results.rejected?.length || 0}`);
+                        }
+                        if (validationResult.transform) {
+                            console.log(`         Transform: масштаб ${validationResult.transform.scale.toFixed(3)}, поворот ${(validationResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                        }
+                    }
 
                     if (validationResult.success) {
                         if (validationResult.results) {
@@ -375,9 +401,11 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
                             Math.abs(validationResult.transform.scale - 1) < Math.abs(finalValidationResult.transform?.scale - 1))) {
                             finalValidationResult = validationResult;
                             finalTransform = validationResult.transform;
+                        } else {
+                        if (this.debug) {
+                            console.log(`      ⚠️ Структура ${structure.id} не прошла валидацию!`);
                         }
                     }
-                }
 
                 // Если не удалось ни одной структуры - используем якоря
                 if (!finalValidationResult) {
