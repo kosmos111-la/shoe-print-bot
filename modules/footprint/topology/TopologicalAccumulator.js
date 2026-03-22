@@ -271,82 +271,76 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
                 });
 
                 // Подготавливаем все треугольники для строителя
-               const allTriangles = [];
+const allTriangles = [];
 
 console.log(`\n🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ ${anchorsForValidation.length} ЯКОРЕЙ`);
 
-// Группируем якоря по 3 (каждые 3 якоря образуют треугольник)
-for (let i = 0; i < anchorsForValidation.length; i += 3) {
-    if (i + 2 < anchorsForValidation.length) {
-        const a1 = anchorsForValidation[i];
-        const a2 = anchorsForValidation[i+1];
-        const a3 = anchorsForValidation[i+2];
+// 🔥 ГРУППИРУЕМ ЯКОРЯ ПО triangleId
+const anchorsByTriangle = new Map();
+
+for (const anchor of anchorsForValidation) {
+    // У каждого якоря должен быть triangleId
+    const triId = anchor.triangleId;
+    if (!triId) {
+        if (this.debug) console.log(`   ⚠️ Якорь без triangleId: ${anchor.pointA}`);
+        continue;
+    }
+   
+    if (!anchorsByTriangle.has(triId)) {
+        anchorsByTriangle.set(triId, []);
+    }
+    anchorsByTriangle.get(triId).push(anchor);
+}
+
+console.log(`   • Найдено уникальных треугольников: ${anchorsByTriangle.size}`);
+
+// Для каждого треугольника собираем 3 якоря
+for (const [triId, anchors] of anchorsByTriangle) {
+    if (anchors.length !== 3) {
+        if (this.debug) console.log(`   ⚠️ Треугольник ${triId} имеет ${anchors.length} якорей (ожидалось 3)`);
+        continue;
+    }
+   
+    const a1 = anchors[0];
+    const a2 = anchors[1];
+    const a3 = anchors[2];
+   
+    // Получаем точки из первого следа
+    const p1 = exactGraph.nodes.get(a1.pointA);
+    const p2 = exactGraph.nodes.get(a2.pointA);
+    const p3 = exactGraph.nodes.get(a3.pointA);
+   
+    // Получаем точки из второго следа
+    const pB1 = existingModel.graph.nodes.get(a1.pointB);
+    const pB2 = existingModel.graph.nodes.get(a2.pointB);
+    const pB3 = existingModel.graph.nodes.get(a3.pointB);
+   
+    // Проверяем, что точки разные
+    if (p1.id === p2.id || p1.id === p3.id || p2.id === p3.id) {
+        if (this.debug) console.log(`   ⚠️ Треугольник ${triId} имеет дублирующиеся точки!`);
+        continue;
+    }
+   
+    // Создаём рёбра
+    const edges = [
+        { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
+        { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
+        { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
+    ];
        
-        // Получаем точки из первого следа
-        const p1 = exactGraph.nodes.get(a1.pointA);
-        const p2 = exactGraph.nodes.get(a2.pointA);
-        const p3 = exactGraph.nodes.get(a3.pointA);
-       
-        // 🔥 ПОЛУЧАЕМ ТОЧКИ ИЗ ВТОРОГО СЛЕДА (ВАЖНО!)
-        const pB1 = existingModel.graph.nodes.get(a1.pointB);
-        const pB2 = existingModel.graph.nodes.get(a2.pointB);
-        const pB3 = existingModel.graph.nodes.get(a3.pointB);
-       
-        // Создаём рёбра
-        const edges = [
-            { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
-            { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
-            { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
-        ];
-       
-        // 🔥 ИЩЕМ ВНЕШНИЕ ТОЧКИ (соседние треугольники)
-        for (let j = 0; j < anchorsForValidation.length; j += 3) {
-            if (Math.abs(j - i) < 3) continue; // пропускаем себя
-           
-            const b1 = anchorsForValidation[j];
-            const b2 = anchorsForValidation[j+1];
-            const b3 = anchorsForValidation[j+2];
-           
-            const q1 = exactGraph.nodes.get(b1.pointA);
-            const q2 = exactGraph.nodes.get(b2.pointA);
-            const q3 = exactGraph.nodes.get(b3.pointA);
-           
-            // Проверяем каждое ребро
-            for (let k = 0; k < edges.length; k++) {
-                const edge = edges[k];
-                const edgePoints = [edge.v1.id, edge.v2.id];
-               
-                // Проверяем, содержит ли другой треугольник это же ребро
-                const otherPoints = [q1.id, q2.id, q3.id];
-                if (edgePoints.every(id => otherPoints.includes(id))) {
-                    // Нашли соседний треугольник! Внешняя точка — третья вершина соседнего треугольника
-                    const externalPoint = [q1, q2, q3].find(p => !edgePoints.includes(p.id));
-                    if (externalPoint) {
-                        edge.externalPoint = externalPoint;
-                        if (this.debug) {
-                            console.log(`   🔗 Ребро ${edge.v1.id.substring(0,8)}-${edge.v2.id.substring(0,8)} имеет внешнюю точку ${externalPoint.id.substring(0,8)}`);
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-       
-        allTriangles.push({
-            id: `tri_${a1.pointA}_${a2.pointA}_${a3.pointA}`,
-            p1, p2, p3,
-            pB1, pB2, pB3,
-            confidence: (a1.confidence + a2.confidence + a3.confidence) / 3,
-            edges: edges
-        });
-       
-        if (this.debug && i === 0) {
-            console.log(`   ✅ Первый треугольник:`);
-            console.log(`      p1: ${p1.id.substring(0,12)} → pB1: ${pB1?.id?.substring(0,12) || 'null'}`);
-            console.log(`      p2: ${p2.id.substring(0,12)} → pB2: ${pB2?.id?.substring(0,12) || 'null'}`);
-            console.log(`      p3: ${p3.id.substring(0,12)} → pB3: ${pB3?.id?.substring(0,12) || 'null'}`);
-            console.log(`      рёбер: ${edges.length}, внешних точек: ${edges.filter(e => e.externalPoint).length}`);
-        }
+allTriangles.push({
+        id: triId,
+        p1, p2, p3,
+        pB1, pB2, pB3,
+        confidence: (a1.confidence + a2.confidence + a3.confidence) / 3,
+        edges: edges
+    });
+   
+    if (this.debug && allTriangles.length === 1) {
+        console.log(`   ✅ Первый треугольник ${triId.substring(0,20)}:`);
+        console.log(`      p1: ${p1.id.substring(0,12)} → pB1: ${pB1?.id?.substring(0,12)}`);
+        console.log(`      p2: ${p2.id.substring(0,12)} → pB2: ${pB2?.id?.substring(0,12)}`);
+        console.log(`      p3: ${p3.id.substring(0,12)} → pB3: ${pB3?.id?.substring(0,12)}`);
     }
 }
 
