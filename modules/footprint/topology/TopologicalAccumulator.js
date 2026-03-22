@@ -226,11 +226,50 @@ class TopologicalAccumulator {
                 });
 
                 // 🔥 ИСПРАВЛЕНИЕ: Используем ТОЛЬКО согласованные якоря для вычисления transform
-                const anchorsForValidation = consistent.points.map(p => ({
-                    pointA: p.pointA,
-                    pointB: p.pointB,
-                    confidence: p.confidence
-                }));
+                let anchorsForValidation = [];
+
+// Пытаемся получить треугольники из triangleResult
+if (triangleResult && triangleResult.triangles && triangleResult.triangles.length > 0) {
+    console.log(`\n🔍 ИСПОЛЬЗУЮ ТРЕУГОЛЬНИКИ ИЗ MATCHER (${triangleResult.triangles.length} шт)`);
+   
+    for (const tri of triangleResult.triangles) {
+        // Проверяем, что у треугольника есть соответствия
+        if (tri.pB1 && tri.pB2 && tri.pB3) {
+            anchorsForValidation.push({
+                pointA: tri.p1.id,
+                pointB: tri.pB1.id,
+                confidence: tri.confidence || 0.9,
+                triangleId: tri.id
+            });
+            anchorsForValidation.push({
+                pointA: tri.p2.id,
+                pointB: tri.pB2.id,
+                confidence: tri.confidence || 0.9,
+                triangleId: tri.id
+            });
+            anchorsForValidation.push({
+                pointA: tri.p3.id,
+                pointB: tri.pB3.id,
+                confidence: tri.confidence || 0.9,
+                triangleId: tri.id
+            });
+        }
+    }
+   
+    if (anchorsForValidation.length > 0) {
+        console.log(`   ✅ Создано ${anchorsForValidation.length} якорей из ${anchorsForValidation.length/3} треугольников`);
+    }
+}
+
+// Если не получилось — используем consistent.points
+if (anchorsForValidation.length === 0) {
+    console.log(`   ⚠️ Нет треугольников, использую consistent.points`);
+    anchorsForValidation = consistent.points.map(p => ({
+        pointA: p.pointA,
+        pointB: p.pointB,
+        confidence: p.confidence
+    }));
+}
 
                 if (this.debug) console.log(`\n🔍 ЭТАП 1: Вычисление базового transform по ${anchorsForValidation.length} надёжным якорям`);
 
