@@ -1652,17 +1652,18 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
             .map(p => p.id);
 
         const finalResult = {
-            success: true,
-            matches: result.matches,
-            count: result.matches.length,
-            sufficient: result.matches.length >= 12,
-            similarity: result.matches.length / Math.min(points1.length, points2.length),
-            time: Date.now() - startTime,
-            ambiguous: [],
-            noMatchA,
-            noMatchB,
-            stats: result.stats
-        };
+    success: true,
+    matches: result.matches,
+    triangles: result.triangles,  // 🔥 ДОБАВЛЯЕМ ТРЕУГОЛЬНИКИ С РЁБРАМИ!
+    count: result.matches.length,
+    sufficient: result.matches.length >= 12,
+    similarity: result.matches.length / Math.min(points1.length, points2.length),
+    time: Date.now() - startTime,
+    ambiguous: [],
+    noMatchA,
+    noMatchB,
+    stats: result.stats
+};
 
         if (this.debug) {
             console.log(`\n📊 РЕЗУЛЬТАТ ТРЕУГОЛЬНОГО СОПОСТАВЛЕНИЯ:`);
