@@ -273,15 +273,20 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
                 // Подготавливаем все треугольники для строителя
                const allTriangles = [];
 
+console.log(`\n🔍 ДИАГНОСТИКА ТРЕУГОЛЬНИКОВ:`);
+console.log(`   • triangleResult.triangles: ${triangleResult?.triangles?.length || 0}`);
+console.log(`   • triangleResult.matches: ${triangleResult?.matches?.length || 0}`);
+
 if (triangleResult && triangleResult.triangles && triangleResult.triangles.length > 0) {
-    // 🔥 ИСПОЛЬЗУЕМ ГОТОВЫЕ ТРЕУГОЛЬНИКИ С РЁБРАМИ!
     allTriangles.push(...triangleResult.triangles);
-    if (this.debug) {
-        console.log(`   • Использую ${allTriangles.length} готовых треугольников с рёбрами`);
+    console.log(`   ✅ Использую ${allTriangles.length} готовых треугольников с рёбрами`);
+    if (allTriangles.length > 0) {
         const sample = allTriangles[0];
         console.log(`   • Пример: рёбер ${sample.edges?.length || 0}, внешних точек ${sample.edges?.filter(e => e.externalPoint).length || 0}`);
+        console.log(`   • Есть pB1: ${!!sample.pB1}, pB2: ${!!sample.pB2}, pB3: ${!!sample.pB3}`);
     }
 } else {
+    console.log(`   ⚠️ Нет готовых треугольников, создаю из якорей...`);
                     // Группируем якоря по 3
                     for (let i = 0; i < anchorsForValidation.length; i += 3) {
                         if (i + 2 < anchorsForValidation.length) {
