@@ -353,10 +353,24 @@ class StructureBuilder {
      * @returns {TopologicalStructure} - построенная структура
      */
     buildFromSeed(seedTriangle, allTriangles, graphA, graphB, morphologyMap, modelMorphology) {
-        if (!seedTriangle) {
-            if (this.debug) console.log(`⚠️ Нет треугольника-затравки`);
-            return null;
-        }
+    if (!seedTriangle) {
+        if (this.debug) console.log(`⚠️ Нет треугольника-затравки`);
+        return null;
+    }
+   
+    // 🔥 ПРОВЕРЯЕМ, ЧТО У ТРЕУГОЛЬНИКА ЕСТЬ ВСЕ ТРИ ТОЧКИ
+    if (!seedTriangle.p1 || !seedTriangle.p2 || !seedTriangle.p3) {
+        if (this.debug) console.log(`⚠️ Треугольник-затравка не имеет всех трёх точек`);
+        return null;
+    }
+   
+    // 🔥 ПРОВЕРЯЕМ, ЧТО ТОЧКИ РАЗНЫЕ
+    if (seedTriangle.p1.id === seedTriangle.p2.id ||
+        seedTriangle.p1.id === seedTriangle.p3.id ||
+        seedTriangle.p2.id === seedTriangle.p3.id) {
+        if (this.debug) console.log(`⚠️ Треугольник-затравка имеет дублирующиеся точки`);
+        return null;
+    }
        
         if (this.debug) {
             console.log(`\n🔨 Строю структуру от треугольника ${seedTriangle.id?.substring(0,12) || 'unknown'}...`);
