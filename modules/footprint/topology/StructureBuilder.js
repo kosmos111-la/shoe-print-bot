@@ -362,6 +362,21 @@ class StructureBuilder {
             console.log(`\n🔨 Строю структуру от треугольника ${seedTriangle.id?.substring(0,12) || 'unknown'}...`);
         }
        
+        // 🔥 ДИАГНОСТИКА: показываем информацию о первом треугольнике
+        if (allTriangles && allTriangles.length > 0) {
+            const firstTri = allTriangles[0];
+            console.log(`\n🔍 ДИАГНОСТИКА ПЕРВОГО ТРЕУГОЛЬНИКА:`);
+            console.log(`   ID: ${firstTri.id?.substring(0,20)}`);
+            console.log(`   Есть p1: ${!!firstTri.p1}, p2: ${!!firstTri.p2}, p3: ${!!firstTri.p3}`);
+            console.log(`   Есть pB1: ${!!firstTri.pB1}, pB2: ${!!firstTri.pB2}, pB3: ${!!firstTri.pB3}`);
+            console.log(`   Есть edges: ${!!firstTri.edges}, количество: ${firstTri.edges?.length || 0}`);
+            if (firstTri.edges && firstTri.edges.length > 0) {
+                console.log(`   Первое ребро: v1=${firstTri.edges[0]?.v1?.id?.substring(0,12)}, v2=${firstTri.edges[0]?.v2?.id?.substring(0,12)}`);
+                console.log(`   Есть externalPoint: ${!!firstTri.edges[0]?.externalPoint}`);
+            }
+            console.log(`   Уверенность: ${firstTri.confidence || 0.5}`);
+        }
+       
         // Создаём новую структуру
         const structureId = `struct_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
         const structure = new TopologicalStructure(structureId, seedTriangle);
