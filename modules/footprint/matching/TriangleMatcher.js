@@ -510,6 +510,23 @@ class TriangleMatcher {
         const tA = trianglesA[anchor.aIndex];
         const tB = trianglesB[anchor.bIndex];
 
+        // 🔥 СОХРАНЯЕМ СООТВЕТСТВИЯ В ТРЕУГОЛЬНИКЕ
+        tA.pB1 = tB.p1;
+        tA.pB2 = tB.p2;
+        tA.pB3 = tB.p3;
+        tA.confidence = anchor.geometryScore;
+       
+        // 🔥 ТАКЖЕ СОХРАНЯЕМ ВНЕШНИЕ ТОЧКИ ДЛЯ РЁБЕР, ЕСЛИ ОНИ ЕСТЬ
+        if (tA.edges && tB.edges) {
+            for (let i = 0; i < tA.edges.length; i++) {
+                const edgeA = tA.edges[i];
+                const edgeB = tB.edges[i];
+                if (edgeB.externalPoint) {
+                    edgeA.externalPoint = edgeB.externalPoint;
+                }
+            }
+        }
+
         if (this.debug) {
             console.log(`\n   Треугольник якорь (уверенность: ${(anchor.geometryScore*100).toFixed(1)}%):`);
             console.log(`      A: ${tA.p1.id.substring(0,12)} (${tA.p1.x.toFixed(1)}, ${tA.p1.y.toFixed(1)})`);
@@ -519,12 +536,6 @@ class TriangleMatcher {
             console.log(`         ${tB.p2.id.substring(0,12)} (${tB.p2.x.toFixed(1)}, ${tB.p2.y.toFixed(1)})`);
             console.log(`         ${tB.p3.id.substring(0,12)} (${tB.p3.x.toFixed(1)}, ${tB.p3.y.toFixed(1)})`);
         }
-
-        // 🔥 СОХРАНЯЕМ СООТВЕТСТВИЯ В ТРЕУГОЛЬНИКЕ
-        tA.pB1 = tB.p1;  // точка из Б, соответствующая p1
-        tA.pB2 = tB.p2;  // точка из Б, соответствующая p2
-        tA.pB3 = tB.p3;  // точка из Б, соответствующая p3
-        tA.confidence = anchor.geometryScore; // сохраняем уверенность
 
         const pairs = [
             { a: tA.p1.id, b: tB.p1.id, aObj: tA.p1, bObj: tB.p1, aCoord: [tA.p1.x, tA.p1.y], bCoord: [tB.p1.x, tB.p1.y] },
@@ -550,7 +561,7 @@ class TriangleMatcher {
                     pointA: pA,
                     pointB: pB,
                     confidence: anchor.geometryScore,
-                    triangleId: tA.id  // 🔥 добавляем ID треугольника
+                    triangleId: tA.id
                 });
                 if (this.debug) {
                     console.log(`   ✅ Добавлено: ${pA.substring(0,12)} ↔ ${pB.substring(0,12)}`);
