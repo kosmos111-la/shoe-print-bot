@@ -273,39 +273,84 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
                 // Подготавливаем все треугольники для строителя
                const allTriangles = [];
 
-console.log(`\n🔍 ДИАГНОСТИКА ТРЕУГОЛЬНИКОВ:`);
-console.log(`   • triangleResult.triangles: ${triangleResult?.triangles?.length || 0}`);
-console.log(`   • triangleResult.matches: ${triangleResult?.matches?.length || 0}`);
+console.log(`\n🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ ${anchorsForValidation.length} ЯКОРЕЙ`);
 
-if (triangleResult && triangleResult.triangles && triangleResult.triangles.length > 0) {
-    allTriangles.push(...triangleResult.triangles);
-    console.log(`   ✅ Использую ${allTriangles.length} готовых треугольников с рёбрами`);
-    if (allTriangles.length > 0) {
-        const sample = allTriangles[0];
-        console.log(`   • Пример: рёбер ${sample.edges?.length || 0}, внешних точек ${sample.edges?.filter(e => e.externalPoint).length || 0}`);
-        console.log(`   • Есть pB1: ${!!sample.pB1}, pB2: ${!!sample.pB2}, pB3: ${!!sample.pB3}`);
-    }
-} else {
-    console.log(`   ⚠️ Нет готовых треугольников, создаю из якорей...`);
-                    // Группируем якоря по 3
-                    for (let i = 0; i < anchorsForValidation.length; i += 3) {
-                        if (i + 2 < anchorsForValidation.length) {
-                            const a1 = anchorsForValidation[i];
-                            const a2 = anchorsForValidation[i+1];
-                            const a3 = anchorsForValidation[i+2];
-                            allTriangles.push({
-                                id: `tri_${a1.pointA}_${a2.pointA}_${a3.pointA}`,
-                                p1: { id: a1.pointA, x: exactGraph.nodes.get(a1.pointA)?.x, y: exactGraph.nodes.get(a1.pointA)?.y },
-                                p2: { id: a2.pointA, x: exactGraph.nodes.get(a2.pointA)?.x, y: exactGraph.nodes.get(a2.pointA)?.y },
-                                p3: { id: a3.pointA, x: exactGraph.nodes.get(a3.pointA)?.x, y: exactGraph.nodes.get(a3.pointA)?.y },
-                                pB1: { id: a1.pointB, x: existingModel.graph.nodes.get(a1.pointB)?.x, y: existingModel.graph.nodes.get(a1.pointB)?.y },
-                                pB2: { id: a2.pointB, x: existingModel.graph.nodes.get(a2.pointB)?.x, y: existingModel.graph.nodes.get(a2.pointB)?.y },
-                                pB3: { id: a3.pointB, x: existingModel.graph.nodes.get(a3.pointB)?.x, y: existingModel.graph.nodes.get(a3.pointB)?.y },
-                                confidence: (a1.confidence + a2.confidence + a3.confidence) / 3
-                            });
+// Группируем якоря по 3 (каждые 3 якоря образуют треугольник)
+for (let i = 0; i < anchorsForValidation.length; i += 3) {
+    if (i + 2 < anchorsForValidation.length) {
+        const a1 = anchorsForValidation[i];
+        const a2 = anchorsForValidation[i+1];
+        const a3 = anchorsForValidation[i+2];
+       
+        // Получаем точки из первого следа
+        const p1 = exactGraph.nodes.get(a1.pointA);
+        const p2 = exactGraph.nodes.get(a2.pointA);
+        const p3 = exactGraph.nodes.get(a3.pointA);
+       
+        // 🔥 ПОЛУЧАЕМ ТОЧКИ ИЗ ВТОРОГО СЛЕДА (ВАЖНО!)
+        const pB1 = existingModel.graph.nodes.get(a1.pointB);
+        const pB2 = existingModel.graph.nodes.get(a2.pointB);
+        const pB3 = existingModel.graph.nodes.get(a3.pointB);
+       
+        // Создаём рёбра
+        const edges = [
+            { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
+            { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
+            { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
+        ];
+       
+        // 🔥 ИЩЕМ ВНЕШНИЕ ТОЧКИ (соседние треугольники)
+        for (let j = 0; j < anchorsForValidation.length; j += 3) {
+            if (Math.abs(j - i) < 3) continue; // пропускаем себя
+           
+            const b1 = anchorsForValidation[j];
+            const b2 = anchorsForValidation[j+1];
+            const b3 = anchorsForValidation[j+2];
+           
+            const q1 = exactGraph.nodes.get(b1.pointA);
+            const q2 = exactGraph.nodes.get(b2.pointA);
+            const q3 = exactGraph.nodes.get(b3.pointA);
+           
+            // Проверяем каждое ребро
+            for (let k = 0; k < edges.length; k++) {
+                const edge = edges[k];
+                const edgePoints = [edge.v1.id, edge.v2.id];
+               
+                // Проверяем, содержит ли другой треугольник это же ребро
+                const otherPoints = [q1.id, q2.id, q3.id];
+                if (edgePoints.every(id => otherPoints.includes(id))) {
+                    // Нашли соседний треугольник! Внешняя точка — третья вершина соседнего треугольника
+                    const externalPoint = [q1, q2, q3].find(p => !edgePoints.includes(p.id));
+                    if (externalPoint) {
+                        edge.externalPoint = externalPoint;
+                        if (this.debug) {
+                            console.log(`   🔗 Ребро ${edge.v1.id.substring(0,8)}-${edge.v2.id.substring(0,8)} имеет внешнюю точку ${externalPoint.id.substring(0,8)}`);
                         }
                     }
+                    break;
                 }
+            }
+        }
+       
+        allTriangles.push({
+            id: `tri_${a1.pointA}_${a2.pointA}_${a3.pointA}`,
+            p1, p2, p3,
+            pB1, pB2, pB3,
+            confidence: (a1.confidence + a2.confidence + a3.confidence) / 3,
+            edges: edges
+        });
+       
+        if (this.debug && i === 0) {
+            console.log(`   ✅ Первый треугольник:`);
+            console.log(`      p1: ${p1.id.substring(0,12)} → pB1: ${pB1?.id?.substring(0,12) || 'null'}`);
+            console.log(`      p2: ${p2.id.substring(0,12)} → pB2: ${pB2?.id?.substring(0,12) || 'null'}`);
+            console.log(`      p3: ${p3.id.substring(0,12)} → pB3: ${pB3?.id?.substring(0,12) || 'null'}`);
+            console.log(`      рёбер: ${edges.length}, внешних точек: ${edges.filter(e => e.externalPoint).length}`);
+        }
+    }
+}
+
+console.log(`\n📊 СОЗДАНО ТРЕУГОЛЬНИКОВ: ${allTriangles.length}`);
 
                 // Строим все возможные структуры
                 const structures = structureManager.buildStructures(
