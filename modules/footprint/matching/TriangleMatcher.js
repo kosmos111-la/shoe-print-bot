@@ -103,7 +103,7 @@ class TriangleMatcher {
         console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
         this.printSummary();
 
-        rreturn {
+        return {
     matches: pointMatches,
     triangles: trianglesA,  // 🔥 ВОЗВРАЩАЕМ ВСЕ ТРЕУГОЛЬНИКИ
     stats: this.stats
