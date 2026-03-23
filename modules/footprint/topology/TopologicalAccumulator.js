@@ -376,11 +376,11 @@ allTriangles.push({
     });
    
     if (this.debug && allTriangles.length === 1) {
-        console.log(`   ✅ Первый треугольник ${triId.substring(0,20)}:`);
-        console.log(`      p1: ${p1.id.substring(0,12)} → pB1: ${pB1?.id?.substring(0,12)}`);
-        console.log(`      p2: ${p2.id.substring(0,12)} → pB2: ${pB2?.id?.substring(0,12)}`);
-        console.log(`      p3: ${p3.id.substring(0,12)} → pB3: ${pB3?.id?.substring(0,12)}`);
-    }
+    console.log(`   ✅ Первый треугольник ${triId}:`);
+    console.log(`      p1: ${p1.id} → pB1: ${pB1?.id}`);
+    console.log(`      p2: ${p2.id} → pB2: ${pB2?.id}`);
+    console.log(`      p3: ${p3.id} → pB3: ${pB3?.id}`);
+}
 }
 
 console.log(`\n📊 СОЗДАНО ТРЕУГОЛЬНИКОВ: ${allTriangles.length}`);
