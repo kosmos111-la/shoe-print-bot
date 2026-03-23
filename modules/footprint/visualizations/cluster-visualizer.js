@@ -100,6 +100,9 @@ class ClusterVisualizer {
         this.drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale, topologyData.uniquePoints?.model);
 
         this.drawStats(ctx, topologyData.stats, this.config.canvasWidth);
+   
+    // 🔥 ДОБАВИТЬ: рисуем легенду структур
+    this.drawStructureLegend(ctx, topologyData.structures || [], this.config.canvasWidth);
 
         const filename = options.filename ? options.filename.replace('.png', '_model.png') : `model_${Date.now()}.png`;
         const outputPath = path.join(this.config.outputDir, filename);
@@ -170,115 +173,155 @@ class ClusterVisualizer {
         });
     }
 
-    drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale, uniqueInModel = []) {
-        const points = topologyData.points;
-
-        console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
-        console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
-
-        let anchorPoints = 0, confirmedPoints = 0, candidatePoints = 0,
-            uniqueInModelPoints = 0, regularPoints = 0;
-
-        const modelToPair = new Map();
-        const modelToStatus = new Map();
-
-        for (const [modelId, match] of modelMatchMap) {
-            if (match && match.pairNumber) {
-                modelToPair.set(modelId, match.pairNumber);
-                modelToStatus.set(modelId, match.status || 'anchor');
-                if (this.config.debug) {
-                    console.log(`      🔢 Модель ${modelId.slice(0,12)}... → номер ${match.pairNumber} [${match.status || 'anchor'}]`);
-                }
-            }
-        }
-
-        // 🔥 Сначала рисуем уникальные точки в модели (синие)
-        for (const point of uniqueInModel) {
-            const x = centerX + (point.x - avgX) * scale;
-            const y = centerY + (point.y - avgY) * scale;
-
-            ctx.fillStyle = '#0000FF'; // СИНИЙ
-            ctx.beginPath();
-            ctx.arc(x, y, 6, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-           
-            uniqueInModelPoints++;
-        }
-
-        for (const point of points) {
-            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
-
-            const x = centerX + (point.x - avgX) * scale;
-            const y = centerY + (point.y - avgY) * scale;
-
-            const confirmations = point.confirmationCount || 0;
-            const pairNumber = modelToPair.get(point.id);
-            const status = modelToStatus.get(point.id);
-            const isAnchor = pairNumber !== undefined;
-
-            let color, size;
-            let label = '';
-
-            if (isAnchor) {
-                if (status === 'anchor') {
-                    color = '#FF0000'; // КРАСНЫЙ - старые якоря
-                    label = pairNumber.toString();
-                    anchorPoints++;
-                } else if (status === 'confirmed' || status === 'validator_found') {
-                    color = '#00FF00'; // ЗЕЛЁНЫЙ - новые подтверждённые
-                    label = '✓' + pairNumber;
-                    confirmedPoints++;
-                } else if (status === 'candidate') {
-                    color = '#FFA500'; // ОРАНЖЕВЫЙ - кандидаты
-                    label = '?' + pairNumber;
-                    candidatePoints++;
-                } else {
-                    color = '#4CAF50';
-                    label = pairNumber.toString();
-                    confirmedPoints++;
-                }
-                size = 8;
-            } else if (confirmations >= 3) {
-                color = '#FF0000';
-                size = 6;
-                regularPoints++;
-            } else if (confirmations >= 2) {
-                color = '#FFC107';
-                size = 5;
-                regularPoints++;
-            } else if (confirmations >= 1) {
-                color = '#2196F3';
-                size = 4;
-                regularPoints++;
-            } else {
-                color = '#BDBDBD';
-                size = 3;
-                regularPoints++;
-            }
-
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            if (label) {
-                ctx.fillStyle = '#000000';
-                ctx.font = 'bold 8px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(label, x, y);
-            }
-        }
-
-        console.log(`   🎯 Модель: 🔴 ${anchorPoints} якорей, 🟢 ${confirmedPoints} подтверждённых, 🟠 ${candidatePoints} кандидатов, 🔵 ${uniqueInModelPoints} только в модели, остальных: ${regularPoints}`);
+drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale, uniqueInModel = []) {
+    const points = topologyData.points;
+    const structures = topologyData.structures || [];
+   
+    console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
+    console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
+   
+    // Создаём карту структур для быстрого доступа
+    const structureMap = new Map();
+    for (const structure of structures) {
+        structureMap.set(structure.id, structure);
     }
+   
+    // Сначала рисуем уникальные точки в модели (синие)
+    let uniqueInModelPoints = 0;
+    for (const point of uniqueInModel) {
+        const x = centerX + (point.x - avgX) * scale;
+        const y = centerY + (point.y - avgY) * scale;
+       
+        ctx.fillStyle = '#0000FF'; // СИНИЙ
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        uniqueInModelPoints++;
+    }
+   
+    // Отрисовываем точки с цветами структур
+    for (const point of points) {
+        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+       
+        // Пропускаем уникальные точки модели (уже нарисованы)
+        if (uniqueInModel.some(p => p.id === point.id)) continue;
+       
+        const x = centerX + (point.x - avgX) * scale;
+        const y = centerY + (point.y - avgY) * scale;
+       
+        const confirmations = point.confirmationCount || 0;
+        const pairNumber = modelMatchMap.get(point.id)?.pairNumber;
+        const structureId = point.structureId;
+        const structureColor = point.structureColor;
+       
+        // 🔥 ОПРЕДЕЛЯЕМ ЦВЕТ: приоритет — цвет структуры
+        let color, size, label = '';
+       
+        if (structureId && structureColor) {
+            // Цвет структуры (для всех точек, входящих в структуру)
+            color = structureColor;
+            size = 8;
+            // Добавляем номер пары, если есть
+            if (pairNumber) label = pairNumber.toString();
+           
+            if (this.debug && pairNumber) {
+                console.log(`      🎨 Точка ${point.id.substring(0,8)}: структура ${structureId.substring(0,8)}, пара ${pairNumber}`);
+            }
+        } else if (pairNumber) {
+            // Якоря и подтверждённые точки без структуры
+            color = '#FFD700'; // Золотой
+            size = 8;
+            label = pairNumber.toString();
+        } else if (confirmations >= 2) {
+            // Подтверждённые точки
+            color = '#FFA500'; // Оранжевый
+            size = 7;
+        } else if (confirmations >= 1) {
+            // Новые точки
+            color = '#4169E1'; // Синий
+            size = 5;
+        } else {
+            // Неподтверждённые
+            color = '#808080'; // Серый
+            size = 4;
+        }
+       
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+       
+        if (label) {
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 8px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, x, y);
+        }
+    }
+   
+    // Статистика
+    const structureStats = {};
+    for (const point of points) {
+        if (point.structureId) {
+            structureStats[point.structureId] = (structureStats[point.structureId] || 0) + 1;
+        }
+    }
+   
+    console.log(`   🎯 Модель: ${structures.length} структур, уникальных: ${uniqueInModelPoints}, остальных: ${points.length - uniqueInModelPoints}`);
+    console.log(`   🎨 Структуры:`, Object.entries(structureStats).slice(0, 5).map(([id, count]) => `${id.substring(0,8)}:${count}`).join(', '));
+}
 
+drawStructureLegend(ctx, structures, canvasWidth) {
+    if (!structures || structures.length === 0) return;
+   
+    const legendX = canvasWidth - 220;
+    const legendY = 120;
+    const lineHeight = 20;
+   
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 2;
+    ctx.fillText('🏗️ СТРУКТУРЫ:', legendX, legendY - 5);
+    ctx.shadowBlur = 0;
+   
+    // Показываем только первые 8 структур
+    const topStructures = structures
+        .sort((a, b) => b.pointCount - a.pointCount)
+        .slice(0, 8);
+   
+    topStructures.forEach((structure, idx) => {
+        const y = legendY + idx * lineHeight;
+       
+        // Цветной квадратик
+        ctx.fillStyle = structure.color;
+        ctx.fillRect(legendX, y - 8, 12, 12);
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(legendX, y - 8, 12, 12);
+       
+        // Текст
+        ctx.font = '10px Arial';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(
+            `${structure.id.substring(0,6)}: ${structure.pointCount} точек, ${(structure.confidence * 100).toFixed(0)}%`,
+            legendX + 18, y
+        );
+    });
+   
+    if (structures.length > 8) {
+        ctx.fillStyle = '#AAAAAA';
+        ctx.fillText(`+ еще ${structures.length - 8} структур`, legendX, legendY + 8 * lineHeight);
+    }
+}
+  
     drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale, transform, uniqueInPhoto = []) {
         console.log(`   🖌 Отрисовка ${points.length} узлов фото...`);
         console.log(`   📋 matchMap в drawPhotoPoints: ${matchMap.size} записей`);
