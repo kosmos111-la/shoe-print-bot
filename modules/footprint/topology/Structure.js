@@ -1,5 +1,6 @@
 // modules/footprint/topology/Structure.js
 // 🏗️ ТОПОЛОГИЧЕСКАЯ СТРУКТУРА - связный набор треугольников
+// 🔥 С ПОДДЕРЖКОЙ ЛУЧЕЙ ДЛЯ ВИЗУАЛИЗАЦИИ
 
 class TopologicalStructure {
     /**
@@ -18,6 +19,9 @@ class TopologicalStructure {
        
         // Граничные рёбра для роста (ребро -> { triangle, externalPoint })
         this.boundaryEdges = new Map();
+       
+        // 🔥 НОВОЕ: храним информацию о лучах для визуализации
+        this.rays = []; // { fromPoint, toPoint, type, triangleId, edgeId, distance }
        
         // Трансформация структуры
         this.transform = null;
@@ -38,58 +42,112 @@ class TopologicalStructure {
     }
    
     /**
+     * Находит противоположную вершину для ребра
+     */
+    getOppositePoint(triangle, edge) {
+        if (!triangle || !edge) return null;
+        const candidates = [triangle.p1, triangle.p2, triangle.p3];
+        return candidates.find(p => p.id !== edge.v1.id && p.id !== edge.v2.id);
+    }
+   
+    /**
+     * Добавляет успешный луч (когда внешняя точка найдена и согласована)
+     */
+    addSuccessRay(triangle, edge, externalPoint) {
+        const opposite = this.getOppositePoint(triangle, edge);
+        if (!opposite || !externalPoint) return;
+       
+        // Вычисляем расстояние для отладки
+        const dx = opposite.x - externalPoint.x;
+        const dy = opposite.y - externalPoint.y;
+        const distance = Math.sqrt(dx*dx + dy*dy);
+       
+        this.rays.push({
+            fromPoint: opposite,
+            toPoint: externalPoint,
+            type: 'success',
+            triangleId: triangle.id,
+            edgeId: [edge.v1.id, edge.v2.id].sort().join('--'),
+            distance: distance,
+            confidence: triangle.confidence || 0.5
+        });
+    }
+   
+    /**
+     * Добавляет неудачный луч (когда внешняя точка не совпала)
+     */
+    addFailedRay(triangle, edge, externalPointCandidate) {
+        const opposite = this.getOppositePoint(triangle, edge);
+        if (!opposite || !externalPointCandidate) return;
+       
+        const dx = opposite.x - externalPointCandidate.x;
+        const dy = opposite.y - externalPointCandidate.y;
+        const distance = Math.sqrt(dx*dx + dy*dy);
+       
+        this.rays.push({
+            fromPoint: opposite,
+            toPoint: externalPointCandidate,
+            type: 'failed',
+            triangleId: triangle.id,
+            edgeId: [edge.v1.id, edge.v2.id].sort().join('--'),
+            distance: distance,
+            confidence: 0.3
+        });
+    }
+   
+    /**
      * Добавляет треугольник в структуру
-     * @param {Object} triangle - треугольник для добавления
-     * @returns {boolean} - успешно ли добавлен
      */
     addTriangle(triangle) {
-        // Проверяем, не дубликат ли
         if (this.triangleIds.has(triangle.id)) {
             return false;
         }
        
-        // Добавляем треугольник
         this.triangles.set(triangle.id, triangle);
         this.triangleIds.add(triangle.id);
        
-        // Добавляем точки треугольника
         if (triangle.p1 && triangle.p1.id) this.pointIds.add(triangle.p1.id);
         if (triangle.p2 && triangle.p2.id) this.pointIds.add(triangle.p2.id);
         if (triangle.p3 && triangle.p3.id) this.pointIds.add(triangle.p3.id);
        
-        // Обновляем граничные рёбра
         this.updateBoundaries(triangle);
-       
-        // Обновляем статистику
         this.stats.confidences.push(triangle.confidence || 0.5);
        
-        return true;
-    }
-   
-    /**
-     * Обновляет граничные рёбра после добавления треугольника
-     * @param {Object} triangle - добавленный треугольник
-     */
-    updateBoundaries(triangle) {
-        // Создаём рёбра из точек треугольника, если их нет
+        // 🔥 Добавляем лучи из рёбер треугольника, если есть внешние точки
         const edges = triangle.edges || [
             { v1: triangle.p1, v2: triangle.p2, externalPoint: null },
             { v1: triangle.p2, v2: triangle.p3, externalPoint: null },
             { v1: triangle.p3, v2: triangle.p1, externalPoint: null }
         ];
        
-        // Для каждого ребра треугольника
+        for (const edge of edges) {
+            if (edge.externalPoint) {
+                this.addSuccessRay(triangle, edge, edge.externalPoint);
+            }
+        }
+       
+        return true;
+    }
+   
+    /**
+     * Обновляет граничные рёбра после добавления треугольника
+     */
+    updateBoundaries(triangle) {
+        const edges = triangle.edges || [
+            { v1: triangle.p1, v2: triangle.p2, externalPoint: null },
+            { v1: triangle.p2, v2: triangle.p3, externalPoint: null },
+            { v1: triangle.p3, v2: triangle.p1, externalPoint: null }
+        ];
+       
         for (let i = 0; i < edges.length; i++) {
             const edge = edges[i];
             if (!edge.v1 || !edge.v2) continue;
            
             const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
            
-            // Если ребро уже было в границах - оно перестаёт быть граничным
             if (this.boundaryEdges.has(edgeKey)) {
                 this.boundaryEdges.delete(edgeKey);
             } else {
-                // Иначе добавляем как новое граничное
                 this.boundaryEdges.set(edgeKey, {
                     v1: edge.v1,
                     v2: edge.v2,
@@ -102,24 +160,19 @@ class TopologicalStructure {
    
     /**
      * Проверяет, можно ли присоединить треугольник к структуре
-     * @param {Object} triangle - проверяемый треугольник
-     * @returns {boolean} - можно ли присоединить
      */
     canAccept(triangle) {
-        // Создаём рёбра из точек треугольника, если их нет
         const edges = triangle.edges || [
             { v1: triangle.p1, v2: triangle.p2 },
             { v1: triangle.p2, v2: triangle.p3 },
             { v1: triangle.p3, v2: triangle.p1 }
         ];
        
-        // Треугольник должен иметь хотя бы одно общее ребро с границей
         for (let i = 0; i < edges.length; i++) {
             const edge = edges[i];
             if (!edge.v1 || !edge.v2) continue;
            
             const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
-           
             if (this.boundaryEdges.has(edgeKey)) {
                 return true;
             }
@@ -129,11 +182,9 @@ class TopologicalStructure {
    
     /**
      * Возвращает все якоря (пары точек) из структуры
-     * @returns {Array} - массив якорей { pointA, pointB, confidence, triangleId }
      */
     getAnchors() {
         const anchors = [];
-       
         for (const triangle of this.triangles.values()) {
             if (triangle.p1 && triangle.pB1) {
                 anchors.push({
@@ -160,30 +211,22 @@ class TopologicalStructure {
                 });
             }
         }
-       
         return anchors;
     }
    
     /**
      * Вычисляет transform структуры по всем её точкам
-     * @param {Function} transformCalculator - функция вычисления transform
-     * @param {Object} graphA - граф первого следа
-     * @param {Object} graphB - граф второго следа
      */
     calculateTransform(transformCalculator, graphA, graphB) {
         if (this.triangleIds.size < 2) {
-            // Для одной точки transform не нужен
             return null;
         }
        
-        // Собираем все якоря из треугольников структуры
         const anchors = this.getAnchors();
-       
         if (anchors.length === 0) {
             return null;
         }
        
-        // Вычисляем transform
         const transform = transformCalculator(anchors);
        
         if (transform) {
@@ -194,7 +237,6 @@ class TopologicalStructure {
                 triangleCount: this.triangleIds.size
             });
            
-            // Обновляем статистику
             this.stats.scales.push(transform.scale);
             this.stats.rotations.push(transform.rotation);
             this.stats.translations.push(transform.translation);
@@ -205,7 +247,6 @@ class TopologicalStructure {
    
     /**
      * Возвращает статистику по структуре
-     * @returns {Object} - статистика
      */
     getStats() {
         const scales = this.stats.scales;
@@ -215,6 +256,9 @@ class TopologicalStructure {
             triangleCount: this.triangleIds.size,
             pointCount: this.pointIds.size,
             boundaryEdgeCount: this.boundaryEdges.size,
+            rayCount: this.rays.length,
+            successRayCount: this.rays.filter(r => r.type === 'success').length,
+            failedRayCount: this.rays.filter(r => r.type === 'failed').length,
             confidence: this.calculateConfidence(),
             transform: this.transform,
             stats: {
@@ -236,15 +280,12 @@ class TopologicalStructure {
    
     /**
      * Вычисляет общую уверенность структуры
-     * @returns {number} - уверенность 0-1
      */
     calculateConfidence() {
         if (this.stats.confidences.length === 0) return 0;
        
         const sum = this.stats.confidences.reduce((a, b) => a + b, 0);
         const mean = sum / this.stats.confidences.length;
-       
-        // Чем больше треугольников, тем выше уверенность (но не больше 1)
         const sizeBonus = Math.min(this.triangleIds.size / 10, 0.2);
        
         return Math.min(mean + sizeBonus, 1.0);
@@ -252,8 +293,6 @@ class TopologicalStructure {
    
     /**
      * Вычисляет среднеквадратичное отклонение
-     * @param {Array} values - массив значений
-     * @returns {number} - стандартное отклонение
      */
     calculateStd(values) {
         if (values.length < 2) return 0;
@@ -267,12 +306,9 @@ class TopologicalStructure {
    
     /**
      * Проверяет, можно ли объединить с другой структурой
-     * @param {TopologicalStructure} other - другая структура
-     * @returns {boolean} - можно ли объединить
      */
     canMergeWith(other) {
-        // Проверяем, есть ли общие граничные рёбра
-        for (const [edgeKey, edge] of this.boundaryEdges) {
+        for (const [edgeKey] of this.boundaryEdges) {
             if (other.boundaryEdges.has(edgeKey)) {
                 return true;
             }
@@ -282,49 +318,24 @@ class TopologicalStructure {
    
     /**
      * Объединяет с другой структурой
-     * @param {TopologicalStructure} other - другая структура
      */
     mergeWith(other) {
-        // Добавляем все треугольники другой структуры
         for (const triangle of other.triangles.values()) {
             this.addTriangle(triangle);
         }
        
-        // Объединяем статистику
+        for (const ray of other.rays) {
+            this.rays.push(ray);
+        }
+       
         this.stats.scales = [...this.stats.scales, ...other.stats.scales];
         this.stats.rotations = [...this.stats.rotations, ...other.stats.rotations];
         this.stats.translations = [...this.stats.translations, ...other.stats.translations];
         this.stats.confidences = [...this.stats.confidences, ...other.stats.confidences];
-       
-        // Пересчитываем transform
-        // (transform будет пересчитан позже при необходимости)
-    }
-   
-    /**
-     * Находит выбросы в структуре
-     * @param {number} threshold - порог для определения выброса (в стандартных отклонениях)
-     * @returns {Array} - массив ID треугольников-выбросов
-     */
-    findOutliers(threshold = 2.0) {
-        const outliers = [];
-       
-        if (this.stats.scales.length < 3) return outliers;
-       
-        const scaleMean = this.stats.scales.reduce((a, b) => a + b, 0) / this.stats.scales.length;
-        const scaleStd = this.calculateStd(this.stats.scales);
-       
-        // Для каждого треугольника проверяем, не выбивается ли он
-        for (const [id, triangle] of this.triangles) {
-            // Здесь нужно сравнить параметры треугольника с общими
-            // Упрощённая версия - пока пропускаем
-        }
-       
-        return outliers;
     }
    
     /**
      * Сериализует структуру для сохранения
-     * @returns {Object} - сериализованные данные
      */
     serialize() {
         return {
@@ -332,6 +343,13 @@ class TopologicalStructure {
             createdAt: this.createdAt,
             triangleIds: Array.from(this.triangleIds),
             pointIds: Array.from(this.pointIds),
+            rays: this.rays.map(r => ({
+                fromId: r.fromPoint.id,
+                toId: r.toPoint.id,
+                type: r.type,
+                triangleId: r.triangleId,
+                edgeId: r.edgeId
+            })),
             transform: this.transform,
             stats: this.stats,
             confidence: this.calculateConfidence()
@@ -340,29 +358,37 @@ class TopologicalStructure {
    
     /**
      * Десериализует структуру из сохранённых данных
-     * @param {Object} data - сериализованные данные
-     * @param {Map} trianglesMap - карта треугольников по ID
-     * @returns {TopologicalStructure} - восстановленная структура
      */
-    static deserialize(data, trianglesMap) {
+    static deserialize(data, trianglesMap, pointsMap) {
         const structure = new TopologicalStructure(data.id, null);
         structure.createdAt = data.createdAt;
         structure.stats = data.stats;
        
-        // Восстанавливаем треугольники
         for (const triId of data.triangleIds) {
             const triangle = trianglesMap.get(triId);
             if (triangle) {
                 structure.triangles.set(triId, triangle);
                 structure.triangleIds.add(triId);
                
-                // Восстанавливаем точки
                 if (triangle.p1 && triangle.p1.id) structure.pointIds.add(triangle.p1.id);
                 if (triangle.p2 && triangle.p2.id) structure.pointIds.add(triangle.p2.id);
                 if (triangle.p3 && triangle.p3.id) structure.pointIds.add(triangle.p3.id);
                
-                // Восстанавливаем границы
                 structure.updateBoundaries(triangle);
+            }
+        }
+       
+        for (const rayData of data.rays) {
+            const fromPoint = pointsMap.get(rayData.fromId);
+            const toPoint = pointsMap.get(rayData.toId);
+            if (fromPoint && toPoint) {
+                structure.rays.push({
+                    fromPoint,
+                    toPoint,
+                    type: rayData.type,
+                    triangleId: rayData.triangleId,
+                    edgeId: rayData.edgeId
+                });
             }
         }
        
