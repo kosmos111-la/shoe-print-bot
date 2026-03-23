@@ -17,7 +17,7 @@ const StructureManager = require('./StructureManager');
 class TopologicalAccumulator {
     constructor(options = {}) {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
-        this.debug = options.debug || true;
+        this.debug = options.debug || false;
 
         // 🔥 РЕЖИМЫ РАБОТЫ
         this.fastMode = options.fastMode || false;
@@ -335,52 +335,54 @@ console.log(`   • Найдено уникальных треугольник
 
 // Для каждого треугольника собираем 3 якоря
 for (const [triId, anchors] of anchorsByTriangle) {
-    if (anchors.length !== 3) {
-        if (this.debug) console.log(`   ⚠️ Треугольник ${triId} имеет ${anchors.length} якорей (ожидалось 3)`);
-        continue;
-    }
+    if (anchors.length !== 3) continue;
+   
+    // 🔥 НАХОДИМ ОРИГИНАЛЬНЫЙ ТРЕУГОЛЬНИК ИЗ triangleResult
+    const originalTriangle = triangleResult.triangles?.find(t => t.id === triId);
    
     const a1 = anchors[0];
     const a2 = anchors[1];
     const a3 = anchors[2];
    
-    // Получаем точки из первого следа
     const p1 = exactGraph.nodes.get(a1.pointA);
     const p2 = exactGraph.nodes.get(a2.pointA);
     const p3 = exactGraph.nodes.get(a3.pointA);
    
-    // Получаем точки из второго следа
     const pB1 = existingModel.graph.nodes.get(a1.pointB);
     const pB2 = existingModel.graph.nodes.get(a2.pointB);
     const pB3 = existingModel.graph.nodes.get(a3.pointB);
    
-    // Проверяем, что точки разные
-    if (p1.id === p2.id || p1.id === p3.id || p2.id === p3.id) {
-        if (this.debug) console.log(`   ⚠️ Треугольник ${triId} имеет дублирующиеся точки!`);
-        continue;
+    if (p1.id === p2.id || p1.id === p3.id || p2.id === p3.id) continue;
+   
+    // 🔥 СОЗДАЁМ РЁБРА С СОХРАНЕНИЕМ externalPoint
+    const edges = [];
+    if (originalTriangle && originalTriangle.edges) {
+        // Берём externalPoint из оригинального треугольника
+        for (let i = 0; i < originalTriangle.edges.length; i++) {
+            const origEdge = originalTriangle.edges[i];
+            edges.push({
+                v1: [p1, p2, p3][i],
+                v2: [p1, p2, p3][(i+1) % 3],
+                neighborTriangles: [],
+                externalPoint: origEdge.externalPoint || null
+            });
+        }
+    } else {
+        // fallback
+        edges = [
+            { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
+            { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
+            { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
+        ];
     }
    
-    // Создаём рёбра
-    const edges = [
-        { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
-        { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
-        { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
-    ];
-       
-allTriangles.push({
+    allTriangles.push({
         id: triId,
         p1, p2, p3,
         pB1, pB2, pB3,
         confidence: (a1.confidence + a2.confidence + a3.confidence) / 3,
         edges: edges
     });
-   
-    if (this.debug && allTriangles.length === 1) {
-    console.log(`   ✅ Первый треугольник ${triId}:`);
-    console.log(`      p1: ${p1.id} → pB1: ${pB1?.id}`);
-    console.log(`      p2: ${p2.id} → pB2: ${pB2?.id}`);
-    console.log(`      p3: ${p3.id} → pB3: ${pB3?.id}`);
-}
 }
 
 console.log(`\n📊 СОЗДАНО ТРЕУГОЛЬНИКОВ: ${allTriangles.length}`);
