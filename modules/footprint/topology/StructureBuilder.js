@@ -252,10 +252,10 @@ class StructureBuilder {
                     const dist = Math.sqrt(dx*dx + dy*dy);
                    
                     // Ожидаемое расстояние (из графа B)
-                    const expectedDist = this.validator.calcDistance(
-                        existingModel.graph.nodes.get(externalPoint.id),
-                        existingModel.graph.nodes.get(newPoint.id)
-                    );
+                   const nodeA = graphB?.nodes?.get(newPoint.id);
+const nodeB = graphB?.nodes?.get(externalPoint.id);
+const expectedDist = nodeA && nodeB ?
+    Math.sqrt(Math.pow(nodeA.x - nodeB.x, 2) + Math.pow(nodeA.y - nodeB.y, 2)) : 0;
                    
                     // Если реальное расстояние сильно отличается от ожидаемого - луч "улетает"
                     const scale = structure.transform.scale;
@@ -263,13 +263,20 @@ class StructureBuilder {
                     const relativeError = Math.abs(dist - expectedInModel) / expectedInModel;
                    
                     if (relativeError > 0.3) { // 30% отклонение
-                        raysConsistent = false;
-                        if (this.debug) {
-                            console.log(`      ❌ Луч из новой точки ${newPoint.id.substring(0,8)} улетает:`);
-                            console.log(`         ожидал: ${expectedInModel.toFixed(1)}px, получил: ${dist.toFixed(1)}px (ошибка ${(relativeError*100).toFixed(1)}%)`);
-                        }
-                        break;
-                    }
+    raysConsistent = false;
+    // 🔥 ФИКСИРУЕМ НЕУДАЧНЫЙ ЛУЧ
+    if (structure.addFailedRay) {
+        structure.addFailedRay(triangle, edge, externalPoint);
+    }
+    if (this.debug) {
+        console.log(`      ❌ Луч из новой точки ${newPoint.id.substring(0,8)} улетает:`);
+        console.log(`         ожидал: ${expectedInModel.toFixed(1)}px, получил: ${dist.toFixed(1)}px (ошибка ${(relativeError*100).toFixed(1)}%)`);
+    }
+    break;
+} else if (externalPoint && structure.addSuccessRay) {
+    // 🔥 ФИКСИРУЕМ УСПЕШНЫЙ ЛУЧ
+    structure.addSuccessRay(triangle, edge, externalPoint);
+}
                 }
             }
             if (!raysConsistent) break;
@@ -482,9 +489,11 @@ if (seedTriangle.p1.id === seedTriangle.p2.id ||
         if (this.debug) {
             const stats = structure.getStats ? structure.getStats() : { triangleCount: structure.triangleIds.size, pointCount: structure.pointIds.size, confidence: 0.5 };
             console.log(`\n📊 Структура построена:`);
-            console.log(`   • Треугольников: ${stats.triangleCount}`);
-            console.log(`   • Точек: ${stats.pointCount}`);
-            console.log(`   • Уверенность: ${(stats.confidence * 100).toFixed(1)}%`);
+console.log(`   • Треугольников: ${stats.triangleCount}`);
+console.log(`   • Точек: ${stats.pointCount}`);
+console.log(`   • Успешных лучей: ${stats.successRayCount || 0}`);
+console.log(`   • Неудачных лучей: ${stats.failedRayCount || 0}`);
+console.log(`   • Уверенность: ${(stats.confidence * 100).toFixed(1)}%`);
             if (structure.transform) {
                 console.log(`   • Масштаб: ${structure.transform.scale.toFixed(3)}`);
                 console.log(`   • Поворот: ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
@@ -508,18 +517,19 @@ if (seedTriangle.p1.id === seedTriangle.p2.id ||
     /**
      * Сбрасывает статистику
      */
-    resetStats() {
-        this.stats = {
-            structuresBuilt: 0,
-            trianglesProcessed: 0,
-            rejections: {
-                lowConfidence: 0,
-                scaleMismatch: 0,
-                rotationMismatch: 0,
-                transformFailed: 0
-            }
-        };
-    }
+resetStats() {
+    this.stats = {
+        structuresBuilt: 0,
+        trianglesProcessed: 0,
+        rejections: {
+            lowConfidence: 0,
+            scaleMismatch: 0,
+            rotationMismatch: 0,
+            transformFailed: 0,
+            rayMismatch: 0
+        }
+    };
+}
 }
 
 module.exports = StructureBuilder;
