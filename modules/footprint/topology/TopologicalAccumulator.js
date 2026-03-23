@@ -2664,6 +2664,12 @@ const finalResult = {
     if (!targetId || !this.models.has(targetId)) return null;
 
     const model = this.models.get(targetId);
+   
+    // 🔥 ОТЛАДКА
+    console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,12)}`);
+    console.log(`   • model.structures: ${model.structures ? model.structures.length : 'нет'}`);
+    console.log(`   • model.pointToStructure: ${model.pointToStructure ? model.pointToStructure.size : 'нет'}`);
+   
     const graph = model.graph;
 
     // Получаем структуры из модели
