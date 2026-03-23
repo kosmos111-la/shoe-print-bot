@@ -86,29 +86,41 @@ buildStructures(anchorTriangles, allTriangles, graphA, graphB, morphologyMap, mo
        
         // Для каждого якоря пробуем построить структуру
         for (const anchor of sortedAnchors) {
-            // 🔥 ЗАЩИТА: убеждаемся, что у якоря есть ID
-            const anchorId = anchor.id || `anchor_${anchor.pointA}_${anchor.pointB}`;
-           
-            if (usedTriangles.has(anchorId)) continue;
-           
-            if (this.debug) {
-                console.log(`\n🔨 Пробую построить структуру от якоря ${anchorId.substring(0,12)}...`);
-            }
-           
-            // 🔥 СОЗДАЁМ ТРЕУГОЛЬНИК ДЛЯ СТРОИТЕЛЯ
-            // Если у якоря нет всех трёх точек, используем один якорь как "треугольник" из одной точки
-            const seedTriangle = {
-                id: anchorId,
-                confidence: anchor.confidence || 0.7,
-                // Для совместимости с ожиданиями StructureBuilder
-                p1: { id: anchor.pointA },
-                p2: { id: anchor.pointA },
-                p3: { id: anchor.pointA },
-                pB1: { id: anchor.pointB },
-                pB2: { id: anchor.pointB },
-                pB3: { id: anchor.pointB },
-                edges: []  // пустые рёбра для начала
-            };
+    // 🔥 ИЩЕМ ПОЛНЫЙ ТРЕУГОЛЬНИК, КОТОРЫЙ СОДЕРЖИТ ЭТОТ ЯКОРЬ
+    const triangle = allTriangles.find(t =>
+        t.p1.id === anchor.pointA ||
+        t.p2.id === anchor.pointA ||
+        t.p3.id === anchor.pointA
+    );
+   
+    if (!triangle) {
+        if (this.debug) console.log(`   ⚠️ Не найден треугольник для якоря ${anchor.pointA}`);
+        continue;
+    }
+   
+    const triangleId = triangle.id;
+    if (usedTriangles.has(triangleId)) continue;
+   
+    if (this.debug) {
+        console.log(`\n🔨 Строю структуру от треугольника ${triangleId.substring(0,12)}...`);
+    }
+   
+    const structure = this.builder.buildFromSeed(
+        triangle,  // ← передаём ПОЛНЫЙ треугольник!
+        allTriangles,
+        graphA,
+        graphB,
+        morphologyMap,
+        modelMorphology
+    );
+   
+    if (structure && structure.triangleIds.size > 0) {
+        this.addStructure(structure);
+        for (const triId of structure.triangleIds) {
+            usedTriangles.add(triId);
+        }
+    }
+}
            
             // Строим структуру
             const structure = this.builder.buildFromSeed(
