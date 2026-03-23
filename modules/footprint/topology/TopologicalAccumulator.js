@@ -2666,12 +2666,24 @@ const finalResult = {
     const model = this.models.get(targetId);
     const graph = model.graph;
 
-    // Получаем структуры из модели, фильтруем undefined
-    const structures = (model.structures || []).filter(s => s && s.id);
+    // Получаем структуры из модели
+    const rawStructures = model.structures || [];
     const pointToStructure = model.pointToStructure || new Map();
 
     // Создаём карту цветов для структур
-    const structureColors = this.generateStructureColors(structures);
+    const structureColors = this.generateStructureColors(rawStructures);
+
+    // 🔥 ВАЖНО: создаем structures ДО того, как используем в pointsWithStructure
+    const structures = rawStructures
+        .filter(s => s && s.id)
+        .map(s => ({
+            id: s.id,
+            pointCount: s.pointIds ? s.pointIds.length : 0,
+            triangleCount: s.triangleIds ? s.triangleIds.length : 0,
+            transform: s.transform || null,
+            confidence: s.confidence || 0,
+            color: structureColors.get(s.id) || '#CCCCCC'
+        }));
 
     // Добавляем информацию о структуре к каждой точке
     const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
@@ -2698,12 +2710,9 @@ const finalResult = {
         }
     }
 
-    // 🔥 ФИЛЬТРУЕМ структуры перед возвратом
-    const validStructures = structures.filter(s => s && s.id && s.color);
-
     console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,12)}`);
-    console.log(`   • model.structures: ${structures.length}`);
-    console.log(`   • validStructures: ${validStructures.length}`);
+    console.log(`   • rawStructures: ${rawStructures.length}`);
+    console.log(`   • structures после фильтрации: ${structures.length}`);
     console.log(`   • model.pointToStructure: ${pointToStructure.size}`);
 
     return {
@@ -2711,14 +2720,7 @@ const finalResult = {
         modelName: model.metadata.name,
         points: pointsWithStructure,
         edges: Array.from(graph.edges),
-        structures: validStructures.map(s => ({
-            id: s.id,
-            pointCount: s.pointIds ? s.pointIds.length : 0,
-            triangleCount: s.triangleIds ? s.triangleIds.length : 0,
-            transform: s.transform || null,
-            confidence: s.confidence || 0,
-            color: structureColors.get(s.id) || '#CCCCCC'
-        })),
+        structures: structures,  // 🔥 ИСПОЛЬЗУЕМ structures, а не validStructures
         stats: {
             totalNodes: graph.nodes.size,
             totalEdges: graph.edges.size,
@@ -2726,7 +2728,7 @@ const finalResult = {
             confirmed2: pointsByConfirmation.confirmed2.length,
             confirmed1: pointsByConfirmation.confirmed1.length,
             confirmed0: pointsByConfirmation.confirmed0.length,
-            structureCount: validStructures.length,
+            structureCount: structures.length,
             reliableNodes: reliableNodeIds.size
         },
         pointsByConfirmation: pointsByConfirmation,
