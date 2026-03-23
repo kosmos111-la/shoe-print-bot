@@ -230,8 +230,12 @@ drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, 
         let color, size, label = '';
 
         if (structureId && structureColor) {
-            // Цвет структуры (для всех точек, входящих в структуру)
-            color = structureColor;
+    // 🔥 ДОБАВИМ ОТЛАДКУ ПЕРВЫХ 5 ТОЧЕК
+    if (this.debug && structureColor && !this._debugLogged) {
+        console.log(`      🎨 Пример точки: структура ${structureId.substring(0,8)}, цвет ${structureColor}, пара ${pairNumber || 'нет'}`);
+         this._debugLogged = true;
+    }
+    color = structureColor;
             size = 8;
             // Добавляем номер пары, если есть
             if (pairNumber) label = pairNumber.toString();
@@ -276,15 +280,25 @@ drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, 
     }
 
     // Статистика
-    const structureStats = {};
-    for (const point of points) {
-        if (point.structureId) {
-            structureStats[point.structureId] = (structureStats[point.structureId] || 0) + 1;
-        }
-    }
+const structureStats = {};
+for (const point of points) {
+    if (point.structureId) {
+        const id = point.structureId;
+        structureStats[id] = (structureStats[id] || 0) + 1;
+    }
+}
 
-    console.log(`   🎯 Модель: ${structures.length} структур, уникальных: ${uniqueInModelPoints}, остальных: ${points.length - uniqueInModelPoints}`);
-    console.log(`   🎨 Структуры:`, Object.entries(structureStats).slice(0, 5).map(([id, count]) => `${id.substring(0,8)}:${count}`).join(', '));
+// 🔥 ФОРМИРУЕМ КРАСИВЫЙ ВЫВОД
+const structureSummary = Object.entries(structureStats)
+    .slice(0, 5)
+    .map(([id, count]) => {
+        const structure = structures.find(s => s.id === id);
+        return `${id.substring(0,6)}:${count}${structure ? ` (${structure.color})` : ''}`;
+    })
+    .join(', ');
+
+console.log(`   🎯 Модель: ${structures.length} структур, уникальных: ${uniqueInModelPoints}, остальных: ${points.length - uniqueInModelPoints}`);
+console.log(`   🎨 Структуры: ${structureSummary || 'нет'}`);
 }
 
 drawStructureLegend(ctx, structures, canvasWidth) {
