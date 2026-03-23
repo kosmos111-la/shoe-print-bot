@@ -47,7 +47,7 @@ class StructureManager {
      * @param {Map} modelMorphology - морфология второго следа
      * @returns {Array} - массив построенных структур
      */
-buildStructures(anchorTriangles, allTriangles, graphA, graphB, morphologyMap, modelMorphology) {
+    buildStructures(anchorTriangles, allTriangles, graphA, graphB, morphologyMap, modelMorphology) {
         if (this.debug) {
             console.log(`\n🗂️ Начинаю сборку структур из ${anchorTriangles?.length || 0} якорей...`);
         }
@@ -62,70 +62,59 @@ buildStructures(anchorTriangles, allTriangles, graphA, graphB, morphologyMap, mo
             return [];
         }
        
-        // 🔥 ЗАЩИТА: проверяем каждый якорь
-        const validAnchors = [];
-        for (const anchor of anchorTriangles) {
-            if (!anchor || !anchor.pointA || !anchor.pointB) {
-                if (this.debug) console.log(`   ⚠️ Пропущен некорректный якорь: ${JSON.stringify(anchor)}`);
-                continue;
+        // Создаём карту треугольников по точкам для быстрого поиска
+        const triangleByPoint = new Map();
+        for (const tri of allTriangles) {
+            if (tri && tri.p1 && tri.p2 && tri.p3) {
+                triangleByPoint.set(tri.p1.id, tri);
+                triangleByPoint.set(tri.p2.id, tri);
+                triangleByPoint.set(tri.p3.id, tri);
             }
-            validAnchors.push(anchor);
-        }
-       
-        // Сортируем якоря по уверенности (самые надёжные первые)
-        const sortedAnchors = [...validAnchors].sort((a, b) =>
-            (b.confidence || 0) - (a.confidence || 0)
-        );
-       
-        if (this.debug && sortedAnchors.length !== anchorTriangles.length) {
-            console.log(`   • Отфильтровано ${anchorTriangles.length - sortedAnchors.length} некорректных якорей`);
         }
        
         // Множество уже использованных треугольников
         const usedTriangles = new Set();
        
-        // Для каждого якоря пробуем построить структуру
-        for (const anchor of sortedAnchors) {
-    // 🔥 ИЩЕМ ПОЛНЫЙ ТРЕУГОЛЬНИК, КОТОРЫЙ СОДЕРЖИТ ЭТОТ ЯКОРЬ
-    const triangle = allTriangles.find(t =>
-        t.p1.id === anchor.pointA ||
-        t.p2.id === anchor.pointA ||
-        t.p3.id === anchor.pointA
-    );
-   
-    if (!triangle) {
-        if (this.debug) console.log(`   ⚠️ Не найден треугольник для якоря ${anchor.pointA}`);
-        continue;
-    }
-   
-    const triangleId = triangle.id;
-    if (usedTriangles.has(triangleId)) continue;
-   
-    if (this.debug) {
-        console.log(`\n🔨 Строю структуру от треугольника ${triangleId.substring(0,12)}...`);
-    }
-   
-    const structure = this.builder.buildFromSeed(
-        triangle,  // ← передаём ПОЛНЫЙ треугольник!
-        allTriangles,
-        graphA,
-        graphB,
-        morphologyMap,
-        modelMorphology
-    );
-   
-    if (structure && structure.triangleIds.size > 0) {
-        this.addStructure(structure);
-        for (const triId of structure.triangleIds) {
-            usedTriangles.add(triId);
-        }
-    }
-}
+        // Для каждого якоря ищем его треугольник и строим структуру
+        let structuresBuilt = 0;
+       
+        for (const anchor of anchorTriangles) {
+            // Проверяем, что якорь валидный
+            if (!anchor || !anchor.pointA) {
+                if (this.debug) console.log(`   ⚠️ Пропущен некорректный якорь`);
+                continue;
+            }
            
-            // Строим структуру
+            // 🔥 ИЩЕМ ПОЛНЫЙ ТРЕУГОЛЬНИК, КОТОРЫЙ СОДЕРЖИТ ЭТУ ТОЧКУ
+            const triangle = triangleByPoint.get(anchor.pointA);
+           
+            if (!triangle) {
+                if (this.debug) console.log(`   ⚠️ Не найден треугольник для точки ${anchor.pointA?.substring(0,12)}`);
+                continue;
+            }
+           
+            const triangleId = triangle.id;
+            if (usedTriangles.has(triangleId)) continue;
+           
+            // Проверяем, что у треугольника есть все три разные точки
+            if (triangle.p1.id === triangle.p2.id ||
+                triangle.p1.id === triangle.p3.id ||
+                triangle.p2.id === triangle.p3.id) {
+                if (this.debug) {
+                    console.log(`   ⚠️ Треугольник ${triangleId.substring(0,12)} имеет дублирующиеся точки, пропускаем`);
+                }
+                continue;
+            }
+           
+            if (this.debug) {
+                console.log(`\n🔨 Строю структуру от треугольника ${triangleId.substring(0,12)}...`);
+                console.log(`   точки: ${triangle.p1.id.substring(0,8)} ${triangle.p2.id.substring(0,8)} ${triangle.p3.id.substring(0,8)}`);
+            }
+           
+            // Строим структуру от полного треугольника
             const structure = this.builder.buildFromSeed(
-                seedTriangle,
-                allTriangles || [],
+                triangle,
+                allTriangles,
                 graphA,
                 graphB,
                 morphologyMap,
@@ -134,18 +123,18 @@ buildStructures(anchorTriangles, allTriangles, graphA, graphB, morphologyMap, mo
            
             // Если структура получилась (хотя бы 1 треугольник)
             if (structure && structure.triangleIds.size > 0) {
-                // Добавляем в хранилище
                 this.addStructure(structure);
-               
-                // Помечаем все треугольники структуры как использованные
-                for (const triId of structure.triangleIds) {
-                    usedTriangles.add(triId);
-                }
+                usedTriangles.add(triangleId);
+                structuresBuilt++;
                
                 if (this.debug) {
                     console.log(`   ✅ Структура ${structure.id} добавлена (${structure.triangleIds.size} треугольников)`);
                 }
             }
+        }
+       
+        if (this.debug && structuresBuilt === 0) {
+            console.log(`   ⚠️ Не удалось построить ни одной структуры из ${anchorTriangles.length} якорей`);
         }
        
         // Пытаемся объединить совместимые структуры
