@@ -174,11 +174,12 @@ class ClusterVisualizer {
     }
 
 drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale, uniqueInModel = []) {
-    const points = topologyData.points;
-    const structures = topologyData.structures || [];
+    const points = topologyData.points;
+    const structures = (topologyData.structures || []).filter(s => s && s.id);
 
-    console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
-    console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
+    console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
+    console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
+    console.log(`   🎨 Структур в данных: ${structures.length}`);
 
     // Создаём карту структур для быстрого доступа
     const structureMap = new Map();
