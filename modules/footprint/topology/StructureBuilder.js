@@ -364,13 +364,17 @@ class StructureBuilder {
         return null;
     }
    
-    // 🔥 ПРОВЕРЯЕМ, ЧТО ТОЧКИ РАЗНЫЕ
-    if (seedTriangle.p1.id === seedTriangle.p2.id ||
-        seedTriangle.p1.id === seedTriangle.p3.id ||
-        seedTriangle.p2.id === seedTriangle.p3.id) {
-        if (this.debug) console.log(`⚠️ Треугольник-затравка имеет дублирующиеся точки`);
-        return null;
+if (seedTriangle.p1.id === seedTriangle.p2.id ||
+    seedTriangle.p1.id === seedTriangle.p3.id ||
+    seedTriangle.p2.id === seedTriangle.p3.id) {
+    if (this.debug) {
+        console.log(`⚠️ Треугольник-затравка имеет дублирующиеся точки:`);
+        console.log(`   p1: ${seedTriangle.p1.id}`);
+        console.log(`   p2: ${seedTriangle.p2.id}`);
+        console.log(`   p3: ${seedTriangle.p3.id}`);
     }
+    return null;
+}
        
         if (this.debug) {
             console.log(`\n🔨 Строю структуру от треугольника ${seedTriangle.id?.substring(0,12) || 'unknown'}...`);
