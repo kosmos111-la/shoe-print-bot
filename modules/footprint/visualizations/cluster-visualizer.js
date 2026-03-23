@@ -180,6 +180,14 @@ drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, 
     console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
     console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
     console.log(`   🎨 Структур в данных: ${structures.length}`);
+   
+    // 🔥 ДОБАВИМ ОТЛАДКУ ПЕРВЫХ 5 СТРУКТУР
+    if (structures.length > 0) {
+        console.log(`   🎨 Первые 5 структур:`);
+        structures.slice(0, 5).forEach(s => {
+            console.log(`      ${s.id.substring(0,12)}: ${s.pointCount} точек, цвет ${s.color}`);
+        });
+    }
 
     // Создаём карту структур для быстрого доступа
     const structureMap = new Map();
