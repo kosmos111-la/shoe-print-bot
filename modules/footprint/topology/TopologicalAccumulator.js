@@ -1,5 +1,5 @@
 // modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - ИСПРАВЛЕННАЯ ВЕРСИЯ 
 
 const GraphBuilder = require('./GraphBuilder');
 const KNNGraphBuilder = require('./KNNGraphBuilder');
