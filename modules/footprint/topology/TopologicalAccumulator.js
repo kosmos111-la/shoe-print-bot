@@ -395,6 +395,25 @@ console.log(`\n📊 СОЗДАНО ТРЕУГОЛЬНИКОВ: ${allTriangles.le
                     existingModel.morphologyMap
                 );
 
+// Сохраняем структуры в модель
+if (existingModel) {
+    existingModel.structures = structures.map(s => ({
+        id: s.id,
+        triangleIds: Array.from(s.triangleIds),
+        pointIds: Array.from(s.pointIds),
+        transform: s.transform,
+        confidence: s.calculateConfidence()
+    }));
+   
+    // Также сохраняем для каждой точки, к какой структуре она относится
+    existingModel.pointToStructure = new Map();
+    for (const structure of structures) {
+        for (const pointId of structure.pointIds) {
+            existingModel.pointToStructure.set(pointId, structure.id);
+        }
+    }
+}
+             
                 console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
 
                 // Анализируем отношения между структурами
@@ -2640,60 +2659,94 @@ const finalResult = {
         return triangles;
     }
 
-    getVisualizationData(modelId = null, reliablePhotoIds = []) {
-        const targetId = modelId || this.currentModelId;
-        if (!targetId || !this.models.has(targetId)) return null;
+   getVisualizationData(modelId = null, reliablePhotoIds = []) {
+    const targetId = modelId || this.currentModelId;
+    if (!targetId || !this.models.has(targetId)) return null;
 
-        const model = this.models.get(targetId);
-        const graph = model.graph;
+    const model = this.models.get(targetId);
+    const graph = model.graph;
 
-        // 🔥 ПОЛУЧАЕМ modelMatchMap ИЗ МОДЕЛИ
-        const modelMatchMapFromModel = model.lastTriangleResult?.modelMatchMap || new Map();
-        if (this.debug) console.log(`📋 getVisualizationData: modelMatchMap содержит ${modelMatchMapFromModel.size} записей`);
+    // Получаем структуры из модели
+    const structures = model.structures || [];
+    const pointToStructure = model.pointToStructure || new Map();
 
-        let reliableNodeIds = new Set(reliablePhotoIds);
-        if (reliableNodeIds.size === 0) {
-            for (const [nodeId, node] of graph.nodes) {
-                if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
-            }
+    // Создаём карту цветов для структур
+    const structureColors = this.generateStructureColors(structures);
+
+    // Добавляем информацию о структуре к каждой точке
+    const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
+        ...node,
+        structureId: pointToStructure.get(node.id) || null,
+        structureColor: pointToStructure.has(node.id)
+            ? structureColors.get(pointToStructure.get(node.id))
+            : null
+    }));
+
+    // 🔥 НУЖНО ОПРЕДЕЛИТЬ ЭТИ ПЕРЕМЕННЫЕ
+    const pointsByConfirmation = {
+        confirmed3: pointsWithStructure.filter(p => p.confirmationCount >= 3),
+        confirmed2: pointsWithStructure.filter(p => p.confirmationCount === 2),
+        confirmed1: pointsWithStructure.filter(p => p.confirmationCount === 1),
+        confirmed0: pointsWithStructure.filter(p => !p.confirmationCount)
+    };
+
+    const modelMatchMapFromModel = model.lastTriangleResult?.modelMatchMap || new Map();
+
+    let reliableNodeIds = new Set(reliablePhotoIds);
+    if (reliableNodeIds.size === 0) {
+        for (const [nodeId, node] of graph.nodes) {
+            if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
         }
-
-        const pointsByConfirmation = {
-            confirmed3: [], confirmed2: [], confirmed1: [], confirmed0: []
-        };
-
-        for (const node of graph.nodes.values()) {
-            const count = node.confirmationCount || 0;
-            if (count >= 3) pointsByConfirmation.confirmed3.push(node);
-            else if (count >= 2) pointsByConfirmation.confirmed2.push(node);
-            else if (count >= 1) pointsByConfirmation.confirmed1.push(node);
-            else pointsByConfirmation.confirmed0.push(node);
-        }
-
-        return {
-            modelId: targetId,
-            modelName: model.metadata.name,
-            points: Array.from(graph.nodes.values()),
-            edges: Array.from(graph.edges),
-            stats: {
-                totalNodes: graph.nodes.size,
-                totalEdges: graph.edges.size,
-                confirmed3: pointsByConfirmation.confirmed3.length,
-                confirmed2: pointsByConfirmation.confirmed2.length,
-                confirmed1: pointsByConfirmation.confirmed1.length,
-                confirmed0: pointsByConfirmation.confirmed0.length,
-                reliableNodes: reliableNodeIds.size
-            },
-            pointsByConfirmation,
-            metadata: model.metadata,
-            allModels: this.getAllModels(),
-            currentModelId: this.currentModelId,
-            modelMatchMap: modelMatchMapFromModel,
-            // 🔥 ДОБАВЛЯЕМ НОВЫЕ ДАННЫЕ
-            transform: model.transform,
-            uniquePoints: model.uniquePoints
-        };
     }
+
+    return {
+        modelId: targetId,
+        modelName: model.metadata.name,
+        points: pointsWithStructure,
+        edges: Array.from(graph.edges),
+        structures: structures.map(s => ({
+            id: s.id,
+            pointCount: s.pointIds.length,
+            triangleCount: s.triangleIds.length,
+            transform: s.transform,
+            confidence: s.confidence,
+            color: structureColors.get(s.id)
+        })),
+        stats: {
+            totalNodes: graph.nodes.size,
+            totalEdges: graph.edges.size,
+            confirmed3: pointsByConfirmation.confirmed3.length,
+            confirmed2: pointsByConfirmation.confirmed2.length,
+            confirmed1: pointsByConfirmation.confirmed1.length,
+            confirmed0: pointsByConfirmation.confirmed0.length,
+            structureCount: structures.length,
+            reliableNodes: reliableNodeIds.size
+        },
+        pointsByConfirmation: pointsByConfirmation,
+        metadata: model.metadata,
+        allModels: this.getAllModels(),
+        currentModelId: this.currentModelId,
+        modelMatchMap: modelMatchMapFromModel,
+        transform: model.transform,
+        uniquePoints: model.uniquePoints
+    };
+}
+
+generateStructureColors(structures) {
+    const colors = new Map();
+    const palette = [
+        '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+        '#DDA0DD', '#98D8C8', '#F7B787', '#B5EAD7', '#C7CEE6',
+        '#FFB7B2', '#B5F2E8', '#FFDAC1', '#E2F0CB', '#B5E3FF',
+        '#FF9AA2', '#FFDAC1', '#B5EAD7', '#C7CEE6', '#F5C6A0'
+    ];
+   
+    structures.forEach((structure, idx) => {
+        colors.set(structure.id, palette[idx % palette.length]);
+    });
+   
+    return colors;
+}
 
     getModelInfo(modelId = null) {
         const targetId = modelId || this.currentModelId;
