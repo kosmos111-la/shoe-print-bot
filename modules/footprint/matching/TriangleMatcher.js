@@ -464,28 +464,51 @@ class TriangleMatcher {
     /**
      * Построение связей между треугольниками
      */
-    buildNeighbors(triangles) {
-        const edgeMap = new Map();
+buildNeighbors(triangles) {
+    const edgeMap = new Map();
 
-        triangles.forEach(t => {
-            t.edges.forEach(edge => {
-                const key = [edge.v1.id, edge.v2.id].sort().join('--');
-                if (!edgeMap.has(key)) edgeMap.set(key, []);
-                edgeMap.get(key).push({ triangle: t, edge });
-            });
+    triangles.forEach(t => {
+        t.edges.forEach(edge => {
+            const key = [edge.v1.id, edge.v2.id].sort().join('--');
+            if (!edgeMap.has(key)) edgeMap.set(key, []);
+            edgeMap.get(key).push({ triangle: t, edge });
         });
+    });
 
-        edgeMap.forEach(triList => {
-            if (triList.length > 1) {
-                for (let i = 0; i < triList.length; i++) {
-                    for (let j = i+1; j < triList.length; j++) {
-                        triList[i].edge.neighborTriangles.push(triList[j].triangle);
-                        triList[j].edge.neighborTriangles.push(triList[i].triangle);
+    edgeMap.forEach(triList => {
+        if (triList.length > 1) {
+            for (let i = 0; i < triList.length; i++) {
+                for (let j = i + 1; j < triList.length; j++) {
+                    const t1 = triList[i].triangle;
+                    const t2 = triList[j].triangle;
+                    const edge1 = triList[i].edge;
+                    const edge2 = triList[j].edge;
+                   
+                    // Добавляем соседей
+                    edge1.neighborTriangles.push(t2);
+                    edge2.neighborTriangles.push(t1);
+                   
+                    // 🔥 НАХОДИМ ВНЕШНЮЮ ТОЧКУ
+                    // Для edge1, внешняя точка — это третья вершина треугольника t2
+                    const oppositeT2 = [t2.p1, t2.p2, t2.p3].find(p =>
+                        p.id !== edge2.v1.id && p.id !== edge2.v2.id
+                    );
+                    if (oppositeT2 && !edge1.externalPoint) {
+                        edge1.externalPoint = oppositeT2;
+                    }
+                   
+                    // Для edge2, внешняя точка — третья вершина треугольника t1
+                    const oppositeT1 = [t1.p1, t1.p2, t1.p3].find(p =>
+                        p.id !== edge1.v1.id && p.id !== edge1.v2.id
+                    );
+                    if (oppositeT1 && !edge2.externalPoint) {
+                        edge2.externalPoint = oppositeT1;
                     }
                 }
             }
-        });
-    }
+        }
+    });
+}
 
     /**
      * Получение треугольников из Делоне
