@@ -1,19 +1,15 @@
 // modules/footprint/topology/StructureManager.js
 // 🗂️ МЕНЕДЖЕР СТРУКТУР - управляет множеством топологических структур
+// 🔥 ИСПРАВЛЕННАЯ ВЕРСИЯ: объединение по сходству трансформации, фильтрация маленьких структур
 
 const TopologicalStructure = require('./Structure');
 const StructureBuilder = require('./StructureBuilder');
 
 class StructureManager {
-    /**
-     * @param {Object} validator - экземпляр ValidationModule
-     * @param {Object} options - настройки
-     */
     constructor(validator, options = {}) {
         this.validator = validator;
         this.debug = options.debug || false;
        
-        // Создаём строителя структур
         this.builder = new StructureBuilder(validator, {
             debug: this.debug,
             minConfidence: options.minConfidence || 0.7,
@@ -21,11 +17,9 @@ class StructureManager {
             maxRotationDeviation: options.maxRotationDeviation || 5
         });
        
-        // Хранилище структур
-        this.structures = new Map(); // id -> TopologicalStructure
+        this.structures = new Map();
         this.structureCounter = 0;
        
-        // Статистика
         this.stats = {
             totalStructures: 0,
             mergedStructures: 0,
@@ -33,36 +27,29 @@ class StructureManager {
         };
        
         if (this.debug) {
-            console.log('🗂️ StructureManager создан');
+            console.log('🗂️ StructureManager (исправленная версия) создан');
+            console.log(`   • Мин. уверенность: ${options.minConfidence || 0.7 * 100}%`);
+            console.log(`   • Порог объединения: масштаб 10%, поворот 15°`);
         }
     }
    
     /**
      * Строит все возможные структуры из набора треугольников-якорей
-     * @param {Array} anchorTriangles - массив треугольников-якорей
-     * @param {Array} allTriangles - все доступные треугольники (кандидаты)
-     * @param {Object} graphA - граф первого следа
-     * @param {Object} graphB - граф второго следа
-     * @param {Map} morphologyMap - морфология первого следа
-     * @param {Map} modelMorphology - морфология второго следа
-     * @returns {Array} - массив построенных структур
      */
     buildStructures(anchorTriangles, allTriangles, graphA, graphB, morphologyMap, modelMorphology) {
         if (this.debug) {
-            console.log(`\n🗂️ Начинаю сборку структур из ${anchorTriangles?.length || 0} якорей...`);
+            console.log(`\n🗂 Начинаю сборку структур из ${anchorTriangles?.length || 0} якорей...`);
         }
-       
-        // Очищаем предыдущие структуры
+
         this.structures.clear();
         this.structureCounter = 0;
-       
-        // Проверяем, что якоря есть
+
         if (!anchorTriangles || anchorTriangles.length === 0) {
             if (this.debug) console.log(`⚠️ Нет якорей для сборки структур`);
             return [];
         }
-       
-        // Создаём карту треугольников по точкам для быстрого поиска
+
+        // Создаём карту треугольников по точкам
         const triangleByPoint = new Map();
         for (const tri of allTriangles) {
             if (tri && tri.p1 && tri.p2 && tri.p3) {
@@ -71,47 +58,44 @@ class StructureManager {
                 triangleByPoint.set(tri.p3.id, tri);
             }
         }
-       
-        // Множество уже использованных треугольников
+
         const usedTriangles = new Set();
-       
-        // Для каждого якоря ищем его треугольник и строим структуру
-        let structuresBuilt = 0;
-       
-        for (const anchor of anchorTriangles) {
-            // Проверяем, что якорь валидный
-            if (!anchor || !anchor.pointA) {
-                if (this.debug) console.log(`   ⚠️ Пропущен некорректный якорь`);
-                continue;
-            }
-           
-            // 🔥 ИЩЕМ ПОЛНЫЙ ТРЕУГОЛЬНИК, КОТОРЫЙ СОДЕРЖИТ ЭТУ ТОЧКУ
+        const structuresList = [];
+
+        // 🔥 СОРТИРУЕМ ЯКОРЯ ПО УВЕРЕННОСТИ (самые уверенные сначала)
+        const sortedAnchors = [...anchorTriangles].sort((a, b) => (b.geometryScore || 0) - (a.geometryScore || 0));
+
+        for (const anchor of sortedAnchors) {
+            // Находим полный треугольник по любой точке якоря
             const triangle = triangleByPoint.get(anchor.pointA);
            
-            if (!triangle) {
-                if (this.debug) console.log(`   ⚠️ Не найден треугольник для точки ${anchor.pointA?.substring(0,12)}`);
+            if (!triangle) continue;
+           
+            const triangleId = triangle.id;
+           
+            // 🔥 ПРОВЕРКА: не входит ли треугольник уже в какую-то структуру
+            let alreadyInStructure = false;
+            for (const structure of structuresList) {
+                if (structure.triangleIds.has(triangleId)) {
+                    alreadyInStructure = true;
+                    break;
+                }
+            }
+           
+            if (alreadyInStructure) {
+                if (this.debug) console.log(`   ⏭️ Треугольник ${triangleId.substring(0,12)} уже в структуре, пропускаем`);
                 continue;
             }
            
-            const triangleId = triangle.id;
-            if (usedTriangles.has(triangleId)) continue;
-           
-            // Проверяем, что у треугольника есть все три разные точки
+            // Проверяем, что треугольник валидный (все точки разные)
             if (triangle.p1.id === triangle.p2.id ||
                 triangle.p1.id === triangle.p3.id ||
                 triangle.p2.id === triangle.p3.id) {
-                if (this.debug) {
-                    console.log(`   ⚠️ Треугольник ${triangleId.substring(0,12)} имеет дублирующиеся точки, пропускаем`);
-                }
+                if (this.debug) console.log(`   ⚠️ Треугольник ${triangleId.substring(0,12)} имеет дублирующиеся точки, пропускаем`);
                 continue;
             }
            
-            if (this.debug) {
-                console.log(`\n🔨 Строю структуру от треугольника ${triangleId.substring(0,12)}...`);
-                console.log(`   точки: ${triangle.p1.id.substring(0,8)} ${triangle.p2.id.substring(0,8)} ${triangle.p3.id.substring(0,8)}`);
-            }
-           
-            // Строим структуру от полного треугольника
+            // Строим структуру
             const structure = this.builder.buildFromSeed(
                 triangle,
                 allTriangles,
@@ -121,65 +105,54 @@ class StructureManager {
                 modelMorphology
             );
            
-            // Если структура получилась (хотя бы 1 треугольник)
             if (structure && structure.triangleIds.size > 0) {
+                // Помечаем все треугольники структуры как использованные
+                for (const tid of structure.triangleIds) {
+                    usedTriangles.add(tid);
+                }
                 this.addStructure(structure);
-                usedTriangles.add(triangleId);
-                structuresBuilt++;
+                structuresList.push(structure);
                
                 if (this.debug) {
-                    console.log(`   ✅ Структура ${structure.id} добавлена (${structure.triangleIds.size} треугольников)`);
+                    console.log(`   ✅ Структура ${structure.id.substring(0,12)} добавлена (${structure.triangleIds.size} треугольников)`);
                 }
             }
         }
+
+        // 🔥 ОБЪЕДИНЯЕМ ПОХОЖИЕ СТРУКТУРЫ (по сходству трансформации)
+        this.mergeBySimilarity(structuresList, graphA, graphB);
        
-        if (this.debug && structuresBuilt === 0) {
-            console.log(`   ⚠️ Не удалось построить ни одной структуры из ${anchorTriangles.length} якорей`);
-        }
-       
-        // Пытаемся объединить совместимые структуры
-        this.mergeCompatibleStructures(graphA, graphB);
-       
-        // Итоговая статистика
-        const result = Array.from(this.structures.values());
+        // 🔥 ВОЗВРАЩАЕМ ТОЛЬКО КРУПНЫЕ СТРУКТУРЫ (>=3 треугольников)
+        const largeStructures = Array.from(this.structures.values())
+            .filter(s => s.triangleIds.size >= 3);
        
         if (this.debug) {
             console.log(`\n📊 ИТОГ СБОРКИ:`);
-            console.log(`   • Всего структур: ${result.length}`);
-            result.forEach((s, i) => {
+            console.log(`   • Всего структур: ${this.structures.size}`);
+            console.log(`   • Крупных структур (>=3 тр): ${largeStructures.length}`);
+            largeStructures.forEach((s, i) => {
                 const stats = s.getStats();
                 console.log(`   • Структура ${i+1}: ${stats.triangleCount} тр., ${stats.pointCount} точек, уверенность ${(stats.confidence*100).toFixed(1)}%`);
+                if (s.transform) {
+                    console.log(`        масштаб ${s.transform.scale.toFixed(3)}, поворот ${(s.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                }
             });
         }
        
-        return result;
+        return largeStructures;
     }
    
     /**
-     * Добавляет структуру в менеджер
-     * @param {TopologicalStructure} structure - структура для добавления
+     * 🔥 НОВЫЙ МЕТОД: объединение структур по сходству трансформации
      */
-    addStructure(structure) {
-        this.structures.set(structure.id, structure);
-        this.structureCounter++;
-        this.stats.totalStructures++;
-    }
-   
-    /**
-     * Пытается объединить совместимые структуры
-     * @param {Object} graphA - граф первого следа
-     * @param {Object} graphB - граф второго следа
-     */
-    mergeCompatibleStructures(graphA, graphB) {
+    mergeBySimilarity(structures, graphA, graphB) {
         if (this.structures.size < 2) return;
        
-        if (this.debug) {
-            console.log(`\n🔄 Пробую объединить ${this.structures.size} структур...`);
-        }
+        if (this.debug) console.log(`\n🔄 Объединяю структуры по сходству трансформации...`);
        
         let merged = true;
         let iterations = 0;
-        const maxIterations = 10;
+        const maxIterations = 5;
        
         while (merged && iterations < maxIterations) {
             merged = false;
@@ -192,18 +165,25 @@ class StructureManager {
                     const s1 = structuresList[i];
                     const s2 = structuresList[j];
                    
-                    // Проверяем, можно ли объединить
-                    if (this.canMerge(s1, s2, graphA, graphB)) {
+                    // Пропускаем, если у одной нет transform
+                    if (!s1.transform || !s2.transform) continue;
+                   
+                    // Проверяем сходство трансформации
+                    const scaleDiff = Math.abs(s1.transform.scale - s2.transform.scale) / Math.max(s1.transform.scale, 0.001);
+                    const rotDiff = Math.abs(s1.transform.rotation - s2.transform.rotation) * 180 / Math.PI;
+                   
+                    // Пороги: 10% по масштабу, 15° по повороту
+                    if (scaleDiff < 0.1 && rotDiff < 15) {
                         if (this.debug) {
-                            console.log(`   🔗 Объединяю ${s1.id} и ${s2.id}`);
+                            console.log(`   🔗 Объединяю структуры:`);
+                            console.log(`      ${s1.id.substring(0,12)} (${s1.triangleIds.size} тр, масштаб ${s1.transform.scale.toFixed(3)}, поворот ${(s1.transform.rotation * 180 / Math.PI).toFixed(1)}°)`);
+                            console.log(`      ${s2.id.substring(0,12)} (${s2.triangleIds.size} тр, масштаб ${s2.transform.scale.toFixed(3)}, поворот ${(s2.transform.rotation * 180 / Math.PI).toFixed(1)}°)`);
+                            console.log(`      → разница: масштаб ${(scaleDiff*100).toFixed(1)}%, поворот ${rotDiff.toFixed(1)}°`);
                         }
                        
-                        // Объединяем
+                        // Объединяем (s1 поглощает s2)
                         this.mergeStructures(s1, s2, graphA, graphB);
                         merged = true;
-                        this.stats.mergedStructures++;
-                       
-                        // Выходим из циклов, чтобы начать заново
                         break;
                     }
                 }
@@ -217,53 +197,40 @@ class StructureManager {
     }
    
     /**
+     * Добавляет структуру в менеджер
+     */
+    addStructure(structure) {
+        this.structures.set(structure.id, structure);
+        this.structureCounter++;
+        this.stats.totalStructures++;
+    }
+   
+    /**
      * Проверяет, можно ли объединить две структуры
-     * @param {TopologicalStructure} s1 - первая структура
-     * @param {TopologicalStructure} s2 - вторая структура
-     * @param {Object} graphA - граф первого следа
-     * @param {Object} graphB - граф второго следа
-     * @returns {boolean} - можно ли объединить
      */
     canMerge(s1, s2, graphA, graphB) {
         // Проверка 1: есть ли общие граничные рёбра?
-        if (!s1.canMergeWith(s2)) return false;
+        if (s1.canMergeWith(s2)) return true;
        
-        // Проверка 2: совместимы ли transform'ы?
+        // 🔥 ДОБАВЛЯЕМ ПРОВЕРКУ ПО СХОДСТВУ ТРАНСФОРМАЦИИ
         if (s1.transform && s2.transform) {
-            // Отклонение масштаба
             const scaleDiff = Math.abs(s1.transform.scale - s2.transform.scale) / s1.transform.scale;
-            if (scaleDiff > 0.15) { // 15% - жёсткий порог для объединения
-                if (this.debug) {
-                    console.log(`      ❌ Масштаб: ${s1.transform.scale.toFixed(3)} vs ${s2.transform.scale.toFixed(3)}`);
-                }
-                return false;
-            }
-           
-            // Отклонение поворота
             const rotDiff = Math.abs(s1.transform.rotation - s2.transform.rotation) * 180 / Math.PI;
-            if (rotDiff > 10) { // 10 градусов
-                if (this.debug) {
-                    console.log(`      ❌ Поворот: ${(s1.transform.rotation * 180 / Math.PI).toFixed(1)}° vs ${(s2.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-                }
-                return false;
+           
+            if (scaleDiff < 0.1 && rotDiff < 15) {
+                return true;
             }
         }
        
-        return true;
+        return false;
     }
    
     /**
      * Объединяет две структуры
-     * @param {TopologicalStructure} target - целевая структура (в неё объединяем)
-     * @param {TopologicalStructure} source - источник (будет удалена)
-     * @param {Object} graphA - граф первого следа
-     * @param {Object} graphB - граф второго следа
      */
     mergeStructures(target, source, graphA, graphB) {
-        // Объединяем треугольники
         target.mergeWith(source);
        
-        // Пересчитываем transform объединённой структуры
         if (target.triangleIds.size >= 2) {
             target.calculateTransform(
                 (anchors) => this.validator.calculateTransform(anchors, graphA, graphB),
@@ -272,14 +239,12 @@ class StructureManager {
             );
         }
        
-        // Удаляем исходную структуру
         this.structures.delete(source.id);
+        this.stats.mergedStructures++;
     }
    
     /**
      * Находит структуру, содержащую заданную точку
-     * @param {string} pointId - ID точки
-     * @returns {TopologicalStructure|null} - структура или null
      */
     findStructureByPoint(pointId) {
         for (const structure of this.structures.values()) {
@@ -292,8 +257,6 @@ class StructureManager {
    
     /**
      * Находит структуру, содержащую заданный треугольник
-     * @param {string} triangleId - ID треугольника
-     * @returns {TopologicalStructure|null} - структура или null
      */
     findStructureByTriangle(triangleId) {
         for (const structure of this.structures.values()) {
@@ -306,7 +269,6 @@ class StructureManager {
    
     /**
      * Возвращает самую уверенную структуру
-     * @returns {TopologicalStructure|null} - структура с максимальной уверенностью
      */
     getBestStructure() {
         let best = null;
@@ -325,7 +287,6 @@ class StructureManager {
    
     /**
      * Возвращает все структуры, отсортированные по уверенности
-     * @returns {Array} - массив структур
      */
     getStructuresSorted() {
         return Array.from(this.structures.values())
@@ -334,7 +295,6 @@ class StructureManager {
    
     /**
      * Анализирует связи между структурами
-     * @returns {Object} - результаты анализа
      */
     analyzeRelations() {
         const structures = Array.from(this.structures.values());
@@ -376,7 +336,6 @@ class StructureManager {
    
     /**
      * Возвращает полную статистику
-     * @returns {Object} - статистика
      */
     getStats() {
         return {
