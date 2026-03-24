@@ -20,18 +20,21 @@ class ModelVisualization {
     async createVisualization(options = {}) {
     try {
         const {
-            points = [],
-            photoPoints = [],
-            transform = null,
-            matches = new Map(),
-            edges = [],
-            triangles = [],      // 🔥 НОВОЕ
-            structures = [],     // 🔥 НОВОЕ
-            width = 1200,
-            height = 1000,
-            padding = 50,
-            outputPath = null
-        } = options;
+    points = [],
+    photoPoints = [],
+    transform = null,
+    matches = new Map(),
+    edges = [],
+    triangles = [],
+    structures = [],
+    pointToStructure = new Map(),  // 🔥 ДОБАВЛЯЕМ
+    width = 1200,
+    height = 1000,
+    padding = 50,
+    outputPath = null
+} = options;
+
+console.log(`   🔍 pointToStructure содержит ${pointToStructure.size} записей`);
 
             if (!points || points.length === 0) {
                 console.log('⚠️ Нет точек модели для визуализации');
