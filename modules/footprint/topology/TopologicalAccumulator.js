@@ -2764,16 +2764,19 @@ const finalResult = {
     console.log(`   • model.pointToStructure: ${pointToStructure.size}`);
 
     const modelTriangles = this.extractTrianglesFromGraph(graph);
-console.log(`   • modelTriangles из модели: ${modelTriangles.length} треугольников`);
+const modelPointToStructure = pointToStructure; // это уже из model.pointToStructure
+
+// 🔥 ОТЛАДКА: показываем первые ID из pointToStructure
+console.log(`   • pointToStructure содержит ID модели: ${Array.from(modelPointToStructure.keys()).slice(0,3).map(k => k.substring(0,20)).join(', ')}`);
 
 return {
     modelId: targetId,
-        modelName: model.metadata.name,
-        points: pointsWithStructure,
-        edges: Array.from(graph.edges),
-        structures: structures,
-        triangles: modelTriangles,
-        pointToStructure: pointToStructure,
+    modelName: model.metadata.name,
+    points: pointsWithStructure,
+    edges: Array.from(graph.edges),
+    structures: structures,
+    triangles: modelTriangles,
+    pointToStructure: modelPointToStructure,  // ← это ID модели
         stats: {
             totalNodes: graph.nodes.size,
             totalEdges: graph.edges.size,
