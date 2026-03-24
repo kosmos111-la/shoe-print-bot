@@ -20,31 +20,30 @@ class ModelVisualization {
     async createVisualization(options = {}) {
     try {
         const {
-    points = [],
-    photoPoints = [],
-    transform = null,
-    matches = new Map(),
-    edges = [],
-    triangles = [],
-    structures = [],
-    pointToStructure = new Map(),  // 🔥 ДОБАВЛЯЕМ
-    width = 1200,
-    height = 1000,
-    padding = 50,
-    outputPath = null
-} = options;
+            points = [],
+            photoPoints = [],
+            transform = null,
+            matches = new Map(),
+            edges = [],
+            triangles = [],
+            structures = [],
+            pointToStructure = new Map(),  // 🔥 ОДНО ОБЪЯВЛЕНИЕ
+            width = 1200,
+            height = 1000,
+            padding = 50,
+            outputPath = null
+        } = options;
 
-console.log(`   🔍 pointToStructure содержит ${pointToStructure.size} записей`);
+        if (!points || points.length === 0) {
+            console.log('⚠️ Нет точек модели для визуализации');
+            return null;
+        }
 
-            if (!points || points.length === 0) {
-                console.log('⚠️ Нет точек модели для визуализации');
-                return null;
-            }
-
-            console.log(`   📊 Точек модели: ${points.length}`);
-            console.log(`   📸 Точек фото: ${photoPoints?.length || 0}`);
-            console.log(`   🔄 Трансформация: ${transform ? 'есть' : 'нет'}`);
-            console.log(`   🔗 Соответствий: ${matches.size}`);
+        console.log(`   📊 Точек модели: ${points.length}`);
+        console.log(`   📸 Точек фото: ${photoPoints?.length || 0}`);
+        console.log(`   🔄 Трансформация: ${transform ? 'есть' : 'нет'}`);
+        console.log(`   🔗 Соответствий: ${matches.size}`);
+        console.log(`   🔍 pointToStructure содержит ${pointToStructure.size} записей`);
 
             // Применяем трансформацию к точкам фото, если она есть
             let transformedPhotoPoints = [];
@@ -93,7 +92,7 @@ if (structures.length > 0) {
     console.log(`   🔍 Первая структура:`, JSON.stringify(structures[0], null, 2).substring(0, 500));
 }
       
-const pointToStructure = new Map();
+// const pointToStructure = new Map();
 for (const structure of structures) {
     const pointIds = Array.isArray(structure.pointIds) ? structure.pointIds : [];
     for (const pointId of pointIds) {
