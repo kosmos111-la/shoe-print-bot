@@ -2763,7 +2763,10 @@ const finalResult = {
     console.log(`   • structures после фильтрации: ${structures.length}`);
     console.log(`   • model.pointToStructure: ${pointToStructure.size}`);
 
-    const modelTriangles = this.extractTrianglesFromGraph(graph);
+    // graph — это модель, это правильно
+const modelTriangles = this.extractTrianglesFromGraph(graph);
+console.log(`   • modelTriangles из модели: ${modelTriangles.length} треугольников`);
+console.log(`   • Первый треугольник модели: p1=${modelTriangles[0]?.p1?.id?.substring(0,20)}`);
 const modelPointToStructure = pointToStructure; // это уже из model.pointToStructure
 
 // 🔥 ОТЛАДКА: показываем первые ID из pointToStructure
