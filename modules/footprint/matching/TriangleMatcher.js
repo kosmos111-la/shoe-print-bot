@@ -483,31 +483,52 @@ buildNeighbors(triangles) {
                     const t2 = triList[j].triangle;
                     const edge1 = triList[i].edge;
                     const edge2 = triList[j].edge;
-                   
-                    // Добавляем соседей
+
                     edge1.neighborTriangles.push(t2);
                     edge2.neighborTriangles.push(t1);
-                   
-                    // 🔥 НАХОДИМ ВНЕШНЮЮ ТОЧКУ
-                    // Для edge1, внешняя точка — это третья вершина треугольника t2
+
                     const oppositeT2 = [t2.p1, t2.p2, t2.p3].find(p =>
                         p.id !== edge2.v1.id && p.id !== edge2.v2.id
                     );
                     if (oppositeT2 && !edge1.externalPoint) {
                         edge1.externalPoint = oppositeT2;
+                        if (this.debug) {
+                            console.log(`   🔗 Ребро ${edge1.v1.id.substring(0,8)}-${edge1.v2.id.substring(0,8)} получило внешнюю точку ${oppositeT2.id.substring(0,8)}`);
+                        }
                     }
-                   
-                    // Для edge2, внешняя точка — третья вершина треугольника t1
+
                     const oppositeT1 = [t1.p1, t1.p2, t1.p3].find(p =>
                         p.id !== edge1.v1.id && p.id !== edge1.v2.id
                     );
                     if (oppositeT1 && !edge2.externalPoint) {
                         edge2.externalPoint = oppositeT1;
+                        if (this.debug) {
+                            console.log(`   🔗 Ребро ${edge2.v1.id.substring(0,8)}-${edge2.v2.id.substring(0,8)} получило внешнюю точку ${oppositeT1.id.substring(0,8)}`);
+                        }
                     }
                 }
             }
         }
     });
+   
+    // 🔥 ПОСЛЕ ПОСТРОЕНИЯ ВСЕХ СВЯЗЕЙ — статистика
+    if (this.debug) {
+        let totalEdgesWithExternal = 0;
+        let totalTrianglesWithExternal = 0;
+        for (const t of triangles) {
+            let hasExternal = false;
+            for (const e of t.edges) {
+                if (e.externalPoint) {
+                    totalEdgesWithExternal++;
+                    hasExternal = true;
+                }
+            }
+            if (hasExternal) totalTrianglesWithExternal++;
+        }
+        console.log(`\n📊 СТАТИСТИКА ЛУЧЕЙ В TRIANGLEMATCHER:`);
+        console.log(`   • Треугольников с хотя бы одним лучом: ${totalTrianglesWithExternal}/${triangles.length}`);
+        console.log(`   • Всего рёбер с externalPoint: ${totalEdgesWithExternal}`);
+    }
 }
 
     /**
