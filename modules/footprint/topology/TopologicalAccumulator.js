@@ -2767,30 +2767,33 @@ const finalResult = {
     console.log(`   • structures после фильтрации: ${structures.length}`);
     console.log(`   • model.pointToStructure: ${pointToStructure.size}`);
 
-    return {
-        modelId: targetId,
-        modelName: model.metadata.name,
-        points: pointsWithStructure,
-        edges: Array.from(graph.edges),
-        structures: structures,  // 🔥 ИСПОЛЬЗУЕМ structures, а не validStructures
-        stats: {
-            totalNodes: graph.nodes.size,
-            totalEdges: graph.edges.size,
-            confirmed3: pointsByConfirmation.confirmed3.length,
-            confirmed2: pointsByConfirmation.confirmed2.length,
-            confirmed1: pointsByConfirmation.confirmed1.length,
-            confirmed0: pointsByConfirmation.confirmed0.length,
-            structureCount: structures.length,
-            reliableNodes: reliableNodeIds.size
-        },
-        pointsByConfirmation: pointsByConfirmation,
-        metadata: model.metadata,
-        allModels: this.getAllModels(),
-        currentModelId: this.currentModelId,
-        modelMatchMap: modelMatchMapFromModel,
-        transform: model.transform,
-        uniquePoints: model.uniquePoints
-    };
+    const modelTriangles = this.extractTrianglesFromGraph(graph);
+
+return {
+    modelId: targetId,
+    modelName: model.metadata.name,
+    points: pointsWithStructure,
+    edges: Array.from(graph.edges),
+    structures: structures,
+    triangles: modelTriangles,  // 🔥 ДОБАВЛЯЕМ
+    stats: {
+        totalNodes: graph.nodes.size,
+        totalEdges: graph.edges.size,
+        confirmed3: pointsByConfirmation.confirmed3.length,
+        confirmed2: pointsByConfirmation.confirmed2.length,
+        confirmed1: pointsByConfirmation.confirmed1.length,
+        confirmed0: pointsByConfirmation.confirmed0.length,
+        structureCount: structures.length,
+        reliableNodes: reliableNodeIds.size
+    },
+    pointsByConfirmation: pointsByConfirmation,
+    metadata: model.metadata,
+    allModels: this.getAllModels(),
+    currentModelId: this.currentModelId,
+    modelMatchMap: modelMatchMapFromModel,
+    transform: model.transform,
+    uniquePoints: model.uniquePoints
+};
 }
 
 generateStructureColors(structures) {
