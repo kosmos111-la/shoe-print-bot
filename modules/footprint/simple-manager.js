@@ -391,7 +391,7 @@ if (bot && chatId) {
 // ==================== 🔥 ИСПРАВЛЕНИЕ ЗДЕСЬ ====================
 // ВИЗУАЛИЗАЦИЯ МОДЕЛИ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО
 
-if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
+if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
     try {
         console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ ЧИСТОЙ МОДЕЛИ...');
 
