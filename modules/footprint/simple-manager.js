@@ -460,12 +460,12 @@ structures = structures.map(s => ({
     triangles: s.triangles || []
 }));
 const triangles = visualizationData?.triangles || [];
+const pointToStructure = visualizationData?.pointToStructure || new Map();
+
 console.log(`   • triangles из visualizationData: ${triangles.length}`);
 if (triangles.length > 0) {
     console.log(`   • Первый треугольник: p1=${triangles[0]?.p1?.id?.substring(0,20)}`);
 }
-
-const pointToStructure = visualizationData?.pointToStructure || new Map();
 console.log(`   🔍 pointToStructure из visualizationData: ${pointToStructure.size} записей`);
 
 const modelImagePath = await modelViz.createVisualization({
@@ -476,7 +476,7 @@ const modelImagePath = await modelViz.createVisualization({
     edges: edges,
     triangles: triangles,
     structures: structures,
-    pointToStructure: pointToStructure,  // 🔥 ПЕРЕДАЁМ
+    pointToStructure: pointToStructure,
     outputPath: outputPath,
     width: 1200,
     height: 1000
