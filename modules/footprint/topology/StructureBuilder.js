@@ -341,7 +341,21 @@ const expectedDist = nodeA && nodeB ?
                 console.log(`      ✅ Согласован: масштаб ${testTransform.scale.toFixed(3)}, поворот ${(testTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
             }
         }
-       
+
+// После проверки лучей, перед добавлением треугольника
+if (this.debug && triangle.edges) {
+    let hasExternal = false;
+    for (const e of triangle.edges) {
+        if (e.externalPoint) {
+            hasExternal = true;
+            console.log(`      🔍 Треугольник ${triangle.id.substring(0,12)} имеет луч из ребра ${e.v1.id.substring(0,8)}-${e.v2.id.substring(0,8)} → ${e.externalPoint.id.substring(0,8)}`);
+        }
+    }
+    if (!hasExternal && this.debug) {
+        console.log(`      ⚠️ Треугольник ${triangle.id.substring(0,12)} НЕ ИМЕЕТ лучей (externalPoint отсутствует)`);
+    }
+}
+      
         // Добавляем треугольник
         if (structure) {
             structure.addTriangle(triangle);
