@@ -114,8 +114,23 @@ for (const structure of structures) {
         // 🔥 РИСУЕМ ТРЕУГОЛЬНИКИ (ПОД ТОЧКАМИ, НАД РЁБРАМИ)
         if (triangles.length > 0) {
     console.log(`   🔺 Рисую ${triangles.length} треугольников...`);
-    let colored = 0;
    
+    // 🔥 ОТЛАДКА: показываем первые 3 треугольника
+    console.log(`   🔍 Первые 3 треугольника:`);
+    for (let i = 0; i < Math.min(3, triangles.length); i++) {
+        const t = triangles[i];
+        console.log(`      ${i+1}: p1=${t.p1.id.substring(0,20)}, p2=${t.p2.id.substring(0,20)}, p3=${t.p3.id.substring(0,20)}`);
+    }
+   
+    // 🔥 ОТЛАДКА: показываем первые 5 ключей pointToStructure
+    console.log(`   🔍 Первые 5 pointToStructure ключей:`);
+    let count = 0;
+    for (const [key, value] of pointToStructure) {
+        console.log(`      ${key.substring(0,20)} -> ${value.substring(0,12)}`);
+        if (++count >= 5) break;
+    }
+   
+    let colored = 0;
     for (const triangle of triangles) {
         const p1 = points.find(p => p.id === triangle.p1.id);
         const p2 = points.find(p => p.id === triangle.p2.id);
@@ -154,7 +169,7 @@ for (const structure of structures) {
                 ctx.lineWidth = 2;
                 ctx.stroke();
             }
-             console.log(`   🎨 Цветных треугольников: ${colored}/${triangles.length}`); 
+             console.log(`   🎨 Цветных треугольников: ${colored}/${triangles.length}`);
         }
        
         // Рисуем рёбра (поверх треугольников, чтобы рёбра были видны)
