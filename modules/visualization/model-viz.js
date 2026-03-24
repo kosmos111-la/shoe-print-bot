@@ -85,6 +85,11 @@ if (transform && photoPoints && photoPoints.length > 0) {
             ctx.fillRect(0, 0, width, height);
 
            // 🔥 СОЗДАЁМ КАРТУ pointId → structureId (с защитой)
+console.log(`   🔍 structures: ${structures.length} шт`);
+if (structures.length > 0) {
+    console.log(`   🔍 Первая структура:`, JSON.stringify(structures[0], null, 2).substring(0, 500));
+}
+      
 const pointToStructure = new Map();
 for (const structure of structures) {
     const pointIds = Array.isArray(structure.pointIds) ? structure.pointIds : [];
