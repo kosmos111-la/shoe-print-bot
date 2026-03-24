@@ -451,16 +451,22 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                 const modelViz = new ModelVisualization();
 
                 // 🔥 ПЕРЕДАЁМ ТОЛЬКО МОДЕЛЬ (БЕЗ ФОТО)
-                const modelImagePath = await modelViz.createVisualization({
-                    points: points,              // только точки модели
-                    photoPoints: [],              // без фото!
-                    transform: transform,
-                    matches: matchMap,
-                    edges: edges,
-                    outputPath: outputPath,
-                    width: 1200,
-                    height: 1000
-                });
+                // Получаем структуры из visualizationData
+const structures = visualizationData?.structures || [];
+const triangles = visualizationData?.triangles || [];
+
+const modelImagePath = await modelViz.createVisualization({
+    points: points,
+    photoPoints: [],
+    transform: transform,
+    matches: matchMap,
+    edges: edges,
+    triangles: triangles,      // 🔥 ДОБАВЛЯЕМ
+    structures: structures,   // 🔥 ДОБАВЛЯЕМ
+    outputPath: outputPath,
+    width: 1200,
+    height: 1000
+});
 
                 if (modelImagePath && fs.existsSync(modelImagePath)) {
                     console.log(`\n✅ Чистая модель сохранена: ${modelImagePath}`);
