@@ -111,27 +111,27 @@ for (const structure of structures) {
        
         // 🔥 РИСУЕМ ТРЕУГОЛЬНИКИ (ПОД ТОЧКАМИ, НАД РЁБРАМИ)
         if (triangles.length > 0) {
-            console.log(`   🔺 Рисую ${triangles.length} треугольников...`);
-           
-            for (const triangle of triangles) {
-                const p1 = points.find(p => p.id === triangle.p1.id);
-                const p2 = points.find(p => p.id === triangle.p2.id);
-                const p3 = points.find(p => p.id === triangle.p3.id);
-               
-                if (!p1 || !p2 || !p3) continue;
-               
-                // Определяем, к какой структуре принадлежит треугольник
-                const structId1 = pointToStructure.get(p1.id);
-                const structId2 = pointToStructure.get(p2.id);
-                const structId3 = pointToStructure.get(p3.id);
-               
-                let color = '#AAAAAA'; // серый по умолчанию
-               
-                // Если все три точки в одной структуре
-                if (structId1 && structId1 === structId2 && structId1 === structId3) {
-                    const isMain = structId1 === mainStructureId;
-                    color = isMain ? '#FF0000' : '#FFA500';
-                }
+    console.log(`   🔺 Рисую ${triangles.length} треугольников...`);
+    let colored = 0;
+   
+    for (const triangle of triangles) {
+        const p1 = points.find(p => p.id === triangle.p1.id);
+        const p2 = points.find(p => p.id === triangle.p2.id);
+        const p3 = points.find(p => p.id === triangle.p3.id);
+       
+        if (!p1 || !p2 || !p3) continue;
+       
+        const structId1 = pointToStructure.get(p1.id);
+        const structId2 = pointToStructure.get(p2.id);
+        const structId3 = pointToStructure.get(p3.id);
+       
+        let color = '#AAAAAA';
+       
+        if (structId1 && structId1 === structId2 && structId1 === structId3) {
+            const isMain = structId1 === mainStructureId;
+            color = isMain ? '#FF0000' : '#FFA500';
+            colored++;
+        }
                
                 const x1 = this.projectX(p1.x, bounds, scale, width);
                 const y1 = this.projectY(p1.y, bounds, scale, height);
@@ -152,6 +152,7 @@ for (const structure of structures) {
                 ctx.lineWidth = 2;
                 ctx.stroke();
             }
+             console.log(`   🎨 Цветных треугольников: ${colored}/${triangles.length}`); 
         }
        
         // Рисуем рёбра (поверх треугольников, чтобы рёбра были видны)
