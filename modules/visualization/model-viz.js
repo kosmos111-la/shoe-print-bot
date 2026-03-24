@@ -18,20 +18,20 @@ class ModelVisualization {
      * @returns {string} - путь к файлу
      */
     async createVisualization(options = {}) {
-        try {
-            console.log('🏗️ Создаю визуализацию итоговой модели...');
-
-            const {
-                points = [],              // точки модели
-                photoPoints = [],         // оригинальные точки фото
-                transform = null,          // преобразование {scale, rotation, translation}
-                matches = new Map(),       // соответствия photoId -> modelId
-                edges = [],
-                width = 1200,
-                height = 1000,
-                padding = 50,
-                outputPath = null
-            } = options;
+    try {
+        const {
+            points = [],
+            photoPoints = [],
+            transform = null,
+            matches = new Map(),
+            edges = [],
+            triangles = [],      // 🔥 НОВОЕ
+            structures = [],     // 🔥 НОВОЕ
+            width = 1200,
+            height = 1000,
+            padding = 50,
+            outputPath = null
+        } = options;
 
             if (!points || points.length === 0) {
                 console.log('⚠️ Нет точек модели для визуализации');
@@ -84,11 +84,74 @@ if (transform && photoPoints && photoPoints.length > 0) {
             ctx.fillStyle = '#1a1a1a';
             ctx.fillRect(0, 0, width, height);
 
-            // Рисуем рёбра модели (полупрозрачные)
-            this.drawEdges(ctx, edges, points, bounds, scale, width, height);
-
-            // Рисуем точки модели
-            this.drawModelPoints(ctx, points, matches, bounds, scale, width, height);
+           // 🔥 СОЗДАЁМ КАРТУ pointId → structureId
+        const pointToStructure = new Map();
+        for (const structure of structures) {
+            for (const pointId of structure.pointIds) {
+                pointToStructure.set(pointId, structure.id);
+            }
+        }
+       
+        // Находим главную структуру (самую большую)
+        let mainStructureId = null;
+        let maxPoints = 0;
+        for (const structure of structures) {
+            if (structure.pointCount > maxPoints) {
+                maxPoints = structure.pointCount;
+                mainStructureId = structure.id;
+            }
+        }
+       
+        // 🔥 РИСУЕМ ТРЕУГОЛЬНИКИ (ПОД ТОЧКАМИ, НАД РЁБРАМИ)
+        if (triangles.length > 0) {
+            console.log(`   🔺 Рисую ${triangles.length} треугольников...`);
+           
+            for (const triangle of triangles) {
+                const p1 = points.find(p => p.id === triangle.p1.id);
+                const p2 = points.find(p => p.id === triangle.p2.id);
+                const p3 = points.find(p => p.id === triangle.p3.id);
+               
+                if (!p1 || !p2 || !p3) continue;
+               
+                // Определяем, к какой структуре принадлежит треугольник
+                const structId1 = pointToStructure.get(p1.id);
+                const structId2 = pointToStructure.get(p2.id);
+                const structId3 = pointToStructure.get(p3.id);
+               
+                let color = '#AAAAAA'; // серый по умолчанию
+               
+                // Если все три точки в одной структуре
+                if (structId1 && structId1 === structId2 && structId1 === structId3) {
+                    const isMain = structId1 === mainStructureId;
+                    color = isMain ? '#FF0000' : '#FFA500';
+                }
+               
+                const x1 = this.projectX(p1.x, bounds, scale, width);
+                const y1 = this.projectY(p1.y, bounds, scale, height);
+                const x2 = this.projectX(p2.x, bounds, scale, width);
+                const y2 = this.projectY(p2.y, bounds, scale, height);
+                const x3 = this.projectX(p3.x, bounds, scale, width);
+                const y3 = this.projectY(p3.y, bounds, scale, height);
+               
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.lineTo(x3, y3);
+                ctx.closePath();
+               
+                ctx.fillStyle = color + '40'; // полупрозрачная заливка
+                ctx.fill();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+       
+        // Рисуем рёбра (поверх треугольников, чтобы рёбра были видны)
+        this.drawEdges(ctx, edges, points, bounds, scale, width, height);
+       
+        // Рисуем точки модели (поверх всего)
+        this.drawModelPoints(ctx, points, matches, bounds, scale, width, height);
 
             // Рисуем трансформированные точки фото
             if (transformedPhotoPoints.length > 0) {
