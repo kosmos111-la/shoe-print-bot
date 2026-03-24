@@ -2703,12 +2703,10 @@ const finalResult = {
     const model = this.models.get(targetId);
     const graph = model.graph;
 
-    // Получаем структуры из модели
-     const rawStructures = model.structures || [];
+    const rawStructures = model.structures || [];
     console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,12)}`);
     console.log(`   • rawStructures: ${rawStructures.length}`);
-   
-    // Проверяем, есть ли лучи в структурах
+
     let totalRays = 0;
     for (const s of rawStructures) {
         const rays = s.rays || [];
@@ -2720,25 +2718,22 @@ const finalResult = {
     console.log(`   • Всего лучей в структурах: ${totalRays}`);
     const pointToStructure = model.pointToStructure || new Map();
 
-    // Создаём карту цветов для структур
     const structureColors = this.generateStructureColors(rawStructures);
 
-    // 🔥 ВАЖНО: создаем structures ДО того, как используем в pointsWithStructure
     const structures = rawStructures
-    .filter(s => s && s.id)
-    .map(s => ({
-        id: s.id,
-        pointCount: s.pointIds ? s.pointIds.length : 0,
-        pointIds: s.pointIds || [],  // 🔥 КЛЮЧЕВОЕ ДОБАВЛЕНИЕ
-        triangleCount: s.triangleIds ? s.triangleIds.length : 0,
-        transform: s.transform || null,
-        confidence: s.confidence || 0,
-        color: structureColors.get(s.id) || '#CCCCCC',
-        rays: s.rays || [],
-        triangles: s.triangles || []
-    }));
+        .filter(s => s && s.id)
+        .map(s => ({
+            id: s.id,
+            pointCount: s.pointIds ? s.pointIds.length : 0,
+            pointIds: s.pointIds || [],
+            triangleCount: s.triangleIds ? s.triangleIds.length : 0,
+            transform: s.transform || null,
+            confidence: s.confidence || 0,
+            color: structureColors.get(s.id) || '#CCCCCC',
+            rays: s.rays || [],
+            triangles: s.triangles || []
+        }));
 
-    // Добавляем информацию о структуре к каждой точке
     const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
         ...node,
         structureId: pointToStructure.get(node.id) || null,
@@ -2770,31 +2765,33 @@ const finalResult = {
 
     const modelTriangles = this.extractTrianglesFromGraph(graph);
 
-modelId: targetId,
-    modelName: model.metadata.name,
-    points: pointsWithStructure,
-    edges: Array.from(graph.edges),
-    structures: structures,
-    triangles: modelTriangles,
-    pointToStructure: pointToStructure,  // 🔥 ДОБАВЛЯЕМ!
-    stats: {
-        totalNodes: graph.nodes.size,
-        totalEdges: graph.edges.size,
-        confirmed3: pointsByConfirmation.confirmed3.length,
-        confirmed2: pointsByConfirmation.confirmed2.length,
-        confirmed1: pointsByConfirmation.confirmed1.length,
-        confirmed0: pointsByConfirmation.confirmed0.length,
-        structureCount: structures.length,
-        reliableNodes: reliableNodeIds.size
-    },
-    pointsByConfirmation: pointsByConfirmation,
-    metadata: model.metadata,
-    allModels: this.getAllModels(),
-    currentModelId: this.currentModelId,
-    modelMatchMap: modelMatchMapFromModel,
-    transform: model.transform,
-    uniquePoints: model.uniquePoints
-};
+    // 🔥 ИСПРАВЛЕННЫЙ return
+    return {
+        modelId: targetId,
+        modelName: model.metadata.name,
+        points: pointsWithStructure,
+        edges: Array.from(graph.edges),
+        structures: structures,
+        triangles: modelTriangles,
+        pointToStructure: pointToStructure,
+        stats: {
+            totalNodes: graph.nodes.size,
+            totalEdges: graph.edges.size,
+            confirmed3: pointsByConfirmation.confirmed3.length,
+            confirmed2: pointsByConfirmation.confirmed2.length,
+            confirmed1: pointsByConfirmation.confirmed1.length,
+            confirmed0: pointsByConfirmation.confirmed0.length,
+            structureCount: structures.length,
+            reliableNodes: reliableNodeIds.size
+        },
+        pointsByConfirmation: pointsByConfirmation,
+        metadata: model.metadata,
+        allModels: this.getAllModels(),
+        currentModelId: this.currentModelId,
+        modelMatchMap: modelMatchMapFromModel,
+        transform: model.transform,
+        uniquePoints: model.uniquePoints
+    };
 }
 
 generateStructureColors(structures) {
