@@ -420,16 +420,18 @@ if (existingModel) {
         triangleIds: Array.from(s.triangleIds),
         pointIds: Array.from(s.pointIds),
         transform: s.transform,
-        confidence: s.calculateConfidence()
+        confidence: s.calculateConfidence(),
+        rays: s.rays || []  // 🔥 ДОБАВЛЯЕМ ЛУЧИ!
     }));
-   
-    // Также сохраняем для каждой точки, к какой структуре она относится
+
     existingModel.pointToStructure = new Map();
     for (const structure of structures) {
         for (const pointId of structure.pointIds) {
             existingModel.pointToStructure.set(pointId, structure.id);
         }
     }
+   
+    console.log(`   💾 Сохранено структур: ${structures.length}, всего лучей: ${structures.reduce((sum, s) => sum + (s.rays?.length || 0), 0)}`);
 }
              
                 console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
@@ -2685,7 +2687,20 @@ const finalResult = {
     const graph = model.graph;
 
     // Получаем структуры из модели
-    const rawStructures = model.structures || [];
+     const rawStructures = model.structures || [];
+    console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,12)}`);
+    console.log(`   • rawStructures: ${rawStructures.length}`);
+   
+    // Проверяем, есть ли лучи в структурах
+    let totalRays = 0;
+    for (const s of rawStructures) {
+        const rays = s.rays || [];
+        totalRays += rays.length;
+        if (rays.length > 0 && this.debug) {
+            console.log(`   • Структура ${s.id.substring(0,12)} имеет ${rays.length} лучей`);
+        }
+    }
+    console.log(`   • Всего лучей в структурах: ${totalRays}`);
     const pointToStructure = model.pointToStructure || new Map();
 
     // Создаём карту цветов для структур
