@@ -468,8 +468,9 @@ const modelImagePath = await modelViz.createVisualization({
     transform: transform,
     matches: matchMap,
     edges: edges,
-    triangles: triangles,      // 🔥 ДОБАВЛЯЕМ
-    structures: structures,   // 🔥 ДОБАВЛЯЕМ
+    triangles: triangles,
+    structures: structures,
+    pointToStructure: visualizationData?.pointToStructure || new Map(),  // 🔥 ДОБАВЛЯЕМ
     outputPath: outputPath,
     width: 1200,
     height: 1000
