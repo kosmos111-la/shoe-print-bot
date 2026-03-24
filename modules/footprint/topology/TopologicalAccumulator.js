@@ -2764,10 +2764,10 @@ const finalResult = {
     console.log(`   • model.pointToStructure: ${pointToStructure.size}`);
 
     const modelTriangles = this.extractTrianglesFromGraph(graph);
+console.log(`   • modelTriangles из модели: ${modelTriangles.length} треугольников`);
 
-    // 🔥 ИСПРАВЛЕННЫЙ return
-    return {
-        modelId: targetId,
+return {
+    modelId: targetId,
         modelName: model.metadata.name,
         points: pointsWithStructure,
         edges: Array.from(graph.edges),
