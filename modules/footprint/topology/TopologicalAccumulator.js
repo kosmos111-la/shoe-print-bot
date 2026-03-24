@@ -421,7 +421,23 @@ if (existingModel) {
         pointIds: Array.from(s.pointIds),
         transform: s.transform,
         confidence: s.calculateConfidence(),
-        rays: s.rays || []  // 🔥 ДОБАВЛЯЕМ ЛУЧИ!
+        rays: s.rays || [],
+        // 🔥 ДОБАВЛЯЕМ САМИ ТРЕУГОЛЬНИКИ
+        triangles: Array.from(s.triangles.values()).map(t => ({
+            id: t.id,
+            p1: t.p1,
+            p2: t.p2,
+            p3: t.p3,
+            pB1: t.pB1,
+            pB2: t.pB2,
+            pB3: t.pB3,
+            confidence: t.confidence,
+            edges: t.edges ? t.edges.map(e => ({
+                v1: e.v1,
+                v2: e.v2,
+                externalPoint: e.externalPoint
+            })) : []
+        }))
     }));
 
     existingModel.pointToStructure = new Map();
@@ -430,8 +446,9 @@ if (existingModel) {
             existingModel.pointToStructure.set(pointId, structure.id);
         }
     }
-   
+
     console.log(`   💾 Сохранено структур: ${structures.length}, всего лучей: ${structures.reduce((sum, s) => sum + (s.rays?.length || 0), 0)}`);
+    console.log(`   💾 Сохранено треугольников: ${structures.reduce((sum, s) => sum + s.triangles.size, 0)}`);
 }
              
                 console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
@@ -2716,7 +2733,8 @@ const finalResult = {
         transform: s.transform || null,
         confidence: s.confidence || 0,
         color: structureColors.get(s.id) || '#CCCCCC',
-        rays: s.rays || []  // 🔥 ДОБАВЛЯЕМ ЛУЧИ!
+        rays: s.rays || [],
+        triangles: s.triangles || []  // 🔥 ДОБАВЛЯЕМ ТРЕУГОЛЬНИКИ
     }));
 
     // Добавляем информацию о структуре к каждой точке
