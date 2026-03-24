@@ -17,7 +17,7 @@ const StructureManager = require('./StructureManager');
 class TopologicalAccumulator {
     constructor(options = {}) {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
-        this.debug = options.debug || false;
+        this.debug = options.debug || true;
 
         // 🔥 РЕЖИМЫ РАБОТЫ
         this.fastMode = options.fastMode || false;
@@ -313,6 +313,22 @@ console.log(`\n🔍 ЭТАП 2: Построение топологически�
 const allTriangles = [];
 
 console.log(`\n🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ ${anchorsForValidation.length} ЯКОРЕЙ`);
+console.log(`   • triangleResult.triangles: ${triangleResult.triangles?.length || 0} треугольников`);
+
+// Проверяем, есть ли externalPoint в исходных треугольниках
+if (triangleResult.triangles && triangleResult.triangles.length > 0) {
+    let trianglesWithExternal = 0;
+    let edgesWithExternal = 0;
+    for (const tri of triangleResult.triangles) {
+        if (tri.edges) {
+            for (const e of tri.edges) {
+                if (e.externalPoint) edgesWithExternal++;
+            }
+            if (tri.edges.some(e => e.externalPoint)) trianglesWithExternal++;
+        }
+    }
+    console.log(`   • В triangleResult: ${trianglesWithExternal}/${triangleResult.triangles.length} треугольников с лучами, ${edgesWithExternal} рёбер с externalPoint`);
+}
 
 // 🔥 ГРУППИРУЕМ ЯКОРЯ ПО triangleId
 const anchorsByTriangle = new Map();
