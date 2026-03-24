@@ -460,6 +460,7 @@ structures = structures.map(s => ({
     triangles: s.triangles || []
 }));
 const triangles = visualizationData?.triangles || [];
+console.log(`   • triangles из visualizationData: ${triangles.length}`);
 
 const modelImagePath = await modelViz.createVisualization({
     points: points,
