@@ -461,6 +461,9 @@ structures = structures.map(s => ({
 }));
 const triangles = visualizationData?.triangles || [];
 console.log(`   • triangles из visualizationData: ${triangles.length}`);
+if (triangles.length > 0) {
+    console.log(`   • Первый треугольник: p1=${triangles[0]?.p1?.id?.substring(0,20)}`);
+}
 
 const pointToStructure = visualizationData?.pointToStructure || new Map();
 console.log(`   🔍 pointToStructure из visualizationData: ${pointToStructure.size} записей`);
