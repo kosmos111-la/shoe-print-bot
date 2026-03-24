@@ -2729,12 +2729,13 @@ const finalResult = {
     .map(s => ({
         id: s.id,
         pointCount: s.pointIds ? s.pointIds.length : 0,
+        pointIds: s.pointIds || [],  // 🔥 КЛЮЧЕВОЕ ДОБАВЛЕНИЕ
         triangleCount: s.triangleIds ? s.triangleIds.length : 0,
         transform: s.transform || null,
         confidence: s.confidence || 0,
         color: structureColors.get(s.id) || '#CCCCCC',
         rays: s.rays || [],
-        triangles: s.triangles || []  // 🔥 ДОБАВЛЯЕМ ТРЕУГОЛЬНИКИ
+        triangles: s.triangles || []
     }));
 
     // Добавляем информацию о структуре к каждой точке
