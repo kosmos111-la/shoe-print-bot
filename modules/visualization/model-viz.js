@@ -44,6 +44,9 @@ class ModelVisualization {
         console.log(`   🔄 Трансформация: ${transform ? 'есть' : 'нет'}`);
         console.log(`   🔗 Соответствий: ${matches.size}`);
         console.log(`   🔍 pointToStructure содержит ${pointToStructure.size} записей`);
+if (pointToStructure.size > 0) {
+    console.log(`   🔍 pointToStructure ID модели: ${Array.from(pointToStructure.keys()).slice(0,3).map(k => k.substring(0,20)).join(', ')}`);
+}
 
             // Применяем трансформацию к точкам фото, если она есть
             let transformedPhotoPoints = [];
@@ -114,6 +117,8 @@ for (const structure of structures) {
         // 🔥 РИСУЕМ ТРЕУГОЛЬНИКИ (ПОД ТОЧКАМИ, НАД РЁБРАМИ)
         if (triangles.length > 0) {
     console.log(`   🔺 Рисую ${triangles.length} треугольников...`);
+     // 🔥 ОТЛАДКА: показываем ID первых треугольников
+    console.log(`   🔍 ID первых треугольников: ${triangles.slice(0,3).map(t => t.p1.id.substring(0,20)).join(', ')}`);          
    
     // 🔥 ОТЛАДКА: показываем первые 3 треугольника
     console.log(`   🔍 Первые 3 треугольника:`);
