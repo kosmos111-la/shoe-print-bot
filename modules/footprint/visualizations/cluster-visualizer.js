@@ -178,7 +178,7 @@ class ClusterVisualizer {
 //        }
 
         // Затем рисуем треугольники (поверх лучей)
-        or (const structure of structures) {
+        for (const structure of structures) {
         const isMain = structure === mainStructure;
         const color = isMain ? '#FF0000' : '#FFA500';
         const triangles = structure.triangles || [];
