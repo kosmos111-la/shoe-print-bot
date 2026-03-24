@@ -452,7 +452,13 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
 
                 // 🔥 ПЕРЕДАЁМ ТОЛЬКО МОДЕЛЬ (БЕЗ ФОТО)
                 // Получаем структуры из visualizationData
-const structures = visualizationData?.structures || [];
+let structures = visualizationData?.structures || [];
+// Нормализуем структуры — гарантируем, что pointIds это массив
+structures = structures.map(s => ({
+    ...s,
+    pointIds: Array.isArray(s.pointIds) ? s.pointIds : [],
+    triangles: s.triangles || []
+}));
 const triangles = visualizationData?.triangles || [];
 
 const modelImagePath = await modelViz.createVisualization({
