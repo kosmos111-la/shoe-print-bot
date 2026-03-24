@@ -84,23 +84,25 @@ if (transform && photoPoints && photoPoints.length > 0) {
             ctx.fillStyle = '#1a1a1a';
             ctx.fillRect(0, 0, width, height);
 
-           // 🔥 СОЗДАЁМ КАРТУ pointId → structureId
-        const pointToStructure = new Map();
-        for (const structure of structures) {
-            for (const pointId of structure.pointIds) {
-                pointToStructure.set(pointId, structure.id);
-            }
-        }
-       
-        // Находим главную структуру (самую большую)
-        let mainStructureId = null;
-        let maxPoints = 0;
-        for (const structure of structures) {
-            if (structure.pointCount > maxPoints) {
-                maxPoints = structure.pointCount;
-                mainStructureId = structure.id;
-            }
-        }
+           // 🔥 СОЗДАЁМ КАРТУ pointId → structureId (с защитой)
+const pointToStructure = new Map();
+for (const structure of structures) {
+    const pointIds = Array.isArray(structure.pointIds) ? structure.pointIds : [];
+    for (const pointId of pointIds) {
+        pointToStructure.set(pointId, structure.id);
+    }
+}
+
+// Находим главную структуру (самую большую)
+let mainStructureId = null;
+let maxPoints = 0;
+for (const structure of structures) {
+    const pointCount = structure.pointCount || (Array.isArray(structure.pointIds) ? structure.pointIds.length : 0);
+    if (pointCount > maxPoints) {
+        maxPoints = pointCount;
+        mainStructureId = structure.id;
+    }
+}
        
         // 🔥 РИСУЕМ ТРЕУГОЛЬНИКИ (ПОД ТОЧКАМИ, НАД РЁБРАМИ)
         if (triangles.length > 0) {
