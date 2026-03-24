@@ -2708,15 +2708,16 @@ const finalResult = {
 
     // 🔥 ВАЖНО: создаем structures ДО того, как используем в pointsWithStructure
     const structures = rawStructures
-        .filter(s => s && s.id)
-        .map(s => ({
-            id: s.id,
-            pointCount: s.pointIds ? s.pointIds.length : 0,
-            triangleCount: s.triangleIds ? s.triangleIds.length : 0,
-            transform: s.transform || null,
-            confidence: s.confidence || 0,
-            color: structureColors.get(s.id) || '#CCCCCC'
-        }));
+    .filter(s => s && s.id)
+    .map(s => ({
+        id: s.id,
+        pointCount: s.pointIds ? s.pointIds.length : 0,
+        triangleCount: s.triangleIds ? s.triangleIds.length : 0,
+        transform: s.transform || null,
+        confidence: s.confidence || 0,
+        color: structureColors.get(s.id) || '#CCCCCC',
+        rays: s.rays || []  // 🔥 ДОБАВЛЯЕМ ЛУЧИ!
+    }));
 
     // Добавляем информацию о структуре к каждой точке
     const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
