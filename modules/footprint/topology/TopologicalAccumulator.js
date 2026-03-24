@@ -2770,13 +2770,13 @@ const finalResult = {
 
     const modelTriangles = this.extractTrianglesFromGraph(graph);
 
-return {
-    modelId: targetId,
+modelId: targetId,
     modelName: model.metadata.name,
     points: pointsWithStructure,
     edges: Array.from(graph.edges),
     structures: structures,
-    triangles: modelTriangles,  // 🔥 ДОБАВЛЯЕМ
+    triangles: modelTriangles,
+    pointToStructure: pointToStructure,  // 🔥 ДОБАВЛЯЕМ!
     stats: {
         totalNodes: graph.nodes.size,
         totalEdges: graph.edges.size,
