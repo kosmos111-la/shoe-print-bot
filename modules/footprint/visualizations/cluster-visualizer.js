@@ -120,91 +120,91 @@ class ClusterVisualizer {
      * 🔥 НОВЫЙ МЕТОД: отрисовка структур (треугольники и лучи)
      */
     drawStructures(ctx, structures, avgX, avgY, centerX, centerY, scale) {
-        console.log(`   🎨 Отрисовка ${structures.length} структур...`);
+    console.log(`   🎨 Отрисовка ${structures.length} структур...`);
 
-        // Находим главную структуру (самую большую)
-        let mainStructure = null;
-        let maxPoints = 0;
-        for (const structure of structures) {
-            const pointCount = structure.pointCount || 0;
-            if (pointCount > maxPoints) {
-                maxPoints = pointCount;
-                mainStructure = structure;
-            }
-        }
-
-        // Сначала рисуем все лучи (чтобы были под треугольниками)
-        for (const structure of structures) {
-            const rays = structure.rays || [];
-            const isMain = structure === mainStructure;
-           
-            for (const ray of rays) {
-                if (!ray.fromPoint || !ray.toPoint) continue;
-               
-                const fromX = centerX + (ray.fromPoint.x - avgX) * scale;
-                const fromY = centerY + (ray.fromPoint.y - avgY) * scale;
-                const toX = centerX + (ray.toPoint.x - avgX) * scale;
-                const toY = centerY + (ray.toPoint.y - avgY) * scale;
-               
-                ctx.beginPath();
-                ctx.moveTo(fromX, fromY);
-                ctx.lineTo(toX, toY);
-               
-                if (ray.type === 'success') {
-                    ctx.strokeStyle = '#00AAFF'; // голубой
-                    ctx.lineWidth = 2;
-                } else {
-                    ctx.strokeStyle = '#CCCCCC'; // светло-серый
-                    ctx.lineWidth = 1;
-                    ctx.setLineDash([5, 5]);
-                }
-               
-                ctx.stroke();
-                ctx.setLineDash([]);
-               
-                // Рисуем стрелку на конце луча
-                const angle = Math.atan2(toY - fromY, toX - fromX);
-                const arrowSize = 6;
-                const arrowX = toX - arrowSize * Math.cos(angle);
-                const arrowY = toY - arrowSize * Math.sin(angle);
-               
-                ctx.beginPath();
-                ctx.moveTo(arrowX, arrowY);
-                ctx.lineTo(arrowX - arrowSize * 0.5 * Math.sin(angle), arrowY + arrowSize * 0.5 * Math.cos(angle));
-                ctx.lineTo(arrowX + arrowSize * 0.5 * Math.sin(angle), arrowY - arrowSize * 0.5 * Math.cos(angle));
-                ctx.fillStyle = ray.type === 'success' ? '#00AAFF' : '#CCCCCC';
-                ctx.fill();
-            }
-        }
-
-        // Затем рисуем треугольники (поверх лучей)
-        for (const structure of structures) {
-            const isMain = structure === mainStructure;
-            const color = isMain ? '#FF0000' : '#FFA500';
-            const triangles = structure.triangles || [];
-           
-            for (const triangle of triangles) {
-                if (!triangle.p1 || !triangle.p2 || !triangle.p3) continue;
-               
-                const points = [triangle.p1, triangle.p2, triangle.p3].map(p => ({
-                    x: centerX + (p.x - avgX) * scale,
-                    y: centerY + (p.y - avgY) * scale
-                }));
-               
-                ctx.beginPath();
-                ctx.moveTo(points[0].x, points[0].y);
-                ctx.lineTo(points[1].x, points[1].y);
-                ctx.lineTo(points[2].x, points[2].y);
-                ctx.closePath();
-               
-                ctx.fillStyle = color + '40';
-                ctx.fill();
-                ctx.strokeStyle = color;
-                ctx.lineWidth = 2;
-                ctx.stroke();
-            }
+    // Находим главную структуру
+    let mainStructure = null;
+    let maxPoints = 0;
+    for (const structure of structures) {
+        const pointCount = structure.pointCount || 0;
+        if (pointCount > maxPoints) {
+            maxPoints = pointCount;
+            mainStructure = structure;
         }
     }
+
+        // Сначала рисуем все лучи (чтобы были под треугольниками)
+//        for (const structure of structures) {
+//            const rays = structure.rays || [];
+//            const isMain = structure === mainStructure;
+           
+//            for (const ray of rays) {
+//                if (!ray.fromPoint || !ray.toPoint) continue;
+               
+//                const fromX = centerX + (ray.fromPoint.x - avgX) * scale;
+//                const fromY = centerY + (ray.fromPoint.y - avgY) * scale;
+//                const toX = centerX + (ray.toPoint.x - avgX) * scale;
+//                const toY = centerY + (ray.toPoint.y - avgY) * scale;
+               
+//                ctx.beginPath();
+//                ctx.moveTo(fromX, fromY);
+//                ctx.lineTo(toX, toY);
+               
+//                if (ray.type === 'success') {
+//                    ctx.strokeStyle = '#00AAFF'; // голубой
+//                    ctx.lineWidth = 2;
+//                } else {
+//                    ctx.strokeStyle = '#CCCCCC'; // светло-серый
+//                    ctx.lineWidth = 1;
+//                    ctx.setLineDash([5, 5]);
+//                }
+               
+//                ctx.stroke();
+//                ctx.setLineDash([]);
+               
+                // Рисуем стрелку на конце луча
+ //               const angle = Math.atan2(toY - fromY, toX - fromX);
+//                const arrowSize = 6;
+//                const arrowX = toX - arrowSize * Math.cos(angle);
+//                const arrowY = toY - arrowSize * Math.sin(angle);
+//               
+//                ctx.beginPath();
+//                ctx.moveTo(arrowX, arrowY);
+//                ctx.lineTo(arrowX - arrowSize * 0.5 * Math.sin(angle), arrowY + arrowSize * 0.5 * Math.cos(angle));
+//                ctx.lineTo(arrowX + arrowSize * 0.5 * Math.sin(angle), arrowY - arrowSize * 0.5 * Math.cos(angle));
+//                ctx.fillStyle = ray.type === 'success' ? '#00AAFF' : '#CCCCCC';
+//                ctx.fill();
+//            }
+//        }
+
+        // Затем рисуем треугольники (поверх лучей)
+        or (const structure of structures) {
+        const isMain = structure === mainStructure;
+        const color = isMain ? '#FF0000' : '#FFA500';
+        const triangles = structure.triangles || [];
+       
+        for (const triangle of triangles) {
+            if (!triangle.p1 || !triangle.p2 || !triangle.p3) continue;
+           
+            const points = [triangle.p1, triangle.p2, triangle.p3].map(p => ({
+                x: centerX + (p.x - avgX) * scale,
+                y: centerY + (p.y - avgY) * scale
+            }));
+           
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            ctx.lineTo(points[1].x, points[1].y);
+            ctx.lineTo(points[2].x, points[2].y);
+            ctx.closePath();
+           
+            ctx.fillStyle = color + '40';
+            ctx.fill();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+    }
+}
 
     drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale, uniqueInModel = []) {
         const points = topologyData.points;
