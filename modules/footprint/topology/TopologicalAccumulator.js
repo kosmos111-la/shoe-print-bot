@@ -2716,25 +2716,25 @@ const finalResult = {
         }
     }
     console.log(`   • Всего лучей в структурах: ${totalRays}`);
+   
+    // 🔥 ОДНО ОБЪЯВЛЕНИЕ pointToStructure
     const pointToStructure = model.pointToStructure || new Map();
 
     const structureColors = this.generateStructureColors(rawStructures);
 
     const structures = rawStructures
-    .filter(s => s && s.id)
-    .map(s => ({
-        id: s.id,
-        pointCount: s.pointIds ? s.pointIds.length : 0,
-        pointIds: s.pointIds || [],
-        triangleCount: s.triangleIds ? s.triangleIds.length : 0,
-        transform: s.transform || null,
-        confidence: s.confidence || 0,
-        color: structureColors.get(s.id) || '#CCCCCC',
-        rays: s.rays || [],
-        triangles: s.triangles || []  // ← это должно быть заполнено
-    }));
-
-console.log(`   • Треугольников в структурах: ${structures.reduce((sum, s) => sum + (s.triangles?.length || 0), 0)}`);
+        .filter(s => s && s.id)
+        .map(s => ({
+            id: s.id,
+            pointCount: s.pointIds ? s.pointIds.length : 0,
+            pointIds: s.pointIds || [],
+            triangleCount: s.triangleIds ? s.triangleIds.length : 0,
+            transform: s.transform || null,
+            confidence: s.confidence || 0,
+            color: structureColors.get(s.id) || '#CCCCCC',
+            rays: s.rays || [],
+            triangles: s.triangles || []
+        }));
 
     const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
         ...node,
@@ -2765,25 +2765,24 @@ console.log(`   • Треугольников в структурах: ${stru
     console.log(`   • structures после фильтрации: ${structures.length}`);
     console.log(`   • model.pointToStructure: ${pointToStructure.size}`);
 
-    // graph — это модель, это правильно
-const modelTriangles = this.extractTrianglesFromGraph(graph);
+    const modelTriangles = this.extractTrianglesFromGraph(graph);
+    console.log(`   • modelTriangles из модели: ${modelTriangles.length} треугольников`);
+    if (modelTriangles.length > 0) {
+        console.log(`   • Первый треугольник модели: p1=${modelTriangles[0]?.p1?.id?.substring(0,20)}`);
+    }
+    console.log(`   • pointToStructure содержит ID модели: ${Array.from(pointToStructure.keys()).slice(0,3).map(k => k.substring(0,20)).join(', ')}`);
 
-// pointToStructure уже содержит ID точки модели → ID структуры
-const pointToStructure = model.pointToStructure || new Map();
+    // 🔥 УБЕРИ ВТОРОЕ ОБЪЯВЛЕНИЕ pointToStructure (оно было здесь)
+    // const pointToStructure = model.pointToStructure || new Map(); ← УДАЛИ ЭТУ СТРОКУ
 
-console.log(`   • modelTriangles из модели: ${modelTriangles.length}`);
-console.log(`   • pointToStructure (модель): ${pointToStructure.size} записей`);
-// 🔥 ОТЛАДКА: показываем первые ID из pointToStructure
-console.log(`   • pointToStructure содержит ID модели: ${Array.from(modelPointToStructure.keys()).slice(0,3).map(k => k.substring(0,20)).join(', ')}`);
-
-return {
-    modelId: targetId,
-    modelName: model.metadata.name,
-    points: pointsWithStructure,
-    edges: Array.from(graph.edges),
-    structures: structures,
-    triangles: modelTriangles,
-    pointToStructure: modelPointToStructure,  // ← это ID модели
+    return {
+        modelId: targetId,
+        modelName: model.metadata.name,
+        points: pointsWithStructure,
+        edges: Array.from(graph.edges),
+        structures: structures,
+        triangles: modelTriangles,
+        pointToStructure: pointToStructure,
         stats: {
             totalNodes: graph.nodes.size,
             totalEdges: graph.edges.size,
