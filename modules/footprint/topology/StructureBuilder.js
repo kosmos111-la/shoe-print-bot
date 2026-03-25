@@ -235,20 +235,21 @@ increaseSoftness() {
     }
    
     /**
-     * Пытается добавить треугольник в структуру
-     * @param {Object} triangle - проверяемый треугольник
-     * @param {TopologicalStructure} structure - текущая структура
-     * @param {Object} graphA - граф первого следа
-     * @param {Object} graphB - граф второго следа
-     * @param {Map} morphologyMap - морфология первого следа
-     * @param {Map} modelMorphology - морфология второго следа
-     * @returns {boolean} - успешно ли добавлен
-     */
-tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
+* Пытается добавить треугольник в структуру
+* @param {Object} triangle - проверяемый треугольник
+* @param {TopologicalStructure} structure - текущая структура
+* @param {Object} graphA - граф первого следа
+* @param {Object} graphB - граф второго следа
+* @param {Map} morphologyMap - морфология первого следа
+* @param {Map} modelMorphology - морфология второго следа
+* @param {boolean} isAnchor - true для якорей (строгая проверка), false для геометрического расширения
+* @returns {boolean} - успешно ли добавлен
+*/
+tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology, isAnchor = false) {
     if (!triangle) return false;
 
-    // 1. Проверка уверенности
-    if ((triangle.confidence || 0) < this.minConfidence) {
+    // 1. Проверка уверенности (только для якорей)
+    if (isAnchor && (triangle.confidence || 0) < this.minConfidence) {
         this.stats.rejections.lowConfidence++;
         if (this.debug) {
             console.log(`      ❌ Низкая уверенность: ${(triangle.confidence*100).toFixed(1)}% < ${this.minConfidence*100}%`);
@@ -256,87 +257,94 @@ tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorpholo
         return false;
     }
 
-    // 🔥 ОПРЕДЕЛЯЕМ НОВЫЕ ТОЧКИ
-    const newPoints = [];
-    const existingPoints = [];
+    // ==================== ЭТАП 1: СТРОГАЯ ПРОВЕРКА ДЛЯ ЯКОРЕЙ ====================
+    if (isAnchor) {
+        // 🔥 ОПРЕДЕЛЯЕМ НОВЫЕ ТОЧКИ
+        const newPoints = [];
+        const existingPoints = [];
 
-    [triangle.p1, triangle.p2, triangle.p3].forEach(p => {
-        if (p && p.id) {
-            if (structure.pointIds.has(p.id)) {
-                existingPoints.push(p);
-            } else {
-                newPoints.push(p);
+        [triangle.p1, triangle.p2, triangle.p3].forEach(p => {
+            if (p && p.id) {
+                if (structure.pointIds.has(p.id)) {
+                    existingPoints.push(p);
+                } else {
+                    newPoints.push(p);
+                }
             }
+        });
+
+        if (newPoints.length > 0 && this.debug) {
+            console.log(`      🔍 Новые точки в треугольнике: ${newPoints.map(p => p.id.substring(0,8)).join(', ')}`);
         }
-    });
 
-    if (newPoints.length > 0 && this.debug) {
-        console.log(`      🔍 Новые точки в треугольнике: ${newPoints.map(p => p.id.substring(0,8)).join(', ')}`);
-    }
+        const isExpansion = structure.pointIds.size > 3;
+        const maxAllowedBadRays = isExpansion ? this.maxAllowedBadRays : 0;
 
-    // ==================== ЭТАП 1: СТРОГАЯ ПРОВЕРКА С ЛУЧАМИ ====================
-    const isExpansion = structure.pointIds.size > 3;
-    const maxAllowedBadRays = isExpansion ? this.maxAllowedBadRays : 0;
-   
-    if (this.debug && isExpansion) {
-        console.log(`      🔧 ЭТАП 1: Строгая проверка (допускается ${maxAllowedBadRays} плохой луч)`);
-    }
+        if (this.debug && isExpansion) {
+            console.log(`      🔧 ЭТАП 1: Строгая проверка (допускается ${maxAllowedBadRays} плохой луч)`);
+        }
 
-    let badRays = 0;
+        let badRays = 0;
 
-    for (const newPoint of newPoints) {
-        const edgesWithNewPoint = triangle.edges.filter(e =>
-            e.v1.id === newPoint.id || e.v2.id === newPoint.id
-        );
-
-        for (const edge of edgesWithNewPoint) {
-            const opposite = [triangle.p1, triangle.p2, triangle.p3].find(p =>
-                p.id !== edge.v1.id && p.id !== edge.v2.id
+        for (const newPoint of newPoints) {
+            const edgesWithNewPoint = triangle.edges.filter(e =>
+                e.v1.id === newPoint.id || e.v2.id === newPoint.id
             );
-            if (!opposite) continue;
 
-            const externalPoint = edge.externalPoint;
-            if (!externalPoint) continue;
+            for (const edge of edgesWithNewPoint) {
+                const opposite = [triangle.p1, triangle.p2, triangle.p3].find(p =>
+                    p.id !== edge.v1.id && p.id !== edge.v2.id
+                );
+                if (!opposite) continue;
 
-            if (structure.transform) {
-                const projectedNew = this.validator.applyTransform(newPoint, structure.transform);
-                const projectedExternal = this.validator.applyTransform(externalPoint, structure.transform);
+                const externalPoint = edge.externalPoint;
+                if (!externalPoint) continue;
 
-                const dx = projectedNew.x - projectedExternal.x;
-                const dy = projectedNew.y - projectedExternal.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (structure.transform) {
+                    const projectedNew = this.validator.applyTransform(newPoint, structure.transform);
+                    const projectedExternal = this.validator.applyTransform(externalPoint, structure.transform);
 
-                const nodeA = graphB?.nodes?.get(newPoint.id);
-                const nodeB = graphB?.nodes?.get(externalPoint.id);
-                const expectedDist = nodeA && nodeB ?
-                    Math.sqrt(Math.pow(nodeA.x - nodeB.x, 2) + Math.pow(nodeA.y - nodeB.y, 2)) : 0;
+                    const dx = projectedNew.x - projectedExternal.x;
+                    const dy = projectedNew.y - projectedExternal.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
 
-                const scale = structure.transform.scale;
-                const expectedInModel = expectedDist * scale;
-                const relativeError = expectedInModel > 0 ? Math.abs(dist - expectedInModel) / expectedInModel : 1;
+                    const nodeA = graphB?.nodes?.get(newPoint.id);
+                    const nodeB = graphB?.nodes?.get(externalPoint.id);
+                    const expectedDist = nodeA && nodeB ?
+                        Math.sqrt(Math.pow(nodeA.x - nodeB.x, 2) + Math.pow(nodeA.y - nodeB.y, 2)) : 0;
 
-                if (relativeError > 0.3) {
-                    badRays++;
-                    if (structure.addFailedRay) {
-                        structure.addFailedRay(triangle, edge, externalPoint);
+                    const scale = structure.transform.scale;
+                    const expectedInModel = expectedDist * scale;
+                    const relativeError = expectedInModel > 0 ? Math.abs(dist - expectedInModel) / expectedInModel : 1;
+
+                    if (relativeError > 0.3) {
+                        badRays++;
+                        if (structure.addFailedRay) {
+                            structure.addFailedRay(triangle, edge, externalPoint);
+                        }
+                        if (this.debug) {
+                            console.log(`      ⚠️ Луч из новой точки ${newPoint.id.substring(0,8)} улетает (ошибка ${(relativeError*100).toFixed(1)}%)`);
+                        }
+                    } else if (externalPoint && structure.addSuccessRay) {
+                        structure.addSuccessRay(triangle, edge, externalPoint);
                     }
-                    if (this.debug) {
-                        console.log(`      ⚠️ Луч из новой точки ${newPoint.id.substring(0,8)} улетает (ошибка ${(relativeError*100).toFixed(1)}%)`);
-                    }
-                } else if (externalPoint && structure.addSuccessRay) {
-                    structure.addSuccessRay(triangle, edge, externalPoint);
                 }
             }
         }
-    }
 
-    // Если строгая проверка пройдена — добавляем треугольник
-    if (badRays <= maxAllowedBadRays) {
+        if (badRays > maxAllowedBadRays) {
+            if (this.debug) {
+                console.log(`      ❌ Отвергнуто: ${badRays} неудачных лучей (допустимо ${maxAllowedBadRays})`);
+            }
+            this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
+            return false;
+        }
+
         if (this.debug && badRays > 0) {
             console.log(`      ✅ Строгая проверка пройдена: ${badRays} плохих лучей (допустимо ${maxAllowedBadRays})`);
         }
-       
-        // Проверка transform
+
+        // Проверка transform для якорей
         if (structure && structure.transform) {
             const existingAnchors = structure.getAnchors ? structure.getAnchors() : [];
             const newAnchors = this.collectAnchors(null, triangle);
@@ -364,168 +372,83 @@ tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorpholo
         }
         if (this.debug) console.log(`      ✅ Треугольник добавлен (строгая проверка)`);
         return true;
-   }
+    }
 
-// 🔥 ЕСЛИ НЕ ПРОШЛИ СТРОГУЮ ПРОВЕРКУ ПО ЛУЧАМ
-if (badRays > maxAllowedBadRays) {
+    // ==================== ЭТАП 2: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ ====================
     if (this.debug) {
-        console.log(`      ❌ Отвергнуто: ${badRays} неудачных лучей (допустимо ${maxAllowedBadRays})`);
+        console.log(`      🔧 ЭТАП 2: Геометрическое расширение (проверка углов)`);
     }
-    this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
+
+    // Находим общее ребро со структурой
+    const commonEdge = this.findCommonEdge(triangle, structure);
+    if (!commonEdge) {
+        if (this.debug) console.log(`      ❌ Нет общего ребра со структурой`);
+        return false;
+    }
+
+    // Находим новую точку (противоположную общему ребру)
+    const newPoint = [triangle.p1, triangle.p2, triangle.p3].find(p =>
+        p.id !== commonEdge.v1.id && p.id !== commonEdge.v2.id
+    );
+    if (!newPoint) return false;
+
+    // Находим модель существующих точек
+    const modelV1 = this.getModelPoint(commonEdge.v1.id, structure);
+    const modelV2 = this.getModelPoint(commonEdge.v2.id, structure);
    
-    // Сохраняем отвергнутого кандидата
-     const incomingEdge = this.getIncomingEdge(triangle, structure);
+    if (!modelV1 || !modelV2) {
+        if (this.debug) console.log(`      ❌ Нет модели для точек ребра`);
+        return false;
+    }
+
+    // Получаем модель новой точки (если есть) или проецируем
+    let modelNew = this.getModelPoint(newPoint.id, structure);
+    let useProjection = false;
+   
+    if (!modelNew) {
+        // Если у новой точки нет пары в модели, проецируем её через transform
+        if (structure.transform) {
+            const projected = this.validator.applyTransform(newPoint, structure.transform);
+            modelNew = {
+                id: `projected_${newPoint.id}`,
+                x: projected.x,
+                y: projected.y
+            };
+            useProjection = true;
+        } else {
+            if (this.debug) console.log(`      ❌ Нет transform для проекции`);
+            return false;
+        }
+    }
+
+    // Вычисляем угол в фото
+    const anglePhoto = this.calcAngleInPhotoSimple(commonEdge.v1, newPoint, commonEdge.v2);
+   
+    // Вычисляем угол в модели
+    const angleModel = this.calcAngleInModelSimple(modelV1, modelNew, modelV2);
+   
+    const angleDiff = Math.abs(anglePhoto - angleModel);
+    const geometricTolerance = this.geometricAngleTolerance || 8; // 8° допуск для расширения
+   
     if (this.debug) {
-        console.log(`      🔍 incomingEdge найден: ${!!incomingEdge}`);
-        if (incomingEdge) {
-            console.log(`         edge: ${incomingEdge.v1.id.substring(0,8)}-${incomingEdge.v2.id.substring(0,8)}`);
+        console.log(`      📐 Угол в фото: ${anglePhoto.toFixed(1)}°, в модели: ${angleModel.toFixed(1)}°, разница: ${angleDiff.toFixed(1)}°`);
+        if (useProjection) console.log(`      🔮 Новая точка спроецирована через transform`);
+    }
+   
+    if (angleDiff > geometricTolerance) {
+        if (this.debug) {
+            console.log(`      ❌ Угол не сошёлся: ${angleDiff.toFixed(1)}° > ${geometricTolerance}°`);
         }
+        return false;
     }
    
-    if (incomingEdge) {
-        const edgeKey = [incomingEdge.v1.id, incomingEdge.v2.id].sort().join('--');
-        if (!this.rejectedCandidates.has(edgeKey)) {
-            this.rejectedCandidates.set(edgeKey, []);
-        }
-        this.rejectedCandidates.get(edgeKey).push({
-            triangle,
-            reason: 'bad_rays',
-            badRays,
-            maxAllowedBadRays,
-            timestamp: Date.now()
-        });
-     } else if (this.debug) {
-        console.log(`      ⚠️ Не удалось найти входящее ребро для сохранения кандидата`);
-    }
-   
-    return false;
-}
-
-// ==================== ЭТАП 2: МЯГКАЯ ПРОВЕРКА ПО УГЛАМ ====================
-if (this.debug) {
-    console.log(`      🔧 ЭТАП 2: Мягкая проверка по углам (допуск ${this.angleTolerance || 3.5}°)`);
-}
-
-    // Получаем соответствия точек фото -> модель из структуры
-    const pointToModel = this.getPointToModelMap(structure);
-   
-    let anglesOk = true;
-    let checkedAngles = 0;
-    let maxAngleDiff = 0;
-    const angleTolerance = this.angleTolerance || 3.5;
-
-    for (const newPoint of newPoints) {
-        const edgesWithNewPoint = triangle.edges.filter(e =>
-            e.v1.id === newPoint.id || e.v2.id === newPoint.id
-        );
-
-        for (const edge of edgesWithNewPoint) {
-            // Находим существующую вершину (противоположную ребру)
-            const existingVertex = [triangle.p1, triangle.p2, triangle.p3].find(p =>
-                p.id !== edge.v1.id && p.id !== edge.v2.id && structure.pointIds.has(p.id)
-            );
-           
-            if (!existingVertex) continue;
-           
-            // Находим третью точку треугольника (другую существующую)
-            const otherExisting = [triangle.p1, triangle.p2, triangle.p3].find(p =>
-                p.id !== edge.v1.id && p.id !== edge.v2.id && p.id !== existingVertex.id && structure.pointIds.has(p.id)
-            );
-           
-            if (!otherExisting) continue;
-           
-            // Получаем модель точек
-            const modelEdgeV1 = pointToModel.get(edge.v1.id);
-            const modelEdgeV2 = pointToModel.get(edge.v2.id);
-            const modelExisting = pointToModel.get(existingVertex.id);
-            const modelOther = pointToModel.get(otherExisting.id);
-           
-            if (!modelEdgeV1 || !modelEdgeV2 || !modelExisting || !modelOther) continue;
-           
-            // Вычисляем угол в фото
-            const anglePhoto = this.calcAngleInPhoto(existingVertex, newPoint, otherExisting);
-           
-            // Вычисляем угол в модели
-            const angleModel = this.calcAngleInModel(modelExisting, modelOther, modelEdgeV1, modelEdgeV2);
-           
-            const angleDiff = Math.abs(anglePhoto - angleModel);
-            maxAngleDiff = Math.max(maxAngleDiff, angleDiff);
-            checkedAngles++;
-           
-            if (angleDiff > angleTolerance) {
-                if (this.debug) {
-                    console.log(`      ❌ Угол не сошёлся: ${angleDiff.toFixed(1)}° > ${angleTolerance}°`);
-                }
-                anglesOk = false;
-                break;
-            }
-        }
-        if (!anglesOk) break;
-    }
-   
-    if (!anglesOk) {
-    if (this.debug) {
-        console.log(`      ❌ Мягкая проверка не пройдена`);
-    }
-    this.stats.rejections.angleMismatch = (this.stats.rejections.angleMismatch || 0) + 1;
-   
-    // 🔥 СОХРАНЯЕМ ОТВЕРГНУТОГО КАНДИДАТА
-    const incomingEdge = this.getIncomingEdge(triangle, structure);
-    if (incomingEdge) {
-        const edgeKey = [incomingEdge.v1.id, incomingEdge.v2.id].sort().join('--');
-        if (!this.rejectedCandidates.has(edgeKey)) {
-            this.rejectedCandidates.set(edgeKey, []);
-        }
-        this.rejectedCandidates.get(edgeKey).push({
-            triangle,
-            reason: 'bad_angle',
-            maxAngleDiff,
-            angleTolerance,
-            timestamp: Date.now()
-        });
-    }
-   
-    return false;
-}
-   
-    if (this.debug && checkedAngles > 0) {
-        console.log(`      ✅ Мягкая проверка пройдена (макс. отклонение: ${maxAngleDiff.toFixed(1)}°)`);
-    }
-
-    // Проверка transform для мягкого режима (с увеличенными допусками)
-    if (structure && structure.transform) {
-        const existingAnchors = structure.getAnchors ? structure.getAnchors() : [];
-        const newAnchors = this.collectAnchors(null, triangle);
-        const testAnchors = [...existingAnchors, ...newAnchors];
-
-        if (testAnchors.length >= 3) {
-            const testTransform = this.validator.calculateTransform(testAnchors, graphA, graphB);
-            if (testTransform) {
-                // Мягкие допуски для transform
-                const softScaleDeviation = this.softMaxScaleDeviation || 0.15;
-                const softRotationDeviation = this.softMaxRotationDeviation || 10;
-               
-                const scaleDiff = Math.abs(testTransform.scale - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
-                const rotDiff = Math.abs(testTransform.rotation - structure.transform.rotation) * 180 / Math.PI;
-
-                if (scaleDiff > softScaleDeviation || rotDiff > softRotationDeviation) {
-                    if (this.debug) {
-                        console.log(`      ❌ Transform не сошёлся даже в мягком режиме (масштаб ${(scaleDiff*100).toFixed(1)}%, поворот ${rotDiff.toFixed(1)}°)`);
-                    }
-                    return false;
-                }
-                structure.transform = testTransform;
-            }
-        }
-    }
-
-    // Добавляем треугольник
+    // Если углы сошлись — добавляем треугольник
     if (structure) {
         structure.addTriangle(triangle);
     }
    
     if (this.debug) {
-        console.log(`      ✅ Треугольник добавлен (мягкая проверка по углам)`);
+        console.log(`      ✅ Треугольник добавлен (геометрическое расширение, разница углов: ${angleDiff.toFixed(1)}°)`);
     }
    
     return true;
@@ -669,116 +592,122 @@ retryRejectedCandidates(structure, graphA, graphB, morphologyMap, modelMorpholog
         if (this.debug) console.log(`⚠️ Нет треугольника-затравки`);
         return null;
     }
-   
-    // 🔥 ПРОВЕРЯЕМ, ЧТО У ТРЕУГОЛЬНИКА ЕСТЬ ВСЕ ТРИ ТОЧКИ
+
+    // Проверка валидности треугольника
     if (!seedTriangle.p1 || !seedTriangle.p2 || !seedTriangle.p3) {
         if (this.debug) console.log(`⚠️ Треугольник-затравка не имеет всех трёх точек`);
         return null;
     }
-   
-if (seedTriangle.p1.id === seedTriangle.p2.id ||
-    seedTriangle.p1.id === seedTriangle.p3.id ||
-    seedTriangle.p2.id === seedTriangle.p3.id) {
-    if (this.debug) {
-        console.log(`⚠️ Треугольник-затравка имеет дублирующиеся точки:`);
-        console.log(`   p1: ${seedTriangle.p1.id}`);
-        console.log(`   p2: ${seedTriangle.p2.id}`);
-        console.log(`   p3: ${seedTriangle.p3.id}`);
-    }
-    return null;
-}
-       
+
+    if (seedTriangle.p1.id === seedTriangle.p2.id ||
+        seedTriangle.p1.id === seedTriangle.p3.id ||
+        seedTriangle.p2.id === seedTriangle.p3.id) {
         if (this.debug) {
-            console.log(`\n🔨 Строю структуру от треугольника ${seedTriangle.id?.substring(0,12) || 'unknown'}...`);
+            console.log(`⚠️ Треугольник-затравка имеет дублирующиеся точки`);
         }
+        return null;
+    }
+
+    if (this.debug) {
+        console.log(`\n🔨 Строю структуру от треугольника ${seedTriangle.id?.substring(0,12) || 'unknown'}...`);
+    }
+
+    // Создаём структуру
+    const structureId = `struct_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const structure = new TopologicalStructure(structureId, seedTriangle);
+
+    // ==================== ЭТАП 1: СТРОГОЕ ПОСТРОЕНИЕ ИЗ ЯКОРЕЙ ====================
+    if (this.debug) {
+        console.log(`\n📌 ЭТАП 1: Строгое построение из якорей`);
+    }
+   
+    const processed = new Set([seedTriangle.id]);
+    let growthQueue = this.getInitialGrowthEdges(seedTriangle);
+    let iteration = 0;
+    const maxIterations = 100;
+
+    while (growthQueue.length > 0 && iteration < maxIterations) {
+        iteration++;
        
-        // 🔥 ДИАГНОСТИКА: показываем информацию о первом треугольнике
-        if (allTriangles && allTriangles.length > 0) {
-            const firstTri = allTriangles[0];
-            console.log(`\n🔍 ДИАГНОСТИКА ПЕРВОГО ТРЕУГОЛЬНИКА:`);
-            console.log(`   ID: ${firstTri.id?.substring(0,20)}`);
-            console.log(`   Есть p1: ${!!firstTri.p1}, p2: ${!!firstTri.p2}, p3: ${!!firstTri.p3}`);
-            console.log(`   Есть pB1: ${!!firstTri.pB1}, pB2: ${!!firstTri.pB2}, pB3: ${!!firstTri.pB3}`);
-            console.log(`   Есть edges: ${!!firstTri.edges}, количество: ${firstTri.edges?.length || 0}`);
-            if (firstTri.edges && firstTri.edges.length > 0) {
-                console.log(`   Первое ребро: v1=${firstTri.edges[0]?.v1?.id?.substring(0,12)}, v2=${firstTri.edges[0]?.v2?.id?.substring(0,12)}`);
-                console.log(`   Есть externalPoint: ${!!firstTri.edges[0]?.externalPoint}`);
+        const { edgeKey, edge } = growthQueue.shift();
+        const candidates = this.findTrianglesByEdge(edgeKey, allTriangles, processed);
+
+        if (candidates.length === 0) continue;
+
+        for (const candidate of candidates) {
+            const added = this.tryAddTriangle(
+                candidate, structure, graphA, graphB,
+                morphologyMap, modelMorphology, true  // isAnchor = true
+            );
+
+            if (added) {
+                processed.add(candidate.id);
+                const newEdges = this.getNewBoundaryEdges(candidate, structure, edgeKey);
+                growthQueue.push(...newEdges);
+                if (this.debug) {
+                    console.log(`      ✅ Добавлен якорный треугольник ${candidate.id?.substring(0,12)}`);
+                }
+                break;
             }
-            console.log(`   Уверенность: ${firstTri.confidence || 0.5}`);
         }
-       
-        // Создаём новую структуру
-        const structureId = `struct_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-        const structure = new TopologicalStructure(structureId, seedTriangle);
-       
-        // Карта всех треугольников по ID для быстрого доступа
-        const trianglesMap = new Map();
-        if (allTriangles) {
-            allTriangles.forEach(t => {
-                if (t && t.id) trianglesMap.set(t.id, t);
-            });
+    }
+
+    if (this.debug) {
+        console.log(`\n📊 ЭТАП 1 завершён: ${structure.triangleIds.size} треугольников, ${structure.pointIds.size} точек`);
+    }
+
+    // ==================== ЭТАП 2: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ ====================
+    if (this.debug) {
+        console.log(`\n📌 ЭТАП 2: Геометрическое расширение по всем треугольникам графа`);
+    }
+
+    let expansionQueue = this.getBoundaryEdges(structure);
+    let totalAdded = 0;
+    let expansionIteration = 0;
+    const maxExpansionIterations = 20;
+
+    do {
+        expansionIteration++;
+        let addedThisRound = 0;
+        const newQueue = [];
+
+        if (this.debug && expansionIteration > 1) {
+            console.log(`\n   🔄 Итерация расширения ${expansionIteration}, граничных рёбер: ${expansionQueue.length}`);
         }
-       
-        // Множество обработанных треугольников
-        const processed = new Set([seedTriangle.id]);
-       
-        // Очередь на добавление (граничные рёбра -> ищем треугольники)
-        let growthQueue = this.getInitialGrowthEdges(seedTriangle);
-       
-        let iteration = 0;
-        const maxIterations = 100; // защита от бесконечного цикла
-       
-        while (growthQueue.length > 0 && iteration < maxIterations) {
-            iteration++;
+
+        for (const edge of expansionQueue) {
+            // Ищем соседний треугольник среди ВСЕХ треугольников графа
+            const neighbor = this.findNeighborTriangle(edge, allTriangles, structure);
            
-            if (this.debug && iteration % 10 === 0) {
-                console.log(`   Итерация ${iteration}, очередь: ${growthQueue.length}`);
-            }
-           
-            // Берём следующее ребро для роста
-            const { edgeKey, edge } = growthQueue.shift();
-           
-            // Ищем треугольники, использующие это ребро
-            const candidates = this.findTrianglesByEdge(edgeKey, allTriangles, processed);
-           
-            if (candidates.length === 0) {
-                continue; // нет кандидатов на этом ребре
-            }
-           
-            if (this.debug && candidates.length > 0) {
-                console.log(`   Ребро ${edgeKey} даёт ${candidates.length} кандидатов`);
-            }
-           
-            // Пробуем добавить каждого кандидата
-            for (const candidate of candidates) {
+            if (neighbor) {
                 const added = this.tryAddTriangle(
-                    candidate,
-                    structure,
-                    graphA,
-                    graphB,
-                    morphologyMap,
-                    modelMorphology
+                    neighbor, structure, graphA, graphB,
+                    morphologyMap, modelMorphology, false  // isAnchor = false
                 );
                
                 if (added) {
-                    // Успешно добавили - помечаем как обработанный
-                    processed.add(candidate.id);
-                   
-                    // Добавляем новые граничные рёбра в очередь
-                    const newEdges = this.getNewBoundaryEdges(candidate, structure, edgeKey);
-                    growthQueue.push(...newEdges);
-                   
+                    addedThisRound++;
+                    // Добавляем новые граничные рёбра
+                    const newEdges = this.getNewBoundaryEdges(neighbor, structure, edge.key);
+                    newQueue.push(...newEdges);
                     if (this.debug) {
-                        console.log(`      ✅ Добавлен треугольник ${candidate.id?.substring(0,12)}`);
+                        console.log(`      ✅ Добавлен треугольник при геометрическом расширении`);
                     }
-                   
-                    break; // берём только один треугольник на ребро
+                } else {
+                    newQueue.push(edge);
                 }
+            } else {
+                newQueue.push(edge);
             }
         }
        
-        // Вычисляем финальный transform структуры
-        if (structure && structure.triangleIds.size >= 2 && this.validator) {
+        totalAdded += addedThisRound;
+        expansionQueue = newQueue;
+       
+        if (addedThisRound === 0) break;
+       
+        // Пересчитываем transform после добавления новых треугольников
+        if (structure.triangleIds.size >= 2 && this.validator) {
             const anchors = structure.getAnchors ? structure.getAnchors() : [];
             if (anchors.length >= 3) {
                 const transform = this.validator.calculateTransform(anchors, graphA, graphB);
@@ -787,55 +716,46 @@ if (seedTriangle.p1.id === seedTriangle.p2.id ||
                 }
             }
         }
+       
+    } while (expansionIteration < maxExpansionIterations);
 
-        // 🔥 ЦИКЛ ПОВТОРНЫХ ПРОВЕРОК
-        console.log(`\n   🔍 Начинаю цикл повторных проверок, rejectedCandidates.size = ${this.rejectedCandidates.size}`);
-let retryAdded = 0;
-let retryIteration = 0;
-        const maxRetryIterations = 5;
+    if (this.debug) {
+        console.log(`\n📊 ЭТАП 2 завершён: добавлено ${totalAdded} треугольников`);
+    }
 
-        do {
-            retryAdded = this.retryRejectedCandidates(structure, graphA, graphB, morphologyMap, modelMorphology);
-            retryIteration++;
-           
-            if (retryAdded > 0 && this.debug) {
-                console.log(`   🔄 Итерация ${retryIteration}: добавлено ${retryAdded} треугольников при повторной проверке`);
-               
-                // Пересчитываем transform после добавления новых треугольников
-                if (structure.triangleIds.size >= 2 && this.validator) {
-                    const anchors = structure.getAnchors ? structure.getAnchors() : [];
-                    if (anchors.length >= 3) {
-                        const transform = this.validator.calculateTransform(anchors, graphA, graphB);
-                        if (transform) {
-                            structure.transform = transform;
-                        }
-                    }
-                }
-            }
-        } while (retryAdded > 0 && retryIteration < maxRetryIterations);
-
-        this.stats.structuresBuilt++;
-        this.stats.trianglesProcessed += structure.triangleIds.size;
-
-        if (this.debug) {
-            const stats = structure.getStats ? structure.getStats() : { triangleCount: structure.triangleIds.size, pointCount: structure.pointIds.size, confidence: 0.5 };
-            console.log(`\n📊 Структура построена:`);
-console.log(`   • Треугольников: ${stats.triangleCount}`);
-console.log(`   • Точек: ${stats.pointCount}`);
-console.log(`   • Успешных лучей: ${stats.successRayCount || 0}`);
-console.log(`   • Неудачных лучей: ${stats.failedRayCount || 0}`);
-console.log(`   • Уверенность: ${(stats.confidence * 100).toFixed(1)}%`);
-            if (structure.transform) {
-                console.log(`   • Масштаб: ${structure.transform.scale.toFixed(3)}`);
-                console.log(`   • Поворот: ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-            }
-            if (retryIteration > 1) {
-                console.log(`   ✅ Повторных итераций: ${retryIteration}, добавлено всего: ${this.stats.retries.successful}`);
+    // Финальный transform
+    if (structure && structure.triangleIds.size >= 2 && this.validator) {
+        const anchors = structure.getAnchors ? structure.getAnchors() : [];
+        if (anchors.length >= 3) {
+            const transform = this.validator.calculateTransform(anchors, graphA, graphB);
+            if (transform) {
+                structure.transform = transform;
             }
         }
-
-        return structure;
     }
+
+    this.stats.structuresBuilt++;
+    this.stats.trianglesProcessed += structure.triangleIds.size;
+
+    if (this.debug) {
+        const stats = structure.getStats ? structure.getStats() : { triangleCount: structure.triangleIds.size, pointCount: structure.pointIds.size, confidence: 0.5 };
+        console.log(`\n📊 Структура построена:`);
+        console.log(`   • Треугольников: ${stats.triangleCount}`);
+        console.log(`   • Точек: ${stats.pointCount}`);
+        console.log(`   • Успешных лучей: ${stats.successRayCount || 0}`);
+        console.log(`   • Неудачных лучей: ${stats.failedRayCount || 0}`);
+        console.log(`   • Уверенность: ${(stats.confidence * 100).toFixed(1)}%`);
+        if (structure.transform) {
+            console.log(`   • Масштаб: ${structure.transform.scale.toFixed(3)}`);
+            console.log(`   • Поворот: ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+        }
+        if (totalAdded > 0) {
+            console.log(`   • Геометрически расширено: +${totalAdded} треугольников`);
+        }
+    }
+
+    return structure;
+}
    
     /**
      * Возвращает статистику построителя
@@ -894,6 +814,103 @@ resetStats() {
         }
     };
 }
+
+/**
+* Находит ребро, общее для треугольника и структуры
+*/
+findCommonEdge(triangle, structure) {
+    for (const edge of triangle.edges) {
+        if (structure.pointIds.has(edge.v1.id) && structure.pointIds.has(edge.v2.id)) {
+            return edge;
+        }
+    }
+    return null;
+}
+
+/**
+* Получает модель точки по ID из структуры
+*/
+getModelPoint(pointId, structure) {
+    const anchors = structure.getAnchors();
+    for (const anchor of anchors) {
+        if (anchor.pointA === pointId) {
+            return anchor.pointB;
+        }
+    }
+    return null;
+}
+
+/**
+* Находит соседний треугольник по ребру (из всех треугольников графа)
+*/
+findNeighborTriangle(edge, allTriangles, structure) {
+    const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
+   
+    for (const triangle of allTriangles) {
+        // Пропускаем уже добавленные
+        if (structure.triangleIds.has(triangle.id)) continue;
+       
+        // Проверяем, содержит ли треугольник это ребро
+        for (const triEdge of triangle.edges) {
+            const triEdgeKey = [triEdge.v1.id, triEdge.v2.id].sort().join('--');
+            if (triEdgeKey === edgeKey) {
+                return triangle;
+            }
+        }
+    }
+    return null;
+}
+
+/**
+* Вычисляет угол в модели между двумя точками (для этапа 2)
+*/
+calcAngleInModelSimple(pointA, pointB, pointC) {
+    const v1x = pointB.x - pointA.x;
+    const v1y = pointB.y - pointA.y;
+    const v2x = pointC.x - pointA.x;
+    const v2y = pointC.y - pointA.y;
+   
+    const dot = v1x * v2x + v1y * v2y;
+    const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
+    const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
+   
+    const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return Math.acos(cos) * 180 / Math.PI;
+}
+
+/**
+* Вычисляет угол в фото между тремя точками
+*/
+calcAngleInPhotoSimple(pointA, pointB, pointC) {
+    const v1x = pointB.x - pointA.x;
+    const v1y = pointB.y - pointA.y;
+    const v2x = pointC.x - pointA.x;
+    const v2y = pointC.y - pointA.y;
+   
+    const dot = v1x * v2x + v1y * v2y;
+    const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
+    const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
+   
+    const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return Math.acos(cos) * 180 / Math.PI;
+}
+
+/**
+* Получает все граничные рёбра структуры
+*/
+getBoundaryEdges(structure) {
+    const edges = [];
+    for (const [edgeKey, edgeData] of structure.boundaryEdges) {
+        edges.push({
+            key: edgeKey,
+            v1: edgeData.v1,
+            v2: edgeData.v2,
+            sourceTriangle: edgeData.sourceTriangle
+        });
+    }
+    return edges;
+}
+  
 }
 
 module.exports = StructureBuilder;
