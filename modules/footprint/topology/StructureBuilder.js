@@ -9,13 +9,22 @@ class StructureBuilder {
      * @param {Object} options - настройки
      */
     constructor(validator, options = {}) {
-        this.validator = validator;
-        this.debug = options.debug || false;
-       
-        // Пороги для принятия треугольника в структуру
-        this.minConfidence = options.minConfidence || 0.7;
-        this.maxScaleDeviation = options.maxScaleDeviation || 0.1; // 10% отклонение масштаба
-        this.maxRotationDeviation = options.maxRotationDeviation || 5; // 5 градусов
+    this.validator = validator;
+    this.debug = options.debug || false;
+   
+    // Базовые пороги (жёсткий режим)
+    this.minConfidence = options.minConfidence || 0.7;
+    this.maxScaleDeviation = options.maxScaleDeviation || 0.1;
+    this.maxRotationDeviation = options.maxRotationDeviation || 5;
+   
+    // Дополнительные пороги для мягкого режима
+    this.softMinConfidence = options.softMinConfidence || 0.6;
+    this.softMaxScaleDeviation = options.softMaxScaleDeviation || 0.15;
+    this.softMaxRotationDeviation = options.softMaxRotationDeviation || 10;
+    this.maxAllowedBadRays = options.maxAllowedBadRays || 1;
+   
+    // Режим мягкости (0 = строгий, 1 = средний, 2 = мягкий)
+    this.softnessLevel = options.softnessLevel || 0;
        
         this.stats = {
             structuresBuilt: 0,
@@ -36,7 +45,44 @@ class StructureBuilder {
             console.log(`   • Макс. отклонение поворота: ${this.maxRotationDeviation}°`);
         }
     }
+/ 🔥 НОВЫЙ МЕТОД: пошаговое увеличение мягкости
+increaseSoftness() {
+    this.softnessLevel++;
    
+    switch(this.softnessLevel) {
+        case 1:
+            console.log('🔧 Переход на МЯГКИЙ режим (уровень 1):');
+            console.log(`   • Уверенность: ${this.minConfidence} → ${this.softMinConfidence}`);
+            console.log(`   • Масштаб: ${this.maxScaleDeviation*100}% → ${this.softMaxScaleDeviation*100}%`);
+            console.log(`   • Поворот: ${this.maxRotationDeviation}° → ${this.softMaxRotationDeviation}°`);
+            console.log(`   • Плохих лучей: 1 (допустимо)`);
+           
+            this.minConfidence = this.softMinConfidence;
+            this.maxScaleDeviation = this.softMaxScaleDeviation;
+            this.maxRotationDeviation = this.softMaxRotationDeviation;
+            break;
+           
+        case 2:
+            console.log('🔧 Переход на ОЧЕНЬ МЯГКИЙ режим (уровень 2):');
+            console.log(`   • Уверенность: ${this.minConfidence} → 0.5`);
+            console.log(`   • Масштаб: ${this.maxScaleDeviation*100}% → 20%`);
+            console.log(`   • Поворот: ${this.maxRotationDeviation}° → 15°`);
+            console.log(`   • Плохих лучей: 2 (допустимо)`);
+           
+            this.minConfidence = 0.5;
+            this.maxScaleDeviation = 0.2;
+            this.maxRotationDeviation = 15;
+            this.maxAllowedBadRays = 2;
+            break;
+           
+        default:
+            console.log('⚠️ Максимальный уровень мягкости достигнут');
+    }
+   
+    return this.softnessLevel;
+}
+
+  
     /**
      * Возвращает начальные граничные рёбра для затравки
      * @param {Object} triangle - треугольник-затравка
@@ -189,9 +235,16 @@ class StructureBuilder {
 tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
     if (!triangle) return false;
 
+    // 🔥 ИНИЦИАЛИЗИРУЕМ rejectionDetails, если ещё нет
+    if (!this.stats.rejectionDetails) {
+        this.stats.rejectionDetails = {};
+    }
+
     // 1. Проверка уверенности
     if ((triangle.confidence || 0) < this.minConfidence) {
         this.stats.rejections.lowConfidence++;
+        // 🔥 ДЕТАЛЬНАЯ СТАТИСТИКА
+        this.stats.rejectionDetails['low_confidence'] = (this.stats.rejectionDetails['low_confidence'] || 0) + 1;
         if (this.debug) {
             console.log(`      ❌ Низкая уверенность: ${(triangle.confidence*100).toFixed(1)}% < ${this.minConfidence*100}%`);
         }
@@ -218,8 +271,9 @@ tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorpholo
 
     // 🔥 ОПРЕДЕЛЯЕМ РЕЖИМ ПРОВЕРКИ
     // Если в структуре уже есть точки (не первый треугольник), используем мягкий режим для достройки
-    const isExpansion = structure.pointIds.size > 3; // уже есть как минимум 3 точки (первый треугольник)
-    const maxAllowedBadRays = isExpansion ? 1 : 0; // при достройке допускаем 1 плохой луч
+    const isExpansion = structure.pointIds.size > 3;
+// 🔥 Используем настраиваемый параметр вместо жёсткого 1
+const maxAllowedBadRays = isExpansion ? this.maxAllowedBadRays : 0;
    
     if (this.debug && isExpansion) {
         console.log(`      🔧 Режим ДОСТРОЙКИ (допускается ${maxAllowedBadRays} плохой луч)`);
@@ -278,12 +332,15 @@ tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorpholo
 
     // Проверяем, проходим ли по количеству плохих лучей
     if (badRays > maxAllowedBadRays) {
-        if (this.debug) {
-            console.log(`      ❌ Отвергнуто: ${badRays} неудачных лучей (допустимо ${maxAllowedBadRays})`);
-        }
-        this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
-        return false;
+    if (this.debug) {
+        console.log(`      ❌ Отвергнуто: ${badRays} неудачных лучей (допустимо ${maxAllowedBadRays})`);
     }
+    this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
+    // 🔥 ДЕТАЛЬНАЯ СТАТИСТИКА
+    const reason = `too_many_bad_rays_${badRays}`;
+    this.stats.rejectionDetails[reason] = (this.stats.rejectionDetails[reason] || 0) + 1;
+    return false;
+}
 
     if (this.debug && badRays > 0) {
         console.log(`      ✅ Лучи: ${badRays} неудачных (допустимо)`);
@@ -316,21 +373,25 @@ tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorpholo
 
         const scaleDiff = Math.abs(testTransform.scale - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
         if (scaleDiff > this.maxScaleDeviation) {
-            this.stats.rejections.scaleMismatch++;
-            if (this.debug) {
-                console.log(`      ❌ Масштаб: ${testTransform.scale.toFixed(3)} vs ${structure.transform.scale.toFixed(3)} (${(scaleDiff*100).toFixed(1)}%)`);
-            }
-            return false;
-        }
+    this.stats.rejections.scaleMismatch++;
+    // 🔥 ДЕТАЛЬНАЯ СТАТИСТИКА
+    this.stats.rejectionDetails['scale_mismatch'] = (this.stats.rejectionDetails['scale_mismatch'] || 0) + 1;
+    if (this.debug) {
+        console.log(`      ❌ Масштаб: ${testTransform.scale.toFixed(3)} vs ${structure.transform.scale.toFixed(3)} (${(scaleDiff*100).toFixed(1)}%)`);
+    }
+    return false;
+}
 
         const rotDiff = Math.abs(testTransform.rotation - structure.transform.rotation) * 180 / Math.PI;
         if (rotDiff > this.maxRotationDeviation) {
-            this.stats.rejections.rotationMismatch++;
-            if (this.debug) {
-                console.log(`      ❌ Поворот: ${(testTransform.rotation * 180 / Math.PI).toFixed(1)}° vs ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}° (${rotDiff.toFixed(1)}°)`);
-            }
-            return false;
-        }
+    this.stats.rejections.rotationMismatch++;
+    // 🔥 ДЕТАЛЬНАЯ СТАТИСТИКА
+    this.stats.rejectionDetails['rotation_mismatch'] = (this.stats.rejectionDetails['rotation_mismatch'] || 0) + 1;
+    if (this.debug) {
+        console.log(`      ❌ Поворот: ${(testTransform.rotation * 180 / Math.PI).toFixed(1)}° vs ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}° (${rotDiff.toFixed(1)}°)`);
+    }
+    return false;
+}
 
         structure.transform = testTransform;
 
@@ -528,11 +589,41 @@ console.log(`   • Уверенность: ${(stats.confidence * 100).toFixed
      * @returns {Object} - статистика
      */
     getStats() {
-        return {
-            ...this.stats,
-            rejections: { ...this.stats.rejections }
-        };
+    const stats = {
+        ...this.stats,
+        rejections: { ...this.stats.rejections }
+    };
+   
+    // Добавляем детальную статистику отказов
+    if (this.stats.rejectionDetails) {
+        stats.rejectionDetails = { ...this.stats.rejectionDetails };
     }
+   
+    return stats;
+}
+
+printRejectionAnalysis() {
+    console.log('\n📊 АНАЛИЗ ОТКАЗОВ ТРЕУГОЛЬНИКОВ:');
+    console.log('═'.repeat(50));
+   
+    const details = this.stats.rejectionDetails || {};
+    const totalRejected = Object.values(details).reduce((a, b) => a + b, 0);
+   
+    console.log(`\n🔴 Всего отвергнуто: ${totalRejected}`);
+    console.log('\n📋 ПО ПРИЧИНАМ:');
+   
+    for (const [reason, count] of Object.entries(details)) {
+        const percent = ((count / totalRejected) * 100).toFixed(1);
+        console.log(`   • ${reason}: ${count} (${percent}%)`);
+    }
+   
+    console.log('\n📈 ПОДРОБНОСТИ:');
+    console.log(`   • Низкая уверенность: ${this.stats.rejections.lowConfidence || 0}`);
+    console.log(`   • Несоответствие масштаба: ${this.stats.rejections.scaleMismatch || 0}`);
+    console.log(`   • Несоответствие поворота: ${this.stats.rejections.rotationMismatch || 0}`);
+    console.log(`   • Проблемы с лучами: ${this.stats.rejections.rayMismatch || 0}`);
+    console.log(`   • Ошибка transform: ${this.stats.rejections.transformFailed || 0}`);
+}
    
     /**
      * Сбрасывает статистику
