@@ -45,7 +45,7 @@ class StructureBuilder {
             console.log(`   • Макс. отклонение поворота: ${this.maxRotationDeviation}°`);
         }
     }
-/ 🔥 НОВЫЙ МЕТОД: пошаговое увеличение мягкости
+// 🔥 НОВЫЙ МЕТОД: пошаговое увеличение мягкости
 increaseSoftness() {
     this.softnessLevel++;
    
