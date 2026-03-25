@@ -374,7 +374,14 @@ if (badRays > maxAllowedBadRays) {
     this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
    
     // Сохраняем отвергнутого кандидата
-    const incomingEdge = this.getIncomingEdge(triangle, structure);
+     const incomingEdge = this.getIncomingEdge(triangle, structure);
+    if (this.debug) {
+        console.log(`      🔍 incomingEdge найден: ${!!incomingEdge}`);
+        if (incomingEdge) {
+            console.log(`         edge: ${incomingEdge.v1.id.substring(0,8)}-${incomingEdge.v2.id.substring(0,8)}`);
+        }
+    }
+   
     if (incomingEdge) {
         const edgeKey = [incomingEdge.v1.id, incomingEdge.v2.id].sort().join('--');
         if (!this.rejectedCandidates.has(edgeKey)) {
@@ -387,6 +394,8 @@ if (badRays > maxAllowedBadRays) {
             maxAllowedBadRays,
             timestamp: Date.now()
         });
+     } else if (this.debug) {
+        console.log(`      ⚠️ Не удалось найти входящее ребро для сохранения кандидата`);
     }
    
     return false;
