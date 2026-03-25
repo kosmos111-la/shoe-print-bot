@@ -405,12 +405,15 @@ console.log(`\n📊 СОЗДАНО ТРЕУГОЛЬНИКОВ: ${allTriangles.le
 
                 // Строим все возможные структуры
                 const allGraphTriangles = this.extractTrianglesFromGraph(exactGraph);
-console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`); // должно быть 140
+if (this.debug) {
+    console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
+    console.log(`   • Якорей для структур: ${anchorsForValidation.length}`);
+}
 
 // Строим все возможные структуры
 const structures = structureManager.buildStructures(
     anchorsForValidation,
-    allGraphTriangles,  // ← теперь все треугольники графа!
+    allGraphTriangles,  // ← все треугольники графа
     exactGraph,
     existingModel.graph,
     morphologyMap,
