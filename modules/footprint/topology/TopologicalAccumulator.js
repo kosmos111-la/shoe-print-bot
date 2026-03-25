@@ -404,9 +404,13 @@ for (const [triId, anchors] of anchorsByTriangle) {
 console.log(`\n📊 СОЗДАНО ТРЕУГОЛЬНИКОВ: ${allTriangles.length}`);
 
                 // Строим все возможные структуры
-                const structures = structureManager.buildStructures(
+                const allGraphTriangles = this.extractTrianglesFromGraph(exactGraph);
+console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`); // должно быть 140
+
+// Строим все возможные структуры
+const structures = structureManager.buildStructures(
     anchorsForValidation,
-    allTriangles,  // ← здесь были только якорные треугольники (24 шт)
+    allGraphTriangles,  // ← теперь все треугольники графа!
     exactGraph,
     existingModel.graph,
     morphologyMap,
