@@ -235,16 +235,9 @@ increaseSoftness() {
 tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
     if (!triangle) return false;
 
-    // 🔥 ИНИЦИАЛИЗИРУЕМ rejectionDetails, если ещё нет
-    if (!this.stats.rejectionDetails) {
-        this.stats.rejectionDetails = {};
-    }
-
     // 1. Проверка уверенности
     if ((triangle.confidence || 0) < this.minConfidence) {
         this.stats.rejections.lowConfidence++;
-        // 🔥 ДЕТАЛЬНАЯ СТАТИСТИКА
-        this.stats.rejectionDetails['low_confidence'] = (this.stats.rejectionDetails['low_confidence'] || 0) + 1;
         if (this.debug) {
             console.log(`      ❌ Низкая уверенность: ${(triangle.confidence*100).toFixed(1)}% < ${this.minConfidence*100}%`);
         }
@@ -269,19 +262,16 @@ tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorpholo
         console.log(`      🔍 Новые точки в треугольнике: ${newPoints.map(p => p.id.substring(0,8)).join(', ')}`);
     }
 
-    // 🔥 ОПРЕДЕЛЯЕМ РЕЖИМ ПРОВЕРКИ
-    // Если в структуре уже есть точки (не первый треугольник), используем мягкий режим для достройки
+    // ==================== ЭТАП 1: СТРОГАЯ ПРОВЕРКА С ЛУЧАМИ ====================
     const isExpansion = structure.pointIds.size > 3;
-// 🔥 Используем настраиваемый параметр вместо жёсткого 1
-const maxAllowedBadRays = isExpansion ? this.maxAllowedBadRays : 0;
+    const maxAllowedBadRays = isExpansion ? this.maxAllowedBadRays : 0;
    
     if (this.debug && isExpansion) {
-        console.log(`      🔧 Режим ДОСТРОЙКИ (допускается ${maxAllowedBadRays} плохой луч)`);
+        console.log(`      🔧 ЭТАП 1: Строгая проверка (допускается ${maxAllowedBadRays} плохой луч)`);
     }
 
     let badRays = 0;
 
-    // 🔥 ПРОВЕРКА ЛУЧЕЙ
     for (const newPoint of newPoints) {
         const edgesWithNewPoint = triangle.edges.filter(e =>
             e.v1.id === newPoint.id || e.v2.id === newPoint.id
@@ -315,7 +305,6 @@ const maxAllowedBadRays = isExpansion ? this.maxAllowedBadRays : 0;
 
                 if (relativeError > 0.3) {
                     badRays++;
-                    // 🔥 ФИКСИРУЕМ НЕУДАЧНЫЙ ЛУЧ
                     if (structure.addFailedRay) {
                         structure.addFailedRay(triangle, edge, externalPoint);
                     }
@@ -323,94 +312,146 @@ const maxAllowedBadRays = isExpansion ? this.maxAllowedBadRays : 0;
                         console.log(`      ⚠️ Луч из новой точки ${newPoint.id.substring(0,8)} улетает (ошибка ${(relativeError*100).toFixed(1)}%)`);
                     }
                 } else if (externalPoint && structure.addSuccessRay) {
-                    // 🔥 ФИКСИРУЕМ УСПЕШНЫЙ ЛУЧ
                     structure.addSuccessRay(triangle, edge, externalPoint);
                 }
             }
         }
     }
 
-    // Проверяем, проходим ли по количеству плохих лучей
-    if (badRays > maxAllowedBadRays) {
+    // Если строгая проверка пройдена — добавляем треугольник
+    if (badRays <= maxAllowedBadRays) {
+        if (this.debug && badRays > 0) {
+            console.log(`      ✅ Строгая проверка пройдена: ${badRays} плохих лучей (допустимо ${maxAllowedBadRays})`);
+        }
+       
+        // Проверка transform
+        if (structure && structure.transform) {
+            const existingAnchors = structure.getAnchors ? structure.getAnchors() : [];
+            const newAnchors = this.collectAnchors(null, triangle);
+            const testAnchors = [...existingAnchors, ...newAnchors];
+
+            if (testAnchors.length >= 3) {
+                const testTransform = this.validator.calculateTransform(testAnchors, graphA, graphB);
+                if (testTransform) {
+                    const scaleDiff = Math.abs(testTransform.scale - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
+                    const rotDiff = Math.abs(testTransform.rotation - structure.transform.rotation) * 180 / Math.PI;
+
+                    if (scaleDiff > this.maxScaleDeviation || rotDiff > this.maxRotationDeviation) {
+                        if (this.debug) {
+                            console.log(`      ❌ Transform не сошёлся (масштаб ${(scaleDiff*100).toFixed(1)}%, поворот ${rotDiff.toFixed(1)}°)`);
+                        }
+                        return false;
+                    }
+                    structure.transform = testTransform;
+                }
+            }
+        }
+
+        if (structure) {
+            structure.addTriangle(triangle);
+        }
+        if (this.debug) console.log(`      ✅ Треугольник добавлен (строгая проверка)`);
+        return true;
+    }
+
+    // ==================== ЭТАП 2: МЯГКАЯ ПРОВЕРКА ПО УГЛАМ ====================
     if (this.debug) {
-        console.log(`      ❌ Отвергнуто: ${badRays} неудачных лучей (допустимо ${maxAllowedBadRays})`);
-    }
-    this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
-    // 🔥 ДЕТАЛЬНАЯ СТАТИСТИКА
-    const reason = `too_many_bad_rays_${badRays}`;
-    this.stats.rejectionDetails[reason] = (this.stats.rejectionDetails[reason] || 0) + 1;
-    return false;
-}
-
-    if (this.debug && badRays > 0) {
-        console.log(`      ✅ Лучи: ${badRays} неудачных (допустимо)`);
+        console.log(`      🔧 ЭТАП 2: Мягкая проверка по углам (допуск ${this.angleTolerance || 3.5}°)`);
     }
 
-    // 2. Если в структуре уже есть transform, проверяем согласованность
+    // Получаем соответствия точек фото -> модель из структуры
+    const pointToModel = this.getPointToModelMap(structure);
+   
+    let anglesOk = true;
+    let checkedAngles = 0;
+    let maxAngleDiff = 0;
+    const angleTolerance = this.angleTolerance || 3.5;
+
+    for (const newPoint of newPoints) {
+        const edgesWithNewPoint = triangle.edges.filter(e =>
+            e.v1.id === newPoint.id || e.v2.id === newPoint.id
+        );
+
+        for (const edge of edgesWithNewPoint) {
+            // Находим существующую вершину (противоположную ребру)
+            const existingVertex = [triangle.p1, triangle.p2, triangle.p3].find(p =>
+                p.id !== edge.v1.id && p.id !== edge.v2.id && structure.pointIds.has(p.id)
+            );
+           
+            if (!existingVertex) continue;
+           
+            // Находим третью точку треугольника (другую существующую)
+            const otherExisting = [triangle.p1, triangle.p2, triangle.p3].find(p =>
+                p.id !== edge.v1.id && p.id !== edge.v2.id && p.id !== existingVertex.id && structure.pointIds.has(p.id)
+            );
+           
+            if (!otherExisting) continue;
+           
+            // Получаем модель точек
+            const modelEdgeV1 = pointToModel.get(edge.v1.id);
+            const modelEdgeV2 = pointToModel.get(edge.v2.id);
+            const modelExisting = pointToModel.get(existingVertex.id);
+            const modelOther = pointToModel.get(otherExisting.id);
+           
+            if (!modelEdgeV1 || !modelEdgeV2 || !modelExisting || !modelOther) continue;
+           
+            // Вычисляем угол в фото
+            const anglePhoto = this.calcAngleInPhoto(existingVertex, newPoint, otherExisting);
+           
+            // Вычисляем угол в модели
+            const angleModel = this.calcAngleInModel(modelExisting, modelOther, modelEdgeV1, modelEdgeV2);
+           
+            const angleDiff = Math.abs(anglePhoto - angleModel);
+            maxAngleDiff = Math.max(maxAngleDiff, angleDiff);
+            checkedAngles++;
+           
+            if (angleDiff > angleTolerance) {
+                if (this.debug) {
+                    console.log(`      ❌ Угол не сошёлся: ${angleDiff.toFixed(1)}° > ${angleTolerance}°`);
+                }
+                anglesOk = false;
+                break;
+            }
+        }
+        if (!anglesOk) break;
+    }
+   
+    if (!anglesOk) {
+        if (this.debug) {
+            console.log(`      ❌ Мягкая проверка не пройдена`);
+        }
+        this.stats.rejections.angleMismatch = (this.stats.rejections.angleMismatch || 0) + 1;
+        return false;
+    }
+   
+    if (this.debug && checkedAngles > 0) {
+        console.log(`      ✅ Мягкая проверка пройдена (макс. отклонение: ${maxAngleDiff.toFixed(1)}°)`);
+    }
+
+    // Проверка transform для мягкого режима (с увеличенными допусками)
     if (structure && structure.transform) {
         const existingAnchors = structure.getAnchors ? structure.getAnchors() : [];
         const newAnchors = this.collectAnchors(null, triangle);
         const testAnchors = [...existingAnchors, ...newAnchors];
 
-        if (testAnchors.length < 3) {
-            this.stats.rejections.transformFailed++;
-            return false;
-        }
+        if (testAnchors.length >= 3) {
+            const testTransform = this.validator.calculateTransform(testAnchors, graphA, graphB);
+            if (testTransform) {
+                // Мягкие допуски для transform
+                const softScaleDeviation = this.softMaxScaleDeviation || 0.15;
+                const softRotationDeviation = this.softMaxRotationDeviation || 10;
+               
+                const scaleDiff = Math.abs(testTransform.scale - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
+                const rotDiff = Math.abs(testTransform.rotation - structure.transform.rotation) * 180 / Math.PI;
 
-        const testTransform = this.validator.calculateTransform(
-            testAnchors,
-            graphA,
-            graphB
-        );
-
-        if (!testTransform) {
-            this.stats.rejections.transformFailed++;
-            if (this.debug) {
-                console.log(`      ❌ Не удалось вычислить transform`);
+                if (scaleDiff > softScaleDeviation || rotDiff > softRotationDeviation) {
+                    if (this.debug) {
+                        console.log(`      ❌ Transform не сошёлся даже в мягком режиме (масштаб ${(scaleDiff*100).toFixed(1)}%, поворот ${rotDiff.toFixed(1)}°)`);
+                    }
+                    return false;
+                }
+                structure.transform = testTransform;
             }
-            return false;
-        }
-
-        const scaleDiff = Math.abs(testTransform.scale - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
-        if (scaleDiff > this.maxScaleDeviation) {
-    this.stats.rejections.scaleMismatch++;
-    // 🔥 ДЕТАЛЬНАЯ СТАТИСТИКА
-    this.stats.rejectionDetails['scale_mismatch'] = (this.stats.rejectionDetails['scale_mismatch'] || 0) + 1;
-    if (this.debug) {
-        console.log(`      ❌ Масштаб: ${testTransform.scale.toFixed(3)} vs ${structure.transform.scale.toFixed(3)} (${(scaleDiff*100).toFixed(1)}%)`);
-    }
-    return false;
-}
-
-        const rotDiff = Math.abs(testTransform.rotation - structure.transform.rotation) * 180 / Math.PI;
-        if (rotDiff > this.maxRotationDeviation) {
-    this.stats.rejections.rotationMismatch++;
-    // 🔥 ДЕТАЛЬНАЯ СТАТИСТИКА
-    this.stats.rejectionDetails['rotation_mismatch'] = (this.stats.rejectionDetails['rotation_mismatch'] || 0) + 1;
-    if (this.debug) {
-        console.log(`      ❌ Поворот: ${(testTransform.rotation * 180 / Math.PI).toFixed(1)}° vs ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}° (${rotDiff.toFixed(1)}°)`);
-    }
-    return false;
-}
-
-        structure.transform = testTransform;
-
-        if (this.debug) {
-            console.log(`      ✅ Согласован: масштаб ${testTransform.scale.toFixed(3)}, поворот ${(testTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
-        }
-    }
-
-    // Отладка лучей
-    if (this.debug && triangle.edges) {
-        let hasExternal = false;
-        for (const e of triangle.edges) {
-            if (e.externalPoint) {
-                hasExternal = true;
-                console.log(`      🔍 Треугольник ${triangle.id.substring(0,12)} имеет луч из ребра ${e.v1.id.substring(0,8)}-${e.v2.id.substring(0,8)} → ${e.externalPoint.id.substring(0,8)}`);
-            }
-        }
-        if (!hasExternal && this.debug) {
-            console.log(`      ⚠️ Треугольник ${triangle.id.substring(0,12)} НЕ ИМЕЕТ лучей (externalPoint отсутствует)`);
         }
     }
 
@@ -420,11 +461,7 @@ const maxAllowedBadRays = isExpansion ? this.maxAllowedBadRays : 0;
     }
    
     if (this.debug) {
-        if (badRays === 0) {
-            console.log(`      ✅ Треугольник добавлен (строгий режим)`);
-        } else {
-            console.log(`      ✅ Треугольник добавлен (мягкий режим, ${badRays} плохих лучей)`);
-        }
+        console.log(`      ✅ Треугольник добавлен (мягкая проверка по углам)`);
     }
    
     return true;
