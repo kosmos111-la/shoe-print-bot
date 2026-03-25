@@ -628,9 +628,9 @@ retryRejectedCandidates(structure, graphA, graphB, morphologyMap, modelMorpholog
             if (added) {
                 totalAdded++;
                 this.stats.retries.successful++;
-                if (this.debug) {
-                    console.log(`      ✅ Повторно добавлен треугольник ${candidate.triangle.id.substring(0,12)} (ранее отвергнут: ${candidate.reason})`);
-                }
+                if (this.debug && candidate.triangle.id) {
+    console.log(`      ✅ Повторно добавлен треугольник ${candidate.triangle.id.substring(0,12)} (ранее отвергнут: ${candidate.reason})`);
+}
             } else {
                 stillRejected.push(candidate);
             }
@@ -645,8 +645,8 @@ retryRejectedCandidates(structure, graphA, graphB, morphologyMap, modelMorpholog
     this.stats.retries.attempted++;
    
     if (this.debug && totalAdded > 0) {
-        console.log(`   📊 Повторно добавлено: ${totalAdded} треугольников`);
-    }
+    console.log(`   📊 Повторно добавлено: ${totalAdded} треугольников`);
+}
    
     return totalAdded;
 }
@@ -685,15 +685,18 @@ if (seedTriangle.p1.id === seedTriangle.p2.id ||
     return null;
 }
        
-        if (this.debug) {
-            console.log(`\n🔨 Строю структуру от треугольника ${seedTriangle.id?.substring(0,12) || 'unknown'}...`);
-        }
+        if (this.debug && seedTriangle.id) {
+    console.log(`\n🔨 Строю структуру от треугольника ${seedTriangle.id.substring(0,12)}...`);
+} else if (this.debug) {
+    console.log(`\n🔨 Строю структуру от треугольника unknown...`);
+}
        
         // 🔥 ДИАГНОСТИКА: показываем информацию о первом треугольнике
-        if (allTriangles && allTriangles.length > 0) {
-            const firstTri = allTriangles[0];
-            console.log(`\n🔍 ДИАГНОСТИКА ПЕРВОГО ТРЕУГОЛЬНИКА:`);
-            console.log(`   ID: ${firstTri.id?.substring(0,20)}`);
+       if (allTriangles && allTriangles.length > 0) {
+    const firstTri = allTriangles[0];
+    if (firstTri && firstTri.id) {
+        console.log(`\n🔍 ДИАГНОСТИКА ПЕРВОГО ТРЕУГОЛЬНИКА:`);
+        console.log(`   ID: ${firstTri.id.substring(0,20)}`);
             console.log(`   Есть p1: ${!!firstTri.p1}, p2: ${!!firstTri.p2}, p3: ${!!firstTri.p3}`);
             console.log(`   Есть pB1: ${!!firstTri.pB1}, pB2: ${!!firstTri.pB2}, pB3: ${!!firstTri.pB3}`);
             console.log(`   Есть edges: ${!!firstTri.edges}, количество: ${firstTri.edges?.length || 0}`);
@@ -758,19 +761,14 @@ if (seedTriangle.p1.id === seedTriangle.p2.id ||
                 );
                
                 if (added) {
-                    // Успешно добавили - помечаем как обработанный
-                    processed.add(candidate.id);
-                   
-                    // Добавляем новые граничные рёбра в очередь
-                    const newEdges = this.getNewBoundaryEdges(candidate, structure, edgeKey);
-                    growthQueue.push(...newEdges);
-                   
-                    if (this.debug) {
-                        console.log(`      ✅ Добавлен треугольник ${candidate.id?.substring(0,12)}`);
-                    }
-                   
-                    break; // берём только один треугольник на ребро
-                }
+    processed.add(candidate.id);
+    const newEdges = this.getNewBoundaryEdges(candidate, structure, edgeKey);
+    growthQueue.push(...newEdges);
+    if (this.debug && candidate.id) {
+        console.log(`      ✅ Добавлен треугольник ${candidate.id.substring(0,12)}`);
+    }
+    break;
+}
             }
         }
        
@@ -813,22 +811,24 @@ if (seedTriangle.p1.id === seedTriangle.p2.id ||
         this.stats.structuresBuilt++;
         this.stats.trianglesProcessed += structure.triangleIds.size;
 
-        if (this.debug) {
-            const stats = structure.getStats ? structure.getStats() : { triangleCount: structure.triangleIds.size, pointCount: structure.pointIds.size, confidence: 0.5 };
-            console.log(`\n📊 Структура построена:`);
-console.log(`   • Треугольников: ${stats.triangleCount}`);
-console.log(`   • Точек: ${stats.pointCount}`);
-console.log(`   • Успешных лучей: ${stats.successRayCount || 0}`);
-console.log(`   • Неудачных лучей: ${stats.failedRayCount || 0}`);
-console.log(`   • Уверенность: ${(stats.confidence * 100).toFixed(1)}%`);
-            if (structure.transform) {
-                console.log(`   • Масштаб: ${structure.transform.scale.toFixed(3)}`);
-                console.log(`   • Поворот: ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-            }
-            if (retryIteration > 1) {
-                console.log(`   ✅ Повторных итераций: ${retryIteration}, добавлено всего: ${this.stats.retries.successful}`);
-            }
-        }
+       if (this.debug) {
+    const stats = structure.getStats ? structure.getStats() : { triangleCount: structure.triangleIds.size, pointCount: structure.pointIds.size, confidence: 0.5 };
+    if (stats) {
+        console.log(`\n📊 Структура построена:`);
+        console.log(`   • Треугольников: ${stats.triangleCount}`);
+        console.log(`   • Точек: ${stats.pointCount}`);
+        console.log(`   • Успешных лучей: ${stats.successRayCount || 0}`);
+        console.log(`   • Неудачных лучей: ${stats.failedRayCount || 0}`);
+        console.log(`   • Уверенность: ${(stats.confidence * 100).toFixed(1)}%`);
+    }
+    if (structure.transform) {
+        console.log(`   • Масштаб: ${structure.transform.scale.toFixed(3)}`);
+        console.log(`   • Поворот: ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+    }
+    if (retryIteration > 1) {
+        console.log(`   ✅ Повторных итераций: ${retryIteration}, добавлено всего: ${this.stats.retries.successful}`);
+    }
+}
 
         return structure;
     }
