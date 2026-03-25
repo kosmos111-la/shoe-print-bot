@@ -127,19 +127,24 @@ class StructureManager {
             .filter(s => s.triangleIds.size >= 3);
        
         if (this.debug) {
-            console.log(`\n📊 ИТОГ СБОРКИ:`);
-            console.log(`   • Всего структур: ${this.structures.size}`);
-            console.log(`   • Крупных структур (>=3 тр): ${largeStructures.length}`);
-            largeStructures.forEach((s, i) => {
-                const stats = s.getStats();
-                console.log(`   • Структура ${i+1}: ${stats.triangleCount} тр., ${stats.pointCount} точек, уверенность ${(stats.confidence*100).toFixed(1)}%`);
-                if (s.transform) {
-                    console.log(`        масштаб ${s.transform.scale.toFixed(3)}, поворот ${(s.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-                }
-            });
+    console.log(`\n📊 ИТОГ СБОРКИ:`);
+    console.log(`   • Всего структур: ${this.structures.size}`);
+    console.log(`   • Крупных структур (>=3 тр): ${largeStructures.length}`);
+   
+    // 🔥 ВЫЗЫВАЕМ АНАЛИТИКУ ОТКАЗОВ
+    if (this.builder && this.builder.printRejectionAnalysis) {
+        this.builder.printRejectionAnalysis();
+    }
+   
+    largeStructures.forEach((s, i) => {
+        const stats = s.getStats();
+        console.log(`   • Структура ${i+1}: ${stats.triangleCount} тр., ${stats.pointCount} точек, уверенность ${(stats.confidence*100).toFixed(1)}%`);
+        if (s.transform) {
+            console.log(`        масштаб ${s.transform.scale.toFixed(3)}, поворот ${(s.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
         }
-       
-        return largeStructures;
+    });
+}
+return largeStructures;
     }
    
     /**
