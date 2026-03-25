@@ -186,182 +186,188 @@ class StructureBuilder {
      * @param {Map} modelMorphology - морфология второго следа
      * @returns {boolean} - успешно ли добавлен
      */
-    tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
-        if (!triangle) return false;
-       
-        // 1. Проверка уверенности
-        if ((triangle.confidence || 0) < this.minConfidence) {
-            this.stats.rejections.lowConfidence++;
-            if (this.debug) {
-                console.log(`      ❌ Низкая уверенность: ${(triangle.confidence*100).toFixed(1)}% < ${this.minConfidence*100}%`);
-            }
-            return false;
+tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
+    if (!triangle) return false;
+
+    // 1. Проверка уверенности
+    if ((triangle.confidence || 0) < this.minConfidence) {
+        this.stats.rejections.lowConfidence++;
+        if (this.debug) {
+            console.log(`      ❌ Низкая уверенность: ${(triangle.confidence*100).toFixed(1)}% < ${this.minConfidence*100}%`);
         }
-       
-        // 🔥 НОВАЯ ПРОВЕРКА: Анализ лучей из новых точек
-        // Определяем, какие точки в треугольнике являются новыми (ещё не в структуре)
-        const newPoints = [];
-        const existingPoints = [];
-       
-        [triangle.p1, triangle.p2, triangle.p3].forEach(p => {
-            if (p && p.id) {
-                if (structure.pointIds.has(p.id)) {
-                    existingPoints.push(p);
-                } else {
-                    newPoints.push(p);
-                }
-            }
-        });
-       
-        // Если есть новые точки, проверяем лучи из них
-        if (newPoints.length > 0 && this.debug) {
-            console.log(`      🔍 Новые точки в треугольнике: ${newPoints.map(p => p.id.substring(0,8)).join(', ')}`);
-        }
-       
-        // Для каждой новой точки проверяем, не "улетает" ли луч
-        let raysConsistent = true;
-        for (const newPoint of newPoints) {
-            // Находим все рёбра, где участвует новая точка
-            const edgesWithNewPoint = triangle.edges.filter(e =>
-                e.v1.id === newPoint.id || e.v2.id === newPoint.id
-            );
-           
-            for (const edge of edgesWithNewPoint) {
-                // Находим противоположную вершину (старую)
-                const opposite = [triangle.p1, triangle.p2, triangle.p3].find(p =>
-                    p.id !== edge.v1.id && p.id !== edge.v2.id
-                );
-               
-                if (!opposite) continue;
-               
-                // Находим внешнюю точку (соседний треугольник)
-                const externalPoint = edge.externalPoint;
-                if (!externalPoint) continue;
-               
-                // Проверяем, есть ли эта внешняя точка в структуре или в кандидатах
-                // Проецируем и проверяем согласованность
-                if (structure.transform) {
-                    // Проецируем новую точку
-                    const projectedNew = this.validator.applyTransform(newPoint, structure.transform);
-                    // Проецируем внешнюю точку
-                    const projectedExternal = this.validator.applyTransform(externalPoint, structure.transform);
-                   
-                    // Расстояние между ними в пространстве модели
-                    const dx = projectedNew.x - projectedExternal.x;
-                    const dy = projectedNew.y - projectedExternal.y;
-                    const dist = Math.sqrt(dx*dx + dy*dy);
-                   
-                    // Ожидаемое расстояние (из графа B)
-                   const nodeA = graphB?.nodes?.get(newPoint.id);
-const nodeB = graphB?.nodes?.get(externalPoint.id);
-const expectedDist = nodeA && nodeB ?
-    Math.sqrt(Math.pow(nodeA.x - nodeB.x, 2) + Math.pow(nodeA.y - nodeB.y, 2)) : 0;
-                   
-                    // Если реальное расстояние сильно отличается от ожидаемого - луч "улетает"
-                    const scale = structure.transform.scale;
-                    const expectedInModel = expectedDist * scale;
-                    const relativeError = Math.abs(dist - expectedInModel) / expectedInModel;
-                   
-                    if (relativeError > 0.3) { // 30% отклонение
-    raysConsistent = false;
-    // 🔥 ФИКСИРУЕМ НЕУДАЧНЫЙ ЛУЧ
-    if (structure.addFailedRay) {
-        structure.addFailedRay(triangle, edge, externalPoint);
+        return false;
     }
-    if (this.debug) {
-        console.log(`      ❌ Луч из новой точки ${newPoint.id.substring(0,8)} улетает:`);
-        console.log(`         ожидал: ${expectedInModel.toFixed(1)}px, получил: ${dist.toFixed(1)}px (ошибка ${(relativeError*100).toFixed(1)}%)`);
+
+    // 🔥 ОПРЕДЕЛЯЕМ НОВЫЕ ТОЧКИ
+    const newPoints = [];
+    const existingPoints = [];
+
+    [triangle.p1, triangle.p2, triangle.p3].forEach(p => {
+        if (p && p.id) {
+            if (structure.pointIds.has(p.id)) {
+                existingPoints.push(p);
+            } else {
+                newPoints.push(p);
+            }
+        }
+    });
+
+    if (newPoints.length > 0 && this.debug) {
+        console.log(`      🔍 Новые точки в треугольнике: ${newPoints.map(p => p.id.substring(0,8)).join(', ')}`);
     }
-    break;
-} else if (externalPoint && structure.addSuccessRay) {
-    // 🔥 ФИКСИРУЕМ УСПЕШНЫЙ ЛУЧ
-    structure.addSuccessRay(triangle, edge, externalPoint);
-}
-                }
-            }
-            if (!raysConsistent) break;
-        }
-       
-        if (!raysConsistent) {
-            this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
-            return false;
-        }
-       
-        // 2. Если в структуре уже есть transform, проверяем согласованность
-        if (structure && structure.transform) {
-            // Создаём временный набор якорей с новым треугольником
-            const existingAnchors = structure.getAnchors ? structure.getAnchors() : [];
-            const newAnchors = this.collectAnchors(null, triangle);
-            const testAnchors = [...existingAnchors, ...newAnchors];
-           
-            if (testAnchors.length < 3) {
-                this.stats.rejections.transformFailed++;
-                return false;
-            }
-           
-            // Вычисляем новый transform
-            const testTransform = this.validator.calculateTransform(
-                testAnchors,
-                graphA,
-                graphB
+
+    // 🔥 ОПРЕДЕЛЯЕМ РЕЖИМ ПРОВЕРКИ
+    // Если в структуре уже есть точки (не первый треугольник), используем мягкий режим для достройки
+    const isExpansion = structure.pointIds.size > 3; // уже есть как минимум 3 точки (первый треугольник)
+    const maxAllowedBadRays = isExpansion ? 1 : 0; // при достройке допускаем 1 плохой луч
+   
+    if (this.debug && isExpansion) {
+        console.log(`      🔧 Режим ДОСТРОЙКИ (допускается ${maxAllowedBadRays} плохой луч)`);
+    }
+
+    let badRays = 0;
+
+    // 🔥 ПРОВЕРКА ЛУЧЕЙ
+    for (const newPoint of newPoints) {
+        const edgesWithNewPoint = triangle.edges.filter(e =>
+            e.v1.id === newPoint.id || e.v2.id === newPoint.id
+        );
+
+        for (const edge of edgesWithNewPoint) {
+            const opposite = [triangle.p1, triangle.p2, triangle.p3].find(p =>
+                p.id !== edge.v1.id && p.id !== edge.v2.id
             );
-           
-            if (!testTransform) {
-                this.stats.rejections.transformFailed++;
-                if (this.debug) {
-                    console.log(`      ❌ Не удалось вычислить transform`);
+            if (!opposite) continue;
+
+            const externalPoint = edge.externalPoint;
+            if (!externalPoint) continue;
+
+            if (structure.transform) {
+                const projectedNew = this.validator.applyTransform(newPoint, structure.transform);
+                const projectedExternal = this.validator.applyTransform(externalPoint, structure.transform);
+
+                const dx = projectedNew.x - projectedExternal.x;
+                const dy = projectedNew.y - projectedExternal.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+
+                const nodeA = graphB?.nodes?.get(newPoint.id);
+                const nodeB = graphB?.nodes?.get(externalPoint.id);
+                const expectedDist = nodeA && nodeB ?
+                    Math.sqrt(Math.pow(nodeA.x - nodeB.x, 2) + Math.pow(nodeA.y - nodeB.y, 2)) : 0;
+
+                const scale = structure.transform.scale;
+                const expectedInModel = expectedDist * scale;
+                const relativeError = expectedInModel > 0 ? Math.abs(dist - expectedInModel) / expectedInModel : 1;
+
+                if (relativeError > 0.3) {
+                    badRays++;
+                    // 🔥 ФИКСИРУЕМ НЕУДАЧНЫЙ ЛУЧ
+                    if (structure.addFailedRay) {
+                        structure.addFailedRay(triangle, edge, externalPoint);
+                    }
+                    if (this.debug) {
+                        console.log(`      ⚠️ Луч из новой точки ${newPoint.id.substring(0,8)} улетает (ошибка ${(relativeError*100).toFixed(1)}%)`);
+                    }
+                } else if (externalPoint && structure.addSuccessRay) {
+                    // 🔥 ФИКСИРУЕМ УСПЕШНЫЙ ЛУЧ
+                    structure.addSuccessRay(triangle, edge, externalPoint);
                 }
-                return false;
             }
-           
-            // Проверяем отклонение масштаба
-            const scaleDiff = Math.abs(testTransform.scale - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
-            if (scaleDiff > this.maxScaleDeviation) {
-                this.stats.rejections.scaleMismatch++;
-                if (this.debug) {
-                    console.log(`      ❌ Масштаб: ${testTransform.scale.toFixed(3)} vs ${structure.transform.scale.toFixed(3)} (${(scaleDiff*100).toFixed(1)}%)`);
-                }
-                return false;
-            }
-           
-            // Проверяем отклонение поворота
-            const rotDiff = Math.abs(testTransform.rotation - structure.transform.rotation) * 180 / Math.PI;
-            if (rotDiff > this.maxRotationDeviation) {
-                this.stats.rejections.rotationMismatch++;
-                if (this.debug) {
-                    console.log(`      ❌ Поворот: ${(testTransform.rotation * 180 / Math.PI).toFixed(1)}° vs ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}° (${rotDiff.toFixed(1)}°)`);
-                }
-                return false;
-            }
-           
-            // Всё хорошо - обновляем transform структуры
-            structure.transform = testTransform;
-           
-            if (this.debug) {
-                console.log(`      ✅ Согласован: масштаб ${testTransform.scale.toFixed(3)}, поворот ${(testTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
-            }
+        }
+    }
+
+    // Проверяем, проходим ли по количеству плохих лучей
+    if (badRays > maxAllowedBadRays) {
+        if (this.debug) {
+            console.log(`      ❌ Отвергнуто: ${badRays} неудачных лучей (допустимо ${maxAllowedBadRays})`);
+        }
+        this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
+        return false;
+    }
+
+    if (this.debug && badRays > 0) {
+        console.log(`      ✅ Лучи: ${badRays} неудачных (допустимо)`);
+    }
+
+    // 2. Если в структуре уже есть transform, проверяем согласованность
+    if (structure && structure.transform) {
+        const existingAnchors = structure.getAnchors ? structure.getAnchors() : [];
+        const newAnchors = this.collectAnchors(null, triangle);
+        const testAnchors = [...existingAnchors, ...newAnchors];
+
+        if (testAnchors.length < 3) {
+            this.stats.rejections.transformFailed++;
+            return false;
         }
 
-// После проверки лучей, перед добавлением треугольника
-if (this.debug && triangle.edges) {
-    let hasExternal = false;
-    for (const e of triangle.edges) {
-        if (e.externalPoint) {
-            hasExternal = true;
-            console.log(`      🔍 Треугольник ${triangle.id.substring(0,12)} имеет луч из ребра ${e.v1.id.substring(0,8)}-${e.v2.id.substring(0,8)} → ${e.externalPoint.id.substring(0,8)}`);
+        const testTransform = this.validator.calculateTransform(
+            testAnchors,
+            graphA,
+            graphB
+        );
+
+        if (!testTransform) {
+            this.stats.rejections.transformFailed++;
+            if (this.debug) {
+                console.log(`      ❌ Не удалось вычислить transform`);
+            }
+            return false;
+        }
+
+        const scaleDiff = Math.abs(testTransform.scale - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
+        if (scaleDiff > this.maxScaleDeviation) {
+            this.stats.rejections.scaleMismatch++;
+            if (this.debug) {
+                console.log(`      ❌ Масштаб: ${testTransform.scale.toFixed(3)} vs ${structure.transform.scale.toFixed(3)} (${(scaleDiff*100).toFixed(1)}%)`);
+            }
+            return false;
+        }
+
+        const rotDiff = Math.abs(testTransform.rotation - structure.transform.rotation) * 180 / Math.PI;
+        if (rotDiff > this.maxRotationDeviation) {
+            this.stats.rejections.rotationMismatch++;
+            if (this.debug) {
+                console.log(`      ❌ Поворот: ${(testTransform.rotation * 180 / Math.PI).toFixed(1)}° vs ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}° (${rotDiff.toFixed(1)}°)`);
+            }
+            return false;
+        }
+
+        structure.transform = testTransform;
+
+        if (this.debug) {
+            console.log(`      ✅ Согласован: масштаб ${testTransform.scale.toFixed(3)}, поворот ${(testTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
         }
     }
-    if (!hasExternal && this.debug) {
-        console.log(`      ⚠️ Треугольник ${triangle.id.substring(0,12)} НЕ ИМЕЕТ лучей (externalPoint отсутствует)`);
+
+    // Отладка лучей
+    if (this.debug && triangle.edges) {
+        let hasExternal = false;
+        for (const e of triangle.edges) {
+            if (e.externalPoint) {
+                hasExternal = true;
+                console.log(`      🔍 Треугольник ${triangle.id.substring(0,12)} имеет луч из ребра ${e.v1.id.substring(0,8)}-${e.v2.id.substring(0,8)} → ${e.externalPoint.id.substring(0,8)}`);
+            }
+        }
+        if (!hasExternal && this.debug) {
+            console.log(`      ⚠️ Треугольник ${triangle.id.substring(0,12)} НЕ ИМЕЕТ лучей (externalPoint отсутствует)`);
+        }
     }
+
+    // Добавляем треугольник
+    if (structure) {
+        structure.addTriangle(triangle);
+    }
+   
+    if (this.debug) {
+        if (badRays === 0) {
+            console.log(`      ✅ Треугольник добавлен (строгий режим)`);
+        } else {
+            console.log(`      ✅ Треугольник добавлен (мягкий режим, ${badRays} плохих лучей)`);
+        }
+    }
+   
+    return true;
 }
-      
-        // Добавляем треугольник
-        if (structure) {
-            structure.addTriangle(triangle);
-        }
-        return true;
-    }
    
     /**
      * Строит структуру от заданного треугольника-затравки
