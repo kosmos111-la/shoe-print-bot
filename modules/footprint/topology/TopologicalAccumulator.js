@@ -2723,18 +2723,20 @@ const finalResult = {
     const structureColors = this.generateStructureColors(rawStructures);
 
     const structures = rawStructures
-        .filter(s => s && s.id)
-        .map(s => ({
-            id: s.id,
-            pointCount: s.pointIds ? s.pointIds.length : 0,
-            pointIds: s.pointIds || [],
-            triangleCount: s.triangleIds ? s.triangleIds.length : 0,
-            transform: s.transform || null,
-            confidence: s.confidence || 0,
-            color: structureColors.get(s.id) || '#CCCCCC',
-            rays: s.rays || [],
-            triangles: s.triangles || []
-        }));
+    .filter(s => s && s.id)
+    .map(s => ({
+        id: s.id,
+        pointCount: s.pointIds ? s.pointIds.length : 0,
+        pointIds: s.pointIds || [],
+        triangleCount: s.triangleIds ? s.triangleIds.length : 0,
+        transform: s.transform || null,
+        confidence: s.confidence || 0,
+        color: structureColors.get(s.id) || '#CCCCCC',
+        rays: s.rays || [],
+        triangles: s.triangles || []  // ← здесь должны быть треугольники
+    }));
+
+console.log(`   • Всего треугольников в структурах: ${structures.reduce((sum, s) => sum + (s.triangles?.length || 0), 0)}`);
 
     const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
         ...node,
