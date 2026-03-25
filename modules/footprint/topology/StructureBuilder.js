@@ -11,32 +11,44 @@ class StructureBuilder {
     constructor(validator, options = {}) {
     this.validator = validator;
     this.debug = options.debug || false;
-   
+
     // Базовые пороги (жёсткий режим)
     this.minConfidence = options.minConfidence || 0.7;
     this.maxScaleDeviation = options.maxScaleDeviation || 0.1;
     this.maxRotationDeviation = options.maxRotationDeviation || 5;
-   
+
     // Дополнительные пороги для мягкого режима
     this.softMinConfidence = options.softMinConfidence || 0.6;
     this.softMaxScaleDeviation = options.softMaxScaleDeviation || 0.15;
     this.softMaxRotationDeviation = options.softMaxRotationDeviation || 10;
     this.maxAllowedBadRays = options.maxAllowedBadRays || 1;
-   
+
     // Режим мягкости (0 = строгий, 1 = средний, 2 = мягкий)
     this.softnessLevel = options.softnessLevel || 0;
-       
-        this.stats = {
-            structuresBuilt: 0,
-            trianglesProcessed: 0,
-            rejections: {
-                lowConfidence: 0,
-                scaleMismatch: 0,
-                rotationMismatch: 0,
-                transformFailed: 0,
-                rayMismatch: 0  // 🔥 НОВОЕ
-            }
-        };
+
+    // 🔥 НОВОЕ: хранилище отвергнутых кандидатов для повторной проверки
+    this.rejectedCandidates = new Map(); // edgeKey -> [{ triangle, reason, timestamp }]
+   
+    // 🔥 НОВОЕ: счётчик повторных попыток
+    this.retryCount = 0;
+    this.maxRetries = options.maxRetries || 3;
+
+    this.stats = {
+        structuresBuilt: 0,
+        trianglesProcessed: 0,
+        rejections: {
+            lowConfidence: 0,
+            scaleMismatch: 0,
+            rotationMismatch: 0,
+            transformFailed: 0,
+            rayMismatch: 0,
+            angleMismatch: 0  // 🔥 ДОБАВЛЯЕМ
+        },
+        retries: {
+            attempted: 0,
+            successful: 0
+        }
+    };
        
         if (this.debug) {
             console.log('🔨 StructureBuilder создан');
@@ -352,12 +364,38 @@ tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorpholo
         }
         if (this.debug) console.log(`      ✅ Треугольник добавлен (строгая проверка)`);
         return true;
-    }
+   }
 
-    // ==================== ЭТАП 2: МЯГКАЯ ПРОВЕРКА ПО УГЛАМ ====================
+// 🔥 ЕСЛИ НЕ ПРОШЛИ СТРОГУЮ ПРОВЕРКУ ПО ЛУЧАМ
+if (badRays > maxAllowedBadRays) {
     if (this.debug) {
-        console.log(`      🔧 ЭТАП 2: Мягкая проверка по углам (допуск ${this.angleTolerance || 3.5}°)`);
+        console.log(`      ❌ Отвергнуто: ${badRays} неудачных лучей (допустимо ${maxAllowedBadRays})`);
     }
+    this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
+   
+    // Сохраняем отвергнутого кандидата
+    const incomingEdge = this.getIncomingEdge(triangle, structure);
+    if (incomingEdge) {
+        const edgeKey = [incomingEdge.v1.id, incomingEdge.v2.id].sort().join('--');
+        if (!this.rejectedCandidates.has(edgeKey)) {
+            this.rejectedCandidates.set(edgeKey, []);
+        }
+        this.rejectedCandidates.get(edgeKey).push({
+            triangle,
+            reason: 'bad_rays',
+            badRays,
+            maxAllowedBadRays,
+            timestamp: Date.now()
+        });
+    }
+   
+    return false;
+}
+
+// ==================== ЭТАП 2: МЯГКАЯ ПРОВЕРКА ПО УГЛАМ ====================
+if (this.debug) {
+    console.log(`      🔧 ЭТАП 2: Мягкая проверка по углам (допуск ${this.angleTolerance || 3.5}°)`);
+}
 
     // Получаем соответствия точек фото -> модель из структуры
     const pointToModel = this.getPointToModelMap(structure);
@@ -417,12 +455,29 @@ tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorpholo
     }
    
     if (!anglesOk) {
-        if (this.debug) {
-            console.log(`      ❌ Мягкая проверка не пройдена`);
-        }
-        this.stats.rejections.angleMismatch = (this.stats.rejections.angleMismatch || 0) + 1;
-        return false;
+    if (this.debug) {
+        console.log(`      ❌ Мягкая проверка не пройдена`);
     }
+    this.stats.rejections.angleMismatch = (this.stats.rejections.angleMismatch || 0) + 1;
+   
+    // 🔥 СОХРАНЯЕМ ОТВЕРГНУТОГО КАНДИДАТА
+    const incomingEdge = this.getIncomingEdge(triangle, structure);
+    if (incomingEdge) {
+        const edgeKey = [incomingEdge.v1.id, incomingEdge.v2.id].sort().join('--');
+        if (!this.rejectedCandidates.has(edgeKey)) {
+            this.rejectedCandidates.set(edgeKey, []);
+        }
+        this.rejectedCandidates.get(edgeKey).push({
+            triangle,
+            reason: 'bad_angle',
+            maxAngleDiff,
+            angleTolerance,
+            timestamp: Date.now()
+        });
+    }
+   
+    return false;
+}
    
     if (this.debug && checkedAngles > 0) {
         console.log(`      ✅ Мягкая проверка пройдена (макс. отклонение: ${maxAngleDiff.toFixed(1)}°)`);
@@ -466,7 +521,127 @@ tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorpholo
    
     return true;
 }
+
+/**
+* Получает карту соответствия pointId фото -> pointId модели из структуры
+*/
+getPointToModelMap(structure) {
+    const map = new Map();
+    const anchors = structure.getAnchors();
+    for (const anchor of anchors) {
+        if (anchor.pointA && anchor.pointB) {
+            map.set(anchor.pointA, anchor.pointB);
+        }
+    }
+    return map;
+}
+
+/**
+* Вычисляет угол в фото между тремя точками
+*/
+calcAngleInPhoto(vertex, point1, point2) {
+    const v1x = point1.x - vertex.x;
+    const v1y = point1.y - vertex.y;
+    const v2x = point2.x - vertex.x;
+    const v2y = point2.y - vertex.y;
    
+    const dot = v1x * v2x + v1y * v2y;
+    const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
+    const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
+   
+    const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return Math.acos(cos) * 180 / Math.PI;
+}
+
+/**
+* Вычисляет угол в модели между точками
+*/
+calcAngleInModel(modelVertex, modelOther, modelEdgeV1, modelEdgeV2) {
+    const v1x = modelOther.x - modelVertex.x;
+    const v1y = modelOther.y - modelVertex.y;
+   
+    const midX = (modelEdgeV1.x + modelEdgeV2.x) / 2;
+    const midY = (modelEdgeV1.y + modelEdgeV2.y) / 2;
+    const v2x = midX - modelVertex.x;
+    const v2y = midY - modelVertex.y;
+   
+    const dot = v1x * v2x + v1y * v2y;
+    const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
+    const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
+   
+    const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return Math.acos(cos) * 180 / Math.PI;
+}
+  
+/**
+* Находит ребро, через которое пришли к треугольнику
+*/
+getIncomingEdge(triangle, structure) {
+    for (const edge of triangle.edges) {
+        if (structure.pointIds.has(edge.v1.id) && structure.pointIds.has(edge.v2.id)) {
+            return edge;
+        }
+    }
+    return null;
+}
+  
+/**
+* Повторно проверяет ранее отвергнутые кандидаты
+* @returns {number} количество успешно добавленных треугольников
+*/
+retryRejectedCandidates(structure, graphA, graphB, morphologyMap, modelMorphology) {
+    if (this.rejectedCandidates.size === 0) return 0;
+   
+    this.retryCount++;
+    if (this.debug) {
+        console.log(`\n   🔄 ПОВТОРНАЯ ПРОВЕРКА (попытка ${this.retryCount}/${this.maxRetries})`);
+        console.log(`   📋 Отвергнутых кандидатов: ${this.rejectedCandidates.size} рёбер`);
+    }
+   
+    let totalAdded = 0;
+    const newRejected = new Map();
+   
+    for (const [edgeKey, candidates] of this.rejectedCandidates) {
+        const stillRejected = [];
+       
+        for (const candidate of candidates) {
+            if (structure.triangleIds.has(candidate.triangle.id)) continue;
+           
+            const added = this.tryAddTriangle(
+                candidate.triangle,
+                structure,
+                graphA,
+                graphB,
+                morphologyMap,
+                modelMorphology
+            );
+           
+            if (added) {
+                totalAdded++;
+                this.stats.retries.successful++;
+                if (this.debug) {
+                    console.log(`      ✅ Повторно добавлен треугольник ${candidate.triangle.id.substring(0,12)} (ранее отвергнут: ${candidate.reason})`);
+                }
+            } else {
+                stillRejected.push(candidate);
+            }
+        }
+       
+        if (stillRejected.length > 0) {
+            newRejected.set(edgeKey, stillRejected);
+        }
+    }
+   
+    this.rejectedCandidates = newRejected;
+    this.stats.retries.attempted++;
+   
+    if (this.debug && totalAdded > 0) {
+        console.log(`   📊 Повторно добавлено: ${totalAdded} треугольников`);
+    }
+   
+    return totalAdded;
+}
+  
     /**
      * Строит структуру от заданного треугольника-затравки
      * @param {Object} seedTriangle - начальный треугольник (уже должен быть якорем)
@@ -600,24 +775,52 @@ if (seedTriangle.p1.id === seedTriangle.p2.id ||
                 }
             }
         }
-       
+
+        // 🔥 ЦИКЛ ПОВТОРНЫХ ПРОВЕРОК
+        let retryAdded = 0;
+        let retryIteration = 0;
+        const maxRetryIterations = 5;
+
+        do {
+            retryAdded = this.retryRejectedCandidates(structure, graphA, graphB, morphologyMap, modelMorphology);
+            retryIteration++;
+           
+            if (retryAdded > 0 && this.debug) {
+                console.log(`   🔄 Итерация ${retryIteration}: добавлено ${retryAdded} треугольников при повторной проверке`);
+               
+                // Пересчитываем transform после добавления новых треугольников
+                if (structure.triangleIds.size >= 2 && this.validator) {
+                    const anchors = structure.getAnchors ? structure.getAnchors() : [];
+                    if (anchors.length >= 3) {
+                        const transform = this.validator.calculateTransform(anchors, graphA, graphB);
+                        if (transform) {
+                            structure.transform = transform;
+                        }
+                    }
+                }
+            }
+        } while (retryAdded > 0 && retryIteration < maxRetryIterations);
+
         this.stats.structuresBuilt++;
         this.stats.trianglesProcessed += structure.triangleIds.size;
-       
+
         if (this.debug) {
             const stats = structure.getStats ? structure.getStats() : { triangleCount: structure.triangleIds.size, pointCount: structure.pointIds.size, confidence: 0.5 };
             console.log(`\n📊 Структура построена:`);
-console.log(`   • Треугольников: ${stats.triangleCount}`);
-console.log(`   • Точек: ${stats.pointCount}`);
-console.log(`   • Успешных лучей: ${stats.successRayCount || 0}`);
-console.log(`   • Неудачных лучей: ${stats.failedRayCount || 0}`);
-console.log(`   • Уверенность: ${(stats.confidence * 100).toFixed(1)}%`);
+console.log(`   • Треугольников: ${stats.triangleCount}`);
+console.log(`   • Точек: ${stats.pointCount}`);
+console.log(`   • Успешных лучей: ${stats.successRayCount || 0}`);
+console.log(`   • Неудачных лучей: ${stats.failedRayCount || 0}`);
+console.log(`   • Уверенность: ${(stats.confidence * 100).toFixed(1)}%`);
             if (structure.transform) {
-                console.log(`   • Масштаб: ${structure.transform.scale.toFixed(3)}`);
-                console.log(`   • Поворот: ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                console.log(`   • Масштаб: ${structure.transform.scale.toFixed(3)}`);
+                console.log(`   • Поворот: ${(structure.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+            }
+            if (retryIteration > 1) {
+                console.log(`   ✅ Повторных итераций: ${retryIteration}, добавлено всего: ${this.stats.retries.successful}`);
             }
         }
-       
+
         return structure;
     }
    
