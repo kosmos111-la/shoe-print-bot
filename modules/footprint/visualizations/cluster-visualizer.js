@@ -121,17 +121,38 @@ class ClusterVisualizer {
      */
     drawStructures(ctx, structures, avgX, avgY, centerX, centerY, scale) {
     console.log(`   🎨 Отрисовка ${structures.length} структур...`);
-
-    // Находим главную структуру
-    let mainStructure = null;
-    let maxPoints = 0;
+   
     for (const structure of structures) {
-        const pointCount = structure.pointCount || 0;
-        if (pointCount > maxPoints) {
-            maxPoints = pointCount;
-            mainStructure = structure;
+        const triangles = structure.triangles || [];
+        console.log(`      Структура ${structure.id.substring(0,12)}: ${triangles.length} треугольников`);
+       
+        if (triangles.length === 0) continue;
+       
+        const isMain = structure === structures[0]; // первая — главная
+        const color = isMain ? '#FF0000' : '#FFA500';
+       
+        for (const triangle of triangles) {
+            if (!triangle.p1 || !triangle.p2 || !triangle.p3) continue;
+           
+            const points = [triangle.p1, triangle.p2, triangle.p3].map(p => ({
+                x: centerX + (p.x - avgX) * scale,
+                y: centerY + (p.y - avgY) * scale
+            }));
+           
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            ctx.lineTo(points[1].x, points[1].y);
+            ctx.lineTo(points[2].x, points[2].y);
+            ctx.closePath();
+           
+            ctx.fillStyle = color + '40';
+            ctx.fill();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.stroke();
         }
     }
+}
 
         // Сначала рисуем все лучи (чтобы были под треугольниками)
 //        for (const structure of structures) {
