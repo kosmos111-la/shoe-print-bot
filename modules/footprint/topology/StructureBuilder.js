@@ -599,7 +599,10 @@ getIncomingEdge(triangle, structure) {
 * @returns {number} количество успешно добавленных треугольников
 */
 retryRejectedCandidates(structure, graphA, graphB, morphologyMap, modelMorphology) {
+    console.log(`\n   🔍 retryRejectedCandidates вызван, rejectedCandidates.size = ${this.rejectedCandidates.size}`);
+   
     if (this.rejectedCandidates.size === 0) return 0;
+
    
     this.retryCount++;
     if (this.debug) {
@@ -786,8 +789,9 @@ if (seedTriangle.p1.id === seedTriangle.p2.id ||
         }
 
         // 🔥 ЦИКЛ ПОВТОРНЫХ ПРОВЕРОК
-        let retryAdded = 0;
-        let retryIteration = 0;
+        console.log(`\n   🔍 Начинаю цикл повторных проверок, rejectedCandidates.size = ${this.rejectedCandidates.size}`);
+let retryAdded = 0;
+let retryIteration = 0;
         const maxRetryIterations = 5;
 
         do {
