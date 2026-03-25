@@ -1,6 +1,5 @@
 // modules/footprint/visualizations/cluster-visualizer.js
 // 🎨 ТОПОЛОГИЧЕСКАЯ ВИЗУАЛИЗАЦИЯ - С УНИКАЛЬНЫМИ ТОЧКАМИ
-// 🔥 С ОТРИСОВКОЙ СТРУКТУР И ЛУЧЕЙ
 
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +22,7 @@ class ClusterVisualizer {
             fs.mkdirSync(this.config.outputDir, { recursive: true });
         }
 
-        console.log('🎨 ClusterVisualizer (с уникальными точками и лучами структур) создан');
+        console.log('🎨 ClusterVisualizer (с уникальными точками) создан');
     }
 
     async visualizeTopologicalModel(topologyData, options = {}) {
@@ -91,9 +90,9 @@ class ClusterVisualizer {
         const modelMatchMap = topologyData.modelMatchMap || new Map();
         console.log(`   📋 modelMatchMap содержит ${modelMatchMap.size} записей`);
 
-        // 🔥 РИСУЕМ СТРУКТУРЫ (треугольники и лучи)
+        // Рисуем структуры (треугольники)
         const structures = (topologyData.structures || []).filter(s => s && s.id);
-        if (structures.length > 0 && this.config.showStructureRays) {
+        if (structures.length > 0) {
             this.drawStructures(ctx, structures, avgX, avgY, centerX, centerY, scale);
         }
 
@@ -116,117 +115,48 @@ class ClusterVisualizer {
         });
     }
 
-    /**
-     * 🔥 НОВЫЙ МЕТОД: отрисовка структур (треугольники и лучи)
-     */
     drawStructures(ctx, structures, avgX, avgY, centerX, centerY, scale) {
-    console.log(`   🎨 Отрисовка ${structures.length} структур...`);
-   
-    for (const structure of structures) {
-        const triangles = structure.triangles || [];
-        if (triangles.length === 0) continue;
+        console.log(`   🎨 Отрисовка ${structures.length} структур...`);
        
-        // Первая структура — главная (красная), остальные — оранжевые
-        const isMain = structure === structures[0];
-        const color = isMain ? '#FF0000' : '#FFA500';
+        let trianglesDrawn = 0;
        
-        console.log(`      ${isMain ? 'Главная' : 'Дополнительная'} структура: ${triangles.length} треугольников`);
-       
-        for (const triangle of triangles) {
-            if (!triangle.p1 || !triangle.p2 || !triangle.p3) continue;
+        for (let i = 0; i < structures.length; i++) {
+            const structure = structures[i];
+            const triangles = structure.triangles || [];
            
-            const points = [triangle.p1, triangle.p2, triangle.p3].map(p => ({
-                x: centerX + (p.x - avgX) * scale,
-                y: centerY + (p.y - avgY) * scale
-            }));
+            if (triangles.length === 0) continue;
            
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            ctx.lineTo(points[1].x, points[1].y);
-            ctx.lineTo(points[2].x, points[2].y);
-            ctx.closePath();
+            // Первая структура — главная (красная), остальные — оранжевые
+            const isMain = i === 0;
+            const color = isMain ? '#FF0000' : '#FFA500';
            
-            ctx.fillStyle = color + '40';
-            ctx.fill();
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
-            ctx.stroke();
+            console.log(`      ${isMain ? 'Главная' : 'Дополнительная'} структура: ${triangles.length} треугольников`);
+           
+            for (const triangle of triangles) {
+                if (!triangle.p1 || !triangle.p2 || !triangle.p3) continue;
+               
+                const points = [triangle.p1, triangle.p2, triangle.p3].map(p => ({
+                    x: centerX + (p.x - avgX) * scale,
+                    y: centerY + (p.y - avgY) * scale
+                }));
+               
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, points[0].y);
+                ctx.lineTo(points[1].x, points[1].y);
+                ctx.lineTo(points[2].x, points[2].y);
+                ctx.closePath();
+               
+                ctx.fillStyle = color + '40';
+                ctx.fill();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                trianglesDrawn++;
+            }
         }
-    }
-}
-
-        // Сначала рисуем все лучи (чтобы были под треугольниками)
-//        for (const structure of structures) {
-//            const rays = structure.rays || [];
-//            const isMain = structure === mainStructure;
-           
-//            for (const ray of rays) {
-//                if (!ray.fromPoint || !ray.toPoint) continue;
-               
-//                const fromX = centerX + (ray.fromPoint.x - avgX) * scale;
-//                const fromY = centerY + (ray.fromPoint.y - avgY) * scale;
-//                const toX = centerX + (ray.toPoint.x - avgX) * scale;
-//                const toY = centerY + (ray.toPoint.y - avgY) * scale;
-               
-//                ctx.beginPath();
-//                ctx.moveTo(fromX, fromY);
-//                ctx.lineTo(toX, toY);
-               
-//                if (ray.type === 'success') {
-//                    ctx.strokeStyle = '#00AAFF'; // голубой
-//                    ctx.lineWidth = 2;
-//                } else {
-//                    ctx.strokeStyle = '#CCCCCC'; // светло-серый
-//                    ctx.lineWidth = 1;
-//                    ctx.setLineDash([5, 5]);
-//                }
-               
-//                ctx.stroke();
-//                ctx.setLineDash([]);
-               
-                // Рисуем стрелку на конце луча
- //               const angle = Math.atan2(toY - fromY, toX - fromX);
-//                const arrowSize = 6;
-//                const arrowX = toX - arrowSize * Math.cos(angle);
-//                const arrowY = toY - arrowSize * Math.sin(angle);
-//               
-//                ctx.beginPath();
-//                ctx.moveTo(arrowX, arrowY);
-//                ctx.lineTo(arrowX - arrowSize * 0.5 * Math.sin(angle), arrowY + arrowSize * 0.5 * Math.cos(angle));
-//                ctx.lineTo(arrowX + arrowSize * 0.5 * Math.sin(angle), arrowY - arrowSize * 0.5 * Math.cos(angle));
-//                ctx.fillStyle = ray.type === 'success' ? '#00AAFF' : '#CCCCCC';
-//                ctx.fill();
-//            }
-//        }
-
-        // Затем рисуем треугольники (поверх лучей)
-        for (const structure of structures) {
-        const isMain = structure === mainStructure;
-        const color = isMain ? '#FF0000' : '#FFA500';
-        const triangles = structure.triangles || [];
        
-        for (const triangle of triangles) {
-            if (!triangle.p1 || !triangle.p2 || !triangle.p3) continue;
-           
-            const points = [triangle.p1, triangle.p2, triangle.p3].map(p => ({
-                x: centerX + (p.x - avgX) * scale,
-                y: centerY + (p.y - avgY) * scale
-            }));
-           
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            ctx.lineTo(points[1].x, points[1].y);
-            ctx.lineTo(points[2].x, points[2].y);
-            ctx.closePath();
-           
-            ctx.fillStyle = color + '40';
-            ctx.fill();
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-        }
+        console.log(`   🎨 Нарисовано треугольников: ${trianglesDrawn}`);
     }
-}
 
     drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale, uniqueInModel = []) {
         const points = topologyData.points;
@@ -234,17 +164,6 @@ class ClusterVisualizer {
 
         console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
         console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
-        console.log(`   🎨 Структур в данных: ${structures.length}`);
-
-        if (structures.length > 0) {
-            console.log(`   🎨 Первые 5 структур:`);
-            structures.slice(0, 5).forEach(s => {
-                const pointCount = s.pointCount || 0;
-                const rayCount = s.rays?.length || 0;
-                const successRays = s.rays?.filter(r => r.type === 'success').length || 0;
-                console.log(`      ${s.id.substring(0,12)}: ${pointCount} точек, ${rayCount} лучей (${successRays} успешных)`);
-            });
-        }
 
         let uniqueInModelPoints = 0;
         for (const point of uniqueInModel) {
@@ -270,16 +189,10 @@ class ClusterVisualizer {
            
             const confirmations = point.confirmationCount || 0;
             const pairNumber = modelMatchMap.get(point.id)?.pairNumber;
-            const structureId = point.structureId;
-            const structureColor = point.structureColor;
            
             let color, size, label = '';
-           
-            if (structureId && structureColor) {
-                color = structureColor;
-                size = 8;
-                if (pairNumber) label = pairNumber.toString();
-            } else if (pairNumber) {
+
+            if (pairNumber) {
                 color = '#FFD700';
                 size = 8;
                 label = pairNumber.toString();
@@ -311,30 +224,13 @@ class ClusterVisualizer {
             }
         }
        
-        const structureStats = {};
-        for (const point of points) {
-            if (point.structureId) {
-                structureStats[point.structureId] = (structureStats[point.structureId] || 0) + 1;
-            }
-        }
-       
-        const structureSummary = Object.entries(structureStats)
-            .slice(0, 5)
-            .map(([id, count]) => {
-                const structure = structures.find(s => s.id === id);
-                const rayCount = structure?.rays?.length || 0;
-                return `${id.substring(0,6)}:${count}п,${rayCount}л`;
-            })
-            .join(', ');
-       
-        console.log(`   🎯 Модель: ${structures.length} структур, уникальных: ${uniqueInModelPoints}, остальных: ${points.length - uniqueInModelPoints}`);
-        console.log(`   🎨 Структуры: ${structureSummary || 'нет'}`);
+        console.log(`   🎯 Модель: уникальных: ${uniqueInModelPoints}, остальных: ${points.length - uniqueInModelPoints}`);
     }
 
     drawStructureLegend(ctx, structures, canvasWidth) {
         if (!structures || structures.length === 0) return;
        
-        const legendX = canvasWidth - 260;
+        const legendX = canvasWidth - 220;
         const legendY = 120;
         const lineHeight = 22;
        
@@ -342,23 +238,15 @@ class ClusterVisualizer {
         ctx.fillStyle = '#FFFFFF';
         ctx.shadowColor = 'rgba(0,0,0,0.5)';
         ctx.shadowBlur = 2;
-        ctx.fillText('🏗️ СТРУКТУРЫ (лучи):', legendX, legendY - 5);
+        ctx.fillText('🏗️ СТРУКТУРЫ:', legendX, legendY - 5);
         ctx.shadowBlur = 0;
        
-        // Легенда типов лучей
-        ctx.font = '10px Arial';
-        ctx.fillStyle = '#00AAFF';
-        ctx.fillText('——— успешный луч', legendX, legendY + 10);
-        ctx.fillStyle = '#CCCCCC';
-        ctx.fillText('‑‑‑ неудачный луч', legendX, legendY + 25);
-       
-        const topStructures = structures
-            .sort((a, b) => (b.pointCount || 0) - (a.pointCount || 0))
-            .slice(0, 6);
+        const topStructures = structures.slice(0, 6);
        
         topStructures.forEach((structure, idx) => {
             const y = legendY + 50 + idx * lineHeight;
             const isMain = idx === 0;
+            const triangles = structure.triangles?.length || 0;
            
             ctx.fillStyle = isMain ? '#FF0000' : '#FFA500';
             ctx.fillRect(legendX, y - 8, 12, 12);
@@ -366,60 +254,54 @@ class ClusterVisualizer {
             ctx.lineWidth = 0.5;
             ctx.strokeRect(legendX, y - 8, 12, 12);
            
-            const pointCount = structure.pointCount || 0;
-            const rayCount = structure.rays?.length || 0;
-            const successRays = structure.rays?.filter(r => r.type === 'success').length || 0;
-           
             ctx.fillStyle = '#FFFFFF';
+            ctx.font = '10px Arial';
             ctx.fillText(
-                `${structure.id.substring(0,6)}: ${pointCount}т, ${successRays}/${rayCount}л`,
+                `${isMain ? 'Главная' : 'Доп.'}: ${triangles} тр.`,
                 legendX + 18, y
             );
         });
-       
-        if (structures.length > 7) {
-            ctx.fillStyle = '#AAAAAA';
-            ctx.fillText(`+ еще ${structures.length - 6} структур`, legendX, legendY + 50 + 6 * lineHeight);
-        }
     }
 
     async drawPhoto(topologyData, options) {
-        // ... существующий код (без изменений)
         const canvas = require('canvas').createCanvas(this.config.canvasWidth, this.config.canvasHeight);
         const ctx = canvas.getContext('2d');
-       
+
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, this.config.canvasWidth, this.config.canvasHeight);
+
         ctx.fillStyle = '#212529';
         ctx.font = 'bold 26px Arial';
         ctx.textAlign = 'center';
         ctx.fillText(`📸 ФОТО - ТОЧКИ`, this.config.canvasWidth / 2, 45);
-       
+
         const validPoints = topologyData.points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
         const { minX, maxX, minY, maxY } = this.calculateBounds(validPoints);
+
         const scale = this.calculateScale(minX, maxX, minY, maxY,
             this.config.canvasWidth * 0.8, this.config.canvasHeight * 0.7);
+
         const centerX = this.config.canvasWidth / 2;
         const centerY = this.config.canvasHeight / 2 + 50;
         const avgX = (minX + maxX) / 2;
         const avgY = (minY + maxY) / 2;
-       
+
         if (this.config.showEdges && topologyData.edges) {
             this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
         }
-       
+
         const photoPoints = topologyData.photoPoints || [];
         console.log(`   📸 Рисую ${photoPoints.length} точек фото`);
         const matchMap = topologyData.matchMap || new Map();
         console.log(`   📋 matchMap содержит ${matchMap.size} записей`);
-       
+
         this.drawPhotoPoints(ctx, photoPoints, matchMap, avgX, avgY, centerX, centerY, scale,
             topologyData.transform, topologyData.uniquePoints?.photo);
         this.drawPhotoStats(ctx, topologyData.stats, this.config.canvasWidth, matchMap.size);
-       
+
         const filename = options.filename ? options.filename.replace('.png', '_photo.png') : `photo_${Date.now()}.png`;
         const outputPath = path.join(this.config.outputDir, filename);
-       
+
         return new Promise((resolve, reject) => {
             const out = fs.createWriteStream(outputPath);
             const stream = canvas.createPNGStream();
@@ -433,23 +315,19 @@ class ClusterVisualizer {
     }
 
     drawPhotoPoints(ctx, points, matchMap, avgX, avgY, centerX, centerY, scale, transform, uniqueInPhoto = []) {
-        // ... существующий код (без изменений)
         const photoToPair = new Map();
-        const photoToStatus = new Map();
-       
         for (const [photoId, match] of matchMap) {
             if (match && match.pairNumber) {
                 photoToPair.set(photoId, match.pairNumber);
-                photoToStatus.set(photoId, match.status || 'anchor');
             }
         }
-       
-        let anchorPoints = 0, confirmedPoints = 0, candidatePoints = 0,
-            uniqueInPhotoPoints = 0, unmatchedPoints = 0;
-       
+
+        let uniqueInPhotoPoints = 0, unmatchedPoints = 0, matchedPoints = 0;
+
         for (const point of uniqueInPhoto) {
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
+           
             ctx.fillStyle = '#AA00FF';
             ctx.beginPath();
             ctx.arc(x, y, 6, 0, Math.PI * 2);
@@ -459,42 +337,26 @@ class ClusterVisualizer {
             ctx.stroke();
             ctx.fillStyle = '#000000';
             ctx.font = 'bold 8px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
             ctx.fillText('?', x, y);
             uniqueInPhotoPoints++;
         }
-       
+
         for (const point of points) {
             if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+           
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
             const pairNumber = photoToPair.get(point.id);
-            const status = photoToStatus.get(point.id);
             const hasMatch = matchMap.has(point.id);
            
             let color, size;
             let label = '';
-           
+
             if (hasMatch) {
-                if (status === 'anchor') {
-                    color = '#FF0000';
-                    label = pairNumber.toString();
-                    anchorPoints++;
-                } else if (status === 'confirmed' || status === 'validator_found') {
-                    color = '#00FF00';
-                    label = '✓' + pairNumber;
-                    confirmedPoints++;
-                } else if (status === 'candidate') {
-                    color = '#FFA500';
-                    label = '?' + pairNumber;
-                    candidatePoints++;
-                } else {
-                    color = '#4CAF50';
-                    label = pairNumber.toString();
-                    confirmedPoints++;
-                }
+                color = '#AA00FF';
                 size = 8;
+                if (pairNumber) label = pairNumber.toString();
+                matchedPoints++;
             } else {
                 color = '#2196F3';
                 size = 5;
@@ -510,15 +372,13 @@ class ClusterVisualizer {
             ctx.stroke();
            
             if (label) {
-                ctx.fillStyle = '#000000';
+                ctx.fillStyle = '#FFFFFF';
                 ctx.font = 'bold 8px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
                 ctx.fillText(label, x, y);
             }
         }
        
-        console.log(`   🎯 Фото: 🔴 ${anchorPoints} якорей, 🟢 ${confirmedPoints} подтверждённых, 🟠 ${candidatePoints} кандидатов, 🟣 ${uniqueInPhotoPoints} только в фото, 🔵 ${unmatchedPoints} новых`);
+        console.log(`   🎯 Фото: 🟣 ${matchedPoints} сопоставлено, 🔵 ${unmatchedPoints} новых, 🟣 ${uniqueInPhotoPoints} только в фото`);
     }
 
     drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale) {
@@ -563,8 +423,8 @@ class ClusterVisualizer {
         const rows = [
             `Узлов: ${stats.totalNodes || 0}`,
             `Рёбер: ${stats.totalEdges || 0}`,
-            `🔴 С номерами: ${stats.confirmed3 || 0}`,
-            `🟡 Подтвержденных: ${stats.confirmed2 || 0}`,
+            `🟡 С номерами: ${stats.confirmed3 || 0}`,
+            `🟠 Подтвержденных: ${stats.confirmed2 || 0}`,
             `🔵 Новых: ${stats.confirmed1 || 0}`,
             `⚪ Неподтвержденных: ${stats.confirmed0 || 0}`
         ];
@@ -626,25 +486,6 @@ class ClusterVisualizer {
             report += `• Название: ${topologyData.modelName || 'Неизвестная'}\n`;
             report += `• Узлов: ${topologyData.stats?.totalNodes || 0}\n`;
             report += `• Рёбер: ${topologyData.stats?.totalEdges || 0}\n`;
-           
-            const structures = topologyData.structures || [];
-            if (structures.length > 0) {
-                report += `\n🏗️ СТРУКТУРЫ (${structures.length} шт):\n`;
-                report += `┌─────┬──────────────────┬──────────┬──────────────┬──────────────┐\n`;
-                report += `│  #  │       ID         │  точек  │  успеш/всего │   трансформация   │\n`;
-                report += `├─────┼──────────────────┼──────────┼──────────────┼───────────────────┤\n`;
-               
-                structures.forEach((s, idx) => {
-                    const id = s.id.substring(0, 16);
-                    const points = s.pointCount || 0;
-                    const rays = s.rays || [];
-                    const successRays = rays.filter(r => r.type === 'success').length;
-                    const scale = s.transform?.scale?.toFixed(3) || '?';
-                    const rotation = s.transform ? (s.transform.rotation * 180 / Math.PI).toFixed(1) : '?';
-                    report += `│ ${(idx+1).toString().padEnd(3)} │ ${id.padEnd(16)} │ ${points.toString().padEnd(8)} │ ${successRays}/${rays.length} │ ${scale}x,${rotation}° │\n`;
-                });
-                report += `└─────┴──────────────────┴──────────┴──────────────┴───────────────────┘\n`;
-            }
         }
         fs.writeFileSync(outputPath, report, 'utf8');
         return {
