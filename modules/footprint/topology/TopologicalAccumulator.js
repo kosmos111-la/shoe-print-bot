@@ -2721,18 +2721,20 @@ const finalResult = {
     const structureColors = this.generateStructureColors(rawStructures);
 
     const structures = rawStructures
-        .filter(s => s && s.id)
-        .map(s => ({
-            id: s.id,
-            pointCount: s.pointIds ? s.pointIds.length : 0,
-            pointIds: s.pointIds || [],
-            triangleCount: s.triangleIds ? s.triangleIds.length : 0,
-            transform: s.transform || null,
-            confidence: s.confidence || 0,
-            color: structureColors.get(s.id) || '#CCCCCC',
-            rays: s.rays || [],
-            triangles: s.triangles || []
-        }));
+    .filter(s => s && s.id)
+    .map(s => ({
+        id: s.id,
+        pointCount: s.pointIds ? s.pointIds.length : 0,
+        pointIds: s.pointIds || [],
+        triangleCount: s.triangleIds ? s.triangleIds.length : 0,
+        transform: s.transform || null,
+        confidence: s.confidence || 0,
+        color: structureColors.get(s.id) || '#CCCCCC',
+        rays: s.rays || [],
+        triangles: s.triangles || []  // ← это должно быть заполнено
+    }));
+
+console.log(`   • Треугольников в структурах: ${structures.reduce((sum, s) => sum + (s.triangles?.length || 0), 0)}`);
 
     const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
         ...node,
@@ -2765,10 +2767,12 @@ const finalResult = {
 
     // graph — это модель, это правильно
 const modelTriangles = this.extractTrianglesFromGraph(graph);
-console.log(`   • modelTriangles из модели: ${modelTriangles.length} треугольников`);
-console.log(`   • Первый треугольник модели: p1=${modelTriangles[0]?.p1?.id?.substring(0,20)}`);
-const modelPointToStructure = pointToStructure; // это уже из model.pointToStructure
 
+// pointToStructure уже содержит ID точки модели → ID структуры
+const pointToStructure = model.pointToStructure || new Map();
+
+console.log(`   • modelTriangles из модели: ${modelTriangles.length}`);
+console.log(`   • pointToStructure (модель): ${pointToStructure.size} записей`);
 // 🔥 ОТЛАДКА: показываем первые ID из pointToStructure
 console.log(`   • pointToStructure содержит ID модели: ${Array.from(modelPointToStructure.keys()).slice(0,3).map(k => k.substring(0,20)).join(', ')}`);
 
