@@ -83,7 +83,7 @@ class StructureManager {
             }
            
             if (alreadyInStructure) {
-                if (this.debug && triangleId) console.log(`   ⏭️ Треугольник ${triangleId.substring(0,12)} уже в структуре, пропускаем`);
+               if (this.debug) console.log(`   ⏭️ Треугольник ${triangleId.substring(0,12)} уже в структуре, пропускаем`);
                 continue;
             }
            
