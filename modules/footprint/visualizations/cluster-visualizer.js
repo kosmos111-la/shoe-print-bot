@@ -124,12 +124,13 @@ class ClusterVisualizer {
    
     for (const structure of structures) {
         const triangles = structure.triangles || [];
-        console.log(`      Структура ${structure.id.substring(0,12)}: ${triangles.length} треугольников`);
-       
         if (triangles.length === 0) continue;
        
-        const isMain = structure === structures[0]; // первая — главная
+        // Первая структура — главная (красная), остальные — оранжевые
+        const isMain = structure === structures[0];
         const color = isMain ? '#FF0000' : '#FFA500';
+       
+        console.log(`      ${isMain ? 'Главная' : 'Дополнительная'} структура: ${triangles.length} треугольников`);
        
         for (const triangle of triangles) {
             if (!triangle.p1 || !triangle.p2 || !triangle.p3) continue;
