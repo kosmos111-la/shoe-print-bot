@@ -542,14 +542,15 @@ retryRejectedCandidates(structure, graphA, graphB, morphologyMap, modelMorpholog
         for (const candidate of candidates) {
             if (structure.triangleIds.has(candidate.triangle.id)) continue;
            
-            const added = this.tryAddTriangle(
-                candidate.triangle,
-                structure,
-                graphA,
-                graphB,
-                morphologyMap,
-                modelMorphology
-            );
+           const added = this.tryAddTriangle(
+    candidate.triangle,
+    structure,
+    graphA,
+    graphB,
+    morphologyMap,
+    modelMorphology,
+    true  // isAnchor = true, так как это якорные треугольники
+);
            
             if (added) {
                 totalAdded++;
