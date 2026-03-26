@@ -420,6 +420,52 @@ const structures = structureManager.buildStructures(
     existingModel.morphologyMap
 );
 
+// ==================== ЭТАП 2: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ ====================
+if (structures.length > 0 && !this.fastMode) {
+    console.log(`\n🔧 ЭТАП 2: Геометрическое расширение структур...`);
+   
+    // Берём главную структуру (самую большую)
+    const mainStructure = structures[0];
+   
+    // Получаем все треугольники графа
+    const allGraphTriangles = this.extractTrianglesFromGraph(exactGraph);
+    console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
+   
+    // Расширяем структуру
+    let expanded = true;
+    let iteration = 0;
+    const maxIterations = 10;
+   
+    while (expanded && iteration < maxIterations) {
+        expanded = false;
+        iteration++;
+       
+        // Получаем граничные рёбра структуры
+        const boundaryEdges = this.getBoundaryEdgesFromStructure(mainStructure);
+        console.log(`   • Итерация ${iteration}: граничных рёбер ${boundaryEdges.length}`);
+       
+        for (const edge of boundaryEdges) {
+            // Ищем соседний треугольник в графе
+            const neighbor = this.findNeighborTriangleInGraph(edge, allGraphTriangles, mainStructure);
+           
+            if (neighbor) {
+                // Пытаемся добавить геометрически
+                const added = this.tryAddGeometricTriangle(
+                    neighbor, mainStructure, exactGraph, existingModel.graph,
+                    morphologyMap, existingModel.morphologyMap
+                );
+               
+                if (added) {
+                    expanded = true;
+                    console.log(`      ✅ Добавлен треугольник при геометрическом расширении`);
+                }
+            }
+        }
+    }
+   
+    console.log(`   ✅ Геометрическое расширение завершено, теперь ${mainStructure.triangleIds.size} треугольников`);
+}             
+             
 // Сохраняем структуры в модель
 if (existingModel) {
     existingModel.structures = structures.map(s => ({
