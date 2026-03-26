@@ -3528,7 +3528,7 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
     const angleDiff = Math.abs(anglePhoto - angleModel);
    
     // Допуск 8°
-    if (angleDiff > 8) return false;
+    if (angleDiff > 12) return false;
    
     // Добавляем треугольник
     structure.addTriangle(triangle);
