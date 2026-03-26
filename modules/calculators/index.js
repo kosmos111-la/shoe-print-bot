@@ -497,186 +497,182 @@ class SnowCalculator {
 }
 
 function initialize() {
-    console.log('✅ Модуль калькуляторов загружен');
+    console.log('✅ Модуль калькуляторов загружен');
 
-    const snowCalculator = new SnowCalculator();
-    const weatherService = new WeatherService();
+    const snowCalculator = new SnowCalculator();
+    const weatherService = new WeatherService();
 
-    return {
-        getMenu: () => ({
-            title: "🧮 КАЛЬКУЛЯТОРЫ",
-            sections: [
-                {
-                    name: "📏 Калькулятор размеров обуви",
-                    command: "/calc_shoe",
-                    description: "Расчет длины отпечатка по размеру обуви"
-                },
-                {
-                    name: "🔄 Обратный калькулятор",
-                    command: "/calc_reverse",
-                    description: "Расчет размера обуви по длине отпечатка"
-                },
-                {
-                    name: "⏱️❄️ Калькулятор давности следа на снегу",
-                    command: "/calc_snow_age",
-                    description: "Расчет эволюции снежного покрова на реальных данных"
-                },
-                {
-                    name: "🌤️ Погода",
-                    command: "/calc_weather",
-                    description: "Метеоданные для анализа следов"
-                }
-            ]
-        }),
-
-        // 📏 Калькулятор размеров обуви
-        calculateShoeSize: (size, type) => {
-            const result = shoeSizeCalculator.calculate({ size, type });
-            return result.success ? result.result : `❌ ${result.error}`;
-        },
-
-        // 🔄 Обратный калькулятор
-        calculateReverse: (footprintLength) => {
-            const result = shoeSizeCalculator.calculateReverse(footprintLength);
-            return result.success ? result.result : `❌ ${result.error}`;
-        },
-
-        // 🔮 СНЕЖНЫЙ КАЛЬКУЛЯТОР
-        calculateSnowAge: async (coordinates, disappearanceTime, locationInfo = {}) => {
-            return await snowCalculator.calculateSnowAge(coordinates, disappearanceTime, locationInfo);
-        },
-
-        // 🌤️ Погода
-        getWeatherData: async (options = {}, chatId = null, bot = null) => {
-    try {
-        const result = await weatherService.getWeatherData(options);
-        if (!result.success) {
-            return `❌ ${result.error}`;
-        }
+    // Вспомогательные функции форматирования (внутри initialize)
+    function formatWeatherShort(data, weatherService) {
+        const currentHour = new Date().getHours();
+        const timeIcon = (currentHour >= 6 && currentHour < 18) ? '☀️' : '🌙';
        
-        const data = result.result;
-        let graphSent = false;
+        let message = `🌤️ <b>${data.location.toUpperCase()}</b> ${timeIcon}\n\n`;
        
-        // Пытаемся отправить график
-        if (chatId && bot) {
-            try {
-                const weatherGraph = new WeatherGraph();
-                const graphBuffer = await weatherGraph.generateWeatherGraph(
-                    data.history,
-                    data.forecast,
-                    data.location
-                );
-               
-                if (graphBuffer) {
-                    const caption = formatWeatherShort(data, weatherService);
-                    await bot.sendPhoto(chatId, graphBuffer, {
-                        caption: caption,
-                        parse_mode: 'HTML'
-                    });
-                    graphSent = true;
-                }
-            } catch (graphError) {
-                console.log('⚠️ Ошибка генерации графика:', graphError.message);
+        message += `📊 <b>Сейчас:</b> ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
+        message += `${data.current.condition} | 💨 ${data.current.wind_speed} м/с | 💧 ${data.current.humidity}%\n\n`;
+       
+        if (data.forecast && data.forecast[0]) {
+            const today = data.forecast[0];
+            message += `📈 <b>Сегодня:</b> День ${weatherService.formatTemperature(today.day_temp)} / Ночь ${weatherService.formatTemperature(today.night_temp)}\n`;
+            message += `${today.condition}`;
+            if (today.precipitation > 0) {
+                message += ` | 🌧️ ${today.precipitation}мм`;
             }
+            message += `\n\n`;
         }
        
-        // Fallback: если график не отправился, возвращаем полный текст
-        if (!graphSent) {
-            return formatWeatherFull(data, weatherService);
+        if (data.current.temperature < 5) {
+            message += `🧥 Рекомендация: теплая одежда`;
+        } else if (data.current.temperature < 15) {
+            message += `🧥 Рекомендация: куртка или ветровка`;
+        } else {
+            message += `👕 Рекомендация: легкая одежда`;
         }
        
-        return null;
+        if (data.current.wind_speed > 5) {
+            message += `, ветрозащита`;
+        }
        
-    } catch (error) {
-        console.error('❌ Ошибка:', error);
-        return `❌ Ошибка получения погоды: ${error.message}`;
+        return message;
     }
-}
 
-// Вспомогательные функции форматирования
-function formatWeatherShort(data, weatherService) {
-    const currentHour = new Date().getHours();
-    const timeIcon = (currentHour >= 6 && currentHour < 18) ? '☀️' : '🌙';
-   
-    let message = `🌤️ <b>${data.location.toUpperCase()}</b> ${timeIcon}\n\n`;
-   
-    message += `📊 <b>Сейчас:</b> ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
-    message += `${data.current.condition} | 💨 ${data.current.wind_speed} м/с | 💧 ${data.current.humidity}%\n\n`;
-   
-    if (data.forecast && data.forecast[0]) {
-        const today = data.forecast[0];
-        message += `📈 <b>Сегодня:</b> День ${weatherService.formatTemperature(today.day_temp)} / Ночь ${weatherService.formatTemperature(today.night_temp)}\n`;
-        message += `${today.condition}`;
-        if (today.precipitation > 0) {
-            message += ` | 🌧️ ${today.precipitation}мм`;
-        }
-        message += `\n\n`;
-    }
-   
-    if (data.current.temperature < 5) {
-        message += `🧥 Рекомендация: теплая одежда`;
-    } else if (data.current.temperature < 15) {
-        message += `🧥 Рекомендация: куртка или ветровка`;
-    } else {
-        message += `👕 Рекомендация: легкая одежда`;
-    }
-   
-    if (data.current.wind_speed > 5) {
-        message += `, ветрозащита`;
-    }
-   
-    return message;
-}
-
-function formatWeatherFull(data, weatherService) {
-    let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
-   
-    const currentHour = new Date().getHours();
-    const currentTimeFormatted = weatherService.formatTimeWithStyle(currentHour, `📊 <b>СЕЙЧАС (${data.current.time}):</b>`);
-    message += `${currentTimeFormatted}\n`;
-    message += `🌡️ ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
-    message += `${data.current.condition}\n`;
-    message += `💨 Ветер: ${data.current.wind_speed} м/с | 💧 Влажность: ${data.current.humidity}%\n`;
-    message += `🌧️ Осадки: ${data.current.precipitation} | ☁️ Облачность: ${data.current.cloudiness}%\n\n`;
-   
-    message += `🕒 <b>БЛИЖАЙШИЕ 6 ЧАСОВ:</b>\n`;
-    data.hourly.slice(0, 6).forEach(hour => {
-        const hourNum = hour.hour;
-        const timeText = weatherService.formatTimeWithStyle(hourNum, `${hour.time}`);
-        const tempFormatted = weatherService.formatTemperature(hour.temperature);
-        message += `${timeText} ${tempFormatted}, ${hour.condition}, ${hour.precipitation}\n`;
-    });
-    message += '\n';
-   
-    message += `📈 <b>ПРОГНОЗ НА 2 ДНЯ:</b>\n`;
-    data.forecast.forEach(day => {
-        const dayTemp = weatherService.formatTemperature(day.day_temp);
-        const nightTemp = weatherService.formatTemperature(day.night_temp);
-        message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${day.precipitation}\n`;
-    });
-    message += '\n';
-   
-    if (data.history && data.history.length > 0) {
-        message += `📅 <b>ИСТОРИЯ ПОГОДЫ ЗА 7 СУТОК:</b>\n`;
-        const reversedHistory = [...data.history].reverse();
-        reversedHistory.forEach(day => {
-            const precipIcon = day.precipitation > 0 ? '🌧️' : '';
-            const dayTemp = weatherService.formatTemperature(day.day_temp);
-            const nightTemp = weatherService.formatTemperature(day.night_temp);
-            message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${precipIcon}${day.precipitation}мм, 💨${day.wind_speed}м/с\n`;
+    function formatWeatherFull(data, weatherService) {
+        let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
+       
+        const currentHour = new Date().getHours();
+        const currentTimeFormatted = weatherService.formatTimeWithStyle(currentHour, `📊 <b>СЕЙЧАС (${data.current.time}):</b>`);
+        message += `${currentTimeFormatted}\n`;
+        message += `🌡️ ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
+        message += `${data.current.condition}\n`;
+        message += `💨 Ветер: ${data.current.wind_speed} м/с | 💧 Влажность: ${data.current.humidity}%\n`;
+        message += `🌧️ Осадки: ${data.current.precipitation} | ☁️ Облачность: ${data.current.cloudiness}%\n\n`;
+       
+        message += `🕒 <b>БЛИЖАЙШИЕ 6 ЧАСОВ:</b>\n`;
+        data.hourly.slice(0, 6).forEach(hour => {
+            const hourNum = hour.hour;
+            const timeText = weatherService.formatTimeWithStyle(hourNum, `${hour.time}`);
+            const tempFormatted = weatherService.formatTemperature(hour.temperature);
+            message += `${timeText} ${tempFormatted}, ${hour.condition}, ${hour.precipitation}\n`;
         });
         message += '\n';
+       
+        message += `📈 <b>ПРОГНОЗ НА 2 ДНЯ:</b>\n`;
+        data.forecast.forEach(day => {
+            const dayTemp = weatherService.formatTemperature(day.day_temp);
+            const nightTemp = weatherService.formatTemperature(day.night_temp);
+            message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${day.precipitation}\n`;
+        });
+        message += '\n';
+       
+        if (data.history && data.history.length > 0) {
+            message += `📅 <b>ИСТОРИЯ ПОГОДЫ ЗА 7 СУТОК:</b>\n`;
+            const reversedHistory = [...data.history].reverse();
+            reversedHistory.forEach(day => {
+                const precipIcon = day.precipitation > 0 ? '🌧️' : '';
+                const dayTemp = weatherService.formatTemperature(day.day_temp);
+                const nightTemp = weatherService.formatTemperature(day.night_temp);
+                message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${precipIcon}${day.precipitation}мм, 💨${day.wind_speed}м/с\n`;
+            });
+            message += '\n';
+        }
+       
+        message += data.searchSummary;
+       
+        return message;
     }
-   
-    message += data.searchSummary;
-   
-    return message;
-},
 
-        getShoeTypes: () => {
-            return shoeSizeCalculator.getFootwearTypesList();
-        }
-    };
+    return {
+        getMenu: () => ({
+            title: "🧮 КАЛЬКУЛЯТОРЫ",
+            sections: [
+                {
+                    name: "📏 Калькулятор размеров обуви",
+                    command: "/calc_shoe",
+                    description: "Расчет длины отпечатка по размеру обуви"
+                },
+                {
+                    name: "🔄 Обратный калькулятор",
+                    command: "/calc_reverse",
+                    description: "Расчет размера обуви по длине отпечатка"
+                },
+                {
+                    name: "⏱️❄️ Калькулятор давности следа на снегу",
+                    command: "/calc_snow_age",
+                    description: "Расчет эволюции снежного покрова на реальных данных"
+                },
+                {
+                    name: "🌤️ Погода",
+                    command: "/calc_weather",
+                    description: "Метеоданные для анализа следов"
+                }
+            ]
+        }),
+
+        // 📏 Калькулятор размеров обуви
+        calculateShoeSize: (size, type) => {
+            const result = shoeSizeCalculator.calculate({ size, type });
+            return result.success ? result.result : `❌ ${result.error}`;
+        },
+
+        // 🔄 Обратный калькулятор
+        calculateReverse: (footprintLength) => {
+            const result = shoeSizeCalculator.calculateReverse(footprintLength);
+            return result.success ? result.result : `❌ ${result.error}`;
+        },
+
+        // 🔮 СНЕЖНЫЙ КАЛЬКУЛЯТОР
+        calculateSnowAge: async (coordinates, disappearanceTime, locationInfo = {}) => {
+            return await snowCalculator.calculateSnowAge(coordinates, disappearanceTime, locationInfo);
+        },
+
+        // 🌤️ Погода с графиком
+        getWeatherData: async (options = {}, chatId = null, bot = null) => {
+            try {
+                const result = await weatherService.getWeatherData(options);
+                if (!result.success) {
+                    return `❌ ${result.error}`;
+                }
+               
+                const data = result.result;
+               
+                // Пытаемся отправить график
+                if (chatId && bot) {
+                    try {
+                        const weatherGraph = new WeatherGraph();
+                        const graphBuffer = await weatherGraph.generateWeatherGraph(
+                            data.history,
+                            data.forecast,
+                            data.location
+                        );
+                       
+                        if (graphBuffer) {
+                            const caption = formatWeatherShort(data, weatherService);
+                            await bot.sendPhoto(chatId, graphBuffer, {
+                                caption: caption,
+                                parse_mode: 'HTML'
+                            });
+                            return null; // График отправлен, текст не нужен
+                        }
+                    } catch (graphError) {
+                        console.log('⚠️ Ошибка генерации графика:', graphError.message);
+                        // Продолжаем, отправим текст
+                    }
+                }
+               
+                // Fallback: отправляем полный текст
+                return formatWeatherFull(data, weatherService);
+               
+            } catch (error) {
+                console.error('❌ Ошибка:', error);
+                return `❌ Ошибка получения погоды: ${error.message}`;
+            }
+        },
+
+        getShoeTypes: () => {
+            return shoeSizeCalculator.getFootwearTypesList();
+        }
+    };
 }
 
 module.exports = { initialize };
