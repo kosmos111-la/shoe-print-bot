@@ -547,66 +547,130 @@ function initialize() {
         },
 
         // 🌤️ Погода
-        getWeatherData: async (options = {}) => {
+        getWeatherData: async (options = {}, chatId = null, bot = null) => {
     try {
         const result = await weatherService.getWeatherData(options);
-        if (result.success) {
-            const data = result.result;
-           
-            let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
-           
-            // Сейчас
-            const currentHour = new Date().getHours();
-            const currentTimeFormatted = weatherService.formatTimeWithStyle(currentHour, `📊 <b>СЕЙЧАС (${data.current.time}):</b>`);
-            message += `${currentTimeFormatted}\n`;
-            message += `🌡️ ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
-            message += `${data.current.condition}\n`;
-            message += `💨 Ветер: ${data.current.wind_speed} м/с | 💧 Влажность: ${data.current.humidity}%\n`;
-            message += `🌧️ Осадки: ${data.current.precipitation} | ☁️ Облачность: ${data.current.cloudiness}%\n\n`;
-           
-            // Почасовой прогноз
-            message += `🕒 <b>БЛИЖАЙШИЕ 6 ЧАСОВ:</b>\n`;
-            data.hourly.forEach(hour => {
-                const hourNum = hour.hour;
-                const timeText = weatherService.formatTimeWithStyle(hourNum, `${hour.time}`);
-                const tempFormatted = weatherService.formatTemperature(hour.temperature);
-                message += `${timeText} ${tempFormatted}, ${hour.condition}, ${hour.precipitation}\n`;
-            });
-            message += '\n';
-           
-            // Прогноз на 2 дня
-            message += `📈 <b>ПРОГНОЗ НА 2 ДНЯ:</b>\n`;
-            data.forecast.forEach(day => {
-                const dayTemp = weatherService.formatTemperature(day.day_temp);
-                const nightTemp = weatherService.formatTemperature(day.night_temp);
-                message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${day.precipitation}\n`;
-            });
-            message += '\n';
-           
-            // История погоды
-            if (data.history && data.history.length > 0) {
-                message += `📅 <b>ИСТОРИЯ ПОГОДЫ ЗА 7 СУТОК:</b>\n`;
-                // Переворачиваем историю, чтобы последние дни были сверху
-                const reversedHistory = [...data.history].reverse();
-                reversedHistory.forEach(day => {
-                    const precipIcon = day.precipitation > 0 ? '🌧️' : '';
-                    const dayTemp = weatherService.formatTemperature(day.day_temp);
-                    const nightTemp = weatherService.formatTemperature(day.night_temp);
-                    message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${precipIcon}${day.precipitation}мм, 💨${day.wind_speed}м/с\n`;
-                });
-                message += '\n';
-            }
-           
-            // Погодная сводка
-            message += data.searchSummary;
-           
-            return message;
-        } else {
+        if (!result.success) {
             return `❌ ${result.error}`;
         }
+       
+        const data = result.result;
+        let graphSent = false;
+       
+        // Пытаемся отправить график
+        if (chatId && bot) {
+            try {
+                const weatherGraph = new WeatherGraph();
+                const graphBuffer = await weatherGraph.generateWeatherGraph(
+                    data.history,
+                    data.forecast,
+                    data.location
+                );
+               
+                if (graphBuffer) {
+                    const caption = formatWeatherShort(data, weatherService);
+                    await bot.sendPhoto(chatId, graphBuffer, {
+                        caption: caption,
+                        parse_mode: 'HTML'
+                    });
+                    graphSent = true;
+                }
+            } catch (graphError) {
+                console.log('⚠️ Ошибка генерации графика:', graphError.message);
+            }
+        }
+       
+        // Fallback: если график не отправился, возвращаем полный текст
+        if (!graphSent) {
+            return formatWeatherFull(data, weatherService);
+        }
+       
+        return null;
+       
     } catch (error) {
+        console.error('❌ Ошибка:', error);
         return `❌ Ошибка получения погоды: ${error.message}`;
     }
+}
+
+// Вспомогательные функции форматирования
+function formatWeatherShort(data, weatherService) {
+    const currentHour = new Date().getHours();
+    const timeIcon = (currentHour >= 6 && currentHour < 18) ? '☀️' : '🌙';
+   
+    let message = `🌤️ <b>${data.location.toUpperCase()}</b> ${timeIcon}\n\n`;
+   
+    message += `📊 <b>Сейчас:</b> ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
+    message += `${data.current.condition} | 💨 ${data.current.wind_speed} м/с | 💧 ${data.current.humidity}%\n\n`;
+   
+    if (data.forecast && data.forecast[0]) {
+        const today = data.forecast[0];
+        message += `📈 <b>Сегодня:</b> День ${weatherService.formatTemperature(today.day_temp)} / Ночь ${weatherService.formatTemperature(today.night_temp)}\n`;
+        message += `${today.condition}`;
+        if (today.precipitation > 0) {
+            message += ` | 🌧️ ${today.precipitation}мм`;
+        }
+        message += `\n\n`;
+    }
+   
+    if (data.current.temperature < 5) {
+        message += `🧥 Рекомендация: теплая одежда`;
+    } else if (data.current.temperature < 15) {
+        message += `🧥 Рекомендация: куртка или ветровка`;
+    } else {
+        message += `👕 Рекомендация: легкая одежда`;
+    }
+   
+    if (data.current.wind_speed > 5) {
+        message += `, ветрозащита`;
+    }
+   
+    return message;
+}
+
+function formatWeatherFull(data, weatherService) {
+    let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
+   
+    const currentHour = new Date().getHours();
+    const currentTimeFormatted = weatherService.formatTimeWithStyle(currentHour, `📊 <b>СЕЙЧАС (${data.current.time}):</b>`);
+    message += `${currentTimeFormatted}\n`;
+    message += `🌡️ ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
+    message += `${data.current.condition}\n`;
+    message += `💨 Ветер: ${data.current.wind_speed} м/с | 💧 Влажность: ${data.current.humidity}%\n`;
+    message += `🌧️ Осадки: ${data.current.precipitation} | ☁️ Облачность: ${data.current.cloudiness}%\n\n`;
+   
+    message += `🕒 <b>БЛИЖАЙШИЕ 6 ЧАСОВ:</b>\n`;
+    data.hourly.slice(0, 6).forEach(hour => {
+        const hourNum = hour.hour;
+        const timeText = weatherService.formatTimeWithStyle(hourNum, `${hour.time}`);
+        const tempFormatted = weatherService.formatTemperature(hour.temperature);
+        message += `${timeText} ${tempFormatted}, ${hour.condition}, ${hour.precipitation}\n`;
+    });
+    message += '\n';
+   
+    message += `📈 <b>ПРОГНОЗ НА 2 ДНЯ:</b>\n`;
+    data.forecast.forEach(day => {
+        const dayTemp = weatherService.formatTemperature(day.day_temp);
+        const nightTemp = weatherService.formatTemperature(day.night_temp);
+        message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${day.precipitation}\n`;
+    });
+    message += '\n';
+   
+    if (data.history && data.history.length > 0) {
+        message += `📅 <b>ИСТОРИЯ ПОГОДЫ ЗА 7 СУТОК:</b>\n`;
+        const reversedHistory = [...data.history].reverse();
+        reversedHistory.forEach(day => {
+            const precipIcon = day.precipitation > 0 ? '🌧️' : '';
+            const dayTemp = weatherService.formatTemperature(day.day_temp);
+            const nightTemp = weatherService.formatTemperature(day.night_temp);
+            message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${precipIcon}${day.precipitation}мм, 💨${day.wind_speed}м/с\n`;
+        });
+        message += '\n';
+    }
+   
+    message += data.searchSummary;
+   
+    return message;
 },
 
         getShoeTypes: () => {
