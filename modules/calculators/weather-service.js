@@ -1,5 +1,76 @@
 // shoe-print-bot/modules/calculators/weather-service.js
 
+async getLocationName(lat, lon) {
+    try {
+        // Используем обратный геокодинг через Open-Meteo
+        const response = await axios.get(this.geocodingAPI, {
+            params: {
+                latitude: lat,
+                longitude: lon,
+                count: 1,
+                language: 'ru',
+                format: 'json'
+            },
+            timeout: 5000
+        });
+
+        if (response.data && response.data.results && response.data.results.length > 0) {
+            const result = response.data.results[0];
+            // Формируем читаемое название: Город, Регион, Страна
+            let name = result.name || '';
+            if (result.admin1) {
+                name += `, ${result.admin1}`;
+            }
+            if (result.country) {
+                name += `, ${result.country}`;
+            }
+            return name;
+        }
+    } catch (error) {
+        console.log('⚠️ Ошибка получения названия:', error.message);
+        // Возвращаем координаты в читаемом формате
+        return `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+    }
+    return `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+}
+```
+
+Также нужно исправить метод getCoordinates для поиска по названию города:
+
+```javascript
+async getCoordinates(locationName) {
+    try {
+        const response = await axios.get(this.geocodingAPI, {
+            params: {
+                name: locationName,
+                count: 1,
+                language: 'ru',
+                format: 'json'
+            },
+            timeout: 5000
+        });
+
+        if (response.data && response.data.results && response.data.results.length > 0) {
+            const result = response.data.results[0];
+            return {
+                lat: result.latitude,
+                lon: result.longitude,
+                name: result.name,
+                country: result.country,
+                admin1: result.admin1
+            };
+        }
+        return null;
+    } catch (error) {
+        console.log('⚠️ Ошибка геокодинга:', error.message);
+        return null;
+    }
+}
+```
+
+Полный исправленный файл weather-service.js с этими изменениями:
+
+```javascript
 const axios = require('axios');
 
 class WeatherService {
@@ -9,7 +80,6 @@ class WeatherService {
         this.geocodingAPI = 'https://geocoding-api.open-meteo.com/v1/search';
     }
 
-    // 🎨 Цветовая индикация температуры через эмодзи
     getTemperatureEmoji(temp) {
         if (temp >= 25) return '🔥';
         if (temp >= 20) return '🟠';
@@ -20,13 +90,11 @@ class WeatherService {
         return '❄️';
     }
 
-    // 🎨 Форматирование температуры с эмодзи
     formatTemperature(temp) {
         const emoji = this.getTemperatureEmoji(temp);
         return `${emoji} ${temp}°C`;
     }
 
-    // 🎨 Форматирование времени (день/ночь)
     formatTimeWithStyle(hour, text) {
         const isDay = hour >= 6 && hour < 18;
         if (isDay) {
@@ -39,12 +107,8 @@ class WeatherService {
     async getWeatherData(options = {}) {
         try {
             let locationName = 'Неизвестно';
-            let currentData = {};
-
-            const isSimpleMode = options.simple === true;
-
-            // Определяем местоположение
             let lat, lon;
+
             if (options.coordinates) {
                 lat = options.coordinates.lat;
                 lon = options.coordinates.lon;
@@ -64,7 +128,8 @@ class WeatherService {
                 };
             }
 
-            // 🔧 ПРОСТОЙ РЕЖИМ - только текущая погода
+            const isSimpleMode = options.simple === true;
+
             if (isSimpleMode) {
                 const currentWeather = await this.getCurrentWeather(lat, lon);
                 return {
@@ -76,7 +141,6 @@ class WeatherService {
                 };
             }
 
-            // 📊 ПОЛНЫЙ РЕЖИМ - текущая погода + прогноз + история
             const currentWeather = await this.getCurrentWeather(lat, lon);
             const hourlyForecast = await this.getHourlyForecast(lat, lon);
             const dailyForecast = await this.getDailyForecast(lat, lon);
@@ -103,7 +167,6 @@ class WeatherService {
         }
     }
 
-    // 🌤️ ТЕКУЩАЯ ПОГОДА
     async getCurrentWeather(lat, lon) {
         try {
             const response = await axios.get(this.openMeteoURL, {
@@ -112,7 +175,8 @@ class WeatherService {
                     longitude: lon,
                     current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation',
                     timezone: 'auto'
-                }
+                },
+                timeout: 10000
             });
 
             const current = response.data.current;
@@ -132,7 +196,6 @@ class WeatherService {
         }
     }
 
-    // 🕒 ПОЧАСОВОЙ ПРОГНОЗ
     async getHourlyForecast(lat, lon) {
         try {
             const response = await axios.get(this.openMeteoURL, {
@@ -142,7 +205,8 @@ class WeatherService {
                     hourly: 'temperature_2m,weather_code,precipitation',
                     forecast_days: 2,
                     timezone: 'auto'
-                }
+                },
+                timeout: 10000
             });
 
             const hourly = response.data.hourly;
@@ -191,7 +255,6 @@ class WeatherService {
         }
     }
 
-    // 📅 ПРОГНОЗ НА 2 ДНЯ
     async getDailyForecast(lat, lon) {
         try {
             const response = await axios.get(this.openMeteoURL, {
@@ -201,7 +264,8 @@ class WeatherService {
                     daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum',
                     forecast_days: 3,
                     timezone: 'auto'
-                }
+                },
+                timeout: 10000
             });
 
             const daily = response.data.daily;
@@ -224,7 +288,6 @@ class WeatherService {
         }
     }
 
-    // 📊 ИСТОРИЯ ПОГОДЫ ЗА 7 СУТОК С ВЕТРОМ
     async getWeatherHistory(lat, lon, days = 7) {
         try {
             const endDate = new Date();
@@ -239,7 +302,8 @@ class WeatherService {
                     end_date: endDate.toISOString().split('T')[0],
                     daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max',
                     timezone: 'auto'
-                }
+                },
+                timeout: 10000
             });
 
             const daily = response.data.daily;
@@ -263,7 +327,7 @@ class WeatherService {
         }
     }
 
-    // 📍 ГЕОКОДИНГ
+    // 🔧 ИСПРАВЛЕННЫЙ МЕТОД ГЕОКОДИНГА
     async getCoordinates(locationName) {
         try {
             const response = await axios.get(this.geocodingAPI, {
@@ -272,21 +336,28 @@ class WeatherService {
                     count: 1,
                     language: 'ru',
                     format: 'json'
-                }
+                },
+                timeout: 5000
             });
 
-            if (response.data.results && response.data.results.length > 0) {
+            if (response.data && response.data.results && response.data.results.length > 0) {
+                const result = response.data.results[0];
                 return {
-                    lat: response.data.results[0].latitude,
-                    lon: response.data.results[0].longitude
+                    lat: result.latitude,
+                    lon: result.longitude,
+                    name: result.name,
+                    country: result.country,
+                    admin1: result.admin1
                 };
             }
+            return null;
         } catch (error) {
             console.log('⚠️ Ошибка геокодинга:', error.message);
+            return null;
         }
-        return null;
     }
 
+    // 🔧 ИСПРАВЛЕННЫЙ МЕТОД ПОЛУЧЕНИЯ НАЗВАНИЯ
     async getLocationName(lat, lon) {
         try {
             const response = await axios.get(this.geocodingAPI, {
@@ -294,20 +365,29 @@ class WeatherService {
                     latitude: lat,
                     longitude: lon,
                     count: 1,
-                    language: 'ru'
-                }
+                    language: 'ru',
+                    format: 'json'
+                },
+                timeout: 5000
             });
 
-            if (response.data.results && response.data.results.length > 0) {
-                return response.data.results[0].name;
+            if (response.data && response.data.results && response.data.results.length > 0) {
+                const result = response.data.results[0];
+                let name = result.name || '';
+                if (result.admin1) {
+                    name += `, ${result.admin1}`;
+                }
+                if (result.country) {
+                    name += `, ${result.country}`;
+                }
+                return name;
             }
         } catch (error) {
             console.log('⚠️ Ошибка получения названия:', error.message);
         }
-        return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+        return `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
     }
 
-    // 🎯 КОДЫ ПОГОДЫ WMO
     getWeatherCondition(weatherCode) {
         const conditions = {
             0: '☀️ Ясно',
@@ -349,7 +429,6 @@ class WeatherService {
         return 50;
     }
 
-    // 🔍 СВОДКА ДЛЯ ПОИСКА
     generateSearchSummary(currentData, location, hourlyForecast, weatherHistory) {
         const temp = currentData.temperature;
         let conditions = '';
@@ -370,7 +449,6 @@ class WeatherService {
                `👕 <b>РЕКОМЕНДАЦИИ ПО ОДЕЖДЕ:</b>\n${clothingRecommendations}`;
     }
 
-    // 👕 ГЕНЕРАЦИЯ РЕКОМЕНДАЦИЙ ПО ОДЕЖДЕ
     generateClothingRecommendations(currentData, hourlyForecast, weatherHistory) {
         const recommendations = [];
 
@@ -447,7 +525,5 @@ class WeatherService {
         return { rain, wetSnow };
     }
 }
-
-module.exports = { WeatherService };
 
 module.exports = { WeatherService };
