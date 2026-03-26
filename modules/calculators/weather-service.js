@@ -204,7 +204,7 @@ class WeatherService {
         console.log('⚠️ Ошибка получения почасового прогноза:', error.message);
         return [];
     }
-},
+}
 
     // 📅 ПРОГНОЗ НА 2 ДНЯ
     async getDailyForecast(lat, lon) {
