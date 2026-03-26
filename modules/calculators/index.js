@@ -553,55 +553,46 @@ function initialize() {
         if (result.success) {
             const data = result.result;
            
-            // Получаем цветные теги для температуры
-            const tempColor = weatherService.getTemperatureHtml(data.current.temperature, `${data.current.temperature}°C`);
-            const feelsLikeColor = weatherService.getTemperatureHtml(data.current.feels_like, `${data.current.feels_like}°C`);
-           
             let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
            
             // Сейчас
             const currentHour = new Date().getHours();
             const currentTimeFormatted = weatherService.formatTimeWithStyle(currentHour, `📊 <b>СЕЙЧАС (${data.current.time}):</b>`);
             message += `${currentTimeFormatted}\n`;
-            message += `🌡️ ${tempColor} (ощущается ${feelsLikeColor})\n`;
+            message += `🌡️ ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
             message += `${data.current.condition}\n`;
             message += `💨 Ветер: ${data.current.wind_speed} м/с | 💧 Влажность: ${data.current.humidity}%\n`;
             message += `🌧️ Осадки: ${data.current.precipitation} | ☁️ Облачность: ${data.current.cloudiness}%\n\n`;
            
-            // Почасовой прогноз (новый формат)
+            // Почасовой прогноз
             message += `🕒 <b>БЛИЖАЙШИЕ 6 ЧАСОВ:</b>\n`;
             data.hourly.forEach(hour => {
                 const hourNum = hour.hour;
-                const tempValue = `${hour.temperature}°C`;
-                const coloredTemp = weatherService.getTemperatureHtml(hour.temperature, tempValue);
                 const timeText = weatherService.formatTimeWithStyle(hourNum, `${hour.time}`);
-                message += `${timeText} ${coloredTemp}, ${hour.condition}, ${hour.precipitation}\n`;
+                const tempFormatted = weatherService.formatTemperature(hour.temperature);
+                message += `${timeText} ${tempFormatted}, ${hour.condition}, ${hour.precipitation}\n`;
             });
             message += '\n';
            
             // Прогноз на 2 дня
             message += `📈 <b>ПРОГНОЗ НА 2 ДНЯ:</b>\n`;
             data.forecast.forEach(day => {
-                const dayTempValue = `${day.day_temp}°C`;
-                const nightTempValue = `${day.night_temp}°C`;
-                const dayColored = weatherService.getTemperatureHtml(day.day_temp, dayTempValue);
-                const nightColored = weatherService.getTemperatureHtml(day.night_temp, nightTempValue);
-                message += `${day.date}: День ${dayColored} / Ночь ${nightColored}, ${day.condition}, ${day.precipitation}\n`;
+                const dayTemp = weatherService.formatTemperature(day.day_temp);
+                const nightTemp = weatherService.formatTemperature(day.night_temp);
+                message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${day.precipitation}\n`;
             });
             message += '\n';
            
-            // История погоды (в обратном хронологическом порядке)
+            // История погоды
             if (data.history && data.history.length > 0) {
                 message += `📅 <b>ИСТОРИЯ ПОГОДЫ ЗА 7 СУТОК:</b>\n`;
                 // Переворачиваем историю, чтобы последние дни были сверху
                 const reversedHistory = [...data.history].reverse();
                 reversedHistory.forEach(day => {
                     const precipIcon = day.precipitation > 0 ? '🌧️' : '';
-                    const dayTempValue = `${day.day_temp}°C`;
-                    const nightTempValue = `${day.night_temp}°C`;
-                    const dayColored = weatherService.getTemperatureHtml(day.day_temp, dayTempValue);
-                    const nightColored = weatherService.getTemperatureHtml(day.night_temp, nightTempValue);
-                    message += `${day.date}: День ${dayColored} / Ночь ${nightColored}, ${day.condition}, ${precipIcon}${day.precipitation}мм, 💨${day.wind_speed}м/с\n`;
+                    const dayTemp = weatherService.formatTemperature(day.day_temp);
+                    const nightTemp = weatherService.formatTemperature(day.night_temp);
+                    message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${precipIcon}${day.precipitation}мм, 💨${day.wind_speed}м/с\n`;
                 });
                 message += '\n';
             }
