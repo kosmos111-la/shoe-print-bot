@@ -376,11 +376,11 @@ if (badRays > maxAllowedBadRays) {
     // Сохраняем отвергнутого кандидата
      const incomingEdge = this.getIncomingEdge(triangle, structure);
     if (this.debug) {
-        console.log(`      🔍 incomingEdge найден: ${!!incomingEdge}`);
-        if (incomingEdge) {
-            console.log(`         edge: ${incomingEdge.v1.id.substring(0,8)}-${incomingEdge.v2.id.substring(0,8)}`);
-        }
-    }
+    console.log(`      🔍 incomingEdge найден: ${!!incomingEdge}`);
+    if (incomingEdge && incomingEdge.v1 && incomingEdge.v1.id && incomingEdge.v2 && incomingEdge.v2.id) {
+        console.log(`         edge: ${incomingEdge.v1.id.substring(0,8)}-${incomingEdge.v2.id.substring(0,8)}`);
+    }
+}
    
     if (incomingEdge) {
         const edgeKey = [incomingEdge.v1.id, incomingEdge.v2.id].sort().join('--');
@@ -617,13 +617,14 @@ retryRejectedCandidates(structure, graphA, graphB, morphologyMap, modelMorpholog
             if (structure.triangleIds.has(candidate.triangle.id)) continue;
            
             const added = this.tryAddTriangle(
-                candidate.triangle,
-                structure,
-                graphA,
-                graphB,
-                morphologyMap,
-                modelMorphology
-            );
+    candidate.triangle,
+    structure,
+    graphA,
+    graphB,
+    morphologyMap,
+    modelMorphology,
+    true  // isAnchor = true, так как это повторная проверка якорей
+);
            
             if (added) {
                 totalAdded++;
