@@ -885,22 +885,26 @@ bot.on('location', async (msg) => {
         }
 
         // 🌤️ ОБРАБОТКА ДЛЯ ПОГОДЫ
-        if (context === 'calc_weather') {
-            await bot.sendMessage(chatId, '📍 Получаю погоду для вашего местоположения...');
+if (context === 'calc_weather') {
+    await bot.sendMessage(chatId, '📍 Получаю погоду для вашего местоположения...');
 
-            const result = await calculators.getWeatherData({
-                coordinates: {
-                    lat: location.latitude,
-                    lon: location.longitude
-                }
-            });
-
-            // Очищаем контекст ПОСЛЕ выполнения
-            delete userContext[userId];
-
-            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-            return;
+    // Передаем chatId и bot для отправки графика
+    const result = await calculators.getWeatherData({
+        coordinates: {
+            lat: location.latitude,
+            lon: location.longitude
         }
+    }, chatId, bot);  // ← добавляем chatId и bot
+
+    // Очищаем контекст ПОСЛЕ выполнения
+    delete userContext[userId];
+
+    // Если результат вернулся (не null), отправляем текстом
+    if (result) {
+        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+    }
+    return;
+}
 
     } catch (error) {
         console.log('❌ Ошибка обработки местоположения:', error);
@@ -1200,28 +1204,25 @@ bot.on('message', async (msg) => {
 
         // 🌤️ ОБРАБОТКА КОНТЕКСТА ПОГОДЫ (город/координаты)
         if (context === 'calc_weather') {
-            await bot.sendMessage(chatId, '🌤️ Запрашиваю погоду с историей...');
+    await bot.sendMessage(chatId, '📍 Получаю погоду для вашего местоположения...');
 
-            let options = {};
-
-            // Проверяем формат ввода
-            if (isCoordinates(text)) {
-                // Координаты: "55.7558 37.6173"
-                const coords = text.split(' ').map(coord => parseFloat(coord));
-                options.coordinates = { lat: coords[0], lon: coords[1] };
-            } else {
-                // Название города
-                options.location = text;
-            }
-
-            const result = await calculators.getWeatherData(options);
-
-            // Очищаем контекст ПОСЛЕ выполнения
-            delete userContext[userId];
-
-            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-            return;
+    // Передаем chatId и bot для отправки графика
+    const result = await calculators.getWeatherData({
+        coordinates: {
+            lat: location.latitude,
+            lon: location.longitude
         }
+    }, chatId, bot);  // ← ВАЖНО: добавляем chatId и bot
+
+    // Очищаем контекст ПОСЛЕ выполнения
+    delete userContext[userId];
+
+    // Если результат вернулся (не null), отправляем текстом
+    if (result) {
+        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+    }
+    return;
+}
 
         // 🚫 ЕСЛИ НЕТ КОНТЕКСТА - НИЧЕГО НЕ ДЕЛАЕМ
         if (!context) {
