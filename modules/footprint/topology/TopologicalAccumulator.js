@@ -3414,33 +3414,44 @@ generateStructureColors(structures) {
     * @returns {Array} - массив треугольников {p1, p2, p3}
     */
     extractTrianglesFromGraph(graph) {
-        const triangles = [];
-        const nodeIds = Array.from(graph.nodes.keys());
-        // 🔥 edges уже Set, это нормально, .has() работает
-        const edges = graph.edges;
+    const triangles = [];
+    const nodeIds = Array.from(graph.nodes.keys());
+    const edges = graph.edges;
 
-        for (let i = 0; i < nodeIds.length; i++) {
-            for (let j = i + 1; j < nodeIds.length; j++) {
-                for (let k = j + 1; k < nodeIds.length; k++) {
-                    const a = nodeIds[i];
-                    const b = nodeIds[j];
-                    const c = nodeIds[k];
+    for (let i = 0; i < nodeIds.length; i++) {
+        for (let j = i + 1; j < nodeIds.length; j++) {
+            for (let k = j + 1; k < nodeIds.length; k++) {
+                const a = nodeIds[i];
+                const b = nodeIds[j];
+                const c = nodeIds[k];
 
-                    if (edges.has([a, b].sort().join('--')) &&
-                        edges.has([b, c].sort().join('--')) &&
-                        edges.has([c, a].sort().join('--'))) {
+                if (edges.has([a, b].sort().join('--')) &&
+                    edges.has([b, c].sort().join('--')) &&
+                    edges.has([c, a].sort().join('--'))) {
 
-                        triangles.push({
-                            p1: graph.nodes.get(a),
-                            p2: graph.nodes.get(b),
-                            p3: graph.nodes.get(c)
-                        });
-                    }
+                    const p1 = graph.nodes.get(a);
+                    const p2 = graph.nodes.get(b);
+                    const p3 = graph.nodes.get(c);
+
+                    // 🔥 ДОБАВЛЯЕМ ПОЛЕ edges
+                    const triangleEdges = [
+                        { v1: p1, v2: p2, externalPoint: null, neighborTriangles: [] },
+                        { v1: p2, v2: p3, externalPoint: null, neighborTriangles: [] },
+                        { v1: p3, v2: p1, externalPoint: null, neighborTriangles: [] }
+                    ];
+
+                    triangles.push({
+                        p1, p2, p3,
+                        edges: triangleEdges,
+                        id: `tri_${a}_${b}_${c}`,
+                        confidence: 0.5
+                    });
                 }
             }
         }
-        return triangles;
     }
+    return triangles;
+}
 
 /**
 * Получает граничные рёбра структуры
@@ -3466,7 +3477,11 @@ findNeighborTriangleInGraph(edge, allTriangles, structure) {
     for (const triangle of allTriangles) {
         if (structure.triangleIds.has(triangle.id)) continue;
        
+        // 🔥 ПРОВЕРКА: есть ли у треугольника edges
+        if (!triangle.edges) continue;
+       
         for (const triEdge of triangle.edges) {
+            if (!triEdge.v1 || !triEdge.v2) continue;
             const triEdgeKey = [triEdge.v1.id, triEdge.v2.id].sort().join('--');
             if (triEdgeKey === edgeKey) {
                 return triangle;
@@ -3480,6 +3495,9 @@ findNeighborTriangleInGraph(edge, allTriangles, structure) {
 * Пытается добавить треугольник по геометрии (без якорей)
 */
 tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
+    // 🔥 ПРОВЕРКА: есть ли у треугольника edges
+    if (!triangle.edges) return false;
+   
     // Находим общее ребро
     const commonEdge = this.findCommonEdgeInTriangle(triangle, structure);
     if (!commonEdge) return false;
