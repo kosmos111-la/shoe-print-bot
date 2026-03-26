@@ -1,3 +1,5 @@
+// shoe-print-bot/modules/calculators/weather-service.js
+
 const axios = require('axios');
 
 class WeatherService {
@@ -7,11 +9,45 @@ class WeatherService {
         this.geocodingAPI = 'https://geocoding-api.open-meteo.com/v1/search';
     }
 
+    // 🎨 НОВЫЙ МЕТОД: цвет для температуры
+    getTemperatureColor(temp) {
+        if (temp >= 25) return '🔴';      // красный (символом, т.к. HTML цвет в Telegram ограничен)
+        if (temp >= 20) return '🟠';      // оранжевый
+        if (temp >= 10) return '🟡';      // желтый
+        if (temp >= 0) return '⚫';       // черный
+        if (temp >= -10) return '🔵';     // голубой
+        if (temp >= -20) return '🔷';     // синий
+        return '🟣';                      // фиолетовый
+    }
+
+    // 🎨 НОВЫЙ МЕТОД: HTML теги для цвета (если поддерживается)
+    getTemperatureHtml(temp, value) {
+        if (temp >= 25) return `<b><font color="#FF0000">${value}</font></b>`;      // красный
+        if (temp >= 20) return `<b><font color="#FFA500">${value}</font></b>`;      // оранжевый
+        if (temp >= 10) return `<b><font color="#FFD700">${value}</font></b>`;      // желтый
+        if (temp >= 0) return `<b><font color="#000000">${value}</font></b>`;       // черный
+        if (temp >= -10) return `<b><font color="#00BFFF">${value}</font></b>`;     // голубой
+        if (temp >= -20) return `<b><font color="#0000CD">${value}</font></b>`;     // синий
+        return `<b><font color="#8B00FF">${value}</font></b>`;                      // фиолетовый
+    }
+
+    // 🎨 НОВЫЙ МЕТОД: форматирование времени (день/ночь)
+    formatTimeWithStyle(hour, text) {
+        // Определяем день/ночь (6:00 - 18:00 - день)
+        const isDay = hour >= 6 && hour < 18;
+       
+        if (isDay) {
+            return `<b>${text}</b>`;  // день - жирный
+        } else {
+            return `<i>${text}</i>`;   // ночь - курсив (серый в Telegram)
+        }
+    }
+
     async getWeatherData(options = {}) {
         try {
             let locationName = 'Неизвестно';
             let currentData = {};
-           
+
             const isSimpleMode = options.simple === true;
 
             // Определяем местоположение
@@ -103,7 +139,7 @@ class WeatherService {
         }
     }
 
-    // 🕒 ПОЧАСОВОЙ ПРОГНОЗ
+    // 🕒 ПОЧАСОВОЙ ПРОГНОЗ (изменяем формат вывода)
     async getHourlyForecast(lat, lon) {
         try {
             const response = await axios.get(this.openMeteoURL, {
@@ -118,17 +154,23 @@ class WeatherService {
 
             const hourly = response.data.hourly;
             const forecast = [];
-           
+            const now = new Date();
+
             // Ближайшие 6 периодов
             for (let i = 0; i < 6; i++) {
+                const forecastTime = new Date(hourly.time[i]);
+                const hoursDiff = Math.round((forecastTime - now) / (1000 * 60 * 60));
+                const hourNum = forecastTime.getHours();
+               
                 forecast.push({
-                    time: new Date(hourly.time[i]).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                    time: `${hoursDiff}+ час`,
+                    hour: hourNum,
                     temperature: Math.round(hourly.temperature_2m[i]),
                     condition: this.getWeatherCondition(hourly.weather_code[i]),
                     precipitation: hourly.precipitation[i]
                 });
             }
-           
+
             return forecast;
         } catch (error) {
             console.log('⚠️ Ошибка получения почасового прогноза:', error.message);
@@ -151,7 +193,7 @@ class WeatherService {
 
             const daily = response.data.daily;
             const forecast = [];
-           
+
             for (let i = 0; i < 2; i++) {
                 forecast.push({
                     date: new Date(daily.time[i]).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
@@ -161,7 +203,7 @@ class WeatherService {
                     precipitation: daily.precipitation_sum[i]
                 });
             }
-           
+
             return forecast;
         } catch (error) {
             console.log('⚠️ Ошибка получения прогноза:', error.message);
@@ -189,7 +231,7 @@ class WeatherService {
 
             const daily = response.data.daily;
             const history = [];
-           
+
             for (let i = 0; i < daily.time.length; i++) {
                 history.push({
                     date: new Date(daily.time[i]).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
@@ -200,7 +242,7 @@ class WeatherService {
                     wind_speed: daily.wind_speed_10m_max[i].toFixed(1)
                 });
             }
-           
+
             return history;
         } catch (error) {
             console.log('⚠️ Ошибка получения истории погоды:', error.message);
@@ -242,7 +284,7 @@ class WeatherService {
                     language: 'ru'
                 }
             });
-           
+
             if (response.data.results && response.data.results.length > 0) {
                 return response.data.results[0].name;
             }
@@ -257,7 +299,7 @@ class WeatherService {
         const conditions = {
             0: '☀️ Ясно',
             1: '🌤️ Преимущественно ясно',
-            2: '⛅ Переменная облачность',
+            2: '⛅️ Переменная облачность',
             3: '☁️ Пасмурно',
             45: '🌫️ Туман',
             48: '🌫️ Туман с инеем',
@@ -279,7 +321,7 @@ class WeatherService {
             81: '🌧️ Ливень',
             82: '🌧️ Сильный ливень',
             85: '❄️ Небольшой снегопад',
-            86: '❄️ Снегопад',
+            86: '❄️❄️ Снегопад',
             95: '⛈️ Гроза',
             96: '⛈️ Гроза с градом',
             99: '⛈️ Гроза с градом'
@@ -298,20 +340,19 @@ class WeatherService {
     generateSearchSummary(currentData, location, hourlyForecast, weatherHistory) {
         const temp = currentData.temperature;
         let conditions = '';
-       
+
         if (temp < 0) {
             conditions = '❄️ Холодно, возможен снег и наледь';
         } else if (temp < 10) {
             conditions = '🌧️ Прохладно, возможны осадки';
         } else if (temp < 20) {
-            conditions = '⛅ Умеренно, хорошие условия для поиска';
+            conditions = '⛅️ Умеренно, хорошие условия для поиска';
         } else {
             conditions = '☀️ Тепло, отличная видимость';
         }
 
-        // 🎯 АНАЛИЗ ДЛЯ РЕКОМЕНДАЦИЙ ПО ОДЕЖДЕ
         const clothingRecommendations = this.generateClothingRecommendations(currentData, hourlyForecast, weatherHistory);
-       
+
         return `🔍 <b>УСЛОВИЯ ДЛЯ ПОИСКА В ${location.toUpperCase()}:</b>\n${conditions}\n\n` +
                `👕 <b>РЕКОМЕНДАЦИИ ПО ОДЕЖДЕ:</b>\n${clothingRecommendations}`;
     }
@@ -319,17 +360,14 @@ class WeatherService {
     // 👕 ГЕНЕРАЦИЯ РЕКОМЕНДАЦИЙ ПО ОДЕЖДЕ
     generateClothingRecommendations(currentData, hourlyForecast, weatherHistory) {
         const recommendations = [];
-       
-        // Проверяем осадки за последние 24 часа
+
         const last24hPrecipitation = this.getLast24hPrecipitation(weatherHistory);
         const hasRecentRain = last24hPrecipitation > 0;
-       
-        // Проверяем осадки в ближайшие 8 часов
+
         const next8hPrecipitation = this.getNext8hPrecipitation(hourlyForecast);
         const hasUpcomingRain = next8hPrecipitation.rain > 0;
         const hasUpcomingWetSnow = next8hPrecipitation.wetSnow > 0;
-       
-        // Базовые рекомендации по температуре
+
         if (currentData.temperature < 5) {
             recommendations.push('• 🧥 Теплая куртка, шапка, перчатки');
         } else if (currentData.temperature < 15) {
@@ -337,67 +375,54 @@ class WeatherService {
         } else {
             recommendations.push('• 👕 Легкая одежда');
         }
-       
-        // Рекомендации по влажности/осадкам
+
         if (hasRecentRain || currentData.humidity > 85) {
             recommendations.push('• 🌧️ Одеваться на "мокрый лес" - влагоотталкивающая одежда');
         }
-       
+
         if (hasUpcomingRain || hasUpcomingWetSnow) {
             recommendations.push('• 🎒 Взять с собой защиту от дождя/мокрого снега');
         }
-       
+
         if (currentData.wind_speed > 5) {
             recommendations.push('• 💨 Ветрозащитная одежда');
         }
-       
-        // Предупреждения
+
         if (hasRecentRain) {
             recommendations.push('⚠️ В последние сутки шел дождь - лес мокрый');
         }
-       
+
         if (hasUpcomingRain) {
             recommendations.push('⚠️ В ближайшие 8 часов ожидается дождь');
         }
-       
+
         if (hasUpcomingWetSnow) {
             recommendations.push('⚠️ В ближайшие 8 часов ожидается мокрый снег');
         }
-       
+
         return recommendations.join('\n');
     }
 
-    // 📊 ПОЛУЧИТЬ ОСАДКИ ЗА ПОСЛЕДНИЕ 24 ЧАСА
     getLast24hPrecipitation(weatherHistory) {
         if (!weatherHistory || weatherHistory.length === 0) return 0;
-       
-        // Берем данные за последние 1-2 дня (история может быть дневной)
         let totalPrecip = 0;
         const daysToCheck = Math.min(2, weatherHistory.length);
-       
         for (let i = 0; i < daysToCheck; i++) {
             totalPrecip += weatherHistory[i].precipitation || 0;
         }
-       
         return totalPrecip;
     }
 
-    // 📊 ПОЛУЧИТЬ ОСАДКИ НА БЛИЖАЙШИЕ 8 ЧАСОВ
     getNext8hPrecipitation(hourlyForecast) {
         let rain = 0;
         let wetSnow = 0;
-       
         if (!hourlyForecast || hourlyForecast.length === 0) {
             return { rain, wetSnow };
         }
-       
         const hoursToCheck = Math.min(8, hourlyForecast.length);
-       
         for (let i = 0; i < hoursToCheck; i++) {
             const hour = hourlyForecast[i];
             const precip = hour.precipitation || 0;
-           
-            // Определяем тип осадков по условию и температуре
             if (precip > 0) {
                 if (hour.temperature > 1) {
                     rain += precip;
@@ -406,7 +431,6 @@ class WeatherService {
                 }
             }
         }
-       
         return { rain, wetSnow };
     }
 }
