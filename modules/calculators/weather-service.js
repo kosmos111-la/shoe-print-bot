@@ -141,42 +141,70 @@ class WeatherService {
 
     // 🕒 ПОЧАСОВОЙ ПРОГНОЗ (изменяем формат вывода)
     async getHourlyForecast(lat, lon) {
-        try {
-            const response = await axios.get(this.openMeteoURL, {
-                params: {
-                    latitude: lat,
-                    longitude: lon,
-                    hourly: 'temperature_2m,weather_code,precipitation',
-                    forecast_days: 2,
-                    timezone: 'auto'
-                }
-            });
-
-            const hourly = response.data.hourly;
-            const forecast = [];
-            const now = new Date();
-
-            // Ближайшие 6 периодов
-            for (let i = 0; i < 6; i++) {
-                const forecastTime = new Date(hourly.time[i]);
-                const hoursDiff = Math.round((forecastTime - now) / (1000 * 60 * 60));
-                const hourNum = forecastTime.getHours();
-               
-                forecast.push({
-                    time: `${hoursDiff}+ час`,
-                    hour: hourNum,
-                    temperature: Math.round(hourly.temperature_2m[i]),
-                    condition: this.getWeatherCondition(hourly.weather_code[i]),
-                    precipitation: hourly.precipitation[i]
-                });
+    try {
+        const response = await axios.get(this.openMeteoURL, {
+            params: {
+                latitude: lat,
+                longitude: lon,
+                hourly: 'temperature_2m,weather_code,precipitation',
+                forecast_days: 2,
+                timezone: 'auto'
             }
+        });
 
-            return forecast;
-        } catch (error) {
-            console.log('⚠️ Ошибка получения почасового прогноза:', error.message);
-            return [];
+        const hourly = response.data.hourly;
+        const forecast = [];
+        const now = new Date();
+       
+        // Получаем текущий час для корректного сравнения
+        const currentHour = now.getHours();
+        const currentDate = new Date(now);
+        currentDate.setMinutes(0, 0, 0); // Обнуляем минуты/секунды для сравнения
+
+        // Ближайшие 6 периодов (начиная с текущего часа)
+        let addedCount = 0;
+       
+        for (let i = 0; i < hourly.time.length && addedCount < 6; i++) {
+            const forecastTime = new Date(hourly.time[i]);
+           
+            // Пропускаем прошедшие часы (только будущие)
+            if (forecastTime < now) {
+                continue;
+            }
+           
+            const hoursDiff = Math.round((forecastTime - now) / (1000 * 60 * 60));
+           
+            // Форматируем отображение: "+1 час", "+2 часа" и т.д.
+            let timeDisplay;
+            if (hoursDiff === 0) {
+                timeDisplay = "Сейчас";
+            } else if (hoursDiff === 1) {
+                timeDisplay = "+1 час";
+            } else if (hoursDiff >= 2 && hoursDiff <= 4) {
+                timeDisplay = `+${hoursDiff} часа`;
+            } else {
+                timeDisplay = `+${hoursDiff} часов`;
+            }
+           
+            const hourNum = forecastTime.getHours();
+           
+            forecast.push({
+                time: timeDisplay,
+                hour: hourNum,
+                temperature: Math.round(hourly.temperature_2m[i]),
+                condition: this.getWeatherCondition(hourly.weather_code[i]),
+                precipitation: hourly.precipitation[i]
+            });
+           
+            addedCount++;
         }
+
+        return forecast;
+    } catch (error) {
+        console.log('⚠️ Ошибка получения почасового прогноза:', error.message);
+        return [];
     }
+},
 
     // 📅 ПРОГНОЗ НА 2 ДНЯ
     async getDailyForecast(lat, lon) {
