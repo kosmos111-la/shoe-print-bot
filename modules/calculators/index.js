@@ -629,46 +629,50 @@ function initialize() {
 
         // 🌤️ Погода с графиком
         getWeatherData: async (options = {}, chatId = null, bot = null) => {
+    try {
+        const result = await weatherService.getWeatherData(options);
+        if (!result.success) {
+            return `❌ ${result.error}`;
+        }
+
+        const data = result.result;
+
+        // Формируем полный текстовый отчет (как было раньше)
+        const fullTextReport = formatWeatherFull(data, weatherService);
+
+        // Пытаемся отправить график
+        if (chatId && bot) {
             try {
-                const result = await weatherService.getWeatherData(options);
-                if (!result.success) {
-                    return `❌ ${result.error}`;
+                const weatherGraph = new WeatherGraph();
+                const graphBuffer = await weatherGraph.generateWeatherGraph(
+                    data.history,
+                    data.forecast,
+                    data.location
+                );
+
+                if (graphBuffer) {
+                    // Отправляем график с полным текстовым отчетом в качестве подписи
+                    await bot.sendPhoto(chatId, graphBuffer, {
+                        caption: fullTextReport,
+                        parse_mode: 'HTML'
+                    });
+                    return null; // График отправлен, текст не нужен
                 }
-
-                const data = result.result;
-
-                // Пытаемся отправить график
-                if (chatId && bot) {
-                    try {
-                        const weatherGraph = new WeatherGraph();
-                        const graphBuffer = await weatherGraph.generateWeatherGraph(
-                            data.history,
-                            data.forecast,
-                            data.location
-                        );
-
-                        if (graphBuffer) {
-                            const caption = formatWeatherShort(data, weatherService);
-                            await bot.sendPhoto(chatId, graphBuffer, {
-                                caption: caption,
-                                parse_mode: 'HTML'
-                            });
-                            return null; // График отправлен, текст не нужен
-                        }
-                    } catch (graphError) {
-                        console.log('⚠️ Ошибка генерации графика:', graphError.message);
-                        // Продолжаем, отправим текст
-                    }
-                }
-
-                // Fallback: отправляем полный текст
-                return formatWeatherFull(data, weatherService);
-
-            } catch (error) {
-                console.error('❌ Ошибка:', error);
-                return `❌ Ошибка получения погоды: ${error.message}`;
+            } catch (graphError) {
+                console.log('⚠️ Ошибка генерации графика:', graphError.message);
+                // Если график не удался, отправляем только текст
+                return fullTextReport;
             }
-        },
+        }
+
+        // Fallback: если нет chatId/bot, отправляем только текст
+        return fullTextReport;
+
+    } catch (error) {
+        console.error('❌ Ошибка:', error);
+        return `❌ Ошибка получения погоды: ${error.message}`;
+    }
+},
 
         getShoeTypes: () => {
             return shoeSizeCalculator.getFootwearTypesList();
