@@ -11,13 +11,13 @@ class WeatherService {
 
     // 🎨 Цветовая индикация температуры через эмодзи
     getTemperatureEmoji(temp) {
-        if (temp >= 25) return '🔥';      // очень жарко
-        if (temp >= 20) return '🟠';      // жарко
-        if (temp >= 10) return '🟡';      // тепло
-        if (temp >= 0) return '⚪';       // прохладно
-        if (temp >= -10) return '🔵';     // холодно
-        if (temp >= -20) return '🔷';     // очень холодно
-        return '❄️';                      // экстремально холодно
+        if (temp >= 25) return '🔥';
+        if (temp >= 20) return '🟠';
+        if (temp >= 10) return '🟡';
+        if (temp >= 0) return '⚪';
+        if (temp >= -10) return '🔵';
+        if (temp >= -20) return '🔷';
+        return '❄️';
     }
 
     // 🎨 Форматирование температуры с эмодзи
@@ -30,9 +30,9 @@ class WeatherService {
     formatTimeWithStyle(hour, text) {
         const isDay = hour >= 6 && hour < 18;
         if (isDay) {
-            return `<b>${text}</b>`;  // день - жирный
+            return `<b>${text}</b>`;
         } else {
-            return `<i>${text}</i>`;   // ночь - курсив
+            return `<i>${text}</i>`;
         }
     }
 
@@ -149,20 +149,17 @@ class WeatherService {
             const forecast = [];
             const now = new Date();
 
-            // Ближайшие 6 часов
             let addedCount = 0;
            
             for (let i = 0; i < hourly.time.length && addedCount < 6; i++) {
                 const forecastTime = new Date(hourly.time[i]);
                
-                // Пропускаем прошедшие часы
                 if (forecastTime < now) {
                     continue;
                 }
                
                 const hoursDiff = Math.round((forecastTime - now) / (1000 * 60 * 60));
                
-                // Форматируем отображение
                 let timeDisplay;
                 if (hoursDiff === 0) {
                     timeDisplay = "Сейчас";
@@ -352,7 +349,7 @@ class WeatherService {
         return 50;
     }
 
-    // 🔍 СВОДКА ДЛЯ ПОИСКА С РЕКОМЕНДАЦИЯМИ ПО ОДЕЖДЕ
+    // 🔍 СВОДКА ДЛЯ ПОИСКА
     generateSearchSummary(currentData, location, hourlyForecast, weatherHistory) {
         const temp = currentData.temperature;
         let conditions = '';
@@ -450,5 +447,7 @@ class WeatherService {
         return { rain, wetSnow };
     }
 }
+
+module.exports = { WeatherService };
 
 module.exports = { WeatherService };
