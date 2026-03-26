@@ -9,37 +9,30 @@ class WeatherService {
         this.geocodingAPI = 'https://geocoding-api.open-meteo.com/v1/search';
     }
 
-    // 🎨 НОВЫЙ МЕТОД: цвет для температуры
-    getTemperatureColor(temp) {
-        if (temp >= 25) return '🔴';      // красный (символом, т.к. HTML цвет в Telegram ограничен)
-        if (temp >= 20) return '🟠';      // оранжевый
-        if (temp >= 10) return '🟡';      // желтый
-        if (temp >= 0) return '⚫';       // черный
-        if (temp >= -10) return '🔵';     // голубой
-        if (temp >= -20) return '🔷';     // синий
-        return '🟣';                      // фиолетовый
+    // 🎨 Цветовая индикация температуры через эмодзи
+    getTemperatureEmoji(temp) {
+        if (temp >= 25) return '🔥';      // очень жарко
+        if (temp >= 20) return '🟠';      // жарко
+        if (temp >= 10) return '🟡';      // тепло
+        if (temp >= 0) return '⚪';       // прохладно
+        if (temp >= -10) return '🔵';     // холодно
+        if (temp >= -20) return '🔷';     // очень холодно
+        return '❄️';                      // экстремально холодно
     }
 
-    // 🎨 НОВЫЙ МЕТОД: HTML теги для цвета (если поддерживается)
-    getTemperatureHtml(temp, value) {
-        if (temp >= 25) return `<b><font color="#FF0000">${value}</font></b>`;      // красный
-        if (temp >= 20) return `<b><font color="#FFA500">${value}</font></b>`;      // оранжевый
-        if (temp >= 10) return `<b><font color="#FFD700">${value}</font></b>`;      // желтый
-        if (temp >= 0) return `<b><font color="#000000">${value}</font></b>`;       // черный
-        if (temp >= -10) return `<b><font color="#00BFFF">${value}</font></b>`;     // голубой
-        if (temp >= -20) return `<b><font color="#0000CD">${value}</font></b>`;     // синий
-        return `<b><font color="#8B00FF">${value}</font></b>`;                      // фиолетовый
+    // 🎨 Форматирование температуры с эмодзи
+    formatTemperature(temp) {
+        const emoji = this.getTemperatureEmoji(temp);
+        return `${emoji} ${temp}°C`;
     }
 
-    // 🎨 НОВЫЙ МЕТОД: форматирование времени (день/ночь)
+    // 🎨 Форматирование времени (день/ночь)
     formatTimeWithStyle(hour, text) {
-        // Определяем день/ночь (6:00 - 18:00 - день)
         const isDay = hour >= 6 && hour < 18;
-       
         if (isDay) {
             return `<b>${text}</b>`;  // день - жирный
         } else {
-            return `<i>${text}</i>`;   // ночь - курсив (серый в Telegram)
+            return `<i>${text}</i>`;   // ночь - курсив
         }
     }
 
@@ -139,72 +132,67 @@ class WeatherService {
         }
     }
 
-    // 🕒 ПОЧАСОВОЙ ПРОГНОЗ (изменяем формат вывода)
+    // 🕒 ПОЧАСОВОЙ ПРОГНОЗ
     async getHourlyForecast(lat, lon) {
-    try {
-        const response = await axios.get(this.openMeteoURL, {
-            params: {
-                latitude: lat,
-                longitude: lon,
-                hourly: 'temperature_2m,weather_code,precipitation',
-                forecast_days: 2,
-                timezone: 'auto'
-            }
-        });
-
-        const hourly = response.data.hourly;
-        const forecast = [];
-        const now = new Date();
-       
-        // Получаем текущий час для корректного сравнения
-        const currentHour = now.getHours();
-        const currentDate = new Date(now);
-        currentDate.setMinutes(0, 0, 0); // Обнуляем минуты/секунды для сравнения
-
-        // Ближайшие 6 периодов (начиная с текущего часа)
-        let addedCount = 0;
-       
-        for (let i = 0; i < hourly.time.length && addedCount < 6; i++) {
-            const forecastTime = new Date(hourly.time[i]);
-           
-            // Пропускаем прошедшие часы (только будущие)
-            if (forecastTime < now) {
-                continue;
-            }
-           
-            const hoursDiff = Math.round((forecastTime - now) / (1000 * 60 * 60));
-           
-            // Форматируем отображение: "+1 час", "+2 часа" и т.д.
-            let timeDisplay;
-            if (hoursDiff === 0) {
-                timeDisplay = "Сейчас";
-            } else if (hoursDiff === 1) {
-                timeDisplay = "+1 час";
-            } else if (hoursDiff >= 2 && hoursDiff <= 4) {
-                timeDisplay = `+${hoursDiff} часа`;
-            } else {
-                timeDisplay = `+${hoursDiff} часов`;
-            }
-           
-            const hourNum = forecastTime.getHours();
-           
-            forecast.push({
-                time: timeDisplay,
-                hour: hourNum,
-                temperature: Math.round(hourly.temperature_2m[i]),
-                condition: this.getWeatherCondition(hourly.weather_code[i]),
-                precipitation: hourly.precipitation[i]
+        try {
+            const response = await axios.get(this.openMeteoURL, {
+                params: {
+                    latitude: lat,
+                    longitude: lon,
+                    hourly: 'temperature_2m,weather_code,precipitation',
+                    forecast_days: 2,
+                    timezone: 'auto'
+                }
             });
-           
-            addedCount++;
-        }
 
-        return forecast;
-    } catch (error) {
-        console.log('⚠️ Ошибка получения почасового прогноза:', error.message);
-        return [];
+            const hourly = response.data.hourly;
+            const forecast = [];
+            const now = new Date();
+
+            // Ближайшие 6 часов
+            let addedCount = 0;
+           
+            for (let i = 0; i < hourly.time.length && addedCount < 6; i++) {
+                const forecastTime = new Date(hourly.time[i]);
+               
+                // Пропускаем прошедшие часы
+                if (forecastTime < now) {
+                    continue;
+                }
+               
+                const hoursDiff = Math.round((forecastTime - now) / (1000 * 60 * 60));
+               
+                // Форматируем отображение
+                let timeDisplay;
+                if (hoursDiff === 0) {
+                    timeDisplay = "Сейчас";
+                } else if (hoursDiff === 1) {
+                    timeDisplay = "+1 час";
+                } else if (hoursDiff >= 2 && hoursDiff <= 4) {
+                    timeDisplay = `+${hoursDiff} часа`;
+                } else {
+                    timeDisplay = `+${hoursDiff} часов`;
+                }
+               
+                const hourNum = forecastTime.getHours();
+               
+                forecast.push({
+                    time: timeDisplay,
+                    hour: hourNum,
+                    temperature: Math.round(hourly.temperature_2m[i]),
+                    condition: this.getWeatherCondition(hourly.weather_code[i]),
+                    precipitation: hourly.precipitation[i]
+                });
+               
+                addedCount++;
+            }
+
+            return forecast;
+        } catch (error) {
+            console.log('⚠️ Ошибка получения почасового прогноза:', error.message);
+            return [];
+        }
     }
-}
 
     // 📅 ПРОГНОЗ НА 2 ДНЯ
     async getDailyForecast(lat, lon) {
@@ -349,7 +337,7 @@ class WeatherService {
             81: '🌧️ Ливень',
             82: '🌧️ Сильный ливень',
             85: '❄️ Небольшой снегопад',
-            86: '❄️❄️ Снегопад',
+            86: '❄️ Снегопад',
             95: '⛈️ Гроза',
             96: '⛈️ Гроза с градом',
             99: '⛈️ Гроза с градом'
